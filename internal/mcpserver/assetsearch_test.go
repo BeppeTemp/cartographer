@@ -26,6 +26,7 @@ func expandOwner(t *testing.T, k *kb.KB) {
 }
 
 func TestSearchFindsAssetText(t *testing.T) {
+	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		expandOwner(t, k)
 		if strings.Contains(searchText(t, s, "aa:bb:cc:dd:ee:ff"), assetOwner) {
@@ -60,6 +61,7 @@ func TestSearchFindsAssetText(t *testing.T) {
 }
 
 func TestSearchFollowsAssetEditedOnDisk(t *testing.T) {
+	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		expandOwner(t, k)
 		abs := filepath.Join(k.DataRoot(), "manutenzione", "test-runbook", "hosts.txt")
@@ -107,6 +109,7 @@ func TestSearchFollowsAssetEditedOnDisk(t *testing.T) {
 }
 
 func TestAssetOwnerWithConceptChange(t *testing.T) {
+	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		expandOwner(t, k)
 		if _, err := k.WriteAsset(okf.ConceptID(assetOwner), "a.txt", []byte("keepme-asset"), "", nil); err != nil {
@@ -127,6 +130,7 @@ func TestAssetOwnerWithConceptChange(t *testing.T) {
 // were indexed, so the upgrade costs no reindex; one with assets persists a
 // suffixed hash, so an asset-only change is seen after a restart too.
 func TestPersistedHashWithAssets(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	ix, err := sqlindex.Open(filepath.Join(t.TempDir(), "index.db"))
 	if err != nil {

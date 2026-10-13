@@ -11,6 +11,7 @@ import (
 // paths.yaml (D263) is authored through the artifact tools: the strict
 // validator runs before anything reaches disk, and the error names the key.
 func TestArtifactTools_PathRegistryWrite(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -73,6 +74,7 @@ func TestArtifactTools_PathRegistryWrite(t *testing.T) {
 // A symlinked paths.yaml is refused by the write path and by the tree sweep
 // artifact_list runs, like every other KB-root artifact (D148).
 func TestArtifactTools_PathRegistrySymlinkRejected(t *testing.T) {
+	t.Parallel()
 	for _, tool := range []string{"artifact_read", "artifact_write", "artifact_list"} {
 		t.Run(tool, func(t *testing.T) {
 			k := setupTestKB(t)

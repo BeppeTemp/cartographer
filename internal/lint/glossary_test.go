@@ -10,6 +10,7 @@ import (
 const lintGlossary = "terms:\n  - canonical: Zephyr Controller\n    aliases: [zephyrctl]\n    forbidden: [ZephyrController, zctl-old]\n"
 
 func TestRun_ForbiddenTerm(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "glossary.yaml", lintGlossary)
 	writeFile(t, k.DataRoot(), "arch/prose.md", "---\ntype: Note\ntitle: Prose\n---\nRestart the zephyrcontroller, then the ZephyrController again. zctl-old too.\n")
@@ -34,6 +35,7 @@ func TestRun_ForbiddenTerm(t *testing.T) {
 }
 
 func TestRun_ForbiddenTerm_Suppressible(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "glossary.yaml", lintGlossary)
 	writeFile(t, k.DataRoot(), "arch/migration.md", "---\ntype: Note\ntitle: Migration\nlint_ignore: [forbidden_term]\n---\nZephyrController was renamed.\n")
@@ -50,6 +52,7 @@ func TestRun_ForbiddenTerm_Suppressible(t *testing.T) {
 }
 
 func TestRun_GlossaryMalformed(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "glossary.yaml", lintGlossary+"  - canonical: Other\n    aliases: [zephyrctl]\n")
 	writeFile(t, k.DataRoot(), "arch/a.md", "---\ntype: Note\ntitle: A\n---\nZephyrController\n")
@@ -73,6 +76,7 @@ func TestRun_GlossaryMalformed(t *testing.T) {
 }
 
 func TestRun_NoGlossary_NoForbiddenTerm(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/a.md", "---\ntype: Note\ntitle: A\n---\nZephyrController\n")
 	findings, err := Run(k, "", false)

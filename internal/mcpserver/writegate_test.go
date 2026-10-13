@@ -59,6 +59,7 @@ func gateClean(t *testing.T, k *kb.KB) {
 const draftPage = "---\ntype: Note\ntitle: P\nstatus: draft\n---\n# P\n"
 
 func TestWriteGate_MoveRefusedBatchFixedAcceptedTrailer(t *testing.T) {
+	t.Parallel()
 	k, _ := gateKB(t, "error")
 	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
 	head := gitOut(t, k, "rev-parse", "HEAD")
@@ -111,6 +112,7 @@ func TestWriteGate_MoveRefusedBatchFixedAcceptedTrailer(t *testing.T) {
 }
 
 func TestWriteGate_PreexistingNeverBlocks(t *testing.T) {
+	t.Parallel()
 	k, _ := gateKB(t, "warning")
 	five := "---\ntype: Note\ntitle: P\naggiornato: 2026-01-01\ndata: 2026-01-01\nfonti: x\nstato: y\ndate: 2026-01-01\n---\n# P\n\nText.\n"
 	s := gateSeed(t, k, map[string]string{"ops/p": five, "ops/q": "---\ntype: Note\ntitle: Q\n---\n# Q\n"})
@@ -151,6 +153,7 @@ func TestWriteGate_PreexistingNeverBlocks(t *testing.T) {
 }
 
 func TestWriteGate_SchemaOnlyWhenActive(t *testing.T) {
+	t.Parallel()
 	schemaOf := func(k *kb.KB) map[string]string {
 		s := New("test")
 		RegisterKBTools(s, k, Deps{})
@@ -195,6 +198,7 @@ func TestWriteGate_SchemaOnlyWhenActive(t *testing.T) {
 }
 
 func TestWriteGate_InvalidAcceptRejectedBeforeWrite(t *testing.T) {
+	t.Parallel()
 	k, _ := gateKB(t, "error")
 	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
 	head := gitOut(t, k, "rev-parse", "HEAD")
@@ -262,6 +266,7 @@ func TestWriteGate_StashPopFailureRollsBack(t *testing.T) {
 }
 
 func TestWriteGate_InactiveWithoutAutoCommit(t *testing.T) {
+	t.Parallel()
 	k, _ := gateKB(t, "error")
 	k.AutoCommit = false
 	s := New("test")
@@ -290,6 +295,7 @@ func TestWriteGate_InactiveWithoutAutoCommit(t *testing.T) {
 }
 
 func TestWriteGate_HistorySurfacesAcceptedFindings(t *testing.T) {
+	t.Parallel()
 	k, _ := gateKB(t, "error")
 	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
 	acc := `{"source_id":"ops/p","target_id":"arch/p","reason":"restructure","accept_findings":[{"check":"invalid_field_value","reason":"legacy status"}]}`

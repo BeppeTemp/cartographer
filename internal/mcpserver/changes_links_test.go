@@ -107,6 +107,7 @@ func edgeList(edges []changesLinkEdge) string {
 }
 
 func TestChangesSinceLinks(t *testing.T) {
+	t.Parallel()
 	c := newChangesLinksKB(t)
 	c.write("ops/t", "T.\n")
 	c.write("ops/u", "U.\n")
@@ -174,6 +175,7 @@ func TestChangesSinceLinks(t *testing.T) {
 }
 
 func TestChangesSinceLinksCap(t *testing.T) {
+	t.Parallel()
 	c := newChangesLinksKB(t)
 	c.commit(false)
 	var b strings.Builder

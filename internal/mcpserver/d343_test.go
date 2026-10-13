@@ -15,6 +15,7 @@ import (
 // D343 WP1: every denial names a code, the "forbidden" prefix stays, and the
 // exact-concept sites keep answering "not found".
 func TestPolicyDenialsCarryReasonCodes(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
@@ -84,6 +85,7 @@ func TestPolicyDenialsCarryReasonCodes(t *testing.T) {
 }
 
 func TestMapListExposesFieldValues(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	s := New("test")
@@ -124,6 +126,7 @@ func TestMapListExposesFieldValues(t *testing.T) {
 }
 
 func TestConceptListStatusAndFields(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -216,6 +219,7 @@ func writeORFixture(t *testing.T, k *kb.KB) {
 }
 
 func TestSearchOrFallbackBelowFloorIsMarked(t *testing.T) {
+	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		writeORFixture(t, k)
 		var r orResp
@@ -258,6 +262,7 @@ func TestSearchOrFallbackBelowFloorIsMarked(t *testing.T) {
 }
 
 func TestSearchOrFallbackHiddenHitsDoNotCountTowardFloor(t *testing.T) {
+	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		writeORFixture(t, k)
 		hidden := filepath.Join(k.DataRoot(), "secret")

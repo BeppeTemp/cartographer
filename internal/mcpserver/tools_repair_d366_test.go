@@ -15,6 +15,7 @@ import (
 // title_quality, end to end.
 
 func TestRepairIndexListsRetired_DropsOnlyTheSingleLinkLine(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	driftWrite(t, k, "idx/_map.md", "---\ntype: Map\nkind: map\ntitle: Idx\n---\n# Idx\n")
 	for _, n := range []string{"live1", "live2", "live3"} {
@@ -75,6 +76,7 @@ func retireKB(t *testing.T) (k *kb.KB, run func() *stagedRepair) {
 }
 
 func TestStagedAutoRepair_LinkToRetiredFollowsSupersededBy(t *testing.T) {
+	t.Parallel()
 	k, run := retireKB(t)
 	read := func(id string) string {
 		b, err := os.ReadFile(filepath.Join(k.DataRoot(), "rt", id+".md"))
@@ -114,6 +116,7 @@ func TestStagedAutoRepair_LinkToRetiredFollowsSupersededBy(t *testing.T) {
 }
 
 func TestStagedAutoRepair_StripsDecorativeTitleAndSyncsHeading(t *testing.T) {
+	t.Parallel()
 	k, _ := repairKB(t, 0)
 	driftWrite(t, k, "ops/deco.md", "---\ntype: Note\ntitle: \"🚀 Deploy notes ✨\"\nupdated: 2026-01-02\n---\n# 🚀 Deploy notes ✨\n")
 	driftWrite(t, k, "ops/only.md", "---\ntype: Note\ntitle: \"🚀\"\nupdated: 2026-01-02\n---\n# 🚀\n")

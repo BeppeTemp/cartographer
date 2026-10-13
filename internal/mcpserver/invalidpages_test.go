@@ -56,6 +56,7 @@ func findingsFor(t *testing.T, k *kb.KB, check string) map[string]lint.Finding {
 }
 
 func TestInvalidPagesAreLintChecks(t *testing.T) {
+	t.Parallel()
 	k, _ := repairKB(t, 2)
 	seedInvalidPages(t, k)
 	want := map[string]string{
@@ -104,6 +105,7 @@ func TestInvalidPagesAreLintChecks(t *testing.T) {
 // A frontmatter block with delimiters but no key is missing_type, not
 // missing_frontmatter.
 func TestEmptyFrontmatterBlockIsMissingType(t *testing.T) {
+	t.Parallel()
 	k, _ := repairKB(t, 2)
 	writeRaw(t, k, "ops/hollow.md", "---\n\n---\n# Hollow\n\nBody.\n")
 	if _, ok := findingsFor(t, k, "missing_type")["ops/hollow.md"]; !ok {
@@ -115,6 +117,7 @@ func TestEmptyFrontmatterBlockIsMissingType(t *testing.T) {
 }
 
 func TestGateCheckListsEachInvalidPageOnce(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 2)
 	seedInvalidPages(t, k)
 	_ = k
@@ -151,6 +154,7 @@ func TestGateCheckListsEachInvalidPageOnce(t *testing.T) {
 }
 
 func TestKBRepairFixesInvalidPages(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 2)
 	seedInvalidPages(t, k)
 	for _, check := range []string{"missing_frontmatter", "missing_type", "unparseable_frontmatter"} {
@@ -187,6 +191,7 @@ func TestKBRepairFixesInvalidPages(t *testing.T) {
 }
 
 func TestKBRepairMovesNonSlugFilesAndRewritesBacklinks(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 2)
 	seedInvalidPages(t, k)
 	// A page whose slug is already taken: no fix, the message names it.
@@ -222,6 +227,7 @@ func TestKBRepairMovesNonSlugFilesAndRewritesBacklinks(t *testing.T) {
 
 // An empty page is a finding for the doctor, never deleted.
 func TestEmptyConceptIsReviewedNeverDeleted(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 2)
 	seedInvalidPages(t, k)
 	k.AutoRepair = config.DefaultAutoRepair
@@ -245,6 +251,7 @@ func TestEmptyConceptIsReviewedNeverDeleted(t *testing.T) {
 // The heartbeat repairs the reproduction in one run, and a page whose type
 // cannot be resolved is left alone and reviewed.
 func TestHeartbeatRepairsInvalidPagesAndLeavesUnresolvedTypes(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 2)
 	seedInvalidPages(t, k)
 	// A map whose pages disagree on the type: nothing resolves there.
@@ -285,6 +292,7 @@ func TestHeartbeatRepairsInvalidPagesAndLeavesUnresolvedTypes(t *testing.T) {
 
 // Repair never widens the error set, and an agent write keeps full validation.
 func TestRepairConceptNeverWidensErrorsAndAgentWritesStayStrict(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 2)
 	seedInvalidPages(t, k)
 	typeless := newFM()
@@ -322,6 +330,7 @@ func TestRepairConceptNeverWidensErrorsAndAgentWritesStayStrict(t *testing.T) {
 }
 
 func TestQuoteBrokenValueOnlyWhenUnique(t *testing.T) {
+	t.Parallel()
 	for name, raw := range map[string]string{
 		"multi-line list": "type: Note\ntags: [a,\n  b\ntitle: T",
 		"two broken":      "type: Note\ntitle: [x\ntags: [y",

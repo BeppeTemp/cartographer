@@ -6,6 +6,7 @@ import (
 )
 
 func TestLint_HookInvalid(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "hooks/good/hook.json", `{"event":"Stop","command":"./run.sh"}`)
 	writeFile(t, k.Root, "hooks/typo/hook.json", `{"event":"PostTooluse","command":"./run.sh"}`)
@@ -37,6 +38,7 @@ func TestLint_HookInvalid(t *testing.T) {
 }
 
 func TestLint_HookInvalidNotInScopedRun(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "hooks/broken/hook.json", `{"event":`)
 	findings, err := Run(k, "some/scope", false)

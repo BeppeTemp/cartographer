@@ -87,6 +87,7 @@ func mustRegisterFoo(t *testing.T, k *KB, localSHA, remoteSHA, branch string) {
 }
 
 func TestFinalizeConflictsTheirs(t *testing.T) {
+	t.Parallel()
 	k, localSHA, remoteSHA, branch, fooPath := setupDivergedKB(t)
 	mustRegisterFoo(t, k, localSHA, remoteSHA, branch)
 
@@ -121,6 +122,7 @@ func TestFinalizeConflictsTheirs(t *testing.T) {
 }
 
 func TestFinalizeConflictsOurs(t *testing.T) {
+	t.Parallel()
 	k, localSHA, remoteSHA, branch, fooPath := setupDivergedKB(t)
 	mustRegisterFoo(t, k, localSHA, remoteSHA, branch)
 
@@ -137,6 +139,7 @@ func TestFinalizeConflictsOurs(t *testing.T) {
 }
 
 func TestFinalizeConflictsEdit(t *testing.T) {
+	t.Parallel()
 	k, localSHA, remoteSHA, branch, fooPath := setupDivergedKB(t)
 	mustRegisterFoo(t, k, localSHA, remoteSHA, branch)
 
@@ -153,6 +156,7 @@ func TestFinalizeConflictsEdit(t *testing.T) {
 }
 
 func TestRecordResolutionUnknownConcept(t *testing.T) {
+	t.Parallel()
 	k, _, _, _, _ := setupDivergedKB(t)
 	if err := k.RecordResolution("does-not-exist", "ours", ""); err == nil {
 		t.Fatal("expected error for unknown concept, got nil")
@@ -160,6 +164,7 @@ func TestRecordResolutionUnknownConcept(t *testing.T) {
 }
 
 func TestFinalizePendingBlocks(t *testing.T) {
+	t.Parallel()
 	k, localSHA, remoteSHA, branch, _ := setupDivergedKB(t)
 	mustRegisterFoo(t, k, localSHA, remoteSHA, branch)
 	// Register a second conflict with no resolution.

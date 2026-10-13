@@ -62,6 +62,7 @@ func secretsUIHandler(t *testing.T) (http.Handler, string) {
 }
 
 func TestUIAPI_SecretsStructure(t *testing.T) {
+	t.Parallel()
 	h, _ := secretsUIHandler(t)
 	rr := getUI(t, h, UIAPIPrefix+"/kbs/docs/secrets", "whole")
 	if rr.Code != http.StatusOK {
@@ -100,6 +101,7 @@ func TestUIAPI_SecretsStructure(t *testing.T) {
 }
 
 func TestUIAPI_SecretsHiddenFromNarrowToken(t *testing.T) {
+	t.Parallel()
 	h, _ := secretsUIHandler(t)
 	if rr := getUI(t, h, UIAPIPrefix+"/kbs/docs/secrets", "narrow"); rr.Code != http.StatusNotFound {
 		t.Fatalf("narrow token: %d", rr.Code)
@@ -111,6 +113,7 @@ func TestUIAPI_SecretsHiddenFromNarrowToken(t *testing.T) {
 }
 
 func TestParseSecretFile_KeyGroups(t *testing.T) {
+	t.Parallel()
 	doc := `token: ENC[AES256_GCM,data:AAAA,iv:BBBB,tag:CCCC,type:str]
 sops:
     key_groups:
@@ -132,6 +135,7 @@ sops:
 }
 
 func TestUISecretRefs_SourceAsList(t *testing.T) {
+	t.Parallel()
 	k := uiFixtureKB(t, "docs")
 	svc := "---\ntype: Service\ntitle: Svc\nsecrets_source:\n  - secrets/db.sops.yaml\n---\nBody\n"
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "visible", "db.md"), []byte(svc), 0o644); err != nil {

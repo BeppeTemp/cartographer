@@ -27,6 +27,7 @@ func initGitKB(t *testing.T) (*KB, string) {
 // TestCommitOp_AutoCommitEnabled_DirtyTree verifies that CommitOp with
 // AutoCommit=true on a dirty working tree creates a new commit.
 func TestCommitOp_AutoCommitEnabled_DirtyTree(t *testing.T) {
+	t.Parallel()
 	k, sha1 := initGitKB(t)
 	k.AutoCommit = true
 
@@ -47,6 +48,7 @@ func TestCommitOp_AutoCommitEnabled_DirtyTree(t *testing.T) {
 // TestCommitOp_AutoCommitDisabled_NoCommit verifies that CommitOp with
 // AutoCommit=false (the zero-value default) never creates a commit.
 func TestCommitOp_AutoCommitDisabled_NoCommit(t *testing.T) {
+	t.Parallel()
 	k, sha1 := initGitKB(t)
 	// AutoCommit defaults to false — do not set it.
 
@@ -68,6 +70,7 @@ func TestCommitOp_AutoCommitDisabled_NoCommit(t *testing.T) {
 // GitAuthorEmail as the commit author and picks up the committer from
 // k.GitEnv (GIT_COMMITTER_NAME/EMAIL).
 func TestCommitOp_PerKBIdentity(t *testing.T) {
+	t.Parallel()
 	k, _ := initGitKB(t)
 	k.AutoCommit = true
 	k.GitAuthorName = "Author Person"
@@ -100,6 +103,7 @@ func TestCommitOp_PerKBIdentity(t *testing.T) {
 // to the package defaults (cartographer/cartographer@localhost) when
 // GitAuthorName/GitAuthorEmail are unset, preserving the pre-M3 behaviour.
 func TestCommitOp_DefaultIdentity_NoOverride(t *testing.T) {
+	t.Parallel()
 	k, _ := initGitKB(t)
 	k.AutoCommit = true
 	// Explicitly clear the fixture's repository identity and force the final
@@ -125,6 +129,7 @@ func TestCommitOp_DefaultIdentity_NoOverride(t *testing.T) {
 }
 
 func TestCommitOp_NativeRepositoryIdentity(t *testing.T) {
+	t.Parallel()
 	k, _ := initGitKB(t)
 	k.AutoCommit = true
 	gitHere(t, k.Root, "config", "user.name", "Repository User")
@@ -142,6 +147,7 @@ func TestCommitOp_NativeRepositoryIdentity(t *testing.T) {
 }
 
 func TestCommitOp_PlaceholderFallbackWithoutRepositoryIdentity(t *testing.T) {
+	t.Parallel()
 	k, _ := initGitKB(t)
 	k.AutoCommit = true
 	k.GitEnv = []string{
@@ -163,6 +169,7 @@ func TestCommitOp_PlaceholderFallbackWithoutRepositoryIdentity(t *testing.T) {
 }
 
 func TestGitStatusSnapshot_NoRemoteAndIdentityWarning(t *testing.T) {
+	t.Parallel()
 	k, _ := initGitKB(t)
 	k.GitSync = true
 	k.GitAuthorEmail = defaultGitAuthorEmail
@@ -172,6 +179,7 @@ func TestGitStatusSnapshot_NoRemoteAndIdentityWarning(t *testing.T) {
 }
 
 func TestShouldWarnGitIdentity(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, email  string
 		sync, remote bool
@@ -204,6 +212,7 @@ func gitLogFormat(t *testing.T, dir, format string) (string, error) {
 // TestCommitOp_CleanTree_NoCommit verifies that CommitOp is a no-op when the
 // working tree is already clean, even with AutoCommit=true.
 func TestCommitOp_CleanTree_NoCommit(t *testing.T) {
+	t.Parallel()
 	k, sha1 := initGitKB(t)
 	k.AutoCommit = true
 
@@ -219,6 +228,7 @@ func TestCommitOp_CleanTree_NoCommit(t *testing.T) {
 }
 
 func TestRedactRemoteURL(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		in   string
@@ -245,6 +255,7 @@ func TestRedactRemoteURL(t *testing.T) {
 }
 
 func TestRemoteInfo(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	k, err := Init(dir)
 	if err != nil {

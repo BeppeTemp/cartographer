@@ -91,6 +91,7 @@ func hubKB() map[string]string {
 }
 
 func TestGraphContextRanksAlongSpecificPathsAboveHubs(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, hubKB())
 	text, isErr := callJSON(t, s, adminCtx, "graph_context", `{"ids":["ops/alpha"],"limit":30}`)
 	if isErr {
@@ -148,6 +149,7 @@ func mustText(t *testing.T, s *Server, tool, args string) string {
 }
 
 func TestGraphContextSeedsFromSearch(t *testing.T) {
+	t.Parallel()
 	files := hubKB()
 	files["ops/gamma.md"] = "The zeppelin hangar.\n"
 	s := graphToolKB(t, files)
@@ -169,6 +171,7 @@ func TestGraphContextSeedsFromSearch(t *testing.T) {
 
 // A missing id and a hidden one fail with the same text: no existence oracle.
 func TestGraphToolsHideAndMissAlike(t *testing.T) {
+	t.Parallel()
 	files := hubKB()
 	files["hidden/secret.md"] = "[alpha](../ops/alpha.md).\n"
 	s := graphToolKB(t, files)
@@ -193,6 +196,7 @@ func TestGraphToolsHideAndMissAlike(t *testing.T) {
 // A narrowed principal gets exactly what an admin gets on the KB without the
 // concepts it cannot see: hidden concepts are removed before computing.
 func TestGraphToolsNarrowedEquivalence(t *testing.T) {
+	t.Parallel()
 	visible := map[string]string{
 		"ops/s.md":   "[a](a.md) [b](b.md) [t](t.md).\n",
 		"ops/a.md":   "[x](x.md) [y](y.md).\n",
@@ -239,6 +243,7 @@ func TestGraphToolsNarrowedEquivalence(t *testing.T) {
 }
 
 func TestLinkSuggestByHand(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{
 		// u links a and b; x shares both, y only a, z both but is retired,
 		// w shares both but is already linked to u (w → u).
@@ -266,6 +271,7 @@ func TestLinkSuggestByHand(t *testing.T) {
 }
 
 func TestGraphPathByHand(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{
 		// A one-way chain p1 → p2 → p3, and two equal routes s → m1|m2 → t.
 		"ops/p1.md": "[p2](p2.md).\n",
@@ -301,6 +307,7 @@ func TestGraphPathByHand(t *testing.T) {
 // crosses a hidden concept, never reports one — not even as a broken link —
 // and still reports a real broken link as missing.
 func TestGraphNeighborsNarrowedDepth(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{
 		"ops/a.md":    "[h](../hidden/h.md) [ghost](ghost.md).\n",
 		"ops/b.md":    "End.\n",
@@ -329,6 +336,7 @@ func TestGraphNeighborsNarrowedDepth(t *testing.T) {
 }
 
 func TestAtlasOverviewStructure(t *testing.T) {
+	t.Parallel()
 	visible := map[string]string{
 		"ops/hub.md":  "---\ntype: Note\ntitle: The hub\n---\nHub.\n",
 		"ops/a.md":    "[h](hub.md) [b](b.md) [c](c.md).\n",
@@ -421,6 +429,7 @@ func centralityKB(t *testing.T, linked bool, extra map[string]string) *Server {
 }
 
 func TestSearchCentralityPrior(t *testing.T) {
+	t.Parallel()
 	flat := centralityKB(t, false, nil)
 	linked := centralityKB(t, true, nil)
 
@@ -461,6 +470,7 @@ func TestSearchCentralityPrior(t *testing.T) {
 // A hidden hub does not move a narrowed principal's order: it equals the
 // order on the KB without the hidden concepts.
 func TestSearchCentralityPriorNarrowed(t *testing.T) {
+	t.Parallel()
 	hidden := map[string]string{
 		"hidden/h1.md": "[bb](../ops/bb.md).\n",
 		"hidden/h2.md": "[bb](../ops/bb.md).\n",
@@ -481,6 +491,7 @@ func TestSearchCentralityPriorNarrowed(t *testing.T) {
 // concepts the search ranks for its title (D317). "Lonely gateway" matches
 // only itself on every term: the per-term pass is what finds the others.
 func TestLinkSuggestOrphanFallback(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{
 		"ops/lonely.md":    "---\ntype: Note\ntitle: Lonely gateway\n---\nNo links here.\n",
 		"ops/gw.md":        "---\ntype: Note\ntitle: Gateway routing\n---\nRoutes traffic. [edge](edge.md)\n",
@@ -512,6 +523,7 @@ func TestLinkSuggestOrphanFallback(t *testing.T) {
 // A concept with links never falls back, even when resource allocation finds
 // nothing: its neighbours are the evidence, and there is none to add.
 func TestLinkSuggestConnectedNodeNoFallback(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{
 		"ops/u.md": "[a](a.md) [b](b.md).\n",
 		"ops/a.md": "[x](x.md).\n",
@@ -533,6 +545,7 @@ func TestLinkSuggestConnectedNodeNoFallback(t *testing.T) {
 // A template line linking every page to one monitoring page must not name
 // the largest community after it (D317).
 func TestAtlasOverviewStructureWithBoilerplate(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{"ops/monitoring.md": "Dashboards.\n"}
 	for _, g := range []string{"a", "b"} {
 		for i := 1; i <= 5; i++ {

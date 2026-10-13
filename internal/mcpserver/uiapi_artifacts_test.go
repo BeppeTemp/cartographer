@@ -55,6 +55,7 @@ func artifactUIHandler(t *testing.T) http.Handler {
 }
 
 func TestUIAPI_ArtifactsListsWhatTheKBShips(t *testing.T) {
+	t.Parallel()
 	handler := artifactUIHandler(t)
 	rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/artifacts", "whole")
 	if rr.Code != http.StatusOK {
@@ -126,6 +127,7 @@ func TestUIAPI_ArtifactsListsWhatTheKBShips(t *testing.T) {
 }
 
 func TestUIAPI_ArtifactCarriesBoundedTextContent(t *testing.T) {
+	t.Parallel()
 	handler := artifactUIHandler(t)
 	rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/artifact?kind=skill&name=review", "whole")
 	if rr.Code != http.StatusOK {
@@ -151,6 +153,7 @@ func TestUIAPI_ArtifactCarriesBoundedTextContent(t *testing.T) {
 }
 
 func TestUIAPI_ArtifactsAreWholeKBResources(t *testing.T) {
+	t.Parallel()
 	handler := artifactUIHandler(t)
 	for _, path := range []string{"/kbs/docs/artifacts", "/kbs/docs/artifact?kind=skill&name=review"} {
 		if rr := getUI(t, handler, UIAPIPrefix+path, "narrow"); rr.Code != http.StatusNotFound {
@@ -170,6 +173,7 @@ func TestUIAPI_ArtifactsAreWholeKBResources(t *testing.T) {
 }
 
 func TestUIAPI_ArtifactRequestErrors(t *testing.T) {
+	t.Parallel()
 	handler := artifactUIHandler(t)
 	for _, tc := range []struct {
 		query, field string
@@ -203,6 +207,7 @@ func TestUIAPI_ArtifactRequestErrors(t *testing.T) {
 }
 
 func TestUIAPI_ArtifactsRefuseASymlinkedTree(t *testing.T) {
+	t.Parallel()
 	k := uiFixtureKB(t, "docs")
 	if err := os.MkdirAll(filepath.Join(k.Root, "skills"), 0o755); err != nil {
 		t.Fatal(err)
@@ -227,6 +232,7 @@ func TestUIAPI_ArtifactsRefuseASymlinkedTree(t *testing.T) {
 // lint findings (D316) — counted for the whole KB, attached to the artifact
 // whose file they name.
 func TestUIAPI_ArtifactsIncludesFindings(t *testing.T) {
+	t.Parallel()
 	handler := artifactUIHandler(t)
 	rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/artifacts", "whole")
 	if rr.Code != http.StatusOK {

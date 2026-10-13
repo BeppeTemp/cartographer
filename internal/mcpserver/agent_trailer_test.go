@@ -48,6 +48,7 @@ func headMessage(t *testing.T, dir string) string {
 }
 
 func TestGitWrap_AgentTrailer(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	k.AutoCommit = true
 	s := New("test")
@@ -87,6 +88,7 @@ func TestGitWrap_AgentTrailer(t *testing.T) {
 }
 
 func TestGitWrap_AgentTrailerOrder(t *testing.T) {
+	t.Parallel()
 	// (b) Reason, Agent, Accepted-Finding in one trailer paragraph.
 	k, _ := gateKB(t, "error")
 	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
@@ -111,6 +113,7 @@ func TestGitWrap_AgentTrailerOrder(t *testing.T) {
 }
 
 func TestGitWrap_ExternalChangesCommitHasNoAgent(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	k.AutoCommit = true
 	s := New("test")
@@ -142,6 +145,7 @@ func TestGitWrap_ExternalChangesCommitHasNoAgent(t *testing.T) {
 }
 
 func TestChangesSince_AgentsAndHistory(t *testing.T) {
+	t.Parallel()
 	c := newChangesLinksKB(t)
 	c.k.AutoCommit = true
 	a := asClient(authLocalContext(), "client-a")

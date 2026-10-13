@@ -54,6 +54,7 @@ func archiveArgs(t *testing.T, k *kb.KB, extra string) string {
 // The reproduction of the plan issue: a map that never declared
 // require_index_entry still loses the entry, and nothing is left behind.
 func TestConceptArchive_RemovesTheEntryWithoutRequireIndexEntry(t *testing.T) {
+	t.Parallel()
 	k, s := archiveFixture(t, "", "- [mover](mover.md)\n- [friend](friend.md)\n")
 	res := callTool(t, s, "concept_archive", archiveArgs(t, k, `,"reason":"replaced"`))
 	if res.IsError {
@@ -105,6 +106,7 @@ func TestConceptArchive_RemovesTheEntryWithoutRequireIndexEntry(t *testing.T) {
 
 // The trap: concept_move keeps its conservatism on the same fixture.
 func TestConceptMove_StillLeavesTheEntryWithoutRequireIndexEntry(t *testing.T) {
+	t.Parallel()
 	k, s := archiveFixture(t, "", "- [mover](mover.md)\n")
 	if res := callTool(t, s, "concept_move", `{"source_id":"src/mover","target_id":"archive/mover"}`); res.IsError {
 		t.Fatalf("concept_move: %+v", res.Content)
@@ -116,6 +118,7 @@ func TestConceptMove_StillLeavesTheEntryWithoutRequireIndexEntry(t *testing.T) {
 }
 
 func TestConceptArchive_KeepsAMultiLinkLineAndReportsIt(t *testing.T) {
+	t.Parallel()
 	k, s := archiveFixture(t, "", "- [mover](mover.md) and [friend](friend.md)\n")
 	res := callTool(t, s, "concept_archive", archiveArgs(t, k, ""))
 	if res.IsError {
@@ -131,6 +134,7 @@ func TestConceptArchive_KeepsAMultiLinkLineAndReportsIt(t *testing.T) {
 }
 
 func TestConceptArchive_LeavesAGeneratedIndexAlone(t *testing.T) {
+	t.Parallel()
 	k, s := archiveFixture(t, "index: generated\n", "- [mover](mover.md)\n")
 	before, _ := k.ReadIndex("src")
 	res := callTool(t, s, "concept_archive", archiveArgs(t, k, ""))
@@ -144,6 +148,7 @@ func TestConceptArchive_LeavesAGeneratedIndexAlone(t *testing.T) {
 }
 
 func TestConceptArchive_AddsTheDestinationEntryWhenOptedIn(t *testing.T) {
+	t.Parallel()
 	k, s := archiveFixture(t, "", "- [mover](mover.md)\n")
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "archive/_map.md"),
 		[]byte("---\ntype: Map\nkind: map\ntitle: Archive\nrequire_index_entry: true\n---\n# Archive\n"), 0o644); err != nil {
@@ -164,6 +169,7 @@ func TestConceptArchive_AddsTheDestinationEntryWhenOptedIn(t *testing.T) {
 }
 
 func TestConceptArchive_Refusals(t *testing.T) {
+	t.Parallel()
 	k, s := archiveFixture(t, "", "- [mover](mover.md)\n")
 	good := hashOf(t, k, "src/mover")
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "archive/mover.md"), []byte("---\ntype: Note\ntitle: Old\n---\nx\n"), 0o644); err != nil {
@@ -193,6 +199,7 @@ func TestConceptArchive_Refusals(t *testing.T) {
 }
 
 func TestConceptArchive_IsAdvancedAndNotReadOnly(t *testing.T) {
+	t.Parallel()
 	_, s := archiveFixture(t, "", "")
 	tool, ok := s.Tools()["concept_archive"]
 	if !ok {

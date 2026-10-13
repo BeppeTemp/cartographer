@@ -75,6 +75,7 @@ func patchDup(t *testing.T, k *kb.KB) string {
 }
 
 func TestRepairOnWrite_PatchDropsDuplicateInOneCommit(t *testing.T) {
+	t.Parallel()
 	k, s := rowKB(t, "duplicate_link", "nonstandard_field")
 	before := commitCount(t, k)
 	out := decodeJSON(t, mustText(t, s, "concept_patch", patchDup(t, k)))
@@ -100,6 +101,7 @@ func TestRepairOnWrite_PatchDropsDuplicateInOneCommit(t *testing.T) {
 }
 
 func TestRepairOnWrite_ConceptWriteRenamesNonstandardField(t *testing.T) {
+	t.Parallel()
 	k, s := rowKB(t, "nonstandard_field")
 	out := decodeJSON(t, mustText(t, s, "concept_write",
 		`{"id":"ops/n","frontmatter":{"type":"Note","title":"N","keywords":["x"]},"body":"# N\n"}`))
@@ -116,6 +118,7 @@ func TestRepairOnWrite_ConceptWriteRenamesNonstandardField(t *testing.T) {
 }
 
 func TestRepairOnWrite_OffLeavesTheWrite(t *testing.T) {
+	t.Parallel()
 	for name, set := range map[string]func(k *kb.KB){
 		"opt-out":     func(k *kb.KB) { k.RepairOnWrite = false },
 		"empty-list":  func(k *kb.KB) { k.AutoRepair = []string{} },
@@ -136,6 +139,7 @@ func TestRepairOnWrite_OffLeavesTheWrite(t *testing.T) {
 // A neighbour reported by the scoped check is never rewritten, and a listed
 // link-dropping check is not applied on write.
 func TestRepairOnWrite_NeighboursAndLinkDroppingChecksUntouched(t *testing.T) {
+	t.Parallel()
 	k, s := rowKB(t, "duplicate_link", "broken_link", "reciprocal_link_item")
 	aBefore := readBody(t, k, "ops/a")
 	out := decodeJSON(t, mustText(t, s, "concept_write",
@@ -157,6 +161,7 @@ func TestRepairOnWrite_NeighboursAndLinkDroppingChecksUntouched(t *testing.T) {
 }
 
 func TestRepairOnWrite_BatchMoveSupersede(t *testing.T) {
+	t.Parallel()
 	k, s := rowKB(t, "duplicate_link")
 	out := decodeJSON(t, mustText(t, s, "concept_batch",
 		`{"operations":[{"op":"patch",`+patchDup(t, k)[1:]+`,{"op":"patch",`+patchJSON(t, k, "ops/c", "# C\n", "# C2\n")[1:]+`]}`))
@@ -197,6 +202,7 @@ func TestRepairOnWrite_BatchMoveSupersede(t *testing.T) {
 }
 
 func TestRepairOnWrite_CapabilityAndConfig(t *testing.T) {
+	t.Parallel()
 	k, _ := rowKB(t, "duplicate_link")
 	if c := kbCapabilities(k)["repair_on_write"]; c.State != "enabled" {
 		t.Fatalf("capability = %+v", c)
@@ -210,6 +216,7 @@ func TestRepairOnWrite_CapabilityAndConfig(t *testing.T) {
 // A repair that cannot be written never fails the call: the content stays as
 // written and the finding stays in the report.
 func TestRepairOnWrite_WriteErrorKeepsOriginal(t *testing.T) {
+	t.Parallel()
 	k, _ := rowKB(t, "duplicate_link")
 	p := filepath.Join(k.DataRoot(), "ops", "a.md")
 	data, _ := os.ReadFile(p)

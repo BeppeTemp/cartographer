@@ -31,6 +31,7 @@ func autoRepairKB(t *testing.T, checks ...string) (*kb.KB, *Server) {
 }
 
 func TestAutoRepairQuotaAppliesOnlyTheListedChecks(t *testing.T) {
+	t.Parallel()
 	k, s := autoRepairKB(t, "nonstandard_field")
 	before := commitCount(t, k)
 	run := s.runAutoRepairQuota(context.Background())
@@ -70,6 +71,7 @@ func TestAutoRepairQuotaAppliesOnlyTheListedChecks(t *testing.T) {
 }
 
 func TestAutoRepairQuotaIsBoundedPerRun(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, autoRepairLimit+7)
 	k.AutoRepair = []string{"nonstandard_field"}
 	run := s.runAutoRepairQuota(context.Background())
@@ -82,6 +84,7 @@ func TestAutoRepairQuotaIsBoundedPerRun(t *testing.T) {
 }
 
 func TestAutoRepairQuotaSkipsADegradedKB(t *testing.T) {
+	t.Parallel()
 	k, s := autoRepairKB(t, "nonstandard_field")
 	if err := os.MkdirAll(k.Root+"/.cartographer", 0o755); err != nil {
 		t.Fatal(err)
@@ -104,6 +107,7 @@ func TestAutoRepairQuotaSkipsADegradedKB(t *testing.T) {
 }
 
 func TestAutoRepairHeartbeatFiresAndStops(t *testing.T) {
+	t.Parallel()
 	k, s := autoRepairKB(t, "nonstandard_field")
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -134,6 +138,7 @@ func TestAutoRepairHeartbeatFiresAndStops(t *testing.T) {
 }
 
 func TestStartAutoRepairIsOffUnlessConfigured(t *testing.T) {
+	t.Parallel()
 	for name, set := range map[string]func(k *kb.KB){
 		"interval zero": func(k *kb.KB) { k.DoctorAutoIntervalDays = 0 },
 		"no checks":     func(k *kb.KB) { k.AutoRepair = nil },
@@ -151,6 +156,7 @@ func TestStartAutoRepairIsOffUnlessConfigured(t *testing.T) {
 }
 
 func TestCapabilitiesReportAutoRepairDefaultAndInterval(t *testing.T) {
+	t.Parallel()
 	k, _ := autoRepairKB(t, "nonstandard_field", "duplicate_link")
 	k.AutoRepairDefault = true
 	caps := kbCapabilities(k)

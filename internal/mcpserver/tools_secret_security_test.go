@@ -32,6 +32,7 @@ func writeSecretConcept(t *testing.T, kroot, id, frontmatter string) {
 }
 
 func TestParseSecretRefsContracts(t *testing.T) {
+	t.Parallel()
 	refs, err := parseSecretRefs([]string{"TOKEN=secrets/a.sops.yaml#/allowed"})
 	if err != nil || len(refs) != 1 || refs[0].SOPSKey != "/allowed" {
 		t.Fatalf("%v %#v", err, refs)
@@ -84,6 +85,7 @@ func TestServiceAndSecretResolveScopeDeclaredRefs(t *testing.T) {
 }
 
 func TestServiceLegacyAndMalformedRefsPrecedeSOPSGuards(t *testing.T) {
+	t.Parallel()
 	k := setupServiceTestKB(t, "")
 	res := callServiceGet(t, k, "svc-test", true)
 	if !res.IsError || !strings.Contains(res.Content[0].Text, "sops_age_key_file") {
@@ -128,6 +130,7 @@ func TestSecretSetSafetyAndRegistration(t *testing.T) {
 // vocabulary — got zero services and unusable secret resolution, with no error
 // anywhere.
 func TestServiceTools_MatchTypeCaseInsensitively(t *testing.T) {
+	t.Parallel()
 	for _, typ := range []string{"Service", "service", "SERVICE"} {
 		t.Run(typ, func(t *testing.T) {
 			k := setupServiceTestKB(t, "")
@@ -178,6 +181,7 @@ func TestSecretResolve_RedactsByDefault(t *testing.T) {
 }
 
 func TestSecretResolve_DescriptionNamesTheRedaction(t *testing.T) {
+	t.Parallel()
 	desc := toolSecretResolve(nil).Description
 	for _, want := range []string{"redacted", "reveal"} {
 		if !strings.Contains(desc, want) {

@@ -15,6 +15,7 @@ import (
 // the findings are identical to the expected oracle snapshot — proving the
 // relPathOf optimisation (D294) does not change what lint reports.
 func TestRun_OracleRelPathOfMatchesResolveConceptRelPath(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	root := k.DataRoot()
 

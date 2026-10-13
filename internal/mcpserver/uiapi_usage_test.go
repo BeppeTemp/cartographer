@@ -70,6 +70,7 @@ func usageRow(name, kind, provider string, ago time.Duration, count int) map[str
 }
 
 func TestUsageEndpoint_StoresData(t *testing.T) {
+	t.Parallel()
 	h, k := usageHandler(t)
 	rr := postUsage(t, h, "?kb=docs", "whole", []map[string]any{usageRow("ops-tool", "skill", "claude", time.Hour, 3)})
 	if rr.Code != http.StatusOK {
@@ -88,6 +89,7 @@ func TestUsageEndpoint_StoresData(t *testing.T) {
 // The usage route is client metadata, not part of the UI: it works with the
 // web UI switched off.
 func TestUsageEndpoint_WorksWithoutWeb(t *testing.T) {
+	t.Parallel()
 	h, k := usageHandlerWeb(t, false)
 	if rr := postUsage(t, h, "", "whole", []map[string]any{usageRow("ops-tool", "skill", "claude", time.Hour, 1)}); rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
@@ -98,6 +100,7 @@ func TestUsageEndpoint_WorksWithoutWeb(t *testing.T) {
 }
 
 func TestUsageEndpoint_MergesNewerTimestamp(t *testing.T) {
+	t.Parallel()
 	h, k := usageHandler(t)
 	postUsage(t, h, "?kb=docs", "whole", []map[string]any{usageRow("ops-tool", "skill", "claude", 48*time.Hour, 5)})
 	postUsage(t, h, "?kb=docs", "whole", []map[string]any{usageRow("ops-tool", "skill", "claude", time.Hour, 2)})
@@ -110,6 +113,7 @@ func TestUsageEndpoint_MergesNewerTimestamp(t *testing.T) {
 }
 
 func TestUsageEndpoint_UnknownKB(t *testing.T) {
+	t.Parallel()
 	h, _ := usageHandler(t)
 	if rr := postUsage(t, h, "?kb=nope", "whole", []map[string]any{}); rr.Code != http.StatusNotFound {
 		t.Fatalf("status %d, want 404", rr.Code)
@@ -123,6 +127,7 @@ func TestUsageEndpoint_UnknownKB(t *testing.T) {
 }
 
 func TestUsageEndpoint_AuthRequired(t *testing.T) {
+	t.Parallel()
 	h, k := usageHandler(t)
 	if rr := postUsage(t, h, "?kb=docs", "", []map[string]any{usageRow("ops-tool", "skill", "claude", time.Hour, 1)}); rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status %d, want 401", rr.Code)
@@ -133,6 +138,7 @@ func TestUsageEndpoint_AuthRequired(t *testing.T) {
 }
 
 func TestUsageEndpoint_RejectsBadInput(t *testing.T) {
+	t.Parallel()
 	h, k := usageHandler(t)
 	req := httptest.NewRequest(http.MethodPost, UsagePath+"?kb=docs", bytes.NewReader([]byte(`{"not":"an array"}`)))
 	req.Header.Set("Authorization", "Bearer whole")
@@ -160,6 +166,7 @@ func TestUsageEndpoint_RejectsBadInput(t *testing.T) {
 }
 
 func TestUIAPI_ArtifactsIncludesLastUsed(t *testing.T) {
+	t.Parallel()
 	h, _ := usageHandler(t)
 	postUsage(t, h, "?kb=docs", "whole", []map[string]any{usageRow("ops-tool", "skill", "claude", 3*24*time.Hour, 4)})
 	rr := getUI(t, h, UIAPIPrefix+"/kbs/docs/artifacts", "whole")
@@ -204,6 +211,7 @@ func TestUIAPI_ArtifactsIncludesLastUsed(t *testing.T) {
 }
 
 func TestKBStatus_IncludesUsage(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	k.UsageStaleDays = 42

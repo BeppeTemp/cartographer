@@ -55,6 +55,7 @@ func callTool(t *testing.T, s *Server, name, args string) ToolResult {
 // call leaves an attempt event before the tool runs and a completion event
 // after it, both attributed to the same KB and transport.
 func TestAuditRecordsAttemptAndCompletionPair(t *testing.T) {
+	t.Parallel()
 	s, _, path := auditServer(t, audit.Options{})
 	s.RegisterTool(Tool{
 		Name: "ok_tool", ReadOnly: true,
@@ -92,6 +93,7 @@ func TestAuditRecordsAttemptAndCompletionPair(t *testing.T) {
 // unauthorized, via auditDenied, or a denied call would be invisible in the
 // log.
 func TestAuditRecordsDenialAttemptAndCompletionPair(t *testing.T) {
+	t.Parallel()
 	s, _, path := auditServer(t, audit.Options{})
 	called := false
 	s.RegisterTool(Tool{
@@ -180,6 +182,7 @@ func TestAuditRequiredRejectsBeforeTheToolRuns(t *testing.T) {
 // TestAuditUnknownToolRecordsOutcomeWithoutArguments keeps arguments of an
 // unregistered tool out of the log while still recording the attempt.
 func TestAuditUnknownToolRecordsOutcomeWithoutArguments(t *testing.T) {
+	t.Parallel()
 	s, _, path := auditServer(t, audit.Options{})
 	callTool(t, s, "no_such_tool", `{"secret":"s3cr3t"}`)
 
@@ -200,6 +203,7 @@ func TestAuditUnknownToolRecordsOutcomeWithoutArguments(t *testing.T) {
 // TestAuditDisabledLeavesDispatchUnchanged pins the pre-D119 default: with no
 // sink attached nothing is recorded and nothing fails.
 func TestAuditDisabledLeavesDispatchUnchanged(t *testing.T) {
+	t.Parallel()
 	s := New("test")
 	s.RegisterTool(Tool{
 		Name: "ok_tool", ReadOnly: true,
@@ -216,6 +220,7 @@ func TestAuditDisabledLeavesDispatchUnchanged(t *testing.T) {
 // TestClassifyOutcomeDistinguishesApplicationFromInternalErrors keeps the two
 // failure kinds separable in a compliance review.
 func TestClassifyOutcomeDistinguishesApplicationFromInternalErrors(t *testing.T) {
+	t.Parallel()
 	if got := classifyOutcome(textResult("ok"), nil); got != audit.OutcomeSuccess {
 		t.Errorf("success = %q", got)
 	}
@@ -231,6 +236,7 @@ func TestClassifyOutcomeDistinguishesApplicationFromInternalErrors(t *testing.T)
 // booleans; a string-only filter dropped them silently, so D158's promise that
 // reveal "is recorded in the audit trail" was never kept (D261).
 func TestExtractResourcesRecordsAllowListedBooleans(t *testing.T) {
+	t.Parallel()
 	t.Run("secret_resolve reveal is recorded, names are not", func(t *testing.T) {
 		got := extractResources("secret_resolve", json.RawMessage(`{"concept_id":"svc","names":["TOKEN"],"reveal":true}`))
 		if got["reveal"] != "true" {
@@ -276,6 +282,7 @@ func TestExtractResourcesRecordsAllowListedBooleans(t *testing.T) {
 // End to end through the dispatcher: the audit entry of a revealing
 // secret_resolve call carries reveal=true (and never the requested names).
 func TestAuditRecordsSecretResolveReveal(t *testing.T) {
+	t.Parallel()
 	s, _, path := auditServer(t, audit.Options{})
 	s.RegisterTool(Tool{
 		Name:        "secret_resolve",

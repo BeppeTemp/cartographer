@@ -64,6 +64,7 @@ func runBatch(t *testing.T, s *Server, ops []map[string]any) (ToolResult, map[st
 }
 
 func TestConceptBatch_IndexEntry_AddsOrderedEntriesInOneCommit(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	k.AutoCommit = true
 	seedIndexMaps(t, k, mapFiles("docs", "require_index_entry: true\n"))
@@ -111,6 +112,7 @@ func TestConceptBatch_IndexEntry_AddsOrderedEntriesInOneCommit(t *testing.T) {
 }
 
 func TestConceptBatch_IndexEntry_CuratedMapWithoutRequireIndexEntry(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	seedIndexMaps(t, k, mapFiles("plain", ""))
 	s := New("test")
@@ -124,6 +126,7 @@ func TestConceptBatch_IndexEntry_CuratedMapWithoutRequireIndexEntry(t *testing.T
 }
 
 func TestConceptBatch_IndexEntry_RefusedShapesChangeNothing(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	seedIndexMaps(t, k, mapFiles("docs", ""))
 	s := New("test")
@@ -156,6 +159,7 @@ func TestConceptBatch_IndexEntry_RefusedShapesChangeNothing(t *testing.T) {
 }
 
 func TestConceptBatch_IndexEntry_GeneratedAndAlreadyLinked(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	seedIndexMaps(t, k, mapFiles("gen", "index: generated\n"))
 	seedIndexMaps(t, k, mapFiles("docs", ""))
@@ -218,6 +222,7 @@ func TestConceptBatch_IndexEntry_FailureRollsBackEverything(t *testing.T) {
 }
 
 func TestConceptNew_IndexEntry(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)

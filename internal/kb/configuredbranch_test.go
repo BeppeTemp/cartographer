@@ -12,6 +12,7 @@ import (
 // D335: a configured branch missing on a non-empty remote is created by the
 // first write; the remote's default branch is left untouched.
 func TestConfiguredBranch_FirstWriteCreatesIt(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -85,6 +86,7 @@ func TestConfiguredBranch_EmptyRemote(t *testing.T) {
 // D335: a clone on another branch is refused, the message names the
 // configured branch and the key, and nothing reaches the remote.
 func TestConfiguredBranch_OtherBranchRefused(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -122,6 +124,7 @@ func TestConfiguredBranch_OtherBranchRefused(t *testing.T) {
 
 // Without the key the status says the branch comes from the remote (D264).
 func TestConfiguredBranch_UnsetReportsRemoteSource(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}

@@ -81,6 +81,7 @@ func assertMCPForbidden(t *testing.T, rr *httptest.ResponseRecorder) {
 }
 
 func TestHTTPGuard_ReadScope_BlocksWrite_AllowsRead(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
 	})
@@ -103,6 +104,7 @@ func TestHTTPGuard_ReadScope_BlocksWrite_AllowsRead(t *testing.T) {
 // scope passes dispatch (the handler itself may still fail, e.g. stale_write
 // on an empty-body call, which is not what this guard test is checking).
 func TestHTTPGuard_IndexPatch_ReadScope_Denied_RWScope_Allowed(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
 		{Token: "rw-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: true}}},
@@ -119,6 +121,7 @@ func TestHTTPGuard_IndexPatch_ReadScope_Denied_RWScope_Allowed(t *testing.T) {
 }
 
 func TestHTTPGuard_RWScope_AllowsWriteAndRead(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "rw-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: true}}},
 	})
@@ -136,6 +139,7 @@ func TestHTTPGuard_RWScope_AllowsWriteAndRead(t *testing.T) {
 }
 
 func TestHTTPGuard_NoScopeToken_FullAccess(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "admin-tok"}, // nil scopes = full access
 	})
@@ -150,6 +154,7 @@ func TestHTTPGuard_NoScopeToken_FullAccess(t *testing.T) {
 }
 
 func TestHTTPGuard_CrossKB_Forbidden(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "x-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: true}}},
 	})
@@ -162,6 +167,7 @@ func TestHTTPGuard_CrossKB_Forbidden(t *testing.T) {
 }
 
 func TestHTTPGuard_NonToolsCallMethod(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
 	})
@@ -181,6 +187,7 @@ func TestHTTPGuard_NonToolsCallMethod(t *testing.T) {
 // TestHTTPDispatchReadsBodyOnce verifies dispatch receives the original body
 // without a second authorization-body peek.
 func TestHTTPDispatchReadsBodyOnce(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
 	})
@@ -229,6 +236,7 @@ func writeServiceGetCallBody(resolveSecrets bool) string {
 // resolver upgrades secret resolution from the read-side service tool to an
 // explicit whole-KB write capability.
 func TestHTTPGuard_ServiceGet_ResolveSecrets_RequiresRW(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
 		{Token: "rw-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: true}}},
@@ -262,6 +270,7 @@ func TestHTTPGuard_ServiceGet_ResolveSecrets_RequiresRW(t *testing.T) {
 // safe partial semantics (policy.go). D123 WP1 only changes tools/list
 // visibility; it must not weaken this existing RBAC boundary.
 func TestHTTPGuard_GovernanceTools_WholeKBAuthorization(t *testing.T) {
+	t.Parallel()
 	governanceTools := []string{"validate", "lint", "gate_check", "kb_status"}
 
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
@@ -297,6 +306,7 @@ func TestHTTPGuard_GovernanceTools_WholeKBAuthorization(t *testing.T) {
 // by ToolRequiresWrite. If someone adds a new tool without marking it, or
 // mismarks an existing one, this test fails.
 func TestReadOnlyToolsGolden(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	bundleFS := fstest.MapFS{
@@ -329,6 +339,7 @@ func TestReadOnlyToolsGolden(t *testing.T) {
 // (including the BundleFS-gated tools): the client's tool identifier budget
 // (D201) is only as good as this constant.
 func TestMaxBareToolNameLen(t *testing.T) {
+	t.Parallel()
 	s := New("test")
 	bundleFS := fstest.MapFS{
 		"bundled/kb-create/SKILL.md": &fstest.MapFile{
@@ -349,6 +360,7 @@ func TestMaxBareToolNameLen(t *testing.T) {
 // when auth is enabled and no Authorization header is present, GET /clients
 // must return 401.
 func TestClients_AuthRequiresToken(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "valid-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: true}}},
 	})
@@ -378,6 +390,7 @@ func TestClients_AuthRequiresToken(t *testing.T) {
 // resourceWhole tool missing from the authorizer's whole-KB list falls through
 // to the per-concept checks, which pass a call that carries no id.
 func TestHTTPGuard_KBRepair_RequiresWholeKBWrite(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
 		{Token: "rw-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: true}}},

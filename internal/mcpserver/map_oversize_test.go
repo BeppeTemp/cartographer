@@ -33,6 +33,7 @@ func oversizeCount(t *testing.T, raw string) int {
 }
 
 func TestConceptWrite_MapOversizeOnCrossingOnly(t *testing.T) {
+	t.Parallel()
 	s, _ := oversizeServer(t, 3)
 	create := func(id string) string {
 		return callTool(t, s, "concept_write", fmt.Sprintf(`{"id":%q,"frontmatter":{"type":"Note","title":"T"},"body":"Body.\n"}`, id)).Content[0].Text
@@ -50,6 +51,7 @@ func TestConceptWrite_MapOversizeOnCrossingOnly(t *testing.T) {
 }
 
 func TestConceptNew_MapOversizeOnCrossing(t *testing.T) {
+	t.Parallel()
 	s, k := oversizeServer(t, 3)
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)
@@ -67,6 +69,7 @@ func TestConceptNew_MapOversizeOnCrossing(t *testing.T) {
 }
 
 func TestConceptBatch_MapOversizeOnceOnLastCreated(t *testing.T) {
+	t.Parallel()
 	s, k := oversizeServer(t, 2)
 	ops := []map[string]any{
 		{"op": "write", "id": "m/a", "frontmatter": map[string]any{"type": "Note", "title": "A"}, "body": "A\n"},

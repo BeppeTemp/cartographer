@@ -77,6 +77,7 @@ func droppedMsgs(out map[string]any) []string {
 }
 
 func TestPatch_AppendRemove(t *testing.T) {
+	t.Parallel()
 	s, k := listsKB(t, "provenance: [a, b]\nscalar: only\nblock:\n  x: 1\n")
 
 	if _, e := patchCall(t, s, k, map[string]any{"frontmatter_append": map[string]any{"provenance": []string{"c", "a", "c"}}}); e != "" {
@@ -144,6 +145,7 @@ func TestPatch_AppendRemove(t *testing.T) {
 
 // The incident: a second session sends a stale full list; the hash is current.
 func TestPatch_IncidentStaleListAppendVsReplace(t *testing.T) {
+	t.Parallel()
 	s, k := listsKB(t, "provenance: [a]\n")
 	stale := []string{"a"}
 	// Another session appends b.
@@ -165,6 +167,7 @@ func TestPatch_IncidentStaleListAppendVsReplace(t *testing.T) {
 }
 
 func TestPatch_ListItemsDropped(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		extra   string
@@ -206,6 +209,7 @@ func TestPatch_ListItemsDropped(t *testing.T) {
 }
 
 func TestPatch_ListItemsDropped_ItemsCut(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("x", 200)
 	s, k := listsKB(t, "p: ["+long+", b]\n")
 	out, _ := patchCall(t, s, k, map[string]any{"frontmatter": map[string]any{"p": []string{"b"}}})
@@ -216,6 +220,7 @@ func TestPatch_ListItemsDropped_ItemsCut(t *testing.T) {
 }
 
 func TestBatch_PatchAppendAndDropped(t *testing.T) {
+	t.Parallel()
 	s, k := listsKB(t, "p: [a, b]\n")
 	ops := []map[string]any{{"op": "patch", "id": listsID, "if_match": readHash(t, k, listsID),
 		"frontmatter_append": map[string]any{"q": "x"}, "frontmatter": map[string]any{"p": []string{"a"}}}}
@@ -240,6 +245,7 @@ func TestBatch_PatchAppendAndDropped(t *testing.T) {
 }
 
 func TestPatch_FindingsAlwaysPresentAndEditMatches(t *testing.T) {
+	t.Parallel()
 	s, k := listsKB(t, "")
 	out, e := patchCall(t, s, k, map[string]any{"old_string": "alpha", "new_string": "ALPHA"})
 	if e != "" {
@@ -268,6 +274,7 @@ func TestPatch_FindingsAlwaysPresentAndEditMatches(t *testing.T) {
 }
 
 func TestApplyPatchEdit_Hints(t *testing.T) {
+	t.Parallel()
 	body := "# Title\n\nIl cliente è già “pronto” qui\nsecond line\nsecond line\n"
 	_, _, err := applyPatchEdit(body, "Il cliente e gia \"pronto\" qui", "x", false)
 	if err == nil || !strings.Contains(err.Error(), `closest line 3: "Il cliente è già “pronto” qui"`) {
@@ -288,6 +295,7 @@ func TestApplyPatchEdit_Hints(t *testing.T) {
 }
 
 func TestPatch_BatchErrorNamesEditAndHint(t *testing.T) {
+	t.Parallel()
 	s, k := listsKB(t, "")
 	_, e := patchCall(t, s, k, map[string]any{"edits": []map[string]any{
 		{"old_string": "alpha", "new_string": "a"},

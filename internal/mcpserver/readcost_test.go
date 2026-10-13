@@ -37,6 +37,7 @@ func readCostServer(t *testing.T) (*Server, *kb.KB, map[string]int64) {
 }
 
 func TestGraphResultsCarryBytes(t *testing.T) {
+	t.Parallel()
 	s, _, size := readCostServer(t)
 	res := callTool(t, s, "graph_neighbors", `{"id":"visible/a","direction":"both"}`)
 	var nb struct {
@@ -71,6 +72,7 @@ func TestGraphResultsCarryBytes(t *testing.T) {
 }
 
 func TestKBStatusReadCost(t *testing.T) {
+	t.Parallel()
 	s, _, size := readCostServer(t)
 	var rc kb.ReadCost
 	if err := json.Unmarshal(kbStatusResult(t, s)["read_cost"], &rc); err != nil {
@@ -101,6 +103,7 @@ func TestKBStatusReadCost(t *testing.T) {
 }
 
 func TestAuditRecordsResultBytes(t *testing.T) {
+	t.Parallel()
 	s, _, path := auditServer(t, audit.Options{})
 	s.RegisterTool(Tool{
 		Name: "sized", ReadOnly: true,

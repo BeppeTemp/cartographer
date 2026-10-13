@@ -17,6 +17,7 @@ const testGlossary = `terms:
 `
 
 func TestValidateGlossary_Accepts(t *testing.T) {
+	t.Parallel()
 	for _, c := range []string{testGlossary, "", "terms:\n", "terms: []\n", "terms:\n  - canonical: Solo\n"} {
 		if err := ValidateGlossary([]byte(c)); err != nil {
 			t.Errorf("ValidateGlossary(%q): %v", c, err)
@@ -25,6 +26,7 @@ func TestValidateGlossary_Accepts(t *testing.T) {
 }
 
 func TestValidateGlossary_Rejects(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("x", glossaryTermMaxBytes+1)
 	cases := []struct{ name, content, want string }{
 		{"duplicate across groups", "terms:\n  - canonical: A\n    aliases: [shared]\n  - canonical: B\n    aliases: [Shared]\n", `"Shared" already belongs to the term "A"`},
@@ -52,6 +54,7 @@ func TestValidateGlossary_Rejects(t *testing.T) {
 
 // The tolerant read keeps every good term and names the bad ones.
 func TestReadGlossary_Tolerant(t *testing.T) {
+	t.Parallel()
 	k := &KB{Root: t.TempDir()}
 	st, err := k.ReadGlossary()
 	if err != nil || st.Present {
@@ -77,6 +80,7 @@ func TestReadGlossary_Tolerant(t *testing.T) {
 }
 
 func TestReadGlossary_SymlinkRejected(t *testing.T) {
+	t.Parallel()
 	k := &KB{Root: t.TempDir()}
 	target := filepath.Join(t.TempDir(), "g.yaml")
 	if err := os.WriteFile(target, []byte(testGlossary), 0o644); err != nil {
@@ -100,6 +104,7 @@ func parsedTestGlossary(t *testing.T) Glossary {
 }
 
 func TestGlossaryVariants(t *testing.T) {
+	t.Parallel()
 	g := parsedTestGlossary(t)
 	cases := []struct {
 		name, query string
@@ -123,6 +128,7 @@ func TestGlossaryVariants(t *testing.T) {
 }
 
 func TestGlossaryForbiddenUses(t *testing.T) {
+	t.Parallel()
 	g := parsedTestGlossary(t)
 	got := g.ForbiddenUses("Restart HomeAssistant, then homeassistant again; MyHomeAssistantX is not it.")
 	want := []ForbiddenUse{{Term: "HomeAssistant", Canonical: "Home Assistant"}}

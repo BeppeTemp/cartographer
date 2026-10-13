@@ -11,6 +11,7 @@ import (
 )
 
 func TestIndexGet_WithHashReturnsContentOverGuard(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	writeBigIndex(t, k)
 	s := New("1.0.0")
@@ -26,6 +27,7 @@ func TestIndexGet_WithHashReturnsContentOverGuard(t *testing.T) {
 }
 
 func TestConceptMove_CuratedEntryHasNoMovedFromSuffix(t *testing.T) {
+	t.Parallel()
 	k, s := archiveFixture(t, "", "- [mover](mover.md)\n")
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "archive/_map.md"),
 		[]byte("---\ntype: Map\nkind: map\ntitle: Archive\nrequire_index_entry: true\n---\n# Archive\n"), 0o644); err != nil {
@@ -41,6 +43,7 @@ func TestConceptMove_CuratedEntryHasNoMovedFromSuffix(t *testing.T) {
 }
 
 func TestSourceRegisterDuplicateLocatorMismatch(t *testing.T) {
+	t.Parallel()
 	_, s := sourceFixture(t, true)
 	registerSource(t, s, `{"title":"A","source_kind":"document","sha256":"`+shaA+`","locator":"https://example.com/a","timestamp":"2026-01-01"}`)
 	out := registerSource(t, s, `{"title":"B","source_kind":"document","sha256":"`+shaA+`","locator":"https://example.com/b"}`)
@@ -54,6 +57,7 @@ func TestSourceRegisterDuplicateLocatorMismatch(t *testing.T) {
 }
 
 func TestSourceListCitedByIDs(t *testing.T) {
+	t.Parallel()
 	k, s := sourceFixture(t, true)
 	registerSource(t, s, `{"title":"Done","source_kind":"web","timestamp":"2026-03-01"}`)
 	for _, id := range []string{"area/z", "area/b"} {

@@ -12,6 +12,7 @@ import (
 )
 
 func TestGitHubForgeCreatesLabeledPR(t *testing.T) {
+	t.Parallel()
 	var sawCreate, sawLabel bool
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer secret" {
@@ -41,6 +42,7 @@ func TestGitHubForgeCreatesLabeledPR(t *testing.T) {
 }
 
 func TestGitHubForgePaginatesOpenPRsAndUsesScopedQuery(t *testing.T) {
+	t.Parallel()
 	var pages []string
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		pages = append(pages, r.URL.RawQuery)
@@ -66,6 +68,7 @@ func TestGitHubForgePaginatesOpenPRsAndUsesScopedQuery(t *testing.T) {
 }
 
 func TestGitHubForgeReadyChecksLatestReviewsAndChecks(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, reviews, checks string
 		want                  bool
@@ -97,6 +100,7 @@ func TestGitHubForgeReadyChecksLatestReviewsAndChecks(t *testing.T) {
 }
 
 func TestGitHubForgeMergeEndpointAndErrors(t *testing.T) {
+	t.Parallel()
 	var mergeBody string
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPut || r.URL.Path != "/repos/a/b/pulls/9/merge" {
@@ -114,6 +118,7 @@ func TestGitHubForgeMergeEndpointAndErrors(t *testing.T) {
 }
 
 func TestGitHubForgeNeverUpdatesRefsOrBase(t *testing.T) {
+	t.Parallel()
 	var requests []string
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.Method+" "+r.URL.Path)
@@ -159,6 +164,7 @@ func TestGitHubForgeNeverUpdatesRefsOrBase(t *testing.T) {
 }
 
 func TestGitHubForgeRedactsOnlyNonEmptyToken(t *testing.T) {
+	t.Parallel()
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		_, _ = w.Write([]byte("token secret failed"))
@@ -175,6 +181,7 @@ func TestGitHubForgeRedactsOnlyNonEmptyToken(t *testing.T) {
 }
 
 func TestGitHubForgeReadyUsesLatestReview(t *testing.T) {
+	t.Parallel()
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case contains(r.URL.Path, "/reviews"):

@@ -42,6 +42,7 @@ func fixClock(t *testing.T, at time.Time) {
 
 // D247: only a whole-KB miss is recorded — not a hit, not a narrowed miss.
 func TestSearchMiss_RecordsOnlyWholeKBMisses(t *testing.T) {
+	t.Parallel()
 	_, s, l := missFixture(t)
 	searchText(t, s, "runbook")         // hit
 	searchText(t, s, "  Attività   X ") // whole-KB miss
@@ -57,6 +58,7 @@ func TestSearchMiss_RecordsOnlyWholeKBMisses(t *testing.T) {
 }
 
 func TestSearchMiss_NormalisationMerges(t *testing.T) {
+	t.Parallel()
 	for _, q := range []string{"Attività  X", "attivita x", "  ATTIVITÀ\tx "} {
 		if got := normalizeMissQuery(q); got != "attivita x" {
 			t.Errorf("normalizeMissQuery(%q) = %q", q, got)
@@ -65,6 +67,7 @@ func TestSearchMiss_NormalisationMerges(t *testing.T) {
 }
 
 func TestSearchMiss_TrimmedPastMax(t *testing.T) {
+	t.Parallel()
 	k, _, l := missFixture(t)
 	if err := os.MkdirAll(filepath.Join(k.Root, ".cartographer"), 0o755); err != nil {
 		t.Fatal(err)
@@ -85,6 +88,7 @@ func TestSearchMiss_TrimmedPastMax(t *testing.T) {
 
 // A log that cannot be written never fails the search.
 func TestSearchMiss_UnwritableLogDoesNotFailSearch(t *testing.T) {
+	t.Parallel()
 	k, s, _ := missFixture(t)
 	if err := os.MkdirAll(filepath.Join(k.Root, ".cartographer", searchMissFile), 0o755); err != nil {
 		t.Fatal(err)
@@ -172,6 +176,7 @@ func findMiss(top []searchMissSummary, q string) (searchMissSummary, bool) {
 }
 
 func TestSearchMiss_AutoEvictsResolvedMisses(t *testing.T) {
+	t.Parallel()
 	top := checkedTop(t, func(q string) bool { return q == "kafka" }, "kafka", "kafka", "zephyr")
 	e, ok := findMiss(top, "kafka")
 	if !ok || !e.Resolved {
@@ -184,6 +189,7 @@ func TestSearchMiss_AutoEvictsResolvedMisses(t *testing.T) {
 }
 
 func TestSearchMiss_KeepsUnresolvedMisses(t *testing.T) {
+	t.Parallel()
 	top := checkedTop(t, func(string) bool { return false }, "zephyr")
 	if e, ok := findMiss(top, "zephyr"); !ok || e.Resolved {
 		t.Fatalf("zephyr = %+v (present %v), want open", e, ok)
@@ -191,6 +197,7 @@ func TestSearchMiss_KeepsUnresolvedMisses(t *testing.T) {
 }
 
 func TestSearchMiss_NilCheckerSkipsEviction(t *testing.T) {
+	t.Parallel()
 	top := checkedTop(t, nil, "zephyr")
 	if e, ok := findMiss(top, "zephyr"); !ok || e.Resolved {
 		t.Fatalf("zephyr = %+v (present %v), want open", e, ok)
@@ -200,6 +207,7 @@ func TestSearchMiss_NilCheckerSkipsEviction(t *testing.T) {
 // The re-check stops once searchMissTop open queries are found, but resolved
 // ones never crowd an open one out of the report.
 func TestSearchMiss_ResolvedNeverDisplaceOpen(t *testing.T) {
+	t.Parallel()
 	_, _, l := missFixture(t)
 	for i := 0; i < searchMissTop+3; i++ {
 		q := fmt.Sprintf("q%02d", i)
@@ -224,6 +232,7 @@ func TestSearchMiss_ResolvedNeverDisplaceOpen(t *testing.T) {
 }
 
 func TestKBStatus_SearchMissesResolvedAreGone(t *testing.T) {
+	t.Parallel()
 	k, s, _ := missFixture(t)
 	searchText(t, s, "reconcileunique") // miss: the concept does not exist yet
 	searchText(t, s, "zephyrnothing")   // miss that stays open
@@ -258,13 +267,16 @@ func assertRecorded(t *testing.T, args string, want int) {
 }
 
 func TestSearchMiss_RecordMissFalseSuppresses(t *testing.T) {
+	t.Parallel()
 	assertRecorded(t, `{"query":"nothingmatches","record_miss":false}`, 0)
 }
 
 func TestSearchMiss_RecordMissDefaultRecords(t *testing.T) {
+	t.Parallel()
 	assertRecorded(t, `{"query":"nothingmatches"}`, 1)
 }
 
 func TestSearchMiss_RecordMissTrueRecords(t *testing.T) {
+	t.Parallel()
 	assertRecorded(t, `{"query":"nothingmatches","record_miss":true}`, 1)
 }

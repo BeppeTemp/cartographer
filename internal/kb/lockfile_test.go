@@ -36,6 +36,7 @@ func gitStatusPorcelain(dir string) (string, error) {
 // process: `cartographer import` wrote into the same directory the sync loop
 // managed, and the two interleaving corrupted the git index.
 func TestAcquireProcessLock(t *testing.T) {
+	t.Parallel()
 	t.Run("serialises two acquirers", func(t *testing.T) {
 		k := mustInitKB(t)
 		release, err := k.AcquireProcessLock(time.Second, "first")
@@ -164,6 +165,7 @@ func TestAcquireProcessLockFailsFastOnANonContentionError(t *testing.T) {
 // claim a pid no process can have. The reason it gives is platform-specific and
 // deliberately not asserted.
 func TestProcessAlive(t *testing.T) {
+	t.Parallel()
 	if !processAlive(os.Getpid()) {
 		t.Error("this process is running, so its own pid must be alive")
 	}
@@ -176,6 +178,7 @@ func TestProcessAlive(t *testing.T) {
 // An aborted rebase left a .git/rebase-merge holding only an autostash, and from
 // then on every write failed with a message that named no way out.
 func TestSyncRefusesWhileARebaseStateExists(t *testing.T) {
+	t.Parallel()
 	t.Run("orphan autostash", func(t *testing.T) {
 		k := mustInitKB(t)
 		dir := filepath.Join(k.Root, ".git", "rebase-merge")

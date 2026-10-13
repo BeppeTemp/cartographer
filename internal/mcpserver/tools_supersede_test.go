@@ -11,6 +11,7 @@ import (
 
 // supersede validates its successor and updates the search indexes (D243).
 func TestSupersedeValidatesAndIndexes(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{
 		"ops/old.md":       "The old way.\n",
 		"ops/new.md":       "The new way.\n",
@@ -53,6 +54,7 @@ func TestSupersedeValidatesAndIndexes(t *testing.T) {
 
 // concept_move carries superseded_by along with the links (D243).
 func TestConceptMoveRewritesSupersededBy(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"ops/old.md":  "---\ntype: Note\nstatus: superseded\nsuperseded_by: ops/new\n---\nOld.\n",
 		"ops/new.md":  "New.\n",

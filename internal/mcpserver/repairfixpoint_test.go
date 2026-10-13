@@ -51,6 +51,7 @@ func writeChainPage(t *testing.T, k *kb.KB, name string) {
 var chainChecks = []string{"nonstandard_field", "prose_value", "title_h1_mismatch"}
 
 func TestFixpointConvergesAChainInOneCall(t *testing.T) {
+	t.Parallel()
 	k, _ := chainKB(t, 1)
 	out, skip := repairConceptFixpoint(k, "ops/n0", chainChecks, nil)
 	if skip != nil {
@@ -144,6 +145,7 @@ func TestFixpointStopsAtTheCap(t *testing.T) {
 }
 
 func TestFixpointLeavesCrossConceptFindingsAlone(t *testing.T) {
+	t.Parallel()
 	k, _ := chainKB(t, 1)
 	before, _ := k.ReadConcept("ops/n0")
 	seed := []lint.Finding{{Check: "broken_link", Path: "ops/n0.md", Fix: &lint.Fix{Kind: lint.FixRebaseLink, Field: "x.md", To: "y.md"}}}
@@ -157,6 +159,7 @@ func TestFixpointLeavesCrossConceptFindingsAlone(t *testing.T) {
 }
 
 func TestAutoRepairRunConvergesAChainInOneCommit(t *testing.T) {
+	t.Parallel()
 	k, s := chainKB(t, 3)
 	k.AutoRepair = chainChecks
 	k.DoctorAutoIntervalDays = 1
@@ -191,6 +194,7 @@ func mustLint(t *testing.T, k *kb.KB) []lint.Finding {
 }
 
 func TestStagedRepairQuotaCountsConceptsNotChecks(t *testing.T) {
+	t.Parallel()
 	k, _ := chainKB(t, 12)
 	r := stagedAutoRepair(context.Background(), k, chainChecks, 5)
 	// Each concept needs all three checks, but the quota counts concepts.
@@ -202,6 +206,7 @@ func TestStagedRepairQuotaCountsConceptsNotChecks(t *testing.T) {
 }
 
 func TestAutoRepairRunLeavesNothingOnTheProcessedConcepts(t *testing.T) {
+	t.Parallel()
 	const drifted = autoRepairLimit + 100
 	k, s := chainKB(t, drifted)
 	k.AutoRepair = chainChecks
@@ -217,6 +222,7 @@ func TestAutoRepairRunLeavesNothingOnTheProcessedConcepts(t *testing.T) {
 }
 
 func TestAutoRepairIgnoresChecksThatAreNotSafe(t *testing.T) {
+	t.Parallel()
 	k, s := chainKB(t, 1)
 	k.AutoRepair = []string{"broken_link", "nonstandard_field", "reciprocal_link_item"}
 	k.DoctorAutoIntervalDays = 1
@@ -239,6 +245,7 @@ func TestAutoRepairIgnoresChecksThatAreNotSafe(t *testing.T) {
 }
 
 func TestDefaultAutoRepairRunsEveryUnattendedCheck(t *testing.T) {
+	t.Parallel()
 	k, _ := chainKB(t, 1)
 	k.AutoRepair = config.DefaultAutoRepair
 	if _, ignored := autoRepairSplit(k); len(ignored) != 0 {
@@ -247,6 +254,7 @@ func TestDefaultAutoRepairRunsEveryUnattendedCheck(t *testing.T) {
 }
 
 func TestRepairOnWriteConvergesTheChainInOneWrite(t *testing.T) {
+	t.Parallel()
 	k, s := rowKB(t, chainChecks...)
 	contract := kb.MapContract{FieldValues: map[string][]string{"status": {"active", "draft", "deprecated"}}}
 	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: contract.FieldValues}); err != nil {
@@ -297,6 +305,7 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 }
 
 func TestAutoRepairPullTriggersOneDebouncedRun(t *testing.T) {
+	t.Parallel()
 	k, s := chainKB(t, 1)
 	k.AutoRepair = chainChecks
 	k.DoctorAutoIntervalDays = 1
@@ -327,6 +336,7 @@ func TestAutoRepairPullTriggersOneDebouncedRun(t *testing.T) {
 }
 
 func TestStartAutoRepairChainsTheSyncInCallback(t *testing.T) {
+	t.Parallel()
 	k, s := chainKB(t, 1)
 	k.AutoRepair = chainChecks
 	k.DoctorAutoIntervalDays = 1

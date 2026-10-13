@@ -72,6 +72,7 @@ func pullAs(t *testing.T, s *Server, k *kb.KB, admin bool) pullPlaceholders {
 }
 
 func TestSyncPullListsPlaceholders(t *testing.T) {
+	t.Parallel()
 	s, k, conceptPath := placeholderKB(t)
 
 	admin := pullAs(t, s, k, true)
@@ -101,6 +102,7 @@ func TestSyncPullListsPlaceholders(t *testing.T) {
 }
 
 func TestSyncPullOmitsPlaceholdersWhenNone(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{BundleFS: fstest.MapFS{}})

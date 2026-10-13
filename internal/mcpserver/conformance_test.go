@@ -13,6 +13,7 @@ import (
 // Every property of a concept-write tool schema must be in lint.ToolParamFields,
 // so the lint check and the write-time rejection cannot drift from the tools (D289).
 func TestToolParamFieldsCoverWriteSchemas(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	var props func(schema map[string]interface{}) []string
 	props = func(schema map[string]interface{}) []string {
@@ -41,6 +42,7 @@ func TestToolParamFieldsCoverWriteSchemas(t *testing.T) {
 }
 
 func TestWriteToolsRejectToolParamKeys(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{"ops/existing.md": "Body.\n"})
 	hash := decodeJSON(t, mustText(t, s, "concept_read", `{"id":"ops/existing"}`))["content_hash"].(string)
 	wantErr := `frontmatter key "if_match" is a tool parameter, not a field — pass it as a top-level argument`
@@ -68,6 +70,7 @@ func TestWriteToolsRejectToolParamKeys(t *testing.T) {
 }
 
 func TestConceptNewRejectsToolParamKeyFromTemplate(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, nil)
 	k := s.kbRef
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
@@ -83,6 +86,7 @@ func TestConceptNewRejectsToolParamKeyFromTemplate(t *testing.T) {
 }
 
 func TestWriteResponsesCarryFindings(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{"ops/existing.md": "Body.\n"})
 	k := s.kbRef
 	mapMD := "---\ntype: Map\nkind: map\ntitle: Ops\nfield_values.status: [open, done]\n---\n# Ops\n"
@@ -136,6 +140,7 @@ func TestWriteResponsesCarryFindings(t *testing.T) {
 }
 
 func TestLintOutputFixShape(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{
 		"ops/syn.md": "---\ntype: Note\ntitle: S\naggiornato: 2026-01-01\n---\nx\n",
 		"ops/nt.md":  "---\ntype: Note\ntitle: \"🚀\"\n---\n# Deploy 🚀 now\nx\n",
@@ -171,6 +176,7 @@ func TestLintOutputFixShape(t *testing.T) {
 // every read and search, the search index — does not invalidate the lint
 // cache; usage.json, which lint reads, does (D736).
 func TestLintInputsStampIgnoresServerState(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	dir := filepath.Join(k.Root, ".cartographer")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

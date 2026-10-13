@@ -10,6 +10,7 @@ import (
 // D346: one function decides the threshold; a map that holds work defaults to
 // 30 days, a reference map stays never-stale, an explicit value always wins.
 func TestEffectiveStaleAfter(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		c         *kb.MapContract

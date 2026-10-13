@@ -71,6 +71,7 @@ func callServiceGetArgs(t *testing.T, k *kb.KB, params map[string]any) ToolResul
 }
 
 func TestServiceGet_ResolveSecretsFalse_Unchanged(t *testing.T) {
+	t.Parallel()
 	k := setupServiceTestKB(t, "")
 
 	res := callServiceGet(t, k, "svc-test", false)
@@ -155,6 +156,7 @@ func TestServiceGet_ResolveSecrets_RedactsByDefault(t *testing.T) {
 // reveal without resolve_secrets is a no-op, not an error: the output is the
 // plain concept, exactly as without either flag.
 func TestServiceGet_RevealWithoutResolveSecrets_IsNoop(t *testing.T) {
+	t.Parallel()
 	k := setupServiceTestKB(t, "")
 	plain := callServiceGet(t, k, "svc-test", false)
 	revealed := callServiceGetArgs(t, k, map[string]any{"service_id": "svc-test", "reveal": true})

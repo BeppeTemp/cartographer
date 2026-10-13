@@ -8,6 +8,7 @@ import (
 // TestRegisterTool_BareName verifies a tool is registered under its own name:
 // no prefix is ever applied (D325).
 func TestRegisterTool_BareName(t *testing.T) {
+	t.Parallel()
 	s := New("test")
 	s.RegisterTool(Tool{Name: "atlas_overview"})
 	if _, ok := s.Tools()["atlas_overview"]; !ok {
@@ -19,6 +20,7 @@ func TestRegisterTool_BareName(t *testing.T) {
 // serverInfo.name, and that leaving it unset keeps the historical
 // "cartographer" (single-KB path, asserted verbatim elsewhere too).
 func TestServer_DisplayName_ServerInfo(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	s.SetDisplayName("cartographer:eng-team")

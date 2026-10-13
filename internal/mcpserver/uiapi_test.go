@@ -77,6 +77,7 @@ func decodeUI(t *testing.T, rr *httptest.ResponseRecorder) map[string]interface{
 }
 
 func TestUIAPI_OpenModeServesEveryRoute(t *testing.T) {
+	t.Parallel()
 	handler := newUIHandler(t, auth.NewTokenStore(nil), "docs")
 	for _, path := range []string{
 		UIAPIPrefix + "/kbs",
@@ -106,6 +107,7 @@ func TestUIAPI_OpenModeServesEveryRoute(t *testing.T) {
 }
 
 func TestUIAPI_RequiresABearerTokenWhenAuthIsOn(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "read-tok", Scopes: []auth.KBScope{{KB: "docs", Write: false}}},
 	})
@@ -123,6 +125,7 @@ func TestUIAPI_RequiresABearerTokenWhenAuthIsOn(t *testing.T) {
 }
 
 func TestUIAPI_IsReadOnly(t *testing.T) {
+	t.Parallel()
 	handler := newUIHandler(t, auth.NewTokenStore(nil), "docs")
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
 		req := httptest.NewRequest(method, UIAPIPrefix+"/kbs", nil)
@@ -138,6 +141,7 @@ func TestUIAPI_IsReadOnly(t *testing.T) {
 }
 
 func TestUIAPI_UnknownKBAndConceptReturn404NotForbidden(t *testing.T) {
+	t.Parallel()
 	handler := newUIHandler(t, auth.NewTokenStore(nil), "docs")
 	for _, path := range []string{
 		UIAPIPrefix + "/kbs/nope/overview",
@@ -158,6 +162,7 @@ func TestUIAPI_UnknownKBAndConceptReturn404NotForbidden(t *testing.T) {
 }
 
 func TestUIAPI_MalformedParameters(t *testing.T) {
+	t.Parallel()
 	handler := newUIHandler(t, auth.NewTokenStore(nil), "docs")
 	for _, tc := range []struct{ path, field string }{
 		{UIAPIPrefix + "/kbs/docs/graph?limit=abc", "limit"},
@@ -183,6 +188,7 @@ func TestUIAPI_MalformedParameters(t *testing.T) {
 }
 
 func TestUIAPI_GraphClampsAndScopes(t *testing.T) {
+	t.Parallel()
 	handler := newUIHandler(t, auth.NewTokenStore(nil), "docs")
 
 	body := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/graph?limit=999999", ""))
@@ -205,6 +211,7 @@ func TestUIAPI_GraphClampsAndScopes(t *testing.T) {
 }
 
 func TestUIAPI_ConceptCarriesBodyOutlineAndNeighbors(t *testing.T) {
+	t.Parallel()
 	handler := newUIHandler(t, auth.NewTokenStore(nil), "docs")
 	body := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/concept?id=visible/alpha", ""))
 
@@ -241,6 +248,7 @@ func TestUIAPI_ConceptCarriesBodyOutlineAndNeighbors(t *testing.T) {
 // links to itself is still not its own neighbour, and a broken link is still
 // kept apart after the graph changed on disk.
 func TestUIAPI_ConceptNeighborsFollowTheFiles(t *testing.T) {
+	t.Parallel()
 	multi := NewMultiKBServer("test")
 	k := uiFixtureKB(t, "docs")
 	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
@@ -276,6 +284,7 @@ func restrictedUIHandler(t *testing.T) http.Handler {
 }
 
 func TestUIAPI_NarrowedTokenSeesNoHiddenConceptAnywhere(t *testing.T) {
+	t.Parallel()
 	handler := restrictedUIHandler(t)
 	const hidden = "hidden/secret"
 
@@ -345,6 +354,7 @@ func TestUIAPI_NarrowedTokenSeesNoHiddenConceptAnywhere(t *testing.T) {
 }
 
 func TestUIAPI_NarrowedTokenSeesOnlyItsKB(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "only-x", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
 	})
@@ -368,6 +378,7 @@ func TestUIAPI_NarrowedTokenSeesOnlyItsKB(t *testing.T) {
 }
 
 func TestUIAPI_LintCountsDescribeWhatIsNotShown(t *testing.T) {
+	t.Parallel()
 	handler := newUIHandler(t, auth.NewTokenStore(nil), "docs")
 	all := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint", ""))
 	errorsOnly := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint?severity_min=error", ""))
@@ -400,6 +411,7 @@ func TestUIAPI_LintCountsDescribeWhatIsNotShown(t *testing.T) {
 
 // The UI API must not shadow any endpoint that existed before it.
 func TestUIAPI_DoesNotShadowExistingRoutes(t *testing.T) {
+	t.Parallel()
 	handler := newUIHandler(t, auth.NewTokenStore(nil), "docs")
 	for _, tc := range []struct {
 		path     string
@@ -433,6 +445,7 @@ func TestUIAPI_DoesNotShadowExistingRoutes(t *testing.T) {
 // With the UI off, its paths are indistinguishable from any other unknown
 // path: web.enabled: false has to restore the previous HTTP surface exactly.
 func TestUIAPI_AbsentWhenTheWebSurfaceIsDisabled(t *testing.T) {
+	t.Parallel()
 	multi := NewMultiKBServer("test")
 	k := uiFixtureKB(t, "docs")
 	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
@@ -455,6 +468,7 @@ func TestUIAPI_AbsentWhenTheWebSurfaceIsDisabled(t *testing.T) {
 // concept named after the map sent the Health panel to a node that does not
 // exist (D228).
 func TestUIFindingConcept(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"infra/gateway.md":       "infra/gateway",
 		"infra/cluster/index.md": "infra/cluster",
@@ -479,6 +493,7 @@ func TestUIFindingConcept(t *testing.T) {
 // visible page counts and names the hidden concepts it cuts off. A narrowed
 // principal gets none of them; one that sees the whole KB gets them all.
 func TestUIAPI_LintHidesWholeGraphChecksFromANarrowedToken(t *testing.T) {
+	t.Parallel()
 	k := uiFixtureKB(t, "docs")
 	for rel, body := range map[string]string{
 		"visible/hub.md":  "---\ntype: Note\ntitle: Hub\n---\n[x1](../hidden/x1.md) [x2](../hidden/x2.md) [x3](../hidden/x3.md)\n",

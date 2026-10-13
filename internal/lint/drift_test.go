@@ -21,6 +21,7 @@ func driftRun(t *testing.T, files map[string]string) []Finding {
 }
 
 func TestTitleH1Mismatch_PicksTheGoodSide(t *testing.T) {
+	t.Parallel()
 	// The reproduction: a decorative title over a real heading.
 	f := findingsOf(driftRun(t, map[string]string{
 		"arch/a.md": "---\ntype: Note\ntitle: \"🚀\"\n---\n# Server B real\n",
@@ -45,6 +46,7 @@ func TestTitleH1Mismatch_PicksTheGoodSide(t *testing.T) {
 }
 
 func TestMissingTitle_Fix(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ name, page, want string }{
 		{"h1", "---\ntype: Note\n---\n# Real heading\n", "Real heading"},
 		{"decorative h1 falls to the stem", "---\ntype: Note\n---\n# 🚀\n", "My page"},
@@ -64,6 +66,7 @@ func TestMissingTitle_Fix(t *testing.T) {
 }
 
 func TestRepeatedLink(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"arch/a.md": "---\ntype: Note\ntitle: A\n---\n# A\n\nSee [b](b.md) and again [the b page](b.md) here; also `[b](b.md)` in code.\n\nA new paragraph may link [b](b.md) once.\n\n```\n[b](b.md) [b](b.md)\n```\n",
 		"arch/b.md": "---\ntype: Note\ntitle: B\n---\n# B\n",
@@ -82,6 +85,7 @@ func TestRepeatedLink(t *testing.T) {
 }
 
 func TestUnlinkRepeats(t *testing.T) {
+	t.Parallel()
 	body := "x [b](b.md) y [the b page](b.md) z [c](c.md) [c](c.md)\n\n[b](b.md) [b](b.md)\n"
 	got, ok := UnlinkRepeats(body, "b.md")
 	want := "x [b](b.md) y the b page z [c](c.md) [c](c.md)\n\n[b](b.md) b\n"
@@ -94,6 +98,7 @@ func TestUnlinkRepeats(t *testing.T) {
 }
 
 func TestUnknownType(t *testing.T) {
+	t.Parallel()
 	tmpl := "---\ntype: Service\ntitle: Service\n---\n# {{title}}\n"
 	page := func(typ string) string { return "---\ntype: " + typ + "\ntitle: P\n---\n# P\n" }
 	// No templates and no strict map: no palette, silent.
@@ -124,6 +129,7 @@ func TestUnknownType(t *testing.T) {
 }
 
 func TestUnknownType_StrictMapPalette(t *testing.T) {
+	t.Parallel()
 	f := findingsOf(driftRun(t, map[string]string{
 		"strict/_map.md": "---\ntype: Map\nkind: map\ntitle: S\nontology_mode: strict\nconcept_types: [Alpha, Beta]\n---\n# S\n",
 		"strict/y.md":    "---\ntype: Gamma\ntitle: Y\n---\n# Y\n",
@@ -135,6 +141,7 @@ func TestUnknownType_StrictMapPalette(t *testing.T) {
 }
 
 func TestValueCaseVariant(t *testing.T) {
+	t.Parallel()
 	page := func(status string) string {
 		return "---\ntype: Note\ntitle: P\nstatus: " + status + "\n---\n# P\n"
 	}
@@ -160,6 +167,7 @@ func TestValueCaseVariant(t *testing.T) {
 }
 
 func TestUnmappedFolder(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"loose/a.md":          "---\ntype: Note\ntitle: A\n---\n# A\n",
 		"mapped/_map.md":      "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n",
@@ -177,6 +185,7 @@ func TestUnmappedFolder(t *testing.T) {
 }
 
 func TestStrayFile(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"arch/a.md":                "---\ntype: Note\ntitle: A\n---\n# A\n",
 		"arch/notes.txt":           "stray",

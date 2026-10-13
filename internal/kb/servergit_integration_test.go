@@ -31,6 +31,7 @@ func newServerGitMount(t *testing.T) (*KB, string) {
 }
 
 func TestServerGitTwoCloneBaseAdvanceAndConflictRegistry(t *testing.T) {
+	t.Parallel()
 	t.Run("clean base advance never updates protected base", func(t *testing.T) {
 		k, bare := newServerGitMount(t)
 		if err := k.ConfigureServerGit(serverConfig()); err != nil {
@@ -124,6 +125,7 @@ func TestServerGitTwoCloneBaseAdvanceAndConflictRegistry(t *testing.T) {
 }
 
 func TestServerConflictResolutionStrategiesMaterializeExpectedContent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	k, err := Init(filepath.Join(root, "kb"))
 	if err != nil {
@@ -155,6 +157,7 @@ func TestServerConflictResolutionStrategiesMaterializeExpectedContent(t *testing
 }
 
 func TestServerGitConcurrentWritersAreSerialized(t *testing.T) {
+	t.Parallel()
 	k, _ := newServerGitMount(t)
 	var mu sync.Mutex
 	active, maxActive := 0, 0
@@ -187,6 +190,7 @@ func TestServerGitConcurrentWritersAreSerialized(t *testing.T) {
 }
 
 func TestServerGitIfMatchTracksRebasedAndExternallyUpdatedWorkingContent(t *testing.T) {
+	t.Parallel()
 	k, bare := newServerGitMount(t)
 	seed := "---\ntype: Note\ntitle: Item\n---\nseed\n"
 	if err := os.WriteFile(filepath.Join(k.Root, "data", "item.md"), []byte(seed), 0o644); err != nil {
@@ -268,6 +272,7 @@ func serverConfig() ServerGitConfig {
 }
 
 func TestConfigureServerGitStartupFailures(t *testing.T) {
+	t.Parallel()
 	t.Run("origin missing", func(t *testing.T) {
 		k, err := Init(filepath.Join(t.TempDir(), "kb"))
 		if err != nil {
@@ -311,6 +316,7 @@ func TestConfigureServerGitStartupFailures(t *testing.T) {
 }
 
 func TestConfigureServerGitRemoteResumeAndRejectsNonDescendant(t *testing.T) {
+	t.Parallel()
 	k, bare := newServerGitMount(t)
 	if err := k.ConfigureServerGit(serverConfig()); err != nil {
 		t.Fatal(err)

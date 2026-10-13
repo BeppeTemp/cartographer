@@ -22,6 +22,7 @@ func runTemplateMap(t *testing.T, mapFM string) (*testing.T, []Finding, map[stri
 // require_template: false silences the template_* checks and the check reports
 // itself inactive when no map is left to run them.
 func TestTemplatesActiveByDefaultAndOptOut(t *testing.T) {
+	t.Parallel()
 	_, f, inactive := runTemplateMap(t, "")
 	if m := tplFinding(f, "infra/n1.md", "template_section_missing"); m == nil || m.Severity != SevWarning {
 		t.Errorf("a map with templates is strict by default (section_missing is a warning): %+v", f)
@@ -57,6 +58,7 @@ func TestTemplatesActiveByDefaultAndOptOut(t *testing.T) {
 
 // D371: the checks with nothing to compare against say so, with a reason.
 func TestInactiveReasons(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nkind: map\ntitle: Ops\n---\n# Ops\n")
 	writeFile(t, k.DataRoot(), "ops/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n")

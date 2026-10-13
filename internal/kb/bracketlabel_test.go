@@ -8,6 +8,7 @@ import (
 )
 
 func TestExtractLinks_BracketedLabel(t *testing.T) {
+	t.Parallel()
 	body := "- [Issue #100 — [RFC] foo](x.md)\n- [plain](y.md)\n![img [a]](pic.png)\n"
 	got := ExtractLinks(body, "m/index.md")
 	want := []okf.ConceptID{"m/x", "m/y"}

@@ -6,6 +6,7 @@ import (
 )
 
 func TestTruncateUTF8_ASCIIShorter(t *testing.T) {
+	t.Parallel()
 	got := truncateUTF8("hello", maxClientFieldLen)
 	if got != "hello" {
 		t.Errorf("truncateUTF8(\"hello\") = %q, want \"hello\"", got)
@@ -13,6 +14,7 @@ func TestTruncateUTF8_ASCIIShorter(t *testing.T) {
 }
 
 func TestTruncateUTF8_ASCLongExact(t *testing.T) {
+	t.Parallel()
 	long := ""
 	for i := 0; i < 64; i++ {
 		long += string(rune('a' + i%26))
@@ -27,6 +29,7 @@ func TestTruncateUTF8_ASCLongExact(t *testing.T) {
 }
 
 func TestTruncateUTF8_ASCLonger(t *testing.T) {
+	t.Parallel()
 	long := ""
 	for i := 0; i < 66; i++ {
 		long += string(rune('a' + i%26))
@@ -44,6 +47,7 @@ func TestTruncateUTF8_ASCLonger(t *testing.T) {
 }
 
 func TestTruncateUTF8_3ByteRunes(t *testing.T) {
+	t.Parallel()
 	// Each rune is 3 bytes in UTF-8 (U+4E00 = 一).
 	// 21 runes = 63 bytes, 22 runes = 66 bytes > 64.
 	s := ""
@@ -66,6 +70,7 @@ func TestTruncateUTF8_3ByteRunes(t *testing.T) {
 }
 
 func TestTruncateUTF8_Empty(t *testing.T) {
+	t.Parallel()
 	got := truncateUTF8("", maxClientFieldLen)
 	if got != "" {
 		t.Errorf("truncateUTF8(\"\") = %q, want \"\"", got)
@@ -73,6 +78,7 @@ func TestTruncateUTF8_Empty(t *testing.T) {
 }
 
 func TestTruncateUTF8_MaxZero(t *testing.T) {
+	t.Parallel()
 	got := truncateUTF8("hello", 0)
 	if got != "" {
 		t.Errorf("truncateUTF8(\"hello\", 0) = %q, want \"\"", got)

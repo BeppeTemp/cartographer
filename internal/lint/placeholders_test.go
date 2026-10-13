@@ -13,6 +13,7 @@ const lintRegistry = "paths:\n  editor-config: {description: editor config, defa
 	"repos:\n  tools: {description: tools repo}\n"
 
 func TestRun_NoRegistry_NoNewFindings(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/a.md", "---\ntype: Note\ntitle: A\n---\nSee {{path:anything}} and {{repo:whatever}}.\n")
 	findings, err := Run(k, "", false)
@@ -29,6 +30,7 @@ func TestRun_NoRegistry_NoNewFindings(t *testing.T) {
 // The acceptance of WP3: {{path:editor-home}} when only editor-config is
 // declared is unknown_placeholder, once per concept however many times cited.
 func TestRun_UnknownPlaceholder(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "paths.yaml", lintRegistry)
 	writeFile(t, k.DataRoot(), "arch/a.md", "---\ntype: Note\ntitle: A\n---\n{{path:editor-home}} twice {{path:editor-home}}, {{repo:tools}}, {{path:editor-config}}, {{repo:editor-config}}, {{\\path:escaped}}, {{path:<name>}}.\n")
@@ -55,6 +57,7 @@ func TestRun_UnknownPlaceholder(t *testing.T) {
 }
 
 func TestRun_UnknownPlaceholder_Suppressible(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "paths.yaml", lintRegistry)
 	writeFile(t, k.DataRoot(), "arch/a.md", "---\ntype: Note\ntitle: A\nlint_ignore: [unknown_placeholder]\n---\nOld key {{path:editor-home}}.\n")
@@ -71,6 +74,7 @@ func TestRun_UnknownPlaceholder_Suppressible(t *testing.T) {
 }
 
 func TestRun_UnusedPlaceholder(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "paths.yaml", lintRegistry)
 	writeFile(t, k.DataRoot(), "arch/a.md", "---\ntype: Note\ntitle: A\n---\n{{path:editor-config}} {{path:claude-home}}\n")
@@ -102,6 +106,7 @@ func TestRun_UnusedPlaceholder(t *testing.T) {
 }
 
 func TestRun_MalformedRegistryEntry(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "paths.yaml", lintRegistry+"  bad: {description: d, default: /Users/x/tools}\n")
 	writeFile(t, k.DataRoot(), "arch/a.md", "---\ntype: Note\ntitle: A\n---\n{{repo:tools}}\n")
@@ -127,6 +132,7 @@ func TestRun_MalformedRegistryEntry(t *testing.T) {
 }
 
 func TestRun_MachinePathSuggestsDeclaredKey(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "paths.yaml", lintRegistry)
 	cases := map[string]string{

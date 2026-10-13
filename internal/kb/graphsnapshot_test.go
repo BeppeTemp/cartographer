@@ -66,6 +66,7 @@ func findNode(t *testing.T, snap GraphSnapshot, id string) GraphNode {
 }
 
 func TestGraphSnapshot_NodesEdgesAndClassification(t *testing.T) {
+	t.Parallel()
 	k := snapshotKB(t)
 	snap, err := k.GraphSnapshot(GraphSnapshotOptions{})
 	if err != nil {
@@ -144,6 +145,7 @@ func TestGraphSnapshot_NodesEdgesAndClassification(t *testing.T) {
 }
 
 func TestGraphSnapshot_NoDanglingEdgeEndpoint(t *testing.T) {
+	t.Parallel()
 	k := snapshotKB(t)
 	for _, opts := range []GraphSnapshotOptions{
 		{},
@@ -174,6 +176,7 @@ func TestGraphSnapshot_NoDanglingEdgeEndpoint(t *testing.T) {
 }
 
 func TestGraphSnapshot_ScopeDropsOutOfScopeEdgesButKeepsDegrees(t *testing.T) {
+	t.Parallel()
 	k := snapshotKB(t)
 	snap, err := k.GraphSnapshot(GraphSnapshotOptions{Scope: "infra"})
 	if err != nil {
@@ -200,6 +203,7 @@ func TestGraphSnapshot_ScopeDropsOutOfScopeEdgesButKeepsDegrees(t *testing.T) {
 }
 
 func TestGraphSnapshot_InvisibleConceptIsAbsentEverywhere(t *testing.T) {
+	t.Parallel()
 	k := snapshotKB(t)
 	snap, err := k.GraphSnapshot(GraphSnapshotOptions{
 		Include: func(id string) bool { return id != "notes/n" },
@@ -249,6 +253,7 @@ func TestGraphSnapshot_InvisibleConceptIsAbsentEverywhere(t *testing.T) {
 // A scoped snapshot keeps whole-KB communities (D244): the colours of a node do
 // not change when the view narrows to its collection.
 func TestGraphSnapshot_ScopeKeepsCommunities(t *testing.T) {
+	t.Parallel()
 	k := snapshotKB(t)
 	all, err := k.GraphSnapshot(GraphSnapshotOptions{})
 	if err != nil {
@@ -276,6 +281,7 @@ func TestGraphSnapshot_ScopeKeepsCommunities(t *testing.T) {
 }
 
 func TestGraphSnapshot_DeterministicAndTruncated(t *testing.T) {
+	t.Parallel()
 	k := snapshotKB(t)
 	first, err := k.GraphSnapshot(GraphSnapshotOptions{Limit: 3})
 	if err != nil {
@@ -328,6 +334,7 @@ func TestGraphSnapshot_DeterministicAndTruncated(t *testing.T) {
 }
 
 func TestGraphSnapshot_LimitDefaultsAndClamps(t *testing.T) {
+	t.Parallel()
 	k := snapshotKB(t)
 	for _, tc := range []struct{ in, want int }{
 		{0, DefaultGraphNodeLimit},
@@ -350,6 +357,7 @@ func TestGraphSnapshot_LimitDefaultsAndClamps(t *testing.T) {
 }
 
 func TestGraphSnapshot_RootConceptHasNoCollection(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	k, err := Init(dir)
 	if err != nil {
@@ -368,6 +376,7 @@ func TestGraphSnapshot_RootConceptHasNoCollection(t *testing.T) {
 }
 
 func TestGraphSnapshot_DuplicateLinksCollapseIntoOneEdge(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	k, err := Init(dir)
 	if err != nil {
@@ -397,6 +406,7 @@ func TestGraphSnapshot_DuplicateLinksCollapseIntoOneEdge(t *testing.T) {
 }
 
 func TestGraphSnapshot_EdgeCapTruncatesWithoutDangling(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	k, err := Init(dir)
 	if err != nil {

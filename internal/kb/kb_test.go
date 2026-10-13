@@ -27,6 +27,7 @@ func tempKB(t *testing.T) string {
 // --- Init ---
 
 func TestInit_CreaScheletro(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	_, err := Init(dir)
 	if err != nil {
@@ -41,6 +42,7 @@ func TestInit_CreaScheletro(t *testing.T) {
 }
 
 func TestInit_CreaDirAgentsHooks(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	_, err := Init(dir)
 	if err != nil {
@@ -60,6 +62,7 @@ func TestInit_CreaDirAgentsHooks(t *testing.T) {
 }
 
 func TestInit_DefaultInstructions(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	if _, err := Init(dir); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -91,6 +94,7 @@ func TestInit_DefaultInstructions(t *testing.T) {
 }
 
 func TestInit_ExistingKBGetsNoInstructions(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	if _, err := Init(dir); err != nil {
 		t.Fatal(err)
@@ -107,6 +111,7 @@ func TestInit_ExistingKBGetsNoInstructions(t *testing.T) {
 }
 
 func TestInit_NoAgentsMdNoRootGitignore(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	if _, err := Init(dir); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -123,6 +128,7 @@ func TestInit_NoAgentsMdNoRootGitignore(t *testing.T) {
 }
 
 func TestInit_DataGitignore(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	if _, err := Init(dir); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -149,6 +155,7 @@ func TestInit_DataGitignore(t *testing.T) {
 }
 
 func TestIsJunkPath(t *testing.T) {
+	t.Parallel()
 	for p, want := range map[string]bool{
 		".DS_Store": true, "a/b/.DS_Store": true, "skills/x/__pycache__/m.pyc": true,
 		"x/__pycache__/notes.txt": true, "m.pyo": true, "notes.md~": true, ".a.swp": true,
@@ -161,6 +168,7 @@ func TestIsJunkPath(t *testing.T) {
 }
 
 func TestInit_InfoExcludeHasCartographerEntry(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	if _, err := Init(dir); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -178,6 +186,7 @@ func TestInit_InfoExcludeHasCartographerEntry(t *testing.T) {
 // any depth): the external-changes commit stages with git add -A, so it must
 // be ignored, not committed and pushed (#757).
 func TestInit_ExcludesAgentStateDirs(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	if _, err := Init(dir); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -201,6 +210,7 @@ func TestInit_ExcludesAgentStateDirs(t *testing.T) {
 }
 
 func TestInit_Idempotente(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	if _, err := Init(dir); err != nil {
 		t.Fatalf("first Init: %v", err)
@@ -211,6 +221,7 @@ func TestInit_Idempotente(t *testing.T) {
 }
 
 func TestOpen_KBValida(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	if _, err := Init(dir); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -225,6 +236,7 @@ func TestOpen_KBValida(t *testing.T) {
 }
 
 func TestOpen_KBNonValida(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	_, err := Open(dir)
 	if err == nil {
@@ -233,6 +245,7 @@ func TestOpen_KBNonValida(t *testing.T) {
 }
 
 func TestOpen_MigratesMissingInfoExclude(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	if _, err := Init(dir); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -255,6 +268,7 @@ func TestOpen_MigratesMissingInfoExclude(t *testing.T) {
 }
 
 func TestOpen_InfoExcludeIdempotent(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	if _, err := Init(dir); err != nil {
 		t.Fatalf("Init: %v", err)
@@ -277,6 +291,7 @@ func TestOpen_InfoExcludeIdempotent(t *testing.T) {
 }
 
 func TestEnsureInfoExclude_NoGitNoOp(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	// No .git/ at all (Init not called): must be a silent no-op.
 	if err := ensureInfoExclude(dir, ".cartographer/"); err != nil {
@@ -288,6 +303,7 @@ func TestEnsureInfoExclude_NoGitNoOp(t *testing.T) {
 }
 
 func TestEnsureInfoExclude_GitfileWorktreeNoOp(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	// Simulate a worktree: .git is a file ("gitdir: ..."), not a directory.
 	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: /elsewhere/.git/worktrees/x\n"), 0o644); err != nil {
@@ -305,6 +321,7 @@ func TestEnsureInfoExclude_GitfileWorktreeNoOp(t *testing.T) {
 // --- ResolvePath ---
 
 func TestResolvePath_EscapeRifiutato(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 	_, err := kb.ResolvePath("../escape", false)
@@ -314,6 +331,7 @@ func TestResolvePath_EscapeRifiutato(t *testing.T) {
 }
 
 func TestResolvePath_AssolutoRifiutato(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 	_, err := kb.ResolvePath("/etc/passwd", false)
@@ -323,6 +341,7 @@ func TestResolvePath_AssolutoRifiutato(t *testing.T) {
 }
 
 func TestResolvePath_ServicesAnchoredAtRoot(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 	// services/ is a sibling of data/ but must be resolvable for Service concepts.
@@ -339,6 +358,7 @@ func TestResolvePath_ServicesAnchoredAtRoot(t *testing.T) {
 // --- ReadConcept ---
 
 func TestReadConcept_Hash(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -364,6 +384,7 @@ func TestReadConcept_Hash(t *testing.T) {
 // --- ListArchives / ListExpanded ---
 
 func TestListArchives(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -392,6 +413,7 @@ func TestListArchives(t *testing.T) {
 }
 
 func TestListExpanded(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -408,6 +430,7 @@ func TestListExpanded(t *testing.T) {
 }
 
 func TestConceptCount_ArchivioFlat(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -427,6 +450,7 @@ func TestConceptCount_ArchivioFlat(t *testing.T) {
 }
 
 func TestConceptCount_ArchivioInesistente(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -438,6 +462,7 @@ func TestConceptCount_ArchivioInesistente(t *testing.T) {
 // --- WriteFileAtomic ---
 
 func TestWriteFileAtomic(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -456,6 +481,7 @@ func TestWriteFileAtomic(t *testing.T) {
 // --- AppendLog ---
 
 func TestAppendLog_NewestOnTop(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -487,6 +513,7 @@ func TestAppendLog_NewestOnTop(t *testing.T) {
 // --- LogTail ---
 
 func TestLogTail_PathFiltersRootPrefixedEntries(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -520,6 +547,7 @@ func TestLogTail_PathFiltersRootPrefixedEntries(t *testing.T) {
 }
 
 func TestLogTail_PathWithoutEntriesIsEmpty(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -537,6 +565,7 @@ func TestLogTail_PathWithoutEntriesIsEmpty(t *testing.T) {
 }
 
 func TestLogTail_PerDirectoryLogPlusRootPrefixed(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -581,6 +610,7 @@ func indexOf(s, sub string) int {
 // --- WriteConcept ---
 
 func TestWriteConcept_NuovoConcept(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -607,6 +637,7 @@ func TestWriteConcept_NuovoConcept(t *testing.T) {
 }
 
 func TestWriteConcept_AggiornamentoIfMatchCorretto(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -630,6 +661,7 @@ func TestWriteConcept_AggiornamentoIfMatchCorretto(t *testing.T) {
 // frontmatter that would not parse back is refused before anything is
 // written.
 func TestWriteConcept_RejectsNonRoundTrippingFrontmatter(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -645,6 +677,7 @@ func TestWriteConcept_RejectsNonRoundTrippingFrontmatter(t *testing.T) {
 }
 
 func TestWriteConcept_StaleWrite(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -661,6 +694,7 @@ func TestWriteConcept_StaleWrite(t *testing.T) {
 }
 
 func TestWriteConcept_RifiutaFileRiservato(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -672,6 +706,7 @@ func TestWriteConcept_RifiutaFileRiservato(t *testing.T) {
 }
 
 func TestWriteConcept_RifiutaTypeVuoto(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -685,6 +720,7 @@ func TestWriteConcept_RifiutaTypeVuoto(t *testing.T) {
 // --- WriteConcept: dossier stub + depth guard (D72 WP4) ---
 
 func TestWriteConcept_StubDossierIndexSuDossierImplicito(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -710,6 +746,7 @@ func TestWriteConcept_StubDossierIndexSuDossierImplicito(t *testing.T) {
 }
 
 func TestWriteConcept_NonSovrascriveIndexDossierEsistente(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -737,6 +774,7 @@ func TestWriteConcept_NonSovrascriveIndexDossierEsistente(t *testing.T) {
 }
 
 func TestWriteConcept_ErroreProfonditaMassima(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -761,6 +799,7 @@ func TestWriteConcept_ErroreProfonditaMassima(t *testing.T) {
 // --- ExpandConcept (D77 WP2) ---
 
 func TestExpandConcept_Success(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -823,6 +862,7 @@ func TestExpandConcept_Success(t *testing.T) {
 // directory. An existing file and a concept link (even a dangling one) are
 // still rebased.
 func TestExpandConcept_LeavesDanglingAssetLinks(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, _ := Init(dir)
 	if err := os.MkdirAll(filepath.Join(dir, "data", "entities"), 0o755); err != nil {
@@ -850,6 +890,7 @@ func TestExpandConcept_LeavesDanglingAssetLinks(t *testing.T) {
 }
 
 func TestExpandConcept_RebasesRelativeLinks(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, _ := Init(dir)
 
@@ -920,6 +961,7 @@ Also [[entities/other]] and [anchor](#s1) and [ext](https://example.com).
 }
 
 func TestExpandConcept_NotFound_Error(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -930,6 +972,7 @@ func TestExpandConcept_NotFound_Error(t *testing.T) {
 }
 
 func TestExpandConcept_GiaEspanso_Errore(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -948,6 +991,7 @@ func TestExpandConcept_GiaEspanso_Errore(t *testing.T) {
 }
 
 func TestExpandConcept_Figlio_ErroreProfondita(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -965,6 +1009,7 @@ func TestExpandConcept_Figlio_ErroreProfondita(t *testing.T) {
 // --- DeleteConcept ---
 
 func TestDeleteConcept_Rimuove(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -983,6 +1028,7 @@ func TestDeleteConcept_Rimuove(t *testing.T) {
 }
 
 func TestDeleteConcept_RifiutaFileRiservato(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -993,6 +1039,7 @@ func TestDeleteConcept_RifiutaFileRiservato(t *testing.T) {
 }
 
 func TestDeleteConcept_NonEsistente(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1003,6 +1050,7 @@ func TestDeleteConcept_NonEsistente(t *testing.T) {
 }
 
 func TestDeleteConcept_RifiutaIDVuoto(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1015,6 +1063,7 @@ func TestDeleteConcept_RifiutaIDVuoto(t *testing.T) {
 // --- CreateMap ---
 
 func TestCreateMap_CreaStruttura(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1051,6 +1100,7 @@ func TestCreateMap_CreaStruttura(t *testing.T) {
 }
 
 func TestCreateMap_KindJournal(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1067,6 +1117,7 @@ func TestCreateMap_KindJournal(t *testing.T) {
 }
 
 func TestCreateMap_KindVuoto_DefaultMap(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1083,6 +1134,7 @@ func TestCreateMap_KindVuoto_DefaultMap(t *testing.T) {
 }
 
 func TestCreateMap_KindInvalido_Errore(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1093,6 +1145,7 @@ func TestCreateMap_KindInvalido_Errore(t *testing.T) {
 }
 
 func TestCreateMap_ErroreSeEsiste(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1140,6 +1193,7 @@ func snapshotTree(t *testing.T, root string) map[string]string {
 // unreadable. It is refused before anything is written, for every kind, and
 // neither the real descriptors nor a legacy data/services/ are touched.
 func TestCreateMap_ServicesReserved(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"map", "journal", ""} {
 		for _, withDescriptor := range []bool{false, true} {
 			for _, withLegacy := range []bool{false, true} {
@@ -1188,6 +1242,7 @@ func TestCreateMap_ServicesReserved(t *testing.T) {
 // The reservation is the exact name only: a map merely containing the word
 // stays valid, and the case-insensitive `type: Service` lookup is unrelated.
 func TestCreateMap_ServicesLikeNameAllowed(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, _ := Init(dir)
 	if err := k.CreateMap("application-services", "Application Services", "", nil, ""); err != nil {
@@ -1201,6 +1256,7 @@ func TestCreateMap_ServicesLikeNameAllowed(t *testing.T) {
 // LocateConcept answers with the physical file a read would return, in the
 // namespace root that holds it (D269).
 func TestLocateConcept_NamespaceAware(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, _ := Init(dir)
 	fm, _ := okf.ParseFrontmatter("type: Service\ntitle: S")
@@ -1238,6 +1294,7 @@ func TestLocateConcept_NamespaceAware(t *testing.T) {
 }
 
 func TestCreateMap_ContractRoundTrip(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, _ := Init(dir)
 	contract := MapContract{
@@ -1260,6 +1317,7 @@ func TestCreateMap_ContractRoundTrip(t *testing.T) {
 // --- MachinePathAllowPrefixes (D124) ---
 
 func TestCreateMap_MachinePathAllowPrefixesRoundTrip(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, _ := Init(dir)
 	contract := MapContract{
@@ -1283,6 +1341,7 @@ func TestCreateMap_MachinePathAllowPrefixesRoundTrip(t *testing.T) {
 }
 
 func TestReadMapContract_MachinePathAllowPrefixes_ValidForms(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, _ := Init(dir)
 	if err := k.CreateMap("infra", "Infra", "map", nil, ""); err != nil {
@@ -1309,6 +1368,7 @@ func TestReadMapContract_MachinePathAllowPrefixes_ValidForms(t *testing.T) {
 }
 
 func TestReadMapContract_MachinePathAllowPrefixes_Malformed(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		value string
@@ -1352,6 +1412,7 @@ func TestReadMapContract_MachinePathAllowPrefixes_Malformed(t *testing.T) {
 }
 
 func TestReadMapContract_LegacyDescriptorIsEmpty(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, _ := Init(dir)
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "legacy"), 0o755); err != nil {
@@ -1367,6 +1428,7 @@ func TestReadMapContract_LegacyDescriptorIsEmpty(t *testing.T) {
 }
 
 func TestDeleteMap_RefusesAssetOnlyEntry(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, err := Init(dir)
 	if err != nil {
@@ -1390,6 +1452,7 @@ func TestDeleteMap_RefusesAssetOnlyEntry(t *testing.T) {
 // D762: force deletes loose regular non-.md files directly under the map, and
 // nothing else.
 func TestDeleteMap_Force(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T) (*KB, string) {
 		k, err := Init(tempKB(t))
 		if err != nil {
@@ -1463,6 +1526,7 @@ func TestDeleteMap_Force(t *testing.T) {
 // left by the earlier, unreadable map_create can still be removed, and the
 // KB-root service descriptors are untouched by it.
 func TestDeleteMap_RemovesLegacyServicesScaffold(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, err := Init(dir)
 	if err != nil {
@@ -1498,6 +1562,7 @@ func TestDeleteMap_RemovesLegacyServicesScaffold(t *testing.T) {
 // --- ReadArchiveMeta: read-compat sul descriptor legacy (D77 WP1) ---
 
 func TestReadArchiveMeta_LegacyArchiveDescriptor(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1517,6 +1582,7 @@ func TestReadArchiveMeta_LegacyArchiveDescriptor(t *testing.T) {
 }
 
 func TestReadArchiveMeta_PrefersMapOverLegacyArchive(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1539,6 +1605,7 @@ func TestReadArchiveMeta_PrefersMapOverLegacyArchive(t *testing.T) {
 // --- Validate ---
 
 func TestValidate_KBValida(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1560,6 +1627,7 @@ func TestValidate_KBValida(t *testing.T) {
 }
 
 func TestValidate_RilevaCampoTypeVuoto(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1586,6 +1654,7 @@ func TestValidate_RilevaCampoTypeVuoto(t *testing.T) {
 }
 
 func TestValidate_RilevaFrontmatterNonParsabile(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1612,6 +1681,7 @@ func TestValidate_RilevaFrontmatterNonParsabile(t *testing.T) {
 }
 
 func TestValidate_StrictOntologiaTypeNonAmmesso(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1644,6 +1714,7 @@ func TestValidate_StrictOntologiaTypeNonAmmesso(t *testing.T) {
 // --- IndexHash / PatchIndex (D122 WP1) ---
 
 func TestIndexHash_Root(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1664,6 +1735,7 @@ func TestIndexHash_Root(t *testing.T) {
 }
 
 func TestIndexHash_Map(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
@@ -1684,6 +1756,7 @@ func TestIndexHash_Map(t *testing.T) {
 }
 
 func TestIndexHash_Journal(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 	if err := kb.CreateMap("incidents", "Incidents", "journal", nil, ""); err != nil {
@@ -1704,6 +1777,7 @@ func TestIndexHash_Journal(t *testing.T) {
 }
 
 func TestPatchIndex_HappyPath_Root(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1728,6 +1802,7 @@ func TestPatchIndex_HappyPath_Root(t *testing.T) {
 }
 
 func TestPatchIndex_HappyPath_MapAndJournal(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
@@ -1757,6 +1832,7 @@ func TestPatchIndex_HappyPath_MapAndJournal(t *testing.T) {
 }
 
 func TestPatchIndex_StaleHash(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1780,6 +1856,7 @@ func TestPatchIndex_StaleHash(t *testing.T) {
 }
 
 func TestPatchIndex_Traversal(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1807,6 +1884,7 @@ func TestPatchIndex_Traversal(t *testing.T) {
 }
 
 func TestPatchIndex_NestedPath(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
@@ -1825,6 +1903,7 @@ func TestPatchIndex_NestedPath(t *testing.T) {
 }
 
 func TestPatchIndex_MissingDescriptor(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -1837,6 +1916,7 @@ func TestPatchIndex_MissingDescriptor(t *testing.T) {
 }
 
 func TestPatchIndex_ExpandedOwnerRedirect(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 	if err := kb.CreateMap("map", "Map", "map", nil, ""); err != nil {
@@ -1863,6 +1943,7 @@ func TestPatchIndex_ExpandedOwnerRedirect(t *testing.T) {
 }
 
 func TestPatchIndex_SymlinkEscape(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
@@ -1900,6 +1981,7 @@ func TestPatchIndex_SymlinkEscape(t *testing.T) {
 // atlas_overview identifies the KB that answered even before an operator
 // curates the index. An existing index.md is never rewritten.
 func TestInit_IndexTitleFromDirectory(t *testing.T) {
+	t.Parallel()
 	parent := t.TempDir()
 	root := filepath.Join(parent, "homelab-wiki")
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -1939,6 +2021,7 @@ func TestInit_IndexTitleFromDirectory(t *testing.T) {
 // line to the parser message, so the three together need no new check — a lint
 // duplicate would only double-report (D162).
 func TestValidate_UnparseableFrontmatterNamesPathKeyAndLine(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, err := Init(dir)
 	if err != nil {
@@ -1980,6 +2063,7 @@ func TestValidate_UnparseableFrontmatterNamesPathKeyAndLine(t *testing.T) {
 // only the named keys change, other keys and the body survive, an empty value
 // removes the key, and a legacy _archive.md is refused (#320).
 func TestUpdateMapContract(t *testing.T) {
+	t.Parallel()
 	k, err := Init(tempKB(t))
 	if err != nil {
 		t.Fatal(err)
@@ -2039,6 +2123,7 @@ func TestUpdateMapContract(t *testing.T) {
 // --- field_values / forbidden_fields (D275) ---
 
 func TestCreateMap_FieldValuesRoundTrip(t *testing.T) {
+	t.Parallel()
 	k, _ := Init(tempKB(t))
 	contract := MapContract{
 		FieldValues:       map[string][]string{"status": {"draft", "active", "active"}},
@@ -2079,6 +2164,7 @@ func TestCreateMap_FieldValuesRoundTrip(t *testing.T) {
 }
 
 func TestUpdateMapContract_FieldValues(t *testing.T) {
+	t.Parallel()
 	k, _ := Init(tempKB(t))
 	if err := k.CreateMap("m", "M", "map", nil, ""); err != nil {
 		t.Fatal(err)
@@ -2116,6 +2202,7 @@ func TestUpdateMapContract_FieldValues(t *testing.T) {
 }
 
 func TestReadMapContract_FieldValuesMalformed(t *testing.T) {
+	t.Parallel()
 	k, _ := Init(tempKB(t))
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "m"), 0o755); err != nil {
 		t.Fatal(err)
@@ -2146,6 +2233,7 @@ func TestReadMapContract_FieldValuesMalformed(t *testing.T) {
 
 // The rebase rewrites the body only: the frontmatter keeps its exact bytes.
 func TestExpandConcept_KeepsFrontmatterBytes(t *testing.T) {
+	t.Parallel()
 	k, _ := Init(tempKB(t))
 	raw := "---\ntype: Note\ntitle:   \"Spaced\"\n# a comment\n---\nSee [o](other.md).\n"
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "m"), 0o755); err != nil {
@@ -2170,6 +2258,7 @@ func TestExpandConcept_KeepsFrontmatterBytes(t *testing.T) {
 // TestUpdateMapContract_ReviewKeys covers the D298 keys: set, read back,
 // removed, and a promote_to that is not a map name refused or reported.
 func TestUpdateMapContract_ReviewKeys(t *testing.T) {
+	t.Parallel()
 	k, _ := Init(tempKB(t))
 	if err := k.CreateMap("j", "J", "journal", nil, ""); err != nil {
 		t.Fatal(err)
@@ -2206,6 +2295,7 @@ func TestUpdateMapContract_ReviewKeys(t *testing.T) {
 
 // D321: a new journal declares what open means; an explicit list wins.
 func TestCreateMapJournalDefaultOpenStatuses(t *testing.T) {
+	t.Parallel()
 	k, _ := Init(tempKB(t))
 	if err := k.CreateMap("j", "J", "journal", nil, ""); err != nil {
 		t.Fatal(err)
@@ -2229,6 +2319,7 @@ func TestCreateMapJournalDefaultOpenStatuses(t *testing.T) {
 }
 
 func TestMapContractTemplateKeys(t *testing.T) {
+	t.Parallel()
 	k := mustInitKB(t)
 	if err := k.CreateMapWithContract("m", "M", "map", nil, "", MapContract{Templates: []string{"b-tpl", "a-tpl"}, DefaultTemplate: "a-tpl", RequireTemplate: true}); err != nil {
 		t.Fatal(err)
@@ -2261,6 +2352,7 @@ func TestMapContractTemplateKeys(t *testing.T) {
 }
 
 func TestMapContractTemplateKeysMalformed(t *testing.T) {
+	t.Parallel()
 	k := mustInitKB(t)
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "m"), 0o755); err != nil {
 		t.Fatal(err)
@@ -2288,6 +2380,7 @@ func TestMapContractTemplateKeysMalformed(t *testing.T) {
 }
 
 func TestTemplateCatalogAndResolve(t *testing.T) {
+	t.Parallel()
 	k := mustInitKB(t)
 	write := func(name, content string) {
 		t.Helper()

@@ -19,6 +19,7 @@ func ids(s ...string) []okf.ConceptID {
 const noteHead = "---\ntype: Note\ntitle: T\n"
 
 func TestScopedCheck_BrokenLinkOnWrittenConcept(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/x.md", noteHead+"---\nSee [gone](gone.md).\n")
 	got := ScopedCheck(k, ids("ops/x"))
@@ -28,6 +29,7 @@ func TestScopedCheck_BrokenLinkOnWrittenConcept(t *testing.T) {
 }
 
 func TestScopedCheck_IndexIncomplete(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
 	writeFile(t, k.DataRoot(), "ops/index.md", "# Ops\n")
@@ -43,6 +45,7 @@ func TestScopedCheck_IndexIncomplete(t *testing.T) {
 }
 
 func TestScopedCheck_Orphan(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
 	writeFile(t, k.DataRoot(), "notes/deep/x.md", noteHead+"---\nBody.\n")
@@ -60,6 +63,7 @@ func TestScopedCheck_Orphan(t *testing.T) {
 // itself (D313); a page that links a retired concept gets the finding too, as
 // one of its linkers.
 func TestScopedCheck_LinkToRetired(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nkind: map\n---\n")
 	writeFile(t, k.DataRoot(), "ops/old.md", "---\ntype: Note\ntitle: Old\nstatus: deprecated\n---\nOld.\n")
@@ -77,6 +81,7 @@ func TestScopedCheck_LinkToRetired(t *testing.T) {
 // A neighbour's pre-existing broken link, unrelated to the written concept, is
 // not part of this write's answer.
 func TestScopedCheck_NeighbourPreexistingFindingExcluded(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/a.md", noteHead+"---\nSee [b](b.md) and [nowhere](nowhere.md).\n")
 	writeFile(t, k.DataRoot(), "ops/b.md", noteHead+"---\nBack to [a](a.md).\n")
@@ -89,6 +94,7 @@ func TestScopedCheck_NeighbourPreexistingFindingExcluded(t *testing.T) {
 // A page still linking an ID that is gone (moved without rewriting) is a
 // finding the write introduced.
 func TestScopedCheck_GoneIDReportsLinkers(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/a.md", noteHead+"---\nSee [old](old.md).\n")
 	got := ScopedCheck(k, ids("ops/old"))
@@ -101,6 +107,7 @@ func TestScopedCheck_GoneIDReportsLinkers(t *testing.T) {
 }
 
 func TestScopedCheck_LintIgnore(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/x.md", "---\ntype: Note\ntitle: T\nlint_ignore: [broken_link]\n---\nSee [gone](gone.md).\n")
 	if got := ScopedCheck(k, ids("ops/x")); hasCheck(got, "ops/x.md", "broken_link") {
@@ -116,6 +123,7 @@ func TestScopedCheck_LintIgnore(t *testing.T) {
 // A hub linked from far more pages than the cap: only the capped, sorted
 // prefix of linkers is examined, so a write never becomes a full lint.
 func TestScopedCheck_NeighbourCap(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	for i := 0; i < scopedNeighbourCap+50; i++ {
 		writeFile(t, k.DataRoot(), fmt.Sprintf("ops/p%03d.md", i), noteHead+"---\nSee [hub](hub.md).\n")
@@ -136,6 +144,7 @@ func TestScopedCheck_NeighbourCap(t *testing.T) {
 }
 
 func TestScopedCheck_CleanIsNil(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
 	writeFile(t, k.DataRoot(), "ops/a.md", noteHead+"---\nSee [b](b.md).\n")
@@ -147,6 +156,7 @@ func TestScopedCheck_CleanIsNil(t *testing.T) {
 
 // A Source cited only from another concept's provenance is no orphan.
 func TestScopedCheck_Orphan_ProvenanceCited(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
 	writeFile(t, k.DataRoot(), "notes/deep/src.md", noteHead+"---\nBody.\n")
@@ -173,6 +183,7 @@ func crossingMap(t *testing.T, k *kb.KB, front string, existing int, extra ...st
 }
 
 func TestMapOversizeCrossings(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		front    string
@@ -204,6 +215,7 @@ func TestMapOversizeCrossings(t *testing.T) {
 }
 
 func TestMapOversizeCrossings_ArchivedNotCounted(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	crossingMap(t, k, "kind: map\noversize_concepts: 3\n", 2)
 	writeFile(t, k.DataRoot(), "m/done.md", "---\ntype: Note\nstatus: archived\n---\nBody.\n")

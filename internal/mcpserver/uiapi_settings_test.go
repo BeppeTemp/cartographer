@@ -23,6 +23,7 @@ func settingsHandler(t *testing.T, cfg *config.Config, ts *auth.TokenStore, name
 }
 
 func TestUIAPI_SettingsListsValuesOriginsAndFacts(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Git.Sync = false
 	cfg.Origins = map[string]config.Origin{"git.sync": config.OriginEnv}
@@ -58,6 +59,7 @@ func TestUIAPI_SettingsListsValuesOriginsAndFacts(t *testing.T) {
 }
 
 func TestUIAPI_SettingsRedactsSecrets(t *testing.T) {
+	t.Parallel()
 	cfg := config.Default()
 	cfg.Auth.Tokens = []config.TokenSpec{{Token: "tok-secret-1"}}
 	cfg.Audit.KeySeed = "audit-secret-2"
@@ -75,6 +77,7 @@ func TestUIAPI_SettingsRedactsSecrets(t *testing.T) {
 }
 
 func TestUIAPI_SettingsOmitsInvisibleKB(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "only-x", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
 	})
@@ -103,6 +106,7 @@ func TestUIAPI_SettingsOmitsInvisibleKB(t *testing.T) {
 // The capabilities kb_status reports name the setting that controls each: every
 // one must be a key of the schema, so the two cannot drift (D743).
 func TestKBCapabilitySettingsExistInSchema(t *testing.T) {
+	t.Parallel()
 	k := uiFixtureKB(t, "docs")
 	for name, c := range kbCapabilities(k) {
 		for _, setting := range strings.Split(c.Setting, " or ") {

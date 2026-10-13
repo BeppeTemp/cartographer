@@ -21,6 +21,7 @@ func healthBody(t *testing.T, h http.Handler) map[string]interface{} {
 // D254: latest_version is additive on both /health shapes — present only when
 // a newer release is known, absent otherwise, so a probe sees the same keys.
 func TestHealth_LatestVersionOnlyWhenKnown(t *testing.T) {
+	t.Parallel()
 	latest := ""
 	source := func() string { return latest }
 
@@ -48,6 +49,7 @@ func TestHealth_LatestVersionOnlyWhenKnown(t *testing.T) {
 }
 
 func TestKBStatus_ServerAndLatestVersion(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("v0.16.1")
 	RegisterKBTools(s, k, Deps{})

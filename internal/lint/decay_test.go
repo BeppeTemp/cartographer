@@ -74,6 +74,7 @@ func TestStaleOpenSuspendedByReviewAfter(t *testing.T) {
 
 // D321: active in a journal that does not list it open gets status_semantics.
 func TestStatusSemantics(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
 	writeFile(t, k.DataRoot(), "o/_map.md", "---\ntype: Map\ntitle: O\nkind: journal\nopen_statuses: [active]\n---\n")
@@ -94,6 +95,7 @@ func TestStatusSemantics(t *testing.T) {
 }
 
 func TestClosedWithOpenItems(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
 	writeFile(t, k.DataRoot(), "j/a.md", "---\ntype: Task\ntitle: A\nstatus: completato\n---\n# A\n\n- [x] one\n- [ ] two\n")
@@ -106,6 +108,7 @@ func TestClosedWithOpenItems(t *testing.T) {
 
 // D313: checkboxes under a procedure heading are a reusable checklist.
 func TestClosedWithOpenItems_ProcedureExempt(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "r/_map.md", "---\ntype: Map\ntitle: R\nprocedure_headings: [Procedura]\n---\n")
 	writeFile(t, k.DataRoot(), "r/a.md", "---\ntype: Task\ntitle: A\nstatus: done\n---\n# A\n\n## Procedura\n\n- [ ] step one\n- [ ] step two\n")
@@ -121,6 +124,7 @@ func TestClosedWithOpenItems_ProcedureExempt(t *testing.T) {
 }
 
 func TestTemplateSectionMissing(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/service.md", "---\ntype: Service\ntitle: \"{{title}}\"\n---\n# {{title}}\n\n## Endpoint\n\n## Source of truth\n\n## Città\n")
 	writeFile(t, k.DataRoot(), "s/_map.md", "---\ntype: Map\ntitle: S\ntemplate_sections: true\n---\n")
@@ -139,6 +143,7 @@ func TestTemplateSectionMissing(t *testing.T) {
 }
 
 func TestOpenMarker(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	writeFile(t, k.DataRoot(), "l/_map.md", "---\ntype: Map\ntitle: L\nopen_markers: [da verificare]\n---\n")
@@ -155,6 +160,7 @@ func TestOpenMarker(t *testing.T) {
 
 // D313: headings are section names, table rows of an open concept are tracked.
 func TestOpenMarker_HeadingAndOpenTableExempt(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
 	writeFile(t, k.DataRoot(), "j/h.md", "---\ntype: Note\ntitle: H\n---\n# H\n\n## TODO list\n\n- [x] done\n")
@@ -170,6 +176,7 @@ func TestOpenMarker_HeadingAndOpenTableExempt(t *testing.T) {
 }
 
 func TestFacetSprawl(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	for i := 0; i < 40; i++ {
@@ -184,6 +191,7 @@ func TestFacetSprawl(t *testing.T) {
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
 
 func TestTemplateSectionsFromFencedSample(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/repo.md", "---\ntype: repo\ntitle: x\n---\nIntro.\n\n```markdown\n# <name>\n\n## One\n## Two\nRules.\n\n```markdown\n## Other\n```\n")
 	if got := k.TemplateCatalog()["repo"].Sections; len(got) != 2 || got[0] != "One" || got[1] != "Two" {

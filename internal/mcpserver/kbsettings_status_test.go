@@ -9,6 +9,7 @@ import (
 
 // D746: kb_status says where a gate comes from, and which server value lost.
 func TestKBStatus_ReportsKBSettingsAndIgnoredServerValues(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})

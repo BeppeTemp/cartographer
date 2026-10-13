@@ -235,6 +235,7 @@ func TestGraphCacheMatchesTheUncachedReaders(t *testing.T) {
 // The racy rule: a file rewritten with its size and mtime unchanged is
 // re-read while its mtime is too recent to vouch for its content.
 func TestGraphCacheCatchesARacilyCleanRewrite(t *testing.T) {
+	t.Parallel()
 	f := newGraphFixture(t)
 	if _, err := f.k.IncomingLinks(); err != nil {
 		t.Fatal(err)
@@ -255,6 +256,7 @@ func TestGraphCacheCatchesARacilyCleanRewrite(t *testing.T) {
 }
 
 func TestGraphCacheWarmCallParsesNothing(t *testing.T) {
+	t.Parallel()
 	f := newGraphFixture(t)
 	backdate(t, f.k)
 	if _, err := f.k.GraphNeighbors("infra/gateway", 1); err != nil {
@@ -270,6 +272,7 @@ func TestGraphCacheWarmCallParsesNothing(t *testing.T) {
 }
 
 func TestConceptFacetsReadsOneFileWithoutAValidation(t *testing.T) {
+	t.Parallel()
 	f := newGraphFixture(t)
 	backdate(t, f.k)
 	if _, err := f.k.IncomingLinks(); err != nil {
@@ -301,6 +304,7 @@ func TestConceptFacetsReadsOneFileWithoutAValidation(t *testing.T) {
 }
 
 func TestGraphCacheConcurrentReadsAndWrites(t *testing.T) {
+	t.Parallel()
 	f := newGraphFixture(t)
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -389,6 +393,7 @@ func TestConceptFacetsNeverTrustsASymlink(t *testing.T) {
 // placeholder keys a body cites — escaped ones and metasyntax excluded,
 // duplicates collapsed, frontmatter ignored — and follow the file on edit.
 func TestFacetsCarryBodyPlaceholders(t *testing.T) {
+	t.Parallel()
 	f := newGraphFixture(t)
 	f.write("infra/tools.md", "---\ntype: Service\ntitle: \"{{path:in-frontmatter}}\"\n---\n"+
 		"Clone {{repo:tool}} into {{path:work}}; again {{repo:tool}}. Syntax: {{\\repo:x}}, {{repo:<name>}}, {{repo:…}}.\n")
@@ -419,6 +424,7 @@ func TestFacetsCarryBodyPlaceholders(t *testing.T) {
 // edge under the expanded concept's ID, in both link syntaxes, and leaves a
 // target whose parent is no concept as written (a genuine broken link).
 func TestBuildGraphView_NormalisesIndexTarget(t *testing.T) {
+	t.Parallel()
 	for name, link := range map[string]string{"markdown": "[exp](exp/index.md)", "wiki": "[[arch/exp/index]]"} {
 		t.Run(name, func(t *testing.T) {
 			f := &graphFixture{t: t, k: mustInitKB(t)}
@@ -464,6 +470,7 @@ func TestBuildGraphView_NormalisesIndexTarget(t *testing.T) {
 }
 
 func TestConceptIDOfPathMatchesConceptFiles(t *testing.T) {
+	t.Parallel()
 	for rel, want := range map[string]string{
 		"data/ops/a.md":           "ops/a",
 		"data/ops/x/index.md":     "ops/x",

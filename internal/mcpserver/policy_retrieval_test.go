@@ -53,6 +53,7 @@ func toolText(t *testing.T, s *Server, ctx requestContext, name, args string) st
 }
 
 func TestPolicyRetrievalFiltersMixedVisibility(t *testing.T) {
+	t.Parallel()
 	s, ctx := policyFixture(t)
 	for name, args := range map[string]string{
 		"search":               `{"query":"needle","limit":10}`,
@@ -70,6 +71,7 @@ func TestPolicyRetrievalFiltersMixedVisibility(t *testing.T) {
 }
 
 func TestPolicyExactMissingAndForbiddenAreIndistinguishable(t *testing.T) {
+	t.Parallel()
 	s, ctx := policyFixture(t)
 	for _, id := range []string{"hidden/secret", "visible/missing"} {
 		result := s.callTool(ctx, "concept_read", json.RawMessage(`{"id":"`+id+`"}`))

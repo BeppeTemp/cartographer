@@ -15,6 +15,7 @@ import (
 // D311: the conflict message names reserved files and never says "0
 // concept(s)" alone, nor suggests a git command.
 func TestConflictMessage(t *testing.T) {
+	t.Parallel()
 	only := conflictMessage(0, []string{"data/log.md"})
 	if strings.Contains(only, "0 concept(s)") || !strings.Contains(only, "data/log.md") || !strings.Contains(only, "git_conflict_resolve") {
 		t.Fatalf("reserved-only message = %q", only)
@@ -34,6 +35,7 @@ func TestConflictMessage(t *testing.T) {
 }
 
 func TestHandleConflictError_ReservedOnlyIsRegisteredWithKind(t *testing.T) {
+	t.Parallel()
 	k, sha := setupGitKB(t)
 	n, reserved := handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/log.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
 	if n != 0 || len(reserved) != 1 {
@@ -57,6 +59,7 @@ func TestHandleConflictError_ReservedOnlyIsRegisteredWithKind(t *testing.T) {
 }
 
 func TestHandleConflictError_ReservedWithConceptStaysOutOfRegistry(t *testing.T) {
+	t.Parallel()
 	k, sha := setupGitKB(t)
 	if err := os.MkdirAll(k.Root+"/data/ops", 0o755); err != nil {
 		t.Fatal(err)
@@ -82,6 +85,7 @@ func TestHandleConflictError_ReservedWithConceptStaysOutOfRegistry(t *testing.T)
 // commits locally and reports degraded; once the remote is back the next
 // write syncs normally.
 func TestGitWrap_UnreachableRemoteWriteSucceedsDegraded(t *testing.T) {
+	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
 	if err := k.SyncOut(); err != nil {
@@ -138,6 +142,7 @@ func TestGitWrap_UnreachableRemoteWriteSucceedsDegraded(t *testing.T) {
 // plainly that nothing was written; the write before it reports the commit as
 // safe locally (committed, commit_sha, unpushed_commits, hint).
 func TestGitWrap_UnreachableRemoteMessagesAreExplicit(t *testing.T) {
+	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
 	if err := k.SyncOut(); err != nil {
@@ -167,6 +172,7 @@ func TestGitWrap_UnreachableRemoteMessagesAreExplicit(t *testing.T) {
 
 // Pending is the normal debounced push: the response keeps the pre-hint shape.
 func TestGitWrap_PendingPushHasNoCommitHint(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKBWithRemote(t)
 	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
 	res := writeWrappedTool(t, k, "test_write", nil)
@@ -190,6 +196,7 @@ func TestGitWrap_PendingPushHasNoCommitHint(t *testing.T) {
 // A degraded state from a registered rebase conflict refuses the next write:
 // the "retried on the next write" hint would be false.
 func TestGitWrap_ConflictDegradedHasNoCommitHint(t *testing.T) {
+	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
 	if err := k.SyncOut(); err != nil {

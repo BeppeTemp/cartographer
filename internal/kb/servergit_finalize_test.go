@@ -30,6 +30,7 @@ func readyForge(head string, ready bool) *scriptedForge {
 }
 
 func TestFinalizeServerPRRejectsStaleCallerAndForgeHead(t *testing.T) {
+	t.Parallel()
 	k, _, head := serverGitFinalizeFixture(t)
 	base, _ := gitx.HeadSHAAt(k.Root, "origin/main")
 	f := readyForge(head, true)
@@ -48,6 +49,7 @@ func TestFinalizeServerPRRejectsStaleCallerAndForgeHead(t *testing.T) {
 }
 
 func TestFinalizeServerPRValidationLintAndGateFailuresDoNotPush(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		want    string
@@ -84,6 +86,7 @@ func TestFinalizeServerPRValidationLintAndGateFailuresDoNotPush(t *testing.T) {
 }
 
 func TestFinalizeServerPRLeaseFailureDoesNotCallForgeMerge(t *testing.T) {
+	t.Parallel()
 	k, bare, head := serverGitFinalizeFixture(t)
 	mergeCalls := 0
 	f := readyForge(head, true)
@@ -114,6 +117,7 @@ func TestFinalizeServerPRLeaseFailureDoesNotCallForgeMerge(t *testing.T) {
 }
 
 func TestFinalizeServerPRRejectsRemoteHeadRaceBeforeRebase(t *testing.T) {
+	t.Parallel()
 	k, bare, head := serverGitFinalizeFixture(t)
 	f := readyForge(head, true)
 	f.ready = func() (bool, error) {
@@ -137,6 +141,7 @@ func TestFinalizeServerPRRejectsRemoteHeadRaceBeforeRebase(t *testing.T) {
 }
 
 func TestFinalizeServerPRRejectsBaseRaceBeforeMerge(t *testing.T) {
+	t.Parallel()
 	k, bare, head := serverGitFinalizeFixture(t)
 	base, err := gitx.HeadSHAAt(k.Root, "origin/main")
 	if err != nil {
@@ -183,6 +188,7 @@ func TestFinalizeServerPRRejectsBaseRaceBeforeMerge(t *testing.T) {
 }
 
 func TestMergeUncertainRestartReconcilesOnlyConfirmedMerge(t *testing.T) {
+	t.Parallel()
 	k, bare, head := serverGitFinalizeFixture(t)
 	merged := false
 	f := readyForge(head, true)
@@ -223,6 +229,7 @@ func TestMergeUncertainRestartReconcilesOnlyConfirmedMerge(t *testing.T) {
 }
 
 func TestMergeUncertainOpenUnmergedAndUnknownRemainBlocked(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		pr   PullRequest
@@ -268,6 +275,7 @@ func registerResolvedServerConflict(t *testing.T, k *KB) {
 }
 
 func TestFinalizeServerConflictsKeepsRegistryOnRebasePushAndForgeFailure(t *testing.T) {
+	t.Parallel()
 	t.Run("rebase", func(t *testing.T) {
 		k, bare, _ := serverGitFinalizeFixture(t)
 		registerResolvedServerConflict(t, k)
@@ -318,6 +326,7 @@ func TestFinalizeServerConflictsKeepsRegistryOnRebasePushAndForgeFailure(t *test
 }
 
 func TestFinalizeServerConflictsResolvesSyntheticUnrelatedPathID(t *testing.T) {
+	t.Parallel()
 	k, _, _ := serverGitFinalizeFixture(t)
 	head, err := gitx.HeadSHA(k.Root)
 	if err != nil {

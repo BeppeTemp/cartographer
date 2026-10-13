@@ -91,6 +91,7 @@ func TestOpenField_Harvest(t *testing.T) {
 }
 
 func TestOpenField_ContractMalformed(t *testing.T) {
+	t.Parallel()
 	for _, v := range []string{`"a b"`, "a.b"} {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\nopen_field: "+v+"\n---\n")

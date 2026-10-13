@@ -19,6 +19,7 @@ func sampleAt(at time.Time, total int) lintSample {
 
 // One sample per UTC day, the latest of the day wins; older than 90 days goes.
 func TestLintHistoryOnePerDayAndRetention(t *testing.T) {
+	t.Parallel()
 	k := cacheTestKB(t)
 	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	for _, s := range []lintSample{
@@ -48,6 +49,7 @@ func TestLintHistoryOnePerDayAndRetention(t *testing.T) {
 
 // The whole-KB lint recompute records a sample, split by severity and handler.
 func TestConformanceCacheRecordsLintSample(t *testing.T) {
+	t.Parallel()
 	k := cacheTestKB(t)
 	now := time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC)
 	cc := &conformanceCache{clock: func() time.Time { return now }}
@@ -89,6 +91,7 @@ func TestConformanceCacheRecordsLintSample(t *testing.T) {
 }
 
 func TestNewLintSampleHandlers(t *testing.T) {
+	t.Parallel()
 	k := cacheTestKB(t)
 	fs := []lint.Finding{{Check: "x", Severity: "warning"}, {Check: "y", Severity: "info"}}
 	s := newLintSample(k, fs, time.Now())
@@ -98,6 +101,7 @@ func TestNewLintSampleHandlers(t *testing.T) {
 }
 
 func TestLintTrend(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	old := sampleAt(now.Add(-20*24*time.Hour), 300)
 	a := sampleAt(now.Add(-6*24*time.Hour), 188)
@@ -114,6 +118,7 @@ func TestLintTrend(t *testing.T) {
 
 // kb_status carries the trend for a whole-KB caller and never for a narrowed one.
 func TestKBStatusLintTrend(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 1)
 	now := time.Now().UTC()
 	for _, x := range []lintSample{sampleAt(now.Add(-5*24*time.Hour), 188), sampleAt(now.Add(-2*24*time.Hour), 40)} {
@@ -151,6 +156,7 @@ func TestKBStatusLintTrend(t *testing.T) {
 
 // The Health summary carries the history as an array, even when empty.
 func TestUIAPI_MaintenanceSummaryLintHistory(t *testing.T) {
+	t.Parallel()
 	handler := maintenanceHandler(t, auth.NewTokenStore(nil))
 	body := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/maintenance/summary", ""))
 	if h, ok := body["lint_history"].([]any); !ok || h == nil {
@@ -161,6 +167,7 @@ func TestUIAPI_MaintenanceSummaryLintHistory(t *testing.T) {
 // The history never invalidates the lint cache it is written from, but the
 // rest of .cartographer does: usage.json is an input of artifact_unused.
 func TestLintHistoryOutsideTheStampUsageInside(t *testing.T) {
+	t.Parallel()
 	k := cacheTestKB(t)
 	before := lintInputsStamp(k)
 	now := time.Now()

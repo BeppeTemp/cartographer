@@ -13,6 +13,7 @@ import (
 // TestUpdateMapContract_CostKeys covers the D301 keys: set, read back,
 // removed, a bad index value refused on update and reported when hand-written.
 func TestUpdateMapContract_CostKeys(t *testing.T) {
+	t.Parallel()
 	k, _ := Init(tempKB(t))
 	if err := k.CreateMap("m", "M", "map", nil, ""); err != nil {
 		t.Fatal(err)
@@ -47,6 +48,7 @@ func TestUpdateMapContract_CostKeys(t *testing.T) {
 }
 
 func TestRenderIndexBlock_Map(t *testing.T) {
+	t.Parallel()
 	es := []ConceptSummary{
 		{ID: "m/b", Title: "Beta", Type: "Topic"},
 		{ID: "m/a", Title: "Alpha", Type: "Entity"},
@@ -65,6 +67,7 @@ func TestRenderIndexBlock_Map(t *testing.T) {
 }
 
 func TestRenderIndexBlock_Journal(t *testing.T) {
+	t.Parallel()
 	short := RenderIndexBlock("journal", []ConceptSummary{{ID: "j/2026-01-02-a"}, {ID: "j/2026-03-01-b"}})
 	if strings.Index(short, "2026-03-01-b") > strings.Index(short, "2026-01-02-a") || strings.Contains(short, "###") {
 		t.Fatalf("short journal not newest-first or grouped:\n%s", short)
@@ -86,6 +89,7 @@ func TestRenderIndexBlock_Journal(t *testing.T) {
 // concept is one entry and its satellites none; a second run writes nothing;
 // a deleted concept leaves the block.
 func TestRegenerateIndexes(t *testing.T) {
+	t.Parallel()
 	k, _ := Init(tempKB(t))
 	for _, m := range []string{"gen", "cur"} {
 		if err := k.CreateMap(m, m, "map", nil, ""); err != nil {
@@ -144,6 +148,7 @@ func TestRegenerateIndexes(t *testing.T) {
 
 // TestUpdateMapContract_WorkMap (D302): work_map must name an existing map.
 func TestUpdateMapContract_WorkMap(t *testing.T) {
+	t.Parallel()
 	k, _ := Init(tempKB(t))
 	for _, m := range []string{"ref", "backlog"} {
 		if err := k.CreateMap(m, m, "map", nil, ""); err != nil {
@@ -165,6 +170,7 @@ func TestUpdateMapContract_WorkMap(t *testing.T) {
 // TestUpdateMapContract_Title (D304): a rename reaches the title and the H1
 // that repeats it in _map.md and index.md; an H1 written differently stays.
 func TestUpdateMapContract_Title(t *testing.T) {
+	t.Parallel()
 	k, _ := Init(tempKB(t))
 	if err := k.CreateMap("ref", "Reference notes", "map", nil, ""); err != nil {
 		t.Fatal(err)

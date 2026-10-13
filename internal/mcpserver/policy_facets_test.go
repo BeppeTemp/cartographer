@@ -40,6 +40,7 @@ func oracleConceptClass(k *kb.KB, id string) (mapName, journalName, typ string) 
 }
 
 func TestVisibleWithCachedTypesMatchesTheUncachedPolicy(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	abs := func(rel string) string {

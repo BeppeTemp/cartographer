@@ -23,6 +23,7 @@ repos:
 `
 
 func TestParsePathRegistry_Valid(t *testing.T) {
+	t.Parallel()
 	reg, bad, err := ParsePathRegistry([]byte(validRegistry))
 	if err != nil || len(bad) != 0 {
 		t.Fatalf("err=%v bad=%v", err, bad)
@@ -46,6 +47,7 @@ func TestParsePathRegistry_Valid(t *testing.T) {
 }
 
 func TestParsePathRegistry_EmptyFile(t *testing.T) {
+	t.Parallel()
 	for _, in := range []string{"", "\n", "# only a comment\n"} {
 		reg, bad, err := ParsePathRegistry([]byte(in))
 		if err != nil || len(bad) != 0 || !reg.IsEmpty() {
@@ -57,6 +59,7 @@ func TestParsePathRegistry_EmptyFile(t *testing.T) {
 // Every malformed shape is rejected by the strict form with a message naming
 // the entry, and left out (not fatal) by the tolerant one.
 func TestParsePathRegistry_Malformed(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, yaml, entry, want string
 	}{
@@ -102,6 +105,7 @@ func TestParsePathRegistry_Malformed(t *testing.T) {
 }
 
 func TestParsePathRegistry_NotAMapping(t *testing.T) {
+	t.Parallel()
 	for _, in := range []string{"- a\n- b\n", "paths: [\n"} {
 		if _, _, err := ParsePathRegistry([]byte(in)); err == nil {
 			t.Errorf("%q: want an error", in)
@@ -113,6 +117,7 @@ func TestParsePathRegistry_NotAMapping(t *testing.T) {
 }
 
 func TestReadPathRegistry(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k := &KB{Root: dir}
 	st, err := k.ReadPathRegistry()
@@ -136,6 +141,7 @@ func TestReadPathRegistry(t *testing.T) {
 }
 
 func TestReadPathRegistry_RefusesSymlink(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	target := filepath.Join(t.TempDir(), "elsewhere.yaml")
 	if err := os.WriteFile(target, []byte(validRegistry), 0o644); err != nil {
@@ -150,6 +156,7 @@ func TestReadPathRegistry_RefusesSymlink(t *testing.T) {
 }
 
 func TestArtifactPlaceholders(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	write := func(rel, content string) {
 		p := filepath.Join(dir, rel)
