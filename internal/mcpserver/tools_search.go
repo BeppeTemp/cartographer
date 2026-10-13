@@ -54,6 +54,9 @@ type searchHit struct {
 	// Partial marks a hit that matched only some query terms (D343): it comes
 	// from the OR pass and ranks after every full match.
 	Partial bool `json:"partial,omitempty"`
+	// Bytes is the concept file's size (D301, D779): what reading it whole
+	// costs, so an agent can choose outline or section before paying it.
+	Bytes int64 `json:"bytes"`
 }
 
 // searchHitLess orders hits: full matches before partial ones whatever the
@@ -79,7 +82,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, reads *r
 	if deps.SQLIndex != nil {
 		description = "Keyword search over concepts (SQLite FTS5, substring matching); returns IDs ranked by relevance."
 	}
-	description += " Glossary aliases are searched too (expanded_to)."
+	description += " Glossary aliases are searched too (expanded_to). scope is a map name or id prefix, never a KB name."
 
 	return Tool{
 		Name:        "search",
@@ -140,7 +143,17 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 		}
 	}
 	for i := range hits {
-		hits[i].Archived = k.ConceptFacets(okf.ConceptID(hits[i].ID)).Status == kb.StatusArchived
+		f := k.ConceptFacets(okf.ConceptID(hits[i].ID))
+		hits[i].Archived = f.Status == kb.StatusArchived
+		hits[i].Bytes = f.Bytes
+	}
+	// A scope no visible concept starts with is a wrong argument, not an empty
+	// answer (D779): refused before the miss log, which would record a gap the
+	// KB does not have.
+	if len(hits) == 0 && params.Scope != "" {
+		if msg := unmatchedScope(ctx, k, params.Scope); msg != "" {
+			return errorResult(msg), nil
+		}
 	}
 	// A miss is recorded only when every glossary variant came back empty
 	// (D276), and only for a principal who sees the whole KB (D247).
@@ -186,6 +199,53 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	}
 	out, _ := json.MarshalIndent(result, "", "  ")
 	return textResult(string(out)), nil
+}
+
+// scopePrefixesShown caps the maps and journals an unmatched-scope error
+// lists.
+const scopePrefixesShown = 30
+
+// unmatchedScope returns the error for a scope that no concept the caller can
+// see starts with, and "" when one does. Only visible concepts are compared and
+// listed, so the answer says nothing about hidden ones. It costs a walk of the
+// concept ids, paid only by a search that already came back empty.
+func unmatchedScope(ctx requestContext, k *kb.KB, scope string) string {
+	links, err := k.Links()
+	if err != nil {
+		return ""
+	}
+	whole := WholeVisible(ctx, k, false)
+	ids := make([]string, 0, len(links.Exists))
+	for id := range links.Exists {
+		ids = append(ids, string(id))
+	}
+	sort.Strings(ids)
+	prefixes := []string{}
+	seen := map[string]bool{}
+	for _, id := range ids {
+		if !whole && !Visible(ctx, k, id) {
+			continue
+		}
+		if strings.HasPrefix(id, scope) {
+			return ""
+		}
+		// Trap: listed bare, without the slash. A narrowed token's scope is
+		// authorized as a map name (policy.go), so "ops/" would be refused
+		// where "ops" is allowed; the bare name is a prefix that works for all.
+		top, _, nested := strings.Cut(id, "/")
+		if !nested || seen[top] {
+			continue
+		}
+		seen[top] = true
+		prefixes = append(prefixes, top)
+	}
+	list := "none"
+	if len(prefixes) > scopePrefixesShown {
+		list = strings.Join(prefixes[:scopePrefixesShown], ", ") + ", …"
+	} else if len(prefixes) > 0 {
+		list = strings.Join(prefixes, ", ")
+	}
+	return fmt.Sprintf("scope %q matches no concept you can see in this KB: scope is a literal id prefix, usually a map name, not a KB name (the kb argument selects the KB). Maps and journals here: %s. Omit scope to search the whole KB.", scope, list)
 }
 
 // glossaryMaxVariants caps the queries one search runs through the glossary
