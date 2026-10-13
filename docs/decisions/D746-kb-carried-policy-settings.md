@@ -18,7 +18,9 @@ Moving `allow_artifact_write` and `mcp_allowlist` into the KB does not weaken an
 can push to the KB can already commit artifacts and `mcp/*.json` with git, so the server flag was
 never the trust boundary; signature verification and the hash-bound local approval of MCP
 descriptors (D115) stay per machine. The cost: an operator can no longer tighten a KB's policy from
-the server side, and a bad commit changes every mount at once.
+the server side, and a bad commit changes every mount at once. `github_api_url` is the exception
+among the forge keys and stays server-only: the server sends its own GitHub token to that URL, so a
+KB able to set it would let anyone who can push to the KB send the token to a host of theirs.
 
 **Alternatives rejected.**
 - The server wins and the KB only suggests: the failure this removes, a shared KB behaving

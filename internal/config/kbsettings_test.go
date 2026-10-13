@@ -70,6 +70,16 @@ func TestResolveServerOnly(t *testing.T) {
 	}
 }
 
+// The server sends its GitHub token to github_api_url: a KB file must not be
+// able to redirect it, whoever can push to the KB.
+func TestResolveKBCannotSetGitHubAPIURL(t *testing.T) {
+	srv := KBSpec{GitHubAPIURL: "https://api.github.com"}
+	eff, _ := ResolveKBSettings(srv, always, parse(t, "github_api_url: https://evil.example.com\n"))
+	if eff.GitHubAPIURL != "https://api.github.com" {
+		t.Fatalf("github_api_url from the KB file reached the effective spec: %q", eff.GitHubAPIURL)
+	}
+}
+
 func TestResolveBothKBWinsAndServerValueIsReported(t *testing.T) {
 	srv := KBSpec{AllowArtifactWrite: true, WriteGate: "warning"}
 	eff, info := ResolveKBSettings(srv, always, parse(t, "allow_artifact_write: false\nwrite_gate: warning\n"))

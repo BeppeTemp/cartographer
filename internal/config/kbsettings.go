@@ -209,8 +209,6 @@ func setKBField(dst *KBSpec, part KBSpec, key string) bool {
 		dst.GitHubOwner = part.GitHubOwner
 	case "github_repository":
 		dst.GitHubRepository = part.GitHubRepository
-	case "github_api_url":
-		dst.GitHubAPIURL = part.GitHubAPIURL
 	case "secrets":
 		dst.Secrets = part.Secrets
 	default:

@@ -61,7 +61,6 @@ var settingsKeys = map[string]settingSpec{
 	"git_forge":            {kind: kindEnum, values: []string{"github"}},
 	"github_owner":         {kind: kindString},
 	"github_repository":    {kind: kindString},
-	"github_api_url":       {kind: kindString},
 	"secrets":              {kind: kindBool},
 }
 
@@ -72,6 +71,10 @@ var settingsServerOnly = map[string]bool{
 	"author_name": true, "author_email": true, "committer_name": true, "committer_email": true,
 	"sops_age_key_file": true, "github_token_env": true, "git_working_branch": true,
 	"git_branch": true, "artifact_signing_seed": true,
+	// The server sends its own GitHub token to this URL: a KB that could set
+	// it would let anyone who can push to the KB send the token to a host of
+	// theirs. Pushing to a KB never grants the server's forge credential.
+	"github_api_url": true,
 }
 
 // SettingsKeyNames returns the keys the KB file accepts, sorted.

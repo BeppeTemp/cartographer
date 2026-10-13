@@ -767,14 +767,15 @@ mounting the same KB get the same behaviour. `settings.yaml` at the KB root, bes
   `usage_stale_days`;
 - provisioning: `mcp_allowlist`;
 - how changes land: `git_profile`, `git_base_branch`, `git_forge`, `github_owner`,
-  `github_repository`, `github_api_url`;
+  `github_repository`;
 - `secrets: true|false`: the KB uses secrets. A mount of it without an age key reports
   `capabilities.secrets: missing key` and warns at startup, instead of a silent `disabled`.
 
 Names and values are those of the same `kbs[]` keys (`docs/deployment.md`, `config.example.yaml`).
 The keys bound to one machine (`path`, `remote`, `name`, `ssh_key`, `known_hosts`, `author_*`,
 `committer_*`, `sops_age_key_file`, `github_token_env`, `git_working_branch`, `git_branch`,
-`artifact_signing_seed`) stay in the server's `kbs[]`; naming one in `settings.yaml` is a finding.
+`artifact_signing_seed`, and `github_api_url`, where the server sends its own GitHub token)
+stay in the server's `kbs[]`; naming one in `settings.yaml` is a finding.
 
 **Precedence: the KB is authoritative.** Effective value = the KB's `settings.yaml` if it sets
 the key, else the server's `kbs[]`/env/flag value, else the default. When both set a key and
