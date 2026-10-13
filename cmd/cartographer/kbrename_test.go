@@ -3,9 +3,11 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -226,5 +228,84 @@ func TestApplyKBRename_RollsBackOnConfigFailure(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "atlas")); !os.IsNotExist(err) {
 		t.Error("the new directory survived a rolled-back rename")
+	}
+}
+
+// writeClientBindings writes a client config at $HOME bound to serverURL,
+// with claude bound to [kb-b, wiki] and a kiro workspace bound to [wiki].
+func writeClientBindings(t *testing.T, serverURL string) string {
+	t.Helper()
+	home := t.TempDir()
+	setHome(t, home)
+	body := "schema_version: 1\nserver_url: " + serverURL + "\n" +
+		"clients:\n  claude:\n    kbs: [kb-b, wiki]\n" +
+		"workspaces:\n  kiro:\n    - path: /work/repo-a\n      kbs: [wiki]\n"
+	if err := os.WriteFile(filepath.Join(home, clientconfig.FileName), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// TestCmdKBRename_RewritesClientBindings: a binding left on the old name makes
+// every sync abort on a stale selection, so the rename rewrites it, in place
+// (#754, D754).
+func TestCmdKBRename_RewritesClientBindings(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	home := writeClientBindings(t, "http://127.0.0.1:39273")
+	dataDir := seedRenameKB(t, "wiki")
+	cfgPath := writeServerConfig(t, "data: "+dataDir+"\n")
+
+	var code int
+	out := withStdout(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBRename([]string{"wiki", "atlas", "--data", dataDir, "--config", cfgPath})
+		})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0:\n%s", code, out)
+	}
+	if !strings.Contains(out, "rewriting the clients.claude binding") || !strings.Contains(out, "rewrote 2 client binding(s)") {
+		t.Errorf("the rewrite was not reported:\n%s", out)
+	}
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Clients["claude"].KBs; !slices.Equal(got, []string{"kb-b", "atlas"}) {
+		t.Errorf("clients.claude.kbs = %v, want [kb-b atlas]", got)
+	}
+	if got := cfg.Workspaces["kiro"][0].KBs; !slices.Equal(got, []string{"atlas"}) {
+		t.Errorf("workspaces.kiro[0].kbs = %v, want [atlas]", got)
+	}
+}
+
+// TestPlanKBRename_LeavesRemoteBindings: a client pointed at another server
+// binds that server's KBs, which a local rename does not touch.
+func TestPlanKBRename_LeavesRemoteBindings(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	writeClientBindings(t, "https://kb.example.com")
+	dataDir := seedRenameKB(t, "wiki")
+	p, err := planKBRename("wiki", "atlas", dataDir, writeServerConfig(t, "data: "+dataDir+"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Bindings) != 0 {
+		t.Errorf("bindings of a remote server's KBs must not be rewritten: %v", p.Bindings)
+	}
+}
+
+func TestRenameInList(t *testing.T) {
+	for _, c := range []struct{ in, want []string }{
+		{[]string{"a", "wiki", "b"}, []string{"a", "atlas", "b"}},
+		{[]string{"atlas", "wiki"}, []string{"atlas"}},
+		{[]string{}, []string{}},
+	} {
+		if got := renameInList(c.in, "wiki", "atlas"); !slices.Equal(got, c.want) {
+			t.Errorf("renameInList(%v) = %v, want %v", c.in, got, c.want)
+		}
 	}
 }
