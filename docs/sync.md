@@ -202,6 +202,10 @@ run git commands there and to report replication problems from `sync_status` to 
 agent's own `git init`, `checkout -b` or `push` is how a KB ends up forked across two branches of its
 remote; the server owns the clone and refuses writes on a branch other than the remote's default one.
 
+**The first operational bullet names the reading tools** (D780): `search` or `atlas_overview` to
+orient, `concept_read` to read, and `graph_context` when the answer spans several linked pages, in one
+call instead of reading page by page and following links. Agents pick tools from what this line names.
+
 **The scope sentence attributes and bounds each KB's directives** (D182): emitted immediately before
 the curated body, only when curated content exists, it says that what follows is that KB's own and
 governs work in its perimeter, and that the more specific source wins on a conflict with another KB's
