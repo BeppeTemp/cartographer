@@ -382,6 +382,40 @@ func TestGitWrap_ConceptMove_SourceRemovalFailure_NoCommit(t *testing.T) {
 	}
 }
 
+// D762: map_delete force lists the removed loose files in the commit subject.
+func TestGitWrap_MapDelete_Force_CommitSubjectListsFiles(t *testing.T) {
+	k, _ := setupGitKB(t)
+	k.AutoCommit = true
+
+	s := New("0.1.0-test")
+	RegisterKBTools(s, k, Deps{})
+
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"loose-map","title":"Loose","kind":"map"}}}`,
+	})
+	if tr := decodeToolResult(t, resps[1]); tr.IsError {
+		t.Fatalf("map_create: %v", tr.Content)
+	}
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "loose-map", "schema.png"), []byte("p"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resps = runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_delete","arguments":{"map":"loose-map","force":true}}}`,
+	})
+	if tr := decodeToolResult(t, resps[1]); tr.IsError {
+		t.Fatalf("map_delete force: %v", tr.Content)
+	}
+	out, err := exec.Command("git", "-C", k.Root, "log", "-1", "--format=%s").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(out)); !strings.Contains(got, "map_delete: loose-map (removed: schema.png)") {
+		t.Errorf("commit subject = %q", got)
+	}
+}
+
 // TestGitWrap_MapDelete_EmptyMap_CreatesCommit verifies that map_delete on an
 // empty map (only the map_create scaffold, no concepts) removes the
 // directory and creates a git commit (D88 WP2).

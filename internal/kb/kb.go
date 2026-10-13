@@ -2610,9 +2610,13 @@ func sortedUnique(values []string) []string {
 // (_map.md, index.md, log.md). If any concept remains under it, the map is
 // left untouched and the error lists the concepts so the caller can move
 // them out first (concept_move) before retrying.
-func (kb *KB) DeleteMap(name string) error {
+//
+// With force, regular non-Markdown files directly under the map dir (loose
+// files no other tool can reach, D762) are deleted with it and returned as
+// paths relative to data/. Concepts and directories still refuse (D88).
+func (kb *KB) DeleteMap(name string, force bool) ([]string, error) {
 	if _, err := okf.PathToID(name + ".md"); err != nil {
-		return fmt.Errorf("%w: invalid map name %q", okf.ErrInvalidPath, name)
+		return nil, fmt.Errorf("%w: invalid map name %q", okf.ErrInvalidPath, name)
 	}
 	// No reserved-name check here, unlike CreateMapWithContract: DeleteMap
 	// acts on data/<name>/, so an empty data/services/ scaffold left by the
@@ -2620,15 +2624,15 @@ func (kb *KB) DeleteMap(name string) error {
 	mapAbs := filepath.Join(kb.DataRoot(), name)
 	if _, err := os.Stat(mapAbs); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("DeleteMap: map %q does not exist", name)
+			return nil, fmt.Errorf("DeleteMap: map %q does not exist", name)
 		}
-		return fmt.Errorf("DeleteMap: %w", err)
+		return nil, fmt.Errorf("DeleteMap: %w", err)
 	}
 
 	// Walk the physical tree rather than WalkConcepts: non-Markdown assets
 	// and asset-only directories are deliberately invisible to the concept
 	// graph, but map_delete must never RemoveAll either kind silently.
-	var remaining []string
+	var remaining, loose []string
 	err := filepath.WalkDir(mapAbs, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -2644,6 +2648,16 @@ func (kb *KB) DeleteMap(name string) error {
 			return nil
 		}
 		entry := filepath.ToSlash(rel)
+		// Loose = a regular, non-.md file directly under the map. Never a
+		// subdirectory (expanded concept, asset-only dir, sub-map: D88), a
+		// .md file (a concept) or a symlink (never followed, so its target
+		// is unknowable): those stay in remaining even with force (D762).
+		if filepath.Dir(rel) == "." && d.Type().IsRegular() && !strings.HasSuffix(entry, ".md") {
+			loose = append(loose, name+"/"+entry)
+			if force {
+				return nil
+			}
+		}
 		if !d.IsDir() && strings.HasSuffix(entry, ".md") {
 			entry = strings.TrimSuffix(entry, ".md")
 		}
@@ -2654,20 +2668,33 @@ func (kb *KB) DeleteMap(name string) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("DeleteMap: %w", err)
+		return nil, fmt.Errorf("DeleteMap: %w", err)
 	}
 	if len(remaining) > 0 {
 		sort.Strings(remaining)
-		if len(remaining) > 10 {
-			remaining = append(remaining[:10], "...")
+		hint := ""
+		if len(remaining) == len(loose) {
+			hint = "; pass force: true to delete these loose files with the map"
 		}
-		return fmt.Errorf("DeleteMap: map %q is not empty; remove or move these entries first: %s", name, strings.Join(remaining, ", "))
+		return nil, fmt.Errorf("DeleteMap: map %q is not empty; remove or move these entries first: %s%s", name, strings.Join(CapList(remaining, 10), ", "), hint)
 	}
 
 	if err := os.RemoveAll(mapAbs); err != nil {
-		return fmt.Errorf("DeleteMap: remove %q: %w", name, err)
+		return nil, fmt.Errorf("DeleteMap: remove %q: %w", name, err)
 	}
-	return nil
+	if !force {
+		return nil, nil
+	}
+	sort.Strings(loose)
+	return loose, nil
+}
+
+// CapList returns at most n items, with "..." marking a truncated tail.
+func CapList(items []string, n int) []string {
+	if len(items) <= n {
+		return items
+	}
+	return append(append([]string{}, items[:n]...), "...")
 }
 
 // ReadArchiveMeta reads and parses the frontmatter of an archive/map's

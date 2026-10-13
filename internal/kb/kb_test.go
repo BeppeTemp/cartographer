@@ -1381,10 +1381,82 @@ func TestDeleteMap_RefusesAssetOnlyEntry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "evidence", "asset-only", "capture.bin"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err = k.DeleteMap("evidence")
+	_, err = k.DeleteMap("evidence", false)
 	if err == nil || !strings.Contains(err.Error(), "evidence/asset-only") {
 		t.Fatalf("DeleteMap should name asset-only entry, got %v", err)
 	}
+}
+
+// D762: force deletes loose regular non-.md files directly under the map, and
+// nothing else.
+func TestDeleteMap_Force(t *testing.T) {
+	setup := func(t *testing.T) (*KB, string) {
+		k, err := Init(tempKB(t))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := k.CreateMap("x", "X", "map", nil, ""); err != nil {
+			t.Fatal(err)
+		}
+		dir := filepath.Join(k.DataRoot(), "x")
+		if err := os.WriteFile(filepath.Join(dir, "schema.png"), []byte("p"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, ".sops.yaml"), []byte("s"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return k, dir
+	}
+
+	t.Run("without force names the file and suggests force", func(t *testing.T) {
+		k, dir := setup(t)
+		_, err := k.DeleteMap("x", false)
+		if err == nil || !strings.Contains(err.Error(), "x/schema.png") || !strings.Contains(err.Error(), "force: true") {
+			t.Fatalf("got %v", err)
+		}
+		if _, statErr := os.Stat(dir); statErr != nil {
+			t.Fatal("map must be untouched")
+		}
+	})
+	t.Run("with force removes the map and returns the files", func(t *testing.T) {
+		k, dir := setup(t)
+		removed, err := k.DeleteMap("x", true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Join(removed, ",") != "x/.sops.yaml,x/schema.png" {
+			t.Fatalf("removed = %v", removed)
+		}
+		if _, statErr := os.Stat(dir); !os.IsNotExist(statErr) {
+			t.Fatal("map still present")
+		}
+	})
+	t.Run("force still refuses a subdirectory", func(t *testing.T) {
+		k, dir := setup(t)
+		if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		_, err := k.DeleteMap("x", true)
+		if err == nil || !strings.Contains(err.Error(), "x/sub") || strings.Contains(err.Error(), "force: true") {
+			t.Fatalf("got %v", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(dir, "schema.png")); statErr != nil {
+			t.Fatal("nothing may be deleted on refusal")
+		}
+	})
+	t.Run("force still refuses a concept", func(t *testing.T) {
+		k, dir := setup(t)
+		if err := os.WriteFile(filepath.Join(dir, "note.md"), []byte("---\ntitle: N\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := k.DeleteMap("x", true)
+		if err == nil || !strings.Contains(err.Error(), "x/note") {
+			t.Fatalf("got %v", err)
+		}
+		if _, statErr := os.Stat(filepath.Join(dir, "schema.png")); statErr != nil {
+			t.Fatal("nothing may be deleted on refusal")
+		}
+	})
 }
 
 // D269: map_create refuses "services", but an empty data/services/ scaffold
@@ -1412,7 +1484,7 @@ func TestDeleteMap_RemovesLegacyServicesScaffold(t *testing.T) {
 	if err := os.WriteFile(descriptor, []byte("---\ntype: Service\ntitle: Sample\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.DeleteMap("services"); err != nil {
+	if _, err := k.DeleteMap("services", false); err != nil {
 		t.Fatalf("DeleteMap(services) on a legacy scaffold: %v", err)
 	}
 	if _, err := os.Stat(legacy); !os.IsNotExist(err) {

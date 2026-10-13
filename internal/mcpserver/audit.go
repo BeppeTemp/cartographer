@@ -44,7 +44,7 @@ var auditResourceFields = map[string][]string{
 	"supersede":            {"source_id", "target_id"},
 	"map_create":           {"name", "kind"},
 	"map_update":           {"map"},
-	"map_delete":           {"map"},
+	"map_delete":           {"map", "force"},
 	"log_append":           {"path"},
 	"graph_neighbors":      {"id"},
 	"graph_context":        {"query", "ids"},
