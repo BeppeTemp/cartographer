@@ -447,6 +447,13 @@ cartographer sync [--client <provider>]... [--auto-trust] [--dry-run] [--no-heal
 | `--auto-trust` | `false` | Also treats KB skills as trusted (unsigned) |
 | `--no-heal` | `false` | Reports managed artifacts that diverged on disk instead of restoring them from the server (D139) |
 
+For Claude Code the `cartographer` MCP entries are written to `$HOME/.claude.json` and to
+`<dir>/.claude.json` for every `clients.claude.config_dirs` (D755), and removed from all of them.
+A declared dir that is missing, relative or holds a symlinked `.claude.json` is skipped with a
+warning, never created. A `CLAUDE_CONFIG_DIR` set at sync time but not declared is a warning
+naming the key; nothing is written there. Skills, agents, hooks, `CLAUDE.md`, the bootstrap hook
+and KB-provided `mcp` artifacts stay under `$HOME`.
+
 Each provider receives only the KBs bound to it (§`cartographer client`), so the
 manifest — and therefore the revision — differs per provider. When every targeted
 provider agrees, `sync` prints one `synced to revision <r>` line as before;
@@ -919,7 +926,7 @@ the providers whose MCP configuration `connect` writes.
 
 | Provider | Generated file | Key |
 |----------|--------------|--------|
-| Claude Code | `.claude.json` | `mcpServers` (JSON) |
+| Claude Code | `.claude.json` (also `<dir>/.claude.json` for each `clients.claude.config_dirs`, D755) | `mcpServers` (JSON) |
 | Codex CLI | `.codex/config.toml` | managed block `[mcp_servers.cartographer]` (TOML, marker `cartographer:mcp:*`) |
 | Kiro | `.kiro/settings/mcp.json` | `mcpServers` (JSON) |
 | OpenCode | `opencode.json` | `mcp` (JSON) |
@@ -1138,6 +1145,7 @@ agents: [claude, opencode]
 clients:         # per-provider KB binding (D169); absent provider = every known KB
   claude:
     kbs: [homelab]
+    config_dirs: [~/.claude/accounts/b]   # extra Claude Code config dirs (CLAUDE_CONFIG_DIR) whose .claude.json also gets the MCP entry (D755); claude only; does not make the binding explicit
 search_roots: ["~/Documents"]   # where repoindex.Scan looks for git clones for {{repo:<key>}} (D75)
 search_depth: 4                 # how many levels repoindex descends from each root (D162); omitted when 0 = the default
 paths: {}                       # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}, D75); edit with `cartographer paths set`
@@ -1184,7 +1192,7 @@ warning, not a failure.
 | Command | Effect |
 |---|---|
 | `client list` | one row per connected provider: resolved KBs and the origin of the answer (`explicit` / `default (all known)`) |
-| `client show <provider>` | that provider's bound KBs, its origin, and the known KBs it is **not** bound to |
+| `client show <provider>` | that provider's bound KBs, its origin, and the known KBs it is **not** bound to; for `claude` also a `config dirs` line: `$HOME` (default), each declared dir, and an undeclared `CLAUDE_CONFIG_DIR` marked `not declared` |
 | `client bind <provider> <kb>[,<kb>...]` | adds; creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so; before warning that a KB is unknown it asks the server for its KB list once, without rewriting the cached list (`sync` owns it, D721) |
 | `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
 | `client reset <provider>` | deletes the binding, returning the provider to the default |

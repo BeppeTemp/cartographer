@@ -143,10 +143,11 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 		return disconnectResult{}, fmt.Errorf("read lockfile: %w", err)
 	}
 
+	claudeDirs, _ := claudeConfigDirs(opts.Dir, cfg)
 	for _, p := range opts.Providers {
 		pr := disconnectProviderResult{Provider: p}
 
-		_, removed, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{p}, opts.Dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
+		_, removed, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{p}, opts.Dir, claudeDirs, cfg.Auth, cfg.TokenEnv, opts.DryRun)
 		if err != nil {
 			return disconnectResult{}, fmt.Errorf("remove config for %s: %w", p, err)
 		}

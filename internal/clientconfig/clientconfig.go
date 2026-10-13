@@ -174,12 +174,66 @@ type MCPApproval struct {
 	ApprovedAt  time.Time `yaml:"approved_at"`
 }
 
-// ClientBinding is one provider's declared KB set (D169). An entry that exists
-// carrying an empty KBs list means "no KBs", not "every KB": returning a
-// provider to the default requires deleting the entry (ResetBinding), which is
-// why Unbind of the last name leaves the entry in place.
+// ClientBinding is one provider's per-client declaration. An entry carrying an
+// explicit `kbs` key is the provider's KB set (D169): an empty list means "no
+// KBs", not "every KB", and returning a provider to the default requires
+// deleting the entry (ResetBinding), which is why Unbind of the last name leaves
+// the entry in place.
+//
+// Only the `kbs` key makes a binding explicit (KBsSet). Any other key an entry
+// may carry, config_dirs today (D755), leaves the provider on the default KB
+// set: otherwise declaring a config dir would silently mean "no KBs".
 type ClientBinding struct {
-	KBs []string `yaml:"kbs"`
+	KBs []string
+	// KBsSet records that the file carried a `kbs` key, even an empty one. A
+	// binding built in code with a non-empty KBs is explicit too (see Explicit).
+	KBsSet bool
+	// ConfigDirs lists extra Claude Code config directories (each holding its
+	// own .claude.json) that sync writes the MCP entry to, besides $HOME. Only
+	// valid under clients.claude (D755).
+	ConfigDirs []string
+}
+
+// Explicit reports whether the binding declares a KB set.
+func (b ClientBinding) Explicit() bool { return b.KBsSet || len(b.KBs) > 0 }
+
+type clientBindingYAML struct {
+	KBs        []string `yaml:"kbs"`
+	ConfigDirs []string `yaml:"config_dirs,omitempty"`
+}
+
+// UnmarshalYAML tells an absent `kbs` key from an empty one.
+func (b *ClientBinding) UnmarshalYAML(node *yaml.Node) error {
+	var raw clientBindingYAML
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+	*b = ClientBinding{KBs: raw.KBs, ConfigDirs: raw.ConfigDirs}
+	if node.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			if node.Content[i].Value == "kbs" {
+				b.KBsSet = true
+			}
+		}
+	}
+	return nil
+}
+
+// MarshalYAML emits `kbs` only for an explicit binding, so a config_dirs-only
+// entry round-trips without gaining a default-deny key.
+func (b ClientBinding) MarshalYAML() (interface{}, error) {
+	out := map[string]interface{}{}
+	if b.Explicit() {
+		kbs := b.KBs
+		if kbs == nil {
+			kbs = []string{}
+		}
+		out["kbs"] = kbs
+	}
+	if len(b.ConfigDirs) > 0 {
+		out["config_dirs"] = b.ConfigDirs
+	}
+	return out, nil
 }
 
 // yamlConfig mirrors Config for YAML (de)serialization. Trust is a *bool here
@@ -273,6 +327,11 @@ func Load(dir string) (*Config, error) {
 	var y yamlConfig
 	if err := yaml.Unmarshal(data, &y); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse %s: %w", Path(dir), err)
+	}
+	for provider, b := range y.Clients {
+		if len(b.ConfigDirs) > 0 && provider != "claude" {
+			return nil, fmt.Errorf("clientconfig: %s: clients.%s.config_dirs is only valid under clients.claude", Path(dir), provider)
+		}
 	}
 	var extra map[string]interface{}
 	if err := yaml.Unmarshal(data, &extra); err != nil {
@@ -505,7 +564,9 @@ func (c *Config) AddAgent(name string) {
 //
 // The returned slice is a copy: mutating it cannot corrupt the config.
 func (c *Config) BoundKBs(provider string) (kbs []string, explicit bool) {
-	if binding, ok := c.Clients[provider]; ok {
+	// Presence of the `kbs` key decides, not presence of the entry: an entry
+	// with only config_dirs (D755) is not a binding.
+	if binding, ok := c.Clients[provider]; ok && binding.Explicit() {
 		return append([]string(nil), binding.KBs...), true
 	}
 	return append([]string(nil), c.KnownKBs...), false
@@ -536,6 +597,7 @@ func (c *Config) Bind(provider, kb string) error {
 		}
 	}
 	binding.KBs = append(binding.KBs, kb)
+	binding.KBsSet = true
 	c.Clients[provider] = binding
 	return nil
 }
@@ -550,7 +612,7 @@ func (c *Config) Unbind(provider, kb string) error {
 		return fmt.Errorf("clientconfig: invalid unbind (provider %q, kb %q)", provider, kb)
 	}
 	binding, ok := c.Clients[provider]
-	if !ok {
+	if !ok || !binding.Explicit() {
 		return nil
 	}
 	kept := make([]string, 0, len(binding.KBs))
@@ -560,6 +622,7 @@ func (c *Config) Unbind(provider, kb string) error {
 		}
 	}
 	binding.KBs = kept
+	binding.KBsSet = true
 	c.Clients[provider] = binding
 	return nil
 }
@@ -567,6 +630,11 @@ func (c *Config) Unbind(provider, kb string) error {
 // ResetBinding deletes provider's binding, returning it to the default (every
 // known KB). Missing entries are a no-op.
 func (c *Config) ResetBinding(provider string) {
+	// config_dirs is not part of the KB binding (D755): keep it.
+	if b, ok := c.Clients[provider]; ok && len(b.ConfigDirs) > 0 {
+		c.Clients[provider] = ClientBinding{ConfigDirs: b.ConfigDirs}
+		return
+	}
 	delete(c.Clients, provider)
 	if len(c.Clients) == 0 {
 		c.Clients = nil
