@@ -1,0 +1,15 @@
+# The first image of the demo service, built by Cloud Build (deploy/demo/README.md
+# §Bootstrap). Later images come from .github/workflows/demo.yml.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - deploy/demo/Dockerfile
+      - --build-arg
+      - BASE=ghcr.io/beppetemp/cartographer:${_TAG}
+      - -t
+      - europe-west1-docker.pkg.dev/cartographer-demo/demo/cartographer-demo:bootstrap
+      - .
+images:
+  - europe-west1-docker.pkg.dev/cartographer-demo/demo/cartographer-demo:bootstrap
