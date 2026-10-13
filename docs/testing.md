@@ -278,6 +278,11 @@ server (`cartographer serve --http :39273 --kb …`) and `cd web && npm run dev`
 provenance hash, so an untracked one makes `make web` record a hash CI cannot
 reproduce and `web-check` fails.
 
+The static demo build (D745, `deployment.md` §The public static demo) has no test level of its own:
+the `docs` workflow runs `demo/build.sh` on every pull request that touches `demo/` or `web/`, so
+a KB the server cannot serve, or an export request it refuses, fails that build. `static.test.ts`
+pins the file-name mapping the UI and `demo/export.mjs` must share.
+
 The Atlas UI's own tests: Vitest with Testing Library, under `web/`. They run in
 the `web` CI job, not in `make gate`, so a pure-Go change needs no Node
 toolchain (D227). What they hold:

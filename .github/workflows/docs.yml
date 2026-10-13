@@ -3,17 +3,27 @@ name: docs
 # Publishes docs/ to GitHub Pages via MkDocs Material. The source of truth
 # stays the markdown in docs/ (updated in the same PR as the code, see
 # docs/index.md §Maintenance rules); this only renders it.
+#
+# The same site carries the static Atlas demo under /demo/ (D745), built from
+# demo/astronomy by demo/build.sh. CHANGELOG.md is among the paths because a
+# release-please merge touches it: every release republishes the demo, so it
+# shows the Atlas of the latest version.
 on:
   push:
     branches: [main]
     paths:
       - "docs/**"
       - "mkdocs.yml"
+      - "demo/**"
+      - "web/**"
+      - "CHANGELOG.md"
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
       - "docs/**"
       - "mkdocs.yml"
+      - "demo/**"
+      - "web/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
@@ -26,6 +36,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # demo/build.sh names the release the demo was built from: it needs the tags.
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
@@ -33,6 +46,17 @@ jobs:
       # --strict turns broken internal links and nav typos into build failures,
       # so a PR that moves a page can't silently break the published site.
       - run: mkdocs build --strict
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: cd web && npm ci --silent
+      # After mkdocs, which empties site/ on every build.
+      - run: demo/build.sh site/demo
       - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'
         with:

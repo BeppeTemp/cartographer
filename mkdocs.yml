@@ -65,6 +65,7 @@ plugins:
 # this nav is only the sidebar rendering of it.
 nav:
   - Home: index.md
+  - Live demo: https://beppetemp.github.io/cartographer/demo/
   - Using Cartographer:
       - Getting started: getting-started.md
       - Agent install runbook: agent-install.md

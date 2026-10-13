@@ -468,6 +468,27 @@ script and no eval. `web.enabled: false` registers neither route.
 
 Stdio mode never serves the UI, whatever the setting says.
 
+#### The public static demo (D745)
+
+The documentation site also carries a demo of the Atlas at
+<https://beppetemp.github.io/cartographer/demo/>, with no server behind it. `demo/build.sh <out>` makes it:
+
+1. it replays the demo KB, `demo/astronomy`, into a throwaway git repository as commits spread over
+   the last five months, so Activity and the growth timeline have a history whenever it runs;
+2. it builds the UI with `VITE_ATLAS_STATIC=1`, which makes the API client read JSON files next to
+   `index.html` instead of `/api/ui/v1`, and adds a "Demo snapshot" link to the top bar;
+3. it serves that repository with the real binary and `demo/export.mjs` saves every answer the
+   UI can ask for into `<out>/api/`. Search takes free text, so it is the one request not
+   exported: the export writes `search-index.json` and the browser searches it.
+
+The `docs` workflow runs it after `mkdocs build` and publishes it as `site/demo/`, on every change
+to `demo/`, `web/` or `CHANGELOG.md` (that is, on every release). `demo/astronomy` is a
+hand-written KB with invented, public content. It is also a small tour of the features: maps with
+contracts, journals, templates, a source ledger, contradictions and knowledge gaps, supersede and
+archive, services with sops-encrypted secrets, and skills, an agent and a hook. Its lint findings
+are kept on purpose, so Health has something to show. The secret values are fake, and the age key
+that encrypts them is not in the repository.
+
 An open Atlas follows the KB live (D337): while the tab is visible it asks
 `/api/ui/v1/kbs/<kb>/revision` every ten seconds and, when the answer changes,
 refetches the open view in place — graph, concept, findings and lists — without

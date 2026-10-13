@@ -1,0 +1,2 @@
+paths:
+  star-charts: {description: the folder of printable star charts, default: ~/Documents/star-charts}

@@ -39,9 +39,20 @@
   white-space: nowrap;
 }
 
+.topbar__demo {
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.topbar__demo:hover {
+  color: var(--text-primary);
+}
+
 /* A phone has no room for it: the top bar must fit 390px (a11y e2e). */
 @media (max-width: 767px) {
-  .topbar__version {
+  .topbar__version,
+  .topbar__demo {
     display: none;
   }
 }

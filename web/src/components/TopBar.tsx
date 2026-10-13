@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchServerVersion } from "../api/client";
+import { STATIC_MODE } from "../api/static";
 import type { KBSummary } from "../api/types";
 import type { Theme } from "../lib/theme";
 import { Icon, type IconName } from "./Icon";
@@ -117,6 +118,13 @@ export function TopBar({
           <span aria-hidden="true">●</span>
           <span className="topbar__status-text">{offline ? "Disconnected" : "Connected"}</span>
         </span>
+        {/* The public demo (D745) is a snapshot with no server: say so, and
+            point the visitor at what they would install. */}
+        {STATIC_MODE && (
+          <a className="topbar__demo" href="https://github.com/BeppeTemp/cartographer#install">
+            Demo snapshot · Get Cartographer
+          </a>
+        )}
         {version && (
           <span className="topbar__version" title="Server version">
             {/^\d/.test(version) ? `v${version}` : version}
