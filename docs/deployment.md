@@ -318,7 +318,7 @@ cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, p
 cartographer kb clone <remote>               # mounts an existing remote KB in that data dir (D97)
                                              # create/clone --artifact-write: also records a kbs[] entry with allow_artifact_write: true (D711)
 cartographer kb list                         # what is on disk, and what the server actually serves (D173)
-cartographer kb rename <old> <new>           # renames the mount point: directory + kbs[] entry (D177)
+cartographer kb rename <old> <new>           # renames the mount point: directory + kbs[] entry + client bindings (D177, D754)
 ```
 
 `service install` (idempotent: re-running it rewrites the plist/unit and restarts):
@@ -346,7 +346,7 @@ Binds to **loopback** by default (`127.0.0.1:39273`) → auth is off (pinned in 
 
 `kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]` renames a KB's **mount point**: the directory and the matching `kbs[]` entry, together or neither (D177). It is offline and local — it never contacts a server, a client or a git remote, and the git `origin` is untouched: renaming a mount point is not renaming a repository. A cross-filesystem move fails explicitly rather than falling back to a recursive copy, which would silently change the ownership and timestamps of a git repository.
 
-Before moving anything it reports what else the name is an identity for. Auth scopes (`kb:<old>:r|rw`), role rules, client `signing_keys` pins and `mcp_approvals` entries are **listed, never rewritten**: they are configured out of band, and silently editing an operator's auth configuration would be worse than telling them what to change. Clients' MCP entries need no orchestration — they reconcile on the next `cartographer sync`.
+Before moving anything it reports what else the name is an identity for. Auth scopes (`kb:<old>:r|rw`), role rules, client `signing_keys` pins and `mcp_approvals` entries are **listed, never rewritten**: they are configured out of band, and silently editing an operator's auth configuration would be worse than telling them what to change. This machine's client bindings that select the KB by name (`clients.<provider>.kbs`, `workspaces.<provider>[].kbs`) **are rewritten** to the new name, in place, when the client points at the local server — otherwise every `sync` would abort on a stale selection (D754); a client pointed at another server keeps its bindings, which name that server's KBs. Clients' MCP entries then reconcile on the next `cartographer sync`.
 
 Two entries that could both be the KB is a refusal, naming them: guessing there silently detaches a KB from its configuration. **No** entry is not a refusal — a KB created by `kb create` or found by discovery legitimately has none, and renaming its directory is then the whole job.
 

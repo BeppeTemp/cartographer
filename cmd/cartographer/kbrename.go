@@ -5,8 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -36,6 +38,14 @@ type renamePlan struct {
 	Scopes     []string
 	SigningKey bool
 	Approvals  bool
+
+	// Bindings are this machine's client bindings that select the KB by its
+	// old name (clients.<p>.kbs, workspaces.<p>[].kbs). They are rewritten
+	// after the move: sync treats a bound name the server no longer
+	// advertises as a stale selection and aborts, so leaving them would
+	// make every sync fail (D754). Empty when the client points at another
+	// server, whose KBs this rename does not touch.
+	Bindings []string
 }
 
 // cmdKBRename implements `cartographer kb rename <old> <new> [--data <dir>]
@@ -85,6 +95,14 @@ func cmdKBRename(args []string) int {
 	fmt.Printf("KB %q renamed to %q at %s\n", plan.Old, plan.New, plan.NewPath)
 	if plan.EntryIndex >= 0 {
 		fmt.Printf("updated the kbs[] entry in %s\n", plan.ConfigPath)
+	}
+	if len(plan.Bindings) > 0 {
+		if err := rewriteBindings(plan.Old, plan.New); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: the KB is renamed, but this machine's client bindings still name %q: %v\n", plan.Old, err)
+			fmt.Fprintf(os.Stderr, "  rebind each one by hand: `cartographer client unbind <provider> %s` then `cartographer client bind <provider> %s`\n", plan.Old, plan.New)
+			return 1
+		}
+		fmt.Printf("rewrote %d client binding(s) in this machine's .cartographer.yaml\n", len(plan.Bindings))
 	}
 	fmt.Println("every connected client realigns its MCP entries on its next `cartographer sync`.")
 	printPostCreateGuidanceFn(*configFlag, *restartFlag)
@@ -143,6 +161,7 @@ func planKBRename(old, newName, dataDir, configPath string) (*renamePlan, error)
 	}
 	p.Scopes = scopeRefs(cfg, old)
 	p.SigningKey, p.Approvals = clientRefs(old)
+	p.Bindings = bindingRefs(old)
 	return p, nil
 }
 
@@ -235,6 +254,78 @@ func clientRefs(old string) (signingKey, approvals bool) {
 	return signingKey, approvals
 }
 
+// bindingRefs lists this machine's client bindings that name the old KB, as
+// "clients.<p>" and "workspaces.<p> <path>". None when the client points at a
+// non-loopback server: its bindings name that server's KBs, not the local one
+// being renamed (--local / --data on such a machine).
+func bindingRefs(old string) []string {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return nil
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || (cfg.ServerURL != "" && !isLoopbackURL(cfg.ServerURL)) {
+		return nil
+	}
+	var refs []string
+	for _, p := range slices.Sorted(maps.Keys(cfg.Clients)) {
+		if containsString(cfg.Clients[p].KBs, old) {
+			refs = append(refs, "clients."+p)
+		}
+	}
+	for _, p := range slices.Sorted(maps.Keys(cfg.Workspaces)) {
+		for _, w := range cfg.Workspaces[p] {
+			if containsString(w.KBs, old) {
+				refs = append(refs, "workspaces."+p+" "+w.Path)
+			}
+		}
+	}
+	return refs
+}
+
+// rewriteBindings replaces old with new in every client and workspace binding
+// of this machine's client config, keeping each list's order. A list that
+// already names new drops old instead of naming new twice.
+func rewriteBindings(old, newName string) error {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return err
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		return err
+	}
+	for p, b := range cfg.Clients {
+		b.KBs = renameInList(b.KBs, old, newName)
+		cfg.Clients[p] = b
+	}
+	for p, ws := range cfg.Workspaces {
+		for i := range ws {
+			ws[i].KBs = renameInList(ws[i].KBs, old, newName)
+		}
+		cfg.Workspaces[p] = ws
+	}
+	return clientconfig.Save(dir, cfg)
+}
+
+func renameInList(list []string, old, newName string) []string {
+	if !containsString(list, old) {
+		return list
+	}
+	has := containsString(list, newName)
+	out := make([]string, 0, len(list))
+	for _, n := range list {
+		switch {
+		case n == old && !has:
+			out = append(out, newName)
+		case n == old:
+		default:
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // printRenamePreflight states what will change and what the operator must
 // change themselves. The second list is the point: a rename that quietly left
 // an operator with a token scoped to a name nothing answers to would be a
@@ -248,6 +339,9 @@ func printRenamePreflight(w io.Writer, p *renamePlan) {
 		fmt.Fprintf(w, "%s has no kbs[] entry for this KB (mounted by discovery): only the directory changes\n", p.ConfigPath)
 	default:
 		fmt.Fprintf(w, "%s: rewriting kbs[%d]\n", p.ConfigPath, p.EntryIndex)
+	}
+	for _, b := range p.Bindings {
+		fmt.Fprintf(w, "this machine's .cartographer.yaml: rewriting the %s binding\n", b)
 	}
 	if len(p.Scopes) == 0 && !p.SigningKey && !p.Approvals {
 		return
