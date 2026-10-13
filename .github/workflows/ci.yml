@@ -9,15 +9,17 @@ permissions:
   contents: read
 
 # A new push to a PR supersedes the run in flight. Runs on main are never
-# cancelled: each merge gets its own record.
+# cancelled: each merge gets its own record, so on push the group is the commit.
+# A group keeps at most one pending run, and a shared `main` group dropped the
+# middle one of three quick merges.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # On main every job runs, and a red main opens (or updates) a `ci-red` issue.
 # On a feature PR `test-windows` runs only when the PR touches a package with
-# platform-specific code (D672): at 8-13 minutes it would be the whole wait of
-# every PR, but leaving it off every PR let a Windows-only break sit on main for
+# platform-specific code (D672): it is the slowest leg even split across
+# runners (D785), but leaving it off every PR let a Windows-only break sit on main for
 # two days. The release PR runs everything, so no release ships without it.
 jobs:
   # Which of the slower jobs this PR needs. A path filter at the workflow level
@@ -82,26 +84,35 @@ jobs:
       - run: make e2e
       - run: make test-install
 
-  # A separate job, deliberately not a matrix leg on `test`: main's branch
-  # protection requires a check named literally `test`, and a matrix renames it
-  # to `test (ubuntu-latest)` — which silently un-protects the branch.
-  test-windows:
-    name: test-windows
+  # The Windows leg, split across runners: the git-backed packages are ~13x
+  # slower there than on ubuntu, and a single job waited ~13 minutes on
+  # internal/mcpserver alone, close to its 20m test timeout (D785). Each shard
+  # runs a round-robin slice of every package's tests (scripts/test-shard.sh);
+  # fmt-check and vet are platform-independent and run on `test`, which also
+  # vets with GOOS=windows. Minutes on standard runners are free for a public
+  # repository, so the split costs nothing.
+  #
+  # Push to main, the release PR, and a feature PR that touches
+  # platform-specific code (D672). On push `changes` is skipped, hence
+  # `result != success`; a failed `changes` runs it too rather than letting a PR
+  # through untested.
+  test-windows-shard:
+    name: test-windows (${{ matrix.shard }}/4)
     needs: changes
-    # Push to main, the release PR, and a feature PR that touches
-    # platform-specific code (D672). Skipped, it counts as passed for the
-    # required check. On push `changes` is skipped, hence `result != success`;
-    # a failed `changes` runs it too rather than letting a PR through untested.
     if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.windows == 'true')"
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     defaults:
       run:
-        # The Makefile recipes are POSIX shell — fmt-check pipes `gofmt -l` — and
-        # the runner's default shell is PowerShell. Git for Windows ships bash.
+        # The scripts are POSIX shell and the runner's default shell is
+        # PowerShell. Git for Windows ships bash.
         shell: bash
     steps:
       # Defender scans every file the git-backed tests create: turning it off
-      # took about a fifth off `make gate` (internal/mcpserver 190s -> 155s).
+      # took about a fifth off the tests (internal/mcpserver 190s -> 155s).
       # The rest of the gap with ubuntu is git process creation. The runner is
       # throwaway.
       - name: Disable Defender real-time scanning
@@ -111,21 +122,30 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      # make is not in the windows-latest image (MSYS2 ships one but is off
-      # PATH), and the gate has to stay the same single command on both legs.
-      - name: Install make
-        run: choco install make --no-progress
       - name: Configure git for tests
         run: |
           git config --global user.name ci
           git config --global user.email ci@local
           git config --global init.defaultBranch master
-      # `make gate`, plus install.ps1 end to end: smoke-http, e2e and the POSIX
-      # test-install suite are sh harnesses and stay on ubuntu.
-      - run: make gate
-      # install.ps1 against a local fixture release built from this commit, under
-      # both shells a user may run it in: PowerShell 7 and Windows PowerShell 5.1,
-      # whose quirks (TLS defaults, native stderr) are the ones that bite (D252).
+      - run: ./scripts/test-shard.sh 4 ${{ matrix.shard }}
+
+  # install.ps1 against a local fixture release built from this commit, under
+  # both shells a user may run it in: PowerShell 7 and Windows PowerShell 5.1,
+  # whose quirks (TLS defaults, native stderr) are the ones that bite (D252).
+  # smoke-http, e2e and the POSIX test-install suite are sh harnesses and stay
+  # on ubuntu.
+  test-windows-install:
+    name: test-windows (install.ps1)
+    needs: changes
+    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.windows == 'true')"
+    runs-on: windows-latest
+    steps:
+      - name: Disable Defender real-time scanning
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
       - name: install.ps1
         shell: pwsh
         run: |
@@ -136,6 +156,22 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit 1 }
           }
 
+  # The required check. main's branch protection requires checks named
+  # literally `test-windows` and `web`, and a matrix renames its legs, which
+  # would silently un-protect the branch: one job per required name collects
+  # its legs. Skipped legs (a PR outside platform-specific code) pass it.
+  test-windows:
+    name: test-windows
+    needs: [test-windows-shard, test-windows-install]
+    if: "!cancelled()"
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "legs: $RESULTS"
+          case " $RESULTS " in *" failure "*|*" cancelled "*) exit 1 ;; esac
+
   # The frontend, deliberately its own job rather than a step of `test`.
   #
   # `make gate` stays Go-only so a contributor changing Go code needs no Node
@@ -145,11 +181,24 @@ jobs:
   # changed (the `changes` job decides), and after every merge on main, so a
   # browser regression is seen on the merge that caused it (D672). It is a
   # required check: a red `web` blocks the merge like a red `test`.
-  web:
-    name: web
+  #
+  # Two legs, collected by the required `web` job below: the @video test (the
+  # growth replay's export, about two minutes of software rendering) was half
+  # the browser suite, so it runs beside the rest, together with the unit
+  # tests and the bundle checks, instead of after them (D785).
+  web-leg:
+    name: web (${{ matrix.leg }})
     needs: changes
     if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.web == 'true')"
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: video
+            grep: --grep @video
+          - leg: browser
+            grep: --grep-invert @video
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -160,8 +209,11 @@ jobs:
           node-version-file: web/.nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - run: make web-check
-      - run: make web-test
+      - if: matrix.leg == 'video'
+        run: make web-check
+      - if: matrix.leg == 'video'
+        run: make web-test
+      - run: cd web && npm ci --silent
       # The browser suite (D228) drives bin/cartographer, which commits to the
       # fixture KBs it initialises, so git needs an identity here too.
       - name: Configure git for tests
@@ -182,7 +234,20 @@ jobs:
         run: cd web && npx playwright install --with-deps chromium
       - if: steps.pw-cache.outputs.cache-hit == 'true'
         run: cd web && npx playwright install-deps chromium
-      - run: make e2e-web
+      - run: make e2e-web E2E_WEB_ARGS="${{ matrix.grep }}"
+
+  web:
+    name: web
+    needs: web-leg
+    if: "!cancelled()"
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          RESULT: ${{ needs.web-leg.result }}
+        run: |
+          echo "legs: $RESULT"
+          case "$RESULT" in failure|cancelled) exit 1 ;; esac
+
 
   # With squash-merge the PR title becomes the commit on main that
   # release-please reads: it must be a valid conventional commit.

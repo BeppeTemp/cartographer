@@ -81,9 +81,9 @@ web-check: web ## Clean locked frontend build + provenance and size-budget check
 # Not part of gate: it needs Node and Playwright's Chromium, and gate stays
 # Go-only (D227). The harness builds the binary itself and tests it serving
 # its embedded bundle, never Vite's dev server (D228).
-e2e-web: ## Browser-level Atlas UI suite against the built binary (needs Node + `npx playwright install chromium`)
+e2e-web: ## Browser-level Atlas UI suite against the built binary (needs Node + `npx playwright install chromium`; E2E_WEB_ARGS passes Playwright flags)
 	@cd web && npm ci --silent
-	@web/e2e/run.sh
+	@web/e2e/run.sh $(E2E_WEB_ARGS)
 
 # Re-records docs/atlas/hero.webp, the README animation (D330). Not in CI: it
 # needs a GPU, ffmpeg and img2webp. hero.spec.ts itself runs in e2e-web.
