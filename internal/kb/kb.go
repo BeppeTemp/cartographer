@@ -1626,7 +1626,7 @@ func (kb *KB) ExpandConcept(id okf.ConceptID) error {
 	content := string(raw)
 	_, body, _ := okf.SplitFrontmatter(content)
 	out := content
-	if rebased, n := RewriteOutboundLinks(body, oldBase, newBase, nil); n > 0 && strings.HasSuffix(content, body) {
+	if rebased, n := rewriteOutboundLinks(body, oldBase, newBase, nil, kb.danglingAssetLink); n > 0 && strings.HasSuffix(content, body) {
 		// Splice the body back so the frontmatter keeps its exact bytes.
 		out = content[:len(content)-len(body)] + rebased
 	}
@@ -1640,6 +1640,26 @@ func (kb *KB) ExpandConcept(id okf.ConceptID) error {
 		return fmt.Errorf("ExpandConcept: move %s: %w", id, err)
 	}
 	return nil
+}
+
+// danglingAssetLink reports whether a link of a concept being expanded names a
+// non-Markdown file that does not exist yet. Expand leaves such a link as
+// written, so it resolves inside the concept's own directory: a non-Markdown
+// file can only live there (in a map directory it is a stray_file), and the
+// natural order is write the body, expand, then asset_write the files it
+// links (#759). A link to an existing file, or to a concept (.md or no
+// extension), is rebased as before.
+func (kb *KB) danglingAssetLink(resolved, pathPart string) bool {
+	ext := gopath.Ext(pathPart)
+	if ext == "" || strings.EqualFold(ext, ".md") {
+		return false
+	}
+	abs, err := kb.ResolvePath(resolved, false)
+	if err != nil {
+		return false
+	}
+	_, statErr := os.Lstat(abs)
+	return os.IsNotExist(statErr)
 }
 
 // mapDescriptorCandidates are the filenames a Map/Journal descriptor can
