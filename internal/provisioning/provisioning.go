@@ -835,7 +835,9 @@ func kbArchives(kbRoot string) []kbArchive {
 
 	var archives []kbArchive
 	for _, e := range entries {
-		if !e.IsDir() || infra[e.Name()] {
+		// A dot-directory is never an archive: it is tool state an agent left
+		// in the clone (.omc/, #757), not a map.
+		if !e.IsDir() || infra[e.Name()] || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		archives = append(archives, kbArchive{

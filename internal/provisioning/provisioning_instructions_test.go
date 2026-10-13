@@ -134,6 +134,8 @@ func TestBuildManifest_Instructions_ArchiviElencatiEdEsclusioneInfra(t *testing.
 		// named like an infrastructure directory, it must not show up as an
 		// archive (see kbArchives).
 		"skills": {"bogus.md"},
+		// tool state an agent left in the clone (#757): never an archive.
+		".omc": {"state.md"},
 	})
 	// Real infrastructure directories, siblings of data/ — the ones from kb.Init.
 	for _, d := range []string{"skills", "agents", "hooks"} {
@@ -158,6 +160,9 @@ func TestBuildManifest_Instructions_ArchiviElencatiEdEsclusioneInfra(t *testing.
 	}
 	if strings.Contains(content, "skills/") {
 		t.Errorf("instructions content must not list data/skills as an archive (infrastructure directory):\n%s", content)
+	}
+	if strings.Contains(content, ".omc/") {
+		t.Errorf("instructions content must not list a dot-directory as an archive:\n%s", content)
 	}
 	if !strings.Contains(content, "homelab") {
 		t.Errorf("instructions content doesn't mention the KB name:\n%s", content)
