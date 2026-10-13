@@ -35,6 +35,15 @@ Rules to keep the code consistent. New code should resemble the existing code.
 - Tool application errors go in the `ToolResult` (`errorResult`, `isError`), not as a JSON-RPC protocol error.
 - Every tool declares an `InputSchema` (JSON Schema) and a short, keyword-rich `Description` (in English, within the D285 budget) for discovery by the LLM agent.
 
+## Settings
+
+- A new key in the server `config.yaml` (`rawConfig`, `KBSpec`) or in the client `.cartographer.yaml` needs an entry in the
+  schema of its package (`internal/config/schema.go`, `internal/clientconfig/schema.go`): description, default, values,
+  and the env var and flag that override it. A reflection test fails the build without it. Run `make settings-example` for
+  the server file. Machine-written caches are not settings: they go in `.cartographer-state.json`, not in the YAML.
+- Code that rewrites a user-edited YAML file edits its `yaml.Node` tree; it never marshals a map or a struct over the file,
+  which drops every comment (D747).
+
 ## Tests
 
 - Tests use the stdlib `testing` package, alongside the code (`*_test.go`).

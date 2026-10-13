@@ -65,6 +65,14 @@ pair per call, so the file is a complete operational request log (D119). See
 defaults + env + flags apply, as in earlier versions.
 
 Full annotated example: [`config.example.yaml`](https://github.com/BeppeTemp/cartographer/blob/main/config.example.yaml) (repo root).
+The example is **generated** from the settings schema (`Schema` in `internal/config/schema.go`: every key with its
+scope, type, values, default, description, the environment variable and flag that override it, and whether it needs a
+restart) by `make settings-example`; a test fails when the committed file differs, and another when a key reaches
+`rawConfig` or `KBSpec` without a schema entry. Edit the schema, not the example. A `config.yaml` written by
+`service install` is self-documenting the same way: the keys it sets carry their comment and the unset ones are listed
+commented out under `# --- available settings ---`. Comments are ignored by the parser, so a file without them behaves
+identically. `kb create`/`kb clone` and `kb rename` give a `kbs[]` entry they add the comment of the keys they set,
+and leave every comment already in the file alone.
 
 One startup option is deliberately **flag-only**, with no YAML key and no environment variable:
 `serve --log-file <path>` appends the server log to a file instead of writing it to stderr,

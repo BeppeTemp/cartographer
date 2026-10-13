@@ -1,4 +1,4 @@
-.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-tf-check test-install worktree-add worktree-rm dev gate decisions-index decisions-new codemap web web-test web-check e2e-web hero
+.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-tf-check test-install worktree-add worktree-rm dev gate decisions-index decisions-new codemap settings-example web web-test web-check e2e-web hero
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -156,6 +156,9 @@ decisions-index: ## Regenerate the decision index in docs/decisions.md
 
 codemap: ## Regenerate the code map in AGENTS.md from the package doc comments
 	@go test ./internal/repodocs -run TestCodeMapIsUpToDate -count=1 -args -update
+
+settings-example: ## Regenerate config.example.yaml from the settings schema (internal/config/schema.go)
+	@SETTINGS_EXAMPLE_UPDATE=1 go test ./internal/config -run TestExampleIsUpToDate -count=1
 
 decisions-new: ## New decision from the template: make decisions-new N=<plan issue or PR number> SLUG=my-choice TOPIC=control-plane (D672)
 	@test -n "$(N)" -a -n "$(SLUG)" -a -n "$(TOPIC)" || \

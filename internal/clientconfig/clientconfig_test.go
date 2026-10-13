@@ -397,10 +397,13 @@ func TestSaveWritesKnownKBsNotLegacyAlias(t *testing.T) {
 		t.Fatalf("read back: %v", err)
 	}
 	raw := string(data)
-	if !strings.Contains(raw, "known_kbs:") {
-		t.Errorf("known_kbs missing from the written file:\n%s", raw)
+	if hasKey(raw, "known_kbs") {
+		t.Errorf("known_kbs written to the user file, it belongs to the state file:\n%s", raw)
 	}
-	if strings.Contains(raw, "\nkbs:") {
+	if state, err := os.ReadFile(clientconfig.StatePath(dir)); err != nil || !strings.Contains(string(state), `"alpha"`) {
+		t.Errorf("known_kbs missing from the state file: %v\n%s", err, state)
+	}
+	if hasKey(raw, "kbs") {
 		t.Errorf("the legacy kbs key was written again:\n%s", raw)
 	}
 	if !strings.Contains(raw, "clients:") {
@@ -417,6 +420,17 @@ func TestSaveWritesKnownKBsNotLegacyAlias(t *testing.T) {
 	if kbs, explicit := reloaded.BoundKBs("claude"); !explicit || strings.Join(kbs, ",") != "alpha" {
 		t.Errorf("binding did not survive the round trip: %v explicit=%v", kbs, explicit)
 	}
+}
+
+// hasKey reports whether raw sets key at the top level: a commented-out line
+// does not count.
+func hasKey(raw, key string) bool {
+	for _, l := range strings.Split(raw, "\n") {
+		if strings.HasPrefix(l, key+":") {
+			return true
+		}
+	}
+	return false
 }
 
 func writeConfigFile(t *testing.T, dir, body string) {
@@ -532,7 +546,7 @@ func TestZeroSearchDepthWritesNoKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read back: %v", err)
 	}
-	if strings.Contains(string(data), "search_depth") {
+	if hasKey(string(data), "search_depth") {
 		t.Errorf("a zero SearchDepth wrote a key:\n%s", data)
 	}
 }
@@ -564,10 +578,10 @@ func TestEveryYamlFieldIsWrittenBySave(t *testing.T) {
 	raw := string(data)
 	for _, key := range []string{
 		"server_url", "server_name", "auth", "token_env", "agents",
-		"known_kbs", "clients", "trust", "search_roots", "search_depth",
+		"clients", "trust", "search_roots", "search_depth",
 		"paths", "signing_keys", "mcp_approvals",
 	} {
-		if !strings.Contains(raw, key+":") {
+		if !hasKey(raw, key) {
 			t.Errorf("Save omitted %q:\n%s", key, raw)
 		}
 	}
@@ -605,7 +619,7 @@ func TestUpdateSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(clientconfig.Path(dir))
-	if strings.Contains(string(data), "update") {
+	if hasKey(string(data), "update") {
 		t.Fatalf("a default config must not carry an update block:\n%s", data)
 	}
 	loaded, err := clientconfig.Load(dir)
@@ -649,7 +663,7 @@ func TestUsageScan_DefaultsOnAndOnlyOffIsWritten(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(clientconfig.Path(dir))
-	if strings.Contains(string(raw), "usage_scan") {
+	if hasKey(string(raw), "usage_scan") {
 		t.Errorf("a default config wrote usage_scan:\n%s", raw)
 	}
 	loaded, err := clientconfig.Load(dir)
@@ -678,7 +692,7 @@ func TestWriteFindingsHook_DefaultsOnAndOnlyOffIsWritten(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(clientconfig.Path(dir))
-	if strings.Contains(string(raw), "write_findings_hook") {
+	if hasKey(string(raw), "write_findings_hook") {
 		t.Errorf("a default config wrote the key:\n%s", raw)
 	}
 	loaded, err := clientconfig.Load(dir)

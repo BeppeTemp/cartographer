@@ -116,3 +116,24 @@ func TestPlanKBEntryRefusals(t *testing.T) {
 		t.Error("scalar kbs: accepted")
 	}
 }
+
+// A new kbs[] entry gets the schema comment of the keys it sets, and nothing the
+// operator wrote is touched (D747).
+func TestApplyKBEntryCommentsTheNewEntryOnly(t *testing.T) {
+	kbPath := filepath.Join(t.TempDir(), "alpha")
+	cfg := writeCfg(t, "kbs:\n  # my other kb\n  - path: /srv/other\n    write_gate: error\n")
+	if err := applyFor(t, cfg, "alpha", kbPath); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(cfg)
+	got := string(b)
+	if !strings.Contains(got, "# Enable artifact_write and artifact_delete on this KB.") {
+		t.Errorf("the new entry's allow_artifact_write is not documented:\n%s", got)
+	}
+	if !strings.Contains(got, "# my other kb") || strings.Contains(got, "# Refuse, and roll back") {
+		t.Errorf("an existing entry changed:\n%s", got)
+	}
+	if _, err := config.Load(cfg); err != nil {
+		t.Errorf("the written config does not load: %v", err)
+	}
+}

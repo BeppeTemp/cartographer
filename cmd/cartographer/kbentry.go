@@ -98,11 +98,16 @@ func applyKBEntry(p *kbEntryPlan) error {
 			*v = *yes()
 		} else {
 			entry.Content = append(entry.Content, str("allow_artifact_write"), yes())
+			// Only the key this command adds is documented; the entry's own
+			// keys and comments are the operator's (D747).
+			config.Schema.CommentKey(entry, "allow_artifact_write", "kbs[].allow_artifact_write")
 		}
 	} else {
-		kbs.Content = append(kbs.Content, &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{
+		entry := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{
 			str("path"), str(p.KBPath), str("allow_artifact_write"), yes(),
-		}})
+		}}
+		config.Schema.CommentEntry(entry, "kbs")
+		kbs.Content = append(kbs.Content, entry)
 	}
 
 	out, err := yaml.Marshal(&doc)

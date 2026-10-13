@@ -1,0 +1,54 @@
+package clientconfig
+
+import (
+	"github.com/BeppeTemp/cartographer/internal/defaults"
+	"github.com/BeppeTemp/cartographer/internal/settingschema"
+)
+
+// Schema is the key table of the client .cartographer.yaml (D747): every key a
+// person owns. The server-owned caches (known KBs, mount mode, routed path) are
+// not settings and live in the state file, so they are not here.
+// TestSchemaMatchesYAMLStruct fails when a key is added to the file without an
+// entry in this table, or an entry outlives its key: a new setting starts here.
+var Schema = settingschema.Schema{Keys: []settingschema.Key{
+	{Path: "server_url", Scope: settingschema.ScopeClient, Type: "string", Default: defaults.DefaultMCPURL,
+		Description: "MCP endpoint of the server this machine talks to. The first connect seeds it from CARTOGRAPHER_SERVER_URL when that is set."},
+	{Path: "server_name", Scope: settingschema.ScopeClient, Type: "string", Default: "cartographer",
+		Description: "Name under which the server is registered in each agent's MCP configuration."},
+	{Path: "auth", Scope: settingschema.ScopeClient, Type: "bool", Default: "false",
+		Description: "The server requires a bearer token; the clients then send the one read from token_env."},
+	{Path: "token_env", Scope: settingschema.ScopeClient, Type: "string", Default: "CARTOGRAPHER_TOKENS",
+		Description: "Name of the environment variable that holds the bearer token."},
+	{Path: "agents", Scope: settingschema.ScopeClient, Type: "list", Default: "[]",
+		Description: "The agent clients connected to the server, for example claude or opencode. connect and disconnect maintain it."},
+	{Path: "trust", Scope: settingschema.ScopeClient, Type: "bool", Default: "true",
+		Description: "Treat the skills, agents, hooks and instructions a KB provides as trusted at every sync, without the one-time --auto-trust flag."},
+	{Path: "clients", Scope: settingschema.ScopeClient, Type: "map", Default: "{}",
+		Description: "Which KBs each connected provider receives, as <provider>: {kbs: [...]}. A provider with no entry receives every known KB. Edit it with `cartographer client`."},
+	{Path: "scopes", Scope: settingschema.ScopeClient, Type: "map", Values: "<provider>: provider | workspace", Default: "{}",
+		Description: "Where a provider receives KB artifacts: provider (global, under the home directory) or workspace (each bound workspace gets its own)."},
+	{Path: "workspaces", Scope: settingschema.ScopeClient, Type: "map", Default: "{}",
+		Description: "Which KBs a provider receives while working in a given directory, as <provider>: [{path, kbs}]. An unbound workspace gets only the transversal bundle."},
+	{Path: "search_roots", Scope: settingschema.ScopeClient, Type: "list", Default: `["~/Documents"]`,
+		Description: "Directories scanned for git clones to resolve {{repo:<key>}} placeholders."},
+	{Path: "search_depth", Scope: settingschema.ScopeClient, Type: "int", Values: "1 to 8", Default: "4",
+		Description: "How many directory levels the scan descends from each root. A value above 8 is clamped with a warning."},
+	{Path: "paths", Scope: settingschema.ScopeClient, Type: "map", Default: "{}",
+		Description: "Manual name-to-directory mapping for {{path:<name>}}, and an override for {{repo:<key>}}. Edit it with `cartographer paths set`."},
+	{Path: "ignored_paths", Scope: settingschema.ScopeClient, Type: "list", Default: "[]",
+		Description: "Placeholder ids known to be absent on this machine, for example repo:work-tools; sync stops reporting them. Edit it with `cartographer paths ignore`."},
+	{Path: "signing_keys", Scope: settingschema.ScopeClient, Type: "map", Default: "{}",
+		Description: "Ed25519 public keys pinned per source KB, to verify the signed artifacts it serves. Pins are configured out of band, never learned from a sync."},
+	{Path: "mcp_approvals", Scope: settingschema.ScopeClient, Type: "map", Default: "{}",
+		Description: "Local approvals of third-party MCP descriptors, bound to the exact content hash. Written by the approval commands; do not edit by hand."},
+	{Path: "update.check", Scope: settingschema.ScopeClient, Type: "bool", Default: "true",
+		Description: "Look up the latest release once a day and tell when a newer one exists. false makes no lookup at all."},
+	{Path: "update.policy", Scope: settingschema.ScopeClient, Type: "string", Values: "notify | auto-patch", Default: "notify",
+		Description: "What to do about a newer release: notify says so; auto-patch installs patch releases by itself when installed with Homebrew, install.sh or install.ps1."},
+	{Path: "usage_scan", Scope: settingschema.ScopeClient, Type: "bool", Default: "true",
+		Description: "Scan session transcripts to tell the server which skills and agents this machine loads. false reads no transcript and reports no usage."},
+	{Path: "write_findings_hook", Scope: settingschema.ScopeClient, Type: "bool", Default: "true",
+		Description: "Install the hook that returns a write's findings to the agent as feedback (Claude Code, Codex). false makes the next sync remove it."},
+	{Path: "sync_timer_opt_out", Scope: settingschema.ScopeClient, Type: "bool", Default: "false",
+		Description: "Set by `service sync-timer uninstall`: connect and setup then stop installing the sync timer themselves."},
+}}
