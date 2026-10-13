@@ -23,24 +23,32 @@ client configuration.
 `make vet` runs `go vet ./...` twice, natively and with `GOOS=windows` (the `test-windows` job is skipped on feature PRs outside platform-specific code, so a test that does not compile on Windows would otherwise reach `main`), and `make fmt-check` fails on anything not
 gofmt-clean. All three are `make gate`, which is the single command CI runs.
 
-`make gate` runs on **two operating systems**: the `test` job on `ubuntu-latest`
-and a separate `test-windows` job on `windows-latest`
+`make gate` runs on ubuntu in the `test` job; the tests also run on Windows
 ([`ci.yml`](https://github.com/BeppeTemp/cartographer/blob/main/.github/workflows/ci.yml)).
-The Windows job is separate rather than a matrix leg on `test` because the
-required check on `main` is named literally `test`, which a matrix would rename.
-It sets `shell: bash` for every step — the Makefile recipes are POSIX shell — and
-installs `make`, which is not on the runner image, and turns off Defender's
-real-time scanning (about a fifth of the gate's time; the git-backed packages
-stay far slower than on Linux, from process creation). It runs on every push
-to `main`, on the release-please PR, and on a feature PR that touches a package
-with platform-specific code — `cmd/`, `internal/{service,provisioning,configurator,clientconfig,agents,execbit,gitx,kb,repoindex,defaults}`,
+There the git-backed packages are about 13 times slower (process creation), so
+the Windows leg is split across four `windows-latest` runners (D781):
+`scripts/test-shard.sh COUNT INDEX` deals every package's top-level tests
+round-robin, so each shard runs a slice of every slow package and together they
+run each test once. It skips `internal/repodocs` (documents, not platform
+behaviour) and leaves `fmt-check` and `vet` to `test`, which vets with
+`GOOS=windows` too. A fifth runner runs `install.ps1`. The shards turn off
+Defender's real-time scanning (about a fifth of their time) and use `bash`, the
+scripts being POSIX shell. Required checks match job names literally and a
+matrix renames its legs, so a small job named `test-windows` collects the legs
+and is what branch protection requires; `web` does the same for its two legs —
+the `@video`-tagged browser test (about two minutes of software rendering)
+with the unit tests and bundle checks, and the rest of the browser suite.
+`make e2e-web E2E_WEB_ARGS=...` passes the filter to Playwright. The Windows legs
+run on every push to `main`, on the release-please PR, and on a feature PR that
+touches a package with platform-specific code — `cmd/`, `internal/{service,provisioning,configurator,clientconfig,agents,execbit,gitx,kb,repoindex,defaults}`,
 the installers, any `*_windows.go` (D672). A regression elsewhere still shows
-on `main` right after the merge. The `web` job runs after every push to `main`
-and on a PR that touches its paths (D672, D255); its Playwright browser is
+on `main` right after the merge. The `web` legs run after every push to `main`
+and on a PR that touches their paths (D672, D255); the Playwright browser is
 cached by version. A `changes` job decides both, failing open, and the
 release-please PR always runs everything. `test`, `test-windows`, `web` and
 `pr-title` are required checks; a job skipped by its path condition reports as
-passed. On `main`, the `main-status` job opens a `ci-red` issue on the first
+passed. On `main` every push gets its own run (the concurrency group is the
+commit), and the `main-status` job opens a `ci-red` issue on the first
 failing push, comments on later ones, and closes it on the next green push. `docs/decisions.md`'s
 generated index is checked only on the release PR, which regenerates it. The working tree is LF on both
 legs (`.gitattributes`): gofmt is line-ending-sensitive, so a CRLF checkout fails
