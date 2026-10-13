@@ -64,6 +64,10 @@ pair per call, so the file is a complete operational request log (D119). See
 (`internal/config`, `config.Default()`). The YAML file is optional: without `--config`, only
 defaults + env + flags apply, as in earlier versions.
 
+Which layer set each value is recorded as the layers are applied (`Config.Origins`, D743) and shown by
+`cartographer config` and the Atlas Settings page: `default`, `file`, `env` or `flag`, per-KB keys by mounted name. A key
+written in the file equal to its default is still `file`. Secrets show only `(set)` or `(unset)`.
+
 Full annotated example: [`config.example.yaml`](https://github.com/BeppeTemp/cartographer/blob/main/config.example.yaml) (repo root).
 The example is **generated** from the settings schema (`Schema` in `internal/config/schema.go`: every key with its
 scope, type, values, default, description, the environment variable and flag that override it, and whether it needs a
@@ -466,7 +470,8 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   is what keeps the fallback from shadowing `/mcp`, `/health`, `/ready`,
   `/clients`, the OAuth metadata or `/api/`. `/ui` redirects permanently to
   `/ui/`, and `/` does the same from outside the auth chain.
-- `/api/ui/v1/…` — the JSON the UI reads (→ `control-plane.md` §Read-only UI API).
+- `/api/ui/v1/…` — the JSON the UI reads (→ `control-plane.md` §Read-only UI API). Its Settings page lists every
+  server and per-KB setting with its value and origin, read-only (D743, §Configuration above).
 
 The static bundle is reachable without a bearer token, because it is the page
 that asks for one and it carries no server or KB data; `/api/ui/v1` is not, and

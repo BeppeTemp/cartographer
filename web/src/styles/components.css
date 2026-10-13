@@ -2957,3 +2957,60 @@ body.is-resizing {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 }
+
+/* Settings panel (D743): read-only list of keys, value, origin badge. */
+.settings__section {
+  margin-top: var(--space-5);
+}
+.settings__title {
+  font-size: var(--text-md);
+  margin: 0 0 var(--space-2);
+}
+.settings__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
+.settings__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.settings__row {
+  border-top: 1px solid var(--border-subtle);
+  padding: var(--space-2) 0;
+}
+.settings__summary {
+  display: grid;
+  grid-template-columns: minmax(10rem, 18rem) 1fr auto auto;
+  gap: var(--space-3);
+  align-items: baseline;
+  cursor: pointer;
+}
+.settings__value {
+  overflow-wrap: anywhere;
+}
+.settings__origin,
+.settings__restart {
+  padding: 0 var(--space-2);
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  line-height: 18px;
+}
+.settings__origin--default {
+  opacity: 0.7;
+}
+.settings__detail {
+  margin: var(--space-2) 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.settings__detail p {
+  margin: 0 0 var(--space-1);
+}

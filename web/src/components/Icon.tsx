@@ -11,6 +11,7 @@ export type IconName =
   | "health"
   | "artifacts"
   | "key"
+  | "settings"
   | "panel-open"
   | "panel-close"
   | "list"
@@ -46,6 +47,8 @@ const PATHS: Record<IconName, string> = {
   // A pulse over a baseline: the health of the atlas.
   health: "M3 12h4l2-5 4 10 2-5h6",
   // A packed box: what the KB ships to its agents.
+  // Sliders: how the server is configured.
+  settings: "M4 7h10 M14 7a2 2 0 1 0 4 0 2 2 0 1 0-4 0 M18 7h2 M4 17h2 M6 17a2 2 0 1 0 4 0 2 2 0 1 0-4 0 M10 17h10",
   // A key: the secrets a KB keeps encrypted.
   key: "M10.5 12.5a4 4 0 1 1 1.5-1.5 M11 12l8.5 8.5 M16 17l2-2 M13.5 14.5l1.5-1.5",
   artifacts: "M4 8l8-4 8 4v8l-8 4-8-4z M4 8l8 4 8-4 M12 12v8",

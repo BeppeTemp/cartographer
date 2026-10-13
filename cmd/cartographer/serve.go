@@ -447,7 +447,7 @@ func runServe(cfg *config.Config) {
 
 	latestVersion := startServerUpdateCheck(cfg, version)
 	if cfg.HTTP != "" {
-		serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.Web.Enabled, auditLog, latestVersion)
+		serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.Web.Enabled, auditLog, latestVersion, cfg)
 	} else {
 		bs := bootstrapKBs(cfg, func(string) {})
 		serveStdio(bs.kbs[0], bs.artifactSigners[0], bs.allowlists[0], cfg.ToolsProfile, bs.sqlIdxs, auditLog, latestVersion)
@@ -485,7 +485,7 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisi
 // /health (live, bootstrapping) and /ready (503) and refuses everything else
 // with a retryable 503. A bad auth configuration still fails before the
 // listener starts; a failure inside boot stays fatal.
-func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile string, webEnabled bool, auditLog *audit.Log, latestVersion func() string) {
+func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile string, webEnabled bool, auditLog *audit.Log, latestVersion func() string, settingsCfg *config.Config) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
@@ -568,6 +568,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		kbs, names, artifactSigners, allowlists, sqlIdxs := bs.kbs, bs.names, bs.artifactSigners, bs.allowlists, bs.sqlIdxs
 		multi := mcpserver.NewMultiKBServer(version)
 		multi.SetLatestVersionSource(latestVersion)
+		multi.SetSettings(settingsCfg, string(updateChannelFn()))
 		// serverInfo.name (D102) identifies the mounted KB only when more than
 		// one is mounted — a single-KB HTTP server keeps the historical bare
 		// "cartographer" (asserted verbatim in server_test.go).

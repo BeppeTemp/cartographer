@@ -40,6 +40,9 @@ type Config struct {
 	// YAML `update_check`, env CARTOGRAPHER_UPDATE_CHECK, flag --update-check.
 	// A dev build never checks, whatever this says.
 	UpdateCheck bool
+	// Origins records which layer set each setting (D743), keyed by schema
+	// path; read it through OriginOf. A key no layer set is absent: default.
+	Origins map[string]Origin
 }
 
 // WebConfig controls the embedded web UI.
@@ -458,6 +461,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg := Default()
+	cfg.markFile(data, raw.KBs)
 	cfg.HTTP = raw.HTTP
 	cfg.Init = raw.Init
 	cfg.Data = raw.Data
@@ -579,66 +583,88 @@ func Load(path string) (*Config, error) {
 func FromEnv(cfg *Config) {
 	if v := os.Getenv("CARTOGRAPHER_KB"); v != "" {
 		for _, p := range splitCSV(v) {
-			cfg.KBs = append(cfg.KBs, KBSpec{Path: p})
+			spec := KBSpec{Path: p}
+			cfg.KBs = append(cfg.KBs, spec)
+			cfg.markKB(OriginEnv, spec)
 		}
 	}
 	if v := os.Getenv("CARTOGRAPHER_KB_REMOTES"); v != "" {
 		for _, r := range splitCSV(v) {
-			cfg.KBs = append(cfg.KBs, KBSpec{Remote: r})
+			spec := KBSpec{Remote: r}
+			cfg.KBs = append(cfg.KBs, spec)
+			cfg.markKB(OriginEnv, spec)
 		}
 	}
 	if v := os.Getenv("CARTOGRAPHER_DATA"); v != "" {
+		cfg.mark(OriginEnv, "data")
 		cfg.Data = v
 	}
 	if v := os.Getenv("CARTOGRAPHER_HTTP"); v != "" {
+		cfg.mark(OriginEnv, "http")
 		cfg.HTTP = v
 	}
 	if v := os.Getenv("CARTOGRAPHER_TOKENS"); v != "" {
+		cfg.mark(OriginEnv, "auth.tokens")
 		cfg.Auth.Tokens = parseTokenSpecs(v)
 	}
 	if v := os.Getenv("CARTOGRAPHER_AUTH"); v != "" {
+		cfg.mark(OriginEnv, "auth.mode")
 		cfg.Auth.Mode = normalizeAuthMode(v)
 	}
 	if v := os.Getenv("CARTOGRAPHER_GIT_AUTOCOMMIT"); v != "" {
+		cfg.mark(OriginEnv, "git.autocommit")
 		cfg.Git.Autocommit = parseBool(v, cfg.Git.Autocommit)
 	}
 	if v := os.Getenv("CARTOGRAPHER_GIT_SYNC"); v != "" {
+		cfg.mark(OriginEnv, "git.sync")
 		cfg.Git.Sync = parseBool(v, cfg.Git.Sync)
 	}
 	if v := os.Getenv("CARTOGRAPHER_WEB_ENABLED"); v != "" {
+		cfg.mark(OriginEnv, "web.enabled")
 		cfg.Web.Enabled = parseBool(v, cfg.Web.Enabled)
 	}
 	if v := os.Getenv("CARTOGRAPHER_UPDATE_CHECK"); v != "" {
+		cfg.mark(OriginEnv, "update_check")
 		cfg.UpdateCheck = parseBool(v, cfg.UpdateCheck)
 	}
 	if v := os.Getenv("CARTOGRAPHER_GIT_PROFILE"); v != "" {
+		cfg.mark(OriginEnv, "git.profile")
 		cfg.Git.Profile = normalizeGitProfile(v)
 	}
 	if v := os.Getenv("CARTOGRAPHER_GIT_TOKEN_DIR"); v != "" {
+		cfg.mark(OriginEnv, "git.token_dir")
 		cfg.Git.TokenDir = v
 	}
 	if v := os.Getenv("CARTOGRAPHER_SYNC_IN_WINDOW"); v != "" {
+		cfg.mark(OriginEnv, "git.in_window")
 		cfg.Git.SyncInWindow = parseDuration(v, cfg.Git.SyncInWindow)
 	}
 	if v := os.Getenv("CARTOGRAPHER_SYNC_OUT_DEBOUNCE"); v != "" {
+		cfg.mark(OriginEnv, "git.out_debounce")
 		cfg.Git.SyncOutDebounce = parseDuration(v, cfg.Git.SyncOutDebounce)
 	}
 	if v := os.Getenv("CARTOGRAPHER_AUDIT_LOG"); v != "" {
+		cfg.mark(OriginEnv, "audit.log")
 		cfg.Audit.Log = v
 	}
 	if v := os.Getenv("CARTOGRAPHER_AUDIT_KEY"); v != "" {
+		cfg.mark(OriginEnv, "audit.key_seed")
 		cfg.Audit.KeySeed = v
 	}
 	if v := os.Getenv("CARTOGRAPHER_SOPS_AGE_KEY_FILE"); v != "" {
+		cfg.mark(OriginEnv, "sops.age_key_file")
 		cfg.Sops.AgeKeyFile = v
 	}
 	if v := os.Getenv("CARTOGRAPHER_SOPS_AGE_KEY_DIR"); v != "" {
+		cfg.mark(OriginEnv, "sops.age_key_dir")
 		cfg.Sops.AgeKeyDir = v
 	}
 	if v := os.Getenv("CARTOGRAPHER_TOOLS_PROFILE"); v != "" {
+		cfg.mark(OriginEnv, "tools.profile")
 		cfg.ToolsProfile = normalizeToolsProfile(v)
 	}
 	if v := os.Getenv("CARTOGRAPHER_MCP_ALLOWED_ORIGINS"); v != "" {
+		cfg.mark(OriginEnv, "mcp.allowed_origins")
 		cfg.MCP.AllowedOrigins = splitCSV(v)
 	}
 }
@@ -667,35 +693,46 @@ type FlagOverrides struct {
 // consistent with the flag > env > YAML > default precedence.
 func ApplyFlags(cfg *Config, o FlagOverrides) {
 	if o.HTTP != nil {
+		cfg.mark(OriginFlag, "http")
 		cfg.HTTP = *o.HTTP
 	}
 	if o.Init != nil {
+		cfg.mark(OriginFlag, "init")
 		cfg.Init = *o.Init
 	}
 	if o.KB != nil {
 		for _, p := range splitCSV(*o.KB) {
-			cfg.KBs = append(cfg.KBs, KBSpec{Path: p})
+			spec := KBSpec{Path: p}
+			cfg.KBs = append(cfg.KBs, spec)
+			cfg.markKB(OriginFlag, spec)
 		}
 	}
 	if o.Data != nil {
+		cfg.mark(OriginFlag, "data")
 		cfg.Data = *o.Data
 	}
 	if o.Tokens != nil {
+		cfg.mark(OriginFlag, "auth.tokens")
 		cfg.Auth.Tokens = parseTokenSpecs(*o.Tokens)
 	}
 	if o.GitAutocommit != nil {
+		cfg.mark(OriginFlag, "git.autocommit")
 		cfg.Git.Autocommit = *o.GitAutocommit
 	}
 	if o.GitSync != nil {
+		cfg.mark(OriginFlag, "git.sync")
 		cfg.Git.Sync = *o.GitSync
 	}
 	if o.ToolsProfile != nil {
+		cfg.mark(OriginFlag, "tools.profile")
 		cfg.ToolsProfile = normalizeToolsProfile(*o.ToolsProfile)
 	}
 	if o.WebEnabled != nil {
+		cfg.mark(OriginFlag, "web.enabled")
 		cfg.Web.Enabled = *o.WebEnabled
 	}
 	if o.UpdateCheck != nil {
+		cfg.mark(OriginFlag, "update_check")
 		cfg.UpdateCheck = *o.UpdateCheck
 	}
 }
