@@ -1,133 +1,180 @@
-# Example configuration for `cartographer serve --config config.yaml`.
-# Every field here is optional; unset ones fall back to environment
-# variables, then to the built-in defaults. See internal/config for the
-# full precedence rules (flag > env > YAML > default).
+# Example configuration for "cartographer serve --config config.yaml".
+# Generated from the settings schema (internal/config/schema.go) by "make settings-example": edit the schema, not this file.
+# Every key is optional. Precedence, highest first: flag, environment variable, this file, default.
 
+# Listen address of the HTTP transport, for example :39273. Empty serves MCP
+# over stdio.
+# Default: "". Env: CARTOGRAPHER_HTTP. Flag: --http. Needs a restart.
 http: ":39273"
+# Initialize a KB that does not exist yet instead of failing.
+# Default: false. Flag: --init. Needs a restart.
 init: true
-auth:
-  mode: "on"            # on | off | auto (default auto: on if tokens are present)
-  # Tokens are preferably passed via env CARTOGRAPHER_TOKENS (secret, don't commit).
-  # Each entry is a bare scalar (admin, full access to every KB) or a mapping
-  # with optional per-KB scopes ("kb:<name>:r" read-only / "kb:<name>:rw").
-  # tokens:
-  #   - "admin-token-no-scopes"                 # full access (legacy/admin)
-  #   - token: "reader-token"
-  #     scopes: ["kb:wiki-kb:r"]                # read-only on wiki-kb
-  #   - token: "writer-token"
-  #     scopes: ["kb:wiki-kb:rw", "kb:notes:r"]
-  #   - token: "bot-token"
-  #     id: bot
-  #     author_name: bot                        # git author of this token's commits;
-  #     author_email: bot@example.com           # committer stays the KB's (D341)
+# Directory whose direct subdirectories are discovered as KBs, and where
+# remote KBs are cloned.
+# Default: "". Env: CARTOGRAPHER_DATA. Flag: --data. Needs a restart.
 data: /data
+auth:
+  # Bearer-token authentication of the HTTP transport. auto turns it on when at
+  # least one token is configured.
+  # Values: on | off | auto
+  # Default: auto. Env: CARTOGRAPHER_AUTH. Needs a restart.
+  mode: auto
+  # --- available settings ---
+  # Bearer tokens: a bare string (admin, every KB) or a mapping with token,
+  # scopes (kb:<name>:r or kb:<name>:rw), roles, id, author_name and
+  # author_email. A token may be written ${NAME} to read it from the
+  # environment.
+  # Default: []. Env: CARTOGRAPHER_TOKENS. Flag: --tokens. Needs a restart.
+  # Secret: keep it out of version control.
+  # tokens: []
+  # Named permission sets that tokens reference by name; each has a name and
+  # rules (kb, access r or rw, and optional maps, journals, types).
+  # Default: []. Needs a restart.
+  # roles: []
+# The KBs to mount: each entry has a path or a remote. KBs from the
+# environment and flags are added to this list.
+# Default: []. Env: CARTOGRAPHER_KB, CARTOGRAPHER_KB_REMOTES. Flag: --kb.
+# Needs a restart.
 kbs:
-  - remote: https://gitea.example.com/user/wiki-kb.git
-    name: wiki-kb          # explicit KB name (D53): wins over the name derived from
-                            # the remote/path — drives the HTTP endpoint, token scopes
-                            # (kb:wiki-kb:*), the clone dir (/data/wiki-kb), and the
-                            # git.token_dir/sops.age_key_dir conventions below.
-  - path: /data/kb-locale
-    # git_branch: kb-data      # local git profile: write to this branch instead of the
-                               # remote's default one; the first push creates it (D335)
-    # artifact_signing_seed: ${CARTOGRAPHER_ARTIFACT_SIGNING_SEED}
-    # 32-byte hexadecimal Ed25519 seed from a secret mount; never commit it.
-    # mcp_allowlist:             # deny all KB-provided MCP endpoints by default
-    #   - name: wiki-tools
-    #     transport: http
-    #     target: https://tools.example.com/mcp  # normalized absolute URL, exact match
-    #   - name: local-tools      # stdio: the target is the exact command, never a
-    #     transport: stdio       # shell expression; PATH name or clean absolute path
-    #     target: /usr/local/bin/local-tools
-    # optional per-KB overrides (zero value = fall back to global git/sops):
-    # ssh_key: /etc/kb-ssh/id_ed25519_locale
-    # author_name: cartographer-locale
-    # author_email: locale@example.com
-    # sops_age_key_file: /etc/kb-sops/locale.age
-    # allow_artifact_write: true   # enables artifact_write/artifact_delete on this
-                                   # KB (default false, D71): writing a skill means
-                                   # injecting instructions that clients will run —
-                                   # grant per-KB, an rw token alone does not imply it
-    # auto_repair: [nonstandard_field]  # checks `cartographer kb repair --apply` and
-                                   # the background repair apply unattended (D299), by
-                                   # name, no "all". Absent: every check that is safe
-                                   # to run unattended (D323, D355); [] means none
-    # doctor_auto_interval: 1d     # how often the server applies auto_repair by
-                                   # itself (D323); "0" disables, default 1d
-    # doctor_interval: 14d         # days before the agent proposes the next
-                                   # kb-doctor session to the operator (D299);
-                                   # "0" disables; a session never starts by
-                                   # itself (D704)
-    # doctor_budget: 10            # review items per session
-    # usage_stale_days: 42         # days a skill or agent may go unused by every
-                                   # client before artifact_unused reports it (D326);
-                                   # 0 disables the finding
-mcp:
-  # allowed_origins:               # (D128) browser origins allowed to reach /mcp, scheme
-  #   - "https://app.example.com"  # and port included. Empty (default) accepts only an
-                                   # Origin matching the request's own Host; "*" accepts
-                                   # any. A request with no Origin header — every
-                                   # non-browser client — is unaffected either way.
+  # Git remote a KB is cloned from, under data.
+  # Default: "".
+  - remote: https://git.example.com/user/kb-a.git
+    # KB name, in place of the one derived from the path or remote. It drives the
+    # endpoint, the token scopes, the clone directory and the token and age-key
+    # file conventions.
+    # Default: "".
+    name: kb-a
 git:
+  # Create a git commit after each successful write.
+  # Default: true. Env: CARTOGRAPHER_GIT_AUTOCOMMIT. Flag: --git-autocommit.
+  # Needs a restart.
   autocommit: true
+  # When a remote is configured, fetch and pull before and push after each
+  # write.
+  # Default: true. Env: CARTOGRAPHER_GIT_SYNC. Flag: --git-sync. Needs a
+  # restart.
   sync: true
-  ssh_key: /etc/kb-ssh/id_ed25519
-  known_hosts: /etc/kb-ssh/known_hosts
-  # default identity for autocommits (per-KB overridable in kbs[].author_*):
-  author_name: cartographer
-  author_email: cartographer@localhost
-  # committer_name/committer_email: default to the author identity when unset
-  # token_dir (D53): directory with one file per KB, <token_dir>/<name>.token
-  # (trimmed content = the token), used as HTTPS git credentials for that KB's
-  # remote — e.g. /etc/kb-git-tokens/wiki-kb.token for the "wiki-kb" KB above.
-  # token_dir: /etc/kb-git-tokens
-  # in_window (D76, D93): freshness window for SyncIn (fetch+pull-rebase) — reads
-  # and writes within this window of the last successful SyncIn skip it. Default 30s,
-  # 0 = sync on every read and write.
+  # --- available settings ---
+  # SSH private key used to reach remote KBs.
+  # Default: "". Needs a restart.
+  # ssh_key: ""
+  # The known_hosts file used to reach remote KBs.
+  # Default: "". Needs a restart.
+  # known_hosts: ""
+  # Default git author name of autocommits; set both name and e-mail when remote
+  # push rules validate authors.
+  # Default: "". Needs a restart.
+  # author_name: ""
+  # Default git author e-mail of autocommits.
+  # Default: "". Needs a restart.
+  # author_email: ""
+  # Default git committer name; empty follows the author.
+  # Default: "". Needs a restart.
+  # committer_name: ""
+  # Default git committer e-mail; empty follows the author.
+  # Default: "". Needs a restart.
+  # committer_email: ""
+  # Directory with one file per KB, <token_dir>/<name>.token (its trimmed
+  # content is the token), used as HTTPS git credentials for that KB's remote.
+  # Default: "". Env: CARTOGRAPHER_GIT_TOKEN_DIR. Needs a restart.
+  # token_dir: ""
+  # Freshness window of the pull before a read or write: within it of the last
+  # successful pull, the pull is skipped.
+  # Values: a Go duration; 0 syncs on every read and write
+  # Default: 30s. Env: CARTOGRAPHER_SYNC_IN_WINDOW. Needs a restart.
   # in_window: 30s
-  # out_debounce (D76): debounce window for the async per-KB push worker —
-  # bursts of writes coalesce into one push, out_debounce after the last one.
-  # Default 3s, 0 = synchronous inline push, no worker (rollback flag).
+  # Debounce of the background push: a burst of writes coalesces into one push
+  # this long after the last one.
+  # Values: a Go duration; 0 pushes synchronously, with no worker
+  # Default: 3s. Env: CARTOGRAPHER_SYNC_OUT_DEBOUNCE. Needs a restart.
   # out_debounce: 3s
-  # profile (D117): local (default) | server. The server profile adds a GitHub PR
-  # boundary and makes every field below required (per-KB overrides: git_profile,
-  # git_base_branch, git_working_branch, git_forge, github_owner, ...).
-  # profile: server
-  # base_branch: main             # protected; Cartographer never pushes it directly
-  # working_branch: cartographer/wiki-kb   # optional, default cartographer/<kb-name>
-  # forge: github
-  # github_owner: example-org     # must match the origin remote path exactly
-  # github_repository: wiki
-  # github_api_url: https://api.github.com
-  # github_token_env: CARTOGRAPHER_GITHUB_TOKEN
-sops:
-  # default age key for decrypting secret refs (per-KB overridable):
-  # age_key_file: /etc/kb-sops/keys.age
-  # age_key_dir (D53): directory with one age key per KB, <age_key_dir>/<name>.age
-  # — e.g. /etc/kb-sops-keys/wiki-kb.age for the "wiki-kb" KB above.
-  # age_key_dir: /etc/kb-sops-keys
-audit:
-  log: ""               # e.g. /data/audit.log
-  # retention_days: 90  # default 90 (D325): rotated segments older than this are deleted; 0 = keep forever
-tools:
-  # profile: which tools tools/list advertises to the LLM agent (D65).
-  #   agent (default) — core set only (read/write/search/log, structure,
-  #                     git-conflict self-recovery); governance and
-  #                     provisioning plumbing stay callable but unlisted.
-  #   full            — advertise every registered tool.
-  # profile: agent
-
-# The embedded read-only Atlas UI (D227). Served at /ui/ with its JSON API at
-# /api/ui/v1 whenever the server is in HTTP mode. Default true; `false` removes
-# both routes entirely, restoring the HTTP surface as it was before the UI.
-# Also CARTOGRAPHER_WEB_ENABLED and --web-enabled.
+  # How changes land by default. The server profile adds a GitHub pull-request
+  # boundary and requires the branch, forge and repository keys.
+  # Values: local | server
+  # Default: local. Env: CARTOGRAPHER_GIT_PROFILE. Needs a restart.
+  # profile: local
+  # Protected base branch of the server profile.
+  # Default: "". Needs a restart.
+  # base_branch: ""
+  # Branch the server profile writes to.
+  # Default: cartographer/<kb name>. Needs a restart.
+  # working_branch: cartographer/<kb name>
+  # Forge of the server profile.
+  # Values: github
+  # Default: "". Needs a restart.
+  # forge: ""
+  # Owner of the GitHub repository; it must match the origin remote path
+  # exactly.
+  # Default: "". Needs a restart.
+  # github_owner: ""
+  # Name of the GitHub repository.
+  # Default: "". Needs a restart.
+  # github_repository: ""
+  # GitHub API base URL, for example https://api.github.com.
+  # Default: "". Needs a restart.
+  # github_api_url: ""
+  # Name of the environment variable that holds the GitHub token.
+  # Default: "". Needs a restart.
+  # github_token_env: ""
 web:
+  # Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode.
+  # false removes both routes.
+  # Default: true. Env: CARTOGRAPHER_WEB_ENABLED. Flag: --web-enabled. Needs a
+  # restart.
   enabled: true
 
-# Look up the latest Cartographer release once a day (first check 30s after
-# start, cached 24h) and report it in /health and kb_status as
-# `latest_version` when it is newer (D254). Versions only: the server never
-# names an upgrade command, its deployment is not knowable from inside. A
-# failed lookup is silent; a `dev` build never checks. Default true.
-# Also CARTOGRAPHER_UPDATE_CHECK and --update-check.
+# --- available settings ---
+# Look up the latest release once a day and report it in /health and kb_status
+# when it is newer. A dev build never checks.
+# Default: true. Env: CARTOGRAPHER_UPDATE_CHECK. Flag: --update-check. Needs a
+# restart.
 # update_check: true
+# audit:
+#   Path of the append-only operation log. Empty turns the audit trail off.
+#   Default: "". Env: CARTOGRAPHER_AUDIT_LOG. Needs a restart.
+#   log: ""
+#   Seed that signs the audit trail, so it is tamper-evident. Write it ${NAME}
+#   to read it from the environment.
+#   Default: "". Env: CARTOGRAPHER_AUDIT_KEY. Needs a restart. Secret: keep it
+#   out of version control.
+#   key_seed: ""
+#   With best_effort a failed append is logged and the call carries on; with
+#   required the call is rejected before the tool runs.
+#   Values: best_effort | required
+#   Default: best_effort. Needs a restart.
+#   mode: best_effort
+#   Size after which the active log segment is rotated.
+#   Values: bytes; 0 keeps the built-in size
+#   Default: 0. Needs a restart.
+#   max_segment_bytes: 0
+#   Directory of rotated segments; empty keeps them beside the log.
+#   Default: "". Needs a restart.
+#   archive_dir: ""
+#   Rotated segments older than this are deleted once their checkpoint is
+#   written.
+#   Values: days; 0 keeps everything
+#   Default: 90. Needs a restart.
+#   retention_days: 90
+# sops:
+#   Default age key that decrypts secret references, for every KB without its
+#   own.
+#   Default: "". Env: CARTOGRAPHER_SOPS_AGE_KEY_FILE. Needs a restart.
+#   age_key_file: ""
+#   Directory with one age key per KB, <age_key_dir>/<name>.age. Resolution:
+#   kbs[].sops_age_key_file, then this, then age_key_file.
+#   Default: "". Env: CARTOGRAPHER_SOPS_AGE_KEY_DIR. Needs a restart.
+#   age_key_dir: ""
+# tools:
+#   Which tools tools/list advertises. agent is the core set; full advertises
+#   every tool. Hidden tools stay callable.
+#   Values: agent | full
+#   Default: agent. Env: CARTOGRAPHER_TOOLS_PROFILE. Flag: --tools-profile.
+#   Needs a restart.
+#   profile: agent
+# mcp:
+#   Browser origins allowed to reach the MCP endpoint. Empty accepts only an
+#   Origin matching the request's own Host; * accepts any. A request with no
+#   Origin header is unaffected.
+#   Values: origins with scheme and port, or *
+#   Default: []. Env: CARTOGRAPHER_MCP_ALLOWED_ORIGINS. Needs a restart.
+#   allowed_origins: []

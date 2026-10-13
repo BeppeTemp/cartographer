@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -66,8 +67,10 @@ func TestDefaultServerYAML(t *testing.T) {
 		"cartographer service install",
 		"config.example.yaml",
 		"git:",
-		"# author_name:",
-		"# author_email:",
+		"author_name:",
+		"author_email:",
+		"# --- available settings ---",
+		"Default git author name of autocommits",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("yaml missing %q\n---\n%s", want, out)
@@ -83,6 +86,35 @@ func TestDefaultServerYAML(t *testing.T) {
 	}
 	if cfg.HTTP != defaults.DefaultListenAddress || cfg.Data != "/home/x/cartographer-data" || !cfg.Init {
 		t.Fatalf("loaded generated YAML = %+v", cfg)
+	}
+}
+
+// A fresh local service writes a self-documenting file (D747): the keys it sets
+// carry their schema comment, and loading it is unaffected by the comments.
+func TestDefaultServerYAMLIsDocumentedAndLoadsLikeThePlainOne(t *testing.T) {
+	dir := t.TempDir()
+	for _, addr := range []string{defaults.DefaultListenAddress, ":39273"} {
+		out := DefaultServerYAML("/d", addr)
+		if !strings.Contains(out, "# Listen address of the HTTP transport") {
+			t.Errorf("%s: http is not documented:\n%s", addr, out)
+		}
+		path := filepath.Join(dir, "c.yaml")
+		if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := config.Load(path)
+		if err != nil {
+			t.Fatalf("%s: %v", addr, err)
+		}
+		want := config.Default()
+		want.HTTP, want.Data, want.Init = addr, "/d", true
+		want.Audit.Log = filepath.Join("/d", "audit.log")
+		if IsLoopbackListenAddr(addr) {
+			want.Auth.Mode = "off"
+		}
+		if !reflect.DeepEqual(cfg, want) {
+			t.Errorf("%s: commented file loads as %+v, want %+v", addr, cfg, want)
+		}
 	}
 }
 

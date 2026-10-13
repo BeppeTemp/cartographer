@@ -187,21 +187,14 @@ type ClientBinding struct {
 // (nil, defaults to true) apart from an explicit `trust: false` written by a
 // user who revoked it.
 //
-// KnownKBs is a *[]string for the same reason (D169): an absent `known_kbs`
-// key falls back to the legacy `kbs` alias, while `known_kbs: []` is a
-// deliberately empty cache and must win over a stale `kbs` left behind by a
-// pre-D169 client. KBs itself is read-only — Save never emits it again, so the
-// first write after the upgrade completes the migration.
+// It holds the user-owned keys only: the server-owned caches live in the state
+// file (D747) and are read from the YAML solely through legacyCaches.
 type yamlConfig struct {
 	ServerURL         string                            `yaml:"server_url"`
 	ServerName        string                            `yaml:"server_name"`
 	Auth              bool                              `yaml:"auth"`
 	TokenEnv          string                            `yaml:"token_env"`
 	Agents            []string                          `yaml:"agents"`
-	KBs               []string                          `yaml:"kbs,omitempty"`
-	KnownKBs          *[]string                         `yaml:"known_kbs,omitempty"`
-	ServerMountMode   string                            `yaml:"server_mount_mode,omitempty"`
-	ServerRoutedPath  string                            `yaml:"server_routed_path,omitempty"`
 	Clients           map[string]ClientBinding          `yaml:"clients,omitempty"`
 	Scopes            map[string]string                 `yaml:"scopes,omitempty"`
 	Workspaces        map[string][]WorkspaceBinding     `yaml:"workspaces,omitempty"`
@@ -216,6 +209,18 @@ type yamlConfig struct {
 	UsageScan         *bool                             `yaml:"usage_scan,omitempty"`
 	WriteFindingsHook *bool                             `yaml:"write_findings_hook,omitempty"`
 	SyncTimerOptOut   bool                              `yaml:"sync_timer_opt_out,omitempty"`
+}
+
+// legacyCaches are the keys older versions kept in .cartographer.yaml and that
+// now live in the state file (D747). Load reads them only when there is no state
+// file. KnownKBs is a *[]string (D169): an absent `known_kbs` key falls back to
+// the legacy `kbs` alias, while `known_kbs: []` is a deliberately empty cache and
+// must win over a stale `kbs` left behind by a pre-D169 client.
+type legacyCaches struct {
+	KBs              []string  `yaml:"kbs"`
+	KnownKBs         *[]string `yaml:"known_kbs"`
+	ServerMountMode  string    `yaml:"server_mount_mode"`
+	ServerRoutedPath string    `yaml:"server_routed_path"`
 }
 
 // WriteFindingsHookEnabled reports whether the write-findings hook (D353) is
@@ -273,28 +278,32 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &extra); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse extras %s: %w", Path(dir), err)
 	}
-	for _, key := range []string{"server_url", "server_name", "auth", "token_env", "agents", "kbs", "known_kbs", "clients", "trust", "search_roots", "search_depth", "paths", "ignored_paths", "signing_keys", "mcp_approvals", "update", "usage_scan", "write_findings_hook", "sync_timer_opt_out",
-		// No longer a field (D704): listed so a file written by 0.22/0.23
-		// drops it on the next save instead of carrying it as an extra.
-		"doctor_timer_opt_out"} {
+	for _, key := range yamlKeys() {
 		delete(extra, key)
+	}
+	// Keys that are no longer user settings (the caches, D747; doctor_timer_opt_out,
+	// D704): not extras, so a file written by an older version drops them on the
+	// next save instead of carrying them forever.
+	for key := range droppedKeys {
+		delete(extra, key)
+	}
+	var legacy legacyCaches
+	if err := yaml.Unmarshal(data, &legacy); err != nil {
+		return nil, fmt.Errorf("clientconfig: parse caches %s: %w", Path(dir), err)
 	}
 	cfg := Config{
 		// The pre-#329 default is migrated on read, so the next connect or
 		// sync writes the working URL into every client's MCP config.
-		ServerURL:        defaults.MigrateLegacyMCPURL(y.ServerURL),
-		ServerName:       y.ServerName,
-		Auth:             y.Auth,
-		TokenEnv:         y.TokenEnv,
-		Agents:           y.Agents,
-		KnownKBs:         y.KBs, // legacy alias; overridden below when known_kbs is present
-		ServerMountMode:  y.ServerMountMode,
-		ServerRoutedPath: y.ServerRoutedPath,
-		Clients:          y.Clients,
-		Scopes:           y.Scopes,
-		Workspaces:       y.Workspaces,
-		Trust:            true, // absent `trust` key defaults to true, see yamlConfig doc
-		UsageScan:        true, // absent `usage_scan` key defaults to true
+		ServerURL:  defaults.MigrateLegacyMCPURL(y.ServerURL),
+		ServerName: y.ServerName,
+		Auth:       y.Auth,
+		TokenEnv:   y.TokenEnv,
+		Agents:     y.Agents,
+		Clients:    y.Clients,
+		Scopes:     y.Scopes,
+		Workspaces: y.Workspaces,
+		Trust:      true, // absent `trust` key defaults to true, see yamlConfig doc
+		UsageScan:  true, // absent `usage_scan` key defaults to true
 
 		SearchRoots:     y.SearchRoots,
 		SearchDepth:     y.SearchDepth,
@@ -305,10 +314,21 @@ func Load(dir string) (*Config, error) {
 		SyncTimerOptOut: y.SyncTimerOptOut,
 		Extra:           extra,
 	}
-	if y.KnownKBs != nil {
-		// Present — including present and empty — always wins over the legacy
-		// `kbs` alias (D169).
-		cfg.KnownKBs = *y.KnownKBs
+	if state, ok := loadState(dir); ok {
+		cfg.KnownKBs = state.KnownKBs
+		cfg.ServerMountMode = state.ServerMountMode
+		cfg.ServerRoutedPath = state.ServerRoutedPath
+	} else {
+		// No state file yet: an installation from before D747 keeps its caches
+		// in the YAML. The next Save moves them.
+		cfg.KnownKBs = legacy.KBs
+		if legacy.KnownKBs != nil {
+			// Present — including present and empty — always wins over the
+			// legacy `kbs` alias (D169).
+			cfg.KnownKBs = *legacy.KnownKBs
+		}
+		cfg.ServerMountMode = legacy.ServerMountMode
+		cfg.ServerRoutedPath = legacy.ServerRoutedPath
 	}
 	if y.Trust != nil {
 		cfg.Trust = *y.Trust
@@ -341,32 +361,37 @@ func Load(dir string) (*Config, error) {
 }
 
 // Save writes cfg to dir, creating the directory if necessary.
+//
+// The user file is a yaml.Node round-trip of the existing one, not a marshal of
+// a map: a map has no room for comments, so the previous implementation dropped
+// every comment a person wrote on every save. Here the typed keys are set in
+// place, unknown keys and comments stay where they are, and the settings schema
+// then documents what is still undocumented (D747). A save that changes no
+// setting leaves the file untouched. The server-owned caches go to the state
+// file instead, so a sync does not rewrite the file a person edits.
 func Save(dir string, cfg *Config) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("clientconfig: mkdir %s: %w", dir, err)
 	}
 	y := yamlConfig{
-		ServerURL:        cfg.ServerURL,
-		ServerName:       cfg.ServerName,
-		Auth:             cfg.Auth,
-		TokenEnv:         cfg.TokenEnv,
-		Agents:           cfg.Agents,
-		KnownKBs:         &cfg.KnownKBs, // always emitted; the legacy `kbs` key is not written again (D169)
-		ServerMountMode:  cfg.ServerMountMode,
-		ServerRoutedPath: cfg.ServerRoutedPath,
-		Clients:          cfg.Clients,
-		Scopes:           cfg.Scopes,
-		Workspaces:       cfg.Workspaces,
-		Trust:            &cfg.Trust,
-		SearchRoots:      cfg.SearchRoots,
-		SearchDepth:      cfg.SearchDepth,
-		Paths:            cfg.Paths,
-		IgnoredPaths:     cfg.IgnoredPaths,
-		SigningKeys:      cfg.SigningKeys,
-		MCPApprovals:     cfg.MCPApprovals,
-		SyncTimerOptOut:  cfg.SyncTimerOptOut,
+		ServerURL:       cfg.ServerURL,
+		ServerName:      cfg.ServerName,
+		Auth:            cfg.Auth,
+		TokenEnv:        cfg.TokenEnv,
+		Agents:          cfg.Agents,
+		Clients:         cfg.Clients,
+		Scopes:          cfg.Scopes,
+		Workspaces:      cfg.Workspaces,
+		Trust:           &cfg.Trust,
+		SearchRoots:     cfg.SearchRoots,
+		SearchDepth:     cfg.SearchDepth,
+		Paths:           cfg.Paths,
+		IgnoredPaths:    cfg.IgnoredPaths,
+		SigningKeys:     cfg.SigningKeys,
+		MCPApprovals:    cfg.MCPApprovals,
+		SyncTimerOptOut: cfg.SyncTimerOptOut,
 	}
-	// Emitted only when off: a default machine's file stays byte-identical.
+	// Emitted only when off: a default machine's file stays free of them.
 	if !cfg.UsageScan {
 		off := false
 		y.UsageScan = &off
@@ -375,49 +400,23 @@ func Save(dir string, cfg *Config) error {
 		off := false
 		y.WriteFindingsHook = &off
 	}
-	// Emitted only when set: a default machine's file stays byte-identical.
+	// Emitted only when set.
 	if cfg.Update.Check != nil || cfg.Update.Policy != "" {
 		u := cfg.Update
 		y.Update = &u
 	}
-	data, err := yaml.Marshal(&y)
+	existing, err := os.ReadFile(Path(dir))
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("clientconfig: read %s: %w", Path(dir), err)
+	}
+	doc, err := buildDocument(existing, &y, cfg.Extra)
 	if err != nil {
-		return fmt.Errorf("clientconfig: marshal: %w", err)
+		return err
 	}
-	var merged map[string]interface{}
-	if err := yaml.Unmarshal(data, &merged); err != nil {
-		return fmt.Errorf("clientconfig: encode fields: %w", err)
+	if err := writeYAML(dir, doc); err != nil {
+		return err
 	}
-	for key, value := range cfg.Extra {
-		if _, exists := merged[key]; !exists {
-			merged[key] = value
-		}
-	}
-	data, err = yaml.Marshal(merged)
-	if err != nil {
-		return fmt.Errorf("clientconfig: marshal merged: %w", err)
-	}
-	tmp, err := os.CreateTemp(dir, FileName+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("clientconfig: create temp: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return fmt.Errorf("clientconfig: write temp: %w", err)
-	}
-	if err := tmp.Chmod(0o644); err != nil {
-		tmp.Close()
-		return fmt.Errorf("clientconfig: chmod temp: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("clientconfig: close temp: %w", err)
-	}
-	if err := os.Rename(tmpName, Path(dir)); err != nil {
-		return fmt.Errorf("clientconfig: replace %s: %w", Path(dir), err)
-	}
-	return nil
+	return writeState(dir, cfg)
 }
 
 // ApproveMCP records the exact descriptor hash for one source/name pair.

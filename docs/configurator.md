@@ -199,7 +199,7 @@ configuration. With one mounted KB (or an older single-KB server that omits
 `kbs`) it keeps the compatible single entry, `<server_name>`, pointed at the
 bare `/mcp` URL. With two or more KBs it writes one entry per KB, named
 `<server_name>-<kb>` and pointed at `/mcp?kb=<kb>`, and records that KB list in
-`.cartographer.yaml` (`known_kbs`). `sync` repeats the enumeration: it adds new
+`.cartographer-state.json` (`known_kbs`). `sync` repeats the enumeration: it adds new
 entries, removes entries for disappeared KBs, and performs the bare↔suffixed
 rename on one-to-many transitions. If the server cannot be reached, it leaves
 the MCP entries and `known_kbs` untouched and warns; run `sync` again once it is
@@ -248,7 +248,7 @@ as an explicit empty binding. `kbs` only narrows, never widens: the per-KB autho
 the target, and with `auth: false` the binding is advisory, since the client can edit its own URL.
 The generated instructions block names the bare tools and says to pass `kb: "<name>"` where a tool
 takes a `kb` argument, which is true for both shapes. The topology is persisted in
-`.cartographer.yaml` (`server_mount_mode`, `server_routed_path`) so `doctor` and `status` can derive
+`.cartographer-state.json` (`server_mount_mode`, `server_routed_path`) so `doctor` and `status` can derive
 the expected entries offline.
 
 **`sync` heals a topology change; no reconnect is needed.** A client whose state predates D288 holds
@@ -354,7 +354,7 @@ managed artifacts registered for that provider in the lockfile (`provisioning.Pr
 managed files, never untracked ones), then removes the provider from the lockfile and from
 `.cartographer.yaml`. If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with `agents: []`,
-preserving `server_url`/`server_name`/`auth`/`token_env`/`trust`/`known_kbs`/`clients` as defaults for the next
+preserving `server_url`/`server_name`/`auth`/`token_env`/`trust`/`clients` as defaults for the next
 `connect` (a disconnect→connect restarts from the previous server, not from `http://127.0.0.1:39273/mcp`).
 
 ```bash
@@ -1124,7 +1124,6 @@ server_name: cartographer  # name under which the server is registered in the MC
 auth: false
 token_env: CARTOGRAPHER_TOKENS
 agents: [claude, opencode]
-known_kbs: []    # mounted KB names discovered by connect/sync; empty = bare single-KB endpoint
 clients:         # per-provider KB binding (D169); absent provider = every known KB
   claude:
     kbs: [homelab]
@@ -1142,11 +1141,27 @@ usage_scan: true                # D326; written only when false. false: sync rea
 An unknown `update.policy` makes the file fail to load, naming the valid values: it is the one
 setting that lets a machine upgrade itself.
 
-`known_kbs` is server-owned: `connect` and `sync` overwrite it wholesale with
-what `/health` advertises. `clients` is user-owned and is never written by them
-— it is maintained with `cartographer client` (below). The legacy `kbs` key
-written before D169 is still read and is migrated to `known_kbs` on the next
-write.
+**The file documents itself (D747).** Every key it holds carries a comment (what it does, its values,
+its default), and the keys that are not set are listed commented out under
+`# --- available settings ---`, like a Helm `values.yaml`. The text comes from one table, `Schema` in
+`internal/clientconfig/schema.go`, which is also what `config.example.yaml` and the config view read;
+a test fails when a key exists in the file without an entry there, so a new setting starts in the
+table. `Save` is a `yaml.Node` round-trip of the existing file: a comment you wrote and a key the
+program does not know survive every save, a key you had commented out leaves the block when it gets
+set, and a file written by an older version gains the comments at its next save. A save that changes
+no setting does not rewrite the file. A file with no comments loads exactly as before: comments are
+additive.
+
+**Server-owned caches live in `.cartographer-state.json`**, next to `.cartographer-client.lock` and
+`.cartographer-sync.lock.json` (D747). `known_kbs` (the KB names `/health` advertised at the last
+`connect`/`sync`), `server_mount_mode` and `server_routed_path` are rewritten wholesale by every
+sync, which is why they left the file you edit: a sync that only refreshes them writes the state file
+and leaves `.cartographer.yaml` byte-identical, mtime included. The state file is JSON, never
+hand-edited. An installation from before keeps these keys in `.cartographer.yaml`; `Load` reads them
+from there while the state file is absent, and the next save moves them (the legacy `kbs` key, read
+since D169, goes the same way). An unreadable or corrupt state file is treated as absent, with one
+line on stderr: it is a cache, and the next `sync` rebuilds it. `clients` is user-owned and is never
+written by `connect`/`sync` — it is maintained with `cartographer client` (below).
 
 ### `cartographer client`
 

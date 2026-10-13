@@ -318,6 +318,7 @@ func rewriteKBEntry(p *renamePlan) error {
 		entry.Content = append(entry.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "name"},
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: p.New})
+		config.Schema.CommentKey(entry, "name", "kbs[].name")
 	}
 
 	out, err := yaml.Marshal(&doc)
