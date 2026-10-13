@@ -9,6 +9,7 @@ locals {
     "sts.googleapis.com",
     "billingbudgets.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "cloudbuild.googleapis.com",
   ]
 }
 

@@ -37,14 +37,17 @@ Needs `gcloud` (ADC: `gcloud auth application-default login`), `terraform`,
    ```bash
    terraform init
    terraform apply -target=google_project_service.enabled -target=google_artifact_registry_repository.demo
-   gcloud auth configure-docker europe-west1-docker.pkg.dev
-   docker build -f deploy/demo/Dockerfile --build-arg BASE=ghcr.io/beppetemp/cartographer:<tag> \
-     -t europe-west1-docker.pkg.dev/cartographer-demo/demo/cartographer-demo:bootstrap ../..
-   docker push europe-west1-docker.pkg.dev/cartographer-demo/demo/cartographer-demo:bootstrap
+   ctx=$(mktemp -d); mkdir -p "$ctx/deploy/demo" "$ctx/demo"
+   cp ../../deploy/demo/Dockerfile "$ctx/deploy/demo/"; cp -R ../../demo/astronomy ../../demo/replay.sh "$ctx/demo/"
+   gcloud builds submit --project cartographer-demo --config cloudbuild.bootstrap.yaml \
+     --substitutions _TAG=<tag> "$ctx"
    terraform apply
    ```
 
-   (Build for `linux/amd64`; on Apple silicon add `--platform linux/amd64`.)
+   The image is built by Cloud Build, not locally: Cloud Run needs `linux/amd64`, and a
+   local `docker build --platform linux/amd64` on Apple silicon fails with "does not provide
+   the specified platform" when the classic builder has the arm64 base cached. The context is
+   only the Dockerfile and `demo/`: the whole repository is too large to upload.
 4. Set the repository **variables** (not secrets) from `terraform output`:
    `GCP_WIF_PROVIDER`, `GCP_DEPLOY_SA`, `GCP_REGION`, `GCP_PROJECT`. From then on every
    release deploys; `gh workflow run demo.yml -f tag=<tag>` redeploys without one.
