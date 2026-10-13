@@ -489,6 +489,21 @@ archive, services with sops-encrypted secrets, and skills, an agent and a hook. 
 are kept on purpose, so Health has something to show. The secret values are fake, and the age key
 that encrypts them is not in the repository.
 
+#### The hosted read-only MCP demo (D751)
+
+The same KB is served live at `https://cartographer-demo.beppetemp.com/mcp`, so an agent client can try the
+read tools with nothing installed. It is a stateless Cloud Run service (`europe-west1`, scale to zero,
+one instance at most) running the released image plus the replayed `demo/astronomy`
+(`deploy/demo/Dockerfile`; `demo/replay.sh` is the replay `demo/build.sh` shares). Auth stays `on` with a
+single public token scoped `kb:astronomy:r`: only read tools are callable, every write tool is refused.
+A Cloudflare Worker forwards the hostname to the `*.run.app` URL (Cloud Run routes by Host), and one
+rate-limiting rule applies per client IP. The `*.run.app` URL stays reachable around Cloudflare; the
+instance cap is the backstop. `/ready` needs the token once auth is on, so the Cloud Run probes and the
+post-deploy check use `/health` (public, carries `ready`). Terraform, bootstrap and token rotation:
+`deploy/demo/README.md`. The `demo` workflow (`.github/workflows/demo.yml`) rebuilds and redeploys it on
+every release, so a change to the read tools or to `demo/astronomy` reaches it at the next release;
+`make demo-smoke` checks the image locally.
+
 An open Atlas follows the KB live (D337): while the tab is visible it asks
 `/api/ui/v1/kbs/<kb>/revision` every ten seconds and, when the answer changes,
 refetches the open view in place — graph, concept, findings and lists — without
@@ -894,7 +909,7 @@ backup before discarding any state.
 
 ## CI/CD: release + deploy pipeline
 
-Seven GitHub Actions workflows (`.github/workflows/`):
+Eight GitHub Actions workflows (`.github/workflows/`):
 
 - **`ci.yml`** — on every PR and push to `main`: the `test` job (`make gate`, then `make smoke-http`, `make e2e` and `make test-install`; Go from `go.mod`, git identity configured for git-backed tests) `test-windows` and `web`, plus, on PRs only, the `pr-title` job (lints the PR title as a conventional commit: with squash-merge the title becomes the commit on `main` that release-please reads). On a PR a `changes` job runs `test-windows` and `web` only when the PR touches their paths, and every job on the release-please PR (D255, D672); on `main` they always run, and a `main-status` job keeps one `ci-red` issue open while `main` is red. `test`, `test-windows`, `web` and `pr-title` are the required status checks on `main`'s ruleset; a job skipped by its path condition reports as passed.
 - **`privacy.yml`** — on every push, PR, issue and comment: scans the published commits and text for private names, held only as HMAC digests in the `PRIVACY_GUARD_DIGESTS`/`PRIVACY_GUARD_KEY` secrets; a hit fails the run and redacts the text (D259). Skipped on forks.
@@ -902,6 +917,7 @@ Seven GitHub Actions workflows (`.github/workflows/`):
 - **`release.yml`** — on the `v*` tag: **GoReleaser** (`.goreleaser.yaml`) builds the `darwin/linux/windows × amd64/arm64` binaries (`-X main.version=v<semver>`, read by `cartographer version`), attaches them to the existing release with `sha256sums.txt` (`release.mode: keep-existing` — the release and its notes belong to release-please), publishes the Homebrew cask on `BeppeTemp/homebrew-tap` (`HOMEBREW_TAP_TOKEN` PAT, macOS only); in parallel, buildx publishes the multi-arch image `ghcr.io/beppetemp/cartographer:<tag>` + `:latest`. After the image push, the `mcp-registry` job publishes the server's metadata to the official **MCP Registry** (`io.github.beppetemp/cartographer`, OCI package pointing at the ghcr image): `mcp-publisher login github-oidc` (no long-lived secret) + `publish` with `server.json` (repo root; `version` and image tag are stamped by the job). Ownership is verified via the `io.modelcontextprotocol.server.name` LABEL baked into the image. A final `prerelease-flag` job marks a `v0.*` release as a GitHub **pre-release** and reads the flag back, failing the release if it is not set (D82, D211): the `"prerelease": true` key in `release-please-config.json` does **not** set it — this job does. Because a pre-release is invisible to the `releases/latest` API endpoint, `install.sh` resolves the newest tag through `/releases?per_page=1` instead; until 1.0.0, nothing should reach for `releases/latest`.
 - **`preview.yml`** — dispatched by hand with a pre-release tag (`vX.Y.Z-<suffix>`, anything else is refused): builds the same multi-arch image as `release.yml` and pushes **only** `ghcr.io/beppetemp/cartographer:<tag>` — no `latest`, release, cask or MCP Registry entry — so an unreleased `main` can run on a real deployment before the release PR is merged (D303). `gh workflow run preview.yml -f tag=v0.18.0-rc.1`; a macOS client for it is built from source (`make build VERSION=<tag>`).
 - **`docs.yml`** — on a push to `main` that touches `docs/` or `mkdocs.yml` (and by hand): builds the site with MkDocs Material (`--strict`, so a broken link fails it) and deploys it to GitHub Pages; on a PR it only builds. Only the deploy job holds the `pages` concurrency group.
+- **`demo.yml`** — called by `release.yml` after the image push (and runnable by hand for a given tag): builds `deploy/demo/Dockerfile` on that release's image and deploys it to the hosted MCP demo on Cloud Run through Workload Identity Federation (D751). Skipped while `vars.GCP_WIF_PROVIDER` is empty; `mcp-registry` does not wait for it.
 - **`dependabot-automerge.yml`** — on Dependabot PRs: enables auto-merge for patch and minor rounds (D329).
 
 Dependency updates (Go modules and action versions) come from **Dependabot** (`.github/dependabot.yml`, weekly, grouped PRs). Patch and minor rounds merge themselves through GitHub auto-merge once the required checks pass (`dependabot-automerge.yml`, D329); a major bump waits for a maintainer. The frontend's npm dependencies are not on Dependabot's version rounds: `web/package-lock.json` is part of the bundle's provenance hash, so a lockfile bump without `make web` fails `test`. A security alert on them is fixed by hand — update the package in `web/`, then `make web` and commit both.

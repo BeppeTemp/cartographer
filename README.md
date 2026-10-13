@@ -22,6 +22,15 @@
 
 <p align="center"><b><a href="https://beppetemp.github.io/cartographer/demo/">Try the Atlas live →</a></b> a read-only snapshot over a demo knowledge base about astronomy, in your browser, nothing to install.</p>
 
+<p align="center"><b>Connect an agent to the live demo:</b> a read-only MCP endpoint over the same KB, rate-limited, nothing to install.</p>
+
+```bash
+claude mcp add --transport http cartographer-demo https://cartographer-demo.beppetemp.com/mcp \
+  --header "Authorization: Bearer cartographer-demo-readonly"
+```
+
+<p align="center"><sub>The token is public by design: it grants read access to the demo KB and nothing else, every write tool is refused. Other clients: URL above, header <code>Authorization: Bearer cartographer-demo-readonly</code>.</sub></p>
+
 <p align="center"><sub>The Atlas, served by the same binary, on a generated demo KB. Pre-1.0: breaking changes bump the minor version and are called out in the <a href="CHANGELOG.md">changelog</a>.</sub></p>
 
 ## Why
