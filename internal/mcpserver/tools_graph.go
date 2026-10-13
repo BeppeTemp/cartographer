@@ -60,7 +60,7 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 	return Tool{
 		Name:        "graph_context",
 		ReadOnly:    true,
-		Description: "Concepts most related to a question or set of concepts, following links both ways, with hop count and the concept each was reached through.",
+		Description: "The concepts around a question or given concepts, ranked over links both ways: one call instead of chaining search, concept_read and graph_neighbors.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {

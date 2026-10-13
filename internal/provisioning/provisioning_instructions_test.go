@@ -237,7 +237,7 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 	// operational instructions, no other section.
 	want := "The \"homelab\" KB is served via MCP by the \"cartographer\" server. Archives: entities/.\n\n" +
 		"Operational instructions:\n" +
-		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read;\n" +
+		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n" +
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n" +
 		"- a write is done when its response has no findings (broken links, missing index entry, orphan): fix them, or `lint_ignore` them with a reason;\n" +
 		"- status convention: `active` means the page is valid and current; open work uses `open`, `in-progress` or `blocked`, and a wait is declared with `waiting_on` and `review_after`;\n" +
@@ -839,7 +839,7 @@ func TestBuildManifest_Instructions_ToolNames(t *testing.T) {
 	}
 	plainContent := instructionsContent(t, plain, "homelab")
 	for _, want := range []string{
-		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read;\n",
+		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n",
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n",
 		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead.\n",
 		"- when `kb_status` reports a `latest_version`",
