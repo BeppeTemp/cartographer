@@ -37,6 +37,7 @@ func homeUIHandler(t *testing.T) http.Handler {
 }
 
 func TestUIAPI_SearchIsFilteredAndNeverRecordsAMiss(t *testing.T) {
+	t.Parallel()
 	handler := homeUIHandler(t)
 
 	if rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/search", "narrow"); rr.Code != http.StatusBadRequest {
@@ -65,6 +66,7 @@ func TestUIAPI_SearchIsFilteredAndNeverRecordsAMiss(t *testing.T) {
 }
 
 func TestUIAPI_StatusIsAWholeKBResource(t *testing.T) {
+	t.Parallel()
 	handler := homeUIHandler(t)
 	if rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/status", "narrow"); rr.Code != http.StatusNotFound {
 		t.Fatalf("narrow status: %d, want 404", rr.Code)
@@ -75,6 +77,7 @@ func TestUIAPI_StatusIsAWholeKBResource(t *testing.T) {
 }
 
 func TestUIAPI_ChangesIsServedAndRejectsABadWindow(t *testing.T) {
+	t.Parallel()
 	handler := homeUIHandler(t)
 	rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/changes?since=7d", "narrow")
 	if rr.Code == http.StatusNotFound || rr.Code >= 500 {
@@ -89,6 +92,7 @@ func TestUIAPI_ChangesIsServedAndRejectsABadWindow(t *testing.T) {
 }
 
 func TestUIAPI_ArtifactsCarryTheConceptsTheyReference(t *testing.T) {
+	t.Parallel()
 	handler := homeUIHandler(t)
 	detail := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/artifact?kind=skill&name=probe", "whole"))
 	var got []string
@@ -113,6 +117,7 @@ func TestUIAPI_ArtifactsCarryTheConceptsTheyReference(t *testing.T) {
 }
 
 func TestArtifactConceptRefs(t *testing.T) {
+	t.Parallel()
 	exists := map[okf.ConceptID]struct{}{"a/b": {}, "c/d": {}, "e/f": {}}
 	a := kbArtifact{Files: []provisioning.ArtifactFile{
 		{Path: "SKILL.md", Content: []byte("See [[a/b|B]], c/d/index.md and e/f. Also x/y and /a/b.\n")},
@@ -126,6 +131,7 @@ func TestArtifactConceptRefs(t *testing.T) {
 // TestUIAPI_WorkFiltersLikeTheTool (D302): the route is work_list for the
 // request's principal, and a KB the caller cannot see is a 404.
 func TestUIAPI_WorkFiltersLikeTheTool(t *testing.T) {
+	t.Parallel()
 	k := uiFixtureKB(t, "docs")
 	writeKBFile(t, k, "visible/task.md", "---\ntype: Task\ntitle: Task\nstatus: open\npriority: p1\n---\n# T\n\n- [ ] visible item\n")
 	writeKBFile(t, k, "hidden/task.md", "---\ntype: Task\ntitle: Hidden\nstatus: open\n---\n# H\n\n- [ ] hidden item\n")
@@ -155,6 +161,7 @@ func TestUIAPI_WorkFiltersLikeTheTool(t *testing.T) {
 }
 
 func TestUIAPI_RevisionMovesOnAnOutOfBandEdit(t *testing.T) {
+	t.Parallel()
 	k := uiFixtureKB(t, "docs")
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "whole", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}}},

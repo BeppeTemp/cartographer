@@ -83,6 +83,7 @@ func serverGitRemote(t *testing.T, k *KB, bare string) {
 }
 
 func TestConfigureServerGitCreatesDedicatedBranch(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not in PATH")
 	}
@@ -110,6 +111,7 @@ func TestConfigureServerGitCreatesDedicatedBranch(t *testing.T) {
 }
 
 func TestConfigureServerGitRefusesDirtyState(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not in PATH")
 	}
@@ -133,6 +135,7 @@ func TestConfigureServerGitRefusesDirtyState(t *testing.T) {
 }
 
 func TestGitHubRemoteMatches(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, remote string
 		want         bool
@@ -154,6 +157,7 @@ func TestGitHubRemoteMatches(t *testing.T) {
 }
 
 func TestServerPRLifecyclePersistsOnlyNonSecretState(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	created := 0
 	f := &scriptedForge{
@@ -194,6 +198,7 @@ func TestServerPRLifecyclePersistsOnlyNonSecretState(t *testing.T) {
 }
 
 func TestServerPRLifecycleFailsClosedAndRetriesOnStatus(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	boom := errors.New("forge unavailable")
 	f := &scriptedForge{
@@ -218,6 +223,7 @@ func TestServerPRLifecycleFailsClosedAndRetriesOnStatus(t *testing.T) {
 }
 
 func TestServerWritesBlockedDuringMergeUncertainty(t *testing.T) {
+	t.Parallel()
 	k := &KB{Root: t.TempDir(), ServerGit: &ServerGitConfig{BaseBranch: "main", WorkingBranch: "work", Owner: "a", Repository: "b", Forge: fakeForge{}}}
 	if err := k.saveServerGitState(ServerGitState{Profile: "server", Phase: "merge_uncertain", PRNumber: 1}); err != nil {
 		t.Fatal(err)
@@ -231,6 +237,7 @@ func TestServerWritesBlockedDuringMergeUncertainty(t *testing.T) {
 }
 
 func TestMergeUncertaintyBlocksPendingServerPush(t *testing.T) {
+	t.Parallel()
 	k, _, _ := serverGitFinalizeFixture(t)
 	k.GitSync = true
 	if err := k.saveServerGitState(ServerGitState{Profile: "server", BaseBranch: "main", WorkingBranch: "cartographer/kb", Phase: "merge_uncertain", PRNumber: 1}); err != nil {
@@ -242,6 +249,7 @@ func TestMergeUncertaintyBlocksPendingServerPush(t *testing.T) {
 }
 
 func TestRecordServerRebaseConflictRetainsNonConceptPaths(t *testing.T) {
+	t.Parallel()
 	k := &KB{Root: t.TempDir(), ServerGit: &ServerGitConfig{BaseBranch: "main", WorkingBranch: "work", Owner: "a", Repository: "b", Forge: fakeForge{}}}
 	k.RecordServerRebaseConflict(&gitx.RebaseConflictError{Files: []string{"README.md", "data/note.md"}, LocalSHA: "local", RemoteSHA: "remote", Remote: "origin", Branch: "main"})
 	conflicts, err := k.ListConflicts()
@@ -302,6 +310,7 @@ func serverGitFinalizeFixture(t *testing.T) (*KB, string, string) {
 }
 
 func TestFinalizeServerPRRequiresApprovalWithoutChangingBase(t *testing.T) {
+	t.Parallel()
 	k, _, head := serverGitFinalizeFixture(t)
 	baseBefore, err := gitx.HeadSHAAt(k.Root, "origin/main")
 	if err != nil {
@@ -328,6 +337,7 @@ func TestFinalizeServerPRRequiresApprovalWithoutChangingBase(t *testing.T) {
 }
 
 func TestFinalizeServerPRSuccessfulSquashStartsNewCycle(t *testing.T) {
+	t.Parallel()
 	k, bare, head := serverGitFinalizeFixture(t)
 	merged := false
 	f := &scriptedForge{

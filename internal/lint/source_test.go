@@ -16,6 +16,7 @@ func sourceKB(t *testing.T, status, citer string) []Finding {
 }
 
 func TestRun_SourceUncited(t *testing.T) {
+	t.Parallel()
 	got := sourceKB(t, "ingested", "")
 	if len(got) != 1 || got[0].Path != "sources/2026-01-01-a.md" || got[0].Severity != SevWarning {
 		t.Fatalf("ingested and uncited: %+v", got)
@@ -32,6 +33,7 @@ func TestRun_SourceUncited(t *testing.T) {
 }
 
 func TestRun_SourceUncitedSuppressibleAndScoped(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "sources/a.md", "---\ntype: Source\ntitle: A\ningest_status: ingested\nlint_ignore: [source_uncited]\n---\n# A\n")
 	writeFile(t, k.DataRoot(), "sources/b.md", "---\ntype: Source\ntitle: B\ningest_status: ingested\n---\n# B\n")

@@ -188,6 +188,7 @@ func TestReviewKindsDismissible(t *testing.T) {
 }
 
 func TestReviewDuplicateCandidate(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	writeFile(t, k.DataRoot(), "n/_map.md", "---\ntype: Map\ntitle: N\n---\n")
@@ -219,6 +220,7 @@ func TestReviewDuplicateCandidate(t *testing.T) {
 
 // D313: the same resource with unrelated titles is not a duplicate.
 func TestReviewDuplicateCandidate_ResourceNeedsSimilarTitle(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	for name, title := range map[string]string{"a": "Rotate certificates", "b": "Upgrade storage nodes", "c": "Tune ingress limits"} {
@@ -234,6 +236,7 @@ func TestReviewDuplicateCandidate_ResourceNeedsSimilarTitle(t *testing.T) {
 }
 
 func TestReviewDuplicateActionSatellite(t *testing.T) {
+	t.Parallel()
 	if got := duplicateAction(idsOf("m/x", "m/x/y")); !strings.Contains(got, "concept_merge m/x/y into its parent m/x") {
 		t.Fatalf("satellite pair: %q", got)
 	}
@@ -243,6 +246,7 @@ func TestReviewDuplicateActionSatellite(t *testing.T) {
 }
 
 func TestReviewZombieWork(t *testing.T) {
+	t.Parallel()
 	k, _ := reviewFixtures[ReviewZombie](t, false)
 	writeFile(t, k.DataRoot(), "b/closed.md", "---\ntype: Task\ntitle: Closed\nstatus: done\n---\n# Closed\n\n## Origin\n\nSee [old](old.md).\n")
 	items := itemsOf(review(t, k), ReviewZombie)
@@ -252,6 +256,7 @@ func TestReviewZombieWork(t *testing.T) {
 }
 
 func TestReviewPromotionCandidate(t *testing.T) {
+	t.Parallel()
 	k, _ := reviewFixtures[ReviewPromotion](t, false)
 	writeFile(t, k.DataRoot(), "p/x.md", "---\ntype: Procedure\ntitle: X\n---\n# X\n")
 	writeFile(t, k.DataRoot(), "j/linked.md", "---\ntype: Note\ntitle: L\n---\n# L\n\n1. a\n2. b\n3. c\n4. d\n5. e\n\nNow in [x](../p/x.md).\n")
@@ -279,6 +284,7 @@ func TestReviewPromotionCandidate(t *testing.T) {
 }
 
 func TestReviewGlossaryGap(t *testing.T) {
+	t.Parallel()
 	k, _ := reviewFixtures[ReviewGlossary](t, false)
 	for i := 0; i < glossaryMinConcepts; i++ {
 		// API and JSON are common terms; NON is "non" shouted (D307); HA,
@@ -300,6 +306,7 @@ func TestReviewGlossaryGap(t *testing.T) {
 }
 
 func TestReviewLintJudgement(t *testing.T) {
+	t.Parallel()
 	k, _ := reviewFixtures[ReviewLintJudgement](t, false)
 	items := itemsOf(review(t, k), ReviewLintJudgement)
 	if len(items) != 1 || items[0].Check != "broken_link" || items[0].Concepts[0] != "m/a" {
@@ -316,6 +323,7 @@ func TestReviewLintJudgement(t *testing.T) {
 // TestReviewOrderStable pins the ranking: kind priority, then weight, then
 // IDs, whatever order the generators emitted.
 func TestReviewOrderStable(t *testing.T) {
+	t.Parallel()
 	items := []ReviewItem{
 		{Kind: ReviewLintJudgement, Concepts: []string{"m/a"}, Weight: 1},
 		{Kind: ReviewGlossary, Concepts: []string{"m/b"}, Weight: 12},
@@ -340,6 +348,7 @@ func TestReviewOrderStable(t *testing.T) {
 }
 
 func TestFilterReviewVisibility(t *testing.T) {
+	t.Parallel()
 	var many []string
 	for i := 0; i < glossaryMinConcepts+1; i++ {
 		many = append(many, fmt.Sprintf("m/c%02d", i))
@@ -365,6 +374,7 @@ func TestFilterReviewVisibility(t *testing.T) {
 }
 
 func TestTitleJaccardThreshold(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		a, b string
 		want bool
@@ -391,6 +401,7 @@ func idsOf(ids ...string) []okf.ConceptID {
 
 // TestReviewRepeatedFact pins what is and is not a repeated fact (D301).
 func TestReviewRepeatedFact(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	writeFile(t, k.Root, "templates/note.md", "---\ntype: Note\n---\n> Fill in the details of this note before saving it anywhere.\n")
@@ -427,6 +438,7 @@ func TestReviewRepeatedFact(t *testing.T) {
 
 // TestReviewReadHotspot: both conditions are needed (D301).
 func TestReviewReadHotspot(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	big := strings.Repeat("word ", hotspotMinBytes/5+10)
@@ -456,6 +468,7 @@ func TestReviewReadHotspot(t *testing.T) {
 // TestConceptOversizePerMap: oversize_bytes lowers the threshold for its own
 // map only (D301); the default stays tied to the read guard.
 func TestConceptOversizePerMap(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "small/_map.md", "---\ntype: Map\ntitle: S\noversize_bytes: 100\n---\n")
 	writeFile(t, k.DataRoot(), "other/_map.md", "---\ntype: Map\ntitle: O\n---\n")
@@ -474,6 +487,7 @@ func TestConceptOversizePerMap(t *testing.T) {
 // TestReciprocalLinkItem (D301): only a link-only item whose target links
 // back; an item with prose is kept; a duplicate_link is not reported twice.
 func TestReciprocalLinkItem(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nUses [[m/d]].\n\n## Links\n\n- [[m/b]]\n- [[m/c]] — why it matters\n- [[m/d]]\n- [[m/e]]\n")
@@ -502,6 +516,7 @@ func TestReciprocalLinkItem(t *testing.T) {
 // TestReviewScatteredWork (D302): no item without work_map; an item for a
 // reference page with an unchecked item; none once it links into work_map.
 func TestReviewScatteredWork(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "backlog/_map.md", "---\ntype: Map\ntitle: Backlog\n---\n")
 	writeFile(t, k.DataRoot(), "backlog/t.md", "---\ntype: Task\ntitle: T\nstatus: open\n---\n# T\n")
@@ -531,6 +546,7 @@ func TestReviewScatteredWork(t *testing.T) {
 // shapes or capitalisation, naming every map; none for a consistent set, nor
 // below three maps, and never for a caller who cannot see the whole KB.
 func TestReviewMapNaming(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		titles []string
 		want   string
@@ -572,6 +588,7 @@ func TestReviewMapNaming(t *testing.T) {
 // TestReviewMapNamingIndividual (D315): a map title poor on its own is
 // flagged even when the set is consistent, with the reason in the evidence.
 func TestReviewMapNamingIndividual(t *testing.T) {
+	t.Parallel()
 	long := "Everything we know about the cluster and its nodes"
 	for name, tc := range map[string]struct {
 		folders, titles []string
@@ -606,6 +623,7 @@ func TestReviewMapNamingIndividual(t *testing.T) {
 // their origin. They get one item naming it first, which lint_ignore on it
 // dismisses, while a concept's own retired subject still gets its own item.
 func TestReviewZombieSharedOrigin(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "b/_map.md", "---\ntype: Map\ntitle: B\n---\n")
 	writeFile(t, k.DataRoot(), "b/oldlist.md", "---\ntype: Topic\ntitle: Old list\nstatus: deprecated\n---\n# Old list\n")
@@ -650,6 +668,7 @@ func TestReviewZombieSharedOrigin(t *testing.T) {
 // TestReviewDuplicateSkipsNamedSatellite: a satellite titled "<parent> — part"
 // is the split concept_expand made, not a duplicate of its parent.
 func TestReviewDuplicateSkipsNamedSatellite(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	writeFile(t, k.DataRoot(), "m/plan/index.md", "---\ntype: Topic\ntitle: Operational evolution plan\n---\n# Plan\n")
@@ -662,6 +681,7 @@ func TestReviewDuplicateSkipsNamedSatellite(t *testing.T) {
 // D314: a template's table row is boilerplate, and the evidence keeps the
 // code spans the comparison key masks.
 func TestRepeatedFact_TemplateTableRowExempt(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	writeFile(t, k.Root, "templates/svc.md", "---\ntype: Note\n---\n| Header one of it | Header two of it |\n| --- | --- |\n| image | on the registry (see the template note) |\n")
@@ -675,6 +695,7 @@ func TestRepeatedFact_TemplateTableRowExempt(t *testing.T) {
 }
 
 func TestRepeatedFact_EvidencePreservesCodeSpans(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	for i := 0; i < 3; i++ {
@@ -689,6 +710,7 @@ func TestRepeatedFact_EvidencePreservesCodeSpans(t *testing.T) {
 // TestStatusReclassify (D321): a proposal per active journal entry, from
 // deterministic signals; none where the journal declares active open.
 func TestStatusReclassify(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
 	writeFile(t, k.DataRoot(), "o/_map.md", "---\ntype: Map\ntitle: O\nkind: journal\nopen_statuses: [active]\n---\n")
@@ -719,6 +741,7 @@ func TestStatusReclassify(t *testing.T) {
 
 // D345: a precedent cited in prose is history, not a dependency.
 func TestReviewZombieOnlyOriginSections(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "b/_map.md", "---\ntype: Map\ntitle: B\n---\n")
 	writeFile(t, k.DataRoot(), "b/old.md", "---\ntype: Topic\ntitle: Old\nstatus: deprecated\n---\n# Old\n")
@@ -740,6 +763,7 @@ func TestReviewZombieOnlyOriginSections(t *testing.T) {
 }
 
 func TestReviewZombieSharedOriginNeedsOriginSections(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "b/_map.md", "---\ntype: Map\ntitle: B\n---\n")
 	writeFile(t, k.DataRoot(), "b/old.md", "---\ntype: Topic\ntitle: Old\nstatus: deprecated\n---\n# Old\n")
@@ -752,6 +776,7 @@ func TestReviewZombieSharedOriginNeedsOriginSections(t *testing.T) {
 }
 
 func TestReviewDuplicateSkipsSeriesPages(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	for id, title := range map[string]string{
@@ -775,6 +800,7 @@ func TestReviewDuplicateSkipsSeriesPages(t *testing.T) {
 }
 
 func TestSeriesSiblings(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		ta, ia, tb, ib string
 		want           bool
@@ -796,6 +822,7 @@ func TestSeriesSiblings(t *testing.T) {
 }
 
 func TestMapTitleIssues(t *testing.T) {
+	t.Parallel()
 	if got := MapTitleIssues("infra", "Infra"); len(got) != 0 {
 		t.Fatalf("short matching title flagged: %v", got)
 	}
@@ -810,6 +837,7 @@ func TestMapTitleIssues(t *testing.T) {
 // The hand-written word scanner answers exactly what the regexps it replaces
 // answer (glossaryItems).
 func TestASCIIWordsMatchRegexps(t *testing.T) {
+	t.Parallel()
 	texts := []string{
 		"", "plain words only", "9abc a9b X Y2K HTTPS2 ABCDEFGHI KubeCtl Kubectl kubeCtl",
 		"àèì naïve Straße — DevOps, GitOps; mTLS IPv6 OAuth2 iOS A B1 Z_9 x__y",

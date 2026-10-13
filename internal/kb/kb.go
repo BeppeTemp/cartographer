@@ -436,6 +436,10 @@ func Open(root string) (*KB, error) {
 // initAuthorName/initAuthorEmail carry the identity InitWithIdentity supplies
 // to the KB's initial commit, for the duration of that call. Init leaves them
 // empty and the package defaults apply, which is the pre-D156 behaviour.
+//
+// These are process-global: a test that calls InitOnBranch, InitWithIdentity or
+// InitWithSettings must stay serial (no t.Parallel), or it changes what a
+// concurrent Init commits.
 var (
 	initAuthorName  string
 	initAuthorEmail string

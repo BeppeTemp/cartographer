@@ -46,6 +46,7 @@ func sortedKeys(m map[string]bool) []string {
 }
 
 func TestRegistry_DerivedTablesMatchLegacy(t *testing.T) {
+	t.Parallel()
 	artifactAcceptableNow := map[string]bool{}
 	for _, s := range Checks() {
 		artifactAcceptableNow[s.Name] = artifactAcceptable(s.Name)
@@ -77,6 +78,7 @@ func TestRegistry_DerivedTablesMatchLegacy(t *testing.T) {
 }
 
 func TestRegistry_Invariants(t *testing.T) {
+	t.Parallel()
 	levels := map[string]bool{LevelConcept: true, LevelMap: true, LevelGraph: true, LevelArtifact: true, LevelKB: true}
 	accepts := map[string]bool{AcceptConcept: true, AcceptMap: true, AcceptArtifact: true, AcceptNone: true}
 	seen := map[string]bool{}
@@ -132,6 +134,7 @@ func TestRegistry_Invariants(t *testing.T) {
 }
 
 func TestNewFinding_SeverityFromSpec(t *testing.T) {
+	t.Parallel()
 	if f := newFinding("broken_link", Finding{Path: "a.md"}); f.Check != "broken_link" || f.Severity != SevWarning {
 		t.Errorf("default severity: %+v", f)
 	}
@@ -150,6 +153,7 @@ func TestNewFinding_SeverityFromSpec(t *testing.T) {
 // check is built by newFinding, so its severity comes from the spec. A literal
 // that sets Check bypasses the registry.
 func TestNoFindingLiteralOutsideRegistry(t *testing.T) {
+	t.Parallel()
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
@@ -206,6 +210,7 @@ func setsCheck(cl *ast.CompositeLit) bool {
 // concept of a KB that trips most of them, CheckConcept equals the OnWrite
 // LevelConcept subset of Run's findings for that path.
 func TestCheckConceptAgreesWithRun(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	root := k.DataRoot()
 	writeFile(t, root, "ops/_map.md", "---\ntype: Map\nkind: map\ntitle: Ops\nrequired_fields: [owner]\nforbidden_fields: [secret_note]\nfield_values.status: [open, done]\n---\n# Ops\n")
@@ -273,6 +278,7 @@ func TestCheckConceptAgreesWithRun(t *testing.T) {
 
 // Every lint check has a reader's category (D365); kb_review kinds have none.
 func TestRegistryCategories(t *testing.T) {
+	t.Parallel()
 	known := map[string]bool{}
 	for _, c := range Categories {
 		known[c] = true

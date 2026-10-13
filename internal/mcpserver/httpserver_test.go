@@ -32,6 +32,7 @@ func newMultiKBTestHandler(t *testing.T, names ...string) *MultiKBServer {
 }
 
 func TestMultiKB_PathRouting_KnownName(t *testing.T) {
+	t.Parallel()
 	multi := newMultiKBTestHandler(t, "kbx", "kby")
 	handler := multi.Handler()
 
@@ -51,6 +52,7 @@ func TestMultiKB_PathRouting_KnownName(t *testing.T) {
 }
 
 func TestMultiKB_PathRouting_UnknownName(t *testing.T) {
+	t.Parallel()
 	multi := newMultiKBTestHandler(t, "kbx")
 	handler := multi.Handler()
 
@@ -65,6 +67,7 @@ func TestMultiKB_PathRouting_UnknownName(t *testing.T) {
 }
 
 func TestMultiKB_PathRouting_ConflictingKBSelection(t *testing.T) {
+	t.Parallel()
 	multi := newMultiKBTestHandler(t, "kbx", "kby")
 	handler := multi.Handler()
 
@@ -79,6 +82,7 @@ func TestMultiKB_PathRouting_ConflictingKBSelection(t *testing.T) {
 }
 
 func TestMultiKB_PathRouting_AgreeingKBSelection(t *testing.T) {
+	t.Parallel()
 	multi := newMultiKBTestHandler(t, "kbx", "kby")
 	handler := multi.Handler()
 
@@ -100,6 +104,7 @@ func TestMultiKB_PathRouting_AgreeingKBSelection(t *testing.T) {
 // auth.TokenStore.Middleware) actually answers it, unauthenticated, with the
 // expected JSON, instead of falling through to the "not found" default.
 func TestMultiKB_WellKnownProtectedResource_ServedWithoutAuth(t *testing.T) {
+	t.Parallel()
 	multi := newMultiKBTestHandler(t, "kbx")
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "some-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
@@ -130,6 +135,7 @@ func TestMultiKB_WellKnownProtectedResource_ServedWithoutAuth(t *testing.T) {
 }
 
 func TestMultiKB_Ready_ZeroKBs(t *testing.T) {
+	t.Parallel()
 	multi := NewMultiKBServer("test")
 	handler := multi.Handler()
 
@@ -152,6 +158,7 @@ func TestMultiKB_Ready_ZeroKBs(t *testing.T) {
 }
 
 func TestMultiKB_Ready_AtLeastOneKB(t *testing.T) {
+	t.Parallel()
 	multi := newMultiKBTestHandler(t, "kbx")
 	handler := multi.Handler()
 
@@ -171,6 +178,7 @@ func TestMultiKB_Ready_AtLeastOneKB(t *testing.T) {
 }
 
 func TestMultiKB_Health_IncludesReady(t *testing.T) {
+	t.Parallel()
 	// 0 KBs: status stays "ok" (liveness invariant), ready is false.
 	multi := NewMultiKBServer("test")
 	handler := multi.Handler()
@@ -211,6 +219,7 @@ func TestMultiKB_Health_IncludesReady(t *testing.T) {
 // TestMultiKB_Health_NoToolPrefix: /health never emits a tool_prefix (D325).
 // The client still parses the field to read an older server.
 func TestMultiKB_Health_NoToolPrefix(t *testing.T) {
+	t.Parallel()
 	multi := NewMultiKBServer("test")
 	k1 := setupTestKB(t)
 	multi.MountKB("alpha", func(s *Server) { RegisterKBTools(s, k1, Deps{}) })
@@ -226,6 +235,7 @@ func TestMultiKB_Health_NoToolPrefix(t *testing.T) {
 }
 
 func TestServer_Health_IncludesReady(t *testing.T) {
+	t.Parallel()
 	s := New("test")
 	handler := s.HTTPHandler()
 
@@ -248,6 +258,7 @@ func TestServer_Health_IncludesReady(t *testing.T) {
 }
 
 func TestServer_Ready(t *testing.T) {
+	t.Parallel()
 	s := New("test")
 	handler := s.HTTPHandler()
 
@@ -269,6 +280,7 @@ func TestServer_Ready(t *testing.T) {
 // TestClients_EmptyRoster verifies a fresh server returns {"clients": []} with
 // HTTP 200, never 404 and never a null array.
 func TestClients_EmptyRoster(t *testing.T) {
+	t.Parallel()
 	s := New("test")
 	handler := s.HTTPHandler()
 
@@ -298,6 +310,7 @@ func TestClients_EmptyRoster(t *testing.T) {
 // TestClients_MethodNotAllowed verifies POST (and other non-GET methods) return
 // 405 on /clients for every handler constructor.
 func TestClients_MethodNotAllowed(t *testing.T) {
+	t.Parallel()
 	s := New("test")
 	// Single-KB handler.
 	for _, v := range []struct {
@@ -330,6 +343,7 @@ func TestClients_MethodNotAllowed(t *testing.T) {
 // TestClients_HandlerConstructors verifies /clients answers on both handler
 // constructors (HTTPHandler, MultiKBServer.Handler).
 func TestClients_HandlerConstructors(t *testing.T) {
+	t.Parallel()
 	// Build a single-KB server and populate the roster by hitting /mcp.
 	k := setupTestKB(t)
 	s := New("test")
@@ -426,6 +440,7 @@ func TestClients_HandlerConstructors(t *testing.T) {
 
 // TestClients_NoOverflow omits overflow when zero.
 func TestClients_NoOverflow(t *testing.T) {
+	t.Parallel()
 	s := New("test")
 	handler := s.HTTPHandler()
 	req := httptest.NewRequest(http.MethodGet, "/clients", nil)
@@ -469,6 +484,7 @@ func unhealthyRequiredLog(t *testing.T) *audit.Log {
 }
 
 func TestAuditGate(t *testing.T) {
+	t.Parallel()
 	if !auditGate(nil) {
 		t.Error("no sink must not make a server not ready")
 	}
@@ -484,6 +500,7 @@ func TestAuditGate(t *testing.T) {
 // a MultiKBServer (serveHTTP), so before D176 a server whose required-mode sink
 // was unhealthy — and which therefore rejects every write — answered ready.
 func TestMultiKB_Ready_GatesOnAuditSink(t *testing.T) {
+	t.Parallel()
 	m := NewMultiKBServer("test")
 	healthy := New("test")
 	degraded := New("test")
@@ -517,6 +534,7 @@ func TestMultiKB_Ready_GatesOnAuditSink(t *testing.T) {
 // from authentication, so it must keep answering 200 with status "ok" — only
 // `ready` reflects the gate.
 func TestMultiKB_Health_StaysLiveWhenNotReady(t *testing.T) {
+	t.Parallel()
 	m := NewMultiKBServer("test")
 	degraded := New("test")
 	degraded.SetAuditLog(unhealthyRequiredLog(t))
@@ -555,6 +573,7 @@ func TestMultiKB_Health_StaysLiveWhenNotReady(t *testing.T) {
 // TestMultiKB_Ready_SingleKBMountedStillGates: the deployment shape the defect
 // hid in — one KB mounted, served by MultiKBServer all the same.
 func TestMultiKB_Ready_SingleKBMountedStillGates(t *testing.T) {
+	t.Parallel()
 	m := NewMultiKBServer("test")
 	only := New("test")
 	only.SetAuditLog(unhealthyRequiredLog(t))
@@ -571,6 +590,7 @@ func TestMultiKB_Ready_SingleKBMountedStillGates(t *testing.T) {
 // TestMultiKB_Ready_NoSinkUnaffected: a deployment without an audit sink, or
 // with one in best-effort mode, keeps reporting ready exactly as before.
 func TestMultiKB_Ready_NoSinkUnaffected(t *testing.T) {
+	t.Parallel()
 	m := NewMultiKBServer("test")
 	m.servers["ok"] = New("test")
 	m.kbs = []KBInfo{{Name: "ok", Status: "normal"}}
@@ -587,6 +607,7 @@ func TestMultiKB_Ready_NoSinkUnaffected(t *testing.T) {
 // notification case is Antigravity's own request (issue #273), which the SDK
 // refused with 400 when Accept lacked text/event-stream.
 func TestStreamableAccept_Normalization(t *testing.T) {
+	t.Parallel()
 	handler := newMultiKBTestHandler(t, "kbx").Handler()
 	notification := `{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}`
 
@@ -628,6 +649,7 @@ func TestStreamableAccept_Normalization(t *testing.T) {
 // the SDK treat them as legacy (202 Accepted). Regular requests with _meta
 // remain unaffected: they must still be served as 2026-07-28 era.
 func TestProtocolVersion_NotificationLeniency(t *testing.T) {
+	t.Parallel()
 	handler := newMultiKBTestHandler(t, "kbx").Handler()
 
 	tests := []struct {
@@ -707,6 +729,7 @@ func TestProtocolVersion_NotificationLeniency(t *testing.T) {
 
 // TestIsJSONRPCNotification verifies the helper used by D210's body sniffing.
 func TestIsJSONRPCNotification(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		body string
@@ -735,6 +758,7 @@ func TestIsJSONRPCNotification(t *testing.T) {
 // regression test for the whole reason the read is bounded — an io.ReadAll
 // would pass this while holding every request body in memory.
 func TestStripHeaderIfNotification_OversizedBodyIsForwardedIntact(t *testing.T) {
+	t.Parallel()
 	body := []byte(`{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{"pad":"`)
 	body = append(body, bytes.Repeat([]byte("a"), notificationSniffLimit*2)...)
 	body = append(body, []byte(`"}}`)...)
@@ -758,6 +782,7 @@ func TestStripHeaderIfNotification_OversizedBodyIsForwardedIntact(t *testing.T) 
 
 // The ordinary case, at the unit level: the header goes and the body survives.
 func TestStripHeaderIfNotification_NotificationLosesTheHeaderAndKeepsItsBody(t *testing.T) {
+	t.Parallel()
 	body := []byte(`{"jsonrpc":"2.0","method":"notifications/roots/list_changed","params":{}}`)
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(body))
@@ -779,6 +804,7 @@ func TestStripHeaderIfNotification_NotificationLosesTheHeaderAndKeepsItsBody(t *
 // D266: both /health shapes carry the same process start instant, which is
 // what a restart compares to prove the process answering is a new one.
 func TestHealth_ReportsProcessStartedAt(t *testing.T) {
+	t.Parallel()
 	for name, h := range map[string]http.Handler{
 		"single-KB": New("test").HTTPHandler(),
 		"multi-KB":  NewMultiKBServer("test").Handler(),

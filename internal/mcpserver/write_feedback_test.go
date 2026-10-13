@@ -32,6 +32,7 @@ func requireIndexEntry(t *testing.T, s *Server, index string) {
 }
 
 func TestWriteFeedback_ConceptWriteBrokenLink(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{"ops/a.md": "See [b](b.md).\n", "ops/b.md": "See [a](a.md).\n"})
 	out := decodeJSON(t, mustText(t, s, "concept_write",
 		`{"id":"ops/c","frontmatter":{"type":"Note","title":"C"},"body":"See [a](a.md) and [gone](gone.md)."}`))
@@ -41,6 +42,7 @@ func TestWriteFeedback_ConceptWriteBrokenLink(t *testing.T) {
 }
 
 func TestWriteFeedback_ConceptNewIndexIncomplete(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{"ops/a.md": "A.\n"})
 	requireIndexEntry(t, s, "# Ops\n\n- [A](a.md)\n")
 	if err := os.MkdirAll(filepath.Join(s.kbRef.Root, "templates"), 0o755); err != nil {
@@ -56,6 +58,7 @@ func TestWriteFeedback_ConceptNewIndexIncomplete(t *testing.T) {
 }
 
 func TestWriteFeedback_ConceptMoveLinkToRetired(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{
 		"ops/x.md": "---\ntype: Note\ntitle: X\nstatus: deprecated\n---\nX.\n",
 		"ops/y.md": "See [x](x.md).\n",
@@ -69,6 +72,7 @@ func TestWriteFeedback_ConceptMoveLinkToRetired(t *testing.T) {
 // Without the backlink rewrite the pages still linking the old ID are broken
 // by the move, and the response says so.
 func TestWriteFeedback_ConceptMoveLeavesBrokenLinkers(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{"ops/x.md": "X.\n", "ops/y.md": "See [x](x.md).\n"})
 	out := decodeJSON(t, mustText(t, s, "concept_move", `{"source_id":"ops/x","target_id":"ops/x2","rewrite_links":false}`))
 	if !findingChecks(out)["ops/y.md broken_link"] {
@@ -77,6 +81,7 @@ func TestWriteFeedback_ConceptMoveLeavesBrokenLinkers(t *testing.T) {
 }
 
 func TestWriteFeedback_SupersedeReportsLinkers(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{"ops/old.md": "Old.\n", "ops/new.md": "New.\n", "ops/y.md": "See [old](old.md).\n"})
 	text := mustText(t, s, "supersede", `{"source_id":"ops/old","target_id":"ops/new"}`)
 	if !strings.HasPrefix(text, "superseded ops/old → ops/new") || !strings.Contains(text, "link_to_retired") {
@@ -85,6 +90,7 @@ func TestWriteFeedback_SupersedeReportsLinkers(t *testing.T) {
 }
 
 func TestWriteFeedback_IndexPatchDroppedEntry(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{"ops/a.md": "A.\n", "ops/b.md": "B.\n"})
 	requireIndexEntry(t, s, "# Ops\n\n- [A](a.md)\n- [B](b.md)\n")
 	_, hash, err := s.kbRef.IndexHash("ops")
@@ -98,6 +104,7 @@ func TestWriteFeedback_IndexPatchDroppedEntry(t *testing.T) {
 }
 
 func TestWriteFeedback_GateCheckChangedIDs(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{
 		"ops/bad.md":   "See [gone](gone.md).\n",
 		"ops/other.md": "See [gone](gone2.md).\n",
@@ -132,6 +139,7 @@ func TestWriteFeedback_GateCheckChangedIDs(t *testing.T) {
 }
 
 func TestWriteFeedback_ToolDescriptionsSayFindings(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, nil)
 	for _, name := range []string{"concept_write", "concept_new", "concept_patch", "concept_batch", "concept_move", "supersede", "index_patch", "gate_check"} {
 		tool, ok := s.tools[name]

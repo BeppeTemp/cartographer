@@ -6,6 +6,7 @@ import (
 )
 
 func TestStripDecoration(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"🚀 Deploy notes ✨": "Deploy notes",
 		"Launch ❤️":        "Launch",
@@ -21,6 +22,7 @@ func TestStripDecoration(t *testing.T) {
 
 // D366: only the decorative case of title_quality has a fix.
 func TestTitleQuality_OnlyDecorationHasAFix(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		fm  string
 		fix bool
@@ -41,6 +43,7 @@ func TestTitleQuality_OnlyDecorationHasAFix(t *testing.T) {
 // D366: link_to_retired carries the retarget only for a live successor, and
 // names the linkers it edits.
 func TestLinkToRetired_FixNeedsALiveSuccessor(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\ntitle: Ops\nkind: map\n---\n")
 	page := func(id, extra string) {
@@ -81,6 +84,7 @@ func TestLinkToRetired_FixNeedsALiveSuccessor(t *testing.T) {
 // D366: index_lists_retired carries the drop only for a concept with a line
 // of its own.
 func TestIndexListsRetired_FixNeedsALineOfItsOwn(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\ntitle: Ops\nkind: map\n---\n")
 	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\ntitle: Ops\n---\n- [Old](old.md)\n- [Old2](old2.md) and [Live](live.md)\n")

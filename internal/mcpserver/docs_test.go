@@ -126,6 +126,7 @@ func docsFiles(t *testing.T) []string {
 }
 
 func TestDocsToolNamesExist(t *testing.T) {
+	t.Parallel()
 	// Full surface: artifact writes and the bundle-backed skill/sync tools are
 	// registered conditionally, and the docs describe them all.
 	k := setupTestKB(t)

@@ -36,6 +36,7 @@ const (
 // tools/list of one unprefixed mount: total serialized bytes and the length of
 // every tool description.
 func TestServer_ToolDescriptionBudget(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	bundleFS := fstest.MapFS{

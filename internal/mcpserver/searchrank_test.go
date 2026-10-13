@@ -29,6 +29,7 @@ func searchJSON(t *testing.T, s *Server, query string) searchResponse {
 // concept's title, both backends rank that concept first, even when other
 // concepts mention the word in their bodies more often.
 func TestSearchParity_TitleRanksFirst(t *testing.T) {
+	t.Parallel()
 	titles := []string{"Gateway", "Firewall", "Backup", "Certificati", "Attività", "Monitoraggio", "Dns", "Cluster", "Storage", "Rete"}
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		dir := filepath.Join(k.DataRoot(), "parity")
@@ -56,6 +57,7 @@ func TestSearchParity_TitleRanksFirst(t *testing.T) {
 // D246: an unaccented query finds accented prose, and the snippet shows the
 // text as written.
 func TestSearchSnippetKeepsAccents(t *testing.T) {
+	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		if err := os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "citta.md"),
 			[]byte("---\ntype: Note\ntitle: Luoghi\n---\nLa città di Bari.\n"), 0o644); err != nil {

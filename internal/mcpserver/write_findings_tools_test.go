@@ -16,6 +16,7 @@ import (
 // `findings` and is missing there would give findings nobody is forced to read;
 // a name there that no handler emits would be a dead matcher entry.
 func TestWriteFindingsToolsMatchTheHandlers(t *testing.T) {
+	t.Parallel()
 	// Every tools_*.go file: a write tool may live outside tools_write.go
 	// (concept_archive is in tools_archive.go).
 	files, err := filepath.Glob("tools_*.go")

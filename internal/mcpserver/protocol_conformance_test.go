@@ -72,6 +72,7 @@ func postMCP(t *testing.T, h http.Handler, body string, headers map[string]strin
 // supported providers were still speaking when issue #118 was last assessed —
 // initializes and calls a tool with no special handling on our side.
 func TestHandshakeEraStillReachesTheKB(t *testing.T) {
+	t.Parallel()
 	s := newEraServer(t)
 	resps := runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"legacy","version":"1"}}}`,
@@ -98,6 +99,7 @@ func TestHandshakeEraStillReachesTheKB(t *testing.T) {
 // TestNewEraReachesTheKB is the same journey on 2026-07-28, which carries its
 // protocol version in _meta rather than in a handshake.
 func TestNewEraReachesTheKB(t *testing.T) {
+	t.Parallel()
 	s := newEraServer(t)
 	h := openHandler(s)
 	rr := postMCP(t, h,
@@ -125,6 +127,7 @@ func TestNewEraReachesTheKB(t *testing.T) {
 // capability nothing implements is how a client is led to call a method that
 // does not exist.
 func TestCapabilitiesNameOnlyWhatIsBacked(t *testing.T) {
+	t.Parallel()
 	s := newEraServer(t)
 	resps := runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"c","version":"1"}}}`,
@@ -150,6 +153,7 @@ func TestCapabilitiesNameOnlyWhatIsBacked(t *testing.T) {
 // promise: POST is the whole transport, the reply is JSON rather than an event
 // stream, and no session id is issued.
 func TestTransportShape(t *testing.T) {
+	t.Parallel()
 	s := newEraServer(t)
 	h := openHandler(s)
 

@@ -32,6 +32,7 @@ func readMatch(t *testing.T, c *changesLinksKB, args string) (matchResp, ToolRes
 }
 
 func TestConceptRead_Match(t *testing.T) {
+	t.Parallel()
 	c := newChangesLinksKB(t)
 	c.write("ops/grep", "one\nTwo Needle\nthree\nfour\nfive\nsix\nseven needle\neight\n")
 
@@ -72,6 +73,7 @@ func TestConceptRead_Match(t *testing.T) {
 }
 
 func TestConceptRead_MatchErrors(t *testing.T) {
+	t.Parallel()
 	c := newChangesLinksKB(t)
 	c.write("ops/grep", "# H\n\nx\n")
 	if _, res := readMatch(t, c, `{"id":"ops/grep","match":""}`); !res.IsError || !strings.Contains(res.Content[0].Text, "'match' must not be empty") {
@@ -87,6 +89,7 @@ func TestConceptRead_MatchErrors(t *testing.T) {
 }
 
 func TestConceptRead_MatchCapAndGuard(t *testing.T) {
+	t.Parallel()
 	c := newChangesLinksKB(t)
 	var b strings.Builder
 	for i := 0; i < 70; i++ {
@@ -103,6 +106,7 @@ func TestConceptRead_MatchCapAndGuard(t *testing.T) {
 }
 
 func TestConceptRead_MatchAtRev(t *testing.T) {
+	t.Parallel()
 	c := newChangesLinksKB(t)
 	c.k.AutoCommit = true
 	c.write("ops/page", "alpha old\n")

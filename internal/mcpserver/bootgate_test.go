@@ -15,6 +15,7 @@ func gateGet(h http.Handler, method, path string) *httptest.ResponseRecorder {
 }
 
 func TestBootGateAnswersLivenessAndReadinessBeforeOpen(t *testing.T) {
+	t.Parallel()
 	g := NewBootGate("v-test")
 	g.SetPhase("cloning")
 	h := g.Handler()
@@ -53,6 +54,7 @@ func TestBootGateAnswersLivenessAndReadinessBeforeOpen(t *testing.T) {
 }
 
 func TestBootGateRefusesEverythingElseWithRetry(t *testing.T) {
+	t.Parallel()
 	h := NewBootGate("v").Handler()
 	for _, p := range []string{"/mcp", "/mcp/kb-a", "/clients", "/ui/", "/api/ui/v1/x", "/.well-known/oauth-protected-resource", "/"} {
 		rec := gateGet(h, http.MethodPost, p)
@@ -66,6 +68,7 @@ func TestBootGateRefusesEverythingElseWithRetry(t *testing.T) {
 }
 
 func TestBootGateDelegatesAfterOpen(t *testing.T) {
+	t.Parallel()
 	g := NewBootGate("v")
 	h := g.Handler()
 	g.Open(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +86,7 @@ func TestBootGateDelegatesAfterOpen(t *testing.T) {
 }
 
 func TestBootGateOpenIsRaceFree(t *testing.T) {
+	t.Parallel()
 	g := NewBootGate("v")
 	h := g.Handler()
 	var wg sync.WaitGroup

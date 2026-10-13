@@ -19,6 +19,7 @@ func shapeFindings(t *testing.T, fm, body string) []Finding {
 }
 
 func TestStringifiedList_Detected(t *testing.T) {
+	t.Parallel()
 	for _, v := range []string{`"[a, b]"`, `"[a]; [b]"`, `"- a"`} {
 		got := findingsOf(shapeFindings(t, "provenance: "+v+"\n", "x"), "stringified_list")
 		if len(got) != 1 || got[0].Severity != SevWarning || got[0].Fix == nil || got[0].Fix.Field != "provenance" {
@@ -28,6 +29,7 @@ func TestStringifiedList_Detected(t *testing.T) {
 }
 
 func TestStringifiedList_GoodListNotFlagged(t *testing.T) {
+	t.Parallel()
 	for _, fm := range []string{"provenance: [a, b]\n", "provenance:\n  - a\n  - b\n"} {
 		if got := findingsOf(shapeFindings(t, fm, "x"), "stringified_list"); len(got) != 0 {
 			t.Errorf("%q flagged: %+v", fm, got)
@@ -36,12 +38,14 @@ func TestStringifiedList_GoodListNotFlagged(t *testing.T) {
 }
 
 func TestStringifiedList_NonListFieldIgnored(t *testing.T) {
+	t.Parallel()
 	if got := findingsOf(shapeFindings(t, "title2: \"[notes]\"\n", "x"), "stringified_list"); len(got) != 0 {
 		t.Errorf("flagged: %+v", got)
 	}
 }
 
 func TestStringifiedList_NotSuppressible(t *testing.T) {
+	t.Parallel()
 	got := shapeFindings(t, "provenance: \"[a, b]\"\nlint_ignore: [stringified_list]\n", "x")
 	if len(findingsOf(got, "stringified_list")) != 1 {
 		t.Errorf("suppressed: %+v", got)
@@ -49,6 +53,7 @@ func TestStringifiedList_NotSuppressible(t *testing.T) {
 }
 
 func TestListItems(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct{ field, in, want string }{
 		{"tags", "[a, b]", "a|b"},
 		{"tags", "[a]; [b]", "a|b"},
@@ -71,6 +76,7 @@ func TestListItems(t *testing.T) {
 
 // D357: a string in a list field is always the wrong type, bracketed or not.
 func TestStringifiedList_BareScalarDetected(t *testing.T) {
+	t.Parallel()
 	for _, fm := range []string{"tags: \"x, y\"\n", "provenance: \"a, b, c\"\n", "tags: backup\n", "related: other/page\n"} {
 		got := findingsOf(shapeFindings(t, fm, "x"), "stringified_list")
 		if len(got) != 1 || got[0].Fix == nil || got[0].Fix.Kind != FixListifyField {
@@ -80,6 +86,7 @@ func TestStringifiedList_BareScalarDetected(t *testing.T) {
 }
 
 func TestMangledPlaceholder_Detected(t *testing.T) {
+	t.Parallel()
 	for _, body := range []string{
 		"cd `repo:my-tools` fra doppie graffe",
 		"open `path:kubeconfig` between double braces",
@@ -92,6 +99,7 @@ func TestMangledPlaceholder_Detected(t *testing.T) {
 }
 
 func TestMangledPlaceholder_NotFlagged(t *testing.T) {
+	t.Parallel()
 	for name, body := range map[string]string{
 		"real placeholder": "{{repo:my-tools}}",
 		"documentation":    "use {{repo:key}} (that is, `repo:key` between double braces)",
@@ -104,6 +112,7 @@ func TestMangledPlaceholder_NotFlagged(t *testing.T) {
 }
 
 func TestMangledPlaceholder_Suppressible(t *testing.T) {
+	t.Parallel()
 	got := shapeFindings(t, "lint_ignore: [mangled_placeholder]\n", "cd `repo:my-tools` fra doppie graffe")
 	if len(findingsOf(got, "mangled_placeholder")) != 0 {
 		t.Errorf("not suppressed: %+v", got)
@@ -111,6 +120,7 @@ func TestMangledPlaceholder_Suppressible(t *testing.T) {
 }
 
 func TestRun_MissingRegistry_WithPlaceholders(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/a.md", "---\ntype: Note\ntitle: A\n---\n{{path:x}}\n")
 	writeFile(t, k.DataRoot(), "arch/b.md", "---\ntype: Note\ntitle: B\n---\n{{path:y}} see [[arch/a]]\n")
@@ -125,6 +135,7 @@ func TestRun_MissingRegistry_WithPlaceholders(t *testing.T) {
 }
 
 func TestRun_MissingRegistry_NoPlaceholders(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/a.md", "---\ntype: Note\ntitle: A\n---\nplain\n")
 	findings, _ := Run(k, "", false)
@@ -134,6 +145,7 @@ func TestRun_MissingRegistry_NoPlaceholders(t *testing.T) {
 }
 
 func TestRun_MissingRegistry_MalformedFile(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "paths.yaml", "- not\n- a mapping\n")
 	writeFile(t, k.DataRoot(), "arch/a.md", "---\ntype: Note\ntitle: A\n---\n{{path:x}}\n")

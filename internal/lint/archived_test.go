@@ -12,6 +12,7 @@ import (
 // D322: archived is a reserved lifecycle stage after done: finished, retired,
 // never open, and in no synonym family.
 func TestArchivedLifecycle(t *testing.T) {
+	t.Parallel()
 	fm, _ := okf.ParseFrontmatter("type: Note\nstatus: archived")
 	if !closedPhase(fm, nil) {
 		t.Error("archived must be closed")
@@ -32,6 +33,7 @@ func TestArchivedLifecycle(t *testing.T) {
 }
 
 func TestLinkToRetired_Archived(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nkind: map\n---\n")
 	writeFile(t, k.DataRoot(), "ops/old.md", "---\ntype: Note\ntitle: Old\nstatus: archived\n---\nOld.\n")
@@ -45,6 +47,7 @@ func TestLinkToRetired_Archived(t *testing.T) {
 // A digest records what it archived, and a journal's own index lists its
 // entries: neither is a live page relying on a retired one.
 func TestLinkToRetired_DigestAndJournalIndexExempt(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
 	writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: archived\n---\n# E\n")
@@ -62,6 +65,7 @@ func TestLinkToRetired_DigestAndJournalIndexExempt(t *testing.T) {
 }
 
 func TestMapOversize_ArchivedNotCounted(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md", "---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
 	for i := 0; i < mapOversizeThreshold; i++ {
@@ -133,6 +137,7 @@ func TestHarvestCandidate_EvidenceNamesDurableSections(t *testing.T) {
 // D344: a curated index of a live map that links a retired concept is a
 // finding per retired concept listed (D366), with or without require_index_entry.
 func TestIndexListsRetired(t *testing.T) {
+	t.Parallel()
 	setup := func(t *testing.T, mapFM, idx string, extra map[string]string) []Finding {
 		t.Helper()
 		k := tempKB(t)

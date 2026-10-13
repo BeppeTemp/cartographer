@@ -49,6 +49,14 @@ Rules to keep the code consistent. New code should resemble the existing code.
 - Tests use the stdlib `testing` package, alongside the code (`*_test.go`).
 - Tests that use `git` must `t.Skip` if `git` is not in the PATH.
 - Server tests feed `Run` via `io.Pipe`/buffer with JSON-RPC sequences.
+- In `internal/mcpserver`, `internal/kb` and `internal/lint` a top-level test
+  starts with `t.Parallel()` (D786): their tests spawn git, and run serially
+  they were most of CI's wait. A test stays serial, with no `t.Parallel()`, when
+  it or a helper it calls writes process-global state: a package-level var or
+  hook (in any package, e.g. `gitx.FetchTimeout`), `t.Setenv`, `os.Chdir`,
+  `os.Stdout`/`os.Stderr`, or the `kb.InitOn*`/`InitWith*` setters. Go never
+  runs a serial test alongside parallel ones, so serial is always the safe
+  default; `go test -race` catches most mistakes.
 
 ## Dependencies
 

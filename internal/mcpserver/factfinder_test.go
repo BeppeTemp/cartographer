@@ -58,6 +58,7 @@ func factServer(t *testing.T) (*Server, string) {
 }
 
 func TestConceptWriteReportsRepeatedFact(t *testing.T) {
+	t.Parallel()
 	s, _ := factServer(t)
 	args, _ := json.Marshal(map[string]interface{}{"id": "ops/c", "frontmatter": map[string]interface{}{"type": "Note", "title": "C"}, "body": "# C\n\n" + repeatedLine + "\n"})
 	got := repeatedFindings(t, callTool(t, s, "concept_write", string(args)))
@@ -72,6 +73,7 @@ func TestConceptWriteReportsRepeatedFact(t *testing.T) {
 }
 
 func TestConceptPatchReportsOnlyAddedRepeatedFact(t *testing.T) {
+	t.Parallel()
 	s, _ := factServer(t)
 	args, _ := json.Marshal(map[string]interface{}{"id": "ops/c", "frontmatter": map[string]interface{}{"type": "Note", "title": "C"}, "body": "# C\n\nStart.\n"})
 	res := callTool(t, s, "concept_write", string(args))
@@ -94,6 +96,7 @@ func TestConceptPatchReportsOnlyAddedRepeatedFact(t *testing.T) {
 }
 
 func TestConceptNewTemplateLinesAreNotRepeatedFacts(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	boiler := "> Fill in the details of this note before saving it anywhere."
 	tpl := filepath.Join(k.Root, "templates", "note.md")
@@ -114,6 +117,7 @@ func TestConceptNewTemplateLinesAreNotRepeatedFacts(t *testing.T) {
 }
 
 func TestConceptBatchReportsRepeatedFactPerEntry(t *testing.T) {
+	t.Parallel()
 	s, _ := factServer(t)
 	for _, id := range []string{"ops/c", "ops/d"} {
 		args, _ := json.Marshal(map[string]interface{}{"id": id, "frontmatter": map[string]interface{}{"type": "Note", "title": id}, "body": "# T\n\nStart.\n"})
@@ -161,6 +165,7 @@ func TestConceptBatchReportsRepeatedFactPerEntry(t *testing.T) {
 // TestRepeatedFactHidesInvisibleOwners: an owner the caller cannot see is
 // neither named nor counted (D351).
 func TestRepeatedFactHidesInvisibleOwners(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	for _, m := range []string{"visible", "hidden"} {

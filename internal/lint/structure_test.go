@@ -77,6 +77,7 @@ func (s *structKB) mainGraph(fm map[string]string) {
 }
 
 func TestIslandAndCutConcept(t *testing.T) {
+	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map", "notes": "map"})
 	s.mainGraph(nil)
 	// An island of three (b is its anchor, degree 2) and a lone concept.
@@ -109,6 +110,7 @@ func TestIslandAndCutConcept(t *testing.T) {
 }
 
 func TestStructuralIgnoresAndScope(t *testing.T) {
+	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map", "notes": "map"})
 	s.mainGraph(map[string]string{"h": "lint_ignore: [cut_concept]\n", "m1": "lint_ignore: [island]\n"})
 	s.concept("notes/a", "", "notes/b")
@@ -141,6 +143,7 @@ func TestStructuralIgnoresAndScope(t *testing.T) {
 }
 
 func TestLinkToRetiredAndBrokenRelation(t *testing.T) {
+	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map", "incidents": "journal"})
 	s.concept("ops/new-dns", "")
 	s.concept("ops/old-dns", "status: superseded\nsuperseded_by: ops/new-dns\n")
@@ -176,6 +179,7 @@ func TestLinkToRetiredAndBrokenRelation(t *testing.T) {
 }
 
 func TestMapMisfit(t *testing.T) {
+	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map", "net": "map", "diary": "journal"})
 	// fires: 3 of 4 neighbours in net.
 	s.concept("ops/router", "", "net/a", "net/b", "net/c", "ops/x")
@@ -200,6 +204,7 @@ func TestMapMisfit(t *testing.T) {
 }
 
 func TestMapMisfit_StrictMapRefusingType_NoFinding(t *testing.T) {
+	t.Parallel()
 	// When the candidate map is strict and doesn't admit the concept's type,
 	// map_misfit should not fire (D295 WP3).
 	s := newStructKB(t, map[string]string{"ops": "map", "net": "map"})
@@ -218,6 +223,7 @@ func TestMapMisfit_StrictMapRefusingType_NoFinding(t *testing.T) {
 }
 
 func TestMapMisfit_FlexibleMapAdmitsAnyType(t *testing.T) {
+	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map", "net": "map"})
 	// net is flexible (default) → admits any type.
 	s.concept("ops/router", "", "net/a", "net/b", "net/c", "ops/x")
@@ -235,6 +241,7 @@ func TestMapMisfit_FlexibleMapAdmitsAnyType(t *testing.T) {
 // whole map, including the checks no concept owns; an island goes when one
 // member accepts it; errors never go; a name a map cannot accept is reported.
 func TestMapLintIgnore(t *testing.T) {
+	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map", "notes": "map"})
 	s.mainGraph(nil)
 	s.concept("notes/a", "", "notes/b")
@@ -254,6 +261,7 @@ func TestMapLintIgnore(t *testing.T) {
 }
 
 func TestLinkToRetired_SuccessorExempt(t *testing.T) {
+	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map"})
 	s.concept("ops/adr-old", "status: superseded\nsuperseded_by: ops/adr-new\n")
 	s.concept("ops/adr-new", "", "ops/adr-old")
@@ -263,6 +271,7 @@ func TestLinkToRetired_SuccessorExempt(t *testing.T) {
 }
 
 func TestLinkToRetired_AcceptedOnTarget(t *testing.T) {
+	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map"})
 	s.concept("ops/gone", "status: deprecated\nlint_ignore: [link_to_retired]\n")
 	s.concept("ops/a", "", "ops/gone")
@@ -276,6 +285,7 @@ func TestLinkToRetired_AcceptedOnTarget(t *testing.T) {
 }
 
 func TestLinkToRetired_ManyLinkersOneFinding(t *testing.T) {
+	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map"})
 	s.concept("ops/gone", "status: deprecated\n")
 	for _, n := range []string{"a", "b", "c", "d", "e", "f", "g"} {
@@ -296,6 +306,7 @@ func (s *structKB) chainTo(hub string) {
 }
 
 func TestCutConcept_ExpandedIndexExempt(t *testing.T) {
+	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map"})
 	s.chainTo("ops/svc")
 	s.concept("ops/svc/index", "", "ops/svc/api", "ops/svc/db", "ops/svc/ui")
@@ -308,6 +319,7 @@ func TestCutConcept_ExpandedIndexExempt(t *testing.T) {
 }
 
 func TestCutConcept_JournalLeavesExempt(t *testing.T) {
+	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map", "incidents": "journal"})
 	s.chainTo("ops/svc")
 	s.concept("ops/svc", "")
@@ -320,6 +332,7 @@ func TestCutConcept_JournalLeavesExempt(t *testing.T) {
 }
 
 func TestCutConcept_MixedStillFires(t *testing.T) {
+	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map", "incidents": "journal"})
 	s.chainTo("ops/svc")
 	s.concept("ops/svc", "", "ops/leaf1", "ops/leaf2", "ops/leaf3")

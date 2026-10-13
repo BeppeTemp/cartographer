@@ -15,6 +15,7 @@ import (
 const testTemplate = "---\ntype: Runbook\ntitle: {{title}}\ntags: [{{tag}}, stable]\n---\n# Procedure\n\nUse {{value}}.\n"
 
 func TestTemplateArtifactLifecycleAndList(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -60,6 +61,7 @@ func TestTemplateArtifactLifecycleAndList(t *testing.T) {
 }
 
 func TestTemplateArtifactRejectsInvalidSyntax(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -86,6 +88,7 @@ func TestTemplateArtifactRejectsInvalidSyntax(t *testing.T) {
 }
 
 func TestConceptNewRendersLiterallyAndUpdatesIndex(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)
@@ -150,6 +153,7 @@ func TestConceptNewRendersLiterallyAndUpdatesIndex(t *testing.T) {
 }
 
 func TestConceptNewRevalidatesOutOfBandTemplate(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)
@@ -166,6 +170,7 @@ func TestConceptNewRevalidatesOutOfBandTemplate(t *testing.T) {
 }
 
 func TestConceptNewRejectsOutOfBandRawFrontmatterPlaceholder(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)
@@ -185,6 +190,7 @@ func TestConceptNewRejectsOutOfBandRawFrontmatterPlaceholder(t *testing.T) {
 }
 
 func TestConceptNewMissingTemplateListsSortedAndTruncated(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)
@@ -204,6 +210,7 @@ func TestConceptNewMissingTemplateListsSortedAndTruncated(t *testing.T) {
 }
 
 func TestConceptNewListVars(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)

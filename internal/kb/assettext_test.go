@@ -12,6 +12,7 @@ import (
 
 // D277: which assets are searchable text, and what the signature covers.
 func TestIndexableAssetText_Rules(t *testing.T) {
+	t.Parallel()
 	k := expandedAssetKB(t)
 	write := func(rel string, data []byte) {
 		t.Helper()
@@ -49,6 +50,7 @@ func TestIndexableAssetText_Rules(t *testing.T) {
 }
 
 func TestIndexableAssetText_OversizedAndHidden(t *testing.T) {
+	t.Parallel()
 	k := expandedAssetKB(t)
 	dir := filepath.Join(k.DataRoot(), "map", "owner")
 	if err := os.MkdirAll(filepath.Join(dir, ".hidden"), 0o755); err != nil {
@@ -76,6 +78,7 @@ func TestIndexableAssetText_OversizedAndHidden(t *testing.T) {
 }
 
 func TestAssetSignatures_TracksChangesAndRacyWindow(t *testing.T) {
+	t.Parallel()
 	k := expandedAssetKB(t)
 	// A non-expanded concept and a flat one own no assets.
 	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Flat")

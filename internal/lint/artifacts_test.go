@@ -17,6 +17,7 @@ func skillMD(name, desc, body string) string {
 }
 
 func TestLint_SkillInvalid(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "skills/good/SKILL.md", skillMD("good", "Does good things", "# Good\n"))
 	writeFile(t, k.Root, "skills/mismatch/SKILL.md", skillMD("other-name", "Mismatched", "# M\n"))
@@ -42,6 +43,7 @@ func TestLint_SkillInvalid(t *testing.T) {
 }
 
 func TestLint_SkillWarning(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "skills/long/SKILL.md", skillMD("long", "Long one", strings.Repeat("line\n", 600)))
 	findings, err := Run(k, "", false)
@@ -54,6 +56,7 @@ func TestLint_SkillWarning(t *testing.T) {
 }
 
 func TestLint_SkillNotInScopedRun(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "skills/mismatch/SKILL.md", skillMD("other", "x", "`git commit -m x` and kb_a__search\n"))
 	findings, err := Run(k, "some/scope", false)
@@ -68,6 +71,7 @@ func TestLint_SkillNotInScopedRun(t *testing.T) {
 }
 
 func TestLint_LegacyToolName(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	k.AuthName = "kb-a"
 	writeFile(t, k.Root, "skills/old/SKILL.md", skillMD("old", "Old", "Call `kb_a__search` then kb_a__search again.\n"))
@@ -92,6 +96,7 @@ func TestLint_LegacyToolName(t *testing.T) {
 }
 
 func TestLint_LegacyToolNameInInstructions(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "instructions.md", "Use work_kb__lint before closing.\n")
 	writeFile(t, k.Root, "agents/helper.md", "---\nname: helper\ndescription: h\n---\nRun work_kb__search.\n")
@@ -105,6 +110,7 @@ func TestLint_LegacyToolNameInInstructions(t *testing.T) {
 }
 
 func TestLint_SkillBrokenRef(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "skills/broken/SKILL.md", skillMD("broken", "b", "Run:\n\n```\npython3 tools/check.py\n```\n"))
 	writeFile(t, k.Root, "skills/my-skill/SKILL.md", skillMD("my-skill", "m", "Run `skills/my-skill/run.sh`, then `scripts/helper.sh` and `/opt/tools/x`. Never re-read `tools/list` before `tools/call`.\n"))
@@ -121,6 +127,7 @@ func TestLint_SkillBrokenRef(t *testing.T) {
 }
 
 func TestLint_MissingInstructions(t *testing.T) {
+	t.Parallel()
 	small := tempKB(t)
 	for i := 0; i < 3; i++ {
 		writeFile(t, small.Root, fmt.Sprintf("data/ops/c%d.md", i), "---\ntype: Note\ntitle: C\n---\n# C\n")
@@ -151,6 +158,7 @@ func TestLint_MissingInstructions(t *testing.T) {
 // A KB created by Init never raises missing_instructions, however large it
 // grows (D325).
 func TestLint_ScaffoldedKBHasInstructions(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	for i := 0; i < 15; i++ {
 		writeFile(t, k.Root, fmt.Sprintf("data/ops/c%d.md", i), "---\ntype: Note\ntitle: C\n---\n# C\n")
@@ -165,6 +173,7 @@ func TestLint_ScaffoldedKBHasInstructions(t *testing.T) {
 }
 
 func TestLint_MissingInstructionsPresent(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	for i := 0; i < 15; i++ {
 		writeFile(t, k.Root, fmt.Sprintf("data/ops/c%d.md", i), "---\ntype: Note\ntitle: C\n---\n# C\n")
@@ -180,6 +189,7 @@ func TestLint_MissingInstructionsPresent(t *testing.T) {
 }
 
 func TestLint_JunkFile(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, ".DS_Store", "x")
 	writeFile(t, k.Root, "data/ops/dossier/index.md", "---\ntype: Note\ntitle: D\n---\n# D\n")
@@ -204,6 +214,7 @@ func TestLint_JunkFile(t *testing.T) {
 }
 
 func TestLint_JunkIgnoredByDataGitignore(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	// data/.gitignore (kb.Init) keeps this out of git: nothing to report.
 	writeFile(t, k.Root, "data/ops/.DS_Store", "x")
@@ -217,6 +228,7 @@ func TestLint_JunkIgnoredByDataGitignore(t *testing.T) {
 }
 
 func TestLint_SkillGitCommand(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "skills/committer/SKILL.md", skillMD("committer", "c", "Then `git commit -m \"save\"`.\n"))
 	writeFile(t, k.Root, "skills/cloner/SKILL.md", skillMD("cloner", "c", "```\ngit clone <url>\ngit status\n```\n"))
@@ -234,6 +246,7 @@ func TestLint_SkillGitCommand(t *testing.T) {
 // directory key covers the files under it, and a name that cannot be accepted
 // or matches nothing is reported.
 func TestLint_LintAccept(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "skills/committer/SKILL.md", skillMD("committer", "c", "Then `git commit -m \"save\"`.\n"))
 	writeFile(t, k.Root, "skills/pusher/SKILL.md", skillMD("pusher", "c", "Then `git push`.\n"))
@@ -256,6 +269,7 @@ func TestLint_LintAccept(t *testing.T) {
 }
 
 func TestLint_SopsFormatMismatch(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "data/ops/bad.md", "---\ntype: Note\ntitle: B\n---\n# B\n\n`sops decrypt secrets/db.sops.yaml | jq .password`\n")
 	writeFile(t, k.Root, "data/ops/good.md", "---\ntype: Note\ntitle: G\n---\n# G\n\n`sops decrypt --output-type json secrets/db.sops.yaml | jq .password`\n\n`sops decrypt --output-type yaml secrets/db.sops.yaml`\n")
@@ -282,6 +296,7 @@ func TestLint_SopsFormatMismatch(t *testing.T) {
 }
 
 func TestLint_SopsMissingFile(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "secrets/real.sops.yaml", "enc")
 	writeFile(t, k.Root, "data/ops/missing.md", "---\ntype: Note\ntitle: M\n---\n# M\n\n`sops decrypt secrets/nonexistent.sops.yaml`\n")
@@ -296,6 +311,7 @@ func TestLint_SopsMissingFile(t *testing.T) {
 }
 
 func TestLint_SopsNoSecretsDir(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "data/ops/missing.md", "---\ntype: Note\ntitle: M\n---\n# M\n\n`sops decrypt secrets/nonexistent.sops.yaml`\n")
 	findings, err := Run(k, "", false)
@@ -308,6 +324,7 @@ func TestLint_SopsNoSecretsDir(t *testing.T) {
 }
 
 func TestLint_CrossKBPath(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "skills/helper/SKILL.md", skillMD("helper", "h", "Read /tmp/test-kbs/kb-b/skills/helper/SKILL.md first.\n"))
 	findings, err := RunWithOptions(k, "", false, Options{CrossKBRoots: map[string]string{"kb-b": "/tmp/test-kbs/kb-b"}})
@@ -335,6 +352,7 @@ func TestLint_CrossKBPath(t *testing.T) {
 }
 
 func TestLint_CrossKBPath_OwnRoot_NoFinding(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	own := filepath.ToSlash(k.Root)
 	writeFile(t, k.Root, "skills/helper/SKILL.md", skillMD("helper", "h", "Read "+own+"/skills/helper/run.sh.\n"))
@@ -348,6 +366,7 @@ func TestLint_CrossKBPath_OwnRoot_NoFinding(t *testing.T) {
 }
 
 func TestLint_SkillMissingPerimeter(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "instructions.md", "---\nperimeter: ops\n---\nOps KB.\n")
 	writeFile(t, k.Root, "skills/build/SKILL.md", skillMD("build", "Run the build", "# B\n"))
@@ -364,6 +383,7 @@ func TestLint_SkillMissingPerimeter(t *testing.T) {
 }
 
 func TestLint_SkillMissingPerimeter_NoPerimeter(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "instructions.md", "---\ntitle: x\n---\nNo perimeter.\n")
 	writeFile(t, k.Root, "skills/build/SKILL.md", skillMD("build", "Run the build", "# B\n"))
@@ -377,6 +397,7 @@ func TestLint_SkillMissingPerimeter_NoPerimeter(t *testing.T) {
 }
 
 func TestLint_LegacyPath(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "instructions.md", "---\nlegacy_paths:\n  \"wiki/\": \"old/\"\n  \"wiki/ops/\": \"ops/\"\n---\nKB.\n")
 	writeFile(t, k.Root, "data/ops/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nSee wiki/ops/runbook-x and wiki/ops/runbook-y.\n")
@@ -402,6 +423,7 @@ func TestLint_LegacyPath(t *testing.T) {
 }
 
 func TestLint_LegacyPath_NoMapping(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "data/ops/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nSee wiki/ops/runbook-x.\n")
 	findings, err := Run(k, "", false)
@@ -414,6 +436,7 @@ func TestLint_LegacyPath_NoMapping(t *testing.T) {
 }
 
 func TestParseLegacyPaths_LongestFirst(t *testing.T) {
+	t.Parallel()
 	got := parseLegacyPaths("  \"wiki/\": \"\"\n  'wiki/ops/': 'ops/'\n  plain/: x/\n")
 	want := []legacyPath{{"wiki/ops/", "ops/"}, {"plain/", "x/"}, {"wiki/", ""}}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
@@ -422,6 +445,7 @@ func TestParseLegacyPaths_LongestFirst(t *testing.T) {
 }
 
 func TestLint_ArtifactCheckNotConceptIgnorable(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "data/ops/a.md", "---\ntype: Note\ntitle: A\nlint_ignore: [skill_invalid]\n---\n# A\n")
 	findings, err := Run(k, "", false)
@@ -454,6 +478,7 @@ func unusedFindings(t *testing.T, k *kb.KB, usage map[string]kb.UsageSummary, st
 func agoDays(d int) time.Time { return time.Now().Add(-time.Duration(d) * 24 * time.Hour) }
 
 func TestLint_ArtifactUnused_NeverUsed(t *testing.T) {
+	t.Parallel()
 	k := usageKB(t)
 	// Data exists (the agent was used), the skill is absent from it.
 	got := unusedFindings(t, k, map[string]kb.UsageSummary{
@@ -466,6 +491,7 @@ func TestLint_ArtifactUnused_NeverUsed(t *testing.T) {
 }
 
 func TestLint_ArtifactUnused_Stale(t *testing.T) {
+	t.Parallel()
 	k := usageKB(t)
 	got := unusedFindings(t, k, map[string]kb.UsageSummary{
 		kb.UsageKey("skill", "ops-tool"): {LastUsed: agoDays(50), Provider: "claude", Count: 4},
@@ -477,6 +503,7 @@ func TestLint_ArtifactUnused_Stale(t *testing.T) {
 }
 
 func TestLint_ArtifactUnused_Recent(t *testing.T) {
+	t.Parallel()
 	k := usageKB(t)
 	got := unusedFindings(t, k, map[string]kb.UsageSummary{
 		kb.UsageKey("skill", "ops-tool"): {LastUsed: agoDays(5), Provider: "claude", Count: 1},
@@ -488,6 +515,7 @@ func TestLint_ArtifactUnused_Recent(t *testing.T) {
 }
 
 func TestLint_ArtifactUnused_NoUsageData(t *testing.T) {
+	t.Parallel()
 	k := usageKB(t)
 	if got := unusedFindings(t, k, nil, 42); len(got) != 0 {
 		t.Fatalf("no data must stay silent, got %v", got)
@@ -504,6 +532,7 @@ func TestLint_ArtifactUnused_NoUsageData(t *testing.T) {
 }
 
 func TestLint_ArtifactUnused_CatalogOnlyIsNotUse(t *testing.T) {
+	t.Parallel()
 	k := usageKB(t)
 	got := unusedFindings(t, k, map[string]kb.UsageSummary{
 		kb.UsageKey("skill", "ops-tool"): {LastUsed: agoDays(1), Provider: "codex", Count: 0},
@@ -515,6 +544,7 @@ func TestLint_ArtifactUnused_CatalogOnlyIsNotUse(t *testing.T) {
 }
 
 func TestLint_ArtifactUnused_CustomThreshold(t *testing.T) {
+	t.Parallel()
 	k := usageKB(t)
 	usage := map[string]kb.UsageSummary{
 		kb.UsageKey("skill", "ops-tool"): {LastUsed: agoDays(20), Provider: "claude", Count: 1},
@@ -531,6 +561,7 @@ func TestLint_ArtifactUnused_CustomThreshold(t *testing.T) {
 // Run reads the store the server wrote (D326): the whole chain from
 // usage.json to a finding, with the threshold taken from the KB.
 func TestLint_ArtifactUnused_ReadsTheKBStore(t *testing.T) {
+	t.Parallel()
 	k := usageKB(t)
 	k.UsageStaleDays = 42
 	if _, err := k.MergeUsage([]kb.UsageEntry{
@@ -551,6 +582,7 @@ func TestLint_ArtifactUnused_ReadsTheKBStore(t *testing.T) {
 // D336: an artifact added inside the threshold is not reported as never used
 // — it has not had the time to be — while one added before it still is.
 func TestLint_ArtifactUnused_NewArtifactHasGrace(t *testing.T) {
+	t.Parallel()
 	k := usageKB(t)
 	git := func(date string, args ...string) {
 		t.Helper()

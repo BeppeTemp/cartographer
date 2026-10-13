@@ -16,6 +16,7 @@ import (
 // malformed entries left out and named in issues, outside revision, and in
 // the shape the client decodes into provisioning.PathRegistry.
 func TestSyncPullServesPathRegistry(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{BundleFS: fstest.MapFS{}})

@@ -14,6 +14,7 @@ func revertCall(t *testing.T, s *Server, sha string) ToolResult {
 }
 
 func TestRepairRevertUndoesARepairAsANewCommit(t *testing.T) {
+	t.Parallel()
 	k, s := autoRepairKB(t, "nonstandard_field")
 	run := s.runAutoRepairQuota(t.Context())
 	sha := run.Checks[0].Commit
@@ -46,6 +47,7 @@ func TestRepairRevertUndoesARepairAsANewCommit(t *testing.T) {
 // The guard is the whole safety of the tool: a write token must not be able to
 // roll back history it could not have repaired.
 func TestRepairRevertRefusesAnythingButARepairCommit(t *testing.T) {
+	t.Parallel()
 	k, s := autoRepairKB(t, "nonstandard_field")
 	seed := gitOut(t, k, "rev-parse", "HEAD") // "test: seed"
 	for name, sha := range map[string]string{
@@ -65,6 +67,7 @@ func TestRepairRevertRefusesAnythingButARepairCommit(t *testing.T) {
 }
 
 func TestRepairRevertRefusesWhenALaterChangeTouchedTheSameFiles(t *testing.T) {
+	t.Parallel()
 	k, s := autoRepairKB(t, "nonstandard_field")
 	sha := s.runAutoRepairQuota(t.Context()).Checks[0].Commit
 	cd, _ := k.ReadConcept("ops/n0")
@@ -87,6 +90,7 @@ func TestRepairRevertRefusesWhenALaterChangeTouchedTheSameFiles(t *testing.T) {
 }
 
 func TestRepairRevertIsAdvancedAndWriteOnly(t *testing.T) {
+	t.Parallel()
 	if !ToolAdvanced("repair_revert") {
 		t.Error("repair_revert must stay out of the agent tools/list (D285 budget)")
 	}

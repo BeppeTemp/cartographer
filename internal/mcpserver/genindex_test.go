@@ -52,6 +52,7 @@ func readIndex(t *testing.T, k *kb.KB, m string) string {
 }
 
 func TestGeneratedIndex_FollowsWritesInTheSameCommit(t *testing.T) {
+	t.Parallel()
 	k, s := generatedKB(t)
 	curBefore := readIndex(t, k, "cur")
 
@@ -85,6 +86,7 @@ func TestGeneratedIndex_FollowsWritesInTheSameCommit(t *testing.T) {
 }
 
 func TestGeneratedIndex_IndexPatchAndStaleLint(t *testing.T) {
+	t.Parallel()
 	k, s := generatedKB(t)
 	callTool(t, s, "concept_write", `{"id":"ga/one","frontmatter":{"type":"Note","title":"One"},"body":"x\n"}`)
 

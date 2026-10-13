@@ -27,6 +27,7 @@ func batchCallMsg(t *testing.T, id int, operations []map[string]any) string {
 // --- WP1: bounded preflight rejects every invalid shape before any write ---
 
 func TestConceptBatch_PreflightRejectsEveryInvalidShape(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if err := k.CreateMapWithContract("strictmap", "Strict Map", "map",
 		[]string{"Runbook"}, "strict", kb.MapContract{}); err != nil {
@@ -134,6 +135,7 @@ func TestConceptBatch_PreflightRejectsEveryInvalidShape(t *testing.T) {
 // a batch whose second operation is invalid must not create the first
 // operation's file, must not touch log.md, and must not touch search.
 func TestConceptBatch_PreflightFailureLeavesFilesLogIndexUnchanged(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -174,6 +176,7 @@ func TestConceptBatch_PreflightFailureLeavesFilesLogIndexUnchanged(t *testing.T)
 // --- WP2/WP3 integration: happy path, one commit, one log entry, ordering ---
 
 func TestConceptBatch_HappyPath_OneCommitOneLogEntryOrderedResults(t *testing.T) {
+	t.Parallel()
 	k, sha1 := setupGitKB(t)
 	k.AutoCommit = true
 	// Seed a concept the patch operation will target.
@@ -266,6 +269,7 @@ func TestConceptBatch_HappyPath_OneCommitOneLogEntryOrderedResults(t *testing.T)
 // --- WP3: transport, authorization, visibility, prefix ---
 
 func TestConceptBatch_StdioRoundTrip(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -278,6 +282,7 @@ func TestConceptBatch_StdioRoundTrip(t *testing.T) {
 }
 
 func TestConceptBatch_HTTPRoundTrip(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "rw-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: true}}},
 	})
@@ -298,6 +303,7 @@ func TestConceptBatch_HTTPRoundTrip(t *testing.T) {
 }
 
 func TestConceptBatch_ReadOnlyTokenDenied(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "r-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
 	})
@@ -312,6 +318,7 @@ func TestConceptBatch_ReadOnlyTokenDenied(t *testing.T) {
 // advertised in tools/list under both profiles (D318; D125 WP3 had hidden it)
 // and callable via tools/call.
 func TestConceptBatch_VisibleUnderAgentAndFullProfile(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -349,6 +356,7 @@ func readHash(t *testing.T, k *kb.KB, id string) string {
 // on its own, with the edits key absent or empty, in concept_patch and in a
 // concept_batch patch operation alike; the body is left byte-for-byte (#321).
 func TestConceptPatch_FrontmatterOnly(t *testing.T) {
+	t.Parallel()
 	const id = "manutenzione/test-runbook"
 	cases := []struct {
 		name string
@@ -400,6 +408,7 @@ func TestConceptPatch_FrontmatterOnly(t *testing.T) {
 // concept_move keeps its curated index.md in step instead of leaving the old
 // ID behind when a concept leaves the map (#320).
 func TestMapUpdate_OptInEnablesMoveIndexMaintenance(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if err := k.CreateMap("legacy", "Legacy", "map", nil, ""); err != nil {
 		t.Fatal(err)
@@ -448,6 +457,7 @@ func TestMapUpdate_OptInEnablesMoveIndexMaintenance(t *testing.T) {
 // TestConceptBatch_PatchUnsetKey (D309): a batch patch op removes the keys in
 // its 'unset' array, with no body edit.
 func TestConceptBatch_PatchUnsetKey(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Seed\nstatus: draft")
 	if _, err := k.WriteConcept(okf.ConceptID("batch/unset"), fm, "# Seed\n", ""); err != nil {
@@ -475,6 +485,8 @@ func TestConceptBatch_PatchUnsetKey(t *testing.T) {
 // ~100 KiB concepts total well over the aggregate limit if each counted its
 // full post-patch body, and must be accepted: a patch counts what it sends.
 func TestConceptBatch_PatchesCountEditsNotBodies(t *testing.T) {
+	// Serial on purpose: ten 100 KiB concepts are CPU-heavy (about 20s under
+	// -race), and runMCPSequence gives a response 20s, so contention flakes it.
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})

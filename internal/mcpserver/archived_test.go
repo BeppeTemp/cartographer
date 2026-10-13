@@ -39,6 +39,7 @@ func searchIDs(t *testing.T, s *Server, args string) (ids []string, out map[stri
 }
 
 func TestSearch_ArchivedHiddenByDefault(t *testing.T) {
+	t.Parallel()
 	s, _ := archivedServer(t)
 	ids, out := searchIDs(t, s, `{"query":"gateway"}`)
 	if len(ids) != 1 || ids[0] != "ops/live" {
@@ -54,6 +55,7 @@ func TestSearch_ArchivedHiddenByDefault(t *testing.T) {
 }
 
 func TestSearch_ArchivedFallback(t *testing.T) {
+	t.Parallel()
 	s, _ := archivedServer(t)
 	ids, out := searchIDs(t, s, `{"query":"zebrafish"}`)
 	if len(ids) != 1 || ids[0] != "ops/old" || out["archived_fallback"] != true {
@@ -70,6 +72,7 @@ func TestSearch_ArchivedFallback(t *testing.T) {
 }
 
 func TestReadCost_ExcludesArchived(t *testing.T) {
+	t.Parallel()
 	k, err := kb.Init(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -87,6 +90,7 @@ func TestReadCost_ExcludesArchived(t *testing.T) {
 }
 
 func TestAtlasStructure_ExcludesArchived(t *testing.T) {
+	t.Parallel()
 	k, err := kb.Init(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -110,6 +114,7 @@ func TestAtlasStructure_ExcludesArchived(t *testing.T) {
 }
 
 func TestLinkSuggest_SkipsArchived(t *testing.T) {
+	t.Parallel()
 	s := graphToolKB(t, map[string]string{
 		"ops/u.md": "[a](a.md) [b](b.md).\n",
 		"ops/a.md": "[x](x.md) [z](z.md).\n",
@@ -136,6 +141,7 @@ func strictMapServer(t *testing.T) (*Server, *kb.KB) {
 }
 
 func TestMapUpdate_ExtendsConceptTypes(t *testing.T) {
+	t.Parallel()
 	s, k := strictMapServer(t)
 	digest := `{"operations":[{"op":"write","id":"jr/d","frontmatter":{"type":"Digest","title":"D"},"body":"# D"}]}`
 	if res := callTool(t, s, "concept_batch", digest); !res.IsError || !strings.Contains(res.Content[0].Text, "not allowed in map") {
@@ -154,6 +160,7 @@ func TestMapUpdate_ExtendsConceptTypes(t *testing.T) {
 }
 
 func TestMapUpdate_OntologyStrictInfersTypes(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 3) // ops holds Note concepts, flexible
 	callOK(t, s, "map_update", `{"map":"ops","ontology_mode":"strict"}`)
 	meta, err := k.ReadArchiveMeta("ops")
@@ -167,6 +174,7 @@ func TestMapUpdate_OntologyStrictInfersTypes(t *testing.T) {
 }
 
 func TestMapUpdate_ConceptTypesOnFlexibleRefused(t *testing.T) {
+	t.Parallel()
 	_, s := repairKB(t, 0)
 	res := callTool(t, s, "map_update", `{"map":"ops","concept_types":["Note"]}`)
 	if !res.IsError || !strings.Contains(res.Content[0].Text, "flexible") {
@@ -179,6 +187,7 @@ func TestMapUpdate_ConceptTypesOnFlexibleRefused(t *testing.T) {
 }
 
 func TestMapUpdate_HarvestAfter(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	callOK(t, s, "map_update", `{"map":"ops","harvest_after":90}`)
 	if c, err := k.ReadMapContract("ops"); err != nil || c.HarvestAfterDays != 90 {
@@ -195,6 +204,7 @@ func TestMapUpdate_HarvestAfter(t *testing.T) {
 }
 
 func TestMapUpdate_OpenField(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	callOK(t, s, "map_update", `{"map":"ops","open_field":"outcome"}`)
 	if c, err := k.ReadMapContract("ops"); err != nil || c.OpenField != "outcome" {
@@ -212,6 +222,7 @@ func TestMapUpdate_OpenField(t *testing.T) {
 // --- read-access log (D322) ---
 
 func TestReadAccessLogRoundTrip(t *testing.T) {
+	t.Parallel()
 	k, err := kb.Init(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -315,6 +326,7 @@ func TestReadAccessLogMigratesTheFlatFile(t *testing.T) {
 }
 
 func TestReadsAreTracked(t *testing.T) {
+	t.Parallel()
 	s, _ := archivedServer(t)
 	if _, ok := kbStatusResult(t, s)["read_access"]; ok {
 		t.Fatal("read_access present before any read")
@@ -370,6 +382,7 @@ func TestSearchHitIsNotARead(t *testing.T) {
 // D346: stale_after 0 is an explicit off, -1 resets to the default, the
 // response echoes what was written, and map_list shows the effective value.
 func TestMapUpdate_StaleAfterOffAndReset(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	out := callOK(t, s, "map_update", `{"map":"ops","open_statuses":["open"],"harvest_after":90,"stale_after":90}`)
 	for _, want := range []string{`"stale_after": 90`, `"open_statuses": [`, `"harvest_after": 90`} {
@@ -403,6 +416,7 @@ func TestMapUpdate_StaleAfterOffAndReset(t *testing.T) {
 }
 
 func TestMapList_StaleAfterJournalAndReference(t *testing.T) {
+	t.Parallel()
 	s, _ := strictMapServer(t) // jr is a journal; ops is a plain map
 	out := callOK(t, s, "map_list", `{}`)
 	var infos []map[string]interface{}

@@ -12,6 +12,7 @@ import (
 )
 
 func TestLinkGraphProjectsTheVisibleConcepts(t *testing.T) {
+	t.Parallel()
 	f := newGraphFixture(t)
 	calls := map[string]int{}
 	include := func(id string) bool {
@@ -65,6 +66,7 @@ func TestLinkGraphProjectsTheVisibleConcepts(t *testing.T) {
 // The whole-KB percentiles are cached per view generation and follow the
 // files (D251); a narrowed include is computed on its own graph.
 func TestPageRankPercentiles(t *testing.T) {
+	t.Parallel()
 	k := snapshotKB(t)
 	pct, err := k.PageRankPercentiles(nil)
 	if err != nil {
@@ -100,6 +102,7 @@ func TestPageRankPercentiles(t *testing.T) {
 // 1/6, a page's own links weigh 1, and a narrowed include counts only what it
 // sees (D317).
 func TestLinkGraphEdgeWeights(t *testing.T) {
+	t.Parallel()
 	f := &graphFixture{t: t, k: mustInitKB(t)}
 	f.write("svc/_map.md", "---\ntype: Map\ntitle: Services\n---\n# Services\n")
 	f.write("svc/monitoring.md", "---\ntype: Entity\ntitle: Monitoring\n---\nDashboards.\n")

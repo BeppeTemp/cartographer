@@ -17,6 +17,7 @@ func findingFor(findings []Finding, path, check string) *Finding {
 }
 
 func TestNonstandardField(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "kb-a/alone.md", "---\ntype: Note\ntitle: A\naggiornato: 2026-01-01\n---\nx\n")
 	writeFile(t, k.DataRoot(), "kb-a/both.md", "---\ntype: Note\ntitle: B\nupdated: 2026-01-01\ntimestamp: 2026-02-01\n---\nx\n")
@@ -40,6 +41,7 @@ func TestNonstandardField(t *testing.T) {
 }
 
 func TestNonstandardField_RequiredByMap(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "kb-a/_map.md", "---\ntype: Map\nkind: map\ntitle: A\nrequired_fields: [aggiornato]\n---\n# A\n")
 	writeFile(t, k.DataRoot(), "kb-a/x.md", "---\ntype: Note\ntitle: X\naggiornato: 2026-01-01\n---\nx\n")
@@ -51,6 +53,7 @@ func TestNonstandardField_RequiredByMap(t *testing.T) {
 }
 
 func TestStandardFieldSynonymsDisjoint(t *testing.T) {
+	t.Parallel()
 	seen := map[string]string{}
 	for std, syns := range StandardFieldSynonyms {
 		for _, s := range syns {
@@ -69,6 +72,7 @@ func TestStandardFieldSynonymsDisjoint(t *testing.T) {
 }
 
 func TestToolParamField(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "kb-a/bad.md", "---\ntype: Note\ntitle: B\nif_match: abc\nlint_ignore: [tool_param_field]\n---\nx\n")
 	findings, _ := Run(k, "", false)
@@ -107,6 +111,7 @@ func valueContractKBField(t *testing.T, mapFM string, values []string, field str
 }
 
 func TestMissingValueContract(t *testing.T) {
+	t.Parallel()
 	five := []string{"open", "open", "done", "done", "done"}
 	msg := valueContractKB(t, "", five)
 	if !strings.Contains(msg, "field_values.Task.status: [done, open]") || !strings.Contains(msg, "done ×3, open ×2") {
@@ -136,6 +141,7 @@ func TestMissingValueContract(t *testing.T) {
 }
 
 func TestMissingValueContract_MapWideWhenTypesMixed(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "kb-a/_map.md", "---\ntype: Map\nkind: map\ntitle: A\n---\n# A\n")
 	for i := 0; i < 6; i++ {
@@ -153,6 +159,7 @@ func TestMissingValueContract_MapWideWhenTypesMixed(t *testing.T) {
 }
 
 func TestMissingValueContract_SkipsStandardAndSynonyms(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "kb-a/_map.md", "---\ntype: Map\nkind: map\ntitle: A\n---\n# A\n")
 	for i := 0; i < 6; i++ {
@@ -165,6 +172,7 @@ func TestMissingValueContract_SkipsStandardAndSynonyms(t *testing.T) {
 }
 
 func TestCheckConcept(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: I\nfield_values.status: [active, draft]\nrequired_fields: [owner]\n---\n# I\n")
 	found := CheckConcept(k, "infra/x", "---\ntype: Note\nstatus: nope\nstato: x\n---\n# Heading\n")
@@ -190,6 +198,7 @@ func TestCheckConcept(t *testing.T) {
 }
 
 func TestNonstandardField_TimestampSynonymNeedsDateValue(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "kb-a/payload.md", "---\ntype: Note\ntitle: P\ndata: some payload\n---\nx\n")
 	writeFile(t, k.DataRoot(), "kb-a/list.md", "---\ntype: Note\ntitle: L\ndate: [a, b]\n---\nx\n")
@@ -217,6 +226,7 @@ func TestNonstandardField_TimestampSynonymNeedsDateValue(t *testing.T) {
 }
 
 func TestMalformedFrontmatter_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	// Scalar followed by indented list lines — the parser truncates the value.
 	writeFile(t, k.DataRoot(), "kb-a/bad.md", "---\ntype: Note\ntitle: Bad\nprovenance: \"- a\"\n  - b\n  - c\n---\nx\n")
@@ -233,6 +243,7 @@ func TestMalformedFrontmatter_Detected(t *testing.T) {
 }
 
 func TestMalformedFrontmatter_NotSuppressible(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "kb-a/ign.md", "---\ntype: Note\ntitle: I\nlint_ignore: [malformed_frontmatter]\nprovenance: \"- a\"\n  - b\n---\nx\n")
 	findings, _ := Run(k, "", false)
@@ -242,6 +253,7 @@ func TestMalformedFrontmatter_NotSuppressible(t *testing.T) {
 }
 
 func TestMissingValueContract_ProvenanceExcluded(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "kb-a/_map.md", "---\ntype: Map\nkind: map\ntitle: A\n---\n# A\n")
 	for i := 0; i < 6; i++ {
@@ -254,6 +266,7 @@ func TestMissingValueContract_ProvenanceExcluded(t *testing.T) {
 }
 
 func TestMissingValueContract_StatusNoCap(t *testing.T) {
+	t.Parallel()
 	// Status with 10 distinct values should still fire (D295 WP3).
 	var many []string
 	for i := 0; i < 10; i++ {
@@ -269,6 +282,7 @@ func TestMissingValueContract_StatusNoCap(t *testing.T) {
 // index.md: neither is a walked concept ID, and neither is broken. Pins the
 // fallback the D294 enumeration lost (one finding per such link on a real KB).
 func TestBrokenLink_IndexFormTargetsResolve(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "kb-a/index.md", "---\ntype: Index\ntitle: A\n---\n# A\n")
 	writeFile(t, k.DataRoot(), "kb-a/exp/index.md", "---\ntype: Note\ntitle: E\n---\n# E\n")
@@ -281,6 +295,7 @@ func TestBrokenLink_IndexFormTargetsResolve(t *testing.T) {
 
 // An indented continuation line is never taken for a key of its own.
 func TestMalformedFrontmatter_OneFindingPerKey(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "kb-a/bad.md", "---\ntype: Note\ntitle: Bad\nprovenance: \"- a\"\n  - see https://example.com\n  - b\n---\nx\n")
 	findings, _ := Run(k, "", false)
@@ -297,6 +312,7 @@ func TestMalformedFrontmatter_OneFindingPerKey(t *testing.T) {
 
 // D313: a purely date-valued field holds instants, not a vocabulary.
 func TestMissingValueContract_DateFieldSkipped(t *testing.T) {
+	t.Parallel()
 	dates := []string{"2026-01-01", "2026-01-01", "2026-01-02", "2026-01-02", "2026-01-03", "2026-01-03"}
 	if msg := valueContractKBField(t, "", dates, "claimed_at"); msg != "" {
 		t.Errorf("date-shaped field proposed a vocabulary: %q", msg)
@@ -310,6 +326,7 @@ func TestMissingValueContract_DateFieldSkipped(t *testing.T) {
 // #686: an identifier field (every value its own, or URLs) is no vocabulary;
 // a field whose values repeat still is.
 func TestMissingValueContract_IdentifierFieldSkipped(t *testing.T) {
+	t.Parallel()
 	distinct := []string{"alpha", "beta", "gamma", "delta", "epsilon", "zeta"}
 	if msg := valueContractKBField(t, "", distinct, "deploy"); msg != "" {
 		t.Errorf("all-distinct field proposed a vocabulary: %q", msg)

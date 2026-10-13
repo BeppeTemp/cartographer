@@ -38,6 +38,7 @@ func asPrincipal(p auth.Policy) context.Context {
 }
 
 func TestDoctorNudgeOncePerWindow(t *testing.T) {
+	t.Parallel()
 	s, now := nudgeKB(t)
 	first := s.callTool(authLocalContext(), "search", json.RawMessage(`{"query":"N0"}`))
 	if !nudged(first) {
@@ -57,6 +58,7 @@ func TestDoctorNudgeOncePerWindow(t *testing.T) {
 }
 
 func TestDoctorNudgeSkips(t *testing.T) {
+	t.Parallel()
 	s, _ := nudgeKB(t)
 	name := kbName(s.kbRef)
 	reader := asPrincipal(auth.Policy{Permissions: []auth.Permission{{KB: name}}})
@@ -80,6 +82,7 @@ func TestDoctorNudgeSkips(t *testing.T) {
 }
 
 func TestDoctorNudgeNotDueOrDisabled(t *testing.T) {
+	t.Parallel()
 	s, _ := nudgeKB(t)
 	if err := s.kbRef.AppendLog("kb-doctor: warnings 2 -> 2", time.Date(2026, 9, 30, 10, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatal(err)
@@ -95,6 +98,7 @@ func TestDoctorNudgeNotDueOrDisabled(t *testing.T) {
 }
 
 func TestDoctorNudgeConcurrentCallsGetOne(t *testing.T) {
+	t.Parallel()
 	s, _ := nudgeKB(t)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -123,6 +127,7 @@ func inSession(id string) context.Context {
 // D358: the window is per MCP session. Two sessions on one process each get a
 // nudge, and one session gets one per window.
 func TestDoctorNudgePerMCPSession(t *testing.T) {
+	t.Parallel()
 	s, now := nudgeKB(t)
 	call := func(id string) ToolResult {
 		return s.callTool(inSession(id), "search", json.RawMessage(`{"query":"N0"}`))
@@ -148,6 +153,7 @@ func TestDoctorNudgePerMCPSession(t *testing.T) {
 // TestDoctorNudgeOnlyProposes: the nudge never tells the agent to start a
 // session by itself (D704).
 func TestDoctorNudgeOnlyProposes(t *testing.T) {
+	t.Parallel()
 	s, _ := nudgeKB(t)
 	res := s.callTool(inSession("a"), "search", json.RawMessage(`{"query":"N0"}`))
 	text := res.Content[len(res.Content)-1].Text
@@ -157,6 +163,7 @@ func TestDoctorNudgeOnlyProposes(t *testing.T) {
 }
 
 func TestDoctorBudgetDefaultsMatchConfig(t *testing.T) {
+	t.Parallel()
 	if defaultDoctorBudget != config.DefaultDoctorBudget {
 		t.Fatal("mcpserver budget default drifted from config")
 	}

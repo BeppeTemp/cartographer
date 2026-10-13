@@ -39,6 +39,7 @@ func wrappedWriteAs(t *testing.T, k *kb.KB, p auth.Principal, content string) {
 // writes produce; the committer stays the KB's identity. A token without one
 // commits as the KB.
 func TestGitWrap_CommitAuthorFollowsTokenIdentity(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	k.AutoCommit = true
 	k.GitAuthorName, k.GitAuthorEmail, k.GitAuthorExplicit = "Owner", "owner@example.com", true

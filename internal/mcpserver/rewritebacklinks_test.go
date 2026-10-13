@@ -62,6 +62,7 @@ func fullScanRewriteBacklinks(k *kb.KB, moveMap map[string]string) ([]rewrittenC
 // rewrites the same files, to the same bytes, with the same rewritten list in
 // the same order, as a whole-KB pass.
 func TestRewriteBacklinks_MatchesFullScan(t *testing.T) {
+	t.Parallel()
 	const note = "---\ntype: Note\n---\n"
 	// The post-move state: notes/x → arch/x (flat), notes/exp → arch/exp
 	// (expanded), notes/y → notes/y2 (co-moved with x).

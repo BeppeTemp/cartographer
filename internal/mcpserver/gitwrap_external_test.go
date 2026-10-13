@@ -36,6 +36,7 @@ func editOutOfBand(t *testing.T, k *kb.KB, rel, content string) {
 }
 
 func TestExternalChanges_NoOpWriteCommitsOnlyTheExternalWork(t *testing.T) {
+	t.Parallel()
 	k, s := externalKB(t)
 	before := commitCount(t, k)
 	for _, name := range []string{"a", "b", "c"} {
@@ -63,6 +64,7 @@ func TestExternalChanges_NoOpWriteCommitsOnlyTheExternalWork(t *testing.T) {
 }
 
 func TestExternalChanges_RealWriteIsItsOwnCommit(t *testing.T) {
+	t.Parallel()
 	k, s := externalKB(t)
 	editOutOfBand(t, k, "notes/editor.md", "---\ntype: Note\ntitle: Editor\n---\n# Editor\n")
 	text, isErr := callJSON(t, s, adminCtx, "concept_write",
@@ -85,6 +87,7 @@ func TestExternalChanges_RealWriteIsItsOwnCommit(t *testing.T) {
 }
 
 func TestExternalChanges_CleanTreeUnchanged(t *testing.T) {
+	t.Parallel()
 	k, s := externalKB(t)
 	before := commitCount(t, k)
 	text, isErr := callJSON(t, s, adminCtx, "concept_write",

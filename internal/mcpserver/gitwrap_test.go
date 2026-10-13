@@ -63,6 +63,7 @@ func syncStatus(t *testing.T, k *kb.KB) map[string]any {
 }
 
 func TestGitWrap_SyncPushFailureAppendsFailedWarning(t *testing.T) {
+	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.AutoCommit, k.GitSync = true, true
 	if err := k.SyncOut(); err != nil {
@@ -87,6 +88,7 @@ func TestGitWrap_SyncPushFailureAppendsFailedWarning(t *testing.T) {
 }
 
 func TestGitWrap_DebouncedWriteAppendsPendingWarningAndPreservesFailure(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKBWithRemote(t)
 	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
 	if err := k.SyncOut(); err != nil {
@@ -109,6 +111,7 @@ func TestGitWrap_DebouncedWriteAppendsPendingWarningAndPreservesFailure(t *testi
 }
 
 func TestGitWrap_CommitFailureIsRecordedAndDoesNotSchedulePush(t *testing.T) {
+	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
 	if err := k.SyncOut(); err != nil {
@@ -130,6 +133,7 @@ func TestGitWrap_CommitFailureIsRecordedAndDoesNotSchedulePush(t *testing.T) {
 }
 
 func TestSyncStatus_MissingRemoteTrackingRefUsesJSONNull(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKBWithRemote(t)
 	k.GitSync = true
 	status := syncStatus(t, k)
@@ -167,6 +171,7 @@ func setupGitKB(t *testing.T) (*kb.KB, string) {
 // TestGitWrap_ConceptWrite_CreatesCommit verifies that a successful concept_write
 // via the git-wrapped tool creates a new git commit when AutoCommit=true.
 func TestGitWrap_ConceptWrite_CreatesCommit(t *testing.T) {
+	t.Parallel()
 	k, sha1 := setupGitKB(t)
 	k.AutoCommit = true
 
@@ -197,6 +202,7 @@ func TestGitWrap_ConceptWrite_CreatesCommit(t *testing.T) {
 }
 
 func TestGitWrap_ConceptNew_CreatesOneCommit(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)
@@ -235,6 +241,7 @@ func TestGitWrap_ConceptNew_CreatesOneCommit(t *testing.T) {
 }
 
 func TestGitWrap_AssetWriteAndDeleteCreateOneCommitEach(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Asset owner")
 	if _, err := k.WriteConcept("assets/owner", fm, "# Owner\n", ""); err != nil {
@@ -286,6 +293,7 @@ func TestGitWrap_AssetWriteAndDeleteCreateOneCommitEach(t *testing.T) {
 // TestGitWrap_ConceptWrite_FailedOp_NoCommit verifies that a failed concept_write
 // (missing required 'type' field) does NOT produce a git commit.
 func TestGitWrap_ConceptWrite_FailedOp_NoCommit(t *testing.T) {
+	t.Parallel()
 	k, sha1 := setupGitKB(t)
 	k.AutoCommit = true
 
@@ -320,6 +328,7 @@ func TestGitWrap_ConceptWrite_FailedOp_NoCommit(t *testing.T) {
 // nothing, and a legacy data/services/ left by the pre-D269 bug is neither
 // repaired nor removed.
 func TestGitWrap_MapCreate_ReservedServices_NoCommit(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	k.AutoCommit = true
 	legacy := filepath.Join(k.DataRoot(), "services")
@@ -384,6 +393,7 @@ func TestGitWrap_ConceptMove_SourceRemovalFailure_NoCommit(t *testing.T) {
 
 // D762: map_delete force lists the removed loose files in the commit subject.
 func TestGitWrap_MapDelete_Force_CommitSubjectListsFiles(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	k.AutoCommit = true
 
@@ -420,6 +430,7 @@ func TestGitWrap_MapDelete_Force_CommitSubjectListsFiles(t *testing.T) {
 // empty map (only the map_create scaffold, no concepts) removes the
 // directory and creates a git commit (D88 WP2).
 func TestGitWrap_MapDelete_EmptyMap_CreatesCommit(t *testing.T) {
+	t.Parallel()
 	k, sha1 := setupGitKB(t)
 	k.AutoCommit = true
 
@@ -462,6 +473,7 @@ func TestGitWrap_MapDelete_EmptyMap_CreatesCommit(t *testing.T) {
 // (D122 WP2) produces exactly one git commit, same as concept_patch's batch
 // 'edits' form.
 func TestGitWrap_IndexPatch_CreatesOneCommit(t *testing.T) {
+	t.Parallel()
 	k, sha1 := setupGitKB(t)
 	k.AutoCommit = true
 
@@ -506,6 +518,7 @@ func TestGitWrap_IndexPatch_CreatesOneCommit(t *testing.T) {
 // TestGitWrap_IndexPatch_FailedOp_NoCommit verifies a stale_write index_patch
 // does not produce a git commit.
 func TestGitWrap_IndexPatch_FailedOp_NoCommit(t *testing.T) {
+	t.Parallel()
 	k, sha1 := setupGitKB(t)
 	k.AutoCommit = true
 
@@ -617,6 +630,7 @@ func syncInForTest(t *testing.T, k *kb.KB) {
 }
 
 func TestReadSyncWrap_RefreshesRemoteConceptAndSearch(t *testing.T) {
+	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.GitSync = true
 	if err := k.SyncOut(); err != nil {
@@ -691,6 +705,7 @@ func remoteReadVisible(t *testing.T, s *Server, id string) bool {
 }
 
 func TestReadSyncWrap_ConflictDegradesAndServesLocalRead(t *testing.T) {
+	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.GitSync = true
 	if err := k.SyncOut(); err != nil {
@@ -733,6 +748,7 @@ func TestReadSyncWrap_ConflictDegradesAndServesLocalRead(t *testing.T) {
 }
 
 func TestReadSyncWrap_DisabledOrNoRemoteKeepsReadPathWorking(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name    string
 		gitSync bool
@@ -757,6 +773,7 @@ func TestReadSyncWrap_DisabledOrNoRemoteKeepsReadPathWorking(t *testing.T) {
 }
 
 func TestGitWrap_ReauthorizesAfterSyncInChangesConceptType(t *testing.T) {
+	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.AuthName = "docs"
 	k.AutoCommit, k.GitSync = true, true
@@ -806,6 +823,7 @@ func TestGitWrap_ReauthorizesAfterSyncInChangesConceptType(t *testing.T) {
 // eventually lands once the debounce elapses (verified here via FlushPush,
 // which forces it).
 func TestGitWrap_AsyncPush_CommitIsSyncPushIsDeferred(t *testing.T) {
+	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.AutoCommit = true
 	k.GitSync = true
@@ -857,6 +875,7 @@ func TestGitWrap_AsyncPush_CommitIsSyncPushIsDeferred(t *testing.T) {
 // TestFormatTiming verifies the greppable timing line format, including the
 // case where some phases are skipped (zero duration).
 func TestFormatTiming(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name                              string
 		op                                string
@@ -921,6 +940,7 @@ func headSubject(t *testing.T, dir string) string {
 }
 
 func TestCommitMessage_IdentifiesTheResourceForEveryWriteTool(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		tool string
@@ -954,6 +974,7 @@ func TestCommitMessage_IdentifiesTheResourceForEveryWriteTool(t *testing.T) {
 }
 
 func TestGitWrap_ArtifactWriteCommitSubjectNamesThePath(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	k.AutoCommit = true
 	k.AllowArtifactWrite = true
@@ -989,6 +1010,7 @@ func TestGitWrap_ArtifactWriteCommitSubjectNamesThePath(t *testing.T) {
 }
 
 func TestGitWrap_AssetWriteCommitSubjectNamesConceptAndPath(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Asset owner")
 	if _, err := k.WriteConcept("assets/owner", fm, "# Owner\n", ""); err != nil {
@@ -1021,6 +1043,7 @@ func TestGitWrap_AssetWriteCommitSubjectNamesConceptAndPath(t *testing.T) {
 // disagree. These tests read the constants, so bumping one cannot leave the text
 // stale.
 func TestToolDescriptions_StateTheirEnforcedLimits(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -1054,6 +1077,7 @@ func TestToolDescriptions_StateTheirEnforcedLimits(t *testing.T) {
 }
 
 func TestByteBudget(t *testing.T) {
+	t.Parallel()
 	cases := map[int]string{
 		1024 * 1024:      "1 MiB",
 		10 * 1024 * 1024: "10 MiB",
@@ -1181,6 +1205,7 @@ func TestReadSyncWrap_ReadDoesNotWaitForTheFetch(t *testing.T) {
 // A local-profile KB checked out on a branch other than the remote default is
 // refused writes, and sync_status names both branches (D264).
 func TestGitWrap_DivergedBranchRefusesWriteAndSyncStatusNamesBranches(t *testing.T) {
+	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.AutoCommit, k.GitSync = true, true
 	if err := k.SyncOut(); err != nil {
@@ -1239,6 +1264,7 @@ func writeWithArgs(t *testing.T, k *kb.KB, id string, extra map[string]any) {
 }
 
 func TestGitWrap_ReasonBecomesTrailer(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	k.AutoCommit = true
 
@@ -1275,6 +1301,7 @@ func TestGitWrap_ReasonBecomesTrailer(t *testing.T) {
 func utf8Valid(s string) bool { return strings.ToValidUTF8(s, "�") == s }
 
 func TestCommitReason(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		`{}`:                        "",
 		`{"reason":""}`:             "",
@@ -1294,6 +1321,7 @@ func TestCommitReason(t *testing.T) {
 // TestGitWrap_EveryWrappedToolExposesReason walks a real registry: a tool added
 // later through gitWrap cannot miss the argument.
 func TestGitWrap_EveryWrappedToolExposesReason(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -1323,6 +1351,7 @@ func TestGitWrap_EveryWrappedToolExposesReason(t *testing.T) {
 
 // D713: after a push, kb_status reports behind 0 and a non-null last_push_at.
 func TestKBStatus_BehindAndLastPushAfterPush(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKBWithRemote(t)
 	k.GitSync = true
 	if err := k.SyncOut(); err != nil {

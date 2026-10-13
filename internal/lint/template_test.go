@@ -52,6 +52,7 @@ func tplFinding(f []Finding, path, check string) *Finding {
 }
 
 func TestShapeIsNotAToolParam(t *testing.T) {
+	t.Parallel()
 	if IsToolParamField("shape") {
 		t.Fatal("shape must be a page field, not a tool parameter")
 	}
@@ -61,6 +62,7 @@ func TestShapeIsNotAToolParam(t *testing.T) {
 }
 
 func TestTemplateChecks(t *testing.T) {
+	t.Parallel()
 	ok := "## Purpose\n\ntext\n\n## Operations\n\ntext\n"
 	f := runStrict(t, map[string]string{
 		"infra/good":      page("server", "state: up\n", ok),
@@ -139,6 +141,7 @@ func TestTemplateChecks(t *testing.T) {
 }
 
 func TestTemplateMissingFixWhenOneCandidate(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/server.md", tplServer)
 	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplates: [server]\nrequire_template: true\n---\n")
@@ -151,6 +154,7 @@ func TestTemplateMissingFixWhenOneCandidate(t *testing.T) {
 }
 
 func TestTemplateNotAllowedAndDefault(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/server.md", tplServer)
 	writeFile(t, k.Root, "templates/appliance.md", tplServiceB)
@@ -168,6 +172,7 @@ func TestTemplateNotAllowedAndDefault(t *testing.T) {
 }
 
 func TestNoTemplateKeysNoTemplateFindings(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/host.md", tplServer)
 	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\n---\n")
@@ -181,6 +186,7 @@ func TestNoTemplateKeysNoTemplateFindings(t *testing.T) {
 }
 
 func TestTemplateSectionsKeepsItsMeaning(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/host.md", tplServer)
 	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplate_sections: true\n---\n")
@@ -198,6 +204,7 @@ func TestTemplateSectionsKeepsItsMeaning(t *testing.T) {
 }
 
 func TestMapWithoutTemplatesAndSubsetCheck(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "bare/_map.md", "---\ntype: Map\nkind: map\ntitle: Bare\n---\n")
 	for _, n := range []string{"a", "b", "c"} {
@@ -221,6 +228,7 @@ func TestMapWithoutTemplatesAndSubsetCheck(t *testing.T) {
 }
 
 func TestReorderSections(t *testing.T) {
+	t.Parallel()
 	body := "Intro text.\n\n## B\n\nbeta\n\n```\n## C fenced\n```\n\n## Extra\n\nx\n\n## A\n\nalpha\n"
 	got, ok := ReorderSections(body, []string{"A", "B", "Extra"})
 	want := "Intro text.\n\n## A\n\nalpha\n\n## B\n\nbeta\n\n```\n## C fenced\n```\n\n## Extra\n\nx\n"
@@ -243,6 +251,7 @@ func TestReorderSections(t *testing.T) {
 }
 
 func TestTemplateChecksOnWriteAgreeWithRun(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/server.md", tplServer)
 	writeFile(t, k.Root, "templates/appliance.md", tplServiceB)

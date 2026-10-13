@@ -61,6 +61,7 @@ func countCheck(findings []Finding, path, check string) int {
 // --- broken_link ---
 
 func TestRun_BrokenLink_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/concept-a.md",
 		"---\ntype: Note\n---\nSee [missing](missing.md).\n")
@@ -75,6 +76,7 @@ func TestRun_BrokenLink_Detected(t *testing.T) {
 }
 
 func TestRun_BrokenLink_ExistingTarget_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/concept-a.md",
 		"---\ntype: Note\n---\nSee [concept-b](concept-b.md).\n")
@@ -130,6 +132,7 @@ func TestRun_StaleClaim_FutureDate_Clean(t *testing.T) {
 }
 
 func TestRun_StaleClaim_NoField_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/no-date.md",
 		"---\ntype: Note\n---\nNo review_after here.\n")
@@ -146,6 +149,7 @@ func TestRun_StaleClaim_NoField_Clean(t *testing.T) {
 // --- imported_draft (D74 WP1) ---
 
 func TestRun_ImportedDraft_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/imported-concept.md",
 		"---\ntype: Note\nstatus: imported\n---\nRaw content awaiting curation.\n")
@@ -160,6 +164,7 @@ func TestRun_ImportedDraft_Detected(t *testing.T) {
 }
 
 func TestRun_ImportedDraft_OtherStatus_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/curated-concept.md",
 		"---\ntype: Note\nstatus: active\n---\nCurated content.\n")
@@ -174,6 +179,7 @@ func TestRun_ImportedDraft_OtherStatus_Clean(t *testing.T) {
 }
 
 func TestRun_ImportedDraft_NoStatusField_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/no-status.md",
 		"---\ntype: Note\n---\nNo status field here.\n")
@@ -190,6 +196,7 @@ func TestRun_ImportedDraft_NoStatusField_Clean(t *testing.T) {
 // --- missing_title (#322) ---
 
 func TestRun_MissingTitle(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/untitled.md",
 		"---\ntype: Note\n---\n# Backup of the laptop\n\nBody.\n")
@@ -232,6 +239,7 @@ func TestRun_MissingTitle(t *testing.T) {
 // --- machine_path (D75 WP6) ---
 
 func TestRun_MachinePath_MacHome_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/concept-a.md",
 		"---\ntype: Note\n---\nRepo is at /Users/alice/repos/cartographer.\n")
@@ -246,6 +254,7 @@ func TestRun_MachinePath_MacHome_Detected(t *testing.T) {
 }
 
 func TestRun_MachinePath_LinuxHome_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/concept-b.md",
 		"---\ntype: Note\n---\nRepo is at /home/bob/repos/cartographer.\n")
@@ -260,6 +269,7 @@ func TestRun_MachinePath_LinuxHome_Detected(t *testing.T) {
 }
 
 func TestRun_MachinePath_Tilde_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/concept-c.md",
 		"---\ntype: Note\n---\nSee ~/Documents/notes.md for details.\n")
@@ -276,6 +286,7 @@ func TestRun_MachinePath_Tilde_Detected(t *testing.T) {
 // TestRun_MachinePath_NamesEveryPath: one finding per concept, naming every
 // disallowed path, so fixing the first does not reveal the next one.
 func TestRun_MachinePath_NamesEveryPath(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/concept-m.md",
 		"---\ntype: Note\n---\nSee ~/.zprofile, then ~/.codex/hooks.json and ~/.zprofile again.\n")
@@ -298,6 +309,7 @@ func TestRun_MachinePath_NamesEveryPath(t *testing.T) {
 }
 
 func TestRun_MachinePath_WindowsUsers_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/concept-d.md",
 		"---\ntype: Note\n---\nOn Windows: C:\\Users\\carol\\repos\\cartographer.\n")
@@ -312,6 +324,7 @@ func TestRun_MachinePath_WindowsUsers_Detected(t *testing.T) {
 }
 
 func TestRun_MachinePath_ContainerPaths_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/concept-e.md",
 		"---\ntype: Note\n---\nConfig lives at /etc/cartographer/config.yaml, logs in /var/log/cartographer.\n")
@@ -326,6 +339,7 @@ func TestRun_MachinePath_ContainerPaths_Clean(t *testing.T) {
 }
 
 func TestRun_MachinePath_Placeholder_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/concept-f.md",
 		"---\ntype: Note\n---\nRepo is at {{repo:cartographer}}, assets in {{path:design}}.\n")
@@ -350,6 +364,7 @@ func mapWithAllowPrefixes(t *testing.T, k *kb.KB, name string, prefixes []string
 }
 
 func TestRun_MachinePath_OperationalPathUnderAllowlist_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	mapWithAllowPrefixes(t, k, "infra", []string{
 		"/home/nonroot", "/home/ubuntu/.cache/huggingface", "/home/agent/agent-runs",
@@ -376,6 +391,7 @@ func TestRun_MachinePath_OperationalPathUnderAllowlist_Clean(t *testing.T) {
 }
 
 func TestRun_MachinePath_TruePositiveStillFlagged_UnderAllowlist(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	mapWithAllowPrefixes(t, k, "infra", []string{"/home/nonroot"})
 	writeFile(t, k.DataRoot(), "infra/laptop.md",
@@ -391,6 +407,7 @@ func TestRun_MachinePath_TruePositiveStillFlagged_UnderAllowlist(t *testing.T) {
 }
 
 func TestRun_MachinePath_InsideURL_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/concept-url.md",
 		"---\ntype: Note\n---\nSee https://example.com/home/bob/profile for details.\n")
@@ -405,6 +422,7 @@ func TestRun_MachinePath_InsideURL_Clean(t *testing.T) {
 }
 
 func TestRun_MachinePath_AllowedFirst_DisallowedLater_Flagged(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	mapWithAllowPrefixes(t, k, "infra", []string{"/home/nonroot"})
 	writeFile(t, k.DataRoot(), "infra/mixed.md",
@@ -429,6 +447,7 @@ func TestRun_MachinePath_AllowedFirst_DisallowedLater_Flagged(t *testing.T) {
 }
 
 func TestRun_MachinePath_PrefixBoundaryCollision_Flagged(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	mapWithAllowPrefixes(t, k, "infra", []string{"/home/nonroot"})
 	writeFile(t, k.DataRoot(), "infra/collision.md",
@@ -444,6 +463,7 @@ func TestRun_MachinePath_PrefixBoundaryCollision_Flagged(t *testing.T) {
 }
 
 func TestRun_MachinePath_EmptyContract_BehavesLikeNoAllowlist(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	mapWithAllowPrefixes(t, k, "infra", nil)
 	writeFile(t, k.DataRoot(), "infra/plain.md",
@@ -461,6 +481,7 @@ func TestRun_MachinePath_EmptyContract_BehavesLikeNoAllowlist(t *testing.T) {
 // --- orphan ---
 
 func TestRun_Orphan_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/dossier/index.md",
 		"---\ntype: Index\ntitle: Dossier\n---\n")
@@ -480,6 +501,7 @@ func TestRun_Orphan_Detected(t *testing.T) {
 }
 
 func TestRun_Orphan_LinkedConcept_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
 		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
@@ -502,6 +524,7 @@ func TestRun_Orphan_LinkedConcept_Clean(t *testing.T) {
 // derived D108 adjacency retains that compatibility even though traversal
 // excludes self-edges.
 func TestRun_Orphan_SelfLinkRemainsClean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/self.md",
 		"---\ntype: Note\n---\nSee [[arch/self]].\n")
@@ -516,6 +539,7 @@ func TestRun_Orphan_SelfLinkRemainsClean(t *testing.T) {
 }
 
 func TestRun_Orphan_ArchiveTopLevel_Skipped(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
 		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
@@ -539,6 +563,7 @@ func TestRun_Orphan_ArchiveTopLevel_Skipped(t *testing.T) {
 // in or out is a node connected to nothing — the index listing it is not an
 // edge of the graph the Atlas draws (found on a real KB).
 func TestRun_Orphan_ArchiveTopLevel_Isolated(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
 		"---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
@@ -564,6 +589,7 @@ func TestRun_Orphan_ArchiveTopLevel_Isolated(t *testing.T) {
 // --- expanded_missing_index (D72 WP4, renamed in D77 WP4) ---
 
 func TestRun_ExpandedMissingIndex_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
 		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
@@ -581,6 +607,7 @@ func TestRun_ExpandedMissingIndex_Detected(t *testing.T) {
 }
 
 func TestRun_ExpandedMissingIndex_WithIndex_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
 		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
@@ -599,6 +626,7 @@ func TestRun_ExpandedMissingIndex_WithIndex_Clean(t *testing.T) {
 }
 
 func TestRun_AssetsOnlyProduceOrphanAsset(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md", "---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
 	writeFile(t, k.DataRoot(), "arch/owner/index.md", "---\ntype: Note\ntitle: Owner\n---\n[report](report.csv)\n")
@@ -629,6 +657,7 @@ func TestRun_AssetsOnlyProduceOrphanAsset(t *testing.T) {
 // --- declarative lint contracts (D107) ---
 
 func TestRun_MissingRequiredFieldContract(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequired_fields: [timestamp, provenance]\nrequired_fields.Runbook: [owner]\n---\n")
 	writeFile(t, k.DataRoot(), "ops/a.md", "---\ntype: Runbook\ntimestamp: 2026-01-01\nprovenance: [, ]\nowner: Alice\n---\n")
@@ -649,6 +678,7 @@ func TestRun_MissingRequiredFieldContract(t *testing.T) {
 }
 
 func TestRun_MissingRequiredFieldsWithoutFrontmatter(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequired_fields: [timestamp, provenance]\n---\n")
 	writeFile(t, k.DataRoot(), "ops/no-frontmatter.md", "plain body\n")
@@ -662,6 +692,7 @@ func TestRun_MissingRequiredFieldsWithoutFrontmatter(t *testing.T) {
 }
 
 func TestRun_ContractMalformedAndServicesSkipped(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequired_fields: [timestamp, timestamp, ]\nrequire_index_entry: maybe\n---\n")
 	writeFile(t, k.Root, "services/demo.md", "---\ntype: Service\n---\n")
@@ -684,6 +715,7 @@ func TestRun_ContractMalformedAndServicesSkipped(t *testing.T) {
 }
 
 func TestRun_EmptyPerTypeContractSuffixMalformedOnce(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequired_fields.: [owner]\n---\n")
 	findings, err := Run(k, "", false)
@@ -696,6 +728,7 @@ func TestRun_EmptyPerTypeContractSuffixMalformedOnce(t *testing.T) {
 }
 
 func TestRun_IndexContract_MapAndExpanded(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
 	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\n---\n[alpha](alpha.md)\n[[ops/owner]]\n[missing](missing.md)\n")
@@ -715,6 +748,7 @@ func TestRun_IndexContract_MapAndExpanded(t *testing.T) {
 }
 
 func TestRun_IndexContract_ScopedOnlyOwnMembership(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
 	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\n---\n[[ops/a]]\n")
@@ -737,6 +771,7 @@ func TestRun_IndexContract_ScopedOnlyOwnMembership(t *testing.T) {
 }
 
 func TestRun_IndexContract_EmptyMapStillValidatesMapIndex(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, index string
 		check       string
@@ -766,6 +801,7 @@ func TestRun_IndexContract_EmptyMapStillValidatesMapIndex(t *testing.T) {
 }
 
 func TestRun_IndexContract_ExpandedIndexBrokenLinkOnceAndScopedMapIsolation(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
 	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\n---\n[[ops/missing-map-target]]\n")
@@ -788,6 +824,7 @@ func TestRun_IndexContract_ExpandedIndexBrokenLinkOnceAndScopedMapIsolation(t *t
 }
 
 func TestRun_IndexContractFalseDoesNothingAndMissingIndexIsOneFinding(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "off/_map.md", "---\ntype: Map\nrequire_index_entry: false\n---\n")
 	writeFile(t, k.DataRoot(), "off/a.md", "---\ntype: Note\n---\n")
@@ -806,6 +843,7 @@ func TestRun_IndexContractFalseDoesNothingAndMissingIndexIsOneFinding(t *testing
 // --- expanded_ambiguous (D77 WP4) ---
 
 func TestRun_ExpandedAmbiguous_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
 		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
@@ -826,6 +864,7 @@ func TestRun_ExpandedAmbiguous_Detected(t *testing.T) {
 // --- expanded_as_category (D77 WP4) ---
 
 func TestRun_ExpandedAsCategory_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
 		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
@@ -847,6 +886,7 @@ func TestRun_ExpandedAsCategory_Detected(t *testing.T) {
 }
 
 func TestRun_ExpandedAsCategory_LinkedChildren_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
 		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
@@ -888,6 +928,7 @@ func oversizeMap(t *testing.T, k *kb.KB, front string, top, satellites int) {
 }
 
 func TestRun_MapOversize_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	oversizeMap(t, k, "kind: map\n", mapOversizeThreshold+1, 0)
 	findings, err := Run(k, "", false)
@@ -903,6 +944,7 @@ func TestRun_MapOversize_Detected(t *testing.T) {
 // concepts count (D313), checked by the segment after the map prefix, not by a
 // naive prefix count.
 func TestRun_MapOversize_SatellitesNotCounted(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	oversizeMap(t, k, "kind: map\n", 7, mapOversizeThreshold*3)
 	findings, err := Run(k, "", false)
@@ -916,6 +958,7 @@ func TestRun_MapOversize_SatellitesNotCounted(t *testing.T) {
 
 // A journal grows by construction: it needs harvest, not a split.
 func TestRun_MapOversize_JournalExempt(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	oversizeMap(t, k, "kind: journal\n", mapOversizeThreshold+10, 0)
 	findings, err := Run(k, "", false)
@@ -928,6 +971,7 @@ func TestRun_MapOversize_JournalExempt(t *testing.T) {
 }
 
 func TestRun_MapOversize_CustomThreshold(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	oversizeMap(t, k, "kind: map\noversize_concepts: 200\n", 150, 0)
 	findings, err := Run(k, "", false)
@@ -946,6 +990,7 @@ func TestRun_MapOversize_CustomThreshold(t *testing.T) {
 
 // The map accepts map_oversize in _map.md without lint_ignore_invalid (D313).
 func TestRun_MapOversize_AcceptedByMap(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	oversizeMap(t, k, "kind: map\nlint_ignore: [map_oversize]\n", mapOversizeThreshold+1, 0)
 	findings, err := Run(k, "", false)
@@ -960,6 +1005,7 @@ func TestRun_MapOversize_AcceptedByMap(t *testing.T) {
 // --- concept_oversize (D78) ---
 
 func TestRun_ConceptOversize_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	body := strings.Repeat("a", conceptOversizeThreshold+1)
 	writeFile(t, k.DataRoot(), "arch/big-concept.md",
@@ -975,6 +1021,7 @@ func TestRun_ConceptOversize_Detected(t *testing.T) {
 }
 
 func TestRun_ConceptOversize_UnderThreshold_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/small-concept.md",
 		"---\ntype: Note\n---\nContenuto breve.\n")
@@ -991,6 +1038,7 @@ func TestRun_ConceptOversize_UnderThreshold_Clean(t *testing.T) {
 // --- legacy_archive_descriptor (D77 WP4) ---
 
 func TestRun_LegacyArchiveDescriptor_Detected(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
 		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
@@ -1007,6 +1055,7 @@ func TestRun_LegacyArchiveDescriptor_Detected(t *testing.T) {
 }
 
 func TestRun_LegacyArchiveDescriptor_MapDescriptor_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
 		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
@@ -1057,6 +1106,7 @@ func TestRun_ScopeFiltering(t *testing.T) {
 }
 
 func TestRun_ScopeNeighbors(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
 		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
@@ -1089,6 +1139,7 @@ func TestRun_ScopeNeighbors(t *testing.T) {
 // scope_neighbors used to call GraphNeighbors once per concept in scope, each
 // call a full walk of the KB. One lint run is now one graph validation (D241).
 func TestRun_ScopeNeighborsValidatesTheGraphOnce(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
 		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
@@ -1116,6 +1167,7 @@ func TestRun_ScopeNeighborsValidatesTheGraphOnce(t *testing.T) {
 // pins the direction of the alignment: making the graph use the ID base instead
 // would make this KB stop rendering, and the satellite would go orphan.
 func TestLint_ExpandedIndexRelativeLinkToSatellite(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
@@ -1140,6 +1192,7 @@ func TestLint_ExpandedIndexRelativeLinkToSatellite(t *testing.T) {
 // reverted by accident: the previously-accepted form now resolves one level too
 // deep, which is what it always did on disk.
 func TestLint_ExpandedIndexPrefixedLinkIsNowBroken(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
@@ -1164,6 +1217,7 @@ func TestLint_ExpandedIndexPrefixedLinkIsNowBroken(t *testing.T) {
 // lint's existence check now goes through the same resolver concept_read uses,
 // so a link to the canonical ID of an expanded concept is not broken.
 func TestLint_LinkToExpandedConceptCanonicalIDIsNotBroken(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [a](a.md)\n- [c](c.md)\n")
@@ -1182,6 +1236,7 @@ func TestLint_LinkToExpandedConceptCanonicalIDIsNotBroken(t *testing.T) {
 }
 
 func TestLint_LinkToMissingConceptStillBroken(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n- [gone](gone.md)\n")
@@ -1205,6 +1260,7 @@ func TestLint_LinkToMissingConceptStillBroken(t *testing.T) {
 // index.md form is the inverse of the inter-concept one, and requiring exactly
 // one of them produced 58 false index_incomplete findings in the field.
 func TestLint_CuratedIndexAcceptsBothExpandedForms(t *testing.T) {
+	t.Parallel()
 	for _, link := range []string{"- [c](c.md)\n", "- [c](c/index.md)\n"} {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\nrequire_index_entry: true\n---\n# M\n")
@@ -1226,6 +1282,7 @@ func TestLint_CuratedIndexAcceptsBothExpandedForms(t *testing.T) {
 // --- D158: secrets on a concept the service tools cannot see ---
 
 func TestLint_SecretsOnNonServiceConcept(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		frontmat  string
@@ -1271,6 +1328,7 @@ func TestLint_SecretsOnNonServiceConcept(t *testing.T) {
 // asset orphan_asset forever, and renaming the file to satisfy the linter would
 // have been worse than the finding.
 func TestLint_ExtensionlessAssetCitationClearsOrphanAsset(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
@@ -1294,6 +1352,7 @@ func TestLint_ExtensionlessAssetCitationClearsOrphanAsset(t *testing.T) {
 // A concept documenting the Mermaid/POSIX collision must be writable without
 // generating the findings it describes.
 func TestLint_DocumentingCodeExamplesRaisesNoBrokenLink(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	body := "---\ntype: Note\ntitle: FP\n---\n" +
@@ -1318,6 +1377,7 @@ func TestLint_DocumentingCodeExamplesRaisesNoBrokenLink(t *testing.T) {
 // the findings it describes: a KB's own "known false positives" page was
 // impossible.
 func TestLint_LintIgnoreSuppressesNamedChecks(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [fp](fp.md)\n")
@@ -1347,6 +1407,7 @@ func TestLint_LintIgnoreSuppressesNamedChecks(t *testing.T) {
 }
 
 func TestLint_LintIgnoreAcceptsABareString(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [fp](fp.md)\n")
@@ -1366,6 +1427,7 @@ func TestLint_LintIgnoreAcceptsABareString(t *testing.T) {
 // An error is a contract violation, not a judgement: letting a concept declare
 // its own contract void would be a hole, not an escape hatch.
 func TestLint_LintIgnoreCannotSilenceAnError(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\nrequired_fields: [status]\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
@@ -1394,6 +1456,7 @@ func TestLint_LintIgnoreCannotSilenceAnError(t *testing.T) {
 
 // A typo that silently suppresses nothing is worse than no opt-out at all.
 func TestLint_LintIgnoreUnknownCheckIsReported(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
@@ -1417,6 +1480,7 @@ func TestLint_LintIgnoreUnknownCheckIsReported(t *testing.T) {
 // ~/.ssh/config means "your ssh config" on every machine, exactly as /etc/... does,
 // and there was no way to declare it legitimate.
 func TestLint_MachinePathAllowsTildePrefixes(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\nmachine_path_allow_prefixes: [~/.ssh]\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n- [d](d.md)\n")
@@ -1454,6 +1518,7 @@ func TestLint_MachinePathAllowsTildePrefixes(t *testing.T) {
 // concept_expand requires two segments, so for a satellite the old advice named
 // an operation the product refuses.
 func TestLint_OversizeRemedyIsDepthAware(t *testing.T) {
+	t.Parallel()
 	big := strings.Repeat("x", 30001)
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
@@ -1498,6 +1563,7 @@ func TestLint_OversizeRemedyIsDepthAware(t *testing.T) {
 
 // The two thresholds are now related rather than independent numbers.
 func TestOversizeThresholdIsDerivedFromTheReadGuard(t *testing.T) {
+	t.Parallel()
 	if conceptOversizeThreshold*2 != okf.ConceptReadSizeGuard {
 		t.Errorf("conceptOversizeThreshold=%d, ConceptReadSizeGuard=%d: the two have drifted apart",
 			conceptOversizeThreshold, okf.ConceptReadSizeGuard)
@@ -1508,6 +1574,7 @@ func TestOversizeThresholdIsDerivedFromTheReadGuard(t *testing.T) {
 // is reported even when the map never opted in to require_index_entry, while
 // completeness stays opt-in and a missing index is not a finding (#320).
 func TestLint_MapIndexBrokenLinkWithoutContract(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [[m/live]]\n- [[m/moved-away]]\n")
@@ -1544,6 +1611,7 @@ func TestLint_MapIndexBrokenLinkWithoutContract(t *testing.T) {
 // A file that reached an expanded concept through git — above the size cap,
 // or hidden — must not abort the whole lint run (D270).
 func TestLint_AssetsThatUsedToAbortTheRun(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
@@ -1566,6 +1634,7 @@ func TestLint_AssetsThatUsedToAbortTheRun(t *testing.T) {
 }
 
 func TestLint_UnlistableAssetsIsAFinding(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
@@ -1595,6 +1664,7 @@ func fieldContractKB(t *testing.T) *kb.KB {
 }
 
 func TestRun_FieldValuesContract(t *testing.T) {
+	t.Parallel()
 	k := fieldContractKB(t)
 	writeFile(t, k.DataRoot(), "infra/ok.md", "---\ntype: Note\ntitle: OK\nstatus: active\n---\n")
 	writeFile(t, k.DataRoot(), "infra/bad.md", "---\ntype: Note\ntitle: Bad\nstatus: deprecate\n---\n")
@@ -1625,6 +1695,7 @@ func TestRun_FieldValuesContract(t *testing.T) {
 }
 
 func TestRun_ForbiddenFieldContract(t *testing.T) {
+	t.Parallel()
 	k := fieldContractKB(t)
 	writeFile(t, k.DataRoot(), "infra/legacy.md", "---\ntype: Note\ntitle: L\nstate: active\n---\n")
 	writeFile(t, k.DataRoot(), "infra/clean.md", "---\ntype: Note\ntitle: C\n---\n")
@@ -1643,6 +1714,7 @@ func TestRun_ForbiddenFieldContract(t *testing.T) {
 }
 
 func TestRun_FieldContractNotSuppressible(t *testing.T) {
+	t.Parallel()
 	k := fieldContractKB(t)
 	writeFile(t, k.DataRoot(), "infra/c.md", "---\ntype: Note\ntitle: C\nstatus: bogus\nstate: x\nlint_ignore: [invalid_field_value, forbidden_field]\n---\n")
 	findings, err := Run(k, "", false)
@@ -1658,6 +1730,7 @@ func TestRun_FieldContractNotSuppressible(t *testing.T) {
 }
 
 func TestLint_ExpandRebasesLinks_NoBrokenLink(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n- [c](c.md)\n- [other](other.md)\n")
 	writeFile(t, k.DataRoot(), "m/other.md", "---\ntype: Note\ntitle: Other\n---\n# Other\n")
@@ -1679,6 +1752,7 @@ func TestLint_ExpandRebasesLinks_NoBrokenLink(t *testing.T) {
 }
 
 func TestLint_BrokenLinkRebaseFix_ExpandedConcept(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n- [c](c/index.md)\n- [other](other.md)\n- [x](x.md)\n")
 	writeFile(t, k.DataRoot(), "m/other.md", "---\ntype: Note\ntitle: Other\n---\n# Other\n")
@@ -1716,6 +1790,7 @@ func TestLint_BrokenLinkRebaseFix_ExpandedConcept(t *testing.T) {
 }
 
 func TestLint_DuplicateLinkFix_LinkOnlyItem(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n- [a](a.md)\n- [b](b.md)\n")
 	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n")
@@ -1746,6 +1821,7 @@ func TestLint_DuplicateLinkFix_LinkOnlyItem(t *testing.T) {
 
 // D313: conventional tool paths never need a per-concept lint_ignore.
 func TestRun_MachinePath_BuiltinConventionalPaths_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	writeFile(t, k.DataRoot(), "m/ok.md", "---\ntype: Note\ntitle: OK\n---\nSee ~/.ssh/config, ~/.kube/config, ~/.m2/settings.xml and ~/.config/sops/age.\n")
@@ -1769,6 +1845,7 @@ func TestRun_MachinePath_BuiltinConventionalPaths_Clean(t *testing.T) {
 }
 
 func TestCheckAcceptability(t *testing.T) {
+	t.Parallel()
 	for check, want := range map[string]string{
 		"machine_path":           AcceptConcept,
 		"map_oversize":           AcceptMap,
@@ -1785,6 +1862,7 @@ func TestCheckAcceptability(t *testing.T) {
 }
 
 func TestFilter_DeterministicOrder(t *testing.T) {
+	t.Parallel()
 	in := []Finding{
 		{Path: "b.md", Check: "orphan", Severity: SevInfo, Message: "m"},
 		{Path: "b.md", Check: "broken_link", Severity: SevWarning, Message: "z"},
@@ -1835,6 +1913,7 @@ func seedIndexForm(t *testing.T, linker, exp string) *kb.KB {
 
 // D310: a link spelled <concept>/index gets the canonical spelling.
 func TestLint_IndexLinkForm(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, linker, exp string
 		path              string
@@ -1868,6 +1947,7 @@ func TestLint_IndexLinkForm(t *testing.T) {
 
 // D310: a link to the concept itself is dropped, not rebased to index.md.
 func TestLint_BrokenLinkSelfLinkIsDropped(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "catalog/_map.md", "---\ntype: Map\nkind: map\ntitle: C\n---\n# C\n")
 	writeFile(t, k.DataRoot(), "catalog/proj/index.md", "---\ntype: Note\ntitle: P\n---\nSee [proj](proj/index.md).\n")
@@ -1887,6 +1967,7 @@ func TestLint_BrokenLinkSelfLinkIsDropped(t *testing.T) {
 }
 
 func TestRun_Orphan_ProvenanceCited_Clean(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
 		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")

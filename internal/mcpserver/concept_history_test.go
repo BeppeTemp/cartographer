@@ -44,6 +44,7 @@ func (c *changesLinksKB) read(args string) (map[string]interface{}, ToolResult) 
 }
 
 func TestConceptHistoryAndReadAtRev(t *testing.T) {
+	t.Parallel()
 	c := newChangesLinksKB(t)
 	c.k.AutoCommit = true
 	c.write("ops/page", "version one\n")
@@ -95,6 +96,7 @@ func TestConceptHistoryAndReadAtRev(t *testing.T) {
 }
 
 func TestConceptReadAtRevAcrossRename(t *testing.T) {
+	t.Parallel()
 	c := newChangesLinksKB(t)
 	c.k.AutoCommit = true
 	c.write("ops/before", "original text\n")
@@ -118,6 +120,7 @@ func TestConceptReadAtRevAcrossRename(t *testing.T) {
 }
 
 func TestConceptReadAtRevBeforeCreation(t *testing.T) {
+	t.Parallel()
 	c := newChangesLinksKB(t)
 	c.k.AutoCommit = true
 	c.write("ops/early", "alpha bravo charlie delta echo foxtrot golf hotel india\n")
@@ -133,6 +136,7 @@ func TestConceptReadAtRevBeforeCreation(t *testing.T) {
 }
 
 func TestConceptReadInvalidRev(t *testing.T) {
+	t.Parallel()
 	c := newChangesLinksKB(t)
 	c.write("ops/page", "x\n")
 	c.commit(true)
@@ -145,6 +149,7 @@ func TestConceptReadInvalidRev(t *testing.T) {
 }
 
 func TestConceptHistoryNotFoundAndNoGit(t *testing.T) {
+	t.Parallel()
 	c := newChangesLinksKB(t)
 	c.k.AutoCommit = true
 	c.write("ops/page", "x\n")

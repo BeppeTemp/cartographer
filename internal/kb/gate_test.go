@@ -23,6 +23,7 @@ func writeTestFile(t *testing.T, root, rel, content string) {
 // --- CommitGate ---
 
 func TestCommitGate_NoContradictions(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, err := Init(dir)
 	if err != nil {
@@ -38,6 +39,7 @@ func TestCommitGate_NoContradictions(t *testing.T) {
 }
 
 func TestCommitGate_OpenContradiction_NotInvolving(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, err := Init(dir)
 	if err != nil {
@@ -63,6 +65,7 @@ Body.
 }
 
 func TestCommitGate_OpenContradiction_Involving(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, err := Init(dir)
 	if err != nil {
@@ -104,6 +107,7 @@ Body.
 }
 
 func TestCommitGate_ResolvedContradiction_NoBlocker(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	k, err := Init(dir)
 	if err != nil {
@@ -131,6 +135,7 @@ Body.
 // D273: a knowledge gap never blocks, whatever it involves; any other kind
 // (or none) still does.
 func TestCommitGate_GapKindsDoNotBlock(t *testing.T) {
+	t.Parallel()
 	k, err := Init(tempKB(t))
 	if err != nil {
 		t.Fatal(err)

@@ -65,6 +65,7 @@ func decodeReview(t *testing.T, res ToolResult) reviewOut {
 }
 
 func TestKBReviewListsRankedItems(t *testing.T) {
+	t.Parallel()
 	s, _ := reviewServer(t)
 	all := decodeReview(t, callTool(t, s, "kb_review", `{}`))
 	if all.Total != 4 || all.ByKind["duplicate_candidate"] != 2 || all.ByKind["lint_judgement"] != 2 {
@@ -104,6 +105,7 @@ func TestKBReviewListsRankedItems(t *testing.T) {
 // whole-KB resource), and the handler's own filter drops every item naming a
 // concept the caller cannot see.
 func TestKBReviewRestrictedCaller(t *testing.T) {
+	t.Parallel()
 	s, _ := reviewServer(t)
 	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}})
 	if res := s.callTool(ctx, "kb_review", json.RawMessage(`{}`)); !res.IsError {
@@ -123,6 +125,7 @@ func TestKBReviewRestrictedCaller(t *testing.T) {
 }
 
 func TestKBStatusReportsReview(t *testing.T) {
+	t.Parallel()
 	s, _ := reviewServer(t)
 	got := kbStatusResult(t, s)
 	var review struct {
@@ -156,6 +159,7 @@ func writeResult(t *testing.T, res ToolResult) similarOut {
 }
 
 func TestConceptWriteSimilarOnCreation(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	writeKBFile(t, k, "manutenzione/restore-backup.md", "---\ntype: Runbook\ntitle: Restore backup procedure\n---\n# R\n\nSteps to restore a backup.\n")
 	writeKBFile(t, k, "manutenzione/backup-schedule.md", "---\ntype: Runbook\ntitle: Backup schedule\n---\n# S\n\nWhen backups run.\n")
@@ -181,6 +185,7 @@ func TestConceptWriteSimilarOnCreation(t *testing.T) {
 }
 
 func TestConceptNewSimilarOnCreation(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	writeKBFile(t, k, "manutenzione/restore-backup.md", "---\ntype: Runbook\ntitle: Restore backup procedure\n---\n# R\n")
 	tpl := filepath.Join(k.Root, "templates", "runbook.md")
@@ -201,6 +206,7 @@ func TestConceptNewSimilarOnCreation(t *testing.T) {
 // TestKBReviewReportsClampedLimit (D318): a limit above the page maximum is
 // clamped, and the response says so instead of reading as complete.
 func TestKBReviewReportsClampedLimit(t *testing.T) {
+	t.Parallel()
 	s, _ := reviewServer(t)
 	res := callTool(t, s, "kb_review", `{"limit":200}`)
 	var out map[string]any
@@ -221,6 +227,7 @@ func TestKBReviewReportsClampedLimit(t *testing.T) {
 // D345: the second page of a period series is not advised as similar to the
 // first, a real near-duplicate still is.
 func TestConceptWriteSimilarSkipsSeriesPages(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	writeKBFile(t, k, "manutenzione/archive-2026-q2.md", "---\ntype: Runbook\ntitle: Archived incidents — 2026 Q2\n---\n# A\n")
 	writeKBFile(t, k, "manutenzione/restore-backup.md", "---\ntype: Runbook\ntitle: Restore backup procedure\n---\n# R\n")

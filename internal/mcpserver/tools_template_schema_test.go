@@ -21,6 +21,7 @@ const schemaTemplate = "---\ntype: Host\ntitle: \"{{title}}\"\n" +
 	"---\n# {{title}}\n\n## Purpose\n\n## Notes\n"
 
 func TestTemplateSlugHelperAgreesWithArtifactSlug(t *testing.T) {
+	t.Parallel()
 	for _, s := range []string{"a", "host", "host-v2", "a--b", "x1", "", "A", "a_b", "a/b", "..", "a-", "-a", "a b", "é", "a.b"} {
 		if kb.ValidTemplateSlug(s) != artifactSlugPattern.MatchString(s) {
 			t.Errorf("slug %q: kb says %v, artifactSlugPattern says %v", s, kb.ValidTemplateSlug(s), artifactSlugPattern.MatchString(s))
@@ -29,6 +30,7 @@ func TestTemplateSlugHelperAgreesWithArtifactSlug(t *testing.T) {
 }
 
 func TestValidateTemplateArtifactMetadata(t *testing.T) {
+	t.Parallel()
 	if _, _, vars, err := validateTemplateArtifact([]byte(schemaTemplate)); err != nil || strings.Join(vars, ",") != "title" {
 		t.Fatalf("a schema template is valid and its metadata is no variable: %v %v", err, vars)
 	}
@@ -54,6 +56,7 @@ func TestValidateTemplateArtifactMetadata(t *testing.T) {
 }
 
 func TestTemplateListCarriesTheSchema(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -79,6 +82,7 @@ func jsonString(s string) string {
 }
 
 func TestConceptNewStampsShapeAndStripsSchema(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)
@@ -123,6 +127,7 @@ func TestConceptNewStampsShapeAndStripsSchema(t *testing.T) {
 }
 
 func TestMapCreateAndUpdateTemplateKeys(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -155,6 +160,7 @@ func TestMapCreateAndUpdateTemplateKeys(t *testing.T) {
 }
 
 func TestTemplateOnlyArtifactWrite(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowTemplateWrite = true // allow_artifact_write stays off
 	s := New("test")
@@ -190,6 +196,7 @@ func TestTemplateOnlyArtifactWrite(t *testing.T) {
 }
 
 func TestTemplateWriteOffRegistersNothing(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -200,6 +207,7 @@ func TestTemplateWriteOffRegistersNothing(t *testing.T) {
 
 // The proposal kb_review builds is a template artifact_write accepts.
 func TestTemplateProposalPassesValidation(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if err := k.CreateMapWithContract("infra", "Infra", "map", nil, "", kb.MapContract{}); err != nil {
 		t.Fatal(err)
@@ -241,6 +249,7 @@ func TestTemplateProposalPassesValidation(t *testing.T) {
 // is bound, its alias renamed and its sections reordered, in one write, with the
 // extra section kept after the template's and no text written (D352).
 func TestFixpointRepairsTemplateShape(t *testing.T) {
+	t.Parallel()
 	k, _ := setupGitKB(t)
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)

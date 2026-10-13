@@ -13,6 +13,7 @@ import (
 // D273: gaps are Contradiction concepts with a reserved kind. kb_status counts
 // them apart; contradiction_report can filter on them.
 func TestKBStatus_OpenGapsSplitFromContradictions(t *testing.T) {
+	t.Parallel()
 	k, s, _ := missFixture(t)
 	status := func() map[string]json.RawMessage {
 		t.Helper()
@@ -76,6 +77,7 @@ func TestKBStatus_OpenGapsSplitFromContradictions(t *testing.T) {
 }
 
 func TestContradictionReport_KindFilter(t *testing.T) {
+	t.Parallel()
 	k, s, _ := missFixture(t)
 	for name, kind := range map[string]string{"clash": "conflict", "nokind": "", "q": "open_question", "m": "missing_context"} {
 		body := "---\ntype: Contradiction\nresolution_status: open\n"

@@ -13,6 +13,7 @@ import (
 // --- WriteConceptBatch (D125 WP2): atomic multi-concept write + rollback ---
 
 func TestWriteConceptBatch_AppliesAllAndOneLogEntry(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -53,6 +54,7 @@ func TestWriteConceptBatch_AppliesAllAndOneLogEntry(t *testing.T) {
 }
 
 func TestWriteConceptBatch_RollsBackOnMidBatchFailure(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -99,6 +101,7 @@ func TestWriteConceptBatch_RollsBackOnMidBatchFailure(t *testing.T) {
 }
 
 func TestWriteConceptBatch_RollsBackOnWriteFailureAfterFirstOpSucceeded(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -138,6 +141,7 @@ func TestWriteConceptBatch_RollsBackOnWriteFailureAfterFirstOpSucceeded(t *testi
 }
 
 func TestWriteConceptBatch_RollbackRestoresOriginalFileMode(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -177,6 +181,7 @@ func TestWriteConceptBatch_RollbackRestoresOriginalFileMode(t *testing.T) {
 }
 
 func TestWriteConceptBatch_NewExpandedStubRolledBackAndPruned(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -204,6 +209,7 @@ func TestWriteConceptBatch_NewExpandedStubRolledBackAndPruned(t *testing.T) {
 }
 
 func TestWriteConceptBatch_ExpandedOwnerUpdate(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -251,6 +257,7 @@ func TestWriteConceptBatch_ExpandedOwnerUpdate(t *testing.T) {
 }
 
 func TestWriteConceptBatch_RestartReadbackAfterRollback(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
@@ -288,6 +295,7 @@ func TestWriteConceptBatch_RestartReadbackAfterRollback(t *testing.T) {
 }
 
 func TestWriteConceptBatch_EmptyBatchRejected(t *testing.T) {
+	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 

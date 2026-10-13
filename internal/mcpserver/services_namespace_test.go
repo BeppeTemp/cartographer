@@ -137,6 +137,7 @@ func assertNoShadow(t *testing.T, k *kb.KB) {
 // --- WP1: map_create refuses the reserved name ---
 
 func TestMapCreate_ServicesReservedThroughMCP(t *testing.T) {
+	t.Parallel()
 	for _, kind := range []string{"map", "journal", ""} {
 		for _, withDescriptor := range []bool{false, true} {
 			t.Run(fmt.Sprintf("kind=%q/descriptor=%v", kind, withDescriptor), func(t *testing.T) {
@@ -179,6 +180,7 @@ func TestMapCreate_ServicesReservedThroughMCP(t *testing.T) {
 // named like a service collection has the ordinary lifecycle, and a
 // lowercase `type: service` descriptor is still found (D158).
 func TestMapCreate_NonCollidingMapLifecycle(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -211,6 +213,7 @@ func TestMapCreate_NonCollidingMapLifecycle(t *testing.T) {
 // --- WP2: concept_move resolves both ends in their real namespace ---
 
 func TestConceptMove_FlatAcrossServicesNamespace(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ name, src, dst string }{
 		{"services-to-map", "services/sample", "application-services/sample"},
 		{"map-to-services", "application-services/sample", "services/sample"},
@@ -246,6 +249,7 @@ func TestConceptMove_FlatAcrossServicesNamespace(t *testing.T) {
 }
 
 func TestConceptMove_FlatBatchAcrossServicesNamespace(t *testing.T) {
+	t.Parallel()
 	k, s := namespaceServer(t)
 	writeService(t, k, "services/one", "one\n")
 	writeService(t, k, "services/two", "two\n")
@@ -264,6 +268,7 @@ func TestConceptMove_FlatBatchAcrossServicesNamespace(t *testing.T) {
 }
 
 func TestConceptMove_ExpandedAcrossServicesNamespace(t *testing.T) {
+	t.Parallel()
 	asset := []byte{0x00, 0xff, 0x10, 0x80, 'b', 'i', 'n'}
 	cases := []struct{ name, src, dst string }{
 		{"services-to-map", "services/owner", "application-services/owner"},
@@ -333,6 +338,7 @@ func TestConceptMove_ExpandedAcrossServicesNamespace(t *testing.T) {
 // Every refusal happens before anything is applied, so a batch whose last
 // entry is bad leaves the tree exactly as it was.
 func TestConceptMove_ServicesPreflightRefusals(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		setup func(t *testing.T, k *kb.KB)
@@ -401,6 +407,7 @@ func TestConceptMove_ServicesPreflightRefusals(t *testing.T) {
 // own relative links, a curated index and superseded_by all follow a move
 // across the services/ boundary.
 func TestConceptMove_ServicesLinkMaintenance(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	contract := kb.MapContract{RequireIndexEntry: true}
 	if err := k.CreateMapWithContract("application-services", "Application Services", "map", nil, "", contract); err != nil {

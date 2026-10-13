@@ -65,6 +65,7 @@ func freshnessBackends(t *testing.T, body func(t *testing.T, k *kb.KB, s *Server
 }
 
 func TestSearchFollowsExternalEdits(t *testing.T) {
+	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		if strings.Contains(searchText(t, s, "reconcileunique"), "out-of-band") {
 			t.Fatal("found before the file exists")
@@ -92,6 +93,7 @@ func TestSearchFollowsExternalEdits(t *testing.T) {
 }
 
 func TestSearchFollowsConflictResolve(t *testing.T) {
+	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		if err := os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "contra.md"),
 			[]byte("---\ntype: Contradiction\ntitle: Contra\nresolution_status: open\n---\nTwo claims.\n"), 0o644); err != nil {
@@ -110,6 +112,7 @@ func TestSearchFollowsConflictResolve(t *testing.T) {
 // git_conflict_resolve finalizes a merge commit outside gitWrap: the resolved
 // content reaches the files through git, never through a write handler.
 func TestSearchFollowsGitConflictResolve(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	root := k.Root
 	gitRun := func(args ...string) string {
@@ -158,6 +161,7 @@ func TestSearchFollowsGitConflictResolve(t *testing.T) {
 // Without SQLite, a pull used to reach search only on restart: OnSyncIn was
 // wired only with a SQLite index.
 func TestSearchFollowsPullWithoutSQLite(t *testing.T) {
+	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.GitSync = true
 	if err := k.SyncOut(); err != nil {
@@ -183,6 +187,7 @@ func TestSearchFollowsPullWithoutSQLite(t *testing.T) {
 // A batch that fails after its first file is written rolls the files back;
 // search must agree with the restored tree, not with the attempted one.
 func TestSearchFollowsFailedBatchRollback(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("needs a directory the process cannot write into")
 	}
@@ -222,6 +227,7 @@ func TestSearchFollowsFailedBatchRollback(t *testing.T) {
 // Moving an expanded concept renames a directory: its index.md and its
 // satellites change ids without any file being written through WriteConcept.
 func TestSearchFollowsExpandedMove(t *testing.T) {
+	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		callOK(t, s, "concept_expand", `{"id":"manutenzione/test-runbook"}`)
 		callOK(t, s, "concept_write", `{"id":"manutenzione/test-runbook/step1","frontmatter":{"type":"Note","title":"Step"},"body":"platypusstep"}`)
@@ -242,6 +248,7 @@ func TestSearchFollowsExpandedMove(t *testing.T) {
 // The same across the services/ boundary (D269): services/ is rooted at the
 // KB root, not under data/, and the reconciler must see both ends.
 func TestSearchFollowsExpandedMoveAcrossServices(t *testing.T) {
+	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		callOK(t, s, "concept_write", `{"id":"services/gateway","frontmatter":{"type":"Service","title":"Gateway"},"body":"wombatowner"}`)
 		callOK(t, s, "concept_expand", `{"id":"services/gateway"}`)
@@ -263,6 +270,7 @@ func TestSearchFollowsExpandedMoveAcrossServices(t *testing.T) {
 
 // The warm path is one stat walk: a search over an unchanged KB reads no file.
 func TestSearchWarmPathReadsNoFile(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -288,6 +296,7 @@ func TestSearchWarmPathReadsNoFile(t *testing.T) {
 // one that forgot is how conflict resolutions went missing from search. Only
 // the reconciler, the live index itself and the full rebuild may call them.
 func TestIndexUpdatesOnlyInReconciler(t *testing.T) {
+	t.Parallel()
 	allowed := map[string]bool{"liveindex.go": true, "reconcile.go": true}
 	allowedFuncs := map[string]bool{"rebuildSQLIndex": true}
 	files, err := filepath.Glob("*.go")

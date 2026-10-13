@@ -6,6 +6,7 @@ import (
 )
 
 func TestValueSynonymFamiliesAreDisjoint(t *testing.T) {
+	t.Parallel()
 	seen := map[string]string{}
 	for fam, members := range ValueSynonymFamilies {
 		for _, m := range members {
@@ -22,6 +23,7 @@ func TestValueSynonymFamiliesAreDisjoint(t *testing.T) {
 }
 
 func TestNormValue(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{"In corso": "in-corso", "  Done ": "done", "in_progress": "in-progress", "Città": "citta"} {
 		if got := NormValue(in); got != want {
 			t.Errorf("NormValue(%q) = %q, want %q", in, got, want)
@@ -30,6 +32,7 @@ func TestNormValue(t *testing.T) {
 }
 
 func TestSplitProse(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		in, token string
 		prose     bool
@@ -63,6 +66,7 @@ func contractMap(t *testing.T, descriptor string) func(id, fm string) []Finding 
 }
 
 func TestInvalidFieldValueSetValueFix(t *testing.T) {
+	t.Parallel()
 	write := contractMap(t, "---\ntype: Map\ntitle: M\nkind: journal\nfield_values.status: [done, in-progress]\nvalue_synonyms.done: [erledigt]\n---\n")
 	findings := write("m/a", "type: Note\ntitle: A\nstatus: Completato")
 	f := findingFor(findings, "m/a.md", "invalid_field_value")
@@ -84,6 +88,7 @@ func TestInvalidFieldValueSetValueFix(t *testing.T) {
 }
 
 func TestInvalidFieldValueTwoFamilyMembersNoFix(t *testing.T) {
+	t.Parallel()
 	write := contractMap(t, "---\ntype: Map\ntitle: M\nfield_values.status: [done, completed]\n---\n")
 	findings := write("m/a", "type: Note\ntitle: A\nstatus: finito")
 	if f := findingFor(findings, "m/a.md", "invalid_field_value"); f == nil || f.Fix != nil {
@@ -92,6 +97,7 @@ func TestInvalidFieldValueTwoFamilyMembersNoFix(t *testing.T) {
 }
 
 func TestMissingValueContractProposesFoldedStatus(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\nkind: journal\n---\n")
 	statuses := []string{"done", "done", "done", "completato", "resolved", "in-progress", "in-progress", "in-corso", "open", "decision-needed"}
@@ -117,6 +123,7 @@ func TestMissingValueContractProposesFoldedStatus(t *testing.T) {
 }
 
 func TestProseValue(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\nstatus: accepted — implemented in commit abc\n---\n# A\n")

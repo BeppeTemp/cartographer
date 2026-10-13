@@ -52,6 +52,7 @@ func (o searchOut) has(id string) bool {
 }
 
 func TestSearch_GlossaryExpandsAliasesBothWays(t *testing.T) {
+	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		writeTestConcept(t, k, "arch/canonical-page", "The Zephyr Controller schedules the nightly jobs.\n")
 		writeTestConcept(t, k, "arch/alias-page", "Restart zcl after an upgrade.\n")
@@ -73,6 +74,7 @@ func TestSearch_GlossaryExpandsAliasesBothWays(t *testing.T) {
 }
 
 func TestSearch_GlossaryForbiddenDoesNotExpand(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -86,6 +88,7 @@ func TestSearch_GlossaryForbiddenDoesNotExpand(t *testing.T) {
 
 // No glossary: the response has no expanded_to, exactly as before D276.
 func TestSearch_NoGlossaryNoExpansion(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -101,6 +104,7 @@ func TestSearch_NoGlossaryNoExpansion(t *testing.T) {
 
 // A miss is recorded only when every variant came back empty.
 func TestSearch_GlossaryMissOnlyWhenEveryVariantMisses(t *testing.T) {
+	t.Parallel()
 	k, s, l := missFixture(t)
 	writeSearchGlossary(t, k)
 	// No page names the term in any form: every variant misses.
@@ -120,6 +124,7 @@ func TestSearch_GlossaryMissOnlyWhenEveryVariantMisses(t *testing.T) {
 
 // glossary.yaml is authored through the artifact tools, strictly validated.
 func TestArtifactTools_GlossaryWrite(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")

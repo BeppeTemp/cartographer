@@ -12,6 +12,7 @@ import (
 )
 
 func TestArtifactTools_BinaryAndExecutableRoundTrip(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -43,6 +44,7 @@ func TestArtifactTools_BinaryAndExecutableRoundTrip(t *testing.T) {
 }
 
 func TestArtifactTools_ExecutableTriState(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -89,6 +91,7 @@ func TestArtifactTools_ExecutableTriState(t *testing.T) {
 }
 
 func TestArtifactTools_SymlinksRejected(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		tool  string
@@ -180,6 +183,7 @@ func TestArtifactTools_SymlinksRejected(t *testing.T) {
 }
 
 func TestArtifactTools_ListReportsExecutableAuxiliarySkillFile(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	skillDir := filepath.Join(k.Root, "skills", "aux")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
@@ -220,6 +224,7 @@ func TestArtifactTools_ListReportsExecutableAuxiliarySkillFile(t *testing.T) {
 }
 
 func TestArtifactTools_InvalidBase64DoesNotWrite(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -236,6 +241,7 @@ func TestArtifactTools_InvalidBase64DoesNotWrite(t *testing.T) {
 }
 
 func TestArtifactTools_TextEncodingAndDecodedLimits(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -286,6 +292,7 @@ const initMsg = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protoc
 // --- classifyArtifactPath: whitelist / traversal (D71 WP4) ---
 
 func TestClassifyArtifactPath(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		path    string
 		wantOK  bool
@@ -342,6 +349,7 @@ func TestClassifyArtifactPath(t *testing.T) {
 // --- flag disabled: write/delete not registered (D71 WP4) ---
 
 func TestArtifactTools_FlagDisabled_WriteDeleteNotRegistered(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t) // AllowArtifactWrite defaults to false
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -374,6 +382,7 @@ func TestArtifactTools_FlagDisabled_WriteDeleteNotRegistered(t *testing.T) {
 // --- flag enabled: golden profile (D71 WP4) ---
 
 func TestArtifactTools_FlagEnabled_ProfileClassification(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -408,6 +417,7 @@ func TestArtifactTools_FlagEnabled_ProfileClassification(t *testing.T) {
 // --- write/read/delete round-trip + stale_write/already_exists (D71 WP4) ---
 
 func TestArtifactTools_Skill_WriteReadListDelete(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -557,6 +567,7 @@ func TestArtifactTools_Skill_WriteReadListDelete(t *testing.T) {
 // --- invalid SKILL.md rejected before write (D71 WP4) ---
 
 func TestArtifactTools_SkillWrite_InvalidRejected(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -592,6 +603,7 @@ func TestArtifactTools_SkillWrite_InvalidRejected(t *testing.T) {
 // --- invalid mcp/*.json rejected before write ---
 
 func TestArtifactTools_MCPWrite_InvalidRejected(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -612,6 +624,7 @@ func TestArtifactTools_MCPWrite_InvalidRejected(t *testing.T) {
 // --- path whitelist enforced through the tool, not just the unit helper ---
 
 func TestArtifactTools_PathTraversal_Rejected(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -649,6 +662,7 @@ func containsText(tr ToolResult, substr string) bool {
 // --- D151: a KB's capabilities are visible from a session ---
 
 func TestKBStatus_ReportsCapabilities(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -700,6 +714,7 @@ func TestKBStatus_ReportsCapabilities(t *testing.T) {
 
 // The three cases a client cannot distinguish, and the one the server can.
 func TestToolsCall_UnknownToolMessages(t *testing.T) {
+	t.Parallel()
 	t.Run("a gated tool names its setting", func(t *testing.T) {
 		got := unknownToolMessage("artifact_write")
 		for _, want := range []string{"artifact_write", "allow_artifact_write"} {
@@ -731,6 +746,7 @@ func TestToolsCall_UnknownToolMessages(t *testing.T) {
 }
 
 func TestArtifactRead_DescriptionNamesTheGate(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -746,6 +762,7 @@ func TestArtifactRead_DescriptionNamesTheGate(t *testing.T) {
 // writes — a colon followed by a space in an unquoted plain scalar — and every
 // reader in this repository used to accept it.
 func TestArtifactTools_SkillWriteRefusesFrontmatterAClientCannotParse(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -786,6 +803,7 @@ func TestArtifactTools_SkillWriteRefusesFrontmatterAClientCannotParse(t *testing
 // An agent whose frontmatter name differs from its file name would be two
 // agents depending on the client (D283).
 func TestArtifactTools_AgentNameMustEqualFileName(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -810,6 +828,7 @@ func TestArtifactTools_AgentNameMustEqualFileName(t *testing.T) {
 // A `providers:` block is validated on write (D291): an unknown client or a key
 // Cartographer writes itself is a mistake, not a restriction.
 func TestArtifactTools_AgentProvidersBlockIsValidated(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")
@@ -839,6 +858,7 @@ func TestArtifactTools_AgentProvidersBlockIsValidated(t *testing.T) {
 }
 
 func TestArtifactWrite_HookJSONIsValidated(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AllowArtifactWrite = true
 	s := New("test")

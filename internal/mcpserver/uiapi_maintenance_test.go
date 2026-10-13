@@ -47,6 +47,7 @@ func maintenanceHandler(t *testing.T, ts *auth.TokenStore) http.Handler {
 }
 
 func TestUIAPI_MaintenanceSummary(t *testing.T) {
+	t.Parallel()
 	handler := maintenanceHandler(t, auth.NewTokenStore(nil))
 	rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/maintenance/summary", "")
 	if rr.Code != http.StatusOK {
@@ -80,6 +81,7 @@ func TestUIAPI_MaintenanceSummary(t *testing.T) {
 }
 
 func TestUIAPI_MaintenanceUnknownRouteAndMethods(t *testing.T) {
+	t.Parallel()
 	handler := maintenanceHandler(t, auth.NewTokenStore(nil))
 	for _, path := range []string{
 		UIAPIPrefix + "/kbs/docs/maintenance",
@@ -107,6 +109,7 @@ func TestUIAPI_MaintenanceUnknownRouteAndMethods(t *testing.T) {
 // The summary describes the whole KB, so a token that sees only part of it is
 // told the route does not exist, like /status.
 func TestUIAPI_MaintenanceSummaryNeedsAWholeKBView(t *testing.T) {
+	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "whole", Scopes: []auth.KBScope{{KB: "docs", Write: false}}},
 		{Token: "part", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"ops"}}}}},
@@ -122,6 +125,7 @@ func TestUIAPI_MaintenanceSummaryNeedsAWholeKBView(t *testing.T) {
 
 // D365: every finding says who acts on it, the summary says who runs the doctor.
 func TestUIAPI_FindingHandler(t *testing.T) {
+	t.Parallel()
 	k := &kb.KB{AutoRepair: []string{"nonstandard_field", "broken_link"}, DoctorAutoIntervalDays: 1}
 	auto := uiAutoChecks(k)
 	fix := &lint.Fix{}
@@ -157,6 +161,7 @@ func TestUIAPI_FindingHandler(t *testing.T) {
 // A concept is born with the commit that added its file; a rename carries the
 // birth to the new id, a deletion forgets it.
 func TestUIAPI_Births(t *testing.T) {
+	t.Parallel()
 	k, _ := repairKB(t, 3) // ops/n0..n2, committed together
 	k.AuthName = "docs"
 	born := gitOut(t, k, "log", "-1", "--format=%cI", "--", "data/ops/n0.md")
@@ -193,6 +198,7 @@ func TestUIAPI_Births(t *testing.T) {
 // D365: the catalogue lists every lint check by category, and says which ones
 // this KB's background repair runs by itself; the summary lists its runs.
 func TestUIAPI_ChecksAndRuns(t *testing.T) {
+	t.Parallel()
 	handler := maintenanceHandler(t, auth.NewTokenStore(nil))
 	body := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/checks", ""))
 	if len(body["categories"].([]any)) != len(lint.Categories) {
@@ -235,6 +241,7 @@ func TestUIAPI_ChecksAndRuns(t *testing.T) {
 // review items without the lint_judgement ones, which /lint already lists, and
 // without a template proposal's payload, which is the agent's.
 func TestUIAPI_MaintenanceReview(t *testing.T) {
+	t.Parallel()
 	k, _ := autoRepairKB(t, "nonstandard_field")
 	k.AuthName = "docs"
 	for id, title := range map[string]string{"infra/k3s-worker-gpu-node": "K3s Worker GPU Node", "infra/k3s-worker-vpn-node": "K3s Worker VPN Node"} {

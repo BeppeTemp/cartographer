@@ -47,6 +47,7 @@ func remoteHeads(t *testing.T, bare string) string {
 // WP1: a clone of an empty remote whose host named the unborn branch
 // "master" ends up exactly like `kb create`: on main, with one commit.
 func TestInit_EmptyCloneLandsOnMainWithInitialCommit(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -67,6 +68,7 @@ func TestInit_EmptyCloneLandsOnMainWithInitialCommit(t *testing.T) {
 }
 
 func TestInit_ExistingCommitsOnMasterStayOnMaster(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -89,6 +91,7 @@ func TestInit_ExistingCommitsOnMasterStayOnMaster(t *testing.T) {
 
 // WP2: a clone on the remote default branch syncs and pushes as before.
 func TestSync_OnDefaultBranchWrites(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -117,6 +120,7 @@ func TestSync_OnDefaultBranchWrites(t *testing.T) {
 // WP2: a clone checked out on another branch is refused before anything is
 // committed, and no branch appears on the remote.
 func TestSyncIn_DivergedBranchRefused(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -156,6 +160,7 @@ func TestSyncIn_DivergedBranchRefused(t *testing.T) {
 
 // WP2: an empty remote has nothing to pull; SyncIn succeeds without error.
 func TestSyncIn_EmptyRemoteIsNoOp(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -173,6 +178,7 @@ func TestSyncIn_EmptyRemoteIsNoOp(t *testing.T) {
 
 // WP3: the first push of main to an empty remote creates it with upstream.
 func TestSyncOut_EmptyRemoteFirstPushCreatesMain(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -194,6 +200,7 @@ func TestSyncOut_EmptyRemoteFirstPushCreatesMain(t *testing.T) {
 
 // WP3: the first push to an empty remote only ever creates main.
 func TestSyncOut_EmptyRemoteRefusesOtherBranch(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -215,6 +222,7 @@ func TestSyncOut_EmptyRemoteRefusesOtherBranch(t *testing.T) {
 // WP3: SyncOut never creates a branch on a non-empty remote, even when
 // SyncIn was bypassed (here: never run), and the local commit is kept.
 func TestSyncOut_NeverCreatesRemoteBranch(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -245,6 +253,7 @@ func TestSyncOut_NeverCreatesRemoteBranch(t *testing.T) {
 // WP3: a remote whose HEAD names no existing branch (bare repo initialised
 // with master, main pushed) still has main as the canonical branch.
 func TestSyncIn_DanglingRemoteHeadFallsBackToMain(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}

@@ -10,6 +10,7 @@ import (
 // D746: the KB's settings.yaml findings attach to the file, like paths.yaml's.
 
 func TestRun_SettingsFile(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	if got := findingsOf(mustRun(t, k), "contract_malformed"); len(got) != 0 {
 		t.Fatalf("a KB without settings.yaml has findings: %+v", got)

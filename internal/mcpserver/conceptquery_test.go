@@ -52,6 +52,7 @@ func entryByID(t *testing.T, res ConceptQueryResult, id string) ConceptEntry {
 }
 
 func TestQueryConcepts_Metadata(t *testing.T) {
+	t.Parallel()
 	res, err := queryConcepts(queryFixture(t), ConceptQuery{Scope: "infra"})
 	if err != nil {
 		t.Fatal(err)
@@ -88,6 +89,7 @@ func TestQueryConcepts_Metadata(t *testing.T) {
 }
 
 func TestQueryConcepts_ScopeMatchesWholeSegments(t *testing.T) {
+	t.Parallel()
 	res, err := queryConcepts(queryFixture(t), ConceptQuery{Scope: "infra"})
 	if err != nil {
 		t.Fatal(err)
@@ -99,6 +101,7 @@ func TestQueryConcepts_ScopeMatchesWholeSegments(t *testing.T) {
 }
 
 func TestQueryConcepts_RootConceptHasNoCollection(t *testing.T) {
+	t.Parallel()
 	res, err := queryConcepts(queryFixture(t), ConceptQuery{})
 	if err != nil {
 		t.Fatal(err)
@@ -109,6 +112,7 @@ func TestQueryConcepts_RootConceptHasNoCollection(t *testing.T) {
 }
 
 func TestQueryConcepts_IncludeFiltersBeforeAccounting(t *testing.T) {
+	t.Parallel()
 	res, err := queryConcepts(queryFixture(t), ConceptQuery{
 		Scope:   "infra",
 		Include: func(id string) bool { return id != "infra/beta" },
@@ -127,6 +131,7 @@ func TestQueryConcepts_IncludeFiltersBeforeAccounting(t *testing.T) {
 }
 
 func TestQueryConcepts_TimestampAccounting(t *testing.T) {
+	t.Parallel()
 	after := time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC)
 	res, err := queryConcepts(queryFixture(t), ConceptQuery{Scope: "infra", After: &after})
 	if err != nil {
@@ -146,6 +151,7 @@ func TestQueryConcepts_TimestampAccounting(t *testing.T) {
 }
 
 func TestQueryConcepts_SortedAndDeterministic(t *testing.T) {
+	t.Parallel()
 	k := queryFixture(t)
 	first, err := queryConcepts(k, ConceptQuery{})
 	if err != nil {

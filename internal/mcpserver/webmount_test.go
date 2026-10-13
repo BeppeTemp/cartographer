@@ -32,6 +32,7 @@ func newMountedUIHandler(t *testing.T) http.Handler {
 // endpoint that existed before the UI is asserted to still resolve to its own
 // handler with the UI mounted.
 func TestWebMountDoesNotShadowAnyExistingRoute(t *testing.T) {
+	t.Parallel()
 	handler := newMountedUIHandler(t)
 
 	for _, tc := range []struct{ path, marker string }{
@@ -85,6 +86,7 @@ func TestWebMountDoesNotShadowAnyExistingRoute(t *testing.T) {
 }
 
 func TestWebMountServesTheShellAndRedirects(t *testing.T) {
+	t.Parallel()
 	handler := newMountedUIHandler(t)
 
 	for _, path := range []string{"/ui/", "/ui/atlas", "/ui/deep/route"} {
@@ -113,6 +115,7 @@ func TestWebMountServesTheShellAndRedirects(t *testing.T) {
 // Static assets carry no KB data, so they are reachable without a token even
 // when the server requires one. The API is not.
 func TestWebMountStaticIsReachableButTheAPIIsNot(t *testing.T) {
+	t.Parallel()
 	static, err := webui.Handler()
 	if err != nil {
 		t.Fatal(err)

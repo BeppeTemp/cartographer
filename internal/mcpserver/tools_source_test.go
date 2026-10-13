@@ -42,6 +42,7 @@ func registerSource(t *testing.T, s *Server, args string) map[string]interface{}
 }
 
 func TestSourceRegisterCreates(t *testing.T) {
+	t.Parallel()
 	k, s := sourceFixture(t, true)
 	out := registerSource(t, s, `{"title":"Kickoff Call: Notes!","source_kind":"transcript","locator":"https://example.com/a","sha256":"`+shaA+`","timestamp":"2026-03-04","body":"# Kickoff\nfacts"}`)
 	if out["duplicate"] != false || out["id"] != "sources/2026-03-04-kickoff-call-notes" {
@@ -65,6 +66,7 @@ func TestSourceRegisterCreates(t *testing.T) {
 }
 
 func TestSourceRegisterDuplicateBySHA(t *testing.T) {
+	t.Parallel()
 	k, s := sourceFixture(t, true)
 	registerSource(t, s, `{"title":"A","source_kind":"document","sha256":"`+shaA+`","timestamp":"2026-01-01"}`)
 	before, _ := k.ReadRaw("sources/log.md")
@@ -79,6 +81,7 @@ func TestSourceRegisterDuplicateBySHA(t *testing.T) {
 }
 
 func TestSourceRegisterDuplicateByLocator(t *testing.T) {
+	t.Parallel()
 	_, s := sourceFixture(t, true)
 	registerSource(t, s, `{"title":"A","source_kind":"web","locator":"https://example.com/p"}`)
 	if out := registerSource(t, s, `{"title":"B","source_kind":"web","locator":"https://example.com/p"}`); out["duplicate"] != true {
@@ -96,6 +99,7 @@ func TestSourceRegisterDuplicateByLocator(t *testing.T) {
 }
 
 func TestSourceRegisterValidation(t *testing.T) {
+	t.Parallel()
 	_, s := sourceFixture(t, false)
 	res := callTool(t, s, "source_register", `{"title":"A","source_kind":"document"}`)
 	if !res.IsError || !strings.Contains(res.Content[0].Text, `map_create(name: "sources", kind: "journal")`) {
@@ -120,6 +124,7 @@ func TestSourceRegisterValidation(t *testing.T) {
 }
 
 func TestSourceRegisterNarrowedTokenRefused(t *testing.T) {
+	t.Parallel()
 	_, s := sourceFixture(t, true)
 	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Journals: []string{"sources"}, Write: true}}}
 	ctx := auth.ContextWithPrincipal(context.Background(), auth.Principal{ID: "narrow", Policy: policy})
@@ -146,6 +151,7 @@ func listSources(t *testing.T, s *Server, args string) []listedSource {
 }
 
 func TestSourceListOrderFilterAndCitations(t *testing.T) {
+	t.Parallel()
 	k, s := sourceFixture(t, true)
 	registerSource(t, s, `{"title":"Late","source_kind":"document","timestamp":"2026-05-01"}`)
 	registerSource(t, s, `{"title":"Early","source_kind":"ticket","timestamp":"2026-01-01"}`)
@@ -186,6 +192,7 @@ func TestSourceListOrderFilterAndCitations(t *testing.T) {
 }
 
 func TestKBStatusSources(t *testing.T) {
+	t.Parallel()
 	_, s := sourceFixture(t, true)
 	var m map[string]json.RawMessage
 	_ = json.Unmarshal([]byte(callOK(t, s, "kb_status", `{}`)), &m)
@@ -202,6 +209,7 @@ func TestKBStatusSources(t *testing.T) {
 }
 
 func TestConceptDeleteSourceCitedNeedsForce(t *testing.T) {
+	t.Parallel()
 	k, s := sourceFixture(t, true)
 	id := registerSource(t, s, `{"title":"A","source_kind":"x"}`)["id"].(string)
 	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: N\nprovenance: [" + id + "]")
@@ -222,6 +230,7 @@ func TestConceptDeleteSourceCitedNeedsForce(t *testing.T) {
 }
 
 func TestConceptDeleteSourceForce(t *testing.T) {
+	t.Parallel()
 	k, s := sourceFixture(t, true)
 	id := registerSource(t, s, `{"title":"A","source_kind":"x"}`)["id"].(string)
 	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: N\nprovenance: [" + id + "]")
@@ -235,6 +244,7 @@ func TestConceptDeleteSourceForce(t *testing.T) {
 }
 
 func TestSourceRegisterWarnsOverTitleLimit(t *testing.T) {
+	t.Parallel()
 	_, s := sourceFixture(t, true)
 	callOK(t, s, "map_update", `{"map":"sources","title_max_length":10}`)
 	out := registerSource(t, s, `{"title":"A title well over ten characters","source_kind":"document"}`)
@@ -248,6 +258,7 @@ func TestSourceRegisterWarnsOverTitleLimit(t *testing.T) {
 }
 
 func TestMapCreateUpdateWarnOnPoorTitle(t *testing.T) {
+	t.Parallel()
 	_, s := sourceFixture(t, false)
 	var out map[string]interface{}
 	if err := json.Unmarshal([]byte(callOK(t, s, "map_create", `{"name":"infra","title":"Infrastructure: everything that runs on the cluster"}`)), &out); err != nil {

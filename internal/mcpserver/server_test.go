@@ -187,6 +187,7 @@ func runMCPClient(t *testing.T, s *Server, name, version string, extra ...string
 }
 
 func TestServer_Initialize(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -217,6 +218,7 @@ func TestServer_Initialize(t *testing.T) {
 }
 
 func TestServer_ToolsList(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -276,6 +278,7 @@ func TestServer_ToolsList(t *testing.T) {
 // annotations.readOnlyHint=true, and omits it (or leaves it false) for
 // write tools.
 func TestServer_ToolsList_ReadOnlyHint(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -328,6 +331,7 @@ func TestServer_ToolsList_ReadOnlyHint(t *testing.T) {
 }
 
 func TestServer_AtlasOverview(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -368,6 +372,7 @@ func TestServer_AtlasOverview(t *testing.T) {
 }
 
 func TestParseChangesSince(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
 		name  string
@@ -397,6 +402,7 @@ func TestParseChangesSince(t *testing.T) {
 }
 
 func TestToolChangesSince(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if !gitx.IsRepo(k.Root) {
 		t.Skip("git not in PATH, skipping changes_since test")
@@ -514,6 +520,7 @@ func TestToolChangesSince(t *testing.T) {
 }
 
 func TestServer_Notification(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -533,6 +540,7 @@ func TestServer_Notification(t *testing.T) {
 }
 
 func TestServer_MethodNotFound(t *testing.T) {
+	t.Parallel()
 	s := New("0.1.0-m1")
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"nonEsiste","params":{}}`,
@@ -561,6 +569,7 @@ func decodeToolResult(t *testing.T, resp Response) ToolResult {
 }
 
 func TestServer_ConceptWrite_Creazione(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -598,6 +607,7 @@ func TestServer_ConceptWrite_Creazione(t *testing.T) {
 // --- concept_read: outline / section-not-found / size guard (D78) ---
 
 func TestServer_ConceptRead_Outline(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -632,6 +642,7 @@ func TestServer_ConceptRead_Outline(t *testing.T) {
 }
 
 func TestServer_ConceptRead_SectionNotFound_ListsHeadings(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -661,6 +672,7 @@ func TestServer_ConceptRead_SectionNotFound_ListsHeadings(t *testing.T) {
 }
 
 func TestServer_ConceptRead_SizeGuard_OutlineThenFull(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -704,6 +716,7 @@ func TestServer_ConceptRead_SizeGuard_OutlineThenFull(t *testing.T) {
 // --- concept_read: the full response carries the concept once (D185) ---
 
 func TestServer_ConceptRead_FullResponse_ContentIsOptIn(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -770,6 +783,7 @@ func TestServer_ConceptRead_FullResponse_ContentIsOptIn(t *testing.T) {
 }
 
 func TestServer_ConceptRead_WithContent_IgnoredByOtherBranches(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -817,6 +831,7 @@ func TestServer_ConceptRead_WithContent_IgnoredByOtherBranches(t *testing.T) {
 }
 
 func TestServer_ConceptWrite_StaleWrite(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -851,6 +866,7 @@ func TestServer_ConceptWrite_StaleWrite(t *testing.T) {
 }
 
 func TestServer_ConceptDelete(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -893,6 +909,7 @@ func TestServer_ConceptDelete(t *testing.T) {
 }
 
 func TestServer_ConceptDelete_StaleWrite(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -926,6 +943,7 @@ func TestServer_ConceptDelete_StaleWrite(t *testing.T) {
 }
 
 func TestServer_ConceptDelete_ReservedAndNotFound(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -956,6 +974,7 @@ func TestServer_ConceptDelete_ReservedAndNotFound(t *testing.T) {
 }
 
 func TestServer_MapCreate(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -980,6 +999,7 @@ func TestServer_MapCreate(t *testing.T) {
 }
 
 func TestServer_MapCreate_Journal(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -1008,6 +1028,7 @@ func TestServer_MapCreate_Journal(t *testing.T) {
 }
 
 func TestServer_MapCreate_Contract(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -1026,6 +1047,7 @@ func TestServer_MapCreate_Contract(t *testing.T) {
 }
 
 func TestServer_MapCreateUpdate_FieldValues(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -1055,6 +1077,7 @@ func TestServer_MapCreateUpdate_FieldValues(t *testing.T) {
 }
 
 func TestServer_MapCreate_RejectsEmptyContractNames(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -1074,6 +1097,7 @@ func TestServer_MapCreate_RejectsEmptyContractNames(t *testing.T) {
 // machine_path_allow_prefixes into the Map descriptor and that ReadMapContract
 // round-trips it, exercising the D124 field end to end via MCP.
 func TestServer_MapCreate_MachinePathAllowPrefixes(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -1092,6 +1116,7 @@ func TestServer_MapCreate_MachinePathAllowPrefixes(t *testing.T) {
 }
 
 func TestServer_MapCreate_RejectsEmptyMachinePathAllowPrefix(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -1109,6 +1134,7 @@ func TestServer_MapCreate_RejectsEmptyMachinePathAllowPrefix(t *testing.T) {
 // contract_malformed finding through the lint tool (D124), the same way
 // other malformed contract keys already do.
 func TestServer_Lint_MachinePath_ContractMalformed(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "_map.md"),
 		[]byte("---\ntype: Map\nmachine_path_allow_prefixes: [relative/path]\n---\n"), 0o644)
@@ -1128,6 +1154,7 @@ func TestServer_Lint_MachinePath_ContractMalformed(t *testing.T) {
 // consumes the same Map contract as lint: an operational path covered by
 // machine_path_allow_prefixes must not block the gate (D124).
 func TestServer_GateCheck_MachinePath_AllowedOperationalPath(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -1146,6 +1173,7 @@ func TestServer_GateCheck_MachinePath_AllowedOperationalPath(t *testing.T) {
 // TestServer_MapDelete_NonEmpty verifies that map_delete refuses to remove a
 // map that still holds concepts, and the error lists them (D88 WP2).
 func TestServer_MapDelete_NonEmpty(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -1179,6 +1207,7 @@ func TestServer_MapDelete_NonEmpty(t *testing.T) {
 }
 
 func TestServer_ConceptExpand(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -1217,6 +1246,7 @@ func TestServer_ConceptExpand(t *testing.T) {
 }
 
 func TestServer_ConceptExpand_AlreadyExpanded(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -1242,6 +1272,7 @@ func TestServer_ConceptExpand_AlreadyExpanded(t *testing.T) {
 }
 
 func TestServer_ConceptExpand_Child_Error(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -1263,6 +1294,7 @@ func TestServer_ConceptExpand_Child_Error(t *testing.T) {
 }
 
 func TestServer_LogAppend(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -1294,6 +1326,7 @@ func TestServer_LogAppend(t *testing.T) {
 }
 
 func TestServer_LogTail_PathPrefixedEntries(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -1321,6 +1354,7 @@ func TestServer_LogTail_PathPrefixedEntries(t *testing.T) {
 }
 
 func TestServer_LogTail_EmptyReturnsNote(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
@@ -1345,6 +1379,7 @@ func TestServer_LogTail_EmptyReturnsNote(t *testing.T) {
 }
 
 func TestServer_Validate(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	// Manually write a concept without the required type field.
 	badContent := "---\ntitle: Senza Tipo\n---\n# Corpo\n"
@@ -1378,6 +1413,7 @@ func TestServer_Validate(t *testing.T) {
 // mode, and a stale caller that still passes one gets an error instead of
 // keyword results it did not ask for.
 func TestSearch_RemovedModeArgumentsRejected(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	search := toolSearch(k, newSearchReconciler(k, nil), nil, nil, Deps{})
 	if strings.Contains(string(search.InputSchema), `"mode"`) || strings.Contains(string(search.InputSchema), "use_semantic") {
@@ -1410,6 +1446,7 @@ func TestSearch_RemovedModeArgumentsRejected(t *testing.T) {
 }
 
 func TestServer_Search(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.3.0-m3")
 	RegisterKBTools(s, k, Deps{})
@@ -1434,6 +1471,7 @@ func TestServer_Search(t *testing.T) {
 }
 
 func TestServer_SearchNoResults(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.3.0-m3")
 	RegisterKBTools(s, k, Deps{})
@@ -1454,6 +1492,7 @@ func TestServer_SearchNoResults(t *testing.T) {
 }
 
 func TestServer_SearchScope(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	// Add a concept outside the manutenzione archive.
 	os.MkdirAll(filepath.Join(k.DataRoot(), "notes"), 0o755)
@@ -1485,6 +1524,7 @@ func TestServer_SearchScope(t *testing.T) {
 // SQLite index, exactly as index_rebuild did. Since D245 a file added outside
 // MCP is already found before any reindex; the rebuild keeps finding it.
 func TestServer_ReindexFull(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.3.0-m3")
 	RegisterKBTools(s, k, Deps{})
@@ -1533,6 +1573,7 @@ func TestServer_ReindexFull(t *testing.T) {
 }
 
 func TestServer_MapList(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.3.0-m3")
 	RegisterKBTools(s, k, Deps{})
@@ -1564,6 +1605,7 @@ func TestServer_MapList(t *testing.T) {
 }
 
 func TestServer_ConceptList(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	// setupTestKB already provides manutenzione/test-runbook (type Runbook, title "Test Runbook").
 	os.MkdirAll(filepath.Join(k.DataRoot(), "entities"), 0o755)
@@ -1666,6 +1708,7 @@ func TestServer_ConceptList(t *testing.T) {
 }
 
 func TestServer_ConceptList_Facets(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	write := func(name, content string) {
 		t.Helper()
@@ -1777,6 +1820,7 @@ func TestServer_ConceptList_Facets(t *testing.T) {
 }
 
 func TestServer_GraphNeighbors(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	// Create linked concepts.
 	os.MkdirAll(filepath.Join(k.DataRoot(), "manutenzione"), 0o755)
@@ -1809,6 +1853,7 @@ func TestServer_GraphNeighbors(t *testing.T) {
 }
 
 func TestServer_GraphNeighbors_DirectionAndOrder(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	write := func(name, body string) {
 		t.Helper()
@@ -1881,6 +1926,7 @@ func TestServer_GraphNeighbors_DirectionAndOrder(t *testing.T) {
 }
 
 func TestServer_Lint_BrokenLink(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "with-broken-link.md"),
 		[]byte("---\ntype: Note\n---\nSee [missing](nonexistent.md).\n"), 0o644)
@@ -1904,6 +1950,7 @@ func TestServer_Lint_BrokenLink(t *testing.T) {
 }
 
 func TestServer_Lint_Clean(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.4.0-m4")
 	RegisterKBTools(s, k, Deps{})
@@ -1921,6 +1968,7 @@ func TestServer_Lint_Clean(t *testing.T) {
 }
 
 func TestServer_CommitGate_Pass(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.4.0-m4")
 	RegisterKBTools(s, k, Deps{})
@@ -1941,6 +1989,7 @@ func TestServer_CommitGate_Pass(t *testing.T) {
 }
 
 func TestServer_CommitGate_Blocked(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	// Create an open contradiction involving test-runbook.
 	os.MkdirAll(filepath.Join(k.DataRoot(), "conflicts"), 0o755)
@@ -1969,6 +2018,7 @@ func TestServer_CommitGate_Blocked(t *testing.T) {
 }
 
 func TestServer_KBStatus_ByStatus(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	// setupTestKB already creates one Runbook concept with no status.
 	os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "open-1.md"),
@@ -2012,6 +2062,7 @@ func TestServer_KBStatus_ByStatus(t *testing.T) {
 }
 
 func TestServer_KBStatus_ByStatus_Empty(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	// setupTestKB creates only a concept with no status: by_status must have no entries.
 
@@ -2062,6 +2113,7 @@ func kbStatusResult(t *testing.T, s *Server) map[string]json.RawMessage {
 // D145: kb_status is the agent-visible tool, so a reader must never be able to
 // conclude "this KB has no remote" from a workflow field.
 func TestServer_KBStatus_NoRemote(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.7.0")
 	RegisterKBTools(s, k, Deps{})
@@ -2092,6 +2144,7 @@ func TestServer_KBStatus_NoRemote(t *testing.T) {
 }
 
 func TestServer_KBStatus_RemoteRedacted(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if !gitx.IsRepo(k.Root) {
 		t.Skip("KB root is not a git repository")
@@ -2125,6 +2178,7 @@ func TestServer_KBStatus_RemoteRedacted(t *testing.T) {
 // D144: on a client with a flat MCP tool namespace, kb_status is the only
 // protocol-level way to tell which KB actually answered.
 func TestServer_KBStatus_KBName(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.7.0")
 	RegisterKBTools(s, k, Deps{})
@@ -2149,6 +2203,7 @@ func TestServer_KBStatus_KBName(t *testing.T) {
 }
 
 func TestServer_GateCheck_Pass(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("0.5.0-m5")
 	RegisterKBTools(s, k, Deps{})
@@ -2223,6 +2278,7 @@ func decodeGate(t *testing.T, tr ToolResult) gateResponse {
 }
 
 func TestServer_GateCheck_SeverityFloor_DefaultDropsInfo(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	setupThreeSeverityKB(t, k)
 	s := New("1.0.0")
@@ -2288,6 +2344,7 @@ func TestServer_GateCheck_SeverityFloor_DefaultDropsInfo(t *testing.T) {
 }
 
 func TestServer_GateCheck_InvalidSeverityMin(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -2308,6 +2365,7 @@ func TestServer_GateCheck_InvalidSeverityMin(t *testing.T) {
 }
 
 func TestServer_GateCheck_Scope(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	setupThreeSeverityKB(t, k)
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "altrove"), 0o755); err != nil {
@@ -2353,6 +2411,7 @@ func TestServer_GateCheck_Scope(t *testing.T) {
 }
 
 func TestServer_Lint_SeverityFloor_CountsSurvive(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	setupThreeSeverityKB(t, k)
 	s := New("1.0.0")
@@ -2426,6 +2485,7 @@ func TestServer_Lint_SeverityFloor_CountsSurvive(t *testing.T) {
 }
 
 func TestServer_GateCheck_Blocked(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	os.MkdirAll(filepath.Join(k.DataRoot(), "conflicts"), 0o755)
 	os.WriteFile(filepath.Join(k.DataRoot(), "conflicts", "c1.md"),
@@ -2453,6 +2513,7 @@ func TestServer_GateCheck_Blocked(t *testing.T) {
 }
 
 func TestServer_GateCheck_BlockedByRequiredField(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "_map.md"), []byte("---\ntype: Map\nrequired_fields: [provenance]\n---\n"), 0o644)
 	s := New("test")
@@ -2468,6 +2529,7 @@ func TestServer_GateCheck_BlockedByRequiredField(t *testing.T) {
 }
 
 func TestServer_E2E_WriteQueryLint(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 
 	// Init no longer generates AGENTS.md/.gitignore (D62): the KB is mediated
@@ -2554,6 +2616,7 @@ func TestServer_E2E_WriteQueryLint(t *testing.T) {
 // TestServer_SkillInstall verifies that skill_install copies the bundled skill
 // into k.Root/skills/<name>/ and that skill_list shows it as [installed].
 func TestServer_SkillInstall(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 
 	bundleFS := fstest.MapFS{
@@ -2592,6 +2655,7 @@ func TestServer_SkillInstall(t *testing.T) {
 
 // TestServer_SkillInstall_AlreadyInstalled verifies that a second install without force fails.
 func TestServer_SkillInstall_AlreadyInstalled(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 
 	bundleFS := fstest.MapFS{
@@ -2632,6 +2696,7 @@ func TestServer_SkillInstall_AlreadyInstalled(t *testing.T) {
 
 // TestServer_SkillInstall_Unknown verifies that installing an unknown skill fails.
 func TestServer_SkillInstall_Unknown(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 
 	bundleFS := fstest.MapFS{
@@ -2662,6 +2727,7 @@ func TestServer_SkillInstall_Unknown(t *testing.T) {
 // concept_write the keyword index is updated immediately, so search finds
 // the concept without a prior reindex call.
 func TestServer_ConceptWrite_UpdatesIndex(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -2702,6 +2768,7 @@ func TestServer_ConceptWrite_UpdatesIndex(t *testing.T) {
 // keeps the incremental reconciliation — with or without SQLite since D245;
 // full=true rebuilds everything.
 func TestServer_Reindex_Modes(t *testing.T) {
+	t.Parallel()
 	callReindex := func(t *testing.T, s *Server, args string) ToolResult {
 		t.Helper()
 		msgs := []string{
@@ -2833,6 +2900,7 @@ func TestServer_Reindex_Modes(t *testing.T) {
 // index before searching, so SearchFTS fails and toolSearch falls back to the
 // in-memory index, which was also updated by concept_write).
 func TestServer_ConceptWrite_UpdatesSQLIndex(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	dbPath := filepath.Join(t.TempDir(), "index.db")
 	sqlIdx, err := sqlindex.Open(dbPath)
@@ -2915,6 +2983,7 @@ func TestServer_ConceptWrite_UpdatesSQLIndex(t *testing.T) {
 // FTS5 path, and the FTS5-closed fallback path (mirroring
 // TestServer_ConceptWrite_UpdatesSQLIndex).
 func TestServer_ConceptMove_UpdatesIndexes(t *testing.T) {
+	t.Parallel()
 	uniqueKW := "flamingo4471tesseract"
 
 	writeMoveSearch := func(t *testing.T, s *Server) (trWrite, trMove, trSearch ToolResult) {
@@ -3006,6 +3075,7 @@ func TestServer_ConceptMove_UpdatesIndexes(t *testing.T) {
 // into a new, previously non-existent archive/dossier path creates the
 // dossier's index.md, so index_get never fails on a real dossier.
 func TestServer_ConceptMove_StubsImplicitDossierIndex(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -3068,6 +3138,7 @@ func readTestConceptContent(t *testing.T, k *kb.KB, id string) string {
 // (simple wiki-link, wiki-link with an anchor, relative markdown link) and
 // that the search index reflects the new IDs.
 func TestServer_ConceptMove_BatchRewriteLinks(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	writeTestConcept(t, k, "notes/x1", "# X1\n\nuniqueKeywordX1Zephyr\n")
 	writeTestConcept(t, k, "notes/x2", "# X2\n")
@@ -3158,6 +3229,7 @@ func TestServer_ConceptMove_BatchRewriteLinks(t *testing.T) {
 // invalid entry (a target that is already occupied) must abort the entire
 // call, leaving the KB untouched.
 func TestServer_ConceptMove_BatchInvalidEntry_NoMoveApplied(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	writeTestConcept(t, k, "notes/p1", "# P1\n")
 	writeTestConcept(t, k, "notes/p2", "# P2\n")
@@ -3195,6 +3267,7 @@ func TestServer_ConceptMove_BatchInvalidEntry_NoMoveApplied(t *testing.T) {
 // source_id/target_id form still works exactly as before batching was
 // introduced, and that mixing it with 'moves' is rejected.
 func TestServer_ConceptMove_SingleFormBackCompat(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	writeTestConcept(t, k, "notes/single-src", "# Src\n")
 
@@ -3231,6 +3304,7 @@ func TestServer_ConceptMove_SingleFormBackCompat(t *testing.T) {
 // TestServer_ConceptMove_RewriteLinksFalse verifies that rewrite_links=false
 // leaves inbound links untouched and keeps the "not updated" warning.
 func TestServer_ConceptMove_RewriteLinksFalse(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	writeTestConcept(t, k, "notes/rf-target", "# Target\n")
 	writeTestConcept(t, k, "notes/rf-linker", "See [[notes/rf-target]] for details.\n")
@@ -3262,6 +3336,7 @@ func TestServer_ConceptMove_RewriteLinksFalse(t *testing.T) {
 // backlink rewrite pass applies the full old→new map on the already-
 // relocated file (post-move state), not the pre-move one.
 func TestServer_ConceptMove_ChainedLinksBetweenMovedConcepts(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	writeTestConcept(t, k, "dossier/a", "Links to [[dossier/b]].\n")
 	writeTestConcept(t, k, "dossier/b", "# B\n")
@@ -3298,6 +3373,7 @@ func TestServer_ConceptMove_ChainedLinksBetweenMovedConcepts(t *testing.T) {
 // must rebuild the FTS5 table from disk so keyword search finds the concepts
 // without requiring a manual reindex call.
 func TestEnsureSQLIndexFresh_ColdStart(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t) // already has manutenzione/test-runbook
 
 	os.MkdirAll(filepath.Join(k.DataRoot(), "manutenzione"), 0o755)
@@ -3355,6 +3431,7 @@ func TestEnsureSQLIndexFresh_ColdStart(t *testing.T) {
 }
 
 func TestReconcileIndex_OutOfBandChanges(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	sqlIdx, err := sqlindex.Open(filepath.Join(t.TempDir(), "index.db"))
 	if err != nil {
@@ -3405,6 +3482,7 @@ func TestReconcileIndex_OutOfBandChanges(t *testing.T) {
 }
 
 func TestEnsureSQLIndexFresh_ReconcilesNonEmptyDrift(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	sqlIdx, err := sqlindex.Open(filepath.Join(t.TempDir(), "index.db"))
 	if err != nil {
@@ -3434,6 +3512,7 @@ func TestEnsureSQLIndexFresh_ReconcilesNonEmptyDrift(t *testing.T) {
 // TestServer_SyncCheck verifies that sync_check returns a non-empty revision
 // and that in_sync=true when the applied_revision matches the manifest's.
 func TestServer_SyncCheck(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 
 	bundleFS := fstest.MapFS{
@@ -3492,6 +3571,7 @@ func TestServer_SyncCheck(t *testing.T) {
 }
 
 func TestServer_SyncApply(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	baseDir := t.TempDir()
 
@@ -3547,6 +3627,7 @@ func TestServer_SyncApply(t *testing.T) {
 // TestServer_SyncPull verifies that sync_pull returns a revision and each
 // artifact's file contents (base64), decodable and consistent with the test bundle.
 func TestServer_SyncPull(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	skillDir := filepath.Join(k.Root, "skills", "binary")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
@@ -3715,6 +3796,7 @@ func listToolNames(t *testing.T, s *Server) map[string]bool {
 // without classifying it fails this test. Hidden tools stay callable via
 // tools/call.
 func TestServer_ToolsProfile(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	bundleFS := fstest.MapFS{
@@ -3823,6 +3905,7 @@ func TestServer_ToolsProfile(t *testing.T) {
 }
 
 func TestServer_AssetToolsRoundTripAndClassification(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if err := k.ExpandConcept("manutenzione/test-runbook"); err != nil {
 		t.Fatalf("ExpandConcept: %v", err)
@@ -3887,6 +3970,7 @@ func TestServer_AssetToolsRoundTripAndClassification(t *testing.T) {
 }
 
 func TestServer_ExpandedMoveAndDeleteProtectAssets(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if err := k.ExpandConcept("manutenzione/test-runbook"); err != nil {
 		t.Fatal(err)
@@ -3951,6 +4035,7 @@ func TestServer_ExpandedMoveAndDeleteProtectAssets(t *testing.T) {
 }
 
 func TestServer_ExpandedMoveBatchSwapIsRejectedBeforeRename(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Owner")
 	for _, id := range []string{"manutenzione/test-runbook", "manutenzione/second"} {
@@ -3996,6 +4081,7 @@ func conceptHash(t *testing.T, tr ToolResult) string {
 }
 
 func TestServer_ConceptPatch_HappyPath(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4042,6 +4128,7 @@ func TestServer_ConceptPatch_HappyPath(t *testing.T) {
 }
 
 func TestServer_ConceptPatch_StaleWrite(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4066,6 +4153,7 @@ func TestServer_ConceptPatch_StaleWrite(t *testing.T) {
 }
 
 func TestServer_ConceptPatch_OldStringNotFound(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4096,6 +4184,7 @@ func TestServer_ConceptPatch_OldStringNotFound(t *testing.T) {
 }
 
 func TestServer_ConceptPatch_OldStringAmbiguous(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4127,6 +4216,7 @@ func TestServer_ConceptPatch_OldStringAmbiguous(t *testing.T) {
 }
 
 func TestServer_ConceptPatch_ReplaceAll(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4174,6 +4264,7 @@ func TestServer_ConceptPatch_ReplaceAll(t *testing.T) {
 // --- concept_patch batch edits (D76 WP1) ---
 
 func TestServer_ConceptPatch_BatchEdits(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4230,6 +4321,7 @@ func TestServer_ConceptPatch_BatchEdits(t *testing.T) {
 }
 
 func TestServer_ConceptPatch_BatchEdits_FailsMidway(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4279,6 +4371,7 @@ func TestServer_ConceptPatch_BatchEdits_FailsMidway(t *testing.T) {
 }
 
 func TestServer_ConceptPatch_EditsAndTopLevelMutuallyExclusive(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4309,6 +4402,7 @@ func TestServer_ConceptPatch_EditsAndTopLevelMutuallyExclusive(t *testing.T) {
 }
 
 func TestServer_ConceptPatch_EmptyEditsArray(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4339,6 +4433,7 @@ func TestServer_ConceptPatch_EmptyEditsArray(t *testing.T) {
 }
 
 func TestServer_ConceptPatch_BatchEditsWithFrontmatter(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4385,6 +4480,7 @@ func TestServer_ConceptPatch_BatchEditsWithFrontmatter(t *testing.T) {
 // frontmatter key in concept_patch removes it (rather than setting it to a
 // literal null value).
 func TestServer_ConceptPatch_UnsetKey(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4425,6 +4521,7 @@ func TestServer_ConceptPatch_UnsetKey(t *testing.T) {
 // required key ("type") fails with the existing write-path validation error,
 // rather than silently producing a concept without a type.
 func TestServer_ConceptPatch_UnsetProtectedKey(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4470,6 +4567,7 @@ func unsetSeed(t *testing.T, s *Server, id string) string {
 // TestServer_ConceptPatch_UnsetViaArray: 'unset' removes a key as null does,
 // for clients that strip null values — and needs no body edit.
 func TestServer_ConceptPatch_UnsetViaArray(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4489,6 +4587,7 @@ func TestServer_ConceptPatch_UnsetViaArray(t *testing.T) {
 
 // TestServer_ConceptPatch_UnsetProtectedKeyViaArray: 'type' cannot be removed.
 func TestServer_ConceptPatch_UnsetProtectedKeyViaArray(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4505,6 +4604,7 @@ func TestServer_ConceptPatch_UnsetProtectedKeyViaArray(t *testing.T) {
 // TestServer_ConceptRead_ReturnsParsedFrontmatter: concept_read carries the
 // parsed frontmatter next to frontmatter_raw.
 func TestServer_ConceptRead_ReturnsParsedFrontmatter(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4540,6 +4640,7 @@ func TestServer_ConceptRead_ReturnsParsedFrontmatter(t *testing.T) {
 // title (from frontmatter) and a snippet (excerpt around the query term)
 // without requiring a concept_read, across the in-memory keyword path.
 func TestServer_Search_TitleAndSnippet(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4619,6 +4720,7 @@ func indexGetStructured(t *testing.T, tr ToolResult) (content, hash string) {
 }
 
 func TestServer_IndexGet_DefaultRawCompat(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4656,6 +4758,7 @@ func writeBigIndex(t *testing.T, k *kb.KB) string {
 }
 
 func TestServer_IndexGet_SizeGuard_OutlineThenFull(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	filler := writeBigIndex(t, k)
 	s := New("1.0.0")
@@ -4695,6 +4798,7 @@ func TestServer_IndexGet_SizeGuard_OutlineThenFull(t *testing.T) {
 }
 
 func TestServer_IndexGet_Outline_AtAnySize(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4727,6 +4831,7 @@ func TestServer_IndexGet_Outline_AtAnySize(t *testing.T) {
 }
 
 func TestServer_IndexGet_WithHash_Structured(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4753,6 +4858,7 @@ func TestServer_IndexGet_WithHash_Structured(t *testing.T) {
 }
 
 func TestServer_IndexPatch_HappyPath_Root(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4800,6 +4906,7 @@ func TestServer_IndexPatch_HappyPath_Root(t *testing.T) {
 }
 
 func TestServer_IndexPatch_HappyPath_Map(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4847,6 +4954,7 @@ func TestServer_IndexPatch_HappyPath_Map(t *testing.T) {
 }
 
 func TestServer_IndexPatch_StaleWrite(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4867,6 +4975,7 @@ func TestServer_IndexPatch_StaleWrite(t *testing.T) {
 }
 
 func TestServer_IndexPatch_OldStringNotFound(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4892,6 +5001,7 @@ func TestServer_IndexPatch_OldStringNotFound(t *testing.T) {
 }
 
 func TestServer_IndexPatch_OldStringAmbiguous(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4919,6 +5029,7 @@ func TestServer_IndexPatch_OldStringAmbiguous(t *testing.T) {
 }
 
 func TestServer_IndexPatch_BatchEdits(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4954,6 +5065,7 @@ func TestServer_IndexPatch_BatchEdits(t *testing.T) {
 // the second edit fails leaves the index completely untouched (atomic
 // failure — nothing is written until every edit in the batch succeeds).
 func TestServer_IndexPatch_BatchEditsFailsMidway_NoWrite(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -4994,6 +5106,7 @@ func TestServer_IndexPatch_BatchEditsFailsMidway_NoWrite(t *testing.T) {
 }
 
 func TestServer_IndexPatch_ExpandedOwnerRedirect(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -5030,6 +5143,7 @@ func TestServer_IndexPatch_ExpandedOwnerRedirect(t *testing.T) {
 // index_patch never adds the curated index to the live keyword index or the
 // concept inventory: root/Map indexes are curated prose, not concepts.
 func TestServer_IndexPatch_NoSearchIndexMutation(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -5082,6 +5196,7 @@ func TestServer_IndexPatch_NoSearchIndexMutation(t *testing.T) {
 // --- client roster tests (WP1) ---
 
 func TestServer_ClientStats_LegacyInitializeWithClientInfo(t *testing.T) {
+	t.Parallel()
 	s := New("1.0.0")
 	RegisterKBTools(s, setupTestKB(t), Deps{})
 
@@ -5116,6 +5231,7 @@ func TestServer_ClientStats_LegacyInitializeWithClientInfo(t *testing.T) {
 }
 
 func TestServer_ClientStats_NewEraToolsCall(t *testing.T) {
+	t.Parallel()
 	s := New("1.0.0")
 	RegisterKBTools(s, setupTestKB(t), Deps{})
 
@@ -5161,6 +5277,7 @@ func TestServer_ClientStats_NewEraToolsCall(t *testing.T) {
 }
 
 func TestServer_ClientStats_LegacyPingUnknown(t *testing.T) {
+	t.Parallel()
 	s := New("1.0.0")
 	RegisterKBTools(s, setupTestKB(t), Deps{})
 
@@ -5186,6 +5303,7 @@ func TestServer_ClientStats_LegacyPingUnknown(t *testing.T) {
 }
 
 func TestServer_ClientStats_KeyCap(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -5205,6 +5323,7 @@ func TestServer_ClientStats_KeyCap(t *testing.T) {
 }
 
 func TestServer_ClientStats_Truncation(t *testing.T) {
+	t.Parallel()
 	s := New("1.0.0")
 	RegisterKBTools(s, setupTestKB(t), Deps{})
 
@@ -5225,6 +5344,7 @@ func TestServer_ClientStats_Truncation(t *testing.T) {
 }
 
 func TestServer_ClientStats_AuthorizedOnly(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
@@ -5246,6 +5366,7 @@ func TestServer_ClientStats_AuthorizedOnly(t *testing.T) {
 }
 
 func TestServer_ClientStats_Ordering(t *testing.T) {
+	t.Parallel()
 	s := New("1.0.0")
 	RegisterKBTools(s, setupTestKB(t), Deps{})
 
@@ -5278,6 +5399,7 @@ func TestServer_ClientStats_Ordering(t *testing.T) {
 // left inconsistent. The strongest available assertion is that a follow-up lint
 // reports neither broken_link nor index_incomplete.
 func TestConceptMove_IsCompleteAcrossMaps(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -5348,6 +5470,7 @@ func TestConceptMove_IsCompleteAcrossMaps(t *testing.T) {
 // A line citing two concepts is prose the operator wrote: it is kept and
 // reported, not silently edited.
 func TestConceptMove_KeepsAMultiLinkIndexLine(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -5389,6 +5512,7 @@ func TestConceptMove_KeepsAMultiLinkIndexLine(t *testing.T) {
 // before this they kept the old path (found on a real KB: a backlog index
 // still linked a page moved to the archive).
 func TestConceptMove_RewritesOtherIndexes(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -5450,6 +5574,7 @@ func d160Write(t *testing.T, k *kb.KB, rel, content string) {
 // body's own relative links, links TO the satellite, and links from sibling
 // satellites. The strongest assertion is a clean lint afterwards.
 func TestConceptMerge_FoldsASatelliteAndRepairsEveryLink(t *testing.T) {
+	t.Parallel()
 	k, s := d160Fixture(t)
 	d160Write(t, k, "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	d160Write(t, k, "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n- [other](other.md)\n")
@@ -5510,6 +5635,7 @@ func TestConceptMerge_FoldsASatelliteAndRepairsEveryLink(t *testing.T) {
 }
 
 func TestConceptMerge_RefusesANonSatellite(t *testing.T) {
+	t.Parallel()
 	k, s := d160Fixture(t)
 	d160Write(t, k, "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	d160Write(t, k, "m/c.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
@@ -5527,6 +5653,7 @@ func TestConceptMerge_RefusesANonSatellite(t *testing.T) {
 // Expansion never changes an ID, so its inverse must not either: the round trip
 // is the strongest available assertion that this really is an inverse.
 func TestConceptCollapse_RoundTripsExpand(t *testing.T) {
+	t.Parallel()
 	k, s := d160Fixture(t)
 	d160Write(t, k, "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 	d160Write(t, k, "m/c.md", "---\ntype: Note\ntitle: C\n---\n# C\nBody stays.\n")
@@ -5560,6 +5687,7 @@ func TestConceptCollapse_RoundTripsExpand(t *testing.T) {
 }
 
 func TestConceptCollapse_RefusesSatellitesAndAssets(t *testing.T) {
+	t.Parallel()
 	t.Run("satellites", func(t *testing.T) {
 		k, s := d160Fixture(t)
 		d160Write(t, k, "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
@@ -5615,6 +5743,7 @@ func TestConceptCollapse_RefusesSatellitesAndAssets(t *testing.T) {
 }
 
 func TestConceptMergeAndCollapse_AreAdvancedButCallable(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"concept_merge", "concept_collapse"} {
 		if !advancedToolNames[name] {
 			t.Errorf("%s must be classified as advanced", name)
@@ -5713,6 +5842,7 @@ func deleteLinkFixture(t *testing.T) (*kb.KB, *Server) {
 }
 
 func TestConceptDeleteRefusesInboundLinksWithoutForce(t *testing.T) {
+	t.Parallel()
 	k, s := deleteLinkFixture(t)
 	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target"}`)
 	if !res.IsError || !strings.HasPrefix(res.Content[0].Text, "inbound_links:") ||
@@ -5726,6 +5856,7 @@ func TestConceptDeleteRefusesInboundLinksWithoutForce(t *testing.T) {
 }
 
 func TestConceptDeleteForceWarnsAboutLinkers(t *testing.T) {
+	t.Parallel()
 	k, s := deleteLinkFixture(t)
 	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target","force":true}`)
 	if res.IsError || !strings.Contains(res.Content[0].Text, "Warning: 1 concept(s) still link to manutenzione/target: manutenzione/linker") {
@@ -5737,6 +5868,7 @@ func TestConceptDeleteForceWarnsAboutLinkers(t *testing.T) {
 }
 
 func TestConceptDeleteHiddenLinkerNeitherBlocksNorLeaks(t *testing.T) {
+	t.Parallel()
 	k, s := deleteLinkFixture(t)
 	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: T")
 	if _, err := k.WriteConcept("segreto/hidden-linker", fm, "# H\n[[manutenzione/target]]\n", ""); err != nil {
@@ -5758,6 +5890,7 @@ func TestConceptDeleteHiddenLinkerNeitherBlocksNorLeaks(t *testing.T) {
 }
 
 func TestConceptDeleteNoLinkersNoWarning(t *testing.T) {
+	t.Parallel()
 	_, s := deleteLinkFixture(t)
 	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/linker"}`)
 	if res.IsError || strings.Contains(res.Content[0].Text, "Warning") {
@@ -5766,6 +5899,7 @@ func TestConceptDeleteNoLinkersNoWarning(t *testing.T) {
 }
 
 func TestConceptDeleteExpandedNotBlockedByOwnSatellites(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: T")
 	if _, err := k.WriteConcept("manutenzione/owner", fm, "# Owner\n", ""); err != nil {
@@ -5786,6 +5920,7 @@ func TestConceptDeleteExpandedNotBlockedByOwnSatellites(t *testing.T) {
 }
 
 func TestConceptDeleteMissingWithDanglingLinksIsNotFound(t *testing.T) {
+	t.Parallel()
 	_, s := deleteLinkFixture(t)
 	if res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target","force":true}`); res.IsError {
 		t.Fatalf("setup delete: %+v", res)
@@ -5799,6 +5934,7 @@ func TestConceptDeleteMissingWithDanglingLinksIsNotFound(t *testing.T) {
 // TestServer_Lint_ZeroFindingsIsJSON (D318): a clean scope answers with the
 // same JSON shape as a dirty one, never a bare string.
 func TestServer_Lint_ZeroFindingsIsJSON(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -5821,6 +5957,7 @@ func TestServer_Lint_ZeroFindingsIsJSON(t *testing.T) {
 // TestServer_GateCheck_EmptyChangedIDsIsWholeKBGate (D318): no changed_ids
 // runs validate + lint on the whole KB and skips the commit gate.
 func TestServer_GateCheck_EmptyChangedIDsIsWholeKBGate(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -5849,6 +5986,7 @@ func TestServer_GateCheck_EmptyChangedIDsIsWholeKBGate(t *testing.T) {
 // key demands index entries (D325); only an explicit false opts out, and the
 // descriptor then carries no key.
 func TestServer_MapCreate_DefaultRequireIndexEntry(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -5917,6 +6055,7 @@ func callLintPages(t *testing.T, k *kb.KB, calls ...map[string]any) []lintPage {
 }
 
 func TestServer_Lint_CheckFilter(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	setupThreeSeverityKB(t, k)
 	pages := callLintPages(t, k, map[string]any{}, map[string]any{"check": "broken_link"})
@@ -5940,6 +6079,7 @@ func TestServer_Lint_CheckFilter(t *testing.T) {
 }
 
 func TestServer_Lint_CheckFilterArray(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	setupThreeSeverityKB(t, k)
 	pages := callLintPages(t, k,
@@ -5958,6 +6098,7 @@ func TestServer_Lint_CheckFilterArray(t *testing.T) {
 }
 
 func TestServer_Lint_Pagination(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	setupThreeSeverityKB(t, k)
 	pages := callLintPages(t, k, map[string]any{},
@@ -5998,6 +6139,7 @@ func TestServer_Lint_Pagination(t *testing.T) {
 }
 
 func TestServer_Lint_DeterministicOrder(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	setupThreeSeverityKB(t, k)
 	pages := callLintPages(t, k, map[string]any{}, map[string]any{}, map[string]any{})
@@ -6014,6 +6156,7 @@ func TestServer_Lint_DeterministicOrder(t *testing.T) {
 }
 
 func TestServer_Lint_CheckAndPagination(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	setupThreeSeverityKB(t, k)
 	// every check has at most a couple of findings here, so page by 1.
@@ -6033,6 +6176,7 @@ func TestServer_Lint_CheckAndPagination(t *testing.T) {
 // content last changed, not on the day the background auto-repair last
 // touched it, so changes_since says when that was.
 func TestChangesSinceLastEditAt(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if !gitx.IsRepo(k.Root) {
 		t.Skip("git not in PATH, skipping changes_since test")
@@ -6089,6 +6233,7 @@ func TestChangesSinceLastEditAt(t *testing.T) {
 // A page moved away and back within the window (A→B, then B→A) made the
 // rename chain a cycle, and changes_since spun forever at 100% CPU (#695).
 func TestChangesSinceRenameBackAndForth(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	if !gitx.IsRepo(k.Root) {
 		t.Skip("git not in PATH")

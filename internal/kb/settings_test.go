@@ -17,6 +17,7 @@ func keysOf(t *testing.T, yml string) (Settings, []SettingsMalformed) {
 }
 
 func TestParseSettingsValid(t *testing.T) {
+	t.Parallel()
 	s, bad := keysOf(t, `
 allow_artifact_write: true
 write_gate: error
@@ -41,6 +42,7 @@ git_profile: server
 }
 
 func TestParseSettingsEmptyAndNull(t *testing.T) {
+	t.Parallel()
 	for _, in := range []string{"", "# only comments\n", "~\n"} {
 		s, bad, err := ParseSettings([]byte(in))
 		if err != nil || len(bad) != 0 || len(s.Keys()) != 0 {
@@ -50,6 +52,7 @@ func TestParseSettingsEmptyAndNull(t *testing.T) {
 }
 
 func TestParseSettingsWholeFileIgnored(t *testing.T) {
+	t.Parallel()
 	for _, in := range []string{"key: [unclosed", "- a\n- b\n"} {
 		if _, _, err := ParseSettings([]byte(in)); err == nil {
 			t.Errorf("%q: want an error (whole file ignored)", in)
@@ -58,6 +61,7 @@ func TestParseSettingsWholeFileIgnored(t *testing.T) {
 }
 
 func TestParseSettingsKeyErrorsLeaveTheRestAlone(t *testing.T) {
+	t.Parallel()
 	s, bad := keysOf(t, `
 allow_artifact_write: true
 frobnicate: 1
@@ -102,6 +106,7 @@ write_gate: off
 }
 
 func TestReadSettings(t *testing.T) {
+	t.Parallel()
 	k := &KB{Root: t.TempDir()}
 	st, err := k.ReadSettings()
 	if err != nil || st.Present {
@@ -126,6 +131,7 @@ func TestReadSettings(t *testing.T) {
 }
 
 func TestRefreshSettingsReloadsOnlyOnChange(t *testing.T) {
+	t.Parallel()
 	k := &KB{Root: t.TempDir()}
 	calls := 0
 	k.SettingsReload = func(*KB) { calls++ }

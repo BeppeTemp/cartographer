@@ -29,6 +29,7 @@ func putConcept(t *testing.T, k *kb.KB, id, body string) {
 }
 
 func TestAddedRepeatedFacts(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	putConcept(t, k, "m/a", addedFactLine)
 	putConcept(t, k, "m/b", "Intro.\n\n"+addedFactLine)
@@ -57,6 +58,7 @@ func TestAddedRepeatedFacts(t *testing.T) {
 }
 
 func TestAddedRepeatedFactsThreshold(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	putConcept(t, k, "m/a", addedFactLine)
 	putConcept(t, k, "m/c", addedFactLine)
@@ -71,6 +73,7 @@ func TestAddedRepeatedFactsThreshold(t *testing.T) {
 }
 
 func TestAddedRepeatedFactsNotFacts(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/note.md", "---\ntype: Note\n---\n> Fill in the details of this note before saving it anywhere.\n")
 	lines := map[string]string{
@@ -92,6 +95,7 @@ func TestAddedRepeatedFactsNotFacts(t *testing.T) {
 // TestAddedRepeatedFactsNearMiss: the index returns a candidate that shares
 // the terms but not the exact line; verification drops it (D351).
 func TestAddedRepeatedFactsNearMiss(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	putConcept(t, k, "m/a", addedFactLine)
 	putConcept(t, k, "m/b", "The nightly job runs at 03:00 and copies the data to the backup host.")
@@ -102,6 +106,7 @@ func TestAddedRepeatedFactsNearMiss(t *testing.T) {
 }
 
 func TestAddedRepeatedFactsCaps(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	var body []string
 	for i := 0; i < 30; i++ {
@@ -125,6 +130,7 @@ func TestAddedRepeatedFactsCaps(t *testing.T) {
 }
 
 func TestAddedRepeatedFactsLintIgnore(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	putConcept(t, k, "m/a", addedFactLine)
 	putConcept(t, k, "m/b", addedFactLine)

@@ -32,6 +32,7 @@ func proposalKB(t *testing.T) *kb.KB {
 }
 
 func TestTemplateProposal(t *testing.T) {
+	t.Parallel()
 	k := proposalKB(t)
 	got := itemsOf(review(t, k), ReviewTemplateProposal)
 	if len(got) != 1 {
@@ -68,6 +69,7 @@ func TestTemplateProposal(t *testing.T) {
 }
 
 func TestTemplateProposalOnePerType(t *testing.T) {
+	t.Parallel()
 	k := proposalKB(t)
 	for i := 0; i < 3; i++ {
 		writeFile(t, k.DataRoot(), fmt.Sprintf("infra/x%d.md", i), "---\ntype: Runbook\ntitle: X\n---\n# X\n\n## Steps\n\ns\n")
@@ -79,6 +81,7 @@ func TestTemplateProposalOnePerType(t *testing.T) {
 }
 
 func TestTemplateProposalSilentOnceBound(t *testing.T) {
+	t.Parallel()
 	k := proposalKB(t)
 	writeFile(t, k.Root, "templates/host.md", "---\ntype: Host\ntitle: \"{{title}}\"\n---\n# {{title}}\n\n## Purpose\n")
 	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplates: [host]\n---\n")
@@ -117,6 +120,7 @@ func twoMapKB(t *testing.T) *kb.KB {
 }
 
 func TestTemplateProposalOnePerSlugAcrossMaps(t *testing.T) {
+	t.Parallel()
 	got := itemsOf(review(t, twoMapKB(t)), ReviewTemplateProposal)
 	if len(got) != 1 {
 		t.Fatalf("two maps, one slug: want one proposal, got %d: %+v", len(got), got)
@@ -142,6 +146,7 @@ func TestTemplateProposalOnePerSlugAcrossMaps(t *testing.T) {
 
 // Two type spellings in one map share a slug: the proposal names that map once.
 func TestTemplateProposalOneMapTwoSpellings(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nkind: map\ntitle: Ops\n---\n")
 	for i, typ := range []string{"Runbook", "Runbook", "Runbook", "runbook", "runbook", "runbook"} {

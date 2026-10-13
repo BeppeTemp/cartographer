@@ -12,6 +12,7 @@ import (
 )
 
 func TestExtractLinks(t *testing.T) {
+	t.Parallel()
 	body := `# Overview
 
 See [runbook](runbook.md) for details.
@@ -44,6 +45,7 @@ Reference to [section only](#section) and [anchor link](other.md#heading).
 }
 
 func TestExtractLinks_NoExtension(t *testing.T) {
+	t.Parallel()
 	body := `Link to [concept](sibling) without .md extension.`
 	links := ExtractLinks(body, "arch/source.md")
 
@@ -56,6 +58,7 @@ func TestExtractLinks_NoExtension(t *testing.T) {
 }
 
 func TestExtractLinks_AssetTargetsAreNotConcepts(t *testing.T) {
+	t.Parallel()
 	body := `[csv](report.csv) [png](evidence/screen.png) [concept](sibling.md)`
 	links := ExtractLinks(body, "map/owner/index.md")
 	if len(links) != 1 || links[0] != "map/owner/sibling" {
@@ -68,6 +71,7 @@ func TestExtractLinks_AssetTargetsAreNotConcepts(t *testing.T) {
 }
 
 func TestExtractLinks_SkipAbsolute(t *testing.T) {
+	t.Parallel()
 	body := `[abs](https://example.com) and [mail](mailto:a@b.com)`
 	links := ExtractLinks(body, "a.md")
 	if len(links) != 0 {
@@ -76,6 +80,7 @@ func TestExtractLinks_SkipAbsolute(t *testing.T) {
 }
 
 func TestExtractLinks_WikiLinkSimple(t *testing.T) {
+	t.Parallel()
 	body := `See [[entities/smart-home/otbr]] for details.`
 	links := ExtractLinks(body, "topics/infra/overview.md")
 
@@ -85,6 +90,7 @@ func TestExtractLinks_WikiLinkSimple(t *testing.T) {
 }
 
 func TestExtractLinks_WikiLinkWithAnchor(t *testing.T) {
+	t.Parallel()
 	body := `See [[entities/smart-home/otbr#Firmware]] for details.`
 	links := ExtractLinks(body, "topics/infra/overview.md")
 
@@ -94,6 +100,7 @@ func TestExtractLinks_WikiLinkWithAnchor(t *testing.T) {
 }
 
 func TestExtractLinks_WikiLinkRootRelativeFromNested(t *testing.T) {
+	t.Parallel()
 	// basePath is a deeply nested concept; the wiki-link target must stay
 	// root-relative (unaffected by basePath's directory), unlike markdown links.
 	body := `[[entities/infra/dossier/other]]`
@@ -105,6 +112,7 @@ func TestExtractLinks_WikiLinkRootRelativeFromNested(t *testing.T) {
 }
 
 func TestExtractLinks_DedupMarkdownAndWiki(t *testing.T) {
+	t.Parallel()
 	body := `See [runbook](../arch/runbook.md) and also [[arch/runbook]].`
 	links := ExtractLinks(body, "topics/x.md")
 
@@ -117,6 +125,7 @@ func TestExtractLinks_DedupMarkdownAndWiki(t *testing.T) {
 // is the only base-independent form (D149), and choosing it used to cost the
 // human-readable label.
 func TestExtractLinks_WikiLinkAliasIsExtracted(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"[[entities/infra/otbr|OTBR gateway]]":        "entities/infra/otbr",
 		"[[entities/infra/otbr#Schema|OTBR gateway]]": "entities/infra/otbr",
@@ -136,6 +145,7 @@ func TestExtractLinks_WikiLinkAliasIsExtracted(t *testing.T) {
 }
 
 func TestExtractLinks_MarkdownLinksUnaffectedByWikiSupport(t *testing.T) {
+	t.Parallel()
 	body := `See [runbook](runbook.md) and [[entities/infra/otbr]].`
 	links := ExtractLinks(body, "arch/overview.md")
 
@@ -157,6 +167,7 @@ func TestExtractLinks_MarkdownLinksUnaffectedByWikiSupport(t *testing.T) {
 }
 
 func TestGraphNeighbors(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("", "kb-graph-test-*")
 	if err != nil {
 		t.Fatal(err)
@@ -201,6 +212,7 @@ func TestGraphNeighbors(t *testing.T) {
 }
 
 func TestGraphNeighbors_DirectionsAndExpandedPhysicalPath(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("", "kb-graph-directions-*")
 	if err != nil {
 		t.Fatal(err)
@@ -273,6 +285,7 @@ func TestGraphNeighbors_DirectionsAndExpandedPhysicalPath(t *testing.T) {
 }
 
 func TestWalkConcepts(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("", "kb-walk-test-*")
 	if err != nil {
 		t.Fatal(err)
@@ -324,6 +337,7 @@ func TestWalkConcepts(t *testing.T) {
 // diagrams used to become link targets, and in the field every surviving
 // broken_link finding had this root cause.
 func TestExtractLinks_SkipsCodeSpans(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		body string
@@ -352,6 +366,7 @@ func TestExtractLinks_SkipsCodeSpans(t *testing.T) {
 // MaskCodeSpans must not change offsets or line count: lint's machine_path
 // check already reasons about spans over the same body.
 func TestMaskCodeSpans_PreservesLengthAndLines(t *testing.T) {
+	t.Parallel()
 	body := "before\n```sh\ngrep x\n```\nafter `code` end\n"
 	masked := MaskCodeSpans(body)
 	if len(masked) != len(body) {
@@ -371,6 +386,7 @@ func TestMaskCodeSpans_PreservesLengthAndLines(t *testing.T) {
 // Citing an extensionless asset — a Dockerfile, a Makefile, a LICENSE — used to
 // produce a link to a nonexistent concept and leave the asset orphan forever.
 func TestExtractLinks_ExtensionlessAssetIsNotAConcept(t *testing.T) {
+	t.Parallel()
 	dir, err := os.MkdirTemp("", "graph-asset-*")
 	if err != nil {
 		t.Fatal(err)
@@ -402,6 +418,7 @@ func TestExtractLinks_ExtensionlessAssetIsNotAConcept(t *testing.T) {
 // A move must not rewrite what ExtractLinks says is not a link: fenced blocks
 // and inline code are examples, not references (D150, D248).
 func TestRewriteLinks_SkipsCodeSpans(t *testing.T) {
+	t.Parallel()
 	body := "real [a](a.md) and [[m/a]]\n\n```\n[a](a.md) [[m/a]]\n```\n\nsee `[a](a.md)` and `[[m/a|x]]`\n"
 	got, n := RewriteLinks(body, "m/x.md", map[string]string{"m/a": "m/b"})
 	want := "real [a](b.md) and [[m/b]]\n\n```\n[a](a.md) [[m/a]]\n```\n\nsee `[a](a.md)` and `[[m/a|x]]`\n"
@@ -418,6 +435,7 @@ func TestRewriteLinks_SkipsCodeSpans(t *testing.T) {
 // An extensionless href naming an existing asset is not a concept link, so a
 // move of the same-named concept id does not touch it (D150, D248).
 func TestRewriteLinks_ExtensionlessAssetIsNotAConcept(t *testing.T) {
+	t.Parallel()
 	isAsset := func(rel string) bool { return rel == "m/c/Dockerfile" }
 	body := "[df](Dockerfile) [s](sibling)\n"
 	moveMap := map[string]string{"m/c/Dockerfile": "m/c/moved", "m/c/sibling": "m/c/sib2"}
@@ -436,6 +454,7 @@ func TestRewriteLinks_ExtensionlessAssetIsNotAConcept(t *testing.T) {
 // concept_move reads only the pages the graph (built by ExtractLinks) says link
 // to a moved id, so any divergence is a stale link or a stray rewrite.
 func TestRewriteLinks_MatchesExtractLinks(t *testing.T) {
+	t.Parallel()
 	isAsset := func(rel string) bool { return rel == "m/c/Dockerfile" || rel == "m/Makefile" }
 	pieces := []string{
 		"[a](a.md)", "[a](a)", "[a](a.md#s)", "[up](../other/x.md)", "[s](sibling)",
@@ -546,6 +565,7 @@ func TestWalkConceptsLinkingTo_ReadsOnlyCandidates(t *testing.T) {
 // TestUnlinkTargets: links to a leaving concept become their label (D760), the
 // code-span masking is the one ExtractLinks uses, other targets stay.
 func TestUnlinkTargets(t *testing.T) {
+	t.Parallel()
 	body := "A [link](a.md#sec), a [[x/a#s|alias]], a [[x/a]], an ![img](a.md), `[code](a.md)`, [other](b.md).\n```\n[[x/a]]\n```\n"
 	got, n := UnlinkTargets(body, "x/page.md", map[string]bool{"x/a": true})
 	want := "A link, a alias, a x/a, an img, `[code](a.md)`, [other](b.md).\n```\n[[x/a]]\n```\n"

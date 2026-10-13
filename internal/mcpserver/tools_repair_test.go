@@ -70,6 +70,7 @@ func repairCall(t *testing.T, s *Server, args string) map[string]any {
 }
 
 func TestKBRepairDryRunWritesNothing(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 3)
 	before := commitCount(t, k)
 	out := repairCall(t, s, `{"check":"nonstandard_field"}`)
@@ -86,6 +87,7 @@ func TestKBRepairDryRunWritesNothing(t *testing.T) {
 }
 
 func TestKBRepairRenamesInOneCommitAndRewritesContract(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 3)
 	before := commitCount(t, k)
 	out := repairCall(t, s, `{"check":"nonstandard_field","dry_run":false}`)
@@ -133,6 +135,7 @@ func TestKBRepairRenamesInOneCommitAndRewritesContract(t *testing.T) {
 }
 
 func TestKBRepairSkipsStaleConcept(t *testing.T) {
+	t.Parallel()
 	k, _ := repairKB(t, 2)
 	targets, _, err := planRepair(k, "nonstandard_field", "")
 	if err != nil || len(targets) != 2 {
@@ -159,6 +162,7 @@ func TestKBRepairSkipsStaleConcept(t *testing.T) {
 }
 
 func TestKBRepairDropFieldAndLimit(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	for i := 0; i < 3; i++ {
 		fm := newFM()
@@ -184,6 +188,7 @@ func TestKBRepairDropFieldAndLimit(t *testing.T) {
 }
 
 func TestKBRepairRejectsChecksWithoutFix(t *testing.T) {
+	t.Parallel()
 	_, s := repairKB(t, 1)
 	for _, check := range []string{"orphan", "no_such_check", ""} {
 		res := callTool(t, s, "kb_repair", fmt.Sprintf(`{"check":%q}`, check))
@@ -196,6 +201,7 @@ func TestKBRepairRejectsChecksWithoutFix(t *testing.T) {
 // FixableChecks is the tool's contract: every check that emits a fix must be in
 // it, or kb_repair would refuse a repair lint advertises.
 func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
+	t.Parallel()
 	k, _ := repairKB(t, 1)
 	fm := newFM()
 	fm.Set("type", "Note")
@@ -314,6 +320,7 @@ func seedTemplateFixes(t *testing.T, write func(rel, content string)) {
 }
 
 func TestFrontmatterRenameKeepsPosition(t *testing.T) {
+	t.Parallel()
 	fm := newFM()
 	fm.Set("a", "1")
 	fm.Set("b", "2")
@@ -336,6 +343,7 @@ func TestFrontmatterRenameKeepsPosition(t *testing.T) {
 // --- kb_status.conformance (D290) ---
 
 func TestSummarizeConformanceTruthTable(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
 	f := func(check, sev string, fix bool) lint.Finding {
 		x := lint.Finding{Check: check, Severity: sev}
@@ -402,6 +410,7 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 }
 
 func TestKBStatusConformance(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 2)
 	k.DoctorIntervalDays = 14
 	status := func() map[string]any {
@@ -509,6 +518,7 @@ func seedBodyFixes(t *testing.T, k *kb.KB) {
 // TestKBRepairReciprocalLinkItem: the item goes only when the target links
 // back, through the usual dry-run plan, and the check is no conformance debt.
 func TestKBRepairReciprocalLinkItem(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	seedBodyFixes(t, k)
 	if conformanceChecks["reciprocal_link_item"] {
@@ -535,6 +545,7 @@ func TestKBRepairReciprocalLinkItem(t *testing.T) {
 // the lint ever flag both sides of a mutual pair again, the repair drops one
 // item and keeps the other, so the edge survives.
 func TestKBRepair_ReciprocalLinkItem_MutualPairSkipsSecondSide(t *testing.T) {
+	t.Parallel()
 	k, _ := repairKB(t, 0)
 	var targets []repairTarget
 	for id, other := range map[string]string{"pa": "pb", "pb": "pa"} {
@@ -563,6 +574,7 @@ func TestKBRepair_ReciprocalLinkItem_MutualPairSkipsSecondSide(t *testing.T) {
 }
 
 func TestKBRepairBodyFixes(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 1)
 	seedBodyFixes(t, k)
 	plan := repairCall(t, s, `{"check":"broken_link"}`)
@@ -593,6 +605,7 @@ func TestKBRepairBodyFixes(t *testing.T) {
 }
 
 func TestKBRepairValueFixes(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string][]string{"status": {"done", "in-progress"}}}); err != nil {
 		t.Fatal(err)
@@ -630,6 +643,7 @@ func TestKBRepairValueFixes(t *testing.T) {
 // different values are left for a person, and in both cases the concept's
 // other fixes still apply. And a limited dry run still reports the whole job.
 func TestKBRepairSynonymGroups(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	write := func(id string, kv ...string) {
 		fm := newFM()
@@ -671,6 +685,7 @@ func TestKBRepairSynonymGroups(t *testing.T) {
 // TestMapUpdateLintIgnore (D306): map_update writes the map-wide lint_ignore,
 // map_list shows it, and an empty list removes it.
 func TestMapUpdateLintIgnore(t *testing.T) {
+	t.Parallel()
 	_, s := repairKB(t, 0)
 	res := callTool(t, s, "map_update", `{"map":"ops","lint_ignore":["duplicate_link","map_misfit"]}`)
 	if res.IsError || !strings.Contains(res.Content[0].Text, `"duplicate_link"`) {
@@ -712,6 +727,7 @@ func seedLegacyFixes(t *testing.T, k *kb.KB) {
 // TestRepair_LegacyPath: the declared prefixes are rewritten longest first, in
 // one pass, so "wiki/ops/" wins over the shorter "wiki/" it contains.
 func TestRepair_LegacyPath(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	seedLegacyFixes(t, k)
 	if _, err := k.CommitOp("test: seed legacy"); err != nil {
@@ -737,6 +753,7 @@ func TestRepair_LegacyPath(t *testing.T) {
 // TestRepair_LegacyToolName: the prefix is stripped from every artifact file
 // that carries it, the file mode kept, and only with allow_artifact_write.
 func TestRepair_LegacyToolName(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	seedLegacyFixes(t, k)
 	if _, err := k.CommitOp("test: seed legacy"); err != nil {
@@ -771,6 +788,7 @@ func TestRepair_LegacyToolName(t *testing.T) {
 // TestKBRepairApplyOmitsPlan (D318): the plan is a dry run's product; an apply
 // answers with applied/skipped and the found_/planned_ totals only.
 func TestKBRepairApplyOmitsPlan(t *testing.T) {
+	t.Parallel()
 	_, s := repairKB(t, 2)
 	dry := repairCall(t, s, `{"check":"nonstandard_field"}`)
 	if _, ok := dry["planned"]; !ok {
@@ -788,6 +806,7 @@ func TestKBRepairApplyOmitsPlan(t *testing.T) {
 // TestRepair_StringifiedList: the string becomes a real list, and a second run
 // finds nothing left (D314).
 func TestRepair_StringifiedList(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	for id, v := range map[string]string{"ops/s1": "[a, b]", "ops/s2": "[a]; [b]", "ops/s3": "- a"} {
 		fm := newFM()
@@ -832,6 +851,7 @@ func TestRepair_StringifiedList(t *testing.T) {
 // when it carried formatting, a later heading and a "# " line in a code fence
 // stay, and a second run finds nothing left.
 func TestRepair_SyncH1(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	fm := newFM()
 	fm.Set("type", "Note")
@@ -863,6 +883,7 @@ func TestRepair_SyncH1(t *testing.T) {
 }
 
 func TestRebaseHrefInBody_EmptyTargetKeepsTheLabel(t *testing.T) {
+	t.Parallel()
 	got := rebaseHrefInBody("a [Proj](proj/index.md) b [P2](proj/index.md#x) c [o](other.md)", "proj/index.md", "")
 	if want := "a Proj b P2 c [o](other.md)"; got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -870,6 +891,7 @@ func TestRebaseHrefInBody_EmptyTargetKeepsTheLabel(t *testing.T) {
 }
 
 func TestRewriteWikiLinkInBody(t *testing.T) {
+	t.Parallel()
 	got := rewriteWikiLinkInBody("[[a/b/index]] [[a/b/index#s|t]] `[[a/b/index]]` [[a/b/index2]]", "a/b/index", "a/b")
 	if want := "[[a/b]] [[a/b#s|t]] `[[a/b/index]]` [[a/b/index2]]"; got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -879,6 +901,7 @@ func TestRewriteWikiLinkInBody(t *testing.T) {
 // D310: kb_repair converges every <concept>/index link to the canonical form
 // in one pass, and lint then reports none.
 func TestKBRepairIndexLinkForm(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	seedBodyFixes(t, k)
 	if conformanceChecks["index_link_form"] {
@@ -905,6 +928,7 @@ func TestKBRepairIndexLinkForm(t *testing.T) {
 
 // D310: applying broken_link to a self-link removes the link syntax.
 func TestKBRepairSelfLinkIsDropped(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	dir := filepath.Join(k.DataRoot(), "ops", "sl")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

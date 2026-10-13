@@ -29,6 +29,7 @@ func expandedAssetKB(t *testing.T) *KB {
 }
 
 func TestAssetCRUDTextAndBinary(t *testing.T) {
+	t.Parallel()
 	k := expandedAssetKB(t)
 	entry, err := k.WriteAsset("map/owner", "reports/inventory.csv", []byte("host,cve\na,CVE-1\n"), "", nil)
 	if err != nil {
@@ -52,6 +53,7 @@ func TestAssetCRUDTextAndBinary(t *testing.T) {
 }
 
 func TestAssetRejectsBadOwnerPathAndSize(t *testing.T) {
+	t.Parallel()
 	k := expandedAssetKB(t)
 	if _, err := k.WriteAsset("map/missing", "report.csv", []byte("x"), "", nil); !errors.Is(err, okf.ErrNotFound) {
 		t.Fatalf("missing owner: expected ErrNotFound, got %v", err)
@@ -74,6 +76,7 @@ func TestAssetRejectsBadOwnerPathAndSize(t *testing.T) {
 }
 
 func TestAssetOverwriteModesDeleteAndWalk(t *testing.T) {
+	t.Parallel()
 	k := expandedAssetKB(t)
 	trueValue, falseValue := true, false
 	first, err := k.WriteAsset("map/owner", "nested/tool.sh", []byte("#!/bin/sh\n"), "", &trueValue)
@@ -116,6 +119,7 @@ func TestAssetOverwriteModesDeleteAndWalk(t *testing.T) {
 }
 
 func TestAssetFilesystemGuardsAndOutOfBandFiles(t *testing.T) {
+	t.Parallel()
 	k := expandedAssetKB(t)
 	owner := filepath.Join(k.DataRoot(), "map", "owner")
 	if err := os.WriteFile(filepath.Join(owner, ".outside.csv"), []byte("x"), 0o644); err != nil {
@@ -200,6 +204,7 @@ func TestAssetFilesystemGuardsAndOutOfBandFiles(t *testing.T) {
 }
 
 func TestListAssetsSkipsHiddenFiles(t *testing.T) {
+	t.Parallel()
 	k := expandedAssetKB(t)
 	owner := filepath.Join(k.DataRoot(), "map", "owner")
 	for _, rel := range []string{".DS_Store", ".cache/blob", "sub/.gitkeep", "sub/data.csv"} {
@@ -224,6 +229,7 @@ func TestListAssetsSkipsHiddenFiles(t *testing.T) {
 }
 
 func TestAssetCreateIfMatchAndNonEmptyPrune(t *testing.T) {
+	t.Parallel()
 	k := expandedAssetKB(t)
 	if _, err := k.WriteAsset("map/owner", "new.csv", []byte("x"), "unexpected", nil); !errors.Is(err, okf.ErrStaleWrite) {
 		t.Fatalf("create if_match: expected ErrStaleWrite, got %v", err)
@@ -246,6 +252,7 @@ func TestAssetCreateIfMatchAndNonEmptyPrune(t *testing.T) {
 // TestDeleteAssetMissingIfMatchIsNotAStaleWrite (D318): an empty if_match is a
 // missing parameter, and must not read (or unwrap) as a stale write.
 func TestDeleteAssetMissingIfMatchIsNotAStaleWrite(t *testing.T) {
+	t.Parallel()
 	k := expandedAssetKB(t)
 	if _, err := k.WriteAsset("map/owner", "keep.txt", []byte("x"), "", nil); err != nil {
 		t.Fatal(err)

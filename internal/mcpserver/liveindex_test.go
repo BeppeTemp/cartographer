@@ -13,6 +13,7 @@ import (
 // (D70) returns an excerpt centered around the first occurrence of a query
 // term, bounded by maxChars.
 func TestExtractSnippet_AroundMatch(t *testing.T) {
+	t.Parallel()
 	filler := strings.Repeat("parola ", 40) // ~280 chars of filler
 	body := filler + "termineraro" + filler
 
@@ -28,6 +29,7 @@ func TestExtractSnippet_AroundMatch(t *testing.T) {
 // TestExtractSnippet_FallbackNoMatch verifies the fallback to the first
 // maxChars of the body when the query does not match (D70).
 func TestExtractSnippet_FallbackNoMatch(t *testing.T) {
+	t.Parallel()
 	body := "Prime righe del corpo del concetto, usate come fallback quando il termine cercato non compare nel testo."
 
 	snip := extractSnippet(body, "assente", 20)
@@ -42,6 +44,7 @@ func TestExtractSnippet_FallbackNoMatch(t *testing.T) {
 // TestExtractSnippet_EmptyBody verifies an empty body yields an empty
 // snippet.
 func TestExtractSnippet_EmptyBody(t *testing.T) {
+	t.Parallel()
 	if snip := extractSnippet("   ", "query", 100); snip != "" {
 		t.Errorf("expected empty snippet for empty body, got %q", snip)
 	}
@@ -50,6 +53,7 @@ func TestExtractSnippet_EmptyBody(t *testing.T) {
 // TestParseConceptMeta_Title verifies the frontmatter title is extracted and
 // the body has the frontmatter stripped (D70).
 func TestParseConceptMeta_Title(t *testing.T) {
+	t.Parallel()
 	content := "---\ntype: Note\ntitle: Titolo Di Prova\n---\n# Corpo\n\nTesto.\n"
 	meta := parseConceptMeta(content)
 	if meta.Title != "Titolo Di Prova" {
@@ -71,6 +75,7 @@ func TestParseConceptMeta_Title(t *testing.T) {
 // before searchFiltered held the lock for the whole query, this failed with a
 // write/read race on search.Index's inverted map.
 func TestLiveIndexConcurrentSearchAndWrite(t *testing.T) {
+	t.Parallel()
 	live := newLiveIndex(search.New(), nil)
 	for i := 0; i < 50; i++ {
 		live.add(fmt.Sprintf("maps/seed%d", i), "---\ntitle: t\n---\nalpha beta gamma")

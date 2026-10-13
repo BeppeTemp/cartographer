@@ -10,6 +10,7 @@ import (
 )
 
 func TestPolicyWriteClassesDenyOutsideWholeOrBoundary(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}, Types: []string{"Runbook"}}}}
@@ -37,6 +38,7 @@ func TestPolicyWriteClassesDenyOutsideWholeOrBoundary(t *testing.T) {
 }
 
 func TestPolicyResolvesActualWriteShapes(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}, Types: []string{"Runbook"}}}}
@@ -71,6 +73,7 @@ func TestPolicyResolvesActualWriteShapes(t *testing.T) {
 }
 
 func TestAuthorizationUsesCurrentFrontmatterAfterChange(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}, Types: []string{"Runbook"}}}}
@@ -93,6 +96,7 @@ func TestAuthorizationUsesCurrentFrontmatterAfterChange(t *testing.T) {
 // is not scoped to any single Map/Journal — not the root index either, even
 // though the same policy already grants a write inside that Map.
 func TestPolicyIndexPatch_ScopedToMapNotWholeKB(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}}}}
@@ -124,6 +128,7 @@ func TestPolicyIndexPatch_ScopedToMapNotWholeKB(t *testing.T) {
 // rejects the whole batch, mirroring concept_move's non-disclosure
 // guarantee for its own multi-resource "moves" batch.
 func TestPolicyConceptBatch_MixedAuthorizationDeniesWholeBatch(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}, Types: []string{"Runbook"}}}}
@@ -147,6 +152,7 @@ func TestPolicyConceptBatch_MixedAuthorizationDeniesWholeBatch(t *testing.T) {
 }
 
 func TestPolicyAllowsBoundedWriteAndRejectsTypeChange(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}, Types: []string{"Runbook"}}}}

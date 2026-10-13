@@ -46,6 +46,7 @@ func setupKBWithRemote(t *testing.T) (k *KB, bare string) {
 }
 
 func TestSyncOut_Disabled_NoOp(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -63,6 +64,7 @@ func TestSyncOut_Disabled_NoOp(t *testing.T) {
 }
 
 func TestSyncOut_PushesToRemote(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -80,6 +82,7 @@ func TestSyncOut_PushesToRemote(t *testing.T) {
 }
 
 func TestSyncOut_DetachedHeadRecordsFailure(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -95,6 +98,7 @@ func TestSyncOut_DetachedHeadRecordsFailure(t *testing.T) {
 }
 
 func TestGitStatusSnapshot_MissingRemoteTrackingRefHasUnknownAheadCount(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -159,6 +163,7 @@ func pushCommitToBare(t *testing.T, bare, branch, file string) {
 }
 
 func TestSyncIn_FreshnessWindow_SkipsRedundantFetch(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -201,6 +206,7 @@ func TestSyncIn_FreshnessWindow_SkipsRedundantFetch(t *testing.T) {
 }
 
 func TestSyncIn_WindowZero_AlwaysFetches(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -235,6 +241,7 @@ func TestSyncIn_WindowZero_AlwaysFetches(t *testing.T) {
 }
 
 func TestSyncIn_NoRemote_NoOp(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -308,6 +315,7 @@ func TestGitStatusSnapshot_BehindAndLastPush(t *testing.T) {
 }
 
 func TestSyncIn_RecordsLastSyncInAt(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}

@@ -23,6 +23,7 @@ func nameFindings(t *testing.T, mapFM, file, fm, body string) []Finding {
 }
 
 func TestTitleH1Mismatch(t *testing.T) {
+	t.Parallel()
 	got := findingsOf(nameFindings(t, "", "a", "title: Alpha\n", "# Beta\ntext"), "title_h1_mismatch")
 	if len(got) != 1 || got[0].Severity != SevWarning || got[0].Fix == nil || got[0].Fix.Kind != FixSyncH1 || got[0].Fix.To != "Alpha" {
 		t.Fatalf("mismatch: %+v", got)
@@ -39,6 +40,7 @@ func TestTitleH1Mismatch(t *testing.T) {
 }
 
 func TestTitleQuality(t *testing.T) {
+	t.Parallel()
 	long := func(n int) string { return strings.Repeat("a", n) }
 	// The one case with a fix (D366): the title the repair sets.
 	fixTo := map[string]string{"emoji": "Launch day", "heart": "Launch"}
@@ -84,6 +86,7 @@ func TestTitleQuality(t *testing.T) {
 
 // The write-time path (CheckConcept) reports both checks too.
 func TestTitleChecks_WriteTime(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md", "---\ntype: Map\ntitle: Arch\nforbidden_title_terms: [nickname]\n---\n")
 	got := CheckConcept(k, okf.ConceptID("arch/a"), "---\ntype: Note\ntitle: Nickname\n---\n# Other\n")
@@ -93,6 +96,7 @@ func TestTitleChecks_WriteTime(t *testing.T) {
 }
 
 func TestMapContract_TitleKeys(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md", "---\ntype: Map\ntitle: Arch\ntitle_max_length: 0\nforbidden_title_terms: [a, b]\n---\n")
 	c, err := k.ReadMapContract("arch")

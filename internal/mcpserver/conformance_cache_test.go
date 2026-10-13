@@ -15,6 +15,7 @@ import (
 // TestConformanceCacheWarmHitSkipsLint verifies that a second kb_status call
 // without any write in between does not call lint.Run again (D294).
 func TestConformanceCacheWarmHitSkipsLint(t *testing.T) {
+	t.Parallel()
 	k := cacheTestKB(t)
 	cc := &conformanceCache{}
 
@@ -44,6 +45,7 @@ func TestConformanceCacheWarmHitSkipsLint(t *testing.T) {
 // TestConformanceCacheInvalidatedByWrite verifies that a concept_write between
 // two calls invalidates the cache (D294).
 func TestConformanceCacheInvalidatedByWrite(t *testing.T) {
+	t.Parallel()
 	k := cacheTestKB(t)
 	cc := &conformanceCache{}
 
@@ -75,6 +77,7 @@ func TestConformanceCacheInvalidatedByWrite(t *testing.T) {
 // TestConformanceCacheInvalidatedByOutOfBandEdit verifies that an out-of-band
 // file edit invalidates the cache (D294).
 func TestConformanceCacheInvalidatedByOutOfBandEdit(t *testing.T) {
+	t.Parallel()
 	k := cacheTestKB(t)
 	cc := &conformanceCache{}
 
@@ -104,6 +107,7 @@ func TestConformanceCacheInvalidatedByOutOfBandEdit(t *testing.T) {
 // TestConformanceCacheDoctorDateCached verifies that cachedDoctorDate reuses
 // the cached value when the log file has not changed.
 func TestConformanceCacheDoctorDateCached(t *testing.T) {
+	t.Parallel()
 	k := cacheTestKB(t)
 	cc := &conformanceCache{}
 
@@ -141,6 +145,7 @@ func cacheTestKB(t *testing.T) *kb.KB {
 // findings should have more entries than restricted ones when there are hidden
 // concepts.
 func TestConformanceCacheVisibilityFilterApplied(t *testing.T) {
+	t.Parallel()
 	k := cacheTestKB(t)
 	cc := &conformanceCache{}
 
@@ -191,6 +196,7 @@ func TestConformanceCacheVisibilityFilterApplied(t *testing.T) {
 // concept file, so the graph generation does not move when it changes; the
 // inputs stamp must (D294).
 func TestConformanceCacheInvalidatedByContractEdit(t *testing.T) {
+	t.Parallel()
 	k := cacheTestKB(t)
 	cc := &conformanceCache{}
 	if _, err := cc.lintFindings(k); err != nil {
@@ -215,6 +221,7 @@ func TestConformanceCacheInvalidatedByContractEdit(t *testing.T) {
 // TestConformanceCacheNeverNil: a clean KB caches an empty, non-nil slice, so
 // uiVisibleFindingsFrom does not mistake it for "not computed" and lint again.
 func TestConformanceCacheNeverNil(t *testing.T) {
+	t.Parallel()
 	k := cacheTestKB(t)
 	cc := &conformanceCache{}
 	f, err := cc.lintFindings(k)

@@ -16,6 +16,7 @@ func usageTestKB(t *testing.T) *KB {
 }
 
 func TestMergeUsage_NewerWinsPerProvider(t *testing.T) {
+	t.Parallel()
 	k := usageTestKB(t)
 	now := time.Now().UTC().Truncate(time.Second)
 	old := UsageEntry{Name: "ops-tool", Kind: "skill", Provider: "claude", LastUsed: now.Add(-48 * time.Hour), Count: 5}
@@ -42,6 +43,7 @@ func TestMergeUsage_NewerWinsPerProvider(t *testing.T) {
 }
 
 func TestMergeUsage_DropsNothingWorthKeepingOnly(t *testing.T) {
+	t.Parallel()
 	k := usageTestKB(t)
 	n, err := k.MergeUsage([]UsageEntry{
 		{Name: "bundled", Kind: "skill", Provider: "claude", Source: "bundle", LastUsed: time.Now(), Count: 1},
@@ -57,6 +59,7 @@ func TestMergeUsage_DropsNothingWorthKeepingOnly(t *testing.T) {
 }
 
 func TestSummarizeUsage_ActivationBeatsCatalogue(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	sum := SummarizeUsage([]UsageEntry{
 		{Name: "a", Kind: "skill", Provider: "claude", LastUsed: now.Add(-30 * 24 * time.Hour), Count: 3},

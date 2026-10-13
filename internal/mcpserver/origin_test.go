@@ -30,6 +30,7 @@ func doOrigin(t *testing.T, allowed []string, method, path, origin string) (*htt
 }
 
 func TestOriginGuard_AllowListed(t *testing.T) {
+	t.Parallel()
 	rr, reached := doOrigin(t, []string{"https://app.example.com"}, http.MethodPost, "/mcp", "https://app.example.com")
 	if rr.Code != http.StatusOK || !reached {
 		t.Fatalf("status = %d, reached = %v; want 200 and reached", rr.Code, reached)
@@ -43,6 +44,7 @@ func TestOriginGuard_AllowListed(t *testing.T) {
 }
 
 func TestOriginGuard_ForeignOriginRejected(t *testing.T) {
+	t.Parallel()
 	rr, reached := doOrigin(t, []string{"https://app.example.com"}, http.MethodPost, "/mcp", "https://evil.example.net")
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403; body=%s", rr.Code, rr.Body.String())
@@ -56,6 +58,7 @@ func TestOriginGuard_ForeignOriginRejected(t *testing.T) {
 }
 
 func TestOriginGuard_NoOriginPassesThrough(t *testing.T) {
+	t.Parallel()
 	rr, reached := doOrigin(t, []string{"https://app.example.com"}, http.MethodPost, "/mcp", "")
 	if rr.Code != http.StatusOK || !reached {
 		t.Fatalf("status = %d, reached = %v; want a non-browser client served normally", rr.Code, reached)
@@ -66,6 +69,7 @@ func TestOriginGuard_NoOriginPassesThrough(t *testing.T) {
 // else, whatever scheme the origin names — a TLS-terminating proxy does not
 // have to be configured with the scheme it terminated.
 func TestOriginGuard_EmptyListIsSameOrigin(t *testing.T) {
+	t.Parallel()
 	rr, _ := doOrigin(t, nil, http.MethodPost, "/mcp", "https://kb.example.com")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("same-origin: status = %d, want 200", rr.Code)
@@ -77,6 +81,7 @@ func TestOriginGuard_EmptyListIsSameOrigin(t *testing.T) {
 }
 
 func TestOriginGuard_WildcardDisablesCheck(t *testing.T) {
+	t.Parallel()
 	rr, reached := doOrigin(t, []string{"*"}, http.MethodPost, "/mcp", "https://anything.example.net")
 	if rr.Code != http.StatusOK || !reached {
 		t.Fatalf("status = %d, reached = %v; want the check disabled by \"*\"", rr.Code, reached)
@@ -84,6 +89,7 @@ func TestOriginGuard_WildcardDisablesCheck(t *testing.T) {
 }
 
 func TestOriginGuard_PreflightChecked(t *testing.T) {
+	t.Parallel()
 	rr, reached := doOrigin(t, []string{"https://app.example.com"}, http.MethodOptions, "/mcp", "https://evil.example.net")
 	if rr.Code != http.StatusForbidden || reached {
 		t.Fatalf("status = %d, reached = %v; want the preflight refused too", rr.Code, reached)
@@ -93,6 +99,7 @@ func TestOriginGuard_PreflightChecked(t *testing.T) {
 // Only the MCP endpoint is guarded: /health is what a liveness probe or an
 // operator dashboard hits, and it exposes no KB content.
 func TestOriginGuard_NonMCPPathUnguarded(t *testing.T) {
+	t.Parallel()
 	rr, reached := doOrigin(t, []string{"https://app.example.com"}, http.MethodGet, "/health", "https://evil.example.net")
 	if rr.Code != http.StatusOK || !reached {
 		t.Fatalf("status = %d, reached = %v; want /health served regardless of origin", rr.Code, reached)
@@ -100,6 +107,7 @@ func TestOriginGuard_NonMCPPathUnguarded(t *testing.T) {
 }
 
 func TestOriginGuard_PerKBPathGuarded(t *testing.T) {
+	t.Parallel()
 	rr, _ := doOrigin(t, []string{"https://app.example.com"}, http.MethodPost, "/mcp/kbx", "https://evil.example.net")
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403 on /mcp/<kb> as well", rr.Code)
@@ -107,6 +115,7 @@ func TestOriginGuard_PerKBPathGuarded(t *testing.T) {
 }
 
 func TestOriginGuard_TrailingSlashAndCaseIgnored(t *testing.T) {
+	t.Parallel()
 	rr, _ := doOrigin(t, []string{"https://App.Example.com/"}, http.MethodPost, "/mcp", "https://app.example.com")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want the origin matched case-insensitively without its trailing slash", rr.Code)

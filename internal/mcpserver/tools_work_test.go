@@ -54,6 +54,7 @@ func workIDs(r workResponse) string {
 }
 
 func TestWorkList(t *testing.T) {
+	t.Parallel()
 	s, _ := workServer(t)
 	all := workCall(t, s, `{"scope":"visible"}`)
 	if workIDs(all) != "visible/a,visible/b,visible/c" || all.Total != 3 || all.OpenConcepts != 2 || all.OpenItems != 2 || len(all.ByStatus) != 2 || all.ByStatus["done"] != 0 || all.ByMap["visible"] != 3 {
@@ -100,6 +101,7 @@ func TestWorkList(t *testing.T) {
 // TestWorkListRestrictedCaller is the D302 trap: a hidden concept never
 // contributes to work_list's entries or counts, nor to kb_status.work.
 func TestWorkListRestrictedCaller(t *testing.T) {
+	t.Parallel()
 	s, _ := workServer(t)
 	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}})
 	res := s.callTool(ctx, "work_list", json.RawMessage(`{}`))
@@ -127,6 +129,7 @@ func TestWorkListRestrictedCaller(t *testing.T) {
 
 // TestWorkListDescriptionBudget pins the D302 cap on work_list's own text.
 func TestWorkListDescriptionBudget(t *testing.T) {
+	t.Parallel()
 	if n := utf8.RuneCountInString(toolWorkList(nil, nil).Description); n > 350 {
 		t.Fatalf("work_list description is %d chars, cap 350 (D302)", n)
 	}
@@ -134,6 +137,7 @@ func TestWorkListDescriptionBudget(t *testing.T) {
 
 // D347: with an open_field, by_status groups by the field's value.
 func TestWorkList_OpenFieldState(t *testing.T) {
+	t.Parallel()
 	k, err := kb.Init(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

@@ -44,6 +44,7 @@ func readRaw(t *testing.T, k *kb.KB, id string) string {
 
 // The reproduction of D357 decision 1: the decorative title no longer wins.
 func TestRepairTitleH1_DecorativeTitleTakesTheHeading(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	driftWrite(t, k, "ops/rocket.md", "---\ntype: Note\ntitle: \"🚀\"\n---\n# Server B real\n")
 	out := repairApply(t, s, "title_h1_mismatch")
@@ -60,6 +61,7 @@ func TestRepairTitleH1_DecorativeTitleTakesTheHeading(t *testing.T) {
 }
 
 func TestRepairMissingTitle(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	driftWrite(t, k, "ops/with-heading.md", "---\ntype: Note\n---\n# The heading\n")
 	driftWrite(t, k, "ops/from-stem.md", "---\ntype: Note\n---\nno heading\n")
@@ -79,6 +81,7 @@ func TestRepairMissingTitle(t *testing.T) {
 }
 
 func TestRepairStringifiedList_BareScalars(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	driftWrite(t, k, "ops/p.md", "---\ntype: Note\ntitle: P\ntags: \"x, y\"\nprovenance: \"Talk, 2024\"\nrelated: backup\n---\n# P\n")
 	if out := repairApply(t, s, "stringified_list"); out["applied"].(float64) != 1 {
@@ -96,6 +99,7 @@ func TestRepairStringifiedList_BareScalars(t *testing.T) {
 }
 
 func TestRepairRepeatedLink(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	driftWrite(t, k, "ops/b.md", "---\ntype: Note\ntitle: B\n---\n# B\n")
 	driftWrite(t, k, "ops/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nSee [b](b.md) and [the b note](b.md).\n")
@@ -111,6 +115,7 @@ func TestRepairRepeatedLink(t *testing.T) {
 }
 
 func TestRepairUnknownType_OnlyWhenOneKnownTypeMatches(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	driftWrite(t, k, "../templates/service.md", "---\ntype: Service\ntitle: Service\n---\n# {{title}}\n")
 	driftWrite(t, k, "ops/svc.md", "---\ntype: service\ntitle: S\n---\n# S\n")
@@ -128,6 +133,7 @@ func TestRepairUnknownType_OnlyWhenOneKnownTypeMatches(t *testing.T) {
 }
 
 func TestRepairValueCaseVariant(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	for _, id := range []string{"a", "b"} {
 		driftWrite(t, k, "free/"+id+".md", "---\ntype: Note\ntitle: "+id+"\nstatus: active\n---\n# x\n")
@@ -142,6 +148,7 @@ func TestRepairValueCaseVariant(t *testing.T) {
 }
 
 func TestRepairUnmappedFolder_ScaffoldsWhatMapCreateWrites(t *testing.T) {
+	t.Parallel()
 	k, s := repairKB(t, 0)
 	driftWrite(t, k, "loose-notes/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n")
 	before := commitCount(t, k)
@@ -173,6 +180,7 @@ func TestRepairUnmappedFolder_ScaffoldsWhatMapCreateWrites(t *testing.T) {
 
 // repair-on-write handles concept checks only: a folder check never runs there.
 func TestRepairOnWriteSkipsFolderChecks(t *testing.T) {
+	t.Parallel()
 	k, _ := repairKB(t, 0)
 	k.RepairOnWrite = true
 	k.AutoRepair = []string{"unmapped_folder", "missing_title"}
@@ -185,6 +193,7 @@ func TestRepairOnWriteSkipsFolderChecks(t *testing.T) {
 // The heartbeat repairs a folder with no descriptor, and the pages in it, in
 // one run: the scaffold comes first so the pages are fixed inside a map.
 func TestStagedAutoRepair_ScaffoldsFoldersAndFixesTheirPages(t *testing.T) {
+	t.Parallel()
 	k, _ := repairKB(t, 0)
 	driftWrite(t, k, "loose/untitled.md", "---\ntype: Note\n---\n# Untitled one\n")
 	r := stagedAutoRepair(context.Background(), k, config.DefaultAutoRepair, 50)

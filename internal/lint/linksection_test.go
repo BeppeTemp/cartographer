@@ -8,6 +8,7 @@ import (
 )
 
 func TestLinksSectionIssues(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		body    string
@@ -34,6 +35,7 @@ func TestLinksSectionIssues(t *testing.T) {
 }
 
 func TestDropLinkItem(t *testing.T) {
+	t.Parallel()
 	body := "# T\n\nText.\n\n## Links\n\n- [[a/b]]\n- [[c/d]] — why\n\n## After\n\nkept\n"
 	got := DropLinkItem(body, "- [[a/b]]")
 	want := "# T\n\nText.\n\n## Links\n\n- [[c/d]] — why\n\n## After\n\nkept\n"
@@ -50,6 +52,7 @@ func TestDropLinkItem(t *testing.T) {
 }
 
 func TestLinkOnlyItemsNeedOneLinkAndNoWord(t *testing.T) {
+	t.Parallel()
 	section := "\n- [[a/b]]\n- [[c/d]] [[e/f]]\n- [[g/h]] because\n"
 	got := linkOnlyItems(section, "x/y.md", nil)
 	if _, ok := got["a/b"]; !ok || len(got) != 1 {
@@ -61,6 +64,7 @@ func TestLinkOnlyItemsNeedOneLinkAndNoWord(t *testing.T) {
 // leaves its item with its reason; other links in the item stay; an item
 // left with no link is dropped; a separator inside a link label is not one.
 func TestDuplicateItemFixes(t *testing.T) {
+	t.Parallel()
 	inText := map[okf.ConceptID]bool{"m/a": true, "m/b": true}
 	section := "\n- [[m/a]] — the reason\n- [[m/b]] (successor) · [[m/c]] · [[m/d|D, the label]]\n- [[m/c]] and [[m/a]] together\n"
 	got := duplicateItemFixes(section, "m/page.md", nil, inText)
@@ -94,6 +98,7 @@ func reciprocalFields(f []Finding) map[string][]string {
 // other only in their links sections — flagging both would let kb_repair drop
 // the edge from the graph.
 func TestReciprocalLinkItems_MutualPairSuppressed(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nText.\n\n## Collegamenti\n\n- [[m/b]]\n")
@@ -110,6 +115,7 @@ func TestReciprocalLinkItems_MutualPairSuppressed(t *testing.T) {
 // TestReciprocalLinkItems_OneSideInText (D309): A links B in its text, B
 // links A only in its links section — B's item is redundant, A has none.
 func TestReciprocalLinkItems_OneSideInText(t *testing.T) {
+	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nDepends on [[m/b]].\n")

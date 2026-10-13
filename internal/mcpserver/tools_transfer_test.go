@@ -85,6 +85,7 @@ func (f *transferFixture) transfer(t *testing.T, args string) ToolResult {
 const flatMoves = `{"target_kb":"kb-b","reason":"split the notes","moves":[{"source_id":"notes/a","target_id":"wiki/a"}]}`
 
 func TestConceptTransfer_FlatPage(t *testing.T) {
+	t.Parallel()
 	f := newTransferFixture(t)
 	xferWrite(t, f.a, "notes/a.md", "---\ntype: Note\ntitle: A\n---\n# A\nbody of a\n")
 	xferWrite(t, f.a, "notes/linker.md", "---\ntype: Note\ntitle: Linker\n---\nSee [A page](a.md) and [[notes/a|the alias]] and `[code](a.md)`.\n")
@@ -149,6 +150,7 @@ func TestConceptTransfer_FlatPage(t *testing.T) {
 }
 
 func TestConceptTransfer_ExpandedConceptWithAssets(t *testing.T) {
+	t.Parallel()
 	f := newTransferFixture(t)
 	xferWrite(t, f.a, "notes/dossier/index.md", "---\ntype: Note\ntitle: Dossier\n---\n![d](diagram.png) and [sat](part.md) and [data](data.sops.yaml)\n")
 	xferWrite(t, f.a, "notes/dossier/part.md", "---\ntype: Note\ntitle: Part\n---\nsatellite\n")
@@ -189,6 +191,7 @@ func TestConceptTransfer_ExpandedConceptWithAssets(t *testing.T) {
 }
 
 func TestConceptTransfer_TargetOccupiedChangesNothing(t *testing.T) {
+	t.Parallel()
 	f := newTransferFixture(t)
 	xferWrite(t, f.a, "notes/a.md", "---\ntype: Note\ntitle: A\n---\na\n")
 	xferWrite(t, f.a, "notes/b.md", "---\ntype: Note\ntitle: B\n---\nb\n")
@@ -245,6 +248,7 @@ func TestConceptTransfer_SourceFailureRevertsTarget(t *testing.T) {
 }
 
 func TestConceptTransfer_ReportsUndeclaredPlaceholders(t *testing.T) {
+	t.Parallel()
 	f := newTransferFixture(t)
 	xferWrite(t, f.a, "notes/a.md", "---\ntype: Note\ntitle: A\n---\n{{repo:declared}} {{repo:missing}} {{path:also-missing}}\n")
 	xferCommit(t, f.a)
@@ -267,6 +271,7 @@ func TestConceptTransfer_ReportsUndeclaredPlaceholders(t *testing.T) {
 }
 
 func TestConceptTransfer_Refusals(t *testing.T) {
+	t.Parallel()
 	f := newTransferFixture(t)
 	xferWrite(t, f.a, "notes/a.md", "---\ntype: Note\ntitle: A\n---\na\n")
 	xferCommit(t, f.a)
@@ -307,6 +312,7 @@ func TestConceptTransfer_Refusals(t *testing.T) {
 }
 
 func TestConceptTransfer_NeedsAServerMountingBothKBs(t *testing.T) {
+	t.Parallel()
 	a, _ := setupGitKB(t)
 	s := New("test")
 	RegisterKBTools(s, a, Deps{})
@@ -317,6 +323,7 @@ func TestConceptTransfer_NeedsAServerMountingBothKBs(t *testing.T) {
 }
 
 func TestConceptTransfer_Policy(t *testing.T) {
+	t.Parallel()
 	f := newTransferFixture(t)
 	xferWrite(t, f.a, "notes/a.md", "---\ntype: Note\ntitle: A\n---\na\n")
 	xferCommit(t, f.a)
@@ -339,6 +346,7 @@ func TestConceptTransfer_Policy(t *testing.T) {
 }
 
 func TestConceptTransfer_RoutedSetMustHoldTheTarget(t *testing.T) {
+	t.Parallel()
 	f := newTransferFixture(t)
 	xferWrite(t, f.a, "notes/a.md", "---\ntype: Note\ntitle: A\n---\na\n")
 	xferCommit(t, f.a)
@@ -353,6 +361,7 @@ func TestConceptTransfer_RoutedSetMustHoldTheTarget(t *testing.T) {
 // time take the same two locks; a global order is what keeps them from waiting
 // on each other forever.
 func TestConceptTransfer_OppositeDirectionsDoNotDeadlock(t *testing.T) {
+	t.Parallel()
 	f := newTransferFixture(t)
 	srvB := New("test")
 	RegisterKBTools(srvB, f.b, Deps{KBByName: func(n string) (*kb.KB, bool) { k, ok := f.byName[n]; return k, ok }})
@@ -383,6 +392,7 @@ func TestConceptTransfer_OppositeDirectionsDoNotDeadlock(t *testing.T) {
 // A wiki-link between two moved pages follows them; a page that stays and
 // embeds a moved asset is reported (D760 review).
 func TestConceptTransfer_LinksBetweenMovedPagesAndToMovedAssets(t *testing.T) {
+	t.Parallel()
 	f := newTransferFixture(t)
 	xferWrite(t, f.a, "notes/a.md", "---\ntype: Note\ntitle: A\n---\nsee [[notes/b]]\n")
 	xferWrite(t, f.a, "notes/b.md", "---\ntype: Note\ntitle: B\n---\nb\n")
@@ -407,6 +417,7 @@ func TestConceptTransfer_LinksBetweenMovedPagesAndToMovedAssets(t *testing.T) {
 // A gitignored file inside an expanded concept refuses the transfer: the target
 // would commit it, and the source would lose it beyond git's reach.
 func TestConceptTransfer_RefusesIgnoredFiles(t *testing.T) {
+	t.Parallel()
 	f := newTransferFixture(t)
 	if err := os.WriteFile(filepath.Join(f.a.Root, ".gitignore"), []byte("*.dec\n"), 0o644); err != nil {
 		t.Fatal(err)

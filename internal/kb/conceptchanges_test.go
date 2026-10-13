@@ -22,6 +22,7 @@ func changesOf(t *testing.T, k *KB) map[okf.ConceptID]ConceptChange {
 // D245: the first call reports every concept, then only what changed, and
 // each change exactly once.
 func TestConceptChanges_ReportsEachChangeOnce(t *testing.T) {
+	t.Parallel()
 	f := newGraphFixture(t)
 	first := changesOf(t, f.k)
 	if c, ok := first["infra/dns"]; !ok || c.Known || c.Hash != okf.ContentHash(c.Content) {
@@ -58,6 +59,7 @@ func TestConceptChanges_ReportsEachChangeOnce(t *testing.T) {
 // Expanding a concept with identical content is not a change for an index:
 // the id still resolves to the same bytes.
 func TestConceptChanges_RenameToExpandedWithSameContent(t *testing.T) {
+	t.Parallel()
 	f := newGraphFixture(t)
 	changesOf(t, f.k)
 	content := "---\ntype: Service\ntitle: DNS\n---\nBack to [gateway](gateway.md). Diagram: [d](diagram).\n"
@@ -70,6 +72,7 @@ func TestConceptChanges_RenameToExpandedWithSameContent(t *testing.T) {
 
 // With both forms on disk, the direct one wins, as ReadConcept resolves it.
 func TestConceptChanges_AmbiguousPairReportsDirectForm(t *testing.T) {
+	t.Parallel()
 	f := newGraphFixture(t)
 	f.write("infra/dns/index.md", "---\ntype: Service\n---\nExpanded form.\n")
 	if c := changesOf(t, f.k)["infra/dns"]; c.Content != "---\ntype: Service\ntitle: DNS\n---\nBack to [gateway](gateway.md). Diagram: [d](diagram).\n" {
@@ -84,6 +87,7 @@ func TestConceptChanges_AmbiguousPairReportsDirectForm(t *testing.T) {
 
 // Seeded hashes suppress reporting; a nil seed reports everything again.
 func TestConceptChanges_SeedSuppressesReporting(t *testing.T) {
+	t.Parallel()
 	f := newGraphFixture(t)
 	all := changesOf(t, f.k)
 	seed := map[okf.ConceptID]string{}

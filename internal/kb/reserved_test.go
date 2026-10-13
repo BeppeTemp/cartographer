@@ -82,6 +82,7 @@ func localCommit(t *testing.T, k *KB, files map[string]string) {
 }
 
 func TestInitCommitsGitAttributes(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -95,6 +96,7 @@ func TestInitCommitsGitAttributes(t *testing.T) {
 }
 
 func TestEnsureGitAttributesIdempotent(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -129,6 +131,7 @@ func TestEnsureGitAttributesIdempotent(t *testing.T) {
 }
 
 func TestSyncIn_ConcurrentLogAppendMergesByUnion(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -147,6 +150,7 @@ func TestSyncIn_ConcurrentLogAppendMergesByUnion(t *testing.T) {
 }
 
 func TestSyncIn_LogConflictWithoutAttributesAutoResolvedByUnion(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -170,6 +174,7 @@ func TestSyncIn_LogConflictWithoutAttributesAutoResolvedByUnion(t *testing.T) {
 }
 
 func TestSyncIn_StructuralReservedConflictTakesTheirs(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -189,6 +194,7 @@ func TestSyncIn_StructuralReservedConflictTakesTheirs(t *testing.T) {
 }
 
 func TestSyncIn_ReservedWithConceptConflictNotAutoResolved(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -213,6 +219,7 @@ func TestSyncIn_ReservedWithConceptConflictNotAutoResolved(t *testing.T) {
 // conflicted alongside a concept stays out of the registry and takes its
 // automatic resolution when the concept is finalized.
 func TestFinalizeConflictsResolvesUnregisteredReserved(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -242,6 +249,7 @@ func TestFinalizeConflictsResolvesUnregisteredReserved(t *testing.T) {
 // TestFinalizeConflictsReservedUnion: a reserved log.md registered with kind
 // reserved is settled by strategy union.
 func TestFinalizeConflictsReservedUnion(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -269,6 +277,7 @@ func TestFinalizeConflictsReservedUnion(t *testing.T) {
 }
 
 func TestSyncIn_FetchFailureWithCurrentBaseProceedsDegraded(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -299,6 +308,7 @@ func TestSyncIn_FetchFailureWithCurrentBaseProceedsDegraded(t *testing.T) {
 }
 
 func TestSyncIn_FetchFailureWithUnpushedCommitFails(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -317,6 +327,7 @@ func TestSyncIn_FetchFailureWithUnpushedCommitFails(t *testing.T) {
 }
 
 func TestSyncIn_FetchFailureWithoutTrackingRefFails(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}

@@ -18,6 +18,7 @@ import (
 // window) the worker only had one debounce cycle to react to, so it can only
 // have performed a single SyncOut for the whole burst.
 func TestSchedulePush_Burst_CoalescesIntoOnePush(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -55,6 +56,7 @@ func TestSchedulePush_Burst_CoalescesIntoOnePush(t *testing.T) {
 }
 
 func TestSyncStatus_RealPushClearsPendingAndRecordsAttempt(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -74,6 +76,7 @@ func TestSyncStatus_RealPushClearsPendingAndRecordsAttempt(t *testing.T) {
 }
 
 func TestMarkPushPendingDoesNotClearFailure(t *testing.T) {
+	t.Parallel()
 	k, _ := initGitKB(t)
 	k.SetGitStatus("failed", fmt.Errorf("rejected"))
 	k.MarkPushPending()
@@ -95,6 +98,7 @@ func writeFileT(t *testing.T, root, relPath, content string) {
 // conflict hit by the async push worker is routed to k.OnPushConflict rather
 // than only logged to stderr.
 func TestSchedulePush_Conflict_InvokesOnPushConflict(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -151,6 +155,7 @@ func TestSchedulePush_Conflict_InvokesOnPushConflict(t *testing.T) {
 // not start the worker — when SchedulePush was never called (which is always
 // the case in production when SyncOutDebounce == 0, the rollback flag).
 func TestFlushPush_NoPending_NoOp(t *testing.T) {
+	t.Parallel()
 	k := &KB{}
 	if err := k.FlushPush(time.Second); err != nil {
 		t.Fatalf("FlushPush with nothing pending should be a no-op, got: %v", err)
@@ -164,6 +169,7 @@ func TestFlushPush_NoPending_NoOp(t *testing.T) {
 // immediate push (rather than waiting out the full debounce) and that the
 // commit has reached the remote once FlushPush returns.
 func TestFlushPush_AfterSchedule_WaitsForPush(t *testing.T) {
+	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
@@ -198,6 +204,7 @@ func TestFlushPush_AfterSchedule_WaitsForPush(t *testing.T) {
 // which is what makes "flush arrives mid-push" deterministic rather than a
 // timing gamble.
 func TestFlushPushDuringRunDoesNotLeakForce(t *testing.T) {
+	t.Parallel()
 	k, _ := initGitKB(t)
 	k.GitSync = true
 	k.SyncOutDebounce = time.Millisecond

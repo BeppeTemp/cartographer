@@ -21,6 +21,7 @@ func restrictedContext(policy auth.Policy) context.Context {
 }
 
 func TestPolicyExactReadDoesNotDiscloseForbiddenConcept(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	s := New("test")
@@ -34,6 +35,7 @@ func TestPolicyExactReadDoesNotDiscloseForbiddenConcept(t *testing.T) {
 }
 
 func TestPolicySearchFiltersBeforeLimit(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	hidden := filepath.Join(k.DataRoot(), "hidden")
@@ -57,6 +59,7 @@ func TestPolicySearchFiltersBeforeLimit(t *testing.T) {
 }
 
 func TestPolicySQLiteSearchFiltersBeforeLimit(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "hidden"), 0o755); err != nil {
@@ -93,6 +96,7 @@ func TestPolicySQLiteSearchFiltersBeforeLimit(t *testing.T) {
 }
 
 func TestPolicyWriteRequiresProposedTypePermission(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}, Types: []string{"Runbook"}}}}
@@ -103,6 +107,7 @@ func TestPolicyWriteRequiresProposedTypePermission(t *testing.T) {
 }
 
 func TestResourceClassInventory(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -135,6 +140,7 @@ func toolCallBodyWithArgs(name string, args map[string]any) string {
 // on only one of them. It must not see, read, or write the other KB's
 // concept, even though both KBs happen to share the same concept ID.
 func TestMultiKBIsolation_FineGrainedPermissionDoesNotCrossKBBoundary(t *testing.T) {
+	t.Parallel()
 	multi := NewMultiKBServer("test")
 	kX := setupTestKB(t)
 	multi.MountKB("kb-x", func(s *Server) {
@@ -204,6 +210,7 @@ func unmarshalMCPResponse(t *testing.T, rr *httptest.ResponseRecorder) Response 
 }
 
 func TestMissingPrincipalFailsClosedEverywhere(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	s := New("test")
@@ -282,6 +289,7 @@ func TestMissingPrincipalFailsClosedEverywhere(t *testing.T) {
 // other. Before, the empty type matched no typed rule, so such a principal saw
 // no collection anywhere and the UI reported that no KB was visible (D228).
 func TestVisibleCollectionIgnoresTypeSelector(t *testing.T) {
+	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	policy := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"manutenzione"}, Types: []string{"Runbook"}}}}

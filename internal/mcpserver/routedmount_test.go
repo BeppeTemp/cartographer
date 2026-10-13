@@ -99,6 +99,7 @@ func decodeToolList(t *testing.T, rr *httptest.ResponseRecorder) []listedTool {
 // TestRoutedMount_ToolsList_OneCopyWithRequiredKB is the whole point of D187:
 // three KBs, one copy of each tool, and the KB carried as a required argument.
 func TestRoutedMount_ToolsList_OneCopyWithRequiredKB(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-one", "kb-two", "kb-three")
 
 	tools := decodeToolList(t, routedPost(t, handler, RoutedMountPath, toolsListBody))
@@ -158,6 +159,7 @@ func TestRoutedMount_ToolsList_OneCopyWithRequiredKB(t *testing.T) {
 // opt-in safe: enabling the routed mount must not alter a single byte of what
 // the per-KB endpoints advertise.
 func TestRoutedMount_PerKBEndpointsUnchanged(t *testing.T) {
+	t.Parallel()
 	plain := NewMultiKBServer("test")
 	routed := NewMultiKBServer("test")
 	for _, name := range []string{"kb-one", "kb-two"} {
@@ -203,6 +205,7 @@ func routedCall(t *testing.T, handler http.Handler, tool string, args map[string
 // TestRoutedMount_DispatchesToTheNamedKB: each of three KBs is reachable, and
 // the content that comes back is that KB's.
 func TestRoutedMount_DispatchesToTheNamedKB(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-one", "kb-two", "kb-three")
 
 	for _, name := range []string{"kb-one", "kb-two", "kb-three"} {
@@ -221,6 +224,7 @@ func TestRoutedMount_DispatchesToTheNamedKB(t *testing.T) {
 // argument is required, and the refusal has to say which KBs exist — an error
 // the caller can act on without a second round-trip.
 func TestRoutedMount_MissingKB_NamesThem(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-one", "kb-two", "kb-three")
 	res := routedCall(t, handler, "atlas_overview", map[string]any{})
 	if !res.IsError {
@@ -237,6 +241,7 @@ func TestRoutedMount_MissingKB_NamesThem(t *testing.T) {
 // TestRoutedMount_SingleKB_KBOptional: with exactly one KB mounted there is no
 // ambiguity to resolve, so the schemas carry no kb at all (D288).
 func TestRoutedMount_SingleKB_KBOptional(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "only")
 
 	res := routedCall(t, handler, "concept_read", map[string]any{"id": "manutenzione/marker"})
@@ -253,6 +258,7 @@ func TestRoutedMount_SingleKB_KBOptional(t *testing.T) {
 }
 
 func TestRoutedMount_UnknownKB(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-one", "kb-two")
 	res := routedCall(t, handler, "atlas_overview", map[string]any{"kb": "nope"})
 	if !res.IsError || !strings.Contains(res.Content[0].Text, `kb "nope" is not available`) {
@@ -269,6 +275,7 @@ func TestRoutedMount_UnknownKB(t *testing.T) {
 // TestRoutedMount_MountedButUnbound: a KB the server mounts but the connection
 // does not bind is refused with the bind/sync/new-session fix (D712).
 func TestRoutedMount_MountedButUnbound(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-one", "kb-two", "kb-three")
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "concept_read", "arguments": map[string]any{"kb": "kb-three", "id": "x"}}})
@@ -310,6 +317,7 @@ func routedKBStatusConnection(t *testing.T, handler http.Handler, path string, k
 }
 
 func TestRoutedMount_KBStatusConnection_Default(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-one", "kb-two")
 	obj, conn := routedKBStatusConnection(t, handler, RoutedMountPath, "kb-one")
 	if conn == nil {
@@ -332,6 +340,7 @@ func TestRoutedMount_KBStatusConnection_Default(t *testing.T) {
 }
 
 func TestRoutedMount_KBStatusConnection_Unbound(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-one", "kb-two", "kb-three")
 	_, conn := routedKBStatusConnection(t, handler, RoutedMountPath+"?kbs=kb-one", "")
 	if conn == nil {
@@ -346,6 +355,7 @@ func TestRoutedMount_KBStatusConnection_Unbound(t *testing.T) {
 }
 
 func TestRoutedMount_PerKBStatusHasNoConnection(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-one", "kb-two")
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "kb_status", "arguments": map[string]any{}}})
@@ -365,6 +375,7 @@ func TestRoutedMount_PerKBStatusHasNoConnection(t *testing.T) {
 // does not gets an error naming itself and the setting, rather than the tool
 // silently vanishing for everyone.
 func TestRoutedMount_GatedTool_UnionThenAttributedRefusal(t *testing.T) {
+	t.Parallel()
 	multi := NewMultiKBServer("test")
 	allowed := setupNamedTestKB(t, "open-kb")
 	allowed.AllowArtifactWrite = true
@@ -409,6 +420,7 @@ func TestRoutedMount_GatedTool_UnionThenAttributedRefusal(t *testing.T) {
 // TestRoutedMount_RejectsQueryKBSelector: two channels for the same choice is
 // how they get to disagree.
 func TestRoutedMount_RejectsQueryKBSelector(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-one", "kb-two")
 	rr := routedPost(t, handler, RoutedMountPath+"?kb=kb-one", toolsListBody)
 	if rr.Code != http.StatusBadRequest {
@@ -419,6 +431,7 @@ func TestRoutedMount_RejectsQueryKBSelector(t *testing.T) {
 // TestRoutedMount_NotEnabled_PathFallsThrough: with no routed mount, the path
 // is an ordinary KB name, so a KB called "routed" keeps its own endpoint.
 func TestRoutedMount_NotEnabled_PathFallsThrough(t *testing.T) {
+	t.Parallel()
 	multi := newMultiKBTestHandler(t, "routed", "other")
 	rr := routedPost(t, routedTokenStore("routed", "other").Middleware(multi.Handler()), RoutedMountPath, toolsListBody)
 	if rr.Code != http.StatusOK {
@@ -442,6 +455,7 @@ func routedSchema(t *testing.T, tool listedTool) (props map[string]map[string]an
 // TestRoutedMount_KBS_AbsentIsAllMounted: no ?kbs= is the default binding, every
 // mounted KB, as a required enum of all of them (D288).
 func TestRoutedMount_KBS_AbsentIsAllMounted(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b", "kb-c")
 	for _, tool := range decodeToolList(t, routedPost(t, handler, RoutedMountPath, toolsListBody)) {
 		props, _ := routedSchema(t, tool)
@@ -456,6 +470,7 @@ func TestRoutedMount_KBS_AbsentIsAllMounted(t *testing.T) {
 // exactly those two, dispatches to either and refuses the third, naming the
 // allowed ones. The binding only narrows: the token would reach the third.
 func TestRoutedMount_KBS_NarrowsToTwo(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b", "kb-c")
 	path := RoutedMountPath + "?kbs=kb-b,kb-a,kb-a"
 
@@ -498,6 +513,7 @@ func TestRoutedMount_KBS_NarrowsToTwo(t *testing.T) {
 // dispatches a call without it to that KB, accepts the same value and refuses
 // any other.
 func TestRoutedMount_KBS_SingleKB(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b", "kb-c")
 	path := RoutedMountPath + "?kbs=kb-b"
 
@@ -539,6 +555,7 @@ func TestRoutedMount_KBS_SingleKB(t *testing.T) {
 // mounted ones down with it; the connection serves the intersection and
 // reports the rest in kb_status.connection.unknown.
 func TestRoutedMount_KBS_PartialUnknown(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b", "kb-c")
 	path := RoutedMountPath + "?kbs=kb-a,kb-b,old,gone"
 	rr := routedPost(t, handler, path, toolsListBody)
@@ -568,6 +585,7 @@ func TestRoutedMount_KBS_PartialUnknown(t *testing.T) {
 // naming every unknown name in a stable order and the mounted KBs; it never
 // falls back to all mounted KBs (the binding only narrows).
 func TestRoutedMount_KBS_AllUnknown(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b")
 	rr := routedPost(t, handler, RoutedMountPath+"?kbs=zeta,nope", toolsListBody)
 	if rr.Code != http.StatusBadRequest {
@@ -582,6 +600,7 @@ func TestRoutedMount_KBS_AllUnknown(t *testing.T) {
 // TestRoutedMount_KBS_CallUnknownKB: naming a stale KB in a call explains
 // that it is not mounted and points at sync.
 func TestRoutedMount_KBS_CallUnknownKB(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b")
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "kb_status", "arguments": map[string]any{"kb": "old"}}})
@@ -600,6 +619,7 @@ func TestRoutedMount_KBS_CallUnknownKB(t *testing.T) {
 // is refused the metadata of a connection bound to kb-b (it can reach none of
 // that connection's KBs) and admitted on one bound to kb-a.
 func TestRoutedMount_KBS_MetadataGateUsesTheSet(t *testing.T) {
+	t.Parallel()
 	multi := NewMultiKBServer("test")
 	for _, name := range []string{"kb-a", "kb-b"} {
 		k := setupNamedTestKB(t, name)
@@ -627,6 +647,7 @@ func TestRoutedMount_KBS_MetadataGateUsesTheSet(t *testing.T) {
 // TestWithKBProperty_PreservesExistingSchema: the injection edits the decoded
 // schema, so a tool's own required list and properties survive.
 func TestWithKBProperty_PreservesExistingSchema(t *testing.T) {
+	t.Parallel()
 	in := json.RawMessage(`{"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}`)
 	out := withKBProperty(in, []string{"kb-a", "kb-b"})
 	var schema struct {
@@ -650,6 +671,7 @@ func TestWithKBProperty_PreservesExistingSchema(t *testing.T) {
 // TestSplitKBArgument_StripsKB: the per-KB handler must receive exactly the
 // arguments it would have received on its own endpoint.
 func TestSplitKBArgument_StripsKB(t *testing.T) {
+	t.Parallel()
 	name, rest, err := splitKBArgument(json.RawMessage(`{"kb":"kb-one","id":"a/b"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -670,6 +692,7 @@ func TestSplitKBArgument_StripsKB(t *testing.T) {
 // D320: a stale session calling a pre-D288 prefixed name learns what replaced
 // it, and the prefixed name is never advertised.
 func TestLegacyPrefixedToolReturnsExplicitError(t *testing.T) {
+	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b")
 
 	res := routedCall(t, handler, "kb_a__search", map[string]any{"query": "marker"})
