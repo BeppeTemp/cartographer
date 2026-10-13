@@ -54,8 +54,8 @@ type searchHit struct {
 	// Partial marks a hit that matched only some query terms (D343): it comes
 	// from the OR pass and ranks after every full match.
 	Partial bool `json:"partial,omitempty"`
-	// Bytes is the concept file's size (D301): what reading it whole costs,
-	// so an agent can choose outline or section before paying it.
+	// Bytes is the concept file's size (D301, D779): what reading it whole
+	// costs, so an agent can choose outline or section before paying it.
 	Bytes int64 `json:"bytes"`
 }
 
@@ -82,7 +82,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, reads *r
 	if deps.SQLIndex != nil {
 		description = "Keyword search over concepts (SQLite FTS5, substring matching); returns IDs ranked by relevance."
 	}
-	description += " Glossary aliases are searched too (expanded_to). scope is an id prefix, usually a map name, never a KB name."
+	description += " Glossary aliases are searched too (expanded_to). scope is a map name or id prefix, never a KB name."
 
 	return Tool{
 		Name:        "search",
@@ -148,8 +148,8 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 		hits[i].Bytes = f.Bytes
 	}
 	// A scope no visible concept starts with is a wrong argument, not an empty
-	// answer: refused before the miss log, which would record a gap the KB
-	// does not have.
+	// answer (D779): refused before the miss log, which would record a gap the
+	// KB does not have.
 	if len(hits) == 0 && params.Scope != "" {
 		if msg := unmatchedScope(ctx, k, params.Scope); msg != "" {
 			return errorResult(msg), nil
