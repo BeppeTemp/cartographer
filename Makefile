@@ -1,4 +1,4 @@
-.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e test-install worktree-add worktree-rm dev gate decisions-index decisions-new codemap web web-test web-check e2e-web hero
+.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-tf-check test-install worktree-add worktree-rm dev gate decisions-index decisions-new codemap web web-test web-check e2e-web hero
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -93,6 +93,19 @@ hero: ## Re-record the README's Atlas animation (needs Node, Chromium, ffmpeg, i
 
 docker: ## Build the Docker image
 	docker build -t cartographer .
+
+DEMO_IMAGE ?= cartographer-demo
+# Override with BASE=cartographer (after `make docker`) to test the working tree.
+DEMO_BASE ?= ghcr.io/beppetemp/cartographer:latest
+
+demo-image: ## Build the live-demo image (D751) on the released server image
+	docker build -f deploy/demo/Dockerfile --build-arg BASE=$(DEMO_BASE) -t $(DEMO_IMAGE) .
+
+demo-smoke: demo-image ## Run the demo image and check read ok, write refused, no token 401
+	deploy/demo/smoke.sh $(DEMO_IMAGE)
+
+demo-tf-check: ## terraform fmt + validate of deploy/demo (no credentials)
+	cd deploy/demo && terraform fmt -check && terraform init -backend=false -input=false >/dev/null && terraform validate
 
 clean: ## Remove bin/ and demo-kb/
 	rm -rf bin/ demo-kb/

@@ -85,6 +85,18 @@ jobs:
             ghcr.io/beppetemp/cartographer:${{ github.ref_name }}
             ghcr.io/beppetemp/cartographer:latest
 
+  # Live read-only MCP demo on Cloud Run (D751). Skipped until the repository
+  # variables exist; nothing waits on it, so a demo failure never blocks the
+  # MCP Registry entry.
+  demo:
+    needs: docker
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/demo.yml
+    with:
+      tag: ${{ github.ref_name }}
+
   # Metadata entry in the official MCP Registry, pointing at the ghcr image
   # (ownership verified via the io.modelcontextprotocol.server.name LABEL).
   mcp-registry:

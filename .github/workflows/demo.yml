@@ -1,0 +1,79 @@
+# Deploys the live read-only MCP demo (D751) to Cloud Run: called by the release
+# workflow after the server image is published, or run by hand to redeploy a
+# given tag without a release. Authenticates by Workload Identity Federation: no
+# key anywhere. Skipped until the repository variables exist (deploy/demo/README.md).
+name: demo
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag whose server image the demo is built on
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag whose server image the demo is built on (e.g. v0.24.0)
+        type: string
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: vars.GCP_WIF_PROVIDER != ''
+    env:
+      TAG: ${{ inputs.tag }}
+      REGISTRY: ${{ vars.GCP_REGION }}-docker.pkg.dev
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT }}/demo/cartographer-demo:${{ inputs.tag }}
+      HOSTNAME: cartographer-demo.beppetemp.com
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The KB and the replay script of the tag being deployed.
+          ref: ${{ inputs.tag }}
+      - uses: google-github-actions/auth@v3
+        id: auth
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+          token_format: access_token
+      - uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+      - uses: docker/setup-buildx-action@v4
+      # The replayed history ends "yesterday" relative to the build, which is why
+      # the image is rebuilt on every release. amd64 only: Cloud Run's.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/demo/Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            BASE=ghcr.io/beppetemp/cartographer:${{ inputs.tag }}
+          tags: ${{ env.IMAGE }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Deploy
+        run: |
+          gcloud run deploy cartographer-demo \
+            --project "${{ vars.GCP_PROJECT }}" --region "${{ vars.GCP_REGION }}" \
+            --image "$IMAGE" --quiet
+      - name: Probe the public hostname
+        run: |
+          # /health is public and carries ready; /ready needs the token.
+          for _ in $(seq 20); do
+            if curl -sf "https://$HOSTNAME/health" | grep -q '"ready":true'; then
+              echo "demo is up on $HOSTNAME"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "::error::https://$HOSTNAME/health never reported ready:true" >&2
+          exit 1

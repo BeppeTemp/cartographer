@@ -40,3 +40,8 @@ dist/
 
 # Local agent-tooling state (oh-my-claudecode), never versioned.
 .omc/
+# Terraform for the live demo (deploy/demo): state and account ids stay local.
+/deploy/demo/.terraform/
+*.tfstate*
+*.tfvars
+!*.tfvars.example
