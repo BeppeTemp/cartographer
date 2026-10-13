@@ -36,7 +36,8 @@ var gateStashPop = gitx.StashPop
 // repair_revert, conflict_resolve, log_append, snapshot, map_*, index_patch and
 // source_register are exempt by construction.
 func acceptsFindings(name string) bool {
-	return strings.HasPrefix(name, "concept_") || name == "supersede"
+	// concept_transfer commits two KBs itself and reports findings per KB (D760).
+	return (strings.HasPrefix(name, "concept_") && name != "concept_transfer") || name == "supersede"
 }
 
 // writeGateState is the capability state of the KB's write_gate: off, error or

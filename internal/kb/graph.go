@@ -297,6 +297,57 @@ func RewriteLinks(body string, basePath string, moveMap map[string]string, asset
 	return applySpanEdits(body, edits)
 }
 
+// UnlinkTargets is RewriteLinks' sibling for a target that leaves the KB
+// (concept_transfer, D760): every markdown link and wiki-link whose resolved
+// target concept ID is in targets is replaced by its label as plain text —
+// "[label](x.md)" becomes "label", "[[id|label]]" becomes "label", a bare
+// "[[id#section]]" becomes "id". There is no cross-KB link syntax, so the
+// reader keeps the words and loses the hyperlink. Returns the new body and
+// the number of links removed.
+//
+// Trap: it must resolve exactly as ExtractLinks and RewriteLinks do — same
+// code-span masking (D248), same resolvers, assetResolver included — or the
+// walk that finds the linkers (WalkConceptsLinkingTo, built on ExtractLinks)
+// and this rewrite disagree about what a link is. An image
+// ("![alt](x.md)") goes the same way, leaving its alt text.
+func UnlinkTargets(body string, basePath string, targets map[string]bool, assetResolver ...func(relPath string) bool) (string, int) {
+	if len(targets) == 0 {
+		return body, 0
+	}
+	isAsset := firstResolver(assetResolver)
+	baseDir := path.Dir(basePath)
+	masked := MaskCodeSpans(body)
+	var edits []spanEdit
+
+	for _, m := range mdLinkRe.FindAllStringSubmatchIndex(masked, -1) {
+		targetID, ok := mdLinkTarget(baseDir, masked[m[4]:m[5]], isAsset)
+		if !ok || !targets[targetID] {
+			continue
+		}
+		start := m[0]
+		if start > 0 && masked[start-1] == '!' {
+			start-- // ExtractLinks counts an image as a link, so it goes too: the alt text stays
+		}
+		edits = append(edits, spanEdit{start, m[1], body[m[2]:m[3]]})
+	}
+
+	for _, m := range wikiLinkRe.FindAllStringSubmatchIndex(masked, -1) {
+		targetID, ok := wikiLinkTarget(masked[m[2]:m[3]])
+		if !ok || !targets[targetID] {
+			continue
+		}
+		text := body[m[2]:m[3]]
+		if m[6] >= 0 { // alias: "|label"
+			if label := strings.TrimSpace(body[m[6]+1 : m[7]]); label != "" {
+				text = label
+			}
+		}
+		edits = append(edits, spanEdit{m[0], m[1], text})
+	}
+
+	return applySpanEdits(body, edits)
+}
+
 // spanEdit replaces body[start:end] with text.
 type spanEdit struct {
 	start, end int

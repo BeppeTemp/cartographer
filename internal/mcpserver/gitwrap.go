@@ -69,16 +69,10 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 			// Step 2: fetch + pull --rebase before every write operation.
 			// If the KB has no remote or GitSync is false, SyncIn is a no-op.
 			syncInStart := time.Now()
-			_, syncErr := k.SyncIn()
+			refused, syncRefused := syncInForWrite(k)
 			syncInDur = time.Since(syncInStart)
-			if syncErr != nil {
-				var rce *gitx.RebaseConflictError
-				if errors.As(syncErr, &rce) {
-					// Step 3: rebase conflict — register conflicts, mark concepts degraded.
-					res = errorResult(conflictMessage(handleConflictError(k, rce)))
-				} else {
-					res = errorResult(syncFailureMessage(k, syncErr))
-				}
+			if syncRefused {
+				res = refused
 				return nil
 			}
 			// SyncIn may have changed maps, journals, or concept frontmatter.
@@ -122,16 +116,8 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				// One trailer paragraph, in order: Reason, Agent, then the
 				// write gate's Accepted-Finding lines (git only parses the
 				// last contiguous block).
-				var block []string
-				if reason := commitReason(args); reason != "" {
-					block = append(block, commitReasonKey+": "+reason)
-				}
-				if agent := commitAgent(ctx); agent != "" {
-					block = append(block, commitAgentKey+": "+agent)
-				}
-				block = append(block, trailers...)
-				if len(block) > 0 {
-					msg += "\n\n" + strings.Join(block, "\n")
+				if block := commitTrailerBlock(ctx, args, trailers...); block != "" {
+					msg += "\n\n" + block
 				}
 				commitStart := time.Now()
 				p := auth.PrincipalFromContext(ctx)
@@ -154,28 +140,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				// k.OnPushConflict (wired in RegisterKBTools). Push failure —
 				// sync or async — is non-fatal; Step 3 surfaces rebase
 				// conflicts as degraded concepts.
-				if k.SyncOutDebounce > 0 {
-					k.SchedulePush()
-					k.MarkPushPending()
-					pushAsync = true
-					appendSyncWarning(&res, k)
-				} else {
-					pushStart := time.Now()
-					syncErr := k.SyncOut()
-					pushDur = time.Since(pushStart)
-					if syncErr != nil {
-						var rce *gitx.RebaseConflictError
-						if errors.As(syncErr, &rce) {
-							n, _ := handleConflictError(k, rce)
-							fmt.Fprintf(os.Stderr,
-								"cartographer: git conflict during push (%s): registered %d concept(s) as degraded\n",
-								orig.Name, n)
-						} else {
-							fmt.Fprintf(os.Stderr, "cartographer: git push failed (%s): %v\n", orig.Name, syncErr)
-						}
-					}
-					appendSyncWarning(&res, k)
-				}
+				pushDur, pushAsync = pushAfterCommit(k, orig.Name, &res)
 			}
 			return nil
 		})
@@ -184,6 +149,69 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 		return res, handlerErr
 	}
 	return t
+}
+
+// syncInForWrite is gitWrap's step 2/3: fetch + pull --rebase before a write.
+// It returns a refusal result (and true) when the write must not go on: a
+// rebase conflict is registered and its concepts marked degraded, any other
+// failure is worded by syncFailureMessage. No remote or GitSync off: a no-op.
+func syncInForWrite(k *kb.KB) (ToolResult, bool) {
+	_, syncErr := k.SyncIn()
+	if syncErr == nil {
+		return ToolResult{}, false
+	}
+	var rce *gitx.RebaseConflictError
+	if errors.As(syncErr, &rce) {
+		return errorResult(conflictMessage(handleConflictError(k, rce))), true
+	}
+	return errorResult(syncFailureMessage(k, syncErr)), true
+}
+
+// commitTrailerBlock builds the one trailer paragraph of a write's commit, in
+// order: Reason, Agent, then extra (the write gate's Accepted-Finding lines,
+// or the transfer's Moved-* lines). Git only parses the last contiguous block.
+// Empty when there is nothing to say.
+func commitTrailerBlock(ctx context.Context, args json.RawMessage, extra ...string) string {
+	var block []string
+	if reason := commitReason(args); reason != "" {
+		block = append(block, commitReasonKey+": "+reason)
+	}
+	if agent := commitAgent(ctx); agent != "" {
+		block = append(block, commitAgentKey+": "+agent)
+	}
+	block = append(block, extra...)
+	return strings.Join(block, "\n")
+}
+
+// pushAfterCommit is gitWrap's step 2 / D76-WP4 after a commit: with
+// SyncOutDebounce set the push is scheduled on the per-KB async worker (which
+// runs under the same WithGitLock and surfaces conflicts via k.OnPushConflict);
+// otherwise it is done inline. A push failure, sync or async, is non-fatal;
+// Step 3 surfaces rebase conflicts as degraded concepts. It returns the inline
+// push duration and whether the push was left to the worker.
+func pushAfterCommit(k *kb.KB, tool string, res *ToolResult) (dur time.Duration, async bool) {
+	if k.SyncOutDebounce > 0 {
+		k.SchedulePush()
+		k.MarkPushPending()
+		appendSyncWarning(res, k)
+		return 0, true
+	}
+	start := time.Now()
+	syncErr := k.SyncOut()
+	dur = time.Since(start)
+	if syncErr != nil {
+		var rce *gitx.RebaseConflictError
+		if errors.As(syncErr, &rce) {
+			n, _ := handleConflictError(k, rce)
+			fmt.Fprintf(os.Stderr,
+				"cartographer: git conflict during push (%s): registered %d concept(s) as degraded\n",
+				tool, n)
+		} else {
+			fmt.Fprintf(os.Stderr, "cartographer: git push failed (%s): %v\n", tool, syncErr)
+		}
+	}
+	appendSyncWarning(res, k)
+	return dur, false
 }
 
 // externalChangesSubject is the subject of the commit that records changes the

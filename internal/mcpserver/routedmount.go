@@ -288,7 +288,7 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 			// a tool it can see does not exist.
 			return errorResult(fmt.Sprintf("kb %q: %s", kbName, unknownToolMessage(toolName))), nil
 		}
-		res := srv.callTool(ctx, toolName, rest)
+		res := srv.callTool(withRoutedSet(ctx, set), toolName, rest)
 		if toolName == "kb_status" && !res.IsError {
 			res = m.withConnectionNotice(res, set, routedUnknown(ctx))
 		}

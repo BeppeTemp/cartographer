@@ -124,7 +124,9 @@ var advancedToolNames = map[string]bool{
 	"concept_merge":    true,
 	"concept_collapse": true,
 	// concept_archive (D344): retiring a page is rare, deliberate and whole-KB.
-	"concept_archive":      true,
+	"concept_archive": true,
+	// concept_transfer (D760): moving pages between KBs is rare and whole-KB.
+	"concept_transfer":     true,
 	"commit_gate":          true,
 	"contradiction_report": true,
 	"conflict_resolve":     true,

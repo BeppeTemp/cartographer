@@ -78,7 +78,7 @@ func resourceClassForTool(name string) string {
 		return resourceCollection
 	case "concept_read", "concept_history", "concept_write", "concept_new", "concept_patch", "concept_expand", "concept_collapse", "concept_merge", "concept_delete", "supersede", "asset_read", "asset_list", "asset_write", "asset_delete", "service_get":
 		return resourceExact
-	case "concept_move", "concept_archive":
+	case "concept_move", "concept_archive", "concept_transfer":
 		return resourceMove
 	case "concept_batch":
 		return resourceBatch
@@ -197,6 +197,26 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 		}
 		if !allowedMove(policy, k, name, a.ID, archiveTarget(a.ID, to)) {
 			return deny(denyOutsideScope)
+		}
+		return nil
+	}
+	// concept_transfer (D760) rewrites inbound links in this KB, so it needs the
+	// whole-KB write grant here; each source must pass, and the target KB's half
+	// is authorizeTransferTarget's, run by the tool with both KBs in hand.
+	if tool == "concept_transfer" {
+		var tr struct {
+			Moves []conceptMoveEntry `json:"moves"`
+		}
+		if json.Unmarshal(args, &tr) != nil || len(tr.Moves) == 0 {
+			return deny(denyBadArguments)
+		}
+		if !policy.AllowsWholeKB(name, true) {
+			return deny(denyNeedsWholeKB)
+		}
+		for _, m := range tr.Moves {
+			if !allowedID(policy, k, name, m.SourceID, true, "") {
+				return deny(denyOutsideScope)
+			}
 		}
 		return nil
 	}
