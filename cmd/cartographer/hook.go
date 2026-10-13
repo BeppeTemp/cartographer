@@ -142,7 +142,7 @@ func writeFindingsFeedback(payload []byte) string {
 		}
 		fmt.Fprintf(&b, "%s %s: %s\n", f.Check, f.Path, f.Message)
 	}
-	b.WriteString("Fix them in your next write, or record why with a `lint_ignore` entry (check + reason) on the concept.")
+	b.WriteString("Fix them in your next write, or accept them by adding the check name to the concept's `lint_ignore` list (`lint_ignore: [<check>]`), with the why in the write's `reason`.")
 	return b.String()
 }
 
