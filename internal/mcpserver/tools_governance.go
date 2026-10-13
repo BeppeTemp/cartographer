@@ -629,7 +629,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		"template_write": {State: templateWriteState(k), Setting: "kbs[].allow_template_write"},
 		"secrets":        {State: onOff(k.SopsAgeKeyFile != ""), Setting: "kbs[].sops_age_key_file or sops.age_key_file"},
 		"git_sync":       {State: onOff(k.GitSync), Setting: "git.sync"},
-		"git_workflow":   {State: workflow, Setting: "kbs[].server_git"},
+		"git_workflow":   {State: workflow, Setting: "kbs[].git_profile or git.profile"},
 		// A discovered KB cannot carry any of the settings above, which is the
 		// single invisible cause behind several of them being off at once.
 		"mount": {State: mount, Setting: "kbs[]"},

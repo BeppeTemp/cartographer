@@ -37,6 +37,7 @@ var subcommands = []subcommand{
 	{"Client", "sync", "Synchronize agent clients"},
 	{"Client", "reconnect", "Rebuild an agent client's configuration from scratch"},
 	{"Client", "approve", "Approve or revoke a third-party MCP descriptor"},
+	{"Client", "config", "Show every setting with its value and where it comes from"},
 	{"Client", "client", "Manage which KBs each agent client receives"},
 	{"Client", "workspace", "Bind a repository to the KBs a client receives there"},
 	{"Server", "serve", "Run the MCP server"},
@@ -150,6 +151,8 @@ func run(args []string) int {
 		return doctorFn(rest)
 	case "reindex":
 		return reindexFn(rest)
+	case "config":
+		return configFn(rest)
 	case "client":
 		return clientFn(rest)
 	case "workspace":

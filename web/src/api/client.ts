@@ -2,6 +2,7 @@ import type {
   Artifact,
   ArtifactList,
   SecretList,
+  SettingsView,
   Concept,
   GraphSnapshot,
   KBSummary,
@@ -248,4 +249,8 @@ export function fetchArtifact(kb: string, kind: string, name: string, signal?: A
 
 export function fetchSecrets(kb: string, signal?: AbortSignal): Promise<SecretList> {
   return get<SecretList>(`/kbs/${encodeURIComponent(kb)}/secrets`, signal);
+}
+
+export function fetchSettings(signal?: AbortSignal): Promise<SettingsView> {
+  return get<SettingsView>("/settings", signal);
 }

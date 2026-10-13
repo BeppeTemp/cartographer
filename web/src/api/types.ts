@@ -368,3 +368,46 @@ export interface SecretFile {
 export interface SecretList {
   files: SecretFile[];
 }
+
+/** Which layer set a setting's effective value (D743). */
+export type SettingOrigin = "default" | "file" | "env" | "flag" | "kb";
+
+export interface SettingEntry {
+  key: string;
+  /** Redacted by the server for a secret: "(set)" or "(unset)". */
+  value: unknown;
+  origin: SettingOrigin;
+  description: string;
+  default: string;
+  env?: string;
+  flag?: string;
+  restart?: boolean;
+  secret?: boolean;
+}
+
+export interface SettingsKBGit {
+  has_remote: boolean;
+  sync: boolean;
+  push_state?: string;
+  push_last_error?: string;
+  unpushed_commits?: number;
+  behind_commits?: number;
+  last_push_at?: string;
+  last_sync_in_at?: string;
+  remote_url?: string;
+}
+
+export interface SettingsKB {
+  name: string;
+  entries: SettingEntry[];
+  /** Absent for a caller that cannot see the whole KB. */
+  git?: SettingsKBGit;
+}
+
+export interface SettingsView {
+  version: string;
+  latest_version?: string;
+  update_channel?: string;
+  server: SettingEntry[];
+  kbs: SettingsKB[];
+}

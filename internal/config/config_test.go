@@ -156,6 +156,7 @@ func TestLoadFullYAML(t *testing.T) {
 		UpdateCheck: true,
 	}
 
+	want.Origins = cfg.Origins // origins are covered in origin_test.go
 	if !reflect.DeepEqual(cfg, want) {
 		t.Errorf("Load() = %+v, want %+v", cfg, want)
 	}

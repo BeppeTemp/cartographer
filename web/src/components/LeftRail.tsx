@@ -158,6 +158,21 @@ export function LeftRail({
             </button>
           </li>
         )}
+        <li>
+          <button
+            type="button"
+            className="rail__panel"
+            aria-label="Settings"
+            title={collapsed ? "Settings" : undefined}
+            aria-current={panel === "settings" ? "page" : undefined}
+            onClick={() => onPanel("settings")}
+          >
+            <span className="rail__glyph">
+              <Icon name="settings" />
+            </span>
+            <span className="rail__label">Settings</span>
+          </button>
+        </li>
       </ul>
 
       {!collapsed && (

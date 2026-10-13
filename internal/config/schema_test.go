@@ -149,6 +149,7 @@ func TestExampleLoadsAsDefaultsPlusExplicitValues(t *testing.T) {
 	want.Init = true
 	want.Data = "/data"
 	want.KBs = []KBSpec{{Remote: "https://git.example.com/user/kb-a.git", Name: "kb-a"}}
+	want.Origins = got.Origins // origins are covered in origin_test.go
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Load(example) = %+v\nwant %+v", got, want)
 	}

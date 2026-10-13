@@ -32,6 +32,7 @@ import type {
 } from "./api/types";
 import { Artifacts } from "./components/Artifacts";
 import { Secrets } from "./components/Secrets";
+import { Settings } from "./components/Settings";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
 import { GraphView } from "./components/GraphView";
@@ -785,6 +786,12 @@ export function App() {
                 if (conceptId) navigate({ panel: "atlas", concept: conceptId });
                 else announce(message);
               }}
+            />
+          ) : view.panel === "settings" ? (
+            <Settings
+              reloadKey={`${reloadKey}:${live}`}
+              onRetry={() => setReloadKey((k) => k + 1)}
+              onFailure={handleFailure}
             />
           ) : view.panel === "secrets" && activeKB ? (
             <Secrets

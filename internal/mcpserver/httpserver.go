@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/webui"
 )
 
@@ -277,6 +278,9 @@ type MultiKBServer struct {
 	web *webMount
 	// latestVersion is the /health source of a newer release (D254).
 	latestVersion func() string
+	// settings and updateChannel feed GET /api/ui/v1/settings (D743).
+	settings      *config.Config
+	updateChannel string
 }
 
 // webMount is the UI surface a server may expose. Static may be nil: the JSON

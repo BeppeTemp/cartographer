@@ -811,6 +811,17 @@ found under `search_roots`, or an ambiguous key across several distinct remotes 
 stderr with the full form to use), `2` usage error (missing argument or not in the
 `repo:...`/`path:...` form).
 
+### `cartographer config [--json] [--all]`
+
+Shows every setting with its effective value and where it comes from (D743), in two groups: the client settings of
+`.cartographer.yaml` (origin `file` when the key is written there, otherwise `default`) and, when the configured server
+answers `GET /api/ui/v1/settings` with the client's token, the server's: its keys, then one group per KB. One line per
+key: `key  value  (origin)`, with `restart required` when the schema says so. By default only the keys something set are
+listed; `--all` adds the rest with their default. A secret shows `(set)` or `(unset)`. `--json` prints the raw
+structure (`client`, `server`, `note`). A server that is unreachable, refuses the token or predates the route costs a
+one-line note instead of the server group, and the exit code stays 0. The same data is the Atlas Settings page
+(`control-plane.md` §Read-only UI API).
+
 ### `cartographer paths [list [--json]] | set <key> <path> | ignore <key> | unset <key>`
 
 The placeholder keys the last sync met, and the command that records where they live on this

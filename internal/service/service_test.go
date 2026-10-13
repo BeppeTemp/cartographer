@@ -112,6 +112,7 @@ func TestDefaultServerYAMLIsDocumentedAndLoadsLikeThePlainOne(t *testing.T) {
 		if IsLoopbackListenAddr(addr) {
 			want.Auth.Mode = "off"
 		}
+		want.Origins = cfg.Origins // which layer set what is covered in internal/config
 		if !reflect.DeepEqual(cfg, want) {
 			t.Errorf("%s: commented file loads as %+v, want %+v", addr, cfg, want)
 		}

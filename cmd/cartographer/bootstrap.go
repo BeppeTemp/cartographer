@@ -223,17 +223,7 @@ func checkoutConfiguredBranch(dest, branch string, env ...string) error {
 // remoteKBName derives a KB name from the last path segment of a git remote
 // URL, stripping a trailing ".git" suffix. Handles both URL-style
 // (ssh://host/path/name.git) and scp-style (git@host:path/name.git) remotes.
-func remoteKBName(remote string) string {
-	r := strings.TrimSuffix(strings.TrimRight(remote, "/\\"), ".git")
-	// Backslash is a separator too: a local Windows path used as a remote
-	// (file:///C:/... or C:\repos\kb.git) would otherwise yield a name that
-	// still contains separators, and the caller joins it onto the data
-	// directory — a name with a separator in it escapes that directory.
-	if idx := strings.LastIndexAny(r, "/:\\"); idx >= 0 {
-		r = r[idx+1:]
-	}
-	return r
-}
+func remoteKBName(remote string) string { return config.RemoteKBName(remote) }
 
 // isGitRepoDir reports whether dest exists and contains a .git entry.
 func isGitRepoDir(dest string) bool {
