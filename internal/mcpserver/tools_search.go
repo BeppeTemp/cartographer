@@ -151,13 +151,14 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	if len(hits) == 0 && (params.RecordMiss == nil || *params.RecordMiss) && WholeVisible(ctx, k, false) {
 		misses.record(params.Query)
 	}
-	// A hit is a concept the agent will see (D322); navigation is not a read.
+	// A hit is surfaced, not read (D778): most hits are never opened, so only
+	// concept_read stamps a read.
 	if len(hits) > 0 {
 		ids := make([]string, len(hits))
 		for i, h := range hits {
 			ids[i] = h.ID
 		}
-		reads.record(ids...)
+		reads.recordSurfaced(ids...)
 	}
 	result := map[string]interface{}{
 		"query":   params.Query,

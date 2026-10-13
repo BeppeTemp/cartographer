@@ -912,10 +912,15 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 			if src := sources.result(); src != nil {
 				result["sources"] = src
 			}
-			if n, oldest, newest := reads.summary(); n > 0 {
-				// D322: the last-read telemetry the doctor and the operator can
-				// see is being collected (not retroactive).
-				result["read_access"] = map[string]interface{}{"tracked_concepts": n, "oldest": oldest, "newest": newest}
+			if read, surfaced, since := reads.summary(); read.TrackedConcepts+surfaced.TrackedConcepts > 0 {
+				// D322, D778: the last-read telemetry the doctor and the operator can
+				// see is being collected (not retroactive): reads at the top
+				// level, search hits apart, never mixed.
+				ra := map[string]interface{}{"tracked_concepts": read.TrackedConcepts, "since": since, "surfaced": surfaced}
+				if read.TrackedConcepts > 0 {
+					ra["oldest"], ra["newest"] = read.Oldest, read.Newest
+				}
+				result["read_access"] = ra
 			}
 			if top := misses.top(); len(top) > 0 {
 				result["search_misses"] = top
