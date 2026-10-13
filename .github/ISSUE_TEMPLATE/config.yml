@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and open-ended ideas
+    url: https://github.com/beppetemp/cartographer/discussions
+    about: Ask how to use Cartographer or talk through an idea that is not yet a concrete proposal.
