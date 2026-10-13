@@ -295,8 +295,30 @@ func TestConceptFacetsReadsOneFileWithoutAValidation(t *testing.T) {
 	if got := f.k.ConceptFacets("infra/dns").Type; got != "Runbook" {
 		t.Fatalf("ambiguous pair: type = %q, want the direct form's", got)
 	}
-	if got := f.k.ConceptFacets("infra/nope"); got.Exists || got.Type != "" {
+	if got := f.k.ConceptFacets("infra/nope"); got.Exists || got.Type != "" || got.Bytes != 0 {
 		t.Fatalf("missing concept: %+v", got)
+	}
+}
+
+// Bytes is the file's size (D301) on both paths: a fresh read and a trusted
+// cached entry, whose own copy keeps the size in its signature.
+func TestConceptFacetsReportsTheFileSize(t *testing.T) {
+	f := newGraphFixture(t)
+	body := "---\ntype: Runbook\n---\nResized.\n"
+	f.write("infra/dns.md", body)
+	if got := f.k.ConceptFacets("infra/dns").Bytes; got != int64(len(body)) {
+		t.Fatalf("fresh read: bytes = %d, want %d", got, len(body))
+	}
+	backdate(t, f.k)
+	if _, err := f.k.IncomingLinks(); err != nil {
+		t.Fatal(err)
+	}
+	reads := f.k.graph.stats.facetReads
+	if got := f.k.ConceptFacets("infra/dns").Bytes; got != int64(len(body)) {
+		t.Fatalf("cached entry: bytes = %d, want %d", got, len(body))
+	}
+	if f.k.graph.stats.facetReads != reads {
+		t.Fatal("the size must come from the stat, not a re-read")
 	}
 }
 

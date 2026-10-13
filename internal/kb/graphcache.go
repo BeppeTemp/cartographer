@@ -165,6 +165,10 @@ type ConceptFacets struct {
 	// lists a KB's keys without re-reading a file (D262). Independent of
 	// whether the frontmatter parsed: a body cites what it cites.
 	Placeholders []string
+	// Bytes is the concept file's size (D301), from the stat ConceptFacets
+	// validates with: what reading it costs. The cache keeps the size in
+	// each entry's signature, not here.
+	Bytes int64
 }
 
 func facetsOf(content string) ConceptFacets {
@@ -549,10 +553,14 @@ func (kb *KB) ConceptFacets(id okf.ConceptID) ConceptFacets {
 	c := kb.graphCacheLocked()
 	if !symlink {
 		if e := c.entries[rel]; e != nil && e.trusted(sig) {
-			return e.facets
+			f := e.facets
+			f.Bytes = sig.size
+			return f
 		}
 		if e := c.facetOnly[rel]; e != nil && e.trusted(sig) {
-			return e.facets
+			f := e.facets
+			f.Bytes = sig.size
+			return f
 		}
 	}
 	content, err := kb.ReadRaw(rel)
@@ -566,6 +574,8 @@ func (kb *KB) ConceptFacets(id okf.ConceptID) ConceptFacets {
 	if !symlink {
 		c.facetOnly[rel] = &graphEntry{rel: rel, sig: sig, observed: time.Now(), facets: facets}
 	}
+	// A symlink's Lstat size is the link's, not the concept's.
+	facets.Bytes = int64(len(content))
 	return facets
 }
 
