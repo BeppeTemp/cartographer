@@ -1,0 +1,12 @@
+terms:
+  - canonical: James Webb Space Telescope
+    aliases: [JWST, Webb telescope]
+  - canonical: Hubble Space Telescope
+    aliases: [HST]
+  - canonical: light-year
+    aliases: [ly, lightyear]
+  - canonical: astronomical unit
+    aliases: [AU]
+  - canonical: meteor
+    aliases: [shooting star]
+    forbidden: [falling star]

@@ -8,8 +8,13 @@ import react from "@vitejs/plugin-react";
 // Source maps are off: the bundle is committed to the repository and embedded
 // in the released binary, and shipping maps would double that payload for
 // something only a developer with the sources can use.
+// The static demo build (VITE_ATLAS_STATIC=1, demo/build.sh, D745) is served
+// from wherever the site puts it (a GitHub Pages sub-path), so its base is
+// relative; it is written to its own --outDir, never over the embedded bundle.
+const staticDemo = process.env.VITE_ATLAS_STATIC === "1";
+
 export default defineConfig({
-  base: "/ui/",
+  base: staticDemo ? "./" : "/ui/",
   plugins: [react()],
   // `npm run dev` serves the UI with hot reload and sends /api to a running
   // server: `cartographer serve --http :39273` by default, any other with

@@ -81,7 +81,7 @@ matching file **in the same session/PR** as the change:
 | An architectural or contract choice (why X and not Y) | One new file `docs/decisions/D<n>-<slug>.md`, `<n>` = the plan issue or PR number (D672; `make decisions-new`; the release PR regenerates `docs/decisions.md`, D328); never a second entry for the same choice |
 | New external dependency | A decision file under `docs/decisions/` + `conventions.md` §dependencies |
 | New test level or pre-release checklist change | `testing.md` |
-| Atlas UI (`web/`) or its routes/config | `make web` to rebuild the committed bundle; `deployment.md` §The embedded Atlas UI; `testing.md` §Frontend; `make hero` when the README's hero tour looks different (D330) |
+| Atlas UI (`web/`) or its routes/config | `make web` to rebuild the committed bundle; `deployment.md` §The embedded Atlas UI; `testing.md` §Frontend; `make hero` when the README's hero tour looks different (D330); a new API request the UI makes needs its line in `demo/export.mjs`, or the public demo answers it with a 404 (D745) |
 | Contributor workflow (PR flow, plan issues, build loop) | `CONTRIBUTING.md` |
 | What an agent client reads (instruction file, skill/agent/hook/MCP paths) | The provider matrix **first** (`destinationMatrix` in `internal/provisioning/provisioning.go`, `projectDestinationMatrix` in `internal/provisioning/workspacescope.go`, provider descriptors in `internal/configurator/registry.go`), then `CONTRIBUTING.md` §Working with an agent client — a test fails if the two disagree |
 | A client re-audit (version bump, new sources, watch items) | `harnesses.md` (via the `harness-watch` skill); the matrix and docs above only if a cell changes |

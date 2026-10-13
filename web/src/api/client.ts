@@ -15,6 +15,7 @@ import type {
   WorkResponse,
   CheckCatalog,
 } from "./types";
+import { STATIC_MODE, staticKey, staticSearch, staticURL } from "./static";
 
 const BASE = "/api/ui/v1";
 
@@ -105,7 +106,9 @@ export function clearToken(): void {
 export async function fetchServerVersion(signal?: AbortSignal): Promise<string | null> {
   try {
     const response = await fetch(
-      new URL("../health", new URL(import.meta.env.BASE_URL, window.location.href)).pathname,
+      STATIC_MODE
+        ? staticURL("health")
+        : new URL("../health", new URL(import.meta.env.BASE_URL, window.location.href)).pathname,
       {
         headers: { Accept: "application/json" },
         signal,
@@ -120,6 +123,10 @@ export async function fetchServerVersion(signal?: AbortSignal): Promise<string |
 }
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  if (STATIC_MODE) {
+    const found = await staticSearch(path);
+    if (found) return found as T;
+  }
   const headers: Record<string, string> = { Accept: "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -127,7 +134,8 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   try {
     // same-origin: a proxy session cookie (SSO in front of the UI) must reach the API;
     // never cross-origin, so no third party sees it.
-    response = await fetch(BASE + path, { headers, signal, credentials: "same-origin" });
+    const url = STATIC_MODE ? staticURL(staticKey(path)) : BASE + path;
+    response = await fetch(url, { headers, signal, credentials: "same-origin" });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") throw err;
     throw new ApiError(0, "offline", "the Cartographer server is unreachable");
