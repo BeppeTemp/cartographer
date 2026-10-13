@@ -19,7 +19,8 @@
 #      /mcp/routed, with ?kbs= carrying an explicit binding.
 #   6. A provider bound to 2 of 3 KBs sees a 2-value enum and is refused the
 #      third; a provider bound to 1 KB sees no `kb` property at all and calls
-#      without it; an unknown name in ?kbs= is a 400.
+#      without it; an unknown name in ?kbs= is served without it (D756),
+#      and only all-unknown is a 400.
 #   7. From an old per-KB client state, ONE `sync` leaves a single entry and no
 #      orphan per-KB entry.
 #
@@ -222,12 +223,20 @@ else
     _assert_fail "another KB was not refused on the 1-KB connection: ${OTHER}"
 fi
 
-BAD_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST "${ROUTED_URL}?kbs=alpha,nope" \
+PART_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST "${ROUTED_URL}?kbs=alpha,nope" \
+    -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -d "$list_body")"
+if [[ "$PART_CODE" == "200" ]]; then
+    _assert_pass "an unknown name next to a mounted one in ?kbs= is served without it (D756)"
+else
+    _assert_fail "?kbs=alpha,nope returned ${PART_CODE}, want 200"
+fi
+
+BAD_CODE="$(curl -s -o /dev/null -w '%{http_code}' -X POST "${ROUTED_URL}?kbs=nope" \
     -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" -d "$list_body")"
 if [[ "$BAD_CODE" == "400" ]]; then
-    _assert_pass "an unknown name in ?kbs= is refused with 400"
+    _assert_pass "?kbs= naming only unmounted KBs is refused with 400"
 else
-    _assert_fail "an unknown name in ?kbs= returned ${BAD_CODE}, want 400"
+    _assert_fail "?kbs=nope returned ${BAD_CODE}, want 400"
 fi
 
 echo ""

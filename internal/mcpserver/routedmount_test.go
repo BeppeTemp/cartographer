@@ -535,17 +535,64 @@ func TestRoutedMount_KBS_SingleKB(t *testing.T) {
 	}
 }
 
-// TestRoutedMount_KBS_UnknownName: a name that is not mounted is a 400 naming
-// it and the mounted KBs, never a silently smaller set.
-func TestRoutedMount_KBS_UnknownName(t *testing.T) {
+// TestRoutedMount_KBS_PartialUnknown (D756): a stale name does not take the
+// mounted ones down with it; the connection serves the intersection and
+// reports the rest in kb_status.connection.unknown.
+func TestRoutedMount_KBS_PartialUnknown(t *testing.T) {
+	handler := newRoutedTestHandler(t, "kb-a", "kb-b", "kb-c")
+	path := RoutedMountPath + "?kbs=kb-a,kb-b,old,gone"
+	rr := routedPost(t, handler, path, toolsListBody)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	if body := rr.Body.String(); !strings.Contains(body, `"enum":["kb-a","kb-b"]`) || strings.Contains(body, `"kb-c"`) {
+		t.Errorf("kb enum is not the mounted subset: %.400s", body)
+	}
+	_, conn := routedKBStatusConnection(t, handler, path, "kb-a")
+	if want := []any{"gone", "old"}; !reflect.DeepEqual(conn["unknown"], want) {
+		t.Errorf("unknown = %v, want %v", conn["unknown"], want)
+	}
+	if want := []any{"kb-a", "kb-b"}; !reflect.DeepEqual(conn["kbs"], want) {
+		t.Errorf("kbs = %v, want %v", conn["kbs"], want)
+	}
+	if h, _ := conn["hint"].(string); !strings.Contains(h, "cartographer sync") || !strings.Contains(h, "renamed or removed") {
+		t.Errorf("hint lacks the unknown guidance: %q", h)
+	}
+	// A URL without stale names shares the view but must not inherit them.
+	if _, clean := routedKBStatusConnection(t, handler, RoutedMountPath+"?kbs=kb-a,kb-b", "kb-a"); clean["unknown"] != nil {
+		t.Errorf("unknown leaked across requests: %v", clean["unknown"])
+	}
+}
+
+// TestRoutedMount_KBS_AllUnknown: nothing mounted in the request is a 400
+// naming every unknown name in a stable order and the mounted KBs; it never
+// falls back to all mounted KBs (the binding only narrows).
+func TestRoutedMount_KBS_AllUnknown(t *testing.T) {
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b")
-	rr := routedPost(t, handler, RoutedMountPath+"?kbs=kb-a,nope", toolsListBody)
+	rr := routedPost(t, handler, RoutedMountPath+"?kbs=zeta,nope", toolsListBody)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("status=%d, want 400; body=%s", rr.Code, rr.Body.String())
 	}
 	body := rr.Body.String()
-	if !strings.Contains(body, `"nope"`) || !strings.Contains(body, "kb-a") || !strings.Contains(body, "kb-b") {
-		t.Errorf("400 names neither the typo nor the mounted KBs: %s", body)
+	if !strings.Contains(body, `"nope", "zeta"`) || !strings.Contains(body, "kb-a") || !strings.Contains(body, "kb-b") {
+		t.Errorf("400 names neither the unknown KBs (sorted) nor the mounted ones: %s", body)
+	}
+}
+
+// TestRoutedMount_KBS_CallUnknownKB: naming a stale KB in a call explains
+// that it is not mounted and points at sync.
+func TestRoutedMount_KBS_CallUnknownKB(t *testing.T) {
+	handler := newRoutedTestHandler(t, "kb-a", "kb-b")
+	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "kb_status", "arguments": map[string]any{"kb": "old"}}})
+	rr := routedPost(t, handler, RoutedMountPath+"?kbs=kb-a,old", string(body))
+	var resp Response
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v; %s", err, rr.Body.String())
+	}
+	res := decodeToolResult(t, resp)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "not mounted on this server") || !strings.Contains(res.Content[0].Text, "cartographer sync") {
+		t.Fatalf("want a not-mounted error pointing at sync, got %+v", res)
 	}
 }
 

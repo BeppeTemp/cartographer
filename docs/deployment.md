@@ -449,7 +449,7 @@ conflicting kb selection` rather than silently picking one; an unknown `<name>` 
 A fourth route, `/mcp/routed` (D187, always served since D288), is the one agent clients use: it
 serves every mounted KB through one endpoint, advertising the union of the tools exactly once, with
 the KB carried as a `kb` tool argument (required for 2+ KBs, absent for one). `?kbs=kb-a,kb-b` on
-that URL narrows the connection to a subset; an unknown name is `400`. The three routes above stay
+that URL narrows the connection to a subset; a name the server does not mount is served without it and reported in `kb_status.connection.unknown` (D756), and `400` only when none is mounted. The three routes above stay
 as plumbing with their exact behaviour, `tools/list` output included. A `?kb=` on `/mcp/routed` is
 `400 conflicting kb selection`. See `docs/transport-auth.md` §One routed topology.
 
