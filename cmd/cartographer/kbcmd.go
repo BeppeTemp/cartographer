@@ -63,8 +63,10 @@ func cmdKB(args []string) int {
 		return cmdKBRename(rest)
 	case "repair":
 		return cmdKBRepair(rest)
+	case "unmount":
+		return cmdKBUnmount(rest)
 	default:
-		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--artifact-write] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--artifact-write] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]")
+		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--artifact-write] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--artifact-write] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
 		return 2
 	}
 }
