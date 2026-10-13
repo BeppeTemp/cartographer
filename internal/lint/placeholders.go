@@ -187,3 +187,46 @@ func forbiddenTermFindings(relPath, body string, g kb.Glossary) []Finding {
 	}
 	return out
 }
+
+// settingsFindings reports the entries of the KB's settings.yaml (D746) that
+// the server leaves out, as paths.yaml's are: a typo there silently turns a
+// policy back to the default on every mount. auto_repair names are checked
+// here because only lint knows the fixable checks.
+func settingsFindings(k *kb.KB) []Finding {
+	st, err := k.ReadSettings()
+	if err != nil {
+		return []Finding{newFinding("contract_malformed", Finding{
+			Path:    kb.SettingsFile,
+			Message: fmt.Sprintf("KB settings unreadable: %v", err),
+		})}
+	}
+	var findings []Finding
+	add := func(msg string) {
+		findings = append(findings, newFinding("contract_malformed", Finding{Path: kb.SettingsFile, Message: "malformed KB settings: " + msg}))
+	}
+	for _, m := range st.Malformed {
+		add(m.String())
+	}
+	if st.Settings.Has("auto_repair") {
+		var part struct {
+			AutoRepair []string `yaml:"auto_repair"`
+		}
+		if st.Settings.Decode(&part) == nil {
+			for _, c := range part.AutoRepair {
+				if !isFixableCheck(c) {
+					add(fmt.Sprintf("auto_repair: %q is not a check with a mechanical fix", c))
+				}
+			}
+		}
+	}
+	return findings
+}
+
+func isFixableCheck(name string) bool {
+	for _, f := range FixableChecks {
+		if f == name {
+			return true
+		}
+	}
+	return false
+}

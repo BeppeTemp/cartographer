@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -322,16 +323,12 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			}
 		}
 		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(m.Spec, cfg.Sops, m.Name)
-		k.AllowArtifactWrite = m.Spec.AllowArtifactWrite
-		k.AllowTemplateWrite = m.Spec.TemplateWriteEnabled()
-		k.AutoRepair, k.AutoRepairDefault = m.Spec.AutoRepairChecks()
-		k.RepairOnWrite = m.Spec.RepairOnWriteEnabled()
-		k.WriteGate = m.Spec.WriteGateMode()
-		// Validated by config.Load; a discovered KB's zero spec yields the default.
-		k.DoctorIntervalDays, _ = m.Spec.DoctorIntervalDays()
-		k.DoctorAutoIntervalDays, _ = m.Spec.DoctorAutoIntervalDays()
-		k.DoctorBudget = m.Spec.DoctorBudgetItems()
-		k.UsageStaleDays = m.Spec.UsageStale()
+		// The KB's own settings.yaml wins over kbs[] (D746): resolve it first,
+		// then every policy read below sees the effective spec. A later pull
+		// or edit re-resolves through k.SettingsReload.
+		serverSpec, mountName := m.Spec, m.Name
+		m.Spec = applyKBPolicy(k, cfg, serverSpec, mountName, false)
+		k.SettingsReload = func(k *kb.KB) { applyKBPolicy(k, cfg, serverSpec, mountName, true) }
 		k.Discovered = m.Discovered
 		name := m.Name
 		if name == strings.TrimPrefix(mcpserver.RoutedMountPath, "/mcp/") {
@@ -346,6 +343,12 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		}
 		seenNames[name] = m.Path
 		serverGit, err := serverGitConfigFor(m.Spec, cfg.Git, name)
+		if err != nil && !reflect.DeepEqual(m.Spec, serverSpec) {
+			// A KB must not stop the server with a settings.yaml it carries
+			// (D746): fall back to the server's own git keys and say so.
+			log.Printf("warning: KB %q: git settings from its settings.yaml are unusable (%v) — using the server's", name, err)
+			serverGit, err = serverGitConfigFor(serverSpec, cfg.Git, name)
+		}
 		if err != nil {
 			log.Fatalf("config: %v", err)
 		}
@@ -379,7 +382,8 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			// writes — and looks identical to a configured one from every client
 			// surface, which is how one deployment ran for a whole migration with
 			// artifact writes and tool prefixes silently off (D151).
-			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — allow_artifact_write, sops_age_key_file and machine_path allow-prefixes are all at their defaults", name)
+			// Its policy comes from its own settings.yaml (D746), when it has one.
+			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — its policy comes from its settings.yaml if it has one, sops_age_key_file and machine_path allow-prefixes are at their defaults", name)
 		}
 		if _, ok := k.HasRemote(); kb.ShouldWarnGitIdentity(k.GitSync, ok, k.GitAuthorEmail) {
 			log.Printf("WARNING: KB %q commits will be authored as cartographer@localhost; forges with author push rules will reject the push", name)
@@ -413,6 +417,51 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		}
 	}
 	return kbBootstrap{kbs: kbs, names: kbNames, artifactSigners: kbArtifactSigners, allowlists: kbMCPAllowlists, sqlIdxs: sqlIdxs}
+}
+
+// applyKBPolicy lays the KB's own settings.yaml over its server spec (D746) and
+// copies the effective policy onto the mounted KB. It returns the effective
+// spec. refresh is true for a re-resolution after a pull: it logs only what
+// changed. Never fatal: a bad KB file costs its entries, not the server.
+func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name string, refresh bool) config.KBSpec {
+	k.MarkSettingsSeen()
+	st, err := k.ReadSettings()
+	if err != nil {
+		log.Printf("warning: KB %q: %v — settings.yaml ignored", name, err)
+		st = kb.SettingsState{}
+	}
+	eff, info := config.ResolveKBSettings(server, cfg.ServerSetFunc(name), st)
+	prev := k.SettingsInfo()
+	k.SetSettingsInfo(info)
+	cfg.RecordKBSettings(name, eff, info.FromKB)
+
+	k.AllowArtifactWrite = eff.AllowArtifactWrite
+	k.AllowTemplateWrite = eff.TemplateWriteEnabled()
+	k.AutoRepair, k.AutoRepairDefault = eff.AutoRepairChecks()
+	k.RepairOnWrite = eff.RepairOnWriteEnabled()
+	k.WriteGate = eff.WriteGateMode()
+	// Validated by config.Load and by ResolveKBSettings; a zero spec yields the default.
+	k.DoctorIntervalDays, _ = eff.DoctorIntervalDays()
+	k.DoctorAutoIntervalDays, _ = eff.DoctorAutoIntervalDays()
+	k.DoctorBudget = eff.DoctorBudgetItems()
+	k.UsageStaleDays = eff.UsageStale()
+
+	if refresh && fmt.Sprint(prev) == fmt.Sprint(info) {
+		return eff
+	}
+	for _, f := range info.Findings {
+		log.Printf("warning: KB %q: %s: %s", name, kb.SettingsFile, f)
+	}
+	for _, g := range info.Ignored {
+		log.Printf("warning: KB %q: %s sets %s to %s; the server's value %s is ignored — the KB is authoritative", name, kb.SettingsFile, g.Key, g.KBValue, g.ServerValue)
+	}
+	if info.SecretsDeclared && k.SopsAgeKeyFile == "" {
+		log.Printf("warning: KB %q declares secrets: true but no age key is configured for it (sops_age_key_file, or sops.age_key_dir/<name>.age)", name)
+	}
+	if refresh {
+		log.Printf("KB %q: settings.yaml changed, effective settings re-resolved (mcp_allowlist and git workflow keys apply at the next start)", name)
+	}
+	return eff
 }
 
 // runServe opens/bootstraps all configured KBs and starts the server.

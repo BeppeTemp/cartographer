@@ -152,6 +152,16 @@ type KB struct {
 	// the conflict to stderr.
 	OnPushConflict func(*gitx.RebaseConflictError)
 
+	// SettingsReload re-resolves this KB's effective settings from its
+	// settings.yaml (D746). Set by serve; RefreshSettings calls it when the
+	// file changed. The policy fields above are read without a lock, so it
+	// only runs where a write could already change them: after a pull and
+	// before a write handler.
+	SettingsReload func(*KB)
+	settingsMu     sync.RWMutex
+	settingsInfo   SettingsInfo
+	settingsStamp  string
+
 	// OnSyncIn, if set, runs after a successful SyncIn that changed HEAD.
 	// mcpserver uses it to reconcile derived indexes with pulled KB files.
 	OnSyncIn func()
@@ -432,6 +442,8 @@ var (
 	// initBranch is the branch InitOnBranch pins an unborn HEAD to, for the
 	// duration of that call; empty means gitx.DefaultBranch.
 	initBranch string
+	// initSettings is the settings.yaml InitWithSettings supplies (D746).
+	initSettings []byte
 )
 
 // InitOnBranch is Init with the initial commit on branch rather than
@@ -453,6 +465,15 @@ func InitWithIdentity(root, authorName, authorEmail string) (*KB, error) {
 	initAuthorName, initAuthorEmail = authorName, authorEmail
 	defer func() { initAuthorName, initAuthorEmail = "", "" }()
 	return Init(root)
+}
+
+// InitWithSettings is InitWithIdentity for a new KB that also gets settings as
+// its settings.yaml (D746), in the initial commit. kb cannot render the file
+// itself: the key table is the config schema, and config imports this package.
+func InitWithSettings(root, authorName, authorEmail string, settings []byte) (*KB, error) {
+	initSettings = settings
+	defer func() { initSettings = nil }()
+	return InitWithIdentity(root, authorName, authorEmail)
 }
 
 func Init(root string) (*KB, error) {
@@ -512,6 +533,15 @@ func Init(root string) (*KB, error) {
 	// missing_instructions lint never fires on it. Only for a KB this call
 	// creates, and before the initial commit so it is versioned with it. It
 	// carries no `preamble: none` directive: that would drop the operational bullets.
+	// settings.yaml (D746), when the caller supplied one: the commented list of
+	// what a KB may carry, versioned with the initial commit. Same condition.
+	if settingsPath := filepath.Join(abs, SettingsFile); initSettings != nil {
+		if _, err := os.Lstat(settingsPath); created && os.IsNotExist(err) {
+			if err := writeFileAtomic(settingsPath, initSettings); err != nil {
+				return nil, fmt.Errorf("Init: write %s: %w", SettingsFile, err)
+			}
+		}
+	}
 	instrPath := filepath.Join(abs, "instructions.md")
 	if _, err := os.Lstat(instrPath); created && os.IsNotExist(err) {
 		if err := writeFileAtomic(instrPath, []byte(defaultInstructionsContent)); err != nil {

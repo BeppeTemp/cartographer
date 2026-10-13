@@ -89,6 +89,9 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				return nil
 			}
 			commitExternalChanges(k, orig.Name)
+			// A settings.yaml edited in place (D746) takes effect for this
+			// write, as one that arrived by pull does.
+			k.RefreshSettings()
 			gateOn := gated && writeGateActive(k) && gatePrecheck(k)
 			handlerStart := time.Now()
 			res, handlerErr = orig.Handler(ctx, args)

@@ -824,7 +824,7 @@ Shows every setting with its effective value and where it comes from (D743), in 
 `.cartographer.yaml` (origin `file` when the key is written there, otherwise `default`) and, when the configured server
 answers `GET /api/ui/v1/settings` with the client's token, the server's: its keys, then one group per KB. One line per
 key: `key  value  (origin)`, with `restart required` when the schema says so. By default only the keys something set are
-listed; `--all` adds the rest with their default. A secret shows `(set)` or `(unset)`. `--json` prints the raw
+listed; `--all` adds the rest with their default. A per-KB key the KB's own `settings.yaml` sets shows origin `kb`, which beats `file`, `env` and `flag` (D746). A secret shows `(set)` or `(unset)`. `--json` prints the raw
 structure (`client`, `server`, `note`). A server that is unreachable, refuses the token or predates the route costs a
 one-line note instead of the server group, and the exit code stays 0. The same data is the Atlas Settings page
 (`control-plane.md` §Read-only UI API).

@@ -474,6 +474,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	registry, registryFindings := loadRegistryLint(k)
 	if scopeNorm == "" {
 		findings = append(findings, registryFindings...)
+		findings = append(findings, settingsFindings(k)...)
 		cited := map[string]bool{}
 		for _, f := range lg.Facets {
 			for _, id := range f.Placeholders {

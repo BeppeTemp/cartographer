@@ -57,6 +57,7 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 │
 ├── instructions.md                    # curated directives (D61), scaffolded by kb create (D325); frontmatter keys below
 ├── paths.yaml                         # optional: declared {{path:…}}/{{repo:…}} keys (D263)
+├── settings.yaml                      # optional: the KB's own policy, wins over a server's kbs[] (D746)
 └── glossary.yaml                      # optional: canonical terms, aliases, forbidden forms (D276)
 ```
 
@@ -753,6 +754,48 @@ flooded on upgrade:
 `~/.claude/settings.json` → "use `{{path:claude-home}}/settings.json`". It stays one finding per
 concept but names every other disallowed path in it ("and 2 more here: …"), without the prose
 punctuation that follows a path, so fixing the first is not how the author learns of the next.
+
+## The KB's own settings (`settings.yaml`)
+
+How a KB behaves lives in the KB, not in the server that mounts it (D746): five people
+mounting the same KB get the same behaviour. `settings.yaml` at the KB root, beside
+`paths.yaml`, carries the schema's `kb` scope:
+
+- writes and governance: `allow_artifact_write`, `allow_template_write`, `write_gate`,
+  `auto_repair`, `repair_on_write`;
+- doctor: `doctor_mode`, `doctor_interval`, `doctor_auto_interval`, `doctor_budget`,
+  `usage_stale_days`;
+- provisioning: `mcp_allowlist`;
+- how changes land: `git_profile`, `git_base_branch`, `git_forge`, `github_owner`,
+  `github_repository`;
+- `secrets: true|false`: the KB uses secrets. A mount of it without an age key reports
+  `capabilities.secrets: missing key` and warns at startup, instead of a silent `disabled`.
+
+Names and values are those of the same `kbs[]` keys (`docs/deployment.md`, `config.example.yaml`).
+The keys bound to one machine (`path`, `remote`, `name`, `ssh_key`, `known_hosts`, `author_*`,
+`committer_*`, `sops_age_key_file`, `github_token_env`, `git_working_branch`, `git_branch`,
+`artifact_signing_seed`, and `github_api_url`, where the server sends its own GitHub token)
+stay in the server's `kbs[]`; naming one in `settings.yaml` is a finding.
+
+**Precedence: the KB is authoritative.** Effective value = the KB's `settings.yaml` if it sets
+the key, else the server's `kbs[]`/env/flag value, else the default. When both set a key and
+differ the server value is ignored and reported: a startup warning, `kb_status`
+`ignored_server_settings`, `capabilities.<gate>.ignored_server_value`, and origin `kb` in
+`cartographer config` and the Atlas settings page. There is no local override: an operator who
+disagrees with a KB's policy changes the KB or does not mount it. A KB without the file behaves
+exactly as before, on every server; a discovered KB reads it like a configured one.
+
+The parser is tolerant, like `paths.yaml`'s: invalid YAML ignores the whole file (one finding);
+an unknown key, a server-only key or an invalid value ignores that entry (one finding each,
+`contract_malformed` on `settings.yaml`, and `kb_status` `settings_findings`).
+
+The server re-reads the file when it changes: after a pull that moves HEAD and before a write
+(`KB.RefreshSettings`). `mcp_allowlist` and the git workflow keys are read when the KB is mounted
+and apply at the next start.
+
+No MCP tool writes `settings.yaml` (`artifact_write` does not whitelist it): it changes the
+behaviour of every mount, so it goes through git review like a Map contract. `kb create` writes
+it commented out, rendered from the schema; existing KBs get nothing written.
 
 ## The glossary (`glossary.yaml`)
 

@@ -624,31 +624,56 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		workflow = "pr"
 	}
 	_, ignoredAuto := autoRepairSplit(k)
+	info := k.SettingsInfo()
+	// cap builds one capability whose controlling key can be carried by the KB
+	// (D746): Setting names settings.yaml when the KB sets it, and
+	// IgnoredServerValue says a different server value lost to it.
+	cap := func(key, state, serverSetting string) KBCapability {
+		c := KBCapability{State: state, Setting: serverSetting}
+		if info.FromKBHas(key) {
+			c.Setting = kb.SettingsFile + " " + key
+		}
+		if g, ok := info.IgnoredFor(key); ok {
+			c.IgnoredServerValue = g.ServerValue
+		}
+		return c
+	}
+	with := func(c KBCapability, f func(*KBCapability)) KBCapability { f(&c); return c }
+	secretsState := onOff(k.SopsAgeKeyFile != "")
+	secretsSetting := "kbs[].sops_age_key_file or sops.age_key_file"
+	if info.SecretsDeclared {
+		secretsSetting = kb.SettingsFile + " secrets, " + secretsSetting
+		if k.SopsAgeKeyFile == "" {
+			secretsState = "missing key"
+		}
+	}
 	return map[string]KBCapability{
-		"artifact_write": {State: onOff(k.AllowArtifactWrite), Setting: "kbs[].allow_artifact_write"},
-		"template_write": {State: templateWriteState(k), Setting: "kbs[].allow_template_write"},
-		"secrets":        {State: onOff(k.SopsAgeKeyFile != ""), Setting: "kbs[].sops_age_key_file or sops.age_key_file"},
+		"artifact_write": cap("allow_artifact_write", onOff(k.AllowArtifactWrite), "kbs[].allow_artifact_write"),
+		"template_write": cap("allow_template_write", templateWriteState(k), "kbs[].allow_template_write"),
+		"secrets":        {State: secretsState, Setting: secretsSetting},
 		"git_sync":       {State: onOff(k.GitSync), Setting: "git.sync"},
-		"git_workflow":   {State: workflow, Setting: "kbs[].git_profile or git.profile"},
-		// A discovered KB cannot carry any of the settings above, which is the
-		// single invisible cause behind several of them being off at once.
+		"git_workflow":   cap("git_profile", workflow, "kbs[].git_profile or git.profile"),
+		// A discovered KB has no kbs[] entry: its policy comes from its own
+		// settings.yaml, which is the one place left that can carry it (D746).
 		"mount": {State: mount, Setting: "kbs[]"},
 		// D299: what `cartographer kb repair --apply` may apply unattended,
 		// and when the server proposes the next kb-doctor session.
-		"auto_repair": {State: onOff(len(k.AutoRepair) > 0), Setting: "kbs[].auto_repair", Checks: k.AutoRepair, Default: k.AutoRepairDefault, Ignored: ignoredAuto},
+		"auto_repair": with(cap("auto_repair", onOff(len(k.AutoRepair) > 0), "kbs[].auto_repair"), func(c *KBCapability) {
+			c.Checks, c.Default, c.Ignored = k.AutoRepair, k.AutoRepairDefault, ignoredAuto
+		}),
 		// D349: a write applies the mechanical auto_repair fixes to what it wrote.
-		"repair_on_write": {State: onOff(k.RepairOnWrite && len(k.AutoRepair) > 0), Setting: "kbs[].repair_on_write"},
+		"repair_on_write": cap("repair_on_write", onOff(k.RepairOnWrite && len(k.AutoRepair) > 0), "kbs[].repair_on_write"),
 		// D350: a write that introduces findings at or above the floor is refused.
-		"write_gate":      {State: writeGateState(k), Setting: "kbs[].write_gate"},
-		"doctor_interval": {State: interval, Setting: "kbs[].doctor_interval"},
+		"write_gate":      cap("write_gate", writeGateState(k), "kbs[].write_gate"),
+		"doctor_interval": cap("doctor_interval", interval, "kbs[].doctor_interval"),
 		// D704: always assisted. Still reported because a kb-doctor skill
 		// synced before 0.24 reads a missing doctor_mode as unattended and would
 		// start a session by itself.
 		"doctor_mode": {State: "assisted", Setting: "kbs[].doctor_mode (ignored)"},
 		// D358: how many review items a kb-doctor session decides.
-		"doctor_budget": {State: fmt.Sprintf("%d review items", doctorBudget(k)), Setting: "kbs[].doctor_budget"},
+		"doctor_budget": cap("doctor_budget", fmt.Sprintf("%d review items", doctorBudget(k)), "kbs[].doctor_budget"),
 		// D323: the server applies auto_repair by itself on this interval.
-		"doctor_auto_interval": {State: autoInterval, Setting: "kbs[].doctor_auto_interval"},
+		"doctor_auto_interval": cap("doctor_auto_interval", autoInterval, "kbs[].doctor_auto_interval"),
 	}
 }
 
@@ -810,6 +835,17 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				// migration. A state without the name of the switch is only half
 				// an answer, hence the setting alongside it.
 				"capabilities": kbCapabilities(k),
+			}
+			// D746: the KB's settings.yaml is authoritative. A server value it
+			// beat, and an entry of the file that was left out, are the two
+			// things an operator who edited kbs[] in vain needs to be told.
+			if info := k.SettingsInfo(); len(info.Ignored) > 0 || len(info.Findings) > 0 {
+				if len(info.Ignored) > 0 {
+					result["ignored_server_settings"] = info.Ignored
+				}
+				if len(info.Findings) > 0 {
+					result["settings_findings"] = info.Findings
+				}
 			}
 			if len(gaps) > 0 {
 				// Newest first by frontmatter timestamp, then ID descending.

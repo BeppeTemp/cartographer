@@ -167,7 +167,7 @@ func cmdKBCreate(args []string) int {
 	// no separate MkdirAll(dataDir) needed.
 	var originBranch string
 	var adopted []string
-	if _, err := kb.InitWithIdentity(path, authorName, authorEmail); err != nil {
+	if _, err := kb.InitWithSettings(path, authorName, authorEmail, newKBSettingsFile()); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		// A failed initial commit stops here, before the push: pushing an
 		// unborn branch only yields "src refspec main does not match any",

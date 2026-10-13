@@ -13,7 +13,8 @@ import "github.com/BeppeTemp/cartographer/internal/settingschema"
 // outlives its key: a new setting starts in this table.
 //
 // Scope kb marks the kbs[] keys that describe how a KB is run rather than the
-// machine that runs it; the others are bound to one server.
+// machine that runs it; the others are bound to one server. A KB carries the kb
+// keys itself in its settings.yaml (D746) and that file wins over kbs[].
 var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "http", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_HTTP", Flag: "--http", Restart: true, Example: `":39273"`,
 		Description: "Listen address of the HTTP transport, for example :39273. Empty serves MCP over stdio."},
@@ -67,8 +68,8 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Owner of the GitHub repository; it must match the origin remote path exactly."},
 	{Path: "kbs[].github_repository", Scope: settingschema.ScopeKB, Type: "string", Default: `""`,
 		Description: "Name of the GitHub repository."},
-	{Path: "kbs[].github_api_url", Scope: settingschema.ScopeKB, Type: "string", Default: `""`,
-		Description: "GitHub API base URL, for example https://api.github.com."},
+	{Path: "kbs[].github_api_url", Scope: settingschema.ScopeServer, Type: "string", Default: `""`,
+		Description: "GitHub API base URL, for example https://api.github.com. Server-only: the server sends its GitHub token there."},
 	{Path: "kbs[].github_token_env", Scope: settingschema.ScopeServer, Type: "string", Default: `""`,
 		Description: "Name of the environment variable that holds the GitHub token of this KB."},
 	{Path: "kbs[].git_branch", Scope: settingschema.ScopeServer, Type: "string", Default: `""`,
@@ -95,6 +96,8 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Days a skill or agent may go unused by every client before artifact_unused reports it."},
 	{Path: "kbs[].mcp_allowlist", Scope: settingschema.ScopeKB, Type: "list", Default: "[]",
 		Description: "Third-party MCP endpoints a KB descriptor may point to, by name, transport (http or stdio) and exact target. An empty list denies every one."},
+	{Path: "kbs[].secrets", Scope: settingschema.ScopeKB, Type: "bool", Default: "false",
+		Description: "The KB uses secrets. A mount of it without an age key reports secrets as missing key instead of silently disabled. The key itself stays per machine (sops_age_key_file)."},
 
 	{Path: "git.autocommit", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_GIT_AUTOCOMMIT", Flag: "--git-autocommit", Restart: true, Example: "true",
 		Description: "Create a git commit after each successful write."},

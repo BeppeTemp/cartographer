@@ -43,6 +43,10 @@ type Config struct {
 	// Origins records which layer set each setting (D743), keyed by schema
 	// path; read it through OriginOf. A key no layer set is absent: default.
 	Origins map[string]Origin
+
+	// kbPolicy holds the effective per-KB specs once the KBs' own settings.yaml
+	// are laid over kbs[] (D746); see kbsettings.go.
+	kbPolicy *kbPolicyStore
 }
 
 // WebConfig controls the embedded web UI.
@@ -279,6 +283,11 @@ type KBSpec struct {
 	// DefaultUsageStaleDays, 0 disables the finding. Read it through
 	// UsageStale.
 	UsageStaleDays *int `yaml:"usage_stale_days,omitempty"`
+
+	// Secrets says the KB uses secrets (D746): a mount of it without an age key
+	// reports secrets as missing key. It enables nothing by itself, the key is
+	// sops_age_key_file.
+	Secrets bool `yaml:"secrets,omitempty"`
 }
 
 // GitConfig controls per-KB git autocommit/sync, the SSH identity used to
