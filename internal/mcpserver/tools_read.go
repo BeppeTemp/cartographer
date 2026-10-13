@@ -577,6 +577,12 @@ func toolConceptHistory(k *kb.KB) Tool {
 				if r.Agent != "" {
 					e["agent"] = r.Agent
 				}
+				if r.MovedTo != "" {
+					e["moved_to"] = r.MovedTo
+				}
+				if r.MovedFrom != "" {
+					e["moved_from"] = r.MovedFrom
+				}
 				if r.Reason != "" {
 					e["reason"] = r.Reason
 				}
@@ -659,7 +665,10 @@ type changesSinceConcept struct {
 	// Agents are the distinct Agent: trailers (D718) of the commits that
 	// touched the concept, newest first: which agent clients wrote here.
 	Agents []string `json:"agents,omitempty"`
-	Ops    []string `json:"ops"`
+	// Transfers are the Moved-To:/Moved-From: trailers (D760) of those commits
+	// as "to <kb>" / "from <kb>": the concept left or arrived by concept_transfer.
+	Transfers []string `json:"transfers,omitempty"`
+	Ops       []string `json:"ops"`
 	// Reasons are the distinct Reason: trailers of the commits that touched the
 	// concept, newest first, at most 5 (D272).
 	Reasons []string `json:"reasons,omitempty"`
@@ -854,6 +863,11 @@ func toolChangesSince(k *kb.KB) Tool {
 					if commit.Agent != "" && !agentSeen[id][commit.Agent] {
 						agentSeen[id][commit.Agent] = true
 						info.Agents = append(info.Agents, commit.Agent)
+					}
+					for _, tr := range []string{movedLabel("to", commit.MovedTo), movedLabel("from", commit.MovedFrom)} {
+						if tr != "" && !slices.Contains(info.Transfers, tr) {
+							info.Transfers = append(info.Transfers, tr)
+						}
 					}
 					if !opSeen[id][commit.Subject] && len(info.Ops) < 5 {
 						opSeen[id][commit.Subject] = true
@@ -1317,4 +1331,12 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// movedLabel renders one Moved-To/Moved-From trailer value for changes_since.
+func movedLabel(dir, kbName string) string {
+	if kbName == "" {
+		return ""
+	}
+	return dir + " " + kbName
 }

@@ -634,6 +634,11 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 				k.SiblingRoots = siblings
 			}
 		}
+		byName := make(map[string]*kb.KB, len(kbs))
+		for i, k := range kbs {
+			byName[names[i]] = k
+		}
+		kbByName := func(n string) (*kb.KB, bool) { k, ok := byName[n]; return k, ok } // concept_transfer (D760)
 		for i, k := range kbs {
 			k := k
 			name := names[i]
@@ -642,7 +647,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 					s.SetDisplayName("cartographer:" + name)
 				}
 				sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
-				mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i], RoutedMount: true})
+				mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i], RoutedMount: true, KBByName: kbByName})
 				s.SetToolsProfile(toolsProfile)
 				s.SetAuditLog(auditLog)
 				s.SetKBName(name)

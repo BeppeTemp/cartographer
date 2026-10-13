@@ -542,3 +542,23 @@ func TestWalkConceptsLinkingTo_ReadsOnlyCandidates(t *testing.T) {
 		t.Errorf("visited = %v, want %s", visited, wantVisited)
 	}
 }
+
+// TestUnlinkTargets: links to a leaving concept become their label (D760), the
+// code-span masking is the one ExtractLinks uses, other targets stay.
+func TestUnlinkTargets(t *testing.T) {
+	body := "A [link](a.md#sec), a [[x/a#s|alias]], a [[x/a]], an ![img](a.md), `[code](a.md)`, [other](b.md).\n```\n[[x/a]]\n```\n"
+	got, n := UnlinkTargets(body, "x/page.md", map[string]bool{"x/a": true})
+	want := "A link, a alias, a x/a, an img, `[code](a.md)`, [other](b.md).\n```\n[[x/a]]\n```\n"
+	if got != want || n != 4 {
+		t.Errorf("got (%d)\n%q\nwant\n%q", n, got, want)
+	}
+	if again, n := UnlinkTargets(got, "x/page.md", map[string]bool{"x/a": true}); again != got || n != 0 {
+		t.Errorf("not idempotent: %q %d", again, n)
+	}
+	// Whatever UnlinkTargets removes, ExtractLinks must have reported.
+	for _, id := range ExtractLinks(got, "x/page.md") {
+		if id == "x/a" {
+			t.Errorf("a link to x/a survived")
+		}
+	}
+}

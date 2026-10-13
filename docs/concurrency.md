@@ -28,6 +28,14 @@ the files and log are rolled back. It does
 not open a nested git commit; a rolled-back call also leaves no commit,
 since `gitWrap` only commits after the handler returns success.
 
+`concept_transfer` (D760) is the one write that holds **two** KB locks, and the
+one write tool that does not go through `gitWrap`: it takes the git lock of the
+source and of the target itself, in one global order (the KBs' root paths, whichever
+side is the source), so `A → B` and `B → A` running together cannot wait on each
+other. Inside both locks it syncs both KBs, writes and commits the target, then
+writes and commits the source, then pushes both. A failure of the second step
+leaves a revert commit on the target, never a reset.
+
 ## The advisory KB lock
 
 Inside one server process, git operations are serialised by a per-KB mutex. That mutex is blind to

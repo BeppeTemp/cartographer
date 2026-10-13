@@ -25,6 +25,10 @@ type Deps struct {
 	// the `kb` value to pass — a wrong name there is worse than the duplication
 	// routing removes.
 	RoutedMount bool
+	// KBByName resolves another KB mounted on the same server, for the one tool
+	// that touches two of them (concept_transfer, D760). Nil — single-KB stdio —
+	// makes that tool answer that it needs a server mounting both KBs.
+	KBByName func(name string) (*kb.KB, bool)
 }
 
 // RegisterKBTools registers all KB tools on the server, including search,
@@ -138,6 +142,8 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolGateCheck(k))
 	register(gitWrap(k, toolSupersede(k)))
 	register(gitWrap(k, toolConceptMove(k)))
+	// Takes both KBs' git locks and commits each itself (D760): not gitWrap.
+	register(toolConceptTransfer(k, deps))
 	register(gitWrap(k, toolConceptArchive(k)))
 	register(gitWrap(k, toolConceptBatch(k, facts)))
 	register(gitWrap(k, toolConceptDelete(k)))
