@@ -45,7 +45,7 @@ test("without WebGL the list, search and inspector still work", async ({ page })
 });
 
 // Tagged @video: at about two minutes it is half the suite, so CI runs it in a
-// leg of its own (`web` job, D781).
+// leg of its own (`web` job, D785).
 test("the growth replay exports a real video, in the background, with the tab hidden halfway", { tag: "@video" }, async ({ page }) => {
   // Offline rendering at twice the export size on a software GL context is
   // the slow part: ~13 s of video at 60 fps is 780 frames.

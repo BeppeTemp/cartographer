@@ -3,7 +3,7 @@
 #
 # Used by the `test-windows` CI job, where the git-backed packages are ~13x
 # slower than on Linux and the whole job used to wait on internal/mcpserver
-# alone (D778). Every package's top-level tests are sorted and dealt
+# alone (D785). Every package's top-level tests are dealt
 # round-robin, so each shard gets a slice of every slow package; together the
 # shards run each test exactly once. The regex is per package because one
 # regex over the whole repository exceeds Windows' command-line limit.

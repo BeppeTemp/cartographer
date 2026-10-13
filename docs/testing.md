@@ -26,7 +26,7 @@ gofmt-clean. All three are `make gate`, which is the single command CI runs.
 `make gate` runs on ubuntu in the `test` job; the tests also run on Windows
 ([`ci.yml`](https://github.com/BeppeTemp/cartographer/blob/main/.github/workflows/ci.yml)).
 There the git-backed packages are about 13 times slower (process creation), so
-the Windows leg is split across four `windows-latest` runners (D781):
+the Windows leg is split across four `windows-latest` runners (D785):
 `scripts/test-shard.sh COUNT INDEX` deals every package's top-level tests
 round-robin, so each shard runs a slice of every slow package and together they
 run each test once. It skips `internal/repodocs` (documents, not platform

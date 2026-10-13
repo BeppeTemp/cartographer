@@ -19,7 +19,7 @@ concurrency:
 # On main every job runs, and a red main opens (or updates) a `ci-red` issue.
 # On a feature PR `test-windows` runs only when the PR touches a package with
 # platform-specific code (D672): it is the slowest leg even split across
-# runners (D781), but leaving it off every PR let a Windows-only break sit on main for
+# runners (D785), but leaving it off every PR let a Windows-only break sit on main for
 # two days. The release PR runs everything, so no release ships without it.
 jobs:
   # Which of the slower jobs this PR needs. A path filter at the workflow level
@@ -86,7 +86,7 @@ jobs:
 
   # The Windows leg, split across runners: the git-backed packages are ~13x
   # slower there than on ubuntu, and a single job waited ~13 minutes on
-  # internal/mcpserver alone, close to its 20m test timeout (D781). Each shard
+  # internal/mcpserver alone, close to its 20m test timeout (D785). Each shard
   # runs a round-robin slice of every package's tests (scripts/test-shard.sh);
   # fmt-check and vet are platform-independent and run on `test`, which also
   # vets with GOOS=windows. Minutes on standard runners are free for a public
@@ -185,7 +185,7 @@ jobs:
   # Two legs, collected by the required `web` job below: the @video test (the
   # growth replay's export, about two minutes of software rendering) was half
   # the browser suite, so it runs beside the rest, together with the unit
-  # tests and the bundle checks, instead of after them (D781).
+  # tests and the bundle checks, instead of after them (D785).
   web-leg:
     name: web (${{ matrix.leg }})
     needs: changes
