@@ -1406,19 +1406,25 @@ func nonNilStrings(v []string) []string {
 func toolMapDelete(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_delete",
-		Description: "Deletes a Map or Journal only if empty (just the scaffold _map.md, index.md, log.md). Otherwise nothing changes and the error lists the concepts: concept_move them first.",
+		Description: "Deletes a Map or Journal only if empty (just the scaffold _map.md, index.md, log.md). Otherwise nothing changes and the error lists the concepts: concept_move them first. force also deletes loose non-Markdown files.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["map"],
 			"properties": {
 				"map": {
 					"type": "string"
+				},
+				"force": {
+					"type": "boolean",
+					"default": false,
+					"description": "Also delete regular non-Markdown files directly under the map; concepts and subdirectories still refuse."
 				}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Map string `json:"map"`
+				Map   string `json:"map"`
+				Force bool   `json:"force"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -1427,7 +1433,8 @@ func toolMapDelete(k *kb.KB) Tool {
 				return errorResult("'map' is required"), nil
 			}
 
-			if err := k.DeleteMap(params.Map); err != nil {
+			removed, err := k.DeleteMap(params.Map, params.Force)
+			if err != nil {
 				return errorResult(fmt.Sprintf("map_delete %q: %v", params.Map, err)), nil
 			}
 
@@ -1436,8 +1443,19 @@ func toolMapDelete(k *kb.KB) Tool {
 				"map":    params.Map,
 				"status": "deleted",
 			}
+			if len(removed) > 0 {
+				result["removed_files"] = removed
+			}
 			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			res := textResult(string(out))
+			if len(removed) > 0 {
+				names := make([]string, len(removed))
+				for i, r := range removed {
+					names[i] = strings.TrimPrefix(r, params.Map+"/")
+				}
+				res.CommitSubject = fmt.Sprintf("map_delete: %s (removed: %s)", params.Map, strings.Join(kb.CapList(names, 10), ", "))
+			}
+			return res, nil
 		},
 	}
 }
