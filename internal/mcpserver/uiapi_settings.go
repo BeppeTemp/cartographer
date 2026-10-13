@@ -39,6 +39,24 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Strings(names)
 	view := cfg.Settings(names)
+	// The server's kbs value lists every configured KB: a caller sees only the
+	// names of the KBs it can see, as for the per-KB sections.
+	visible := map[string]bool{}
+	for _, n := range names {
+		visible[n] = true
+	}
+	for i, e := range view.Server {
+		if e.Key != "kbs" {
+			continue
+		}
+		shown := []string{}
+		for _, s := range cfg.KBs {
+			if visible[s.MountName()] {
+				shown = append(shown, s.MountName())
+			}
+		}
+		view.Server[i].Value = shown
+	}
 
 	kbs := make([]uiSettingsKB, 0, len(view.KBs))
 	for _, section := range view.KBs {

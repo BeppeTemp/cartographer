@@ -78,7 +78,9 @@ func TestUIAPI_SettingsOmitsInvisibleKB(t *testing.T) {
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "only-x", Scopes: []auth.KBScope{{KB: "kbx", Write: false}}},
 	})
-	handler := settingsHandler(t, config.Default(), ts, "kbx", "kby")
+	cfg := config.Default()
+	cfg.KBs = []config.KBSpec{{Name: "kbx", Path: "/x/kbx"}, {Name: "kby", Path: "/x/kby"}}
+	handler := settingsHandler(t, cfg, ts, "kbx", "kby")
 	if rr := getUI(t, handler, UIAPIPrefix+"/settings", ""); rr.Code != http.StatusUnauthorized {
 		t.Errorf("no token: status %d, want 401", rr.Code)
 	}
@@ -86,6 +88,15 @@ func TestUIAPI_SettingsOmitsInvisibleKB(t *testing.T) {
 	kbs := body["kbs"].([]interface{})
 	if len(kbs) != 1 || kbs[0].(map[string]interface{})["name"] != "kbx" {
 		t.Fatalf("kbs = %v", kbs)
+	}
+	// The server section's kbs list must not name the invisible KB either.
+	for _, e := range body["server"].([]interface{}) {
+		row := e.(map[string]interface{})
+		if row["key"] == "kbs" {
+			if got, _ := row["value"].([]interface{}); len(got) != 1 || got[0] != "kbx" {
+				t.Errorf("server kbs = %v, want [kbx]", row["value"])
+			}
+		}
 	}
 }
 
