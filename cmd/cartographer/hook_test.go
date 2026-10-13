@@ -242,3 +242,13 @@ func TestWriteFindingsHook_CopilotChannel(t *testing.T) {
 		t.Errorf("clean write: code %d stdout %q, want silent", code, stdout)
 	}
 }
+
+// The hint must name the form lint_ignore accepts: a list of check names. An
+// object item ({check, reason}) is dropped and silences nothing (#758).
+func TestWriteFindingsHook_HintNamesSupportedLintIgnoreForm(t *testing.T) {
+	in := `{"tool_name":"mcp__s__concept_write","tool_response":{"findings":[{"path":"kb-a/p","check":"orphan","severity":"info","message":"m"}]}}`
+	_, _, stderr := runHook(t, in)
+	if !strings.Contains(stderr, "`lint_ignore: [<check>]`") || strings.Contains(stderr, "check + reason") {
+		t.Fatalf("hint does not name the supported lint_ignore form:\n%s", stderr)
+	}
+}

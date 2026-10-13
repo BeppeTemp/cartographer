@@ -1240,7 +1240,7 @@ func suggestedLintAction(check string) string {
 	if CheckAcceptability(check) == AcceptNone {
 		return "fix it by hand: an error cannot be accepted with lint_ignore"
 	}
-	return "judge the finding: act on it, or record why with lint_ignore and a reason"
+	return "judge the finding: act on it, or add the check to lint_ignore, with the why in the write's reason"
 }
 
 func lintJudgementItems(findings []Finding, zombies map[okf.ConceptID]bool) []ReviewItem {
