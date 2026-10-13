@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -215,10 +217,11 @@ func TestReadAccessLogRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := newReadAccessLog(k)
-	if n, _, _ := l.summary(); n != 0 {
-		t.Fatalf("fresh log tracks %d", n)
+	if r, s, since := l.summary(); r.TrackedConcepts != 0 || s.TrackedConcepts != 0 || since == "" {
+		t.Fatalf("fresh log = %+v %+v %q", r, s, since)
 	}
 	l.record("ops/a", "ops/b")
+	l.recordSurfaced("ops/c")
 	if _, ok := l.lastReadTime("ops/a"); !ok {
 		t.Fatal("ops/a not recorded")
 	}
@@ -229,11 +232,19 @@ func TestReadAccessLogRoundTrip(t *testing.T) {
 	if !ok || got.Unix() != want.Unix() {
 		t.Fatalf("reload lost the entry: %v %v", got, ok)
 	}
-	if n, oldest, newest := again.summary(); n != 2 || oldest == "" || newest == "" {
-		t.Fatalf("summary = %d %q %q", n, oldest, newest)
+	if _, ok := again.lastSurfacedTime("ops/c"); !ok {
+		t.Fatal("reload lost the surfaced entry")
+	}
+	r, s, since := again.summary()
+	if r.TrackedConcepts != 2 || r.Oldest == "" || r.Newest == "" || s.TrackedConcepts != 1 {
+		t.Fatalf("summary = %+v %+v", r, s)
+	}
+	if _, _, first := l.summary(); since != first {
+		t.Fatalf("since moved on reload: %q, was %q", since, first)
 	}
 	var nilLog *readAccessLog
 	nilLog.record("x") // the UI path: must not panic
+	nilLog.recordSurfaced("x")
 }
 
 func TestReadAccessLogFlushesAfterInterval(t *testing.T) {
@@ -247,13 +258,59 @@ func TestReadAccessLogFlushesAfterInterval(t *testing.T) {
 	t.Cleanup(func() { readAccessNow = prev })
 	l := newReadAccessLog(k)
 	l.record("ops/a")
-	if n, _, _ := newReadAccessLog(k).summary(); n != 0 {
+	if r, _, _ := newReadAccessLog(k).summary(); r.TrackedConcepts != 0 {
 		t.Fatal("a record inside the interval must not write the file")
 	}
 	now = now.Add(readAccessFlushEvery)
-	l.record("ops/b")
-	if n, _, _ := newReadAccessLog(k).summary(); n != 2 {
-		t.Fatalf("a record past the interval must flush both: %d", n)
+	l.recordSurfaced("ops/b")
+	r, s, _ := newReadAccessLog(k).summary()
+	if r.TrackedConcepts != 1 || s.TrackedConcepts != 1 {
+		t.Fatalf("a record past the interval must flush both maps: %+v %+v", r, s)
+	}
+	data, err := os.ReadFile(filepath.Join(k.Root, ".cartographer", readAccessFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f readAccessFileV2
+	if err := json.Unmarshal(data, &f); err != nil || f.Since == "" || len(f.Read) != 1 || len(f.Surfaced) != 1 {
+		t.Fatalf("file shape = %s (%v)", data, err)
+	}
+}
+
+// A file written before reads and hits were told apart may hold hits nobody
+// opened: its entries come back as surfaced, never as reads, and reads start
+// counting from the upgrade.
+func TestReadAccessLogMigratesTheFlatFile(t *testing.T) {
+	k, err := kb.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	prev := readAccessNow
+	readAccessNow = func() time.Time { return now }
+	t.Cleanup(func() { readAccessNow = prev })
+	path := filepath.Join(k.Root, ".cartographer", readAccessFile)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"ops/a":"2026-10-06T09:00:00Z","ops/b":"2026-10-07T09:00:00Z"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	l := newReadAccessLog(k)
+	if _, ok := l.lastReadTime("ops/a"); ok {
+		t.Fatal("a flat-file entry must not come back as a read")
+	}
+	if got, ok := l.lastSurfacedTime("ops/b"); !ok || !got.Equal(time.Date(2026, 10, 7, 9, 0, 0, 0, time.UTC)) {
+		t.Fatalf("flat-file entry not kept as surfaced: %v %v", got, ok)
+	}
+	if _, _, since := l.summary(); since != "2026-10-13T12:00:00Z" {
+		t.Fatalf("since = %q, want the upgrade instant", since)
+	}
+	l.save()
+	var f readAccessFileV2
+	data, _ := os.ReadFile(path)
+	if err := json.Unmarshal(data, &f); err != nil || len(f.Surfaced) != 2 || len(f.Read) != 0 || f.Since != "2026-10-13T12:00:00Z" {
+		t.Fatalf("migrated file = %s (%v)", data, err)
 	}
 }
 
@@ -262,14 +319,51 @@ func TestReadsAreTracked(t *testing.T) {
 	if _, ok := kbStatusResult(t, s)["read_access"]; ok {
 		t.Fatal("read_access present before any read")
 	}
-	callOK(t, s, "concept_read", `{"id":"ops/live"}`)
-	callOK(t, s, "search", `{"query":"gateway"}`)
+	callOK(t, s, "concept_read", `{"id":"ops/old"}`)
+	callOK(t, s, "search", `{"query":"gateway"}`) // hits ops/live only
 	callOK(t, s, "graph_neighbors", `{"id":"ops/live"}`)
 	var ra struct {
-		Tracked int `json:"tracked_concepts"`
+		Tracked  int    `json:"tracked_concepts"`
+		Since    string `json:"since"`
+		Surfaced struct {
+			Tracked int `json:"tracked_concepts"`
+		} `json:"surfaced"`
 	}
-	if err := json.Unmarshal(kbStatusResult(t, s)["read_access"], &ra); err != nil || ra.Tracked != 1 {
-		t.Fatalf("read_access = %+v, %v (only ops/live was read or hit)", ra, err)
+	if err := json.Unmarshal(kbStatusResult(t, s)["read_access"], &ra); err != nil {
+		t.Fatal(err)
+	}
+	if ra.Tracked != 1 || ra.Surfaced.Tracked != 1 || ra.Since == "" {
+		t.Fatalf("read_access = %+v: only ops/old was read, only ops/live was a hit", ra)
+	}
+}
+
+// Only concept_read is a read: a hit is a pointer the agent may never follow,
+// and navigation is neither.
+func TestSearchHitIsNotARead(t *testing.T) {
+	now := time.Now()
+	prev := readAccessNow
+	readAccessNow = func() time.Time { return now }
+	t.Cleanup(func() { readAccessNow = prev })
+	// Trap: the clock is set before the server exists, which owns the log. A
+	// second server on the same *kb.KB would get an empty search index: the
+	// graph cache hands each change to one reconciler only (D245).
+	s, k := archivedServer(t)
+	callOK(t, s, "search", `{"query":"gateway"}`)
+	callOK(t, s, "graph_context", `{"ids":["ops/live"]}`)
+	now = now.Add(readAccessFlushEvery) // the next record flushes the file
+	callOK(t, s, "concept_read", `{"id":"ops/old"}`)
+	l := newReadAccessLog(k)
+	if _, ok := l.lastReadTime("ops/live"); ok {
+		t.Fatal("a search hit was recorded as a read")
+	}
+	if _, ok := l.lastSurfacedTime("ops/live"); !ok {
+		t.Fatal("the hit was not recorded as surfaced")
+	}
+	if _, ok := l.lastReadTime("ops/old"); !ok {
+		t.Fatal("concept_read was not recorded as a read")
+	}
+	if _, ok := l.lastSurfacedTime("ops/old"); ok {
+		t.Fatal("concept_read must not stamp surfaced")
 	}
 }
 
