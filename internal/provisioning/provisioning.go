@@ -913,7 +913,9 @@ func generateKBInstructions(kbName, kbRoot string, routed bool) string {
 
 	if !skipPreamble {
 		sb.WriteString("Operational instructions:\n")
-		sb.WriteString("- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read;\n")
+		// D780: graph_context is named here because agents choose the tools
+		// this line names; nothing else in the session says when to use it.
+		sb.WriteString("- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n")
 		sb.WriteString("- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n")
 		sb.WriteString("- a write is done when its response has no findings (broken links, missing index entry, orphan): fix them, or `lint_ignore` them with a reason;\n")
 		// D321: one meaning for `active`, said once, true for every KB.
