@@ -288,10 +288,10 @@ func TestRemoveMCPEntries_RemovesEveryManagedEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := applyMCPEntries(sameEntriesFor([]string{"claude", "codex", "kiro", "opencode"}, entries), []string{"claude", "codex", "kiro", "opencode"}, dir, false, "", false); err != nil {
+	if _, _, err := applyMCPEntries(sameEntriesFor([]string{"claude", "codex", "kiro", "opencode"}, entries), []string{"claude", "codex", "kiro", "opencode"}, dir, nil, false, "", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := removeMCPEntries("wiki", []string{"a", "b"}, []string{"claude", "codex", "kiro", "opencode"}, dir, false, "", false); err != nil {
+	if _, _, err := removeMCPEntries("wiki", []string{"a", "b"}, []string{"claude", "codex", "kiro", "opencode"}, dir, nil, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	for _, provider := range []string{"claude", "codex", "kiro", "opencode"} {
@@ -318,7 +318,7 @@ func TestCmdSync_ReconcilesOneToManyAndBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	bare, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "", false)
-	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, bare), cfg.Agents, dir, false, "", false); err != nil {
+	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, bare), cfg.Agents, dir, nil, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -358,7 +358,7 @@ func TestDoDisconnect_RemovesPersistedPerKBEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "", false)
-	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, entries), cfg.Agents, dir, false, "", false); err != nil {
+	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, entries), cfg.Agents, dir, nil, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir}); err != nil {
@@ -381,7 +381,7 @@ func TestCmdSync_ServerDownKeepsMCPEntriesAndKBs(t *testing.T) {
 		t.Fatal(err)
 	}
 	entries, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "", false)
-	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, entries), cfg.Agents, dir, false, "", false); err != nil {
+	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, entries), cfg.Agents, dir, nil, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	beforeConfig, err := os.ReadFile(clientconfig.Path(dir))
@@ -590,7 +590,7 @@ func TestEntriesByProviderForKBs_EmptyBindingGetsNoEntry(t *testing.T) {
 		ServerName: "wiki", Agents: []string{"claude", "codex"},
 		KnownKBs: []string{"a", "b"},
 		Clients: map[string]clientconfig.ClientBinding{
-			"claude": {KBs: nil},
+			"claude": {KBsSet: true},
 			"codex":  {KBs: []string{"a"}},
 		},
 	}
@@ -912,5 +912,56 @@ func TestManagedEntryNames_CoversModeSwitch(t *testing.T) {
 		if !seen {
 			t.Errorf("managedEntryNames does not cover %q: a %s entry would survive a mode switch", n, n)
 		}
+	}
+}
+
+func TestApplyRemoveMCPEntries_EveryDeclaredClaudeDir(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	home, extra := t.TempDir(), t.TempDir()
+	cfg := &clientconfig.Config{Clients: map[string]clientconfig.ClientBinding{"claude": {ConfigDirs: []string{extra, extra, home}}}}
+	dirs, warns := claudeConfigDirs(home, cfg)
+	if len(dirs) != 1 || dirs[0] != extra || len(warns) != 0 {
+		t.Fatalf("dirs=%v warns=%v, want [%s] and none (dedupe, home folded)", dirs, warns, extra)
+	}
+	old, _ := entriesForKBs("wiki", "https://old.example.test/mcp", []string{"a"}, []string{"a"}, "", false)
+	if _, _, err := applyMCPEntries(sameEntriesFor([]string{"claude"}, old), []string{"claude"}, home, dirs, false, "", false); err != nil {
+		t.Fatal(err)
+	}
+	// Rename scenario: remove the old name, write the new URL; both files follow.
+	cur, _ := entriesForKBs("wiki", "https://new.example.test/mcp", []string{"b"}, []string{"b"}, "", false)
+	if _, _, err := removeMCPEntries("wiki", []string{"a"}, []string{"claude"}, home, dirs, false, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := applyMCPEntries(sameEntriesFor([]string{"claude"}, cur), []string{"claude"}, home, dirs, false, "", false); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{home, extra} {
+		data, err := os.ReadFile(filepath.Join(d, ".claude.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), "new.example.test") || strings.Contains(string(data), "old.example.test") {
+			t.Errorf("%s/.claude.json not rewritten: %s", d, data)
+		}
+	}
+}
+
+func TestClaudeConfigDirs_Warnings(t *testing.T) {
+	home, undeclared := t.TempDir(), t.TempDir()
+	missing := filepath.Join(t.TempDir(), "absent")
+	t.Setenv("CLAUDE_CONFIG_DIR", undeclared)
+	cfg := &clientconfig.Config{Clients: map[string]clientconfig.ClientBinding{"claude": {ConfigDirs: []string{missing, "relative/dir"}}}}
+	dirs, warns := claudeConfigDirs(home, cfg)
+	if len(dirs) != 0 || len(warns) != 3 {
+		t.Fatalf("dirs=%v warns=%v, want no dirs and 3 warnings", dirs, warns)
+	}
+	if _, err := os.Stat(missing); err == nil {
+		t.Error("a missing declared dir must never be created")
+	}
+	if !strings.Contains(warns[2], "clients.claude.config_dirs") || !strings.Contains(warns[2], undeclared) {
+		t.Errorf("undeclared env warning = %q", warns[2])
+	}
+	if _, err := os.Stat(filepath.Join(undeclared, ".claude.json")); err == nil {
+		t.Error("an undeclared env dir must stay untouched")
 	}
 }

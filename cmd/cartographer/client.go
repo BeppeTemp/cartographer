@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -170,7 +172,29 @@ func clientShow(cfg *clientconfig.Config, args []string) int {
 	}
 	sort.Strings(unbound)
 	fmt.Printf("not bound  %s\n", formatKBList(unbound))
+	if provider == string(configurator.ProviderClaudeCode) {
+		printClaudeConfigDirs(cfg)
+	}
 	return 0
+}
+
+// printClaudeConfigDirs lists where sync writes the Claude MCP entry (D755):
+// the home directory, each declared config dir, and an undeclared
+// CLAUDE_CONFIG_DIR marked as not written.
+func printClaudeConfigDirs(cfg *clientconfig.Config) {
+	home, err := clientconfig.TargetDir()
+	if err != nil {
+		return
+	}
+	dirs, _ := claudeConfigDirs(home, cfg)
+	fmt.Printf("config dirs  %s (default)\n", home)
+	for _, d := range dirs {
+		fmt.Printf("             %s (declared)\n", d)
+	}
+	env := os.Getenv("CLAUDE_CONFIG_DIR")
+	if env != "" && filepath.Clean(env) != filepath.Clean(home) && !slices.Contains(dirs, filepath.Clean(env)) {
+		fmt.Printf("             %s (CLAUDE_CONFIG_DIR, not declared)\n", env)
+	}
 }
 
 func clientBind(dir string, cfg *clientconfig.Config, args []string) int {

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -224,13 +225,17 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		// filtered one would orphan an unbound KB's entry forever. Only the
 		// targeted providers are touched — a provider skipped by --client keeps
 		// its entries untouched.
-		removedNames, _, err := removeMCPEntries(cfg.ServerName, previousKnownKBs, targets, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
+		claudeDirs, claudeDirWarnings := claudeConfigDirs(dir, cfg)
+		removedNames, _, err := removeMCPEntries(cfg.ServerName, previousKnownKBs, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv, opts.DryRun)
 		if err != nil {
 			return syncResult{}, err
 		}
-		_, warnings, err := applyMCPEntries(entriesByProvider, targets, dir, cfg.Auth, cfg.TokenEnv, opts.DryRun)
+		_, warnings, err := applyMCPEntries(entriesByProvider, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv, opts.DryRun)
 		if err != nil {
 			return syncResult{}, err
+		}
+		if slices.Contains(targets, string(configurator.ProviderClaudeCode)) {
+			warnings = append(warnings, claudeDirWarnings...)
 		}
 		if w := kiroFlatNamespaceWarning(targets, entriesByProvider, effectiveToolPrefixes(facts, healthErr), healthErr); w != "" {
 			warnings = append(warnings, w)

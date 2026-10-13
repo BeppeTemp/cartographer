@@ -872,10 +872,11 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if err != nil {
 		return connectResult{}, err
 	}
-	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun); err != nil {
+	claudeDirs, claudeDirWarnings := claudeConfigDirs(opts.Dir, existing)
+	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.TokenEnv, opts.DryRun); err != nil {
 		return connectResult{}, err
 	}
-	configsWritten, configWarnings, err := applyMCPEntries(entriesByProvider, opts.Providers, opts.Dir, opts.Auth, opts.TokenEnv, opts.DryRun)
+	configsWritten, configWarnings, err := applyMCPEntries(entriesByProvider, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.TokenEnv, opts.DryRun)
 	if err != nil {
 		return connectResult{}, err
 	}
@@ -889,6 +890,9 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	}
 	if w := toolIdentifierBudgetWarning(opts.Providers, entriesByProvider, facts, healthErr); w != "" {
 		configWarnings = append(configWarnings, w)
+	}
+	if slices.Contains(opts.Providers, string(configurator.ProviderClaudeCode)) {
+		configWarnings = append(configWarnings, claudeDirWarnings...)
 	}
 
 	// 1b. Ensure the bootstrap hook (D60): purely local, independent of the

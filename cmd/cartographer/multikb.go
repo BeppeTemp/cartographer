@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -475,7 +477,7 @@ func entryNames(entries []mcpEntry) []string {
 // written plus the non-fatal warnings Apply collected (a header the provider
 // cannot represent, D69; a duplicate table adopted from a Codex rewrite, D99),
 // for the caller to render.
-func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string, dir string, auth bool, tokenEnv string, dryRun bool) (written []string, warnings []string, err error) {
+func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string, dir string, claudeDirs []string, auth bool, tokenEnv string, dryRun bool) (written []string, warnings []string, err error) {
 	written = make([]string, 0, len(providers))
 	seenPaths := map[string]bool{}
 	for _, provider := range providers {
@@ -507,14 +509,16 @@ func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string
 			}
 			results = []*configurator.EmitResult{&joined}
 		}
-		paths, err := configurator.Apply(results, dir, dryRun)
-		if err != nil {
-			return nil, nil, fmt.Errorf("write config for %s: %w", provider, err)
-		}
-		for _, path := range paths {
-			if !seenPaths[path] {
-				written = append(written, path)
-				seenPaths[path] = true
+		for _, base := range providerBaseDirs(provider, dir, claudeDirs) {
+			paths, err := configurator.Apply(results, base, dryRun)
+			if err != nil {
+				return nil, nil, fmt.Errorf("write config for %s: %w", provider, err)
+			}
+			for _, path := range paths {
+				if !seenPaths[path] {
+					written = append(written, path)
+					seenPaths[path] = true
+				}
 			}
 		}
 		for _, r := range results {
@@ -524,7 +528,7 @@ func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string
 	return written, warnings, nil
 }
 
-func removeMCPEntries(baseName string, kbs []string, providers []string, dir string, auth bool, tokenEnv string, dryRun bool) (map[string][]string, map[string]bool, error) {
+func removeMCPEntries(baseName string, kbs []string, providers []string, dir string, claudeDirs []string, auth bool, tokenEnv string, dryRun bool) (map[string][]string, map[string]bool, error) {
 	removed := make(map[string]bool, len(providers))
 	names := make(map[string][]string, len(providers))
 	for _, provider := range providers {
@@ -534,17 +538,21 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 			continue
 		}
 		for _, name := range managedEntryNames(baseName, kbs) {
-			ok, err := configurator.Remove(&configurator.ServerConfig{Name: name, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider), dir, dryRun)
-			if err != nil {
-				return nil, nil, fmt.Errorf("remove config for %s: %w", provider, err)
+			nameRemoved := false
+			for _, base := range providerBaseDirs(provider, dir, claudeDirs) {
+				ok, err := configurator.Remove(&configurator.ServerConfig{Name: name, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider), base, dryRun)
+				if err != nil {
+					return nil, nil, fmt.Errorf("remove config for %s: %w", provider, err)
+				}
+				nameRemoved = nameRemoved || ok
 			}
-			if ok {
+			if nameRemoved {
 				// Under dryRun configurator.Remove reports what it WOULD
 				// remove without touching the file, which is what makes the
 				// removals visible in a --dry-run plan (D172 WP4).
 				names[provider] = append(names[provider], name)
 			}
-			removed[provider] = removed[provider] || ok
+			removed[provider] = removed[provider] || nameRemoved
 		}
 	}
 	return names, removed, nil
@@ -560,4 +568,54 @@ func unmanagedMCPConfigNote(provider configurator.Provider) string {
 		name = d.DisplayName
 	}
 	return fmt.Sprintf("%s: registered for artifact delivery; its MCP endpoint is NOT configured by Cartographer (it is rendered by %s' own deployment) — point it at this server yourself", name, provider)
+}
+
+// providerBaseDirs is every directory a provider's MCP entry is written to:
+// the client base dir, plus, for Claude Code only, the declared config dirs
+// (D755). Every other provider has exactly one root.
+func providerBaseDirs(provider, dir string, claudeDirs []string) []string {
+	if provider != string(configurator.ProviderClaudeCode) {
+		return []string{dir}
+	}
+	return append([]string{dir}, claudeDirs...)
+}
+
+// claudeConfigDirs resolves clients.claude.config_dirs (D755) into the extra
+// directories the Claude MCP entry is written to besides home, plus the
+// warnings for what was skipped. A dir is skipped, never created, when it is
+// relative, does not exist, is not a directory, or holds a .claude.json that is
+// a symlink (D148: a write would land in the link's target). An undeclared
+// CLAUDE_CONFIG_DIR is only reported: sync also runs from session-start hooks
+// that inherit one account's environment, so the env alone must not decide the
+// target set.
+func claudeConfigDirs(home string, cfg *clientconfig.Config) (dirs []string, warnings []string) {
+	seen := map[string]bool{filepath.Clean(home): true}
+	for _, raw := range cfg.Clients["claude"].ConfigDirs {
+		d := raw
+		if d == "~" || strings.HasPrefix(d, "~/") {
+			d = filepath.Join(home, strings.TrimPrefix(d, "~"))
+		}
+		if !filepath.IsAbs(d) {
+			warnings = append(warnings, fmt.Sprintf("clients.claude.config_dirs: %q is not an absolute path; skipped", raw))
+			continue
+		}
+		d = filepath.Clean(d)
+		if seen[d] {
+			continue
+		}
+		seen[d] = true
+		if info, err := os.Stat(d); err != nil || !info.IsDir() {
+			warnings = append(warnings, fmt.Sprintf("clients.claude.config_dirs: %s does not exist or is not a directory; skipped (never created)", d))
+			continue
+		}
+		if info, err := os.Lstat(filepath.Join(d, ".claude.json")); err == nil && !info.Mode().IsRegular() {
+			warnings = append(warnings, fmt.Sprintf("clients.claude.config_dirs: %s/.claude.json is not a regular file (a symlink?); skipped", d))
+			continue
+		}
+		dirs = append(dirs, d)
+	}
+	if env := os.Getenv("CLAUDE_CONFIG_DIR"); env != "" && !seen[filepath.Clean(env)] {
+		warnings = append(warnings, fmt.Sprintf("CLAUDE_CONFIG_DIR=%s is not declared: its .claude.json is not updated; add it to clients.claude.config_dirs in %s", env, clientconfig.FileName))
+	}
+	return dirs, warnings
 }

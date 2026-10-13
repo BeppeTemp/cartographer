@@ -884,7 +884,7 @@ func TestManifestsForProvidersEmptyBindingPullsNothing(t *testing.T) {
 	cfg := &clientconfig.Config{
 		ServerURL: "http://127.0.0.1:1/mcp", // would fail if contacted
 		KnownKBs:  []string{"one"}, Agents: []string{"claude"},
-		Clients: map[string]clientconfig.ClientBinding{"claude": {KBs: nil}},
+		Clients: map[string]clientconfig.ClientBinding{"claude": {KBsSet: true}},
 	}
 	manifests, err := manifestsForProviders(cfg, cfg.Agents)
 	if err != nil {
@@ -1254,14 +1254,14 @@ func TestDryRunPlanCoversRemovalsAndKnownKBs(t *testing.T) {
 	}
 	// An MCP entry for the KB that disappeared, so there is something real to
 	// report as removed.
-	if _, _, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{"claude"}, dir, false, "", false); err != nil {
+	if _, _, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{"claude"}, dir, nil, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := entriesByProviderForKBs(cfg, []string{"claude"}, cfg.ServerName, cfg.ServerURL, []string{"one", "gone"}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := applyMCPEntries(entries, []string{"claude"}, dir, false, "", false); err != nil {
+	if _, _, err := applyMCPEntries(entries, []string{"claude"}, dir, nil, false, "", false); err != nil {
 		t.Fatal(err)
 	}
 	before := treeSnapshot(t, dir)

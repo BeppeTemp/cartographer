@@ -24,7 +24,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "trust", Scope: settingschema.ScopeClient, Type: "bool", Default: "true",
 		Description: "Treat the skills, agents, hooks and instructions a KB provides as trusted at every sync, without the one-time --auto-trust flag."},
 	{Path: "clients", Scope: settingschema.ScopeClient, Type: "map", Default: "{}",
-		Description: "Which KBs each connected provider receives, as <provider>: {kbs: [...]}. A provider with no entry receives every known KB. Edit it with `cartographer client`."},
+		Description: "Which KBs each connected provider receives, as <provider>: {kbs: [...]}. A provider with no entry, or an entry without kbs, receives every known KB. clients.claude.config_dirs lists extra Claude Code config directories (CLAUDE_CONFIG_DIR) whose .claude.json also receives the MCP entry. Edit it with `cartographer client`."},
 	{Path: "scopes", Scope: settingschema.ScopeClient, Type: "map", Values: "<provider>: provider | workspace", Default: "{}",
 		Description: "Where a provider receives KB artifacts: provider (global, under the home directory) or workspace (each bound workspace gets its own)."},
 	{Path: "workspaces", Scope: settingschema.ScopeClient, Type: "map", Default: "{}",

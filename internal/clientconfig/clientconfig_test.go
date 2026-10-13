@@ -262,7 +262,7 @@ func TestBoundKBsThreeStates(t *testing.T) {
 	cfg.KnownKBs = []string{"alpha", "beta"}
 	cfg.Clients = map[string]clientconfig.ClientBinding{
 		"codex":    {KBs: []string{"beta"}},
-		"opencode": {KBs: nil},
+		"opencode": {KBsSet: true},
 	}
 
 	if kbs, explicit := cfg.BoundKBs("claude"); explicit || strings.Join(kbs, ",") != "alpha,beta" {
@@ -709,5 +709,48 @@ func TestWriteFindingsHook_DefaultsOnAndOnlyOffIsWritten(t *testing.T) {
 	}
 	if _, stray := again.Extra["write_findings_hook"]; stray {
 		t.Error("write_findings_hook leaked into Extra")
+	}
+}
+
+func TestConfigDirsOnlyBindingKeepsDefaultKBs(t *testing.T) {
+	dir := t.TempDir()
+	body := "server_url: http://x/mcp\nclients:\n  claude:\n    config_dirs: [/a/b]  # keep\n  codex:\n    kbs: []\n"
+	if err := os.WriteFile(clientconfig.Path(dir), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.KnownKBs = []string{"one", "two"}
+	if kbs, explicit := cfg.BoundKBs("claude"); explicit || len(kbs) != 2 {
+		t.Errorf("claude with only config_dirs: kbs=%v explicit=%v, want default", kbs, explicit)
+	}
+	if kbs, explicit := cfg.BoundKBs("codex"); !explicit || len(kbs) != 0 {
+		t.Errorf("codex kbs: []: kbs=%v explicit=%v, want explicit none", kbs, explicit)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(clientconfig.Path(dir))
+	if !strings.Contains(string(data), "/a/b") || !strings.Contains(string(data), "# keep") || !strings.Contains(string(data), "kbs: []") {
+		t.Errorf("round trip lost a key or comment:\n%s", data)
+	}
+	re, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, explicit := re.BoundKBs("claude"); explicit {
+		t.Error("saving made claude an explicit binding")
+	}
+}
+
+func TestConfigDirsRejectedOutsideClaude(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(clientconfig.Path(dir), []byte("clients:\n  codex:\n    config_dirs: [/a]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clientconfig.Load(dir); err == nil || !strings.Contains(err.Error(), "config_dirs") {
+		t.Fatalf("err = %v, want a config_dirs error", err)
 	}
 }
