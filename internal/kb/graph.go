@@ -342,6 +342,13 @@ func applySpanEdits(body string, edits []spanEdit) (string, int) {
 // deliberately untouched; absolute URLs, anchors and mailto: are skipped, and a
 // link resolving outside the KB is left alone.
 func RewriteOutboundLinks(body, oldBase, newBase string, moveMap map[string]string) (string, int) {
+	return rewriteOutboundLinks(body, oldBase, newBase, moveMap, nil)
+}
+
+// rewriteOutboundLinks is RewriteOutboundLinks with keep: when non-nil, a link
+// whose target (resolved against oldBase, relative to the data root, link
+// text as written) makes keep return true is left exactly as written.
+func rewriteOutboundLinks(body, oldBase, newBase string, moveMap map[string]string, keep func(resolved, pathPart string) bool) (string, int) {
 	oldDir, newDir := path.Dir(oldBase), path.Dir(newBase)
 	if oldDir == newDir && len(moveMap) == 0 {
 		return body, 0
@@ -365,6 +372,9 @@ func RewriteOutboundLinks(body, oldBase, newBase string, moveMap map[string]stri
 		}
 		resolved := path.Clean(path.Join(oldDir, pathPart))
 		if strings.HasPrefix(resolved, "..") {
+			continue
+		}
+		if keep != nil && keep(resolved, pathPart) {
 			continue
 		}
 		// A target moved in the same batch lands at its new path.

@@ -790,6 +790,38 @@ func TestExpandConcept_Success(t *testing.T) {
 	}
 }
 
+// TestExpandConcept_LeavesDanglingAssetLinks: a link to a non-Markdown file
+// that does not exist yet is the concept's own asset-to-be, written after the
+// expand (#759); it stays as written and resolves inside the concept's
+// directory. An existing file and a concept link (even a dangling one) are
+// still rebased.
+func TestExpandConcept_LeavesDanglingAssetLinks(t *testing.T) {
+	dir := tempKB(t)
+	k, _ := Init(dir)
+	if err := os.MkdirAll(filepath.Join(dir, "data", "entities"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data", "entities", "existing.png"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := "[b](build.py) [s](scripts/run.sh#L1) [e](existing.png) [c](missing.md)\n"
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Tool")
+	if _, err := k.WriteConcept(okf.ConceptID("entities/tool"), fm, body, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := k.ExpandConcept(okf.ConceptID("entities/tool")); err != nil {
+		t.Fatalf("ExpandConcept: %v", err)
+	}
+	post, err := k.ReadConcept(okf.ConceptID("entities/tool"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "[b](build.py) [s](scripts/run.sh#L1) [e](../existing.png) [c](../missing.md)\n"
+	if post.Body != want {
+		t.Errorf("body after expand:\n got %q\nwant %q", post.Body, want)
+	}
+}
+
 func TestExpandConcept_RebasesRelativeLinks(t *testing.T) {
 	dir := tempKB(t)
 	k, _ := Init(dir)
