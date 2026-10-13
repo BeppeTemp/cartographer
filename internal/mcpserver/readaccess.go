@@ -10,19 +10,19 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
-// The read-access log (D322): when each concept was last read, and when it was
-// last surfaced. A read is concept_read returning the concept; a search hit is
-// only surfaced, a pointer the agent may never follow, so it never counts as a
-// read. Most hits are never opened, and counting them would make a page search
-// keeps offering look alive however rarely anyone reads it. It is the foundation
-// of an abandonment signal (a future plan composes it with in-degree and age); it
-// is telemetry, not a trust event, so it lives in its own file beside the
-// search-miss log and never in the audit trail or git. Navigation tools
-// (graph_*, atlas_overview, concept_list) stamp neither; there is no per-client
-// breakdown because the protocol carries no session id.
+// The read-access log (D322, D778): when each concept was last read, and when
+// it was last surfaced. A read is concept_read returning the concept; a search
+// hit is only surfaced, a pointer the agent may never follow, so it never
+// counts as a read. Most hits are never opened, and counting them would make a
+// page search keeps offering look alive however rarely anyone reads it. It is
+// the foundation of an abandonment signal (a future plan composes it with
+// in-degree and age); it is telemetry, not a trust event, so it lives in its
+// own file beside the search-miss log and never in the audit trail or git.
+// Navigation tools (graph_*, atlas_overview, concept_list) stamp neither;
+// there is no per-client breakdown because the protocol carries no session id.
 //
-// Not retroactive: a concept with no read entry was not read since `since`, and
-// a consumer must read that as "unknown" before it, never as "never read".
+// Not retroactive: a concept with no read entry was not read since `since`,
+// and a consumer must read that as "unknown" before it, never as "never read".
 const (
 	readAccessFile = "read-access.json"
 	// readAccessFlushEvery bounds how stale the file may be: a record flushes

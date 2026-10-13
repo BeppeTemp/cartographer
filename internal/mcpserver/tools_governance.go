@@ -913,7 +913,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				result["sources"] = src
 			}
 			if read, surfaced, since := reads.summary(); read.TrackedConcepts+surfaced.TrackedConcepts > 0 {
-				// D322: the last-read telemetry the doctor and the operator can
+				// D322, D778: the last-read telemetry the doctor and the operator can
 				// see is being collected (not retroactive): reads at the top
 				// level, search hits apart, never mixed.
 				ra := map[string]interface{}{"tracked_concepts": read.TrackedConcepts, "since": since, "surfaced": surfaced}

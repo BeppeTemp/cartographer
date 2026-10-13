@@ -151,7 +151,7 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	if len(hits) == 0 && (params.RecordMiss == nil || *params.RecordMiss) && WholeVisible(ctx, k, false) {
 		misses.record(params.Query)
 	}
-	// A hit is surfaced, not read (D322): most hits are never opened, so only
+	// A hit is surfaced, not read (D778): most hits are never opened, so only
 	// concept_read stamps a read.
 	if len(hits) > 0 {
 		ids := make([]string, len(hits))
