@@ -74,9 +74,14 @@ connection serves every mounted KB. `kbs` only **narrows**, never widens:
 per-KB authorization still runs at the target KB. It is a different parameter
 from `kb`, which stays `400` on this path (D187's one-channel rule is about
 selecting *the* KB, not the allowed set). The effective set is `kbs` intersected
-with the mounted KBs; a name in `kbs` that is not mounted is a `400` naming it
-and the mounted KBs (fail loud: a typo would otherwise silently hide a KB);
-duplicates are ignored.
+with the mounted KBs (D756): a name that is not mounted (a KB renamed or removed
+since the client was synced) does not take the connection down, it is served
+without it and reported in `kb_status.connection.unknown`, in the `kb_status`
+hint and in the error of a call naming it, with a pointer to `cartographer sync`;
+the server logs it once per distinct set. If **no** name is mounted the request
+is a `400` naming every unknown name and the mounted KBs (an empty set would have
+no tools, and falling back to all KBs would widen the binding). Duplicates are
+ignored.
 
 A KB mounted after a session started reaches it only through `cartographer sync` (plus `client bind` for an explicit binding) and a new agent session: the tool list is fixed per session and HTTP has no list-changed notification. Routed `kb_status` reports the difference in `connection` (D712).
 

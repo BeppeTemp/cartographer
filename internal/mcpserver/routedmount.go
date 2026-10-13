@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 )
@@ -103,17 +104,40 @@ func (m *MultiKBServer) buildRouted(set []string) *Server {
 	return routed
 }
 
+// routedUnknownKey carries the request's unknown `kbs` names from the HTTP
+// layer to routedHandler. They are request-scoped: the cached Server is shared
+// by every URL that resolves to the same effective set, so they never live on it.
+type routedUnknownKey struct{}
+
+func withRoutedUnknown(ctx context.Context, unknown []string) context.Context {
+	if len(unknown) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, routedUnknownKey{}, unknown)
+}
+
+func routedUnknown(ctx context.Context) []string {
+	u, _ := ctx.Value(routedUnknownKey{}).([]string)
+	return u
+}
+
 // routedFor resolves the `kbs` query parameter of a routed request to the
 // server that answers it (D288). Absent or empty means every mounted KB. The
-// binding only narrows: a name that is not mounted is an error naming it and
-// the mounted KBs (a typo must not silently hide a KB), duplicates are
-// ignored, and per-KB authorization still runs at the target.
+// binding only narrows: the effective set is the requested names that are
+// mounted (D756). Names that are not mounted (a KB renamed or removed since
+// the client was synced) are returned sorted, not dropped silently: the caller
+// reports them to the agent. Duplicates are ignored and per-KB authorization
+// still runs at the target.
+//
+// An empty effective set stays an error naming every unknown name and the
+// mounted KBs. It must not become "every mounted KB": that would widen the
+// binding, which only narrows, and an empty set would be a server with no tools.
 //
 // One Server is built per distinct effective set and cached: the set is part
 // of the URL, so tools/list differs per connection and cannot come from a
 // single shared registry. The number of sets is bounded by the subsets of the
-// mounted KBs.
-func (m *MultiKBServer) routedFor(rawKBs []string) (*Server, error) {
+// mounted KBs; stale URLs with different unknown names share a view.
+func (m *MultiKBServer) routedFor(rawKBs []string) (*Server, []string, error) {
 	seen := map[string]bool{}
 	for _, raw := range rawKBs {
 		for _, n := range strings.Split(raw, ",") {
@@ -123,25 +147,50 @@ func (m *MultiKBServer) routedFor(rawKBs []string) (*Server, error) {
 		}
 	}
 	if len(seen) == 0 {
-		return m.routed, nil
+		return m.routed, nil, nil
 	}
-	set := make([]string, 0, len(seen))
+	var set, unknown []string
 	for n := range seen {
 		if _, ok := m.servers[n]; !ok {
-			return nil, fmt.Errorf("unknown kb %q in kbs: this server mounts %s", n, strings.Join(m.routedNames, ", "))
+			unknown = append(unknown, n)
+			continue
 		}
 		set = append(set, n)
 	}
 	sort.Strings(set)
+	sort.Strings(unknown)
+	if len(set) == 0 {
+		return nil, unknown, fmt.Errorf("unknown kb in kbs: %s not mounted on this server, which mounts %s",
+			quoteJoin(unknown), strings.Join(m.routedNames, ", "))
+	}
 	key := strings.Join(set, ",")
 	m.routedMu.Lock()
 	defer m.routedMu.Unlock()
+	if len(unknown) > 0 {
+		warn := key + "|" + strings.Join(unknown, ",")
+		if !m.routedWarned[warn] {
+			if m.routedWarned == nil {
+				m.routedWarned = map[string]bool{}
+			}
+			m.routedWarned[warn] = true
+			log.Printf("routed mount: kbs names %s not mounted; serving %s (renamed or removed? run cartographer sync on the client)",
+				quoteJoin(unknown), key)
+		}
+	}
 	if srv, ok := m.routedViews[key]; ok {
-		return srv, nil
+		return srv, unknown, nil
 	}
 	srv := m.buildRouted(set)
 	m.routedViews[key] = srv
-	return srv, nil
+	return srv, unknown, nil
+}
+
+func quoteJoin(names []string) string {
+	q := make([]string, len(names))
+	for i, n := range names {
+		q[i] = fmt.Sprintf("%q", n)
+	}
+	return strings.Join(q, ", ")
 }
 
 // mountedNames returns the mounted KB names in deterministic order.
@@ -221,6 +270,10 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 					"bind it to this client (cartographer client bind), run cartographer sync, then start a new agent session — "+
 					"an open session keeps the tool list it started with", kbName, allowed)), nil
 			}
+			if containsString(routedUnknown(ctx), kbName) {
+				return errorResult(fmt.Sprintf("kb %q is in this connection's kbs but is not mounted on this server (renamed or removed?): "+
+					"run cartographer sync on this client, then start a new agent session — allowed: %s", kbName, allowed)), nil
+			}
 			return errorResult(fmt.Sprintf("kb %q is not available on this connection — allowed: %s"+
 				"; a KB created after the server started is mounted only by a server restart (cartographer service restart), "+
 				"then cartographer sync and a new agent session", kbName, allowed)), nil
@@ -237,7 +290,7 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 		}
 		res := srv.callTool(ctx, toolName, rest)
 		if toolName == "kb_status" && !res.IsError {
-			res = m.withConnectionNotice(res, set)
+			res = m.withConnectionNotice(res, set, routedUnknown(ctx))
 		}
 		return res, nil
 	}
@@ -247,6 +300,9 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 const routedConnectionHint = "A KB listed in mounted but missing from your tools' kb enum or your instructions was added after this session started: " +
 	"run cartographer sync (bind it first with cartographer client bind if it is in unbound), then start a new agent session."
 
+// routedUnknownHint is appended to the hint when the URL named unmounted KBs (D756).
+const routedUnknownHint = "Names in unknown are in this connection's kbs but not mounted on this server (renamed or removed?): run cartographer sync on this client."
+
 // withConnectionNotice adds the routed-only `connection` object to a kb_status
 // result (D712): the connection's set, every mounted KB, the ones the
 // connection does not serve, and the server start time, so an agent whose
@@ -255,7 +311,7 @@ const routedConnectionHint = "A KB listed in mounted but missing from your tools
 // Content[0] only and a second block breaks them (doctornudge.go). On any
 // decoding trouble the result is returned unchanged: the notice must never
 // break kb_status.
-func (m *MultiKBServer) withConnectionNotice(res ToolResult, set []string) ToolResult {
+func (m *MultiKBServer) withConnectionNotice(res ToolResult, set, unknown []string) ToolResult {
 	if len(res.Content) == 0 {
 		return res
 	}
@@ -271,6 +327,10 @@ func (m *MultiKBServer) withConnectionNotice(res ToolResult, set []string) ToolR
 		"mounted":           mounted,
 		"server_started_at": processStartedAt,
 		"hint":              routedConnectionHint,
+	}
+	if len(unknown) > 0 {
+		conn["unknown"] = unknown
+		conn["hint"] = routedConnectionHint + " " + routedUnknownHint
 	}
 	var unbound []string
 	for _, n := range mounted {
