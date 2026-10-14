@@ -213,6 +213,8 @@ jobs:
         run: make web-check
       - if: matrix.leg == 'video'
         run: make web-test
+      - if: matrix.leg == 'video'
+        run: make demo-worker-test
       - run: cd web && npm ci --silent
       # The browser suite (D228) drives bin/cartographer, which commits to the
       # fixture KBs it initialises, so git needs an identity here too.

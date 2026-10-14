@@ -3,5 +3,12 @@ billing_account       = "000000-000000-000000"
 cloudflare_account_id = "00000000000000000000000000000000"
 cloudflare_zone_id    = "00000000000000000000000000000000"
 demo_token            = "<openssl rand -hex 24>"
+guestbook_token       = "<openssl rand -hex 24, different from demo_token>"
+guestbook_git_token   = "<fine-grained PAT, contents read/write on the guestbook repository only>"
+guestbook_remote      = "https://github.com/example-user/guestbook.git"
+guestbook_open        = false # true once the guestbook is bootstrapped
+# Optional: a webhook that receives each accepted message.
+# notify_url    = "https://hooks.example.com/guestbook"
+# notify_secret = "whsec_<base64>"
 image                 = "europe-west1-docker.pkg.dev/cartographer-demo/demo/cartographer-demo:bootstrap"
-# hostname, project_id, region and github_repository have defaults.
+# hostname, project_id, region, github_repository and atlas_origin have defaults.

@@ -295,7 +295,16 @@ reproduce and `web-check` fails.
 The static demo build (D745, `deployment.md` §The public static demo) has no test level of its own:
 the `docs` workflow runs `demo/build.sh` on every pull request that touches `demo/` or `web/`, so
 a KB the server cannot serve, or an export request it refuses, fails that build. `static.test.ts`
-pins the file-name mapping the UI and `demo/export.mjs` must share.
+pins the file-name mapping the UI and `demo/export.mjs` must share, and the live-source decision of that
+build (D800): the origin's answer picks live, a timeout, an error status or a body that is not a KB list picks the
+snapshot, and the revision poll is 20 s only in a live session on a build with a live origin.
+
+The live demo's edge is tested without Cloudflare: `deploy/demo/worker.test.mjs` (`make demo-worker-test`, run
+in the `web` CI job's Node setup) covers every moderation rule, the id format, the argument rewrite, the routing
+table, CORS and cache key, that every non-approved call goes with the read token, and the webhook signature
+against a vector computed with `openssl`. `make demo-smoke` runs the image against a bare git remote on a
+Docker volume: a write with the write token lands in the remote, the read token is refused on both KBs, the
+routed `tools/list` shape follows the number of mounted KBs, and an unreachable remote leaves astronomy up.
 
 The Atlas UI's own tests: Vitest with Testing Library, under `web/`. They run in
 the `web` CI job, not in `make gate`, so a pure-Go change needs no Node

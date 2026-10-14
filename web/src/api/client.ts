@@ -16,7 +16,7 @@ import type {
   WorkResponse,
   CheckCatalog,
 } from "./types";
-import { STATIC_MODE, staticKey, staticSearch, staticURL } from "./static";
+import { LIVE_ORIGIN, STATIC_MODE, liveHealthURL, liveURL, resolveSource, staticKey, staticSearch, staticURL } from "./static";
 
 const BASE = "/api/ui/v1";
 
@@ -106,8 +106,11 @@ export function clearToken(): void {
  *  when it cannot be read, which the page simply leaves out. */
 export async function fetchServerVersion(signal?: AbortSignal): Promise<string | null> {
   try {
+    const live = STATIC_MODE && LIVE_ORIGIN && (await resolveSource()) === "live";
     const response = await fetch(
-      STATIC_MODE
+      live
+        ? liveHealthURL()
+        : STATIC_MODE
         ? staticURL("health")
         : new URL("../health", new URL(import.meta.env.BASE_URL, window.location.href)).pathname,
       {
@@ -124,7 +127,9 @@ export async function fetchServerVersion(signal?: AbortSignal): Promise<string |
 }
 
 async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
-  if (STATIC_MODE) {
+  // Decided once per page load, before the first read (D800).
+  const live = STATIC_MODE && LIVE_ORIGIN !== "" && (await resolveSource()) === "live";
+  if (STATIC_MODE && !live) {
     const found = await staticSearch(path);
     if (found) return found as T;
   }
@@ -135,7 +140,7 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   try {
     // same-origin: a proxy session cookie (SSO in front of the UI) must reach the API;
     // never cross-origin, so no third party sees it.
-    const url = STATIC_MODE ? staticURL(staticKey(path)) : BASE + path;
+    const url = live ? liveURL(path) : STATIC_MODE ? staticURL(staticKey(path)) : BASE + path;
     response = await fetch(url, { headers, signal, credentials: "same-origin" });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") throw err;

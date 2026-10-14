@@ -1,4 +1,4 @@
-# Deploys the live read-only MCP demo (D751) to Cloud Run: called by the release
+# Deploys the live MCP demo (D751, D800) to Cloud Run: called by the release
 # workflow after the server image is published, or run by hand to redeploy a
 # given tag without a release. Authenticates by Workload Identity Federation: no
 # key anywhere. Skipped until the repository variables exist (deploy/demo/README.md).
@@ -85,3 +85,16 @@ jobs:
             -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
             -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"demo-probe","version":"0"}}}')
           [ "$code" = 200 ] || { echo "::error::initialize without a token on $HOSTNAME: want 200, got $code" >&2; exit 1; }
+      - name: Check the guestbook is mounted
+        run: |
+          # A warning, not a failure (D800): an expired git token or a closed
+          # remote leaves the astronomy demo up, and a release must not fail
+          # because a secret expired. With the guestbook mounted every tool takes
+          # a required `kb` that lists it; with astronomy alone no tool does.
+          tools=$(curl -s -X POST "https://$HOSTNAME/mcp" \
+            -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+          case $tools in
+            *'"guestbook"'*) echo "guestbook is mounted on $HOSTNAME" ;;
+            *) echo "::warning::tools/list on $HOSTNAME does not list the guestbook: the demo serves astronomy alone (check the guestbook git token and remote, deploy/demo/README.md)" ;;
+          esac

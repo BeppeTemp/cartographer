@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchServerVersion } from "../api/client";
-import { STATIC_MODE } from "../api/static";
+import { LIVE_ORIGIN, STATIC_MODE, resolveSource, type Source } from "../api/static";
 import type { KBSummary } from "../api/types";
 import type { Theme } from "../lib/theme";
 import { Icon, type IconName } from "./Icon";
@@ -50,6 +50,13 @@ export function TopBar({
     const controller = new AbortController();
     void fetchServerVersion(controller.signal).then(setVersion);
     return () => controller.abort();
+  }, []);
+
+  // On the Pages build the session reads the live demo or, when it does not
+  // answer, the exported snapshot (D800); the badge says which.
+  const [source, setSource] = useState<Source | null>(null);
+  useEffect(() => {
+    if (STATIC_MODE && LIVE_ORIGIN) void resolveSource().then(setSource);
   }, []);
 
   return (
@@ -122,7 +129,12 @@ export function TopBar({
             point the visitor at what they would install. */}
         {STATIC_MODE && (
           <a className="topbar__demo" href="https://github.com/BeppeTemp/cartographer#install">
-            Demo snapshot · Get Cartographer
+            {source === "live"
+              ? "Live demo"
+              : source === "snapshot"
+                ? "Snapshot: the live demo is unavailable"
+                : "Demo snapshot"}{" "}
+            · Get Cartographer
           </a>
         )}
         {version && (

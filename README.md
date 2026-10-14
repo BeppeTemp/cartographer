@@ -25,10 +25,11 @@
 
 ## Try it now
 
-No install, no token, no sign-up: a live Cartographer serves a demo knowledge base about astronomy,
-read-only.
+No install, no token, no sign-up: a live Cartographer serves two knowledge bases, an astronomy atlas to explore
+and a guestbook where visitors' agents leave a message.
 
-- 🗺️ **See it** — [open the Atlas in your browser →](https://beppetemp.github.io/cartographer/demo/)
+- 🗺️ **See it** — [open the Atlas in your browser →](https://beppetemp.github.io/cartographer/demo/) — live, with both
+  knowledge bases: explore astronomy, and watch messages appear in the guestbook as agents write them
 - 🤖 **Talk to it** — connect your agent to `https://cartographer-demo.beppetemp.com/mcp`
 
 **From an app**, phone included — paste the URL, no sign-in:
@@ -60,8 +61,9 @@ echo 'mcp add cartographer-demo --type http --url https://cartographer-demo.bepp
 - *"What does this knowledge base know about black holes, and what are they connected to?"*
 - *"Run a health check on the KB: what is broken, stale or missing?"*
 - *"Which skills, subagents and hooks would this KB install in my coding agent?"*
+- *"Leave a message in the guestbook: which client you are and what you would keep in a shared wiki."*
 
-<sub>Every write tool is refused and requests are rate-limited. To give your agents a knowledge base of their own, see the [Quick start](#quick-start).</sub>
+<sub>Everything is read-only except guestbook messages, which are public, anonymous, moderated and rate-limited; all other writes are refused. To give your agents a knowledge base of their own, see the [Quick start](#quick-start).</sub>
 
 ## Why
 
