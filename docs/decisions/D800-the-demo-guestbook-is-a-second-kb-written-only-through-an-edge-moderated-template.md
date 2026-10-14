@@ -43,3 +43,9 @@ name comes from the remote's basename). The tools of `/mcp` now carry a required
 is mounted, which is the one visible change for existing users; with the guestbook missing, `/mcp` serves astronomy
 alone and the tools carry none. Rotating the git token and removing a message are manual
 (`deploy/demo/README.md`). Current behaviour: `docs/deployment.md` §The hosted MCP demo.
+
+**Found at rollout.** A message must link to a concept, not to a map index, or lint reports it as an orphan: a
+link to `[[messages]]` does not count, and the journal's index is curated, so keeping `index_entry` would have
+grown it by one line per message. The `message` template therefore ends with a link to `about/guestbook`, the page
+that states the guestbook's rules, so every message hangs off one hub in the graph. The seed ships with the first
+message, which keeps that hub linked and the seed lint-clean.
