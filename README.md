@@ -20,18 +20,39 @@
   <img alt="The embedded Atlas: a knowledge base drawn as a living 3D graph — searched, a concept opened with its links, recoloured by map, the skills it ships to agents and the findings that need attention." src="docs/atlas/hero.webp" width="100%">
 </p>
 
-<p align="center"><b><a href="https://beppetemp.github.io/cartographer/demo/">Try the Atlas live →</a></b> a read-only snapshot over a demo knowledge base about astronomy, in your browser, nothing to install.</p>
+<p align="center"><sub>The Atlas, served by the same binary, on a generated demo KB. Pre-1.0: breaking changes bump the minor version and are called out in the <a href="CHANGELOG.md">changelog</a>.</sub></p>
 
-<p align="center"><b>Connect an agent to the live demo:</b> a read-only MCP endpoint over the same KB, rate-limited, nothing to install.</p>
+## Try it now
+
+No install, no token, no sign-up: a live Cartographer serves a demo knowledge base about astronomy,
+read-only.
+
+- 🗺️ **See it** — [open the Atlas in your browser →](https://beppetemp.github.io/cartographer/demo/)
+- 🤖 **Talk to it** — connect your agent to `https://cartographer-demo.beppetemp.com/mcp`
+
+**From an app**, phone included — paste the URL, no sign-in:
+
+- **Claude** (claude.ai or the desktop app, then on your phone too): *Customize → Connectors → Add custom connector*.
+- **ChatGPT** (chatgpt.com, then on your phone too): *Plugins → + → Add custom MCP server*, authentication *None*.
+
+**From a coding agent:**
 
 ```bash
-claude mcp add --transport http cartographer-demo https://cartographer-demo.beppetemp.com/mcp \
-  --header "Authorization: Bearer cartographer-demo-readonly"
+claude mcp add --transport http cartographer-demo https://cartographer-demo.beppetemp.com/mcp       # Claude Code
+codex mcp add cartographer-demo --url https://cartographer-demo.beppetemp.com/mcp                   # Codex
+gemini mcp add --transport http cartographer-demo https://cartographer-demo.beppetemp.com/mcp       # Gemini CLI
 ```
 
-<p align="center"><sub>The token is public by design: it grants read access to the demo KB and nothing else, every write tool is refused. Other clients: URL above, header <code>Authorization: Bearer cartographer-demo-readonly</code>.</sub></p>
+<a href="https://cursor.com/install-mcp?name=cartographer-demo&config=eyJ1cmwiOiJodHRwczovL2NhcnRvZ3JhcGhlci1kZW1vLmJlcHBldGVtcC5jb20vbWNwIn0="><img alt="Add to Cursor" src="https://cursor.com/deeplink/mcp-install-dark.svg" height="32"></a>
+<a href="https://vscode.dev/redirect/mcp/install?name=cartographer-demo&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fcartographer-demo.beppetemp.com%2Fmcp%22%7D"><img alt="Install in VS Code" src="https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white" height="32"></a>
 
-<p align="center"><sub>The Atlas, served by the same binary, on a generated demo KB. Pre-1.0: breaking changes bump the minor version and are called out in the <a href="CHANGELOG.md">changelog</a>.</sub></p>
+**Then ask it:**
+
+- *"What does this knowledge base know about black holes, and what are they connected to?"*
+- *"Run a health check on the KB: what is broken, stale or missing?"*
+- *"Which skills, subagents and hooks would this KB install in my coding agent?"*
+
+<sub>Every write tool is refused and requests are rate-limited. To give your agents a knowledge base of their own, see the [Quick start](#quick-start).</sub>
 
 ## Why
 

@@ -35,8 +35,9 @@ variable "github_repository" {
 }
 
 variable "demo_token" {
-  description = "The public read-only bearer token (published in the README). Public by design: it grants kb:astronomy:r only."
+  description = "The read-only bearer token (kb:astronomy:r). The Worker sets it on every request, so it is never published: it keeps the *.run.app URL closed to anyone who goes around Cloudflare."
   type        = string
+  sensitive   = true
 }
 
 variable "image" {

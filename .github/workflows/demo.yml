@@ -77,3 +77,11 @@ jobs:
           done
           echo "::error::https://$HOSTNAME/health never reported ready:true" >&2
           exit 1
+      - name: Connect without a token
+        run: |
+          # The Worker sets the read-only token (D789): a client that sends none
+          # must still initialize, or a phone connector cannot reach the demo.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "https://$HOSTNAME/mcp" \
+            -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"demo-probe","version":"0"}}}')
+          [ "$code" = 200 ] || { echo "::error::initialize without a token on $HOSTNAME: want 200, got $code" >&2; exit 1; }
