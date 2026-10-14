@@ -38,13 +38,21 @@ read-only.
 **From a coding agent:**
 
 ```bash
-claude mcp add --transport http cartographer-demo https://cartographer-demo.beppetemp.com/mcp       # Claude Code
-codex mcp add cartographer-demo --url https://cartographer-demo.beppetemp.com/mcp                   # Codex
-gemini mcp add --transport http cartographer-demo https://cartographer-demo.beppetemp.com/mcp       # Gemini CLI
+# Claude Code
+claude mcp add --transport http cartographer-demo https://cartographer-demo.beppetemp.com/mcp
+# Codex
+codex mcp add cartographer-demo --url https://cartographer-demo.beppetemp.com/mcp
+# OpenCode
+opencode mcp add cartographer-demo --url https://cartographer-demo.beppetemp.com/mcp --global
+# Antigravity
+agy mcp add --type http cartographer-demo https://cartographer-demo.beppetemp.com/mcp
+# GitHub Copilot CLI
+copilot mcp add --transport http cartographer-demo https://cartographer-demo.beppetemp.com/mcp
+# Crush
+echo 'mcp add cartographer-demo --type http --url https://cartographer-demo.beppetemp.com/mcp' >> ~/.config/crush/crushrc
+# Kiro: add to "mcpServers" in ~/.kiro/settings/mcp.json
+#   "cartographer-demo": { "url": "https://cartographer-demo.beppetemp.com/mcp" }
 ```
-
-<a href="https://cursor.com/install-mcp?name=cartographer-demo&config=eyJ1cmwiOiJodHRwczovL2NhcnRvZ3JhcGhlci1kZW1vLmJlcHBldGVtcC5jb20vbWNwIn0="><img alt="Add to Cursor" src="https://cursor.com/deeplink/mcp-install-dark.svg" height="32"></a>
-<a href="https://vscode.dev/redirect/mcp/install?name=cartographer-demo&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fcartographer-demo.beppetemp.com%2Fmcp%22%7D"><img alt="Install in VS Code" src="https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=for-the-badge&logo=visualstudiocode&logoColor=white" height="32"></a>
 
 **Then ask it:**
 
