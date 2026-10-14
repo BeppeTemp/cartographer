@@ -14,7 +14,7 @@
 #   HERO_OUT      where the WebP goes (default <repo>/hero.webp, gitignored)
 #   HERO_WIDTH    encoded width in px (default 1600)
 #   HERO_FPS      frames per second of the film (default 30)
-#   HERO_QUALITY  WebP quality (default 92)
+#   HERO_QUALITY  WebP quality (default 85: ~17 MB; 92 is ~25 MB, too heavy for a README)
 #   HERO_KEEP     keep the temporary directory (frames, server log)
 # Needs Node, ffmpeg, img2webp (brew install ffmpeg webp / apt install ffmpeg
 # webp) and `npx playwright install chromium`.
@@ -27,7 +27,7 @@ BIN="${REPO_ROOT}/bin/cartographer"
 OUT="${HERO_OUT:-${REPO_ROOT}/hero.webp}"
 WIDTH="${HERO_WIDTH:-1600}"
 FPS="${HERO_FPS:-30}"
-QUALITY="${HERO_QUALITY:-92}"
+QUALITY="${HERO_QUALITY:-85}"
 
 for tool in ffmpeg ffprobe img2webp; do
     command -v "$tool" >/dev/null || { echo "record-hero: $tool is required (brew install ffmpeg webp / apt install ffmpeg webp)" >&2; exit 1; }
