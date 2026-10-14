@@ -2,6 +2,6 @@
 billing_account       = "000000-000000-000000"
 cloudflare_account_id = "00000000000000000000000000000000"
 cloudflare_zone_id    = "00000000000000000000000000000000"
-demo_token            = "cartographer-demo-readonly"
+demo_token            = "<openssl rand -hex 24>"
 image                 = "europe-west1-docker.pkg.dev/cartographer-demo/demo/cartographer-demo:bootstrap"
 # hostname, project_id, region and github_repository have defaults.

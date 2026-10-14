@@ -214,6 +214,10 @@ resource "cloudflare_workers_script" "proxy" {
     name = "UPSTREAM"
     type = "plain_text"
     text = google_cloud_run_v2_service.demo.uri
+    }, {
+    name = "DEMO_TOKEN"
+    type = "secret_text"
+    text = var.demo_token
   }]
 }
 
