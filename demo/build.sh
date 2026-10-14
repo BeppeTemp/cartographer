@@ -2,6 +2,11 @@
 # Builds the static Atlas demo (D745) into <out-dir>: the Atlas bundle in
 # static mode plus the JSON answers of a real server over demo/astronomy.
 #
+# The bundle also knows the live demo (D800): at page load it asks
+# DEMO_LIVE_ORIGIN and, if that answers, reads both KBs from it; otherwise it
+# falls back to the exported snapshot. DEMO_LIVE_ORIGIN= (empty) builds the
+# snapshot-only site of D745.
+#
 # Usage: demo/build.sh <out-dir>
 # Needs: Go, Node (web/.nvmrc), git, curl. Run from anywhere.
 #
@@ -9,6 +14,7 @@
 set -euo pipefail
 
 out=${1:?usage: demo/build.sh <out-dir>}
+live_origin=${DEMO_LIVE_ORIGIN-https://cartographer-demo.beppetemp.com}
 repo=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
@@ -27,7 +33,7 @@ kb="$work/astronomy"
 # --- the Atlas bundle, static mode ----------------------------------------------
 cd "$repo/web"
 [ -d node_modules ] || npm ci --silent
-VITE_ATLAS_STATIC=1 npx vite build --outDir "$out" --emptyOutDir --logLevel warn
+VITE_ATLAS_STATIC=1 VITE_ATLAS_LIVE_ORIGIN="$live_origin" npx vite build --outDir "$out" --emptyOutDir --logLevel warn
 
 # --- a real server, exported ----------------------------------------------------
 cd "$repo"

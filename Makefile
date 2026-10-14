@@ -1,4 +1,4 @@
-.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-tf-check test-install worktree-add worktree-rm dev gate decisions-index decisions-new codemap settings-example web web-test web-check e2e-web hero
+.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm dev gate decisions-index decisions-new codemap settings-example web web-test web-check e2e-web hero
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -103,8 +103,11 @@ DEMO_BASE ?= ghcr.io/beppetemp/cartographer:latest
 demo-image: ## Build the live-demo image (D751) on the released server image
 	docker build -f deploy/demo/Dockerfile --build-arg BASE=$(DEMO_BASE) -t $(DEMO_IMAGE) .
 
-demo-smoke: demo-image ## Run the demo image and check read ok, write refused, no token 401
+demo-smoke: demo-image ## Run the demo image: read ok, write refused, guestbook write lands in its remote, no token 401
 	deploy/demo/smoke.sh $(DEMO_IMAGE)
+
+demo-worker-test: ## Test the demo Worker's moderation logic (D800), Node only
+	node --test deploy/demo/worker.test.mjs
 
 demo-tf-check: ## terraform fmt + validate of deploy/demo (no credentials)
 	cd deploy/demo && terraform fmt -check && terraform init -backend=false -input=false >/dev/null && terraform validate

@@ -9,6 +9,81 @@ import type { SearchHit, SearchResponse } from "./types";
  */
 export const STATIC_MODE = import.meta.env.VITE_ATLAS_STATIC === "1";
 
+/**
+ * The live source of the static build (D800): `VITE_ATLAS_LIVE_ORIGIN` names
+ * a running demo (the Worker's origin). Unset, which is every build but the
+ * Pages one, the static build behaves exactly as D745 describes. Set, the page
+ * asks the origin once, before its first API read, and uses it for the whole
+ * session if it answers.
+ */
+export const LIVE_ORIGIN: string = (import.meta.env.VITE_ATLAS_LIVE_ORIGIN ?? "").replace(/\/+$/, "");
+
+/** How long the probe waits: enough for a Cloud Run cold start. */
+export const PROBE_TIMEOUT_MS = 6000;
+
+/** "live": the origin answered; "snapshot": the exported files (no origin
+ *  configured, or it did not answer). */
+export type Source = "live" | "snapshot";
+
+/** Asks `origin` for its KB list. Any failure (network, timeout, a non-2xx
+ *  status, a body that is not the KB list) is "snapshot". */
+export async function probeSource(
+  origin: string,
+  fetchFn: typeof fetch = fetch,
+  timeoutMs = PROBE_TIMEOUT_MS,
+): Promise<Source> {
+  if (!origin) return "snapshot";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchFn(`${origin}/api/ui/v1/kbs`, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) return "snapshot";
+    const body = (await response.json()) as { kbs?: unknown };
+    return Array.isArray(body.kbs) ? "live" : "snapshot";
+  } catch {
+    return "snapshot";
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+let decided: Promise<Source> | null = null;
+let settled: Source | null = null;
+
+/** The session's source, decided once per page load. No mid-session switching:
+ *  a later failure of the live origin is an ordinary offline error. */
+export function resolveSource(): Promise<Source> {
+  decided ??= probeSource(LIVE_ORIGIN).then((source) => (settled = source));
+  return decided;
+}
+
+/** The source once it is decided, else null. */
+export function currentSource(): Source | null {
+  return settled;
+}
+
+/** The URL of an API read (or of /health) on the live origin. */
+export function liveURL(path: string): string {
+  return `${LIVE_ORIGIN}/api/ui/v1${path}`;
+}
+
+export function liveHealthURL(): string {
+  return `${LIVE_ORIGIN}/health`;
+}
+
+/** Revision poll period (D337). A live session on the static build polls every
+ *  20 s instead of 10 s: each poll is a Worker invocation, and the free plan
+ *  allows 100k a day. A server's own Atlas keeps 10 s. */
+export const LIVE_POLL_MS = 10_000;
+export const LIVE_ORIGIN_POLL_MS = 20_000;
+
+export function pollIntervalMs(source: Source | null, liveOrigin: string = LIVE_ORIGIN): number {
+  return source === "live" && liveOrigin ? LIVE_ORIGIN_POLL_MS : LIVE_POLL_MS;
+}
+
 /** The file name an API path (with its query) is exported under. It must stay
  *  identical to staticKey in demo/export.mjs: the two sides never talk. The
  *  mapping is injective: encodeURIComponent leaves `~` alone, so it is encoded
