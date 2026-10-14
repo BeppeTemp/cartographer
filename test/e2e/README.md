@@ -32,6 +32,7 @@ overrides the default base port.
 | `13_stdio_mcp` | D116 trusted stdio MCP lifecycle across all provider configurations |
 | `14_rbac_visibility` | D118 fine-grained RBAC: per-KB collection visibility, exact-resource non-disclosure, out-of-perimeter write denial, admin/legacy retrocompatibility |
 | `15_operational_audit` | D119 compliance audit: attempt/completion event pairs, chain verification, export, tamper detection |
+| `19_hero_publish` | D790 the README hero's orphan branch: `publish-hero.sh` leaves one commit with the `Web-Tree:` trailer, `hero-needed.sh` answers by the tree hash of `web/` |
 | `16_prefixed_multikb` | D120 prefixed multi-KB: prefix discovery via /health, prefixed vs bare tool resolution, client connect/status/sync/reindex without false diagnostics, and the D144 startup collision warning (absent with one prefixed KB, present when both mount unprefixed) |
 
 The numbering is retained to preserve historical references. Removed gaps were

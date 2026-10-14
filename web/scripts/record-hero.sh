@@ -1,33 +1,36 @@
 #!/usr/bin/env bash
-# Records the README's hero animation (D330): e2e/hero.spec.ts walked over the
-# demo KB at a watchable pace, filmed through the browser screencast and
-# encoded as docs/atlas/hero.webp.
+# Records the README's hero animation (D330, D790): e2e/hero.spec.ts walked over
+# the demo KB on a virtual clock, one screenshot per frame, and encoded as an
+# animated WebP.
 #
-# Run it after a visible Atlas change, on a desktop session with a GPU and,
-# for a sharp result, a Retina display: the recording opens a real Chromium
-# window and films what it paints (2560x1520 on a 2x display). The suite fails
+# Headless and without a GPU, so it runs on any machine and on a CI runner: the
+# spec advances Playwright's clock by 1000/FPS ms and shoots, so a slow software
+# renderer makes the capture take longer, not look choppier. The suite fails
 # hero.spec.ts when a step of the tour no longer exists; this script only
 # refreshes what the tour looks like, and refuses a capture whose page does not
 # fill the frame.
 #
 # Usage: web/scripts/record-hero.sh   (make hero)
-# Needs Node, ffmpeg, img2webp (brew install ffmpeg webp) and
-# `npx playwright install chromium`.
+#   HERO_OUT      where the WebP goes (default <repo>/hero.webp, gitignored)
+#   HERO_WIDTH    encoded width in px (default 1600)
+#   HERO_FPS      frames per second of the film (default 30)
+#   HERO_QUALITY  WebP quality (default 85: ~17 MB; 92 is ~25 MB, too heavy for a README)
+#   HERO_KEEP     keep the temporary directory (frames, server log)
+# Needs Node, ffmpeg, img2webp (brew install ffmpeg webp / apt install ffmpeg
+# webp) and `npx playwright install chromium`.
 
 set -euo pipefail
 
 WEB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${WEB_DIR}/.." && pwd)"
 BIN="${REPO_ROOT}/bin/cartographer"
-OUT="${REPO_ROOT}/docs/atlas/hero.webp"
+OUT="${HERO_OUT:-${REPO_ROOT}/hero.webp}"
 WIDTH="${HERO_WIDTH:-1600}"
 FPS="${HERO_FPS:-30}"
-QUALITY="${HERO_QUALITY:-92}"
-# Playback speed; the beats in hero.spec.ts are already paced for a viewer.
-SPEED="${HERO_SPEED:-1}"
+QUALITY="${HERO_QUALITY:-85}"
 
-for tool in ffmpeg img2webp; do
-    command -v "$tool" >/dev/null || { echo "record-hero: $tool is required (brew install ffmpeg webp)" >&2; exit 1; }
+for tool in ffmpeg ffprobe img2webp; do
+    command -v "$tool" >/dev/null || { echo "record-hero: $tool is required (brew install ffmpeg webp / apt install ffmpeg webp)" >&2; exit 1; }
 done
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/cartographer_hero_XXXXXX")"
@@ -51,30 +54,25 @@ for _ in $(seq 1 60); do
 done
 
 cd "$WEB_DIR"
-E2E_LOCAL_URL="$URL" E2E_AUTH_URL="$URL" HERO_RECORD=1 \
+STARTED="$(date +%s)"
+E2E_LOCAL_URL="$URL" E2E_AUTH_URL="$URL" HERO_RECORD=1 HERO_FPS="$FPS" \
     HERO_KB=demo HERO_CONCEPT=astronomy/orbit HERO_QUERY=orbit HERO_ARTIFACT=star-chart \
     npx playwright test hero.spec.ts --output "${TMP}/run"
+CAPTURED=$(($(date +%s) - STARTED))
 
-FRAMES="$(find "${TMP}/run" -name frames.ffconcat | head -1)"
-# The screencast delivers what the compositor paints, so its rate is the
-# machine's, not FPS: printed so a choppy capture is visible before encoding.
-LC_ALL=C awk '/^duration/ { n++; t += $2 } END { printf "record-hero: captured %d frames over %.1fs (%.0f/s)\n", n, t, n / t }' "$FRAMES"
+FRAMES="$(find "${TMP}/run" -type d -name frames | head -1)"
+COUNT="$(find "$FRAMES" -name '*.png' | wc -l | tr -d ' ')"
+[ "$COUNT" -gt 0 ] || { echo "record-hero: the tour wrote no frames" >&2; exit 1; }
+# The tuning number for CI (the hero workflow's timeout): what a frame costs here.
+LC_ALL=C awk -v n="$COUNT" -v t="$CAPTURED" -v fps="$FPS" 'BEGIN {
+    printf "record-hero: captured %d frames (%.1fs of film at %d fps) in %ds, %.2fs a frame\n", n, n / fps, fps, t, t / n
+}'
 
 # Animated WebP, not GIF: the living graph changes most pixels of every frame,
 # which a 256-colour GIF pays for at about three times the size (D330).
-# The screencast's frames carry their own timing (frames.ffconcat); ffmpeg
-# resamples them to a constant rate, crops them to the page and scales the 2x
-# capture down. A headed window's frame is the window surface, not the
-# viewport: hero.spec.ts writes the page rectangle from the frame metadata
-# (crop.txt, as fractions of the frame) and the crop comes before the scale.
-CROP=""
-if [ -f "$(dirname "$FRAMES")/crop.txt" ]; then
-    read -r CW CH CX CY <"$(dirname "$FRAMES")/crop.txt"
-    CROP="crop=trunc(iw*${CW}/2)*2:trunc(ih*${CH}/2)*2:trunc(iw*${CX}/2)*2:trunc(ih*${CY}/2)*2,"
-fi
+# The frames are 2x screenshots of the viewport; ffmpeg scales them down.
 mkdir -p "${TMP}/out"
-ffmpeg -v error -f concat -safe 0 -i "$FRAMES" \
-    -vf "setpts=PTS/${SPEED},fps=${FPS},${CROP}scale=${WIDTH}:-1:flags=lanczos" "${TMP}/out/%04d.png"
+ffmpeg -v error -framerate "$FPS" -i "${FRAMES}/%05d.png" -vf "scale=${WIDTH}:-1:flags=lanczos" "${TMP}/out/%04d.png"
 
 # Guard: a bad capture fails here instead of reaching the README. The encoded
 # aspect must be the viewport's (VIEW_W/VIEW_H, within 1%) and the first frames
@@ -96,6 +94,7 @@ if [ -n "$BORDER" ]; then
         exit 1
     fi
 fi
+mkdir -p "$(dirname "$OUT")"
 img2webp -loop 0 -lossy -q "$QUALITY" -m 4 -d $((1000 / FPS)) "${TMP}"/out/*.png -o "$OUT" >/dev/null
 
 echo "record-hero: $(du -h "$OUT" | cut -f1) -> ${OUT#"${REPO_ROOT}/"}"

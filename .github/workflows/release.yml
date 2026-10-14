@@ -97,6 +97,16 @@ jobs:
     with:
       tag: ${{ github.ref_name }}
 
+  # Re-records the README hero when the release changed the Atlas (D790). It
+  # builds from the tag's source, so it waits for nothing, and a failed recording
+  # never blocks a release.
+  hero:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/hero.yml
+    with:
+      tag: ${{ github.ref_name }}
+
   # Metadata entry in the official MCP Registry, pointing at the ghcr image
   # (ownership verified via the io.modelcontextprotocol.server.name LABEL).
   mcp-registry:

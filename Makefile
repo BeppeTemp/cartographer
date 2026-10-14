@@ -85,9 +85,11 @@ e2e-web: ## Browser-level Atlas UI suite against the built binary (needs Node + 
 	@cd web && npm ci --silent
 	@web/e2e/run.sh $(E2E_WEB_ARGS)
 
-# Re-records docs/atlas/hero.webp, the README animation (D330). Not in CI: it
-# needs a GPU, ffmpeg and img2webp. hero.spec.ts itself runs in e2e-web.
-hero: ## Re-record the README's Atlas animation (needs Node, Chromium, ffmpeg, img2webp, a GPU)
+# Records the README animation (D330) into ./hero.webp, a gitignored preview:
+# headless and without a GPU, on a virtual clock (D790). The README's copy is
+# recorded by the `hero` workflow on each release that changes web/ and lives on
+# the readme-assets branch; hero.spec.ts itself runs in e2e-web.
+hero: ## Record the README's Atlas animation to ./hero.webp (needs Node, Chromium, ffmpeg, img2webp; no GPU)
 	@cd web && npm ci --silent
 	@web/scripts/record-hero.sh
 
