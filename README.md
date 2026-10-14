@@ -5,8 +5,9 @@
 </picture>
 
 <p align="center">
-  <b>One home for everything your AI agents know — and everything that makes them work.</b><br>
-  Memory they build, skills they share, rules they cannot break: one binary, every agent client, a whole team.
+  <b>Shared memory for your team's AI agents — one wiki they all read and grow, and none of them can break.</b><br>
+  What a colleague's agent works out on Monday, yours already knows on Tuesday — even on another client.<br>
+  Claude Code, Codex, OpenCode and any MCP client: one Go binary, git underneath.
 </p>
 
 <p align="center">
@@ -64,7 +65,9 @@ echo 'mcp add cartographer-demo --type http --url https://cartographer-demo.bepp
 
 ## Why
 
-AI agents start every session from zero. The usual fixes each solve a third of the problem:
+AI agents start every session from zero, and on a team every colleague's agent starts from its own
+zero: what one learns stays on that person's machine, in that client. The usual fixes each solve
+a third of the problem:
 
 - **RAG** retrieves, but nothing accumulates — the agent never gets to write down what it learned.
 - **A folder of Markdown** the agent edits freely ends in broken links, lost history and silent

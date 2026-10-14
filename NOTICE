@@ -1,0 +1,10 @@
+Cartographer
+Copyright 2026 Giuseppe Arienzo (BeppeTemp)
+https://github.com/BeppeTemp/cartographer
+
+This product includes software developed by Giuseppe Arienzo and the
+Cartographer contributors.
+
+The cartographer binary includes gopkg.in/yaml.v3, which carries this notice:
+
+  Copyright 2011-2016 Canonical Ltd.

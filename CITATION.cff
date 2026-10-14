@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use Cartographer or build on its design, please cite it as below."
+type: software
+title: "Cartographer"
+abstract: >-
+  A shared, git-backed wiki your team's AI agents maintain but can't break:
+  agents read and write it only through MCP tools, and the server enforces
+  schema, link checks, lint and one git commit per write. The same knowledge
+  base provisions skills, subagents, hooks and instructions into each agent
+  client (Claude Code, Codex, OpenCode and any MCP client).
+authors:
+  - given-names: Giuseppe
+    family-names: Arienzo
+    alias: BeppeTemp
+repository-code: "https://github.com/BeppeTemp/cartographer"
+url: "https://beppetemp.github.io/cartographer/"
+license: Apache-2.0
+keywords:
+  - mcp
+  - model-context-protocol
+  - llm-wiki
+  - knowledge-base
+  - ai-agents
+  - agent-memory
+  - claude-code
+  - codex
