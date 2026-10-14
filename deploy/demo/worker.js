@@ -406,7 +406,9 @@ async function handleMCP(request, url, env, ctx) {
 async function handleAPI(request, url, env, ctx) {
   const cors = corsHeaders(env.ATLAS_ORIGIN);
   const cache = caches.default;
-  const key = new Request(cacheKey(url));
+  // Keyed on the public URL, not the rewritten *.run.app one: the Cache API
+  // stores per zone, and the demo hostname is the zone this Worker serves.
+  const key = new Request(cacheKey(new URL(request.url)));
   const hit = await cache.match(key);
   if (hit) return hit;
   const upstream = withBearer(request, url, env.DEMO_TOKEN);
