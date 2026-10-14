@@ -513,13 +513,16 @@ The same KB is served live at `https://cartographer-demo.beppetemp.com/mcp`, so 
 read tools with nothing installed. It is a stateless Cloud Run service (`europe-west1`, scale to zero,
 one instance at most) running the released image plus the replayed `demo/astronomy`
 (`deploy/demo/Dockerfile`; `demo/replay.sh` is the replay `demo/build.sh` shares). Auth stays `on` with a
-single public token scoped `kb:astronomy:r`: only read tools are callable, every write tool is refused.
-A Cloudflare Worker forwards the hostname to the `*.run.app` URL (Cloud Run routes by Host), and one
-rate-limiting rule applies per client IP. The `*.run.app` URL stays reachable around Cloudflare; the
-instance cap is the backstop. `/ready` needs the token once auth is on, so the Cloud Run probes and the
+single token scoped `kb:astronomy:r`: only read tools are callable, every write tool is refused.
+A Cloudflare Worker forwards the hostname to the `*.run.app` URL (Cloud Run routes by Host) and sets that
+token on every request, so a client connects with the URL alone, a claude.ai or ChatGPT connector
+included (D789); it answers 404 under `/.well-known/`, so no client starts an OAuth flow. One
+rate-limiting rule applies per client IP. The `*.run.app` URL stays reachable around Cloudflare, but only
+with the token, which is not published; the instance cap is the backstop. `/ready` needs the token once auth is on, so the Cloud Run probes and the
 post-deploy check use `/health` (public, carries `ready`). Terraform, bootstrap and token rotation:
 `deploy/demo/README.md`. The `demo` workflow (`.github/workflows/demo.yml`) rebuilds and redeploys it on
-every release, so a change to the read tools or to `demo/astronomy` reaches it at the next release;
+every release, then checks that the hostname initializes an MCP session without a token, so a change to
+the read tools or to `demo/astronomy` reaches it at the next release;
 `make demo-smoke` checks the image locally.
 
 An open Atlas follows the KB live (D337): while the tab is visible it asks

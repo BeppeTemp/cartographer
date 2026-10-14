@@ -1,8 +1,9 @@
 # Live MCP demo
 
 A public, read-only MCP endpoint over the `demo/astronomy` KB (D751):
-`https://cartographer-demo.beppetemp.com/mcp`, token `cartographer-demo-readonly`
-(scope `kb:astronomy:r`, published in the main README).
+`https://cartographer-demo.beppetemp.com/mcp`, with no token to configure (D789). The Worker sets
+the read-only token (scope `kb:astronomy:r`) on every request, so the token is a secret held by
+Terraform and is never published.
 
 ## What runs where
 
@@ -10,11 +11,12 @@ A public, read-only MCP endpoint over the `demo/astronomy` KB (D751):
 |---|---|---|
 | Server + baked-in KB | Cloud Run `cartographer-demo`, project `cartographer-demo`, `europe-west1`; min 0, max 1 instance, concurrency 20 | `main.tf`, `Dockerfile` |
 | KB history | `demo/replay.sh`, run in the image build (relative to the build date, so rebuilt every release) | `Dockerfile` |
-| Public hostname | Cloudflare Worker (custom domain) forwarding to the `*.run.app` URL, plus one per-IP rate-limit rule (30 requests / 10 s) | `worker.js`, `main.tf` |
+| Public hostname | Cloudflare Worker (custom domain) forwarding to the `*.run.app` URL with the token set and `/.well-known/` answering 404, plus one per-IP rate-limit rule (30 requests / 10 s) | `worker.js`, `main.tf` |
 | Deploys | `.github/workflows/demo.yml`, on every release or by hand, through Workload Identity Federation (no key) | `main.tf` |
 | Cost guard | 5 EUR budget alert on the project | `main.tf` |
 
-The `*.run.app` URL stays reachable around Cloudflare; `max-instances = 1` is the backstop.
+The `*.run.app` URL stays reachable around Cloudflare, but only with the token, which is not
+published; `max-instances = 1` is the backstop.
 Probes use `/health`: with auth on, `/ready` needs the token.
 
 ## Bootstrap (once, by the maintainer)
@@ -30,7 +32,8 @@ Needs `gcloud` (ADC: `gcloud auth application-default login`), `terraform`,
    gcloud storage buckets update gs://cartographer-demo-tfstate --versioning
    ```
 
-2. `cp terraform.tfvars.example terraform.tfvars` and fill in the ids (gitignored).
+2. `cp terraform.tfvars.example terraform.tfvars` and fill in the ids and a random `demo_token`
+   (gitignored).
 3. The service needs an image before its first revision starts: create the registry, push
    an image built from a release, then apply everything.
 
@@ -60,8 +63,8 @@ Needs `gcloud` (ADC: `gcloud auth application-default login`), `terraform`,
 
 ## Rotating the token
 
-Change `demo_token` in `terraform.tfvars`, `terraform apply` (a new revision, no rebuild), then
-update the token in the main README.
+Change `demo_token` in `terraform.tfvars` and `terraform apply`: a new Cloud Run revision (no
+rebuild) and the Worker's secret binding change together. Nothing else carries the token.
 
 ## Tearing down
 
