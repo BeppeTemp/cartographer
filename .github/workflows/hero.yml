@@ -1,0 +1,103 @@
+# Re-records the README's hero (D790) and replaces it on the `readme-assets`
+# branch: called by the release workflow, or run by hand to record a given tag
+# (the tag must contain this machinery: it checks out the tag's UI, tour and
+# scripts). A release records only when its web/ tree differs from the one the
+# hero on the branch was recorded from (web/scripts/hero-needed.sh); a manual run
+# always records. The only credential is GITHUB_TOKEN, and nothing is pushed to
+# main: the `main-protection` ruleset covers the default branch only.
+name: hero
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag whose Atlas the hero shows
+        type: string
+        required: true
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag whose Atlas the hero shows (e.g. v0.24.0)
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+# Two recordings never race for the branch; a newer one waits instead of
+# cancelling one that is half way through its force-push.
+concurrency:
+  group: hero
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TAG: ${{ inputs.tag }}
+      # The film's frame rate. The capture is software-rendered: if a run ever
+      # outgrows the timeout, lower it to the highest of 24 or 20 that fits.
+      HERO_FPS: "30"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The UI, the tour and the scripts of the tag being shown.
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      # The demo KB the tour walks is a git repository (the server commits to it)
+      # and so is the commit on readme-assets: both need an identity.
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Is a recording needed
+        id: needed
+        run: |
+          if [ "${{ github.event_name }}" = workflow_dispatch ]; then
+            echo "manual run: recording $TAG"
+            echo "record=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          rc=0
+          web/scripts/hero-needed.sh "$TAG" || rc=$?
+          case "$rc" in
+            0) echo "record=true" >> "$GITHUB_OUTPUT" ;;
+            1) echo "record=false" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$rc" ;;
+          esac
+      - if: steps.needed.outputs.record == 'true'
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - if: steps.needed.outputs.record == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - if: steps.needed.outputs.record == 'true'
+        run: cd web && npm ci --silent
+      # The browser binary is cached by Playwright version; the OS packages it
+      # needs are not cacheable and are installed every run (as in ci.yml).
+      - if: steps.needed.outputs.record == 'true'
+        id: playwright
+        run: echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - if: steps.needed.outputs.record == 'true'
+        uses: actions/cache@v6
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - if: steps.needed.outputs.record == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
+        run: cd web && npx playwright install --with-deps chromium
+      - if: steps.needed.outputs.record == 'true' && steps.pw-cache.outputs.cache-hit == 'true'
+        run: cd web && npx playwright install-deps chromium
+      - if: steps.needed.outputs.record == 'true'
+        run: sudo apt-get install -y ffmpeg webp
+      - if: steps.needed.outputs.record == 'true'
+        name: Record
+        run: make hero
+      - if: steps.needed.outputs.record == 'true'
+        name: Publish to readme-assets
+        run: web/scripts/publish-hero.sh hero.webp "$TAG"

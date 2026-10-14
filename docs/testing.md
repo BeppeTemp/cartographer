@@ -211,6 +211,12 @@ Cartographer created itself was left untracked and dirtying the repository, and
 unbinding a workspace left its projected files behind forever because every
 later sync only iterates the *declared* projections.
 
+**The hero's branch is asserted without a network.** `19_hero_publish` runs
+`web/scripts/publish-hero.sh` and `hero-needed.sh` (D790) against a scratch repository and a
+bare origin: no branch means a recording is needed; after a publish the same tag needs none and a
+tag whose `web/` tree differs does; publishing twice leaves one commit carrying the `Web-Tree:`
+trailer; a tag that changes only files outside `web/` needs none.
+
 ### Packaging (`install.sh` and the generated Cask)
 
 `make test-install` runs the network-free suite under `test/install/` plus
@@ -506,17 +512,35 @@ runs in the `web` CI job on Linux only, like the other shell harnesses.
 Locally: `cd web && npx playwright install chromium` once, then
 `make e2e-web` (extra arguments pass through: `web/e2e/run.sh -g palette`).
 
-`make hero` re-records `docs/atlas/hero.webp` from the same `hero.spec.ts` over
-the demo KB (`web/scripts/record-hero.sh`): run it, on a machine with a GPU, in
-the PR that changes what the tour shows. The screencast frame of a headed
-window is the window surface, not the viewport: `hero.spec.ts` writes the page
-rectangle from the frame metadata and the script crops to it. The script also
-refuses to write `hero.webp` when the encoded aspect differs from the
-viewport's (1280/760) by more than 1%, or when `cropdetect` finds a dark border
-wider than a few pixels in the first frames (a window too small for the
-viewport fails there rather than reaching the README). A tiling window
-manager shrinks the headed window below the viewport: suspend it for the
-recording (AeroSpace: `aerospace enable off`, then `on`).
+`make hero` records the README's animation to `hero.webp` at the repo root
+(gitignored, a local preview) from the same `hero.spec.ts` over the demo KB
+(`web/scripts/record-hero.sh`). It is deterministic and needs no GPU or desktop
+session: the spec runs headless on the config's SwiftShader launch args, at a
+device scale factor of 2, with Playwright's clock installed and paused before
+the page loads. Every frame advances the clock by `1000/HERO_FPS` ms (30 by
+default), steps the CSS transitions and animations by the same amount (the fake
+clock does not drive them, so the spec pauses `document.getAnimations()` and
+sets their `currentTime` itself) and screenshots the viewport. A slow renderer
+makes the capture take longer, never choppier. Every wait of the tour goes
+through one helper that, in a recording, steps frames until the condition holds
+and fails with the step's name after 30 virtual seconds; the graph's warm-up
+advances the clock without shooting until it is drawn (120 virtual seconds). The
+script scales the 2560x1520 frames to `HERO_WIDTH` (1600), refuses to write
+`hero.webp` when the encoded aspect differs from the viewport's (1280/760) by
+more than 1% or `cropdetect` finds a dark border wider than a few pixels in the
+first frames, encodes with `img2webp`, and prints the capture time and the
+per-frame average. `HERO_OUT` moves the output, `HERO_KEEP=1` keeps the frames.
+
+The README does not carry that file. The `hero` workflow (`hero.yml`, called by
+`release.yml`) records the tag's Atlas on `ubuntu-latest` and force-pushes it as
+the one commit of the orphan branch `readme-assets`
+(`web/scripts/publish-hero.sh`); the README points at
+`raw.githubusercontent.com/BeppeTemp/cartographer/readme-assets/hero.webp`,
+which GitHub renders at any size, unlike a Pages or release asset (D790). A
+release records only when its `web/` tree differs from the `Web-Tree:` trailer
+of the branch's commit (`web/scripts/hero-needed.sh`); `gh workflow run hero.yml
+-f tag=<tag>` always records. The `19_hero_publish` e2e scenario drives both
+scripts against a scratch bare repository.
 
 ## What is deliberately not in CI
 

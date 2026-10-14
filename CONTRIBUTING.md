@@ -28,8 +28,9 @@ command, so there is one answer to "what must be green" — followed by
 
 The Atlas UI has its own loop (Node, outside `make gate`): `make web-test` for
 the frontend tests, `make web` to rebuild the committed bundle, `make e2e-web`
-for the browser suite, and `make hero` to re-record the README animation when
-what it shows has changed — see [`docs/testing.md`](docs/testing.md) §Frontend.
+for the browser suite — see [`docs/testing.md`](docs/testing.md) §Frontend. The
+README animation needs nothing by hand: the release that changes `web/`
+re-records it (`make hero` previews it locally).
 
 `make test` also runs the repository's own documentation gates
 (`internal/repodocs`): the size of `AGENTS.md`, the freshness of the generated
