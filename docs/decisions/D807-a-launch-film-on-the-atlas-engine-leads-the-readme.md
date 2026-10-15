@@ -8,7 +8,7 @@ topic: project-governance
 with their own coding agents, share one wiki; Monday one agent writes a fix down, Tuesday another agent on
 another client finds it, every day the others add to it and a broken link is refused. It is motion graphics
 written in `film/`, drawn by the Atlas's real graph engine (`LivingScene` offscreen, D691) and rendered frame
-by frame like the hero (D790): 1920x1080 at 60 fps to MP4 for social posts, 1280 px at 30 fps to WebP for the
+by frame like the hero (D790): 1920x1080 at 60 fps to MP4 for social posts, 1120 px at 30 fps to WebP for the
 README. `film/publish.sh` force-pushes the WebP as the single commit of the orphan branch `readme-film`. The
 Atlas tour stays, under "What you get".
 
