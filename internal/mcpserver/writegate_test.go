@@ -26,7 +26,7 @@ func gateKB(t *testing.T, mode string) (*kb.KB, *Server) {
 		t.Fatal(err)
 	}
 	k.AutoCommit = true
-	k.WriteGate = mode
+	setPolicy(k, func(p *kb.Policy) { p.WriteGate = mode })
 	return k, nil
 }
 

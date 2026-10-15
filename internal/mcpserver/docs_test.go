@@ -7,6 +7,7 @@ package mcpserver
 // A rename that forgets a page now fails CI instead.
 
 import (
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -130,7 +131,7 @@ func TestDocsToolNamesExist(t *testing.T) {
 	// Full surface: artifact writes and the bundle-backed skill/sync tools are
 	// registered conditionally, and the docs describe them all.
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{BundleFS: fstest.MapFS{}})
 	registered := make(map[string]bool, len(s.tools))

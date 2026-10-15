@@ -58,7 +58,7 @@ func TestValidateTemplateArtifactMetadata(t *testing.T) {
 func TestTemplateListCarriesTheSchema(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	if res := callTool(t, s, "artifact_write", `{"path":"templates/server.md","content":`+jsonString(schemaTemplate)+`}`); res.IsError {
@@ -162,7 +162,7 @@ func TestMapCreateAndUpdateTemplateKeys(t *testing.T) {
 func TestTemplateOnlyArtifactWrite(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowTemplateWrite = true // allow_artifact_write stays off
+	setPolicy(k, func(p *kb.Policy) { p.AllowTemplateWrite = true }) // allow_artifact_write stays off
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	content := jsonString("---\ntype: Note\ntitle: x\n---\n# x\n")
@@ -187,7 +187,7 @@ func TestTemplateOnlyArtifactWrite(t *testing.T) {
 		t.Fatalf("a template is deletable: %+v", res.Content)
 	}
 	// The full right lifts the limit.
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s2 := New("test")
 	RegisterKBTools(s2, k, Deps{})
 	if res := callTool(t, s2, "artifact_write", `{"path":"hooks/h/run.sh","content":"echo hi\n"}`); res.IsError {

@@ -22,7 +22,7 @@ func usageHandler(t *testing.T) (http.Handler, *kb.KB) { return usageHandlerWeb(
 func usageHandlerWeb(t *testing.T, web bool) (http.Handler, *kb.KB) {
 	t.Helper()
 	k := uiFixtureKB(t, "docs")
-	k.UsageStaleDays = 42
+	setPolicy(k, func(p *kb.Policy) { p.UsageStaleDays = 42 })
 	for rel, body := range map[string]string{
 		"skills/ops-tool/SKILL.md":  "---\nname: ops-tool\ndescription: Ops things\n---\n# Ops\n",
 		"skills/idle-tool/SKILL.md": "---\nname: idle-tool\ndescription: Idle things\n---\n# Idle\n",
@@ -214,7 +214,7 @@ func TestKBStatus_IncludesUsage(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
-	k.UsageStaleDays = 42
+	setPolicy(k, func(p *kb.Policy) { p.UsageStaleDays = 42 })
 	for rel, body := range map[string]string{
 		"skills/ops-tool/SKILL.md":   "---\nname: ops-tool\ndescription: Ops\n---\n# Ops\n",
 		"skills/old-tool/SKILL.md":   "---\nname: old-tool\ndescription: Old\n---\n# Old\n",

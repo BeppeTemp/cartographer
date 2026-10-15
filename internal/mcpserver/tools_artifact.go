@@ -6,7 +6,7 @@
 //
 // Only artifact_read/artifact_list are always registered (read-only, see
 // RegisterKBTools); artifact_write/artifact_delete require the per-KB
-// KBSpec.AllowArtifactWrite flag (default false, see kb.KB.AllowArtifactWrite).
+// KBSpec.AllowArtifactWrite flag (default false, see kb.Policy.AllowArtifactWrite).
 
 package mcpserver
 
@@ -558,7 +558,7 @@ func toolArtifactWrite(k *kb.KB) Tool {
 // D352); "" when the path is allowed. The full right (allow_artifact_write) lifts
 // the limit.
 func templateOnlyRefusal(k *kb.KB, tool string, info artifactPathInfo) string {
-	if k.AllowArtifactWrite || info.Kind == "template" {
+	if k.Policy().AllowArtifactWrite || info.Kind == "template" {
 		return ""
 	}
 	return tool + ": only templates/ is writable on this KB (set kbs[].allow_artifact_write for the rest)"

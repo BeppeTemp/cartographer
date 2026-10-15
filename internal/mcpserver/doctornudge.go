@@ -72,7 +72,11 @@ func callerClient(ctx context.Context) string {
 // into a JSON array, which every CLI command would fail to decode.
 func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResult) ToolResult {
 	k, cc := s.kbRef, s.conformance
-	if res.IsError || tool == "kb_status" || k == nil || cc == nil || k.DoctorIntervalDays <= 0 {
+	if res.IsError || tool == "kb_status" || k == nil || cc == nil {
+		return res
+	}
+	intervalDays := k.Policy().DoctorIntervalDays
+	if intervalDays <= 0 {
 		return res
 	}
 	if callerClient(ctx) == client.ClientName {
@@ -84,7 +88,7 @@ func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResul
 	}
 	now := s.now()
 	lastDoctor := cc.cachedDoctorDate(k)
-	if !doctorDue(lastDoctor, k.DoctorIntervalDays, now) {
+	if !doctorDue(lastDoctor, intervalDays, now) {
 		return res
 	}
 	s.mu.Lock()
@@ -113,7 +117,7 @@ func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResul
 	if items, rerr := visibleReview(ctx, k, cc); rerr == nil {
 		review = len(items)
 	}
-	summary := summarizeConformance(vis, review, lastDoctor, k.DoctorIntervalDays, now)
+	summary := summarizeConformance(vis, review, lastDoctor, intervalDays, now)
 	if summary["doctor_suggested"] != true {
 		return res
 	}

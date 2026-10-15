@@ -34,8 +34,8 @@ func rowKB(t *testing.T, checks ...string) (*kb.KB, *Server) {
 	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
-	k.AutoRepair = checks
-	k.RepairOnWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = checks })
+	setPolicy(k, func(p *kb.Policy) { p.RepairOnWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	return k, s
@@ -120,9 +120,11 @@ func TestRepairOnWrite_ConceptWriteRenamesNonstandardField(t *testing.T) {
 func TestRepairOnWrite_OffLeavesTheWrite(t *testing.T) {
 	t.Parallel()
 	for name, set := range map[string]func(k *kb.KB){
-		"opt-out":     func(k *kb.KB) { k.RepairOnWrite = false },
-		"empty-list":  func(k *kb.KB) { k.AutoRepair = []string{} },
-		"only-linkdp": func(k *kb.KB) { k.AutoRepair = []string{"broken_link", "reciprocal_link_item"} },
+		"opt-out":    func(k *kb.KB) { setPolicy(k, func(p *kb.Policy) { p.RepairOnWrite = false }) },
+		"empty-list": func(k *kb.KB) { setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{} }) },
+		"only-linkdp": func(k *kb.KB) {
+			setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{"broken_link", "reciprocal_link_item"} })
+		},
 	} {
 		k, s := rowKB(t, "duplicate_link")
 		set(k)
@@ -207,7 +209,7 @@ func TestRepairOnWrite_CapabilityAndConfig(t *testing.T) {
 	if c := kbCapabilities(k)["repair_on_write"]; c.State != "enabled" {
 		t.Fatalf("capability = %+v", c)
 	}
-	k.AutoRepair = nil
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = nil })
 	if c := kbCapabilities(k)["repair_on_write"]; c.State == "enabled" {
 		t.Fatalf("capability with no checks = %+v", c)
 	}

@@ -182,8 +182,8 @@ func TestRepairUnmappedFolder_ScaffoldsWhatMapCreateWrites(t *testing.T) {
 func TestRepairOnWriteSkipsFolderChecks(t *testing.T) {
 	t.Parallel()
 	k, _ := repairKB(t, 0)
-	k.RepairOnWrite = true
-	k.AutoRepair = []string{"unmapped_folder", "missing_title"}
+	setPolicy(k, func(p *kb.Policy) { p.RepairOnWrite = true })
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{"unmapped_folder", "missing_title"} })
 	got := repairOnWriteChecks(k)
 	if len(got) != 1 || got[0] != "missing_title" {
 		t.Fatalf("checks = %v", got)

@@ -201,8 +201,9 @@ var Now = func() time.Time { return time.Now() }
 // — reports the same findings for the same KB. The same holds for the usage
 // store (D326) behind artifact_unused, read here from the KB's local state.
 func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
-	opts := Options{CrossKBRoots: k.SiblingRoots, UsageStaleDays: k.UsageStaleDays}
-	if k.UsageStaleDays > 0 {
+	staleDays := k.Policy().UsageStaleDays
+	opts := Options{CrossKBRoots: k.SiblingRoots, UsageStaleDays: staleDays}
+	if staleDays > 0 {
 		// A store that cannot be read is no data, not a lint failure.
 		if entries, err := k.LoadUsage(); err == nil && len(entries) > 0 {
 			opts.Usage = kb.SummarizeUsage(entries)

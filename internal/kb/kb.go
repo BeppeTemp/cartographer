@@ -20,6 +20,80 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
+// Policy is the per-KB settings the server resolves from the config and the
+// KB's settings.yaml. It is a value: KB.Policy returns a snapshot, so a reader
+// that takes one never sees a settings refresh half applied (D775). The zero
+// value is every capability off.
+type Policy struct {
+	// AllowArtifactWrite gates the artifact_write/artifact_delete MCP tools
+	// (D71): writing a provisioning artifact (skill/agent/hook/mcp) injects
+	// instructions a client agent will execute, so the capability is opt-in
+	// per-KB (config.KBSpec.AllowArtifactWrite), not implied by an rw token
+	// alone. Default false. artifact_read/artifact_list are unaffected.
+	AllowArtifactWrite bool
+
+	// AllowTemplateWrite (D352) registers artifact_write/artifact_delete for
+	// templates/<slug>.md only, when AllowArtifactWrite is off: a template is
+	// KB-only and never provisioned to a client (D109), so the risk the full
+	// right guards against does not apply, and an unattended doctor needs it to
+	// act on a template_proposal. The config default is on
+	// (config.KBSpec.TemplateWriteEnabled); the zero value here is off.
+	AllowTemplateWrite bool
+
+	// AutoRepair and DoctorIntervalDays are the per-KB doctor settings
+	// (D299, config.KBSpec): the checks `kb repair --apply` may apply
+	// unattended, and the days after the last kb-doctor session before the
+	// next is proposed (0 = never proposed).
+	AutoRepair         []string
+	DoctorIntervalDays int
+
+	// DoctorBudget is how many review items a kb-doctor session decides
+	// (D358, config.KBSpec); zero reads as the default.
+	DoctorBudget int
+
+	// AutoRepairDefault says AutoRepair is the product default rather than a
+	// list the operator wrote (D323); DoctorAutoIntervalDays is how often the
+	// server applies AutoRepair by itself (0 = never). A KB opened any other
+	// way leaves both at zero, which is off.
+	AutoRepairDefault bool
+
+	// RepairOnWrite makes the write tools apply the mechanical AutoRepair
+	// fixes to the concepts they just wrote (D349). Zero value off: a KB
+	// opened without a spec never repairs on write.
+	RepairOnWrite bool
+	// WriteGate is the per-KB write gate (D350, config.KBSpec): "off" or
+	// empty, "error" or "warning". Zero value off.
+	WriteGate              string
+	DoctorAutoIntervalDays int
+
+	// UsageStaleDays is the per-KB threshold (D326, config.KBSpec) past which
+	// an artifact no client has used is reported by the artifact_unused lint:
+	// 0 disables the finding. Set by serve; a KB opened any other way has it
+	// off, which is the safe reading of "nobody asked".
+	UsageStaleDays int
+}
+
+// Policy returns the current snapshot; the zero Policy when none was set.
+// Slices are copies, so the caller may keep or modify them.
+func (k *KB) Policy() Policy {
+	if p := k.policy.Load(); p != nil {
+		return p.clone()
+	}
+	return Policy{}
+}
+
+// SetPolicy replaces the snapshot whole. It stores a copy: the caller's slices
+// stay its own.
+func (k *KB) SetPolicy(p Policy) {
+	p = p.clone()
+	k.policy.Store(&p)
+}
+
+func (p Policy) clone() Policy {
+	p.AutoRepair = append([]string(nil), p.AutoRepair...)
+	return p
+}
+
 // KB represents an open knowledge base identified by its root on the filesystem.
 // Always used as *KB; never copy a KB value (sync.Mutex field).
 type KB struct {
@@ -70,20 +144,9 @@ type KB struct {
 	// of falling back to an ambient key.
 	SopsAgeKeyFile string
 
-	// AllowArtifactWrite gates the artifact_write/artifact_delete MCP tools
-	// (D71): writing a provisioning artifact (skill/agent/hook/mcp) injects
-	// instructions a client agent will execute, so the capability is opt-in
-	// per-KB (config.KBSpec.AllowArtifactWrite), not implied by an rw token
-	// alone. Default false. artifact_read/artifact_list are unaffected.
-	AllowArtifactWrite bool
-
-	// AllowTemplateWrite (D352) registers artifact_write/artifact_delete for
-	// templates/<slug>.md only, when AllowArtifactWrite is off: a template is
-	// KB-only and never provisioned to a client (D109), so the risk the full
-	// right guards against does not apply, and an unattended doctor needs it to
-	// act on a template_proposal. The config default is on
-	// (config.KBSpec.TemplateWriteEnabled); the zero value here is off.
-	AllowTemplateWrite bool
+	// policy is the KB's per-KB settings, one immutable snapshot replaced
+	// whole (D775): read it through Policy(), write it through SetPolicy().
+	policy atomic.Pointer[Policy]
 
 	// SiblingRoots maps every other KB the same server mounts to its absolute
 	// root (D316). Set by the HTTP server at mount time when it mounts more
@@ -92,38 +155,6 @@ type KB struct {
 	// machine. Injected rather than discovered, so lint stays a function of
 	// its inputs.
 	SiblingRoots map[string]string
-
-	// AutoRepair and DoctorIntervalDays are the per-KB doctor settings
-	// (D299, config.KBSpec): the checks `kb repair --apply` may apply
-	// unattended, and the days after the last kb-doctor session before the
-	// next is proposed (0 = never proposed).
-	AutoRepair         []string
-	DoctorIntervalDays int
-
-	// DoctorBudget is how many review items a kb-doctor session decides
-	// (D358, config.KBSpec); zero reads as the default.
-	DoctorBudget int
-
-	// AutoRepairDefault says AutoRepair is the product default rather than a
-	// list the operator wrote (D323); DoctorAutoIntervalDays is how often the
-	// server applies AutoRepair by itself (0 = never). A KB opened any other
-	// way leaves both at zero, which is off.
-	AutoRepairDefault bool
-
-	// RepairOnWrite makes the write tools apply the mechanical AutoRepair
-	// fixes to the concepts they just wrote (D349). Zero value off: a KB
-	// opened without a spec never repairs on write.
-	RepairOnWrite bool
-	// WriteGate is the per-KB write gate (D350, config.KBSpec): "off" or
-	// empty, "error" or "warning". Zero value off.
-	WriteGate              string
-	DoctorAutoIntervalDays int
-
-	// UsageStaleDays is the per-KB threshold (D326, config.KBSpec) past which
-	// an artifact no client has used is reported by the artifact_unused lint:
-	// 0 disables the finding. Set by serve; a KB opened any other way has it
-	// off, which is the safe reading of "nobody asked".
-	UsageStaleDays int
 
 	// Discovered is true when the KB was
 	// found by scanning the data directory rather than declared in a kbs[]
@@ -155,9 +186,8 @@ type KB struct {
 
 	// SettingsReload re-resolves this KB's effective settings from its
 	// settings.yaml (D746). Set by serve; RefreshSettings calls it when the
-	// file changed. The policy fields above are read without a lock, so it
-	// only runs where a write could already change them: after a pull and
-	// before a write handler.
+	// file changed. It stores a new Policy snapshot (D775), so it may run
+	// at any time.
 	SettingsReload func(*KB)
 	settingsMu     sync.RWMutex
 	settingsInfo   SettingsInfo

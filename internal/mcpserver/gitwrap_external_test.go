@@ -18,7 +18,7 @@ func externalKB(t *testing.T) (*kb.KB, *Server) {
 	k.AutoCommit = true
 	k.GitAuthorExplicit = true
 	k.GitAuthorName, k.GitAuthorEmail = "KB Identity", "kb@example.com"
-	k.AutoRepair = []string{"nonstandard_field"}
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{"nonstandard_field"} })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	return k, s

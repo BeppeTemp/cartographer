@@ -126,7 +126,7 @@ func TestSearch_GlossaryMissOnlyWhenEveryVariantMisses(t *testing.T) {
 func TestArtifactTools_GlossaryWrite(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 

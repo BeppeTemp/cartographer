@@ -33,8 +33,8 @@ func TestApplyKBPolicy_KBFileOnly(t *testing.T) {
 	cfg := config.Default()
 	// A discovered KB has no kbs[] entry: the zero spec.
 	eff := applyKBPolicy(k, cfg, config.KBSpec{}, "kb-a", false)
-	if !k.AllowArtifactWrite || k.WriteGate != "error" || !eff.AllowArtifactWrite {
-		t.Fatalf("policy not applied: artifact=%v gate=%q", k.AllowArtifactWrite, k.WriteGate)
+	if !k.Policy().AllowArtifactWrite || k.Policy().WriteGate != "error" || !eff.AllowArtifactWrite {
+		t.Fatalf("policy not applied: artifact=%v gate=%q", k.Policy().AllowArtifactWrite, k.Policy().WriteGate)
 	}
 	caps := mcpserver.KBCapabilitiesFor(k)
 	if c := caps["artifact_write"]; c.State != "enabled" || c.Setting != "settings.yaml allow_artifact_write" {
@@ -50,8 +50,8 @@ func TestApplyKBPolicy_ServerOnlyIsUnchanged(t *testing.T) {
 	cfg := config.Default()
 	spec := config.KBSpec{AllowArtifactWrite: true, WriteGate: "warning"}
 	applyKBPolicy(k, cfg, spec, "kb-a", false)
-	if !k.AllowArtifactWrite || k.WriteGate != "warning" {
-		t.Fatalf("a KB without settings.yaml must behave as today: %v %q", k.AllowArtifactWrite, k.WriteGate)
+	if !k.Policy().AllowArtifactWrite || k.Policy().WriteGate != "warning" {
+		t.Fatalf("a KB without settings.yaml must behave as today: %v %q", k.Policy().AllowArtifactWrite, k.Policy().WriteGate)
 	}
 	if c := mcpserver.KBCapabilitiesFor(k)["artifact_write"]; c.Setting != "kbs[].allow_artifact_write" || c.IgnoredServerValue != "" {
 		t.Errorf("artifact_write = %+v", c)
@@ -78,7 +78,7 @@ func TestApplyKBPolicy_TwoServersAgree(t *testing.T) {
 			t.Errorf("%s: %q vs %q", key, c1[key].State, c2[key].State)
 		}
 	}
-	if k2.WriteGate != "error" || c2["write_gate"].IgnoredServerValue != "warning" {
+	if k2.Policy().WriteGate != "error" || c2["write_gate"].IgnoredServerValue != "warning" {
 		t.Errorf("the server that disagrees must report the ignored value: %+v", c2["write_gate"])
 	}
 	if info := k2.SettingsInfo(); len(info.Ignored) != 1 || info.Ignored[0].Key != "write_gate" {
@@ -107,8 +107,8 @@ func TestApplyKBPolicy_SecretsWithoutAKey(t *testing.T) {
 func TestApplyKBPolicy_BadFileCostsOnlyItsEntries(t *testing.T) {
 	k := policyKB(t, "write_gate: loud\nallow_artifact_write: true\n")
 	applyKBPolicy(k, config.Default(), config.KBSpec{WriteGate: "warning"}, "kb-a", false)
-	if k.WriteGate != "warning" || !k.AllowArtifactWrite {
-		t.Errorf("gate=%q artifact=%v", k.WriteGate, k.AllowArtifactWrite)
+	if k.Policy().WriteGate != "warning" || !k.Policy().AllowArtifactWrite {
+		t.Errorf("gate=%q artifact=%v", k.Policy().WriteGate, k.Policy().AllowArtifactWrite)
 	}
 	if len(k.SettingsInfo().Findings) != 1 {
 		t.Errorf("findings = %v", k.SettingsInfo().Findings)
@@ -122,20 +122,20 @@ func TestApplyKBPolicy_RefreshPicksUpAChangedFile(t *testing.T) {
 	server := config.KBSpec{}
 	applyKBPolicy(k, cfg, server, "kb-a", false)
 	k.SettingsReload = func(k *kb.KB) { applyKBPolicy(k, cfg, server, "kb-a", true) }
-	if k.WriteGate != "error" {
+	if k.Policy().WriteGate != "error" {
 		t.Fatal("not applied")
 	}
 	path := filepath.Join(k.Root, kb.SettingsFile)
 	os.WriteFile(path, []byte("write_gate: warning\nallow_artifact_write: true\n"), 0o644)
 	os.Chtimes(path, time.Now().Add(time.Minute), time.Now().Add(time.Minute))
 	k.RefreshSettings()
-	if k.WriteGate != "warning" || !k.AllowArtifactWrite {
-		t.Fatalf("after change: gate=%q artifact=%v", k.WriteGate, k.AllowArtifactWrite)
+	if k.Policy().WriteGate != "warning" || !k.Policy().AllowArtifactWrite {
+		t.Fatalf("after change: gate=%q artifact=%v", k.Policy().WriteGate, k.Policy().AllowArtifactWrite)
 	}
 	os.Remove(path)
 	k.RefreshSettings()
-	if k.WriteGate != "off" || k.AllowArtifactWrite {
-		t.Fatalf("after removal the server defaults return: gate=%q artifact=%v", k.WriteGate, k.AllowArtifactWrite)
+	if k.Policy().WriteGate != "off" || k.Policy().AllowArtifactWrite {
+		t.Fatalf("after removal the server defaults return: gate=%q artifact=%v", k.Policy().WriteGate, k.Policy().AllowArtifactWrite)
 	}
 }
 
