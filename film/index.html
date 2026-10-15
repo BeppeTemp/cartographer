@@ -9,32 +9,32 @@
   #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; overflow: hidden;
     background: var(--carto-background); transform-origin: 0 0; font-family: var(--carto-font-editorial); color: var(--carto-text); }
   #stage > * { position: absolute; }
-  #graph { left: 768px; top: 0; width: 1152px; height: 1080px; opacity: 0; }
+  #graph { left: 920px; top: 0; width: 1000px; height: 1080px; opacity: 0; }
   #contours { left: 0; top: 0; width: 1920px; height: 1080px; pointer-events: none; }
-  .title { font-size: 72px; line-height: 1.12; letter-spacing: -0.01em; width: 760px; }
-  .caption { font-size: 44px; letter-spacing: -0.005em; }
-  .day { font-size: 32px; font-style: italic; color: var(--carto-text-muted); }
-  .card { background: #191F1C; border-radius: 16px; box-shadow: 0 40px 80px rgba(37,40,36,.22); overflow: hidden; }
-  .card .bar { height: 48px; background: #222B25; display: flex; align-items: center; gap: 8px; padding: 0 20px;
-    font: 18px var(--carto-font-code); color: #AFB9AE; }
-  .card .bar i { width: 10px; height: 10px; border-radius: 50%; background: #3B473E; display: block; }
+  .title { font-size: 88px; line-height: 1.12; letter-spacing: -0.01em; width: 900px; }
+  .caption { font-size: 56px; line-height: 1.15; letter-spacing: -0.005em; width: 820px; }
+  .day { font-size: 40px; font-style: italic; color: var(--carto-text-muted); }
+  .card { background: #191F1C; border-radius: 22px; box-shadow: 0 40px 80px rgba(37,40,36,.22); overflow: hidden; }
+  .card .bar { height: 72px; background: #222B25; display: flex; align-items: center; gap: 12px; padding: 0 30px;
+    font: 22px var(--carto-font-code); color: #AFB9AE; }
+  .card .bar i { width: 15px; height: 15px; border-radius: 50%; background: #3B473E; display: block; }
   .card .bar i.live { background: #91B9A0; }
   .card.clay .bar i.live { background: #D6A68D; }
-  .card .bar b { font-weight: normal; margin-left: 10px; }
-  .card .body { padding: 22px 26px; font: 20px/30px var(--carto-font-code); color: #EEEDE5; white-space: pre-wrap; word-break: break-word; }
+  .card .bar b { font-weight: normal; margin-left: 14px; }
+  .card .body { padding: 33px 39px; font: 30px/1.45 var(--carto-font-code); color: #EEEDE5; white-space: pre-wrap; word-break: break-word; }
   .card .body .tool { color: #91B9A0; }
   .card .body .err { color: #E9A199; }
-  .card .body .cur { display: inline-block; width: 10px; height: 22px; background: #AFB9AE; vertical-align: -4px; margin-left: 2px; }
-  .mem { position: absolute; left: 0; top: 48px; }
-  .note { width: 200px; height: 56px; box-sizing: border-box; border-radius: 10px; background: #FBF8F1; border: 1px solid #DCDDD5;
-    box-shadow: 0 14px 30px rgba(37,40,36,.18); display: flex; align-items: center; justify-content: center; font-size: 20px; }
+  .card .body .cur { display: inline-block; width: 15px; height: 33px; background: #AFB9AE; vertical-align: -5px; margin-left: 3px; }
+  .mem { position: absolute; left: 0; top: 72px; }
+  .note { width: 280px; height: 76px; box-sizing: border-box; border-radius: 14px; background: #FBF8F1; border: 1px solid #DCDDD5;
+    box-shadow: 0 14px 30px rgba(37,40,36,.18); display: flex; align-items: center; justify-content: center; font-size: 26px; white-space: nowrap; }
   .note.bad { background: #FCFAF6; border: 2px dashed var(--carto-clay-text); color: var(--carto-clay-text); }
-  .tag { font: 16px var(--carto-font-code); color: var(--carto-clay-text); background: var(--carto-background); padding: 6px 10px; border-radius: 8px; border: 1px solid var(--carto-clay-text); }
+  .tag { font: 22px var(--carto-font-code); color: var(--carto-clay-text); background: var(--carto-background); padding: 8px 14px; border-radius: 10px; white-space: nowrap; border: 1px solid var(--carto-clay-text); }
   #ring { left: 0; top: 0; width: 1920px; height: 1080px; pointer-events: none; }
   #veil { left: 0; top: 0; width: 1920px; height: 1080px; background: var(--carto-background); opacity: 0; }
-  .wordmark { font-size: 96px; letter-spacing: -0.02em; white-space: nowrap; }
-  .sub { font-size: 36px; color: var(--carto-text-muted); white-space: nowrap; }
-  .url { font: 22px var(--carto-font-code); color: var(--carto-text-muted); white-space: nowrap; }
+  .wordmark { font-size: 112px; letter-spacing: -0.02em; white-space: nowrap; }
+  .sub { font-size: 44px; color: var(--carto-text-muted); white-space: nowrap; }
+  .url { font: 26px var(--carto-font-code); color: var(--carto-text-muted); white-space: nowrap; }
 </style>
 </head>
 <body>

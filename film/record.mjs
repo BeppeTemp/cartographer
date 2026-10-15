@@ -15,6 +15,8 @@ const fpsOpt = Number(opt("fps", 0)) || 0;
 const url = opt("url", "http://localhost:5180/?record");
 const out = path.join(here, "out");
 const framesDir = path.join(out, "frames");
+// A full render starts from an empty frames dir: stale frames from a longer run would end up in the video and the WebP.
+if (!stills.size) fs.rmSync(framesDir, { recursive: true, force: true });
 fs.mkdirSync(framesDir, { recursive: true });
 
 const browser = await chromium.launch({
@@ -43,5 +45,7 @@ await browser.close();
 if (!stills.size) {
   const input = ["-y", "-framerate", String(rate), "-i", path.join(framesDir, "%05d.png")];
   execFileSync("ffmpeg", [...input, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-r", String(rate), path.join(out, "film.mp4")], { stdio: "inherit" });
-  execFileSync("ffmpeg", [...input, "-c:v", "libwebp_anim", "-loop", "0", "-quality", "80", path.join(out, "film.webp")], { stdio: "inherit" });
+  // Homebrew's ffmpeg has no libwebp encoder: img2webp (from the webp package) assembles the animation instead.
+  const pngs = fs.readdirSync(framesDir).filter((f) => f.endsWith(".png")).sort().map((f) => path.join(framesDir, f));
+  execFileSync("img2webp", ["-loop", "0", "-d", String(Math.round(1000 / rate)), "-lossy", "-q", "70", "-m", "3", ...pngs, "-o", path.join(out, "film.webp")], { stdio: "inherit" });
 }
