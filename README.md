@@ -19,10 +19,10 @@
 </p>
 
 <p align="center">
-  <img alt="The embedded Atlas: a knowledge base drawn as a living 3D graph — searched, a concept opened with its links, recoloured by map, the skills it ships to agents and the findings that need attention." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-assets/hero.webp" width="100%">
+  <img alt="A one-minute film: four teammates, each with their own coding agents, share one Cartographer wiki. On Monday Alice's agent writes down why staging breaks; on Tuesday Marco's agent, on another laptop and another client, finds her note and answers; every day the others add to it, and a note with a broken link is refused." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/film.webp" width="100%">
 </p>
 
-<p align="center"><sub>The Atlas, served by the same binary, on a generated demo KB. Pre-1.0: breaking changes bump the minor version and are called out in the <a href="CHANGELOG.md">changelog</a>.</sub></p>
+<p align="center"><sub>Drawn by the Atlas's own graph engine. Pre-1.0: breaking changes bump the minor version and are called out in the <a href="CHANGELOG.md">changelog</a>.</sub></p>
 
 ## Try it now
 
@@ -106,6 +106,12 @@ through MCP tools**, behind a server that enforces the rules, and the same knowl
 
 - 🔑 **Secrets, done properly**<br>
   SOPS-encrypted values referenced by concepts and resolved on demand; plaintext is never stored.
+
+<p align="center">
+  <img alt="The embedded Atlas: a knowledge base drawn as a living 3D graph — searched, a concept opened with its links, recoloured by map, the skills it ships to agents and the findings that need attention." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-assets/hero.webp" width="100%">
+</p>
+
+<p align="center"><sub>The Atlas, served by the same binary, on a generated demo KB.</sub></p>
 
 ## Quick start
 
