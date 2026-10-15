@@ -2,11 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Concept, LintFinding } from "../api/types";
 import { withoutRedundantLinksSection } from "../lib/linksection";
 import { collectionVar } from "../lib/palette";
+import { ConceptHistory } from "./ConceptHistory";
 import { Markdown } from "./Markdown";
 import { ErrorState, Skeleton } from "./States";
 import { SeverityBadge } from "./SeverityBadge";
 
 interface Props {
+  /** The KB the concept belongs to: what the History tab reads from. */
+  kb?: string | null;
   conceptId: string | null;
   concept: Concept | null;
   error: unknown;
@@ -31,9 +34,10 @@ function withoutLeadingTitle(body: string): string {
   return body.replace(/^\s*#\s+[^\n]*\n+/, "");
 }
 
-type Tab = "content" | "links" | "meta";
+type Tab = "content" | "links" | "meta" | "history";
 
 export function Inspector({
+  kb,
   conceptId,
   concept,
   error,
@@ -66,7 +70,7 @@ export function Inspector({
     }
   };
   const linkCount =
-    (concept?.outbound.length ?? 0) + (concept?.inbound.length ?? 0) + (concept?.used_by?.length ?? 0);
+    (concept?.outbound.length ?? 0) + (concept?.inbound.length ?? 0) + (concept?.used_by?.length ?? 0) + (concept?.superseded_by ? 1 : 0) + (concept?.supersedes?.length ?? 0);
 
   // A new concept always opens on its content: carrying the previous tab over
   // means a user who opened "Links" once never sees a body again.
@@ -104,7 +108,7 @@ export function Inspector({
       </header>
 
       <div className="inspector__tabs" role="tablist" aria-label="Concept sections">
-        {(["content", "links", "meta"] as Tab[]).map((name) => (
+        {(["content", "links", "meta", "history"] as Tab[]).map((name) => (
           <button
             key={name}
             type="button"
@@ -115,7 +119,7 @@ export function Inspector({
             className="inspector__tab"
             onClick={() => setTab(name)}
           >
-            {name === "content" ? "Content" : name === "links" ? "Links" : "Metadata"}
+            {name === "content" ? "Content" : name === "links" ? "Links" : name === "meta" ? "Metadata" : "History"}
             {name === "links" && linkCount > 0 && <span className="inspector__tab-count">{linkCount}</span>}
           </button>
         ))}
@@ -194,6 +198,40 @@ export function Inspector({
                 onNavigate={onNavigate}
                 onPreview={onPreview}
               />
+              {(!!concept.superseded_by || !!concept.supersedes?.length) && (
+                <section className="inspector__group" aria-label="Supersede chain">
+                  <h3 className="inspector__group-title">Supersede chain</h3>
+                  <p className="inspector__hint">What replaced this concept, and what it replaced.</p>
+                  <ul className="inspector__links">
+                    {[
+                      ...(concept.superseded_by ? [{ id: concept.superseded_by, relation: "Replaced by" }] : []),
+                      ...(concept.supersedes ?? []).map((id) => ({ id, relation: "Replaces" })),
+                    ].map(({ id, relation }) => (
+                      <li key={`${relation}/${id}`}>
+                        <button
+                          type="button"
+                          className="inspector__link"
+                          onClick={() => onNavigate(id)}
+                          onMouseEnter={() => onPreview(id)}
+                          onMouseLeave={() => onPreview(null)}
+                          onFocus={() => onPreview(id)}
+                          onBlur={() => onPreview(null)}
+                        >
+                          <span className="inspector__link-kind" aria-hidden="true">
+                            {relation === "Replaced by" ? "→" : "←"}
+                          </span>
+                          <span className="inspector__link-text">
+                            <span className="inspector__link-title">
+                              {relation}: {titleOf(id) ?? shortName(id)}
+                            </span>
+                            <span className="inspector__link-id">{id}</span>
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
               {!!concept.used_by?.length && (
                 <section className="inspector__group">
                   <h3 className="inspector__group-title">
@@ -238,6 +276,10 @@ export function Inspector({
                   </ul>
                 </section>
               )}
+            </div>
+
+            <div role="tabpanel" id="panel-history" aria-labelledby="tab-history" hidden={tab !== "history"}>
+              {tab === "history" && kb && <ConceptHistory kb={kb} conceptId={concept.id} />}
             </div>
 
             <div role="tabpanel" id="panel-meta" aria-labelledby="tab-meta" hidden={tab !== "meta"}>

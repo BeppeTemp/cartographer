@@ -3,7 +3,7 @@
  * localStorage is the right store (never a token, never content), and every
  * access is guarded: a private window throws on the first read.
  */
-export type PanelName = "rail" | "motion" | "legend";
+export type PanelName = "rail" | "motion";
 
 const PREFIX = "cartographer.panel.";
 
@@ -49,6 +49,13 @@ export function writeWidth(name: WidthName, px: number): void {
 }
 
 export const INSPECTOR_DEFAULT = 420;
+
+/** The reading panel's width until the viewer drags one: half the room beside
+ *  the rail, so the graph and the page share it. INSPECTOR_DEFAULT while the
+ *  shell is unmeasured. */
+export function inspectorDefault(bodyWidth: number, railWidth: number): number {
+  return bodyWidth > 0 ? Math.round((bodyWidth - railWidth) / 2) : INSPECTOR_DEFAULT;
+}
 export const INSPECTOR_MIN = 320;
 /** The graph a reading panel never covers. */
 export const GRAPH_MIN_VISIBLE = 280;

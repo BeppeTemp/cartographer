@@ -162,6 +162,50 @@ export function LeftRail({
           <button
             type="button"
             className="rail__panel"
+            aria-label="Sources"
+            title={collapsed ? "Sources" : undefined}
+            aria-current={panel === "sources" ? "page" : undefined}
+            onClick={() => onPanel("sources")}
+          >
+            <span className="rail__glyph">
+              <Icon name="sources" />
+            </span>
+            <span className="rail__label">Sources</span>
+          </button>
+        </li>
+        <li>
+          <button
+            type="button"
+            className="rail__panel"
+            title={collapsed ? "Services" : undefined}
+            aria-current={panel === "services" ? "page" : undefined}
+            onClick={() => onPanel("services")}
+          >
+            <span className="rail__glyph">
+              <Icon name="services" />
+            </span>
+            <span className="rail__label">Services</span>
+          </button>
+        </li>
+        <li>
+          <button
+            type="button"
+            className="rail__panel"
+            aria-label="Paths"
+            title={collapsed ? "Paths" : undefined}
+            aria-current={panel === "paths" ? "page" : undefined}
+            onClick={() => onPanel("paths")}
+          >
+            <span className="rail__glyph">
+              <Icon name="paths" />
+            </span>
+            <span className="rail__label">Paths</span>
+          </button>
+        </li>
+        <li>
+          <button
+            type="button"
+            className="rail__panel"
             aria-label="Settings"
             title={collapsed ? "Settings" : undefined}
             aria-current={panel === "settings" ? "page" : undefined}

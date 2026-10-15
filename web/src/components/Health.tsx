@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import type {
   CheckCatalog,
   CollectionSummary,
+  Contradiction,
+  GitConflict,
   KBStatus,
   LintFinding,
   LintReport,
@@ -49,6 +51,8 @@ export function Health({
   summary,
   checks,
   review = null,
+  contradictions = null,
+  conflicts = null,
   pending = false,
   scopeTitle,
   allFindings = null,
@@ -69,6 +73,11 @@ export function Health({
   checks?: CheckCatalog | null;
   /** The doctor's proposals beyond lint (D704); null leaves them out. */
   review?: MaintenanceReview | null;
+  /** The open Contradiction concepts; null when not visible or not arrived. */
+  contradictions?: Contradiction[] | null;
+  /** Open git rebase conflicts; null when not visible or not arrived, and the
+   *  section is shown only when there are some. */
+  conflicts?: GitConflict[] | null;
   /** The review and the checks are still being read: the headline, which
    *  counts the review and sits beside the checks' switch, waits for them. */
   pending?: boolean;
@@ -251,6 +260,10 @@ export function Health({
               )}
             </div>
           )}
+
+          {contradictions && <Contradictions items={contradictions} onReveal={onReveal} />}
+
+          {!!conflicts?.length && <GitConflicts items={conflicts} onReveal={onReveal} />}
 
           {status && hasKnowledge(status) && <Knowledge status={status} onReveal={onReveal} />}
         </>
@@ -840,6 +853,69 @@ function Coverage({
   );
 }
 
+/**
+ * The Contradiction concepts still open: two pages that disagree. They are
+ * recorded by agents (contradiction_report) and block commit_gate until
+ * someone resolves them, so they sit beside what is wrong, not in a corner.
+ */
+function Contradictions({
+  items,
+  onReveal,
+}: {
+  items: Contradiction[];
+  onReveal(concept: string | null, message: string): void;
+}) {
+  return (
+    <PageSection title="Contradictions" id="health-contradictions" count={items.length}>
+      {items.length === 0 ? (
+        <Quiet>
+          No open contradictions. An agent that finds two pages disagreeing records one (<code>contradiction_report</code>
+          ); while it is open, <code>commit_gate</code> blocks.
+        </Quiet>
+      ) : (
+        <>
+          <p className="page-note">
+            Pages that disagree, recorded by agents. An open contradiction blocks <code>commit_gate</code> until it is
+            resolved.
+          </p>
+          <ul className="rows">
+            {items.map((c) => (
+              <li key={c.id} className="health__contradiction">
+                <button type="button" className="row" onClick={() => onReveal(c.id, "")}>
+                  <span className="health__glyph" aria-hidden="true">
+                    ≠
+                  </span>
+                  <span className="row__body">
+                    <span className="row__title">{c.title || c.id}</span>
+                    <span className="row__meta">
+                      {c.contradiction_kind && <span className="pill">{c.contradiction_kind.replace(/_/g, " ")}</span>}
+                      <code>{c.id}</code>
+                    </span>
+                  </span>
+                  <span className="row__end health__go">Open concept</span>
+                </button>
+                {!!c.involves?.length && (
+                  <p className="health__involves">
+                    Between{" "}
+                    {c.involves.map((id, i) => (
+                      <span key={id}>
+                        {i > 0 && ", "}
+                        <button type="button" className="ref-link" onClick={() => onReveal(id, "")}>
+                          {id}
+                        </button>
+                      </span>
+                    ))}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </PageSection>
+  );
+}
+
 function plural(n: number, word: string, many = `${word}s`): string {
   return `${n} ${n === 1 ? word : many}`;
 }
@@ -927,6 +1003,52 @@ function Knowledge({
           </Quiet>
         )}
       </>
+    </PageSection>
+  );
+}
+
+/**
+ * Git rebase conflicts the sync could not settle by itself: a concept (or a
+ * reserved file) with two versions waiting for an agent to pick one with
+ * git_conflict_resolve. Shown only when there are some.
+ */
+function GitConflicts({
+  items,
+  onReveal,
+}: {
+  items: GitConflict[];
+  onReveal(concept: string | null, message: string): void;
+}) {
+  return (
+    <PageSection title="Git conflicts" id="health-conflicts" count={items.length}>
+      <p className="page-note">
+        A sync met two versions of these files and stopped. An agent settles each one with <code>git_conflict_resolve</code>{" "}
+        (the <code>kb-conflict-resolve</code> skill walks it through).
+      </p>
+      <ul className="rows">
+        {items.map((c) => (
+          <li key={c.concept_id} className="health__contradiction">
+            <button
+              type="button"
+              className="row"
+              disabled={c.kind === "reserved"}
+              onClick={() => onReveal(c.concept_id, "")}
+            >
+              <span className="health__glyph" aria-hidden="true">
+                ⑂
+              </span>
+              <span className="row__body">
+                <span className="row__title">{c.concept_id}</span>
+                <span className="row__meta">
+                  {c.kind === "reserved" && <span className="pill">reserved file</span>}
+                  <span className="pill">{c.resolution_strategy ? `resolution: ${c.resolution_strategy}` : "unresolved"}</span>
+                  {!!c.files && c.files.length > 1 && <span>{c.files.length} files in the same rebase</span>}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </PageSection>
   );
 }

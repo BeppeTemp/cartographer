@@ -103,6 +103,10 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		m.uiListKBs(w, r)
 		return
 	}
+	if len(segments) == 1 && segments[0] == "whoami" {
+		m.uiWhoami(w, r)
+		return
+	}
 	if len(segments) == 1 && segments[0] == "settings" {
 		m.uiSettings(w, r)
 		return
@@ -156,6 +160,26 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		uiChecks(w, k)
 	case "work":
 		uiWork(w, r, srv)
+	case "placeholders":
+		m.uiPlaceholders(w, r, srv)
+	case "contradictions":
+		uiContradictions(w, r, k)
+	case "services":
+		uiServices(w, r, k)
+	case "conflicts":
+		uiConflicts(w, r, srv)
+	case "audit":
+		uiAudit(w, r, segments[1], srv)
+	case "maps":
+		uiMaps(w, r, srv)
+	case "history":
+		uiHistory(w, r, srv)
+	case "journal":
+		uiJournal(w, r, k)
+	case "sources":
+		uiSources(w, r, srv)
+	case "assets":
+		uiAssets(w, r, srv)
 	case "maintenance":
 		if len(segments) != 4 {
 			writeUINotFound(w)
@@ -406,19 +430,36 @@ func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB, srv *Server) {
 	outbound, brokenOutbound := uiVisibleNeighbors(ctx, k, graph, graph.Out[okf.ConceptID(id)], id)
 	inbound, _ := uiVisibleNeighbors(ctx, k, graph, graph.In[okf.ConceptID(id)], id)
 
+	// The supersede chain as relations (D744), not only as raw frontmatter:
+	// the concepts that name this one as their superseded_by are among its
+	// inbound links, and its own successor is only named when the caller
+	// may see it.
+	supersedes := []string{}
+	for _, from := range inbound {
+		if k.ConceptFacets(okf.ConceptID(from)).SupersededBy == id {
+			supersedes = append(supersedes, from)
+		}
+	}
+	supersededBy := ""
+	if next := k.ConceptFacets(okf.ConceptID(id)).SupersededBy; next != "" && Visible(ctx, k, next) {
+		supersededBy = next
+	}
+
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{
-		"id":           id,
-		"title":        title,
-		"collection":   conceptCollection(id),
-		"frontmatter":  frontmatter,
-		"body":         data.Body,
-		"body_bytes":   len(data.Body),
-		"outline":      headingsToOutline(okf.ListHeadings(data.Body)),
-		"content_hash": data.ContentHash,
-		"outbound":     outbound,
-		"inbound":      inbound,
-		"broken":       brokenOutbound,
-		"used_by":      artifactsReading(ctx, srv, id),
+		"id":            id,
+		"title":         title,
+		"collection":    conceptCollection(id),
+		"frontmatter":   frontmatter,
+		"body":          data.Body,
+		"body_bytes":    len(data.Body),
+		"outline":       headingsToOutline(okf.ListHeadings(data.Body)),
+		"content_hash":  data.ContentHash,
+		"outbound":      outbound,
+		"inbound":       inbound,
+		"broken":        brokenOutbound,
+		"used_by":       artifactsReading(ctx, srv, id),
+		"supersedes":    supersedes,
+		"superseded_by": supersededBy,
 	})
 }
 

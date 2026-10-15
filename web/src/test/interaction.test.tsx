@@ -445,6 +445,6 @@ describe("left rail outside the Atlas", () => {
   it("shows the node filters, selection intact, back in the Atlas", () => {
     render(rail("atlas"));
     expect(screen.getByRole("heading", { name: "Type" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Service/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /^Service(?!s)/ })).toHaveAttribute("aria-pressed", "true");
   });
 });

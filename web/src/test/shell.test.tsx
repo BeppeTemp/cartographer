@@ -60,7 +60,7 @@ describe("keyboard traversal", () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByTestId("graph-view");
-    await screen.findByRole("button", { name: /^Service/ });
+    await screen.findByRole("button", { name: /^Service(?!s)/ });
 
     // Shell first: the skip link and the top bar come before anything else.
     const first = await tabUntil(user, () => true);
@@ -164,14 +164,22 @@ describe("colour legend", () => {
 
     // Lint severity is not a colour mode (D307): the Health panel reads it.
     expect(within(legend).queryByRole("button", { name: "Health" })).not.toBeInTheDocument();
+  });
 
-    // Folded, it keeps the switch and the counts, and remembers it.
-    await user.click(within(legend).getByRole("button", { name: "Hide the legend" }));
-    expect(within(legend).queryByText("infra")).not.toBeInTheDocument();
-    expect(within(legend).getByRole("button", { name: "Map" })).toBeInTheDocument();
-    expect(localStorage.getItem("cartographer.panel.legend")).toBe("1");
-    await user.click(within(legend).getByRole("button", { name: "Show the legend" }));
-    expect(within(legend).getByText("infra")).toBeInTheDocument();
+  it("steps aside while a concept is open and comes back when the reading panel closes", async () => {
+    viewport(false);
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&concept=infra%2Fa");
+    stubApi();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const close = await screen.findByRole("button", { name: "Close inspector" });
+    expect(screen.queryByRole("region", { name: /graph legend/i })).toBeNull();
+    // Nothing left to fold it with: it is either there whole or not at all.
+    expect(screen.queryByRole("button", { name: /the legend/i })).toBeNull();
+
+    await user.click(close);
+    expect(await screen.findByRole("region", { name: /graph legend/i })).toBeInTheDocument();
   });
 });
 
@@ -207,26 +215,27 @@ describe("the reading panel splitter", () => {
     const handle = await screen.findByRole("separator", { name: "Resize reading panel" });
     // The shell is measured in the effect after its first render.
     await waitFor(() => expect(handle).toHaveAttribute("aria-valuemax", "1056"));
-    expect(handle).toHaveAttribute("aria-valuenow", "420");
+    // No preference yet: half the room beside the rail, (1600 - 264) / 2.
+    expect(handle).toHaveAttribute("aria-valuenow", "668");
     expect(handle).toHaveAttribute("aria-valuemin", "320");
     expect(handle).toHaveAttribute("aria-controls", "reading-panel");
 
     handle.focus();
     await user.keyboard("{ArrowLeft}");
-    expect(handle).toHaveAttribute("aria-valuenow", "436");
-    expect(panel().style.getPropertyValue("--inspector-width")).toBe("436px");
-    expect(localStorage.getItem("cartographer.inspector.width")).toBe("436");
+    expect(handle).toHaveAttribute("aria-valuenow", "684");
+    expect(panel().style.getPropertyValue("--inspector-width")).toBe("684px");
+    expect(localStorage.getItem("cartographer.inspector.width")).toBe("684");
 
     await user.keyboard("{Shift>}{ArrowRight}{/Shift}");
-    expect(handle).toHaveAttribute("aria-valuenow", "372");
+    expect(handle).toHaveAttribute("aria-valuenow", "620");
     await user.keyboard("{Home}");
     expect(handle).toHaveAttribute("aria-valuenow", "1056");
     await user.keyboard("{End}");
     expect(handle).toHaveAttribute("aria-valuenow", "320");
 
     await user.keyboard("{Enter}");
-    expect(handle).toHaveAttribute("aria-valuenow", "420");
-    expect(localStorage.getItem("cartographer.inspector.width")).toBe("420");
+    expect(handle).toHaveAttribute("aria-valuenow", "668");
+    expect(localStorage.getItem("cartographer.inspector.width")).toBe("668");
   });
 
   it("restores the stored width, clamped to the window without rewriting it", async () => {
@@ -287,7 +296,7 @@ describe("transitions", () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByTestId("graph-view");
-    await screen.findByRole("button", { name: /^Service/ });
+    await screen.findByRole("button", { name: /^Service(?!s)/ });
 
     await user.keyboard("{Control>}k{/Control}");
     await user.keyboard("infra/a{Enter}");

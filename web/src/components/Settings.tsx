@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { fetchSettings } from "../api/client";
-import type { SettingEntry, SettingsKB, SettingsView } from "../api/types";
+import { fetchSettings, fetchWhoami } from "../api/client";
+import type { SettingEntry, SettingsKB, SettingsView, Whoami, WhoamiRule } from "../api/types";
 import { Count, Page, PageHeader } from "./Page";
 import { ErrorState, Skeleton } from "./States";
 
@@ -31,6 +31,16 @@ export function Settings({
   const [view, setView] = useState<SettingsView | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
+
+  // Who is looking: a read of the caller's own policy, left out when it fails.
+  const [who, setWho] = useState<Whoami | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchWhoami(controller.signal)
+      .then(setWho)
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [reloadKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -75,6 +85,7 @@ export function Settings({
           </>
         }
       />
+      {who && <WhoSection who={who} />}
       <Section id="settings-server" title="Server" entries={view.server} />
       {view.kbs.map((kb, i) => (
         <KBSection key={kb.name} id={`settings-kb-${i}`} kb={kb} />
@@ -159,5 +170,52 @@ function Row({ entry }: { entry: SettingEntry }) {
         </div>
       </details>
     </li>
+  );
+}
+
+/** What a rule lets the principal reach in one KB, in plain words. */
+function describeRule(rule: WhoamiRule): string {
+  const scope = [
+    rule.maps?.length ? `the maps ${rule.maps.join(", ")}` : "every map",
+    rule.journals?.length ? `the journals ${rule.journals.join(", ")}` : null,
+    rule.types?.length ? `only concepts of type ${rule.types.join(", ")}` : null,
+  ]
+    .filter(Boolean)
+    .join("; ");
+  return `${rule.write ? "can read and write" : "can read"} ${scope}`;
+}
+
+function WhoSection({ who }: { who: Whoami }) {
+  return (
+    <section className="settings__section" aria-labelledby="settings-who">
+      <h2 id="settings-who" className="settings__title">
+        Who is looking
+      </h2>
+      <p className="page-note">
+        {who.id ? (
+          <>
+            You are <strong>{who.id}</strong>
+            {who.admin ? ", an administrator." : "."}
+          </>
+        ) : who.admin ? (
+          "You are an unnamed principal with administrator rights (the server runs without authentication)."
+        ) : (
+          "You are an unnamed principal."
+        )}
+      </p>
+      {who.admin ? (
+        <p className="page-note">An administrator reads and writes every KB this server mounts.</p>
+      ) : who.permissions.length === 0 ? (
+        <p className="page-note">Your token grants no KB on this server.</p>
+      ) : (
+        <ul className="settings__facts">
+          {who.permissions.map((rule) => (
+            <li key={rule.kb}>
+              In <code>{rule.kb}</code> you {describeRule(rule)}.
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

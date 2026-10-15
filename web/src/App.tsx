@@ -10,10 +10,13 @@ import {
   fetchKBs,
   fetchArtifacts,
   fetchLint,
+  fetchMaps,
   fetchMaintenanceReview,
   fetchMaintenanceSummary,
   fetchOverview,
   fetchStatus,
+  fetchConflicts,
+  fetchContradictions,
   restoreToken,
   setToken,
 } from "./api/client";
@@ -22,16 +25,23 @@ import type {
   ArtifactList,
   CheckCatalog,
   Concept,
+  Contradiction,
+  GitConflict,
   GraphSnapshot,
   KBStatus,
   KBSummary,
   LintReport,
+  MapContract,
   MaintenanceReview,
   MaintenanceSummary,
   Overview,
 } from "./api/types";
 import { Artifacts } from "./components/Artifacts";
 import { Secrets } from "./components/Secrets";
+import { Paths } from "./components/Paths";
+import { MapPanel } from "./components/MapPanel";
+import { Services } from "./components/Services";
+import { Sources } from "./components/Sources";
 import { Settings } from "./components/Settings";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
@@ -64,7 +74,7 @@ import { snapshotCommunities, type Communities } from "./lib/communities";
 import { readColorBy, writeColorBy, type ColorBy } from "./lib/palette";
 import { pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
 import {
-  INSPECTOR_DEFAULT,
+  inspectorDefault,
   INSPECTOR_MIN,
   clampInspectorWidth,
   inspectorMax,
@@ -128,6 +138,8 @@ export function App() {
   const [checks, setChecks] = useState<CheckCatalog | null>(null);
   // The doctor's agenda beyond lint (D704); null leaves it out of Health.
   const [review, setReview] = useState<MaintenanceReview | null>(null);
+  const [contradictions, setContradictions] = useState<Contradiction[] | null>(null);
+  const [conflicts, setConflicts] = useState<GitConflict[] | null>(null);
   // Health's review and checks have answered (or failed) for the current read.
   const [healthSettled, setHealthSettled] = useState(false);
   // The KB Health's reads above belong to (D704).
@@ -139,6 +151,7 @@ export function App() {
   const [notice, setNotice] = useState<string>("");
   const [offline, setOffline] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [mapContracts, setMapContracts] = useState<MapContract[]>([]);
   const loadedConcept = useRef<string | null>(null);
   const [colorBy, setColorBy] = useState<ColorBy>(readColorBy);
   const narrow = useMediaQuery(NARROW_QUERY);
@@ -147,7 +160,8 @@ export function App() {
   // The reading panel's width (D239): the viewer's preference, clamped to what
   // the window can hold. A resize re-clamps what is drawn but never the stored
   // value: only a drag or a key rewrites it.
-  const [inspectorPref, setInspectorPref] = useState(() => readWidth("inspector.width", INSPECTOR_DEFAULT));
+  // 0: no preference yet, so the default follows the window.
+  const [inspectorPref, setInspectorPref] = useState(() => readWidth("inspector.width", 0));
   const bodyRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   // The widest panel its content can use (D281), read off a hidden probe so
@@ -178,9 +192,11 @@ export function App() {
   // Unmeasured (the first render, or a layout engine that reports no size):
   // draw the preference as is rather than squash it to the minimum.
   const measured = room.body > 0;
+  const inspectorFallback = inspectorDefault(room.body, room.rail);
+  const preferred = inspectorPref > 0 ? inspectorPref : inspectorFallback;
   const inspectorWidth = measured
-    ? clampInspectorWidth(inspectorPref, room.body, room.rail, room.reading)
-    : Math.max(INSPECTOR_MIN, inspectorPref);
+    ? clampInspectorWidth(preferred, room.body, room.rail, room.reading)
+    : Math.max(INSPECTOR_MIN, preferred);
   const inspectorLimit = measured
     ? inspectorMax(room.body, room.rail, room.reading)
     : Math.max(inspectorWidth, INSPECTOR_MIN);
@@ -426,6 +442,20 @@ export function App() {
     return () => controller.abort();
   }, [activeKB, view.concept, phase, handleFailure, live]);
 
+  // The Maps' contracts, once per KB (and on a retry), for the reading panel:
+  // a Map click only picks one from this list. A failure leaves the panel out.
+  useEffect(() => {
+    setMapContracts([]);
+    if (!activeKB || phase !== "ready") return;
+    const controller = new AbortController();
+    fetchMaps(activeKB, controller.signal)
+      .then((data) => setMapContracts(data.maps ?? []))
+      .catch((err) => {
+        if (!controller.signal.aborted) handleFailure(err);
+      });
+    return () => controller.abort();
+  }, [activeKB, phase, handleFailure, reloadKey]);
+
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
     const controller = new AbortController();
@@ -476,6 +506,8 @@ export function App() {
       setMaintenance(null);
       setChecks(null);
       setReview(null);
+      setContradictions(null);
+      setConflicts(null);
       setHealthSettled(false);
       return;
     }
@@ -487,11 +519,21 @@ export function App() {
       setMaintenance(null);
       setChecks(null);
       setReview(null);
+      setContradictions(null);
+      setConflicts(null);
       setHealthSettled(false);
     }
     const controller = new AbortController();
     fetchStatus(activeKB, controller.signal)
       .then(setKbStatus)
+      .catch(() => undefined);
+    // Whole-KB like the status: a narrowed principal gets a 404 and no section.
+    fetchContradictions(activeKB, "open", controller.signal)
+      .then((res) => setContradictions(res.contradictions ?? []))
+      .catch(() => undefined);
+    // Whole-KB as well, and only shown when there is something to resolve.
+    fetchConflicts(activeKB, controller.signal)
+      .then((res) => setConflicts(Array.isArray(res) ? res : []))
       .catch(() => undefined);
     fetchMaintenanceSummary(activeKB, controller.signal)
       .then(setMaintenance)
@@ -686,8 +728,18 @@ export function App() {
     />
   );
 
+  // The Atlas filtered to one Map with no concept open shows that Map's card
+  // over the graph; below the narrow breakpoint it is left out.
+  const scopedMap =
+    view.panel === "atlas" && !narrow && !view.concept && view.scope
+      ? (mapContracts.find((m) => m.name === view.scope) ?? null)
+      : null;
+  const scopedCollection = scopedMap ? overview?.collections.find((c) => c.name === scopedMap.name) : undefined;
+  const readingOpen = !!view.concept;
+
   const inspector = (
     <Inspector
+      kb={activeKB}
       conceptId={view.concept}
       concept={concept}
       error={conceptError}
@@ -771,6 +823,8 @@ export function App() {
               summary={maintenance}
               checks={checks}
               review={review}
+              contradictions={contradictions}
+              conflicts={conflicts}
               pending={!healthSettled}
               scopeTitle={
                 view.hmap ? overview?.collections.find((c) => c.name === view.hmap)?.title || view.hmap : null
@@ -795,6 +849,33 @@ export function App() {
             />
           ) : view.panel === "secrets" && activeKB ? (
             <Secrets
+              kb={activeKB}
+              reloadKey={`${reloadKey}:${live}`}
+              titleOf={(id) => nodeTitles.get(id)}
+              onOpenConcept={(id) => navigate({ panel: "atlas", concept: id })}
+              onRetry={() => setReloadKey((k) => k + 1)}
+              onFailure={handleFailure}
+            />
+          ) : view.panel === "paths" && activeKB ? (
+            <Paths
+              kb={activeKB}
+              reloadKey={`${reloadKey}:${live}`}
+              titleOf={(id) => nodeTitles.get(id)}
+              onOpenConcept={(id) => navigate({ panel: "atlas", concept: id })}
+              onOpenArtifact={(kind, name) => navigate({ panel: "artifacts", artifact: `${kind}/${name}` })}
+              onRetry={() => setReloadKey((k) => k + 1)}
+              onFailure={handleFailure}
+            />
+          ) : view.panel === "services" && activeKB ? (
+            <Services
+              kb={activeKB}
+              reloadKey={`${reloadKey}:${live}`}
+              onOpenConcept={(id) => navigate({ panel: "atlas", concept: id })}
+              onRetry={() => setReloadKey((k) => k + 1)}
+              onFailure={handleFailure}
+            />
+          ) : view.panel === "sources" && activeKB ? (
+            <Sources
               kb={activeKB}
               reloadKey={`${reloadKey}:${live}`}
               titleOf={(id) => nodeTitles.get(id)}
@@ -869,19 +950,25 @@ export function App() {
                   themeKey={appliedTheme}
                   live={motion}
                   onToggleLive={toggleMotion}
-                  occludedRight={!narrow && view.concept ? inspectorWidth : 0}
+                  occludedRight={!narrow && readingOpen ? inspectorWidth : 0}
                   onSelect={selectConcept}
                   onExpand={expandConcept}
                   onUnavailable={markWebglLost}
                 >
-                  <Legend snapshot={snapshot} communities={communities} colorBy={colorBy} onColorBy={setColorBy} />
+                  {/* With a Map picked its card is the key: the legend's counts are the whole KB's. */}
+                  {!readingOpen && !scopedMap && (
+                    <Legend snapshot={snapshot} communities={communities} colorBy={colorBy} onColorBy={setColorBy} />
+                  )}
+                  {scopedMap && (
+                    <MapPanel map={scopedMap} concepts={scopedCollection?.concepts ?? 0} />
+                  )}
                 </GraphView>
               )}
             </>
           )}
         </main>
 
-        {view.panel === "atlas" && !narrow && view.concept && (
+        {view.panel === "atlas" && !narrow && readingOpen && (
           <div
             id="reading-panel"
             className="overlay overlay--inspector"
@@ -891,7 +978,7 @@ export function App() {
               value={inspectorWidth}
               min={INSPECTOR_MIN}
               max={inspectorLimit}
-              defaultValue={INSPECTOR_DEFAULT}
+              defaultValue={inspectorFallback}
               edge="start"
               controls="reading-panel"
               label="Resize reading panel"

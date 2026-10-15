@@ -177,6 +177,10 @@ export interface Concept {
   /** Skills, agents and hooks that reference this concept explicitly; absent
    *  for a principal that cannot see the whole KB. */
   used_by?: { kind: string; name: string }[];
+  /** The visible concepts this one replaced (they name it as superseded_by). */
+  supersedes?: string[];
+  /** The concept that replaced this one; "" when none, or when the caller cannot see it. */
+  superseded_by?: string;
 }
 
 export type Severity = "info" | "warning" | "error";
@@ -369,6 +373,147 @@ export interface SecretList {
   files: SecretFile[];
 }
 
+/** One key of GET /kbs/{kb}/placeholders: a {{repo:key}} or {{path:key}}
+ *  placeholder the KB declares in paths.yaml (D263) and/or cites. */
+export interface PlaceholderKey {
+  kind: "repo" | "path";
+  key: string;
+  /** Declaration fields, present only when `declared`. `remote` is a repo
+   *  key's normalized "host/owner/name". */
+  description?: string;
+  default?: string;
+  remote?: string;
+  /** paths.yaml declares the key. Always false for a caller that cannot see
+   *  the whole KB: the registry is withheld from it. */
+  declared: boolean;
+  /** Concepts (ids) the caller can see that cite the key, sorted. */
+  concepts: string[];
+  /** Artifacts ("kind/name") citing the key, sorted; empty for a caller that
+   *  cannot see the whole KB. */
+  artifacts: string[];
+  /** Other KBs the caller sees whole that declare the same key with a
+   *  different default. Omitted when there is none. */
+  conflicts?: { kb: string; default: string }[];
+}
+
+/** GET /kbs/{kb}/placeholders: sorted by kind, then key. Declared keys that
+ *  nothing cites are listed with empty `concepts` and `artifacts`. */
+export interface PlaceholderList {
+  /** paths.yaml exists (and the caller may read it). */
+  registry: boolean;
+  keys: PlaceholderKey[];
+}
+
+/** One Contradiction concept (GET /kbs/{kb}/contradictions), as the
+ *  contradiction_report tool lists it. */
+export interface Contradiction {
+  id: string;
+  title?: string;
+  /** The concepts the contradiction is about. */
+  involves?: string[];
+  contradiction_kind?: string;
+  /** "open" unless the concept says otherwise. */
+  resolution_status: string;
+}
+
+/** GET /kbs/{kb}/contradictions?status=: gap-kind contradictions excluded. */
+export interface ContradictionList {
+  contradictions: Contradiction[];
+}
+
+/** One Map or Journal contract, as the map_list tool returns it. */
+export interface MapContract {
+  name: string;
+  title?: string;
+  kind?: string;
+  ontology_mode?: string;
+  concept_types?: string[];
+  /** Checks the map accepts as a whole (D306). */
+  lint_ignore?: string[];
+  /** Whole-KB callers only (0 otherwise). */
+  expanded_concepts: number;
+  /** Effective stale_open threshold in days (D346). */
+  stale_after?: number;
+  /** stale_after is the default for the map's kind, not set in _map.md. */
+  stale_after_defaulted?: boolean;
+  /** Allowed values per frontmatter field (D343); a by-type list replaces the
+   *  map-wide one for that type. */
+  field_values?: Record<string, string[]>;
+  field_values_by_type?: Record<string, Record<string, string[]>>;
+}
+
+/** GET /kbs/{kb}/maps. */
+export interface MapList {
+  maps: MapContract[];
+}
+
+/** One commit that changed a concept (GET /kbs/{kb}/history), newest first,
+ *  following renames. */
+export interface ConceptRevision {
+  sha: string;
+  /** RFC3339, UTC. */
+  at: string;
+  author: string;
+  subject: string;
+  /** The file's path at that commit. */
+  path: string;
+  agent?: string;
+  moved_to?: string;
+  moved_from?: string;
+  reason?: string;
+  accepted_findings?: string[];
+}
+
+/** GET /kbs/{kb}/history?id=&limit=. `note` is "no git history" when the KB
+ *  keeps none (then `revisions` is empty). */
+export interface ConceptHistory {
+  id: string;
+  revisions: ConceptRevision[];
+  truncated: boolean;
+  note?: string;
+}
+
+/** GET /kbs/{kb}/journal?n=: the last n entries of the root log.md, as
+ *  markdown ("" when there are none). Whole-KB callers only. */
+export interface JournalTail {
+  text: string;
+}
+
+/** One Source concept of the ledger (GET /kbs/{kb}/sources), oldest first. */
+export interface SourceEntry {
+  id: string;
+  title?: string;
+  source_kind?: string;
+  /** "pending", "ingested" or "skipped". */
+  ingest_status: string;
+  timestamp?: string;
+  /** How many visible concepts cite it in their provenance. */
+  cited_by: number;
+  cited_by_ids: string[];
+}
+
+/** GET /kbs/{kb}/sources?status=&limit= (status: pending by default, or "*"). */
+export interface SourceList {
+  sources: SourceEntry[];
+}
+
+/** One non-Markdown file of an expanded concept. */
+export interface AssetEntry {
+  /** Relative to the concept's folder. */
+  path: string;
+  size: number;
+  sha256: string;
+  executable: boolean;
+  /** Over the asset size limit: listed, but neither readable nor writable. */
+  oversized?: boolean;
+}
+
+/** GET /kbs/{kb}/assets?id=: 400 for a concept that is not expanded. */
+export interface AssetList {
+  id: string;
+  assets: AssetEntry[];
+}
+
 /** Which layer set a setting's effective value (D743). */
 export type SettingOrigin = "default" | "file" | "env" | "flag" | "kb";
 
@@ -410,4 +555,63 @@ export interface SettingsView {
   update_channel?: string;
   server: SettingEntry[];
   kbs: SettingsKB[];
+}
+
+/** One Service concept (GET /kbs/{kb}/services), filtered to what the caller sees. */
+export interface ServiceEntry {
+  id: string;
+  title?: string;
+  status?: string;
+}
+
+export interface ServiceList {
+  services: ServiceEntry[];
+}
+
+/** One open git rebase conflict (GET /kbs/{kb}/conflicts, conflicts_list). Whole-KB callers only. */
+export interface GitConflict {
+  /** The concept id, or the git path of a reserved file (kind "reserved"). */
+  concept_id: string;
+  path: string;
+  kind?: string;
+  files?: string[];
+  detected_at?: string;
+  resolution_strategy?: string;
+}
+
+/** One audit entry (GET /kbs/{kb}/audit). Admin only. */
+export interface AuditEntry {
+  at: string;
+  phase?: string;
+  principal?: string;
+  transport?: string;
+  tool: string;
+  read_only?: boolean;
+  resources?: Record<string, string>;
+  outcome: string;
+  duration_ms?: number;
+  commit_sha?: string;
+}
+
+export interface AuditLog {
+  /** False when the server keeps no audit log. */
+  enabled: boolean;
+  state?: string;
+  entries: AuditEntry[];
+}
+
+/** One KB rule of the caller's policy (GET /whoami). Absent maps = every map. */
+export interface WhoamiRule {
+  kb: string;
+  write: boolean;
+  maps?: string[];
+  journals?: string[];
+  types?: string[];
+}
+
+/** GET /whoami: the principal behind the request and its scopes. */
+export interface Whoami {
+  id: string;
+  admin: boolean;
+  permissions: WhoamiRule[];
 }

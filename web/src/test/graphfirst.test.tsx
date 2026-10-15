@@ -171,7 +171,7 @@ describe("a selection hidden by a filter", () => {
     const user = await openRail();
     await waitFor(() => expect(labels()).toContain("c"));
 
-    await user.click(await screen.findByRole("button", { name: /^Service/ }));
+    await user.click(await screen.findByRole("button", { name: /^Service(?!s)/ }));
     await waitFor(() => expect(labels()).not.toContain("c"));
     expect(labels()).toContain("b");
   });

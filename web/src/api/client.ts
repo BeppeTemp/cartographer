@@ -2,6 +2,17 @@ import type {
   Artifact,
   ArtifactList,
   SecretList,
+  AssetList,
+  ConceptHistory,
+  AuditLog,
+  ContradictionList,
+  GitConflict,
+  ServiceList,
+  Whoami,
+  JournalTail,
+  MapList,
+  PlaceholderList,
+  SourceList,
   SettingsView,
   Concept,
   GraphSnapshot,
@@ -256,6 +267,55 @@ export function fetchSecrets(kb: string, signal?: AbortSignal): Promise<SecretLi
   return get<SecretList>(`/kbs/${encodeURIComponent(kb)}/secrets`, signal);
 }
 
+export function fetchPlaceholders(kb: string, signal?: AbortSignal): Promise<PlaceholderList> {
+  return get<PlaceholderList>(`/kbs/${encodeURIComponent(kb)}/placeholders`, signal);
+}
+
+/** status: "open" (the server's default, so omitted) or "all". */
+export function fetchContradictions(kb: string, status?: "open" | "all", signal?: AbortSignal): Promise<ContradictionList> {
+  const query = status && status !== "open" ? `?status=${encodeURIComponent(status)}` : "";
+  return get<ContradictionList>(`/kbs/${encodeURIComponent(kb)}/contradictions${query}`, signal);
+}
+
+export function fetchMaps(kb: string, signal?: AbortSignal): Promise<MapList> {
+  return get<MapList>(`/kbs/${encodeURIComponent(kb)}/maps`, signal);
+}
+
+export function fetchHistory(kb: string, id: string, signal?: AbortSignal): Promise<ConceptHistory> {
+  return get<ConceptHistory>(`/kbs/${encodeURIComponent(kb)}/history?id=${encodeURIComponent(id)}`, signal);
+}
+
+export function fetchJournal(kb: string, signal?: AbortSignal): Promise<JournalTail> {
+  return get<JournalTail>(`/kbs/${encodeURIComponent(kb)}/journal`, signal);
+}
+
+export function fetchSources(kb: string, signal?: AbortSignal): Promise<SourceList> {
+  // The whole ledger: source_list alone answers only the pending sources.
+  return get<SourceList>(`/kbs/${encodeURIComponent(kb)}/sources?status=*`, signal);
+}
+
+export function fetchAssets(kb: string, id: string, signal?: AbortSignal): Promise<AssetList> {
+  return get<AssetList>(`/kbs/${encodeURIComponent(kb)}/assets?id=${encodeURIComponent(id)}`, signal);
+}
+
 export function fetchSettings(signal?: AbortSignal): Promise<SettingsView> {
   return get<SettingsView>("/settings", signal);
+}
+
+export function fetchServices(kb: string, signal?: AbortSignal): Promise<ServiceList> {
+  return get<ServiceList>(`/kbs/${encodeURIComponent(kb)}/services`, signal);
+}
+
+/** Whole-KB: a narrowed principal gets a 404, which callers leave out of the page. */
+export function fetchConflicts(kb: string, signal?: AbortSignal): Promise<GitConflict[]> {
+  return get<GitConflict[]>(`/kbs/${encodeURIComponent(kb)}/conflicts`, signal);
+}
+
+/** Admin only: any other principal gets a 404. */
+export function fetchAudit(kb: string, signal?: AbortSignal): Promise<AuditLog> {
+  return get<AuditLog>(`/kbs/${encodeURIComponent(kb)}/audit`, signal);
+}
+
+export function fetchWhoami(signal?: AbortSignal): Promise<Whoami> {
+  return get<Whoami>("/whoami", signal);
 }

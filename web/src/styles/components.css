@@ -1619,6 +1619,91 @@ body.is-resizing {
   cursor: not-allowed;
 }
 
+/* --- Map card: the contract of the Map the Atlas is filtered to (MapPanel).
+   It floats in the corner the legend does not use, so it reads as a key to
+   the filtered graph rather than a page about it; each fact explains itself
+   on hover. --- */
+
+.map-card {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: var(--space-4);
+  inset-inline-end: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 240px;
+  max-height: 45%;
+  overflow: auto;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.map-card__eyebrow {
+  margin: 0;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.map-card__eyebrow code {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.map-card__title {
+  margin: 2px 0 0;
+  font-family: var(--font-editorial);
+  font-size: var(--text-md);
+  font-weight: 400;
+  line-height: 1.2;
+  color: var(--text-primary);
+}
+
+.map-card__facts {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-block-start: var(--space-2);
+  border-block-start: 1px solid var(--border-subtle);
+}
+
+.map-card__fact {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: baseline;
+  cursor: help;
+}
+
+.map-card__fact dt {
+  color: var(--text-muted);
+}
+
+.map-card__fact dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.map-card__note,
+.map-card__codes {
+  color: var(--text-muted);
+}
+
+.map-card__values {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 /* --- Legend: what colour means, and the switch between its two meanings --- */
 
 .legend {
@@ -2432,48 +2517,6 @@ body.is-resizing {
   font-variant-numeric: tabular-nums;
 }
 
-.legend[data-folded="true"] .legend__meta {
-  margin: 0;
-  padding-block-start: 0;
-  border: 0;
-}
-
-.legend__fold {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  color: var(--text-muted);
-  cursor: pointer;
-  background: none;
-  border: 0;
-  border-radius: var(--radius-small);
-}
-
-.legend__fold:hover {
-  color: var(--text-primary);
-  background: var(--surface-2);
-}
-
-.legend__fold:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.legend__chevron {
-  width: 6px;
-  height: 6px;
-  border-block-end: 1.5px solid currentColor;
-  border-inline-end: 1.5px solid currentColor;
-  transform: rotate(45deg) translate(-1px, -1px);
-  transition: transform var(--motion-fast) var(--ease-out);
-}
-
-.legend[data-folded="true"] .legend__chevron {
-  transform: rotate(-135deg) translate(-1px, -1px);
-}
-
 /* Reading panel: a closed table of contents, links as rows. */
 .inspector__toc {
   margin-block-end: var(--space-4);
@@ -2591,10 +2634,10 @@ body.is-resizing {
 /* Activity, Work and Health live in pages.css, built from the page kit. */
 
 
-/* The growth replay has the canvas to itself: the legend and the camera
-   controls slide away while it is open and come back when it closes, and
-   the timeline takes the width they leave. */
-.graph .legend,
+/* The growth replay has the canvas to itself: the camera controls slide away
+   while it is open and come back when it closes, and the timeline takes the
+   width they leave. The legend leaves as it does for the reading panel: at
+   once, without a transition of its own. */
 .graph .graph__controls {
   transition:
     opacity var(--motion-base) var(--ease-out),
@@ -2610,14 +2653,8 @@ body.is-resizing {
     transform var(--motion-base) var(--ease-in),
     visibility 0s linear var(--motion-base);
 }
-.graph[data-growing] .legend {
-  opacity: 0;
-  transform: translateY(16px);
-  visibility: hidden;
-  transition:
-    opacity var(--motion-base) var(--ease-in),
-    transform var(--motion-base) var(--ease-in),
-    visibility 0s linear var(--motion-base);
+.graph[data-growing] :is(.legend, .map-card) {
+  display: none;
 }
 
 .growth-timeline .button--icon {
@@ -3013,4 +3050,33 @@ body.is-resizing {
 }
 .settings__detail p {
   margin: 0 0 var(--space-1);
+}
+
+/* Inspector History tab: revision timeline and assets. */
+.concept-history {
+  display: grid;
+  gap: var(--space-4);
+}
+.concept-history__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.concept-history__subject {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.concept-history__meta,
+.concept-history__asset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.concept-history__asset code {
+  color: var(--text);
 }

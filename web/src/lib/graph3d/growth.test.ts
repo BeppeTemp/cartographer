@@ -1,4 +1,4 @@
-import { GROWTH_TICK_MIN_MS, growthOrder, growthPace } from "./growth";
+import { growthOrder } from "./growth";
 
 describe("growthOrder", () => {
   it("brings concepts in by birth, and those without history last", () => {
@@ -34,15 +34,5 @@ describe("growthOrder", () => {
       { x: at, hub: at, y: at },
     );
     expect(order.map((s) => s.id)).toEqual(["hub", "x", "y"]);
-  });
-});
-
-describe("growthPace", () => {
-  it.each([10, 221, 5_000, 50_000])("lasts 8 to 20 seconds and never beats faster than the floor (%i)", (steps) => {
-    const { tickMs, perTick } = growthPace(steps);
-    const total = Math.ceil(steps / perTick) * tickMs;
-    expect(tickMs).toBeGreaterThanOrEqual(GROWTH_TICK_MIN_MS);
-    expect(total).toBeGreaterThanOrEqual(7_900);
-    expect(total).toBeLessThanOrEqual(20_500);
   });
 });

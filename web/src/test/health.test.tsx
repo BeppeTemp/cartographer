@@ -83,4 +83,33 @@ describe("the Health panel", () => {
     const panel = await screen.findByRole("region", { name: "Health" });
     expect(within(panel).getByRole("heading", { level: 1 })).toBeInTheDocument();
   });
+
+  it("lists the open contradictions and says they block commit_gate", async () => {
+    stubApi({
+      "/contradictions": () =>
+        json({
+          contradictions: [
+            {
+              id: "notes/clash",
+              title: "Ports disagree",
+              involves: ["infra/a", "infra/b"],
+              contradiction_kind: "factual",
+              resolution_status: "open",
+            },
+          ],
+        }),
+    });
+    render(<App />);
+    const panel = await screen.findByRole("region", { name: "Health" });
+    expect(await within(panel).findByText("Ports disagree")).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "infra/b" })).toBeInTheDocument();
+    expect(within(panel).getByText(/blocks/)).toBeInTheDocument();
+  });
+
+  it("says in one line what contradictions are when none are open", async () => {
+    stubApi();
+    render(<App />);
+    const panel = await screen.findByRole("region", { name: "Health" });
+    expect(await within(panel).findByText(/No open contradictions/)).toBeInTheDocument();
+  });
 });
