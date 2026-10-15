@@ -22,14 +22,6 @@ function story(T: number): number {
   }
   return WARP[WARP.length - 1]![1];
 }
-/** The film second at which a story second plays: the inverse of story(). */
-function filmOf(t: number): number {
-  for (let k = 1; k < WARP.length; k++) {
-    const [f0, s0] = WARP[k - 1]!, [f1, s1] = WARP[k]!;
-    if (t <= s1) return f0 + ((t - s0) * (f1 - f0)) / (s1 - s0);
-  }
-  return DURATION;
-}
 const W = 1920;
 const H = 1080;
 const GW = 1000; // the graph's canvas: the right part of the frame; the left column (x 120-940) is for the roster, cards and captions
@@ -553,17 +545,7 @@ async function frame(n: number) {
   gctx.drawImage(sc.canvas, 0, 0);
 }
 
-// The soundtrack (record.mjs → soundtrack.mjs) follows the story through these film seconds.
-const cues = {
-  duration: DURATION,
-  scenes: [0, 7, 12, 22, 32, 40].map(filmOf), // team, one wiki, Monday, Tuesday, every day, end card
-  births: [16.9, 34.6, 36.1].map(filmOf), // Alice's, Priya's and Leo's notes become nodes
-  select: filmOf(25.5), // Marco's agent reads Alice's note
-  answer: filmOf(26.4),
-  bounce: filmOf(37.8), // Leo's broken link hits the ring
-  logo: filmOf(40.9),
-};
-const film = { fps: FPS, frames: Math.round(DURATION * FPS), frame, cues };
+const film = { fps: FPS, frames: Math.round(DURATION * FPS), frame };
 (window as unknown as { film: typeof film }).film = film;
 
 if (!RECORD) {
