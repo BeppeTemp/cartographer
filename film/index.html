@@ -12,20 +12,28 @@
   #graph { left: 920px; top: 0; width: 1000px; height: 1080px; opacity: 0; }
   #contours { left: 0; top: 0; width: 1920px; height: 1080px; pointer-events: none; }
   .title { font-size: 88px; line-height: 1.12; letter-spacing: -0.01em; width: 900px; }
-  .caption { font-size: 56px; line-height: 1.15; letter-spacing: -0.005em; width: 820px; }
+  .caption { font-size: 42px; line-height: 1.15; letter-spacing: -0.005em; white-space: nowrap; }
+  .caption.wide { font-size: 56px; }
+  .caption .sub24 { font: 24px/1.3 var(--carto-font-code); color: var(--carto-text-muted); letter-spacing: 0; margin-top: 18px; }
+  .pcard { box-sizing: border-box; padding: 36px; background: #FBF8F1; border: 1px solid #DCDDD5; border-radius: 22px; box-shadow: 0 30px 60px rgba(37,40,36,.16); }
+  .pcard .pn { font-size: 44px; line-height: 1.1; margin-top: 20px; }
+  .pcard .pill { display: inline-block; margin-top: 14px; background: #191F1C; color: #EEEDE5; font: 26px var(--carto-font-code); padding: 8px 18px; border-radius: 12px; }
+  .pcard .cl { position: absolute; left: 36px; bottom: 26px; }
+  .row { display: flex; align-items: center; gap: 16px; }
+  .row .rb { position: absolute; left: -20px; top: 0; width: 4px; height: 52px; border-radius: 2px; }
+  .row .rn { font-size: 34px; width: 112px; white-space: nowrap; }
+  .row .ra { font: 22px var(--carto-font-code); color: #646960; white-space: nowrap; }
   .day { font-size: 40px; font-style: italic; color: var(--carto-text-muted); }
   .card { background: #191F1C; border-radius: 22px; box-shadow: 0 40px 80px rgba(37,40,36,.22); overflow: hidden; }
   .card .bar { height: 72px; background: #222B25; display: flex; align-items: center; gap: 12px; padding: 0 30px;
     font: 22px var(--carto-font-code); color: #AFB9AE; }
   .card .bar i { width: 15px; height: 15px; border-radius: 50%; background: #3B473E; display: block; }
   .card .bar i.live { background: #91B9A0; }
-  .card.clay .bar i.live { background: #D6A68D; }
   .card .bar b { font-weight: normal; margin-left: 14px; }
   .card .body { padding: 33px 39px; font: 30px/1.45 var(--carto-font-code); color: #EEEDE5; white-space: pre-wrap; word-break: break-word; }
   .card .body .tool { color: #91B9A0; }
   .card .body .err { color: #E9A199; }
   .card .body .cur { display: inline-block; width: 15px; height: 33px; background: #AFB9AE; vertical-align: -5px; margin-left: 3px; }
-  .mem { position: absolute; left: 0; top: 72px; }
   .note { width: 280px; height: 76px; box-sizing: border-box; border-radius: 14px; background: #FBF8F1; border: 1px solid #DCDDD5;
     box-shadow: 0 14px 30px rgba(37,40,36,.18); display: flex; align-items: center; justify-content: center; font-size: 26px; white-space: nowrap; }
   .note.bad { background: #FCFAF6; border: 2px dashed var(--carto-clay-text); color: var(--carto-clay-text); }

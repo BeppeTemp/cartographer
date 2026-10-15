@@ -11,16 +11,30 @@ import { resolveSlots } from "../../web/src/lib/palette";
 import { buildKb } from "./data";
 
 const FPS = 30;
-const DURATION = 28;
+const DURATION = 46;
 const W = 1920;
 const H = 1080;
-const GW = 1000; // the graph's canvas: the right part of the frame; the left column (x 120-940) is for cards and captions
+const GW = 1000; // the graph's canvas: the right part of the frame; the left column (x 120-940) is for the roster, cards and captions
 const GX = W - GW;
 const RECORD = new URLSearchParams(location.search).has("record");
 const TUESDAY_ZOOM = 1.25; // how much wider than focus() the Tuesday camera frames the neighbourhood
 const COL = 120; // left margin of the text column
 const CARD_W = 820;
 const NEW_ID = "team/staging-deploys";
+const ROLLBACK_ID = "runbooks/rollback";
+const FLAGS_ID = "decisions/feature-flags";
+
+// The cast: one person, one coding agent, one colour (avatar, title-bar dot, note border, connection line).
+const CAST = [
+  { name: "Alice", agent: "Claude Code", color: "#365D50" },
+  { name: "Marco", agent: "Codex", color: "#B8785D" },
+  { name: "Priya", agent: "OpenCode", color: "#496B87" },
+  { name: "Leo", agent: "Kiro", color: "#805B18" },
+];
+const ROW0 = 176; // centre of the first roster row (x 120, 64 px apart)
+const rowY = (i: number) => ROW0 + 64 * i;
+const LX0 = 500; // where a connection line leaves its roster row
+const TERM = { x: COL, y: 428, w: CARD_W }; // the agent's terminal card, under the roster
 
 // --- easing ---------------------------------------------------------------
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
@@ -84,46 +98,98 @@ ring.innerHTML = `<ellipse cx="${RING.cx}" cy="${RING.cy}" rx="${RING.rx}" ry="$
 ring.style.cssText = `position:absolute;left:0;top:0;pointer-events:none;opacity:0;transform-origin:${RING.cx}px ${RING.cy}px`;
 stage.appendChild(ring);
 
-const title = mk("div", "title", "Every agent starts<br>from zero.", "left:120px;top:440px");
-const dayMon = mk("div", "day", "Monday.", `left:${COL}px;top:96px`);
-const dayTue = mk("div", "day", "Tuesday.", `left:${COL}px;top:96px`);
-const cap = (s: string) => mk("div", "caption", s, `left:${COL}px;bottom:90px`);
-const capA = cap("One wiki, in git.");
-const capB = cap("None of them can break it.");
-const capC = cap("Different machines, different clients.<br>One memory.");
-capC.style.whiteSpace = "nowrap"; // two explicit lines, never a mid-sentence wrap
 
-function card(label: string, cls = "") {
-  const c = mk("div", `card ${cls}`, `<div class="bar"><i class="live"></i><i></i><i></i><b>${label}</b></div><div class="body"></div>`);
+const SVGNS = SVG;
+const lines = document.createElementNS(SVGNS, "svg");
+lines.id = "lines";
+lines.setAttribute("viewBox", `0 0 ${W} ${H}`);
+lines.style.cssText = "position:absolute;left:0;top:0;width:1920px;height:1080px;pointer-events:none";
+stage.appendChild(lines);
+const connLines = CAST.map((p, i) => {
+  const l = document.createElementNS(SVGNS, "line");
+  for (const [k, v] of Object.entries({ x1: LX0, y1: rowY(i), x2: LX0, y2: rowY(i), stroke: p.color, "stroke-opacity": 0.5, "stroke-width": 1.5 })) l.setAttribute(k, String(v));
+  lines.appendChild(l);
+  return l;
+});
+// A dot that travels along a person's line: dir 1 = towards the graph (a write or a search), -1 = back to the row (a read).
+const DOTS_RUN = [
+  { i: 0, t0: 14.5, dir: 1 },
+  { i: 1, t0: 24.5, dir: 1 },
+  { i: 1, t0: 25.1, dir: -1 },
+  { i: 2, t0: 33.5, dir: 1 },
+  { i: 3, t0: 35.0, dir: 1 },
+  { i: 3, t0: 36.5, dir: 1 },
+].map((d) => {
+  const c = document.createElementNS(SVGNS, "circle");
+  c.setAttribute("r", "8");
+  c.setAttribute("fill", CAST[d.i]!.color);
+  c.setAttribute("opacity", "0");
+  lines.appendChild(c);
+  return { ...d, c };
+});
+
+const avatar = (p: (typeof CAST)[number], d: number) =>
+  `<div style="flex:none;width:${d}px;height:${d}px;border-radius:50%;background:${p.color};color:#FCFAF6;font:${d / 2}px/${d}px Georgia,serif;text-align:center">${p.name[0]}</div>`;
+
+const title = mk("div", "title", "Meet the team.", "left:120px;top:76px");
+// Scene A: four large person cards across the whole frame.
+const PC = { x0: 120, y: 330, w: 390, h: 340, gap: 40 };
+const CLUSTER = [[14, 44], [58, 16], [104, 50], [150, 22], [196, 56], [242, 20], [292, 46]];
+const CLUSTER_EDGES = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [1, 3]];
+const pcards = CAST.map((p, i) => {
+  const el = mk("div", "pcard", `${avatar(p, 64)}<div class="pn">${p.name}</div><div class="pill">${p.agent}</div>`, `left:${PC.x0 + i * (PC.w + PC.gap)}px;top:${PC.y}px;width:${PC.w}px;height:${PC.h}px`);
+  const svg = document.createElementNS(SVGNS, "svg");
+  svg.setAttribute("class", "cl");
+  svg.setAttribute("width", "318");
+  svg.setAttribute("height", "72");
+  svg.innerHTML =
+    CLUSTER_EDGES.map(([a, b]) => `<line x1="${CLUSTER[a!]![0]}" y1="${CLUSTER[a!]![1]}" x2="${CLUSTER[b!]![0]}" y2="${CLUSTER[b!]![1]}" stroke="${p.color}" stroke-opacity="0.45" stroke-width="2"/>`).join("") +
+    CLUSTER.map(([x, y], k) => `<circle cx="${x}" cy="${y}" r="${k % 3 === 0 ? 8 : 6}" fill="${p.color}" fill-opacity="${k % 2 ? 0.55 : 0.9}"/>`).join("");
+  el.appendChild(svg);
+  return { el, svg };
+});
+// The roster: avatar + name + agent, stacked in the left column from scene B on.
+const rows = CAST.map((p, i) => {
+  const el = mk("div", "row", `<i class="rb" style="background:${p.color}"></i>${avatar(p, 44)}<span class="rn">${p.name}</span><span class="ra">${p.agent}</span>`, `left:${COL}px;top:${rowY(i) - 26}px;width:380px;height:52px`);
+  return { el, bar: el.querySelector(".rb") as HTMLElement };
+});
+
+const dayEls = ["Monday, 18:40", "Tuesday, 09:15", "Every day."].map((s) => mk("div", "day", s, `left:${COL}px;top:56px`));
+const cap = (s: string, wide = false) => {
+  const el = mk("div", wide ? "caption wide" : "caption", s, `left:${COL}px;bottom:70px`);
+  return el;
+};
+const capA1 = cap("Four people. Four different coding agents.", true);
+const capA2 = cap("What one agent learns stays on one laptop.", true);
+const capB = cap('Cartographer gives them<br>one shared wiki.<div class="sub24">over MCP · Markdown in git</div>');
+const capC = cap("Alice finds out why staging<br>breaks. Her agent writes it down.");
+const capD = cap("Marco — another laptop, another agent —<br>picks it up the next morning.");
+const capE1 = cap("Everyone’s agents add to it.");
+const capE2 = cap("Nothing they write can break it.");
+
+function card(label: string, color: string) {
+  const c = mk("div", "card", `<div class="bar"><i class="live" style="background:${color}"></i><i></i><i></i><b>${label}</b></div><div class="body"></div>`);
   return { el: c, label: c.querySelector("b")!, body: c.querySelector(".body") as HTMLElement };
 }
-const small = [card("Claude Code"), card("Codex"), card("OpenCode")];
-const SM_W = 546; // the small cards are 420 x 180 scaled by 1.3 (bar included)
-const SM_H = 244;
-const SMALL = [
-  { x: 1100, y: 160 },
-  { x: 1190, y: 430 },
-  { x: 1120, y: 700 },
-];
-const DOTS = [[40, 40], [110, 22], [170, 62], [240, 30], [300, 70], [90, 84], [350, 36]];
-const EDGES = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 2], [3, 6]];
-small.forEach((c) => {
-  c.body.style.cssText = "padding:0;position:relative";
-  c.body.innerHTML = `<svg class="mem" width="546" height="172" viewBox="0 0 420 132" style="top:0;left:0">${
-    EDGES.map(([a, b]) => `<line x1="${DOTS[a!]![0]! + 10}" y1="${DOTS[a!]![1]! + 20}" x2="${DOTS[b!]![0]! + 10}" y2="${DOTS[b!]![1]! + 20}" stroke="#3B473E" stroke-width="2"/>`).join("")
-  }${DOTS.map(([x, y], i) => `<circle cx="${x! + 10}" cy="${y! + 20}" r="${i % 3 === 0 ? 9 : 7}" fill="${i % 2 ? "#E9E8DE" : "#91B9A0"}"/>`).join("")}</svg>`;
-});
-const bob = card("bob · Codex", "clay");
-// The big cards sit in the left column; their heights are fitted to their final content in measureCards().
-const BIG = { x: COL, y: 210, w: CARD_W, h: 400 };
-Object.assign(bob.el.style, { left: `${BIG.x}px`, top: `${BIG.y}px`, width: `${BIG.w}px`, height: `${BIG.h}px` });
+const alice = card("alice · Claude Code", CAST[0]!.color);
+const marco = card("marco · Codex", CAST[1]!.color);
+for (const c of [alice, marco]) Object.assign(c.el.style, { left: `${TERM.x}px`, top: `${TERM.y}px`, width: `${TERM.w}px`, height: "400px" });
 
-const noteGood = mk("div", "note", "staging-deploys", "left:0;top:0");
+const mkNote = (text: string, color: string) => {
+  const n = mk("div", "note", text, "left:0;top:0");
+  n.style.border = `2px solid ${color}`;
+  return n;
+};
+const noteAlice = mkNote("staging-deploys", CAST[0]!.color);
+const notePriya = mkNote("runbooks/rollback", CAST[2]!.color);
+const noteLeo = mkNote("decisions/feature-flags", CAST[3]!.color);
 const noteBad = mk("div", "note bad", "stagin-deploy", "left:0;top:0");
+noteBad.style.borderColor = CAST[3]!.color;
+noteBad.style.color = CAST[3]!.color;
 const tag = mk("div", "tag", "✗ broken link [[infra/stagin]]", "left:0;top:0");
-// Created before the veil, so the end card covers it.
-const nodeLabel = mk("div", "", "staging-deploys",
-  "left:0;top:0;font:26px Georgia,serif;color:#252824;background:#FCFAF6;border:1px solid #DCDDD5;border-radius:8px;padding:4px 10px;white-space:nowrap;visibility:hidden");
+// Created before the veil, so the end card covers them.
+const LABEL_CSS = "left:0;top:0;font:26px Georgia,serif;color:#252824;background:#FCFAF6;border:1px solid #DCDDD5;border-radius:8px;padding:4px 10px;white-space:nowrap;visibility:hidden";
+const LABELS = [NEW_ID, ROLLBACK_ID, FLAGS_ID].map((id) => ({ id, el: mk("div", "", id.split("/")[1]!, LABEL_CSS) }));
 const veil = mk("div", "", "");
 veil.id = "veil";
 const logo = mk("img", "", "", "left:310px;top:392px;width:150px;height:150px") as HTMLImageElement;
@@ -131,6 +197,7 @@ logo.src = logoUrl;
 const word = mk("div", "wordmark", "Cartographer", "left:500px;top:378px");
 const sub = mk("div", "sub", "Shared memory for your team's AI agents", "left:504px;top:520px");
 const url = mk("div", "url", "cartographer-demo.beppetemp.com/mcp &nbsp;·&nbsp; github.com/BeppeTemp/cartographer", "left:504px;top:596px");
+const agents = mk("div", "url", "Claude Code · Codex · OpenCode · Kiro · any MCP client", "left:504px;top:650px;font-size:22px");
 
 // --- terminal scripts -----------------------------------------------------
 interface Line {
@@ -141,18 +208,17 @@ interface Line {
   cps?: number;
 }
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-// Prompts the agent types fast (64 cps) so the commit lands before the note lifts at 7.4 s; the answer is 44 cps.
+// Alice's prompt is typed fast (64 cps) so the commit lands before the note lifts at 15.8 s; Marco's answer is 44 cps.
 const ALICE: Line[] = [
-  { start: 4.6, cps: 64, text: "> Staging fails: migrations run before the secret rotates. Remember it for the team." },
-  { start: 6.1, cls: "tool", text: "● concept_write  team/staging-deploys" },
-  { start: 6.8, cls: "tool", text: "✓ committed 4f2a9c1" },
-  { start: 11.0, cls: "err", text: "✗ rejected: broken link [[infra/stagin]]" },
+  { start: 12.9, cps: 64, text: "> Staging fails: migrations run before the secret rotates. Remember it for the team." },
+  { start: 14.5, cls: "tool", text: "● concept_write  team/staging-deploys" },
+  { start: 15.2, cls: "tool", text: "✓ committed 4f2a9c1" },
 ];
-const BOB: Line[] = [
-  { start: 15.0, cps: 32, text: "> Why does staging fail?" },
-  { start: 16.1, cls: "tool", text: '● search  "staging"' },
-  { start: 16.6, cls: "tool", text: "● concept_read  team/staging-deploys" },
-  { start: 17.6, cps: 44, text: "Migrations run before the secret rotates — alice's agent wrote it on Monday." },
+const MARCO: Line[] = [
+  { start: 23.0, cps: 38, text: "> Staging deploy failed again. Any idea why?" },
+  { start: 24.5, cls: "tool", text: '● search  "staging"' },
+  { start: 25.1, cls: "tool", text: "● concept_read  team/staging-deploys" },
+  { start: 26.4, cps: 44, text: "Alice found it yesterday: migrations run before the secret rotates. Rotate first, then migrate." },
 ];
 const cache = new WeakMap<HTMLElement, string>();
 function renderLines(body: HTMLElement, lines: Line[], t: number) {
@@ -175,17 +241,15 @@ function renderLines(body: HTMLElement, lines: Line[], t: number) {
     cache.set(body, html);
   }
 }
-/** Fits each big card to its final content, once, so it never resizes while the lines type in. */
-let aliceH = BIG.h;
-let bobH = BIG.h;
+/** Fits each terminal card to its final content, once, so it never resizes while the lines type in. */
+let aliceH = 400;
+let marcoH = 400;
 function fitHeight(c: { el: HTMLElement; body: HTMLElement }, lines: Line[]): number {
-  const keep = { css: c.body.style.cssText, html: c.body.innerHTML, w: c.el.style.width, h: c.el.style.height };
-  c.body.style.cssText = "";
+  const keep = { html: c.body.innerHTML, w: c.el.style.width, h: c.el.style.height };
   c.body.innerHTML = lines.map((l) => `<div>${esc(l.text)}</div>`).join("");
   c.el.style.width = `${CARD_W}px`;
   c.el.style.height = "auto";
   const h = c.el.offsetHeight; // layout height, unaffected by the preview's scale transform
-  c.body.style.cssText = keep.css;
   c.body.innerHTML = keep.html;
   c.el.style.width = keep.w;
   c.el.style.height = keep.h;
@@ -193,18 +257,17 @@ function fitHeight(c: { el: HTMLElement; body: HTMLElement }, lines: Line[]): nu
   return h;
 }
 function measureCards() {
-  aliceH = fitHeight(small[0]!, ALICE);
-  bobH = fitHeight(bob, BOB);
-  bob.el.style.height = `${bobH}px`;
+  aliceH = fitHeight(alice, ALICE);
+  marcoH = fitHeight(marco, MARCO);
+  alice.el.style.height = `${aliceH}px`;
+  marco.el.style.height = `${marcoH}px`;
 }
+
 function setRect(el: HTMLElement, x: number, y: number, w: number, h: number) {
   el.style.left = `${x}px`;
   el.style.top = `${y}px`;
   el.style.width = `${w}px`;
   el.style.height = `${h}px`;
-}
-function setText(el: HTMLElement, s: string) {
-  if (el.textContent !== s) el.textContent = s;
 }
 
 // --- the graph ------------------------------------------------------------
@@ -253,14 +316,18 @@ sc.setData(nodes, links, 300);
 recolour();
 sc.fitEverything(0, 0);
 
-function addNote() {
-  const anchor = nodes.find((n) => n.id === "infra/ci")!;
-  nodes.push({ id: NEW_ID, weight: 0.35, ...beside(anchor, NEW_ID), vx: 0, vy: 0, vz: 0 } as SceneNode);
-  links = [...links, ...["infra/ci", "services/api", "runbooks/deploy"].map((target) => ({ source: NEW_ID, target }))];
+function addNode(id: string, anchorId: string, targets: string[], colour: string) {
+  const anchor = nodes.find((n) => n.id === anchorId)!;
+  nodes.push({ id, weight: 0.35, ...beside(anchor, id), vx: 0, vy: 0, vz: 0 } as SceneNode);
+  links = [...links, ...targets.map((target) => ({ source: id, target }))];
+  colourOf.set(id, colour);
   sc.setData(nodes, links, 0);
   recolour();
   sc.fitEverything(0, 1500);
 }
+const addStaging = () => addNode(NEW_ID, "infra/ci", ["infra/ci", "services/api", "runbooks/deploy"], slots[6]!);
+const addRollback = () => addNode(ROLLBACK_ID, "runbooks/deploy", ["runbooks/deploy", "services/api", "infra/k8s"], colourOf.get("runbooks/deploy")!);
+const addFlags = () => addNode(FLAGS_ID, "decisions/adopt-k8s", ["decisions/adopt-k8s", "services/gateway", "infra/k8s"], colourOf.get("decisions/adopt-k8s")!);
 function select() {
   selected = NEW_ID;
   const deg = new Map<string, number>();
@@ -284,10 +351,21 @@ function select() {
     2000,
   );
 }
+/** Back to the whole graph once Tuesday is over: drops the selection and the follow target, then frames everything again. */
+function release() {
+  selected = null;
+  sc.setSelection(null);
+  sc.unfocus(null);
+  recolour();
+  sc.fitEverything(0, 1500);
+}
 const EVENTS: { t: number; run: () => void; done?: boolean }[] = [
-  { t: 3.5, run: () => sc.fitEverything(0, 1500) },
-  { t: 8.5, run: addNote },
-  { t: 17.0, run: select },
+  { t: 8.0, run: () => sc.fitEverything(0, 1500) },
+  { t: 16.9, run: addStaging },
+  { t: 25.5, run: select },
+  { t: 31.8, run: release },
+  { t: 34.6, run: addRollback },
+  { t: 36.1, run: addFlags },
 ];
 
 // --- the frame ------------------------------------------------------------
@@ -298,98 +376,134 @@ const place = (el: HTMLElement, p: number[], o: number, extra = "") => {
   el.style.top = `${p[1]! - 38}px`;
   vis(el, o, 0, extra);
 };
+/** A note lifts off, flies an eased arc to the graph (1.1 s), shrinks to a dot and is gone. */
+function flight(el: HTMLElement, t: number, t0: number, start: number[], ctrl: number[], end: number[]) {
+  const p = bez(start, ctrl, end, easeInOut(prog(t, t0, 1.1)));
+  const shrink = easeInOut(prog(t, t0 + 1.1, 0.3));
+  place(el, p, clamp01(prog(t, t0, 0.3)) * (1 - prog(t, t0 + 1.4, 0.3)), `scale(${(1 - 0.92 * shrink).toFixed(3)})`);
+}
+/** 0.4 s ramps in and out of each [from, to] window; the max over the windows. */
+const windows = (t: number, ws: number[][]) => Math.max(...ws.map(([a, b]) => clamp01((t - a!) / 0.4) * (1 - clamp01((t - b!) / 0.4))));
+const ACTIVE = [
+  [[0, 22.0]], // Alice: the whole of Monday
+  [[0, 12.0], [22.0, 32.0]], // Marco: Tuesday
+  [[0, 12.0], [32.4, 35.2]], // Priya
+  [[0, 12.0], [34.4, 39.0]], // Leo
+];
+const FLY = 7.0; // when the person cards fly into the roster
 
 function overlays(tFilm: number) {
   const t = tFilm;
   // contours: drift a few px per second
   for (const c of CONTOURS) {
-    const t = Math.min(tFilm, 26); // the end card holds still from 26 s
+    const t = Math.min(tFilm, 44); // the end card holds still from 44 s
     let d = "";
     for (let x = -40; x <= W + 40; x += 40) d += `${x === -40 ? "M" : "L"}${x} ${(c.y + c.amp * Math.sin(c.k * (x + c.v * t) + c.ph) + c.amp * 0.35 * Math.sin(c.k * 2.3 * (x + c.v * t))).toFixed(1)} `;
     c.p.setAttribute("d", d);
   }
-  // beat 1
-  vis(title, reveal(t, 0.2) * fade(t, 3.3, 0.5), 16);
-  small.forEach((c, i) => {
-    const s = SMALL[i]!;
-    let o = reveal(t, 0.3 + 0.3 * i);
-    if (i > 0) o *= fade(t, 3.5, 0.6);
-    if (i > 0 || t < 3.5) (c.body.firstElementChild as SVGElement).style.opacity = String(fade(t, 2.2 + 0.4 * i, 0.5));
-    if (i === 0) {
-      const e = easeInOut(prog(t, 3.5, 1.0));
-      setRect(c.el, lerp(s.x, BIG.x, e), lerp(s.y, BIG.y, e), lerp(SM_W, BIG.w, e), lerp(SM_H, aliceH, e));
-      setText(c.label, t >= 4.0 ? "alice · Claude Code" : "Claude Code");
-      o *= fade(t, 14.0, 0.6);
-      if (t >= 3.5) {
-        c.body.style.cssText = "";
-        renderLines(c.body, ALICE, t);
-      }
-      c.el.style.display = t > 14.7 ? "none" : "block";
-    } else setRect(c.el, s.x, s.y, SM_W, SM_H);
-    vis(c.el, o, 16);
+  // A: the team
+  vis(title, reveal(t, 0.2) * fade(t, 6.8, 0.4), 16);
+  pcards.forEach((c, i) => {
+    const s0 = FLY + 0.12 * i;
+    const p = easeInOut(prog(t, s0, 1.0));
+    const dx = (300 - (PC.x0 + i * (PC.w + PC.gap) + PC.w / 2)) * p;
+    const dy = (rowY(i) - (PC.y + PC.h / 2)) * p;
+    vis(c.el, reveal(t, 0.8 + 0.3 * i) * (1 - prog(p, 0.6, 0.4)), 16, `translate(${dx.toFixed(1)}px,${dy.toFixed(1)}px) scale(${lerp(1, 0.16, p).toFixed(3)})`);
+    c.svg.style.opacity = String(prog(t, 4.6, 0.4) * fade(t, 5.4 + 0.2 * i, 0.6));
   });
-  vis(dayMon, reveal(t, 3.7) * fade(t, 13.8, 0.3), 16);
-  vis(dayTue, reveal(t, 14.2), 16);
-  vis(capA, reveal(t, 8.8) * fade(t, 11.7, 0.4), 16);
-  vis(capB, reveal(t, 12.2) * fade(t, 13.8, 0.4), 16);
-  vis(capC, reveal(t, 19.2) * fade(t, 21.6, 0.4), 16);
-  vis(bob.el, reveal(t, 14.4), 16);
-  renderLines(bob.body, BOB, t);
-  // the graph appears with the Monday scene and leaves with the veil
-  graph.style.opacity = String(easeOut(prog(t, 3.8, 1.2)));
-  // Both notes leave from the card's right edge, vertically centred on the card.
-  const cy = BIG.y + aliceH / 2;
-  const start = [BIG.x + CARD_W, cy];
-  // note 1: lifts out of the card, an eased arc to the centre of the graph, then a dot
-  {
-    const u = easeInOut(prog(t, 7.4, 1.1));
-    const p = bez(start, [1150, cy - 230], [gctr.x, gctr.y], u);
-    const shrink = easeInOut(prog(t, 8.5, 0.3));
-    const o = clamp01(prog(t, 7.4, 0.3)) * (1 - prog(t, 8.8, 0.3));
-    place(noteGood, p, o, `scale(${(1 - 0.92 * shrink).toFixed(3)})`);
+  vis(capA1, reveal(t, 3.0) * fade(t, 5.2, 0.4), 16);
+  vis(capA2, reveal(t, 5.5) * fade(t, 6.7, 0.4), 16);
+  // B: one wiki
+  vis(capB, reveal(t, 7.8) * fade(t, 11.7, 0.4), 16);
+  rows.forEach((r, i) => {
+    const present = prog(t, FLY + 0.12 * i + 0.6, 0.4);
+    const act = windows(t, ACTIVE[i]!);
+    vis(r.el, present * (0.35 + 0.65 * act));
+    r.bar.style.opacity = String(act * prog(t, 12.0, 0.4));
+    const l = connLines[i]!;
+    l.setAttribute("x2", String(lerp(LX0, GX, easeInOut(prog(t, 9.0 + 0.25 * i, 0.7)))));
+  });
+  for (const d of DOTS_RUN) {
+    const p = prog(t, d.t0, 0.6);
+    const e = easeInOut(p);
+    d.c.setAttribute("cx", String(d.dir > 0 ? lerp(LX0, GX, e) : lerp(GX, LX0, e)));
+    d.c.setAttribute("cy", String(rowY(d.i)));
+    d.c.setAttribute("opacity", p > 0 && p < 1 ? "1" : "0");
   }
-  // note 2: flies at the graph, bounces off its edge (the ring), upright all the way
+  // the graph appears with scene B and leaves with the veil
+  graph.style.opacity = String(easeOut(prog(t, 8.2, 1.2)));
+  // C: Monday
+  vis(dayEls[0]!, reveal(t, 12.0) * fade(t, 21.8, 0.3), 16);
+  vis(capC, reveal(t, 13.0) * fade(t, 21.6, 0.4), 16);
+  setRect(alice.el, TERM.x, TERM.y, TERM.w, aliceH);
+  vis(alice.el, reveal(t, 12.4) * fade(t, 21.6, 0.6), 16);
+  alice.el.style.display = t > 22.3 ? "none" : "block";
+  renderLines(alice.body, ALICE, t);
+  const ac = TERM.y + aliceH / 2;
+  flight(noteAlice, t, 15.8, [TERM.x + TERM.w, ac], [1150, ac - 230], [gctr.x, gctr.y]);
+  // D: Tuesday
+  vis(dayEls[1]!, reveal(t, 22.2) * fade(t, 31.5, 0.3), 16);
+  vis(capD, reveal(t, 22.9) * fade(t, 31.4, 0.4), 16);
+  setRect(marco.el, TERM.x, TERM.y, TERM.w, marcoH);
+  vis(marco.el, reveal(t, 22.4) * fade(t, 31.2, 0.6), 16);
+  marco.el.style.display = t < 22.3 || t > 31.9 ? "none" : "block";
+  renderLines(marco.body, MARCO, t);
+  // E: every day. The notes leave their rows along the connection lines.
+  vis(dayEls[2]!, reveal(t, 31.9) * fade(t, 39.6, 0.3), 16);
+  vis(capE1, reveal(t, 32.6) * fade(t, 36.3, 0.4), 16);
+  vis(capE2, reveal(t, 36.6) * fade(t, 39.5, 0.4), 16);
+  flight(notePriya, t, 33.5, [LX0 + 150, rowY(2)], [GX, rowY(2) - 130], [gctr.x, gctr.y - 40]);
+  flight(noteLeo, t, 35.0, [LX0 + 150, rowY(3)], [GX, rowY(3) - 100], [gctr.x, gctr.y + 40]);
+  // Leo's second note flies at the graph, bounces off its edge (the ring), upright all the way
   {
+    const cy = rowY(3);
+    const start = [LX0 + 150, cy];
     const dy = (cy - RING.cy) / RING.ry;
     const hit = [RING.cx - RING.rx * Math.sqrt(Math.max(0, 1 - dy * dy)) + 40, cy];
-    const goes = easeInOut(prog(t, 9.7, 1.3));
-    const back = easeOut(prog(t, 11.0, 0.9));
+    const goes = easeInOut(prog(t, 36.5, 1.3));
+    const back = easeOut(prog(t, 37.8, 0.9));
     const away = [start[0]! + 150, cy - 90];
-    const p = t < 11.0 ? bez(start, [(start[0]! + hit[0]!) / 2, cy - 70], hit, goes) : [lerp(hit[0]!, away[0]!, back), lerp(hit[1]!, away[1]!, back) - 50 * Math.sin(Math.PI * back)];
-    place(noteBad, p, clamp01(prog(t, 9.7, 0.4)) * (1 - prog(t, 11.4, 0.9)));
-    // the clay tag sits just under the bounce point, clear of the card
+    const p = t < 37.8 ? bez(start, [(start[0]! + hit[0]!) / 2, cy - 70], hit, goes) : [lerp(hit[0]!, away[0]!, back), lerp(hit[1]!, away[1]!, back) - 50 * Math.sin(Math.PI * back)];
+    place(noteBad, p, clamp01(prog(t, 36.5, 0.4)) * (1 - prog(t, 38.2, 0.9)));
+    // the clay tag sits just under the bounce point
     tag.style.left = `${hit[0]! - 40}px`;
     tag.style.top = `${hit[1]! + 62}px`;
   }
-  vis(tag, reveal(t, 11.1) * fade(t, 13.2, 0.6), 16);
+  vis(tag, reveal(t, 37.9) * fade(t, 39.2, 0.5), 16);
   {
-    const p = prog(t, 11.0, 0.9);
+    const p = prog(t, 37.8, 0.9);
     ring.style.opacity = String(Math.sin(Math.PI * p) * 0.9);
     ring.style.transform = `scale(${(0.97 + 0.06 * p).toFixed(3)})`;
   }
-  // the end card
-  veil.style.opacity = String(easeInOut(prog(t, 22.0, 0.5)));
-  vis(logo, reveal(t, 23.0, 0.8));
-  vis(word, easeOut(prog(t, 23.8, 0.8)), 0, `translateX(${(-12 * (1 - easeOut(prog(t, 23.8, 0.8)))).toFixed(2)}px)`);
-  vis(sub, reveal(t, 24.6), 16);
-  vis(url, reveal(t, 25.2), 16);
+  // F: the end card
+  veil.style.opacity = String(easeInOut(prog(t, 40.0, 0.5)));
+  vis(logo, reveal(t, 40.9, 0.8));
+  vis(word, easeOut(prog(t, 41.6, 0.8)), 0, `translateX(${(-12 * (1 - easeOut(prog(t, 41.6, 0.8)))).toFixed(2)}px)`);
+  vis(sub, reveal(t, 42.3), 16);
+  vis(url, reveal(t, 42.9), 16);
+  vis(agents, reveal(t, 43.4), 16);
 }
 
-// The label follows the node's projected position, ~18 px right of its on-screen radius.
+// Labels follow their node's projected position, ~18 px right of its on-screen radius.
 type Cam = { camera: { position: { x: number; y: number; z: number }; fov: number } };
-function placeLabel(t: number) {
-  const node = sc.nodeById(NEW_ID);
-  const p = node && t >= 8.5 ? sc.project(node) : null;
-  const monday = reveal(t, 8.5, 0.4) * fade(t, 10.8, 0.6) * (t < 12 ? 1 : 0);
-  const tuesday = reveal(t, 17.0, 0.4) * fade(t, 22.0, 0.5) * (t >= 17 ? 1 : 0);
-  const o = p ? Math.max(monday, tuesday) : 0;
-  vis(nodeLabel, o);
-  if (!p || o <= 0) return;
-  const cam = (sc as unknown as Cam).camera;
-  const dist = Math.hypot(cam.position.x - (node!.x ?? 0), cam.position.y - (node!.y ?? 0), cam.position.z - (node!.z ?? 0));
-  const rpx = (sc.radiusOf(node!) * (H / 2)) / (Math.tan((cam.fov * Math.PI) / 360) * dist);
-  nodeLabel.style.left = `${GX + p.x + rpx + 18}px`;
-  nodeLabel.style.top = `${p.y - nodeLabel.offsetHeight / 2}px`;
+const labelOpacity: Record<string, (t: number) => number> = {
+  [NEW_ID]: (t) => Math.max(reveal(t, 16.9, 0.4) * fade(t, 19.2, 0.6) * (t < 22 ? 1 : 0), reveal(t, 25.5, 0.4) * fade(t, 31.4, 0.5) * (t >= 25.5 ? 1 : 0)),
+  [ROLLBACK_ID]: (t) => reveal(t, 34.6, 0.4) * fade(t, 35.8, 0.4),
+  [FLAGS_ID]: (t) => reveal(t, 36.1, 0.4) * fade(t, 38.0, 0.5),
+};
+function placeLabels(t: number) {
+  for (const { id, el } of LABELS) {
+    const node = sc.nodeById(id);
+    const p = node ? sc.project(node) : null;
+    const o = p ? labelOpacity[id]!(t) : 0;
+    vis(el, o);
+    if (!p || o <= 0) continue;
+    const cam = (sc as unknown as Cam).camera;
+    const dist = Math.hypot(cam.position.x - (node!.x ?? 0), cam.position.y - (node!.y ?? 0), cam.position.z - (node!.z ?? 0));
+    const rpx = (sc.radiusOf(node!) * (H / 2)) / (Math.tan((cam.fov * Math.PI) / 360) * dist);
+    el.style.left = `${GX + p.x + rpx + 18}px`;
+    el.style.top = `${p.y - el.offsetHeight / 2}px`;
+  }
 }
 
 let last = -1;
@@ -404,7 +518,7 @@ async function frame(n: number) {
   for (const ev of EVENTS) if (!ev.done && t >= ev.t) { ev.done = true; ev.run(); }
   overlays(t);
   sc.renderFrame(t * 1000);
-  placeLabel(t);
+  placeLabels(t);
   // Copy before awaiting: the WebGL canvas holds its frame only for the length of the task.
   gctx.drawImage(sc.canvas, 0, 0);
 }

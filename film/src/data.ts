@@ -5,8 +5,8 @@ const NAMES: Record<(typeof COMMUNITIES)[number], string[]> = {
   infra: ["ci", "k8s", "vpc", "dns", "queue", "cache", "registry", "secrets", "vault", "ingress", "backup", "cdn", "logging", "metrics", "tracing", "terraform", "runners", "storage", "mesh", "bastion", "cron", "certs"],
   services: ["api", "auth", "billing", "search", "gateway", "worker", "web", "mobile", "notify", "export", "import", "reports", "scheduler", "profile", "catalog", "orders", "payments", "webhooks", "admin", "sync", "media", "audit"],
   incidents: ["2025-03-outage", "slow-login", "disk-full", "cert-expiry", "queue-lag", "bad-deploy", "dns-flap", "oom-worker", "stale-cache", "retry-storm", "db-failover", "rate-limit", "cold-start", "clock-skew", "leaked-key", "noisy-alert", "lost-webhook", "pool-exhausted", "slow-query", "vpn-drop", "bad-migration", "quota-hit"],
-  decisions: ["adopt-k8s", "monorepo", "trunk-based", "postgres", "feature-flags", "sso", "semver", "on-call", "sla", "tracing-stack", "queue-choice", "api-versioning", "retention", "cost-cap", "blue-green", "lint-gate", "docs-as-code", "secrets-vault", "rfc-process", "region-split", "log-format", "oncall-rota"],
-  runbooks: ["deploy", "rollback", "rotate-secrets", "restore-backup", "scale-workers", "drain-node", "failover", "onboard", "oncall-handoff", "cert-renew", "reindex", "purge-cache", "hotfix", "release", "incident-comms", "access-review", "migrate-db", "pause-queue", "cut-over", "postmortem", "capacity", "offboard"],
+  decisions: ["adopt-k8s", "monorepo", "trunk-based", "postgres", "flag-audit", "sso", "semver", "on-call", "sla", "tracing-stack", "queue-choice", "api-versioning", "retention", "cost-cap", "blue-green", "lint-gate", "docs-as-code", "secrets-vault", "rfc-process", "region-split", "log-format", "oncall-rota"],
+  runbooks: ["deploy", "revert-release", "rotate-secrets", "restore-backup", "scale-workers", "drain-node", "failover", "onboard", "oncall-handoff", "cert-renew", "reindex", "purge-cache", "hotfix", "release", "incident-comms", "access-review", "migrate-db", "pause-queue", "cut-over", "postmortem", "capacity", "offboard"],
 };
 
 export interface KbNode {
