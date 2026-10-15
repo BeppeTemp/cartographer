@@ -41,10 +41,10 @@ const CAST = [
   { name: "Priya", agents: ["OpenCode", "Claude Code"], color: "#496B87" },
   { name: "Leo", agents: ["Kiro", "Copilot CLI"], color: "#805B18" },
 ];
-const ROW0 = 166; // centre of the first roster row (x 120, 76 px apart)
+const ROW0 = 320; // centre of the first roster row (x 120, 76 px apart), under the scene headline
 const rowY = (i: number) => ROW0 + 76 * i;
 const LX0 = 690; // where a connection line leaves its roster row
-const TERM = { x: COL, y: 454, w: CARD_W }; // the agent's terminal card, under the roster
+const TERM = { x: COL, y: 608, w: CARD_W }; // the agent's terminal card, under the roster
 
 // --- easing ---------------------------------------------------------------
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
@@ -143,7 +143,7 @@ const avatar = (p: (typeof CAST)[number], d: number) =>
 
 const title = mk("div", "title", "Meet the team.", "left:120px;top:76px");
 // Scene A: four large person cards across the whole frame.
-const PC = { x0: 140, y: 313, w: 380, h: 500, gap: 40 };
+const PC = { x0: 140, y: 340, w: 380, h: 500, gap: 40 };
 const CLUSTER = [[18, 80], [66, 24], [114, 92], [162, 38], [210, 100], [258, 30], [306, 84]]; // 1.6x the old dots, spread over the card width
 const CLUSTER_EDGES = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [1, 3]];
 const pcards = CAST.map((p, i) => {
@@ -167,8 +167,9 @@ const rows = CAST.map((p, i) => {
 });
 
 const dayEls = ["Monday, 18:40", "Tuesday, 09:15", "Every day."].map((s) => mk("div", "day", s, `left:${COL}px;top:56px`));
+// A caption is the headline of its scene: under the title or the day label, never left at the bottom.
 const cap = (s: string, wide = false) => {
-  const el = mk("div", wide ? "caption wide" : "caption", s, `left:${COL}px;bottom:${wide ? 70 : 90}px`);
+  const el = mk("div", wide ? "caption wide" : "caption", s, `left:${COL}px;top:${wide ? 196 : 112}px`);
   return el;
 };
 const capA1 = cap("Four people, each with their own coding agents.", true);
