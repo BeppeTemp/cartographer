@@ -1181,7 +1181,9 @@ func TestReadSyncWrap_ReadDoesNotWaitForTheFetch(t *testing.T) {
 		t.Fatalf("set-url: %v\n%s", err, out)
 	}
 	defer func(d time.Duration) { gitx.FetchTimeout = d }(gitx.FetchTimeout)
-	gitx.FetchTimeout = 3 * time.Second
+	// 10s as in the backoff test above (#725): a slow Windows runner killed
+	// the fetch at 3s before git.exe dialled, so no dial was counted (#813).
+	gitx.FetchTimeout = 10 * time.Second
 
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
