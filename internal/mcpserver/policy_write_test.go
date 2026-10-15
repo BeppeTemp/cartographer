@@ -163,3 +163,29 @@ func TestPolicyAllowsBoundedWriteAndRejectsTypeChange(t *testing.T) {
 		t.Fatal("type change authorized")
 	}
 }
+
+// TestConceptMoveAuthorizesEverySatellite: an expanded concept moves with its
+// satellites, so a token scoped by type must be allowed each satellite's type
+// on the source and on the destination, not only the top concept's (#783).
+func TestConceptMoveAuthorizesEverySatellite(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	k.AuthName = "docs"
+	xferWrite(t, k, "manutenzione/dossier/index.md", "---\ntype: Entity\ntitle: Dossier\n---\nbody\n")
+	xferWrite(t, k, "manutenzione/dossier/part.md", "---\ntype: Topic\ntitle: Part\n---\nsat\n")
+	xferWrite(t, k, "manutenzione/flat.md", "---\ntype: Entity\ntitle: Flat\n---\nflat\n")
+	expanded := json.RawMessage(`{"source_id":"manutenzione/dossier","target_id":"manutenzione/moved","rewrite_links":false}`)
+	flat := json.RawMessage(`{"source_id":"manutenzione/flat","target_id":"manutenzione/flat-moved","rewrite_links":false}`)
+
+	entityOnly := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}, Types: []string{"Entity"}}}}
+	if err := authorizeTool(entityOnly, k, "docs", "concept_move", expanded); err == nil {
+		t.Error("a satellite of a type the token may not write was moved")
+	}
+	if err := authorizeTool(entityOnly, k, "docs", "concept_move", flat); err != nil {
+		t.Errorf("flat concept denied: %v", err)
+	}
+	both := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}, Types: []string{"Entity", "Topic"}}}}
+	if err := authorizeTool(both, k, "docs", "concept_move", expanded); err != nil {
+		t.Errorf("every type allowed, still denied: %v", err)
+	}
+}
