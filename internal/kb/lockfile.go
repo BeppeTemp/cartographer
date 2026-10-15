@@ -69,7 +69,9 @@ func (k *KB) AcquireProcessLock(timeout time.Duration, command string) (release 
 				f.Close()
 				return nil, err
 			}
+			k.procLockHeld.Store(true)
 			return func() {
+				k.procLockHeld.Store(false)
 				_ = f.Truncate(0)
 				_ = unlockFile(f)
 				f.Close()

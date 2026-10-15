@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
@@ -167,6 +168,12 @@ type KB struct {
 	OnSyncIn func()
 
 	mu sync.Mutex // serialises git operations (see gitsync.go)
+
+	// procLockHeld is set while this KB holds the advisory lock file
+	// (lockfile.go), so WithGitLock does not wait on a lock its own process
+	// already holds: `cartographer import` takes it for the whole run and
+	// commits through WithGitLock, which otherwise waited out the full timeout.
+	procLockHeld atomic.Bool
 
 	// lastSyncIn is the timestamp of the last successful SyncIn (fetch+pull).
 	// Read-side sync checks it before taking mu, so lastSyncInMu protects this
