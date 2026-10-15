@@ -468,6 +468,8 @@ bare `<server_name> → /mcp` entry.
 
 ### The embedded Atlas UI (D227)
 
+The UI is English whatever the browser locale (labels, dates, times), exported replays included.
+
 With `web.enabled` on — the default in HTTP mode — the same binary also serves:
 
 - `/ui/` — the embedded read-only Atlas. Unknown paths **below** `/ui/` serve the

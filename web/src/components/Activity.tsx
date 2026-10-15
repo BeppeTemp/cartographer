@@ -310,7 +310,7 @@ function Entry({
   return (
     <li className="timeline__entry" style={{ "--map": collectionVar(mapOf(c)) } as CSSProperties}>
       <button type="button" className="timeline__item" onClick={() => onOpen(c.id)} disabled={c.change === "deleted"}>
-        <time className="timeline__time" dateTime={changedAt(c)} title={new Date(changedAt(c)).toLocaleString()}>
+        <time className="timeline__time" dateTime={changedAt(c)} title={new Date(changedAt(c)).toLocaleString("en", { dateStyle: "medium", timeStyle: "medium" })}>
           {clock(changedAt(c))}
         </time>
         <span className="timeline__track" aria-hidden="true">

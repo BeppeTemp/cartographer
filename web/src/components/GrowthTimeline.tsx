@@ -17,7 +17,7 @@ interface Props {
 
 const DAY_MS = 86_400_000;
 export const formatDay = (ms: number) =>
-  new Date(ms).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  new Date(ms).toLocaleDateString("en", { day: "numeric", month: "short", year: "numeric" });
 
 /**
  * The growth replay's timeline: the KB's life from its first concept to its
