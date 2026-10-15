@@ -13,7 +13,7 @@ function modified(iso: string): string {
   const t = Date.parse(iso);
   return Number.isNaN(t)
     ? iso
-    : new Date(t).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+    : new Date(t).toLocaleDateString("en", { day: "numeric", month: "short", year: "numeric" });
 }
 
 /**
