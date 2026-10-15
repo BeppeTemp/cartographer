@@ -11,3 +11,8 @@ function of time, so it renders deterministically. Nothing under `web/` is touch
 6. WebGL in headless Chromium goes through SwiftShader (software), so a full render takes minutes, not seconds.
 7. Everything is in `film/src/main.ts` (timeline in `overlays()` and `EVENTS`; the cast, one person per coding agent and colour, is `CAST`; scenes A team, B one wiki, C Monday, D Tuesday, E every day, F end card); the synthetic KB is `film/src/data.ts`.
 8. `film/out/` is git-ignored.
+
+Soundtrack: `soundtrack.mjs` synthesises it in code (pad, FM electric piano, bells and a knock on the
+film's cues, which the page exposes as `window.film.cues`). A full render muxes it into `out/film.mp4`
+(`out/film-video.mp4` stays silent); `node film/record.mjs --audio` regenerates only the soundtrack and
+remuxes it onto the last video, in a few seconds.
