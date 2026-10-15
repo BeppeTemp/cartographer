@@ -168,6 +168,10 @@ func (k *KB) WithGitLock(fn func() error) error {
 	// (D155). Best-effort by design: a KB on a filesystem without flock, or a
 	// lock held past the window, must not make the server stop writing, so the
 	// condition is reported and the write proceeds under the mutex alone.
+	// A lock this KB already holds is not waited for: that wait is on ourselves.
+	if k.procLockHeld.Load() {
+		return fn()
+	}
 	release, err := k.AcquireProcessLock(processLockTimeout, "cartographer serve")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: proceeding without the KB lock: %v\n", err)

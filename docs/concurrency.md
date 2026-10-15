@@ -55,6 +55,9 @@ Advisory, not mandatory, on purpose:
 - **`import` fails fast**, naming the holder and how to stop it. An import is an operator action at a
   keyboard, and a silent ten-minute block is worse than an error. `--dry-run` writes nothing and never
   takes the lock.
+- **a holder never waits on itself.** `import` keeps the lock for its whole run and commits through the
+  same path the server uses; a KB that already holds the lock goes straight to the write instead of
+  polling its own lock until the timeout.
 - **contention waits, a failure does not.** Only "someone else holds it" is polled until the timeout;
   any other error from the lock call comes back immediately, naming itself, instead of costing a full
   wait and then reporting a holder that does not exist.

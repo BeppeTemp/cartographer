@@ -131,6 +131,36 @@ func TestAcquireProcessLock(t *testing.T) {
 	})
 }
 
+// `cartographer import` holds the lock for its whole run and commits through
+// WithGitLock, which used to wait on that same lock for the full
+// processLockTimeout (30s) before proceeding without it.
+func TestWithGitLockDoesNotWaitOnALockThisKBHolds(t *testing.T) {
+	t.Parallel()
+	k := mustInitKB(t)
+	release, err := k.AcquireProcessLock(0, "cartographer import")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	ran := false
+	if err := k.WithGitLock(func() error { ran = true; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); !ran || d > processLockTimeout/2 {
+		t.Fatalf("WithGitLock ran=%v after %v: it waited on the lock this KB holds", ran, d)
+	}
+	release()
+	// Released: the next writer takes the lock itself again.
+	if err := k.WithGitLock(func() error {
+		if !k.procLockHeld.Load() {
+			t.Error("WithGitLock ran without taking the released lock")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Every error from the lock helper used to mean "wait", so an I/O failure cost a
 // full timeout and then reported a LockHeldError naming a holder that never
 // existed. Only contention is worth polling for.
