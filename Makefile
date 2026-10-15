@@ -1,4 +1,4 @@
-.PHONY: help build test vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm dev gate decisions-index decisions-new codemap settings-example web web-test web-check e2e-web hero
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm dev gate decisions-index decisions-new codemap settings-example web web-test web-check e2e-web hero
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -21,6 +21,12 @@ test: ## Run all tests
 	# 20m, not go test's default 10m: internal/mcpserver alone takes ~10m on the
 	# Windows runner (git is slow there), and the timeout then kills the package.
 	go test -timeout 20m ./...
+
+race: ## Run the concurrency tests (name contains Race or Concurrent) under the race detector
+	# A data race seldom fails an assertion: only -race reports it. The whole
+	# suite under -race is several times slower, so only the tests written to
+	# exercise concurrency run here; name a new one accordingly.
+	go test -race -count=1 -run 'Race|Concurren' ./...
 
 vet: ## Run go vet (also for Windows: test-windows skips PRs outside platform-specific code, so a PR catches its compile errors here)
 	go vet ./...
@@ -149,7 +155,7 @@ dev: ## Live instance from this worktree: make dev [DATA=<data dir>] [API_PORT=3
 # toolchain. The committed UI bundle is kept honest by a pure-Go staleness test
 # in internal/webui, which runs here; building and testing the frontend is the
 # `web` CI job's business (D227).
-gate: fmt-check vet test ## Everything that must be green before a PR is opened
+gate: fmt-check vet test race ## Everything that must be green before a PR is opened
 	@echo "gate: OK"
 
 # One decision is one file under docs/decisions/, and the index in
