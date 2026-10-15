@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a budgeted session that applies mechanical repairs and works through the server's ranked review list, always started by the operator, who decides each item or delegates the session. Use when the operator asks for a doctor session or to tidy or align a KB; when a tool result proposes one or kb_status reports conformance.doctor_suggested, propose it to the operator and wait.
-version: "3.0"
+version: "3.1"
 ---
 # KB Doctor - Skill
 
@@ -47,6 +47,47 @@ run, one commit per run with reason "auto-repair (background)". It is not a sess
 - every write carries a `reason` saying why, so the history explains the session;
 - an item only a person can settle is recorded as a gap, not guessed: see step 5c.
 
+## Delegation, tiers and token economy
+
+One decider, many readers. The model running this skill decides and writes; subagents read,
+extract, apply edits the coordinator has already decided verbatim, and return a digest - never a
+judgement, never page body into the coordinator's context. That is what keeps a 600-concept KB
+inside one session. Authority is unchanged (D704): delegation moves reading cost, never decisions.
+
+Where the harness lets you pick the subagent's model, scale the model to the step:
+
+| tier | work | examples |
+|---|---|---|
+| cheap (e.g. Haiku) | mechanical fan-out under an exact mandate; outline reads; scoped measurements | a `concept_patch` with its own `old_string`/`new_string` already decided; `concept_read` with `outline: true` to collect hashes and headings; `lint` with `check:` and `scope:` for counts |
+| mid (e.g. Sonnet) | read-heavy extraction and triage whose draft the coordinator verifies before writing | harvest lesson extraction (5b); `duplicate_candidate` subset/distinct verdicts; a glossary entry or `repeated_fact` owner wording |
+| session model | every decision, every map/contract/template write, every `gate_check`, the closing report | always |
+
+Harness portability: the tiers are roles, not model names. Claude Code: the Task tool with
+`model: haiku|sonnet`. OpenCode: the subagent tool with `model: provider/model`,
+`background: true` to fan out. Codex, Kiro, or any harness without subagents: run the same passes
+sequentially - every mandate below is self-contained and stands alone.
+
+Fan-out rules:
+- Reader mandates are self-contained: the KB id, the concept ids, exactly what to return, a size
+  cap ("digest under 30 lines: concept ids and pointers, no body text").
+- Writers: disjoint concepts only, one `concept_batch` per worker (up to 50 operations, one
+  commit); never two workers on one concept, never a writer during a `kb_repair` on the same map.
+  Background auto-repair can stale a hash between your read and your batch: re-read `if_match`
+  immediately before dispatch; on `stale_write` retry only the named chunk, after a fresh read.
+- A digest is a claim, not proof: `gate_check` every id a worker touched.
+
+Token economy (a doctor session reads a KB, not a page):
+- `concept_read` with `outline: true` unless the body must be read or patched; `section:` for one
+  section; never re-read what `lint`/`kb_review` evidence already gave;
+- `lint` with `check:` and `scope:` instead of the full dump; its list is capped (about 200
+  findings) and does not always say so: trust `kb_status` `conformance.lint_findings` for the
+  total and page with `offset`;
+- `kb_review` per `kind` with `limit`/`offset`, never the mixed list;
+- when the KB clone is on this machine, aggregate questions belong to the bundled scripts
+  (`sh <skill-dir>/scripts/<name>.sh <clone>`), which only read: `suppression_inventory.sh` (what
+  is silenced, where), `section_freq.sh <clone> <map>` (the headings the map's pages really use),
+  `harvest_queue.sh <clone>` (the 5b queue). Never write files in the clone, never run git there.
+
 ## Procedure
 
 1. **Signal.** `kb_status`: read `conformance` (`findings`, `fixable`, `repairable`, `last_doctor`,
@@ -91,7 +132,11 @@ run, one commit per run with reason "auto-repair (background)". It is not a sess
    `artifact_write` `templates/<template_slug>.md` with the text (an existing slug is already
    written: only the `map_update`), then `map_update` with the arguments, then `kb_repair
    template_missing` binds the pages. Do not edit the proposal's sections; the operator may drop an
-   optional one. Under a strict map (`require_template`), the checks that remain are yours: a
+   optional one. Before enriching or writing a template for pages that already exist,
+   `sh scripts/section_freq.sh <clone> <map>` lists the headings the map's pages really use, so the
+   schema describes the house style instead of fighting it: adopt what recurs, leave one-off
+   descriptive headings as findings and say so, never stuff a template with every singleton.
+   Under a strict map (`require_template`), the checks that remain are yours: a
    `template_extra_section` page needs its text merged into a template section or moved to another
    page, never deleted; a `template_section_missing` section is filled from the sources or, when no
    source exists, recorded as a `missing_context` gap naming it. Never add an empty heading to
@@ -149,7 +194,10 @@ run, one commit per run with reason "auto-repair (background)". It is not a sess
    Closing a gap later (the answer arrives) is `conflict_resolve`; step 1 reads the open ones back.
 
 5b. **Harvest and archive.** `kb_review` `kind: "harvest_candidate"`: a journal entry that is closed
-   and older than the journal's `harvest_after` (default 45 days). For each:
+   and older than the journal's `harvest_after` (default 45 days). `sh scripts/harvest_queue.sh
+   <clone>` lists the same candidates from the clone at no tool cost, for the fan-out mandate:
+   extracting the durable facts is a mid-tier reader job (Delegation section), the write-back is
+   yours. For each:
    - `concept_read` it and pick the durable facts: root causes, recurring traps, diagnostic commands
      that worked, workarounds - what a future reader of the live subject page would need (the
      evidence lists the sections that look durable);
@@ -173,7 +221,10 @@ run, one commit per run with reason "auto-repair (background)". It is not a sess
    answered yet, and the session is done only when nothing is left — fixed, or accepted where the
    KB says so. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
    one reason per link; `link_to_retired` in a live page: update the sentence or point at the
-   successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive`, not patch + move + `index_patch`). Accept what is a choice with `lint_ignore` and a `reason`: on the concept for a
+   successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive`, not patch + move + `index_patch`). Accept what is a choice only when no repair fits the fact, and never
+    silently: run `sh scripts/suppression_inventory.sh <clone>` first, so what the KB already
+    silences is on the table and a new acceptance is an informed addition rather than another layer
+    nobody will read; then `lint_ignore` with a `reason` naming the finding's substance: on the concept for a
    one-off, map-wide with `map_update` `lint_ignore` (the list replaces the map's: extend the
    `lint_ignore` that `map_list` shows) when the whole map follows that style. An artifact finding
    (a skill, an agent: `acceptability` says `artifact`) is accepted in `instructions.md`
@@ -209,8 +260,9 @@ run, one commit per run with reason "auto-repair (background)". It is not a sess
    Each session works in this order and closes when the budget is spent: the mechanical repairs
    that change the graph first (link forms, frontmatter normalisation: many findings disappear
    after them, so re-run `kb_status` to recount), then the body-text checks (`bare_link_list`,
-   `link_to_retired`) in `concept_batch` calls of up to 50 operations, one commit each (up to 4
-   subagents on disjoint maps), then `kb_review` items from the heaviest. The queue empties over
+   `link_to_retired`) in `concept_batch` calls of up to 50 operations, one commit each, fanned out
+   per the Delegation section (cheap-tier writers on disjoint maps, the coordinator gate-checking
+   every id), then `kb_review` items from the heaviest. The queue empties over
    the sessions the operator starts.
 
 ## Rules
