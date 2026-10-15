@@ -39,7 +39,8 @@ import type {
 import { Artifacts } from "./components/Artifacts";
 import { Secrets } from "./components/Secrets";
 import { Paths } from "./components/Paths";
-import { MapPanel } from "./components/MapPanel";
+import { MapFacts } from "./components/MapFacts";
+import { Legend } from "./components/Legend";
 import { Services } from "./components/Services";
 import { Sources } from "./components/Sources";
 import { Settings } from "./components/Settings";
@@ -48,7 +49,7 @@ import { CommandPalette } from "./components/CommandPalette";
 import { GraphView } from "./components/GraphView";
 import { Inspector } from "./components/Inspector";
 import { LeftRail } from "./components/LeftRail";
-import { Legend } from "./components/Legend";
+import { GraphBar } from "./components/GraphBar";
 import { Sheet, useMediaQuery } from "./components/Sheet";
 import { Splitter } from "./components/Splitter";
 import { Activity } from "./components/Activity";
@@ -144,7 +145,9 @@ export function App() {
   const [healthSettled, setHealthSettled] = useState(false);
   // The KB Health's reads above belong to (D704).
   const healthKB = useRef<string | null>(null);
-  const [motion, setMotion] = useState(() => initialMotion(readPanel("motion", true), prefersReducedMotion()));
+  // Live motion has no switch of its own: the system's reduced-motion setting
+  // is the one that turns it off.
+  const [motion] = useState(() => initialMotion(true, prefersReducedMotion()));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [eggs, setEggs] = useState<Set<Egg>>(() => new Set());
   const [preview, setPreview] = useState<string | null>(null);
@@ -214,12 +217,6 @@ export function App() {
   }, [theme]);
   useEffect(() => writeColorBy(colorBy), [colorBy]);
   useEffect(() => writePanel("rail", railCollapsed), [railCollapsed]);
-  const toggleMotion = useCallback(() => {
-    setMotion((on) => {
-      writePanel("motion", !on);
-      return !on;
-    });
-  }, []);
   const webgl = useMemo(() => hasWebGL(), []);
   // The graph is only ever drawn in 3D (D235): if it loses its context, the
   // page says so and keeps the list, as it does without WebGL at all.
@@ -700,6 +697,12 @@ export function App() {
   const rail = (inSheet: boolean) => (
     <LeftRail
       overview={overview}
+      mapDetail={scopedMap && <MapFacts map={scopedMap} />}
+      afterMaps={
+        view.panel === "atlas" && colorBy === "community" && snapshot ? (
+          <Legend snapshot={snapshot} communities={communities} />
+        ) : null
+      }
       overviewKB={snapshotKey.split("\u0000")[0]}
       scope={view.panel === "atlas" ? view.scope : null}
       panel={view.panel}
@@ -715,7 +718,8 @@ export function App() {
         if (inSheet) setSheet(null);
       }}
       onPanel={(panel) => {
-        navigate({ panel, artifact: null, hmap: null });
+        // The Atlas entry is the way home: the whole graph, wherever you were.
+        navigate(panel === "atlas" ? { panel, scope: null, concept: null, artifact: null, hmap: null } : { panel, artifact: null, hmap: null });
         if (inSheet) setSheet(null);
       }}
       onToggleCollapsed={() => setRailCollapsed((c) => !c)}
@@ -728,12 +732,10 @@ export function App() {
     />
   );
 
-  // The Atlas filtered to one Map with no concept open shows that Map's card
-  // over the graph; below the narrow breakpoint it is left out.
+  // The Map the Atlas is narrowed to: named in the context bar, its contract
+  // under its row in the rail.
   const scopedMap =
-    view.panel === "atlas" && !narrow && !view.concept && view.scope
-      ? (mapContracts.find((m) => m.name === view.scope) ?? null)
-      : null;
+    view.panel === "atlas" && view.scope ? (mapContracts.find((m) => m.name === view.scope) ?? null) : null;
   const scopedCollection = scopedMap ? overview?.collections.find((c) => c.name === scopedMap.name) : undefined;
   const readingOpen = !!view.concept;
 
@@ -938,7 +940,7 @@ export function App() {
                   tako={eggs.has("tako")}
                   snapshot={snapshot}
                   layoutKey={snapshotKey}
-                  loadBirths={activeKB ? () => fetchBirths(activeKB).then((r) => r.births) : undefined}
+                  loadBirths={activeKB && !view.scope ? () => fetchBirths(activeKB).then((r) => r.births) : undefined}
                   kbName={activeKB ?? undefined}
                   artifacts={graphArtifacts}
                   onOpenArtifact={(kind, name) => navigate({ panel: "artifacts", artifact: `${kind}/${name}` })}
@@ -949,20 +951,21 @@ export function App() {
                   highlighted={preview}
                   themeKey={appliedTheme}
                   live={motion}
-                  onToggleLive={toggleMotion}
                   occludedRight={!narrow && readingOpen ? inspectorWidth : 0}
                   onSelect={selectConcept}
                   onExpand={expandConcept}
                   onUnavailable={markWebglLost}
-                >
-                  {/* With a Map picked its card is the key: the legend's counts are the whole KB's. */}
-                  {!readingOpen && !scopedMap && (
-                    <Legend snapshot={snapshot} communities={communities} colorBy={colorBy} onColorBy={setColorBy} />
-                  )}
-                  {scopedMap && (
-                    <MapPanel map={scopedMap} concepts={scopedCollection?.concepts ?? 0} />
-                  )}
-                </GraphView>
+                  header={
+                    <GraphBar
+                      kb={activeKB ?? ""}
+                      map={scopedMap}
+                      mapConcepts={scopedCollection?.concepts ?? 0}
+                      snapshot={snapshot}
+                      colorBy={colorBy}
+                      onColorBy={setColorBy}
+                    />
+                  }
+                />
               )}
             </>
           )}

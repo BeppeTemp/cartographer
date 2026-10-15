@@ -2,11 +2,7 @@ import type { GraphSnapshot } from "../api/types";
 import { OTHER_SLOT, type Communities } from "../lib/communities";
 import { shortLabel } from "../lib/encoding";
 import { nameOf } from "../lib/names";
-import { collectionHue, slotVar, type ColorBy } from "../lib/palette";
-
-/** Legend rows shown before the rest are summarised: past this a legend is a
- *  second node list, not a key. */
-const ROWS = 6;
+import { slotVar } from "../lib/palette";
 
 interface Row {
   key: string;
@@ -16,81 +12,37 @@ interface Row {
 }
 
 /**
- * What the colours mean, and the switch between the two things they can mean.
+ * What the colours mean when nodes are coloured by community: every community
+ * drawn, in the rail under the Maps, with how many of its nodes are drawn.
+ * Coloured by Map the rail's own Map swatches are the key, so nothing is
+ * repeated here.
  *
- * Colour is never the only carrier here either: every row names its group and
- * counts it, and the inspector states a concept's Map in words.
- *
- * Shown only while no concept is open: the reading panel then has the
- * reader's attention, and the legend comes back when it closes.
+ * Colour is never the only carrier: every row names its group and counts it,
+ * and the inspector states a concept's Map in words.
  */
-export function Legend({
-  snapshot,
-  communities,
-  colorBy,
-  onColorBy,
-}: {
-  snapshot: GraphSnapshot;
-  communities: Communities;
-  colorBy: ColorBy;
-  onColorBy(value: ColorBy): void;
-}) {
-  const { rows, tail } =
-    colorBy === "community" ? communityRows(communities, snapshot) : collectionRows(snapshot);
-  const shown = rows.slice(0, ROWS);
-  const rest = rows.slice(ROWS).reduce((sum, row) => sum + row.count, tail);
-
+export function Legend({ snapshot, communities }: { snapshot: GraphSnapshot; communities: Communities }) {
+  const { rows, tail } = communityRows(communities, snapshot);
+  if (!rows.length && !tail) return null;
   return (
-    <section className="legend" aria-label="Graph legend">
-      <div className="legend__switch" role="group" aria-label="Colour nodes by">
-        {(
-          [
-            ["community", "Community"],
-            ["map", "Map"],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            className="legend__option"
-            aria-pressed={colorBy === value}
-            onClick={() => onColorBy(value)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <ul className="legend__rows">
-        {shown.map((row) => (
-          <li key={row.key} className="legend__row">
-            <span
-              className="legend__swatch"
-              aria-hidden="true"
-              style={{ background: slotVar(row.slot) }}
-            />
-            <span className="legend__label">{row.label}</span>
-            <span className="legend__count">{row.count}</span>
+    <section className="rail__group" aria-label="Graph legend">
+      <h2 className="rail__title">Communities</h2>
+      <ul className="rail__collections">
+        {rows.map((row) => (
+          <li key={row.key} className="rail__key" title={`${row.label}: ${row.count}`}>
+            <span className="rail__swatch" aria-hidden="true" style={{ background: slotVar(row.slot) }} />
+            <span className="rail__collection-name">{row.label}</span>
+            <span className="rail__collection-count">{row.count}</span>
           </li>
         ))}
-        {rest > 0 && (
-          <li className="legend__row legend__row--rest">
+        {tail > 0 && (
+          <li className="rail__key">
             {/* No swatch: the summarised groups do not share one colour. */}
-            <span className="legend__swatch legend__swatch--none" aria-hidden="true" />
-            <span className="legend__label">
-              {colorBy === "community" ? "Smaller groups" : "Other Maps"}
-            </span>
-            <span className="legend__count">{rest}</span>
+            <span className="rail__swatch rail__swatch--none" aria-hidden="true" />
+            <span className="rail__collection-name">Smaller groups</span>
+            <span className="rail__collection-count">{tail}</span>
           </li>
         )}
       </ul>
-      {/* The size of what is drawn belongs with the key to it, not in the
-          navigation rail. */}
-      <p className="legend__meta">
-        <span>
-          {snapshot.nodes.length} node{snapshot.nodes.length === 1 ? "" : "s"} · {snapshot.edges.length} link
-          {snapshot.edges.length === 1 ? "" : "s"}
-        </span>
-      </p>
     </section>
   );
 }
@@ -101,28 +53,21 @@ function communityRows(communities: Communities, snapshot: GraphSnapshot): { row
   const titles = new Map(snapshot.nodes.map((n) => [n.id, nameOf(n)]));
   // Real communities get rows; singletons and the long tail share one neutral
   // and are only ever summed into the closing row.
+  // Counted over what is drawn, so a graph narrowed to one Map keys its own
+  // nodes rather than the whole KB's.
+  const drawn = new Map<number, number>();
+  for (const n of snapshot.nodes) {
+    const rank = communities.rankOf.get(n.id);
+    if (rank !== undefined) drawn.set(rank, (drawn.get(rank) ?? 0) + 1);
+  }
   const rows: Row[] = [];
   let tail = 0;
   for (const c of communities.list) {
-    if (c.slot === OTHER_SLOT) tail += c.size;
-    else rows.push({ key: `c${c.rank}`, slot: c.slot, label: c.anchorTitle || titles.get(c.anchor) || shortLabel(c.anchor), count: c.size });
+    const count = drawn.get(c.rank) ?? 0;
+    if (!count) continue;
+    if (c.slot === OTHER_SLOT) tail += count;
+    else rows.push({ key: `c${c.rank}`, slot: c.slot, label: c.anchorTitle || titles.get(c.anchor) || shortLabel(c.anchor), count });
   }
+  rows.sort((a, b) => b.count - a.count);
   return { rows, tail };
-}
-
-function collectionRows(snapshot: GraphSnapshot): { rows: Row[]; tail: number } {
-  const counts = new Map<string, number>();
-  for (const node of snapshot.nodes) {
-    const name = node.collection ?? "";
-    counts.set(name, (counts.get(name) ?? 0) + 1);
-  }
-  const rows = [...counts.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([name, count]) => ({
-      key: `m${name}`,
-      slot: collectionHue(name),
-      label: name || "(root)",
-      count,
-    }));
-  return { rows, tail: 0 };
 }

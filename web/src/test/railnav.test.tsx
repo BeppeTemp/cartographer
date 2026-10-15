@@ -56,7 +56,7 @@ describe("the rail's Maps open the Atlas", () => {
 });
 
 describe("the brand", () => {
-  it("returns to the Atlas on All, nothing selected", async () => {
+  it("returns to the whole Atlas, nothing selected", async () => {
     open("?kb=kb-a&scope=infra&concept=infra/a");
     stubLint();
     const user = userEvent.setup();
@@ -64,8 +64,18 @@ describe("the brand", () => {
     await user.click(await screen.findByRole("button", { name: /back to the atlas/ }));
     expect(window.location.search).not.toContain("scope=");
     expect(window.location.search).not.toContain("concept=");
+  });
+
+  it("is what the Atlas entry does too, from a Map and a concept", async () => {
+    open("?kb=kb-a&panel=health&scope=infra&concept=infra/a");
+    stubLint();
+    const user = userEvent.setup();
+    render(<App />);
     const rail = await screen.findByRole("navigation", { name: "Atlas navigation" });
-    expect(within(rail).getByRole("button", { name: /^All/ })).toHaveAttribute("aria-current", "true");
+    await user.click(within(rail).getByRole("button", { name: /^Atlas/ }));
+    expect(window.location.search).not.toContain("scope=");
+    expect(window.location.search).not.toContain("concept=");
+    expect(window.location.search).not.toContain("panel=");
   });
 });
 

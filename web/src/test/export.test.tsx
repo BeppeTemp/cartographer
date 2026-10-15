@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GraphView } from "../components/GraphView";
+import { GraphView, GrowthButton } from "../components/GraphView";
 import { GROWTH_VIDEO_MS, growthSchedule } from "../lib/graph3d/growth";
 import { snapshotCommunities } from "../lib/communities";
 import { graph } from "./fixtures";
@@ -81,7 +81,13 @@ function props(loadBirths?: () => Promise<Record<string, string>>, layoutKey = "
     onSelect: () => {},
   };
 }
-const view = (loadBirths?: () => Promise<Record<string, string>>) => render(<GraphView {...props(loadBirths)} />);
+// The replay starts from an overlay (the legend places GrowthButton).
+const view = (loadBirths?: () => Promise<Record<string, string>>) =>
+  render(
+    <GraphView {...props(loadBirths)}>
+      <GrowthButton />
+    </GraphView>,
+  );
 
 async function openReplay() {
   await userEvent.click(screen.getByRole("button", { name: "Replay growth" }));
@@ -107,14 +113,18 @@ describe("Export video", () => {
     vi.restoreAllMocks();
   });
 
-  it("is a button of the replay's control bar, not of the camera controls", async () => {
+  it("is a button of the replay's control bar, and only there", async () => {
     view(async () => births);
-    expect(within(screen.getByRole("group", { name: "Graph camera" })).queryByRole("button", { name: "Export video" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Export video" })).toBeNull();
     await openReplay();
     const bar = screen.getByRole("group", { name: "Growth replay" });
     expect(within(bar).getByRole("button", { name: "Export video" })).toBeInTheDocument();
-    expect(within(screen.getByRole("group", { name: "Graph camera" })).queryByRole("button", { name: "Export video" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Export video" })).toHaveLength(1);
+  });
+
+  it("offers no replay where the view has no births to replay", () => {
+    view(undefined);
+    expect(screen.queryByRole("button", { name: "Replay growth" })).toBeNull();
   });
 
   it("is hidden where the browser has no video encoder", async () => {

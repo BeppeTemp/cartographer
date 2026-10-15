@@ -75,7 +75,7 @@ body.egg-glass .shell {
 }
 
 /* Every surface: clear glass, lit from the top edge. */
-body.egg-glass :is(.topbar, .rail, .overlay, .legend, .graph-toolbar, .palette, .growth-export, .eggs__card--glass) {
+body.egg-glass :is(.topbar, .rail, .overlay, .graph__header, .graph-toolbar, .palette, .growth-export, .eggs__card--glass) {
   color: white !important;
   background: linear-gradient(
     160deg,
@@ -102,7 +102,7 @@ body.egg-glass :is(.topbar, .rail, .palette) {
 
 /* ...with a rainbow rim turning round its edge: a ring drawn by a mask, so
    the glass itself stays clear. */
-body.egg-glass :is(.topbar, .rail, .overlay, .legend, .graph-toolbar, .palette, .eggs__card--glass)::before {
+body.egg-glass :is(.topbar, .rail, .overlay, .graph__header, .graph-toolbar, .palette, .eggs__card--glass)::before {
   content: "";
   position: absolute;
   z-index: 0;
@@ -121,7 +121,7 @@ body.egg-glass :is(.topbar, .rail, .overlay, .legend, .graph-toolbar, .palette, 
 }
 
 /* Inside them, every control and box is a bubble of the same glass. */
-body.egg-glass :is(.topbar, .rail, .overlay, .legend, .palette)
+body.egg-glass :is(.topbar, .rail, .overlay, .graph__header, .palette)
   :is(button, input, select, .field, .chip, .pill, .kbd, blockquote, pre, aside, [role="tab"], .inspector__finding) {
   color: white !important;
   background: linear-gradient(170deg, rgb(255 255 255 / 0.2), rgb(255 255 255 / 0.04)) !important;
@@ -134,11 +134,11 @@ body.egg-glass :is(.topbar, .rail, .overlay, .legend, .palette)
   text-shadow: 0 0 8px rgb(255 255 255 / 0.5);
 }
 
-body.egg-glass :is(.overlay, .legend, .palette) :is(*) {
+body.egg-glass :is(.overlay, .graph__header, .palette) :is(*) {
   border-color: rgb(255 255 255 / 0.25);
 }
 
-body.egg-glass :is(.overlay, .legend, .palette, .rail) :is(a, p, li, span, h1, h2, h3, strong, code) {
+body.egg-glass :is(.overlay, .graph__header, .palette, .rail) :is(a, p, li, span, h1, h2, h3, strong, code) {
   color: white !important;
 }
 
@@ -165,11 +165,11 @@ body.egg-glass .topbar {
   border-radius: 999px;
 }
 
-body.egg-glass :is(.legend, .graph-toolbar, .palette) {
+body.egg-glass :is(.graph__header, .graph-toolbar, .palette) {
   border-radius: 28px;
 }
 
-body.egg-glass :is(.topbar, .rail, .overlay, .legend, .palette) :is(button, input, .chip, .field, [role="tab"]) {
+body.egg-glass :is(.topbar, .rail, .overlay, .graph__header, .palette) :is(button, input, .chip, .field, [role="tab"]) {
   border-radius: 999px !important;
 }
 
@@ -356,7 +356,7 @@ body.egg-tako .chip {
 }
 
 body.egg-tako .overlay,
-body.egg-tako .legend {
+body.egg-tako .graph__header {
   background: #fffbeb !important;
   color: #831843;
   border: 4px dashed #ec4899 !important;
@@ -378,7 +378,7 @@ body.egg-tako h3 {
   color: transparent !important;
 }
 
-body.egg-tako .legend {
+body.egg-tako .graph__header {
   transform: rotate(1.5deg);
 }
 
@@ -606,13 +606,13 @@ body.egg-still .egg-confetti {
 }
 
 /* The rims and the rays turn on their own animation (see @property above). */
-body.egg-still :is(.topbar, .rail, .overlay, .legend, .graph-toolbar, .palette, .eggs__card--glass)::before,
+body.egg-still :is(.topbar, .rail, .overlay, .graph__header, .graph-toolbar, .palette, .eggs__card--glass)::before,
 body.egg-still .egg-lights::before {
   animation: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body.egg-glass :is(.topbar, .rail, .overlay, .legend, .graph-toolbar, .palette, .eggs__card--glass)::before,
+  body.egg-glass :is(.topbar, .rail, .overlay, .graph__header, .graph-toolbar, .palette, .eggs__card--glass)::before,
   .egg-lights::before {
     animation: none;
   }

@@ -152,34 +152,34 @@ describe("colour legend", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const legend = await screen.findByRole("region", { name: /graph legend/i });
-    const community = within(legend).getByRole("button", { name: "Community" });
-    const map = within(legend).getByRole("button", { name: "Map" });
+    const bar = await screen.findByRole("region", { name: "Graph context" });
+    const community = within(bar).getByRole("button", { name: "Community" });
+    const map = within(bar).getByRole("button", { name: "Map" });
     expect(community).toHaveAttribute("aria-pressed", "true");
+    // (The rail's community key itself is covered in legend.test.tsx.)
 
     await user.click(map);
     expect(map).toHaveAttribute("aria-pressed", "true");
-    expect(within(legend).getByText("infra")).toBeInTheDocument();
     expect(localStorage.getItem("cartographer.colorBy")).toBe("map");
+    // Coloured by Map, the rail's own Map swatches are the key: no second list.
+    expect(screen.queryByRole("region", { name: /graph legend/i })).toBeNull();
 
+    // The growth replay starts from the bar, over the whole KB.
+    expect(within(bar).getByRole("button", { name: "Replay growth" })).toBeInTheDocument();
     // Lint severity is not a colour mode (D307): the Health panel reads it.
-    expect(within(legend).queryByRole("button", { name: "Health" })).not.toBeInTheDocument();
+    expect(within(bar).queryByRole("button", { name: "Health" })).not.toBeInTheDocument();
   });
 
-  it("steps aside while a concept is open and comes back when the reading panel closes", async () => {
+  it("keeps the canvas free: the bar sits above it and stays while a concept is read", async () => {
     viewport(false);
     window.history.replaceState(null, "", "/ui/?kb=kb-a&concept=infra%2Fa");
     stubApi();
-    const user = userEvent.setup();
     render(<App />);
 
-    const close = await screen.findByRole("button", { name: "Close inspector" });
-    expect(screen.queryByRole("region", { name: /graph legend/i })).toBeNull();
-    // Nothing left to fold it with: it is either there whole or not at all.
-    expect(screen.queryByRole("button", { name: /the legend/i })).toBeNull();
-
-    await user.click(close);
-    expect(await screen.findByRole("region", { name: /graph legend/i })).toBeInTheDocument();
+    await screen.findByRole("button", { name: "Close inspector" });
+    const bar = await screen.findByRole("region", { name: "Graph context" });
+    expect(bar.closest(".graph__stage")).toBeNull();
+    expect(document.querySelector(".graph__stage .legend, .graph__stage .map-card")).toBeNull();
   });
 });
 

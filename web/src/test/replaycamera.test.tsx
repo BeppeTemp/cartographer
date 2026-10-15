@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
-import { GraphView } from "../components/GraphView";
+import { GraphView, GrowthButton } from "../components/GraphView";
 import { snapshotCommunities } from "../lib/communities";
 import type { GraphSnapshot } from "../api/types";
 import { sceneStub } from "./sceneStub";
@@ -37,7 +37,9 @@ function mount() {
       live={false}
       occludedRight={0}
       onSelect={() => {}}
-    />,
+    >
+      <GrowthButton />
+    </GraphView>,
   );
 }
 

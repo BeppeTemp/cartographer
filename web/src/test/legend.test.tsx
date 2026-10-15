@@ -22,13 +22,13 @@ const full = snap([node("agents/scout", "Scout Agent", 0), node("infra/lab", "La
 const scoped = snap([node("infra/lab", "Lab", 1), node("infra/x", "X", 0)]);
 
 function labels() {
-  return [...document.querySelectorAll(".legend__label")].map((e) => e.textContent);
+  return [...document.querySelectorAll(".rail__collection-name")].map((e) => e.textContent);
 }
 
 describe("the community legend", () => {
   it("names communities by the anchor's title even when a Map's snapshot lacks the anchor node", () => {
     const view = (s: GraphSnapshot) => (
-      <Legend snapshot={s} communities={snapshotCommunities(s)} colorBy="community" onColorBy={() => {}} />
+      <Legend snapshot={s} communities={snapshotCommunities(s)} />
     );
     const { rerender } = render(view(full));
     const all = labels();

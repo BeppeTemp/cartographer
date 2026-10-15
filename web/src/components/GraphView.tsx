@@ -1,19 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { GraphSnapshot } from "../api/types";
 import { communitySlot, type Communities } from "../lib/communities";
 import { fade } from "../lib/encoding";
 import type { Pose } from "../lib/graph3d/camera";
-import { GROWTH_MIN_ZOOM, GROWTH_TICK_MIN_MS, growthOrder, growthSchedule, shownAt, stepTime, type GrowthStep } from "../lib/graph3d/growth";
+import {
+  GROWTH_MIN_ZOOM,
+  GROWTH_TICK_MIN_MS,
+  growthOrder,
+  growthSchedule,
+  shownAt,
+  stepTime,
+  type GrowthStep,
+} from "../lib/graph3d/growth";
 import { planBursts } from "../lib/graph3d/motion";
 import { beside, seedPosition } from "../lib/graph3d/physics";
 import { TAKO_EDGE, takoColour } from "../lib/eggs";
-import {
-  recallLayout,
-  rememberLayout,
-  sameKB,
-  snapshotPositions,
-  type LayoutMemory,
-} from "../lib/graph3d/transition";
+import { recallLayout, rememberLayout, sameKB, snapshotPositions, type LayoutMemory } from "../lib/graph3d/transition";
 import type { LivingScene, SceneLink, SceneNode } from "../lib/graph3d/scene";
 import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palette";
 import { useModal } from "../lib/modal";
@@ -77,7 +79,11 @@ interface Props {
   highlighted?: string | null;
   /** A double click on a node. */
   onExpand?(id: string): void;
-  /** Overlays drawn over the canvas (the legend). */
+  /** The context bar above the canvas (D818): part of the layout, never drawn
+   *  over the graph; the growth replay's timeline takes its place while it
+   *  plays. */
+  header?: ReactNode;
+  /** Overlays drawn over the canvas. */
   children?: ReactNode;
   communities: Communities;
   colorBy: ColorBy;
@@ -88,8 +94,6 @@ interface Props {
   /** Live motion (drift, panorama, signals) on or off; the reader's own
    *  gestures work either way. */
   live: boolean;
-  /** Turns live motion on or off: the toggle sits with the camera controls. */
-  onToggleLive?(): void;
   /** Pixels on the right covered by the reading panel. */
   occludedRight: number;
   /** Pixels on the left covered by the concept list. */
@@ -146,6 +150,7 @@ function View({
   onOpenArtifact,
   highlighted = null,
   onExpand,
+  header,
   children,
   snapshot: snap,
   layoutKey,
@@ -157,7 +162,6 @@ function View({
   hiddenIds: filtered,
   themeKey,
   live,
-  onToggleLive,
   occludedRight,
   occludedLeft = 0,
   tako = false,
@@ -213,7 +217,9 @@ function View({
         positions,
         weights,
         colourOf: (id) =>
-          slots[colorBy === "community" ? communitySlot(communities, id) : collectionHue(byId.get(id)?.collection ?? "")]!,
+          slots[
+            colorBy === "community" ? communitySlot(communities, id) : collectionHue(byId.get(id)?.collection ?? "")
+          ]!,
         palette: {
           background: cssVar("--surface-0"),
           edge: cssVar("--graph-edge-3d"),
@@ -228,7 +234,9 @@ function View({
     if (growth) return setGrowth(null);
     growthFloor.current = (sceneRef.current?.fitDistance(GROWTH_BAND_PX) ?? 0) * GROWTH_MIN_ZOOM;
     void loadBirths?.()
-      .then((births) => setGrowth({ order: growthOrder(snapshot.nodes, snapshot.edges, births), shown: 1, playing: true }))
+      .then((births) =>
+        setGrowth({ order: growthOrder(snapshot.nodes, snapshot.edges, births), shown: 1, playing: true }),
+      )
       .catch((err) => console.warn("Atlas: the growth replay could not start", err));
   };
   const growthPlan = useMemo(() => (growth ? growthSchedule(growth.order) : null), [growth?.order]);
@@ -372,7 +380,11 @@ function View({
         continue;
       }
       const anchor = placed ? (adjacent.get(n.id) ?? []).map((id) => store.get(id)).find(Boolean) : undefined;
-      next.set(n.id, { id: n.id, weight, ...(anchor ? beside(anchor, n.id) : seedPosition(n.id, snapshot.nodes.length, 3)) });
+      next.set(n.id, {
+        id: n.id,
+        weight,
+        ...(anchor ? beside(anchor, n.id) : seedPosition(n.id, snapshot.nodes.length, 3)),
+      });
     }
     nodeStore.current.nodes = next;
     return next;
@@ -512,7 +524,7 @@ function View({
       let pending = visible.filter((n) => !placed.has(n.id));
       const seed = (node: (typeof visible)[number], from: { x?: number; y?: number; z?: number }) =>
         Object.assign(node, beside(from, node.id), { vx: 0, vy: 0, vz: 0 });
-      for (let progress = true; pending.length && progress; ) {
+      for (let progress = true; pending.length && progress;) {
         progress = false;
         const left: typeof pending = [];
         for (const node of pending) {
@@ -589,13 +601,12 @@ function View({
       for (const n of scene.neighboursOf(shown)) near.add(n.id);
     }
     const drawn = snapshot.nodes.filter((n) => !hiddenIds.has(n.id));
-    const colours = drawn
-      .map((n, i) => {
-        const base = tako
-          ? takoColour(i, drawn.length)
-          : slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
-        return !shown || near.has(n.id) ? base : fade(base, RECEDED, canvas);
-      });
+    const colours = drawn.map((n, i) => {
+      const base = tako
+        ? takoColour(i, drawn.length)
+        : slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
+      return !shown || near.has(n.id) ? base : fade(base, RECEDED, canvas);
+    });
     // Diamonds wear the signal colour: an artifact is not in any community
     // or Map, and a colour of its own says so.
     const artifactColour = cssVar("--graph-signal");
@@ -639,7 +650,9 @@ function View({
         if (!savedPose.current) savedPose.current = scene.pose();
       });
 
-      const plain = scene.linksOf(node.id).map((link) => ({ source: endpoint(link.source), target: endpoint(link.target), link }));
+      const plain = scene
+        .linksOf(node.id)
+        .map((link) => ({ source: endpoint(link.source), target: endpoint(link.target), link }));
       const plan = planBursts(node.id, plain, (id) => scene.neighboursOf(id).length, liveRef.current && !reducedMotion);
       scene.sendSignals(plan.map((s) => ({ link: s.link.link, delayMs: s.delayMs })));
     }
@@ -702,11 +715,13 @@ function View({
     return (
       <div className="state">
         <p className="state__title">The 3D view needs WebGL</p>
-        <p className="state__detail">This browser could not start it. Every concept is still in the list and the search.</p>
+        <p className="state__detail">
+          This browser could not start it. Every concept is still in the list and the search.
+        </p>
       </div>
     );
   }
-  const scene = () => sceneRef.current;
+  const growthControl = loadBirths ? { start: startGrowth, active: growth !== null } : null;
   return (
     <div
       className="graph graph--view"
@@ -714,110 +729,113 @@ function View({
       data-motion={live && !reducedMotion ? "live" : "still"}
       data-growing={growth !== null || undefined}
     >
-      <div ref={containerRef} className="graph3d">
-        <div ref={labelsRef} className="graph3d__labels" aria-hidden="true" />
-        <span ref={tooltipRef} className="graph3d__label graph3d__tooltip" aria-hidden="true" hidden />
-      </div>
-      {/* Kept through the fade-out; visibility: hidden then drops it from the tree. */}
-      <div className="graph__loading" data-drawn={drawn}>
-        <GraphSeed label={`Charting ${snapshot.nodes.length} concepts`} />
-      </div>
-      <div className="graph__controls" role="group" aria-label="Graph camera">
-        <button type="button" className="button button--icon" onClick={() => scene()?.zoomBy(1 / 1.35)} aria-label="Zoom in">
-          <Icon name="plus" size={16} />
-        </button>
-        <button type="button" className="button button--icon" onClick={() => scene()?.zoomBy(1.35)} aria-label="Zoom out">
-          <Icon name="minus" size={16} />
-        </button>
-        <button type="button" className="button button--icon" onClick={() => scene()?.frameAll()} aria-label="Fit graph to view">
-          <Icon name="fit" size={16} />
-        </button>
-        {loadBirths && (
-          <button
-            type="button"
-            className="button button--icon"
-            onClick={startGrowth}
-            aria-label="Replay growth"
-            aria-pressed={growth !== null}
-            title={growth ? "Stop the replay" : "Watch the KB grow from its first concept"}
+      {(header || growth) && (
+        <div className="graph__header">
+          <GrowthControl.Provider value={growthControl}>
+            {growth ? (
+              <GrowthTimeline
+                order={growth.order}
+                shown={growth.shown}
+                playing={growth.playing}
+                onSeek={seekGrowth}
+                onTogglePlay={togglePlay}
+                onClose={() => setGrowth(null)}
+                onExport={exp.supported ? exp.openDialog : undefined}
+              />
+            ) : (
+              header
+            )}
+          </GrowthControl.Provider>
+        </div>
+      )}
+      <div className="graph__stage">
+        <div ref={containerRef} className="graph3d">
+          <div ref={labelsRef} className="graph3d__labels" aria-hidden="true" />
+          <span ref={tooltipRef} className="graph3d__label graph3d__tooltip" aria-hidden="true" hidden />
+        </div>
+        {/* Kept through the fade-out; visibility: hidden then drops it from the tree. */}
+        <div className="graph__loading" data-drawn={drawn}>
+          <GraphSeed label={`Charting ${snapshot.nodes.length} concepts`} />
+        </div>
+        {/* The replay starts from the context bar (or an overlay) where it sits:
+          the camera itself is driven on the canvas, drag to turn, scroll to zoom. */}
+        <GrowthControl.Provider value={growthControl}>{children}</GrowthControl.Provider>
+        {exp.dialog && (
+          <ExportDialog webm={exp.webm} onExport={(aspect) => void exp.start(aspect)} onClose={exp.closeDialog} />
+        )}
+        {exp.status && (
+          <div
+            className="growth-export"
+            role="status"
+            data-done={exp.status.done || undefined}
+            style={{ "--progress": `${exp.status.progress * 100}%` } as CSSProperties}
           >
-            <Icon name="grow" size={16} />
-          </button>
+            <span className="growth-export__label">
+              {exp.status.done ? `Video saved (${exp.status.aspect})` : `Exporting video (${exp.status.aspect})`}
+            </span>
+            {!exp.status.done && (
+              <>
+                <span className="growth-export__pct">{Math.floor(exp.status.progress * 100)}%</span>
+                <button
+                  type="button"
+                  className="button button--icon"
+                  onClick={exp.cancel}
+                  aria-label="Cancel the export"
+                >
+                  <Icon name="close" size={14} />
+                </button>
+              </>
+            )}
+          </div>
         )}
-        {onToggleLive && (
-          <>
-            <span className="graph__controls-sep" aria-hidden="true" />
-            <button
-              type="button"
-              className="button button--icon"
-              aria-label="Motion"
-              aria-pressed={live}
-              onClick={onToggleLive}
-              title={live ? "Pause the drift, the panorama and the signals" : "Let the graph move on its own"}
-            >
-              <Icon name={live ? "pause" : "motion"} size={16} />
+        {exp.error && (
+          <div className="graph__banner banner" role="alert">
+            <span className="banner__glyph">
+              <Icon name="info" size={16} />
+            </span>
+            <span>{exp.error}</span>
+            <button type="button" className="button button--icon" onClick={exp.dismissError} aria-label="Dismiss">
+              <Icon name="close" size={16} />
             </button>
-          </>
+          </div>
+        )}
+        {snapshot.truncated && (
+          <div className="graph__banner banner" role="status">
+            <span className="banner__glyph">
+              <Icon name="info" size={16} />
+            </span>
+            <span>
+              Showing {snapshot.nodes.length} of {snapshot.total_nodes} concepts. This graph is truncated &mdash; narrow
+              it by Map, type or status to see a complete picture.
+            </span>
+          </div>
         )}
       </div>
-      {children}
-      {exp.dialog && (
-        <ExportDialog webm={exp.webm} onExport={(aspect) => void exp.start(aspect)} onClose={exp.closeDialog} />
-      )}
-      {exp.status && (
-        <div
-          className="growth-export"
-          role="status"
-          data-done={exp.status.done || undefined}
-          style={{ "--progress": `${exp.status.progress * 100}%` } as CSSProperties}
-        >
-          <span className="growth-export__label">
-            {exp.status.done ? `Video saved (${exp.status.aspect})` : `Exporting video (${exp.status.aspect})`}
-          </span>
-          {!exp.status.done && (
-            <>
-              <span className="growth-export__pct">{Math.floor(exp.status.progress * 100)}%</span>
-              <button type="button" className="button button--icon" onClick={exp.cancel} aria-label="Cancel the export">
-                <Icon name="close" size={14} />
-              </button>
-            </>
-          )}
-        </div>
-      )}
-      {exp.error && (
-        <div className="graph__banner banner" role="alert">
-          <span className="banner__glyph">
-            <Icon name="info" size={16} />
-          </span>
-          <span>{exp.error}</span>
-          <button type="button" className="button button--icon" onClick={exp.dismissError} aria-label="Dismiss">
-            <Icon name="close" size={16} />
-          </button>
-        </div>
-      )}
-      {growth && (
-        <GrowthTimeline
-          order={growth.order}
-          shown={growth.shown}
-          playing={growth.playing}
-          onSeek={seekGrowth}
-          onTogglePlay={togglePlay}
-          onClose={() => setGrowth(null)}
-          onExport={exp.supported ? exp.openDialog : undefined}
-        />
-      )}
-      {snapshot.truncated && (
-        <div className="graph__banner banner" role="status">
-          <span className="banner__glyph">
-            <Icon name="info" size={16} />
-          </span>
-          <span>
-            Showing {snapshot.nodes.length} of {snapshot.total_nodes} concepts. This graph is truncated &mdash; narrow it
-            by Map, type or status to see a complete picture.
-          </span>
-        </div>
-      )}
     </div>
+  );
+}
+
+/** How an overlay drawn over the canvas starts the growth replay; null where
+ *  the view offers none (no births to replay). */
+const GrowthControl = createContext<{ start(): void; active: boolean } | null>(null);
+
+/** The replay's trigger, for an overlay to place: nothing where the view has
+ *  no replay to offer. */
+export function GrowthButton() {
+  const control = useContext(GrowthControl);
+  if (!control) return null;
+  return (
+    <button
+      type="button"
+      className="legend__grow"
+      onClick={control.start}
+      aria-label="Replay growth"
+      aria-pressed={control.active}
+      title="Watch the KB grow from its first concept"
+    >
+      <Icon name="grow" size={14} />
+      <span aria-hidden="true">Replay</span>
+    </button>
   );
 }
 
