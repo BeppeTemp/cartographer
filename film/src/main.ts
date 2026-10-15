@@ -10,10 +10,10 @@ import { planBursts } from "../../web/src/lib/graph3d/motion";
 import { resolveSlots } from "../../web/src/lib/palette";
 import { buildKb } from "./data";
 
-const FPS = 30;
+const FPS = 60;
 // Story time: every beat below is authored in the seconds of the first cut. The film plays them slower,
 // so each line can be read at README size (the opening most), while the engine keeps real time.
-const WARP: [number, number][] = [[0, 0], [11.9, 7], [54.8, 40], [62.8, 48]]; // [film s, story s]
+const WARP: [number, number][] = [[0, 0], [11.4, 7], [53.4, 40], [60, 46.6]]; // [film s, story s]
 const DURATION = WARP[WARP.length - 1]![0];
 function story(T: number): number {
   for (let k = 1; k < WARP.length; k++) {

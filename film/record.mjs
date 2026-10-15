@@ -45,7 +45,14 @@ await browser.close();
 if (!stills.size) {
   const input = ["-y", "-framerate", String(rate), "-i", path.join(framesDir, "%05d.png")];
   execFileSync("ffmpeg", [...input, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-r", String(rate), path.join(out, "film.mp4")], { stdio: "inherit" });
-  // Homebrew's ffmpeg has no libwebp encoder: img2webp (from the webp package) assembles the animation instead.
-  const pngs = fs.readdirSync(framesDir).filter((f) => f.endsWith(".png")).sort().map((f) => path.join(framesDir, f));
-  execFileSync("img2webp", ["-loop", "0", "-d", String(Math.round(1000 / rate)), "-lossy", "-q", "70", "-m", "3", ...pngs, "-o", path.join(out, "film.webp")], { stdio: "inherit" });
+  // The README's WebP: 1280 px wide (the page shows it at ~900) and 30 fps, since browsers do not honour
+  // animated-image frame delays much under 20 ms. Homebrew's ffmpeg has no libwebp encoder: ffmpeg only
+  // picks and scales the frames, img2webp (from the webp package) assembles the animation.
+  const webpDir = path.join(out, "webp-frames");
+  fs.rmSync(webpDir, { recursive: true, force: true });
+  fs.mkdirSync(webpDir, { recursive: true });
+  const step = Math.max(1, Math.round(rate / 30));
+  execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", path.join(framesDir, "%05d.png"), "-vf", `select='not(mod(n\\,${step}))',scale=1280:-1:flags=lanczos`, "-fps_mode", "vfr", path.join(webpDir, "%05d.png")], { stdio: "inherit" });
+  const pngs = fs.readdirSync(webpDir).filter((f) => f.endsWith(".png")).sort().map((f) => path.join(webpDir, f));
+  execFileSync("img2webp", ["-loop", "0", "-d", String(Math.round((1000 * step) / rate)), "-lossy", "-q", "75", "-m", "3", ...pngs, "-o", path.join(out, "film.webp")], { stdio: "inherit" });
 }
