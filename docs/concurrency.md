@@ -155,6 +155,10 @@ never opens a replacement PR during that recovery.
 
 ## Remote synchronization
 
+Every git command Cartographer runs gets `LC_ALL=C`, over the process environment and any per-KB
+variable: outcomes such as "nothing to commit" or a rebase conflict are recognised from git's English
+messages, and a git built with translations prints them in the user's locale.
+
 When `git.sync` is enabled and `origin` exists:
 
 1. `SyncIn` fetches and runs pull/rebase/autostash before a local-profile write;
