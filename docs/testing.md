@@ -21,7 +21,12 @@ parsing, KB invariants, tools, authorization, git behavior, provisioning and
 client configuration.
 
 `make vet` runs `go vet ./...` twice, natively and with `GOOS=windows` (the `test-windows` job is skipped on feature PRs outside platform-specific code, so a test that does not compile on Windows would otherwise reach `main`), and `make fmt-check` fails on anything not
-gofmt-clean. All three are `make gate`, which is the single command CI runs.
+gofmt-clean. `make race` runs, under the race detector, the tests whose name
+contains `Race` or `Concurrent`: a data race seldom fails an assertion, so a test
+that drives readers and writers concurrently only proves something under `-race`,
+and the whole suite under `-race` is several times slower. A test written to
+exercise concurrency is named accordingly, or it never runs with the detector.
+All four are `make gate`, which is the single command CI runs.
 
 `make gate` runs on ubuntu in the `test` job; the tests also run on Windows
 ([`ci.yml`](https://github.com/BeppeTemp/cartographer/blob/main/.github/workflows/ci.yml)).
@@ -576,7 +581,7 @@ the deterministic repository gate.
 ## Before a pull request
 
 ```bash
-make gate          # gofmt + vet + test, documentation gates included
+make gate          # gofmt + vet + test + race, documentation gates included
 make smoke-http
 make e2e
 make test-install
