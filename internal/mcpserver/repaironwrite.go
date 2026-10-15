@@ -24,11 +24,12 @@ type repairedOut struct {
 // and a single write has no cross-concept state for the mutual-pair guard, so
 // they stay with kb_repair; artifact checks never concern a concept.
 func repairOnWriteChecks(k *kb.KB) []string {
-	if !k.RepairOnWrite {
+	pol := k.Policy()
+	if !pol.RepairOnWrite {
 		return nil
 	}
 	var out []string
-	for _, c := range k.AutoRepair {
+	for _, c := range pol.AutoRepair {
 		s, ok := lint.Spec(c)
 		if !ok || !s.AutoRepairSafe || s.CrossConcept || lint.ArtifactRepairCheck(c) || lint.MapRepairCheck(c) {
 			continue

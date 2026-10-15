@@ -90,14 +90,15 @@ func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what str
 			writeUINotFound(w)
 			return
 		}
+		pol := k.Policy()
 		out := maintenanceSummary{
 			AutoRepair: maintenanceAutoRepair{
-				Enabled:      len(k.AutoRepair) > 0 && k.DoctorAutoIntervalDays > 0,
-				Default:      k.AutoRepairDefault,
-				Checks:       append([]string{}, k.AutoRepair...),
-				IntervalDays: k.DoctorAutoIntervalDays,
+				Enabled:      len(pol.AutoRepair) > 0 && pol.DoctorAutoIntervalDays > 0,
+				Default:      pol.AutoRepairDefault,
+				Checks:       append([]string{}, pol.AutoRepair...),
+				IntervalDays: pol.DoctorAutoIntervalDays,
 			},
-			DoctorInterval: k.DoctorIntervalDays,
+			DoctorInterval: pol.DoctorIntervalDays,
 			Repairs:        []maintenanceRepair{},
 			Runs:           []autoRepairRun{},
 			LintHistory:    readLintHistory(k),
@@ -110,8 +111,8 @@ func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what str
 		if srv.conformance != nil {
 			out.LastDoctor = srv.conformance.cachedDoctorDate(k)
 		}
-		if t, err := time.Parse("2006-01-02", out.LastDoctor); err == nil && k.DoctorIntervalDays > 0 {
-			out.NextDoctor = t.AddDate(0, 0, k.DoctorIntervalDays).Format("2006-01-02")
+		if t, err := time.Parse("2006-01-02", out.LastDoctor); err == nil && pol.DoctorIntervalDays > 0 {
+			out.NextDoctor = t.AddDate(0, 0, pol.DoctorIntervalDays).Format("2006-01-02")
 		}
 		commits, err := gitx.LogNameStatus(k.Root, srv.now().Add(-maintenanceRepairWindow))
 		if err != nil {

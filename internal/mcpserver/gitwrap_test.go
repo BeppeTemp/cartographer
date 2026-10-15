@@ -977,7 +977,7 @@ func TestGitWrap_ArtifactWriteCommitSubjectNamesThePath(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
 	k.AutoCommit = true
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 

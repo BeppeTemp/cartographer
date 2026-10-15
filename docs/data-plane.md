@@ -790,7 +790,7 @@ an unknown key, a server-only key or an invalid value ignores that entry (one fi
 `contract_malformed` on `settings.yaml`, and `kb_status` `settings_findings`).
 
 The server re-reads the file when it changes: after a pull that moves HEAD and before a write
-(`KB.RefreshSettings`). `mcp_allowlist` and the git workflow keys are read when the KB is mounted
+(`KB.RefreshSettings`). The per-KB policy is one immutable `kb.Policy` snapshot replaced whole (`KB.SetPolicy`) and read through `KB.Policy()`, so a refresh never races a reader and a tool call that takes one snapshot never mixes two policies (D775). `mcp_allowlist` and the git workflow keys are read when the KB is mounted
 and apply at the next start.
 
 No MCP tool writes `settings.yaml` (`artifact_write` does not whitelist it): it changes the

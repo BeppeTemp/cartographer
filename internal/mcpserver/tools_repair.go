@@ -616,7 +616,7 @@ func kbRepairMaps(k *kb.KB, check, scope string, dryRun bool, limit int) (ToolRe
 // kbRepairArtifacts is kb_repair for an artifact check: the same response
 // shape, counted in files instead of concepts.
 func kbRepairArtifacts(k *kb.KB, check, scope string, dryRun bool, limit int) (ToolResult, error) {
-	if !dryRun && !k.AllowArtifactWrite {
+	if !dryRun && !k.Policy().AllowArtifactWrite {
 		return errorResult(fmt.Sprintf("kb_repair: %s rewrites artifact files, which needs kbs[].allow_artifact_write for this KB; dry_run still lists the plan", check)), nil
 	}
 	targets, items, err := planArtifactRepair(k, check, scope)

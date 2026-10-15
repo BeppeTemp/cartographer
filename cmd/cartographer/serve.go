@@ -435,16 +435,18 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 	k.SetSettingsInfo(info)
 	cfg.RecordKBSettings(name, eff, info.FromKB)
 
-	k.AllowArtifactWrite = eff.AllowArtifactWrite
-	k.AllowTemplateWrite = eff.TemplateWriteEnabled()
-	k.AutoRepair, k.AutoRepairDefault = eff.AutoRepairChecks()
-	k.RepairOnWrite = eff.RepairOnWriteEnabled()
-	k.WriteGate = eff.WriteGateMode()
 	// Validated by config.Load and by ResolveKBSettings; a zero spec yields the default.
-	k.DoctorIntervalDays, _ = eff.DoctorIntervalDays()
-	k.DoctorAutoIntervalDays, _ = eff.DoctorAutoIntervalDays()
-	k.DoctorBudget = eff.DoctorBudgetItems()
-	k.UsageStaleDays = eff.UsageStale()
+	var pol kb.Policy
+	pol.AllowArtifactWrite = eff.AllowArtifactWrite
+	pol.AllowTemplateWrite = eff.TemplateWriteEnabled()
+	pol.AutoRepair, pol.AutoRepairDefault = eff.AutoRepairChecks()
+	pol.RepairOnWrite = eff.RepairOnWriteEnabled()
+	pol.WriteGate = eff.WriteGateMode()
+	pol.DoctorIntervalDays, _ = eff.DoctorIntervalDays()
+	pol.DoctorAutoIntervalDays, _ = eff.DoctorAutoIntervalDays()
+	pol.DoctorBudget = eff.DoctorBudgetItems()
+	pol.UsageStaleDays = eff.UsageStale()
+	k.SetPolicy(pol)
 
 	if refresh && fmt.Sprint(prev) == fmt.Sprint(info) {
 		return eff

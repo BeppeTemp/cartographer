@@ -230,7 +230,7 @@ func TestEmptyConceptIsReviewedNeverDeleted(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 2)
 	seedInvalidPages(t, k)
-	k.AutoRepair = config.DefaultAutoRepair
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = config.DefaultAutoRepair })
 	stagedAutoRepair(context.Background(), k, config.DefaultAutoRepair, 50)
 	if _, err := os.Stat(filepath.Join(k.DataRoot(), "ops", "empty.md")); err != nil {
 		t.Fatalf("empty page deleted: %v", err)

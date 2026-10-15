@@ -13,7 +13,7 @@ func TestKBStatus_ReportsKBSettingsAndIgnoredServerValues(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	k.SetSettingsInfo(kb.SettingsInfo{
 		Present:         true,
 		FromKB:          []string{"allow_artifact_write"},

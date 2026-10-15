@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ import (
 func TestArtifactTools_PathRegistryWrite(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -78,7 +79,7 @@ func TestArtifactTools_PathRegistrySymlinkRejected(t *testing.T) {
 	for _, tool := range []string{"artifact_read", "artifact_write", "artifact_list"} {
 		t.Run(tool, func(t *testing.T) {
 			k := setupTestKB(t)
-			k.AllowArtifactWrite = true
+			setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 			target := filepath.Join(t.TempDir(), "outside.yaml")
 			if err := os.WriteFile(target, []byte("outside"), 0o644); err != nil {
 				t.Fatal(err)

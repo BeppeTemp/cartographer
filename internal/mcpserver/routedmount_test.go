@@ -49,7 +49,7 @@ func newRoutedTestHandler(t *testing.T, names ...string) http.Handler {
 	multi := NewMultiKBServer("test")
 	for _, name := range names {
 		k := setupNamedTestKB(t, name)
-		k.AllowArtifactWrite = true
+		setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 		multi.MountKB(name, func(s *Server) { RegisterKBTools(s, k, Deps{}) })
 	}
 	if err := multi.EnableRoutedMount("test", nil); err != nil {
@@ -378,7 +378,7 @@ func TestRoutedMount_GatedTool_UnionThenAttributedRefusal(t *testing.T) {
 	t.Parallel()
 	multi := NewMultiKBServer("test")
 	allowed := setupNamedTestKB(t, "open-kb")
-	allowed.AllowArtifactWrite = true
+	setPolicy(allowed, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	multi.MountKB("open-kb", func(s *Server) { RegisterKBTools(s, allowed, Deps{}) })
 	denied := setupNamedTestKB(t, "closed-kb") // AllowArtifactWrite stays false
 	multi.MountKB("closed-kb", func(s *Server) { RegisterKBTools(s, denied, Deps{}) })

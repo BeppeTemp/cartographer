@@ -521,7 +521,7 @@ func TestLint_ArtifactUnused_NoUsageData(t *testing.T) {
 		t.Fatalf("no data must stay silent, got %v", got)
 	}
 	// Run itself, on a KB nothing reported to, is silent too.
-	k.UsageStaleDays = 42
+	setPolicy(k, func(p *kb.Policy) { p.UsageStaleDays = 42 })
 	findings, err := Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)
@@ -563,7 +563,7 @@ func TestLint_ArtifactUnused_CustomThreshold(t *testing.T) {
 func TestLint_ArtifactUnused_ReadsTheKBStore(t *testing.T) {
 	t.Parallel()
 	k := usageKB(t)
-	k.UsageStaleDays = 42
+	setPolicy(k, func(p *kb.Policy) { p.UsageStaleDays = 42 })
 	if _, err := k.MergeUsage([]kb.UsageEntry{
 		{Name: "ops-tool", Kind: "skill", Provider: "claude", LastUsed: agoDays(60), Count: 2},
 		{Name: "helper", Kind: "agent", Provider: "claude", LastUsed: agoDays(2), Count: 2},

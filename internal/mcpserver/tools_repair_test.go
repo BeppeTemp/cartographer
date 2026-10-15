@@ -412,7 +412,7 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 func TestKBStatusConformance(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 2)
-	k.DoctorIntervalDays = 14
+	setPolicy(k, func(p *kb.Policy) { p.DoctorIntervalDays = 14 })
 	status := func() map[string]any {
 		res := callTool(t, s, "kb_status", `{}`)
 		var out map[string]any
@@ -766,7 +766,7 @@ func TestRepair_LegacyToolName(t *testing.T) {
 	if res := callTool(t, s, "kb_repair", `{"check":"legacy_tool_name","dry_run":false}`); !res.IsError || !strings.Contains(res.Content[0].Text, "allow_artifact_write") {
 		t.Fatalf("apply without allow_artifact_write must be refused: %+v", res)
 	}
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	before := commitCount(t, k)
 	out := repairCall(t, s, `{"check":"legacy_tool_name","dry_run":false}`)
 	if out["applied"].(float64) != 2 {

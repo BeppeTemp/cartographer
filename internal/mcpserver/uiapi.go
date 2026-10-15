@@ -526,7 +526,7 @@ const (
 // none when the heartbeat is off.
 func uiAutoChecks(k *kb.KB) map[string]bool {
 	out := map[string]bool{}
-	if k.DoctorAutoIntervalDays <= 0 {
+	if k.Policy().DoctorAutoIntervalDays <= 0 {
 		return out
 	}
 	safe, _ := autoRepairSplit(k)

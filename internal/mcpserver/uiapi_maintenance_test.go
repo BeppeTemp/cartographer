@@ -18,7 +18,7 @@ import (
 func maintenanceHandler(t *testing.T, ts *auth.TokenStore) http.Handler {
 	t.Helper()
 	k, s := autoRepairKB(t, "nonstandard_field")
-	k.AutoRepairDefault = true
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepairDefault = true })
 	k.AuthName = "docs"
 	s.runAutoRepairQuota(t.Context())
 	fm := newFM()
@@ -126,7 +126,8 @@ func TestUIAPI_MaintenanceSummaryNeedsAWholeKBView(t *testing.T) {
 // D365: every finding says who acts on it, the summary says who runs the doctor.
 func TestUIAPI_FindingHandler(t *testing.T) {
 	t.Parallel()
-	k := &kb.KB{AutoRepair: []string{"nonstandard_field", "broken_link"}, DoctorAutoIntervalDays: 1}
+	k := &kb.KB{}
+	k.SetPolicy(kb.Policy{AutoRepair: []string{"nonstandard_field", "broken_link"}, DoctorAutoIntervalDays: 1})
 	auto := uiAutoChecks(k)
 	fix := &lint.Fix{}
 	for _, tc := range []struct {
@@ -145,7 +146,7 @@ func TestUIAPI_FindingHandler(t *testing.T) {
 		}
 	}
 	// A heartbeat that never runs fixes nothing by itself.
-	k.DoctorAutoIntervalDays = 0
+	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 0 })
 	if got := findingHandler(lint.Finding{Check: "nonstandard_field", Fix: fix}, uiAutoChecks(k)); got != findingHandlerDoctor {
 		t.Errorf("heartbeat off: handler %q", got)
 	}

@@ -611,19 +611,20 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	if k.Discovered {
 		mount = "discovered"
 	}
+	pol := k.Policy() // one snapshot: the map never mixes two policies (D775)
 	interval := "disabled"
-	if k.DoctorIntervalDays > 0 {
-		interval = fmt.Sprintf("%d days", k.DoctorIntervalDays)
+	if pol.DoctorIntervalDays > 0 {
+		interval = fmt.Sprintf("%d days", pol.DoctorIntervalDays)
 	}
 	autoInterval := "disabled"
-	if k.DoctorAutoIntervalDays > 0 && len(k.AutoRepair) > 0 {
-		autoInterval = fmt.Sprintf("%d days", k.DoctorAutoIntervalDays)
+	if pol.DoctorAutoIntervalDays > 0 && len(pol.AutoRepair) > 0 {
+		autoInterval = fmt.Sprintf("%d days", pol.DoctorAutoIntervalDays)
 	}
 	workflow := "local"
 	if k.ServerGit != nil {
 		workflow = "pr"
 	}
-	_, ignoredAuto := autoRepairSplit(k)
+	_, ignoredAuto := splitAutoRepair(pol.AutoRepair)
 	info := k.SettingsInfo()
 	// cap builds one capability whose controlling key can be carried by the KB
 	// (D746): Setting names settings.yaml when the KB sets it, and
@@ -648,8 +649,8 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		}
 	}
 	return map[string]KBCapability{
-		"artifact_write": cap("allow_artifact_write", onOff(k.AllowArtifactWrite), "kbs[].allow_artifact_write"),
-		"template_write": cap("allow_template_write", templateWriteState(k), "kbs[].allow_template_write"),
+		"artifact_write": cap("allow_artifact_write", onOff(pol.AllowArtifactWrite), "kbs[].allow_artifact_write"),
+		"template_write": cap("allow_template_write", templateWriteState(pol), "kbs[].allow_template_write"),
 		"secrets":        {State: secretsState, Setting: secretsSetting},
 		"git_sync":       {State: onOff(k.GitSync), Setting: "git.sync"},
 		"git_workflow":   cap("git_profile", workflow, "kbs[].git_profile or git.profile"),
@@ -658,20 +659,20 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		"mount": {State: mount, Setting: "kbs[]"},
 		// D299: what `cartographer kb repair --apply` may apply unattended,
 		// and when the server proposes the next kb-doctor session.
-		"auto_repair": with(cap("auto_repair", onOff(len(k.AutoRepair) > 0), "kbs[].auto_repair"), func(c *KBCapability) {
-			c.Checks, c.Default, c.Ignored = k.AutoRepair, k.AutoRepairDefault, ignoredAuto
+		"auto_repair": with(cap("auto_repair", onOff(len(pol.AutoRepair) > 0), "kbs[].auto_repair"), func(c *KBCapability) {
+			c.Checks, c.Default, c.Ignored = pol.AutoRepair, pol.AutoRepairDefault, ignoredAuto
 		}),
 		// D349: a write applies the mechanical auto_repair fixes to what it wrote.
-		"repair_on_write": cap("repair_on_write", onOff(k.RepairOnWrite && len(k.AutoRepair) > 0), "kbs[].repair_on_write"),
+		"repair_on_write": cap("repair_on_write", onOff(pol.RepairOnWrite && len(pol.AutoRepair) > 0), "kbs[].repair_on_write"),
 		// D350: a write that introduces findings at or above the floor is refused.
-		"write_gate":      cap("write_gate", writeGateState(k), "kbs[].write_gate"),
+		"write_gate":      cap("write_gate", writeGateStateOf(k, pol), "kbs[].write_gate"),
 		"doctor_interval": cap("doctor_interval", interval, "kbs[].doctor_interval"),
 		// D704: always assisted. Still reported because a kb-doctor skill
 		// synced before 0.24 reads a missing doctor_mode as unattended and would
 		// start a session by itself.
 		"doctor_mode": {State: "assisted", Setting: "kbs[].doctor_mode (ignored)"},
 		// D358: how many review items a kb-doctor session decides.
-		"doctor_budget": cap("doctor_budget", fmt.Sprintf("%d review items", doctorBudget(k)), "kbs[].doctor_budget"),
+		"doctor_budget": cap("doctor_budget", fmt.Sprintf("%d review items", doctorBudget(pol)), "kbs[].doctor_budget"),
 		// D323: the server applies auto_repair by itself on this interval.
 		"doctor_auto_interval": cap("doctor_auto_interval", autoInterval, "kbs[].doctor_auto_interval"),
 	}
@@ -679,9 +680,9 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 
 // doctorBudget is the review items a kb-doctor session decides (D358); a KB
 // opened without a spec gets the default.
-func doctorBudget(k *kb.KB) int {
-	if k.DoctorBudget > 0 {
-		return k.DoctorBudget
+func doctorBudget(p kb.Policy) int {
+	if p.DoctorBudget > 0 {
+		return p.DoctorBudget
 	}
 	return defaultDoctorBudget
 }
@@ -692,11 +693,11 @@ const defaultDoctorBudget = 10
 
 // templateWriteState is the kb_status view of D352: artifact_write limited to
 // templates/, "full" when allow_artifact_write already lifts the limit.
-func templateWriteState(k *kb.KB) string {
+func templateWriteState(p kb.Policy) string {
 	switch {
-	case k.AllowArtifactWrite:
+	case p.AllowArtifactWrite:
 		return "full"
-	case k.AllowTemplateWrite:
+	case p.AllowTemplateWrite:
 		return "enabled"
 	}
 	return "disabled"
@@ -885,7 +886,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 			// a hidden concept's findings from a warm cache.
 			if allFindings, lerr := cc.lintFindings(k); lerr == nil {
 				vis, _ := uiVisibleFindingsFrom(ctx, k, "", allFindings)
-				result["conformance"] = summarizeConformance(vis, reviewTotal, cc.cachedDoctorDate(k), k.DoctorIntervalDays, time.Now().UTC())
+				result["conformance"] = summarizeConformance(vis, reviewTotal, cc.cachedDoctorDate(k), k.Policy().DoctorIntervalDays, time.Now().UTC())
 				// D370: the trend of the whole-KB totals, whole-KB callers only.
 				if WholeVisible(ctx, k, false) {
 					if tr := lintTrend(readLintHistory(k), time.Now().UTC()); tr != nil {
@@ -1280,7 +1281,8 @@ func usageSummary(k *kb.KB, now time.Time) map[string]interface{} {
 	supported, partial, unsupported := provisioning.UsageProviders()
 	usage := kb.SummarizeUsage(entries)
 	counts := map[string]int{}
-	staleDays := k.UsageStaleDays
+	pol := k.Policy()
+	staleDays := pol.UsageStaleDays
 	if staleDays <= 0 { // threshold disabled: nothing is stale, only never or active
 		staleDays = 1 << 30
 	}
@@ -1298,6 +1300,6 @@ func usageSummary(k *kb.KB, now time.Time) map[string]interface{} {
 		"artifacts_never_used": counts[lint.UsageNever] + counts[lint.UsageCatalog],
 		"artifacts_stale":      counts[lint.UsageStale],
 		"artifacts_active":     counts[lint.UsageActive],
-		"stale_threshold_days": k.UsageStaleDays,
+		"stale_threshold_days": pol.UsageStaleDays,
 	}
 }

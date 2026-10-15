@@ -25,8 +25,8 @@ func gitOut(t *testing.T, k *kb.KB, args ...string) string {
 func autoRepairKB(t *testing.T, checks ...string) (*kb.KB, *Server) {
 	t.Helper()
 	k, s := repairKB(t, 3)
-	k.AutoRepair = checks
-	k.DoctorAutoIntervalDays = 1
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = checks })
+	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
 	return k, s
 }
 
@@ -73,7 +73,7 @@ func TestAutoRepairQuotaAppliesOnlyTheListedChecks(t *testing.T) {
 func TestAutoRepairQuotaIsBoundedPerRun(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, autoRepairLimit+7)
-	k.AutoRepair = []string{"nonstandard_field"}
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{"nonstandard_field"} })
 	run := s.runAutoRepairQuota(context.Background())
 	if run.Checks[0].Applied != autoRepairLimit {
 		t.Fatalf("applied = %d, want the limit %d", run.Checks[0].Applied, autoRepairLimit)
@@ -140,8 +140,8 @@ func TestAutoRepairHeartbeatFiresAndStops(t *testing.T) {
 func TestStartAutoRepairIsOffUnlessConfigured(t *testing.T) {
 	t.Parallel()
 	for name, set := range map[string]func(k *kb.KB){
-		"interval zero": func(k *kb.KB) { k.DoctorAutoIntervalDays = 0 },
-		"no checks":     func(k *kb.KB) { k.AutoRepair = nil },
+		"interval zero": func(k *kb.KB) { setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 0 }) },
+		"no checks":     func(k *kb.KB) { setPolicy(k, func(p *kb.Policy) { p.AutoRepair = nil }) },
 	} {
 		k, s := autoRepairKB(t, "nonstandard_field")
 		set(k)
@@ -158,7 +158,7 @@ func TestStartAutoRepairIsOffUnlessConfigured(t *testing.T) {
 func TestCapabilitiesReportAutoRepairDefaultAndInterval(t *testing.T) {
 	t.Parallel()
 	k, _ := autoRepairKB(t, "nonstandard_field", "duplicate_link")
-	k.AutoRepairDefault = true
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepairDefault = true })
 	caps := kbCapabilities(k)
 	if c := caps["auto_repair"]; c.State != "enabled" || !c.Default || len(c.Checks) != 2 {
 		t.Fatalf("auto_repair = %+v", c)
@@ -166,7 +166,7 @@ func TestCapabilitiesReportAutoRepairDefaultAndInterval(t *testing.T) {
 	if c := caps["doctor_auto_interval"]; c.State != "1 days" {
 		t.Fatalf("doctor_auto_interval = %+v", c)
 	}
-	k.DoctorAutoIntervalDays = 0
+	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 0 })
 	if c := kbCapabilities(k)["doctor_auto_interval"]; c.State != "disabled" {
 		t.Fatalf("doctor_auto_interval = %+v", c)
 	}

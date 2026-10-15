@@ -161,8 +161,8 @@ func TestFixpointLeavesCrossConceptFindingsAlone(t *testing.T) {
 func TestAutoRepairRunConvergesAChainInOneCommit(t *testing.T) {
 	t.Parallel()
 	k, s := chainKB(t, 3)
-	k.AutoRepair = chainChecks
-	k.DoctorAutoIntervalDays = 1
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = chainChecks })
+	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
 	before := commitCount(t, k)
 	run := s.runAutoRepairQuota(context.Background())
 	if commitCount(t, k) != before+1 {
@@ -209,8 +209,8 @@ func TestAutoRepairRunLeavesNothingOnTheProcessedConcepts(t *testing.T) {
 	t.Parallel()
 	const drifted = autoRepairLimit + 100
 	k, s := chainKB(t, drifted)
-	k.AutoRepair = chainChecks
-	k.DoctorAutoIntervalDays = 1
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = chainChecks })
+	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
 	s.runAutoRepairQuota(context.Background())
 	left := map[string]bool{}
 	for _, f := range fixableOf(mustLint(t, k), chainChecks) {
@@ -224,8 +224,10 @@ func TestAutoRepairRunLeavesNothingOnTheProcessedConcepts(t *testing.T) {
 func TestAutoRepairIgnoresChecksThatAreNotSafe(t *testing.T) {
 	t.Parallel()
 	k, s := chainKB(t, 1)
-	k.AutoRepair = []string{"broken_link", "nonstandard_field", "reciprocal_link_item"}
-	k.DoctorAutoIntervalDays = 1
+	setPolicy(k, func(p *kb.Policy) {
+		p.AutoRepair = []string{"broken_link", "nonstandard_field", "reciprocal_link_item"}
+	})
+	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
 	safe, ignored := autoRepairSplit(k)
 	if len(safe) != 1 || safe[0] != "nonstandard_field" || len(ignored) != 2 {
 		t.Fatalf("safe = %v, ignored = %v", safe, ignored)
@@ -238,7 +240,7 @@ func TestAutoRepairIgnoresChecksThatAreNotSafe(t *testing.T) {
 		t.Fatalf("run = %+v", run)
 	}
 	// Repair-on-write follows the same rule.
-	k.RepairOnWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.RepairOnWrite = true })
 	if got := repairOnWriteChecks(k); len(got) != 1 || got[0] != "nonstandard_field" {
 		t.Fatalf("repair-on-write checks = %v", got)
 	}
@@ -247,7 +249,7 @@ func TestAutoRepairIgnoresChecksThatAreNotSafe(t *testing.T) {
 func TestDefaultAutoRepairRunsEveryUnattendedCheck(t *testing.T) {
 	t.Parallel()
 	k, _ := chainKB(t, 1)
-	k.AutoRepair = config.DefaultAutoRepair
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = config.DefaultAutoRepair })
 	if _, ignored := autoRepairSplit(k); len(ignored) != 0 {
 		t.Fatalf("the default list has checks the heartbeat ignores: %v", ignored)
 	}
@@ -307,8 +309,8 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 func TestAutoRepairPullTriggersOneDebouncedRun(t *testing.T) {
 	t.Parallel()
 	k, s := chainKB(t, 1)
-	k.AutoRepair = chainChecks
-	k.DoctorAutoIntervalDays = 1
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = chainChecks })
+	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
 	s.autoRepairTrigger = make(chan struct{}, 1)
 	s.autoRepairPullGap = 400 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
@@ -338,8 +340,8 @@ func TestAutoRepairPullTriggersOneDebouncedRun(t *testing.T) {
 func TestStartAutoRepairChainsTheSyncInCallback(t *testing.T) {
 	t.Parallel()
 	k, s := chainKB(t, 1)
-	k.AutoRepair = chainChecks
-	k.DoctorAutoIntervalDays = 1
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = chainChecks })
+	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
 	calls := 0
 	k.OnSyncIn = func() { calls++ }
 	ctx, cancel := context.WithCancel(context.Background())

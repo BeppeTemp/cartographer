@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +15,7 @@ import (
 func TestArtifactTools_BinaryAndExecutableRoundTrip(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	data := []byte{0x00, 0xff, 0x80, 0x01}
@@ -46,7 +47,7 @@ func TestArtifactTools_BinaryAndExecutableRoundTrip(t *testing.T) {
 func TestArtifactTools_ExecutableTriState(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	path := "skills/mode/assets/run.sh"
@@ -154,7 +155,7 @@ func TestArtifactTools_SymlinksRejected(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			k := setupTestKB(t)
-			k.AllowArtifactWrite = true
+			setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 			target := filepath.Join(t.TempDir(), "outside.bin")
 			if err := os.WriteFile(target, []byte("outside"), 0o644); err != nil {
 				t.Fatal(err)
@@ -226,7 +227,7 @@ func TestArtifactTools_ListReportsExecutableAuxiliarySkillFile(t *testing.T) {
 func TestArtifactTools_InvalidBase64DoesNotWrite(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	path := "skills/b64/assets/file.bin"
@@ -243,7 +244,7 @@ func TestArtifactTools_InvalidBase64DoesNotWrite(t *testing.T) {
 func TestArtifactTools_TextEncodingAndDecodedLimits(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	call := func(args map[string]any) ToolResult {
@@ -384,7 +385,7 @@ func TestArtifactTools_FlagDisabled_WriteDeleteNotRegistered(t *testing.T) {
 func TestArtifactTools_FlagEnabled_ProfileClassification(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	s.SetToolsProfile("agent")
@@ -419,7 +420,7 @@ func TestArtifactTools_FlagEnabled_ProfileClassification(t *testing.T) {
 func TestArtifactTools_Skill_WriteReadListDelete(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -569,7 +570,7 @@ func TestArtifactTools_Skill_WriteReadListDelete(t *testing.T) {
 func TestArtifactTools_SkillWrite_InvalidRejected(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -605,7 +606,7 @@ func TestArtifactTools_SkillWrite_InvalidRejected(t *testing.T) {
 func TestArtifactTools_MCPWrite_InvalidRejected(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -626,7 +627,7 @@ func TestArtifactTools_MCPWrite_InvalidRejected(t *testing.T) {
 func TestArtifactTools_PathTraversal_Rejected(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -701,7 +702,7 @@ func TestKBStatus_ReportsCapabilities(t *testing.T) {
 		t.Errorf("tool_prefix capability still reported: %v", caps["tool_prefix"])
 	}
 
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	k.Discovered = true
 	caps = read()
 	if got := caps["artifact_write"]["state"]; got != "enabled" {
@@ -764,7 +765,7 @@ func TestArtifactRead_DescriptionNamesTheGate(t *testing.T) {
 func TestArtifactTools_SkillWriteRefusesFrontmatterAClientCannotParse(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -805,7 +806,7 @@ func TestArtifactTools_SkillWriteRefusesFrontmatterAClientCannotParse(t *testing
 func TestArtifactTools_AgentNameMustEqualFileName(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	call := func(path, name string) ToolResult {
@@ -830,7 +831,7 @@ func TestArtifactTools_AgentNameMustEqualFileName(t *testing.T) {
 func TestArtifactTools_AgentProvidersBlockIsValidated(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	n := 0
@@ -860,7 +861,7 @@ func TestArtifactTools_AgentProvidersBlockIsValidated(t *testing.T) {
 func TestArtifactWrite_HookJSONIsValidated(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	write := func(path, content string) ToolResult {

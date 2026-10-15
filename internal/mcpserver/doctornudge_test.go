@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"strings"
 	"sync"
 	"testing"
@@ -18,7 +19,7 @@ import (
 func nudgeKB(t *testing.T) (*Server, *time.Time) {
 	t.Helper()
 	k, s := repairKB(t, 2)
-	k.DoctorIntervalDays = 14
+	setPolicy(k, func(p *kb.Policy) { p.DoctorIntervalDays = 14 })
 	now := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return now }
 	return s, &now
@@ -91,7 +92,7 @@ func TestDoctorNudgeNotDueOrDisabled(t *testing.T) {
 		t.Fatal("nudged two days after a kb-doctor session")
 	}
 	s2, _ := nudgeKB(t)
-	s2.kbRef.DoctorIntervalDays = 0
+	setPolicy(s2.kbRef, func(p *kb.Policy) { p.DoctorIntervalDays = 0 })
 	if nudged(s2.callTool(authLocalContext(), "search", json.RawMessage(`{"query":"N0"}`))) {
 		t.Fatal("nudged with doctor_interval 0")
 	}

@@ -43,13 +43,16 @@ func acceptsFindings(name string) bool {
 // writeGateState is the capability state of the KB's write_gate: off, error or
 // warning; inactive when it is set but the gate cannot roll back (it needs
 // auto-commit on a git repository). An inactive gate behaves as off.
-func writeGateState(k *kb.KB) string {
-	switch k.WriteGate {
+func writeGateState(k *kb.KB) string { return writeGateStateOf(k, k.Policy()) }
+
+// writeGateStateOf is writeGateState over a snapshot the caller already took.
+func writeGateStateOf(k *kb.KB, p kb.Policy) string {
+	switch p.WriteGate {
 	case "error", "warning":
 		if !k.AutoCommit || !gitx.IsRepo(k.Root) {
 			return "inactive"
 		}
-		return k.WriteGate
+		return p.WriteGate
 	}
 	return "off"
 }
@@ -137,7 +140,7 @@ type gateOutcome struct {
 
 // gateFloor is the lowest severity the KB's gate refuses.
 func gateFloor(k *kb.KB) string {
-	if k.WriteGate == "warning" {
+	if k.Policy().WriteGate == "warning" {
 		return lint.SevWarning
 	}
 	return lint.SevError
@@ -262,7 +265,7 @@ func judgeWrite(k *kb.KB, toolName string, accepts []acceptedFinding) gateOutcom
 		body, _ := json.Marshal(findingsOut(introduced))
 		msg := fmt.Sprintf("write_gate (%s): refused, nothing was written. This call introduced %d finding(s):\n%s\n"+
 			"Fix them in the same call, or retry with accept_findings: [{\"check\": \"<name>\", \"reason\": \"<why>\"}].",
-			k.WriteGate, len(introduced), body)
+			floor, len(introduced), body)
 		res := errorResult(msg)
 		return gateOutcome{Refusal: &res}
 	}

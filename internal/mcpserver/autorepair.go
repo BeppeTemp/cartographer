@@ -145,7 +145,12 @@ func lastAutoRepairRun(k *kb.KB) (autoRepairRun, bool) {
 // only a check whose registered fix is safe to run with no person (D354) runs
 // unattended; the operator's own kb_repair is unchanged.
 func autoRepairSplit(k *kb.KB) (safe, ignored []string) {
-	for _, c := range k.AutoRepair {
+	return splitAutoRepair(k.Policy().AutoRepair)
+}
+
+// splitAutoRepair is autoRepairSplit over a list the caller already holds.
+func splitAutoRepair(checks []string) (safe, ignored []string) {
+	for _, c := range checks {
 		if lint.AutoRepairSafe(c) {
 			safe = append(safe, c)
 		} else {
@@ -161,17 +166,21 @@ func autoRepairSplit(k *kb.KB) (safe, ignored []string) {
 // ends at the next wait, and no run starts after cancellation.
 func (s *Server) StartAutoRepair(ctx context.Context) {
 	k := s.kbRef
-	if k == nil || k.DoctorAutoIntervalDays <= 0 || len(k.AutoRepair) == 0 {
+	if k == nil {
 		return
 	}
-	safe, ignored := autoRepairSplit(k)
+	pol := k.Policy()
+	if pol.DoctorAutoIntervalDays <= 0 || len(pol.AutoRepair) == 0 {
+		return
+	}
+	safe, ignored := splitAutoRepair(pol.AutoRepair)
 	if len(ignored) > 0 {
 		fmt.Fprintf(os.Stderr, "cartographer: auto_repair for %s ignores %s: not safe to run unattended (kb_repair still applies them on request)\n", kbName(k), strings.Join(ignored, ", "))
 	}
 	if len(safe) == 0 {
 		return
 	}
-	interval := time.Duration(k.DoctorAutoIntervalDays) * 24 * time.Hour
+	interval := time.Duration(pol.DoctorAutoIntervalDays) * 24 * time.Hour
 	// Every start runs once, shortly after boot (D704): a start is an
 	// upgrade, a config change or a fresh clone, each of which can make pages
 	// nobody wrote fixable, and a fix waiting a day is a queue the Atlas would
@@ -438,7 +447,7 @@ func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int)
 		}
 	}
 
-	if k.AllowArtifactWrite {
+	if k.Policy().AllowArtifactWrite {
 		for _, check := range artifact {
 			if ctx.Err() != nil {
 				return r

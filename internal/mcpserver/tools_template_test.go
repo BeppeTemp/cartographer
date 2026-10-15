@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,7 @@ const testTemplate = "---\ntype: Runbook\ntitle: {{title}}\ntags: [{{tag}}, stab
 func TestTemplateArtifactLifecycleAndList(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	call := func(name string, args map[string]any) ToolResult {
@@ -63,7 +64,7 @@ func TestTemplateArtifactLifecycleAndList(t *testing.T) {
 func TestTemplateArtifactRejectsInvalidSyntax(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	k.AllowArtifactWrite = true
+	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	for name, content := range map[string]string{
