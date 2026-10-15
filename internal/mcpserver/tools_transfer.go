@@ -162,10 +162,13 @@ func authorizeTransferTarget(ctx context.Context, src, dst *kb.KB, dstName strin
 		if m.TargetID == "" {
 			return deny(denyBadArguments)
 		}
-		_, _, typ := conceptClass(src, m.SourceID)
-		mapName, journalName, _ := conceptClass(dst, m.TargetID)
-		if !p.Policy.Allows(dstName, mapName, journalName, typ, true) {
-			return deny(denyOutsideScope)
+		// Every satellite of an expanded concept lands in dst too, with its own type.
+		for _, pair := range movePairs(src, m.SourceID, m.TargetID) {
+			_, _, typ := conceptClass(src, pair.from)
+			mapName, journalName, _ := conceptClass(dst, pair.to)
+			if !p.Policy.Allows(dstName, mapName, journalName, typ, true) {
+				return deny(denyOutsideScope)
+			}
 		}
 	}
 	return nil

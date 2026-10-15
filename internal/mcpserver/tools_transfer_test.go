@@ -438,3 +438,27 @@ func TestConceptTransfer_RefusesIgnoredFiles(t *testing.T) {
 		t.Error("ignored file must stay in the source")
 	}
 }
+
+// TestConceptTransfer_TargetAuthorizesEverySatellite: the destination slot of
+// each satellite is checked with that satellite's own type (#783).
+func TestConceptTransfer_TargetAuthorizesEverySatellite(t *testing.T) {
+	t.Parallel()
+	f := newTransferFixture(t)
+	xferWrite(t, f.a, "notes/dossier/index.md", "---\ntype: Entity\ntitle: Dossier\n---\nbody\n")
+	xferWrite(t, f.a, "notes/dossier/part.md", "---\ntype: Topic\ntitle: Part\n---\nsat\n")
+	xferWrite(t, f.a, "notes/flat.md", "---\ntype: Entity\ntitle: Flat\n---\nflat\n")
+	expanded := []conceptMoveEntry{{SourceID: "notes/dossier", TargetID: "wiki/dossier"}}
+	flat := []conceptMoveEntry{{SourceID: "notes/flat", TargetID: "wiki/flat"}}
+
+	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Write: true}, {KB: "kb-b", Write: true, Types: []string{"Entity"}}}})
+	if err := authorizeTransferTarget(ctx, f.a, f.b, "kb-b", expanded); err == nil {
+		t.Error("a satellite of a type the token may not write on the target was transferred")
+	}
+	if err := authorizeTransferTarget(ctx, f.a, f.b, "kb-b", flat); err != nil {
+		t.Errorf("flat concept denied: %v", err)
+	}
+	ctx = restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Write: true}, {KB: "kb-b", Write: true, Types: []string{"Entity", "Topic"}}}})
+	if err := authorizeTransferTarget(ctx, f.a, f.b, "kb-b", expanded); err != nil {
+		t.Errorf("every type allowed, still denied: %v", err)
+	}
+}

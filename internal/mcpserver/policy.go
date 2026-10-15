@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
@@ -452,15 +454,64 @@ func WholeVisible(ctx context.Context, k *kb.KB, write bool) bool {
 	return p.ID != "" && (p.Policy.Admin || p.Policy.AllowsWholeKB(kbName(k), write))
 }
 
-// allowedMove requires access to both the source and the destination. The
-// destination does not exist yet, so it inherits the source concept's type.
+// allowedMove requires access to both the source and the destination, for the
+// concept and for every satellite an expanded concept carries along. The
+// destination does not exist yet, so each destination slot inherits the type of
+// the concept it receives.
 func allowedMove(policy auth.Policy, k *kb.KB, name, sourceID, targetID string) bool {
-	if !allowedID(policy, k, name, sourceID, true, "") || targetID == "" {
+	if targetID == "" {
 		return false
 	}
-	_, _, typ := conceptClass(k, sourceID)
-	mapName, journalName, _ := conceptClass(k, targetID)
-	return policy.Allows(name, mapName, journalName, typ, true)
+	for _, pair := range movePairs(k, sourceID, targetID) {
+		if !allowedID(policy, k, name, pair.from, true, "") {
+			return false
+		}
+		_, _, typ := conceptClass(k, pair.from)
+		mapName, journalName, _ := conceptClass(k, pair.to)
+		if !policy.Allows(name, mapName, journalName, typ, true) {
+			return false
+		}
+	}
+	return true
+}
+
+// movePair is one concept that changes ID when sourceID moves to targetID.
+type movePair struct{ from, to string }
+
+// movePairs lists the concept and, only when it is expanded, each satellite
+// with its target ID (the mapping applyConceptMoves and planTransfer apply).
+// A flat concept costs one location lookup; an expanded one walks its own
+// directory, never the whole KB. A concept that cannot be located yields just
+// itself: the handler fails it afterwards.
+func movePairs(k *kb.KB, sourceID, targetID string) []movePair {
+	pairs := []movePair{{sourceID, targetID}}
+	loc, err := k.LocateConcept(okf.ConceptID(sourceID))
+	if err != nil || !loc.Expanded {
+		return pairs
+	}
+	_ = filepath.WalkDir(loc.Dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if path != loc.Dir && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, rerr := filepath.Rel(loc.Dir, path)
+		if rerr != nil || !strings.EqualFold(filepath.Ext(rel), ".md") {
+			return nil
+		}
+		// "<dir>/index.md" is the concept "<dir>" (an expanded satellite).
+		id, perr := okf.PathToID(strings.TrimSuffix(sourceID+"/"+filepath.ToSlash(rel), "/index.md"))
+		if perr != nil || string(id) == sourceID {
+			return nil
+		}
+		pairs = append(pairs, movePair{string(id), targetID + strings.TrimPrefix(string(id), sourceID)})
+		return nil
+	})
+	return pairs
 }
 
 func allowedID(policy auth.Policy, k *kb.KB, name, id string, write bool, proposedType string) bool {
