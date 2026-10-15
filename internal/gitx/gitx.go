@@ -18,9 +18,20 @@ import (
 // ErrNothingToCommit signals that there was nothing to commit.
 var ErrNothingToCommit = errors.New("nothing to commit")
 
+// gitEnv is the environment of every git command gitx runs: the process
+// environment, then extra, then LC_ALL=C. gitx recognises outcomes by git's
+// English text ("nothing to commit", "CONFLICT", …), and a git built with
+// gettext — Homebrew's, most Linux distributions' — prints them in the user's
+// locale, where those checks silently stopped matching. Appended last, so it
+// wins over both the process environment and extra.
+func gitEnv(extra []string) []string {
+	return append(append(os.Environ(), extra...), "LC_ALL=C")
+}
+
 // IsRepo checks whether the directory is a valid git repository.
 func IsRepo(dir string) bool {
 	cmd := exec.Command("git", "-C", dir, "rev-parse", "--git-dir")
+	cmd.Env = gitEnv(nil)
 	return cmd.Run() == nil
 }
 
@@ -64,8 +75,7 @@ func Clone(ctx context.Context, remote, dest string, env ...string) error {
 // or a jump host has said how to reach their forge, and overwriting that
 // breaks a working setup to prevent a hypothetical one.
 func cloneEnv(remote string, extra []string) []string {
-	env := append(os.Environ(), extra...)
-	env = append(env, "GIT_TERMINAL_PROMPT=0")
+	env := append(gitEnv(extra), "GIT_TERMINAL_PROMPT=0")
 	if !isSSHRemote(remote) || hasEnv(env, "GIT_SSH_COMMAND") {
 		return env
 	}
@@ -392,9 +402,7 @@ func LsRemote(dir, remote string, env ...string) (RemoteRefs, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "ls-remote", "--symref", remote)
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd.Env = gitEnv(env)
 	killGroupOnCancel(cmd)
 	cmd.WaitDelay = time.Second
 	var stderr strings.Builder
@@ -476,7 +484,7 @@ func runGit(dir string, args ...string) (string, error) {
 
 // runGitEnv runs a git command in the specified directory with extra
 // environment variables layered on top of the process environment
-// (cmd.Env = append(os.Environ(), env...)): entries in env take precedence
+// (gitEnv: process environment, then env, then LC_ALL=C): entries in env take precedence
 // over the process environment (later entries win on duplicate keys), the
 // inverse of setupGitSSH's "process environment wins" rule for the global
 // GIT_SSH_COMMAND fallback — see D46. A nil/empty env
@@ -484,9 +492,7 @@ func runGit(dir string, args ...string) (string, error) {
 func runGitEnv(dir string, env []string, args ...string) (string, error) {
 	fullArgs := append([]string{"-C", dir}, args...)
 	cmd := exec.Command("git", fullArgs...)
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd.Env = gitEnv(env)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -599,9 +605,7 @@ func Fetch(dir, remote string, env ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "fetch", remote)
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
+	cmd.Env = gitEnv(env)
 	killGroupOnCancel(cmd)
 	cmd.WaitDelay = time.Second
 	out, err := cmd.CombinedOutput()
@@ -693,6 +697,7 @@ func RebaseOntoAutostash(dir, remote, branch string, env ...string) error {
 // ("git ls-tree -r --name-only -z <ref>").
 func TreePaths(dir, ref string) ([]string, error) {
 	cmd := exec.Command("git", "-C", dir, "ls-tree", "-r", "--name-only", "-z", ref)
+	cmd.Env = gitEnv(nil)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git ls-tree %s: %w", ref, err)
@@ -921,6 +926,7 @@ func UnmergedFiles(dir string) ([]string, error) {
 // is not inside a git work tree (or git is missing).
 func ListFiles(dir string) ([]string, error) {
 	cmd := exec.Command("git", "-C", dir, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+	cmd.Env = gitEnv(nil)
 	out, err := cmd.Output() // stdout only: a warning on stderr is not a path
 	if err != nil {
 		return nil, fmt.Errorf("git ls-files: %w", err)
@@ -1246,6 +1252,7 @@ func MergeFileUnion(base, ours, theirs string) (string, error) {
 		}
 	}
 	cmd := exec.Command("git", "merge-file", "-p", "--union", paths[0], paths[1], paths[2])
+	cmd.Env = gitEnv(nil)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
