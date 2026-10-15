@@ -11,7 +11,17 @@ import { resolveSlots } from "../../web/src/lib/palette";
 import { buildKb } from "./data";
 
 const FPS = 30;
-const DURATION = 46;
+// Story time: every beat below is authored in the seconds of the first cut. The film plays them slower,
+// so each line can be read at README size (the opening most), while the engine keeps real time.
+const WARP: [number, number][] = [[0, 0], [11.9, 7], [54.8, 40], [62.8, 48]]; // [film s, story s]
+const DURATION = WARP[WARP.length - 1]![0];
+function story(T: number): number {
+  for (let k = 1; k < WARP.length; k++) {
+    const [f0, s0] = WARP[k - 1]!, [f1, s1] = WARP[k]!;
+    if (T <= f1) return s0 + ((T - f0) * (s1 - s0)) / (f1 - f0);
+  }
+  return WARP[WARP.length - 1]![1];
+}
 const W = 1920;
 const H = 1080;
 const GW = 1000; // the graph's canvas: the right part of the frame; the left column (x 120-940) is for the roster, cards and captions
@@ -26,14 +36,14 @@ const FLAGS_ID = "decisions/feature-flags";
 
 // The cast: one person, one coding agent, one colour (avatar, title-bar dot, note border, connection line).
 const CAST = [
-  { name: "Alice", agent: "Claude Code", color: "#365D50" },
-  { name: "Marco", agent: "Codex", color: "#B8785D" },
-  { name: "Priya", agent: "OpenCode", color: "#496B87" },
-  { name: "Leo", agent: "Kiro", color: "#805B18" },
+  { name: "Alice", agents: ["Claude Code", "Codex"], color: "#365D50" },
+  { name: "Marco", agents: ["Codex", "Antigravity"], color: "#B8785D" },
+  { name: "Priya", agents: ["OpenCode", "Claude Code"], color: "#496B87" },
+  { name: "Leo", agents: ["Kiro", "Copilot CLI"], color: "#805B18" },
 ];
 const ROW0 = 166; // centre of the first roster row (x 120, 76 px apart)
 const rowY = (i: number) => ROW0 + 76 * i;
-const LX0 = 540; // where a connection line leaves its roster row
+const LX0 = 690; // where a connection line leaves its roster row
 const TERM = { x: COL, y: 454, w: CARD_W }; // the agent's terminal card, under the roster
 
 // --- easing ---------------------------------------------------------------
@@ -133,11 +143,11 @@ const avatar = (p: (typeof CAST)[number], d: number) =>
 
 const title = mk("div", "title", "Meet the team.", "left:120px;top:76px");
 // Scene A: four large person cards across the whole frame.
-const PC = { x0: 140, y: 333, w: 380, h: 460, gap: 40 };
+const PC = { x0: 140, y: 313, w: 380, h: 500, gap: 40 };
 const CLUSTER = [[18, 80], [66, 24], [114, 92], [162, 38], [210, 100], [258, 30], [306, 84]]; // 1.6x the old dots, spread over the card width
 const CLUSTER_EDGES = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [1, 3]];
 const pcards = CAST.map((p, i) => {
-  const el = mk("div", "pcard", `${avatar(p, 96)}<div class="pn" style="font-size:56px;margin-top:24px">${p.name}</div><div class="pill" style="font-size:28px;margin-top:18px">${p.agent}</div>`, `padding:28px;left:${PC.x0 + i * (PC.w + PC.gap)}px;top:${PC.y}px;width:${PC.w}px;height:${PC.h}px`);
+  const el = mk("div", "pcard", `${avatar(p, 96)}<div class="pn" style="font-size:56px;margin-top:24px">${p.name}</div><div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:18px">${p.agents.map((a) => `<div class="pill" style="margin-top:0">${a}</div>`).join("")}</div>`, `padding:28px;left:${PC.x0 + i * (PC.w + PC.gap)}px;top:${PC.y}px;width:${PC.w}px;height:${PC.h}px`);
   const svg = document.createElementNS(SVGNS, "svg");
   svg.setAttribute("class", "cl");
   svg.style.left = "28px";
@@ -152,7 +162,7 @@ const pcards = CAST.map((p, i) => {
 });
 // The roster: avatar + name + agent, stacked in the left column from scene B on.
 const rows = CAST.map((p, i) => {
-  const el = mk("div", "row", `<i class="rb" style="background:${p.color}"></i>${avatar(p, 52)}<span class="rn" style="font-size:40px;width:140px">${p.name}</span><span class="ra" style="font-size:24px">${p.agent}</span>`, `left:${COL}px;top:${rowY(i) - 26}px;width:400px;height:52px`);
+  const el = mk("div", "row", `<i class="rb" style="background:${p.color}"></i>${avatar(p, 52)}<span class="rn" style="font-size:40px;width:140px">${p.name}</span><span class="ra" style="font-size:24px">${p.agents.join(" · ")}</span>`, `left:${COL}px;top:${rowY(i) - 26}px;width:560px;height:52px`);
   return { el, bar: el.querySelector(".rb") as HTMLElement };
 });
 
@@ -161,7 +171,7 @@ const cap = (s: string, wide = false) => {
   const el = mk("div", wide ? "caption wide" : "caption", s, `left:${COL}px;bottom:${wide ? 70 : 90}px`);
   return el;
 };
-const capA1 = cap("Four people. Four different coding agents.", true);
+const capA1 = cap("Four people, each with their own coding agents.", true);
 const capA2 = cap("What one agent learns stays on one laptop.", true);
 const capB = cap('Cartographer gives them<br>one shared wiki.<div class="sub24">over MCP · Markdown in git</div>');
 const capC = cap("Alice finds out why staging<br>breaks. Her agent writes it down.");
@@ -199,7 +209,7 @@ logo.src = logoUrl;
 const word = mk("div", "wordmark", "Cartographer", "left:500px;top:378px");
 const sub = mk("div", "sub", "Shared memory for your team's AI agents", "left:504px;top:520px");
 const url = mk("div", "url", "cartographer-demo.beppetemp.com/mcp &nbsp;·&nbsp; github.com/BeppeTemp/cartographer", "left:504px;top:596px");
-const agents = mk("div", "url", "Claude Code · Codex · OpenCode · Kiro · any MCP client", "left:504px;top:650px;font-size:22px");
+const agents = mk("div", "url", "Claude Code · Codex · OpenCode · Kiro · Antigravity · Copilot CLI · any MCP client", "left:504px;top:650px;font-size:22px");
 
 // --- terminal scripts -----------------------------------------------------
 interface Line {
@@ -524,16 +534,17 @@ async function frame(n: number) {
   }
   if (n !== last + 1) throw new Error(`frames must be rendered in order: asked ${n} after ${last}`);
   last = n;
-  const t = n / FPS;
+  const T = n / FPS;
+  const t = story(T);
   for (const ev of EVENTS) if (!ev.done && t >= ev.t) { ev.done = true; ev.run(); }
   overlays(t);
-  sc.renderFrame(t * 1000);
+  sc.renderFrame(T * 1000);
   placeLabels(t);
   // Copy before awaiting: the WebGL canvas holds its frame only for the length of the task.
   gctx.drawImage(sc.canvas, 0, 0);
 }
 
-const film = { fps: FPS, frames: DURATION * FPS, frame };
+const film = { fps: FPS, frames: Math.round(DURATION * FPS), frame };
 (window as unknown as { film: typeof film }).film = film;
 
 if (!RECORD) {
