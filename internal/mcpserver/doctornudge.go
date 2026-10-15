@@ -72,10 +72,13 @@ func callerClient(ctx context.Context) string {
 // into a JSON array, which every CLI command would fail to decode.
 func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResult) ToolResult {
 	k, cc := s.kbRef, s.conformance
-	if res.IsError || tool == "kb_status" || k == nil || cc == nil || k.Policy().DoctorIntervalDays <= 0 {
+	if res.IsError || tool == "kb_status" || k == nil || cc == nil {
 		return res
 	}
 	intervalDays := k.Policy().DoctorIntervalDays
+	if intervalDays <= 0 {
+		return res
+	}
 	if callerClient(ctx) == client.ClientName {
 		return res
 	}
