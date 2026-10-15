@@ -31,10 +31,10 @@ const CAST = [
   { name: "Priya", agent: "OpenCode", color: "#496B87" },
   { name: "Leo", agent: "Kiro", color: "#805B18" },
 ];
-const ROW0 = 176; // centre of the first roster row (x 120, 64 px apart)
-const rowY = (i: number) => ROW0 + 64 * i;
-const LX0 = 500; // where a connection line leaves its roster row
-const TERM = { x: COL, y: 428, w: CARD_W }; // the agent's terminal card, under the roster
+const ROW0 = 166; // centre of the first roster row (x 120, 76 px apart)
+const rowY = (i: number) => ROW0 + 76 * i;
+const LX0 = 540; // where a connection line leaves its roster row
+const TERM = { x: COL, y: 454, w: CARD_W }; // the agent's terminal card, under the roster
 
 // --- easing ---------------------------------------------------------------
 const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
@@ -133,30 +133,32 @@ const avatar = (p: (typeof CAST)[number], d: number) =>
 
 const title = mk("div", "title", "Meet the team.", "left:120px;top:76px");
 // Scene A: four large person cards across the whole frame.
-const PC = { x0: 120, y: 330, w: 390, h: 340, gap: 40 };
-const CLUSTER = [[14, 44], [58, 16], [104, 50], [150, 22], [196, 56], [242, 20], [292, 46]];
+const PC = { x0: 140, y: 333, w: 380, h: 460, gap: 40 };
+const CLUSTER = [[18, 80], [66, 24], [114, 92], [162, 38], [210, 100], [258, 30], [306, 84]]; // 1.6x the old dots, spread over the card width
 const CLUSTER_EDGES = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [1, 3]];
 const pcards = CAST.map((p, i) => {
-  const el = mk("div", "pcard", `${avatar(p, 64)}<div class="pn">${p.name}</div><div class="pill">${p.agent}</div>`, `left:${PC.x0 + i * (PC.w + PC.gap)}px;top:${PC.y}px;width:${PC.w}px;height:${PC.h}px`);
+  const el = mk("div", "pcard", `${avatar(p, 96)}<div class="pn" style="font-size:56px;margin-top:24px">${p.name}</div><div class="pill" style="font-size:28px;margin-top:18px">${p.agent}</div>`, `padding:28px;left:${PC.x0 + i * (PC.w + PC.gap)}px;top:${PC.y}px;width:${PC.w}px;height:${PC.h}px`);
   const svg = document.createElementNS(SVGNS, "svg");
   svg.setAttribute("class", "cl");
-  svg.setAttribute("width", "318");
-  svg.setAttribute("height", "72");
+  svg.style.left = "28px";
+  svg.style.bottom = "28px";
+  svg.setAttribute("width", "324");
+  svg.setAttribute("height", "120");
   svg.innerHTML =
-    CLUSTER_EDGES.map(([a, b]) => `<line x1="${CLUSTER[a!]![0]}" y1="${CLUSTER[a!]![1]}" x2="${CLUSTER[b!]![0]}" y2="${CLUSTER[b!]![1]}" stroke="${p.color}" stroke-opacity="0.45" stroke-width="2"/>`).join("") +
-    CLUSTER.map(([x, y], k) => `<circle cx="${x}" cy="${y}" r="${k % 3 === 0 ? 8 : 6}" fill="${p.color}" fill-opacity="${k % 2 ? 0.55 : 0.9}"/>`).join("");
+    CLUSTER_EDGES.map(([a, b]) => `<line x1="${CLUSTER[a!]![0]}" y1="${CLUSTER[a!]![1]}" x2="${CLUSTER[b!]![0]}" y2="${CLUSTER[b!]![1]}" stroke="${p.color}" stroke-opacity="0.45" stroke-width="3"/>`).join("") +
+    CLUSTER.map(([x, y], k) => `<circle cx="${x}" cy="${y}" r="${k % 3 === 0 ? 13 : 10}" fill="${p.color}" fill-opacity="${k % 2 ? 0.55 : 0.9}"/>`).join("");
   el.appendChild(svg);
   return { el, svg };
 });
 // The roster: avatar + name + agent, stacked in the left column from scene B on.
 const rows = CAST.map((p, i) => {
-  const el = mk("div", "row", `<i class="rb" style="background:${p.color}"></i>${avatar(p, 44)}<span class="rn">${p.name}</span><span class="ra">${p.agent}</span>`, `left:${COL}px;top:${rowY(i) - 26}px;width:380px;height:52px`);
+  const el = mk("div", "row", `<i class="rb" style="background:${p.color}"></i>${avatar(p, 52)}<span class="rn" style="font-size:40px;width:140px">${p.name}</span><span class="ra" style="font-size:24px">${p.agent}</span>`, `left:${COL}px;top:${rowY(i) - 26}px;width:400px;height:52px`);
   return { el, bar: el.querySelector(".rb") as HTMLElement };
 });
 
 const dayEls = ["Monday, 18:40", "Tuesday, 09:15", "Every day."].map((s) => mk("div", "day", s, `left:${COL}px;top:56px`));
 const cap = (s: string, wide = false) => {
-  const el = mk("div", wide ? "caption wide" : "caption", s, `left:${COL}px;bottom:70px`);
+  const el = mk("div", wide ? "caption wide" : "caption", s, `left:${COL}px;bottom:${wide ? 70 : 90}px`);
   return el;
 };
 const capA1 = cap("Four people. Four different coding agents.", true);
@@ -218,7 +220,7 @@ const MARCO: Line[] = [
   { start: 23.0, cps: 38, text: "> Staging deploy failed again. Any idea why?" },
   { start: 24.5, cls: "tool", text: '● search  "staging"' },
   { start: 25.1, cls: "tool", text: "● concept_read  team/staging-deploys" },
-  { start: 26.4, cps: 44, text: "Alice found it yesterday: migrations run before the secret rotates. Rotate first, then migrate." },
+  { start: 26.4, cps: 44, text: "Alice found it yesterday: rotate the secret first, then migrate." },
 ];
 const cache = new WeakMap<HTMLElement, string>();
 function renderLines(body: HTMLElement, lines: Line[], t: number) {
@@ -487,11 +489,12 @@ function overlays(tFilm: number) {
 // Labels follow their node's projected position, ~18 px right of its on-screen radius.
 type Cam = { camera: { position: { x: number; y: number; z: number }; fov: number } };
 const labelOpacity: Record<string, (t: number) => number> = {
-  [NEW_ID]: (t) => Math.max(reveal(t, 16.9, 0.4) * fade(t, 19.2, 0.6) * (t < 22 ? 1 : 0), reveal(t, 25.5, 0.4) * fade(t, 31.4, 0.5) * (t >= 25.5 ? 1 : 0)),
-  [ROLLBACK_ID]: (t) => reveal(t, 34.6, 0.4) * fade(t, 35.8, 0.4),
-  [FLAGS_ID]: (t) => reveal(t, 36.1, 0.4) * fade(t, 38.0, 0.5),
+  [NEW_ID]: (t) => Math.max(reveal(t, 18.0, 0.4) * fade(t, 19.6, 0.6) * (t < 22 ? 1 : 0), reveal(t, 25.5, 0.4) * fade(t, 31.4, 0.5) * (t >= 25.5 ? 1 : 0)),
+  [ROLLBACK_ID]: (t) => reveal(t, 34.6, 0.4) * fade(t, 35.4, 0.4),
+  [FLAGS_ID]: (t) => reveal(t, 36.0, 0.4) * fade(t, 38.0, 0.5),
 };
 function placeLabels(t: number) {
+  const shown: DOMRect[] = [];
   for (const { id, el } of LABELS) {
     const node = sc.nodeById(id);
     const p = node ? sc.project(node) : null;
@@ -501,8 +504,15 @@ function placeLabels(t: number) {
     const cam = (sc as unknown as Cam).camera;
     const dist = Math.hypot(cam.position.x - (node!.x ?? 0), cam.position.y - (node!.y ?? 0), cam.position.z - (node!.z ?? 0));
     const rpx = (sc.radiusOf(node!) * (H / 2)) / (Math.tan((cam.fov * Math.PI) / 360) * dist);
-    el.style.left = `${GX + p.x + rpx + 18}px`;
-    el.style.top = `${p.y - el.offsetHeight / 2}px`;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const top = p.y - h / 2;
+    let left = GX + p.x + rpx + 18;
+    // a label that would sit on one still visible goes to the node's left side instead
+    if (shown.some((r) => left < r.right && left + w > r.left && top < r.bottom && top + h > r.top)) left = GX + p.x - rpx - 18 - w;
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    shown.push(new DOMRect(left, top, w, h));
   }
 }
 
