@@ -3513,3 +3513,26 @@ code.mapcontract__label {
 .concept-history__asset code {
   color: var(--text);
 }
+
+/* A Service's status when it is not active (a deprecated one still holds values). */
+.secrets__status-tag {
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+}
+/* One sops file in the Files section: its path, then what is known about it. */
+.secrets__filerow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+}
+.secrets__filerow + .secrets__filerow {
+  border-block-start: 1px solid var(--border-subtle);
+}
+.secrets__filerow .secrets__meta {
+  margin: 0;
+}

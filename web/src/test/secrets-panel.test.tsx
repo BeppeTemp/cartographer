@@ -50,7 +50,7 @@ describe("the Secrets panel", () => {
     render(<App />);
     expect(await screen.findByText("secrets/demo.sops.yaml")).toBeInTheDocument();
     expect(screen.getByLabelText("Value of /demo/ports/1")).toHaveTextContent("••••••••");
-    expect(screen.getByText(/used by/)).toBeInTheDocument();
+    expect(screen.getByText(/^used by/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reveal value of /demo/username" })).toBeDisabled();
 
     const field = screen.getByLabelText("Age secret key");

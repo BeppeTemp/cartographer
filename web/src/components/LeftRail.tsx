@@ -124,37 +124,20 @@ export function LeftRail({
             {problems > 0 && <span className="rail__dot" aria-hidden="true" />}
           </button>
         </li>
-        {artifactsTotal !== null && (
+        {(artifactsTotal !== null || secretsAllowed) && (
           <li>
             <button
               type="button"
               className="rail__panel"
               aria-label="Artifacts"
               title={collapsed ? "Artifacts" : undefined}
-              aria-current={panel === "artifacts" ? "page" : undefined}
+              aria-current={panel === "artifacts" || panel === "secrets" ? "page" : undefined}
               onClick={() => onPanel("artifacts")}
             >
               <span className="rail__glyph">
                 <Icon name="artifacts" />
               </span>
               <span className="rail__label">Artifacts</span>
-            </button>
-          </li>
-        )}
-        {secretsAllowed && (
-          <li>
-            <button
-              type="button"
-              className="rail__panel"
-              aria-label="Secrets"
-              title={collapsed ? "Secrets" : undefined}
-              aria-current={panel === "secrets" ? "page" : undefined}
-              onClick={() => onPanel("secrets")}
-            >
-              <span className="rail__glyph">
-                <Icon name="key" />
-              </span>
-              <span className="rail__label">Secrets</span>
             </button>
           </li>
         )}
@@ -171,20 +154,6 @@ export function LeftRail({
               <Icon name="sources" />
             </span>
             <span className="rail__label">Sources</span>
-          </button>
-        </li>
-        <li>
-          <button
-            type="button"
-            className="rail__panel"
-            title={collapsed ? "Services" : undefined}
-            aria-current={panel === "services" ? "page" : undefined}
-            onClick={() => onPanel("services")}
-          >
-            <span className="rail__glyph">
-              <Icon name="services" />
-            </span>
-            <span className="rail__label">Services</span>
           </button>
         </li>
         <li>

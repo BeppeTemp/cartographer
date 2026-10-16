@@ -1959,3 +1959,12 @@ button.row {
     grid-template-columns: 1fr;
   }
 }
+
+/* Tabs between the pages of one section (Artifacts · Secrets), under the header. */
+.page__tabs {
+  margin: var(--space-4) 0 var(--space-4);
+  border-block-end: 1px solid var(--border-subtle);
+}
+.page__tabs.inspector__tabs {
+  padding-inline: 0;
+}

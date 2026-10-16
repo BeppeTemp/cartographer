@@ -14,31 +14,6 @@ function open(panel: string) {
 describe("the ported panels", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  describe("Services", () => {
-    beforeEach(() => open("services"));
-
-    it("explains what a Service is and which tool fills it when there are none", async () => {
-      stubApi();
-      render(<App />);
-      expect(await screen.findByText("No services documented yet")).toBeInTheDocument();
-      expect(screen.getByText(/concept of type Service/)).toBeInTheDocument();
-    });
-
-    it("lists the services and opens one in the atlas", async () => {
-      stubApi({
-        "/services": () =>
-          json({ services: [{ id: "infra/api", title: "Public API", status: "active" }, { id: "infra/db" }] }),
-      });
-      const user = userEvent.setup();
-      render(<App />);
-      const panel = await screen.findByRole("region", { name: "Services" });
-      expect(within(panel).getByText("active")).toBeInTheDocument();
-      await user.click(within(panel).getByRole("button", { name: "Public API" }));
-      await waitFor(() => expect(window.location.search).toContain("concept=infra%2Fapi"));
-      expect(window.location.search).not.toContain("panel=services");
-    });
-  });
-
   describe("Health git conflicts", () => {
     beforeEach(() => open("health"));
 

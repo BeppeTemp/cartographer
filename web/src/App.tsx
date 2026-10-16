@@ -38,10 +38,10 @@ import type {
 } from "./api/types";
 import { Artifacts } from "./components/Artifacts";
 import { Secrets } from "./components/Secrets";
+import { PageTabs } from "./components/Page";
 import { Paths } from "./components/Paths";
 import { MapContractPanel, MAP_PANEL_SLIDE_MS, MAP_PANEL_WIDTH } from "./components/MapContractPanel";
 import { Legend } from "./components/Legend";
-import { Services } from "./components/Services";
 import { Sources } from "./components/Sources";
 import { Settings } from "./components/Settings";
 import { AuthPrompt } from "./components/AuthPrompt";
@@ -341,6 +341,19 @@ export function App() {
   // time, and the graph must not wait for it.
   const artifactsAllowed = kbs.find((kb) => kb.name === activeKB)?.artifacts ?? false;
   const secretsAllowed = kbs.find((kb) => kb.name === activeKB)?.secrets ?? false;
+  // Secrets are artifacts of the KB too: a tab of the Artifacts section,
+  // shown only to a principal that may read them.
+  const sectionTabs = secretsAllowed ? (
+    <PageTabs<"artifacts" | "secrets">
+      label="Artifacts section"
+      tabs={[
+        ["artifacts", "Artifacts"],
+        ["secrets", "Secrets"],
+      ]}
+      current={view.panel === "secrets" ? "secrets" : "artifacts"}
+      onSelect={(panel) => navigate({ panel, artifact: null })}
+    />
+  ) : null;
   // The last view of every KB and Map this tab has opened: going back to one
   // shows it at once, and the request below brings it up to date in place,
   // like a live refresh.
@@ -883,6 +896,7 @@ export function App() {
             />
           ) : view.panel === "secrets" && activeKB ? (
             <Secrets
+              tabs={sectionTabs}
               kb={activeKB}
               reloadKey={`${reloadKey}:${live}`}
               titleOf={(id) => nodeTitles.get(id)}
@@ -900,14 +914,6 @@ export function App() {
               onRetry={() => setReloadKey((k) => k + 1)}
               onFailure={handleFailure}
             />
-          ) : view.panel === "services" && activeKB ? (
-            <Services
-              kb={activeKB}
-              reloadKey={`${reloadKey}:${live}`}
-              onOpenConcept={(id) => navigate({ panel: "atlas", concept: id })}
-              onRetry={() => setReloadKey((k) => k + 1)}
-              onFailure={handleFailure}
-            />
           ) : view.panel === "sources" && activeKB ? (
             <Sources
               kb={activeKB}
@@ -919,6 +925,7 @@ export function App() {
             />
           ) : view.panel === "artifacts" && activeKB ? (
             <Artifacts
+              tabs={sectionTabs}
               kb={activeKB}
               list={artifacts}
               loading={artifactsLoading}
