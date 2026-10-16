@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchSettings, fetchWhoami } from "../api/client";
+import { fetchPlaceholders, fetchSettings, fetchWhoami } from "../api/client";
 import type {
+  ClientPlaceholder,
+  ClientProvider,
+  PlaceholderList,
   SettingEntry,
   SettingOrigin,
   SettingsClient,
@@ -246,7 +249,7 @@ export function Settings({
 
       <div role="tabpanel" aria-labelledby={`settings-tab-${current}`}>
         {client !== undefined ? (
-          <ClientPanel client={client} mode={mode} query={query} />
+          <ClientPanel client={client} mode={mode} query={query} activeKB={selected?.name} />
         ) : kb ? (
           <KBPanel kb={kb} mode={mode} query={query} />
         ) : (
@@ -332,6 +335,7 @@ function KBPanel({ kb, mode, query }: { kb: SettingsKB; mode: Mode; query: strin
   }
   return (
     <>
+      {mode === "readable" && <Placeholders kb={kb.name} open={!!query} query={query} />}
       {mode === "yaml" ? (
         <Yaml name={`${kb.name}/settings.yaml`} text={kb.yaml} />
       ) : groups.every((g) => g.rows.length === 0) ? (
@@ -358,7 +362,17 @@ function KBPanel({ kb, mode, query }: { kb: SettingsKB; mode: Mode; query: strin
  * (D818). The server keeps it for the principal that sent it and shows it to
  * that principal only.
  */
-function ClientPanel({ client, mode, query }: { client: SettingsClient | null; mode: Mode; query: string }) {
+function ClientPanel({
+  client,
+  mode,
+  query,
+  activeKB,
+}: {
+  client: SettingsClient | null;
+  mode: Mode;
+  query: string;
+  activeKB?: string;
+}) {
   if (!client) {
     return (
       <p className="page-note settings__nomatch">
@@ -382,22 +396,223 @@ function ClientPanel({ client, mode, query }: { client: SettingsClient | null; m
         ) : (
           <p className="page-note">This machine has no .cartographer.yaml: every key keeps its default.</p>
         )
-      ) : groups.every((g) => g.rows.length === 0) ? (
-        <NoMatch query={query} />
       ) : (
-        groups
-          .filter((g) => g.rows.length > 0)
-          .map(({ group, rows }) => (
-            <Rows
-              key={group.title}
-              open={!!query}
-              group={group}
-              entries={rows}
-              label={`Client ${group.title} settings`}
-            />
-          ))
+        <>
+          {client.providers && <Workspaces providers={client.providers} activeKB={activeKB} open={!!query} />}
+          {client.placeholders && (
+            <MachinePaths placeholders={client.placeholders} activeKB={activeKB} open={!!query} query={query} />
+          )}
+          {groups.every((g) => g.rows.length === 0) ? (
+            <NoMatch query={query} />
+          ) : (
+            groups
+              .filter((g) => g.rows.length > 0)
+              .map(({ group, rows }) => (
+                <Rows
+                  key={group.title}
+                  open={!!query}
+                  group={group}
+                  entries={rows}
+                  label={`Client ${group.title} settings`}
+                />
+              ))
+          )}
+        </>
       )}
     </>
+  );
+}
+
+/** A KB name, set apart when it is the one picked in the top bar. */
+function KBName({ name, activeKB }: { name: string; activeKB?: string }) {
+  return <span className={name === activeKB ? "settings__kb settings__kb--active" : "settings__kb"}>{name}</span>;
+}
+
+/**
+ * Where each agent client receives its KBs: everywhere (provider scope) or per
+ * bound folder (workspace scope), and whether a binding really narrows what a
+ * session sees (issue 737) — a label only: the fix lives in the client.
+ */
+function Workspaces({ providers, activeKB, open }: { providers: ClientProvider[]; activeKB?: string; open: boolean }) {
+  return (
+    <Folded
+      title="Workspaces"
+      intro="Which KBs each agent client receives, and in which folders."
+      count={`${providers.length} client${providers.length === 1 ? "" : "s"}`}
+      open={open}
+    >
+      <ul className="settings__rows" aria-label="Workspaces">
+        {providers.map((p) => (
+          <li key={p.name} className="settings__row settings__ws">
+            <span className="settings__line">
+              <code className="settings__key">{p.name}</code>
+              <span className="settings__chip-row">
+                <span className="pill">{p.scope === "workspace" ? "per workspace" : "every KB, everywhere"}</span>
+                {p.isolation === "workspace" && <span className="pill pill--ok">isolated</span>}
+                {p.isolation === "none" && (
+                  <span
+                    className="pill pill--warning"
+                    title="This client does not let a project MCP entry replace the global one: a session in a bound folder still reaches every KB the token allows."
+                  >
+                    not isolated
+                  </span>
+                )}
+              </span>
+            </span>
+            {p.scope === "workspace" &&
+              (p.workspaces?.length ? (
+                <ul className="settings__ws-list">
+                  {p.workspaces.map((w) => (
+                    <li key={w.path}>
+                      <code className="settings__ws-path" title={w.remote}>
+                        {w.path}
+                      </code>
+                      <span className="settings__ws-kbs">
+                        {w.kbs.length ? w.kbs.map((k) => <KBName key={k} name={k} activeKB={activeKB} />) : "no KB"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <span className="settings__desc">
+                  No folder is bound yet: a session receives only the transversal bundle.
+                </span>
+              ))}
+          </li>
+        ))}
+      </ul>
+    </Folded>
+  );
+}
+
+/** Where each placeholder the connected KBs cite resolves on this machine. */
+function MachinePaths({
+  placeholders,
+  activeKB,
+  open,
+  query,
+}: {
+  placeholders: ClientPlaceholder[];
+  activeKB?: string;
+  open: boolean;
+  query: string;
+}) {
+  const q = query.trim().toLowerCase();
+  const shown = placeholders.filter(
+    (p) => !q || [p.key, p.path, p.description].some((t) => t?.toLowerCase().includes(q)),
+  );
+  if (q && shown.length === 0) return null;
+  const unresolved = placeholders.filter((p) => !p.path && !p.ignored).length;
+  return (
+    <Folded
+      title="Paths on this machine"
+      intro="Where the {{repo:…}} and {{path:…}} placeholders of the connected KBs resolve here."
+      count={unresolved ? `${unresolved} unresolved · ${placeholders.length}` : `${placeholders.length}`}
+      open={open}
+    >
+      {shown.length === 0 ? (
+        <p className="page-note">No placeholder recorded: the connected KBs cite none, or no sync ran yet.</p>
+      ) : (
+        <ul className="settings__rows" aria-label="Paths on this machine">
+          {shown.map((p) => (
+            <li key={p.key} className="settings__row" data-set={p.path ? true : undefined}>
+              <span className="settings__line">
+                <code className="settings__key">{`{{${p.key}}}`}</code>
+                <span className="settings__val">
+                  <span className="settings__value">{p.path ?? (p.ignored ? "ignored" : "unresolved")}</span>
+                  <span className="settings__origin">
+                    {(p.kbs ?? []).map((k) => (
+                      <KBName key={k} name={k} activeKB={activeKB} />
+                    ))}
+                  </span>
+                </span>
+              </span>
+              {(p.description || (!p.path && p.reason)) && (
+                <span className="settings__desc">{!p.path && p.reason ? p.reason : p.description}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Folded>
+  );
+}
+
+/** The placeholder keys this KB declares in paths.yaml or cites. */
+function Placeholders({ kb, open, query }: { kb: string; open: boolean; query: string }) {
+  const [list, setList] = useState<PlaceholderList | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    setList(null);
+    fetchPlaceholders(kb, controller.signal)
+      .then(setList)
+      .catch(() => setList(null));
+    return () => controller.abort();
+  }, [kb]);
+  if (!list || list.keys.length === 0) return null;
+  const q = query.trim().toLowerCase();
+  const keys = list.keys.filter(
+    (k) => !q || [k.key, k.description, k.default].some((t) => t?.toLowerCase().includes(q)),
+  );
+  if (q && keys.length === 0) return null;
+  return (
+    <Folded
+      title="Placeholders"
+      intro="The {{repo:…}} and {{path:…}} keys this KB declares in paths.yaml or cites; each machine resolves them on its own."
+      count={`${list.keys.length}`}
+      open={open}
+    >
+      <ul className="settings__rows" aria-label={`Placeholders of ${kb}`}>
+        {keys.map((k) => {
+          const uses = k.concepts.length + k.artifacts.length;
+          return (
+            <li key={`${k.kind}:${k.key}`} className="settings__row" data-set={k.declared ? true : undefined}>
+              <span className="settings__line">
+                <code className="settings__key">{`{{${k.kind}:${k.key}}}`}</code>
+                <span className="settings__val">
+                  <span className="settings__value">
+                    {k.default ?? k.remote ?? (k.declared ? "(no default)" : "not declared")}
+                  </span>
+                  <span className="settings__origin">
+                    {uses ? `cited ${uses} time${uses === 1 ? "" : "s"}` : "cited nowhere"}
+                    {k.conflicts?.length ? ` · ${k.conflicts.map((c) => `${c.kb} says ${c.default}`).join(", ")}` : ""}
+                  </span>
+                </span>
+              </span>
+              {k.description && <span className="settings__desc">{k.description}</span>}
+            </li>
+          );
+        })}
+      </ul>
+    </Folded>
+  );
+}
+
+/** A folded section with a title, a sentence and a count: the shape of every group. */
+function Folded({
+  title,
+  intro,
+  count,
+  open,
+  children,
+}: {
+  title: string;
+  intro: string;
+  count: string;
+  open: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="settings__group" open={open}>
+      <summary className="settings__group-head">
+        <span className="settings__group-text">
+          <h2 className="settings__heading">{title}</h2>
+          <span className="settings__intro">{intro}</span>
+        </span>
+        <span className="settings__group-count">{count}</span>
+      </summary>
+      {children}
+    </details>
   );
 }
 

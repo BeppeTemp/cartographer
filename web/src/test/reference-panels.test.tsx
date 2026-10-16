@@ -1,6 +1,6 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { json, stubApi } from "./fixtures";
 
@@ -14,50 +14,37 @@ function open(panel: string) {
 describe("the reference panels", () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  describe("Paths", () => {
-    beforeEach(() => open("paths"));
-
-    it("explains itself when the KB has no paths.yaml", async () => {
-      stubApi();
-      render(<App />);
-      expect(await screen.findByText("This KB has no paths.yaml")).toBeInTheDocument();
-      expect(screen.getByText(/cartographer paths set/)).toBeInTheDocument();
+  it("lists the KB's placeholders in Settings, where an old Paths link lands", async () => {
+    open("paths");
+    stubApi({
+      "/settings": () =>
+        json({ version: "dev", server: [], kbs: [{ name: "kb-a", entries: [], yaml: "" }] }),
+      "/placeholders": () =>
+        json({
+          registry: true,
+          keys: [
+            {
+              kind: "repo",
+              key: "tool-a",
+              description: "The tool repository",
+              default: "$HOME/src/tool-a",
+              declared: true,
+              concepts: ["infra/a"],
+              artifacts: ["skill/review"],
+              conflicts: [{ kb: "work-kb", default: "$HOME/other/tool-a" }],
+            },
+            { kind: "path", key: "ghost", declared: false, concepts: ["notes/c"], artifacts: [] },
+          ],
+        }),
     });
-
-    it("flags undeclared, uncited and conflicting keys and links to the citing concept and artifact", async () => {
-      stubApi({
-        "/placeholders": () =>
-          json({
-            registry: true,
-            keys: [
-              {
-                kind: "repo",
-                key: "tool-a",
-                description: "The tool repository",
-                default: "$HOME/src/tool-a",
-                remote: "example.com/org/tool-a",
-                declared: true,
-                concepts: ["infra/a"],
-                artifacts: ["skill/review"],
-                conflicts: [{ kb: "work-kb", default: "$HOME/other/tool-a" }],
-              },
-              { kind: "path", key: "ghost", declared: false, concepts: ["notes/c"], artifacts: [] },
-              { kind: "path", key: "idle", description: "Cited nowhere", declared: true, concepts: [], artifacts: [] },
-            ],
-          }),
-      });
-      const user = userEvent.setup();
-      render(<App />);
-      const panel = await screen.findByRole("region", { name: "Paths" });
-      expect(within(panel).getByText("cited but undeclared")).toBeInTheDocument();
-      expect(within(panel).getByText("declared, cited nowhere")).toBeInTheDocument();
-      expect(within(panel).getByText("default differs in another KB")).toBeInTheDocument();
-      expect(within(panel).getByText("$HOME/src/tool-a")).toBeInTheDocument();
-      expect(within(panel).getByText("example.com/org/tool-a")).toBeInTheDocument();
-      await user.click(within(panel).getByRole("button", { name: "skill/review" }));
-      await waitFor(() => expect(window.location.search).toContain("artifact=skill%2Freview"));
-      expect(window.location.search).toContain("panel=artifacts");
-    });
+    const user = userEvent.setup();
+    render(<App />);
+    const tabs = await screen.findByRole("tablist", { name: "Settings of" });
+    await user.click(within(tabs).getByRole("tab", { name: /Knowledge Base/ }));
+    const list = await screen.findByRole("list", { name: "Placeholders of kb-a" });
+    expect(within(list).getByText("{{repo:tool-a}}")).toBeInTheDocument();
+    expect(within(list).getByText(/cited 2 times · work-kb says \$HOME\/other\/tool-a/)).toBeInTheDocument();
+    expect(within(list).getByText("not declared")).toBeInTheDocument();
   });
 
   it("lists the pending sources as work to ingest, where an old Sources link lands", async () => {
@@ -80,8 +67,8 @@ describe("the reference panels", () => {
     open("health");
     stubApi();
     render(<App />);
-    expect(await screen.findByRole("button", { name: "Paths" })).toBeInTheDocument();
-    for (const name of ["Sources", "Services", "Secrets"]) {
+    expect(await screen.findByRole("button", { name: "Settings" })).toBeInTheDocument();
+    for (const name of ["Sources", "Services", "Secrets", "Paths"]) {
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     }
   });

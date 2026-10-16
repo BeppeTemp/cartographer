@@ -28,12 +28,17 @@ const maxClientReportsPerPrincipal = 8
 // clientReport is one machine's client settings, as the client built them
 // (clientconfig.SettingsReport) plus when the server received them.
 type clientReport struct {
-	Machine    string         `json:"machine"`
-	Version    string         `json:"version"`
-	ServerURL  string         `json:"server_url"`
-	Entries    []config.Entry `json:"entries"`
-	YAML       string         `json:"yaml"`
-	ReceivedAt time.Time      `json:"received_at"`
+	Machine   string         `json:"machine"`
+	Version   string         `json:"version"`
+	ServerURL string         `json:"server_url"`
+	Entries   []config.Entry `json:"entries"`
+	YAML      string         `json:"yaml"`
+	// Providers and Placeholders are passed through as the client wrote
+	// them (clientconfig.ReportProvider, ReportPlaceholder): the server reads
+	// neither, it only shows them back to their principal.
+	Providers    json.RawMessage `json:"providers,omitempty"`
+	Placeholders json.RawMessage `json:"placeholders,omitempty"`
+	ReceivedAt   time.Time       `json:"received_at"`
 }
 
 // clientReports holds the reports in memory, per principal and machine. A

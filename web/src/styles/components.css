@@ -3536,3 +3536,50 @@ code.mapcontract__label {
 .secrets__filerow .secrets__meta {
   margin: 0;
 }
+
+/* Settings → Client: the agent clients and their bound folders. */
+.settings__chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-inline-start: auto;
+}
+.settings__ws-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.settings__ws-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+.settings__ws-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.settings__ws-kbs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+/* A KB name; the one picked in the top bar stands out. */
+.settings__kb {
+  padding: 0 var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+}
+.settings__kb--active {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--primary) 22%, var(--surface-2));
+}
+.settings__origin .settings__kb + .settings__kb {
+  margin-inline-start: var(--space-1);
+}

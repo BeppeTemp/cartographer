@@ -22,6 +22,45 @@ type SettingsReport struct {
 	// YAML is the .cartographer.yaml as it is on disk, commented by the schema
 	// when Save wrote it; "" when the machine has no file yet.
 	YAML string `json:"yaml"`
+	// Providers are the connected agent clients: where each receives its KBs
+	// and whether a workspace binding really narrows what a session sees.
+	// Filled by the caller, which knows the providers (cmd/cartographer).
+	Providers []ReportProvider `json:"providers"`
+	// Placeholders are the {{repo:…}} and {{path:…}} keys the connected KBs
+	// cite, as the last sync resolved them on this machine.
+	Placeholders []ReportPlaceholder `json:"placeholders"`
+}
+
+// ReportProvider is one connected agent client.
+type ReportProvider struct {
+	Name string `json:"name"`
+	// Scope is "provider" (every KB, under the home directory) or
+	// "workspace" (each bound folder receives its own KBs).
+	Scope string `json:"scope"`
+	// Isolation says whether a workspace-scoped session sees only its KBs
+	// (#737): "workspace" when the client lets the project MCP entry replace
+	// the global one, "none" when the global entry still exposes every KB the
+	// token allows; "" for a provider-scoped client.
+	Isolation  string            `json:"isolation,omitempty"`
+	Workspaces []ReportWorkspace `json:"workspaces,omitempty"`
+}
+
+// ReportWorkspace is one folder bound to KBs for a provider.
+type ReportWorkspace struct {
+	Path   string   `json:"path"`
+	Remote string   `json:"remote,omitempty"`
+	KBs    []string `json:"kbs"`
+}
+
+// ReportPlaceholder is one placeholder key and where it resolves here.
+type ReportPlaceholder struct {
+	Key string   `json:"key"`
+	KBs []string `json:"kbs,omitempty"`
+	// Path is where the key resolves on this machine, "" when it does not.
+	Path        string `json:"path,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	Description string `json:"description,omitempty"`
+	Ignored     bool   `json:"ignored,omitempty"`
 }
 
 // ReportEntry is one client key with its effective value and origin: "file"

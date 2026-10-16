@@ -621,6 +621,31 @@ export interface SettingsClient {
   /** The machine's .cartographer.yaml as it is on disk; "" when it has none. */
   yaml: string;
   received_at: string;
+  /** The connected agent clients (absent from an older client). */
+  providers?: ClientProvider[];
+  /** The placeholder keys the last sync met, as they resolve on the machine. */
+  placeholders?: ClientPlaceholder[];
+}
+
+/** One connected agent client of a machine (D818). */
+export interface ClientProvider {
+  name: string;
+  /** "provider": every KB under the home directory; "workspace": per bound folder. */
+  scope: string;
+  /** For a workspace-scoped client (issue 737): "workspace" when a bound folder's
+   *  session sees only its KBs, "none" when the global entry still exposes every KB. */
+  isolation?: "workspace" | "none";
+  workspaces?: { path: string; remote?: string; kbs: string[] }[];
+}
+
+/** One placeholder key as it resolves on a machine (`cartographer paths list`). */
+export interface ClientPlaceholder {
+  key: string;
+  kbs?: string[];
+  path?: string;
+  reason?: string;
+  description?: string;
+  ignored?: boolean;
 }
 
 /** One Service concept (GET /kbs/{kb}/services), filtered to what the caller sees. */

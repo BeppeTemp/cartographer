@@ -7,6 +7,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -68,10 +69,50 @@ func reportClientSettings(cfg *clientconfig.Config, dir string) bool {
 		slog.Debug("client settings report skipped", "err", err)
 		return false
 	}
+	report.Providers = reportProviders(cfg)
+	report.Placeholders = reportPlaceholders(cfg, dir)
 	c := client.New(cfg.ServerURL, resolveToken(cfg)).WithTokenEnv(tokenEnvName(cfg))
 	if err := c.ReportClientSettings(report, probeTimeout); err != nil {
 		slog.Debug("client settings report not delivered", "err", err)
 		return false
 	}
 	return true
+}
+
+// reportProviders describes each connected agent client: its scope, its bound
+// folders and whether a binding narrows what a session sees (#737).
+func reportProviders(cfg *clientconfig.Config) []clientconfig.ReportProvider {
+	out := []clientconfig.ReportProvider{}
+	for _, name := range cfg.Agents {
+		p := clientconfig.ReportProvider{Name: name, Scope: cfg.WorkspaceScope(name)}
+		if p.Scope == clientconfig.ScopeWorkspace {
+			prov := configurator.Provider(name)
+			p.Isolation = "none"
+			if provisioning.HasProjectMCPCell(prov) && configurator.ProjectMCPShadowsGlobal(prov) {
+				p.Isolation = "workspace"
+			}
+			for _, b := range cfg.Workspaces[name] {
+				p.Workspaces = append(p.Workspaces, clientconfig.ReportWorkspace{Path: b.Path, Remote: b.Remote, KBs: b.KBs})
+			}
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// reportPlaceholders is `paths list` as data: every key the last sync met,
+// with where it resolved on this machine.
+func reportPlaceholders(cfg *clientconfig.Config, dir string) []clientconfig.ReportPlaceholder {
+	out := []clientconfig.ReportPlaceholder{}
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		return out
+	}
+	for _, r := range placeholderRows(lf) {
+		out = append(out, clientconfig.ReportPlaceholder{
+			Key: r.Key, KBs: r.KBs, Path: r.Path, Reason: r.Reason, Description: r.Description,
+			Ignored: !r.Resolved() && containsString(cfg.IgnoredPaths, r.Key),
+		})
+	}
+	return out
 }
