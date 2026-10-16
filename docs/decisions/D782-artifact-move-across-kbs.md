@@ -39,7 +39,8 @@ existing `concept_transfer` tests, unmodified, hold to no behaviour change.
 - Touching clients: a client bound to the source loses the skill at the next `sync`, which is what removing it from the KB means.
 - Trusting the target's ignore rules only through a `git check-ignore` before or after the copy: it answers one question about the rules, and `git add -A` can leave a file out for reasons it does not see (an embedded `.git` turns a directory into a gitlink). The listing of the target commit is the ground truth, and `twoKBMove` checks it (below).
 - Linting the whole target (`lint.Run`) after the copy: it walks every concept and builds the graph with both locks held, for findings about files the move did not touch. `lint.ArtifactFindings` runs the artifact checks only, for the moved files.
-- One bound for the whole call instead of one per artifact: what a single artifact may weigh is the property worth stating and explaining in a refusal; the unit limit already bounds how many a call carries.
+- One bound per artifact only: twenty artifacts each within it could still copy twenty times as much under both locks, and the locks are what the bound protects. The bound is the call's, so a single artifact meets it first and the refusal of a larger call says to split it.
+- Bounding the reference scan only by its hit limit: a scan that finds nothing never reaches it and reads the whole source under both locks. A file and byte budget stops it, at the cost of a list flagged incomplete on a large KB.
 
 **Consequences.** The tool registers only where `artifact_write` does
 (`kbs[].allow_artifact_write`, or `allow_template_write` for `templates/` alone),
@@ -50,10 +51,12 @@ artifact-write right itself, so a move cannot reach what `artifact_write` could
 not. Like `concept_transfer` it needs a server mounting both KBs, both git-backed
 with auto-commit, and on the routed endpoint a target inside the connection's KB
 set. It refuses before any write: symlinks in a unit or its parents on either
-side, non-regular files, a file over the 256 KiB artifact cap, an artifact over
-`artifactMoveMaxFiles` files or `artifactMoveMaxBytes` bytes (`tools_artifact_move.go`;
-the refusal gives the limits, because the walk stops as soon as one is crossed
-and the actual size is not known), a gitignored file
+side, non-regular files, a file over the 256 KiB artifact cap, a call whose
+artifacts together exceed `artifactMoveMaxFiles` files or `artifactMoveMaxBytes`
+bytes (`tools_artifact_move.go`; for one artifact over them the refusal gives the
+limits, because the walk stops as soon as one is crossed and the actual size is
+not known; for several it gives the running total and says to split the call),
+a gitignored file
 (in the source, the removal would destroy the only copy; in the target, whose
 own ignore rules would leave the copy out of its commit; the check feeds
 `git check-ignore` its paths on stdin, NUL-separated, so it does not grow with
@@ -77,7 +80,8 @@ because Plan refuses an occupied destination, so every planned path was free.
 It reports and
 never refuses: placeholder keys the target's `paths.yaml` does not declare,
 sops files, text left in the source that names a moved unit (the activity log is
-history and is not scanned; the scan stops at a bound and flags
+history and is not scanned; the scan stops at `artifactRefsMax` hits or after
+reading `artifactRefsScanFiles` files or `artifactRefsScanBytes` bytes, and flags
 `references_truncated`, also when it skipped a file too large to read), and the
 target's artifact lint findings for the moved paths (`lint.ArtifactFindings`, the
 artifact checks only). The audit trail records `paths` as the joined list, bounded

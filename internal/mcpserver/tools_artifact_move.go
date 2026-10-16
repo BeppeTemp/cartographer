@@ -25,10 +25,12 @@ import (
 // locks are held for the whole of it.
 const artifactMoveMaxUnits = 20
 
-// artifactMoveMaxFiles and artifactMoveMaxBytes bound one artifact (the file
-// count and the sum of its file sizes), for the same reason: the copy and its
-// commit run with both KBs' git locks held. They are far above a real skill
-// and below a vendored dependency tree.
+// artifactMoveMaxFiles and artifactMoveMaxBytes bound one call (the file count
+// and the sum of the file sizes over all its artifacts), for the same reason:
+// the copy and its commit run with both KBs' git locks held, so the cost to
+// bound is the call's, not one artifact's. The walk of one artifact stops at
+// the same numbers. They are far above a real skill and below a vendored
+// dependency tree.
 const (
 	artifactMoveMaxFiles = 500
 	artifactMoveMaxBytes = 16 << 20
@@ -320,6 +322,8 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 	srcName, dstName := kbName(src), kbName(dst)
 	plan := &artifactMovePlan{}
 	seen := map[string]bool{}
+	var callFiles int
+	var callBytes int64
 	for _, raw := range paths {
 		u, err := parseArtifactUnit(raw)
 		if err != nil {
@@ -379,7 +383,7 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 			u.files, err = collectTransferFilesBounded(srcAbs, artifactMoveMaxFiles, artifactMoveMaxBytes)
 			var bound *transferBoundError
 			if errors.As(err, &bound) {
-				return refuse("%s has %v: an artifact_move carries at most %d files and %d MiB in one artifact", u.rel, bound, artifactMoveMaxFiles, artifactMoveMaxBytes>>20)
+				return refuse("%s has %v: an artifact_move carries at most %d files and %d MiB in one call", u.rel, bound, artifactMoveMaxFiles, artifactMoveMaxBytes>>20)
 			}
 			if err != nil {
 				return refuse("%s: %v", u.rel, err)
@@ -391,6 +395,13 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 			u.files = []transferFile{{rel: "", size: info.Size(), exec: info.Mode()&0o111 != 0}}
 		default:
 			return refuse("%s is not the kind of file or directory a %s is", u.rel, u.info.Kind)
+		}
+		callFiles += len(u.files)
+		for _, f := range u.files {
+			callBytes += f.size
+		}
+		if callFiles > artifactMoveMaxFiles || callBytes > artifactMoveMaxBytes {
+			return refuse("the artifacts up to %s add up to %d files and %d bytes: an artifact_move carries at most %d files and %d MiB in one call; split it into smaller calls", u.rel, callFiles, callBytes, artifactMoveMaxFiles, artifactMoveMaxBytes>>20)
 		}
 
 		// A file git ignores is not in the source's history: the target commit
@@ -487,6 +498,14 @@ var artifactRefScanExts = map[string]bool{".md": true, ".json": true, ".yaml": t
 // not cost a read of the whole KB.
 const artifactRefsMax = 100
 
+// artifactRefsScanFiles and artifactRefsScanBytes bound the scan when nothing
+// matches, which artifactRefsMax cannot: past them the walk stops and the list
+// is flagged incomplete, so a large source KB is not read whole under both locks.
+const (
+	artifactRefsScanFiles = 5000
+	artifactRefsScanBytes = 32 << 20
+)
+
 // caseTwin returns the entry of abs's parent directory that has abs's name up to
 // case but is not spelled the same ("" when there is none, or the parent does not
 // exist). Git keeps both on a case-sensitive filesystem; a checkout on a
@@ -512,9 +531,14 @@ func caseTwin(abs string) (string, error) {
 // referencesInSource lists the text files that stay in the source and name a
 // moved unit by its path. Nothing is rewritten: a path inside a sentence or a
 // script is not a link, and which KB it should point at is the author's call.
-// cut says the list may be incomplete: the walk stopped at artifactRefsMax hits,
-// or skipped a file above transferScanMaxBytes (it is not read at all).
+// cut says the list may be incomplete: the walk stopped at artifactRefsMax hits
+// or at the scan budget, or skipped a file above transferScanMaxBytes (it is
+// not read at all).
 func (pl *artifactMovePlan) referencesInSource(src *kb.KB) (refs []string, cut bool) {
+	return pl.referencesInSourceBounded(src, artifactRefsScanFiles, artifactRefsScanBytes)
+}
+
+func (pl *artifactMovePlan) referencesInSourceBounded(src *kb.KB, maxFiles int, maxBytes int64) (refs []string, cut bool) {
 	pats := make([]*regexp.Regexp, len(pl.units))
 	for i, u := range pl.units {
 		// Not followed by a slug character, so skills/a does not match skills/a-b.
@@ -529,6 +553,7 @@ func (pl *artifactMovePlan) referencesInSource(src *kb.KB) (refs []string, cut b
 		return false
 	}
 	found := map[string]bool{}
+	readFiles, readBytes := 0, int64(0)
 	// The activity log is history: AppendLog writes it under DataRoot() (data/log.md
 	// on the data layout, log.md at the root of a legacy KB), and it names
 	// every move it ever recorded.
@@ -554,10 +579,17 @@ func (pl *artifactMovePlan) referencesInSource(src *kb.KB) (refs []string, cut b
 		if !d.Type().IsRegular() || moved(rel) || logs[rel] || !artifactRefScanExts[strings.ToLower(filepath.Ext(rel))] {
 			return nil
 		}
-		if info, ierr := d.Info(); ierr != nil || info.Size() > transferScanMaxBytes {
+		info, ierr := d.Info()
+		if ierr != nil || info.Size() > transferScanMaxBytes {
 			cut = true
 			return nil
 		}
+		if readFiles >= maxFiles || readBytes+info.Size() > maxBytes {
+			cut = true
+			return filepath.SkipAll
+		}
+		readFiles++
+		readBytes += info.Size()
 		data, rerr := readTransferHead(abs, transferScanMaxBytes)
 		if rerr != nil || !utf8.Valid(data) {
 			return nil
