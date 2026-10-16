@@ -16,7 +16,7 @@ import (
 
 // graphToolKB builds a KB from files (data-root-relative path → body) with a
 // Note frontmatter unless the body brings its own, mounted under "docs".
-func graphToolKB(t *testing.T, files map[string]string) *Server {
+func graphToolKB(t testing.TB, files map[string]string) *Server {
 	t.Helper()
 	s, _ := graphToolKBWithKB(t, files)
 	return s
@@ -24,7 +24,7 @@ func graphToolKB(t *testing.T, files map[string]string) *Server {
 
 // graphToolKBWithKB is graphToolKB that also hands back the KB, for a test that
 // reads the cache's counters.
-func graphToolKBWithKB(t *testing.T, files map[string]string) (*Server, *kb.KB) {
+func graphToolKBWithKB(t testing.TB, files map[string]string) (*Server, *kb.KB) {
 	t.Helper()
 	k := setupTestKB(t)
 	k.AuthName = "docs"

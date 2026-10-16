@@ -264,12 +264,11 @@ func TestSearchRelated_SchemaAcceptsTheKnob(t *testing.T) {
 // KB of 3000 linked concepts: `go test ./internal/mcpserver -run '^$' -bench
 // SearchRelated`.
 func BenchmarkSearchRelated(b *testing.B) {
-	t := &testing.T{}
 	files := map[string]string{}
 	for i := 0; i < 3000; i++ {
 		files[fmt.Sprintf("ops/c%04d.md", i)] = fmt.Sprintf("Page %d about zeppelins. [a](c%04d.md) [b](c%04d.md) [c](c%04d.md)\n", i, (i+1)%3000, (i*7+3)%3000, (i*31+11)%3000)
 	}
-	s := graphToolKB(t, files)
+	s := graphToolKB(b, files)
 	for _, tc := range []struct{ name, args string }{
 		{"off", `{"query":"zeppelins","limit":10,"related":0}`},
 		{"default", `{"query":"zeppelins","limit":10}`},
