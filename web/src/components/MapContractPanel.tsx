@@ -1,9 +1,12 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 import type { MapContract } from "../api/types";
 
 /** The docked panel's width in px: the strip it takes beside the graph, which
  *  App also takes off what the reading panel may cover. */
 export const MAP_PANEL_WIDTH = 420;
+/** How long the docked panel takes to slide in or out, in ms: the canvas beside
+ *  it resizes along, so the graph never jumps. */
+export const MAP_PANEL_SLIDE_MS = 600;
 
 /** What the server does with an ontology mode (docs/data-plane.md §Maps and Journals). */
 const ONTOLOGY_NOTE: Record<string, string> = {
@@ -34,11 +37,14 @@ export function MapContractPanel({
   map: m,
   concepts,
   inline = false,
+  leaving = false,
 }: {
   map: MapContract;
   /** The number the rail shows for the Map. */
   concepts: number;
   inline?: boolean;
+  /** The Atlas has left the Map: the panel is sliding out. */
+  leaving?: boolean;
 }) {
   const title = m.title || m.name;
   const kind = m.kind === "journal" ? "journal" : "map";
@@ -98,7 +104,18 @@ export function MapContractPanel({
     );
   }
   return (
-    <section className="mapcontract mapcontract--docked" aria-label={label} style={{ width: MAP_PANEL_WIDTH }}>
+    <section
+      className={leaving ? "mapcontract mapcontract--docked mapcontract--leaving" : "mapcontract mapcontract--docked"}
+      aria-label={label}
+      aria-hidden={leaving || undefined}
+      style={
+        {
+          width: MAP_PANEL_WIDTH,
+          "--map-panel-width": `${MAP_PANEL_WIDTH}px`,
+          "--map-panel-slide": `${MAP_PANEL_SLIDE_MS}ms`,
+        } as CSSProperties
+      }
+    >
       <header className="mapcontract__head">
         <h2 className="mapcontract__title">Map contract</h2>
         {source}

@@ -1798,6 +1798,32 @@ body.is-resizing {
   order: 1;
   background: var(--surface-1);
   border-inline-start: 1px solid var(--border-subtle);
+  /* Slides in from the right edge: the negative margin gives the canvas the
+     strip back, so it narrows step by step instead of in one jump. */
+  animation: mapcontract-in var(--map-panel-slide) var(--ease-out) both;
+}
+
+.mapcontract--leaving {
+  pointer-events: none;
+  animation-name: mapcontract-out;
+}
+
+@keyframes mapcontract-in {
+  from {
+    margin-inline-end: calc(-1 * var(--map-panel-width));
+  }
+}
+
+@keyframes mapcontract-out {
+  to {
+    margin-inline-end: calc(-1 * var(--map-panel-width));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mapcontract--docked {
+    animation: none;
+  }
 }
 
 .mapcontract {
@@ -3218,61 +3244,247 @@ code.mapcontract__label {
   }
 }
 
-/* Settings panel (D743): read-only list of keys, value, origin badge. */
-.settings__section {
-  margin-top: var(--space-5);
+/* Settings page (D743, D818): a tab per server and KB, each readable as
+   grouped rows or as the commented YAML file. */
+.settings__who strong {
+  color: var(--text-primary);
 }
-.settings__title {
-  font-size: var(--text-md);
-  margin: 0 0 var(--space-2);
+.settings__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  margin-top: var(--space-5);
+  border-block-end: 1px solid var(--border-subtle);
+}
+.settings__tabs.inspector__tabs {
+  flex-wrap: wrap;
+  padding-inline: 0;
+  border-block-end: 0;
+}
+.settings__bar .segmented {
+  margin-block-end: var(--space-2);
+}
+.settings__tab-count {
+  margin-inline-start: var(--space-2);
+  padding: 0 6px;
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
 }
 .settings__facts {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3);
-  margin: 0 0 var(--space-2);
-  color: var(--text-muted);
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
   font-size: var(--text-xs);
 }
-.settings__rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.settings__row {
-  border-top: 1px solid var(--border-subtle);
-  padding: var(--space-2) 0;
-}
-.settings__summary {
-  display: grid;
-  grid-template-columns: minmax(10rem, 18rem) 1fr auto auto;
-  gap: var(--space-3);
-  align-items: baseline;
-  cursor: pointer;
-}
-.settings__value {
-  overflow-wrap: anywhere;
-}
-.settings__origin,
-.settings__restart {
+.settings__facts li {
   padding: 0 var(--space-2);
-  color: var(--text-muted);
+  line-height: 1.8;
+  color: var(--text-secondary);
   background: var(--surface-2);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-pill);
+  overflow-wrap: anywhere;
+}
+.settings__group {
+  margin-top: var(--space-2);
+  border-block-end: 1px solid var(--border-subtle);
+}
+.settings__group:first-of-type {
+  margin-top: var(--space-4);
+}
+/* The folded group: its title, how many keys it sets, a chevron. */
+.settings__group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  cursor: pointer;
+  list-style: none;
+}
+.settings__group-head::-webkit-details-marker {
+  display: none;
+}
+.settings__group-head::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-inline: 2px;
+  border-inline-end: 1.5px solid var(--text-muted);
+  border-block-end: 1.5px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.settings__group[open] > .settings__group-head::before {
+  transform: rotate(45deg);
+}
+.settings__group-head:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.settings__group-count {
+  margin-inline-start: auto;
   font-size: var(--text-xs);
-  line-height: 18px;
-}
-.settings__origin--default {
-  opacity: 0.7;
-}
-.settings__detail {
-  margin: var(--space-2) 0 0;
   color: var(--text-muted);
-  font-size: var(--text-sm);
 }
-.settings__detail p {
-  margin: 0 0 var(--space-1);
+.settings__heading {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.settings__intro {
+  margin: 0 0 var(--space-3);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+/* A list in the Atlas's table style (the Map contract's): one row per key,
+   the name on the left, the value and its origin at the end of the same line,
+   what it does under them. A row opens on the rest. */
+.settings__rows {
+  margin: 0 0 var(--space-4);
+  padding: 0;
+  list-style: none;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+.settings__row + .settings__row {
+  border-block-start: 1px solid var(--border-subtle);
+}
+.settings__row-head {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  list-style: none;
+  border-radius: var(--radius-control);
+}
+.settings__row-head::-webkit-details-marker {
+  display: none;
+}
+.settings__row-head:hover {
+  background: var(--surface-2);
+}
+.settings__row-head:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.settings__line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.settings__key {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+/* The value reads as a value: a code chip at the end of the line, brighter
+   when it was set than when it is the default. */
+.settings__value {
+  max-width: 60%;
+  margin-inline-start: auto;
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 20px;
+  color: var(--text-secondary);
+  text-align: end;
+  background: var(--surface-2);
+  border-radius: var(--radius-small);
+  overflow-wrap: anywhere;
+}
+.settings__row[data-set] .settings__value {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface-1));
+}
+.settings__origin {
+  flex: none;
+  min-width: 5.5rem;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.settings__row[data-set] .settings__origin {
+  color: var(--primary);
+}
+.settings__desc {
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+.settings__meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px var(--space-3);
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-3);
+  font-size: var(--text-xs);
+}
+.settings__meta > div {
+  display: contents;
+}
+.settings__meta dt {
+  color: var(--text-muted);
+}
+.settings__meta dd {
+  margin: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.settings__meta code {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+.settings__nomatch {
+  margin-top: var(--space-4);
+}
+.settings__file {
+  margin-top: var(--space-4);
+}
+.settings__file-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.settings__file-head code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+.settings__yaml {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.65;
+  color: var(--text-primary);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  tab-size: 2;
+}
+.yaml__key {
+  color: var(--primary);
+}
+.yaml__comment {
+  color: var(--text-muted);
 }
 
 /* Inspector History tab: revision timeline and assets. */

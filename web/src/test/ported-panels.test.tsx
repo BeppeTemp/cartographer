@@ -99,16 +99,16 @@ describe("the ported panels", () => {
           json({ id: "reader", admin: false, permissions: [{ kb: "kb-a", write: false, maps: ["infra"] }] }),
       });
       render(<App />);
-      expect(await screen.findByText("Who is looking")).toBeInTheDocument();
-      expect(screen.getByText("reader")).toBeInTheDocument();
-      expect(screen.getByText(/can read the maps infra/)).toBeInTheDocument();
+      const who = await screen.findByLabelText("Who is looking");
+      expect(within(who).getByText("reader")).toBeInTheDocument();
+      expect(who).toHaveTextContent(/in kb-a you can read the maps infra/);
     });
 
     it("leaves the section out when whoami fails", async () => {
       stubApi({ "/settings": () => json(settings) });
       render(<App />);
       await screen.findByRole("region", { name: "Settings" });
-      expect(screen.queryByText("Who is looking")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Who is looking")).not.toBeInTheDocument();
     });
   });
 

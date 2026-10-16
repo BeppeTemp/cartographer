@@ -392,6 +392,11 @@ func Encode(doc *yaml.Node) ([]byte, error) {
 	if err := e.Close(); err != nil {
 		return nil, err
 	}
+	// A mapping with nothing set encodes as "{}": a file with no key set is
+	// only its comments, which is valid YAML for an empty file.
+	if rest, ok := bytes.CutPrefix(b.Bytes(), []byte("{}\n")); ok {
+		return bytes.TrimLeft(rest, "\n"), nil
+	}
 	return b.Bytes(), nil
 }
 
@@ -422,6 +427,16 @@ func (s Schema) Document() (*yaml.Node, error) {
 		setPath(root, strings.Split(k.Path, "."), val.Content[0])
 	}
 	return doc, nil
+}
+
+// Set puts val at the dotted path of doc, creating the mappings on the way (a
+// "[]" segment is a one-entry list, as in Document). A key already there is
+// left as it is. It builds the document of a set of effective values, which
+// Render then documents.
+func Set(doc *yaml.Node, path string, val *yaml.Node) {
+	if m := docMapping(doc); m != nil {
+		setPath(m, strings.Split(path, "."), val)
+	}
 }
 
 func setPath(m *yaml.Node, segs []string, val *yaml.Node) {

@@ -570,6 +570,9 @@ export interface SettingEntry {
   origin: SettingOrigin;
   description: string;
   default: string;
+  /** The schema's kind of value, and the accepted values in free text. */
+  type?: string;
+  values?: string;
   env?: string;
   flag?: string;
   restart?: boolean;
@@ -591,6 +594,8 @@ export interface SettingsKBGit {
 export interface SettingsKB {
   name: string;
   entries: SettingEntry[];
+  /** The KB's settings in force as its settings.yaml, commented by the schema (D818). */
+  yaml?: string;
   /** Absent for a caller that cannot see the whole KB. */
   git?: SettingsKBGit;
 }
@@ -600,6 +605,8 @@ export interface SettingsView {
   latest_version?: string;
   update_channel?: string;
   server: SettingEntry[];
+  /** The server's configuration in force as one commented YAML file (D818). */
+  server_yaml?: string;
   kbs: SettingsKB[];
 }
 

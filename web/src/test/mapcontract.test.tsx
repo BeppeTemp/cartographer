@@ -130,7 +130,9 @@ describe("the Map's contract panel", () => {
     await screen.findByRole("region", { name: "Contract of Infrastructure" });
     await user.click(within(rail).getByRole("button", { name: /^Atlas/ }));
     await waitFor(() => expect(window.location.search).not.toContain("scope="));
-    expect(screen.queryByLabelText(/^Contract of/)).toBeNull();
+    // It slides out, hidden from assistive tech, then is gone.
+    expect(screen.queryByRole("region", { name: /^Contract of/ })).toBeNull();
+    await waitFor(() => expect(screen.queryByLabelText(/^Contract of/)).toBeNull());
     expect(await screen.findByRole("region", { name: "Graph legend" })).toBeInTheDocument();
   });
 

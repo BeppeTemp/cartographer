@@ -39,7 +39,7 @@ import type {
 import { Artifacts } from "./components/Artifacts";
 import { Secrets } from "./components/Secrets";
 import { Paths } from "./components/Paths";
-import { MapContractPanel, MAP_PANEL_WIDTH } from "./components/MapContractPanel";
+import { MapContractPanel, MAP_PANEL_SLIDE_MS, MAP_PANEL_WIDTH } from "./components/MapContractPanel";
 import { Legend } from "./components/Legend";
 import { Services } from "./components/Services";
 import { Sources } from "./components/Sources";
@@ -196,6 +196,24 @@ export function App() {
   // right edge on a wide screen, above the graph on a narrow one.
   const scopedMap =
     view.panel === "atlas" && view.scope ? (mapContracts.find((m) => m.name === view.scope) ?? null) : null;
+  // The docked contract slides out rather than vanishing, so the canvas widens
+  // back as smoothly as it narrowed: the Map it showed is kept for the length
+  // of the slide after the Atlas leaves it.
+  const [leavingMap, setLeavingMap] = useState<MapContract | null>(null);
+  const lastMap = useRef<MapContract | null>(null);
+  useEffect(() => {
+    if (scopedMap) {
+      lastMap.current = scopedMap;
+      setLeavingMap(null);
+      return;
+    }
+    const left = lastMap.current;
+    lastMap.current = null;
+    if (!left || narrow || prefersReducedMotion()) return;
+    setLeavingMap(left);
+    const timer = window.setTimeout(() => setLeavingMap(null), MAP_PANEL_SLIDE_MS);
+    return () => window.clearTimeout(timer);
+  }, [scopedMap, narrow]);
   // The strip the docked contract takes at the right edge. The reading panel
   // opens over it (a concept read is the Map's foreground), so it covers the
   // canvas only by what it is wider than the contract.
@@ -741,10 +759,15 @@ export function App() {
     />
   );
 
-  const scopedCollection = scopedMap ? overview?.collections.find((c) => c.name === scopedMap.name) : undefined;
   const readingOpen = !!view.concept;
-  const contractPanel = scopedMap && (
-    <MapContractPanel map={scopedMap} concepts={scopedCollection?.concepts ?? 0} inline={narrow} />
+  const panelMap = scopedMap ?? leavingMap;
+  const contractPanel = panelMap && (
+    <MapContractPanel
+      map={panelMap}
+      concepts={overview?.collections.find((c) => c.name === panelMap.name)?.concepts ?? 0}
+      inline={narrow}
+      leaving={!scopedMap}
+    />
   );
 
   const inspector = (
@@ -854,6 +877,7 @@ export function App() {
           ) : view.panel === "settings" ? (
             <Settings
               reloadKey={`${reloadKey}:${live}`}
+              activeKB={activeKB ?? undefined}
               onRetry={() => setReloadKey((k) => k + 1)}
               onFailure={handleFailure}
             />
