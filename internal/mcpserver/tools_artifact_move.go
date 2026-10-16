@@ -121,20 +121,7 @@ func toolArtifactMove(src *kb.KB, deps Deps) Tool {
 			return errorResult(err.Error()), nil
 		}
 
-		// TRAP (lock order): same rule as concept_transfer, one global order by KB
-		// root path, whichever side is the source.
-		first, second := src, dst
-		if second.Root < first.Root {
-			first, second = second, first
-		}
-		var res ToolResult
-		_ = first.WithGitLock(func() error {
-			return second.WithGitLock(func() error {
-				res = runArtifactMove(ctx, args, src, srcName, dst, p)
-				return nil
-			})
-		})
-		return res, nil
+		return runArtifactMove(ctx, args, src, srcName, dst, p), nil
 	}
 	return t
 }
@@ -161,8 +148,8 @@ func authorizeArtifactMoveTarget(ctx context.Context, dstName string) error {
 	return nil
 }
 
-// runArtifactMove is the body of the tool under both git locks: the artifact
-// half of the two-KB transaction (twokbmove.go).
+// runArtifactMove is the artifact half of the two-KB transaction (twokbmove.go),
+// which takes both git locks.
 func runArtifactMove(ctx context.Context, args json.RawMessage, src *kb.KB, srcName string, dst *kb.KB, p artifactMoveParams) ToolResult {
 	dstName := p.TargetKB
 	var plan *artifactMovePlan

@@ -24,7 +24,7 @@ import (
 // concept_transfer (D760) moves concepts, with their assets, from one KB to
 // another KB mounted on the same server. Nothing else touches two KBs at once,
 // so it does not go through gitWrap (one KB, one lock, one commit): it takes
-// both git locks itself and commits each KB on its own.
+// both git locks itself (through twoKBMove) and commits each KB on its own.
 //
 // Order of work, inside both locks: validate everything, write the target and
 // commit it, then remove from the source and commit it, then push both. A
@@ -123,22 +123,7 @@ func toolConceptTransfer(src *kb.KB, deps Deps) Tool {
 			return errorResult(err.Error()), nil
 		}
 
-		// TRAP (lock order): both git locks are taken in one global order, here the
-		// KB root path, whichever side is the source. k.mu is not reentrant and a
-		// transfer A→B can run beside a transfer B→A; two callers taking the locks in
-		// opposite orders would deadlock, one global order cannot.
-		first, second := src, dst
-		if second.Root < first.Root {
-			first, second = second, first
-		}
-		var res ToolResult
-		_ = first.WithGitLock(func() error {
-			return second.WithGitLock(func() error {
-				res = runTransfer(ctx, args, src, srcName, dst, p)
-				return nil
-			})
-		})
-		return res, nil
+		return runTransfer(ctx, args, src, srcName, dst, p), nil
 	}
 	return t
 }
@@ -207,8 +192,8 @@ type transferPlan struct {
 
 type moveMapWithAssets = map[string]string
 
-// runTransfer is the body of the tool under both git locks: the concept half of
-// the two-KB transaction (twokbmove.go).
+// runTransfer is the concept half of the two-KB transaction (twokbmove.go),
+// which takes both git locks.
 func runTransfer(ctx context.Context, args json.RawMessage, src *kb.KB, srcName string, dst *kb.KB, p transferParams) ToolResult {
 	dstName := p.TargetKB
 	var (

@@ -21,8 +21,8 @@ import (
 // commit, never a reset; and when a commit's outcome is unknown nothing is
 // discarded or reverted.
 //
-// The caller holds both KBs' git locks (taken in one global order) before run.
-// What travels is the callbacks' business: they close over their own plan.
+// The tool handler calls run, which takes both KBs' git locks itself; what
+// travels is the callbacks' business: they close over their own plan.
 type twoKBMove struct {
 	Tool   string // the tool name, in every message and commit subject
 	Things string // what moves, in the plural, for the messages ("concepts")
@@ -62,8 +62,30 @@ func (m *twoKBMove) label(k *kb.KB) string {
 	return m.DstName
 }
 
-// run is the body of the tool under both git locks.
+// run takes both KBs' git locks and runs the transaction under them.
+//
+// TRAP (lock order): the locks are taken in one global order, the KB root path,
+// whichever side is the source. k.mu is not reentrant and a move A→B can run
+// beside a move B→A; two callers taking the locks in opposite orders would
+// deadlock, one global order cannot. The order lives here, once, so a handler
+// cannot take the locks in a different one.
 func (m *twoKBMove) run(ctx context.Context) ToolResult {
+	first, second := m.Src, m.Dst
+	if second.Root < first.Root {
+		first, second = second, first
+	}
+	var res ToolResult
+	_ = first.WithGitLock(func() error {
+		return second.WithGitLock(func() error {
+			res = m.runLocked(ctx)
+			return nil
+		})
+	})
+	return res
+}
+
+// runLocked is the body of the tool under both git locks.
+func (m *twoKBMove) runLocked(ctx context.Context) ToolResult {
 	src, dst, srcName, dstName, tool := m.Src, m.Dst, m.SrcName, m.DstName, m.Tool
 	for _, k := range []*kb.KB{src, dst} {
 		if !k.AutoCommit || !gitx.IsRepo(k.Root) {
