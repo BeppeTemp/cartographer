@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -200,9 +201,15 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 					fm.Delete(key)
 				}
 			}
-			provided := make([]string, 0, len(params.Vars))
+			provided := make([]string, 0, len(params.Vars)+1)
 			for name := range params.Vars {
 				provided = append(provided, name)
+			}
+			// The one variable with a default: the day of the creation, UTC.
+			// An explicit value, string or list, always wins.
+			if _, given := params.Vars["timestamp"]; !given && slices.Contains(wanted, "timestamp") {
+				scalars["timestamp"] = lint.Now().UTC().Format("2006-01-02")
+				provided = append(provided, "timestamp")
 			}
 			sort.Strings(provided)
 			missing, extra := templateVariableDiff(wanted, provided)
