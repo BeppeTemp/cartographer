@@ -2350,8 +2350,10 @@ func conceptMapName(id string) (string, bool) {
 	return parts[0], true
 }
 
-// removeCuratedEntry drops the line whose only link is id, reporting kept when a
-// line cites id alongside other concepts.
+// removeCuratedEntry drops the entry whose only link is id: its line and the
+// lines that continue it (see entryEnd), reporting kept when a line cites id
+// alongside other concepts, or when a nested item under the entry cites another
+// concept: dropping that item would remove an entry that is not id's (D344).
 func removeCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) (removed bool, kept string, err error) {
 	content, hash, err := k.IndexHash(mapName)
 	if err != nil {
@@ -2359,25 +2361,74 @@ func removeCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) (removed boo
 	}
 	fmRaw, body, hasFM := okf.SplitFrontmatter(content)
 	indexPath := mapName + "/index.md"
+	lines := strings.Split(body, "\n")
 	var out []string
-	for _, line := range strings.Split(body, "\n") {
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		targets := kb.ExtractLinks(line, indexPath, k.AssetExists)
 		if !targetsInclude(targets, id) {
 			out = append(out, line)
 			continue
 		}
-		if len(targets) > 1 {
+		end := entryEnd(lines, i)
+		if len(targets) > 1 || continuationCitesOther(k, indexPath, lines[i+1:end], id) {
 			kept = strings.TrimSpace(line)
 			out = append(out, line)
 			continue
 		}
 		removed = true
+		i = end - 1
 	}
 	if !removed {
 		return false, kept, nil
 	}
 	_, err = k.PatchIndex(mapName, hash, joinIndex(fmRaw, hasFM, strings.Join(out, "\n")))
 	return err == nil, kept, err
+}
+
+// entryEnd returns the index just past the list item that starts at lines[i]:
+// the non-blank lines after it that are indented deeper than it, which covers a
+// wrapped description and a nested sub-list. A blank line, or a line indented at
+// or shallower than the item (its next sibling, its parent), ends it. A
+// flush-left "lazy" continuation is not recognised: by indentation alone it
+// cannot be told from the paragraph that follows.
+func entryEnd(lines []string, i int) int {
+	indent := indentWidth(lines[i])
+	end := i + 1
+	for end < len(lines) && strings.TrimSpace(lines[end]) != "" && indentWidth(lines[end]) > indent {
+		end++
+	}
+	return end
+}
+
+// indentWidth is the width of a line's leading whitespace in columns, a tab
+// advancing to the next multiple of four.
+func indentWidth(line string) int {
+	w := 0
+	for _, r := range line {
+		switch r {
+		case ' ':
+			w++
+		case '\t':
+			w += 4 - w%4
+		default:
+			return w
+		}
+	}
+	return w
+}
+
+// continuationCitesOther reports whether any of the continuation lines links a
+// concept other than id.
+func continuationCitesOther(k *kb.KB, indexPath string, continuation []string, id okf.ConceptID) bool {
+	for _, line := range continuation {
+		for _, t := range kb.ExtractLinks(line, indexPath, k.AssetExists) {
+			if !targetsInclude([]okf.ConceptID{t}, id) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // targetsInclude reports whether a line's link targets name id, directly or
