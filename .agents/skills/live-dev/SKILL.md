@@ -41,7 +41,7 @@ spawn costs more than the edit, and the user is waiting to see it.
    from `.worktrees/<slug>`.
 2. `make dev` from the worktree, in the background. `DATA=<data dir>` serves a
    copy of real KBs (remotes removed, git sync off, deleted on exit); without it
-   a demo KB. Another live session on the machine → pick other ports:
+   the demo KBs in `demo/` (astronomy with its history, guestbook). Another live session on the machine → pick other ports:
    `API_PORT=39281 UI_PORT=5174`.
 3. Give the user the UI address: `http://localhost:<UI_PORT>/ui/` — `localhost`,
    not `127.0.0.1`, which Vite does not listen on. Go changes restart the

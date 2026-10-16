@@ -6,7 +6,7 @@
 # DATA is a data directory (one subdirectory per KB). It is copied into a
 # temporary directory with every git remote removed and git sync off, so what
 # the session writes never leaves the machine and the source is never touched.
-# Without DATA the server runs on a throwaway demo KB.
+# Without DATA it runs on a throwaway copy of the demo KBs in demo/.
 #
 # Polling rather than a file watcher: no watcher is a dependency of this
 # repository, and `find -newer` once a second costs nothing at this size.
@@ -53,7 +53,16 @@ if [ -n "${DATA:-}" ]; then
 	done
 	kbargs=(--data "$work/data")
 else
-	kbargs=(--kb "$work/demo-kb" --init)
+	# The repository's demo KBs, never an empty one: a live session judges the
+	# Atlas by looking at it, and an empty graph shows nothing. astronomy gets its
+	# replayed history, so Activity and the growth replay have something to play.
+	mkdir "$work/data"
+	./demo/replay.sh "$work/data/astronomy" >/dev/null
+	cp -R demo/guestbook "$work/data/guestbook"
+	git -C "$work/data/guestbook" init -q -b main
+	git -C "$work/data/guestbook" add -A
+	git -C "$work/data/guestbook" -c user.name=dev -c user.email=dev@example.com commit -q -m "Scaffold the guestbook"
+	kbargs=(--data "$work/data")
 fi
 
 [ -d web/node_modules ] || (cd web && npm ci --silent)
