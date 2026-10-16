@@ -100,9 +100,11 @@ func recordKBRename(root *yaml.Node, old, newName string) {
 	}})
 }
 
-// pruneKBAliases removes the items that point at name: an alias records where
-// a KB went, not who owns a name, so once that KB is unmounted a different KB
-// later mounted under the name must not be reached by an old URL (D772).
+// pruneKBAliases removes the items that point at name and the ones that start
+// at it: an alias records where a KB went, not who owns a name, so once that KB
+// is unmounted a different KB later mounted under the name must not be reached
+// by an old URL, and a leftover item named name would take effect again the
+// moment the KB now mounted under it goes away (D772).
 func pruneKBAliases(root *yaml.Node, name string) {
 	seq := kbAliasSeq(root)
 	if seq == nil {
@@ -110,7 +112,8 @@ func pruneKBAliases(root *yaml.Node, name string) {
 	}
 	kept := seq.Content[:0]
 	for _, item := range seq.Content {
-		if _, to := aliasItem(item); to != nil && to.Value == name {
+		from, to := aliasItem(item)
+		if (to != nil && to.Value == name) || (from != nil && from.Value == name) {
 			continue
 		}
 		kept = append(kept, item)
@@ -121,12 +124,12 @@ func pruneKBAliases(root *yaml.Node, name string) {
 	}
 }
 
-// aliasesPointingAt lists the items of cfg whose target is name, as
-// "from → name" for a preflight.
+// aliasesPointingAt lists the items of cfg that start at or point at name, as
+// "from → to" for a preflight.
 func aliasesPointingAt(cfg *config.Config, name string) []string {
 	var out []string
 	for _, a := range cfg.KBAliases {
-		if a.To == name {
+		if a.To == name || a.From == name {
 			out = append(out, a.From+" → "+a.To)
 		}
 	}

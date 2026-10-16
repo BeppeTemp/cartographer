@@ -209,3 +209,25 @@ func TestCmdKBUnmount_LastAliasDropsKey(t *testing.T) {
 		t.Errorf("an empty kb_aliases key was left:\n%s", body)
 	}
 }
+
+// An item that starts at the unmounted name goes too: it was dormant while a
+// KB was mounted under the name (a mounted name wins), and would take effect
+// again the moment that KB went away.
+func TestCmdKBUnmount_PrunesAliasStartingAtName(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	writeClientBindings(t, "http://127.0.0.1:39273")
+	dataDir, _ := seedPushedKB(t, "kb-a")
+	cfgPath := writeServerConfig(t, "data: "+dataDir+"\nkb_aliases:\n"+
+		"  - from: kb-a\n    to: kb-b\n  - from: kb-x\n    to: kb-y\n")
+
+	code, out := runUnmount(t, "kb-a", "--data", dataDir, "--config", cfgPath)
+	if code != 0 {
+		t.Fatalf("exit = %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "kb_aliases kb-a → kb-b") {
+		t.Errorf("the preflight does not list the alias:\n%s", out)
+	}
+	wantAliases(t, loadAliases(t, cfgPath), config.KBAlias{From: "kb-x", To: "kb-y"})
+}
