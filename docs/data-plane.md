@@ -241,8 +241,11 @@ changes the directory it sits in, never its depth, and a satellite's `../x.md` n
 as `index.md`'s does: `index.md` and every satellite (nested ones included) are rebased from their old path to their
 new one. Links between the pages of the concept, and to its assets, keep resolving to them.
 
-Both index edits are conservative. A source line is removed only when the moved concept is its **only**
-link: a line citing two concepts is prose the operator wrote, so it is kept and reported instead.
+Both index edits are conservative. A source entry is removed only when the moved concept is its **only**
+link: a line citing two concepts is prose the operator wrote, so it is kept and reported instead. The
+entry is the whole list item: its first line and the lines that continue it (a wrapped description, a nested
+sub-list), up to a blank line or a line indented no deeper than the item. A nested item that cites another
+concept keeps the entry, reported like a multi-concept line (D826).
 Cartographer does not attempt to place the destination entry in the right thematic section — it cannot
 know, and a wrong placement in a curated document is worse than an obvious one at the end.
 `rewrite_links: false` still means "touch no other concept", so it skips the index maintenance too.
@@ -355,7 +358,7 @@ Where each check can be accepted (D313) is `lint.CheckAcceptability` — `concep
 map's `_map.md`) or `none` — read from the same tables `lint_ignore_invalid` enforces, and shown as
 `kb_status.conformance.acceptability`.
 
-`index_lists_retired` (D344, info, accept in `_map.md`) is one finding per retired concept that a curated index of a live map still lists (D366; one per index before), with or without `require_index_entry`; journals, generated indexes and maps where at least half of the top-level concepts are retired (an archive) are exempt. `concept_archive` removes the entry; the finding catches a hand-made retirement. It carries `drop_index_entry` (D366, `field` = the concept; auto-repair safe, in `config.DefaultAutoRepair`) when a line of the index lists that concept and nothing else, and the repair drops that line (the code `concept_archive` uses); a concept cited only on lines with other links keeps no fix and stays with the doctor. The finding's path is the index, so the repair is a map repair (`lint.MapRepairCheck`), not a concept write.
+`index_lists_retired` (D344, info, accept in `_map.md`) is one finding per retired concept that a curated index of a live map still lists (D366; one per index before), with or without `require_index_entry`; journals, generated indexes and maps where at least half of the top-level concepts are retired (an archive) are exempt. `concept_archive` removes the entry; the finding catches a hand-made retirement. It carries `drop_index_entry` (D366, `field` = the concept; auto-repair safe, in `config.DefaultAutoRepair`) when a line of the index lists that concept and nothing else, and the repair drops that line (the code `concept_archive` uses); a concept cited only on lines with other links keeps no fix and stays with the doctor. The finding's path is the index, so the repair is a map repair (`lint.MapRepairCheck`), not a concept write. A retired concept left in a live map is never asked back in: `index_incomplete` skips it (D826), so the entry the repair drops does not come back as a finding on the next run.
 
 Structural checks flag defects, not structure (D313): `link_to_retired` is **one finding per retired
 concept**, on the retired concept ("retired, still linked by N live concepts: …"; the declared
@@ -367,7 +370,7 @@ nodes a vertex separates; `secrets_on_non_service` is `info` and points at `secr
 `~/.config/`, `~/.cache/`, `~/.local/`, `~/.gnupg/` (a map's `machine_path_allow_prefixes` only adds
 to them). `missing_value_contract` skips a field whose every value is a date, and a field whose values are identifiers: every value URL-shaped, or each of at least three carrying concepts holding its own value (D720).
 
-`orphan` (warning) is a concept no other concept links to. A page cited in another page's frontmatter `provenance` is not an orphan: being cited is a way in (D720).
+`orphan` (warning) is a concept no other concept links to. A page cited in another page's frontmatter `provenance` is not an orphan: being cited is a way in (D720). A retired concept (`deprecated`, `superseded`, `archived`) is never an orphan: `link_to_retired` and `index_lists_retired` push links away from it, so asking for one would contradict them (D826). The same rule runs the other way in `link_to_retired`: a linker that is itself retired does not count as a live one, so a retired parent of an expanded concept is not a live linker of its satellites.
 
 ### Active checks (D371)
 
@@ -637,7 +640,7 @@ On a strict map, all `AcceptConcept`, warning unless noted, none an error (D289)
 
 ### The `archived` status (D322)
 
-`archived` is a server-reserved status, after `done`: the entry is finished **and** its durable facts have been carried into the live pages it links. It is retired like `deprecated` and `superseded` (`link_to_retired` counts live linkers, `map_misfit` and `link_suggest` skip it; a `digest`-typed page linking archived entries is not a linker) and closed, never open, and in no synonym family: it is a lifecycle stage, not a value a KB chooses among synonyms. An archived concept stays readable and linkable but leaves the active surface: default `search` (with an archived fallback, `docs/control-plane.md`), `read_cost`, the `atlas_overview` structure graph and the `map_oversize` count. The other graph tools still show it; `deprecated` and `superseded` concepts still count in `read_cost`. The bundled `kb-doctor` skill does the harvest: facts into live pages with a dated link back, `status: archived` with a header line, one `reference` digest per quarter. Nothing is deleted or moved.
+`archived` is a server-reserved status, after `done`: the entry is finished **and** its durable facts have been carried into the live pages it links. It is retired like `deprecated` and `superseded` (`link_to_retired` counts live linkers, `map_misfit` and `link_suggest` skip it; a `digest`-typed page linking archived entries is not a linker) and closed, never open, and in no synonym family: it is a lifecycle stage, not a value a KB chooses among synonyms. An archived concept stays readable and linkable but leaves the active surface: default `search` (with an archived fallback, `docs/control-plane.md`), `read_cost`, the `atlas_overview` structure graph and the `map_oversize` count. The other graph tools still show it; `deprecated` and `superseded` concepts still count in `read_cost`. The bundled `kb-doctor` skill does the harvest: facts into live pages with a dated link back, `status: archived` with a header line, one `reference` digest per quarter. Nothing is deleted or moved. The status is allowed on any concept, not only in a journal: it is the harvest outcome for journal entries and also what `concept_archive` (D344) writes into the archive map, so no check flags it elsewhere. A retired page that stays in a live map gets no `index_incomplete` or `orphan` finding (D826).
 
 ### Review keys (D298)
 
