@@ -37,7 +37,7 @@ About 15 lines: size split into production, tests, docs and generated; areas;
 |---|---|---|
 | light | ≤ 50 production lines, outside the invariant areas | the coordinator reads the diff itself; no subagent |
 | standard | more, outside the invariant areas | `pr-reviewer`, then §4 |
-| full | production code in `internal/{mcpserver,provisioning,auth,gitx,sops,service}` | `pr-reviewer`, then §4 plus the coordinator reads the hunks in those areas against their `AGENTS.md` |
+| full | production code in `internal/{mcpserver,provisioning,auth,gitx,sops,service}` | `pr-reviewer`, then §4 plus the coordinator reads the hunks the reviewer's invariants line names, against their `AGENTS.md` — not the whole area diff |
 
 ## 2 — Send back without reading the code
 
@@ -72,6 +72,9 @@ reviewed in parallel, one worktree and one subagent each, in the background.
 - For every finding, read the cited lines yourself (`sed -n '<a>,<b>p' <file>` in
   the PR worktree) and drop what does not hold: the report is a lead, not
   evidence.
+- Full tier: read the ranges of the reviewer's invariants line (`none` means none),
+  never the whole diff of the area — most PRs touch `internal/mcpserver`, and
+  reading all of it is the cost this skill exists to avoid.
 - Plan conformance: compare the reviewer's work-package line with the plan's
   `## WP` headings (`gh issue view <plan> --json body`), not with the whole
   discussion.
