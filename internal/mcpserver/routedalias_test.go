@@ -166,10 +166,23 @@ func TestRoutedMount_KBS_CallByOldNameReachesTarget(t *testing.T) {
 // old name does not reach the renamed KB (scopes are not migrated, D177).
 func TestRoutedMount_KBS_AliasDoesNotWidenAuthorization(t *testing.T) {
 	t.Parallel()
+	args := map[string]any{"kb": "kb-old", "id": "manutenzione/marker"}
+	path := RoutedMountPath + "?kbs=kb-old"
+
+	// Control: the same call succeeds for a token scoped to the new name, so
+	// the refusal below is the scope and not a missing concept.
+	allowed := newRoutedAliasHandler(t, []config.KBAlias{{From: "kb-old", To: "kb-a"}}, []string{"kb-a"}, "kb-a", "kb-b")
+	if res := aliasCall(t, allowed, path, "concept_read", args); res.IsError || !strings.Contains(res.Content[0].Text, "belongs-to-kb-a") {
+		t.Fatalf("control: a token scoped to the new name must read the renamed KB: %+v", res)
+	}
+
 	handler := newRoutedAliasHandler(t, []config.KBAlias{{From: "kb-old", To: "kb-a"}}, []string{"kb-old"}, "kb-a", "kb-b")
-	res := aliasCall(t, handler, RoutedMountPath+"?kbs=kb-old", "concept_read", map[string]any{"kb": "kb-old", "id": "manutenzione/marker"})
+	res := aliasCall(t, handler, path, "concept_read", args)
 	if !res.IsError {
 		t.Fatalf("a token scoped to the old name reached the renamed KB: %+v", res)
+	}
+	if strings.Contains(res.Content[0].Text, "belongs-to-kb-a") {
+		t.Errorf("the refusal leaks the renamed KB's content: %q", res.Content[0].Text)
 	}
 }
 
