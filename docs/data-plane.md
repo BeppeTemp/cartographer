@@ -606,7 +606,9 @@ A page's template resolves in this order: its `shape` when it names an existing 
 
 A template declares its schema with flat dotted keys in its own frontmatter (a nested block stays opaque to the parser); `artifact_write` refuses an unknown `x-template.*` key, a wrong value kind, a placeholder in metadata, an optional section or alias canonical that is not an H2, and an alias that is another section's name or listed twice. `concept_new` strips every one before rendering and stamps `shape`; `template_list` returns them.
 
-A template variable can also take a list of strings from `concept_new` (D715): write `key: {{name}}` or a list item `- {{name}}` / `[a, {{name}}]` as the whole value; the caller's value decides the kind, a list anywhere else is refused.
+A template variable can also take a list of strings from `concept_new` (D715): write `key: {{name}}` or a list item `- {{name}}` / `[a, {{name}}]` as the whole value; the caller's value decides the kind, a list anywhere else is refused. `{{timestamp}}` is the one variable with a default, today's date (`YYYY-MM-DD`, UTC), used when the caller passes none (D830).
+
+A template's sections are its H2 headings outside fenced code or, when it has none, the H2 headings of its first fenced block: guidance prose followed by a fenced `markdown` skeleton is a supported shape (a fence with no H2 heading is not a skeleton). `concept_new` reads the template through the same scan: for a skeleton it renders the fence's content as the page body and drops the prose around it (D830), so the page carries the sections as real headings; any other template renders its whole body. The variables of a template are those of its frontmatter and of the body it renders.
 
 | Key | Meaning |
 |---|---|
