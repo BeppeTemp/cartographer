@@ -1,5 +1,5 @@
 import { expect, listedConcepts, LOCAL_URL, openConcept, selectedIn, test, waitForAtlas, withPanelsOpen } from "./support";
-import type { Locator } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 // The flows a sighted mouse user takes, against the auth-off server. Motion is
 // reduced for the whole file: the assertions are about state, and a camera
@@ -84,16 +84,14 @@ test("dragging the reading panel's edge resizes it, and the width survives a rel
   const start = Number(await handle.getAttribute("aria-valuenow"));
   const before = (await panel.boundingBox())!.width;
 
-  const box = (await handle.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 - 100, box.y + box.height / 2, { steps: 5 });
-  await page.mouse.up();
-  await expect(handle).toHaveAttribute("aria-valuenow", String(start + 100));
-  await expect.poll(async () => Math.round((await panel.boundingBox())!.width - before)).toBe(100);
+  // Narrower, not wider: the default can already sit at the measure's cap
+  // (D281), which depends on the runner's fonts.
+  await dragEdge(page, 100);
+  await expect(handle).toHaveAttribute("aria-valuenow", String(start - 100));
+  await expect.poll(async () => Math.round((await panel.boundingBox())!.width - before)).toBe(-100);
 
   await page.reload();
-  await expect(page.getByRole("separator", { name: "Resize reading panel" })).toHaveAttribute("aria-valuenow", String(start + 100));
+  await expect(page.getByRole("separator", { name: "Resize reading panel" })).toHaveAttribute("aria-valuenow", String(start - 100));
 });
 
 // #436: what a wider reading panel must keep true — the close button at the
@@ -106,7 +104,12 @@ test("a wider reading panel keeps its close button right and reframes the select
   const panel = page.locator("#reading-panel");
   const label = page.locator(".graph3d__label--selected");
   await expect(handle).toHaveAttribute("aria-valuenow", /^\d+$/);
-  const start = Number(await handle.getAttribute("aria-valuenow"));
+  // Make room to widen first: the default can already sit at the measure's
+  // cap (D281), which depends on the runner's fonts.
+  const initial = Number(await handle.getAttribute("aria-valuenow"));
+  await dragEdge(page, 200);
+  await expect(handle).toHaveAttribute("aria-valuenow", String(initial - 200));
+  const start = initial - 200;
   await expect(label).toHaveText("Gateway");
   const centre = async () => {
     const b = (await label.boundingBox())!;
@@ -116,13 +119,7 @@ test("a wider reading panel keeps its close button right and reframes the select
   await page.waitForTimeout(500);
   const before = await centre();
 
-  const box = (await handle.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  // 100px: inside the measure's cap (D281) in any font the runner has, the
-  // default being half the room already.
-  await page.mouse.move(box.x + box.width / 2 - 100, box.y + box.height / 2, { steps: 5 });
-  await page.mouse.up();
+  await dragEdge(page, -100);
   await expect(handle).toHaveAttribute("aria-valuenow", String(start + 100));
 
   // The strip's centre moved left by half the widening.
@@ -376,3 +373,12 @@ test("an unreachable server is named, not blank", async ({ page }) => {
   await expect(page.getByRole("status").filter({ hasText: "Disconnected" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Atlas navigation" })).toBeVisible();
 });
+
+/** Drags the reading panel's edge by dx pixels: negative widens it, positive narrows it. */
+async function dragEdge(page: Page, dx: number) {
+  const box = (await page.getByRole("separator", { name: "Resize reading panel" }).boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2, { steps: 5 });
+  await page.mouse.up();
+}
