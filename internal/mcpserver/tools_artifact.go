@@ -727,7 +727,13 @@ func validateTemplateArtifact(data []byte) (*okf.Frontmatter, string, []string, 
 	if typeVars, err := validateTemplateText(fm.Type()); err != nil || len(typeVars) > 0 {
 		return nil, "", nil, fmt.Errorf("frontmatter 'type' must be a non-empty literal string")
 	}
-	if err := addVars(body); err != nil {
+	// The whole body is checked, but the variables are those of the page it
+	// renders (concept_new keeps only a fenced sample's content): a
+	// placeholder only the guidance mentions is not a variable of the page.
+	if _, err := validateTemplateText(body); err != nil {
+		return nil, "", nil, fmt.Errorf("body: %w", err)
+	}
+	if err := addVars(kb.TemplatePageBody(body)); err != nil {
 		return nil, "", nil, fmt.Errorf("body: %w", err)
 	}
 	out := make([]string, 0, len(vars))
