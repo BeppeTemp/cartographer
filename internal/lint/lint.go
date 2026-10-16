@@ -1058,7 +1058,7 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 			for _, d := range dups {
 				f := newFinding("duplicate_link", Finding{
 					Path:    relPath,
-					Message: fmt.Sprintf("linked both in the text and under %q: %s — keep the link where the text says why", heading, d),
+					Message: fmt.Sprintf("linked both in the text and under %q: %s — keep the link where the text says why (a line of prose keeps the section when its items go)", heading, d),
 				})
 				if fix, ok := fixableDups[d]; ok {
 					f.Fix = fix

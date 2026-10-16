@@ -102,10 +102,10 @@ func TestLinksSectionEndsAtAnyHeading(t *testing.T) {
 func TestDropLinkItemLeavesADemotedSubsectionAlone(t *testing.T) {
 	t.Parallel()
 	body := "# T\n\nText [[a/b]].\n\n## Links\n\n- [[c/d]] — why\n\n### Extra\n\n- [[a/b]]\n"
-	if got := DropLinkItem(body, "- [[a/b]]"); got != body {
+	if got := DropLinkItem(body, "- [[a/b]]", nil); got != body {
 		t.Fatalf("a line under a ### after the links heading is not the section's: %q", got)
 	}
-	if got := DropLinkItem(body, "- [[c/d]] — why"); !strings.Contains(got, "### Extra\n\n- [[a/b]]\n") || strings.Contains(got, "[[c/d]]") {
+	if got := DropLinkItem(body, "- [[c/d]] — why", nil); !strings.Contains(got, "### Extra\n\n- [[a/b]]\n") || strings.Contains(got, "[[c/d]]") {
 		t.Fatalf("the section's own line goes, the subsection stays: %q", got)
 	}
 }
@@ -155,7 +155,7 @@ func TestEmptiedLinksSectionKeepsItsHeadingWhenDeeperHeadingsFollow(t *testing.T
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := DropLinkItem(tc.body, "- [[a/b]]")
+			got := DropLinkItem(tc.body, "- [[a/b]]", nil)
 			if got != tc.want {
 				t.Fatalf("got  %q\nwant %q", got, tc.want)
 			}
@@ -188,7 +188,7 @@ func TestLinksSectionAndRepairShareOneBoundary(t *testing.T) {
 			if inSection == inRest {
 				t.Fatalf("line %q must be in exactly one of section %q and rest %q", line, section, rest)
 			}
-			changed := ReplaceLinkItem(body, line, "- [[x/y]]") != body
+			changed := ReplaceLinkItem(body, line, "- [[x/y]]", nil) != body
 			if changed != inSection {
 				t.Errorf("body %q: line %q in section = %v but the repair changed it = %v", body, line, inSection, changed)
 			}

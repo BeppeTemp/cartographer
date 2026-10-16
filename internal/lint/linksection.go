@@ -273,18 +273,28 @@ func linkOnlyItems(section, linkBase string, assetExists func(string) bool) map[
 	return out
 }
 
+// HeadingRequired says whether the page being repaired must keep a heading
+// (its level and text as written): the page's template requires that section
+// (TemplateRequiresHeading). A nil HeadingRequired requires none.
+type HeadingRequired func(level int, heading string) bool
+
 // DropLinkItem removes the exact line from the body's links section (D295
-// WP4) and, when the section is left with no list item, its heading too. Every
-// other byte of the body is kept in place. A line no longer present is a no-op.
-func DropLinkItem(body, line string) string { return ReplaceLinkItem(body, line, "") }
+// WP4) and, when the section is left with no list item, its heading too —
+// unless required says the heading must stay. Every other byte of the body is
+// kept in place. A line no longer present is a no-op.
+func DropLinkItem(body, line string, required HeadingRequired) string {
+	return ReplaceLinkItem(body, line, "", required)
+}
 
 // ReplaceLinkItem replaces the exact line in the body's links section with
 // newLine, or removes it when newLine is "" — and then, when the section is
 // left with no list item, its heading too. The heading stays when a deeper
-// heading follows: the section still has children, and removing their parent
-// would re-parent them under the previous heading. A line no longer present is
-// a no-op.
-func ReplaceLinkItem(body, line, newLine string) string {
+// heading follows (the section still has children, and removing their parent
+// would re-parent them under the previous heading) and when required asks for
+// it: a template that requires the section would report it missing the next
+// lint. required is asked only when the heading would otherwise go. A line no
+// longer present is a no-op.
+func ReplaceLinkItem(body, line, newLine string, required HeadingRequired) string {
 	x, ok := locateLinksSection(body)
 	if !ok {
 		return body
@@ -317,10 +327,14 @@ func ReplaceLinkItem(body, line, newLine string) string {
 	if hasItem || strings.TrimSpace(newSection) != "" {
 		return body[:x.headEnd] + newSection + body[x.end:]
 	}
-	if x.nextLevel > x.level {
-		// Nothing of its own is left but subsections follow: keep the heading,
-		// one blank line before the first child.
-		return strings.TrimRight(body[:x.headEnd], " \t\r\n") + "\n\n" + body[x.end:]
+	if x.nextLevel > x.level || required != nil && required(x.level, x.heading) {
+		// Nothing of its own is left, but the heading stays: one blank line
+		// before whatever follows it.
+		head := strings.TrimRight(body[:x.headEnd], " \t\r\n") + "\n"
+		if x.end < len(body) {
+			head += "\n"
+		}
+		return head + body[x.end:]
 	}
 	// Heading and empty section go; keep the following content.
 	return strings.TrimRight(body[:x.headStart], "\n") + "\n" + strings.TrimLeft(body[x.end:], "\n")

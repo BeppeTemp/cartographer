@@ -340,9 +340,9 @@ func applyFixes(k *kb.KB, id okf.ConceptID, fm *okf.Frontmatter, body *string, f
 			}
 			*body = nb
 		case lint.FixDropLinkItem:
-			*body = lint.DropLinkItem(*body, fx.Field)
+			*body = lint.DropLinkItem(*body, fx.Field, lint.TemplateRequiresHeading(k, id, fm))
 		case lint.FixRewriteLinkItem:
-			*body = lint.ReplaceLinkItem(*body, fx.Field, fx.To)
+			*body = lint.ReplaceLinkItem(*body, fx.Field, fx.To, lint.TemplateRequiresHeading(k, id, fm))
 		default:
 			return 0, nil, "unknown fix kind " + fx.Kind
 		}
