@@ -469,13 +469,14 @@ func IgnoredFiles(dir, path string) ([]string, error) {
 
 // IgnoredPaths returns those of paths (relative to dir, which need not exist
 // yet) that the repository's ignore rules would exclude from a commit. It asks
-// git with --no-index, so a tracked path is judged by the rules alone.
+// git with --no-index, so a tracked path is judged by the rules alone. The paths
+// go to git on stdin, NUL-separated, so the call does not grow with them (argv
+// has a hard limit) and a name is never quoted or split.
 func IgnoredPaths(dir string, paths []string) ([]string, error) {
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	args := append([]string{"check-ignore", "--no-index", "--"}, paths...)
-	out, err := runGit(dir, args...)
+	out, err := runGitStdin(dir, strings.Join(paths, "\x00")+"\x00", "check-ignore", "--no-index", "--stdin", "-z")
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && ee.ExitCode() == 1 {
@@ -484,8 +485,8 @@ func IgnoredPaths(dir string, paths []string) ([]string, error) {
 		return nil, fmt.Errorf("git check-ignore: %w: %s", err, out)
 	}
 	var ignored []string
-	for _, p := range strings.Split(out, "\n") {
-		if p = strings.TrimSpace(p); p != "" {
+	for _, p := range strings.Split(out, "\x00") {
+		if p != "" {
 			ignored = append(ignored, p)
 		}
 	}
@@ -518,6 +519,16 @@ func runGitEnv(dir string, env []string, args ...string) (string, error) {
 	fullArgs := append([]string{"-C", dir}, args...)
 	cmd := exec.Command("git", fullArgs...)
 	cmd.Env = gitEnv(env)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// runGitStdin is runGit with stdin fed to the command: for a list too long for
+// argv.
+func runGitStdin(dir, stdin string, args ...string) (string, error) {
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = gitEnv(nil)
+	cmd.Stdin = strings.NewReader(stdin)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
