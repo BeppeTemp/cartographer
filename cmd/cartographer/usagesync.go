@@ -56,3 +56,22 @@ func reportUsage(cfg *clientconfig.Config, dir string) int {
 	}
 	return sent
 }
+
+// reportClientSettings is the post-apply step of `sync` that tells the server
+// this machine's client settings (D818), for the Atlas Settings page to show
+// the viewer their own client. Best-effort like reportUsage: it never blocks
+// or fails a sync. The server keeps the report for the principal that sent it
+// and shows it to that principal only.
+func reportClientSettings(cfg *clientconfig.Config, dir string) bool {
+	report, err := clientconfig.Report(dir, version)
+	if err != nil {
+		slog.Debug("client settings report skipped", "err", err)
+		return false
+	}
+	c := client.New(cfg.ServerURL, resolveToken(cfg)).WithTokenEnv(tokenEnvName(cfg))
+	if err := c.ReportClientSettings(report, probeTimeout); err != nil {
+		slog.Debug("client settings report not delivered", "err", err)
+		return false
+	}
+	return true
+}

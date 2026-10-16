@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/config"
 )
 
@@ -94,6 +95,8 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 		"version": m.version,
 		"server":  view.Server,
 		"kbs":     kbs,
+		// The caller's own clients, never anybody else's (D818).
+		"clients": m.clientReports.of(auth.PrincipalFromContext(ctx).ID),
 	}
 	// The server's configuration as the YAML file it amounts to, commented by
 	// the schema, its kbs[] entries limited to the KBs the caller sees (D818).

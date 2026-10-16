@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchSettings, fetchWhoami } from "../api/client";
-import type { SettingEntry, SettingOrigin, SettingsKB, SettingsView, Whoami, WhoamiRule } from "../api/types";
+import type {
+  SettingEntry,
+  SettingOrigin,
+  SettingsClient,
+  SettingsKB,
+  SettingsView,
+  Whoami,
+  WhoamiRule,
+} from "../api/types";
 import { Page, PageHeader, Segmented } from "./Page";
 import { ErrorState, Skeleton } from "./States";
 
@@ -63,10 +71,28 @@ const KB_GROUPS: [Group, (key: string) => boolean][] = [
     { title: "Maintenance", intro: "What the server repairs on its own, and when it proposes a doctor session." },
     (k) => /^(auto_repair|repair_on_write|doctor_|usage_stale_days)/.test(k),
   ],
+  [{ title: "Secrets & signing", intro: "How this KB's secrets are decrypted and its artifacts signed." }, () => true],
+];
+
+/** The client's keys (.cartographer.yaml), grouped by what they govern. */
+const CLIENT_GROUPS: [Group, (key: string) => boolean][] = [
   [
-    { title: "Secrets & signing", intro: "How this KB's secrets are decrypted and its artifacts signed." },
-    () => true,
+    { title: "Connection", intro: "Which server this machine talks to, and how it authenticates." },
+    (k) => ["server_url", "server_name", "auth", "token_env"].includes(k),
   ],
+  [
+    { title: "Agents & KBs", intro: "The agent clients connected, and which KBs each one receives where." },
+    (k) => ["agents", "trust", "clients", "scopes", "workspaces"].includes(k),
+  ],
+  [
+    { title: "Local paths", intro: "How {{repo:…}} and {{path:…}} placeholders resolve on this machine." },
+    (k) => ["search_roots", "search_depth", "paths", "ignored_paths"].includes(k),
+  ],
+  [
+    { title: "Trust", intro: "The signing keys pinned and the MCP descriptors approved on this machine." },
+    (k) => ["signing_keys", "mcp_approvals"].includes(k),
+  ],
+  [{ title: "Updates & sync", intro: "Release checks, usage reports, hooks and the sync timer." }, () => true],
 ];
 
 type Mode = "readable" | "yaml";
@@ -138,6 +164,9 @@ export function Settings({
   // are a pick away.
   const selected = view.kbs.find((k) => k.name === activeKB) ?? view.kbs[0];
   const kb = tab === "kb" ? selected : undefined;
+  const clients = view.clients ?? [];
+  const client = tab.startsWith("client") ? (clients.find((c) => `client:${c.machine}` === tab) ?? null) : undefined;
+  const current = client !== undefined ? tab : kb ? "kb" : "server";
 
   return (
     <Page label="Settings" className="settings">
@@ -187,19 +216,38 @@ export function Settings({
 
       <div className="settings__bar">
         <div className="inspector__tabs settings__tabs" role="tablist" aria-label="Settings of">
-          <Tab id="server" current={!kb} onSelect={setTab} entries={view.server}>
+          {clients.length === 0 ? (
+            <Tab id="client" current={current === "client"} onSelect={setTab} entries={[]}>
+              Client
+            </Tab>
+          ) : (
+            clients.map((c) => (
+              <Tab
+                key={c.machine}
+                id={`client:${c.machine}`}
+                current={current === `client:${c.machine}`}
+                onSelect={setTab}
+                entries={c.entries}
+              >
+                {clients.length === 1 ? "Client" : `Client · ${c.machine}`}
+              </Tab>
+            ))
+          )}
+          <Tab id="server" current={current === "server"} onSelect={setTab} entries={view.server}>
             Server
           </Tab>
           {selected && (
-            <Tab id="kb" current={!!kb} onSelect={setTab} entries={selected.entries}>
+            <Tab id="kb" current={current === "kb"} onSelect={setTab} entries={selected.entries}>
               Knowledge Base
             </Tab>
           )}
         </div>
       </div>
 
-      <div role="tabpanel" aria-labelledby={`settings-tab-${kb ? "kb" : "server"}`}>
-        {kb ? (
+      <div role="tabpanel" aria-labelledby={`settings-tab-${current}`}>
+        {client !== undefined ? (
+          <ClientPanel client={client} mode={mode} query={query} />
+        ) : kb ? (
           <KBPanel kb={kb} mode={mode} query={query} />
         ) : (
           <ServerPanel entries={view.server} yaml={view.server_yaml} mode={mode} query={query} />
@@ -234,9 +282,11 @@ function Tab({
       onClick={() => onSelect(id)}
     >
       {children}
-      <span className="settings__tab-count" title={`${set} of ${entries.length} set; the rest keep their default`}>
-        {set}/{entries.length}
-      </span>
+      {entries.length > 0 && (
+        <span className="settings__tab-count" title={`${set} of ${entries.length} set; the rest keep their default`}>
+          {set}/{entries.length}
+        </span>
+      )}
     </button>
   );
 }
@@ -260,10 +310,7 @@ function ServerPanel({
   return (
     <>
       {mode === "yaml" ? (
-        <Yaml
-          name="config.yaml"
-          text={yaml}
-        />
+        <Yaml name="config.yaml" text={yaml} />
       ) : groups.size === 0 ? (
         <NoMatch query={query} />
       ) : (
@@ -291,10 +338,7 @@ function KBPanel({ kb, mode, query }: { kb: SettingsKB; mode: Mode; query: strin
   return (
     <>
       {mode === "yaml" ? (
-        <Yaml
-          name={`${kb.name}/settings.yaml`}
-          text={kb.yaml}
-        />
+        <Yaml name={`${kb.name}/settings.yaml`} text={kb.yaml} />
       ) : groups.every((g) => g.rows.length === 0) ? (
         <NoMatch query={query} />
       ) : (
@@ -314,8 +358,55 @@ function KBPanel({ kb, mode, query }: { kb: SettingsKB; mode: Mode; query: strin
   );
 }
 
-const shortKey = (key: string) => key.replace(/^kbs\[\]\./, "");
+/**
+ * The viewer's own client on one machine, as its last sync reported it
+ * (D818). The server keeps it for the principal that sent it and shows it to
+ * that principal only.
+ */
+function ClientPanel({ client, mode, query }: { client: SettingsClient | null; mode: Mode; query: string }) {
+  if (!client) {
+    return (
+      <p className="page-note settings__nomatch">
+        Your client has not reported its settings to this server yet. They arrive with its next{" "}
+        <code>cartographer sync</code>, which the sync timer runs every half hour.
+      </p>
+    );
+  }
+  const groups = CLIENT_GROUPS.map(([group]) => ({ group, rows: [] as SettingEntry[] }));
+  for (const e of client.entries.filter((e) => matches(e, query))) {
+    groups[CLIENT_GROUPS.findIndex(([, match]) => match(e.key))]!.rows.push(e);
+  }
+  return (
+    <>
+      <p className="page-note settings__reported">
+        {client.machine} · client {client.version} · reported {new Date(client.received_at).toLocaleString("en")}
+      </p>
+      {mode === "yaml" ? (
+        client.yaml ? (
+          <Yaml name=".cartographer.yaml" text={client.yaml} />
+        ) : (
+          <p className="page-note">This machine has no .cartographer.yaml: every key keeps its default.</p>
+        )
+      ) : groups.every((g) => g.rows.length === 0) ? (
+        <NoMatch query={query} />
+      ) : (
+        groups
+          .filter((g) => g.rows.length > 0)
+          .map(({ group, rows }) => (
+            <Rows
+              key={group.title}
+              open={!!query}
+              group={group}
+              entries={rows}
+              label={`Client ${group.title} settings`}
+            />
+          ))
+      )}
+    </>
+  );
+}
 
+const shortKey = (key: string) => key.replace(/^kbs\[\]\./, "");
 
 /** A key matches a search by its name, what it does, its value or how it is overridden. */
 function matches(e: SettingEntry, query: string): boolean {
@@ -466,9 +557,12 @@ function Yaml({ name, text }: { name: string; text?: string }) {
       onMouseLeave={() => (hovered.current = false)}
     >
       <code>
-        {text.replace(/\n$/, "").split("\n").map((line, i) => (
-          <YamlLine key={i} line={line} />
-        ))}
+        {text
+          .replace(/\n$/, "")
+          .split("\n")
+          .map((line, i) => (
+            <YamlLine key={i} line={line} />
+          ))}
       </code>
     </pre>
   );

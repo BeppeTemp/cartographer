@@ -88,7 +88,7 @@ describe("the Settings panel", () => {
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     // Each tab says how many of its keys are set.
-    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Server2/3", "Knowledge Base1/1"]);
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Client", "Server2/3", "Knowledge Base1/1"]);
     await user.click(within(tabs).getByRole("tab", { name: /Knowledge Base/ }));
     const writes = screen.getByRole("list", { name: "KB kb-a Writes & tools settings" });
     expect(within(writes).getByText("write_gate")).toBeInTheDocument();
@@ -103,6 +103,46 @@ describe("the Settings panel", () => {
     await user.hover(server);
     await user.keyboard("{Control>}a{/Control}");
     expect(window.getSelection()?.toString()).toBe(server.textContent);
+  });
+
+  it("shows the viewer's own client as its sync reported it, or says it has not reported yet", async () => {
+    stubApi({
+      "/settings": () =>
+        json({
+          ...SETTINGS,
+          clients: [
+            {
+              machine: "laptop",
+              version: "v-client",
+              server_url: "http://example.com/mcp",
+              received_at: "2026-10-16T10:00:00Z",
+              yaml: "server_url: http://example.com/mcp\n",
+              entries: [
+                { key: "server_url", value: "http://example.com/mcp", origin: "file", description: "MCP endpoint.", default: "x" },
+                { key: "update.check", value: true, origin: "default", description: "Look up releases.", default: "true" },
+              ],
+            },
+          ],
+        }),
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    const tabs = await screen.findByRole("tablist", { name: "Settings of" });
+    await user.click(within(tabs).getByRole("tab", { name: /^Client/ }));
+    expect(screen.getByText(/laptop · client v-client · reported/)).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Client Connection settings" })).toHaveTextContent("server_url");
+    expect(screen.getByRole("list", { name: "Client Updates & sync settings" })).toHaveTextContent("update.check");
+    await user.click(screen.getByRole("button", { name: "YAML" }));
+    expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("server_url: http://example.com/mcp");
+  });
+
+  it("says when the viewer's client has not reported yet", async () => {
+    stubApi({ "/settings": () => json(SETTINGS) });
+    const user = userEvent.setup();
+    render(<App />);
+    const tabs = await screen.findByRole("tablist", { name: "Settings of" });
+    await user.click(within(tabs).getByRole("tab", { name: "Client" }));
+    expect(screen.getByText(/has not reported its settings/)).toBeInTheDocument();
   });
 
   it("reaches the panel from the rail", async () => {

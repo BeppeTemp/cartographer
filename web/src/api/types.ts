@@ -608,6 +608,19 @@ export interface SettingsView {
   /** The server's configuration in force as one commented YAML file (D818). */
   server_yaml?: string;
   kbs: SettingsKB[];
+  /** The viewer's own clients, as each machine last reported them (D818). */
+  clients?: SettingsClient[];
+}
+
+/** One machine's client settings, reported by its last sync (D818). */
+export interface SettingsClient {
+  machine: string;
+  version: string;
+  server_url: string;
+  entries: SettingEntry[];
+  /** The machine's .cartographer.yaml as it is on disk; "" when it has none. */
+  yaml: string;
+  received_at: string;
 }
 
 /** One Service concept (GET /kbs/{kb}/services), filtered to what the caller sees. */

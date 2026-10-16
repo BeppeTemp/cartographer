@@ -289,6 +289,9 @@ type MultiKBServer struct {
 	// settings and updateChannel feed GET /api/ui/v1/settings (D743).
 	settings      *config.Config
 	updateChannel string
+	// clientReports are the client settings each principal's machines sent
+	// (D818), shown back to that principal only.
+	clientReports clientReports
 }
 
 // webMount is the UI surface a server may expose. Static may be nil: the JSON
@@ -564,6 +567,11 @@ func (m *MultiKBServer) Handler() http.Handler {
 		// being enabled — and inside the same auth chain as /mcp.
 		case r.URL.Path == UsagePath:
 			m.handleUsage(w, r)
+			return
+
+		// A client's own settings (D818): like usage, always routed.
+		case r.URL.Path == ClientSettingsPath:
+			m.handleClientSettings(w, r)
 			return
 
 		// The read-only UI API (D226). It sits inside the same auth chain as
