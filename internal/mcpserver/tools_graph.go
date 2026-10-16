@@ -71,7 +71,12 @@ type neighbour struct {
 // personalized PageRank of seeds on lg, the seeds themselves and every node
 // skip accepts left out, ordered by score, then hops, then id. A node whose
 // rounded score is 0 is not a neighbour. It does not cut the list.
-func rankNeighbours(lg *kb.LinkGraph, seeds map[int]float64, skip func(node int) bool) []neighbour {
+//
+// via is the node a neighbour was discovered from. When viaOK is not nil and
+// rejects that node, via becomes another node on a shortest path that viaOK
+// accepts, else the nearest earlier node of the discovery path it accepts, else
+// -1: a node viaOK rejects is still a step of the walk, but never the answer.
+func rankNeighbours(lg *kb.LinkGraph, seeds map[int]float64, skip, viaOK func(node int) bool) []neighbour {
 	sources := make([]int, 0, len(seeds))
 	for i := range seeds {
 		sources = append(sources, i)
@@ -83,7 +88,11 @@ func rankNeighbours(lg *kb.LinkGraph, seeds map[int]float64, skip func(node int)
 		if _, seed := seeds[i]; seed || round4(p) <= 0 || (skip != nil && skip(i)) {
 			continue
 		}
-		out = append(out, neighbour{node: i, score: round4(p), hops: dist[i], via: pred[i]})
+		via := pred[i]
+		if viaOK != nil && via >= 0 && !viaOK(via) {
+			via = acceptedVia(lg, dist, pred, i, viaOK)
+		}
+		out = append(out, neighbour{node: i, score: round4(p), hops: dist[i], via: via})
 	}
 	sort.Slice(out, func(a, b int) bool {
 		if out[a].score != out[b].score {
@@ -95,6 +104,28 @@ func rankNeighbours(lg *kb.LinkGraph, seeds map[int]float64, skip func(node int)
 		return lg.IDs[out[a].node] < lg.IDs[out[b].node]
 	})
 	return out
+}
+
+// acceptedVia replaces a via ok rejected: the lowest-numbered neighbour of
+// node one hop closer to the seeds that ok accepts, else the nearest node ok
+// accepts on the path BFS discovered node by, else -1.
+func acceptedVia(lg *kb.LinkGraph, dist, pred []int, node int, ok func(int) bool) int {
+	best := -1
+	for _, adj := range [][]int{lg.Graph.Out[node], lg.Graph.In[node]} {
+		for _, u := range adj {
+			if dist[u] == dist[node]-1 && ok(u) && (best < 0 || u < best) {
+				best = u
+			}
+		}
+	}
+	if best >= 0 {
+		return best
+	}
+	v := pred[pred[node]]
+	for v >= 0 && !ok(v) {
+		v = pred[v]
+	}
+	return v
 }
 
 func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
@@ -194,7 +225,7 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 			}
 
 			results := []resultOut{}
-			for _, n := range rankNeighbours(lg, seeds, nil) {
+			for _, n := range rankNeighbours(lg, seeds, nil, nil) {
 				r := resultOut{ID: string(lg.IDs[n.node]), Title: lg.Facets[n.node].Title, Score: n.score, Hops: n.hops, Bytes: lg.Facets[n.node].Bytes}
 				if n.via >= 0 {
 					r.Via = string(lg.IDs[n.via])

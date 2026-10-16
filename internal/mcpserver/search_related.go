@@ -87,9 +87,11 @@ func relatedBlock(ctx requestContext, k *kb.KB, hits []searchHit, limit int) []r
 	if len(seeds) == 0 {
 		return nil
 	}
-	skip := func(i int) bool { return shown[i] || kb.IsRetired(lg.Facets[i].Status) }
+	retired := func(i int) bool { return kb.IsRetired(lg.Facets[i].Status) }
+	skip := func(i int) bool { return shown[i] || retired(i) }
+	live := func(i int) bool { return !retired(i) }
 	var block []relatedHit
-	for _, n := range rankNeighbours(lg, seeds, skip) {
+	for _, n := range rankNeighbours(lg, seeds, skip, live) {
 		e := relatedHit{ID: string(lg.IDs[n.node]), Title: lg.Facets[n.node].Title, Bytes: lg.Facets[n.node].Bytes}
 		if n.via >= 0 {
 			e.Via = string(lg.IDs[n.via])
