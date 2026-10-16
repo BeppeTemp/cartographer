@@ -43,7 +43,7 @@ const transferMaxMoves = 50
 // transferScanMaxBytes bounds the text scanned for placeholders per file.
 const transferScanMaxBytes = 1 << 20
 
-// transferSourceHook is a test seam: it runs at the start of the source step so
+// transferSourceHook is a test seam: twoKBMove.run calls it at the start of the source step so
 // a test can make it fail and prove the compensating revert.
 var transferSourceHook func() error
 
@@ -207,106 +207,63 @@ type transferPlan struct {
 
 type moveMapWithAssets = map[string]string
 
-// runTransfer is the body of the tool under both git locks.
+// runTransfer is the body of the tool under both git locks: the concept half of
+// the two-KB transaction (twokbmove.go).
 func runTransfer(ctx context.Context, args json.RawMessage, src *kb.KB, srcName string, dst *kb.KB, p transferParams) ToolResult {
-	for _, k := range []*kb.KB{src, dst} {
-		if !k.AutoCommit || !gitx.IsRepo(k.Root) {
-			return errorResult("concept_transfer needs both KBs to be git repositories with auto-commit: it undoes a half-done transfer through git")
-		}
-	}
-	for _, k := range []*kb.KB{src, dst} {
-		if refused, bad := syncInForWrite(k); bad {
-			return refused
-		}
-	}
-	if err := reauthorizeUnderLock(ctx, src, "concept_transfer", args); err != nil {
-		return errorResult(err.Error())
-	}
-	if err := authorizeTransferTarget(ctx, src, dst, p.TargetKB, p.Moves); err != nil {
-		return errorResult(err.Error())
-	}
-	for _, k := range []*kb.KB{src, dst} {
-		commitExternalChanges(k, "concept_transfer")
-		k.RefreshSettings() // as gitWrap does: an in-place settings.yaml edit applies (D746)
-		// DiscardChanges below resets the whole tree: it is safe only when the
-		// tree held nothing of anyone's before this call.
-		if status, err := gitx.Status(k.Root); err != nil || strings.TrimSpace(status) != "" {
-			return errorResult("concept_transfer: " + kbLabel(k, src, srcName, p.TargetKB) + " has uncommitted changes that could not be committed (open conflicts?); resolve them first")
-		}
-	}
-
-	plan, errRes := planTransfer(src, dst, p)
-	if errRes != nil {
-		return *errRes
-	}
-
 	dstName := p.TargetKB
-	subject := transferSubject(plan, "to", dstName)
+	var (
+		plan   *transferPlan
+		tgt    transferTargetOut
+		srcOut transferSourceOut
+	)
+	m := &twoKBMove{
+		Tool: "concept_transfer", Things: "concepts",
+		Src: src, Dst: dst, SrcName: srcName, DstName: dstName, Args: args,
+		AuthorizeTarget: func(ctx context.Context) error {
+			return authorizeTransferTarget(ctx, src, dst, p.TargetKB, p.Moves)
+		},
+		Plan: func() *ToolResult {
+			var errRes *ToolResult
+			plan, errRes = planTransfer(src, dst, p)
+			return errRes
+		},
+		ApplyTarget: func() error {
+			var err error
+			tgt, err = applyTransferTarget(src, dst, plan)
+			if err == nil {
+				err = dst.AppendLog(fmt.Sprintf("concept_transfer (%d concept(s) from %s):\n%s", len(plan.items), srcName, strings.Join(plan.logLines(srcName, dstName, false), "\n")), time.Now())
+			}
+			if err == nil {
+				if _, regenErr := dst.RegenerateIndexes(); regenErr != nil {
+					fmt.Fprintf(os.Stderr, "cartographer: generated index (concept_transfer): %v\n", regenErr)
+				}
+			}
+			return err
+		},
+		ApplySource: func() error {
+			var err error
+			srcOut, err = applyTransferSource(src, plan)
+			if err == nil {
+				err = src.AppendLog(fmt.Sprintf("concept_transfer (%d concept(s) to %s):\n%s", len(plan.items), dstName, strings.Join(plan.logLines(srcName, dstName, true), "\n")), time.Now())
+			}
+			if err == nil {
+				if _, regenErr := src.RegenerateIndexes(); regenErr != nil {
+					fmt.Fprintf(os.Stderr, "cartographer: generated index (concept_transfer): %v\n", regenErr)
+				}
+			}
+			return err
+		},
+		TargetSubject: func() string { return transferSubject(plan, "from", srcName) },
+		SourceSubject: func() string { return transferSubject(plan, "to", dstName) },
+		Report: func(srcSHA, dstSHA string) map[string]any {
+			return transferReport(plan, srcName, dstName, srcSHA, dstSHA, srcOut, tgt)
+		},
+	}
+	return m.run(ctx)
+}
 
-	// --- target step ---
-	tgt, err := applyTransferTarget(src, dst, plan)
-	if err == nil {
-		err = dst.AppendLog(fmt.Sprintf("concept_transfer (%d concept(s) from %s):\n%s", len(plan.items), srcName, strings.Join(plan.logLines(srcName, dstName, false), "\n")), time.Now())
-	}
-	var dstSHA string
-	if err == nil {
-		if _, regenErr := dst.RegenerateIndexes(); regenErr != nil {
-			fmt.Fprintf(os.Stderr, "cartographer: generated index (concept_transfer): %v\n", regenErr)
-		}
-		dstSHA, err = commitTransfer(ctx, args, dst, transferSubject(plan, "from", srcName), "Moved-From", srcName)
-	}
-	if errors.Is(err, errCommitUnknown) {
-		return errorResult(fmt.Sprintf("concept_transfer: the commit in %s may have landed but could not be confirmed; nothing was changed in the source. Check %s's history before retrying", dstName, dstName))
-	}
-	if err != nil {
-		discardNote := ""
-		if dErr := gitx.DiscardChanges(dst.Root); dErr != nil {
-			discardNote = fmt.Sprintf("; discarding the target tree failed too: %v", dErr)
-		}
-		return errorResult(fmt.Sprintf("concept_transfer: target step failed, nothing was changed in the source: %v%s", err, discardNote))
-	}
-
-	// --- source step ---
-	srcOut, err := applyTransferSource(src, plan)
-	var srcSHA string
-	if err == nil {
-		err = src.AppendLog(fmt.Sprintf("concept_transfer (%d concept(s) to %s):\n%s", len(plan.items), dstName, strings.Join(plan.logLines(srcName, dstName, true), "\n")), time.Now())
-	}
-	if err == nil {
-		if _, regenErr := src.RegenerateIndexes(); regenErr != nil {
-			fmt.Fprintf(os.Stderr, "cartographer: generated index (concept_transfer): %v\n", regenErr)
-		}
-		srcSHA, err = commitTransfer(ctx, args, src, subject, "Moved-To", dstName)
-	}
-	if errors.Is(err, errCommitUnknown) {
-		// The removal may be committed: reverting the target could leave the
-		// concepts in neither KB. A duplicate is recoverable, a loss is not.
-		return errorResult(fmt.Sprintf("concept_transfer: the source commit in %s may have landed but could not be confirmed; the target commit %.7s in %s is kept. Check %s's history: if the removal is not there, remove the duplicates from %s by hand", srcName, dstSHA, dstName, srcName, dstName))
-	}
-	if err != nil {
-		if dErr := gitx.DiscardChanges(src.Root); dErr != nil {
-			// The source tree may still hold the uncommitted removal: the next
-			// write would commit it as an external change, so the target copy
-			// must stay (a duplicate, never a loss).
-			return errorResult(fmt.Sprintf("concept_transfer: source step failed (%v) and discarding the source tree failed too (%v); the target commit %.7s in %s is kept so nothing is lost: restore %s with git, then remove the duplicates from %s", err, dErr, dstSHA, dstName, srcName, dstName))
-		}
-		note := ""
-		if rErr := revertTransferTarget(ctx, dst, dstSHA, srcName); rErr != nil {
-			note += fmt.Sprintf("; undoing the target commit %.7s failed (%v): the concepts now exist in both KBs, remove them from %s by hand", dstSHA, rErr, dstName)
-		} else {
-			note += fmt.Sprintf("; the target commit %.7s was undone by a revert commit", dstSHA)
-		}
-		return errorResult(fmt.Sprintf("concept_transfer: source step failed, the source is unchanged: %v%s", err, note))
-	}
-
-	// Target first, so an inline push normally lands the content before its
-	// removal. Not guaranteed: a failed target push does not stop the source
-	// push, and with SyncOutDebounce each KB's worker pushes on its own. Nothing
-	// is lost locally; the gap closes when the target is pushed (D760).
-	res := ToolResult{}
-	pushAfterCommit(dst, "concept_transfer", &res)
-	pushAfterCommit(src, "concept_transfer", &res)
-
+// transferReport is the result of a concept_transfer that went through.
+func transferReport(plan *transferPlan, srcName, dstName, srcSHA, dstSHA string, srcOut transferSourceOut, tgt transferTargetOut) map[string]any {
 	moved := make([]map[string]string, 0, len(plan.items))
 	for _, it := range plan.items {
 		moved = append(moved, map[string]string{"source_id": it.fromID, "target_id": it.toID})
@@ -349,17 +306,7 @@ func runTransfer(ctx context.Context, args json.RawMessage, src *kb.KB, srcName 
 		// one list, and this is one list per KB.
 		result["findings_by_kb"] = findings
 	}
-	out, _ := json.MarshalIndent(result, "", "  ")
-	res.Content = append([]ContentBlock{{Type: "text", Text: string(out)}}, res.Content...)
-	res.CommitSHA = srcSHA
-	return res
-}
-
-func kbLabel(k, src *kb.KB, srcName, dstName string) string {
-	if k == src {
-		return srcName
-	}
-	return dstName
+	return result
 }
 
 // logLines renders the log.md body of one side.
@@ -386,60 +333,6 @@ func transferSubject(pl *transferPlan, dir, other string) string {
 		}
 	}
 	return fmt.Sprintf("concept_transfer: %s %s %s", strings.Join(ids, ", "), dir, other)
-}
-
-// errCommitUnknown means the commit may have landed but its SHA could not be
-// read back: neither discarding nor reverting is safe then, since either could
-// undo a commit that holds the only copy of a concept.
-var errCommitUnknown = errors.New("commit: its outcome is unknown (HEAD unreadable)")
-
-// commitTransfer commits one KB's side with its Moved-* trailer. TRAP: the KB
-// name is whitespace-collapsed like commitAgent, otherwise a name holding
-// "\nReason: x" would forge a trailer. TRAP: CommitOpAs returns "" both for
-// "nothing to commit" and for a commit whose SHA could not be read back, so
-// success is decided by HEAD moving, never by the returned SHA alone.
-func commitTransfer(ctx context.Context, args json.RawMessage, k *kb.KB, subject, trailerKey, otherKB string) (string, error) {
-	other := strings.Join(strings.Fields(otherKB), " ")
-	msg := subject
-	if block := commitTrailerBlock(ctx, args, trailerKey+": "+other); block != "" {
-		msg += "\n\n" + block
-	}
-	before, _ := gitx.HeadSHA(k.Root)
-	p := auth.PrincipalFromContext(ctx)
-	sha, err := k.CommitOpAs(msg, p.AuthorName, p.AuthorEmail)
-	if err != nil {
-		return "", fmt.Errorf("commit: %w", err)
-	}
-	if sha != "" {
-		return sha, nil
-	}
-	after, headErr := gitx.HeadSHA(k.Root)
-	switch {
-	case headErr != nil:
-		return "", errCommitUnknown
-	case after != before:
-		return after, nil
-	}
-	return "", errors.New("commit: nothing to commit")
-}
-
-// revertTransferTarget undoes the target commit with a new commit that
-// inverts it. It never resets: the target's history is append-only, a client may
-// already have fetched the commit, and a hard reset would rewrite it.
-func revertTransferTarget(ctx context.Context, dst *kb.KB, sha, srcName string) error {
-	if err := gitx.RevertNoCommit(dst.Root, sha, dst.GitEnv...); err != nil {
-		_ = gitx.DiscardChanges(dst.Root)
-		return err
-	}
-	msg := fmt.Sprintf("concept_transfer: revert %.7s (the source step failed)", sha)
-	// nil args: the caller's Reason belongs to the transfer, the revert states its own.
-	msg += "\n\n" + commitTrailerBlock(ctx, nil, commitReasonKey+": the transfer from "+strings.Join(strings.Fields(srcName), " ")+" failed after this KB was written")
-	p := auth.PrincipalFromContext(ctx)
-	if _, err := dst.CommitOpAs(msg, p.AuthorName, p.AuthorEmail); err != nil {
-		_ = gitx.DiscardChanges(dst.Root)
-		return err
-	}
-	return nil
 }
 
 // planTransfer validates every move before any write. Nothing here mutates
@@ -826,11 +719,6 @@ type transferSourceOut struct {
 // the label survives and the hyperlink does not.
 func applyTransferSource(src *kb.KB, pl *transferPlan) (transferSourceOut, error) {
 	var out transferSourceOut
-	if transferSourceHook != nil {
-		if err := transferSourceHook(); err != nil {
-			return out, err
-		}
-	}
 	// Links from pages that stay to a moved asset cannot become plain text
 	// (UnlinkTargets resolves concepts only): report each, before the files go.
 	movedAssets := map[string]bool{}
