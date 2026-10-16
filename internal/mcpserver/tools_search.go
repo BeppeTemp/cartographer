@@ -135,6 +135,12 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	}
 
 	skipArchived := params.IncludeArchived == nil || !*params.IncludeArchived
+	// A narrowed principal's visibility is decided concept by concept (a map
+	// descriptor and a stat each): the ranking's centrality prior decides it
+	// for the whole graph, and the related block reads that answer back.
+	if !WholeVisible(ctx, k, false) {
+		ctx = withVisibilityMemo(ctx, k)
+	}
 	hits, mode, expandedTo := expandedKeywordHits(ctx, k, rec, deps, params.Query, params.Scope, limit, skipArchived)
 	// Archived fallback (D322): when nothing live matches and the caller did
 	// not say include_archived, search again with archived concepts in, so
@@ -328,7 +334,7 @@ func keywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps,
 // D351): the reconcile walks every file, so it is paid once per call.
 func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int, skipArchived bool) ([]searchHit, string) {
 	live := rec.live
-	visible := func(id string) bool { return Visible(ctx, k, id) }
+	visible := visiblePredicate(ctx, k)
 	// skipArchived (D322) drops archived concepts inside the backend's own
 	// filter, before its cut to the window, so the page is still full of live
 	// hits (a post-filter would need an over-fetch and still be short). The

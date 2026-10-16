@@ -47,19 +47,27 @@ func relatedLimit(arg *int) int {
 // answer. Every returned hit is left out of the block, not only the seeds, and
 // so is every retired concept.
 //
-// Trap: the graph is projected through visibleGraph, which removes the
-// concepts the caller cannot see before the ranking runs. Filtering a block
+// Trap: the graph is projected through the caller's visibility, which removes
+// the concepts the caller cannot see before the ranking runs. Filtering a block
 // computed on the whole graph would still let a hidden hub decide what is shown.
+// The projection costs a visibility decision per concept, so a caller that sees
+// the whole KB passes no filter (as the ranking's centrality prior does), and a
+// narrowed one reads the decisions the ranking already made (handleSearch
+// installs them in ctx).
 func relatedBlock(ctx requestContext, k *kb.KB, hits []searchHit, limit int) []relatedHit {
 	if limit <= 0 || len(hits) == 0 {
 		return nil
 	}
+	var include func(id string) bool
+	if !WholeVisible(ctx, k, false) {
+		include = visiblePredicate(ctx, k)
+	}
 	// The ranking above has just validated the graph: project that snapshot
 	// instead of walking every file a second time.
-	lg, ok := k.LinkGraphOfLastView(func(id string) bool { return Visible(ctx, k, id) })
+	lg, ok := k.LinkGraphOfLastView(include)
 	if !ok {
 		var err error
-		if lg, err = visibleGraph(ctx, k); err != nil {
+		if lg, err = k.LinkGraph(include); err != nil {
 			fmt.Fprintf(os.Stderr, "cartographer: search related: %v\n", err)
 			return nil
 		}

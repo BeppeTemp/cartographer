@@ -1,10 +1,15 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
 // relatedKB: alpha is the only page about the zeppelin; it links beta and a
@@ -261,24 +266,56 @@ func TestSearchRelated_SchemaAcceptsTheKnob(t *testing.T) {
 }
 
 // BenchmarkSearchRelated puts a number on what the block costs per search on a
-// KB of 3000 linked concepts: `go test ./internal/mcpserver -run '^$' -bench
-// SearchRelated`.
+// KB of 3000 linked concepts, for the three kinds of caller that pay it
+// differently (an admin and a whole-KB token skip the per-concept visibility
+// check, a narrowed one does not): `go test ./internal/mcpserver -run '^$'
+// -bench SearchRelated -benchtime=10x`. Each iteration runs the search without
+// the block and with it, back to back, and overhead-ms/op is the median of
+// their differences: on a loaded machine only a difference taken inside one
+// run means anything, and a median keeps a single stall out of it.
 func BenchmarkSearchRelated(b *testing.B) {
 	files := map[string]string{}
 	for i := 0; i < 3000; i++ {
-		files[fmt.Sprintf("ops/c%04d.md", i)] = fmt.Sprintf("Page %d about zeppelins. [a](c%04d.md) [b](c%04d.md) [c](c%04d.md)\n", i, (i+1)%3000, (i*7+3)%3000, (i*31+11)%3000)
+		marker := ""
+		if i%150 == 0 {
+			marker = " Marker page."
+		}
+		files[fmt.Sprintf("ops/c%04d.md", i)] = fmt.Sprintf("Page %d about zeppelins.%s [a](c%04d.md) [b](c%04d.md) [c](c%04d.md)\n", i, marker, (i+1)%3000, (i*7+3)%3000, (i*31+11)%3000)
 	}
 	s := graphToolKB(b, files)
-	for _, tc := range []struct{ name, args string }{
-		{"off", `{"query":"zeppelins","limit":10,"related":0}`},
-		{"default", `{"query":"zeppelins","limit":10}`},
+	// A selective query: twenty pages carry the marker, as a real question
+	// matches a few pages of a KB, not all of them.
+	const off, on = `{"query":"marker","limit":10,"related":0}`, `{"query":"marker","limit":10}`
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+	}{
+		{"admin", adminCtx},
+		{"whole-kb", restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}})},
+		{"narrowed", restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"ops"}}}})},
 	} {
 		b.Run(tc.name, func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
-				if res := s.callTool(adminCtx, "search", json.RawMessage(tc.args)); res.IsError {
+			search := func(args string) time.Duration {
+				start := time.Now()
+				if res := s.callTool(tc.ctx, "search", json.RawMessage(args)); res.IsError {
 					b.Fatal(res.Content[0].Text)
 				}
+				return time.Since(start)
 			}
+			search(on) // builds the index and the graph cache
+			var without, with time.Duration
+			diffs := make([]time.Duration, 0, b.N)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				o, w := search(off), search(on)
+				without, with = without+o, with+w
+				diffs = append(diffs, w-o)
+			}
+			sort.Slice(diffs, func(i, j int) bool { return diffs[i] < diffs[j] })
+			ms := func(d time.Duration) float64 { return float64(d) / float64(time.Millisecond) }
+			b.ReportMetric(ms(without)/float64(b.N), "without-ms/op")
+			b.ReportMetric(ms(with)/float64(b.N), "with-ms/op")
+			b.ReportMetric(ms(diffs[len(diffs)/2]), "overhead-ms/op")
 		})
 	}
 }
