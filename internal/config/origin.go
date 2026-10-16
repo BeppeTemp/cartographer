@@ -249,6 +249,12 @@ func (c *Config) serverValue(path string) (any, bool) {
 			names = append(names, s.MountName())
 		}
 		return names, len(names) > 0
+	case "kb_aliases":
+		pairs := []string{}
+		for _, a := range c.KBAliases {
+			pairs = append(pairs, a.From+" -> "+a.To)
+		}
+		return pairs, len(pairs) > 0
 	case "git.autocommit":
 		return c.Git.Autocommit, true
 	case "git.sync":
