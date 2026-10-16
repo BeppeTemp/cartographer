@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -81,7 +82,8 @@ func TestArtifactMove_SkillMovesVerbatimInOneCommitPerKB(t *testing.T) {
 			t.Errorf("%s not copied byte-identical: %v %q", rel, err, got)
 		}
 	}
-	if st, err := os.Stat(filepath.Join(f.b.Root, "skills/query-rete/scripts/run.sh")); err != nil || st.Mode()&0o111 == 0 {
+	// Windows has no exec bit: Stat reports 0o666 and the check would be meaningless.
+	if st, err := os.Stat(filepath.Join(f.b.Root, "skills/query-rete/scripts/run.sh")); err != nil || (runtime.GOOS != "windows" && st.Mode()&0o111 == 0) {
 		t.Errorf("exec bit lost: %v", err)
 	}
 	if amExists(f.a, "skills/query-rete") {
