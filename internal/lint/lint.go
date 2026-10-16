@@ -298,22 +298,12 @@ func applyMapIgnores(k *kb.KB, findings []Finding) []Finding {
 			}))
 		}
 	}
-	mapOf := func(path string) string {
-		if m, _, ok := strings.Cut(path, "/"); ok {
-			return m
-		}
-		return ""
-	}
 	accepts := func(mapName, check string) bool {
-		return ignores[mapName][check] && (perConceptChecks[check] || mapOnlyIgnorable[check])
+		return mapAcceptsCheck(ignores[mapName], check)
 	}
 	out := findings[:0]
 	for _, f := range findings {
-		if f.Severity == SevError {
-			out = append(out, f)
-			continue
-		}
-		if accepts(mapOf(f.Path), f.Check) {
+		if mapSuppresses(ignores[owningMap(f.Path)], f) {
 			continue
 		}
 		if f.Check == "island" && islandAccepted(k, f, accepts) {
@@ -322,6 +312,29 @@ func applyMapIgnores(k *kb.KB, findings []Finding) []Finding {
 		out = append(out, f)
 	}
 	return append(out, invalid...)
+}
+
+// owningMap is the map a finding path or concept ID belongs to: its first path
+// segment, "" for a root file.
+func owningMap(path string) string {
+	if m, _, ok := strings.Cut(path, "/"); ok {
+		return m
+	}
+	return ""
+}
+
+// mapAcceptsCheck reports whether a map's lint_ignore set takes effect for a
+// check: named in the set, and one a map may accept (an unknown name or an
+// error check suppresses nothing).
+func mapAcceptsCheck(set map[string]bool, check string) bool {
+	return set[check] && (perConceptChecks[check] || mapOnlyIgnorable[check])
+}
+
+// mapSuppresses is the one rule that drops a finding on a map's lint_ignore,
+// shared by applyMapIgnores (lint, gate_check, kb_status) and CheckConcept
+// (the write path): errors are never suppressed.
+func mapSuppresses(set map[string]bool, f Finding) bool {
+	return f.Severity != SevError && mapAcceptsCheck(set, f.Check)
 }
 
 // islandAccepted reports an island one of whose members, or whose map,

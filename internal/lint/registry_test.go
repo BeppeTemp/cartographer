@@ -215,7 +215,14 @@ func TestCheckConceptAgreesWithRun(t *testing.T) {
 	root := k.DataRoot()
 	writeFile(t, root, "ops/_map.md", "---\ntype: Map\nkind: map\ntitle: Ops\nrequired_fields: [owner]\nforbidden_fields: [secret_note]\nfield_values.status: [open, done]\n---\n# Ops\n")
 	writeFile(t, root, "plain/_map.md", "---\ntype: Map\nkind: map\ntitle: Plain\n---\n# Plain\n")
+	// A map-level lint_ignore (D306): the write path must drop what lint drops.
+	// missing_required_field is an error a map cannot accept: it stays, and the
+	// name is reported by lint on the _map.md, never by a write.
+	writeFile(t, root, "quiet/_map.md", "---\ntype: Map\nkind: map\ntitle: Quiet\nrequired_fields: [owner]\nlint_ignore: [stale_claim, machine_path, nonstandard_field, missing_required_field]\n---\n# Quiet\n")
 	pages := map[string]string{
+		"quiet/stale":   "---\ntype: Note\ntitle: Qs\nowner: me\nreview_after: 2001-01-01\nupdated: 2026-01-01\n---\n# Qs\n\nSee /Users/someone/work/notes for details.\n",
+		"quiet/noowner": "---\ntype: Note\ntitle: Qn\n---\n# Qn\n",
+		"quiet/notitle": "---\ntype: Note\nowner: me\nreview_after: 2001-01-01\n---\n# Heading\n",
 		"ops/clean":     "---\ntype: Note\ntitle: Clean\nowner: me\nstatus: open\ntimestamp: 2026-01-01\n---\n# Clean\n\nNothing wrong.\n",
 		"ops/untitled":  "---\ntype: Note\nowner: me\n---\n# Heading\n\nbody\n",
 		"ops/mismatch":  "---\ntype: Note\ntitle: One\nowner: me\n---\n# Another\n",
@@ -265,6 +272,28 @@ func TestCheckConceptAgreesWithRun(t *testing.T) {
 		if !seen[check] {
 			t.Errorf("fixture never produced %s on the write path", check)
 		}
+	}
+	// The map's lint_ignore reaches the write path, errors and the checks the
+	// map did not name still do.
+	for id, content := range pages {
+		if !strings.HasPrefix(id, "quiet/") {
+			continue
+		}
+		got := map[string]bool{}
+		for _, f := range CheckConcept(k, okf.ConceptID(id), content) {
+			got[f.Check] = true
+		}
+		for _, check := range []string{"stale_claim", "machine_path", "nonstandard_field"} {
+			if got[check] {
+				t.Errorf("%s: CheckConcept returned %s, which its map accepts", id, check)
+			}
+		}
+	}
+	if got := CheckConcept(k, "quiet/noowner", pages["quiet/noowner"]); !hasCheck(got, "quiet/noowner.md", "missing_required_field") {
+		t.Errorf("a map's lint_ignore suppressed an error: %+v", got)
+	}
+	if got := CheckConcept(k, "quiet/notitle", pages["quiet/notitle"]); !hasCheck(got, "quiet/notitle.md", "missing_title") || hasCheck(got, "quiet/notitle.md", "stale_claim") {
+		t.Errorf("quiet/notitle: want missing_title kept and stale_claim dropped, got %+v", got)
 	}
 	// What the write path leaves out stays out (no wire change).
 	for id, content := range pages {
