@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -38,7 +39,50 @@ func TestIgnoredPathsDoesNotGrowArgv(t *testing.T) {
 	}
 	got, err := IgnoredPaths(dir, paths)
 	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Fatalf("IgnoredPaths over %d paths: %d ignored, err %v; want %d", len(paths), len(got), err, len(want))
+		t.Fatalf("IgnoredPaths over %d paths: %d ignored, err %v; want %d%s", len(paths), len(got), err, len(want), firstDiff(got, want))
+	}
+}
+
+func firstDiff(got, want []string) string {
+	for i := range got {
+		if i >= len(want) || got[i] != want[i] {
+			w := "(none)"
+			if i < len(want) {
+				w = want[i]
+			}
+			return fmt.Sprintf("; first difference at %d: got %q, want %q", i, got[i], w)
+		}
+	}
+	return ""
+}
+
+// A warning git prints while it reads the ignore files must not reach the
+// list: the names come back NUL-separated on stdout, and stderr glued to them
+// corrupts one. A .gitignore git cannot open makes it warn on every OS; on
+// Windows a path past MAX_PATH does the same in the test above.
+func TestIgnoredPathsKeepsGitWarningsOutOfTheList(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs a file the process cannot read")
+	}
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*.sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(dir, "skills", "s")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, ".gitignore"), []byte("*.tmp\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{"skills/s/a.sh", "skills/s/b.md", "skills/s/c.sh"}
+	got, err := IgnoredPaths(dir, paths)
+	if want := []string{"skills/s/a.sh", "skills/s/c.sh"}; err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("IgnoredPaths = %q, %v; want %q", got, err, want)
 	}
 }
 
