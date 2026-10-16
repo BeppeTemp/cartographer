@@ -93,6 +93,42 @@ func TestParseFrontmatter_ValoriQuotati(t *testing.T) {
 	}
 }
 
+func TestParseFrontmatter_DoubledSingleQuotes(t *testing.T) {
+	raw := "title: 'Don''t panic'\ntags:\n- 'won''t fail'\nflow: ['a''b', c]\ndouble: \"Don''t panic\""
+	fm, err := ParseFrontmatter(raw)
+	if err != nil {
+		t.Fatalf("parse frontmatter: %v", err)
+	}
+	wants := map[string]interface{}{
+		"title":  "Don't panic",
+		"tags":   []string{"won't fail"},
+		"flow":   []string{"a'b", "c"},
+		"double": "Don''t panic",
+	}
+	for key, want := range wants {
+		got, ok := fm.Get(key)
+		if !ok {
+			t.Fatalf("key %q not found", key)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("key %q: expected %v, got %v", key, want, got)
+		}
+	}
+
+	serialized := fm.Serialize()
+	roundTripped, err := ParseFrontmatter(serialized)
+	if err != nil {
+		t.Fatalf("parse serialized frontmatter: %v", err)
+	}
+	for _, key := range fm.Keys() {
+		want, _ := fm.Get(key)
+		got, _ := roundTripped.Get(key)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("key %q: value %v != %v after roundtrip", key, want, got)
+		}
+	}
+}
+
 func TestParseFrontmatter_Commenti(t *testing.T) {
 	raw := "# intestazione\ntype: Runbook\n# nota\ntitle: Test"
 	fm, err := ParseFrontmatter(raw)
