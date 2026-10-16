@@ -60,7 +60,7 @@ describe("keyboard traversal", () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByTestId("graph-view");
-    await screen.findByRole("button", { name: /^Service/ });
+    await screen.findByRole("button", { name: /^Service(?!s)/ });
 
     // Shell first: the skip link and the top bar come before anything else.
     const first = await tabUntil(user, () => true);
@@ -146,16 +146,24 @@ describe("narrow layout", () => {
 });
 
 describe("colour legend", () => {
-  it("switches between community and Map colouring and remembers it", async () => {
+  it("is a card over the canvas: what is drawn, the colour switch, the key and the replay", async () => {
     viewport(false);
     stubApi();
     const user = userEvent.setup();
     render(<App />);
 
     const legend = await screen.findByRole("region", { name: /graph legend/i });
+    // Over the canvas, not above it and not in the rail.
+    expect(screen.getByTestId("graph-view").contains(legend)).toBe(true);
+    expect(screen.queryByRole("region", { name: "Graph context" })).toBeNull();
+    expect(within(legend).getByText("3 concepts · 2 links")).toBeInTheDocument();
     const community = within(legend).getByRole("button", { name: "Community" });
     const map = within(legend).getByRole("button", { name: "Map" });
     expect(community).toHaveAttribute("aria-pressed", "true");
+    expect(within(legend).getByRole("button", { name: "Replay growth" })).toBeInTheDocument();
+    // The rail no longer repeats the community key.
+    const rail = screen.getByRole("navigation", { name: /atlas navigation/i });
+    expect(within(rail).queryByRole("heading", { name: "Communities" })).toBeNull();
 
     await user.click(map);
     expect(map).toHaveAttribute("aria-pressed", "true");
@@ -164,14 +172,59 @@ describe("colour legend", () => {
 
     // Lint severity is not a colour mode (D307): the Health panel reads it.
     expect(within(legend).queryByRole("button", { name: "Health" })).not.toBeInTheDocument();
+  });
 
-    // Folded, it keeps the switch and the counts, and remembers it.
-    await user.click(within(legend).getByRole("button", { name: "Hide the legend" }));
-    expect(within(legend).queryByText("infra")).not.toBeInTheDocument();
-    expect(within(legend).getByRole("button", { name: "Map" })).toBeInTheDocument();
-    expect(localStorage.getItem("cartographer.panel.legend")).toBe("1");
-    await user.click(within(legend).getByRole("button", { name: "Show the legend" }));
-    expect(within(legend).getByText("infra")).toBeInTheDocument();
+  it("steps aside while a concept is open and comes back when the reading panel closes", async () => {
+    viewport(false);
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&concept=infra%2Fa");
+    stubApi();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const close = await screen.findByRole("button", { name: "Close inspector" });
+    expect(screen.queryByRole("region", { name: /graph legend/i })).toBeNull();
+    // Nothing above the canvas either: the graph is the page.
+    expect(screen.queryByRole("region", { name: "Graph context" })).toBeNull();
+
+    await user.click(close);
+    expect(await screen.findByRole("region", { name: /graph legend/i })).toBeInTheDocument();
+  });
+});
+
+describe("camera controls", () => {
+  it("sit over the canvas with zoom, fit and the motion switch", async () => {
+    viewport(false);
+    stubApi();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const camera = await screen.findByRole("group", { name: "Graph camera" });
+    expect(screen.getByTestId("graph-view").contains(camera)).toBe(true);
+    expect(within(camera).getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
+    expect(within(camera).getByRole("button", { name: "Zoom out" })).toBeInTheDocument();
+    expect(within(camera).getByRole("button", { name: "Fit graph to view" })).toBeInTheDocument();
+    // The replay lives in the legend card, not here.
+    expect(within(camera).queryByRole("button", { name: "Replay growth" })).toBeNull();
+
+    const motion = within(camera).getByRole("button", { name: "Motion" });
+    expect(motion).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("graph-view")).toHaveAttribute("data-motion", "live");
+    await user.click(motion);
+    expect(motion).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("graph-view")).toHaveAttribute("data-motion", "still");
+    await user.click(motion);
+    expect(motion).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("stay with a Map selected and with a concept open", async () => {
+    viewport(false);
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&scope=infra&concept=infra%2Fa");
+    stubApi();
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Close inspector" });
+    const camera = await screen.findByRole("group", { name: "Graph camera" });
+    expect(within(camera).getByRole("button", { name: "Fit graph to view" })).toBeInTheDocument();
   });
 });
 
@@ -207,26 +260,27 @@ describe("the reading panel splitter", () => {
     const handle = await screen.findByRole("separator", { name: "Resize reading panel" });
     // The shell is measured in the effect after its first render.
     await waitFor(() => expect(handle).toHaveAttribute("aria-valuemax", "1056"));
-    expect(handle).toHaveAttribute("aria-valuenow", "420");
+    // No preference yet: half the room beside the rail, (1600 - 264) / 2.
+    expect(handle).toHaveAttribute("aria-valuenow", "668");
     expect(handle).toHaveAttribute("aria-valuemin", "320");
     expect(handle).toHaveAttribute("aria-controls", "reading-panel");
 
     handle.focus();
     await user.keyboard("{ArrowLeft}");
-    expect(handle).toHaveAttribute("aria-valuenow", "436");
-    expect(panel().style.getPropertyValue("--inspector-width")).toBe("436px");
-    expect(localStorage.getItem("cartographer.inspector.width")).toBe("436");
+    expect(handle).toHaveAttribute("aria-valuenow", "684");
+    expect(panel().style.getPropertyValue("--inspector-width")).toBe("684px");
+    expect(localStorage.getItem("cartographer.inspector.width")).toBe("684");
 
     await user.keyboard("{Shift>}{ArrowRight}{/Shift}");
-    expect(handle).toHaveAttribute("aria-valuenow", "372");
+    expect(handle).toHaveAttribute("aria-valuenow", "620");
     await user.keyboard("{Home}");
     expect(handle).toHaveAttribute("aria-valuenow", "1056");
     await user.keyboard("{End}");
     expect(handle).toHaveAttribute("aria-valuenow", "320");
 
     await user.keyboard("{Enter}");
-    expect(handle).toHaveAttribute("aria-valuenow", "420");
-    expect(localStorage.getItem("cartographer.inspector.width")).toBe("420");
+    expect(handle).toHaveAttribute("aria-valuenow", "668");
+    expect(localStorage.getItem("cartographer.inspector.width")).toBe("668");
   });
 
   it("restores the stored width, clamped to the window without rewriting it", async () => {
@@ -287,7 +341,7 @@ describe("transitions", () => {
     const user = userEvent.setup();
     render(<App />);
     await screen.findByTestId("graph-view");
-    await screen.findByRole("button", { name: /^Service/ });
+    await screen.findByRole("button", { name: /^Service(?!s)/ });
 
     await user.keyboard("{Control>}k{/Control}");
     await user.keyboard("infra/a{Enter}");

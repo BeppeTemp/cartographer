@@ -508,6 +508,16 @@ func (c *MCPClient) ReportUsage(kbName string, entries any, timeout time.Duratio
 	return c.apiCall(http.MethodPost, usagePath, kbName, entries, timeout)
 }
 
+// clientSettingsPath is the server route a client's settings report goes to (D818).
+const clientSettingsPath = "/api/client-settings"
+
+// ReportClientSettings posts this machine's client settings to the server, so
+// the Atlas can show the viewer their own client. Best-effort like ReportUsage:
+// a server too old for the route answers 404, which the caller ignores.
+func (c *MCPClient) ReportClientSettings(report any, timeout time.Duration) error {
+	return c.apiCall(http.MethodPost, clientSettingsPath, "", report, timeout)
+}
+
 // doctorSchedulePath is the server route a scheduled-doctor declaration goes to (D369).
 const doctorSchedulePath = "/api/doctor-schedule"
 

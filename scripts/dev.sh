@@ -6,7 +6,7 @@
 # DATA is a data directory (one subdirectory per KB). It is copied into a
 # temporary directory with every git remote removed and git sync off, so what
 # the session writes never leaves the machine and the source is never touched.
-# Without DATA the server runs on a throwaway demo KB.
+# Without DATA it runs on a throwaway copy of the generated test KBs.
 #
 # Polling rather than a file watcher: no watcher is a dependency of this
 # repository, and `find -newer` once a second costs nothing at this size.
@@ -53,7 +53,27 @@ if [ -n "${DATA:-}" ]; then
 	done
 	kbargs=(--data "$work/data")
 else
-	kbargs=(--kb "$work/demo-kb" --init)
+	# The test KBs (internal/testkbs, D818): ten synthetic KBs from 5,000
+	# concepts down to 30, built to put every Atlas view in a state worth
+	# judging. Generating them takes about half a minute, so they are cached
+	# per generator source and per day (their dates are relative to today).
+	key=$( (cat internal/testkbs/*.go; date -u +%F) | shasum | cut -c1-12)
+	caches="${TMPDIR:-/tmp}/cartographer-testkbs"
+	cache="$caches/$key"
+	if [ ! -d "$cache" ]; then
+		echo "[dev] generating the test KBs (once a day)…"
+		# Other worktrees may be reading their own cache right now: only
+		# entries older than two days go, and the new one is generated
+		# under a name of its own and renamed into place.
+		mkdir -p "$caches"
+		find "$caches" -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} +
+		tmp="$cache.tmp.$$"
+		go run ./internal/testkbs/gen "$tmp"
+		mv "$tmp" "$cache" 2>/dev/null || rm -rf "$tmp" # another session won the race
+	fi
+	mkdir "$work/data"
+	cp -R "$cache/." "$work/data/"
+	kbargs=(--data "$work/data")
 fi
 
 [ -d web/node_modules ] || (cd web && npm ci --silent)
@@ -77,7 +97,7 @@ start() {
 	# Loopback only and no tokens: the instance holds a private copy, not a
 	# shared server. An exported CARTOGRAPHER_TOKENS would otherwise apply here,
 	# and the UI's API calls would answer 401.
-	env -u CARTOGRAPHER_TOKENS "$work/cartographer" serve "${kbargs[@]}" \
+	env -u CARTOGRAPHER_TOKENS CARTOGRAPHER_AUDIT_LOG="$work/audit.jsonl" "$work/cartographer" serve "${kbargs[@]}" \
 		--http "127.0.0.1:$API_PORT" --git-sync=false --update-check=false &
 	pid=$!
 	for _ in $(seq 1 30); do

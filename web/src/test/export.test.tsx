@@ -1,7 +1,8 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { GraphView } from "../components/GraphView";
+import { GraphView, GrowthButton } from "../components/GraphView";
+import { GROWTH_VIDEO_MS, growthSchedule } from "../lib/graph3d/growth";
 import { snapshotCommunities } from "../lib/communities";
 import { graph } from "./fixtures";
 import { sceneStub } from "./sceneStub";
@@ -80,7 +81,13 @@ function props(loadBirths?: () => Promise<Record<string, string>>, layoutKey = "
     onSelect: () => {},
   };
 }
-const view = (loadBirths?: () => Promise<Record<string, string>>) => render(<GraphView {...props(loadBirths)} />);
+// The replay starts from an overlay (the legend places GrowthButton).
+const view = (loadBirths?: () => Promise<Record<string, string>>) =>
+  render(
+    <GraphView {...props(loadBirths)}>
+      <GrowthButton />
+    </GraphView>,
+  );
 
 async function openReplay() {
   await userEvent.click(screen.getByRole("button", { name: "Replay growth" }));
@@ -106,14 +113,18 @@ describe("Export video", () => {
     vi.restoreAllMocks();
   });
 
-  it("is a button of the replay's control bar, not of the camera controls", async () => {
+  it("is a button of the replay's control bar, and only there", async () => {
     view(async () => births);
-    expect(within(screen.getByRole("group", { name: "Graph camera" })).queryByRole("button", { name: "Export video" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Export video" })).toBeNull();
     await openReplay();
     const bar = screen.getByRole("group", { name: "Growth replay" });
     expect(within(bar).getByRole("button", { name: "Export video" })).toBeInTheDocument();
-    expect(within(screen.getByRole("group", { name: "Graph camera" })).queryByRole("button", { name: "Export video" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Export video" })).toHaveLength(1);
+  });
+
+  it("offers no replay where the view has no births to replay", () => {
+    view(undefined);
+    expect(screen.queryByRole("button", { name: "Replay growth" })).toBeNull();
   });
 
   it("is hidden where the browser has no video encoder", async () => {
@@ -144,6 +155,54 @@ describe("Export video", () => {
     expect(screen.queryByText(/encodes WebM/)).toBeNull();
   });
 
+  it("keeps focus inside: Tab and Shift+Tab cycle between the frame, Cancel and Export", async () => {
+    view(async () => births);
+    await openReplay();
+    await userEvent.click(screen.getByRole("button", { name: "Export video" }));
+    const dialog = screen.getByRole("dialog", { name: "Export video" });
+    const radio = within(dialog).getByRole("radio", { name: /9:16/ });
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    const exportButton = within(dialog).getByRole("button", { name: "Export" });
+    expect(radio).toHaveFocus();
+    await userEvent.tab();
+    expect(cancel).toHaveFocus();
+    await userEvent.tab();
+    expect(exportButton).toHaveFocus();
+    await userEvent.tab();
+    expect(radio).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    expect(exportButton).toHaveFocus();
+  });
+
+  it.each([
+    ["Escape", () => userEvent.keyboard("{Escape}")],
+    ["Cancel", () => userEvent.click(screen.getByRole("button", { name: "Cancel" }))],
+    ["the scrim", () => userEvent.click(document.querySelector(".sheet__scrim")!)],
+  ])("closed with %s, gives focus back to the Export video button", async (_, close) => {
+    view(async () => births);
+    await openReplay();
+    const opener = screen.getByRole("button", { name: "Export video" });
+    await userEvent.click(opener);
+    expect(document.querySelector(".sheet__scrim")).toHaveAttribute("aria-hidden", "true");
+    await close();
+    expect(screen.queryByRole("dialog", { name: "Export video" })).toBeNull();
+    expect(opener).toHaveFocus();
+  });
+
+  it("does not let its Escape reach the shell, which would clear the selection", async () => {
+    view(async () => births);
+    await openReplay();
+    await userEvent.click(screen.getByRole("button", { name: "Export video" }));
+    const shell = vi.fn();
+    document.addEventListener("keydown", shell);
+    try {
+      await userEvent.keyboard("{Escape}");
+    } finally {
+      document.removeEventListener("keydown", shell);
+    }
+    expect(shell).not.toHaveBeenCalled();
+  });
+
   it("renders in the background: progress moves, the replay and the graph stay as they were, and the file downloads", async () => {
     view(async () => births);
     await openReplay();
@@ -157,13 +216,21 @@ describe("Export video", () => {
     const link = document.querySelector<HTMLAnchorElement>("a[download]") ?? null;
     // downloadBlob removes its anchor at once: the proof is the pill and the frames
     expect(link).toBeNull();
-    // 60 opening + the replay (3 steps: 8 s) + 90 hold + 150 end card
-    expect(encoded).toBe(60 + 480 + 90 + 150);
+    // 60 opening + the replay + 90 hold + 150 end card. The replay: three
+    // one-concept beats of 420 ms, slowed at most twice (2520 ms).
+    const replay = Math.round(
+      growthSchedule(
+        [{ id: "a", born: births["infra/a"] }, { id: "b", born: births["infra/b"] }, { id: "c", born: births["notes/c"] }],
+        GROWTH_VIDEO_MS,
+      ).totalMs / (1000 / 60),
+    );
+    expect(replay).toBe(151);
+    expect(encoded).toBe(60 + replay + 90 + 150);
     expect(sceneStub.offline.created).toBe(1);
     expect(sceneStub.offline.disposed).toBe(1);
     // the offline scene was driven on a virtual clock of exactly 1000/60 ms
     const f = sceneStub.offline.frames;
-    expect(f).toHaveLength(480 + 90);
+    expect(f).toHaveLength(replay + 90);
     f.forEach((t, i) => expect(t).toBeCloseTo((i * 1000) / 60, 6));
     // The visible scene was not touched by it.
     expect(sceneStub.calls.focus.length).toBe(camera);

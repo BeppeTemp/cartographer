@@ -138,7 +138,8 @@ test.describe("keyboard only", () => {
 test.describe("reduced motion", () => {
   async function run(page: Page) {
     await withPanelsOpen(page);
-    await page.goto(`${ATLAS}&scope=infra`);
+    // The whole KB's view: a Map's view has no camera controls (D818).
+    await page.goto(ATLAS);
     await waitForAtlas(page);
     await openConcept(page, "infra/gateway");
     await expect(page.getByRole("complementary", { name: "Inspector for infra/gateway" })).toBeVisible();

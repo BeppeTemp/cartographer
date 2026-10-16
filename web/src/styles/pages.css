@@ -1856,3 +1856,115 @@ button.row {
   margin: 0;
   font: inherit;
 }
+
+/* Reference panels (Paths, Maps, Sources) and the Health contradictions. */
+.ref-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ref-row {
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.ref-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ref-row__title {
+  font-weight: 600;
+}
+
+.ref-row__name {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.ref-row__text {
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+}
+
+.ref-facts {
+  margin: var(--space-2) 0 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.ref-facts > div {
+  display: grid;
+  grid-template-columns: 8rem 1fr;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.ref-facts dt {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.ref-facts dd {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ref-values {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ref-link {
+  all: unset;
+  cursor: pointer;
+  color: var(--accent, currentColor);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ref-link:focus-visible {
+  outline: 2px solid var(--accent, currentColor);
+  outline-offset: 2px;
+}
+
+.ref-pill--warn {
+  color: var(--warning, inherit);
+}
+
+.ref-pill--muted {
+  color: var(--text-muted);
+}
+
+.health__involves {
+  margin: 0 0 var(--space-2);
+  padding-inline: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+@media (max-width: 640px) {
+  .ref-facts > div {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Tabs between the pages of one section (Artifacts · Secrets), under the header. */
+.page__tabs {
+  margin: var(--space-4) 0 var(--space-4);
+  border-block-end: 1px solid var(--border-subtle);
+}
+.page__tabs.inspector__tabs {
+  padding-inline: 0;
+}

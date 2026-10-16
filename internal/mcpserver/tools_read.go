@@ -955,7 +955,7 @@ func visibleCounts(ctx requestContext, k *kb.KB, archive string) (concepts, expa
 func toolMapList(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_list",
-		Description: "Lists Maps and Journals with kind, ontology_mode, concept_types and expanded-concept count.",
+		Description: "Lists Maps and Journals with each one's full _map.md contract and expanded-concept count.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -988,6 +988,38 @@ func toolMapList(k *kb.KB) Tool {
 				// does not merge them.
 				FieldValues       map[string][]string            `json:"field_values,omitempty"`
 				FieldValuesByType map[string]map[string][]string `json:"field_values_by_type,omitempty"`
+				// The rest of the _map.md contract, so a reader sees all of it
+				// and not just the vocabularies. Every key is omitted when
+				// unset; RequireTemplate is the effective value
+				// (StrictTemplates, D371).
+				Description          string              `json:"description,omitempty"`
+				RequiredFields       []string            `json:"required_fields,omitempty"`
+				RequiredFieldsByType map[string][]string `json:"required_fields_by_type,omitempty"`
+				ForbiddenFields      []string            `json:"forbidden_fields,omitempty"`
+				RequireIndexEntry    bool                `json:"require_index_entry,omitempty"`
+				Templates            []string            `json:"templates,omitempty"`
+				DefaultTemplate      string              `json:"default_template,omitempty"`
+				RequireTemplate      bool                `json:"require_template,omitempty"`
+				TemplateSections     bool                `json:"template_sections,omitempty"`
+				OpenField            string              `json:"open_field,omitempty"`
+				OpenStatuses         []string            `json:"open_statuses,omitempty"`
+				OpenMarkers          []string            `json:"open_markers,omitempty"`
+				// HarvestAfter is a journal's effective harvest_after in days
+				// (D322); HarvestAfterDefaulted says it is the default, and
+				// HarvestOff that harvest_after: 0 switched harvesting off
+				// (D347), in which case HarvestAfter is omitted.
+				HarvestAfter             int                 `json:"harvest_after,omitempty"`
+				HarvestAfterDefaulted    bool                `json:"harvest_after_defaulted,omitempty"`
+				HarvestOff               bool                `json:"harvest_off,omitempty"`
+				PromoteTo                string              `json:"promote_to,omitempty"`
+				ProcedureHeadings        []string            `json:"procedure_headings,omitempty"`
+				Glossary                 bool                `json:"glossary,omitempty"`
+				WorkMap                  string              `json:"work_map,omitempty"`
+				Index                    string              `json:"index,omitempty"`
+				ValueSynonyms            map[string][]string `json:"value_synonyms,omitempty"`
+				MachinePathAllowPrefixes []string            `json:"machine_path_allow_prefixes,omitempty"`
+				Thresholds               *mapThresholds      `json:"thresholds,omitempty"`
+				Malformed                []mapMalformed      `json:"malformed,omitempty"`
 			}
 
 			var infos []mapInfo
@@ -1021,10 +1053,37 @@ func toolMapList(k *kb.KB) Tool {
 					if v, ok := meta.Get("lint_ignore"); ok {
 						info.LintIgnore, _ = v.([]string)
 					}
+					if v, ok := meta.Get("description"); ok {
+						info.Description, _ = v.(string)
+					}
 				}
 				if c, cerr := k.ReadMapContract(name); cerr == nil {
 					info.StaleAfter, info.StaleAfterDefaulted = lint.EffectiveStaleAfter(&c)
 					info.FieldValues, info.FieldValuesByType = c.FieldValues, c.FieldValuesByType
+					info.RequiredFields, info.RequiredFieldsByType, info.ForbiddenFields = c.RequiredFields, c.RequiredFieldsByType, c.ForbiddenFields
+					info.RequireIndexEntry = c.RequireIndexEntry
+					info.Templates, info.DefaultTemplate = c.Templates, c.DefaultTemplate
+					info.RequireTemplate, info.TemplateSections = c.StrictTemplates(), c.TemplateSections
+					info.OpenField, info.OpenStatuses, info.OpenMarkers = c.OpenField, c.OpenStatuses, c.OpenMarkers
+					if c.Kind == "journal" {
+						info.HarvestAfter, info.HarvestAfterDefaulted, info.HarvestOff = effectiveHarvestAfter(&c)
+					}
+					info.PromoteTo, info.ProcedureHeadings, info.Glossary, info.WorkMap = c.PromoteTo, c.ProcedureHeadings, c.Glossary, c.WorkMap
+					// promote_to and work_map name another Map (both are maps, never a
+					// journal): a caller that may
+					// not see it does not learn its name from this one (D818).
+					if info.PromoteTo != "" && !VisibleCollection(ctx, k, info.PromoteTo, "map") {
+						info.PromoteTo = ""
+					}
+					if info.WorkMap != "" && !VisibleCollection(ctx, k, info.WorkMap, "map") {
+						info.WorkMap = ""
+					}
+					info.Index = c.Index
+					info.ValueSynonyms, info.MachinePathAllowPrefixes = c.ValueSynonyms, c.MachinePathAllowPrefixes
+					info.Thresholds = contractThresholds(&c)
+					for _, m := range c.Malformed {
+						info.Malformed = append(info.Malformed, mapMalformed{Key: m.Key, Reason: "malformed value in " + m.Descriptor})
+					}
 				}
 				infos = append(infos, info)
 			}
@@ -1032,6 +1091,57 @@ func toolMapList(k *kb.KB) Tool {
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// mapThresholds is the cost and page-name half of a map contract that map_list
+// shows (D301, D313, D315). A zero int is the built-in default and is omitted;
+// TitleMaxLength is a pointer so an explicit 0 (title_quality off) survives.
+type mapThresholds struct {
+	RepeatedFactMin     int      `json:"repeated_fact_min,omitempty"`
+	HotspotInDegree     int      `json:"hotspot_in_degree,omitempty"`
+	HotspotBytes        int      `json:"hotspot_bytes,omitempty"`
+	OversizeBytes       int      `json:"oversize_bytes,omitempty"`
+	OversizeConcepts    int      `json:"oversize_concepts,omitempty"`
+	TitleMaxLength      *int     `json:"title_max_length,omitempty"`
+	ForbiddenTitleTerms []string `json:"forbidden_title_terms,omitempty"`
+}
+
+// mapMalformed is one contract entry the server tolerated but could not read.
+type mapMalformed struct {
+	Key    string `json:"key"`
+	Reason string `json:"reason"`
+}
+
+// contractThresholds returns the contract's thresholds, or nil when it sets none.
+func contractThresholds(c *kb.MapContract) *mapThresholds {
+	t := mapThresholds{
+		RepeatedFactMin:     c.RepeatedFactMin,
+		HotspotInDegree:     c.HotspotInDegree,
+		HotspotBytes:        c.HotspotBytes,
+		OversizeBytes:       c.OversizeBytes,
+		OversizeConcepts:    c.OversizeConcepts,
+		TitleMaxLength:      c.TitleMaxLength,
+		ForbiddenTitleTerms: c.ForbiddenTitleTerms,
+	}
+	if t.RepeatedFactMin == 0 && t.HotspotInDegree == 0 && t.HotspotBytes == 0 && t.OversizeBytes == 0 &&
+		t.OversizeConcepts == 0 && t.TitleMaxLength == nil && len(t.ForbiddenTitleTerms) == 0 {
+		return nil
+	}
+	return &t
+}
+
+// effectiveHarvestAfter is the harvest_after a journal runs with (D322, D347),
+// the decision harvest_candidate takes: a negative HarvestAfterDays is an
+// explicit harvest_after: 0, harvesting off; zero is the default,
+// kb.DefaultHarvestAfterDays; anything else is what _map.md says.
+func effectiveHarvestAfter(c *kb.MapContract) (days int, defaulted, off bool) {
+	switch {
+	case c.HarvestAfterDays < 0:
+		return 0, false, true
+	case c.HarvestAfterDays == 0:
+		return kb.DefaultHarvestAfterDays, true, false
+	}
+	return c.HarvestAfterDays, false, false
 }
 
 // --- concept_list ---

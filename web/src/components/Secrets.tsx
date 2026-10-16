@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { fetchSecrets } from "../api/client";
-import type { SecretFile, SecretList } from "../api/types";
+import { fetchSecrets, fetchServices } from "../api/client";
+import type { SecretEntry, SecretFile, SecretList, ServiceEntry } from "../api/types";
 import { decryptFile, encType, InvalidKeyError, looksLikeAgeKey, WrongKeyError } from "../lib/secrets";
 import { Icon } from "./Icon";
 import { Count, Page, PageHeader } from "./Page";
@@ -31,7 +31,10 @@ export function Secrets({
   onOpenConcept,
   onRetry,
   onFailure,
+  tabs,
 }: {
+  /** The section tabs (Artifacts · Secrets), drawn under the header. */
+  tabs?: React.ReactNode;
   kb: string;
   /** Changes when the KB moves under the page: the files are read again. */
   reloadKey: string;
@@ -82,6 +85,17 @@ export function Secrets({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kb, reloadKey]);
 
+  // The Services (concepts of type Service): the secrets are grouped by the
+  // one that uses them. A failure leaves one group for every value.
+  const [services, setServices] = useState<ServiceEntry[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchServices(kb, controller.signal)
+      .then((data) => setServices(data.services))
+      .catch(() => setServices([]));
+    return () => controller.abort();
+  }, [kb, reloadKey]);
+
   const files = useMemo(() => list?.files ?? [], [list]);
 
   // A refresh after an edit re-encrypts the values it touched (sops draws a
@@ -126,7 +140,9 @@ export function Secrets({
       if (kbNow.current !== forKB) return;
       if (opened === 0) {
         setKeyError(
-          wrong > 0 ? "This key does not open any of the files: it is not one of their recipients." : "Nothing to decrypt.",
+          wrong > 0
+            ? "This key does not open any of the files: it is not one of their recipients."
+            : "Nothing to decrypt.",
         );
         return;
       }
@@ -140,7 +156,9 @@ export function Secrets({
       if (wrong > 0) setKeyError(`${wrong} file${wrong === 1 ? "" : "s"} could not be opened with this key.`);
     } catch (err) {
       setKeyError(
-        err instanceof InvalidKeyError ? err.message : "The key could not be used in this browser (WebCrypto unavailable?).",
+        err instanceof InvalidKeyError
+          ? err.message
+          : "The key could not be used in this browser (WebCrypto unavailable?).",
       );
     } finally {
       setBusy(false);
@@ -158,13 +176,17 @@ export function Secrets({
   if (!list) return null;
   if (files.length === 0) {
     return (
-      <EmptyState
-        title="This KB keeps no secrets"
-        detail="Files named secrets/*.sops.yaml appear here, with their keys in the clear and their values masked."
-      />
+      <Page label="Secrets" className="secrets">
+        {tabs}
+        <EmptyState
+          title="This KB keeps no secrets"
+          detail="Files named secrets/*.sops.yaml appear here, with their keys in the clear and their values masked."
+        />
+      </Page>
     );
   }
   const total = files.reduce((n, f) => n + f.entries.length, 0);
+  const groups = groupByService(files, services);
 
   return (
     <Page label="Secrets" className="secrets">
@@ -178,6 +200,7 @@ export function Secrets({
         }
         subtitle="Key names are cleartext in sops. Values stay masked until you paste an age key; it is used in this page only."
       />
+      {tabs}
       <form
         className={unlocked ? "secrets__key secrets__key--open" : "secrets__key"}
         onSubmit={(e) => {
@@ -227,11 +250,11 @@ export function Secrets({
           {keyError}
         </p>
       )}
-      {files.map((f, i) => (
-        <SecretFileSection
-          key={f.path}
-          id={`secrets-file-${i}`}
-          file={f}
+      {groups.map((g, i) => (
+        <SecretGroup
+          key={g.key}
+          id={`secrets-group-${i}`}
+          group={g}
           plain={plain}
           revealed={revealed}
           titleOf={titleOf}
@@ -246,13 +269,44 @@ export function Secrets({
           }
         />
       ))}
+      <FilesSection files={files} titleOf={titleOf} onOpenConcept={onOpenConcept} />
     </Page>
   );
 }
 
-function SecretFileSection({
+/** One value of a sops file, where it lives. */
+interface Row {
+  file: SecretFile;
+  entry: SecretEntry;
+}
+
+interface Group {
+  key: string;
+  /** The Service the values belong to; absent for the values no Service uses. */
+  service?: ServiceEntry;
+  rows: Row[];
+}
+
+/**
+ * The values grouped by the Service that uses them — through a secret_refs
+ * pointer or a secrets_source file — in the Services' order, then the values
+ * no Service uses. A value two Services use appears under both.
+ */
+export function groupByService(files: SecretFile[], services: ServiceEntry[]): Group[] {
+  const rows = files.flatMap((file) => file.entries.map((entry) => ({ file, entry })));
+  const uses = (r: Row, id: string) => r.entry.referenced_by.includes(id) || r.file.source_of.includes(id);
+  const groups: Group[] = services
+    .map((service) => ({ key: service.id, service, rows: rows.filter((r) => uses(r, service.id)) }))
+    .filter((g) => g.rows.length > 0);
+  const ids = services.map((s) => s.id);
+  const rest = rows.filter((r) => !ids.some((id) => uses(r, id)));
+  if (rest.length > 0) groups.push({ key: "", rows: rest });
+  return groups;
+}
+
+function SecretGroup({
   id,
-  file,
+  group,
   plain,
   revealed,
   titleOf,
@@ -260,7 +314,7 @@ function SecretFileSection({
   onToggle,
 }: {
   id: string;
-  file: SecretFile;
+  group: Group;
   plain: Map<string, string>;
   revealed: Set<string>;
   titleOf(id: string): string | undefined;
@@ -277,88 +331,152 @@ function SecretFileSection({
       /* clipboard unavailable: the value can still be selected */
     }
   };
-  const concept = (cid: string) =>
-    onOpenConcept ? (
-      <button key={cid} type="button" className="secrets__ref" onClick={() => onOpenConcept(cid)}>
-        {titleOf(cid) ?? cid}
-      </button>
-    ) : (
-      <span key={cid}>{titleOf(cid) ?? cid}</span>
-    );
+  const service = group.service;
+  const name = service ? (service.title ?? service.id) : "Not used by a Service";
+  // Under a Service, "used by" names the other concepts only.
+  const others = (e: SecretEntry) => e.referenced_by.filter((c) => c !== service?.id);
   return (
     <section className="secrets__file" aria-labelledby={id}>
       <header className="secrets__head">
-        <h2 id={id} className="secrets__path">
-          {file.path}
+        <h2 id={id} className="secrets__path secrets__service">
+          {service && onOpenConcept ? (
+            <button type="button" className="secrets__ref" onClick={() => onOpenConcept(service.id)}>
+              {name}
+            </button>
+          ) : (
+            name
+          )}
         </h2>
-        <span className="secrets__badge">{file.entries.length}</span>
+        {service?.status && service.status !== "active" && (
+          <span className="secrets__status-tag">{service.status}</span>
+        )}
+        <span className="secrets__badge">{group.rows.length}</span>
       </header>
-      <p className="secrets__meta">
-        {file.lastmodified && <span>Modified {modified(file.lastmodified)}</span>}
-        <span>
-          {file.recipients.length} recipient{file.recipients.length === 1 ? "" : "s"}
-        </span>
-        {file.recipients.map((r) => (
-          <code key={r} className="secrets__recipient" title={r}>
-            {r.slice(0, 12)}…{r.slice(-6)}
-          </code>
-        ))}
-        {file.source_of.length > 0 && <span>whole file used by {file.source_of.map(concept)}</span>}
-      </p>
-      {file.error ? (
-        <p className="secrets__error" role="alert">
-          Could not be read: {file.error}
-        </p>
-      ) : (
-        <ul className="secrets__rows" aria-label={`Values in ${file.path}`}>
-          {file.entries.map((e) => {
-            const value = plain.get(e.enc);
-            const shown = value !== undefined && revealed.has(e.enc);
-            const cut = e.pointer.lastIndexOf("/");
-            const label = shown ? "Hide value" : "Reveal value";
-            return (
-              <li key={e.pointer} className="secrets__row">
-                <div className="secrets__what">
-                  <code className="secrets__pointer" title={e.pointer}>
-                    <span className="secrets__prefix">{e.pointer.slice(0, cut + 1)}</span>
-                    {e.pointer.slice(cut + 1)}
+      <ul className="secrets__rows" aria-label={`Values of ${name}`}>
+        {group.rows.map(({ file, entry: e }) => {
+          const value = plain.get(e.enc);
+          const shown = value !== undefined && revealed.has(e.enc);
+          const cut = e.pointer.lastIndexOf("/");
+          const label = shown ? "Hide value" : "Reveal value";
+          const used = others(e);
+          return (
+            <li key={`${file.path}#${e.pointer}`} className="secrets__row">
+              <div className="secrets__what">
+                <code className="secrets__pointer" title={`${file.path}#${e.pointer}`}>
+                  <span className="secrets__prefix">
+                    {file.path.replace(/^secrets\//, "")}#{e.pointer.slice(0, cut + 1)}
+                  </span>
+                  {e.pointer.slice(cut + 1)}
+                </code>
+                {used.length > 0 && (
+                  <span className="secrets__refs">
+                    used by{" "}
+                    {used.map((cid) =>
+                      onOpenConcept ? (
+                        <button key={cid} type="button" className="secrets__ref" onClick={() => onOpenConcept(cid)}>
+                          {titleOf(cid) ?? cid}
+                        </button>
+                      ) : (
+                        <span key={cid}>{titleOf(cid) ?? cid}</span>
+                      ),
+                    )}
+                  </span>
+                )}
+              </div>
+              <span className="secrets__type">{encType(e.enc)}</span>
+              <span className="secrets__value" aria-label={`Value of ${e.pointer}`}>
+                {shown ? value : MASK}
+              </span>
+              <span className="secrets__actions">
+                <button
+                  type="button"
+                  className="button button--icon"
+                  disabled={value === undefined}
+                  aria-pressed={shown}
+                  aria-label={`${label} of ${e.pointer}`}
+                  title={label}
+                  onClick={() => onToggle(e.enc)}
+                >
+                  <Icon name={shown ? "eye-off" : "eye"} size={16} />
+                </button>
+                <button
+                  type="button"
+                  className="button button--icon"
+                  disabled={value === undefined}
+                  aria-label={`Copy value of ${e.pointer}`}
+                  title={copied === e.enc ? "Copied" : "Copy value"}
+                  onClick={() => value !== undefined && void copy(e.enc, value)}
+                >
+                  <Icon name={copied === e.enc ? "check" : "copy"} size={16} />
+                </button>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+/** The sops files themselves: who can open each, when it changed, which could not be read. */
+function FilesSection({
+  files,
+  titleOf,
+  onOpenConcept,
+}: {
+  files: SecretFile[];
+  titleOf(id: string): string | undefined;
+  onOpenConcept?(id: string): void;
+}) {
+  return (
+    <section className="secrets__file secrets__files" aria-labelledby="secrets-files">
+      <header className="secrets__head">
+        <h2 id="secrets-files" className="secrets__path">
+          Files
+        </h2>
+        <span className="secrets__badge">{files.length}</span>
+      </header>
+      <ul className="secrets__rows" aria-label="Secret files">
+        {files.map((file) => (
+          <li key={file.path} className="secrets__filerow">
+            <code className="secrets__pointer">{file.path}</code>
+            {file.error ? (
+              <span className="secrets__error" role="alert">
+                Could not be read: {file.error}
+              </span>
+            ) : (
+              <span className="secrets__meta">
+                <span>
+                  {file.entries.length} value{file.entries.length === 1 ? "" : "s"}
+                </span>
+                {file.lastmodified && <span>modified {modified(file.lastmodified)}</span>}
+                <span>
+                  {file.recipients.length} recipient{file.recipients.length === 1 ? "" : "s"}
+                </span>
+                {file.recipients.map((r) => (
+                  <code key={r} className="secrets__recipient" title={r}>
+                    {r.slice(0, 12)}…{r.slice(-6)}
                   </code>
-                  {e.referenced_by.length > 0 && (
-                    <span className="secrets__refs">used by {e.referenced_by.map(concept)}</span>
-                  )}
-                </div>
-                <span className="secrets__type">{encType(e.enc)}</span>
-                <span className="secrets__value" aria-label={`Value of ${e.pointer}`}>
-                  {shown ? value : MASK}
-                </span>
-                <span className="secrets__actions">
-                  <button
-                    type="button"
-                    className="button button--icon"
-                    disabled={value === undefined}
-                    aria-pressed={shown}
-                    aria-label={`${label} of ${e.pointer}`}
-                    title={label}
-                    onClick={() => onToggle(e.enc)}
-                  >
-                    <Icon name={shown ? "eye-off" : "eye"} size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    className="button button--icon"
-                    disabled={value === undefined}
-                    aria-label={`Copy value of ${e.pointer}`}
-                    title={copied === e.enc ? "Copied" : "Copy value"}
-                    onClick={() => value !== undefined && void copy(e.enc, value)}
-                  >
-                    <Icon name={copied === e.enc ? "check" : "copy"} size={16} />
-                  </button>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                ))}
+                {file.source_of.length > 0 && (
+                  <span>
+                    whole file used by{" "}
+                    {file.source_of.map((cid) =>
+                      onOpenConcept ? (
+                        <button key={cid} type="button" className="secrets__ref" onClick={() => onOpenConcept(cid)}>
+                          {titleOf(cid) ?? cid}
+                        </button>
+                      ) : (
+                        <span key={cid}>{titleOf(cid) ?? cid}</span>
+                      ),
+                    )}
+                  </span>
+                )}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

@@ -88,7 +88,13 @@ export function Segmented<T extends string>({
   return (
     <div className="segmented" role="group" aria-label={label}>
       {options.map(([v, text]) => (
-        <button key={v} type="button" className="segmented__option" aria-pressed={value === v} onClick={() => onChange(v)}>
+        <button
+          key={v}
+          type="button"
+          className="segmented__option"
+          aria-pressed={value === v}
+          onClick={() => onChange(v)}
+        >
           {text}
         </button>
       ))}
@@ -144,7 +150,11 @@ export function HeroRow({ label, children }: { label: string; children: ReactNod
 }
 
 /** Big numbers set in a line: the band's headline figures. */
-export function Figures({ items }: { items: { label: string; value: number | string; tone?: string; sign?: string }[] }) {
+export function Figures({
+  items,
+}: {
+  items: { label: string; value: number | string; tone?: string; sign?: string }[];
+}) {
   return (
     <dl className="figures">
       {items.map((s) => (
@@ -323,4 +333,37 @@ export function relativeDay(iso: string, now = Date.now()): string {
   if (days === -1) return "tomorrow";
   if (days < 0) return `in ${-days} days`;
   return `${days} days ago`;
+}
+
+/**
+ * Tabs between the pages of one section (Artifacts and Secrets): the same
+ * strip as the reading panel's tabs, under the page header.
+ */
+export function PageTabs<T extends string>({
+  label,
+  tabs,
+  current,
+  onSelect,
+}: {
+  label: string;
+  tabs: [T, string][];
+  current: T;
+  onSelect(tab: T): void;
+}) {
+  return (
+    <div className="inspector__tabs page__tabs" role="tablist" aria-label={label}>
+      {tabs.map(([id, name]) => (
+        <button
+          key={id}
+          type="button"
+          role="tab"
+          aria-selected={id === current}
+          className="inspector__tab"
+          onClick={() => onSelect(id)}
+        >
+          {name}
+        </button>
+      ))}
+    </div>
+  );
 }

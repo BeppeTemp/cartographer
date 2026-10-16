@@ -11,6 +11,10 @@ export type IconName =
   | "health"
   | "artifacts"
   | "key"
+  | "paths"
+  | "maps"
+  | "sources"
+  | "services"
   | "settings"
   | "panel-open"
   | "panel-close"
@@ -51,6 +55,14 @@ const PATHS: Record<IconName, string> = {
   settings: "M4 7h10 M14 7a2 2 0 1 0 4 0 2 2 0 1 0-4 0 M18 7h2 M4 17h2 M6 17a2 2 0 1 0 4 0 2 2 0 1 0-4 0 M10 17h10",
   // A key: the secrets a KB keeps encrypted.
   key: "M10.5 12.5a4 4 0 1 1 1.5-1.5 M11 12l8.5 8.5 M16 17l2-2 M13.5 14.5l1.5-1.5",
+  // Two links of a chain: a name tied to a place on this machine.
+  paths: "M10 14a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1 1 M14 10a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1-1",
+  // Folders side by side: the Maps and their contracts.
+  maps: "M3.5 7.5h6l2 2h9v9h-17z M3.5 7.5v-2h6l2 2",
+  // A page with lines and a corner folded: a source document.
+  sources: "M6 3.5h8l4 4v13H6z M14 3.5v4h4 M9 12h6 M9 15.5h6",
+  // Two stacked server slabs: the services the KB documents.
+  services: "M4.5 5h15v5.5h-15z M4.5 13.5h15V19h-15z M8 7.8h.01 M8 16.3h.01",
   artifacts: "M4 8l8-4 8 4v8l-8 4-8-4z M4 8l8 4 8-4 M12 12v8",
   "panel-open": "M4 5h16v14H4z M9 5v14 M13 10l2 2-2 2",
   "panel-close": "M4 5h16v14H4z M9 5v14 M15 10l-2 2 2 2",

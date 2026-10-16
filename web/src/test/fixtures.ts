@@ -143,6 +143,20 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
     if (url.includes("/kbs/") && url.includes("/maintenance/review")) return json({ items: [] });
     if (url.includes("/kbs/") && url.includes("/checks")) return json({ checks: [] });
     if (url.includes("/kbs/") && url.includes("/revision")) return json({ revision: "test-1" });
+    // The reference panels' reads: empty, the way a KB that uses none of them answers.
+    if (url.includes("/kbs/") && url.includes("/placeholders")) return json({ registry: false, keys: [] });
+    if (url.includes("/kbs/") && url.includes("/contradictions")) return json({ contradictions: [] });
+    if (url.includes("/kbs/") && url.includes("/maps")) return json({ maps: [] });
+    if (url.includes("/kbs/") && url.includes("/journal")) return json({ text: "" });
+    if (url.includes("/kbs/") && url.includes("/services")) return json({ services: [] });
+    if (url.includes("/kbs/") && url.includes("/conflicts")) return json([]);
+    // Admin-only audit log and the caller's identity: absent unless stubbed (404).
+    if (url.includes("/audit") || url.endsWith("/whoami")) {
+      return json({ error: { code: "not_found", message: "not found" } }, 404);
+    }
+    if (url.includes("/kbs/") && url.includes("/sources")) return json({ sources: [] });
+    if (url.includes("/kbs/") && url.includes("/history")) return json({ id: "", revisions: [], truncated: false });
+    if (url.includes("/kbs/") && url.includes("/assets")) return json({ id: "", assets: [] });
     if (url.endsWith("/kbs")) return json({ kbs: [{ name: "kb-a", status: "normal", ready: true, artifacts: true }] });
     throw new Error(`unstubbed request: ${url}`);
   });

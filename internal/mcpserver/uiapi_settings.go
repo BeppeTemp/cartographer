@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/config"
 )
 
@@ -18,7 +19,10 @@ func (m *MultiKBServer) SetSettings(cfg *config.Config, updateChannel string) {
 type uiSettingsKB struct {
 	Name    string         `json:"name"`
 	Entries []config.Entry `json:"entries"`
-	Git     map[string]any `json:"git,omitempty"`
+	// YAML is the KB's effective settings as the settings.yaml they amount
+	// to, commented by the schema (D818).
+	YAML string         `json:"yaml"`
+	Git  map[string]any `json:"git,omitempty"`
 }
 
 // GET /settings — every setting with its effective value and origin, plus the
@@ -61,6 +65,9 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 	kbs := make([]uiSettingsKB, 0, len(view.KBs))
 	for _, section := range view.KBs {
 		row := uiSettingsKB{Name: section.Name, Entries: section.Entries}
+		if out, ok, err := view.KBYAML(section.Name); ok && err == nil {
+			row.YAML = string(out)
+		}
 		// Replication facts describe the KB as a whole, so they are for a
 		// caller that can already see the whole KB (as in the overview).
 		if k := m.servers[section.Name].kbRef; WholeVisible(ctx, k, false) {
@@ -88,6 +95,13 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 		"version": m.version,
 		"server":  view.Server,
 		"kbs":     kbs,
+		// The caller's own clients, never anybody else's (D818).
+		"clients": m.clientReports.of(auth.PrincipalFromContext(ctx).ID),
+	}
+	// The server's configuration as the YAML file it amounts to, commented by
+	// the schema, its kbs[] entries limited to the KBs the caller sees (D818).
+	if out, err := view.ServerYAML(); err == nil {
+		payload["server_yaml"] = string(out)
 	}
 	if m.latestVersion != nil {
 		if latest := m.latestVersion(); latest != "" {

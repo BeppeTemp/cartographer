@@ -21,19 +21,38 @@ export interface ViewState {
   hmap: string | null;
 }
 
-export const EMPTY_VIEW: ViewState = { kb: null, scope: null, concept: null, panel: "atlas", artifact: null, hmap: null };
+export const EMPTY_VIEW: ViewState = {
+  kb: null,
+  scope: null,
+  concept: null,
+  panel: "atlas",
+  artifact: null,
+  hmap: null,
+};
 
 export function readViewState(search: string = window.location.search): ViewState {
   const params = new URLSearchParams(search);
   const param = params.get("panel");
-  // Observatory and Maintenance became Health (D338): their old links still
-  // land on it rather than on the atlas.
+  // Observatory and Maintenance became Health (D338); Services became the
+  // Secrets page, grouped by Service, and the pending Sources a Work column, and
+  // Paths a part of Settings (D818): their old links still land there rather than on the atlas.
   const panel: Panel =
     param === "maintenance" || param === "observatory"
       ? "health"
-      : param === "activity" || param === "work" || param === "health" || param === "artifacts" || param === "secrets" || param === "settings"
-        ? param
-        : "atlas";
+      : param === "services"
+        ? "secrets"
+        : param === "sources"
+          ? "work"
+          : param === "paths"
+            ? "settings"
+            : param === "activity" ||
+                param === "work" ||
+                param === "health" ||
+                param === "artifacts" ||
+                param === "secrets" ||
+                param === "settings"
+              ? param
+              : "atlas";
   return {
     kb: params.get("kb"),
     scope: params.get("scope"),

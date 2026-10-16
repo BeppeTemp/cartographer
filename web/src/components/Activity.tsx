@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { fetchChanges } from "../api/client";
-import type { ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot } from "../api/types";
+import { fetchAudit, fetchChanges, fetchJournal } from "../api/client";
+import type { AuditLog, ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot } from "../api/types";
 import { changedAt, changeKind, mostWorked, shownReasons, type ChangeKind } from "../lib/activity";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
+import { Markdown } from "./Markdown";
 import {
   Avatar,
   Count,
@@ -16,6 +17,7 @@ import {
   MapDot,
   Page,
   PageHeader,
+  PageSection,
   Segmented,
   SkeletonRows,
 } from "./Page";
@@ -110,6 +112,33 @@ export function Activity({
       });
     return () => controller.abort();
   }, [kb, since, live, attempt]);
+
+  // The KB's log (log_append): whole-KB only, so a narrowed principal's 404
+  // leaves the section out rather than showing an error.
+  const [journal, setJournal] = useState<string | null>(null);
+  useEffect(() => {
+    setJournal(null);
+  }, [kb]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchJournal(kb, controller.signal)
+      .then((res) => setJournal(res.text ?? ""))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [kb, live, attempt]);
+
+  // The audit log (admin only): any other principal's 404 leaves it out.
+  const [audit, setAudit] = useState<AuditLog | null>(null);
+  useEffect(() => {
+    setAudit(null);
+  }, [kb]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchAudit(kb, controller.signal)
+      .then(setAudit)
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [kb, live, attempt]);
 
   const titles = useMemo(
     () => new Map((snapshot?.nodes ?? []).filter((n) => n.title).map((n) => [n.id, n.title!])),
@@ -289,8 +318,62 @@ export function Activity({
         {data?.truncated && (
           <p className="page-note">Showing the {all.length} most recent changes: narrow the window to see the rest.</p>
         )}
+        {journal !== null && (
+          <PageSection title="Journal" id="activity-journal">
+            {journal.trim() === "" ? (
+              <p className="page-note">
+                The journal is the KB&apos;s log: one entry per working session, written by agents with{" "}
+                <code>log_append</code> when they close a piece of work. Nothing has been logged yet.
+              </p>
+            ) : (
+              <>
+                <p className="page-note">The last entries of the KB&apos;s log, written by agents with <code>log_append</code>.</p>
+                <Markdown>{journal}</Markdown>
+              </>
+            )}
+          </PageSection>
+        )}
+        {audit !== null && <AuditSection audit={audit} />}
       </div>
     </Page>
+  );
+}
+
+/** Who called which tool on this KB, newest first; admins only. */
+function AuditSection({ audit }: { audit: AuditLog }) {
+  // An attempt and its completion are two entries: the completions say how it ended.
+  const entries = audit.entries.filter((e) => e.phase !== "attempt");
+  return (
+    <PageSection title="Audit log" id="activity-audit" count={entries.length}>
+      {!audit.enabled ? (
+        <p className="page-note">This server keeps no audit log.</p>
+      ) : entries.length === 0 ? (
+        <p className="page-note">Nothing recorded yet. The audit log lists every tool call: who made it, and how it ended.</p>
+      ) : (
+        <>
+          <p className="page-note">The most recent tool calls on this KB, with the principal that made each one. Visible to admins only.</p>
+          <ul className="rows">
+            {entries.map((e, i) => (
+              <li key={`${e.at}-${i}`} className="row audit__row">
+                <span className="row__body">
+                  <span className="row__title">
+                    <code>{e.tool}</code> by {e.principal || "an unnamed principal"}
+                  </span>
+                  <span className="row__meta">
+                    <time dateTime={e.at}>{new Date(e.at).toLocaleString("en")}</time>
+                    <span className="pill" data-status={e.outcome}>
+                      {e.outcome}
+                    </span>
+                    {e.read_only && <span className="pill">read-only</span>}
+                    {e.commit_sha && <code>{e.commit_sha.slice(0, 7)}</code>}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </PageSection>
   );
 }
 

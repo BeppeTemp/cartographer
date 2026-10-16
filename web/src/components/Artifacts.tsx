@@ -104,7 +104,10 @@ export function Artifacts({
   typeCount = () => 0,
   onOpenConcept,
   onFilterType,
+  tabs,
 }: {
+  /** The section tabs (Artifacts · Secrets), drawn under the header. */
+  tabs?: React.ReactNode;
   titleOf?(id: string): string | undefined;
   /** How many concepts carry a type: a template's reach. */
   typeCount?(type: string): number;
@@ -154,17 +157,27 @@ export function Artifacts({
   if (!list) return null;
   if (list.artifacts.length === 0 && list.issues.length === 0) {
     return (
-      <EmptyState
-        title="This KB ships no artifacts"
-        detail="Skills, subagents, hooks, MCP servers, instructions and templates appear here once the KB has them."
-      />
+      <Page label="Artifact catalog" className="catalog">
+        {tabs}
+        <EmptyState
+          title="This KB ships no artifacts"
+          detail="Skills, subagents, hooks, MCP servers, instructions and templates appear here once the KB has them."
+        />
+      </Page>
     );
   }
 
   // When every artifact of a kind goes to the same clients, the kind's
   // header says it once instead of every tile.
   const sharedClients = (items: Artifact[]) =>
-    new Set(items.map((a) => a.clients.map((c) => c.id).sort().join(","))).size === 1
+    new Set(
+      items.map((a) =>
+        a.clients
+          .map((c) => c.id)
+          .sort()
+          .join(","),
+      ),
+    ).size === 1
       ? (items[0]?.clients.length ?? 0)
       : null;
   const count = (sl: Slice) => all.filter((a) => inSlice(a, sl)).length;
@@ -202,6 +215,7 @@ export function Artifacts({
           />
         }
       />
+      {tabs}
       <Hero label="Filters">
         <HeroRow label="Kind">
           <FilterChips label="Show kind">
@@ -223,7 +237,13 @@ export function Artifacts({
           <HeroRow label="Show">
             <FilterChips label="Show only">
               {slices.map(([sl, label, n]) => (
-                <FilterChip key={sl} label={label} count={n} pressed={slice === sl} onToggle={() => setSlice(slice === sl ? null : sl)} />
+                <FilterChip
+                  key={sl}
+                  label={label}
+                  count={n}
+                  pressed={slice === sl}
+                  onToggle={() => setSlice(slice === sl ? null : sl)}
+                />
               ))}
             </FilterChips>
           </HeroRow>
@@ -245,12 +265,15 @@ export function Artifacts({
               <header className="catalog__group-head">
                 <h2 className="catalog__group-title">
                   <KindMark kind={group.kind} />
-                  {group.title} <span className="page-section__count">{list.counts[group.kind] ?? group.items.length}</span>
+                  {group.title}{" "}
+                  <span className="page-section__count">{list.counts[group.kind] ?? group.items.length}</span>
                 </h2>
                 <p className="catalog__about">
                   {KIND_ABOUT[group.kind]}
                   {shared !== null &&
-                    (shared === 0 ? " Kept in the KB, synced to no client." : ` Synced to ${shared} client${shared === 1 ? "" : "s"}.`)}
+                    (shared === 0
+                      ? " Kept in the KB, synced to no client."
+                      : ` Synced to ${shared} client${shared === 1 ? "" : "s"}.`)}
                 </p>
               </header>
               <ul className="catalog__tiles">
@@ -412,7 +435,9 @@ function ArtifactDetail({
             table of four rows was the heaviest thing on the page. */}
         <div className="artifacts__facts">
           {artifact.signed !== undefined && (
-            <span className={artifact.signed ? "pill pill--ok" : "pill"}>{artifact.signed ? "Signed" : "Unsigned"}</span>
+            <span className={artifact.signed ? "pill pill--ok" : "pill"}>
+              {artifact.signed ? "Signed" : "Unsigned"}
+            </span>
           )}
           {artifact.content_hash && (
             <span className="pill" title={`Content hash ${artifact.content_hash}`}>
@@ -447,35 +472,33 @@ function ArtifactDetail({
         {/* Where the artifact meets the atlas: a template shapes every
             concept of its type; a skill or agent points agents at the
             concepts it names. */}
-        {artifact.kind === "template" ? (
-          typeCount(artifact.name) > 0 && (
-            <p className="artifacts__reach">
-              <button type="button" className="button" onClick={() => onFilterType?.(artifact.name)}>
-                Show the {typeCount(artifact.name)} “{artifact.name}” concepts on the atlas
-              </button>
-            </p>
-          )
-        ) : (
-          !!artifact.concepts?.length && (
-            <section className="artifacts__reach" aria-label="Concepts it reads">
-              <h3 className="inspector__group-title">
-                Concepts it reads <span className="inspector__count">{artifact.concepts.length}</span>
-              </h3>
-              <ul className="inspector__links">
-                {artifact.concepts.map((cid) => (
-                  <li key={cid}>
-                    <button type="button" className="inspector__link" onClick={() => onOpenConcept?.(cid)}>
-                      <span className="inspector__link-text">
-                        <span className="inspector__link-title">{titleOf(cid) ?? cid.split("/").pop()}</span>
-                        <span className="inspector__link-id">{cid}</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )
-        )}
+        {artifact.kind === "template"
+          ? typeCount(artifact.name) > 0 && (
+              <p className="artifacts__reach">
+                <button type="button" className="button" onClick={() => onFilterType?.(artifact.name)}>
+                  Show the {typeCount(artifact.name)} “{artifact.name}” concepts on the atlas
+                </button>
+              </p>
+            )
+          : !!artifact.concepts?.length && (
+              <section className="artifacts__reach" aria-label="Concepts it reads">
+                <h3 className="inspector__group-title">
+                  Concepts it reads <span className="inspector__count">{artifact.concepts.length}</span>
+                </h3>
+                <ul className="inspector__links">
+                  {artifact.concepts.map((cid) => (
+                    <li key={cid}>
+                      <button type="button" className="inspector__link" onClick={() => onOpenConcept?.(cid)}>
+                        <span className="inspector__link-text">
+                          <span className="inspector__link-title">{titleOf(cid) ?? cid.split("/").pop()}</span>
+                          <span className="inspector__link-id">{cid}</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
       </header>
 
       {artifact.files.length > 1 && (
@@ -556,7 +579,12 @@ function unquote(v: string): string {
 /** A value that is a list — `[a, b]`, `- a` lines, or a long comma run — as its items. */
 function listOf(v: string): string[] | null {
   const t = v.trim();
-  if (t.startsWith("[") && t.endsWith("]")) return t.slice(1, -1).split(",").map((x) => unquote(x)).filter(Boolean);
+  if (t.startsWith("[") && t.endsWith("]"))
+    return t
+      .slice(1, -1)
+      .split(",")
+      .map((x) => unquote(x))
+      .filter(Boolean);
   const lines = t.split("\n").map((x) => x.trim());
   if (lines.length > 1 && lines.every((x) => x.startsWith("- "))) return lines.map((x) => unquote(x.slice(2)));
   const parts = t.split(/,\s*/);
@@ -615,7 +643,9 @@ function FileContent({ file, known = {} }: { file: ArtifactFile; known?: Record<
   const text = file.content ?? "";
   if (!file.path.endsWith(".md")) return <pre className="artifacts__pre">{text}</pre>;
   const split = splitFrontmatter(text);
-  const fields = (split?.fields ?? []).filter(([key, value]) => known[key] === undefined || known[key] !== unquote(value));
+  const fields = (split?.fields ?? []).filter(
+    ([key, value]) => known[key] === undefined || known[key] !== unquote(value),
+  );
   return (
     <>
       {fields.length > 0 && (

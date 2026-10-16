@@ -56,6 +56,15 @@ func TestUIAPI_SettingsListsValuesOriginsAndFacts(t *testing.T) {
 	if _, ok := kbs[0].(map[string]interface{})["git"]; !ok {
 		t.Error("per-KB git facts missing")
 	}
+	// The YAML views (D818): the server file with the env-set key and its
+	// origin, and the KB's settings.yaml, both documented by the schema.
+	if y, _ := body["server_yaml"].(string); !strings.Contains(y, "sync: false # from CARTOGRAPHER_GIT_SYNC") ||
+		!strings.Contains(y, "# --- available settings ---") {
+		t.Errorf("server_yaml = %q", y)
+	}
+	if y, _ := kbs[0].(map[string]interface{})["yaml"].(string); !strings.Contains(y, "# --- available settings ---") {
+		t.Errorf("kb yaml = %q", y)
+	}
 }
 
 func TestUIAPI_SettingsRedactsSecrets(t *testing.T) {
@@ -91,6 +100,10 @@ func TestUIAPI_SettingsOmitsInvisibleKB(t *testing.T) {
 	kbs := body["kbs"].([]interface{})
 	if len(kbs) != 1 || kbs[0].(map[string]interface{})["name"] != "kbx" {
 		t.Fatalf("kbs = %v", kbs)
+	}
+	// Nor the server YAML's kbs[] entries.
+	if y, _ := body["server_yaml"].(string); strings.Contains(y, "kby") {
+		t.Errorf("server_yaml names the invisible KB:\n%s", y)
 	}
 	// The server section's kbs list must not name the invisible KB either.
 	for _, e := range body["server"].([]interface{}) {

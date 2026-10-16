@@ -41,7 +41,8 @@ describe("the shell boots", () => {
     stubApi();
     render(<App />);
     expect(await screen.findByRole("button", { name: /Infrastructure/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^All\d/ })).toBeInTheDocument();
+    // No "All" row: the Atlas entry and the brand are the way to the whole graph.
+    expect(screen.queryByRole("button", { name: /^All\d/ })).toBeNull();
   });
 
   it("shows the auth prompt on a 401 instead of a blank page", async () => {

@@ -1305,6 +1305,12 @@ export class LivingScene {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.setShift(this.shift);
+    // setSize clears the drawing buffer, and the observer runs after this
+    // frame's draw: without a draw here the browser shows an empty canvas for
+    // a frame, a flash on every step of a canvas that is being resized (the
+    // Map's contract panel sliding in).
+    this.renderer.render(this.scene, this.camera);
+    for (const listener of this.frameListeners) listener();
   }
 
   dispose(): void {

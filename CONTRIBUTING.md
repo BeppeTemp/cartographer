@@ -271,7 +271,7 @@ to it:
 
 ```bash
 make worktree-add SLUG=my-change
-cd .worktrees/my-change && make dev DATA=<data dir>   # or no DATA: a demo KB
+cd .worktrees/my-change && make dev DATA=<data dir>   # or no DATA: the demo KBs in demo/
 ```
 
 `make dev` rebuilds and restarts the server on every Go change and serves the UI

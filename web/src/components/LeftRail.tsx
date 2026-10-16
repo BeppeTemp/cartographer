@@ -124,37 +124,20 @@ export function LeftRail({
             {problems > 0 && <span className="rail__dot" aria-hidden="true" />}
           </button>
         </li>
-        {artifactsTotal !== null && (
+        {(artifactsTotal !== null || secretsAllowed) && (
           <li>
             <button
               type="button"
               className="rail__panel"
               aria-label="Artifacts"
               title={collapsed ? "Artifacts" : undefined}
-              aria-current={panel === "artifacts" ? "page" : undefined}
+              aria-current={panel === "artifacts" || panel === "secrets" ? "page" : undefined}
               onClick={() => onPanel("artifacts")}
             >
               <span className="rail__glyph">
                 <Icon name="artifacts" />
               </span>
               <span className="rail__label">Artifacts</span>
-            </button>
-          </li>
-        )}
-        {secretsAllowed && (
-          <li>
-            <button
-              type="button"
-              className="rail__panel"
-              aria-label="Secrets"
-              title={collapsed ? "Secrets" : undefined}
-              aria-current={panel === "secrets" ? "page" : undefined}
-              onClick={() => onPanel("secrets")}
-            >
-              <span className="rail__glyph">
-                <Icon name="key" />
-              </span>
-              <span className="rail__label">Secrets</span>
             </button>
           </li>
         )}
@@ -201,24 +184,6 @@ export function LeftRail({
                 <div key={`${overviewKB}:${kind}`} className="rail__group">
                   <h2 className="rail__title">{kind === "journal" ? "Journals" : "Maps"}</h2>
                   <ul className="rail__collections">
-                    {first && (
-                      <li className="rail__deal">
-                        <button
-                          type="button"
-                          className="rail__collection"
-                          aria-current={scope === null && panel === "atlas" ? "true" : undefined}
-                          onClick={() => onScope(null)}
-                        >
-                          <span className="rail__swatch rail__swatch--all" aria-hidden="true">
-                            <Icon name="atlas" size={12} />
-                          </span>
-                          <span className="rail__collection-name">All</span>
-                          <span className="rail__collection-count">
-                            <Count value={overview?.concepts.total ?? 0} />
-                          </span>
-                        </button>
-                      </li>
-                    )}
                     {group.map((collection, i) => (
                       <li
                         key={collection.name}

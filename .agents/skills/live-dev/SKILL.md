@@ -24,16 +24,18 @@ This file is the single copy for every client; `.claude/skills/live-dev` and
   the worktree, the live instance, every git operation and the decision record.
   It turns feedback into changes and reads every diff before the user sees it.
 - **`live-implementer`** — a coding subagent on a cheaper model, pinned in its
-  definition (`.claude/agents/`, `.codex/agents/`, `.kiro/agents/`, same text).
-  It makes **one** bounded change in the coordinator's worktree and stops: it
-  never commits, never runs `make dev`, never touches a file outside its mandate.
+  definition (`.claude/agents/`, `.codex/agents/`, `.kiro/agents/`, same text),
+  for the closing pass only (§3). It works in the coordinator's worktree and
+  stops: it never commits, never runs `make dev`, never touches a file outside
+  its mandate.
 - **Explore** (or the client's context-gathering subagent) — answers "where is X"
   for an area the coordinator does not know, so the files are not read into the
   conversation.
 
-Delegate when a change spans several files, needs tests, or can run while the
-user is trying the previous one. Do it yourself when it is a line or two: the
-spawn costs more than the edit, and the user is waiting to see it.
+While iterating, the coordinator makes every change itself, with no subagent:
+a live session is many small changes, and each spawn pays again for the context
+the coordinator already holds (the mandate, the files it re-reads) while the
+user waits to see the result.
 
 ## 1 — Start
 
@@ -41,7 +43,7 @@ spawn costs more than the edit, and the user is waiting to see it.
    from `.worktrees/<slug>`.
 2. `make dev` from the worktree, in the background. `DATA=<data dir>` serves a
    copy of real KBs (remotes removed, git sync off, deleted on exit); without it
-   a demo KB. Another live session on the machine → pick other ports:
+   the demo KBs in `demo/` (astronomy with its history, guestbook). Another live session on the machine → pick other ports:
    `API_PORT=39281 UI_PORT=5174`.
 3. Give the user the UI address: `http://localhost:<UI_PORT>/ui/` — `localhost`,
    not `127.0.0.1`, which Vite does not listen on. Go changes restart the
@@ -51,16 +53,12 @@ spawn costs more than the edit, and the user is waiting to see it.
 
 For each piece of feedback:
 
-1. Derive the `file:line` pointers yourself (or with Explore), then either edit
-   or spawn a `live-implementer` with the mandate below.
-2. Read `git diff` when it reports. Trust the disk, not the report.
+1. Derive the `file:line` pointers and make the change yourself.
+2. Read `git diff` before the user looks.
 3. Tell the user what to look at, in one line. A build failure keeps the previous
    server running: the `make dev` log says so.
 4. When the user accepts a step, commit it on `feat/<slug>` (`wip:` messages are
    fine, the merge squashes them): every accepted step is a point to go back to.
-
-Two implementers may run at once only on **disjoint** file sets, each named in its
-mandate; while they run, the coordinator does not edit those files.
 
 **Open the PR as a draft after the first accepted commit**: `git push -u origin
 feat/<slug>` + `gh pr create --draft`. Its number is the decision number (D672):

@@ -10,10 +10,13 @@ import {
   fetchKBs,
   fetchArtifacts,
   fetchLint,
+  fetchMaps,
   fetchMaintenanceReview,
   fetchMaintenanceSummary,
   fetchOverview,
   fetchStatus,
+  fetchConflicts,
+  fetchContradictions,
   restoreToken,
   setToken,
 } from "./api/client";
@@ -22,23 +25,28 @@ import type {
   ArtifactList,
   CheckCatalog,
   Concept,
+  Contradiction,
+  GitConflict,
   GraphSnapshot,
   KBStatus,
   KBSummary,
   LintReport,
+  MapContract,
   MaintenanceReview,
   MaintenanceSummary,
   Overview,
 } from "./api/types";
 import { Artifacts } from "./components/Artifacts";
 import { Secrets } from "./components/Secrets";
+import { PageTabs } from "./components/Page";
+import { MapContractPanel, MAP_PANEL_SLIDE_MS, MAP_PANEL_WIDTH } from "./components/MapContractPanel";
+import { Legend } from "./components/Legend";
 import { Settings } from "./components/Settings";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
 import { GraphView } from "./components/GraphView";
 import { Inspector } from "./components/Inspector";
 import { LeftRail } from "./components/LeftRail";
-import { Legend } from "./components/Legend";
 import { Sheet, useMediaQuery } from "./components/Sheet";
 import { Splitter } from "./components/Splitter";
 import { Activity } from "./components/Activity";
@@ -64,7 +72,7 @@ import { snapshotCommunities, type Communities } from "./lib/communities";
 import { readColorBy, writeColorBy, type ColorBy } from "./lib/palette";
 import { pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
 import {
-  INSPECTOR_DEFAULT,
+  inspectorDefault,
   INSPECTOR_MIN,
   clampInspectorWidth,
   inspectorMax,
@@ -128,6 +136,8 @@ export function App() {
   const [checks, setChecks] = useState<CheckCatalog | null>(null);
   // The doctor's agenda beyond lint (D704); null leaves it out of Health.
   const [review, setReview] = useState<MaintenanceReview | null>(null);
+  const [contradictions, setContradictions] = useState<Contradiction[] | null>(null);
+  const [conflicts, setConflicts] = useState<GitConflict[] | null>(null);
   // Health's review and checks have answered (or failed) for the current read.
   const [healthSettled, setHealthSettled] = useState(false);
   // The KB Health's reads above belong to (D704).
@@ -139,6 +149,7 @@ export function App() {
   const [notice, setNotice] = useState<string>("");
   const [offline, setOffline] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [mapContracts, setMapContracts] = useState<MapContract[]>([]);
   const loadedConcept = useRef<string | null>(null);
   const [colorBy, setColorBy] = useState<ColorBy>(readColorBy);
   const narrow = useMediaQuery(NARROW_QUERY);
@@ -147,7 +158,8 @@ export function App() {
   // The reading panel's width (D239): the viewer's preference, clamped to what
   // the window can hold. A resize re-clamps what is drawn but never the stored
   // value: only a drag or a key rewrites it.
-  const [inspectorPref, setInspectorPref] = useState(() => readWidth("inspector.width", INSPECTOR_DEFAULT));
+  // 0: no preference yet, so the default follows the window.
+  const [inspectorPref, setInspectorPref] = useState(() => readWidth("inspector.width", 0));
   const bodyRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
   // The widest panel its content can use (D281), read off a hidden probe so
@@ -178,9 +190,37 @@ export function App() {
   // Unmeasured (the first render, or a layout engine that reports no size):
   // draw the preference as is rather than squash it to the minimum.
   const measured = room.body > 0;
+  // The Map the Atlas is narrowed to: its contract is docked to the canvas's
+  // right edge on a wide screen, above the graph on a narrow one.
+  const scopedMap =
+    view.panel === "atlas" && view.scope ? (mapContracts.find((m) => m.name === view.scope) ?? null) : null;
+  // The docked contract slides out rather than vanishing, so the canvas widens
+  // back as smoothly as it narrowed: the Map it showed is kept for the length
+  // of the slide after the Atlas leaves it.
+  const [leavingMap, setLeavingMap] = useState<MapContract | null>(null);
+  const lastMap = useRef<MapContract | null>(null);
+  useEffect(() => {
+    if (scopedMap) {
+      lastMap.current = scopedMap;
+      setLeavingMap(null);
+      return;
+    }
+    const left = lastMap.current;
+    lastMap.current = null;
+    if (!left || narrow || prefersReducedMotion()) return;
+    setLeavingMap(left);
+    const timer = window.setTimeout(() => setLeavingMap(null), MAP_PANEL_SLIDE_MS);
+    return () => window.clearTimeout(timer);
+  }, [scopedMap, narrow]);
+  // The strip the docked contract takes at the right edge. The reading panel
+  // opens over it (a concept read is the Map's foreground), so it covers the
+  // canvas only by what it is wider than the contract.
+  const rightDock = !narrow && scopedMap ? MAP_PANEL_WIDTH : 0;
+  const inspectorFallback = inspectorDefault(room.body, room.rail);
+  const preferred = inspectorPref > 0 ? inspectorPref : inspectorFallback;
   const inspectorWidth = measured
-    ? clampInspectorWidth(inspectorPref, room.body, room.rail, room.reading)
-    : Math.max(INSPECTOR_MIN, inspectorPref);
+    ? clampInspectorWidth(preferred, room.body, room.rail, room.reading)
+    : Math.max(INSPECTOR_MIN, preferred);
   const inspectorLimit = measured
     ? inspectorMax(room.body, room.rail, room.reading)
     : Math.max(inspectorWidth, INSPECTOR_MIN);
@@ -299,6 +339,19 @@ export function App() {
   // time, and the graph must not wait for it.
   const artifactsAllowed = kbs.find((kb) => kb.name === activeKB)?.artifacts ?? false;
   const secretsAllowed = kbs.find((kb) => kb.name === activeKB)?.secrets ?? false;
+  // Secrets are artifacts of the KB too: a tab of the Artifacts section,
+  // shown only to a principal that may read them.
+  const sectionTabs = secretsAllowed ? (
+    <PageTabs<"artifacts" | "secrets">
+      label="Artifacts section"
+      tabs={[
+        ["artifacts", "Artifacts"],
+        ["secrets", "Secrets"],
+      ]}
+      current={view.panel === "secrets" ? "secrets" : "artifacts"}
+      onSelect={(panel) => navigate({ panel, artifact: null })}
+    />
+  ) : null;
   // The last view of every KB and Map this tab has opened: going back to one
   // shows it at once, and the request below brings it up to date in place,
   // like a live refresh.
@@ -426,6 +479,20 @@ export function App() {
     return () => controller.abort();
   }, [activeKB, view.concept, phase, handleFailure, live]);
 
+  // The Maps' contracts, once per KB (and on a retry), for the reading panel:
+  // a Map click only picks one from this list. A failure leaves the panel out.
+  useEffect(() => {
+    setMapContracts([]);
+    if (!activeKB || phase !== "ready") return;
+    const controller = new AbortController();
+    fetchMaps(activeKB, controller.signal)
+      .then((data) => setMapContracts(data.maps ?? []))
+      .catch((err) => {
+        if (!controller.signal.aborted) handleFailure(err);
+      });
+    return () => controller.abort();
+  }, [activeKB, phase, handleFailure, reloadKey]);
+
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
     const controller = new AbortController();
@@ -476,6 +543,8 @@ export function App() {
       setMaintenance(null);
       setChecks(null);
       setReview(null);
+      setContradictions(null);
+      setConflicts(null);
       setHealthSettled(false);
       return;
     }
@@ -487,11 +556,21 @@ export function App() {
       setMaintenance(null);
       setChecks(null);
       setReview(null);
+      setContradictions(null);
+      setConflicts(null);
       setHealthSettled(false);
     }
     const controller = new AbortController();
     fetchStatus(activeKB, controller.signal)
       .then(setKbStatus)
+      .catch(() => undefined);
+    // Whole-KB like the status: a narrowed principal gets a 404 and no section.
+    fetchContradictions(activeKB, "open", controller.signal)
+      .then((res) => setContradictions(res.contradictions ?? []))
+      .catch(() => undefined);
+    // Whole-KB as well, and only shown when there is something to resolve.
+    fetchConflicts(activeKB, controller.signal)
+      .then((res) => setConflicts(Array.isArray(res) ? res : []))
       .catch(() => undefined);
     fetchMaintenanceSummary(activeKB, controller.signal)
       .then(setMaintenance)
@@ -673,7 +752,12 @@ export function App() {
         if (inSheet) setSheet(null);
       }}
       onPanel={(panel) => {
-        navigate({ panel, artifact: null, hmap: null });
+        // The Atlas entry is the way home: the whole graph, wherever you were.
+        navigate(
+          panel === "atlas"
+            ? { panel, scope: null, concept: null, artifact: null, hmap: null }
+            : { panel, artifact: null, hmap: null },
+        );
         if (inSheet) setSheet(null);
       }}
       onToggleCollapsed={() => setRailCollapsed((c) => !c)}
@@ -686,8 +770,20 @@ export function App() {
     />
   );
 
+  const readingOpen = !!view.concept;
+  const panelMap = scopedMap ?? leavingMap;
+  const contractPanel = panelMap && (
+    <MapContractPanel
+      map={panelMap}
+      concepts={overview?.collections.find((c) => c.name === panelMap.name)?.concepts ?? 0}
+      inline={narrow}
+      leaving={!scopedMap}
+    />
+  );
+
   const inspector = (
     <Inspector
+      kb={activeKB}
       conceptId={view.concept}
       concept={concept}
       error={conceptError}
@@ -771,6 +867,8 @@ export function App() {
               summary={maintenance}
               checks={checks}
               review={review}
+              contradictions={contradictions}
+              conflicts={conflicts}
               pending={!healthSettled}
               scopeTitle={
                 view.hmap ? overview?.collections.find((c) => c.name === view.hmap)?.title || view.hmap : null
@@ -790,11 +888,13 @@ export function App() {
           ) : view.panel === "settings" ? (
             <Settings
               reloadKey={`${reloadKey}:${live}`}
+              activeKB={activeKB ?? undefined}
               onRetry={() => setReloadKey((k) => k + 1)}
               onFailure={handleFailure}
             />
           ) : view.panel === "secrets" && activeKB ? (
             <Secrets
+              tabs={sectionTabs}
               kb={activeKB}
               reloadKey={`${reloadKey}:${live}`}
               titleOf={(id) => nodeTitles.get(id)}
@@ -804,6 +904,7 @@ export function App() {
             />
           ) : view.panel === "artifacts" && activeKB ? (
             <Artifacts
+              tabs={sectionTabs}
               kb={activeKB}
               list={artifacts}
               loading={artifactsLoading}
@@ -838,7 +939,13 @@ export function App() {
               }
             />
           ) : (
-            <>
+            // A Map's contract takes its own strip beside the graph (above it on
+            // a narrow screen), so the canvas is the space that is left: the
+            // camera frames in it and nothing is drawn behind the panel. The
+            // wrapper is always there, so the graph keeps its place in the tree
+            // (and its layout) as the Atlas moves between the KB and a Map.
+            <div className={narrow ? "mapsplit mapsplit--stacked" : "mapsplit"}>
+              {contractPanel}
               {!webgl || webglLost ? (
                 <div className="graph graph--unavailable">
                   <div className="state">
@@ -857,7 +964,7 @@ export function App() {
                   tako={eggs.has("tako")}
                   snapshot={snapshot}
                   layoutKey={snapshotKey}
-                  loadBirths={activeKB ? () => fetchBirths(activeKB).then((r) => r.births) : undefined}
+                  loadBirths={activeKB && !view.scope ? () => fetchBirths(activeKB).then((r) => r.births) : undefined}
                   kbName={activeKB ?? undefined}
                   artifacts={graphArtifacts}
                   onOpenArtifact={(kind, name) => navigate({ panel: "artifacts", artifact: `${kind}/${name}` })}
@@ -869,19 +976,25 @@ export function App() {
                   themeKey={appliedTheme}
                   live={motion}
                   onToggleLive={toggleMotion}
-                  occludedRight={!narrow && view.concept ? inspectorWidth : 0}
+                  cameraControls={!scopedMap}
+                  occludedRight={!narrow && readingOpen ? Math.max(0, inspectorWidth - rightDock) : 0}
                   onSelect={selectConcept}
                   onExpand={expandConcept}
                   onUnavailable={markWebglLost}
                 >
-                  <Legend snapshot={snapshot} communities={communities} colorBy={colorBy} onColorBy={setColorBy} />
+                  {/* A small floating card over the canvas: the legend on the
+                      whole KB, never beside an open concept; a Map's contract
+                      has its own strip instead. */}
+                  {!readingOpen && !scopedMap && (
+                    <Legend snapshot={snapshot} communities={communities} colorBy={colorBy} onColorBy={setColorBy} />
+                  )}
                 </GraphView>
               )}
-            </>
+            </div>
           )}
         </main>
 
-        {view.panel === "atlas" && !narrow && view.concept && (
+        {view.panel === "atlas" && !narrow && readingOpen && (
           <div
             id="reading-panel"
             className="overlay overlay--inspector"
@@ -891,7 +1004,7 @@ export function App() {
               value={inspectorWidth}
               min={INSPECTOR_MIN}
               max={inspectorLimit}
-              defaultValue={INSPECTOR_DEFAULT}
+              defaultValue={inspectorFallback}
               edge="start"
               controls="reading-panel"
               label="Resize reading panel"

@@ -23,13 +23,15 @@ export const sceneStub = {
     data: [] as SetDataCall[],
     /** Every `fitEverything`, with the duration asked. */
     fit: [] as number[],
+    /** Every `followFit`, with how many `setData`s had been made by then. */
+    follow: [] as { occluded: number; floor: number; after: number }[],
     /** Every `unfocus`'s argument. */
     unfocusArgs: [] as unknown[],
   },
   /** The offline scenes the video export made (D691), and what became of them. */
   offline: { created: 0, frames: [] as number[], disposed: 0, seeded: 0 },
   reset() {
-    this.calls = { focus: [], unfocus: 0, colours: [], data: [], fit: [], unfocusArgs: [] };
+    this.calls = { focus: [], unfocus: 0, colours: [], data: [], fit: [], follow: [], unfocusArgs: [] };
     this.offline = { created: 0, frames: [], disposed: 0, seeded: 0 };
   },
 };
@@ -98,7 +100,9 @@ export class LivingScene {
   fitEverything(_occluded?: number, ms?: number): void {
     sceneStub.calls.fit.push(ms ?? -1);
   }
-  followFit(): void {}
+  followFit(occluded = 0, floor = 0): void {
+    sceneStub.calls.follow.push({ occluded, floor, after: sceneStub.calls.data.length });
+  }
   stopFollowingFit(): void {}
   fitDistance(): number {
     return 100;

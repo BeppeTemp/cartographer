@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { GROWTH_MIN_ZOOM, growthOrder, growthPace, type GrowthStep } from "../lib/graph3d/growth";
+import { GROWTH_MIN_ZOOM, GROWTH_VIDEO_MS, growthOrder, growthSchedule, shownAt, type GrowthStep } from "../lib/graph3d/growth";
 import { beside } from "../lib/graph3d/physics";
 import {
   ASPECTS,
@@ -72,17 +72,6 @@ function dayOf(order: GrowthStep[], shown: number): string {
   return "";
 }
 
-/** How many concepts are out `ms` into the replay, at the replay's own pace
- *  (one step of `perTick` every `tickMs`, from the first concept). */
-export function shownAt(ms: number, total: number, pace: { tickMs: number; perTick: number }): number {
-  return Math.min(total, 1 + Math.floor(ms / pace.tickMs) * pace.perTick);
-}
-
-/** How many video frames the growth part lasts: the replay's own length. */
-export function growthFrames(total: number, pace: { tickMs: number; perTick: number }): number {
-  return Math.round((Math.ceil(total / pace.perTick) * pace.tickMs) / FRAME_MS);
-}
-
 interface Job {
   aspect: Aspect;
   p: Params;
@@ -119,9 +108,9 @@ async function render(job: Job): Promise<{ blob: Blob; ext: "mp4" | "webm" }> {
     const births = await p.loadBirths!();
     if (job.cancelled()) throw new Error("cancelled");
     const order = growthOrder(p.nodes, p.edges, births);
-    const pace = growthPace(order.length);
+    const schedule = growthSchedule(order, GROWTH_VIDEO_MS);
     const total = order.length;
-    const growth = growthFrames(total, pace);
+    const growth = Math.round(schedule.totalMs / FRAME_MS);
     const opening = Math.round(OPENING_MS / FRAME_MS);
     const hold = Math.round(HOLD_MS / FRAME_MS);
     const endCard = Math.round(END_CARD_MS / FRAME_MS);
@@ -195,7 +184,7 @@ async function render(job: Job): Promise<{ blob: Blob; ext: "mp4" | "webm" }> {
     };
     let f = 0;
     for (let g = 0; g < growth; g++, f++) {
-      const count = shownAt(g * FRAME_MS, total, pace);
+      const count = shownAt(schedule, g * FRAME_MS);
       if (count !== shown) show(count);
       if (g === 0) sc.fitEverything(0, 0, floor);
       else if (g % REFIT_FRAMES === 0) sc.fitEverything(0, REFIT_MS, floor);

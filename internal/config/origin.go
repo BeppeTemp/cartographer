@@ -127,10 +127,14 @@ type Entry struct {
 	Origin      Origin `json:"origin"`
 	Description string `json:"description"`
 	Default     string `json:"default"`
-	Env         string `json:"env,omitempty"`
-	Flag        string `json:"flag,omitempty"`
-	Restart     bool   `json:"restart,omitempty"`
-	Secret      bool   `json:"secret,omitempty"`
+	// Type and Values are the schema's: the kind of value, and the accepted
+	// ones in free text ("" when any value of the type goes).
+	Type    string `json:"type,omitempty"`
+	Values  string `json:"values,omitempty"`
+	Env     string `json:"env,omitempty"`
+	Flag    string `json:"flag,omitempty"`
+	Restart bool   `json:"restart,omitempty"`
+	Secret  bool   `json:"secret,omitempty"`
 }
 
 // KBEntries is the settings of one mounted KB.
@@ -198,7 +202,7 @@ func (c *Config) Settings(kbNames []string) View {
 
 func (c *Config) entry(k settingschema.Key, originKey string, val any, set bool) Entry {
 	e := Entry{Key: k.Path, Value: val, Origin: c.OriginOf(originKey), Description: k.Description,
-		Default: k.Default, Env: k.Env, Flag: k.Flag, Restart: k.Restart, Secret: k.Secret}
+		Default: k.Default, Type: k.Type, Values: k.Values, Env: k.Env, Flag: k.Flag, Restart: k.Restart, Secret: k.Secret}
 	if k.Secret {
 		e.Value = SecretUnset
 		if set {

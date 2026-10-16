@@ -48,7 +48,7 @@ test("without WebGL the list, search and inspector still work", async ({ page })
 // leg of its own (`web` job, D785).
 test("the growth replay exports a real video, in the background, with the tab hidden halfway", { tag: "@video" }, async ({ page }) => {
   // Offline rendering at twice the export size on a software GL context is
-  // the slow part: ~13 s of video at 60 fps is 780 frames.
+  // the slow part: ~7 s of video at 60 fps is about 430 frames.
   test.setTimeout(480_000);
   await open3D(page);
   await page.getByRole("button", { name: "Replay growth" }).click();
@@ -161,10 +161,11 @@ test("the growth replay exports a real video, in the background, with the tab hi
   );
   await viewer.close();
   expect([probe.w, probe.h]).toEqual([1080, 1080]);
-  // 1 s opening card + the replay (8 s on a graph this small) + 1.5 s hold +
-  // 2.5 s end card, at 60 fps: 780 frames.
-  expect(probe.duration).toBeGreaterThan(12.7);
-  expect(probe.duration).toBeLessThan(13.4);
+  // 1 s opening card + the replay + 1.5 s hold + 2.5 s end card, at 60 fps. The
+  // replay's length is its schedule's (growthSchedule, D818): a graph this
+  // small is slowed at most twice its natural pace, a couple of seconds.
+  expect(probe.duration).toBeGreaterThan(6.5);
+  expect(probe.duration).toBeLessThan(8.5);
   // Frame 0 is the opening card: the mark and the name stand out of the
   // background, so it is the thumbnail a messaging app shows.
   expect(probe.first.max).toBeGreaterThan(120);

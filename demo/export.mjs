@@ -77,9 +77,11 @@ for (const since of ["1d", "7d", "30d", "90d", "365d", "36500d"]) {
   await api(`${k}/changes?since=${q(since)}&limit=500`);
 }
 await api(`${k}/work?limit=200`);
-for (const p of ["maintenance/summary", "maintenance/review", "checks", "revision", "births", "status", "secrets"]) {
+for (const p of ["maintenance/summary", "maintenance/review", "checks", "revision", "births", "status", "secrets", "placeholders", "contradictions", "contradictions?status=all", "maps", "journal", "sources?status=pending&limit=500", "services"]) {
   await api(`${k}/${p}`);
 }
+// Per-concept history (assets are only for expanded concepts, so they stay live-only).
+for (const node of graph.nodes) await api(`${k}/history?id=${q(node.id)}`);
 
 const artifacts = await api(`${k}/artifacts`);
 for (const a of artifacts.artifacts) {
