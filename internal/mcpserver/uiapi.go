@@ -430,7 +430,7 @@ func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB, srv *Server) {
 	outbound, brokenOutbound := uiVisibleNeighbors(ctx, k, graph, graph.Out[okf.ConceptID(id)], id)
 	inbound, _ := uiVisibleNeighbors(ctx, k, graph, graph.In[okf.ConceptID(id)], id)
 
-	// The supersede chain as relations (D744), not only as raw frontmatter:
+	// The supersede chain as relations (D818), not only as raw frontmatter:
 	// the concepts that name this one as their superseded_by are among its
 	// inbound links, and its own successor is only named when the caller
 	// may see it.

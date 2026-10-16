@@ -440,6 +440,52 @@ export interface MapContract {
    *  map-wide one for that type. */
   field_values?: Record<string, string[]>;
   field_values_by_type?: Record<string, Record<string, string[]>>;
+  /** The rest of the _map.md contract, as map_list returns it; every key is
+   *  omitted when the contract does not set it. */
+  description?: string;
+  required_fields?: string[];
+  required_fields_by_type?: Record<string, string[]>;
+  forbidden_fields?: string[];
+  require_index_entry?: boolean;
+  templates?: string[];
+  default_template?: string;
+  /** Effective: a Map that declares templates is strict without saying so (D371). */
+  require_template?: boolean;
+  template_sections?: boolean;
+  open_field?: string;
+  open_statuses?: string[];
+  open_markers?: string[];
+  /** A journal's effective harvest_after in days (D322); absent when
+   *  `harvest_off` says harvest_after: 0 switched it off (D347). */
+  harvest_after?: number;
+  harvest_after_defaulted?: boolean;
+  harvest_off?: boolean;
+  promote_to?: string;
+  procedure_headings?: string[];
+  /** This Map defines the KB's terms. */
+  glossary?: boolean;
+  work_map?: string;
+  /** "generated": the server maintains the concept list in index.md. */
+  index?: string;
+  /** Canonical value -> the synonyms the server treats as it. */
+  value_synonyms?: Record<string, string[]>;
+  machine_path_allow_prefixes?: string[];
+  thresholds?: MapThresholds;
+  /** Entries of _map.md the server tolerated but could not read. */
+  malformed?: { key: string; reason: string }[];
+}
+
+/** The cost and page-name keys a contract sets (D301, D313, D315); a key left
+ *  out runs at the built-in default. `title_max_length: 0` turns the length
+ *  rule off. */
+export interface MapThresholds {
+  repeated_fact_min?: number;
+  hotspot_in_degree?: number;
+  hotspot_bytes?: number;
+  oversize_bytes?: number;
+  oversize_concepts?: number;
+  title_max_length?: number;
+  forbidden_title_terms?: string[];
 }
 
 /** GET /kbs/{kb}/maps. */

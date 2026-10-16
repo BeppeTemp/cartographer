@@ -46,6 +46,7 @@ var docsNonTools = map[string]bool{
 	"index_lists_retired":      true, // lint check (D344), not a tool
 	"index_entry":              true, // concept_new/concept_batch parameter (D714), not a tool
 	"commit_count":             true, // changes_since result field, not a tool
+	"commit_sha":               true, // audit entry field (GET /kbs/{kb}/audit), not a tool
 	"concept_too_deep":         true, // lint check (D356), not a tool
 	"template_section_missing": true, // lint check (D297), not a tool
 	// artifact lint checks (D316), not tools

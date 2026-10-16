@@ -370,7 +370,7 @@ func uiN(r *http.Request, def, max int) int {
 	return min(n, max)
 }
 
-// --- services, conflicts, audit, whoami (D744) ---
+// --- services, conflicts, audit, whoami (D818) ---
 
 // uiAuditMaxLimit bounds the audit entries one request returns.
 const uiAuditMaxLimit = 500

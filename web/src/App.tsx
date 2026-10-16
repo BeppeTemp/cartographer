@@ -39,7 +39,7 @@ import type {
 import { Artifacts } from "./components/Artifacts";
 import { Secrets } from "./components/Secrets";
 import { Paths } from "./components/Paths";
-import { MapFacts } from "./components/MapFacts";
+import { MapContractPanel, MAP_PANEL_WIDTH } from "./components/MapContractPanel";
 import { Legend } from "./components/Legend";
 import { Services } from "./components/Services";
 import { Sources } from "./components/Sources";
@@ -49,7 +49,6 @@ import { CommandPalette } from "./components/CommandPalette";
 import { GraphView } from "./components/GraphView";
 import { Inspector } from "./components/Inspector";
 import { LeftRail } from "./components/LeftRail";
-import { GraphBar } from "./components/GraphBar";
 import { Sheet, useMediaQuery } from "./components/Sheet";
 import { Splitter } from "./components/Splitter";
 import { Activity } from "./components/Activity";
@@ -145,9 +144,7 @@ export function App() {
   const [healthSettled, setHealthSettled] = useState(false);
   // The KB Health's reads above belong to (D704).
   const healthKB = useRef<string | null>(null);
-  // Live motion has no switch of its own: the system's reduced-motion setting
-  // is the one that turns it off.
-  const [motion] = useState(() => initialMotion(true, prefersReducedMotion()));
+  const [motion, setMotion] = useState(() => initialMotion(readPanel("motion", true), prefersReducedMotion()));
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [eggs, setEggs] = useState<Set<Egg>>(() => new Set());
   const [preview, setPreview] = useState<string | null>(null);
@@ -195,6 +192,14 @@ export function App() {
   // Unmeasured (the first render, or a layout engine that reports no size):
   // draw the preference as is rather than squash it to the minimum.
   const measured = room.body > 0;
+  // The Map the Atlas is narrowed to: its contract is docked to the canvas's
+  // right edge on a wide screen, above the graph on a narrow one.
+  const scopedMap =
+    view.panel === "atlas" && view.scope ? (mapContracts.find((m) => m.name === view.scope) ?? null) : null;
+  // The strip the docked contract takes at the right edge. The reading panel
+  // opens over it (a concept read is the Map's foreground), so it covers the
+  // canvas only by what it is wider than the contract.
+  const rightDock = !narrow && scopedMap ? MAP_PANEL_WIDTH : 0;
   const inspectorFallback = inspectorDefault(room.body, room.rail);
   const preferred = inspectorPref > 0 ? inspectorPref : inspectorFallback;
   const inspectorWidth = measured
@@ -217,6 +222,12 @@ export function App() {
   }, [theme]);
   useEffect(() => writeColorBy(colorBy), [colorBy]);
   useEffect(() => writePanel("rail", railCollapsed), [railCollapsed]);
+  const toggleMotion = useCallback(() => {
+    setMotion((on) => {
+      writePanel("motion", !on);
+      return !on;
+    });
+  }, []);
   const webgl = useMemo(() => hasWebGL(), []);
   // The graph is only ever drawn in 3D (D235): if it loses its context, the
   // page says so and keeps the list, as it does without WebGL at all.
@@ -697,12 +708,6 @@ export function App() {
   const rail = (inSheet: boolean) => (
     <LeftRail
       overview={overview}
-      mapDetail={scopedMap && <MapFacts map={scopedMap} />}
-      afterMaps={
-        view.panel === "atlas" && colorBy === "community" && snapshot ? (
-          <Legend snapshot={snapshot} communities={communities} />
-        ) : null
-      }
       overviewKB={snapshotKey.split("\u0000")[0]}
       scope={view.panel === "atlas" ? view.scope : null}
       panel={view.panel}
@@ -719,7 +724,11 @@ export function App() {
       }}
       onPanel={(panel) => {
         // The Atlas entry is the way home: the whole graph, wherever you were.
-        navigate(panel === "atlas" ? { panel, scope: null, concept: null, artifact: null, hmap: null } : { panel, artifact: null, hmap: null });
+        navigate(
+          panel === "atlas"
+            ? { panel, scope: null, concept: null, artifact: null, hmap: null }
+            : { panel, artifact: null, hmap: null },
+        );
         if (inSheet) setSheet(null);
       }}
       onToggleCollapsed={() => setRailCollapsed((c) => !c)}
@@ -732,12 +741,11 @@ export function App() {
     />
   );
 
-  // The Map the Atlas is narrowed to: named in the context bar, its contract
-  // under its row in the rail.
-  const scopedMap =
-    view.panel === "atlas" && view.scope ? (mapContracts.find((m) => m.name === view.scope) ?? null) : null;
   const scopedCollection = scopedMap ? overview?.collections.find((c) => c.name === scopedMap.name) : undefined;
   const readingOpen = !!view.concept;
+  const contractPanel = scopedMap && (
+    <MapContractPanel map={scopedMap} concepts={scopedCollection?.concepts ?? 0} inline={narrow} />
+  );
 
   const inspector = (
     <Inspector
@@ -921,7 +929,13 @@ export function App() {
               }
             />
           ) : (
-            <>
+            // A Map's contract takes its own strip beside the graph (above it on
+            // a narrow screen), so the canvas is the space that is left: the
+            // camera frames in it and nothing is drawn behind the panel. The
+            // wrapper is always there, so the graph keeps its place in the tree
+            // (and its layout) as the Atlas moves between the KB and a Map.
+            <div className={narrow ? "mapsplit mapsplit--stacked" : "mapsplit"}>
+              {contractPanel}
               {!webgl || webglLost ? (
                 <div className="graph graph--unavailable">
                   <div className="state">
@@ -951,23 +965,22 @@ export function App() {
                   highlighted={preview}
                   themeKey={appliedTheme}
                   live={motion}
-                  occludedRight={!narrow && readingOpen ? inspectorWidth : 0}
+                  onToggleLive={toggleMotion}
+                  cameraControls={!scopedMap}
+                  occludedRight={!narrow && readingOpen ? Math.max(0, inspectorWidth - rightDock) : 0}
                   onSelect={selectConcept}
                   onExpand={expandConcept}
                   onUnavailable={markWebglLost}
-                  header={
-                    <GraphBar
-                      kb={activeKB ?? ""}
-                      map={scopedMap}
-                      mapConcepts={scopedCollection?.concepts ?? 0}
-                      snapshot={snapshot}
-                      colorBy={colorBy}
-                      onColorBy={setColorBy}
-                    />
-                  }
-                />
+                >
+                  {/* A small floating card over the canvas: the legend on the
+                      whole KB, never beside an open concept; a Map's contract
+                      has its own strip instead. */}
+                  {!readingOpen && !scopedMap && (
+                    <Legend snapshot={snapshot} communities={communities} colorBy={colorBy} onColorBy={setColorBy} />
+                  )}
+                </GraphView>
               )}
-            </>
+            </div>
           )}
         </main>
 

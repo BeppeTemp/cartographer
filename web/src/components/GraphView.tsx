@@ -79,11 +79,7 @@ interface Props {
   highlighted?: string | null;
   /** A double click on a node. */
   onExpand?(id: string): void;
-  /** The context bar above the canvas (D818): part of the layout, never drawn
-   *  over the graph; the growth replay's timeline takes its place while it
-   *  plays. */
-  header?: ReactNode;
-  /** Overlays drawn over the canvas. */
+  /** Overlays drawn over the canvas (the legend card, a Map's contract). */
   children?: ReactNode;
   communities: Communities;
   colorBy: ColorBy;
@@ -94,6 +90,11 @@ interface Props {
   /** Live motion (drift, panorama, signals) on or off; the reader's own
    *  gestures work either way. */
   live: boolean;
+  /** Turns live motion on or off: the toggle sits with the camera controls. */
+  onToggleLive?(): void;
+  /** The camera controls (zoom, fit, motion) over the canvas: the whole KB's
+   *  view only, a Map's view leaves the space to its contract panel. */
+  cameraControls?: boolean;
   /** Pixels on the right covered by the reading panel. */
   occludedRight: number;
   /** Pixels on the left covered by the concept list. */
@@ -150,7 +151,6 @@ function View({
   onOpenArtifact,
   highlighted = null,
   onExpand,
-  header,
   children,
   snapshot: snap,
   layoutKey,
@@ -162,6 +162,8 @@ function View({
   hiddenIds: filtered,
   themeKey,
   live,
+  onToggleLive,
+  cameraControls = true,
   occludedRight,
   occludedLeft = 0,
   tako = false,
@@ -721,6 +723,7 @@ function View({
       </div>
     );
   }
+  const scene = () => sceneRef.current;
   const growthControl = loadBirths ? { start: startGrowth, active: growth !== null } : null;
   return (
     <div
@@ -729,88 +732,116 @@ function View({
       data-motion={live && !reducedMotion ? "live" : "still"}
       data-growing={growth !== null || undefined}
     >
-      {(header || growth) && (
-        <div className="graph__header">
-          <GrowthControl.Provider value={growthControl}>
-            {growth ? (
-              <GrowthTimeline
-                order={growth.order}
-                shown={growth.shown}
-                playing={growth.playing}
-                onSeek={seekGrowth}
-                onTogglePlay={togglePlay}
-                onClose={() => setGrowth(null)}
-                onExport={exp.supported ? exp.openDialog : undefined}
-              />
-            ) : (
-              header
-            )}
-          </GrowthControl.Provider>
+      <div ref={containerRef} className="graph3d">
+        <div ref={labelsRef} className="graph3d__labels" aria-hidden="true" />
+        <span ref={tooltipRef} className="graph3d__label graph3d__tooltip" aria-hidden="true" hidden />
+      </div>
+      {/* Kept through the fade-out; visibility: hidden then drops it from the tree. */}
+      <div className="graph__loading" data-drawn={drawn}>
+        <GraphSeed label={`Charting ${snapshot.nodes.length} concepts`} />
+      </div>
+      {cameraControls && (
+        <div className="graph__controls" role="group" aria-label="Graph camera">
+          <button
+            type="button"
+            className="button button--icon"
+            onClick={() => scene()?.zoomBy(1 / 1.35)}
+            aria-label="Zoom in"
+          >
+            <Icon name="plus" size={16} />
+          </button>
+          <button
+            type="button"
+            className="button button--icon"
+            onClick={() => scene()?.zoomBy(1.35)}
+            aria-label="Zoom out"
+          >
+            <Icon name="minus" size={16} />
+          </button>
+          <button
+            type="button"
+            className="button button--icon"
+            onClick={() => scene()?.frameAll()}
+            aria-label="Fit graph to view"
+          >
+            <Icon name="fit" size={16} />
+          </button>
+          {onToggleLive && (
+            <>
+              <span className="graph__controls-sep" aria-hidden="true" />
+              <button
+                type="button"
+                className="button button--icon"
+                aria-label="Motion"
+                aria-pressed={live}
+                onClick={onToggleLive}
+                title={live ? "Pause the drift, the panorama and the signals" : "Let the graph move on its own"}
+              >
+                <Icon name={live ? "pause" : "motion"} size={16} />
+              </button>
+            </>
+          )}
         </div>
       )}
-      <div className="graph__stage">
-        <div ref={containerRef} className="graph3d">
-          <div ref={labelsRef} className="graph3d__labels" aria-hidden="true" />
-          <span ref={tooltipRef} className="graph3d__label graph3d__tooltip" aria-hidden="true" hidden />
+      {/* The replay starts from the legend card (GrowthButton), which reaches it
+          through this context; the camera itself is driven on the canvas. */}
+      <GrowthControl.Provider value={growthControl}>{children}</GrowthControl.Provider>
+      {exp.dialog && (
+        <ExportDialog webm={exp.webm} onExport={(aspect) => void exp.start(aspect)} onClose={exp.closeDialog} />
+      )}
+      {exp.status && (
+        <div
+          className="growth-export"
+          role="status"
+          data-done={exp.status.done || undefined}
+          style={{ "--progress": `${exp.status.progress * 100}%` } as CSSProperties}
+        >
+          <span className="growth-export__label">
+            {exp.status.done ? `Video saved (${exp.status.aspect})` : `Exporting video (${exp.status.aspect})`}
+          </span>
+          {!exp.status.done && (
+            <>
+              <span className="growth-export__pct">{Math.floor(exp.status.progress * 100)}%</span>
+              <button type="button" className="button button--icon" onClick={exp.cancel} aria-label="Cancel the export">
+                <Icon name="close" size={14} />
+              </button>
+            </>
+          )}
         </div>
-        {/* Kept through the fade-out; visibility: hidden then drops it from the tree. */}
-        <div className="graph__loading" data-drawn={drawn}>
-          <GraphSeed label={`Charting ${snapshot.nodes.length} concepts`} />
+      )}
+      {exp.error && (
+        <div className="graph__banner banner" role="alert">
+          <span className="banner__glyph">
+            <Icon name="info" size={16} />
+          </span>
+          <span>{exp.error}</span>
+          <button type="button" className="button button--icon" onClick={exp.dismissError} aria-label="Dismiss">
+            <Icon name="close" size={16} />
+          </button>
         </div>
-        {/* The replay starts from the context bar (or an overlay) where it sits:
-          the camera itself is driven on the canvas, drag to turn, scroll to zoom. */}
-        <GrowthControl.Provider value={growthControl}>{children}</GrowthControl.Provider>
-        {exp.dialog && (
-          <ExportDialog webm={exp.webm} onExport={(aspect) => void exp.start(aspect)} onClose={exp.closeDialog} />
-        )}
-        {exp.status && (
-          <div
-            className="growth-export"
-            role="status"
-            data-done={exp.status.done || undefined}
-            style={{ "--progress": `${exp.status.progress * 100}%` } as CSSProperties}
-          >
-            <span className="growth-export__label">
-              {exp.status.done ? `Video saved (${exp.status.aspect})` : `Exporting video (${exp.status.aspect})`}
-            </span>
-            {!exp.status.done && (
-              <>
-                <span className="growth-export__pct">{Math.floor(exp.status.progress * 100)}%</span>
-                <button
-                  type="button"
-                  className="button button--icon"
-                  onClick={exp.cancel}
-                  aria-label="Cancel the export"
-                >
-                  <Icon name="close" size={14} />
-                </button>
-              </>
-            )}
-          </div>
-        )}
-        {exp.error && (
-          <div className="graph__banner banner" role="alert">
-            <span className="banner__glyph">
-              <Icon name="info" size={16} />
-            </span>
-            <span>{exp.error}</span>
-            <button type="button" className="button button--icon" onClick={exp.dismissError} aria-label="Dismiss">
-              <Icon name="close" size={16} />
-            </button>
-          </div>
-        )}
-        {snapshot.truncated && (
-          <div className="graph__banner banner" role="status">
-            <span className="banner__glyph">
-              <Icon name="info" size={16} />
-            </span>
-            <span>
-              Showing {snapshot.nodes.length} of {snapshot.total_nodes} concepts. This graph is truncated &mdash; narrow
-              it by Map, type or status to see a complete picture.
-            </span>
-          </div>
-        )}
-      </div>
+      )}
+      {growth && (
+        <GrowthTimeline
+          order={growth.order}
+          shown={growth.shown}
+          playing={growth.playing}
+          onSeek={seekGrowth}
+          onTogglePlay={togglePlay}
+          onClose={() => setGrowth(null)}
+          onExport={exp.supported ? exp.openDialog : undefined}
+        />
+      )}
+      {snapshot.truncated && (
+        <div className="graph__banner banner" role="status">
+          <span className="banner__glyph">
+            <Icon name="info" size={16} />
+          </span>
+          <span>
+            Showing {snapshot.nodes.length} of {snapshot.total_nodes} concepts. This graph is truncated &mdash; narrow
+            it by Map, type or status to see a complete picture.
+          </span>
+        </div>
+      )}
     </div>
   );
 }

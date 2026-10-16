@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import type { Overview } from "../api/types";
 import type { Panel } from "../lib/viewstate";
 import { collectionVar } from "../lib/palette";
@@ -7,11 +7,6 @@ import { Icon } from "./Icon";
 
 interface Props {
   overview: Overview | null;
-  /** Shown under the selected Map's row: its contract. */
-  mapDetail?: ReactNode;
-  /** Shown after the Maps: the colour key when nodes are coloured by community
-   *  (by Map, the Maps' own swatches are the key). */
-  afterMaps?: ReactNode;
   /** The KB the overview belongs to: a new one deals the list in again. */
   overviewKB?: string;
   scope: string | null;
@@ -36,8 +31,6 @@ interface Props {
 
 export function LeftRail({
   overview,
-  mapDetail,
-  afterMaps,
   overviewKB = "",
   scope,
   panel,
@@ -274,7 +267,6 @@ export function LeftRail({
                             <Count value={collection.concepts} />
                           </span>
                         </button>
-                        {scope === collection.name && mapDetail}
                       </li>
                     ))}
                   </ul>
@@ -285,7 +277,6 @@ export function LeftRail({
               <p className="rail__empty">No Maps are visible to you in this KB.</p>
             )}
           </section>
-          {afterMaps}
 
           {nodeFilters && filtersActive && (
             <button type="button" className="rail__clear" onClick={onClearFilters}>

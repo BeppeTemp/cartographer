@@ -146,40 +146,85 @@ describe("narrow layout", () => {
 });
 
 describe("colour legend", () => {
-  it("switches between community and Map colouring and remembers it", async () => {
+  it("is a card over the canvas: what is drawn, the colour switch, the key and the replay", async () => {
     viewport(false);
     stubApi();
     const user = userEvent.setup();
     render(<App />);
 
-    const bar = await screen.findByRole("region", { name: "Graph context" });
-    const community = within(bar).getByRole("button", { name: "Community" });
-    const map = within(bar).getByRole("button", { name: "Map" });
+    const legend = await screen.findByRole("region", { name: /graph legend/i });
+    // Over the canvas, not above it and not in the rail.
+    expect(screen.getByTestId("graph-view").contains(legend)).toBe(true);
+    expect(screen.queryByRole("region", { name: "Graph context" })).toBeNull();
+    expect(within(legend).getByText("3 concepts · 2 links")).toBeInTheDocument();
+    const community = within(legend).getByRole("button", { name: "Community" });
+    const map = within(legend).getByRole("button", { name: "Map" });
     expect(community).toHaveAttribute("aria-pressed", "true");
-    // (The rail's community key itself is covered in legend.test.tsx.)
+    expect(within(legend).getByRole("button", { name: "Replay growth" })).toBeInTheDocument();
+    // The rail no longer repeats the community key.
+    const rail = screen.getByRole("navigation", { name: /atlas navigation/i });
+    expect(within(rail).queryByRole("heading", { name: "Communities" })).toBeNull();
 
     await user.click(map);
     expect(map).toHaveAttribute("aria-pressed", "true");
+    expect(within(legend).getByText("infra")).toBeInTheDocument();
     expect(localStorage.getItem("cartographer.colorBy")).toBe("map");
-    // Coloured by Map, the rail's own Map swatches are the key: no second list.
-    expect(screen.queryByRole("region", { name: /graph legend/i })).toBeNull();
 
-    // The growth replay starts from the bar, over the whole KB.
-    expect(within(bar).getByRole("button", { name: "Replay growth" })).toBeInTheDocument();
     // Lint severity is not a colour mode (D307): the Health panel reads it.
-    expect(within(bar).queryByRole("button", { name: "Health" })).not.toBeInTheDocument();
+    expect(within(legend).queryByRole("button", { name: "Health" })).not.toBeInTheDocument();
   });
 
-  it("keeps the canvas free: the bar sits above it and stays while a concept is read", async () => {
+  it("steps aside while a concept is open and comes back when the reading panel closes", async () => {
     viewport(false);
     window.history.replaceState(null, "", "/ui/?kb=kb-a&concept=infra%2Fa");
+    stubApi();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const close = await screen.findByRole("button", { name: "Close inspector" });
+    expect(screen.queryByRole("region", { name: /graph legend/i })).toBeNull();
+    // Nothing above the canvas either: the graph is the page.
+    expect(screen.queryByRole("region", { name: "Graph context" })).toBeNull();
+
+    await user.click(close);
+    expect(await screen.findByRole("region", { name: /graph legend/i })).toBeInTheDocument();
+  });
+});
+
+describe("camera controls", () => {
+  it("sit over the canvas with zoom, fit and the motion switch", async () => {
+    viewport(false);
+    stubApi();
+    const user = userEvent.setup();
+    render(<App />);
+
+    const camera = await screen.findByRole("group", { name: "Graph camera" });
+    expect(screen.getByTestId("graph-view").contains(camera)).toBe(true);
+    expect(within(camera).getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
+    expect(within(camera).getByRole("button", { name: "Zoom out" })).toBeInTheDocument();
+    expect(within(camera).getByRole("button", { name: "Fit graph to view" })).toBeInTheDocument();
+    // The replay lives in the legend card, not here.
+    expect(within(camera).queryByRole("button", { name: "Replay growth" })).toBeNull();
+
+    const motion = within(camera).getByRole("button", { name: "Motion" });
+    expect(motion).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("graph-view")).toHaveAttribute("data-motion", "live");
+    await user.click(motion);
+    expect(motion).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("graph-view")).toHaveAttribute("data-motion", "still");
+    await user.click(motion);
+    expect(motion).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("stay with a Map selected and with a concept open", async () => {
+    viewport(false);
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&scope=infra&concept=infra%2Fa");
     stubApi();
     render(<App />);
 
     await screen.findByRole("button", { name: "Close inspector" });
-    const bar = await screen.findByRole("region", { name: "Graph context" });
-    expect(bar.closest(".graph__stage")).toBeNull();
-    expect(document.querySelector(".graph__stage .legend, .graph__stage .map-card")).toBeNull();
+    const camera = await screen.findByRole("group", { name: "Graph camera" });
+    expect(within(camera).getByRole("button", { name: "Fit graph to view" })).toBeInTheDocument();
   });
 });
 
