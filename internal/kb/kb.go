@@ -3372,7 +3372,27 @@ func (kb *KB) TemplateTypes() []string {
 // fenced code, or — for a template written as a fenced markdown sample, a
 // common shape — the H2 headings of its first fenced block.
 func templateH2(body string) []string {
-	var outside, firstBlock []string
+	sections, _ := scanTemplate(body)
+	return sections
+}
+
+// TemplatePageBody is the body a page created from a template starts with: the
+// content of the template's fenced sample when its sections come from one (the
+// text around the fence is guidance for the writer, not page content), else the
+// template body as written. It shares scanTemplate with templateH2, so the page
+// always carries the sections the template promises.
+func TemplatePageBody(body string) string {
+	if _, sample := scanTemplate(body); sample != nil {
+		return strings.TrimRight(strings.Join(sample, "\n"), "\n") + "\n"
+	}
+	return body
+}
+
+// scanTemplate reads a template body once. sections is what templateH2
+// returns; sample holds the lines of the first fenced block when the sections
+// come from it (no H2 outside fenced code, at least one inside), nil otherwise.
+func scanTemplate(body string) (sections, sample []string) {
+	var outside, firstBlock, firstLines []string
 	inFence, blocks := false, 0
 	for _, line := range strings.Split(body, "\n") {
 		// A bare fence closes; an opener with an info string ("```markdown")
@@ -3391,6 +3411,9 @@ func templateH2(body string) []string {
 			}
 			continue
 		}
+		if inFence && blocks == 1 {
+			firstLines = append(firstLines, line)
+		}
 		if !strings.HasPrefix(line, "## ") {
 			continue
 		}
@@ -3404,9 +3427,12 @@ func templateH2(body string) []string {
 		}
 	}
 	if len(outside) > 0 {
-		return outside
+		return outside, nil
 	}
-	return firstBlock
+	if len(firstBlock) > 0 {
+		return firstBlock, firstLines
+	}
+	return nil, nil
 }
 
 // H2Headings lists a body's level-2 headings in order, ignoring fenced code.

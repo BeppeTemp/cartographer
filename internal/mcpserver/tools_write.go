@@ -240,6 +240,9 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 					fm.Set(key, rendered)
 				}
 			}
+			// A template whose sections come from a fenced sample renders that
+			// sample (the prose around it is guidance); any other keeps its body.
+			body = kb.TemplatePageBody(body)
 			if err := refuseListVar(body, lists, "body"); err != nil {
 				return errorResult(err.Error()), nil
 			}
