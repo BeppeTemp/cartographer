@@ -232,9 +232,14 @@ A write never leaves frontmatter that its own parser cannot read back (D309):
 
 `concept_move` is complete as of D160: it rewrites **inbound** links across the KB — reading only the
 concepts the link graph says link to a moved id, plus those whose `superseded_by` names one (D248) — **the moved
-concept's own relative links** (the directory delta is known, so this is arithmetic), and — for maps
+pages' own relative links** — and, for maps
 that opted in with `require_index_entry` — **both curated indexes**, removing the source entry and
 appending one to the destination under a `## Moved here` heading as the plain entry `- [title](path)`, with no suffix (D720).
+
+The own links are arithmetic, since the directory delta is known. An expanded concept's ID has two segments, so a move
+changes the directory it sits in, never its depth, and a satellite's `../x.md` names a sibling of the old parent just
+as `index.md`'s does: `index.md` and every satellite (nested ones included) are rebased from their old path to their
+new one. Links between the pages of the concept, and to its assets, keep resolving to them.
 
 Both index edits are conservative. A source line is removed only when the moved concept is its **only**
 link: a line citing two concepts is prose the operator wrote, so it is kept and reported instead.
