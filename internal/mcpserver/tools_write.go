@@ -1931,34 +1931,23 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 		"moves": applied,
 	}
 
-	// The moved concept's OWN relative links break when the directory
-	// depth changes: concept_move rewrote inbound links only, which is a
-	// half-move (D160). No flag: a move that leaves the moved body's links
+	// The moved concept's OWN relative links break when its directory
+	// changes: concept_move rewrote inbound links only, which is a
+	// half-move (D160). That is every page of an expanded concept, not just
+	// its index.md. No flag: a move that leaves the moved body's links
 	// broken is simply incomplete, and a flag would preserve that as a
 	// supported mode.
-	outboundFixed := 0
-	for _, mv := range applied {
-		oldBase, newBase := okf.IDToPath(okf.ConceptID(mv.SourceID)), okf.IDToPath(okf.ConceptID(mv.TargetID))
-		if relPath, expanded := k.ConceptRelPath(okf.ConceptID(mv.TargetID)); expanded {
-			newBase = relPath
-			oldBase = filepath.ToSlash(filepath.Join(mv.SourceID, "index.md"))
+	moved := make([]movedConcept, 0, len(valid))
+	for _, mv := range valid {
+		mc := movedConcept{sourceID: mv.sourceID, targetID: mv.targetID, pages: mv.mappings}
+		if mv.expanded {
+			mc.targetDir = mv.target.Dir
 		}
-		data, readErr := k.ReadConcept(okf.ConceptID(mv.TargetID))
-		if readErr != nil {
-			continue
-		}
-		newBody, n := kb.RewriteOutboundLinks(data.Body, oldBase, newBase, moveMap)
-		if n == 0 {
-			continue
-		}
-		fm, parseErr := okf.ParseFrontmatter(data.FrontmatterRaw)
-		if parseErr != nil {
-			continue
-		}
-		if _, err := k.WriteConcept(okf.ConceptID(mv.TargetID), fm, newBody, data.ContentHash); err != nil {
-			return nil, errRes(errorResult(fmt.Sprintf("concept_move: applied the move but could not rewrite %q's own links: %v", mv.TargetID, err)))
-		}
-		outboundFixed += n
+		moved = append(moved, mc)
+	}
+	outboundFixed, err := rebaseMovedOutbound(k, moved, moveMap)
+	if err != nil {
+		return nil, errRes(errorResult("concept_move: " + err.Error()))
 	}
 	if outboundFixed > 0 {
 		result["outbound_rewritten"] = outboundFixed
