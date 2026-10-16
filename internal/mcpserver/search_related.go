@@ -63,7 +63,10 @@ func relatedBlock(ctx requestContext, k *kb.KB, hits []searchHit, limit int) []r
 		include = visiblePredicate(ctx, k)
 	}
 	// The ranking above has just validated the graph: project that snapshot
-	// instead of walking every file a second time.
+	// instead of walking every file a second time. When that validation failed
+	// the last view is an older snapshot that can name a concept deleted since,
+	// so it is not offered: LinkGraph validates again, and if that fails too
+	// there is no block.
 	lg, ok := k.LinkGraphOfLastView(include)
 	if !ok {
 		var err error

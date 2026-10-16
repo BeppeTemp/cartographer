@@ -73,16 +73,17 @@ func (kb *KB) LinkGraph(include func(id string) bool) (*LinkGraph, error) {
 }
 
 // LinkGraphOfLastView is LinkGraph over the view the most recent validation
-// published, without validating again, and false when nothing has validated
-// yet. Validating walks and stats every concept file, so it is the dominant
-// cost of a graph read; a caller that has just paid it for the same request
-// (search's centrality prior, D251) reads the snapshot it ranked on instead of
-// paying twice. A caller that has not must use LinkGraph, which sees a change
-// made since.
+// published, without validating again, and false when there is none to offer:
+// nothing has validated yet, or the most recent validation failed, which leaves
+// an older snapshot that can name concepts that are gone. Validating walks and
+// stats every concept file, so it is the dominant cost of a graph read; a
+// caller that has just paid it for the same request (search's centrality prior,
+// D251) reads the snapshot it ranked on instead of paying twice. A caller that
+// has not must use LinkGraph, which sees a change made since.
 func (kb *KB) LinkGraphOfLastView(include func(id string) bool) (*LinkGraph, bool) {
 	kb.graphMu.Lock()
 	var view *graphView
-	if kb.graph != nil {
+	if kb.graph != nil && !kb.graph.stale {
 		view = kb.graph.view
 	}
 	kb.graphMu.Unlock()

@@ -243,7 +243,11 @@ type graphCache struct {
 	// the published view stale while the next validation saw nothing to do.
 	facetOnly map[string]*graphEntry
 	view      *graphView
-	stats     graphCacheStats
+	// stale is true while the last validation could not list the concept
+	// files: view is then an older snapshot, possibly naming concepts that
+	// are gone.
+	stale bool
+	stats graphCacheStats
 	// reported is, per id, the content hash ConceptChanges last reported
 	// (D245). nil until the first call or a seed.
 	reported map[okf.ConceptID]string
@@ -320,6 +324,7 @@ func (kb *KB) graphViewLocked(read map[string]string) (*graphView, error) {
 	c := kb.graphCacheLocked()
 
 	files, err := kb.conceptFiles()
+	c.stale = err != nil
 	if err != nil {
 		return nil, err
 	}

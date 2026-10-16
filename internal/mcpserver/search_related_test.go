@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -48,6 +49,28 @@ func contains(ids []string, id string) bool {
 		}
 	}
 	return false
+}
+
+// A graph read that fails leaves the cache on an older snapshot, which can name
+// a concept deleted since: the block is left out rather than built on it.
+func TestSearchRelated_AFailedGraphReadOmitsTheBlock(t *testing.T) {
+	t.Parallel()
+	s, k := graphToolKBWithKB(t, relatedKB())
+	out, _ := relatedSearch(t, s, `{"query":"zeppelin","related":3}`)
+	if len(relatedIDs(out)) == 0 {
+		t.Fatalf("control: the block is empty: %v", out)
+	}
+
+	// The concept files cannot be listed, so the validation fails.
+	moved := k.DataRoot() + ".moved"
+	if err := os.Rename(k.DataRoot(), moved); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Rename(moved, k.DataRoot()) })
+	out, text := relatedSearch(t, s, `{"query":"zeppelin","related":3}`)
+	if _, ok := out["related"]; ok {
+		t.Errorf("a block was built on a snapshot of a failed graph read: %s", text)
+	}
 }
 
 // The block is an addition: the hits, their order and their scores are the

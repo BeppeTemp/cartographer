@@ -171,3 +171,37 @@ func TestLinkGraphOfLastViewDoesNotValidateAgain(t *testing.T) {
 		t.Error("the last view is not the graph LinkGraph returned")
 	}
 }
+
+func TestLinkGraphOfLastViewIsNotOfferedAfterAFailedValidation(t *testing.T) {
+	t.Parallel()
+	f := newGraphFixture(t)
+	if _, err := f.k.LinkGraph(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.k.LinkGraphOfLastView(nil); !ok {
+		t.Fatal("no view after a validation")
+	}
+
+	// The walk fails when the data root cannot be listed: the cache keeps its
+	// older snapshot, which still names the concepts that vanished with it.
+	moved := f.k.DataRoot() + ".moved"
+	if err := os.Rename(f.k.DataRoot(), moved); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.k.LinkGraph(nil); err == nil {
+		t.Fatal("a validation of a missing data root succeeded")
+	}
+	if lg, ok := f.k.LinkGraphOfLastView(nil); ok {
+		t.Fatalf("the snapshot of a failed validation was offered: %v", lg.IDs)
+	}
+
+	if err := os.Rename(moved, f.k.DataRoot()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.k.LinkGraph(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := f.k.LinkGraphOfLastView(nil); !ok {
+		t.Error("the view is not offered again once a validation succeeded")
+	}
+}
