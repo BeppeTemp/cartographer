@@ -96,6 +96,9 @@ func cmdKBRename(args []string) int {
 	if plan.EntryIndex >= 0 {
 		fmt.Printf("updated the kbs[] entry in %s\n", plan.ConfigPath)
 	}
+	if plan.ConfigPath != "" {
+		fmt.Printf("recorded kb_aliases %s → %s in %s (restart the server to apply it)\n", plan.Old, plan.New, plan.ConfigPath)
+	}
 	if len(plan.Bindings) > 0 {
 		if err := rewriteBindings(plan.Old, plan.New); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: the KB is renamed, but this machine's client bindings still name %q: %v\n", plan.Old, err)
@@ -334,11 +337,14 @@ func printRenamePreflight(w io.Writer, p *renamePlan) {
 	fmt.Fprintf(w, "renaming %s → %s\n", p.OldPath, p.NewPath)
 	switch {
 	case p.ConfigPath == "":
-		fmt.Fprintln(w, "no server config found: only the directory changes")
+		fmt.Fprintln(w, "no server config found: only the directory changes, and no alias is recorded (other clients' routed URLs naming the old KB degrade until they sync)")
 	case p.EntryIndex < 0:
-		fmt.Fprintf(w, "%s has no kbs[] entry for this KB (mounted by discovery): only the directory changes\n", p.ConfigPath)
+		fmt.Fprintf(w, "%s has no kbs[] entry for this KB (mounted by discovery): no entry is created\n", p.ConfigPath)
 	default:
 		fmt.Fprintf(w, "%s: rewriting kbs[%d]\n", p.ConfigPath, p.EntryIndex)
+	}
+	if p.ConfigPath != "" {
+		fmt.Fprintf(w, "%s: recording kb_aliases %s → %s, so a stale routed ?kbs=%s still reaches the KB\n", p.ConfigPath, p.Old, p.New, p.Old)
 	}
 	for _, b := range p.Bindings {
 		fmt.Fprintf(w, "this machine's .cartographer.yaml: rewriting the %s binding\n", b)
@@ -370,10 +376,10 @@ func applyKBRename(p *renamePlan) error {
 		}
 		return err
 	}
-	if p.EntryIndex < 0 {
+	if p.ConfigPath == "" {
 		return nil
 	}
-	if err := rewriteKBEntry(p); err != nil {
+	if err := rewriteServerConfig(p); err != nil {
 		if back := os.Rename(p.NewPath, p.OldPath); back != nil {
 			return fmt.Errorf("%w (and the directory could not be renamed back: %v — it is now at %s)", err, back, p.NewPath)
 		}
@@ -382,10 +388,12 @@ func applyKBRename(p *renamePlan) error {
 	return nil
 }
 
-// rewriteKBEntry edits the kbs[] entry in place through a yaml.Node document,
-// so the operator's comments, key order and unmodelled fields survive: a
-// rename must not silently reformat a hand-written server config.
-func rewriteKBEntry(p *renamePlan) error {
+// rewriteServerConfig edits the server config in place through a yaml.Node
+// document, so the operator's comments, key order and unmodelled fields
+// survive: a rename must not silently reformat a hand-written server config.
+// The kbs[] entry (when the KB has one) and the kb_aliases record are one
+// write, so a failure leaves neither (D772).
+func rewriteServerConfig(p *renamePlan) error {
 	data, err := os.ReadFile(p.ConfigPath)
 	if err != nil {
 		return err
@@ -394,11 +402,27 @@ func rewriteKBEntry(p *renamePlan) error {
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return fmt.Errorf("parse %s: %w", p.ConfigPath, err)
 	}
-	entry, err := kbEntryNode(&doc, p.EntryIndex)
+	if p.EntryIndex >= 0 {
+		entry, err := kbEntryNode(&doc, p.EntryIndex)
+		if err != nil {
+			return fmt.Errorf("%s: %w", p.ConfigPath, err)
+		}
+		rewriteEntryNode(entry, p)
+	}
+	root, err := rootMapping(&doc)
 	if err != nil {
 		return fmt.Errorf("%s: %w", p.ConfigPath, err)
 	}
+	recordKBRename(root, p.Old, p.New)
 
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(p.ConfigPath, out, 0o600)
+}
+
+func rewriteEntryNode(entry *yaml.Node, p *renamePlan) {
 	if path := mapValue(entry, "path"); path != nil {
 		path.Value = p.NewPath
 		path.Tag = "!!str"
@@ -414,12 +438,6 @@ func rewriteKBEntry(p *renamePlan) error {
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: p.New})
 		config.Schema.CommentKey(entry, "name", "kbs[].name")
 	}
-
-	out, err := yaml.Marshal(&doc)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(p.ConfigPath, out, 0o600)
 }
 
 // kbEntryNode returns the index-th element of the kbs sequence.

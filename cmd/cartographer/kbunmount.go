@@ -33,6 +33,10 @@ type unmountPlan struct {
 	// is the kbs[] entry to remove, -1 for a KB mounted by discovery.
 	ConfigPath string
 	EntryIndex int
+	// Aliases are the kb_aliases items pointing at the KB ("old → name"),
+	// removed with its entry so an old URL cannot reach a different KB later
+	// mounted under the name (D772).
+	Aliases []string
 
 	Scopes     []string
 	SigningKey bool
@@ -147,6 +151,7 @@ func planKBUnmount(name, dataDir, configPath string, deleteClone bool) (*unmount
 				p.KBPath = cfg.KBs[i].Path
 			}
 			p.Scopes = scopeRefs(cfg, name)
+			p.Aliases = aliasesPointingAt(cfg, name)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
@@ -213,6 +218,9 @@ func printUnmountPreflight(w io.Writer, p *unmountPlan) {
 	default:
 		fmt.Fprintf(w, "%s: removing kbs[%d] (a backup is written first)\n", p.ConfigPath, p.EntryIndex)
 	}
+	for _, a := range p.Aliases {
+		fmt.Fprintf(w, "%s: removing kb_aliases %s (a backup is written first)\n", p.ConfigPath, a)
+	}
 	for _, b := range p.Bindings {
 		fmt.Fprintf(w, "this machine's .cartographer.yaml: removing the KB from the %s binding\n", b)
 	}
@@ -242,12 +250,12 @@ func printUnmountPreflight(w io.Writer, p *unmountPlan) {
 // restores the config from the backup; the bindings removal is reported, not
 // undone (a sync realigns a binding to a KB that is mounted again).
 func applyKBUnmount(p *unmountPlan) (backup string, err error) {
-	if p.EntryIndex >= 0 {
+	if p.EntryIndex >= 0 || len(p.Aliases) > 0 {
 		backup, err = backupServerConfig(p.ConfigPath)
 		if err != nil {
 			return "", err
 		}
-		if err := removeKBEntry(p.ConfigPath, p.EntryIndex); err != nil {
+		if err := editConfigForUnmount(p.ConfigPath, p.EntryIndex, p.Name); err != nil {
 			return backup, err
 		}
 	}
@@ -297,9 +305,11 @@ func backupServerConfig(path string) (string, error) {
 	return backup, nil
 }
 
-// removeKBEntry deletes the index-th kbs[] item through a yaml.Node document,
-// so comments, key order and unmodelled fields survive (as rewriteKBEntry).
-func removeKBEntry(path string, index int) error {
+// editConfigForUnmount deletes the index-th kbs[] item (none when index < 0)
+// and the kb_aliases items pointing at name in one write, through a yaml.Node
+// document, so comments, key order and unmodelled fields survive (as
+// rewriteServerConfig).
+func editConfigForUnmount(path string, index int, name string) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -308,11 +318,18 @@ func removeKBEntry(path string, index int) error {
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
-	if _, err := kbEntryNode(&doc, index); err != nil {
+	if index >= 0 {
+		if _, err := kbEntryNode(&doc, index); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+		kbs := mapValue(doc.Content[0], "kbs")
+		kbs.Content = append(kbs.Content[:index], kbs.Content[index+1:]...)
+	}
+	root, err := rootMapping(&doc)
+	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	kbs := mapValue(doc.Content[0], "kbs")
-	kbs.Content = append(kbs.Content[:index], kbs.Content[index+1:]...)
+	pruneKBAliases(root, name)
 	out, err := yaml.Marshal(&doc)
 	if err != nil {
 		return err
