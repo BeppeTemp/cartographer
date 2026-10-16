@@ -22,9 +22,12 @@ test or a decision record: none of them is a preference.
   a privilege escalation.
 - **A handler never takes the lock, never commits, never syncs.** `gitwrap.go`
   wraps every write with the per-KB lock, the commit and the git sync. Doing any
-  of it inside a handler double-commits or deadlocks. The one exception is
-  `concept_transfer` (D760), which spans two KBs and so owns both locks and both
-  commits (`tools_transfer.go`); a tool that needs that has to say why in its decision.
+  of it inside a handler double-commits or deadlocks. The only exceptions are
+  `concept_transfer` (D760) and `artifact_move` (D782), which span two KBs and so own both
+  locks and both commits, through the shared `twoKBMove` (`twokbmove.go`); a tool that needs
+  that has to say why in its decision. A client of `twoKBMove` must supply
+  `TargetFiles`: `git add -A` skips a file an ignore rule matches without an error, and the
+  skeleton checks the target commit's listing against it before the source is touched (#845).
 - **Do not `os.WriteFile` a path you have not `Lstat`ed.** The KB side refuses to
   traverse a symlink for a reason: writing through one truncates the target
   instead of replacing the link, which is how a single sync modified 23 files in

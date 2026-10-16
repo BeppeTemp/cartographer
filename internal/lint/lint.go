@@ -210,6 +210,12 @@ func pastDay(day time.Time) bool {
 // — reports the same findings for the same KB. The same holds for the usage
 // store (D326) behind artifact_unused, read here from the KB's local state.
 func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
+	return RunWithOptions(k, scope, scopeNeighbors, runOptions(k))
+}
+
+// runOptions is the injected, non-KB input of a lint run, read the same way for
+// every caller.
+func runOptions(k *kb.KB) Options {
 	staleDays := k.Policy().UsageStaleDays
 	opts := Options{CrossKBRoots: k.SiblingRoots, UsageStaleDays: staleDays}
 	if staleDays > 0 {
@@ -218,7 +224,24 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 			opts.Usage = kb.SummarizeUsage(entries)
 		}
 	}
-	return RunWithOptions(k, scope, scopeNeighbors, opts)
+	return opts
+}
+
+// ArtifactFindings runs the artifact checks of an unscoped Run (D316: skills,
+// agents, instructions.md) and nothing else: it neither walks the concepts nor
+// builds the graph, so its cost follows the artifacts and not the size of the KB.
+// A caller that holds a lock while it lints uses it instead of Run. The
+// findings are the ones Run reports for the same artifacts, plus junk_file for
+// the files given (KB-root-relative), which Run finds by listing the whole git
+// tree. missing_instructions is never reported: it needs the concept count.
+func ArtifactFindings(k *kb.KB, files []string) []Finding {
+	findings := checkArtifacts(k, runOptions(k), readInstructions(k), 0, secretsDirExists(k))
+	return append(findings, junkFindings(files, nil)...)
+}
+
+func secretsDirExists(k *kb.KB) bool {
+	fi, err := os.Stat(filepath.Join(k.Root, "secrets"))
+	return err == nil && fi.IsDir()
 }
 
 // RunWithOptions is Run with the injected, non-KB inputs explicit.
@@ -548,10 +571,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// instructions.md frontmatter (perimeter, legacy_paths) is read once here
 	// and also drives the per-concept legacy_path check below.
 	instr := readInstructions(k)
-	hasSecretsDir := false
-	if fi, statErr := os.Stat(filepath.Join(k.Root, "secrets")); statErr == nil && fi.IsDir() {
-		hasSecretsDir = true
-	}
+	hasSecretsDir := secretsDirExists(k)
 	if scopeNorm == "" {
 		findings = append(findings, checkArtifacts(k, opts, instr, len(allConcepts), hasSecretsDir)...)
 	}

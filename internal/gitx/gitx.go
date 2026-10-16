@@ -467,6 +467,32 @@ func IgnoredFiles(dir, path string) ([]string, error) {
 	return files, nil
 }
 
+// IgnoredPaths returns those of paths (relative to dir, which need not exist
+// yet) that the repository's ignore rules would exclude from a commit. It asks
+// git with --no-index, so a tracked path is judged by the rules alone. The paths
+// go to git on stdin, NUL-separated, so the call does not grow with them (argv
+// has a hard limit) and a name is never quoted or split.
+func IgnoredPaths(dir string, paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	out, errOut, err := runGitStdin(dir, strings.Join(paths, "\x00")+"\x00", "check-ignore", "--no-index", "--stdin", "-z")
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 {
+			return nil, nil // exit 1: none of them is ignored
+		}
+		return nil, fmt.Errorf("git check-ignore: %w: %s", err, errOut)
+	}
+	var ignored []string
+	for _, p := range strings.Split(out, "\x00") {
+		if p != "" {
+			ignored = append(ignored, p)
+		}
+	}
+	return ignored, nil
+}
+
 // HeadSHA returns the SHA of the HEAD commit.
 func HeadSHA(dir string) (string, error) {
 	out, err := runGit(dir, "rev-parse", "HEAD")
@@ -495,6 +521,21 @@ func runGitEnv(dir string, env []string, args ...string) (string, error) {
 	cmd.Env = gitEnv(env)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// runGitStdin is runGit with stdin fed to the command: for a list too long for
+// argv. It returns stdout alone, and stderr as the second value: the caller
+// parses a NUL-separated list, and a warning git prints while it works (on
+// Windows, "unable to access '<dir>/.gitignore': Filename too long" for a path
+// past MAX_PATH) would otherwise be glued to one of its names.
+func runGitStdin(dir, stdin string, args ...string) (stdout, stderr string, err error) {
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = gitEnv(nil)
+	cmd.Stdin = strings.NewReader(stdin)
+	var errBuf strings.Builder
+	cmd.Stderr = &errBuf
+	out, err := cmd.Output()
+	return string(out), errBuf.String(), err
 }
 
 // ErrRebaseConflict signals that a pull --rebase hit a conflict and was aborted.

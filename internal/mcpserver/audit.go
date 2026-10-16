@@ -4,8 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strconv"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 )
@@ -66,6 +69,7 @@ var auditResourceFields = map[string][]string{
 	"artifact_read":   {"path"},
 	"artifact_write":  {"path"},
 	"artifact_delete": {"path"},
+	"artifact_move":   {"target_kb", "paths"},
 	// service_get's "resolve_secrets" and "reveal" are recorded for the same
 	// reason as secret_resolve's "reveal": decrypting, and then printing, a
 	// credential is the event the trail exists for (D261).
@@ -81,10 +85,63 @@ var auditResourceFields = map[string][]string{
 	"git_conflict_resolve": {"concept_id"},
 }
 
+// auditListMaxItems and auditListMaxBytes bound what an array argument adds to
+// an audit entry: a call may name many identifiers, and the trail must not grow
+// with its caller. The suffix naming the omitted count is inside the byte bound.
+const (
+	auditListMaxItems = 20
+	auditListMaxBytes = 512
+	auditListReserve  = len(" (+999999 more)")
+)
+
+// joinAuditList renders an identifier array as one string: the non-empty items
+// in order, joined with ", ", stopping at auditListMaxItems or auditListMaxBytes
+// and then saying how many were left out ("(+N more)"). Items are recorded as
+// given, as a string argument is: the entry is JSON-encoded, so a control
+// character cannot break the line.
+func joinAuditList(items []string) string {
+	var kept []string
+	for _, it := range items {
+		if it != "" {
+			kept = append(kept, it)
+		}
+	}
+	var b strings.Builder
+	taken := 0
+	for _, it := range kept {
+		sep := 0
+		if taken > 0 {
+			sep = len(", ")
+		}
+		if taken >= auditListMaxItems || b.Len()+sep+len(it) > auditListMaxBytes-auditListReserve {
+			break
+		}
+		if sep > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(it)
+		taken++
+	}
+	if taken == 0 && len(kept) > 0 {
+		// A single item over the bound: keep its head, cut on a character boundary.
+		head := kept[0][:auditListMaxBytes-auditListReserve]
+		for !utf8.ValidString(head) {
+			head = head[:len(head)-1]
+		}
+		b.WriteString(head)
+		taken = 1
+	}
+	if more := len(kept) - taken; more > 0 {
+		fmt.Fprintf(&b, " (+%d more)", more)
+	}
+	return b.String()
+}
+
 // extractResources returns the redacted Resources map for one tool call:
 // only the fields named in auditResourceFields[tool] that are actually present
-// in args and hold a non-empty string or a boolean (recorded as "true"/"false").
-// Any other JSON type is dropped. Booleans are kept because the flags that
+// in args and hold a non-empty string, an array of strings (joined and bounded,
+// see joinAuditList) or a boolean (recorded as "true"/"false"). Any other JSON
+// type is dropped. Booleans are kept because the flags that
 // matter most to an audit ("reveal", "resolve_secrets") are booleans, and a
 // string-only filter silently discarded them (D261); the allow-list remains the
 // only gate on what is recorded. Returns nil if the tool has no allow-list entry,
@@ -116,7 +173,13 @@ func extractResources(tool string, args json.RawMessage) map[string]string {
 		case json.Unmarshal(v, &b) == nil:
 			s = strconv.FormatBool(b)
 		default:
-			continue
+			var list []string
+			if json.Unmarshal(v, &list) != nil {
+				continue
+			}
+			if s = joinAuditList(list); s == "" {
+				continue
+			}
 		}
 		if out == nil {
 			out = make(map[string]string, len(fields))

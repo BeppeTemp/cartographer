@@ -119,7 +119,7 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
     committer_name: "Cartographer CI"                # (kbs[].committer_name) optional, defaults to author
     committer_email: cartographer-ci@example.com     # (kbs[].committer_email)
     allow_artifact_write: true                       # (kbs[].allow_artifact_write) enables artifact_write/
-                                                      # artifact_delete on this KB (default false, D71):
+                                                      # artifact_delete/artifact_move on this KB (default false, D71):
                                                       # writing a skill means injecting instructions that
                                                       # clients will execute — the capability must be
                                                       # granted per-KB by the operator; an rw token alone

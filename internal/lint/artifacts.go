@@ -789,6 +789,11 @@ func checkJunkFiles(k *kb.KB, junkAssets map[string]bool) []Finding {
 	if err != nil {
 		files = walkFiles(k.Root) // not a git repository: every file would be added
 	}
+	return junkFindings(files, junkAssets)
+}
+
+// junkFindings is checkJunkFiles over a given list of KB-root-relative files.
+func junkFindings(files []string, junkAssets map[string]bool) []Finding {
 	var findings []Finding
 	for _, rel := range files {
 		if !kb.IsJunkPath(rel) {
