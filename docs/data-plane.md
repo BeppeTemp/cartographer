@@ -319,8 +319,9 @@ dismisses every review item that names a concept of the map, as if each concept 
 keys): a pair goes with either member's map, a `zombie_work` item for a shared retired origin only
 with the origin's map, a `glossary_gap` stops counting the map's concepts. `map_naming` and
 `template_proposal` name the maps themselves and go with their own `lint_ignore`. Errors never go; a name a map
-cannot accept is reported as `lint_ignore_invalid` on the `_map.md`. With this, every finding has
-a way out — fixed, or accepted where the KB says so — and a Health panel with no findings is
+cannot accept is reported as `lint_ignore_invalid` on the `_map.md`, by `lint` only. The write path
+(a write's `findings`, `gate_check` with `changed_ids`, `write_gate`) drops what the map accepts exactly
+as `lint` does. With this, every finding has a way out — fixed, or accepted where the KB says so — and a Health panel with no findings is
 what a finished `kb-doctor` session leaves.
 
 ### Silencing a lint finding on one concept
