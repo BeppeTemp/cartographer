@@ -418,6 +418,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		return nil, fmt.Errorf("lint.Run: link graph: %w", err)
 	}
 	graph := lg.Links
+	isRetired := retiredOf(lg)
 
 	// Expand scope with 1-hop graph neighbours when requested: out-links
 	// only, the concept itself excluded — GraphNeighbors(id, 1)'s semantics.
@@ -697,7 +698,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		}
 
 		// --- orphan (warning) ---
-		if f, ok := orphanFinding(id, relPath, incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }, func(t okf.ConceptID) bool { return len(sourceCited[string(t)]) > 0 }); ok {
+		if f, ok := orphanFinding(id, relPath, isRetired(id), incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }, func(t okf.ConceptID) bool { return len(sourceCited[string(t)]) > 0 }); ok {
 			emit(f)
 		}
 
@@ -828,7 +829,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			// when it has no direct concepts. A scope inside an expanded concept
 			// must not surface unrelated map-index content.
 			if len(direct) > 0 || scopeNorm == "" || scopeNorm == archiveName {
-				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, true, &findings, exists)
+				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, true, &findings, exists, isRetired)
 			}
 		} else if scopeNorm == "" || scopeNorm == archiveName {
 			// A dead link is dead whether or not the map promised completeness:
@@ -865,7 +866,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				if len(satellites) > 0 {
 					// Expanded indexes are emitted by WalkConcepts, so their link
 					// targets are already covered by the general broken_link pass.
-					checkCuratedIndex(k, string(expandedID), string(expandedID)+"/index.md", satellites, false, &findings, exists)
+					checkCuratedIndex(k, string(expandedID), string(expandedID)+"/index.md", satellites, false, &findings, exists, isRetired)
 				}
 			}
 
@@ -1093,8 +1094,15 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 
 // orphanFinding is the orphan check for one concept (shared with ScopedCheck,
 // D312). in and out are the link graph's edges; present says whether a link
-// target is an existing concept.
-func orphanFinding(id okf.ConceptID, relPath string, in, out map[okf.ConceptID]map[okf.ConceptID]struct{}, archiveSet map[string]bool, present func(okf.ConceptID) bool, cited func(okf.ConceptID) bool) (Finding, bool) {
+// target is an existing concept; isRetired is the concept's status, already
+// resolved by the caller.
+func orphanFinding(id okf.ConceptID, relPath string, isRetired bool, in, out map[okf.ConceptID]map[okf.ConceptID]struct{}, archiveSet map[string]bool, present func(okf.ConceptID) bool, cited func(okf.ConceptID) bool) (Finding, bool) {
+	// A retired concept is not asked to be linked: link_to_retired and
+	// index_lists_retired push links away from it, so an orphan finding would
+	// contradict them (D826).
+	if isRetired {
+		return Finding{}, false
+	}
 	// A concept another cites in its frontmatter provenance (a Source in the
 	// sources journal) is reached, though no body link says so.
 	if len(in[id]) != 0 || (cited != nil && cited(id)) {
@@ -1371,10 +1379,21 @@ func firstH1(body string) string {
 	return ""
 }
 
+// retiredOf returns the predicate "this concept's status is retired" over a
+// link graph's facets.
+func retiredOf(lg *kb.LinkGraph) func(okf.ConceptID) bool {
+	return func(id okf.ConceptID) bool {
+		i, ok := lg.Index[id]
+		return ok && retired(lg.Facets[i].Status)
+	}
+}
+
 // checkCuratedIndex verifies both directions of an opted-in curated index.
 // folder is passed to ReadIndex; indexPath is the exact physical base used by
 // ExtractLinks so relative Markdown links resolve from the right directory.
-func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.ConceptID, validateLinks bool, findings *[]Finding, exists func(okf.ConceptID) bool) {
+// A retired candidate is never reported missing: index_lists_retired (and its
+// auto-repair) removes its entry, so asking for it back would loop (D826).
+func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.ConceptID, validateLinks bool, findings *[]Finding, exists func(okf.ConceptID) bool, isRetired func(okf.ConceptID) bool) {
 	content, err := k.ReadIndex(folder)
 	if err != nil {
 		*findings = append(*findings, newFinding("index_incomplete", Finding{
@@ -1401,7 +1420,7 @@ func checkCuratedIndex(k *kb.KB, folder, indexPath string, candidates []okf.Conc
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
 	for _, candidate := range candidates {
-		if !targets[candidate] {
+		if !targets[candidate] && !isRetired(candidate) {
 			*findings = append(*findings, newFinding("index_incomplete", Finding{
 				Path:    indexPath,
 				Message: fmt.Sprintf("missing curated index entry for %s", candidate),
@@ -1539,10 +1558,7 @@ func indexListsRetired(k *kb.KB, mapName string, contract kb.MapContract, concep
 	if contract.Kind == "journal" || contract.Index == kb.IndexGenerated {
 		return nil
 	}
-	isRetired := func(id okf.ConceptID) bool {
-		i, ok := lg.Index[id]
-		return ok && retired(lg.Facets[i].Status)
-	}
+	isRetired := retiredOf(lg)
 	top, retiredTop := 0, 0
 	for id := range concepts {
 		if rest, ok := strings.CutPrefix(string(id), mapName+"/"); ok && !strings.Contains(rest, "/") {

@@ -187,7 +187,7 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		for _, f := range forbiddenTermFindings(relPath, data.Body, glossary) {
 			emit(f)
 		}
-		if f, ok := orphanFinding(id, relPath, links.In, links.Out, archiveSet, present, provCited); ok {
+		if f, ok := orphanFinding(id, relPath, retired(lg.Facets[node].Status), links.In, links.Out, archiveSet, present, provCited); ok {
 			emit(f)
 		}
 		for _, f := range st.brokenRelation(id, relPath, lg.Facets[node]) {
@@ -242,7 +242,7 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		if !ok || contract.Index == kb.IndexGenerated || !contract.RequireIndexEntry {
 			continue
 		}
-		checkCuratedIndex(k, folder, folder+"/index.md", curated[folder], false, &findings, exists)
+		checkCuratedIndex(k, folder, folder+"/index.md", curated[folder], false, &findings, exists, retiredOf(lg))
 	}
 
 	findings = applyMapIgnores(k, findings)
