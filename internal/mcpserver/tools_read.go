@@ -1069,6 +1069,15 @@ func toolMapList(k *kb.KB) Tool {
 						info.HarvestAfter, info.HarvestAfterDefaulted, info.HarvestOff = effectiveHarvestAfter(&c)
 					}
 					info.PromoteTo, info.ProcedureHeadings, info.Glossary, info.WorkMap = c.PromoteTo, c.ProcedureHeadings, c.Glossary, c.WorkMap
+					// promote_to and work_map name another Map (both are maps, never a
+					// journal): a caller that may
+					// not see it does not learn its name from this one (D818).
+					if info.PromoteTo != "" && !VisibleCollection(ctx, k, info.PromoteTo, "map") {
+						info.PromoteTo = ""
+					}
+					if info.WorkMap != "" && !VisibleCollection(ctx, k, info.WorkMap, "map") {
+						info.WorkMap = ""
+					}
 					info.Index = c.Index
 					info.ValueSynonyms, info.MachinePathAllowPrefixes = c.ValueSynonyms, c.MachinePathAllowPrefixes
 					info.Thresholds = contractThresholds(&c)

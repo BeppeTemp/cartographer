@@ -364,7 +364,9 @@ function Headline({ data, failed }: { data: WorkResponse | null; failed: boolean
 
 /** The work list with each pending source added as a "to ingest" entry. */
 export function withPendingSources(res: WorkResponse, sources: SourceEntry[]): WorkResponse {
-  const pending = sources.filter((src) => src.ingest_status === "pending");
+  // A Source already open work by its status is listed once, as it is.
+  const listed = new Set(res.entries.map((e) => e.id));
+  const pending = sources.filter((src) => src.ingest_status === "pending" && !listed.has(src.id));
   if (pending.length === 0) return res;
   const now = Date.now();
   const entries: WorkEntry[] = pending.map((src) => {

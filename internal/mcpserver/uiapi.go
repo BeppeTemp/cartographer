@@ -430,14 +430,17 @@ func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB, srv *Server) {
 	outbound, brokenOutbound := uiVisibleNeighbors(ctx, k, graph, graph.Out[okf.ConceptID(id)], id)
 	inbound, _ := uiVisibleNeighbors(ctx, k, graph, graph.In[okf.ConceptID(id)], id)
 
-	// The supersede chain as relations (D818), not only as raw frontmatter:
-	// the concepts that name this one as their superseded_by are among its
-	// inbound links, and its own successor is only named when the caller
+	// The supersede chain as relations (D818), not only as raw frontmatter.
+	// superseded_by is a frontmatter relation, not a link (D243): supersede
+	// writes no body link, so the predecessors are found on the facets of the
+	// caller's view, and its own successor is only named when the caller
 	// may see it.
 	supersedes := []string{}
-	for _, from := range inbound {
-		if k.ConceptFacets(okf.ConceptID(from)).SupersededBy == id {
-			supersedes = append(supersedes, from)
+	if lg, err := visibleGraph(ctx, k); err == nil {
+		for i, f := range lg.Facets {
+			if f.SupersededBy == id {
+				supersedes = append(supersedes, string(lg.IDs[i]))
+			}
 		}
 	}
 	supersededBy := ""

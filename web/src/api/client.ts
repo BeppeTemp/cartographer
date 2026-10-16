@@ -304,7 +304,9 @@ export function fetchJournal(kb: string, signal?: AbortSignal): Promise<JournalT
 
 /** The sources registered and not ingested yet: the Work page's "to ingest" column. */
 export function fetchPendingSources(kb: string, signal?: AbortSignal): Promise<SourceList> {
-  return get<SourceList>(`/kbs/${encodeURIComponent(kb)}/sources?status=pending`, signal);
+  // The server's maximum (source_list caps at 500; its default of 50 would cut
+  // the column without saying so).
+  return get<SourceList>(`/kbs/${encodeURIComponent(kb)}/sources?status=pending&limit=500`, signal);
 }
 
 export function fetchAssets(kb: string, id: string, signal?: AbortSignal): Promise<AssetList> {

@@ -386,18 +386,17 @@ func uiServices(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 		Status string `json:"status,omitempty"`
 	}
 	rows := []serviceRow{}
-	err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
-		fmRaw, _, _ := okf.SplitFrontmatter(content)
-		fm, perr := okf.ParseFrontmatter(fmRaw)
-		if perr != nil || !strings.EqualFold(fm.Type(), "Service") || !Visible(ctx, k, string(id)) {
-			return nil
-		}
-		rows = append(rows, serviceRow{ID: string(id), Title: fmString(fm, "title"), Status: fmString(fm, "status")})
-		return nil
-	})
+	// The cached graph of the caller's view already carries type, title and
+	// status: no concept is read again.
+	lg, err := visibleGraph(ctx, k)
 	if err != nil {
-		writeUIInternal(w, "services: walk", err)
+		writeUIInternal(w, "services: graph", err)
 		return
+	}
+	for i, f := range lg.Facets {
+		if strings.EqualFold(f.Type, "Service") {
+			rows = append(rows, serviceRow{ID: string(lg.IDs[i]), Title: f.Title, Status: f.Status})
+		}
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].ID < rows[j].ID })
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{"services": rows})

@@ -37,9 +37,14 @@ func referenceUIHandler(t *testing.T) http.Handler {
 	put(k.DataRoot(), "hidden/pack/data.txt", "x\n")
 	put(k.DataRoot(), "visible/api.md", "---\ntype: Service\ntitle: API\nstatus: active\n---\nx\n")
 	put(k.DataRoot(), "hidden/vault.md", "---\ntype: Service\ntitle: Vault\n---\nx\n")
-	put(k.DataRoot(), "visible/old.md", "---\ntype: Note\ntitle: Old\nsuperseded_by: visible/new\n---\nSee [new](new.md).\n")
+	// No body link to its successor, as the supersede tool leaves it: the
+	// relation is the frontmatter alone (D243).
+	put(k.DataRoot(), "visible/old.md", "---\ntype: Note\ntitle: Old\nsuperseded_by: visible/new\n---\nReplaced.\n")
 	put(k.DataRoot(), "visible/new.md", "---\ntype: Note\ntitle: New\n---\nx\n")
 	put(k.DataRoot(), "hidden/older.md", "---\ntype: Note\ntitle: Older\nsuperseded_by: visible/new\n---\nSee [new](../visible/new.md).\n")
+	// The visible Map's contract names the hidden one: a narrow caller must
+	// not learn that name from it.
+	put(k.DataRoot(), "visible/_map.md", "---\ntype: Map\ntitle: Visible\nkind: map\npromote_to: hidden\nwork_map: hidden\n---\n# Visible\n")
 	put(k.DataRoot(), "visible/gone.md", "---\ntype: Note\ntitle: Gone\nsuperseded_by: hidden/secret\n---\nSee [secret](../hidden/secret.md).\n")
 	put(k.DataRoot(), "log.md", "# Log\n\n## [2026-01-02] second\n\nbody two\n\n## [2026-01-01] first\n\nbody one\n")
 	put(k.Root, "paths.yaml", "paths:\n  work:\n    description: Working dir\n    default: $HOME/work\nrepos:\n  app:\n    description: The app\n    default: $HOME/src/app\n    remote: example.com/org/app\n  unused:\n    description: Never cited\n")
@@ -172,6 +177,14 @@ func TestUIAPI_Maps(t *testing.T) {
 	maps := decodeUI(t, getUI(t, h, UIAPIPrefix+"/kbs/docs/maps", "narrow"))["maps"].([]interface{})
 	if len(maps) != 1 || maps[0].(map[string]interface{})["name"] != "visible" {
 		t.Fatalf("narrow maps = %v", maps)
+	}
+	if m := maps[0].(map[string]interface{}); m["promote_to"] != nil || m["work_map"] != nil {
+		t.Fatalf("narrow caller learns a hidden Map's name: %v", m)
+	}
+	for _, m := range decodeUI(t, getUI(t, h, UIAPIPrefix+"/kbs/docs/maps", "whole"))["maps"].([]interface{}) {
+		if m := m.(map[string]interface{}); m["name"] == "visible" && (m["promote_to"] != "hidden" || m["work_map"] != "hidden") {
+			t.Fatalf("whole caller misses the contract: %v", m)
+		}
 	}
 	if maps := decodeUI(t, getUI(t, h, UIAPIPrefix+"/kbs/docs/maps", "whole"))["maps"].([]interface{}); len(maps) != 3 {
 		t.Fatalf("whole maps = %v", maps)

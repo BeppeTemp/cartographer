@@ -58,11 +58,18 @@ else
 	# judging. Generating them takes about half a minute, so they are cached
 	# per generator source and per day (their dates are relative to today).
 	key=$( (cat internal/testkbs/*.go; date -u +%F) | shasum | cut -c1-12)
-	cache="${TMPDIR:-/tmp}/cartographer-testkbs/$key"
+	caches="${TMPDIR:-/tmp}/cartographer-testkbs"
+	cache="$caches/$key"
 	if [ ! -d "$cache" ]; then
 		echo "[dev] generating the test KBs (once a day)…"
-		rm -rf "${TMPDIR:-/tmp}/cartographer-testkbs"
-		go run ./internal/testkbs/gen "$cache.tmp" && mv "$cache.tmp" "$cache"
+		# Other worktrees may be reading their own cache right now: only
+		# entries older than two days go, and the new one is generated
+		# under a name of its own and renamed into place.
+		mkdir -p "$caches"
+		find "$caches" -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} +
+		tmp="$cache.tmp.$$"
+		go run ./internal/testkbs/gen "$tmp"
+		mv "$tmp" "$cache" 2>/dev/null || rm -rf "$tmp" # another session won the race
 	fi
 	mkdir "$work/data"
 	cp -R "$cache/." "$work/data/"
