@@ -87,7 +87,7 @@ func toolArtifactMove(src *kb.KB, deps Deps) Tool {
 		Description: "Moves artifacts to another KB on this server, in one commit per KB: a whole skill (skills/<slug>) or hook (hooks/<name>) directory, " +
 			"or a single agents/<slug>.md, mcp/<slug>.json or templates/<slug>.md. The path stays the same in the target and must be free there. " +
 			"Bytes copied verbatim. instructions.md, paths.yaml and glossary.yaml describe their own KB and do not move. " +
-			"Needs allow_artifact_write on both KBs.",
+			"Needs allow_artifact_write on both KBs (templates/ alone needs only allow_template_write).",
 		InputSchema: json.RawMessage(fmt.Sprintf(`{
 			"type": "object",
 			"required": ["target_kb", "paths"],
@@ -362,6 +362,11 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 		if err != nil {
 			return refuse("%s: %v", u.rel, err)
 		}
+		if twin, err := caseTwin(dstAbs); err != nil {
+			return refuse("%s in %s: %v", u.rel, dstName, err)
+		} else if twin != "" {
+			return refuse("%s: %s already has %s, which differs only by case and would collide on a case-insensitive checkout; rename or delete it there first", u.rel, dstName, u.rel[:strings.LastIndex(u.rel, "/")+1]+twin)
+		}
 		if _, err := os.Lstat(dstAbs); err == nil {
 			return refuse("%s already exists in %s: a move never overwrites; rename or delete it there first", u.rel, dstName)
 		} else if !os.IsNotExist(err) {
@@ -482,6 +487,28 @@ var artifactRefScanExts = map[string]bool{".md": true, ".json": true, ".yaml": t
 // not cost a read of the whole KB.
 const artifactRefsMax = 100
 
+// caseTwin returns the entry of abs's parent directory that has abs's name up to
+// case but is not spelled the same ("" when there is none, or the parent does not
+// exist). Git keeps both on a case-sensitive filesystem; a checkout on a
+// case-insensitive one cannot, so a free slot is not free next to its twin,
+// whatever filesystem the server itself runs on.
+func caseTwin(abs string) (string, error) {
+	entries, err := os.ReadDir(filepath.Dir(abs))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	base := filepath.Base(abs)
+	for _, e := range entries {
+		if e.Name() != base && strings.EqualFold(e.Name(), base) {
+			return e.Name(), nil
+		}
+	}
+	return "", nil
+}
+
 // referencesInSource lists the text files that stay in the source and name a
 // moved unit by its path. Nothing is rewritten: a path inside a sentence or a
 // script is not a link, and which KB it should point at is the author's call.
@@ -502,6 +529,13 @@ func (pl *artifactMovePlan) referencesInSource(src *kb.KB) (refs []string, cut b
 		return false
 	}
 	found := map[string]bool{}
+	// The activity log is history: AppendLog writes it under DataRoot() (data/log.md
+	// on the data layout, log.md at the root of a legacy KB), and it names
+	// every move it ever recorded.
+	logs := map[string]bool{"log.md": true}
+	if r, rerr := filepath.Rel(src.Root, filepath.Join(src.DataRoot(), "log.md")); rerr == nil {
+		logs[filepath.ToSlash(r)] = true
+	}
 	_ = filepath.WalkDir(src.Root, func(abs string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -517,7 +551,7 @@ func (pl *artifactMovePlan) referencesInSource(src *kb.KB) (refs []string, cut b
 			}
 			return nil
 		}
-		if !d.Type().IsRegular() || moved(rel) || rel == "log.md" || !artifactRefScanExts[strings.ToLower(filepath.Ext(rel))] {
+		if !d.Type().IsRegular() || moved(rel) || logs[rel] || !artifactRefScanExts[strings.ToLower(filepath.Ext(rel))] {
 			return nil
 		}
 		if info, ierr := d.Info(); ierr != nil || info.Size() > transferScanMaxBytes {
