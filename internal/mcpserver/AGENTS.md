@@ -25,7 +25,9 @@ test or a decision record: none of them is a preference.
   of it inside a handler double-commits or deadlocks. The only exceptions are
   `concept_transfer` (D760) and `artifact_move` (D782), which span two KBs and so own both
   locks and both commits, through the shared `twoKBMove` (`twokbmove.go`); a tool that needs
-  that has to say why in its decision.
+  that has to say why in its decision. A client of `twoKBMove` must supply
+  `TargetFiles`: `git add -A` skips a file an ignore rule matches without an error, and the
+  skeleton checks the target commit's listing against it before the source is touched (#845).
 - **Do not `os.WriteFile` a path you have not `Lstat`ed.** The KB side refuses to
   traverse a symlink for a reason: writing through one truncates the target
   instead of replacing the link, which is how a single sync modified 23 files in

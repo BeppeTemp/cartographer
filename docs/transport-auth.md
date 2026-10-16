@@ -427,7 +427,9 @@ transport, the principal and the outcome (`success`, `application_error`,
 matching completion is itself evidence: a crash mid-operation becomes visible
 rather than silent. The principal is read from the request context, so it is
 always the identity authorization actually used. Arguments of an unregistered
-tool are never recorded. A completion also records `result_bytes`, the size of
+tool are never recorded. Of a registered tool only the fields its allow-list names
+are recorded (identifiers, never content): a string, a boolean, or an array of
+strings, joined and bounded in items and bytes (`joinAuditList`, `audit.go`). A completion also records `result_bytes`, the size of
 the result's text (D301): what the call cost the agent to read, so read
 amplification per session is measurable from the log without logging content.
 The field is hashed only when present, so events written before it verify
