@@ -41,11 +41,15 @@ func relatedLimit(arg *int) int {
 // relatedBlock returns up to limit concepts around hits, nil when there is
 // nothing to add.
 //
-// Seeds are the leading full-match hits, weighted 1/(1+rank) as in
-// graph_context so the two agree. A partial (OR-fallback) hit and an archived
-// one never seed: a weak or closed match must not pull its neighbours into the
-// answer. Every returned hit is left out of the block, not only the seeds, and
-// so is every retired concept.
+// Seeds are the leading full-match hits of the response, weighted 1/(1+rank)
+// like graph_context's, and the ranking is the same rankNeighbours call; the
+// seed set is not the same. graph_context seeds from its own pool of the top
+// graphContextSeedHits hits of the query, with no scope and with partial and
+// archived hits in it. The block seeds from the hits search returned (after
+// scope, limit and the archived filter), so the seeds are what the reader sees,
+// and a partial (OR-fallback) hit or an archived one never seeds: a weak or
+// closed match must not pull its neighbours into the answer. Every returned hit
+// is left out of the block, not only the seeds, and so is every retired concept.
 //
 // Trap: the graph is projected through the caller's visibility, which removes
 // the concepts the caller cannot see before the ranking runs. Filtering a block
