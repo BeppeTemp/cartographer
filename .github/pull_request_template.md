@@ -24,6 +24,13 @@ plan with its reason. "No plan: trivial fix" when there is none. -->
 - [ ] A public contract: MCP tool schema, CLI flag, config key, on-disk format
 - [ ] None of the above
 
+## Revert
+
+<!-- What a `git revert` of this PR would not undo once a release has shipped it:
+files written into users' home directories, an installed service or scheduled
+job, a KB on-disk format, an MCP tool schema an agent relies on. "Plain revert"
+when there is nothing; otherwise what a reverting release would have to migrate. -->
+
 ## Tests
 
 <!-- Which tests pin the change, and whether they fail on the parent commit. -->
