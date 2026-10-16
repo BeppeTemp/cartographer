@@ -457,7 +457,25 @@ func planTransfer(src, dst *kb.KB, p transferParams) (*transferPlan, *ToolResult
 // concept_move, so they travel here). A symlink anywhere, a special file or an
 // asset above kb.AssetMaxFileSize refuses the whole transfer.
 func collectTransferFiles(dir string) ([]transferFile, error) {
+	return collectTransferFilesBounded(dir, 0, 0)
+}
+
+// transferBoundError is a directory over the file count or byte bound given to
+// collectTransferFilesBounded; the walk stops there.
+type transferBoundError struct {
+	limit int64
+	unit  string // "files" or "bytes"
+}
+
+func (e *transferBoundError) Error() string { return fmt.Sprintf("more than %d %s", e.limit, e.unit) }
+
+// collectTransferFilesBounded is collectTransferFiles that stops at maxFiles
+// files or maxBytes bytes in total (a bound of 0 or less is no bound), so a
+// directory far over the bound is not walked to the end while both KBs are
+// locked. The refusal is a *transferBoundError.
+func collectTransferFilesBounded(dir string, maxFiles int, maxBytes int64) ([]transferFile, error) {
 	var files []transferFile
+	var total int64
 	err := filepath.WalkDir(dir, func(abs string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -487,6 +505,13 @@ func collectTransferFiles(dir string) ([]transferFile, error) {
 			return fmt.Errorf("asset %s is %d bytes, over the %d MiB cap", rel, info.Size(), kb.AssetMaxFileSize>>20)
 		}
 		files = append(files, transferFile{rel: rel, size: info.Size(), exec: execbit.IsExecutable(info.Mode())})
+		total += info.Size()
+		if maxFiles > 0 && len(files) > maxFiles {
+			return &transferBoundError{limit: int64(maxFiles), unit: "files"}
+		}
+		if maxBytes > 0 && total > maxBytes {
+			return &transferBoundError{limit: maxBytes, unit: "bytes"}
+		}
 		return nil
 	})
 	sort.Slice(files, func(i, j int) bool { return files[i].rel < files[j].rel })

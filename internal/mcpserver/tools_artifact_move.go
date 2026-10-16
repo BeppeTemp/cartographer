@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -23,6 +24,15 @@ import (
 // artifactMoveMaxUnits bounds one call, like transferMaxMoves: both KBs' git
 // locks are held for the whole of it.
 const artifactMoveMaxUnits = 20
+
+// artifactMoveMaxFiles and artifactMoveMaxBytes bound one artifact (the file
+// count and the sum of its file sizes), for the same reason: the copy and its
+// commit run with both KBs' git locks held. They are far above a real skill
+// and below a vendored dependency tree.
+const (
+	artifactMoveMaxFiles = 500
+	artifactMoveMaxBytes = 16 << 20
+)
 
 type artifactMoveParams struct {
 	TargetKB string   `json:"target_kb"`
@@ -67,6 +77,7 @@ type artifactMovePlan struct {
 	placehold []string // placeholders the target's paths.yaml does not declare
 	sops      []string
 	refs      []string // "<path> → <unit>": text in the source that cites a unit by path
+	refsCut   bool     // the scan stopped at artifactRefsMax or skipped a file: refs may be incomplete
 	findings  []findingOut
 }
 
@@ -227,6 +238,9 @@ func artifactMoveReport(pl *artifactMovePlan, srcName, dstName, srcSHA, dstSHA s
 	if len(pl.refs) > 0 {
 		result["references_in_source"] = pl.refs
 	}
+	if pl.refsCut {
+		result["references_truncated"] = true
+	}
 	if len(pl.findings) > 0 {
 		// findings_by_kb and not "findings", as in concept_transfer: the client
 		// write-findings hook (D353) reads that key as one list.
@@ -357,7 +371,11 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 		u.isDir = info.IsDir()
 		switch {
 		case u.isDir && (u.info.Kind == "skill" || u.info.Kind == "hook"):
-			u.files, err = collectTransferFiles(srcAbs)
+			u.files, err = collectTransferFilesBounded(srcAbs, artifactMoveMaxFiles, artifactMoveMaxBytes)
+			var bound *transferBoundError
+			if errors.As(err, &bound) {
+				return refuse("%s has %v: an artifact_move carries at most %d files and %d MiB in one artifact", u.rel, bound, artifactMoveMaxFiles, artifactMoveMaxBytes>>20)
+			}
 			if err != nil {
 				return refuse("%s: %v", u.rel, err)
 			}
@@ -452,20 +470,24 @@ func (pl *artifactMovePlan) scan(src, dst *kb.KB) error {
 		pl.placehold = append(pl.placehold, id)
 	}
 	sort.Strings(pl.placehold)
-	pl.refs = pl.referencesInSource(src)
+	pl.refs, pl.refsCut = pl.referencesInSource(src)
 	return nil
 }
 
 // artifactRefScanExts are the text files that can cite an artifact by path.
 var artifactRefScanExts = map[string]bool{".md": true, ".json": true, ".yaml": true, ".yml": true, ".txt": true}
 
-// artifactRefsMax bounds the report: past it the list says so instead of growing.
+// artifactRefsMax bounds the report, and with it the scan: the walk stops at the
+// first hit past it, under both KBs' git locks, so a path cited everywhere does
+// not cost a read of the whole KB.
 const artifactRefsMax = 100
 
 // referencesInSource lists the text files that stay in the source and name a
 // moved unit by its path. Nothing is rewritten: a path inside a sentence or a
 // script is not a link, and which KB it should point at is the author's call.
-func (pl *artifactMovePlan) referencesInSource(src *kb.KB) []string {
+// cut says the list may be incomplete: the walk stopped at artifactRefsMax hits,
+// or skipped a file above transferScanMaxBytes (it is not read at all).
+func (pl *artifactMovePlan) referencesInSource(src *kb.KB) (refs []string, cut bool) {
 	pats := make([]*regexp.Regexp, len(pl.units))
 	for i, u := range pl.units {
 		// Not followed by a slug character, so skills/a does not match skills/a-b.
@@ -498,6 +520,10 @@ func (pl *artifactMovePlan) referencesInSource(src *kb.KB) []string {
 		if !d.Type().IsRegular() || moved(rel) || rel == "log.md" || !artifactRefScanExts[strings.ToLower(filepath.Ext(rel))] {
 			return nil
 		}
+		if info, ierr := d.Info(); ierr != nil || info.Size() > transferScanMaxBytes {
+			cut = true
+			return nil
+		}
 		data, rerr := readTransferHead(abs, transferScanMaxBytes)
 		if rerr != nil || !utf8.Valid(data) {
 			return nil
@@ -507,30 +533,31 @@ func (pl *artifactMovePlan) referencesInSource(src *kb.KB) []string {
 				found[rel+" → "+pl.units[i].rel] = true
 			}
 		}
+		if len(found) > artifactRefsMax {
+			return filepath.SkipAll
+		}
 		return nil
 	})
-	refs := make([]string, 0, len(found))
+	refs = make([]string, 0, len(found))
 	for r := range found {
 		refs = append(refs, r)
 	}
 	sort.Strings(refs)
 	if len(refs) > artifactRefsMax {
-		more := len(refs) - artifactRefsMax
-		refs = append(refs[:artifactRefsMax], fmt.Sprintf("… and %d more", more))
+		refs, cut = refs[:artifactRefsMax], true
 	}
-	return refs
+	return refs, cut
 }
 
-// lintMoved runs the KB's checks on the target as it will be committed and keeps
-// what concerns the moved units: a skill that no longer names the target's
-// perimeter, or a path that hard-codes a sibling KB's root, shows up only there.
-// The findings inform: a lint that cannot run does not stop a move whose bytes
-// are already validated.
+// lintMoved runs the artifact checks of the KB on the target as it will be
+// committed (lint.ArtifactFindings: not the concepts, not the graph, since both
+// git locks are held) and keeps what concerns the moved units: a skill that no
+// longer names the target's perimeter, or a path that hard-codes a sibling KB's
+// root, shows up only there.
+// The findings inform, and the lint cannot fail: a move whose bytes are already
+// validated is never stopped by advice.
 func (pl *artifactMovePlan) lintMoved(dst *kb.KB) []findingOut {
-	all, err := lint.Run(dst, "", false)
-	if err != nil {
-		return []findingOut{{Check: "artifact_move_lint", Severity: "warning", Message: "the target could not be linted: " + err.Error()}}
-	}
+	all := lint.ArtifactFindings(dst, pl.targetFiles())
 	var kept []lint.Finding
 	for _, f := range all {
 		if !f.Artifact || !lint.ArtifactPanelCheck(f.Check) {
