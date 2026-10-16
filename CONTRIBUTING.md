@@ -160,7 +160,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
 - Fork and open a PR against `main`. Direct pushes are disabled; every change
   goes through a PR with green CI (`make gate` locally first).
 - **Review costs more than writing**, so a PR is shaped to be cheap to review
-  (D853). Three rules, checked by `.agents/skills/review-pr/scripts/triage.sh`
+  (D856). Three rules, checked by `.agents/skills/review-pr/scripts/triage.sh`
   — run it on your branch before opening:
   - a contributor's change over **150 production lines** (tests, docs and
     generated files excluded), or one that changes a public contract (MCP tool
