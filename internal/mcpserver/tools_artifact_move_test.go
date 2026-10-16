@@ -365,3 +365,58 @@ func TestArtifactMove_OppositeDirectionsDoNotDeadlock(t *testing.T) {
 		}
 	}
 }
+
+// What the move cannot decide is reported and never refused: the skill is
+// moved, and the caller learns what to fix on the other side.
+func TestArtifactMove_ReportsWhatTravelsBadly(t *testing.T) {
+	t.Parallel()
+	f := newArtifactMoveFixture(t)
+	skill := "---\nname: query-rete\ndescription: Query the network\n---\nUse {{repo:declared}} and {{repo:missing}}.\n"
+	amWriteBytes(t, f.a, "skills/query-rete/SKILL.md", []byte(skill), 0o644)
+	amWriteBytes(t, f.a, "skills/query-rete/creds.sops.yaml", []byte("sops: {mac: ENC[AES256_GCM,data:abc]}\n"), 0o644)
+	amWriteBytes(t, f.a, "skills/query-rete-2/SKILL.md", []byte("---\nname: query-rete-2\ndescription: Stays\n---\nx\n"), 0o644)
+	amWriteBytes(t, f.a, "instructions.md", []byte("---\nperimeter: ops\n---\nKB a.\n"), 0o644)
+	amWriteBytes(t, f.a, "data/notes/runbook.md", []byte("---\ntype: Note\ntitle: Runbook\n---\nRun skills/query-rete first, or skills/query-rete/SKILL.md.\n"), 0o644)
+	amWriteBytes(t, f.a, "data/notes/other.md", []byte("---\ntype: Note\ntitle: Other\n---\nSee skills/query-rete-2 only.\n"), 0o644)
+	xferCommit(t, f.a)
+	amWriteBytes(t, f.b, "paths.yaml", []byte("repos:\n  declared:\n    description: a repo\n"), 0o644)
+	amWriteBytes(t, f.b, "instructions.md", []byte("---\nperimeter: ops\n---\nKB b.\n"), 0o644)
+	xferCommit(t, f.b)
+
+	res := f.move(t, `{"target_kb":"kb-b","paths":["skills/query-rete"]}`)
+	if res.IsError {
+		t.Fatalf("artifact_move: %s", xferText(res))
+	}
+	var out struct {
+		Placeholders []string                `json:"undeclared_placeholders"`
+		Sops         []string                `json:"sops_warnings"`
+		Refs         []string                `json:"references_in_source"`
+		Findings     map[string][]findingOut `json:"findings_by_kb"`
+	}
+	if err := json.Unmarshal([]byte(xferText(res)), &out); err != nil {
+		t.Fatalf("result is not JSON: %v\n%s", err, xferText(res))
+	}
+	if len(out.Placeholders) != 1 || out.Placeholders[0] != "repo:missing" {
+		t.Errorf("undeclared_placeholders = %v", out.Placeholders)
+	}
+	if len(out.Sops) != 1 || !strings.Contains(out.Sops[0], "skills/query-rete/creds.sops.yaml") {
+		t.Errorf("sops_warnings = %v", out.Sops)
+	}
+	if len(out.Refs) != 1 || out.Refs[0] != "data/notes/runbook.md → skills/query-rete" {
+		t.Errorf("references_in_source = %v (skills/query-rete-2 must not match)", out.Refs)
+	}
+	var perimeter bool
+	for _, fd := range out.Findings["kb-b"] {
+		if fd.Check == "skill_missing_perimeter" && fd.Path == "skills/query-rete/SKILL.md" {
+			perimeter = true
+		}
+	}
+	if !perimeter {
+		t.Errorf("findings_by_kb lacks skill_missing_perimeter on the moved skill: %+v", out.Findings)
+	}
+	if amExists(f.a, "skills/query-rete") || !amExists(f.b, "skills/query-rete/SKILL.md") {
+		t.Error("a report is not a refusal: the skill must have moved")
+	}
+	xferClean(t, f.a)
+	xferClean(t, f.b)
+}

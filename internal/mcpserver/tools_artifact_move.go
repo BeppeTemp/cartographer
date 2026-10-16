@@ -1,18 +1,23 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
 // artifactMoveMaxUnits bounds one call, like transferMaxMoves: both KBs' git
@@ -35,7 +40,11 @@ type artifactUnit struct {
 
 // artifactMovePlan is everything validation learned, so the two steps only write.
 type artifactMovePlan struct {
-	units []artifactUnit
+	units     []artifactUnit
+	placehold []string // placeholders the target's paths.yaml does not declare
+	sops      []string
+	refs      []string // "<path> → <unit>": text in the source that cites a unit by path
+	findings  []findingOut
 }
 
 func toolArtifactMove(src *kb.KB, deps Deps) Tool {
@@ -147,7 +156,11 @@ func runArtifactMove(ctx context.Context, args json.RawMessage, src *kb.KB, srcN
 			if err := applyArtifactMoveTarget(src, dst, plan); err != nil {
 				return err
 			}
-			return dst.AppendLog(fmt.Sprintf("artifact_move (%d artifact(s) from %s):\n%s", len(plan.units), srcName, strings.Join(plan.logLines(srcName, dstName, false), "\n")), time.Now())
+			if err := dst.AppendLog(fmt.Sprintf("artifact_move (%d artifact(s) from %s):\n%s", len(plan.units), srcName, strings.Join(plan.logLines(srcName, dstName, false), "\n")), time.Now()); err != nil {
+				return err
+			}
+			plan.findings = plan.lintMoved(dst)
+			return nil
 		},
 		ApplySource: func() error {
 			if err := applyArtifactMoveSource(src, plan); err != nil {
@@ -189,11 +202,26 @@ func artifactMoveReport(pl *artifactMovePlan, srcName, dstName, srcSHA, dstSHA s
 	for _, u := range pl.units {
 		moved = append(moved, map[string]any{"path": u.rel, "kind": u.info.Kind, "files": len(u.files)})
 	}
-	return map[string]any{
+	result := map[string]any{
 		"source": map[string]string{"kb": srcName, "commit": srcSHA},
 		"target": map[string]string{"kb": dstName, "commit": dstSHA},
 		"moved":  moved,
 	}
+	if len(pl.placehold) > 0 {
+		result["undeclared_placeholders"] = pl.placehold
+	}
+	if len(pl.sops) > 0 {
+		result["sops_warnings"] = pl.sops
+	}
+	if len(pl.refs) > 0 {
+		result["references_in_source"] = pl.refs
+	}
+	if len(pl.findings) > 0 {
+		// findings_by_kb and not "findings", as in concept_transfer: the client
+		// write-findings hook (D353) reads that key as one list.
+		result["findings_by_kb"] = map[string][]findingOut{dstName: pl.findings}
+	}
+	return result
 }
 
 // parseArtifactUnit turns one requested path into the unit it names. The unit
@@ -364,7 +392,134 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 		plan.units = append(plan.units, u)
 	}
 	sort.Slice(plan.units, func(i, j int) bool { return plan.units[i].rel < plan.units[j].rel })
+	if err := plan.scan(src, dst); err != nil {
+		return refuse("%v", err)
+	}
 	return plan, nil
+}
+
+// scan fills the reports that never refuse: placeholders the target does not
+// declare, sops material, and text in the source that cites a unit by path.
+func (pl *artifactMovePlan) scan(src, dst *kb.KB) error {
+	reg, err := dst.ReadPathRegistry()
+	if err != nil {
+		return fmt.Errorf("read the target's paths.yaml: %w", err)
+	}
+	dstName := kbName(dst)
+	undeclared := map[string]bool{}
+	for _, u := range pl.units {
+		for _, f := range u.files {
+			label := u.rel
+			if f.rel != "" {
+				label += "/" + f.rel
+			}
+			abs := unitFilePath(src, u, f)
+			if strings.Contains(strings.ToLower(filepath.Base(abs)), ".sops.") {
+				pl.sops = append(pl.sops, label+": sops-encrypted, copied verbatim and not re-encrypted: decryptable in "+dstName+" only if its age key is a recipient")
+			}
+			data, err := readTransferHead(abs, transferScanMaxBytes)
+			if err != nil || !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 {
+				continue
+			}
+			collectUndeclaredPlaceholders(reg, string(data), undeclared)
+		}
+	}
+	for id := range undeclared {
+		pl.placehold = append(pl.placehold, id)
+	}
+	sort.Strings(pl.placehold)
+	pl.refs = pl.referencesInSource(src)
+	return nil
+}
+
+// artifactRefScanExts are the text files that can cite an artifact by path.
+var artifactRefScanExts = map[string]bool{".md": true, ".json": true, ".yaml": true, ".yml": true, ".txt": true}
+
+// artifactRefsMax bounds the report: past it the list says so instead of growing.
+const artifactRefsMax = 100
+
+// referencesInSource lists the text files that stay in the source and name a
+// moved unit by its path. Nothing is rewritten: a path inside a sentence or a
+// script is not a link, and which KB it should point at is the author's call.
+func (pl *artifactMovePlan) referencesInSource(src *kb.KB) []string {
+	pats := make([]*regexp.Regexp, len(pl.units))
+	for i, u := range pl.units {
+		// Not followed by a slug character, so skills/a does not match skills/a-b.
+		pats[i] = regexp.MustCompile(`(^|[^A-Za-z0-9_./-])` + regexp.QuoteMeta(u.rel) + `($|[^A-Za-z0-9_-])`)
+	}
+	moved := func(rel string) bool {
+		for _, u := range pl.units {
+			if rel == u.rel || strings.HasPrefix(rel, u.rel+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	found := map[string]bool{}
+	_ = filepath.WalkDir(src.Root, func(abs string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, rerr := filepath.Rel(src.Root, abs)
+		if rerr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if d.IsDir() {
+			if strings.HasPrefix(d.Name(), ".") && rel != "." {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !d.Type().IsRegular() || moved(rel) || rel == "log.md" || !artifactRefScanExts[strings.ToLower(filepath.Ext(rel))] {
+			return nil
+		}
+		data, rerr := readTransferHead(abs, transferScanMaxBytes)
+		if rerr != nil || !utf8.Valid(data) {
+			return nil
+		}
+		for i, pat := range pats {
+			if pat.Match(data) {
+				found[rel+" → "+pl.units[i].rel] = true
+			}
+		}
+		return nil
+	})
+	refs := make([]string, 0, len(found))
+	for r := range found {
+		refs = append(refs, r)
+	}
+	sort.Strings(refs)
+	if len(refs) > artifactRefsMax {
+		more := len(refs) - artifactRefsMax
+		refs = append(refs[:artifactRefsMax], fmt.Sprintf("… and %d more", more))
+	}
+	return refs
+}
+
+// lintMoved runs the KB's checks on the target as it will be committed and keeps
+// what concerns the moved units: a skill that no longer names the target's
+// perimeter, or a path that hard-codes a sibling KB's root, shows up only there.
+// The findings inform: a lint that cannot run does not stop a move whose bytes
+// are already validated.
+func (pl *artifactMovePlan) lintMoved(dst *kb.KB) []findingOut {
+	all, err := lint.Run(dst, "", false)
+	if err != nil {
+		return []findingOut{{Check: "artifact_move_lint", Severity: "warning", Message: "the target could not be linted: " + err.Error()}}
+	}
+	var kept []lint.Finding
+	for _, f := range all {
+		if !f.Artifact || !lint.ArtifactPanelCheck(f.Check) {
+			continue
+		}
+		for _, u := range pl.units {
+			if f.Path == u.rel || strings.HasPrefix(f.Path, u.rel+"/") {
+				kept = append(kept, f)
+				break
+			}
+		}
+	}
+	return findingsOut(kept)
 }
 
 // unitFilePath is the absolute path of one file of a unit in a KB; a single-file

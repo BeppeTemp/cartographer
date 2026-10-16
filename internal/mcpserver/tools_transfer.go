@@ -493,20 +493,7 @@ func (pl *transferPlan) scan(src, dst *kb.KB, dstName string) error {
 		return fmt.Errorf("concept_transfer: read the target's paths.yaml: %w", err)
 	}
 	undeclared := map[string]bool{}
-	scanText := func(text string) {
-		if !reg.Present {
-			return // no paths.yaml: nothing is declared and nothing is enforced
-		}
-		for _, id := range okf.Placeholders(text) {
-			kind, key, ok := okf.SplitPlaceholderID(id)
-			if !ok {
-				continue
-			}
-			if _, declared := reg.Registry.Declared(kind, key); !declared {
-				undeclared[id] = true
-			}
-		}
-	}
+	scanText := func(text string) { collectUndeclaredPlaceholders(reg, text, undeclared) }
 	external := map[string]bool{}
 	for _, it := range pl.items {
 		var paths []struct{ abs, label string }
@@ -565,6 +552,24 @@ func (pl *transferPlan) scan(src, dst *kb.KB, dstName string) error {
 	}
 	sort.Strings(pl.external)
 	return nil
+}
+
+// collectUndeclaredPlaceholders adds to into the placeholders text cites that the
+// target's paths.yaml does not declare. Without a paths.yaml nothing is declared
+// and nothing is enforced, so nothing is reported.
+func collectUndeclaredPlaceholders(reg kb.PathRegistryState, text string, into map[string]bool) {
+	if !reg.Present {
+		return
+	}
+	for _, id := range okf.Placeholders(text) {
+		kind, key, ok := okf.SplitPlaceholderID(id)
+		if !ok {
+			continue
+		}
+		if _, declared := reg.Registry.Declared(kind, key); !declared {
+			into[id] = true
+		}
+	}
 }
 
 func isEmptyValue(v any) bool {
