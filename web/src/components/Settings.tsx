@@ -257,7 +257,7 @@ export function Settings({
   );
 }
 
-/** A tab, with how many of its keys are set away from their default. */
+/** A tab, with how many keys it holds. */
 function Tab({
   id,
   current,
@@ -271,7 +271,6 @@ function Tab({
   entries: SettingEntry[];
   children: React.ReactNode;
 }) {
-  const set = entries.filter((e) => e.origin !== "default").length;
   return (
     <button
       type="button"
@@ -282,11 +281,7 @@ function Tab({
       onClick={() => onSelect(id)}
     >
       {children}
-      {entries.length > 0 && (
-        <span className="settings__tab-count" title={`${set} of ${entries.length} set; the rest keep their default`}>
-          {set}/{entries.length}
-        </span>
-      )}
+      {entries.length > 0 && <span className="settings__tab-count">{entries.length}</span>}
     </button>
   );
 }

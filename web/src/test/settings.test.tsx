@@ -87,8 +87,8 @@ describe("the Settings panel", () => {
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    // Each tab says how many of its keys are set.
-    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Client", "Server2/3", "Knowledge Base1/1"]);
+    // Each tab says how many keys it holds.
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Client", "Server3", "Knowledge Base1"]);
     await user.click(within(tabs).getByRole("tab", { name: /Knowledge Base/ }));
     const writes = screen.getByRole("list", { name: "KB kb-a Writes & tools settings" });
     expect(within(writes).getByText("write_gate")).toBeInTheDocument();
