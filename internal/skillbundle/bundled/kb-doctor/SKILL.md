@@ -62,10 +62,10 @@ Where the harness lets you pick the subagent's model, scale the model to the ste
 | mid (e.g. Sonnet) | read-heavy extraction and triage whose draft the coordinator verifies before writing | harvest lesson extraction (5b); `duplicate_candidate` subset/distinct verdicts; a glossary entry or `repeated_fact` owner wording |
 | session model | every decision, every map/contract/template write, every `gate_check`, the closing report | always |
 
-Harness portability: the tiers are roles, not model names. Claude Code: the Task tool with
-`model: haiku|sonnet`. OpenCode: the subagent tool with `model: provider/model`,
-`background: true` to fan out. Codex, Kiro, or any harness without subagents: run the same passes
-sequentially - every mandate below is self-contained and stands alone.
+Harness portability: the tiers are roles, not model names. Claude Code: the Agent (formerly
+Task) tool with `model: haiku|sonnet`. OpenCode: the subagent tool with `model: provider/model`,
+`background: true` to fan out. A harness without subagents, or without a model choice: run the
+same passes sequentially - every mandate below is self-contained and stands alone.
 
 Fan-out rules:
 - Reader mandates are self-contained: the KB id, the concept ids, exactly what to return, a size
@@ -79,14 +79,14 @@ Fan-out rules:
 Token economy (a doctor session reads a KB, not a page):
 - `concept_read` with `outline: true` unless the body must be read or patched; `section:` for one
   section; never re-read what `lint`/`kb_review` evidence already gave;
-- `lint` with `check:` and `scope:` instead of the full dump; its list is capped (about 200
-  findings) and does not always say so: trust `kb_status` `conformance.lint_findings` for the
-  total and page with `offset`;
+- `lint` with `check:` and `scope:` instead of the full dump; it pages (at most 200 findings a
+  call): `counts_by_check` is the full census, and `truncated` with `next_offset` says where to
+  continue;
 - `kb_review` per `kind` with `limit`/`offset`, never the mixed list;
-- when the KB clone is on this machine, aggregate questions belong to the bundled scripts
-  (`sh <skill-dir>/scripts/<name>.sh <clone>`), which only read: `suppression_inventory.sh` (what
-  is silenced, where), `section_freq.sh <clone> <map>` (the headings the map's pages really use),
-  `harvest_queue.sh <clone>` (the 5b queue). Never write files in the clone, never run git there.
+- when the KB clone is on this machine and a POSIX shell is available, two aggregate questions
+  belong to the bundled scripts, which only read: `sh <skill-dir>/scripts/suppression_inventory.sh
+  <clone>` (what is silenced, where) and `sh <skill-dir>/scripts/section_freq.sh <clone> <map>`
+  (the headings the map's pages really use). Never write files in the clone, never run git there.
 
 ## Procedure
 
@@ -133,7 +133,7 @@ Token economy (a doctor session reads a KB, not a page):
    written: only the `map_update`), then `map_update` with the arguments, then `kb_repair
    template_missing` binds the pages. Do not edit the proposal's sections; the operator may drop an
    optional one. Before enriching or writing a template for pages that already exist,
-   `sh scripts/section_freq.sh <clone> <map>` lists the headings the map's pages really use, so the
+   `sh <skill-dir>/scripts/section_freq.sh <clone> <map>` lists the headings the map's pages really use, so the
    schema describes the house style instead of fighting it: adopt what recurs, leave one-off
    descriptive headings as findings and say so, never stuff a template with every singleton.
    Under a strict map (`require_template`), the checks that remain are yours: a
@@ -194,10 +194,8 @@ Token economy (a doctor session reads a KB, not a page):
    Closing a gap later (the answer arrives) is `conflict_resolve`; step 1 reads the open ones back.
 
 5b. **Harvest and archive.** `kb_review` `kind: "harvest_candidate"`: a journal entry that is closed
-   and older than the journal's `harvest_after` (default 45 days). `sh scripts/harvest_queue.sh
-   <clone>` lists the same candidates from the clone at no tool cost, for the fan-out mandate:
-   extracting the durable facts is a mid-tier reader job (Delegation section), the write-back is
-   yours. For each:
+   and older than the journal's `harvest_after` (default 45 days). Extracting the durable facts is
+   a mid-tier reader job (Delegation section); the write-back is yours. For each:
    - `concept_read` it and pick the durable facts: root causes, recurring traps, diagnostic commands
      that worked, workarounds - what a future reader of the live subject page would need (the
      evidence lists the sections that look durable);
@@ -221,11 +219,11 @@ Token economy (a doctor session reads a KB, not a page):
    answered yet, and the session is done only when nothing is left — fixed, or accepted where the
    KB says so. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
    one reason per link; `link_to_retired` in a live page: update the sentence or point at the
-   successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive`, not patch + move + `index_patch`). Accept what is a choice only when no repair fits the fact, and never
-    silently: run `sh scripts/suppression_inventory.sh <clone>` first, so what the KB already
-    silences is on the table and a new acceptance is an informed addition rather than another layer
-    nobody will read; then `lint_ignore` with a `reason` naming the finding's substance: on the concept for a
-   one-off, map-wide with `map_update` `lint_ignore` (the list replaces the map's: extend the
+   successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive`, not patch + move + `index_patch`). Accept what is a choice only when no
+   repair fits the fact, and never silently: first see what the KB already silences
+   (`sh <skill-dir>/scripts/suppression_inventory.sh <clone>` when the clone is local), so a new
+   acceptance is an informed addition rather than another layer nobody will read; then
+   `lint_ignore` with a `reason` naming the finding's substance: on the concept for a one-off, map-wide with `map_update` `lint_ignore` (the list replaces the map's: extend the
    `lint_ignore` that `map_list` shows) when the whole map follows that style. An artifact finding
    (a skill, an agent: `acceptability` says `artifact`) is accepted in `instructions.md`
    `lint_accept`, keyed by the path the finding names, with `artifact_write`. Each accepted check
