@@ -213,6 +213,32 @@ func TestSearchRelated_SilentWhenThereIsNothingToFollow(t *testing.T) {
 	}
 }
 
+// Neighbours that are already hits are not repeated: when every one is, there
+// is nothing to add and the block is left out, not offered empty.
+func TestSearchRelated_OmittedWhenEveryNeighbourIsAlreadyAHit(t *testing.T) {
+	t.Parallel()
+	files := map[string]string{
+		"ops/den-a.md": "A marmot burrow. [b](den-b.md)\n",
+		"ops/den-b.md": "Another marmot burrow. [a](den-a.md)\n",
+	}
+	s := graphToolKB(t, files)
+	out, text := relatedSearch(t, s, `{"query":"marmot"}`)
+	if out["count"].(float64) != 2 {
+		t.Fatalf("fixture: both pages should be hits: %s", text)
+	}
+	if _, ok := out["related"]; ok {
+		t.Errorf("a block with nothing new was returned: %s", text)
+	}
+
+	// The same pages with one more neighbour: the block is back, so the
+	// omission above is the graph's doing, not the fixture's.
+	files["ops/other.md"] = "[a](den-a.md)\n"
+	out, _ = relatedSearch(t, graphToolKB(t, files), `{"query":"marmot"}`)
+	if ids := relatedIDs(out); len(ids) != 1 || ids[0] != "ops/other" {
+		t.Errorf("control: related = %v, want [ops/other]", ids)
+	}
+}
+
 // A narrowed principal gets what an admin gets on a KB in which the hidden
 // concepts do not exist: a hidden hub neither appears in the block nor decides
 // what the block shows.
