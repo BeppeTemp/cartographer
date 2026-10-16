@@ -367,9 +367,9 @@ func toolParamFieldFindings(relPath string, parsed *okf.Frontmatter) []Finding {
 
 // CheckConcept computes the page-level checks for one concept without walking
 // the KB (D289): conceptFindings restricted to the OnWrite checks (D354), the
-// ones a write response can return. lint_ignore is
-// applied; errors are never suppressed. Graph checks are out of scope, they
-// need the whole KB.
+// ones a write response can return. lint_ignore is applied, the concept's and
+// its map's (as lint does, D306); errors are never suppressed. Graph checks are
+// out of scope, they need the whole KB.
 func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(content)
 	var parsed *okf.Frontmatter
@@ -388,9 +388,15 @@ func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 		}
 	}
 	ignores := lintIgnoreSet(parsed)
+	var mapIgnores map[string]bool
+	if m := owningMap(string(id)); m != "" {
+		if meta, err := k.ReadArchiveMeta(m); err == nil {
+			mapIgnores = lintIgnoreSet(meta)
+		}
+	}
 	var out []Finding
 	for _, f := range conceptFindings(conceptCtx{ID: id, In: in, Write: true}) {
-		if suppressed(f, ignores) {
+		if suppressed(f, ignores) || mapSuppresses(mapIgnores, f) {
 			continue
 		}
 		out = append(out, f)
