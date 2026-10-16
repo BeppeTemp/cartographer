@@ -170,9 +170,11 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   - at most **500 production lines added** per PR: a larger change is split by
     work package into PRs that land in order, or the PR body has a line starting
     `Size exception:` that says why it cannot be;
-  - the body follows `.github/pull_request_template.md`, and its `Self-review`
+  - the body follows `.github/pull_request_template.md`: its `Self-review`
     section reports an independent review run before opening — the
-    `pr-reviewer` subagent of the `review-pr` skill, or your client's equivalent.
+    `pr-reviewer` subagent of the `review-pr` skill, or your client's equivalent,
+    at most three rounds — and its `Revert` section says what a revert of the
+    released change would not undo.
 - PRs are **squash-merged** and the PR title becomes the commit message on
   `main`: it must be a valid [conventional commit](https://www.conventionalcommits.org/)
   (`feat: ...`, `fix: ...`, `docs: ...`, ...). CI enforces this. Releases are

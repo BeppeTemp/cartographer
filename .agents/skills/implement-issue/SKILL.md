@@ -140,6 +140,7 @@ stop and comment on the issue rather than guessing).
 - **Review** of every PR diff (§3).
 - **Non-append conflicts** during rebase — hand back to the user.
 - **Self-merge / force-push** — act only on an explicit user decision or a standing approval.
+- **Supply-chain files** (a CI workflow, an installer, the release pipeline, a bundled skill: `triage.sh` says so) — the user reads those hunks and decides that merge; a standing approval does not cover it.
 - **`make worktree-rm`** — it runs `git worktree remove --force`, which discards uncommitted work: confirm the PR is merged and the slug is the right one first.
 
 ## Per-client mechanics

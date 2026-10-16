@@ -15,9 +15,15 @@ PLAN_FLOOR=150    # above this, a contributor's PR needs an approved plan
 # Packages whose invariants are written down outside the code (an area AGENTS.md)
 # or are about security and concurrency: a change there always gets a full review.
 INVARIANT_AREAS='^internal/(mcpserver|provisioning|auth|gitx|sops|service)/'
+# What runs on, or gets installed into, users' machines without being Go code: the
+# CI workflows (they hold the release credentials), the installers, the release
+# pipeline, and the skills the binary provisions into users' agents. A change there
+# is a supply-chain change at any size: always a full review, never a standing merge.
+SUPPLY_CHAIN='^(\.github/workflows/|install\.(sh|ps1)$|\.goreleaser\.yaml$|Dockerfile$|release-please-config\.json$|internal/skillbundle/bundled/)'
 
 kind() { # production | test | docs | generated
   case "$1" in
+    internal/skillbundle/bundled/*) echo production ;; # shipped prompts, not docs
     internal/webui/dist/*|docs/decisions.md|CHANGELOG.md|go.sum|web/package-lock.json) echo generated ;;
     *_test.go|*/testdata/*|test/*|web/src/test/*|web/e2e/*|*.test.ts|*.test.tsx|*.spec.ts) echo test ;;
     *.md|docs/*) echo docs ;;
@@ -62,14 +68,16 @@ docs_touched=$(cut -f4 <<<"$classified" | grep -m1 '^docs/' || true)
 decision=$(cut -f4 <<<"$classified" | grep -m1 '^docs/decisions/D' || true)
 
 invariant=$(paths_of production | grep -E "$INVARIANT_AREAS" | cut -d/ -f1-2 | sort -u || true)
-if [ -n "$invariant" ]; then
+supply=$(paths_of production | grep -E "$SUPPLY_CHAIN" || true)
+if [ -n "$invariant" ] || [ -n "$supply" ]; then
   tier=full
 elif [ "$prod" -le 50 ]; then
   tier=light
 else
   tier=standard
 fi
-echo "Tier: $tier${invariant:+ — invariant areas: $(tr '\n' ' ' <<<"$invariant")}"
+echo "Tier: $tier${invariant:+ — invariant areas: $(tr '\n' ' ' <<<"$invariant")}${supply:+ — supply chain: $(tr '\n' ' ' <<<"$supply")}"
+[ -n "$supply" ] && echo "WARN: supply-chain files changed — the user reads those hunks and decides the merge; no standing approval covers it"
 
 plan=""; plan_ok=""
 for n in $issues; do
@@ -99,7 +107,7 @@ if [ -z "$docs_touched" ] && [ "$prod" -gt 50 ]; then
 fi
 [ -n "$decision" ] && echo "Decision file: $decision"
 if [ $# -ge 1 ]; then
-  for section in '## Self-review' '## Docs'; do
+  for section in '## Self-review' '## Docs' '## Revert'; do
     grep -qF "$section" <<<"$body" || echo "WARN: PR body has no \"$section\" section (.github/pull_request_template.md)"
   done
 fi
