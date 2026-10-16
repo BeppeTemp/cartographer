@@ -18,7 +18,7 @@ INVARIANT_AREAS='^internal/(mcpserver|provisioning|auth|gitx|sops|service)/'
 # What runs on, or gets installed into, users' machines without being Go code: the
 # CI workflows (they hold the release credentials), the installers, the release
 # pipeline, and the skills the binary provisions into users' agents. A change there
-# is a supply-chain change at any size: always a full review, never a standing merge.
+# is a supply-chain change at any size: always a full review, never a standing merge (D857).
 SUPPLY_CHAIN='^(\.github/workflows/|install\.(sh|ps1)$|\.goreleaser\.yaml$|Dockerfile$|release-please-config\.json$|internal/skillbundle/bundled/)'
 
 kind() { # production | test | docs | generated

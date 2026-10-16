@@ -91,7 +91,7 @@ reviewed in parallel, one worktree and one subagent each, in the background.
 ## 5 — Rounds converge
 
 An author agent and a reviewer agent can keep each other busy indefinitely, and
-every finding costs the author a commit and the reviewer another round:
+every finding costs the author a commit and the reviewer another round (D857):
 
 - **At most three rounds** per PR. Round 1 reviews `origin/main...HEAD`. A later
   round gets the commit the previous round reviewed and its findings with their
