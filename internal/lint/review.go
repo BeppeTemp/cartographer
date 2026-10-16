@@ -215,13 +215,16 @@ type reviewConcept struct {
 	timestamp string
 	resource  string
 	body      string
-	ignores   map[string]bool
+	// ignores is the lint_ignore set in force for the concept: its own, plus
+	// its map's once Review has folded them in.
+	ignores map[string]bool
 }
 
 // Review builds the ranked work list from the KB, its contracts and the
 // whole-KB lint findings (D298). Read-only and deterministic: the same KB
-// gives the same list in the same order. Items a concept dismissed with
-// lint_ignore are already dropped; visibility is FilterReview's.
+// gives the same list in the same order. Items dismissed with lint_ignore, on
+// a concept they name or in its map's _map.md, are already dropped;
+// visibility is FilterReview's.
 func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	var concepts []*reviewConcept
 	byID := map[okf.ConceptID]*reviewConcept{}
@@ -258,6 +261,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 		return nil, fmt.Errorf("lint.Review: list archives: %w", err)
 	}
 	var titles []mapTitle
+	mapIgnores := map[string]map[string]bool{}
 	for _, a := range archives {
 		if c, cerr := k.ReadMapContract(a); cerr == nil {
 			contracts[a] = c
@@ -267,7 +271,23 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 		if meta, merr := k.ReadArchiveMeta(a); merr == nil {
 			t, _ := frontmatterValue(meta, "title").(string)
 			titles = append(titles, mapTitle{name: a, title: strings.TrimSpace(t)})
-			byID[okf.ConceptID(a+mapDescriptorSuffix)] = &reviewConcept{id: okf.ConceptID(a + mapDescriptorSuffix), ignores: lintIgnoreSet(meta)}
+			mapIgnores[a] = lintIgnoreSet(meta)
+			byID[okf.ConceptID(a+mapDescriptorSuffix)] = &reviewConcept{id: okf.ConceptID(a + mapDescriptorSuffix), ignores: mapIgnores[a]}
+		}
+	}
+	// A map's lint_ignore speaks for every concept of it (D306), as if each
+	// carried the name: dismissed reads a concept's own set, and so does the
+	// glossary_gap count, which then stops counting the map's concepts.
+	for _, c := range concepts {
+		if inherited := mapIgnores[c.mapName]; c.mapName != "" && len(inherited) > 0 {
+			merged := make(map[string]bool, len(c.ignores)+len(inherited))
+			for name := range inherited {
+				merged[name] = true
+			}
+			for name := range c.ignores {
+				merged[name] = true
+			}
+			c.ignores = merged
 		}
 	}
 	links, err := k.Links()
@@ -305,7 +325,8 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	items = append(items, glossaryItems(concepts, contracts, glossary)...)
 	items = append(items, lintJudgementItems(findings, zombies)...)
 
-	// Dismissal (D159): lint_ignore: [kind] on a concept the item names.
+	// Dismissal (D159): lint_ignore: [kind] on a concept the item names, or in
+	// the _map.md of one.
 	kept := items[:0]
 	for _, it := range items {
 		if !dismissed(it, byID) {

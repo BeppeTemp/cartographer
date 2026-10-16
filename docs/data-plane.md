@@ -314,7 +314,11 @@ that map**, and for the findings reported on the map itself: a KB's style choice
 that says why each link matters, services that link the infrastructure they run on) is one
 decision, not one write per concept. It takes every check a concept can silence (below) plus
 `facet_sprawl`, `missing_value_contract`, `map_oversize` and `island`, which no single concept owns; an
-`island` also goes when any member, or a member's map, accepts it. Errors never go; a name a map
+`island` also goes when any member, or a member's map, accepts it. A `kb_review` kind named there
+dismisses every review item that names a concept of the map, as if each concept carried it (§Review
+keys): a pair goes with either member's map, a `zombie_work` item for a shared retired origin only
+with the origin's map, a `glossary_gap` stops counting the map's concepts. `map_naming` and
+`template_proposal` name the maps themselves and go with their own `lint_ignore`. Errors never go; a name a map
 cannot accept is reported as `lint_ignore_invalid` on the `_map.md`. With this, every finding has
 a way out — fixed, or accepted where the KB says so — and a Health panel with no findings is
 what a finished `kb-doctor` session leaves.
@@ -642,7 +646,7 @@ On a strict map, all `AcceptConcept`, warning unless noted, none an error (D289)
 
 **Work items (D302).** A work item is a concept in an open phase for its map (`open_statuses`, else the defaults; never `active`, D321; the `draft` family only where `open_statuses` lists it, since it marks a page still being written), of any type, or an unchecked `- [ ]` item outside code in any concept, whatever its status. With `open_field` the state is that field's value, falling back to `status` for a concept without it; `archived` still closes, and any other non-open value is closed (D347); `work_list` entries then carry `state`. `work_list` returns them read-only; staleness is `stale_open`'s threshold, extended to a concept whose unchecked items are that old.
 
-A review item is dismissed by `lint_ignore: [<kind>]` on a concept it names — for a pair, either member; a `glossary_gap` instead stops counting the concept carrying it, and the item goes when fewer than 10 remain. The agent writes the dismissal with the reason in the same commit, so the history says why; there is no review state besides the KB itself.
+A review item is dismissed by `lint_ignore: [<kind>]` on a concept it names, or in the `_map.md` of that concept's map (D306) — for a pair, either member; a `glossary_gap` instead stops counting the concept carrying it, and the item goes when fewer than 10 remain. The agent writes the dismissal with the reason in the same commit, so the history says why; there is no review state besides the KB itself.
 
 A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`, `rebase_link`, `drop_link_item`, `rewrite_wiki_link`, `set_value`, `split_value`, `sync_h1`, `unlink_repeat`, `scaffold_map`, `retarget_links`, `drop_index_entry`, `add_frontmatter`, `quote_value`, `move`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `title_h1_mismatch`, `title_quality`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
 
