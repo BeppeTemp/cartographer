@@ -3276,24 +3276,6 @@ code.mapcontract__label {
   background: var(--surface-2);
   border-radius: var(--radius-pill);
 }
-.settings__facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin: var(--space-3) 0 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--text-xs);
-}
-.settings__facts li {
-  padding: 0 var(--space-2);
-  line-height: 1.8;
-  color: var(--text-secondary);
-  background: var(--surface-2);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill);
-  overflow-wrap: anywhere;
-}
 .settings__group {
   margin-top: var(--space-2);
   border-block-end: 1px solid var(--border-subtle);
@@ -3304,7 +3286,7 @@ code.mapcontract__label {
 /* The folded group: its title, how many keys it sets, a chevron. */
 .settings__group-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-3);
   padding: var(--space-3) 0;
   cursor: pointer;
@@ -3316,6 +3298,7 @@ code.mapcontract__label {
 .settings__group-head::before {
   content: "";
   flex: none;
+  margin-top: 0.45em;
   width: 6px;
   height: 6px;
   margin-inline: 2px;
@@ -3327,9 +3310,15 @@ code.mapcontract__label {
 .settings__group[open] > .settings__group-head::before {
   transform: rotate(45deg);
 }
-.settings__group-head:focus-visible {
+/* Inset and keyboard-only: an outer ring overhung the rows below it and
+   showed after a mouse click too. */
+.settings__group-head:focus {
   outline: none;
-  box-shadow: var(--focus-ring);
+}
+.settings__group-head:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  border-radius: var(--radius-control);
 }
 .settings__group-count {
   margin-inline-start: auto;
@@ -3338,10 +3327,19 @@ code.mapcontract__label {
 }
 .settings__heading {
   margin: 0;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  color: var(--text-primary);
+}
+.settings__group-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.settings__group-text .settings__intro {
+  margin: 0;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 .settings__intro {
@@ -3395,9 +3393,18 @@ code.mapcontract__label {
 }
 /* The value reads as a value: a code chip at the end of the line, brighter
    when it was set than when it is the default. */
-.settings__value {
+/* The value, and under it where it comes from and what the default is. */
+.settings__val {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
   max-width: 60%;
   margin-inline-start: auto;
+  min-width: 0;
+}
+.settings__value {
+  max-width: 100%;
   padding: 0 6px;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -3413,8 +3420,6 @@ code.mapcontract__label {
   background: color-mix(in srgb, var(--primary) 18%, var(--surface-1));
 }
 .settings__origin {
-  flex: none;
-  min-width: 5.5rem;
   font-size: var(--text-xs);
   color: var(--text-muted);
   white-space: nowrap;
@@ -3453,22 +3458,15 @@ code.mapcontract__label {
 .settings__nomatch {
   margin-top: var(--space-4);
 }
-.settings__file {
-  margin-top: var(--space-4);
+.settings__yaml:focus {
+  outline: none;
 }
-.settings__file-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-.settings__file-head code {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--text-primary);
+.settings__yaml:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 .settings__yaml {
-  margin: 0;
+  margin: var(--space-4) 0 0;
   padding: var(--space-3) var(--space-4);
   overflow-x: auto;
   font-family: var(--font-mono);

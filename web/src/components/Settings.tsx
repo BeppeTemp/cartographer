@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { fetchSettings, fetchWhoami } from "../api/client";
 import type { SettingEntry, SettingOrigin, SettingsKB, SettingsView, Whoami, WhoamiRule } from "../api/types";
 import { Page, PageHeader, Segmented } from "./Page";
@@ -9,6 +9,13 @@ export function formatValue(value: unknown): string {
   if (Array.isArray(value)) return value.length === 0 ? "(none)" : value.join(", ");
   if (value === "" || value === null || value === undefined) return "(empty)";
   return String(value);
+}
+
+/** A schema default (a YAML literal) as a person reads it. */
+function formatDefault(literal: string): string {
+  if (!literal || literal === '""') return "(empty)";
+  if (literal === "[]" || literal === "{}") return "(none)";
+  return literal;
 }
 
 /** Where a value comes from, in words. */
@@ -136,11 +143,15 @@ export function Settings({
     <Page label="Settings" className="settings">
       <PageHeader
         eyebrow="Settings"
-        title="What is in force"
+        title={
+          <>
+            Cartographer {view.version}
+            {view.latest_version ? ` · ${view.latest_version} available` : ""}
+          </>
+        }
         subtitle={
           <>
-            Version {view.version}
-            {view.latest_version ? ` · ${view.latest_version} available` : ""}
+            The configuration this server runs with, read-only
             {who && (
               <>
                 {" · "}
@@ -181,7 +192,7 @@ export function Settings({
           </Tab>
           {selected && (
             <Tab id="kb" current={!!kb} onSelect={setTab} entries={selected.entries}>
-              KB {selected.name}
+              Knowledge Base
             </Tab>
           )}
         </div>
@@ -252,7 +263,6 @@ function ServerPanel({
         <Yaml
           name="config.yaml"
           text={yaml}
-          note="The server's configuration in force, as one file. A value from the environment or a flag says so; every key left at its default is documented and commented out."
         />
       ) : groups.size === 0 ? (
         <NoMatch query={query} />
@@ -278,24 +288,12 @@ function KBPanel({ kb, mode, query }: { kb: SettingsKB; mode: Mode; query: strin
     const i = KB_GROUPS.findIndex(([, match]) => match(key));
     groups[i]!.rows.push(e);
   }
-  const git = kb.git;
   return (
     <>
-      {git && (
-        <ul className="settings__facts" aria-label={`Replication of ${kb.name}`}>
-          <li>{git.has_remote ? (git.remote_url ? `Remote ${git.remote_url}` : "Has a remote") : "No remote"}</li>
-          <li>Sync {git.sync ? "on" : "off"}</li>
-          {git.push_state && <li>Push {git.push_state}</li>}
-          {git.unpushed_commits ? <li>{git.unpushed_commits} unpushed</li> : null}
-          {git.behind_commits ? <li>{git.behind_commits} behind</li> : null}
-          {git.push_last_error && <li role="alert">Last push error: {git.push_last_error}</li>}
-        </ul>
-      )}
       {mode === "yaml" ? (
         <Yaml
           name={`${kb.name}/settings.yaml`}
           text={kb.yaml}
-          note="This KB's settings in force, as its settings.yaml. A value set by the server's kbs[] entry, the environment or a flag says so; every key left at its default is documented and commented out."
         />
       ) : groups.every((g) => g.rows.length === 0) ? (
         <NoMatch query={query} />
@@ -318,6 +316,7 @@ function KBPanel({ kb, mode, query }: { kb: SettingsKB; mode: Mode; query: strin
 
 const shortKey = (key: string) => key.replace(/^kbs\[\]\./, "");
 
+
 /** A key matches a search by its name, what it does, its value or how it is overridden. */
 function matches(e: SettingEntry, query: string): boolean {
   const q = query.trim().toLowerCase();
@@ -331,8 +330,8 @@ function NoMatch({ query }: { query: string }) {
   return <p className="page-note settings__nomatch">No setting matches “{query.trim()}”.</p>;
 }
 
-/** One group, folded until it is opened or a search finds keys in it: its
- *  title and how many keys it sets are enough to decide whether to open it. */
+/** One group, folded until it is opened or a search finds keys in it. Folded,
+ *  it still says what it governs and how many keys it holds. */
 function Rows({
   group,
   entries,
@@ -344,17 +343,17 @@ function Rows({
   label: string;
   open: boolean;
 }) {
-  const set = entries.filter((e) => e.origin !== "default").length;
   return (
     <details className="settings__group" open={open}>
       <summary className="settings__group-head">
-        <h2 className="settings__heading">{group.title}</h2>
+        <span className="settings__group-text">
+          <h2 className="settings__heading">{group.title}</h2>
+          {group.intro && <span className="settings__intro">{group.intro}</span>}
+        </span>
         <span className="settings__group-count">
-          {set ? `${set} set · ` : ""}
           {entries.length} key{entries.length === 1 ? "" : "s"}
         </span>
       </summary>
-      {group.intro && <p className="settings__intro">{group.intro}</p>}
       <ul className="settings__rows" aria-label={label}>
         {entries.map((e) => (
           <Row key={e.key} entry={e} />
@@ -379,10 +378,14 @@ function Row({ entry: e }: { entry: SettingEntry }) {
         <summary className="settings__row-head">
           <span className="settings__line">
             <code className="settings__key">{key}</code>
-            <span className="settings__value" aria-label={`Value of ${e.key}`}>
-              {formatValue(e.value)}
+            <span className="settings__val">
+              <span className="settings__value" aria-label={`Value of ${e.key}`}>
+                {formatValue(e.value)}
+              </span>
+              <span className={`settings__origin settings__origin--${e.origin}`}>
+                {set ? `set by ${ORIGIN_LABEL[e.origin] ?? e.origin} · default ${formatDefault(e.default)}` : "default"}
+              </span>
             </span>
-            <span className={`settings__origin settings__origin--${e.origin}`}>{ORIGIN_LABEL[e.origin] ?? e.origin}</span>
           </span>
           {e.description && <span className="settings__desc">{e.description}</span>}
         </summary>
@@ -427,36 +430,47 @@ function Row({ entry: e }: { entry: SettingEntry }) {
   );
 }
 
-/** A settings file, highlighted: comments muted, keys set apart from values. */
-function Yaml({ name, text, note }: { name: string; text?: string; note: string }) {
-  const [copied, setCopied] = useState(false);
+/**
+ * A settings file, highlighted: comments muted, keys set apart from values.
+ * Select-all (Cmd/Ctrl+A) with the pointer over it, or with it focused,
+ * selects the file alone and not the whole page.
+ */
+function Yaml({ name, text }: { name: string; text?: string }) {
+  const ref = useRef<HTMLPreElement>(null);
+  const hovered = useRef(false);
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent) => {
+      const pre = ref.current;
+      if (!pre || ev.key.toLowerCase() !== "a" || !(ev.metaKey || ev.ctrlKey) || ev.altKey || ev.shiftKey) return;
+      if (!hovered.current && !pre.contains(document.activeElement)) return;
+      const target = ev.target as HTMLElement | null;
+      if (target && target !== pre && target.closest("input, textarea, [contenteditable='true']")) return;
+      ev.preventDefault();
+      const range = document.createRange();
+      range.selectNodeContents(pre);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
   if (!text) return <p className="page-note">This server does not return the YAML view.</p>;
-  const copy = () => {
-    void navigator.clipboard
-      ?.writeText(text)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => undefined);
-  };
   return (
-    <section className="settings__file" aria-label={name}>
-      <header className="settings__file-head">
-        <code>{name}</code>
-        <button type="button" className="button button--ghost settings__copy" onClick={copy}>
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </header>
-      <p className="settings__intro">{note}</p>
-      <pre className="settings__yaml">
-        <code>
-          {text.replace(/\n$/, "").split("\n").map((line, i) => (
-            <YamlLine key={i} line={line} />
-          ))}
-        </code>
-      </pre>
-    </section>
+    <pre
+      ref={ref}
+      className="settings__yaml"
+      aria-label={name}
+      tabIndex={0}
+      onMouseEnter={() => (hovered.current = true)}
+      onMouseLeave={() => (hovered.current = false)}
+    >
+      <code>
+        {text.replace(/\n$/, "").split("\n").map((line, i) => (
+          <YamlLine key={i} line={line} />
+        ))}
+      </code>
+    </pre>
   );
 }
 
@@ -508,7 +522,7 @@ function Who({ who }: { who: Whoami }) {
   const name = who.id ? <strong>{who.id}</strong> : "an unnamed principal";
   return (
     <span className="settings__who" aria-label="Who is looking">
-      you are {name}
+      signed in as {name}
       {who.admin
         ? ", administrator"
         : who.permissions.length === 0

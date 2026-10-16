@@ -51,7 +51,7 @@ describe("the Settings panel", () => {
     expect(git.closest("details")).not.toHaveAttribute("open");
     await user.click(screen.getByRole("heading", { name: "Git" }));
     const sync = within(git).getByText("git.sync").closest("li")!;
-    expect(within(sync).getByText("environment")).toBeVisible();
+    expect(within(sync).getByText(/^set by environment · default true$/)).toBeVisible();
     expect(within(sync).getByLabelText("Value of git.sync")).toHaveTextContent("false");
     // What it does is on the row; the default, the override and the restart open with it.
     expect(within(sync).getByText(/fetch and pull before/)).toBeVisible();
@@ -63,7 +63,7 @@ describe("the Settings panel", () => {
     expect(within(auto).getByText("default")).toBeInTheDocument();
     const tokens = within(screen.getByRole("list", { name: "Access settings" })).getByText("auth.tokens").closest("li")!;
     expect(within(tokens).getByLabelText("Value of auth.tokens")).toHaveTextContent("(set)");
-    expect(within(tokens).getByText("config file")).toBeInTheDocument();
+    expect(within(tokens).getByText(/^set by config file · default/)).toBeInTheDocument();
     expect(screen.getByText(/v1\.3\.0 available/)).toBeInTheDocument();
   });
 
@@ -88,17 +88,21 @@ describe("the Settings panel", () => {
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     // Each tab says how many of its keys are set.
-    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Server2/3", "KB kb-a1/1"]);
-    await user.click(within(tabs).getByRole("tab", { name: /KB kb-a/ }));
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Server2/3", "Knowledge Base1/1"]);
+    await user.click(within(tabs).getByRole("tab", { name: /Knowledge Base/ }));
     const writes = screen.getByRole("list", { name: "KB kb-a Writes & tools settings" });
     expect(within(writes).getByText("write_gate")).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Replication of kb-a" })).toHaveTextContent("Sync on");
 
     await user.click(screen.getByRole("button", { name: "YAML" }));
-    const file = screen.getByRole("region", { name: "kb-a/settings.yaml" });
+    const file = screen.getByLabelText("kb-a/settings.yaml");
     expect(file).toHaveTextContent("write_gate: error # from the server's kbs[] entry");
     await user.click(within(tabs).getByRole("tab", { name: /^Server/ }));
-    expect(screen.getByRole("region", { name: "config.yaml" })).toHaveTextContent("sync: false # from CARTOGRAPHER_GIT_SYNC");
+    const server = screen.getByLabelText("config.yaml");
+    expect(server).toHaveTextContent("sync: false # from CARTOGRAPHER_GIT_SYNC");
+    // Select-all with the pointer over the file selects the file, not the page.
+    await user.hover(server);
+    await user.keyboard("{Control>}a{/Control}");
+    expect(window.getSelection()?.toString()).toBe(server.textContent);
   });
 
   it("reaches the panel from the rail", async () => {
