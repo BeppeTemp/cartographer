@@ -192,6 +192,15 @@ type Finding struct {
 // Now is used for date comparison in stale_claim checks. Override in tests.
 var Now = func() time.Time { return time.Now() }
 
+// pastDay reports whether day, a YYYY-MM-DD frontmatter date parsed to midnight
+// UTC, is before the current UTC day. A date is judged by day, never by the
+// instant: comparing it with Now() directly makes today count as past from
+// 00:00 UTC. stale_claim and reviewSuspended both go through here, so they
+// agree on the review day.
+func pastDay(day time.Time) bool {
+	return day.Before(Now().UTC().Truncate(24 * time.Hour))
+}
+
 // Run executes all deterministic lint checks on the given scope.
 // If scope is empty, lints the entire KB.
 // When scopeNeighbors is true, also lint the graph neighbors of concepts in scope.

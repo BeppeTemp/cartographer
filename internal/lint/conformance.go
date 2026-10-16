@@ -185,7 +185,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 		if raVal, ok := parsed.Get("review_after"); ok {
 			if dateStr, ok := raVal.(string); ok {
 				t, parseErr := time.Parse("2006-01-02", dateStr)
-				if parseErr == nil && t.Before(Now()) {
+				if parseErr == nil && pastDay(t) {
 					out = append(out, newFinding("stale_claim", Finding{
 						Path:    in.RelPath,
 						Message: fmt.Sprintf("review_after %s is in the past", dateStr),
