@@ -144,3 +144,30 @@ func TestLinkGraphEdgeWeights(t *testing.T) {
 		t.Errorf("narrowed boilerplate weight = %v, want 1 (hidden carriers not counted)", w)
 	}
 }
+
+func TestLinkGraphOfLastViewDoesNotValidateAgain(t *testing.T) {
+	t.Parallel()
+	f := newGraphFixture(t)
+	if _, ok := f.k.LinkGraphOfLastView(nil); ok {
+		t.Fatal("a view was offered before anything validated")
+	}
+	want, err := f.k.LinkGraph(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, reads := f.k.GraphValidations(), f.k.GraphFileReads()
+	got, ok := f.k.LinkGraphOfLastView(func(id string) bool { return !strings.HasPrefix(id, "notes/") })
+	if !ok {
+		t.Fatal("no view after a validation")
+	}
+	if f.k.GraphValidations() != before || f.k.GraphFileReads() != reads {
+		t.Errorf("the last-view read validated: %d→%d validations", before, f.k.GraphValidations())
+	}
+	if !reflect.DeepEqual(got.IDs, []okf.ConceptID{"infra/cluster", "infra/dns", "infra/gateway"}) {
+		t.Errorf("projection ignored include: %v", got.IDs)
+	}
+	all, _ := f.k.LinkGraphOfLastView(nil)
+	if !reflect.DeepEqual(all.IDs, want.IDs) || !reflect.DeepEqual(all.Graph, want.Graph) {
+		t.Error("the last view is not the graph LinkGraph returned")
+	}
+}
