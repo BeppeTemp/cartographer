@@ -42,7 +42,6 @@ import { PageTabs } from "./components/Page";
 import { Paths } from "./components/Paths";
 import { MapContractPanel, MAP_PANEL_SLIDE_MS, MAP_PANEL_WIDTH } from "./components/MapContractPanel";
 import { Legend } from "./components/Legend";
-import { Sources } from "./components/Sources";
 import { Settings } from "./components/Settings";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
@@ -911,15 +910,6 @@ export function App() {
               titleOf={(id) => nodeTitles.get(id)}
               onOpenConcept={(id) => navigate({ panel: "atlas", concept: id })}
               onOpenArtifact={(kind, name) => navigate({ panel: "artifacts", artifact: `${kind}/${name}` })}
-              onRetry={() => setReloadKey((k) => k + 1)}
-              onFailure={handleFailure}
-            />
-          ) : view.panel === "sources" && activeKB ? (
-            <Sources
-              kb={activeKB}
-              reloadKey={`${reloadKey}:${live}`}
-              titleOf={(id) => nodeTitles.get(id)}
-              onOpenConcept={(id) => navigate({ panel: "atlas", concept: id })}
               onRetry={() => setReloadKey((k) => k + 1)}
               onFailure={handleFailure}
             />

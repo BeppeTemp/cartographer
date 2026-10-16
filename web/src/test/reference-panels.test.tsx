@@ -60,40 +60,29 @@ describe("the reference panels", () => {
     });
   });
 
-  describe("Sources", () => {
-    beforeEach(() => open("sources"));
-
-    it("explains the ledger when it is empty", async () => {
-      stubApi();
-      render(<App />);
-      expect(await screen.findByText("No sources registered yet")).toBeInTheDocument();
-      expect(screen.getByText(/source_register/)).toBeInTheDocument();
+  it("lists the pending sources as work to ingest, where an old Sources link lands", async () => {
+    open("sources");
+    stubApi({
+      "/work": () => json({ total: 0, open_concepts: 0, by_status: {}, by_map: {}, open_items: 0, entries: [] }),
+      "/sources": () =>
+        json({
+          sources: [
+            { id: "sources/memo", title: "New memo", ingest_status: "pending", timestamp: "2026-09-02T00:00:00Z", cited_by: 0, cited_by_ids: [] },
+          ],
+        }),
     });
-
-    it("lists the sources newest first", async () => {
-      stubApi({
-        "/sources": () =>
-          json({
-            sources: [
-              { id: "sources/old", title: "Old thread", ingest_status: "pending", timestamp: "2026-01-02T00:00:00Z", cited_by: 0, cited_by_ids: [] },
-              { id: "sources/new", title: "New memo", ingest_status: "ingested", source_kind: "document", timestamp: "2026-09-02T00:00:00Z", cited_by: 1, cited_by_ids: ["infra/a"] },
-            ],
-          }),
-      });
-      render(<App />);
-      const panel = await screen.findByRole("region", { name: "Sources" });
-      const titles = within(panel).getAllByText(/Old thread|New memo/).map((e) => e.textContent);
-      expect(titles).toEqual(["New memo", "Old thread"]);
-      expect(within(panel).getByText("ingested")).toBeInTheDocument();
-    });
+    render(<App />);
+    const column = await screen.findByRole("region", { name: "to ingest, 1" });
+    expect(within(column).getByText("New memo")).toBeInTheDocument();
   });
 
   it("offers the reference panels in the rail", async () => {
     open("health");
     stubApi();
     render(<App />);
-    for (const name of ["Sources", "Paths"]) {
-      expect(await screen.findByRole("button", { name })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Paths" })).toBeInTheDocument();
+    for (const name of ["Sources", "Services", "Secrets"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
     }
   });
 

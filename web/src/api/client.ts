@@ -27,7 +27,16 @@ import type {
   WorkResponse,
   CheckCatalog,
 } from "./types";
-import { LIVE_ORIGIN, STATIC_MODE, liveHealthURL, liveURL, resolveSource, staticKey, staticSearch, staticURL } from "./static";
+import {
+  LIVE_ORIGIN,
+  STATIC_MODE,
+  liveHealthURL,
+  liveURL,
+  resolveSource,
+  staticKey,
+  staticSearch,
+  staticURL,
+} from "./static";
 
 const BASE = "/api/ui/v1";
 
@@ -122,8 +131,8 @@ export async function fetchServerVersion(signal?: AbortSignal): Promise<string |
       live
         ? liveHealthURL()
         : STATIC_MODE
-        ? staticURL("health")
-        : new URL("../health", new URL(import.meta.env.BASE_URL, window.location.href)).pathname,
+          ? staticURL("health")
+          : new URL("../health", new URL(import.meta.env.BASE_URL, window.location.href)).pathname,
       {
         headers: { Accept: "application/json" },
         signal,
@@ -272,7 +281,11 @@ export function fetchPlaceholders(kb: string, signal?: AbortSignal): Promise<Pla
 }
 
 /** status: "open" (the server's default, so omitted) or "all". */
-export function fetchContradictions(kb: string, status?: "open" | "all", signal?: AbortSignal): Promise<ContradictionList> {
+export function fetchContradictions(
+  kb: string,
+  status?: "open" | "all",
+  signal?: AbortSignal,
+): Promise<ContradictionList> {
   const query = status && status !== "open" ? `?status=${encodeURIComponent(status)}` : "";
   return get<ContradictionList>(`/kbs/${encodeURIComponent(kb)}/contradictions${query}`, signal);
 }
@@ -287,6 +300,11 @@ export function fetchHistory(kb: string, id: string, signal?: AbortSignal): Prom
 
 export function fetchJournal(kb: string, signal?: AbortSignal): Promise<JournalTail> {
   return get<JournalTail>(`/kbs/${encodeURIComponent(kb)}/journal`, signal);
+}
+
+/** The sources registered and not ingested yet: the Work page's "to ingest" column. */
+export function fetchPendingSources(kb: string, signal?: AbortSignal): Promise<SourceList> {
+  return get<SourceList>(`/kbs/${encodeURIComponent(kb)}/sources?status=pending`, signal);
 }
 
 export function fetchSources(kb: string, signal?: AbortSignal): Promise<SourceList> {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { fetchWork } from "../api/client";
-import type { CollectionSummary, WorkEntry, WorkResponse } from "../api/types";
+import { fetchPendingSources, fetchWork } from "../api/client";
+import type { CollectionSummary, SourceEntry, WorkEntry, WorkResponse } from "../api/types";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
 import {
@@ -31,8 +31,11 @@ const LAYOUTS = [
  */
 const ITEMS_ONLY = "unchecked items";
 
+/** The column of the sources registered and not ingested yet (D818). */
+const TO_INGEST = "to ingest";
+
 /** Columns in the order work moves through them; anything else follows, sorted. */
-const STATUS_ORDER = ["decision-needed", "blocked", "in-progress", "open", "proposed", ITEMS_ONLY];
+const STATUS_ORDER = ["decision-needed", "blocked", "in-progress", "open", "proposed", TO_INGEST, ITEMS_ONLY];
 
 /**
  * Open work (D302): concepts in an open status for their map, of any type,
@@ -70,9 +73,12 @@ export function Work({
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchWork(kb, controller.signal)
-      .then((res) => {
-        setData(res);
+    // The pending sources join the open work: ingesting them is work like
+    // any other. Without them (an older server, no ledger) the list is the
+    // work list alone.
+    Promise.all([fetchWork(kb, controller.signal), fetchPendingSources(kb, controller.signal).catch(() => null)])
+      .then(([res, pending]) => {
+        setData(withPendingSources(res, pending?.sources ?? []));
         setError(null);
       })
       .catch((err: unknown) => {
@@ -125,9 +131,9 @@ export function Work({
         title={<Headline data={data} failed={error !== null} />}
         help={
           <p>
-            A concept is open work when its status is listed in the map&apos;s open_statuses, or is one of the default open
-            statuses (open, in-progress, blocked, decision-needed, proposed). &quot;active&quot; means the page is valid, not
-            that work is pending.
+            A concept is open work when its status is listed in the map&apos;s open_statuses, or is one of the default
+            open statuses (open, in-progress, blocked, decision-needed, proposed). &quot;active&quot; means the page is
+            valid, not that work is pending.
           </p>
         }
         actions={
@@ -198,11 +204,7 @@ export function Work({
       ) : entries.length === 0 ? (
         <Quiet tone="neutral">Nothing matches these filters.</Quiet>
       ) : (
-        <div
-          className="work__board"
-          role="region"
-          aria-label={layout === "status" ? "Work by status" : "Work by map"}
-        >
+        <div className="work__board" role="region" aria-label={layout === "status" ? "Work by status" : "Work by map"}>
           {groups.map(([key, list]) => (
             <section
               key={key || "(root)"}
@@ -275,7 +277,10 @@ function WorkCard({
             </span>
           )}
           {entry.age_days !== undefined && (
-            <span className={entry.stale ? "pill pill--warning" : "work__age"} title={`Last updated ${entry.age_days} days ago`}>
+            <span
+              className={entry.stale ? "pill pill--warning" : "work__age"}
+              title={`Last updated ${entry.age_days} days ago`}
+            >
               {entry.stale ? `stale · ${entry.age_days}d` : `${entry.age_days}d`}
             </span>
           )}
@@ -355,4 +360,36 @@ function Headline({ data, failed }: { data: WorkResponse | null; failed: boolean
       <Count>{data.open_items}</Count> unchecked item{data.open_items === 1 ? "" : "s"}.
     </>
   );
+}
+
+/** The work list with each pending source added as a "to ingest" entry. */
+export function withPendingSources(res: WorkResponse, sources: SourceEntry[]): WorkResponse {
+  const pending = sources.filter((src) => src.ingest_status === "pending");
+  if (pending.length === 0) return res;
+  const now = Date.now();
+  const entries: WorkEntry[] = pending.map((src) => {
+    const t = Date.parse(src.timestamp ?? "");
+    return {
+      id: src.id,
+      title: src.title,
+      type: "Source",
+      map: src.id.includes("/") ? src.id.slice(0, src.id.indexOf("/")) : "",
+      status: TO_INGEST,
+      open_phase: true,
+      timestamp: src.timestamp,
+      age_days: Number.isNaN(t) ? undefined : Math.max(0, Math.floor((now - t) / 86_400_000)),
+      stale: false,
+      items: [],
+    };
+  });
+  const by_map = { ...res.by_map };
+  for (const e of entries) by_map[e.map ?? ""] = (by_map[e.map ?? ""] ?? 0) + 1;
+  return {
+    ...res,
+    total: res.total + entries.length,
+    open_concepts: res.open_concepts + entries.length,
+    by_status: { ...res.by_status, [TO_INGEST]: entries.length },
+    by_map,
+    entries: [...res.entries, ...entries],
+  };
 }

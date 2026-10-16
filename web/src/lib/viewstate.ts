@@ -8,8 +8,7 @@
  * the bearer token never touches it.
  */
 
-export type Panel =
-  "atlas" | "activity" | "work" | "health" | "artifacts" | "secrets" | "paths" | "sources" | "settings";
+export type Panel = "atlas" | "activity" | "work" | "health" | "artifacts" | "secrets" | "paths" | "settings";
 
 export interface ViewState {
   kb: string | null;
@@ -34,24 +33,25 @@ export const EMPTY_VIEW: ViewState = {
 export function readViewState(search: string = window.location.search): ViewState {
   const params = new URLSearchParams(search);
   const param = params.get("panel");
-  // Observatory and Maintenance became Health (D338), Services became the
-  // Secrets page, grouped by Service (D818): their old links still land there
-  // rather than on the atlas.
+  // Observatory and Maintenance became Health (D338); Services became the
+  // Secrets page, grouped by Service, and the pending Sources a Work column
+  // (D818): their old links still land there rather than on the atlas.
   const panel: Panel =
     param === "maintenance" || param === "observatory"
       ? "health"
       : param === "services"
         ? "secrets"
-        : param === "activity" ||
-            param === "work" ||
-            param === "health" ||
-            param === "artifacts" ||
-            param === "secrets" ||
-            param === "paths" ||
-            param === "sources" ||
-            param === "settings"
-          ? param
-          : "atlas";
+        : param === "sources"
+          ? "work"
+          : param === "activity" ||
+              param === "work" ||
+              param === "health" ||
+              param === "artifacts" ||
+              param === "secrets" ||
+              param === "paths" ||
+              param === "settings"
+            ? param
+            : "atlas";
   return {
     kb: params.get("kb"),
     scope: params.get("scope"),
