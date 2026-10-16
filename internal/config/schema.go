@@ -99,6 +99,9 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "kbs[].secrets", Scope: settingschema.ScopeKB, Type: "bool", Default: "false",
 		Description: "The KB uses secrets. A mount of it without an age key reports secrets as missing key instead of silently disabled. The key itself stays per machine (sops_age_key_file)."},
 
+	{Path: "kb_aliases", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,
+		Description: "Old names of renamed KBs: each item has a from (the old name) and a to (the KB now mounted), so a routed ?kbs=<from> still reaches it. `kb rename` writes it. One step only, and a mounted name wins over an alias."},
+
 	{Path: "git.autocommit", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_GIT_AUTOCOMMIT", Flag: "--git-autocommit", Restart: true, Example: "true",
 		Description: "Create a git commit after each successful write."},
 	{Path: "git.sync", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_GIT_SYNC", Flag: "--git-sync", Restart: true, Example: "true",

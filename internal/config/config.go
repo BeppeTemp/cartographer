@@ -40,6 +40,9 @@ type Config struct {
 	// YAML `update_check`, env CARTOGRAPHER_UPDATE_CHECK, flag --update-check.
 	// A dev build never checks, whatever this says.
 	UpdateCheck bool
+	// KBAliases maps the old name of a renamed KB to its new one, so a routed
+	// `?kbs=<old>` still reaches it (D772). `kb rename` writes it.
+	KBAliases []KBAlias
 	// Origins records which layer set each setting (D743), keyed by schema
 	// path; read it through OriginOf. A key no layer set is absent: default.
 	Origins map[string]Origin
@@ -412,6 +415,9 @@ type rawConfig struct {
 	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
 	// default is true.
 	UpdateCheck *bool `yaml:"update_check"`
+	// KBAliases is a list, like kbs and auth.roles: every structured setting
+	// of the schema is one (D772).
+	KBAliases []KBAlias `yaml:"kb_aliases"`
 }
 
 // rawWeb mirrors the `web:` block. Enabled is a pointer for the same reason
@@ -475,6 +481,10 @@ func Load(path string) (*Config, error) {
 	cfg.Init = raw.Init
 	cfg.Data = raw.Data
 	cfg.KBs = raw.KBs
+	if err := ValidateKBAliases(raw.KBAliases); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	cfg.KBAliases = raw.KBAliases
 	for _, spec := range cfg.KBs {
 		if err := provisioning.ValidateMCPAllowlist(spec.MCPAllowlist); err != nil {
 			return nil, fmt.Errorf("config: mcp_allowlist: %w", err)

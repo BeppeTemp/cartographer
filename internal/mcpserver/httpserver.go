@@ -276,6 +276,9 @@ type MultiKBServer struct {
 	routedMu      sync.Mutex
 	routedViews   map[string]*Server
 	routedWarned  map[string]bool // "effective set|unknown" pairs already logged (D756)
+	// routedAliases maps the old name of a renamed KB to its mounted target
+	// (kb_aliases, D772); see SetKBAliases.
+	routedAliases map[string]string
 	// web gates the read-only UI surface (D226/D227). Nil -- the default, and
 	// what stdio mode always leaves it as -- means neither /ui/ nor
 	// /api/ui/v1 is routed and both fall through to 404, restoring exactly the
@@ -519,12 +522,13 @@ func (m *MultiKBServer) Handler() http.Handler {
 				http.Error(w, "conflicting kb selection: the routed mount takes the KB as a tool argument, not as a query parameter", http.StatusBadRequest)
 				return
 			}
-			srv, unknown, err := m.routedFor(r.URL.Query()["kbs"])
+			srv, unknown, renamed, err := m.routedFor(r.URL.Query()["kbs"])
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			srv.handleMCP(w, r.WithContext(withRoutedUnknown(r.Context(), unknown)))
+			ctx := withRoutedRenamed(withRoutedUnknown(r.Context(), unknown), renamed)
+			srv.handleMCP(w, r.WithContext(ctx))
 			return
 
 		case r.URL.Path == "/mcp":

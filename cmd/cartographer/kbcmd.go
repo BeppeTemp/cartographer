@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -71,25 +70,10 @@ func cmdKB(args []string) int {
 	}
 }
 
-// kbNameRe validates a KB name as directory-safe: letters, digits, '-', '_'
-// only — no '/', '.', or whitespace, so the name can never escape
-// <dataDir>/<name> (no ".." is even expressible) and matches the kebab-case
-// convention already documented for KB names (D53, skillbundle kb-create
-// SKILL.md). No stricter/pre-existing validator exists elsewhere in the
-// codebase (config.KBSpec.Name is an unvalidated free string) — this is it.
-var kbNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-
 // validateKBName returns an error describing why name is not a usable KB
-// name, or nil if it is.
-func validateKBName(name string) error {
-	if name == "" {
-		return fmt.Errorf("KB name must not be empty")
-	}
-	if !kbNameRe.MatchString(name) {
-		return fmt.Errorf("invalid KB name %q: only letters, digits, '-', and '_' are allowed", name)
-	}
-	return nil
-}
+// name, or nil if it is. The rule lives in internal/config, which also checks
+// the names of kb_aliases (D772).
+func validateKBName(name string) error { return config.ValidateKBName(name) }
 
 // cmdKBCreate implements `cartographer kb create <name> (--remote <url> |
 // --no-remote) [--data <dir>] [--restart]`: scaffolds a new KB at
