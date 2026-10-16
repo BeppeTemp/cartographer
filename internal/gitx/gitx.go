@@ -467,6 +467,31 @@ func IgnoredFiles(dir, path string) ([]string, error) {
 	return files, nil
 }
 
+// IgnoredPaths returns those of paths (relative to dir, which need not exist
+// yet) that the repository's ignore rules would exclude from a commit. It asks
+// git with --no-index, so a tracked path is judged by the rules alone.
+func IgnoredPaths(dir string, paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	args := append([]string{"check-ignore", "--no-index", "--"}, paths...)
+	out, err := runGit(dir, args...)
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 {
+			return nil, nil // exit 1: none of them is ignored
+		}
+		return nil, fmt.Errorf("git check-ignore: %w: %s", err, out)
+	}
+	var ignored []string
+	for _, p := range strings.Split(out, "\n") {
+		if p = strings.TrimSpace(p); p != "" {
+			ignored = append(ignored, p)
+		}
+	}
+	return ignored, nil
+}
+
 // HeadSHA returns the SHA of the HEAD commit.
 func HeadSHA(dir string) (string, error) {
 	out, err := runGit(dir, "rev-parse", "HEAD")

@@ -369,6 +369,25 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 			return refuse("%s holds files git ignores (%s): they would not be committed and would be lost; remove or un-ignore them first", u.rel, strings.Join(ignored, ", "))
 		}
 
+		// The same in the target, which has its own ignore rules: git would leave
+		// the copy out of the target commit, and the removal in the source would
+		// then be the end of the only committed one.
+		dstRels := make([]string, 0, len(u.files))
+		for _, f := range u.files {
+			if f.rel == "" {
+				dstRels = append(dstRels, u.rel)
+			} else {
+				dstRels = append(dstRels, u.rel+"/"+f.rel)
+			}
+		}
+		dstIgnored, err := gitx.IgnoredPaths(dst.Root, dstRels)
+		if err != nil {
+			return refuse("%s: cannot tell which files %s ignores: %v", u.rel, dstName, err)
+		}
+		if len(dstIgnored) > 0 {
+			return refuse("%s: %s's ignore rules exclude %s, so they would not be committed there; adjust its .gitignore first", u.rel, dstName, strings.Join(dstIgnored, ", "))
+		}
+
 		for _, f := range u.files {
 			rel := u.rel
 			if f.rel != "" {

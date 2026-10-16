@@ -46,7 +46,8 @@ not. Like `concept_transfer` it needs a server mounting both KBs, both git-backe
 with auto-commit, and on the routed endpoint a target inside the connection's KB
 set. It refuses before any write: symlinks in a unit or its parents on either
 side, non-regular files, a file over the 256 KiB artifact cap, a gitignored file
-(the removal would destroy the only copy), a structured file that fails
+(in the source, the removal would destroy the only copy; in the target, whose
+own ignore rules would leave the copy out of its commit), a structured file that fails
 `validateArtifactContent`, duplicate paths, more than 20 units, and control
 characters in a path (a newline could forge a commit trailer). It reports and
 never refuses: placeholder keys the target's `paths.yaml` does not declare,

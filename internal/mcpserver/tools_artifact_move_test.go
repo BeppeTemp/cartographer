@@ -420,3 +420,28 @@ func TestArtifactMove_ReportsWhatTravelsBadly(t *testing.T) {
 	xferClean(t, f.a)
 	xferClean(t, f.b)
 }
+
+// The target has its own ignore rules: a file they exclude would stay out of the
+// target commit while the source removal went ahead, so the move is refused.
+func TestArtifactMove_RefusesWhatTheTargetIgnores(t *testing.T) {
+	t.Parallel()
+	f := newArtifactMoveFixture(t)
+	amWriteBytes(t, f.a, "hooks/guard/hook.json", []byte(`{"event":"SessionStart","command":"./run.sh"}`), 0o644)
+	amWriteBytes(t, f.a, "hooks/guard/run.sh", []byte("#!/bin/sh\n"), 0o755)
+	xferCommit(t, f.a)
+	if err := os.WriteFile(filepath.Join(f.b.Root, ".gitignore"), []byte("*.sh\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	xferCommit(t, f.b)
+	headA, headB := xferHead(t, f.a), xferHead(t, f.b)
+
+	res := f.move(t, `{"target_kb":"kb-b","paths":["hooks/guard"]}`)
+	if !res.IsError || !strings.Contains(xferText(res), "run.sh") || !strings.Contains(xferText(res), "kb-b's ignore rules") {
+		t.Fatalf("want a refusal naming the file the target ignores, got: %s", xferText(res))
+	}
+	if xferHead(t, f.a) != headA || xferHead(t, f.b) != headB || !amExists(f.a, "hooks/guard/run.sh") || amExists(f.b, "hooks/guard") {
+		t.Error("a refusal must leave both KBs as they were")
+	}
+	xferClean(t, f.a)
+	xferClean(t, f.b)
+}
