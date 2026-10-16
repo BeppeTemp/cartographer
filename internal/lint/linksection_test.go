@@ -37,16 +37,16 @@ func TestLinksSectionIssues(t *testing.T) {
 func TestDropLinkItem(t *testing.T) {
 	t.Parallel()
 	body := "# T\n\nText.\n\n## Links\n\n- [[a/b]]\n- [[c/d]] — why\n\n## After\n\nkept\n"
-	got := DropLinkItem(body, "- [[a/b]]")
+	got := DropLinkItem(body, "- [[a/b]]", nil)
 	want := "# T\n\nText.\n\n## Links\n\n- [[c/d]] — why\n\n## After\n\nkept\n"
 	if got != want {
 		t.Fatalf("got %q", got)
 	}
-	if DropLinkItem(body, "- [[zz/zz]]") != body {
+	if DropLinkItem(body, "- [[zz/zz]]", nil) != body {
 		t.Fatal("absent line must be a no-op")
 	}
 	only := "# T\n\nText [[a/b]].\n\n## Links\n\n- [[a/b]]\n"
-	if got := DropLinkItem(only, "- [[a/b]]"); strings.Contains(got, "## Links") || !strings.Contains(got, "Text [[a/b]].") {
+	if got := DropLinkItem(only, "- [[a/b]]", nil); strings.Contains(got, "## Links") || !strings.Contains(got, "Text [[a/b]].") {
 		t.Fatalf("emptied section must lose its heading: %q", got)
 	}
 }
@@ -75,8 +75,8 @@ func TestDuplicateItemFixes(t *testing.T) {
 		t.Fatalf("multi-link item: %+v", f)
 	}
 	body := "# P\n\nText [[m/a]] and [[m/b]].\n\n## See also\n" + section
-	body = ReplaceLinkItem(body, got["m/b"].Field, got["m/b"].To)
-	body = DropLinkItem(body, got["m/a"].Field)
+	body = ReplaceLinkItem(body, got["m/b"].Field, got["m/b"].To, nil)
+	body = DropLinkItem(body, got["m/a"].Field, nil)
 	if strings.Contains(body, "the reason") || strings.Contains(body, "(successor)") || !strings.Contains(body, "- [[m/c]] · [[m/d|D, the label]]") || !strings.Contains(body, "together") {
 		t.Fatalf("rewritten body:\n%s", body)
 	}

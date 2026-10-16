@@ -27,22 +27,47 @@ var (
 	listMarkRe = regexp.MustCompile(`(?m)^\s*(?:[-*+]|\d+[.)])\s*`)
 )
 
+// anyHeading matches the start of an ATX heading line of any level.
+var anyHeading = regexp.MustCompile(`(?m)^(#{1,6})\s`)
+
+// linksExtent is where a body's links section lies: byte offsets into the
+// body, so a reader slices and a repair splices the same bytes. The section is
+// body[headEnd:end]: it ends at the first heading of ANY level after the
+// links heading. A `###` under `## Links` is, in practice, a heading demoted
+// from `##` to get out of template_extra_section — prose, not part of the
+// links — so its links are text and its words are not the section's.
+type linksExtent struct {
+	headStart, headEnd, end int
+	level                   int    // of the links heading
+	heading                 string // its text as written, without the #s
+	nextLevel               int    // of the heading that ends the section; 0 at the end of the body
+}
+
+// locateLinksSection finds the first links heading of body and where its
+// section ends. linksSection (the checks) and ReplaceLinkItem (the repair) both
+// read it: they share one boundary, so what a finding names is what the repair
+// edits.
+func locateLinksSection(body string) (linksExtent, bool) {
+	loc := linksSectionHeading.FindStringSubmatchIndex(body)
+	if loc == nil {
+		return linksExtent{}, false
+	}
+	x := linksExtent{headStart: loc[0], headEnd: loc[1], end: len(body), level: loc[3] - loc[2], heading: body[loc[4]:loc[5]]}
+	if m := anyHeading.FindStringSubmatchIndex(body[x.headEnd:]); m != nil {
+		x.end = x.headEnd + m[0]
+		x.nextLevel = m[3] - m[2]
+	}
+	return x, true
+}
+
 // linksSection splits body into the links section and the rest. ok is false
 // when the body has no such section.
 func linksSection(body string) (heading, section, rest string, ok bool) {
-	loc := linksSectionHeading.FindStringSubmatchIndex(body)
-	if loc == nil {
+	x, ok := locateLinksSection(body)
+	if !ok {
 		return "", "", "", false
 	}
-	level := loc[3] - loc[2]
-	heading = body[loc[4]:loc[5]]
-	after := body[loc[1]:]
-	end := len(after)
-	next := regexp.MustCompile(`(?m)^#{1,` + string(rune('0'+level)) + `}\s`)
-	if m := next.FindStringIndex(after); m != nil {
-		end = m[0]
-	}
-	return heading, after[:end], body[:loc[0]] + after[end:], true
+	return x.heading, body[x.headEnd:x.end], body[:x.headStart] + body[x.end:], true
 }
 
 // linksSectionIssues reports, for one concept body, the links repeated in
@@ -248,27 +273,33 @@ func linkOnlyItems(section, linkBase string, assetExists func(string) bool) map[
 	return out
 }
 
+// HeadingRequired says whether the page being repaired must keep a heading
+// (its level and text as written): the page's template requires that section
+// (TemplateRequiresHeading). A nil HeadingRequired requires none.
+type HeadingRequired func(level int, heading string) bool
+
 // DropLinkItem removes the exact line from the body's links section (D295
-// WP4) and, when the section is left with no list item, its heading too. Every
-// other byte of the body is kept in place. A line no longer present is a no-op.
-func DropLinkItem(body, line string) string { return ReplaceLinkItem(body, line, "") }
+// WP4) and, when the section is left with no list item, its heading too —
+// unless required says the heading must stay. Every other byte of the body is
+// kept in place. A line no longer present is a no-op.
+func DropLinkItem(body, line string, required HeadingRequired) string {
+	return ReplaceLinkItem(body, line, "", required)
+}
 
 // ReplaceLinkItem replaces the exact line in the body's links section with
 // newLine, or removes it when newLine is "" — and then, when the section is
-// left with no list item, its heading too. A line no longer present is a no-op.
-func ReplaceLinkItem(body, line, newLine string) string {
-	loc := linksSectionHeading.FindStringSubmatchIndex(body)
-	if loc == nil {
+// left with no list item, its heading too. The heading stays when a deeper
+// heading follows (the section still has children, and removing their parent
+// would re-parent them under the previous heading) and when required asks for
+// it: a template that requires the section would report it missing the next
+// lint. required is asked only when the heading would otherwise go. A line no
+// longer present is a no-op.
+func ReplaceLinkItem(body, line, newLine string, required HeadingRequired) string {
+	x, ok := locateLinksSection(body)
+	if !ok {
 		return body
 	}
-	level := loc[3] - loc[2]
-	after := body[loc[1]:]
-	end := len(after)
-	next := regexp.MustCompile(`(?m)^#{1,` + string(rune('0'+level)) + `}\s`)
-	if m := next.FindStringIndex(after); m != nil {
-		end = m[0]
-	}
-	section := after[:end]
+	section := body[x.headEnd:x.end]
 	lines := strings.Split(section, "\n")
 	kept := lines[:0]
 	removed := false
@@ -293,9 +324,18 @@ func ReplaceLinkItem(body, line, newLine string) string {
 			break
 		}
 	}
-	if !hasItem && strings.TrimSpace(newSection) == "" {
-		// Heading and empty section go; keep the following content.
-		return strings.TrimRight(body[:loc[0]], "\n") + "\n" + strings.TrimLeft(after[end:], "\n")
+	if hasItem || strings.TrimSpace(newSection) != "" {
+		return body[:x.headEnd] + newSection + body[x.end:]
 	}
-	return body[:loc[1]] + newSection + after[end:]
+	if x.nextLevel > x.level || required != nil && required(x.level, x.heading) {
+		// Nothing of its own is left, but the heading stays: one blank line
+		// before whatever follows it.
+		head := strings.TrimRight(body[:x.headEnd], " \t\r\n") + "\n"
+		if x.end < len(body) {
+			head += "\n"
+		}
+		return head + body[x.end:]
+	}
+	// Heading and empty section go; keep the following content.
+	return strings.TrimRight(body[:x.headStart], "\n") + "\n" + strings.TrimLeft(body[x.end:], "\n")
 }

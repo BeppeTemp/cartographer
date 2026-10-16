@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // Template checks (D352). Every page of a map that sets require_template binds
@@ -134,11 +135,13 @@ type templateCtx struct {
 	bound    bool // tpl is the resolved template
 }
 
-// templateFindings computes every template check of one page.
-func templateFindings(in conceptInput) []Finding {
+// newTemplateCtx resolves the template of one page for the template checks.
+// ok is false when none applies: no readable frontmatter, no map contract, or
+// a contract that sets no template key.
+func newTemplateCtx(in conceptInput) (templateCtx, bool) {
 	c := in.Contract
 	if in.Parsed == nil || c == nil || !c.HasTemplateKeys() {
-		return nil
+		return templateCtx{}, false
 	}
 	x := templateCtx{in: in, strict: c.StrictTemplates(), pageType: strings.TrimSpace(in.Parsed.Type())}
 	if v, ok := in.Parsed.Get(kb.ShapeField); ok {
@@ -148,6 +151,16 @@ func templateFindings(in conceptInput) []Finding {
 	}
 	x.closed = closedPhase(in.Parsed, c)
 	x.tpl, x.bound = in.Catalog.Resolve(x.shape, x.pageType, c)
+	return x, true
+}
+
+// templateFindings computes every template check of one page.
+func templateFindings(in conceptInput) []Finding {
+	x, ok := newTemplateCtx(in)
+	if !ok {
+		return nil
+	}
+	c := in.Contract
 
 	var out []Finding
 	if x.strict {
@@ -263,6 +276,25 @@ func namesOf(t kb.TemplateInfo) sectionNames {
 	return n
 }
 
+// index is the template section a folded heading names, by its canonical name
+// or an alias.
+func (n sectionNames) index(folded string) (int, bool) {
+	if i, ok := n.canon[folded]; ok {
+		return i, true
+	}
+	i, ok := n.alias[folded]
+	return i, ok
+}
+
+// optionalSet folds the sections the template lets a page omit.
+func (x templateCtx) optionalSet() map[string]bool {
+	optional := map[string]bool{}
+	for _, s := range x.tpl.OptionalSections {
+		optional[foldHeading(s)] = true
+	}
+	return optional
+}
+
 // missingSections: template_section_missing. Info under template_sections,
 // warning under require_template. An alias counts as the section; no fix, an
 // empty heading is a hollow promise.
@@ -270,17 +302,11 @@ func (x templateCtx) missingSections() []Finding {
 	names := namesOf(x.tpl)
 	have := map[int]bool{}
 	for _, h := range h2Lines(x.in.Body) {
-		f := foldHeading(h.Text)
-		if i, ok := names.canon[f]; ok {
-			have[i] = true
-		} else if i, ok := names.alias[f]; ok {
+		if i, ok := names.index(foldHeading(h.Text)); ok {
 			have[i] = true
 		}
 	}
-	optional := map[string]bool{}
-	for _, s := range x.tpl.OptionalSections {
-		optional[foldHeading(s)] = true
-	}
+	optional := x.optionalSet()
 	var missing []string
 	for i, s := range x.tpl.Sections {
 		if !have[i] && !optional[foldHeading(s)] {
@@ -290,12 +316,60 @@ func (x templateCtx) missingSections() []Finding {
 	if len(missing) == 0 {
 		return nil
 	}
-	f := x.finding("template_section_missing",
-		fmt.Sprintf("missing %d section(s) of its %q template: %s", len(missing), x.tpl.Slug, strings.Join(missing, ", ")), nil)
+	f := x.finding("template_section_missing", missingSectionsMessage(x.tpl.Slug, missing), nil)
 	if x.strict {
 		f.Severity = SevWarning
 	}
 	return []Finding{f}
+}
+
+// missingSectionsMessage names the missing sections. When one is a links
+// section it adds that the section needs no list: a line of prose under the
+// heading is enough, so the heading is not a hollow promise to fill with links
+// the text already carries.
+func missingSectionsMessage(slug string, missing []string) string {
+	msg := fmt.Sprintf("missing %d section(s) of its %q template: %s", len(missing), slug, strings.Join(missing, ", "))
+	for _, s := range missing {
+		if linksSectionHeading.MatchString("## " + s) {
+			return msg + " (a links section needs no list: a line of prose under its heading is enough)"
+		}
+	}
+	return msg
+}
+
+// requiresSection reports whether the template makes the H2 named heading a
+// section the page must carry: what missingSections would report once it is
+// gone. A page in a closed phase is not asked for its sections, yet keeps the
+// heading here: an empty heading costs nothing, and the page may reopen.
+func (x templateCtx) requiresSection(heading string) bool {
+	if !x.bound || !(x.strict || x.in.Contract.TemplateSections) {
+		return false
+	}
+	i, ok := namesOf(x.tpl).index(foldHeading(heading))
+	return ok && !x.optionalSet()[foldHeading(x.tpl.Sections[i])]
+}
+
+// TemplateRequiresHeading is the HeadingRequired of the page id with
+// frontmatter fm: true for an H2 its template requires, so a repair that
+// empties a links section (duplicate_link, reciprocal_link_item) leaves the
+// heading and does not trade one finding for template_section_missing. The map
+// contract and the templates are read when asked, and only a page whose map
+// sets a template key reads the templates; a page outside a map, or with no
+// template, requires nothing.
+func TemplateRequiresHeading(k *kb.KB, id okf.ConceptID, fm *okf.Frontmatter) HeadingRequired {
+	return func(level int, heading string) bool {
+		parts := strings.Split(string(id), "/")
+		if level != 2 || len(parts) < 2 {
+			return false
+		}
+		contract, err := k.ReadMapContract(parts[0])
+		if err != nil || !contract.HasTemplateKeys() {
+			return false
+		}
+		in := conceptInput{Parsed: fm, MapName: parts[0], Contract: &contract, Catalog: k.TemplateCatalog()}
+		x, ok := newTemplateCtx(in)
+		return ok && x.requiresSection(heading)
+	}
 }
 
 // fieldFindings: template_field_missing, template_field_value.
