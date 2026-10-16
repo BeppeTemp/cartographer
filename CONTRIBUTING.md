@@ -81,7 +81,7 @@ already owns, audited, in `internal/provisioning/workspacescope.go` and
 `TestClientSkillSurfacesMatchTheProviderRegistry` checks this table against the
 matrix, so if you re-audit a client, change both together (D207).
 
-The repo-local skills (`plan-issue`, `implement-issue`, `live-dev`, `harness-watch`: the directories of `.agents/skills/`) exist **once** in
+The repo-local skills (`plan-issue`, `implement-issue`, `live-dev`, `review-pr`, `harness-watch`: the directories of `.agents/skills/`) exist **once** in
 `.agents/skills/`; `.claude/skills/<name>` and `.kiro/skills/<name>` are
 symlinks into it. Symlinks do work — verified empirically on Kiro CLI 2.21.4
 across 45 runs with negative controls — but **git on Windows is the catch**: with
@@ -115,9 +115,10 @@ format and location — project-local for `.mcp.json`, `.codex/config.toml` and
 all of them machine-local and git-ignored. If you are pointing a client at a
 Cartographer server, use `cartographer connect`, not a hand-written file.
 
-The repository also ships two coding subagents: `plan-implementer`, the worker the
-`implement-issue` skill spawns per plan, and `live-implementer`, the one the
-`live-dev` skill spawns per change. Each exists in each client's own format —
+The repository also ships three subagents: `plan-implementer`, the worker the
+`implement-issue` skill spawns per plan, `live-implementer`, the one the
+`live-dev` skill spawns per change, and `pr-reviewer`, the read-only reviewer
+the `review-pr` skill spawns per pull request. Each exists in each client's own format —
 `.claude/agents/<name>.md`, `.codex/agents/<name>.toml`,
 `.kiro/agents/<name>.json` — and the three must say the same thing: the
 procedure itself stays in the skill (D327).
@@ -158,6 +159,20 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
 
 - Fork and open a PR against `main`. Direct pushes are disabled; every change
   goes through a PR with green CI (`make gate` locally first).
+- **Review costs more than writing**, so a PR is shaped to be cheap to review
+  (D856). Three rules, checked by `.agents/skills/review-pr/scripts/triage.sh`
+  — run it on your branch before opening:
+  - a contributor's change over **150 production lines** (tests, docs and
+    generated files excluded), or one that changes a public contract (MCP tool
+    schema, CLI flag, config key, on-disk format), closes a **plan issue the
+    maintainer approved** — labelled `plan` and `approved`. The design is
+    reviewed there, before any code exists; a trivial fix needs only `Closes #<n>`;
+  - at most **500 production lines added** per PR: a larger change is split by
+    work package into PRs that land in order, or the PR body has a line starting
+    `Size exception:` that says why it cannot be;
+  - the body follows `.github/pull_request_template.md`, and its `Self-review`
+    section reports an independent review run before opening — the
+    `pr-reviewer` subagent of the `review-pr` skill, or your client's equivalent.
 - PRs are **squash-merged** and the PR title becomes the commit message on
   `main`: it must be a valid [conventional commit](https://www.conventionalcommits.org/)
   (`feat: ...`, `fix: ...`, `docs: ...`, ...). CI enforces this. Releases are
@@ -196,7 +211,9 @@ from the template that fits:
 When an idea or a bug is picked up for implementation, it is **promoted in
 place**: its body is rewritten from the Plan template and it gets the `plan`
 label, so the discussion and the plan stay in one issue. A trivial fix needs no
-plan: a PR that says `Closes #<n>` is enough.
+plan: a PR that says `Closes #<n>` is enough. A plan written by a contributor
+is implemented once the maintainer has added the `approved` label, which only
+someone with triage rights can set — the template sets `plan` for anyone.
 
 ## Plan issues (design → implementation handoff)
 
