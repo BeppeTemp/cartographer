@@ -8,6 +8,8 @@ import (
 	"log"
 	"sort"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/config"
 )
 
 // routedmount.go (D187) — one endpoint for a multi-KB server.
@@ -121,13 +123,48 @@ func routedUnknown(ctx context.Context) []string {
 	return u
 }
 
+// routedRenamedKey carries the request's names resolved through kb_aliases
+// (old → new), request-scoped for the same reason as routedUnknownKey.
+type routedRenamedKey struct{}
+
+func withRoutedRenamed(ctx context.Context, renamed map[string]string) context.Context {
+	if len(renamed) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, routedRenamedKey{}, renamed)
+}
+
+func routedRenamed(ctx context.Context) map[string]string {
+	r, _ := ctx.Value(routedRenamedKey{}).(map[string]string)
+	return r
+}
+
+// SetKBAliases records the renamed KBs' old names (D772). Call it after every
+// MountKB: a mounted name always beats an alias, so an item whose from is
+// mounted is logged and dropped here, once, instead of being consulted on every
+// request. An item whose target is not mounted is kept and stays unknown at
+// resolution, because only a restart changes the mounted set.
+func (m *MultiKBServer) SetKBAliases(aliases []config.KBAlias) {
+	m.routedAliases = map[string]string{}
+	for _, a := range aliases {
+		if _, mounted := m.servers[a.From]; mounted {
+			log.Printf("kb_aliases: %q is a mounted KB, so the alias to %q is ignored (a mounted name wins)", a.From, a.To)
+			continue
+		}
+		m.routedAliases[a.From] = a.To
+	}
+}
+
 // routedFor resolves the `kbs` query parameter of a routed request to the
 // server that answers it (D288). Absent or empty means every mounted KB. The
 // binding only narrows: the effective set is the requested names that are
-// mounted (D756). Names that are not mounted (a KB renamed or removed since
-// the client was synced) are returned sorted, not dropped silently: the caller
-// reports them to the agent. Duplicates are ignored and per-KB authorization
-// still runs at the target.
+// mounted (D756). A name that is not mounted but is the old name of a renamed
+// KB (kb_aliases, D772) selects that KB; the pair is returned so the caller
+// reports it, and a mounted name always wins over an alias. Names that are
+// neither (a KB removed since the client was synced) are returned sorted, not
+// dropped silently: the caller reports them to the agent. Duplicates are
+// ignored and per-KB authorization still runs at the target, by the name the
+// KB has now: an alias selects a KB, it never grants access.
 //
 // An empty effective set stays an error naming every unknown name and the
 // mounted KBs. It must not become "every mounted KB": that would widen the
@@ -136,8 +173,8 @@ func routedUnknown(ctx context.Context) []string {
 // One Server is built per distinct effective set and cached: the set is part
 // of the URL, so tools/list differs per connection and cannot come from a
 // single shared registry. The number of sets is bounded by the subsets of the
-// mounted KBs; stale URLs with different unknown names share a view.
-func (m *MultiKBServer) routedFor(rawKBs []string) (*Server, []string, error) {
+// mounted KBs; stale URLs with different unknown or renamed names share a view.
+func (m *MultiKBServer) routedFor(rawKBs []string) (*Server, []string, map[string]string, error) {
 	seen := map[string]bool{}
 	for _, raw := range rawKBs {
 		for _, n := range strings.Split(raw, ",") {
@@ -147,25 +184,52 @@ func (m *MultiKBServer) routedFor(rawKBs []string) (*Server, []string, error) {
 		}
 	}
 	if len(seen) == 0 {
-		return m.routed, nil, nil
+		return m.routed, nil, nil, nil
 	}
-	var set, unknown []string
+	var unknown []string
+	renamed := map[string]string{}
+	inSet := map[string]bool{}
 	for n := range seen {
-		if _, ok := m.servers[n]; !ok {
-			unknown = append(unknown, n)
+		if _, ok := m.servers[n]; ok {
+			inSet[n] = true
 			continue
 		}
+		// TRAP: the mounted check comes first. A name that is mounted is never
+		// looked up as an alias, so a KB created later under an old name is
+		// reached by its own name, not redirected to the renamed one.
+		if to, ok := m.routedAliases[n]; ok {
+			if _, mounted := m.servers[to]; mounted {
+				renamed[n] = to
+				inSet[to] = true
+				continue
+			}
+		}
+		unknown = append(unknown, n)
+	}
+	set := make([]string, 0, len(inSet))
+	for n := range inSet {
 		set = append(set, n)
 	}
 	sort.Strings(set)
 	sort.Strings(unknown)
 	if len(set) == 0 {
-		return nil, unknown, fmt.Errorf("unknown kb in kbs: %s not mounted on this server, which mounts %s",
+		return nil, unknown, nil, fmt.Errorf("unknown kb in kbs: %s not mounted on this server, which mounts %s",
 			quoteJoin(unknown), strings.Join(m.routedNames, ", "))
 	}
 	key := strings.Join(set, ",")
 	m.routedMu.Lock()
 	defer m.routedMu.Unlock()
+	if len(renamed) > 0 {
+		warn := key + "|renamed|" + renamedKey(renamed)
+		if !m.routedWarned[warn] {
+			if m.routedWarned == nil {
+				m.routedWarned = map[string]bool{}
+			}
+			m.routedWarned[warn] = true
+			log.Printf("routed mount: kbs names %s resolved through kb_aliases; serving %s (the client URL is stale: run cartographer sync on the client)",
+				renamedKey(renamed), key)
+		}
+	}
 	if len(unknown) > 0 {
 		warn := key + "|" + strings.Join(unknown, ",")
 		if !m.routedWarned[warn] {
@@ -177,12 +241,25 @@ func (m *MultiKBServer) routedFor(rawKBs []string) (*Server, []string, error) {
 				quoteJoin(unknown), key)
 		}
 	}
+	if len(renamed) == 0 {
+		renamed = nil
+	}
 	if srv, ok := m.routedViews[key]; ok {
-		return srv, unknown, nil
+		return srv, unknown, renamed, nil
 	}
 	srv := m.buildRouted(set)
 	m.routedViews[key] = srv
-	return srv, unknown, nil
+	return srv, unknown, renamed, nil
+}
+
+// renamedKey renders old → new pairs in a stable order, for logs.
+func renamedKey(renamed map[string]string) string {
+	pairs := make([]string, 0, len(renamed))
+	for from, to := range renamed {
+		pairs = append(pairs, fmt.Sprintf("%q → %q", from, to))
+	}
+	sort.Strings(pairs)
+	return strings.Join(pairs, ", ")
 }
 
 func quoteJoin(names []string) string {
@@ -263,6 +340,13 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 					routedKBArgument, len(set), strings.Join(set, ", "))), nil
 			}
 		}
+		// A session that outlived the rename still names the old KB in its
+		// tool schemas and instructions: dispatch to the KB it became. The
+		// call runs through that KB's own callTool, so policy, audit and the
+		// git wrapper are the target's (D772).
+		if to, ok := routedRenamed(ctx)[kbName]; ok {
+			kbName = to
+		}
 		if !containsString(set, kbName) {
 			allowed := strings.Join(m.describeRoutedKBs(set), ", ")
 			if _, mounted := m.servers[kbName]; mounted {
@@ -290,7 +374,7 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 		}
 		res := srv.callTool(withRoutedSet(ctx, set), toolName, rest)
 		if toolName == "kb_status" && !res.IsError {
-			res = m.withConnectionNotice(res, set, routedUnknown(ctx))
+			res = m.withConnectionNotice(res, set, routedUnknown(ctx), routedRenamed(ctx))
 		}
 		return res, nil
 	}
@@ -303,6 +387,10 @@ const routedConnectionHint = "A KB listed in mounted but missing from your tools
 // routedUnknownHint is appended to the hint when the URL named unmounted KBs (D756).
 const routedUnknownHint = "Names in unknown are in this connection's kbs but not mounted on this server (renamed or removed?): run cartographer sync on this client."
 
+// routedRenamedHint is appended to the hint when the URL named a renamed KB by
+// its old name (D772).
+const routedRenamedHint = "Names in renamed are the old names of KBs served under their new name: the URL still works, but it is stale: run cartographer sync on this client."
+
 // withConnectionNotice adds the routed-only `connection` object to a kb_status
 // result (D712): the connection's set, every mounted KB, the ones the
 // connection does not serve, and the server start time, so an agent whose
@@ -311,7 +399,7 @@ const routedUnknownHint = "Names in unknown are in this connection's kbs but not
 // Content[0] only and a second block breaks them (doctornudge.go). On any
 // decoding trouble the result is returned unchanged: the notice must never
 // break kb_status.
-func (m *MultiKBServer) withConnectionNotice(res ToolResult, set, unknown []string) ToolResult {
+func (m *MultiKBServer) withConnectionNotice(res ToolResult, set, unknown []string, renamed map[string]string) ToolResult {
 	if len(res.Content) == 0 {
 		return res
 	}
@@ -331,6 +419,10 @@ func (m *MultiKBServer) withConnectionNotice(res ToolResult, set, unknown []stri
 	if len(unknown) > 0 {
 		conn["unknown"] = unknown
 		conn["hint"] = routedConnectionHint + " " + routedUnknownHint
+	}
+	if len(renamed) > 0 {
+		conn["renamed"] = renamed
+		conn["hint"] = conn["hint"].(string) + " " + routedRenamedHint
 	}
 	var unbound []string
 	for _, n := range mounted {

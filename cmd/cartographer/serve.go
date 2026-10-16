@@ -668,6 +668,9 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		// registered. A server with no KB yet has nothing to route: the next
 		// restart, with KBs, serves it.
 		if len(names) > 0 {
+			if settingsCfg != nil {
+				multi.SetKBAliases(settingsCfg.KBAliases)
+			}
 			err := multi.EnableRoutedMount(version, func(s *mcpserver.Server) {
 				s.SetToolsProfile(toolsProfile)
 				s.SetTransport("http")
