@@ -56,6 +56,78 @@ func clampInt(v, def, lo, hi int) int {
 
 // --- graph_context ---
 
+// neighbour is one concept a seeded walk reached: its personalized PageRank
+// score (rounded as it is reported), its hop distance from the nearest seed
+// and the node it was first discovered from (-1 when the BFS did not reach it).
+type neighbour struct {
+	node  int
+	score float64
+	hops  int
+	via   int
+}
+
+// rankNeighbours is the one definition of "the concepts around these seeds"
+// that graph_context and search's related block share (D242, D781): the
+// personalized PageRank of seeds on lg, the seeds themselves and every node
+// skip accepts left out, ordered by score, then hops, then id. A node whose
+// rounded score is 0 is not a neighbour. It does not cut the list.
+//
+// via is the node a neighbour was discovered from. When viaOK is not nil and
+// rejects that node, via becomes another node on a shortest path that viaOK
+// accepts, else the nearest earlier node of the discovery path it accepts, else
+// -1: a node viaOK rejects is still a step of the walk, but never the answer.
+func rankNeighbours(lg *kb.LinkGraph, seeds map[int]float64, skip, viaOK func(node int) bool) []neighbour {
+	sources := make([]int, 0, len(seeds))
+	for i := range seeds {
+		sources = append(sources, i)
+	}
+	scores := graphalgo.PersonalizedPageRank(lg.Graph, seeds, graphContextAlpha, graphContextEps)
+	dist, pred := graphalgo.BFS(lg.Graph, sources, graphalgo.Both, 0)
+	out := []neighbour{}
+	for i, p := range scores {
+		if _, seed := seeds[i]; seed || round4(p) <= 0 || (skip != nil && skip(i)) {
+			continue
+		}
+		via := pred[i]
+		if viaOK != nil && via >= 0 && !viaOK(via) {
+			via = acceptedVia(lg, dist, pred, i, viaOK)
+		}
+		out = append(out, neighbour{node: i, score: round4(p), hops: dist[i], via: via})
+	}
+	sort.Slice(out, func(a, b int) bool {
+		if out[a].score != out[b].score {
+			return out[a].score > out[b].score
+		}
+		if out[a].hops != out[b].hops {
+			return out[a].hops < out[b].hops
+		}
+		return lg.IDs[out[a].node] < lg.IDs[out[b].node]
+	})
+	return out
+}
+
+// acceptedVia replaces a via ok rejected: the lowest-numbered neighbour of
+// node one hop closer to the seeds that ok accepts, else the nearest node ok
+// accepts on the path BFS discovered node by, else -1.
+func acceptedVia(lg *kb.LinkGraph, dist, pred []int, node int, ok func(int) bool) int {
+	best := -1
+	for _, adj := range [][]int{lg.Graph.Out[node], lg.Graph.In[node]} {
+		for _, u := range adj {
+			if dist[u] == dist[node]-1 && ok(u) && (best < 0 || u < best) {
+				best = u
+			}
+		}
+	}
+	if best >= 0 {
+		return best
+	}
+	v := pred[pred[node]]
+	for v >= 0 && !ok(v) {
+		v = pred[v]
+	}
+	return v
+}
+
 func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 	return Tool{
 		Name:        "graph_context",
@@ -134,9 +206,7 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 				result["ids"] = params.IDs
 			}
 			seedList := make([]seedOut, 0, len(seeds))
-			sources := make([]int, 0, len(seeds))
 			for i, w := range seeds {
-				sources = append(sources, i)
 				seedList = append(seedList, seedOut{ID: string(lg.IDs[i]), Title: lg.Facets[i].Title, Weight: round4(w)})
 			}
 			sort.Slice(seedList, func(a, b int) bool {
@@ -154,28 +224,14 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 				return textResult(string(out)), nil
 			}
 
-			scores := graphalgo.PersonalizedPageRank(lg.Graph, seeds, graphContextAlpha, graphContextEps)
-			dist, pred := graphalgo.BFS(lg.Graph, sources, graphalgo.Both, 0)
 			results := []resultOut{}
-			for i, p := range scores {
-				if _, seed := seeds[i]; seed || round4(p) <= 0 {
-					continue
-				}
-				r := resultOut{ID: string(lg.IDs[i]), Title: lg.Facets[i].Title, Score: round4(p), Hops: dist[i], Bytes: lg.Facets[i].Bytes}
-				if pred[i] >= 0 {
-					r.Via = string(lg.IDs[pred[i]])
+			for _, n := range rankNeighbours(lg, seeds, nil, nil) {
+				r := resultOut{ID: string(lg.IDs[n.node]), Title: lg.Facets[n.node].Title, Score: n.score, Hops: n.hops, Bytes: lg.Facets[n.node].Bytes}
+				if n.via >= 0 {
+					r.Via = string(lg.IDs[n.via])
 				}
 				results = append(results, r)
 			}
-			sort.Slice(results, func(a, b int) bool {
-				if results[a].Score != results[b].Score {
-					return results[a].Score > results[b].Score
-				}
-				if results[a].Hops != results[b].Hops {
-					return results[a].Hops < results[b].Hops
-				}
-				return results[a].ID < results[b].ID
-			})
 			if len(results) > limit {
 				results = results[:limit]
 			}

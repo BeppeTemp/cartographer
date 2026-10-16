@@ -73,10 +73,13 @@ func uiSearch(w http.ResponseWriter, r *http.Request, srv *Server) {
 		writeUINotFound(w)
 		return
 	}
+	// related: 0 — the Atlas search has nowhere to show the block (D781) and
+	// would pay for it on every keystroke.
 	args, _ := json.Marshal(map[string]interface{}{
-		"query": q,
-		"scope": r.URL.Query().Get("scope"),
-		"limit": uiLimit(r, 20, 100),
+		"query":   q,
+		"scope":   r.URL.Query().Get("scope"),
+		"limit":   uiLimit(r, 20, 100),
+		"related": 0,
 	})
 	res, err := srv.uiSearch(r.Context(), args)
 	uiRelay(w, "search", res, err)

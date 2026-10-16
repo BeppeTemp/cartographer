@@ -26,7 +26,8 @@ var searchInputSchema = json.RawMessage(`{
 		"scope": {"type": "string"},
 		"limit": {"type": "integer"},
 		"record_miss": {"type": "boolean"},
-		"include_archived": {"type": "boolean"}
+		"include_archived": {"type": "boolean"},
+		"related": {"type": "integer"}
 	}
 }`)
 
@@ -78,11 +79,11 @@ func searchHitLess(a, b searchHit) bool {
 //     when FTS5 fails. Modes reported: keyword_fts5 / keyword on fallback.
 //   - otherwise: the in-memory keyword index. Mode reported: keyword.
 func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, reads *readAccessLog, deps Deps) Tool {
-	description := "Keyword search over concepts; returns IDs ranked by relevance (all terms preferred, then OR fallback)."
+	description := "Keyword search over concepts; returns IDs, best first (all terms preferred, then OR fallback)."
 	if deps.SQLIndex != nil {
-		description = "Keyword search over concepts (SQLite FTS5, substring matching); returns IDs ranked by relevance."
+		description = "Keyword search over concepts (SQLite FTS5, substring matching); returns IDs, best first."
 	}
-	description += " Glossary aliases are searched too (expanded_to). scope is a map name or id prefix, never a KB name."
+	description += " Glossary aliases match too (expanded_to). scope is a map name or id prefix, never a KB name."
 
 	return Tool{
 		Name:        "search",
@@ -109,6 +110,9 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 		// IncludeArchived (D322): absent hides archived concepts unless
 		// nothing live matches, true returns both, false never falls back.
 		IncludeArchived *bool `json:"include_archived"`
+		// Related sizes the related block (D781): absent is the default, 0
+		// turns it off.
+		Related *int `json:"related"`
 		// Mode and UseSemantic are declared only to reject them: semantic and
 		// hybrid search are gone (D135), and a stale caller must fail loudly
 		// instead of silently receiving keyword results it did not ask for.
@@ -131,6 +135,12 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	}
 
 	skipArchived := params.IncludeArchived == nil || !*params.IncludeArchived
+	// A narrowed principal's visibility is decided concept by concept (a map
+	// descriptor and a stat each): the ranking's centrality prior decides it
+	// for the whole graph, and the related block reads that answer back.
+	if !WholeVisible(ctx, k, false) {
+		ctx = withVisibilityMemo(ctx, k)
+	}
 	hits, mode, expandedTo := expandedKeywordHits(ctx, k, rec, deps, params.Query, params.Scope, limit, skipArchived)
 	// Archived fallback (D322): when nothing live matches and the caller did
 	// not say include_archived, search again with archived concepts in, so
@@ -181,6 +191,11 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	}
 	if len(expandedTo) > 0 {
 		result["expanded_to"] = expandedTo
+	}
+	if !archivedFallback {
+		if block := relatedBlock(ctx, k, hits, relatedLimit(params.Related)); len(block) > 0 {
+			result["related"] = block
+		}
 	}
 	var notes []string
 	if archivedFallback {
@@ -319,7 +334,7 @@ func keywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps,
 // D351): the reconcile walks every file, so it is paid once per call.
 func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int, skipArchived bool) ([]searchHit, string) {
 	live := rec.live
-	visible := func(id string) bool { return Visible(ctx, k, id) }
+	visible := visiblePredicate(ctx, k)
 	// skipArchived (D322) drops archived concepts inside the backend's own
 	// filter, before its cut to the window, so the page is still full of live
 	// hits (a post-filter would need an over-fetch and still be short). The

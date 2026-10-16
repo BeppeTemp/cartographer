@@ -34,7 +34,9 @@ is the gap. It costs 136 bytes per KB in every steering file.
   searches whose reader went past the top 10 were recovered), for about 1 KB
   more per search, roughly what the reads it saves cost. Kept as
   [#781](https://github.com/BeppeTemp/cartographer/issues/781), to decide on
-  measured usage after this change.
+  measured usage after this change; taken as
+  [D781](D781-search-offers-a-related-block-by-default.md), which amends this
+  decision.
 - A pointer in `search`'s description: the agent-profile `tools/list` budget
   (D285) had under 80 bytes left, and the steering line reaches the agent before
   any tool list does.

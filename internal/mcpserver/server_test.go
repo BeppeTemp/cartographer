@@ -25,7 +25,9 @@ import (
 )
 
 // setupTestKB creates a temporary KB with minimal content for tests.
-func setupTestKB(t *testing.T) *kb.KB {
+// setupTestKB takes a testing.TB so a benchmark can pass its own b: cleanup
+// registered on a zero testing.T never runs and leaves the temp KB behind.
+func setupTestKB(t testing.TB) *kb.KB {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "wiki-mcp-test-*")
 	if err != nil {
