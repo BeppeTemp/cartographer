@@ -37,6 +37,12 @@ type twoKBMove struct {
 	// Plan validates everything and writes nothing; a non-nil result is the
 	// refusal.
 	Plan func() *ToolResult
+	// TargetFiles lists every regular file the move writes into Dst, as a slash
+	// path below Dst.Root: the moved files only, not the log line nor the
+	// generated files. It is read after Plan, and run holds the target commit
+	// to it: git may leave a file out of `git add -A` (an ignore rule, a nested
+	// repository) and the source removal would then destroy the only copy.
+	TargetFiles func() []string
 	// ApplyTarget writes the moved things into Dst, its log line and its
 	// generated files; ApplySource removes them from Src likewise. Any error
 	// leaves a half-written tree for run to discard.
@@ -89,6 +95,8 @@ func (m *twoKBMove) run(ctx context.Context) ToolResult {
 		return *errRes
 	}
 	subject := m.SourceSubject()
+	planned := m.TargetFiles()
+	newDirs := missingParentDirs(dst.Root, planned)
 
 	// --- target step ---
 	err := m.ApplyTarget()
@@ -103,8 +111,15 @@ func (m *twoKBMove) run(ctx context.Context) ToolResult {
 		discardNote := ""
 		if dErr := gitx.DiscardChanges(dst.Root); dErr != nil {
 			discardNote = fmt.Sprintf("; discarding the target tree failed too: %v", dErr)
+		} else if cErr := removeUntrackedPlanned(dst, planned); cErr != nil {
+			discardNote = fmt.Sprintf("; removing the copied files the discard keeps (ignored ones) failed too: %v", cErr)
+		} else {
+			pruneDirs(dst.Root, newDirs)
 		}
 		return errorResult(fmt.Sprintf("%s: target step failed, nothing was changed in the source: %v%s", tool, err, discardNote))
+	}
+	if missing, vErr := missingFromCommit(dst.Root, dstSHA, planned); vErr != nil || len(missing) > 0 {
+		return m.undoIncompleteTarget(ctx, dstSHA, planned, newDirs, missing, vErr)
 	}
 
 	// --- source step ---
@@ -132,7 +147,7 @@ func (m *twoKBMove) run(ctx context.Context) ToolResult {
 			return errorResult(fmt.Sprintf("%s: source step failed (%v) and discarding the source tree failed too (%v); the target commit %.7s in %s is kept so nothing is lost: restore %s with git, then remove the duplicates from %s", tool, err, dErr, dstSHA, dstName, srcName, dstName))
 		}
 		note := ""
-		if rErr := revertTransferTarget(ctx, tool, dst, dstSHA, srcName); rErr != nil {
+		if rErr := revertTransferTarget(ctx, tool, dst, dstSHA, srcName, "the source step failed"); rErr != nil {
 			note += fmt.Sprintf("; undoing the target commit %.7s failed (%v): the %s now exist in both KBs, remove them from %s by hand", dstSHA, rErr, m.Things, dstName)
 		} else {
 			note += fmt.Sprintf("; the target commit %.7s was undone by a revert commit", dstSHA)
@@ -192,12 +207,12 @@ func commitTransfer(ctx context.Context, args json.RawMessage, k *kb.KB, subject
 // revertTransferTarget undoes the target commit with a new commit that
 // inverts it. It never resets: the target's history is append-only, a client may
 // already have fetched the commit, and a hard reset would rewrite it.
-func revertTransferTarget(ctx context.Context, tool string, dst *kb.KB, sha, srcName string) error {
+func revertTransferTarget(ctx context.Context, tool string, dst *kb.KB, sha, srcName, cause string) error {
 	if err := gitx.RevertNoCommit(dst.Root, sha, dst.GitEnv...); err != nil {
 		_ = gitx.DiscardChanges(dst.Root)
 		return err
 	}
-	msg := fmt.Sprintf("%s: revert %.7s (the source step failed)", tool, sha)
+	msg := fmt.Sprintf("%s: revert %.7s (%s)", tool, sha, cause)
 	// nil args: the caller's Reason belongs to the transfer, the revert states its own.
 	msg += "\n\n" + commitTrailerBlock(ctx, nil, commitReasonKey+": the transfer from "+strings.Join(strings.Fields(srcName), " ")+" failed after this KB was written")
 	p := auth.PrincipalFromContext(ctx)

@@ -38,6 +38,29 @@ type artifactUnit struct {
 	files []transferFile // slash paths below the unit; a single file unit has one, rel ""
 }
 
+// paths lists the unit's files as slash paths below the KB root, the same in
+// both KBs.
+func (u artifactUnit) paths() []string {
+	out := make([]string, 0, len(u.files))
+	for _, f := range u.files {
+		if f.rel == "" {
+			out = append(out, u.rel)
+		} else {
+			out = append(out, u.rel+"/"+f.rel)
+		}
+	}
+	return out
+}
+
+// targetFiles is every file the move writes into the target.
+func (pl *artifactMovePlan) targetFiles() []string {
+	var out []string
+	for _, u := range pl.units {
+		out = append(out, u.paths()...)
+	}
+	return out
+}
+
 // artifactMovePlan is everything validation learned, so the two steps only write.
 type artifactMovePlan struct {
 	units     []artifactUnit
@@ -152,6 +175,7 @@ func runArtifactMove(ctx context.Context, args json.RawMessage, src *kb.KB, srcN
 			plan, errRes = planArtifactMove(src, dst, p.Paths)
 			return errRes
 		},
+		TargetFiles: func() []string { return plan.targetFiles() },
 		ApplyTarget: func() error {
 			if err := applyArtifactMoveTarget(src, dst, plan); err != nil {
 				return err
@@ -372,15 +396,9 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 		// The same in the target, which has its own ignore rules: git would leave
 		// the copy out of the target commit, and the removal in the source would
 		// then be the end of the only committed one.
-		dstRels := make([]string, 0, len(u.files))
-		for _, f := range u.files {
-			if f.rel == "" {
-				dstRels = append(dstRels, u.rel)
-			} else {
-				dstRels = append(dstRels, u.rel+"/"+f.rel)
-			}
-		}
-		dstIgnored, err := gitx.IgnoredPaths(dst.Root, dstRels)
+		// It cannot see an ignore file the unit itself brings: the target commit is
+		// held to the planned files again in twoKBMove.run.
+		dstIgnored, err := gitx.IgnoredPaths(dst.Root, u.paths())
 		if err != nil {
 			return refuse("%s: cannot tell which files %s ignores: %v", u.rel, dstName, err)
 		}

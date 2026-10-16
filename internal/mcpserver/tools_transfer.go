@@ -227,6 +227,7 @@ func runTransfer(ctx context.Context, args json.RawMessage, src *kb.KB, srcName 
 			plan, errRes = planTransfer(src, dst, p)
 			return errRes
 		},
+		TargetFiles: func() []string { return plan.targetFiles(dst) },
 		ApplyTarget: func() error {
 			var err error
 			tgt, err = applyTransferTarget(src, dst, plan)
@@ -307,6 +308,29 @@ func transferReport(plan *transferPlan, srcName, dstName, srcSHA, dstSHA string,
 		result["findings_by_kb"] = findings
 	}
 	return result
+}
+
+// targetFiles is every file the transfer writes into dst: a flat concept's page,
+// or every file of an expanded concept's directory (satellites and assets
+// included), as slash paths below dst.Root. The curated index entry and the
+// generated indexes are not moved files and are not listed.
+func (pl *transferPlan) targetFiles(dst *kb.KB) []string {
+	var out []string
+	add := func(abs string) {
+		if rel, err := filepath.Rel(dst.Root, abs); err == nil {
+			out = append(out, filepath.ToSlash(rel))
+		}
+	}
+	for _, it := range pl.items {
+		if !it.expanded {
+			add(it.dstLoc.File)
+			continue
+		}
+		for _, f := range it.files {
+			add(filepath.Join(it.dstLoc.Dir, filepath.FromSlash(f.rel)))
+		}
+	}
+	return out
 }
 
 // logLines renders the log.md body of one side.
