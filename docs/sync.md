@@ -156,6 +156,14 @@ does a server that is unreachable, too old for the route, or refuses the token (
 and the server degrades to "no data". Every scan reads the whole window afresh: there is no
 incremental state to go stale.
 
+## Client settings report (D818)
+
+Next to the usage report, and under the same conditions (not a dry run, server reachable), `sync` posts this machine's client
+settings to `POST /api/client-settings` (`reportClientSettings` in `cmd/cartographer/usagesync.go`, built by
+`clientconfig.Report`): keys and origins, the `.cartographer.yaml`, the connected agent clients with their scope, workspace
+bindings and isolation, and the resolved placeholders. The server keeps it in memory for the sending principal and shows it
+back to that principal only (`docs/control-plane.md` §Client settings reports). A failure never fails the sync.
+
 ## Writing a placeholder literally, and how deep the repo scan goes
 
 Documenting the generic form of a placeholder used to trigger it: eleven warnings per sync in one

@@ -481,6 +481,13 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   `/ui/`, and `/` does the same from outside the auth chain.
 - `/api/ui/v1/…` — the JSON the UI reads (→ `control-plane.md` §Read-only UI API). Its Settings page lists every
   server and per-KB setting with its value and origin, read-only (D743, §Configuration above).
+  The rail holds six panels: Atlas, Activity, Work, Health, Artifacts and Settings (D818).
+  Artifacts has a Secrets tab (the secrets grouped by the Service that uses each value, the files summed up
+  below); pending sources are Work's "to ingest" column. Settings has three tabs, Client, Server and Knowledge Base,
+  each with a readable view (folded groups, each key with its value and where it was set) and a YAML view; the
+  Knowledge Base tab lists the KB's placeholders, the Client tab the viewer's own client as its last `sync`
+  reported it (workspaces with their isolation, and where each placeholder resolves on that machine). The former
+  `panel=services`, `panel=sources` and `panel=paths` links land on Secrets, Work and Settings.
 
 The static bundle is reachable without a bearer token, because it is the page
 that asks for one and it carries no server or KB data; `/api/ui/v1` is not, and

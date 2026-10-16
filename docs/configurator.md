@@ -829,6 +829,13 @@ structure (`client`, `server`, `note`). A server that is unreachable, refuses th
 one-line note instead of the server group, and the exit code stays 0. The same data is the Atlas Settings page
 (`control-plane.md` §Read-only UI API).
 
+The Atlas Settings page also shows the client, as `sync` last reported it: after every apply, `sync` posts a report to
+`POST /api/client-settings` (`control-plane.md` §Client settings reports): the client schema keys with their origin, the
+`.cartographer.yaml` as on disk, the connected agent clients (scope, isolation of a workspace binding, bound folders and their
+KBs) and where each placeholder of the connected KBs resolves on this machine. No secret value, token or file content other
+than that config file. The server keeps it in memory for the sending principal only. Best-effort: a server that is
+unreachable, predates the route or refuses the token costs a debug line, never the sync (D818).
+
 ### `cartographer paths [list [--json]] | set <key> <path> | ignore <key> | unset <key>`
 
 The placeholder keys the last sync met, and the command that records where they live on this

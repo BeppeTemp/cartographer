@@ -291,7 +291,10 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 `web/src/test/locale.test.ts` scans the sources and rejects any `toLocale*String` call without `"en"` as first argument, and any `Intl.` or `navigator.language`: the UI is English in every browser locale, and a value test of a formatter would pass on an English runner even with the bug back.
 
 To work on the UI live, `make dev` from a worktree runs both halves and rebuilds
-the server on every Go change (`CONTRIBUTING.md` §Live sessions). By hand: run a
+the server on every Go change (`CONTRIBUTING.md` §Live sessions). Without `DATA` it serves a throwaway copy of ten
+generated test KBs (`internal/testkbs`, 5,000 concepts down to 30, every Atlas state planted; D818), cached per day in
+`$TMPDIR/cartographer-testkbs`, with the audit log on; `internal/testkbs/testkbs_test.go` checks the planted states, the
+bare KB and the fleet's scale. By hand: run a
 server (`cartographer serve --http :39273 --kb …`) and `cd web && npm run dev`: Vite serves the UI with hot reload on
 `http://localhost:5173/ui/` and proxies `/api` and `/health` (the version beside the theme switch) to the server
 (`CARTOGRAPHER_DEV_API` for another address); the Atlas follows the KB live

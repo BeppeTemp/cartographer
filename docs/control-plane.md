@@ -356,7 +356,7 @@ public either — it sits inside the same `OriginGuard` → bearer-token chain a
 | `GET /api/ui/v1/kbs/{kb}/audit?limit=` | `{enabled, state, entries}`: the newest audit entries for this KB, newest first (`at`, `phase`, `principal`, `tool`, `outcome`, `commit_sha`, …), `limit` defaults to 100, at most 500; `enabled: false` when the server keeps no audit log. The log names other principals: admin only, `404` for anyone else. |
 | `GET /api/ui/v1/whoami` | `{id, admin, permissions}`: the principal behind the request and its own policy rules (`kb`, `write`, `maps`, `journals`, `types`), narrowed to the KBs this server mounts. Nothing in it is anyone else's, so no extra scope; a KB-less route like `/kbs` and `/settings`. |
 | `GET /api/ui/v1/kbs/{kb}/assets?id=` | `{id, assets}`: `asset_list` for an expanded concept (`path`, `size`, `sha256`, `executable`, `oversized?`). `id` is required; `404` for a missing or invisible concept, `400` for one that is not expanded. |
-| `GET /api/ui/v1/settings` | The Settings page's data (D743): `version`, `latest_version` and `update_channel` when known, `server` (every server-level schema key from `internal/config/schema.go`) and `kbs` (one section per KB the caller can see, with the `kbs[]` keys and, for a caller that sees the whole KB, `git`: remote, sync and push state). Each entry is `{key, value, origin, description, default, env?, flag?, restart?, secret?}`; `origin` is `default`, `file`, `env` or `flag`, recorded by the loaders. A secret's `value` is `"(set)"` or `"(unset)"`, never the value. Same auth as the other routes, no new role. |
+| `GET /api/ui/v1/settings` | The Settings page's data (D743): `version`, `latest_version` and `update_channel` when known, `server` (every server-level schema key from `internal/config/schema.go`) and `kbs` (one section per KB the caller can see, with the `kbs[]` keys and, for a caller that sees the whole KB, `git`: remote, sync and push state). plus `server_yaml` (the server's configuration as the YAML file it amounts to, commented by the schema, its `kbs[]` entries limited to the KBs the caller sees), a `yaml` per KB section (the same for that KB's own keys) and `clients` (D818): the caller's own client settings reports (§Client settings reports), `[]` when none, never another principal's. Each entry is `{key, value, origin, description, default, type?, values?, env?, flag?, restart?, secret?}` (`type` is the kind of value, `values` the accepted ones in free text, both from the schema); `origin` is `default`, `file`, `env` or `flag`, recorded by the loaders. A secret's `value` is `"(set)"` or `"(unset)"`, never the value. Same auth as the other routes, no new role. |
 
 The two artifact routes also carry `last_used`, `last_used_provider` and `last_used_days_ago` (all `null` for an artifact no client reported; `last_used_catalog_only: true` when the only signal is a catalogue load), which the panel renders as a "Last used" column (D326).
 
@@ -383,6 +383,24 @@ artifact, a row with no `last_used`, an unknown kind are dropped; a `last_used` 
 day ahead is clamped to now. It needs the whole KB in write scope; any other caller gets the
 `404` of an unknown KB (no existence oracle), a missing token `401`, a non-POST `405`. The
 store is `.cartographer/usage.json` (`docs/data-plane.md`).
+
+### Client settings reports (`POST /api/client-settings`, D818)
+
+The Settings page shows the viewer their own client beside the server and the KBs, and only the client knows its
+`.cartographer.yaml` and the schema of the version it runs. So `cartographer sync` reports it after every apply
+(`docs/sync.md` §Client settings report). Like `/api/usage` it is client-to-server metadata: an HTTP route in the same
+auth chain as `/mcp`, with or without the web UI, not an MCP tool.
+
+The body is one JSON object (at most 256 KiB): `machine` (required), `version`, `server_url`, `entries` (the client schema
+keys in the shape of the settings entries above), `yaml` (the file as it is on disk, `""` when there is none),
+`providers` (per connected agent client: `name`, `scope` `provider` or `workspace`, `isolation` `workspace` or `none` for a
+workspace scope (#737), and `workspaces`, each `{path, remote?, kbs}`) and `placeholders` (each `{key, kbs?, path?, …}`:
+where the `{{repo:…}}`/`{{path:…}}` keys of the connected KBs resolve on that machine). The answer is `{received: true}`;
+an unreadable body or one without `machine` is `400`, a larger one `413`, a non-POST `405`.
+
+The server keeps the report **in memory**, per principal and machine, at most 8 machines per principal (the oldest goes
+first), and returns it only to the principal that sent it, as `clients` of `GET /api/ui/v1/settings`; no list of
+clients is exposed. A restart forgets them until each client's next sync. Nothing is written to the KB.
 
 ## Search index
 

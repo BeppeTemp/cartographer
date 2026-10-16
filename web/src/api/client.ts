@@ -307,11 +307,6 @@ export function fetchPendingSources(kb: string, signal?: AbortSignal): Promise<S
   return get<SourceList>(`/kbs/${encodeURIComponent(kb)}/sources?status=pending`, signal);
 }
 
-export function fetchSources(kb: string, signal?: AbortSignal): Promise<SourceList> {
-  // The whole ledger: source_list alone answers only the pending sources.
-  return get<SourceList>(`/kbs/${encodeURIComponent(kb)}/sources?status=*`, signal);
-}
-
 export function fetchAssets(kb: string, id: string, signal?: AbortSignal): Promise<AssetList> {
   return get<AssetList>(`/kbs/${encodeURIComponent(kb)}/assets?id=${encodeURIComponent(id)}`, signal);
 }
