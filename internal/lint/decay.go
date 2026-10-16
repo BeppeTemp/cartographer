@@ -85,9 +85,9 @@ func openValue(status string, contract *kb.MapContract) bool {
 	return false
 }
 
-// reviewSuspended reports whether a concept declares review_after in the
-// future: its timer is suspended, it is still open but not stale (D321). A
-// date in the past does not suspend: the review is overdue.
+// reviewSuspended reports whether a concept declares review_after today or
+// later: its timer is suspended, it is still open but not stale (D321). A
+// date before today does not suspend: the review is overdue.
 func reviewSuspended(fm *okf.Frontmatter) bool {
 	if fm == nil {
 		return false
@@ -100,8 +100,7 @@ func reviewSuspended(fm *okf.Frontmatter) bool {
 	if err != nil {
 		return false
 	}
-	today := Now().Truncate(24 * time.Hour)
-	return !t.Before(today)
+	return !pastDay(t)
 }
 
 // closedPhase reports whether status means "finished". archived is finished
