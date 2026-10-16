@@ -59,6 +59,7 @@ import (
 var gatedToolSettings = map[string]string{
 	"artifact_write":  "kbs[].allow_artifact_write",
 	"artifact_delete": "kbs[].allow_artifact_write",
+	"artifact_move":   "kbs[].allow_artifact_write",
 }
 
 // legacyToolMessage answers a call to a pre-D288 prefixed tool name
@@ -126,7 +127,9 @@ var advancedToolNames = map[string]bool{
 	// concept_archive (D344): retiring a page is rare, deliberate and whole-KB.
 	"concept_archive": true,
 	// concept_transfer (D760): moving pages between KBs is rare and whole-KB.
-	"concept_transfer":     true,
+	"concept_transfer": true,
+	// artifact_move (D782): the same rare, whole-KB, two-KB move for artifacts.
+	"artifact_move":        true,
 	"commit_gate":          true,
 	"contradiction_report": true,
 	"conflict_resolve":     true,

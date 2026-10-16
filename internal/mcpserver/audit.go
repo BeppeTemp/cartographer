@@ -66,6 +66,7 @@ var auditResourceFields = map[string][]string{
 	"artifact_read":   {"path"},
 	"artifact_write":  {"path"},
 	"artifact_delete": {"path"},
+	"artifact_move":   {"target_kb", "paths"},
 	// service_get's "resolve_secrets" and "reveal" are recorded for the same
 	// reason as secret_resolve's "reveal": decrypting, and then printing, a
 	// credential is the event the trail exists for (D261).
