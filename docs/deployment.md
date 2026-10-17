@@ -985,7 +985,7 @@ backup before discarding any state.
 
 ## CI/CD: release + deploy pipeline
 
-Nine GitHub Actions workflows (`.github/workflows/`):
+The GitHub Actions workflows (`.github/workflows/`):
 
 - **`ci.yml`** — on every PR and push to `main`: the `test` job (`make gate`, then `make smoke-http`, `make e2e` and `make test-install`; Go from `go.mod`, git identity configured for git-backed tests) `test-windows` (the tests in four shards plus `install.ps1`, on Windows runners, D785) and `web` (two legs). On a PR a `changes` job runs `test-windows` and `web` only when the PR touches their paths, and every job on the release-please PR (D255, D672); on `main` they always run, and a `main-status` job keeps one `ci-red` issue open while `main` is red. `test`, `test-windows`, `web` and `pr-title` are the required status checks on `main`'s ruleset; a job skipped by its path condition reports as passed.
 - **`pr-title.yml`** — on a PR opened, edited, pushed to or reopened: the required `pr-title` check, lint of what release-please will read from the squash commit (D865). The title must be a conventional commit whose scope, when it has one, is a canonical one (`internal/changelog.CanonicalScopes()`; a test compares the list with the workflow's), and no line of the body that starts like a conventional header (`feat(mcp): …`) may be wrapped onto the next line, because release-please keeps only the first physical line of such an entry (`go run ./internal/changelog/gen -check-body`; the body reaches it through the environment, never interpolated). It is a workflow of its own, not a job of `ci.yml`, because it must re-run on `edited` and that trigger in `ci.yml` would re-run the whole suite on every PR edit. The ruleset requires the job name, not the workflow.

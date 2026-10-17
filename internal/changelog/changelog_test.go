@@ -288,6 +288,7 @@ func TestWrappedLines(t *testing.T) {
 		{"two headers in a row", "feat(mcp): a\nfix(lint): b\n\nrest", nil},
 		{"bullet below", "feat(mcp): a\n* detail\n- more\n1. numbered", nil},
 		{"heading below", "feat(mcp): a\n## Notes", nil},
+		{"issue reference continues the line", "feat(mcp): a thing that closes\n#123 and wraps", []int{1}},
 		{"last line", "feat(mcp): a", nil},
 		{"crlf", "feat(mcp): a\r\n\r\nfix(lint): b\r\ncontinued\r\n", []int{3}},
 		{"prose that starts like a type", "features: not a header\nsecond line", nil},

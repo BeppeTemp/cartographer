@@ -11,6 +11,7 @@ const WrapMessage = "a conventional line in the body must be one unwrapped line:
 var (
 	conventionalLine = regexp.MustCompile(`^(feat|fix|perf|revert)(\([a-z_-]+\))?!?: `)
 	listItem         = regexp.MustCompile(`^\s*([*+-]|\d+[.)])\s`)
+	heading          = regexp.MustCompile(`^#{1,6}(\s|$)`) // not "#123": an issue reference is a continuation
 )
 
 // WrappedLines returns the 1-based numbers of the lines of a PR body that look
@@ -35,7 +36,7 @@ func WrappedLines(body string) []int {
 		next := lines[i+1]
 		if strings.TrimSpace(next) == "" ||
 			conventionalLine.MatchString(next) ||
-			strings.HasPrefix(next, "#") ||
+			heading.MatchString(next) ||
 			listItem.MatchString(next) {
 			continue
 		}

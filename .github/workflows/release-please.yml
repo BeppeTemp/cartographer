@@ -8,6 +8,14 @@ permissions:
   contents: write
   pull-requests: write
 
+# The release-pr job reads the PR body, groups it and writes it back: two runs
+# close together would race between the read and the write, and the grouped body
+# of the earlier one would then lack the later run's entries (Regroup leaves a
+# grouped body alone). One run at a time; a waiting one is replaced by the newest.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
