@@ -113,6 +113,13 @@ func toolConceptArchive(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_archive: parse frontmatter %q: %v", params.ID, err)), nil
 			}
+			// A superseded page is retired already, and its status and successor
+			// are one story: overwriting the status would leave superseded_by on a
+			// page that says it is archived, and an archive entry cannot carry
+			// "superseded" (kb.Retirement.Subject would read it as a supersede).
+			if cur, _ := fm.Get("status"); cur == "superseded" {
+				return errorResult(fmt.Sprintf("concept_archive: %q is superseded, which already retires it (to relocate it, use concept_move)", params.ID)), nil
+			}
 
 			// The status is written before the move, in the same gitWrap commit:
 			// an application error from here on leaves it uncommitted, with the
