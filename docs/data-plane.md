@@ -195,9 +195,6 @@ A value may be a scalar, a block list (`- item` on following lines), or a flow l
 flow form **on one line or across several** (D162), which is what any editor produces when a list gets
 long:
 
-Single-quoted YAML values decode a doubled apostrophe as one apostrophe (`'Don''t panic'` becomes
-`Don't panic`), including in block and flow lists. Apostrophes in double-quoted values stay as written.
-
 ```yaml
 provenance: [
   first/source.md,
@@ -210,6 +207,9 @@ not a terminator. An unclosed flow list is still an error and names the key **an
 `validate` wraps that with the concept's path, so a malformed value is locatable in a corpus of a
 thousand pages. The serializer always emits the single-line form: a multi-line source round-trips into
 one line, which is reflow, not data loss.
+
+Single-quoted YAML values decode a doubled apostrophe as one apostrophe (`'Don''t panic'` becomes
+`Don't panic`), including in block and flow lists. Apostrophes in double-quoted values stay as written.
 
 A key whose value is empty and whose following lines are **indented** holds a nested block (D291), for
 example an agent's `providers:` map. The parser keeps those lines verbatim as an `okf.Block` value under
