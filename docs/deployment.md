@@ -613,7 +613,13 @@ wheel or a pinch, click a concept to select it (nodes are not dragged). A *Motio
 pauses the drift, the slow panorama and the signals a selection sends along its
 links; `prefers-reduced-motion` starts it paused. The simulation advances at a
 fixed 60 Hz whatever the display's refresh rate, so the motion has the same
-pace on a 60 Hz and a 120 Hz screen (D736). There is no 2D view: when
+pace on a 60 Hz and a 120 Hz screen (D736). A network whose simulation costs
+more than a quarter of a 60 Hz frame per tick (on an Apple M5, from about 1,500
+concepts) rests its drift: it settles and stops, as with motion off, while the
+panorama and the signals still run; a smaller Map opened in its place breathes
+again. The view draws only when something moves or changes, at most about 60
+times a second whatever the display's refresh, so an untouched graph at rest
+costs no drawing at all. There is no 2D view: when
 the WebGL context is lost the graph area says so. The view draws up to 5,000 concepts (the graph API's ceiling). A browser without WebGL
 gets the concept list, search and inspector, with a note where the graph would
 be. The UI follows the system's light or dark scheme until the viewer picks one
