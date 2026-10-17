@@ -113,11 +113,14 @@ type Mode = "readable" | "yaml";
 export function Settings({
   reloadKey,
   activeKB,
+  onOpenReleases,
   onRetry,
   onFailure,
 }: {
   /** Changes when the server moves under the page: the settings are read again. */
   reloadKey: string;
+  /** The version in the title opens the release history (D862). */
+  onOpenReleases?(): void;
   /** The KB picked in the top bar: its tab comes first after the server's. */
   activeKB?: string;
   onRetry(): void;
@@ -177,7 +180,16 @@ export function Settings({
         eyebrow="Settings"
         title={
           <>
-            Cartographer {view.version}
+            Cartographer{" "}
+            <button
+              type="button"
+              className="page__version"
+              title="Release history"
+              aria-haspopup="dialog"
+              onClick={onOpenReleases}
+            >
+              {view.version}
+            </button>
             {view.latest_version ? ` · ${view.latest_version} available` : ""}
           </>
         }

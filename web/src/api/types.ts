@@ -777,3 +777,35 @@ export interface Whoami {
   admin: boolean;
   permissions: WhoamiRule[];
 }
+
+/** One release in GET /releases, newest first (D862). `body` is the release's
+ *  changelog as Markdown, untrusted: it is rendered only through Markdown. */
+export interface ReleaseEntry {
+  version: string;
+  name?: string;
+  url: string;
+  published_at: string;
+  body: string;
+  /** The server cut the body: the full text is at `url`. */
+  truncated: boolean;
+  prerelease: boolean;
+  /** This is the release the server runs. */
+  current: boolean;
+}
+
+/** GET /releases: the release history behind the version in the top bar. */
+export interface ReleasesView {
+  current: string;
+  /** A newer release than `current`, as /health reports it. */
+  latest?: string;
+  channel?: string;
+  /** How to upgrade, when a newer release is known and the channel names a command. */
+  upgrade_command?: string;
+  releases: ReleaseEntry[];
+  /** A refresh failed: this is the last good list. */
+  stale?: boolean;
+  /** No list: the update check is off on this server, or GitHub could not be reached. */
+  unavailable?: "disabled" | "unreachable";
+  /** The human-facing release list on GitHub, always present. */
+  releases_url: string;
+}

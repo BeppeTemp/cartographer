@@ -11,11 +11,14 @@ import { useModal } from "../lib/modal";
 export function Sheet({
   side,
   label,
+  wide = false,
   onClose,
   children,
 }: {
   side: "start" | "end";
   label: string;
+  /** Room to read prose: the release history, not a rail or an inspector. */
+  wide?: boolean;
   onClose(): void;
   children: ReactNode;
 }) {
@@ -27,7 +30,7 @@ export function Sheet({
       <div className="sheet__scrim" aria-hidden="true" onClick={onClose} />
       <div
         ref={panelRef}
-        className={`sheet__panel sheet__panel--${side}`}
+        className={`sheet__panel sheet__panel--${side}${wide ? " sheet__panel--wide" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={label}

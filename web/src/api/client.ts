@@ -27,6 +27,7 @@ import type {
   SearchResponse,
   WorkResponse,
   CheckCatalog,
+  ReleasesView,
 } from "./types";
 import {
   LIVE_ORIGIN,
@@ -35,6 +36,7 @@ import {
   liveURL,
   resolveSource,
   staticKey,
+  staticReleases,
   staticSearch,
   staticURL,
 } from "./static";
@@ -349,4 +351,12 @@ export function fetchAudit(kb: string, signal?: AbortSignal): Promise<AuditLog> 
 
 export function fetchWhoami(signal?: AbortSignal): Promise<Whoami> {
   return get<Whoami>("/whoami", signal);
+}
+
+/** The release history (D862). The static demo has no server to ask GitHub on
+ *  its behalf, so its snapshot answers "disabled" locally; a live demo origin
+ *  answers like any server. */
+export async function fetchReleases(signal?: AbortSignal): Promise<ReleasesView> {
+  if (STATIC_MODE && !(LIVE_ORIGIN !== "" && (await resolveSource()) === "live")) return staticReleases();
+  return get<ReleasesView>("/releases", signal);
 }

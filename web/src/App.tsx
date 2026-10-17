@@ -41,6 +41,7 @@ import { Secrets } from "./components/Secrets";
 import { PageTabs } from "./components/Page";
 import { MapContractPanel, MAP_PANEL_SLIDE_MS, MAP_PANEL_WIDTH } from "./components/MapContractPanel";
 import { Legend } from "./components/Legend";
+import { Releases } from "./components/Releases";
 import { Settings } from "./components/Settings";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
@@ -155,6 +156,10 @@ export function App() {
   const [colorBy, setColorBy] = useState<ColorBy>(readColorBy);
   const narrow = useMediaQuery(NARROW_QUERY);
   const [sheet, setSheet] = useState<SheetName>(null);
+  // The release history (D862) is a sheet on every viewport, opened from the
+  // top bar's version and the Settings title; it is not one of the narrow
+  // layout's panels, so leaving the narrow layout does not close it.
+  const [releasesOpen, setReleasesOpen] = useState(false);
 
   // The reading panel's width (D239): the viewer's preference, clamped to what
   // the window can hold. A resize re-clamps what is drawn but never the stored
@@ -833,6 +838,7 @@ export function App() {
         onKBChange={(name) => navigate({ kb: name, scope: null, concept: null, artifact: null, hmap: null })}
         onThemeChange={setTheme}
         onOpenPalette={() => setPaletteOpen(true)}
+        onOpenReleases={() => setReleasesOpen(true)}
         onHome={() => navigate({ panel: "atlas", scope: null, concept: null, artifact: null })}
         onOpenNav={() => setSheet("nav")}
         onOpenInspector={() => setSheet("inspector")}
@@ -910,6 +916,7 @@ export function App() {
             <Settings
               reloadKey={`${reloadKey}:${live}`}
               activeKB={activeKB ?? undefined}
+              onOpenReleases={() => setReleasesOpen(true)}
               onRetry={() => setReloadKey((k) => k + 1)}
               onFailure={handleFailure}
             />
@@ -1047,6 +1054,8 @@ export function App() {
           {inspector}
         </Sheet>
       )}
+
+      {releasesOpen && <Releases onClose={() => setReleasesOpen(false)} />}
 
       <CommandPalette
         open={paletteOpen}
