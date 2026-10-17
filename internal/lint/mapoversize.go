@@ -101,7 +101,7 @@ func MapOversizeCrossings(k *kb.KB, created []okf.ConceptID) []Finding {
 	if len(findings) == 0 {
 		return nil
 	}
-	findings = applyMapIgnores(k, findings)
+	findings, _ = applyMapIgnores(k, findings, nil, nil)
 	out := findings[:0]
 	for _, f := range findings {
 		if f.Check == "lint_ignore_invalid" && strings.HasSuffix(f.Path, "/_map.md") {

@@ -119,9 +119,9 @@ func TestStructuralIgnoresAndScope(t *testing.T) {
 	if hasCheck(findings, "ops/h.md", "cut_concept") {
 		t.Fatal("lint_ignore: [cut_concept] was not honoured")
 	}
-	// island is accepted by a member (D306): m1 is not in the island, so
-	// it is valid and changes nothing.
-	if invalid := findingsOf(findings, "lint_ignore_invalid"); len(invalid) != 0 {
+	// island is accepted by a member (D306): m1 is not in the island, so it
+	// is a valid name that hides nothing, i.e. stale (D834), and changes nothing.
+	if invalid := findingsOf(findings, "lint_ignore_invalid"); len(invalid) != 1 || invalid[0].Path != "ops/m1.md" || !strings.Contains(invalid[0].Message, "hides no finding") {
 		t.Fatalf("lint_ignore: [island] = %+v", invalid)
 	}
 	if len(findingsOf(findings, "island")) != 1 {

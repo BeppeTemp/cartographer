@@ -257,6 +257,9 @@ type conformanceCache struct {
 	stamp    string
 	cached   bool // true once findings has been set (findings may be nil = no issues)
 	findings []lint.Finding
+	// sups is the suppression inventory of the same run (D834), cached and
+	// invalidated with findings.
+	sups []lint.Suppression
 
 	// lastDoctorDate, cached on the root log file's mtime+size.
 	doctorDate string
@@ -407,32 +410,45 @@ func (cc *conformanceCache) computeReview(k *kb.KB, gen uint64, stamp string) ([
 // serve stale findings. The result is never nil, so callers can tell "cached,
 // no findings" from "not computed".
 func (cc *conformanceCache) lintFindings(k *kb.KB) ([]lint.Finding, error) {
+	findings, _, err := cc.lintResult(k)
+	return findings, err
+}
+
+// lintResult is lintFindings that also returns the suppression inventory of
+// the same run (D834): one cache entry, one key.
+func (cc *conformanceCache) lintResult(k *kb.KB) ([]lint.Finding, []lint.Suppression, error) {
 	gen, err := k.GraphGeneration()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	stamp := lintInputsStamp(k)
 	cc.mu.Lock()
 	if cc.cached && gen == cc.gen && stamp == cc.stamp {
-		out := cc.findings
+		out, sups := cc.findings, cc.sups
 		cc.mu.Unlock()
-		return out, nil
+		return out, sups, nil
 	}
 	cc.mu.Unlock()
 	v, err, _ := cc.flight.Do(fmt.Sprintf("lint|%d|%s", gen, stamp), func() (interface{}, error) {
 		return cc.computeLint(k, gen, stamp)
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return v.([]lint.Finding), nil
+	r := v.(lintResult)
+	return r.findings, r.sups, nil
+}
+
+type lintResult struct {
+	findings []lint.Finding
+	sups     []lint.Suppression
 }
 
 // computeLint is lintFindings' cache miss, run once per key (flight).
-func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) ([]lint.Finding, error) {
-	findings, err := lint.Run(k, "", false)
+func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) (lintResult, error) {
+	findings, sups, err := lint.RunWithSuppressions(k, "", false, lint.DefaultOptions(k))
 	if err != nil {
-		return nil, err
+		return lintResult{}, err
 	}
 	if findings == nil {
 		findings = []lint.Finding{}
@@ -443,7 +459,7 @@ func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) ([]l
 	genAfter, gerr := k.GraphGeneration()
 	if gerr == nil && genAfter == gen && lintInputsStamp(k) == stamp {
 		cc.mu.Lock()
-		cc.gen, cc.stamp, cc.findings, cc.cached = gen, stamp, findings, true
+		cc.gen, cc.stamp, cc.findings, cc.sups, cc.cached = gen, stamp, findings, sups, true
 		cc.lintCalls++
 		cc.mu.Unlock()
 		// D370: one sample a day of the unfiltered totals, taken where the
@@ -458,7 +474,7 @@ func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) ([]l
 		cc.lintCalls++
 		cc.mu.Unlock()
 	}
-	return findings, nil
+	return lintResult{findings, sups}, nil
 }
 
 // lintInputsStamp fingerprints (path, size, mtime) of every regular file in
