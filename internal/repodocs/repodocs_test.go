@@ -166,21 +166,6 @@ func TestContextFileBudgets(t *testing.T) {
 		t.Errorf("AGENTS.md is %d characters, over the %d this repository allows for a file a "+
 			"client loads whole (see MaxRootChars)", chars, MaxRootChars)
 	}
-
-	chains, err := ChainBytes(root)
-	if err != nil {
-		t.Fatalf("measuring the AGENTS.md chains: %v", err)
-	}
-	if len(chains) == 0 {
-		t.Fatal("no AGENTS.md found: the chain measurement is not doing anything")
-	}
-	for dir, size := range chains {
-		if size > MaxChainBytes {
-			t.Errorf("the Codex instruction chain for %s is %d bytes, over %d: launched there, "+
-				"Codex would silently drop the deepest files — the guidance closest to the code",
-				dir, size, MaxChainBytes)
-		}
-	}
 }
 
 // One skill, one copy. Every other location is a symlink into .agents/skills,
@@ -270,7 +255,7 @@ func gitIndex(root, dir string) (map[string]string, error) {
 // Where a client reads its instructions and its skills is a fact this repository
 // already owns, in internal/provisioning's provider matrix. CONTRIBUTING.md's
 // per-client table restates it for a human, and a restatement drifts: it did,
-// for the whole Antigravity row. This checks the restatement against the matrix.
+// for the whole row of a client. This checks the restatement against the matrix.
 func TestClientSkillSurfacesMatchTheProviderRegistry(t *testing.T) {
 	root := repoRoot(t)
 	contributing := readFile(t, root, "CONTRIBUTING.md")
@@ -467,8 +452,7 @@ func capped(items []string, n int) []string {
 // directory with an AGENTS.md needs one (D213). It is a one-line import rather
 // than a symlink, because a public repository does not choose the operating
 // system of the people who clone it and git does not materialize symlinks on a
-// Windows checkout without Developer Mode. An AGENTS.override.md is refused: Codex
-// reads it instead of the AGENTS.md beside it, not in addition to it.
+// Windows checkout without Developer Mode.
 func TestEveryAgentsMdHasAClaudeImport(t *testing.T) {
 	root := repoRoot(t)
 	dirs, err := InstructionDirs(root)
@@ -479,10 +463,6 @@ func TestEveryAgentsMdHasAClaudeImport(t *testing.T) {
 		t.Fatal("no AGENTS.md found: the check is not doing anything")
 	}
 	for _, dir := range dirs {
-		if _, err := os.Lstat(filepath.Join(root, dir, "AGENTS.override.md")); err == nil {
-			t.Errorf("%s: Codex reads AGENTS.override.md instead of AGENTS.md, hiding that "+
-				"directory's rules from one client only; put the content in AGENTS.md", filepath.Join(dir, "AGENTS.override.md"))
-		}
 		rel := filepath.Join(dir, "CLAUDE.md")
 		fi, err := os.Lstat(filepath.Join(root, rel))
 		switch {
@@ -498,13 +478,13 @@ func TestEveryAgentsMdHasAClaudeImport(t *testing.T) {
 		}
 		if got := strings.TrimSpace(readFile(t, root, rel)); got != "@AGENTS.md" {
 			t.Errorf("%s should contain exactly `@AGENTS.md` and nothing else, got %q.\n"+
-				"Instructions live in AGENTS.md, which Codex, Kiro and Antigravity read natively.", rel, got)
+				"Instructions live in AGENTS.md, which Kiro, OpenCode and Copilot CLI read natively.", rel, got)
 		}
 	}
 }
 
-// Written to Kiro's rules, the strictest of the four, so the same file is valid
-// on every client — and parsed with the same YAML parser a client uses, because
+// Written to Kiro's rules, the strictest of the clients in ClientSurfaces, so
+// the same file is valid on every client — and parsed with the same YAML parser a client uses, because
 // the defect that actually loses a skill is a frontmatter no strict parser
 // accepts, and a lenient reader of our own cannot see it.
 func TestSkillFrontmatterMatchesTheStrictestClient(t *testing.T) {
@@ -531,7 +511,7 @@ func TestSkillFrontmatterMatchesTheStrictestClient(t *testing.T) {
 
 		switch got := fm.Name; {
 		case got == "":
-			t.Errorf("%s: `name` is missing; Codex and Kiro both require it", name)
+			t.Errorf("%s: `name` is missing; Kiro requires it", name)
 		case got != name:
 			t.Errorf("%s: `name` is %q but the directory is %q; Kiro requires them equal", name, got, name)
 		case !kebab.MatchString(got):

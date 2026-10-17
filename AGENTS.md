@@ -47,7 +47,7 @@ Structural questions about the code (where does X live, who calls Y, what does Z
 Two areas carry invariants you cannot derive from the code, so they have their own
 `AGENTS.md`, with a one-line `CLAUDE.md` import beside it (D213). Read it before
 editing there: Claude Code loads it on its first read of a file in that directory,
-Codex only if it was launched at or below that directory:
+the other clients are sure to have it only if launched at or below that directory:
 
 - `internal/mcpserver/AGENTS.md` — how to add a tool, and the three things about
   scopes, locking and commits that a handler must not do itself.
@@ -108,7 +108,7 @@ Not duplicated here:
 | Full doc map + reading paths | `docs/index.md` (read that first, then only the relevant pages) |
 | Project status and planned work | GitHub issues, pull requests and releases (links in `docs/index.md`) |
 | Why behind a choice (`D<n>`) | One file per decision: `ls docs/decisions/D<n>-*`. The generated list is `docs/decisions.md` |
-| Working with an agent client (Kiro, Claude, Codex, Antigravity) | `CONTRIBUTING.md` §Working with an agent client |
+| Working with an agent client (Claude Code, Kiro, OpenCode, Copilot CLI) | `CONTRIBUTING.md` §Working with an agent client |
 | List of MCP tools | `docs/control-plane.md` §API MCP |
 | `CARTOGRAPHER_*` env vars, YAML config, deploy | `docs/deployment.md` |
 | Client subcommands / TUI | `docs/configurator.md` |

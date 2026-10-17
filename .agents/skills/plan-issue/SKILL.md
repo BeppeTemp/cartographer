@@ -10,8 +10,8 @@ self-sufficiency test) and the issue structure in
 `.github/ISSUE_TEMPLATE/plan.md`. Read both; this skill only adds the
 mechanics.
 
-This file is the single copy for every client. `.claude/skills/plan-issue` and
-`.kiro/skills/plan-issue` are symlinks to it — see §Per-client mechanics for
+This file is the single copy for every client. `.claude/skills/plan-issue`,
+`.kiro/skills/plan-issue` and `.opencode/skills/plan-issue` are symlinks to it — see §Per-client mechanics for
 the two places where the clients genuinely differ.
 
 ## Writing a plan
@@ -72,6 +72,6 @@ Everything above is identical on every client. These two things are not:
 | | How to derive `file:line` pointers | Note |
 |---|---|---|
 | **Claude Code** | `Grep`/`Glob`, then `Read` on the located ranges; `Explore` subagent for an unknown area | — |
-| **Codex** | targeted symbol grep/search | — |
 | **Kiro** | the `code` tool (`search_symbols`, `lookup_symbols`, `pattern_search`) or `grep_search`; `context-gatherer` subagent for an unknown area | The skill is `plan-issue`, not `plan`: `/plan` is a built-in Kiro slash command (the planner agent) and the two are unrelated |
-| **Antigravity** | codebase search, then read the located ranges | — |
+| **OpenCode** | `grep`/`glob`, then `read` on the located ranges; the built-in `explore` subagent for an unknown area | — |
+| **Copilot CLI** | `rg`/`glob`, then `view` on the located ranges; the `explore` agent (`task` tool) for an unknown area | — |

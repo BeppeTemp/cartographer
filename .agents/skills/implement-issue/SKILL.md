@@ -11,8 +11,8 @@ Source of truth is `CONTRIBUTING.md` §Plan issues + §Pull requests, `AGENTS.md
 adds only the **multi-plan orchestration** and the **PR/merge cycle** — read
 those first; do not duplicate them here.
 
-This file is the single copy for every client. `.claude/skills/implement-issue`
-and `.kiro/skills/implement-issue` are symlinks to it. The three things that
+This file is the single copy for every client. `.claude/skills/implement-issue`,
+`.kiro/skills/implement-issue` and `.opencode/skills/implement-issue` are symlinks to it. The three things that
 genuinely differ per client are in §Per-client mechanics; everything else in
 this file is client-neutral **because the git work lives in `make` targets**,
 not in prose.
@@ -37,9 +37,10 @@ state; the plans are read by the subagents that implement them.
 - **Spawn prompt = issue number + absolute worktree path** (plus the sibling
   plans in flight); the `plan-implementer` agent carries the rest (D327).
 - **Implementers run on a cheaper model** than the coordinator, pinned in each
-  agent definition (Claude `claude-sonnet-5-5`, Kiro `claude-sonnet-5.5`, Codex
-  `terra-6`): the plan already carries the design, so the implementer executes,
-  and the coordinator's §3 read is the quality gate.
+  agent definition (Claude Code `claude-sonnet-5-5`, Kiro and Copilot CLI
+  `claude-sonnet-5.5`, OpenCode `anthropic/claude-sonnet-5-5`): the plan already
+  carries the design, so the implementer executes, and the coordinator's §3 read
+  is the quality gate.
 - **The code is read by the tier's reviewers, not by the coordinator** (§3): the
   coordinator reads the triage, the findings it has verified and the hunks §3
   names — never the whole diff of a standard or full tier PR.
@@ -86,8 +87,8 @@ Never run two subagents in the same working copy. Worktrees branch from fresh
 `origin/main`, so each subagent sees the merged predecessors — start a chain's
 next plan only after the previous PR is merged.
 
-Spawn the `plan-implementer` subagent (D327: `.claude/agents/`, `.codex/agents/`,
-`.kiro/agents/`, same text): it already carries the mandate below and a fixed
+Spawn the `plan-implementer` subagent (D327: `.claude/agents/`, `.kiro/agents/`,
+`.opencode/agents/`, `.github/agents/`, same text): it already carries the mandate below and a fixed
 ≤10-line report, so the spawn prompt is just the issue number and the absolute
 worktree path. Where the client has no such agent, pass the mandate inline.
 
@@ -128,7 +129,11 @@ subagent's report — report text can be garbled or compressed.
 - After the last round the coordinator writes the PR's `## Self-review` section
   (`gh pr edit`): rounds run, each finding with its answer, `pre-existing`
   findings and the `bug` issues opened for them.
-- Confirm CI: `gh pr view <pr> --json statusCheckRollup`.
+- Confirm CI: `gh pr view <pr> --json statusCheckRollup`. When a check failed,
+  spawn `reader` (a read-only subagent on a cheaper model) with the PR number and
+  the question "why is CI red": it returns the failed jobs, test names and first
+  error lines. Send the implementer that digest in the fix mandate, never the raw
+  log.
 
 ## 4 — Ordered merge
 
@@ -144,7 +149,7 @@ file-sets overlap:
    clean append — real code or current-state prose divergence — → **STOP** and
    surface it to the user.
 3. `git rebase --continue`, then the **full** `make -C .worktrees/<slug> gate` on the rebased tree, then `git push --force-with-lease`. Rebase onto the `main` that already holds the previous merges even when GitHub says the PR is mergeable: two PRs that each pass alone can fail together — a whole-catalogue budget (D285), a duplicate decision number — and only the combined tree shows it. The local gate (~2 min) catches that before it breaks `main` (D328).
-4. `gh pr merge <pr> --squash --delete-branch --auto` right after the push: GitHub merges it when the required checks pass (D329), with no wait loop on this side. Check `gh pr view <pr> --json state` before the next plan's rebase; a check that fails leaves the PR open, and auto-merge is cancelled by any later push.
+4. `gh pr merge <pr> --squash --delete-branch --auto` right after the push: GitHub merges it when the required checks pass (D329), with no wait loop on this side. Check `gh pr view <pr> --json state` before the next plan's rebase; a check that fails leaves the PR open (read it through `reader`, as in §3), and auto-merge is cancelled by any later push.
 5. `git checkout main && git pull --ff-only` in the main working copy, then
    `make worktree-rm SLUG=<slug>`.
 
@@ -168,6 +173,6 @@ stop and comment on the issue rather than guessing).
 | | How to spawn a subagent | Fix round (§3) | Authorization gate |
 |---|---|---|---|
 | **Claude Code** | `Agent` with `subagent_type: plan-implementer`; `isolation: "worktree"` is available, but pass the `make worktree-add` path explicitly so the layout matches every other client. The agent pins Sonnet 5.5 (`model:` in its frontmatter) | `SendMessage` to the implementer's agent id with the verified findings |  auto-mode classifier; standing allow rules live in `.claude/settings.local.json` (`Bash(gh pr merge *)`, `Bash(git push --force-with-lease *)`) — machine-local, not versioned |
-| **Codex** | `collaboration.spawn_agent` with the `plan-implementer` agent, one call per plan. Independent worktrees may run concurrently within the agent-slot limit | a new `plan-implementer` with the fix mandate (worktree path, PR number, the verified findings) |  explicit user authorization or a standing approval |
 | **Kiro** | `orchestrate_subagent` with the `plan-implementer` agent (or `role: general-task-execution`), one stage per plan. Independent plans are stages **without** `depends_on` and run in parallel; a dependency chain is `depends_on` on the predecessor | a new `plan-implementer` with the fix mandate (worktree path, PR number, the verified findings) |  explicit user decision |
-| **Antigravity** | one subagent per plan from `.agents/agents/`, or sequential execution if none is defined | a new subagent with the fix mandate (worktree path, PR number, the verified findings) |  `commandExecutionPolicy` on the subagent |
+| **OpenCode** | the `subagent` tool with `agent: plan-implementer` (`background: true` to run it in the background), one call per plan; `explore` is the built-in context-gathering subagent | a new `plan-implementer` with the fix mandate (worktree path, PR number, the verified findings) |  explicit user decision or a standing approval |
+| **Copilot CLI** | the `task` tool with `agent_type: plan-implementer`, one call per plan; the agent comes from `.github/agents`, which loads once the folder is trusted. If the session cannot delegate to it, pass the body of `.claude/agents/plan-implementer.md` inline as the mandate | a new `plan-implementer` with the fix mandate (worktree path, PR number, the verified findings) |  explicit user decision or a standing approval |

@@ -7,8 +7,8 @@ description: Review a pull request at a bounded token cost - a scripted triage t
 
 The rules a PR is held to are `CONTRIBUTING.md` §Pull requests (size cap,
 approved plan, template) and `docs/index.md` §Documentation maintenance rules;
-this skill is only the procedure. `.claude/skills/review-pr` and
-`.kiro/skills/review-pr` are symlinks to this file.
+this skill is only the procedure. `.claude/skills/review-pr`,
+`.kiro/skills/review-pr` and `.opencode/skills/review-pr` are symlinks to this file.
 
 ## 0 — Where the cost goes
 
@@ -21,7 +21,8 @@ is the larger one. So:
   packages, the reviewer's findings and **only the lines those findings cite** —
   never the whole diff of a standard or full-tier PR;
 - the code is read by the `pr-reviewer` subagent (full tier: also `security-reviewer`), which run on a cheaper model
-  (D327 pattern: `.claude/agents/`, `.codex/agents/`, `.kiro/agents/`, same text).
+  (D327 pattern: `.claude/agents/`, `.kiro/agents/`, `.opencode/agents/`,
+  `.github/agents/`, same text).
 
 ## 1 — Triage (no code read)
 
@@ -43,7 +44,9 @@ About 15 lines: size split into production, tests, docs and generated; areas;
 
 Any `BLOCK` line ends the review here, with one comment that names it:
 
-- **red CI** — nothing to review yet;
+- **red CI** — nothing to review yet. On a contributor's PR that is the whole
+  comment; on your own PR, spawn `reader` with the PR number and fix from its
+  digest instead of opening the log;
 - **no approved plan** for a contributor's non-trivial change — ask for a plan
   issue (or promote the linked idea or bug in place); the design discussion
   happens there, and the maintainer approves it with the `approved` label;
@@ -116,8 +119,8 @@ every finding costs the author a commit and the reviewer another round (D857):
 
 ## Changing the reviewer
 
-A reviewer is a definition (`.claude/agents/pr-reviewer.md` and its `.codex/` and
-`.kiro/` copies, `security-reviewer` likewise), a model pin and §3–§5 of this
+A reviewer is a definition (`.claude/agents/pr-reviewer.md` and its `.kiro/`,
+`.opencode/` and `.github/` copies, `security-reviewer` likewise), a model pin and §3–§5 of this
 skill. A PR that changes any of them runs the evals and reports the score in its
 `## Self-review`; nothing runs them in CI (D856: an eval is N reviewer spawns).
 
@@ -165,9 +168,9 @@ The same procedure moves the review cost to the author, which is the point:
 
 ## Per-client mechanics
 
-| | How to spawn `pr-reviewer` and `security-reviewer` |
+| | How to spawn `pr-reviewer` and `security-reviewer` (`reader` the same way) |
 |---|---|
 | **Claude Code** | `Agent` with `subagent_type: pr-reviewer` / `security-reviewer`, `run_in_background: true` |
-| **Codex** | `collaboration.spawn_agent` with the `pr-reviewer` / `security-reviewer` agent |
 | **Kiro** | `orchestrate_subagent` with the `pr-reviewer` / `security-reviewer` agent, one stage per PR and agent |
-| **Antigravity, Copilot CLI** | no repository agent: pass the definition in `.claude/agents/pr-reviewer.md` or `security-reviewer.md` inline as the mandate |
+| **OpenCode** | the `subagent` tool with `agent: pr-reviewer` / `security-reviewer`, `background: true` |
+| **Copilot CLI** | the `task` tool with `agent_type: pr-reviewer` / `security-reviewer` (from `.github/agents`, loaded once the folder is trusted); if the session cannot delegate to it, pass the definition in `.claude/agents/pr-reviewer.md` or `security-reviewer.md` inline as the mandate |

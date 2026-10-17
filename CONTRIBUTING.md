@@ -58,8 +58,8 @@ run is not a gate.
 ## Working with an agent client
 
 This repository is developed with coding agents and is set up so that **the
-instructions exist once**. `AGENTS.md` is the only real instruction file; Codex
-and Kiro read it natively, and Antigravity too (see the table). Claude Code is
+instructions exist once**. `AGENTS.md` is the only real instruction file; Kiro,
+OpenCode and Copilot CLI read it natively (see the table). Claude Code is
 the only client that will not read that filename, so `CLAUDE.md` is a one-line `@AGENTS.md` import — an import rather than
 a symlink because git does not materialise symlinks on a Windows checkout without
 Developer Mode, and a public repository does not get to choose the operating
@@ -69,11 +69,10 @@ Nothing else is needed to start. Concretely:
 
 | Client | Instructions | Skills | Notes |
 |---|---|---|---|
-| **Codex** | `AGENTS.md`, natively | `.agents/skills/`, natively | Do not add an `AGENTS.override.md`: it *replaces* `AGENTS.md` in the same directory rather than adding to it |
 | **Kiro** | `AGENTS.md`, natively | `.kiro/skills/` → symlinks | Do not put a copy of `AGENTS.md` under `.kiro/steering/`: it is already always included, and a steering file that re-includes it would load it twice. A steering file with *other* content is fine — `cartographer sync` legitimately owns `.kiro/steering/cartographer.md` when this workspace is bound to a KB |
 | **Claude Code** | `CLAUDE.md` → `@AGENTS.md` | `.claude/skills/` → symlinks | Every directory with an `AGENTS.md` has its own one-line `CLAUDE.md` import, which Claude loads on its first read of a file there (D213) |
-| **Antigravity** (CLI `agy`) | `AGENTS.md`, natively (probed on 1.3.2) | `.agents/skills/`, natively | Its workspace layer is `.agents/{skills,agents,hooks.json,mcp_config.json}` (D364). Do not add `.agents/rules/*.md` for instructions: a rule is read only with `trigger: always_on` in its frontmatter. The app was not probed |
-| **Copilot CLI** (`copilot`) | `AGENTS.md`, natively ("Repository instructions", probed on 1.0.94) | `.agents/skills/`, natively ("Project skills") | Its project `mcp`, agent and hook locations (`.mcp.json`, `.github/agents`, `.github/hooks`) are gated on folder trust and are not used (D676) |
+| **OpenCode** | `AGENTS.md`, natively | `.opencode/skills/` → symlinks | It does **not** load `.claude/agents/`: its project agents are `.opencode/agents/`, and `opencode debug agents` from the repository root lists them (run `opencode reload` after editing one: a background service caches the configuration). Probed on 2.0.30: it also finds `.agents/skills/` and lists each skill once, `.opencode/skills/` winning; the bridge stays because it is the documented project cell |
+| **Copilot CLI** (`copilot`) | `AGENTS.md`, natively ("Repository instructions", probed on 1.0.94) | `.agents/skills/`, natively ("Project skills") | Its project agents, `.github/agents/<name>.agent.md`, load only once the folder is trusted (`copilot --agent <name>` selects one); the `model` key is honoured, and a model the subscription does not offer falls back to `auto` with a warning (probed on 1.0.98). Its project `mcp` and hook locations (`.mcp.json`, `.github/hooks`) are gated on folder trust and are not used (D676) |
 
 Where a client reads its instructions and its skills is a fact this repository
 already owns, audited, in `internal/provisioning/workspacescope.go` and
@@ -82,8 +81,8 @@ already owns, audited, in `internal/provisioning/workspacescope.go` and
 matrix, so if you re-audit a client, change both together (D207).
 
 The repo-local skills (`plan-issue`, `implement-issue`, `live-dev`, `review-pr`, `harness-watch`: the directories of `.agents/skills/`) exist **once** in
-`.agents/skills/`; `.claude/skills/<name>` and `.kiro/skills/<name>` are
-symlinks into it. Symlinks do work — verified empirically on Kiro CLI 2.21.4
+`.agents/skills/`; `.claude/skills/<name>`, `.kiro/skills/<name>` and
+`.opencode/skills/<name>` are symlinks into it. Symlinks do work — verified empirically on Kiro CLI 2.21.4
 across 45 runs with negative controls — but **git on Windows is the catch**: with
 `core.symlinks=false`, which is what a checkout without Developer Mode gets, git
 materialises each link as a text file containing its target and the client then
@@ -110,19 +109,26 @@ gate caught it; `make test` now parses every `SKILL.md` with the same
 spec-compliant parser a client uses (D207).
 
 MCP configuration is **not** in the repository: each client keeps it in its own
-format and location — project-local for `.mcp.json`, `.codex/config.toml` and
-`.kiro/settings/mcp.json`, global-only for `~/.gemini/config/mcp_config.json` —
-all of them machine-local and git-ignored. If you are pointing a client at a
+format and location — project-local for `.mcp.json`, `opencode.json` and
+`.kiro/settings/mcp.json` — all of them machine-local and git-ignored. If you are pointing a client at a
 Cartographer server, use `cartographer connect`, not a hand-written file.
 
-The repository also ships four subagents: `plan-implementer`, the worker the
+The repository also ships five subagents: `plan-implementer`, the worker the
 `implement-issue` skill spawns per plan, `live-implementer`, the one the
 `live-dev` skill spawns per change, `pr-reviewer`, the read-only reviewer
-the `review-pr`, `implement-issue` and `live-dev` skills spawn per pull request, and
-`security-reviewer`, the read-only attacker's-view pass they add on full-tier PRs. Each exists in each client's own format —
-`.claude/agents/<name>.md`, `.codex/agents/<name>.toml`,
-`.kiro/agents/<name>.json` — and the three formats must say the same thing: the
-procedure itself stays in the skill (D327).
+the `review-pr`, `implement-issue` and `live-dev` skills spawn per pull request,
+`security-reviewer`, the read-only attacker's-view pass they add on full-tier PRs,
+and `reader`, the read-only reader of one voluminous source (the failed log of a
+red CI run, a client's release notes) that returns a digest instead of the text.
+Each exists in each client's own format — `.claude/agents/<name>.md`,
+`.kiro/agents/<name>.json`, `.opencode/agents/<name>.md` and
+`.github/agents/<name>.agent.md` — and the four formats must say the same thing:
+the same prompt body and description, on a Claude model in the client's own
+spelling (Claude Code `claude-sonnet-5-5`, Kiro and Copilot CLI
+`claude-sonnet-5.5`, OpenCode `anthropic/claude-sonnet-5-5`; `reader` runs on
+Haiku 5.5, the other four on Sonnet 5.5). `TestRepoSubagentsSayTheSameThingOnEveryClient`
+checks all of it, and refuses an agent file in a client directory that has no
+`.claude/agents` counterpart. The procedure itself stays in the skill (D327, D884).
 
 Working on more than one plan at a time? No client isolates its own subagents
 from your working copy, so use a worktree per plan:

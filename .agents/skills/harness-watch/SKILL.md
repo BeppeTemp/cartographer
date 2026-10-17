@@ -1,6 +1,6 @@
 ---
 name: harness-watch
-description: Re-aligns Cartographer with the agent clients it supports (Claude Code, Codex, Kiro, OpenCode, Hermes, Antigravity, Crush) - what changed since the last review and what to do about it. Use when the user asks to check, audit or re-verify a client, to see what changed in a client release, or to refresh docs/harnesses.md.
+description: Re-aligns Cartographer with the agent clients it supports (Claude Code, Codex, Kiro, OpenCode, Hermes, Antigravity, Crush, Copilot CLI) - what changed since the last review and what to do about it. Use when the user asks to check, audit or re-verify a client, to see what changed in a client release, or to refresh docs/harnesses.md.
 ---
 
 # harness-watch — what changed in the supported clients, and what to do
@@ -12,8 +12,8 @@ the matrix it protects is `destinationMatrix`
 `internal/configurator/registry.go`. Why this is a procedure and not a CI job:
 D292.
 
-This file is the single copy for every client; `.claude/skills/harness-watch` and
-`.kiro/skills/harness-watch` are symlinks to it.
+This file is the single copy for every client; `.claude/skills/harness-watch`,
+`.kiro/skills/harness-watch` and `.opencode/skills/harness-watch` are symlinks to it.
 
 ## Invariants
 
@@ -38,7 +38,12 @@ This file is the single copy for every client; `.claude/skills/harness-watch` an
 2. **Current version.** Use the ledger's package source. Report installed versus
    latest released versus the ledger's **Aligned with**.
 3. **Delta.** Read the changelog or release notes **since the ledger version**
-   only. Keep the entries that touch a Cartographer surface: the five kinds
+   only. For each client with a new version, spawn one `reader` (how to spawn it:
+   `review-pr` §Per-client mechanics) with that client's release-note URLs from
+   its ledger section, the version range and the cells to look for (skills,
+   agents, hooks, MCP, instruction paths, transcripts); the readers are read-only,
+   so run them in parallel, and compare their digests against the matrix here.
+   Keep the entries that touch a Cartographer surface: the five kinds
    (skill, agent, hook, instructions, mcp) and their destinations; file formats
    (agent fields, hook schema, MCP config keys); restriction keys (D291); session
    triggers (`docs/sync.md` §Layer 1); project-local scopes (D193); instruction
