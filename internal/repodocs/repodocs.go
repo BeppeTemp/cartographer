@@ -3,8 +3,8 @@
 // the code map.
 //
 // It exists because everything it verifies fails *silently*. A context file
-// over Codex's project_doc_max_bytes is not truncated with an error: the
-// deepest instructions simply stop existing. A skill whose frontmatter is not
+// that grows past what a client keeps in view is not rejected with an error:
+// instructions simply stop being followed. A skill whose frontmatter is not
 // valid YAML is not reported: the client drops the skill and lists the others.
 // A skill location that drifted from a symlink into a copy does not warn: two
 // clients just start reading different procedures. A hand-maintained index does
@@ -36,22 +36,16 @@ import (
 // Budgets. These are not style preferences: each one is a limit something real
 // enforces, and the lowest of them is what the repository has to respect.
 const (
-	// MaxChainBytes is Codex's project_doc_max_bytes (32 KiB by default). Codex
-	// concatenates the AGENTS.md chain from the repository root down to the
-	// working directory and stops adding files once the combined size reaches
-	// it. What gets dropped is the *deepest* file, i.e. the guidance closest to
-	// the code.
-	MaxChainBytes = 32 * 1024
-
 	// MaxRootChars bounds the whole of AGENTS.md, generated blocks included,
 	// because a client loads the whole file.
 	//
-	// No client this repository can verify publishes a per-file ceiling for a
-	// project instruction file, so this is *our* ceiling, not a vendor's: 12.000
-	// characters, chosen because instruction adherence degrades as the file
-	// grows and because it keeps every AGENTS.md chain far inside MaxChainBytes
-	// even with two nested files. Raising it is allowed and is deliberately a
-	// visible edit to this constant (D207).
+	// No client this repository is developed with publishes a per-file ceiling
+	// for a project instruction file, so this is *our* ceiling, not a vendor's:
+	// 12.000 characters, chosen because instruction adherence degrades as the
+	// file grows and because a client that concatenates the AGENTS.md chain
+	// (root plus a nested area file) then still holds it in a small share of its
+	// context. Raising it is allowed and is deliberately a visible edit to this
+	// constant (D207).
 	MaxRootChars = 12000
 
 	// MaxRootLines bounds the *hand-written* part of AGENTS.md — the file with
@@ -62,7 +56,7 @@ const (
 	// column width instead (D209).
 	MaxRootLines = 120
 
-	// Skill frontmatter, per Kiro's rules — the strictest of the four clients,
+	// Skill frontmatter, per Kiro's rules — the strictest of the clients in ClientSurfaces,
 	// so a skill written to them is valid everywhere.
 	MaxSkillNameChars        = 64
 	MaxSkillDescriptionChars = 1024
@@ -98,20 +92,21 @@ var TopicOrder = []struct {
 	{"project-governance", "Repository and documentation policy"},
 }
 
-// CanonicalSkillDir is the one copy of each skill: the path Codex documents for
-// repository-local skills, which is why it was chosen as the canonical one
-// rather than a location of our own invention (D203).
+// CanonicalSkillDir is the one copy of each skill. Copilot CLI reads it
+// natively, so a client that does needs no bridge; every other client gets a
+// symlink into it (D203, D884).
 const CanonicalSkillDir = ".agents/skills"
 
 // ClientSurfaces is what CONTRIBUTING.md §Working with an agent client claims,
-// as data, for the four clients this repository is developed with.
+// as data, for the clients this repository is developed with: Claude Code, Kiro,
+// OpenCode and Copilot CLI (D884).
 //
 // It exists because that table was written from assumption once already and
 // contradicted this repository's own audited provider matrix for a whole client:
-// Antigravity was claimed to read `AGENTS.md` and `.agents/skills` natively and
-// to take a project MCP config at `.agents/mcp_config.json`, while
+// a client was claimed to read `AGENTS.md` and `.agents/skills` natively and to
+// take a project MCP config under `.agents/`, while
 // internal/provisioning/workspacescope.go records that its configuration root is
-// global — ~/.gemini — with no project-local cell of any kind (D193, D207).
+// global, with no project-local cell of any kind (D193, D207).
 // TestClientSkillSurfacesMatchTheProviderRegistry checks each row against
 // provisioning.ProjectDestination, so the prose cannot drift from the matrix
 // again without failing.
@@ -127,10 +122,9 @@ var ClientSurfaces = []struct {
 	SkillDir   string
 	RowMustSay string
 }{
-	{configurator.ProviderCodex, "Codex", CanonicalSkillDir, CanonicalSkillDir},
 	{configurator.ProviderKiro, "Kiro", ".kiro/skills", ".kiro/skills"},
 	{configurator.ProviderClaudeCode, "Claude Code", ".claude/skills", ".claude/skills"},
-	{configurator.ProviderAntigravity, "Antigravity", CanonicalSkillDir, CanonicalSkillDir},
+	{configurator.ProviderOpenCode, "OpenCode", ".opencode/skills", ".opencode/skills"},
 	{configurator.ProviderCopilot, "Copilot CLI", CanonicalSkillDir, CanonicalSkillDir},
 }
 
@@ -349,44 +343,8 @@ func UnknownTopics(decisions []Decision) []string {
 	return out
 }
 
-// ChainBytes returns, for every directory holding an AGENTS.md (or an
-// AGENTS.override.md), the size of the instruction chain Codex would build when
-// launched there: root to that directory, at most one file per directory, with
-// the override winning. The global ~/.codex/AGENTS.md is deliberately not
-// counted — verified not to consume project_doc_max_bytes.
-//
-// test/e2e/fixtures is skipped because a fixture KB carries its own AGENTS.md as
-// *content under test*: it is never part of this repository's instruction chain,
-// and counting it would measure the wrong thing.
-func ChainBytes(root string) (map[string]int, error) {
-	dirs, err := InstructionDirs(root)
-	if err != nil {
-		return nil, err
-	}
-
-	out := map[string]int{}
-	for _, dir := range dirs {
-		total := 0
-		for d := dir; ; d = filepath.Dir(d) {
-			for _, name := range []string{"AGENTS.override.md", "AGENTS.md"} {
-				fi, err := os.Stat(filepath.Join(root, d, name))
-				if err == nil {
-					total += int(fi.Size())
-					break // at most one file per directory
-				}
-			}
-			if d == "." {
-				break
-			}
-		}
-		out[dir] = total
-	}
-	return out, nil
-}
-
 // InstructionDirs returns, sorted and relative to root, every directory holding
-// an AGENTS.md or an AGENTS.override.md, with the same exclusions as the
-// reference gates (skipDir).
+// an AGENTS.md, with the same exclusions as the reference gates (skipDir).
 func InstructionDirs(root string) ([]string, error) {
 	seen := map[string]bool{}
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
@@ -403,7 +361,7 @@ func InstructionDirs(root string) ([]string, error) {
 			}
 			return nil
 		}
-		if d.Name() == "AGENTS.md" || d.Name() == "AGENTS.override.md" {
+		if d.Name() == "AGENTS.md" {
 			seen[filepath.Dir(rel)] = true
 		}
 		return nil

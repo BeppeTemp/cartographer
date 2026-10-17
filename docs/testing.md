@@ -119,7 +119,7 @@ documentation and agent-facing layout, and they are ordinary Go tests so
 otherwise silent — no client, compiler or linter reports any of them:
 
 - the `AGENTS.md` budgets: 120 lines of hand-written text, 12.000 characters for
-  the whole file, and every Codex `AGENTS.md` chain under 32 KiB;
+  the whole file;
 - the generated blocks are up to date — the decision index in `docs/decisions.md`
   and the code map in `AGENTS.md`. The generator **is** this test run with
   `-update`, which is all `make decisions-index` and `make codemap` do, so the

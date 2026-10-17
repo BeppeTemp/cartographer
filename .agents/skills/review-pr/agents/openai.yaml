@@ -1,4 +1,0 @@
-interface:
-  display_name: "PR Review"
-  short_description: "Triage, delegated review and verified findings at a bounded cost"
-  default_prompt: "Use $review-pr to review this pull request."

@@ -16,7 +16,7 @@ Choose it when the result can only be judged on the instance. If the change
 can be written down completely before it is built, write a plan instead.
 
 This file is the single copy for every client; `.claude/skills/live-dev` and
-`.kiro/skills/live-dev` are symlinks to it.
+`.kiro/skills/live-dev` and `.opencode/skills/live-dev` are symlinks to it.
 
 ## Roles
 
@@ -24,12 +24,16 @@ This file is the single copy for every client; `.claude/skills/live-dev` and
   the worktree, the live instance, every git operation and the decision record.
   It turns feedback into changes and reads every diff before the user sees it.
 - **`live-implementer`** — a coding subagent on a cheaper model, pinned in its
-  definition (`.claude/agents/`, `.codex/agents/`, `.kiro/agents/`, same text),
+  definition (`.claude/agents/`, `.kiro/agents/`, `.opencode/agents/`,
+  `.github/agents/`, same text),
   for the closing pass only (§3). It works in the coordinator's worktree and
   stops: it never commits, never runs `make dev`, never touches a file outside
   its mandate.
 - **`pr-reviewer`** — read-only, on a cheaper model, spawned once at closing
   (§3) on the draft PR, at most three rounds (`review-pr` §5).
+- **`reader`** — read-only, on a cheaper model, spawned when a check of the
+  session's PR is red: it reads the failed log and returns the failed jobs, test
+  names and first error lines, so the log never enters the conversation.
 - **Explore** (or the client's context-gathering subagent) — answers "where is X"
   for an area the coordinator does not know, so the files are not read into the
   conversation.
@@ -101,7 +105,9 @@ first (D703).
    the full `make gate` on the rebased tree, `git push --force-with-lease`.
 5. Write the record (below), then `gh pr ready`. Merge only on the user's
    decision: `gh pr merge --squash --delete-branch --auto` merges once the
-   required checks are green; confirm with `gh pr view <pr> --json state`.
+   required checks are green; confirm with `gh pr view <pr> --json state`. A
+   required check that fails: spawn `reader` with the PR number and fix from its
+   digest, not from the log.
 6. Stop `make dev`; after the merge, `make worktree-rm SLUG=<slug>` from the main
    working copy, then `git pull --ff-only`.
 
@@ -144,8 +150,8 @@ release-please reads both.
 | | How to spawn the implementer |
 |---|---|
 | **Claude Code** | `Agent` with `subagent_type: live-implementer`, `run_in_background: true`; act on the completion notification |
-| **Codex** | `collaboration.spawn_agent` with the `live-implementer` agent |
 | **Kiro** | `orchestrate_subagent` with the `live-implementer` agent |
-| **Antigravity** | no project agent: make the change yourself |
+| **OpenCode** | the `subagent` tool with `agent: live-implementer` |
+| **Copilot CLI** | the `task` tool with `agent_type: live-implementer` (from `.github/agents`, loaded once the folder is trusted); if the session cannot delegate to it, pass the body of `.claude/agents/live-implementer.md` inline as the mandate |
 
-To spawn the reviewers, see `review-pr` §Per-client mechanics.
+To spawn the reviewers and `reader`, see `review-pr` §Per-client mechanics.
