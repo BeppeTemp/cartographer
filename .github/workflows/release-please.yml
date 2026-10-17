@@ -42,8 +42,11 @@ jobs:
       - id: branch
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        # Only a branch of this repository: a fork PR whose branch starts with
+        # release-please-- also matches the search, and checking out its name
+        # here would fail and skip the steps below.
         run: |
-          b=$(gh pr list -R "${{ github.repository }}" --state open --search "head:release-please--" --json headRefName -q '.[0].headRefName')
+          b=$(gh pr list -R "${{ github.repository }}" --state open --search "head:release-please--" --json headRefName,isCrossRepository -q '[.[] | select(.isCrossRepository | not)][0].headRefName // empty')
           echo "name=$b" >> "$GITHUB_OUTPUT"
       - if: steps.branch.outputs.name != ''
         uses: actions/checkout@v7
