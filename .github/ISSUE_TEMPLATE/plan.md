@@ -28,6 +28,6 @@ semantics and error cases; tests to add; acceptance criterion.
 <!-- Replace every placeholder. -->
 
 - [ ] Current-state docs: `docs/<page>.md`
-- [ ] Decision file: `docs/decisions/D<issue>-<slug>.md`, `topic: <topic>`, or `none` (no architectural or contract choice)
+- [ ] Decision file: `docs/decisions/D<issue>-<slug>.md`, `topic: <topic>` (one of `repodocs.TopicOrder`; `make decisions-new` lists them), or `none` (no architectural or contract choice)
 - [ ] Traps: fixed with a test or a comment next to the code, or `none`
 - [ ] Release impact: `<none | describe>`

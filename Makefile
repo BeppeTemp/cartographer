@@ -179,6 +179,8 @@ settings-example: ## Regenerate config.example.yaml from the settings schema (in
 decisions-new: ## New decision from the template: make decisions-new N=<plan issue or PR number> SLUG=my-choice TOPIC=control-plane (D672)
 	@test -n "$(N)" -a -n "$(SLUG)" -a -n "$(TOPIC)" || \
 		(echo "decisions-new: N, SLUG and TOPIC are all required" && exit 1)
+	@grep -q '{"$(TOPIC)",' internal/repodocs/repodocs.go || \
+		(echo "decisions-new: unknown TOPIC $(TOPIC); valid: $$(grep -oE '^	\{"[a-z-]+"' internal/repodocs/repodocs.go | tr -d '{"	' | tr '\n' ' ')" && exit 1)
 	@test ! -e "docs/decisions/D$(N)-$(SLUG).md" || \
 		(echo "decisions-new: docs/decisions/D$(N)-$(SLUG).md already exists" && exit 1)
 	@sed -e 's/^topic: .*/topic: $(TOPIC)/' -e 's/^# D<n> — .*/# D$(N) — <title>/' \
