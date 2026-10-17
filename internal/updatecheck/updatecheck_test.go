@@ -30,7 +30,7 @@ func newFakeGitHub(t *testing.T, code int, body, etag string) *fakeGitHub {
 	f := &fakeGitHub{code: code, body: body, etag: etag}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.hits.Add(1)
-		if r.URL.Path != "/releases" || r.URL.Query().Get("per_page") != "1" {
+		if r.URL.Path != "/releases" || r.URL.Query().Get("per_page") != "10" {
 			t.Errorf("unexpected request %s", r.URL)
 		}
 		f.gotIf.Store(r.Header.Get("If-None-Match"))
@@ -278,5 +278,77 @@ func TestForceRefreshNotTriggeredWhenDifferent(t *testing.T) {
 	res, _ := Check(context.Background(), "v0.16.1", o)
 	if f.hits.Load() != 0 || res.Latest != "v0.17.0" {
 		t.Fatalf("a cache naming a newer release must be trusted (%d hits): %+v", f.hits.Load(), res)
+	}
+}
+
+// A tag from the network ends up in an upgrade command the user runs
+// (Channel.UpgradeCommand): the shapes that would run something are refused at
+// the source, so no caller ever sees them as Latest (D862).
+func TestValidTag(t *testing.T) {
+	for _, tag := range []string{"v0.17.0", "0.17.0", "v1.0.0-rc.1", "v10.20.30-beta-2.x", "v1.2.3-0"} {
+		if !ValidTag(tag) {
+			t.Errorf("ValidTag(%q) = false, want true", tag)
+		}
+	}
+	for _, tag := range []string{
+		"", "dev", "v1", "v1.2", "v1.2.3.4", "v1.2.3-", "v1.2.3+build",
+		"v9.9.9-$(id)", "v9.9.9-`id`", "v9.9.9; rm -rf ~", "v9.9.9-a b", "v9.9.9\n", "v9.9.9-é", "v9.9.9|sh", "v9.9.9&&id",
+	} {
+		if ValidTag(tag) {
+			t.Errorf("ValidTag(%q) = true, want false", tag)
+		}
+	}
+}
+
+func TestCheckRefusesAHostileTag(t *testing.T) {
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	f := newFakeGitHub(t, 200, `[{"tag_name":"v9.9.9-$(id)"}]`, "")
+	cache := filepath.Join(t.TempDir(), CacheFileName)
+	res, err := Check(context.Background(), "v0.16.1", opts(t, f, cache, now))
+	if err == nil || res.Available || res.Latest != "" {
+		t.Fatalf("a hostile tag must produce no latest and no update: %+v %v", res, err)
+	}
+	if _, statErr := os.Stat(cache); statErr == nil {
+		t.Error("a hostile tag must not be cached")
+	}
+}
+
+func TestCheckIgnoresAHostileTagInTheCache(t *testing.T) {
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	f := newFakeGitHub(t, 200, `[{"tag_name":"v0.17.0"}]`, "")
+	cache := filepath.Join(t.TempDir(), CacheFileName)
+	hostile := `{"checked_at":"` + now.Add(-time.Minute).Format(time.RFC3339) + `","latest":"v9.9.9-$(id)"}`
+	if err := os.WriteFile(cache, []byte(hostile), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Check(context.Background(), "v0.16.1", opts(t, f, cache, now))
+	if err != nil || res.Latest != "v0.17.0" || f.hits.Load() != 1 {
+		t.Fatalf("a hostile cached tag must count as no cache: %+v %v hits=%d", res, err, f.hits.Load())
+	}
+}
+
+// A token with write access lists drafts first, and a stray tag can sit at the
+// head: the check answers with the newest release that is public and has a
+// version tag, and caches it, instead of going dark (D862).
+func TestCheckSkipsDraftsAndTagsThatAreNotVersions(t *testing.T) {
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	f := newFakeGitHub(t, 200, `[{"tag_name":"v9.9.9","draft":true},{"tag_name":"v8.8.8-$(id)"},{"tag_name":"v1.2.3"},{"tag_name":"v1.2.2"}]`, `"e1"`)
+	cache := filepath.Join(t.TempDir(), CacheFileName)
+	res, err := Check(context.Background(), "v1.0.0", opts(t, f, cache, now))
+	if err != nil || res.Latest != "v1.2.3" || !res.Available {
+		t.Fatalf("Check = %+v, %v; want latest v1.2.3", res, err)
+	}
+	e, ok := readCache(cache)
+	if !ok || e.Latest != "v1.2.3" || e.ETag != `"e1"` {
+		t.Errorf("cache = %+v ok=%v, want v1.2.3 with its ETag", e, ok)
+	}
+	// Nothing usable in the list is still an error and writes no cache.
+	g := newFakeGitHub(t, 200, `[{"tag_name":"v9.9.9","draft":true},{"tag_name":"nightly"}]`, "")
+	cache2 := filepath.Join(t.TempDir(), CacheFileName)
+	if res, err := Check(context.Background(), "v1.0.0", opts(t, g, cache2, now)); err == nil || res.Latest != "" {
+		t.Errorf("a list with no usable release must be an error: %+v %v", res, err)
+	}
+	if _, statErr := os.Stat(cache2); statErr == nil {
+		t.Error("no usable release must not be cached")
 	}
 }

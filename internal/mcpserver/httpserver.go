@@ -289,6 +289,9 @@ type MultiKBServer struct {
 	// settings and updateChannel feed GET /api/ui/v1/settings (D743).
 	settings      *config.Config
 	updateChannel string
+	// releasesSource and releases feed GET /api/ui/v1/releases (D862).
+	releasesSource ReleasesSource
+	releases       releasesCache
 	// clientReports are the client settings each principal's machines sent
 	// (D818), shown back to that principal only.
 	clientReports clientReports

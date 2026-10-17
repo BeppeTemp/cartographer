@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 )
 
@@ -40,11 +41,34 @@ func (w *serverUpdateWatch) Latest() string {
 	return v
 }
 
+// serverUpdateEnabled is the one switch for everything this server asks
+// GitHub: the daily check and the release history (D862). Off by
+// configuration, by CARTOGRAPHER_NO_UPDATE_CHECK, or on a dev build, which is
+// on no release line.
+func serverUpdateEnabled(cfg *config.Config, current string) bool {
+	return cfg != nil && cfg.UpdateCheck && current != "" && current != "dev" && !updatecheck.DisabledByEnv(nil)
+}
+
+// serverReleasesFn is the release-history fetch, replaced in tests.
+var serverReleasesFn = updatecheck.Releases
+
+// serverReleasesSource is what GET /api/ui/v1/releases reads, or nil under the
+// same gate as startServerUpdateCheck: an operator who turned the update
+// check off must not get a second outbound call.
+func serverReleasesSource(cfg *config.Config, current string) mcpserver.ReleasesSource {
+	if !serverUpdateEnabled(cfg, current) {
+		return nil
+	}
+	return func(ctx context.Context, etag string) (updatecheck.ReleasesResult, error) {
+		return serverReleasesFn(ctx, updatecheck.Options{}, updatecheck.ReleasesRequest{ETag: etag, Current: current})
+	}
+}
+
 // startServerUpdateCheck starts the one checker goroutine and returns the
-// source /health and kb_status read, or nil when no check runs: disabled by
-// configuration, or a dev build, which is on no release line.
+// source /health and kb_status read, or nil when no check runs
+// (serverUpdateEnabled).
 func startServerUpdateCheck(cfg *config.Config, current string) func() string {
-	if !cfg.UpdateCheck || current == "" || current == "dev" || updatecheck.DisabledByEnv(nil) {
+	if !serverUpdateEnabled(cfg, current) {
 		return nil
 	}
 	w := &serverUpdateWatch{}

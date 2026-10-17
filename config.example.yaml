@@ -125,7 +125,9 @@ web:
 
 # --- available settings ---
 # Look up the latest release once a day and report it in /health and kb_status
-# when it is newer. A dev build never checks.
+# when it is newer; the Atlas reads the release history from the same GitHub
+# list when someone opens it. Off, the server makes neither call. A dev build
+# never checks.
 # Default: true. Env: CARTOGRAPHER_UPDATE_CHECK. Flag: --update-check. Needs a
 # restart.
 # update_check: true
