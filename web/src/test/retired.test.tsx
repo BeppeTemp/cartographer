@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
+import { Retired } from "../components/Retired";
 import type { Overview, RetiredResponse } from "../api/types";
 import { json, overview, stubApi } from "./fixtures";
 
@@ -103,6 +104,29 @@ describe("the Retired panel", () => {
     expect(within(panel).getByText("Old plan")).toBeInTheDocument();
     await user.type(within(panel).getByRole("searchbox", { name: "Filter retired concepts" }), " zzz");
     expect(await within(panel).findByText("Nothing matches these filters.")).toBeInTheDocument();
+  });
+
+  it("drops a status filter the data no longer has, and a new KB starts unfiltered", async () => {
+    let answer = retired;
+    stubApi({ "/retired": () => json(answer) });
+    const user = userEvent.setup();
+    const { rerender } = render(<Retired kb="kb-a" onOpen={() => {}} />);
+    const list = async () =>
+      (await screen.findByRole("list", { name: "Retired concepts" })).querySelectorAll("li").length;
+    expect(await list()).toBe(4);
+    await user.click(within(screen.getByRole("list", { name: "Filter by status" })).getByRole("button", { name: /Archived/ }));
+    expect(await list()).toBe(1);
+
+    // A live refetch without any archived page: the filter goes with its chip.
+    answer = { ...retired, concepts: retired.concepts.filter((c) => c.status !== "archived") };
+    rerender(<Retired kb="kb-a" live={1} onOpen={() => {}} />);
+    await waitFor(async () => expect(await list()).toBe(3));
+
+    await user.type(screen.getByRole("searchbox", { name: "Filter retired concepts" }), "rota");
+    expect(await list()).toBe(1);
+    rerender(<Retired kb="kb-b" live={1} onOpen={() => {}} />);
+    await waitFor(async () => expect(await list()).toBe(3));
+    expect(screen.getByRole("searchbox", { name: "Filter retired concepts" })).toHaveValue("");
   });
 
   it("says each journal's harvest state", async () => {

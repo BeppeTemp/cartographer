@@ -49,10 +49,12 @@ export function Retired({
   const [status, setStatus] = useState<string | null>(null);
   const [text, setText] = useState("");
 
-  // A new KB starts blank; a live refetch (D337) keeps what is on screen.
+  // A new KB starts blank, filters included; a live refetch (D337) keeps what is on screen.
   useEffect(() => {
     setData(null);
     setError(null);
+    setStatus(null);
+    setText("");
   }, [kb]);
 
   useEffect(() => {
@@ -76,15 +78,17 @@ export function Retired({
     return out;
   }, [all]);
   const mapTitles = useMemo(() => new Map((data?.maps ?? []).map((m) => [m.name, m.title || m.name])), [data]);
+  // A status a live refetch emptied has no chip left to clear it: drop it.
+  const shown = status !== null && counts.has(status) ? status : null;
   const rows = useMemo(() => {
     const needle = text.trim().toLowerCase();
     return all.filter(
       (c) =>
-        (status === null || c.status === status) &&
+        (shown === null || c.status === shown) &&
         (!needle ||
           [c.title, c.id, c.from, c.reason, c.supersede_reason].some((v) => v?.toLowerCase().includes(needle))),
     );
-  }, [all, status, text]);
+  }, [all, shown, text]);
 
   // A snapshot that never exported the view answers 404: say so, do not retry.
   const unavailable = error instanceof ApiError && error.isNotFound;
@@ -118,8 +122,8 @@ export function Retired({
                   key={name}
                   label={label}
                   count={counts.get(name) ?? 0}
-                  pressed={status === name}
-                  onToggle={() => setStatus(status === name ? null : name)}
+                  pressed={shown === name}
+                  onToggle={() => setStatus(shown === name ? null : name)}
                 />
               ))}
             </FilterChips>
