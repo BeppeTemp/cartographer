@@ -129,36 +129,6 @@ func TestDetect_OpenCodeXDGConfigDir(t *testing.T) {
 	}
 }
 
-// A provider whose evidence is its own root directory (D141, hermes) is
-// detected from $HERMES_HOME when the binary is absent — and only when that
-// directory actually exists.
-func TestDetect_ProviderRootDir(t *testing.T) {
-	home := t.TempDir()
-	root := filepath.Join(t.TempDir(), "hermes")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	withStubs(t, home, nil, "linux")
-	withEnv(t, map[string]string{"HERMES_HOME": root})
-	for _, a := range Detect() {
-		if a.Provider != configurator.ProviderHermes {
-			continue
-		}
-		if !a.Installed || a.Evidence != root || a.DetectedBy != HeuristicProviderRoot {
-			t.Fatalf("hermes: expected Installed=true evidence=%q detected-by=%s, got %+v", root, HeuristicProviderRoot, a)
-		}
-	}
-
-	// Pointing at a directory that does not exist is not evidence.
-	withEnv(t, map[string]string{"HERMES_HOME": filepath.Join(root, "nope")})
-	for _, a := range Detect() {
-		if a.Provider == configurator.ProviderHermes && a.Installed {
-			t.Fatalf("hermes: expected not installed, got %+v", a)
-		}
-	}
-}
-
 // A provider whose surfaces ship under different executable names is detected
 // from any of them: Kiro's IDE installs `kiro`, its standalone CLI installs
 // `kiro-cli`, and either is the same provider.
@@ -373,7 +343,6 @@ func TestDescriptorsKeepTheirUnixDetection(t *testing.T) {
 		configurator.ProviderClaudeCode:  {"claude"},
 		configurator.ProviderCodex:       {"codex"},
 		configurator.ProviderKiro:        {"kiro", "kiro-cli"},
-		configurator.ProviderHermes:      {"hermes"},
 		configurator.ProviderOpenCode:    {"opencode"},
 		configurator.ProviderAntigravity: {"agy"},
 		configurator.ProviderCrush:       {"crush"},
@@ -453,7 +422,7 @@ func TestDetect_LeftoverConfigDirIsNotReportedAsABinary(t *testing.T) {
 // apart.
 func TestHeuristicsAreDistinct(t *testing.T) {
 	seen := map[Heuristic]bool{}
-	for _, h := range []Heuristic{HeuristicBinary, HeuristicConfigDir, HeuristicEnvConfigDir, HeuristicProviderRoot, HeuristicAppDir} {
+	for _, h := range []Heuristic{HeuristicBinary, HeuristicConfigDir, HeuristicEnvConfigDir, HeuristicAppDir} {
 		if h == "" {
 			t.Error("a heuristic must not be empty: empty means \"not detected\"")
 		}

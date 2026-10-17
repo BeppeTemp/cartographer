@@ -1101,7 +1101,7 @@ func TestViewServerPanel_LabelledBlock(t *testing.T) {
 			{Name: "claude", Connected: true, BoundKBs: []string{"kb-uno", "kb-due"}},
 			{Name: "codex", Connected: true, BoundKBs: []string{"kb-uno"}},
 			{Name: "kiro", Connected: true, BoundKBs: []string{"kb-uno"}},
-			{Name: "hermes", Connected: false, BoundKBs: []string{"kb-tre"}},
+			{Name: "crush", Connected: false, BoundKBs: []string{"kb-tre"}},
 		},
 		Service: &serviceSnapshot{Installed: true, Running: true, Lifecycle: "loaded"},
 	}

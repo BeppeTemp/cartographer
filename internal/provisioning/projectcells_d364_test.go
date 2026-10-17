@@ -1,6 +1,6 @@
 package provisioning_test
 
-// Project-local cells for Antigravity and Hermes, and co-owned paths (D364).
+// Project-local cells for Antigravity, and co-owned paths (D364).
 
 import (
 	"os"
@@ -123,25 +123,6 @@ func TestAntigravityProjectHooksFileKeepsTheUsersEntries(t *testing.T) {
 	}
 	if got := readJSONFile(t, hooks); got["mine"] == nil || got["cartographer-guard"] != nil {
 		t.Fatalf("after prune hooks.json = %v", got)
-	}
-}
-
-// A Hermes workspace skill is written to .hermes/skills like any other
-// client's, not delivered to an inbox: no SOURCE.md claiming "nothing is active".
-func TestApply_HermesProjectSkillIsWrittenNotDelivered(t *testing.T) {
-	m := provisioning.MergeArtifacts([]provisioning.Artifact{demoSkill()})
-	baseDir := t.TempDir()
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true, Provider: configurator.ProviderHermes, BaseDir: baseDir, Scope: provisioning.ScopeProject, Lock: provisioning.Lock{},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !exists(filepath.Join(baseDir, ".hermes", "skills", "demo", "SKILL.md")) {
-		t.Fatalf("skill not written: %+v", res.NewLock.Managed)
-	}
-	if exists(filepath.Join(baseDir, ".hermes", "skills", "demo", "SOURCE.md")) || exists(filepath.Join(baseDir, "skill-inbox")) {
-		t.Error("a workspace skill was treated as an inbox delivery")
 	}
 }
 

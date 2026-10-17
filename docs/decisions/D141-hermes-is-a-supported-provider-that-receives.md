@@ -4,6 +4,8 @@ topic: client-configurator
 
 # D141 — Hermes is a supported provider that receives deliveries, not installations
 
+> **Superseded by [D898](D898-hermes-support-is-removed.md)**: Hermes support, and the mechanisms only it used, are removed.
+
 `hermes` is a provider in the registry (D137) with exactly one supported kind, `skill`, and four
 explicitly unsupported cells. Its skills are **delivered** to
 `$HERMES_HOME/skill-inbox/<name>/cartographer/` — the skill's files, provenance-stamped as

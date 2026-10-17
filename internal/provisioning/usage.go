@@ -86,7 +86,6 @@ var usageScanners = map[string]usageScanner{
 	"codex":       scanCodex,
 	"kiro":        scanKiro,
 	"opencode":    scanNone("opencode: no session transcript (a JS plugin sees session events but writes none)"),
-	"hermes":      scanNone("hermes: no session transcript, and skills arrive through an inbox, not a scannable directory"),
 	"antigravity": scanNone("antigravity: no documented session transcript"),
 	"crush":       scanNone("crush: no documented session transcript"),
 	"copilot":     scanCopilot,
@@ -98,7 +97,7 @@ var usageScanners = map[string]usageScanner{
 func UsageProviders() (supported, partial, unsupported []string) {
 	supported = []string{"claude", "copilot", "kiro"}
 	partial = []string{"codex"}
-	unsupported = []string{"antigravity", "crush", "hermes", "opencode"}
+	unsupported = []string{"antigravity", "crush", "opencode"}
 	return
 }
 

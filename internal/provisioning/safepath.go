@@ -88,8 +88,7 @@ var lstat = os.Lstat
 
 // ensureSafeDir walks relDir's components under baseDir and refuses the first
 // one isUnsafeDestination rejects. baseDir itself is deliberately exempt: it may
-// legitimately be a link (a symlinked $HOME, or a provider root resolved from
-// BaseDirEnv), so the walk starts below it. A component that does not exist yet
+// legitimately be a link (a symlinked $HOME), so the walk starts below it. A component that does not exist yet
 // is fine.
 func ensureSafeDir(baseDir, relDir string) error {
 	relDir = filepath.Clean(relDir)

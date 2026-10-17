@@ -491,78 +491,6 @@ func TestMaterializeForProviders_StdioPreflightIsAtomic(t *testing.T) {
 	}
 }
 
-// A provider with a base dir of its own (D141) materializes into its own tree,
-// while the single v2 lockfile stays in the shared target dir and records that
-// base dir — so a later prune finds the same files. The provider that shares
-// the target dir keeps a lockfile entry with no base_dir at all: no migration,
-// no change of meaning for anything written before D141.
-func TestMaterializeForProviders_PerProviderBaseDir(t *testing.T) {
-	dir := t.TempDir()
-	hermesHome := t.TempDir()
-	t.Setenv("HERMES_HOME", hermesHome)
-
-	m := kbSkillManifest()
-	if _, err := materializeForProviders(uniformManifests(m, []string{"claude", "hermes"}), globalProjections([]string{"claude", "hermes"}, dir), dir, "", true, false /* dryRun */, false, portabilityOptions{}, nil); err != nil {
-		t.Fatalf("materializeForProviders: %v", err)
-	}
-
-	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "example", "SKILL.md")); err != nil {
-		t.Errorf("claude materialized under the shared dir: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(hermesHome, "skill-inbox", "example", "cartographer", "SKILL.md")); err != nil {
-		t.Errorf("hermes materialized under $HERMES_HOME: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "skill-inbox")); !os.IsNotExist(err) {
-		t.Errorf("hermes wrote into the shared dir too: %v", err)
-	}
-
-	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
-	if err != nil {
-		t.Fatalf("read lockfile: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(hermesHome, provisioning.LockFileName)); !os.IsNotExist(err) {
-		t.Errorf("a second lockfile was written under $HERMES_HOME: %v", err)
-	}
-	if got := lockFile.ForProvider("hermes").BaseDir; got != hermesHome {
-		t.Errorf("hermes lock base_dir = %q, want %q", got, hermesHome)
-	}
-	if got := lockFile.ForProvider("claude").BaseDir; got != "" {
-		t.Errorf("claude lock base_dir = %q, want empty (the lockfile's own directory)", got)
-	}
-
-	// Prune resolved through LockBaseDir removes each provider's files inside
-	// its own tree only.
-	for _, p := range []string{"claude", "hermes"} {
-		lock := lockFile.ForProvider(p)
-		if _, err := provisioning.PruneManaged(lock.Managed, provisioning.LockBaseDir(lock, dir), false); err != nil {
-			t.Fatalf("prune %s: %v", p, err)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(hermesHome, "skill-inbox", "example")); !os.IsNotExist(err) {
-		t.Errorf("hermes delivery survived the prune: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "example")); !os.IsNotExist(err) {
-		t.Errorf("claude skill survived the prune: %v", err)
-	}
-}
-
-// $HERMES_HOME unset is a failure that names the variable, not a silent
-// fallback to the home directory (D141).
-// A provider whose base dir cannot be resolved fails before anything is
-// written, naming the variable that would fix it. Since D193 the resolution
-// happens while the projections are built — one per provider in the default
-// scope — which is the first thing both `sync` and `connect` do.
-func TestMaterializeForProviders_MissingProviderBaseDir(t *testing.T) {
-	t.Setenv("HERMES_HOME", "")
-	_, err := allProjections(&clientconfig.Config{}, []string{"hermes"}, t.TempDir())
-	if err == nil {
-		t.Fatal("projections resolved with $HERMES_HOME unset")
-	}
-	if !strings.Contains(err.Error(), "HERMES_HOME") {
-		t.Errorf("error %q does not name the variable", err)
-	}
-}
-
 // A dry run must not describe its plan in the past tense: Apply fills
 // AppliedResult with what it would write, and printing that as "wrote" reports
 // a pass that never happened (D147).
@@ -995,9 +923,9 @@ func TestCommonRevision(t *testing.T) {
 }
 
 // skillAndAgentManifest builds a two-artifact manifest: a "skill" (every
-// provider in these tests supports it) and an "agent" (hermes does not —
+// provider in these tests supports it) and an "agent" (crush does not —
 // D55/D141). Its raw Revision covers both artifacts, so it differs from
-// what FilterForProvider computes for hermes once the agent is dropped.
+// what FilterForProvider computes for crush once the agent is dropped.
 func skillAndAgentManifest() provisioning.Manifest {
 	m := provisioning.Manifest{
 		Artifacts: []provisioning.Artifact{
@@ -1023,22 +951,21 @@ func skillAndAgentManifest() provisioning.Manifest {
 // one `status` also reports for it — not the pre-projection manifest
 // revision, which no other command will ever echo back.
 func TestPrintSyncRevisions_UnsupportedKindReportsRecordedRevision(t *testing.T) {
-	t.Setenv("HERMES_HOME", t.TempDir())
 	m := skillAndAgentManifest()
-	filtered := provisioning.FilterForProvider(m, configurator.ProviderHermes)
+	filtered := provisioning.FilterForProvider(m, configurator.ProviderCrush)
 	if filtered.Revision == m.Revision {
 		t.Fatal("test fixture is broken: filtering the agent out must change the revision")
 	}
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"hermes"}), globalProjections([]string{"hermes"}, t.TempDir()), t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"crush"}), globalProjections([]string{"crush"}, t.TempDir()), t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
-	if got := results["hermes"].NewLock.AppliedRevision; got != filtered.Revision {
+	if got := results["crush"].NewLock.AppliedRevision; got != filtered.Revision {
 		t.Fatalf("recorded revision = %q, want the post-filter revision %q", got, filtered.Revision)
 	}
 
-	out := withStdout(t, func() { printSyncRevisions(results, []string{"hermes"}, false) })
+	out := withStdout(t, func() { printSyncRevisions(results, []string{"crush"}, false) })
 	want := "synced to revision " + filtered.Revision + "\n"
 	if out != want {
 		t.Errorf("printSyncRevisions output = %q, want %q", out, want)
@@ -1053,16 +980,15 @@ func TestPrintSyncRevisions_UnsupportedKindReportsRecordedRevision(t *testing.T)
 // fills AppliedResult.NewLock.AppliedRevision from the post-filter manifest
 // even under DryRun, so "would sync to" and "synced to" must agree.
 func TestPrintSyncRevisions_DryRunMatchesReal(t *testing.T) {
-	t.Setenv("HERMES_HOME", t.TempDir())
 	m := skillAndAgentManifest()
-	filtered := provisioning.FilterForProvider(m, configurator.ProviderHermes)
+	filtered := provisioning.FilterForProvider(m, configurator.ProviderCrush)
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"hermes"}), globalProjections([]string{"hermes"}, t.TempDir()), t.TempDir(), "", true, true /* dryRun */, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"crush"}), globalProjections([]string{"crush"}, t.TempDir()), t.TempDir(), "", true, true /* dryRun */, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders (dry-run): %v", err)
 	}
 
-	out := withStdout(t, func() { printSyncRevisions(results, []string{"hermes"}, true) })
+	out := withStdout(t, func() { printSyncRevisions(results, []string{"crush"}, true) })
 	want := "would sync to revision " + filtered.Revision + "\n"
 	if out != want {
 		t.Errorf("printSyncRevisions (dry-run) output = %q, want %q", out, want)
@@ -1070,31 +996,30 @@ func TestPrintSyncRevisions_DryRunMatchesReal(t *testing.T) {
 }
 
 // TestPrintSyncRevisions_MultiProviderDivergence exercises the per-provider
-// branch: claude materializes both kinds while hermes drops the agent
+// branch: claude materializes both kinds while crush drops the agent
 // (D55/D141), so even from the SAME raw manifest their recorded revisions
 // genuinely diverge and printSyncRevisions must report one line each.
 func TestPrintSyncRevisions_MultiProviderDivergence(t *testing.T) {
-	t.Setenv("HERMES_HOME", t.TempDir())
 	m := skillAndAgentManifest()
 	claudeRev := provisioning.FilterForProvider(m, configurator.ProviderClaudeCode).Revision
-	hermesRev := provisioning.FilterForProvider(m, configurator.ProviderHermes).Revision
-	if claudeRev == hermesRev {
-		t.Fatal("test fixture is broken: claude and hermes must diverge")
+	crushRev := provisioning.FilterForProvider(m, configurator.ProviderCrush).Revision
+	if claudeRev == crushRev {
+		t.Fatal("test fixture is broken: claude and crush must diverge")
 	}
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"claude", "hermes"}), globalProjections([]string{"claude", "hermes"}, t.TempDir()), t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"claude", "crush"}), globalProjections([]string{"claude", "crush"}, t.TempDir()), t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
-	if got := commonRevision(results, []string{"claude", "hermes"}); got != "" {
-		t.Errorf("commonRevision = %q, want empty: claude and hermes diverge", got)
+	if got := commonRevision(results, []string{"claude", "crush"}); got != "" {
+		t.Errorf("commonRevision = %q, want empty: claude and crush diverge", got)
 	}
 
-	out := withStdout(t, func() { printSyncRevisions(results, []string{"claude", "hermes"}, false) })
+	out := withStdout(t, func() { printSyncRevisions(results, []string{"claude", "crush"}, false) })
 	wantClaude := "[claude] synced to revision " + claudeRev + "\n"
-	wantHermes := "[hermes] synced to revision " + hermesRev + "\n"
-	if !strings.Contains(out, wantClaude) || !strings.Contains(out, wantHermes) {
-		t.Errorf("printSyncRevisions output = %q, want lines %q and %q", out, wantClaude, wantHermes)
+	wantCrush := "[crush] synced to revision " + crushRev + "\n"
+	if !strings.Contains(out, wantClaude) || !strings.Contains(out, wantCrush) {
+		t.Errorf("printSyncRevisions output = %q, want lines %q and %q", out, wantClaude, wantCrush)
 	}
 }
 
@@ -1292,17 +1217,10 @@ func TestDryRunPlanCoversRemovalsAndKnownKBs(t *testing.T) {
 
 // globalProjections is the test helper for the shape every caller had before
 // D193: one global projection per provider, materializing into baseDir.
-// It resolves each provider's own base dir exactly as allProjections does, so
-// a provider that materializes outside the shared client dir (hermes under
-// $HERMES_HOME, D141) is not silently redirected into it by the helper.
 func globalProjections(providers []string, baseDir string) []syncProjection {
 	out := make([]syncProjection, 0, len(providers))
 	for _, p := range providers {
-		resolved, err := provisioning.BaseDirFor(configurator.Provider(p), baseDir)
-		if err != nil {
-			resolved = baseDir
-		}
-		out = append(out, globalProjection(p, resolved, nil))
+		out = append(out, globalProjection(p, baseDir, nil))
 	}
 	return out
 }

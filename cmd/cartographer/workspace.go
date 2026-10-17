@@ -488,11 +488,7 @@ func allProjections(cfg *clientconfig.Config, providers []string, clientBaseDir 
 	sorted := append([]string(nil), providers...)
 	sort.Strings(sorted)
 	for _, provider := range sorted {
-		base, err := provisioning.BaseDirFor(configurator.Provider(provider), clientBaseDir)
-		if err != nil {
-			return nil, err
-		}
-		ps, err := projectionsFor(cfg, provider, base)
+		ps, err := projectionsFor(cfg, provider, clientBaseDir)
 		if err != nil {
 			return nil, err
 		}
@@ -744,16 +740,6 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 			st.State = "inactive"
 			st.Detail = "codex does not trust this project, so it ignores its .codex/ layer — trust it from a codex session in this directory"
 		}
-		// Hermes loads a project's skills only from a directory listed in
-		// skills.trusted_project_dirs (D364). An unresolvable $HERMES_HOME
-		// means the same as an absent config: nothing is known to be trusted.
-		if provider == string(configurator.ProviderHermes) {
-			home, err := provisioning.BaseDirFor(configurator.ProviderHermes, clientBaseDir)
-			if err != nil || !provisioning.HermesProjectTrusted(home, w.Path) {
-				st.State = "inactive"
-				st.Detail = "hermes does not trust this project, so it does not load its .hermes/skills — run `hermes skills trust " + w.Path + "`"
-			}
-		}
 		out = append(out, st)
 	}
 	return out
@@ -816,20 +802,12 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 				out = append(out, doctorFinding{
 					Check: "workspace", Severity: doctorWarning, Path: w.Path,
 					Message: fmt.Sprintf("%s: %s", provider, w.Detail),
-					Fix:     trustFix(provider, w.Path),
+					Fix:     "trust the project from a codex session in that directory",
 				})
 			}
 		}
 	}
 	return out
-}
-
-// trustFix is the doctor hint for an inactive projection, per client.
-func trustFix(provider, workspace string) string {
-	if provider == string(configurator.ProviderHermes) {
-		return "hermes skills trust " + workspace
-	}
-	return "trust the project from a codex session in that directory"
 }
 
 // pruneOrphanProjections removes the files of every projection the lockfile

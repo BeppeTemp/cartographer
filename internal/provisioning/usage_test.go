@@ -247,7 +247,7 @@ func TestScanUsage_Copilot_SkillActivation(t *testing.T) {
 }
 
 func TestScanUsage_UnsupportedProvidersContributeNothing(t *testing.T) {
-	for _, p := range []string{"opencode", "hermes", "antigravity", "crush"} {
+	for _, p := range []string{"opencode", "antigravity", "crush"} {
 		home, lf := usageHome(t, p, "."+p+"/skills", "ops-tool")
 		got, err := provisioning.ScanUsage(lf, home, 90*24*time.Hour, true)
 		if err != nil || len(got) != 0 {
@@ -255,7 +255,7 @@ func TestScanUsage_UnsupportedProvidersContributeNothing(t *testing.T) {
 		}
 	}
 	_, _, unsupported := provisioning.UsageProviders()
-	if len(unsupported) != 4 {
+	if len(unsupported) != 3 {
 		t.Errorf("unsupported = %v", unsupported)
 	}
 }

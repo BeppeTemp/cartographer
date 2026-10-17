@@ -255,10 +255,9 @@ func TestEnsureBootstrapHook_Kiro_RegistersSessionStart(t *testing.T) {
 }
 
 // SupportsSessionHook is the single answer both EnsureBootstrapHook and the
-// client's "install the sync timer" advice derive from, and it has two distinct
-// negative cases that must not collapse into one: hermes has no hook mechanism
-// at all, antigravity has one whose engine exposes no session-start event
-// (D194). Kiro has one that fires in some sessions only, which is
+// client's "install the sync timer" advice derive from. Antigravity and crush
+// have a hook whose engine exposes no session-start event (D194). Kiro has one
+// that fires in some sessions only, which is
 // SessionHookLimit's answer, not a "no" here (D300).
 func TestSupportsSessionHook(t *testing.T) {
 	for _, tc := range []struct {
@@ -269,7 +268,6 @@ func TestSupportsSessionHook(t *testing.T) {
 		{configurator.ProviderCodex, true},
 		{configurator.ProviderOpenCode, true},
 		{configurator.ProviderKiro, true},
-		{configurator.ProviderHermes, false},
 		{configurator.ProviderAntigravity, false},
 		{configurator.ProviderCrush, false},
 		{configurator.ProviderCopilot, true},

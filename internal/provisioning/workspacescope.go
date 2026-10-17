@@ -68,11 +68,6 @@ const (
 //     read only with `trigger: always_on` frontmatter, which is why the
 //     instructions cell is the AGENTS.md block instead.
 //
-//   - Hermes (D364, v0.21.5): `.hermes/skills` only, and it loads only after the
-//     workspace is listed in `skills.trusted_project_dirs` (HermesProjectTrusted).
-//     Its config.yaml and gateway hooks stay operator-owned (D141), so the other
-//     kinds remain unsupported.
-//
 //   - Copilot CLI (D676, 1.0.94): AGENTS.md ("Repository instructions") and
 //     .agents/skills/ ("Project skills") are listed natively. The mcp, agent
 //     and hook cells are documented under .mcp.json / .github/ but were not
@@ -87,7 +82,6 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderCodex:      at(".codex", "config.toml"),
 		configurator.ProviderOpenCode:   at("opencode.json"),
 		configurator.ProviderKiro:       at(".kiro", "settings", "mcp.json"),
-		configurator.ProviderHermes:     unsupportedDest,
 		// antigravity: the global shape (`mcpServers`) in the workspace's
 		// .agents/mcp_config.json; `agy mcp list` shows only the global servers
 		// but the session has the project ones (probed on 1.3.2, D364).
@@ -110,7 +104,6 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderCodex:      at("AGENTS.md"),
 		configurator.ProviderOpenCode:   at("AGENTS.md"),
 		configurator.ProviderKiro:       at(".kiro", "steering", "cartographer.md"),
-		configurator.ProviderHermes:     unsupportedDest,
 		// antigravity: AGENTS.md, read by `agy` (D364). Not .agents/rules/: a
 		// rule is read only with `trigger: always_on` in its frontmatter, so a
 		// plain rule file would be written and silently ignored.
@@ -128,7 +121,6 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// workspace's own agent directory, which `kiro-cli agent list` reports
 		// as "Workspace" and which wins over the global one (D195).
 		configurator.ProviderKiro:        perName(".json", ".kiro", "agents"),
-		configurator.ProviderHermes:      unsupportedDest,
 		configurator.ProviderAntigravity: perName(".md", ".agents", "agents"),
 		configurator.ProviderCrush:       unsupportedDest,
 		// copilot: .github/agents is gated on folder trust (`copilot --help`),
@@ -144,8 +136,7 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		// 2.26.1), so a project-local copy of the global registration (D300)
 		// would reach no session the global one misses. Kept unsupported until
 		// a mode fires one and not the other.
-		configurator.ProviderKiro:   unsupportedDest,
-		configurator.ProviderHermes: unsupportedDest,
+		configurator.ProviderKiro: unsupportedDest,
 		// antigravity: the files live in .agents/hooks/<n>/ and the entry in
 		// .agents/hooks.json (same schema as the global file); the registration
 		// file is picked from the hook's path (antigravitySettingsRel).
@@ -162,11 +153,6 @@ var projectDestinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderCodex:    perName("", ".agents", "skills"),
 		configurator.ProviderKiro:     perName("", ".kiro", "skills"),
 		configurator.ProviderOpenCode: perName("", ".opencode", "skills"),
-		// hermes: loaded only once the workspace is in skills.trusted_project_dirs
-		// (HermesProjectTrusted); .hermes/skills rather than .agents/skills, which
-		// Codex and Antigravity already project into (D364). Written, not
-		// delivered to the inbox: a project skill has no curator to fight.
-		configurator.ProviderHermes: perName("", ".hermes", "skills"),
 		// The .agents/skills directory `agy` scans in a workspace, shared with
 		// Codex: both write the same bytes, and a prune keeps what another
 		// projection of the workspace still records (ApplyOptions.CoOwnedPaths).
@@ -201,7 +187,7 @@ func destDirScoped(kind, name string, provider configurator.Provider, scope Scop
 		return path.Join(cell.dir...)
 	}
 	segments := append(append([]string{}, cell.dir...), name+cell.suffix)
-	return path.Join(append(segments, cell.tail...)...)
+	return path.Join(segments...)
 }
 
 // SupportsProjectScope reports whether provider can project any artifact kind

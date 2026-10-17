@@ -209,7 +209,7 @@ func mcpProviderFromPath(path string) configurator.Provider {
 // projection, and is a no-op once the entry is gone.
 func PruneServerEntry(baseDir string, provider configurator.Provider, lock Lock, dryRun bool) (Lock, error) {
 	cell := destDirScoped("mcp", "", provider, ScopeProject)
-	if cell == "" || !configurator.ManagesMCPConfig(provider) {
+	if cell == "" {
 		return lock, nil
 	}
 	kept := make([]ManagedFile, 0, len(lock.Managed))

@@ -137,6 +137,9 @@ func repairManagedHashes(dir, only string) int {
 		if only != "" && providerName != only {
 			continue
 		}
+		if _, known := configurator.Lookup(configurator.Provider(providerName)); !known {
+			continue // a client the registry dropped (D898): its record is not ours to repair
+		}
 		repaired, skipped, repairErr := provisioning.RepairManagedHashes(lock, configurator.Provider(providerName), dir, false)
 		if repairErr != nil {
 			fmt.Fprintf(os.Stderr, "Error: repair %s: %v\n", providerName, repairErr)
@@ -187,6 +190,9 @@ func runDoctor(dir, only string) doctorReport {
 	report := doctorReport{Schema: doctorSchema}
 
 	cfg, cfgErr := clientconfig.Load(dir)
+	if cfgErr == nil {
+		handleUnsupportedProviders(dir, cfg, false)
+	}
 	findings := checkClientConfig(dir, cfg, cfgErr, only)
 	if cfgErr == nil {
 		providers := doctorProviders(cfg, only)
@@ -418,9 +424,7 @@ func checkMCPEntries(dir string, cfg *clientconfig.Config, providers []string) [
 		}
 		provider := configurator.Provider(p)
 		d, ok := configurator.Lookup(provider)
-		if !ok || !d.ManagesMCPConfig() {
-			// A provider whose MCP configuration Cartographer does not own
-			// (D141) has nothing to compare.
+		if !ok {
 			continue
 		}
 		configPath := filepath.Join(dir, d.ConfigPath())

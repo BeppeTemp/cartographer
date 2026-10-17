@@ -177,10 +177,11 @@ type Lock struct {
 	Provider        string        `json:"provider"`
 	Managed         []ManagedFile `json:"managed"`
 	// BaseDir is the directory the Path of every ManagedFile above is
-	// relative to, recorded only for a provider that materializes outside the
-	// shared client base dir (D141, hermes under $HERMES_HOME). Empty — every
-	// lockfile written before D141, and every other provider — means "the
-	// lockfile's own directory", so nothing migrates. Read it through
+	// relative to, recorded only for a workspace projection (D193: the
+	// repository). Empty — a global projection, and every lockfile written
+	// before D141 — means "the lockfile's own directory", so nothing migrates.
+	// A lockfile written for a client since removed (D898) can carry it for a
+	// global section too: the section is skipped, never resolved (clientconfig). Read it through
 	// LockBaseDir, never directly: pruning or verifying against the wrong base
 	// dir deletes the wrong files or silently finds nothing.
 	BaseDir string `json:"base_dir,omitempty"`
@@ -245,25 +246,13 @@ func (l Lock) ScopeOf() Scope {
 }
 
 // LockBaseDir returns the directory lock's managed paths are relative to:
-// lock.BaseDir when the provider has its own root (D141), defaultDir — the
+// lock.BaseDir when it records one (a workspace projection), defaultDir — the
 // directory holding the lockfile — otherwise.
 func LockBaseDir(lock Lock, defaultDir string) string {
 	if lock.BaseDir != "" {
 		return lock.BaseDir
 	}
 	return defaultDir
-}
-
-// BaseDirFor returns the directory provider materializes its artifacts under,
-// given the shared client base dir. It is the registry descriptor's
-// ResolveBaseDir (D141): every provider but hermes returns defaultDir
-// unchanged, and hermes fails naming $HERMES_HOME when it is unset.
-func BaseDirFor(provider configurator.Provider, defaultDir string) (string, error) {
-	d, ok := configurator.Lookup(provider)
-	if !ok {
-		return defaultDir, nil
-	}
-	return d.ResolveBaseDir(defaultDir)
 }
 
 // Diff is the result of comparing Manifest ↔ Lock.
@@ -2447,12 +2436,10 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	}
 
 	// The subagent sentence, per provider and per KB (D154): it must describe
-	// what THIS client received, not what the KB declares. Hermes has no native
-	// subagent directory, so its "agent" cell is unsupportedDest and it receives
-	// none — while the old, server-generated sentence told it to delegate to
-	// subagents that were not there. Kiro was in the same position until D195
-	// gave it a cell; the sentence appears for it on its own, because
-	// installedSubagentSentence derives it from destDir.
+	// what THIS client received, not what the KB declares. A client whose "agent"
+	// cell is unsupportedDest (crush) receives none, and the sentence must not
+	// tell it to delegate to subagents that are not there; installedSubagentSentence
+	// derives it from destDir.
 	if sentence := installedSubagentSentence(m, opts); sentence != "" {
 		body += "\n\n" + sentence
 	}
@@ -2911,10 +2898,6 @@ var provisioningRootDirs = map[string]bool{
 	".config":                            true,
 	filepath.Join(".config", "opencode"): true,
 	".gemini":                            true,
-	// The hermes inbox root (D141): pruning the last delivered skill empties
-	// skill-inbox/<name>/cartographer and skill-inbox/<name>, never
-	// skill-inbox itself — other sources deliver there too.
-	hermesInboxRoot: true,
 }
 
 // pruneEmptyDirs removes every directory left empty by the removal of the file at
@@ -3078,11 +3061,6 @@ type destination struct {
 	// path — one shared file for every artifact of that kind.
 	named  bool
 	suffix string
-	// tail are extra segments appended AFTER the artifact name, for a
-	// destination that nests the artifact's files one level deeper (D141:
-	// skill-inbox/<name>/cartographer/, whose last segment names the
-	// proposer so a second source never collides with Cartographer's).
-	tail []string
 	// unsupported marks a combination this provider cannot represent.
 	unsupported bool
 }
@@ -3091,12 +3069,6 @@ func at(segments ...string) destination { return destination{dir: segments} }
 
 func perName(suffix string, segments ...string) destination {
 	return destination{dir: segments, named: true, suffix: suffix}
-}
-
-// perNameIn is perName with extra segments below the artifact's own
-// directory: dir/<name>/tail... .
-func perNameIn(tail []string, segments ...string) destination {
-	return destination{dir: segments, named: true, tail: tail}
 }
 
 var unsupportedDest = destination{unsupported: true}
@@ -3116,34 +3088,25 @@ var unsupportedDest = destination{unsupported: true}
 //     engine scans; the registration is one Cartographer-owned file beside
 //     them (D300). Its "agent" cell is a JSON config in the global agent
 //     directory (D195).
-//   - hermes supports exactly one kind, "skill", and delivers it to an inbox
-//     for the agent to adopt rather than installing it (D141). Its four other
-//     cells are unsupported for stated reasons, not by omission.
 //   - crush documents no user-level subagent directory, so that cell is
 //     unsupported (D225); its hook cell is supported since D363.
 //   - copilot fills all five cells (D676); its agent files end in ".agent.md".
 var destinationMatrix = map[string]map[configurator.Provider]destination{
 	"mcp": {
-		configurator.ProviderClaudeCode: at(".claude.json"),
-		configurator.ProviderCodex:      at(".codex", "config.toml"),
-		configurator.ProviderOpenCode:   at("opencode.json"),
-		configurator.ProviderKiro:       at(".kiro", "settings", "mcp.json"),
-		// hermes: config.yaml is rendered by its Ansible role and recreated on
-		// the next playbook run (D141).
-		configurator.ProviderHermes:      unsupportedDest,
+		configurator.ProviderClaudeCode:  at(".claude.json"),
+		configurator.ProviderCodex:       at(".codex", "config.toml"),
+		configurator.ProviderOpenCode:    at("opencode.json"),
+		configurator.ProviderKiro:        at(".kiro", "settings", "mcp.json"),
 		configurator.ProviderAntigravity: at(".gemini", "config", "mcp_config.json"),
 		configurator.ProviderCrush:       at(".config", "crush", "crush.json"),
 		// copilot: probed on 1.0.94, D676.
 		configurator.ProviderCopilot: at(".copilot", "mcp-config.json"),
 	},
 	"instructions": {
-		configurator.ProviderClaudeCode: at(".claude", "CLAUDE.md"),
-		configurator.ProviderOpenCode:   at(".config", "opencode", "AGENTS.md"),
-		configurator.ProviderCodex:      at(".codex", "AGENTS.md"),
-		configurator.ProviderKiro:       at(".kiro", "steering", "cartographer.md"),
-		// hermes: SOUL.md, its always-on instruction slot, is operator-owned
-		// and rendered from a template (D141).
-		configurator.ProviderHermes:      unsupportedDest,
+		configurator.ProviderClaudeCode:  at(".claude", "CLAUDE.md"),
+		configurator.ProviderOpenCode:    at(".config", "opencode", "AGENTS.md"),
+		configurator.ProviderCodex:       at(".codex", "AGENTS.md"),
+		configurator.ProviderKiro:        at(".kiro", "steering", "cartographer.md"),
 		configurator.ProviderAntigravity: at(".gemini", "GEMINI.md"),
 		// The Crush-specific global context file, chosen over the cross-tool
 		// ~/.config/AGENTS.md it also loads for the same reason the codex and
@@ -3171,9 +3134,7 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// description, and `kiro-cli agent list` reports a config dropped here
 		// as "Global". Verified against Kiro CLI 2.21.3 — the format is JSON,
 		// not the Markdown the vendor documentation describes.
-		configurator.ProviderKiro: perName(".json", ".kiro", "agents"),
-		// hermes: no native subagent directory (D141).
-		configurator.ProviderHermes:      unsupportedDest,
+		configurator.ProviderKiro:        perName(".json", ".kiro", "agents"),
 		configurator.ProviderAntigravity: perName(".md", ".gemini", "config", "agents"),
 		// crush: neither its README nor its docs/config page describes a
 		// user-level subagent directory, and a destination is declared, never
@@ -3200,10 +3161,7 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		// here would be read as a malformed hook file, and this cell must move
 		// out of ~/.kiro/hooks. These hooks fire only in `kiro-cli chat --v3
 		// --tui`, so the scheduled timer is still advised (hookMechanism.sessionHookLimit).
-		configurator.ProviderKiro: perName("", ".kiro", "hooks", "cartographer"),
-		// hermes: no hook mechanism at all — nothing fires at conversation
-		// start, so its trigger is the scheduled timer (D140/D141).
-		configurator.ProviderHermes:      unsupportedDest,
+		configurator.ProviderKiro:        perName("", ".kiro", "hooks", "cartographer"),
 		configurator.ProviderAntigravity: perName("", ".gemini", "config", "hooks"),
 		// crush: hooks fire from `hooks` in crush.json, PreToolUse only (probed
 		// on v0.98.0, D363), registered by registerCrushHook. No session event,
@@ -3230,12 +3188,7 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderKiro:  perName("", ".kiro", "skills"),
 		// Under the config directory `opencode debug paths` reports; 2.0.25 does
 		// not list skills under `.opencode/skills` globally (D360).
-		configurator.ProviderOpenCode: perName("", ".config", "opencode", "skills"),
-		// hermes: DELIVERED, not installed (D141). HERMES_HOME/skills/ belongs
-		// to the agent's own curator, which rewrites what it owns; writing
-		// there would destroy its learning. The proposal lands in the inbox
-		// with a generated SOURCE.md and the agent adopts it via skill_manage.
-		configurator.ProviderHermes:      perNameIn([]string{hermesInboxSource}, hermesInboxRoot),
+		configurator.ProviderOpenCode:    perName("", ".config", "opencode", "skills"),
 		configurator.ProviderAntigravity: perName("", ".gemini", "config", "skills"),
 		// crush implements the Agent Skills standard and scans this directory
 		// globally, among others it shares with Claude Code and the .agents
@@ -3246,20 +3199,6 @@ var destinationMatrix = map[string]map[configurator.Provider]destination{
 		configurator.ProviderCopilot: perName("", ".copilot", "skills"),
 	},
 }
-
-// The hermes inbox (D141): <HERMES_HOME>/skill-inbox/<name>/cartographer/.
-// The last segment names the proposer, so a proposal from another source never
-// collides with Cartographer's. Deliberately without the timestamp the
-// skill-inbox convention allows: provisioning must be idempotent, and one
-// directory per sync would accumulate a copy every timer tick with no way to
-// tell stale from current. SOURCE.md carries the content hash instead, so the
-// agent can tell an unchanged re-delivery from a new proposal.
-const (
-	hermesInboxRoot   = "skill-inbox"
-	hermesInboxSource = "cartographer"
-	// hermesSourceFile is generated by Cartographer, never taken from the KB.
-	hermesSourceFile = "SOURCE.md"
-)
 
 // artifactKinds are the kinds the matrix must cover. A manifest built by a
 // newer server may carry a kind absent from this list; destDir returns "" for
@@ -3389,7 +3328,7 @@ func destDir(kind, name string, provider configurator.Provider) string {
 		return path.Join(cell.dir...)
 	}
 	segments := append(append([]string{}, cell.dir...), name+cell.suffix)
-	return path.Join(append(segments, cell.tail...)...)
+	return path.Join(segments...)
 }
 
 // translateAgentForProvider adapts an "agent" artifact's content (a Claude Code
@@ -3720,8 +3659,7 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		}
 	}
 
-	// Files Cartographer generates on top of the KB's own (D141, hermes'
-	// SOURCE.md). A collision with a KB file of the same name fails this one
+	// Files Cartographer generates on top of the KB's own (SOURCE.env, D316). A collision with a KB file of the same name fails this one
 	// artifact — with a warning, before anything is written — and leaves the
 	// rest of the sync to complete.
 	generated, collision, ok := generatedArtifactFiles(a, opts, files)

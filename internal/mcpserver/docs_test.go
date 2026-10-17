@@ -92,10 +92,6 @@ var docsNonTools = map[string]bool{
 	"search_roots": true, "search_depth": true, "resolution_strategy": true, "resolution_body": true,
 	// kb_status / sync_status output fields (D145), not tools
 	"git_workflow": true, "git_profile": true, "git_sync": true,
-	// a tool of ANOTHER agent, cited where Cartographer explains what it
-	// deliberately leaves to it (D141: Hermes adopts a delivered skill with
-	// its own skill_manage)
-	"skill_manage": true,
 }
 
 // docsFiles are the markdown files whose tool citations must resolve. The

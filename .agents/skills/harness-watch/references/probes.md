@@ -156,14 +156,7 @@ unique token; ask the client to repeat it.
 - Hook: the generated plugin in `$HOME/.config/opencode/plugins/` fires on
   `session.created`; sentinel plus negative control.
 - MCP: `opencode.json`; instructions: `$HOME/.config/opencode/AGENTS.md`.
-
-## Hermes
-
-- Skill: delivered to `$HERMES_HOME/skill-inbox/<name>/cartographer/` with a
-  generated `SOURCE.md`; probe that the agent can adopt it through its own
-  `skill_manage` tool, and that `$HERMES_HOME/skills/` is **untouched** (negative
-  control).
-- A new native skill, agent or hook mechanism is `cell`-class: probe it before
+- A new native skill, agent or hook mechanism in any client is `cell`-class: probe it before
   proposing to flip an unsupported cell.
 
 ## Antigravity

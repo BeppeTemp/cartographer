@@ -51,6 +51,7 @@ func cmdStatus(args []string) int {
 		fmt.Fprintf(os.Stderr, "Error: no client config found in %s (run `cartographer connect` first): %v\n", dir, err)
 		return 2
 	}
+	handleUnsupportedProviders(dir, cfg, false)
 	if len(cfg.Agents) == 0 {
 		return renderStatus(output, emptySnapshot(), 0)
 	}

@@ -252,7 +252,7 @@ func TestKBStatus_IncludesUsage(t *testing.T) {
 		u["artifacts_never_used"] != float64(1) || u["stale_threshold_days"] != float64(42) {
 		t.Fatalf("usage = %v", u)
 	}
-	if got := u["unsupported_providers"].([]any); len(got) != 4 {
+	if got := u["unsupported_providers"].([]any); len(got) != 3 {
 		t.Errorf("unsupported_providers = %v", got)
 	}
 }

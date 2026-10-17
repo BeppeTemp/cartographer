@@ -1,11 +1,8 @@
 package configurator
 
 import (
-	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // This file is the single description of every supported provider (D137):
@@ -76,13 +73,6 @@ type Descriptor struct {
 	// "mcp_<server>_<tool>" and silently drops any longer one (Antigravity:
 	// 64, D201). Zero means no such limit is known.
 	ToolIdentifierLimit int
-
-	// BaseDirEnv, when set, names the environment variable holding this
-	// provider's own root directory: artifacts are materialized there
-	// instead of under the shared client base dir (D141 — Hermes' root is
-	// wherever it was deployed, typically /opt/data, not the user's home).
-	// Empty means the shared base dir, which is every other provider.
-	BaseDirEnv string
 
 	// Binaries are the executable names looked up in PATH by internal/agents,
 	// probed in this order. More than one because a provider can ship its
@@ -193,18 +183,6 @@ var descriptors = []Descriptor{
 		emit:    emitKiroServer,
 	},
 	{
-		Provider:    ProviderHermes,
-		DisplayName: "Hermes Agent",
-		// No MCPConfigPath and no emitter on purpose (D141): Hermes' MCP
-		// endpoint list lives in a config.yaml rendered by its Ansible role
-		// and recreated on the next playbook run, so anything Cartographer
-		// wrote there would be lost. `connect hermes` registers the provider
-		// for artifact delivery and says so.
-		DeletableWhenEmpty: true,
-		BaseDirEnv:         "HERMES_HOME",
-		Binaries:           []string{"hermes"},
-	},
-	{
 		Provider:           ProviderOpenCode,
 		DisplayName:        "OpenCode",
 		MCPConfigPath:      "opencode.json",
@@ -293,7 +271,7 @@ var descriptors = []Descriptor{
 // detectionOrder is the order `cartographer agents` and the TUI list agents
 // in. It differs from the registry order above and is equally user-visible:
 // both are preserved deliberately rather than unified (D137).
-var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderHermes, ProviderAntigravity, ProviderCrush, ProviderCopilot}
+var detectionOrder = []Provider{ProviderClaudeCode, ProviderOpenCode, ProviderCodex, ProviderKiro, ProviderAntigravity, ProviderCrush, ProviderCopilot}
 
 // Providers returns every supported provider's descriptor, in registry order.
 func Providers() []Descriptor {
@@ -326,40 +304,6 @@ func Lookup(p Provider) (Descriptor, bool) {
 
 // ConfigPath returns MCPConfigPath in the local filesystem's separator form.
 func (d Descriptor) ConfigPath() string { return filepath.FromSlash(d.MCPConfigPath) }
-
-// ManagesMCPConfig reports whether `cartographer connect`/`disconnect` writes
-// this provider's MCP configuration. False only for a provider whose endpoint
-// list is owned elsewhere (D141, hermes): connect must skip it and say so,
-// rather than silently doing nothing.
-func (d Descriptor) ManagesMCPConfig() bool { return d.MCPConfigPath != "" && d.emit != nil }
-
-// ManagesMCPConfig reports the same for a provider identifier. An unknown
-// provider is not managed.
-func ManagesMCPConfig(p Provider) bool {
-	d, ok := Lookup(p)
-	return ok && d.ManagesMCPConfig()
-}
-
-// ErrBaseDirUnset is returned by ResolveBaseDir when a provider declares a
-// BaseDirEnv that is not set in the environment.
-var ErrBaseDirUnset = errors.New("provider base directory environment variable is not set")
-
-// ResolveBaseDir returns the directory this provider's artifacts are
-// materialized under: defaultDir for every provider that shares the client
-// base dir, or the value of BaseDirEnv for one that has its own root (D141).
-// An unset or empty BaseDirEnv is an error naming the variable — writing into
-// the home directory instead would scatter an agent's files somewhere it never
-// looks.
-func (d Descriptor) ResolveBaseDir(defaultDir string) (string, error) {
-	if d.BaseDirEnv == "" {
-		return defaultDir, nil
-	}
-	value := strings.TrimSpace(os.Getenv(d.BaseDirEnv))
-	if value == "" {
-		return "", fmt.Errorf("%s: $%s is unset: %w", d.Provider, d.BaseDirEnv, ErrBaseDirUnset)
-	}
-	return value, nil
-}
 
 // ProviderList returns just the provider constants, in registry order.
 func ProviderList() []Provider {
