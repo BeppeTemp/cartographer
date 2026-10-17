@@ -60,8 +60,8 @@ func reportStale(findings []Finding, sups []Suppression) ([]Finding, []Suppressi
 		if sp.Source == SourceAccept {
 			continue // Stale is set by applyLintAccept, which reports it itself
 		}
-		if spec, _ := Spec(sp.Check); sp.Source == SourceConcept && spec.NeverSuppress {
-			continue // already reported invalid by the concept pass
+		if spec, _ := Spec(sp.Check); spec.NeverSuppress {
+			continue // already reported invalid by the concept or the map pass
 		}
 		valid := perConceptChecks[sp.Check] || (sp.Source == SourceMap && mapOnlyIgnorable[sp.Check])
 		if !valid || neverStale[sp.Check] || sp.Hidden > 0 {
