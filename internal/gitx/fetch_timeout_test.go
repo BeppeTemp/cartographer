@@ -55,7 +55,8 @@ func removeWhenFree(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		deadline := time.Now().Add(10 * time.Second)
+		// 30s, not 10s: a loaded Windows runner has kept the child past 10s (#902 CI).
+		deadline := time.Now().Add(30 * time.Second)
 		for {
 			err := os.RemoveAll(dir)
 			if err == nil {
