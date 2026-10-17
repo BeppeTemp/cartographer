@@ -40,6 +40,9 @@ state; the plans are read by the subagents that implement them.
   agent definition (Claude `claude-sonnet-5-5`, Kiro `claude-sonnet-5.5`, Codex
   `terra-6`): the plan already carries the design, so the implementer executes,
   and the coordinator's §3 read is the quality gate.
+- **The code is read by `pr-reviewer`, not by the coordinator** (§3): the
+  coordinator reads the triage, the findings it has verified and the hunks §3
+  names — never the whole diff of a standard or full tier PR.
 - **Run everything in the background** and act on completion notifications:
   never poll or read a subagent transcript.
 
@@ -96,19 +99,35 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 - Write the tests in the plan's "Tests" section.
 - **Same session**: update the docs in the "Closing" section per `docs/index.md` §Documentation maintenance rules, and, if the Closing section names one, add the decision file `docs/decisions/D<issue>-<slug>.md` (`make decisions-new`); never regenerate `docs/decisions.md` (the release PR does, D328). Every trap you hit is fixed where it bites: a test if it can be checked, a comment next to the code otherwise (D214).
 - `make gate` green — iterate until it is.
-- Single commit on `feat/<slug>` (the branch already exists in the worktree), message = PR title (conventional commit, the plan gives it), Co-Authored-By trailer.
+- One commit for the implementation on `feat/<slug>` (the branch already exists in the worktree), message = PR title (conventional commit, the plan gives it), Co-Authored-By trailer. A review fix round **adds commits, it never amends**: the next round diffs `<reviewed commit>..HEAD`, and an amend rewrites the commit it names.
 - `git push -u origin feat/<slug>` + `gh pr create` with a body ending `Closes #<n>`.
   The PR body, commit messages and any test fixture carry placeholder names only —
   never a KB, host, user or project from a real setup (D259, `AGENTS.md`).
+  Leave the `## Self-review` section as "pending review": the coordinator writes
+  it after the last round (§3).
 - Report `git diff --stat` vs main, the `make gate` outcome, and the PR URL.
 
 ## 3 — Review (coordinator GATE — never skip)
 
-For each finished PR: `gh pr diff <pr>` and read it yourself. Trust the disk,
-not the subagent's report — report text can be garbled or compressed. Confirm
-CI: `gh pr view <pr> --json statusCheckRollup`. A reviewing subagent may be
-added on top, but it does **not** replace this read: a self-authored PR without
-an independent look defeats two-party review, and this gate is not automatable.
+For each finished PR, `.agents/skills/review-pr/scripts/triage.sh <pr>` gives the
+tier; the procedure is `review-pr` §3–§5, with the coordinator on the verifying
+side and the implementer on the author side. Trust the disk, not the
+subagent's report — report text can be garbled or compressed.
+
+- **Light tier**: the coordinator reads `gh pr diff <pr>` itself; one round.
+- **Standard and full tier**: spawn `pr-reviewer` on `.worktrees/<slug>` (round 1,
+  plan = the issue number), verify its findings per `review-pr` §4, and send the
+  **verified** findings — never the raw report — to the implementer that wrote
+  the PR (§Per-client mechanics). The fix mandate: add commits on the branch,
+  never amend; answer each finding; one report line per finding. Repeat per
+  `review-pr` §5 (at most three rounds, later rounds read `<reviewed commit>..HEAD`).
+  The pre-merge rebase (§4) comes after the last round.
+- **What the coordinator reads**: the triage, the verified findings, the ranges of
+  the reviewer's invariants line (full tier), and supply-chain hunks whole.
+- After the last round the coordinator writes the PR's `## Self-review` section
+  (`gh pr edit`): rounds run, each finding with its answer, `pre-existing`
+  findings and the `bug` issues opened for them.
+- Confirm CI: `gh pr view <pr> --json statusCheckRollup`.
 
 ## 4 — Ordered merge
 
@@ -137,7 +156,7 @@ stop and comment on the issue rather than guessing).
 
 ## Explicit gates (never auto)
 
-- **Review** of every PR diff (§3).
+- **Review** of every PR (§3).
 - **Non-append conflicts** during rebase — hand back to the user.
 - **Self-merge / force-push** — act only on an explicit user decision or a standing approval.
 - **Supply-chain files** (a CI workflow, an installer, the release pipeline, a bundled skill: `triage.sh` says so) — the user reads those hunks and decides that merge; a standing approval does not cover it.
@@ -145,9 +164,9 @@ stop and comment on the issue rather than guessing).
 
 ## Per-client mechanics
 
-| | How to spawn a subagent | Authorization gate |
-|---|---|---|
-| **Claude Code** | `Agent` with `subagent_type: plan-implementer`; `isolation: "worktree"` is available, but pass the `make worktree-add` path explicitly so the layout matches every other client. The agent pins Sonnet 5.5 (`model:` in its frontmatter) | auto-mode classifier; standing allow rules live in `.claude/settings.local.json` (`Bash(gh pr merge *)`, `Bash(git push --force-with-lease *)`) — machine-local, not versioned |
-| **Codex** | `collaboration.spawn_agent` with the `plan-implementer` agent, one call per plan. Independent worktrees may run concurrently within the agent-slot limit | explicit user authorization or a standing approval |
-| **Kiro** | `orchestrate_subagent` with the `plan-implementer` agent (or `role: general-task-execution`), one stage per plan. Independent plans are stages **without** `depends_on` and run in parallel; a dependency chain is `depends_on` on the predecessor | explicit user decision |
-| **Antigravity** | one subagent per plan from `.agents/agents/`, or sequential execution if none is defined | `commandExecutionPolicy` on the subagent |
+| | How to spawn a subagent | Fix round (§3) | Authorization gate |
+|---|---|---|---|
+| **Claude Code** | `Agent` with `subagent_type: plan-implementer`; `isolation: "worktree"` is available, but pass the `make worktree-add` path explicitly so the layout matches every other client. The agent pins Sonnet 5.5 (`model:` in its frontmatter) | `SendMessage` to the implementer's agent id with the verified findings |  auto-mode classifier; standing allow rules live in `.claude/settings.local.json` (`Bash(gh pr merge *)`, `Bash(git push --force-with-lease *)`) — machine-local, not versioned |
+| **Codex** | `collaboration.spawn_agent` with the `plan-implementer` agent, one call per plan. Independent worktrees may run concurrently within the agent-slot limit | a new `plan-implementer` with the fix mandate (worktree path, PR number, the verified findings) |  explicit user authorization or a standing approval |
+| **Kiro** | `orchestrate_subagent` with the `plan-implementer` agent (or `role: general-task-execution`), one stage per plan. Independent plans are stages **without** `depends_on` and run in parallel; a dependency chain is `depends_on` on the predecessor | a new `plan-implementer` with the fix mandate (worktree path, PR number, the verified findings) |  explicit user decision |
+| **Antigravity** | one subagent per plan from `.agents/agents/`, or sequential execution if none is defined | a new subagent with the fix mandate (worktree path, PR number, the verified findings) |  `commandExecutionPolicy` on the subagent |

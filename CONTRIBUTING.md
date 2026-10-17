@@ -118,7 +118,7 @@ Cartographer server, use `cartographer connect`, not a hand-written file.
 The repository also ships three subagents: `plan-implementer`, the worker the
 `implement-issue` skill spawns per plan, `live-implementer`, the one the
 `live-dev` skill spawns per change, and `pr-reviewer`, the read-only reviewer
-the `review-pr` skill spawns per pull request. Each exists in each client's own format —
+the `review-pr`, `implement-issue` and `live-dev` skills spawn per pull request. Each exists in each client's own format —
 `.claude/agents/<name>.md`, `.codex/agents/<name>.toml`,
 `.kiro/agents/<name>.json` — and the three must say the same thing: the
 procedure itself stays in the skill (D327).

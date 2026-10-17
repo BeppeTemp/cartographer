@@ -28,6 +28,8 @@ This file is the single copy for every client; `.claude/skills/live-dev` and
   for the closing pass only (§3). It works in the coordinator's worktree and
   stops: it never commits, never runs `make dev`, never touches a file outside
   its mandate.
+- **`pr-reviewer`** — read-only, on a cheaper model, spawned once at closing
+  (§3) on the draft PR, at most three rounds (`review-pr` §5).
 - **Explore** (or the client's context-gathering subagent) — answers "where is X"
   for an area the coordinator does not know, so the files are not read into the
   conversation.
@@ -87,10 +89,11 @@ first (D703).
    still missing, `make web` if `web/` changed (the bundle is committed), then
    `make gate` until green. The coordinator writes the decision file: it holds
    the why.
-3. Review, as in `implement-issue` §3: read `gh pr diff <pr>` yourself, and add
-   an independent pass on top — `/code-review` in Claude Code, a reviewing
-   subagent elsewhere. The user tried the behaviour; nobody has read the code.
-   A review that returns no findings after no work has not happened: check that
+3. Review: `review-pr` run on the draft PR — `triage.sh` on the branch,
+   `pr-reviewer` on the worktree, rounds per `review-pr` §5, fixes by you or a
+   `live-implementer`. You have already read every step's diff (§2), so this pass
+   is the independent read. The user tried the behaviour; nobody else has read
+   the code. A review that returns no findings after no work has not happened: check that
    it read the diff before you count it.
 4. Before the merge, as in `implement-issue` §4: `git fetch origin`, rebase on
    `origin/main` in the worktree (a conflict in `internal/webui/dist/` → take
@@ -140,3 +143,5 @@ release-please reads both.
 | **Codex** | `collaboration.spawn_agent` with the `live-implementer` agent |
 | **Kiro** | `orchestrate_subagent` with the `live-implementer` agent |
 | **Antigravity** | no project agent: make the change yourself |
+
+To spawn `pr-reviewer`, see `review-pr` §Per-client mechanics.
