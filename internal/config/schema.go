@@ -23,7 +23,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "data", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_DATA", Flag: "--data", Restart: true, Example: "/data",
 		Description: "Directory whose direct subdirectories are discovered as KBs, and where remote KBs are cloned."},
 	{Path: "update_check", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_UPDATE_CHECK", Flag: "--update-check", Restart: true,
-		Description: "Look up the latest release once a day and report it in /health and kb_status when it is newer. A dev build never checks."},
+		Description: "Look up the latest release once a day and report it in /health and kb_status when it is newer; the Atlas reads the release history from the same GitHub list when someone opens it. Off, the server makes neither call. A dev build never checks."},
 
 	{Path: "auth.mode", Scope: settingschema.ScopeServer, Type: "string", Values: "on | off | auto", Default: "auto", Env: "CARTOGRAPHER_AUTH", Restart: true, Example: "auto",
 		Description: "Bearer-token authentication of the HTTP transport. auto turns it on when at least one token is configured."},

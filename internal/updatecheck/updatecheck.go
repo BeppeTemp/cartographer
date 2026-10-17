@@ -13,9 +13,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -23,13 +25,18 @@ import (
 
 const (
 	// DefaultAPIURL is the repository's GitHub API base. The release list is
-	// read from <base>/releases?per_page=1, not /releases/latest: the latter
-	// skips pre-releases, and every 0.x release is one (D82, D211) — the same
+	// read from <base>/releases, not /releases/latest: the latter skips
+	// pre-releases, and every 0.x release is one (D82, D211) — the same
 	// endpoint install.sh uses.
 	DefaultAPIURL = "https://api.github.com/repos/BeppeTemp/cartographer"
 	// ReleasesURL is the human-facing release list, named when no upgrade
 	// command can be given.
 	ReleasesURL = "https://github.com/BeppeTemp/cartographer/releases"
+
+	// checkPerPage is how many releases the check reads: the answer is the
+	// first that is not a draft and has a version tag (ValidTag), and a token
+	// with write access lists drafts first, so one entry is not enough.
+	checkPerPage = 10
 
 	// TTL is how long a cached answer is trusted without asking GitHub.
 	TTL = 24 * time.Hour
@@ -91,6 +98,20 @@ type Options struct {
 	APIURL     string
 	Getenv     func(string) string
 }
+
+// tagPattern is the one shape of release tag Cartographer accepts from the
+// network: MAJOR.MINOR.PATCH, an optional leading v, an optional pre-release
+// of letters, digits, dots and hyphens. No build metadata and no other
+// character, because the tag is interpolated into an upgrade command the user
+// copies and runs (Channel.UpgradeCommand): a tag such as v9.9.9-$(id) must
+// produce neither an "available" nor a command.
+var tagPattern = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
+
+// ValidTag reports whether tag, as GitHub reports it, is a release tag this
+// package passes on: to Check's callers as Latest, and to the release history
+// as a version. The release list is data from the network, and this is the one
+// place that decides what of it may reach a command line.
+func ValidTag(tag string) bool { return tagPattern.MatchString(tag) }
 
 // cacheEntry is the on-disk cache.
 type cacheEntry struct {
@@ -195,7 +216,7 @@ func fetch(ctx context.Context, current string, cached cacheEntry, haveCache boo
 	}
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+"/releases?per_page=1", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/releases?per_page=%d", strings.TrimRight(base, "/"), checkPerPage), nil)
 	if err != nil {
 		return cacheEntry{}, err
 	}
@@ -226,14 +247,20 @@ func fetch(ctx context.Context, current string, cached cacheEntry, haveCache boo
 	}
 	var releases []struct {
 		TagName string `json:"tag_name"`
+		Draft   bool   `json:"draft"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, MaxResponseBytes)).Decode(&releases); err != nil {
 		return cacheEntry{}, fmt.Errorf("release list: %w", err)
 	}
-	if len(releases) == 0 || strings.TrimSpace(releases[0].TagName) == "" {
-		return cacheEntry{}, errors.New("release list: no tag")
+	// The newest release that is public and carries a version tag, the rule
+	// Releases applies to the history: a draft or a stray tag at the head of
+	// the list must not blind the check.
+	for _, r := range releases {
+		if tag := strings.TrimSpace(r.TagName); !r.Draft && ValidTag(tag) {
+			return cacheEntry{CheckedAt: now().UTC(), Latest: tag, ETag: resp.Header.Get("ETag")}, nil
+		}
 	}
-	return cacheEntry{CheckedAt: now().UTC(), Latest: strings.TrimSpace(releases[0].TagName), ETag: resp.Header.Get("ETag")}, nil
+	return cacheEntry{}, errors.New("release list: no release with a version tag")
 }
 
 // readCache treats a missing, unreadable or corrupt cache as absent.
@@ -246,7 +273,7 @@ func readCache(path string) (cacheEntry, bool) {
 		return cacheEntry{}, false
 	}
 	var e cacheEntry
-	if err := json.Unmarshal(data, &e); err != nil || e.Latest == "" || e.CheckedAt.IsZero() {
+	if err := json.Unmarshal(data, &e); err != nil || !ValidTag(e.Latest) || e.CheckedAt.IsZero() {
 		return cacheEntry{}, false
 	}
 	return e, true
