@@ -59,7 +59,7 @@ func (kb *KB) CommitGate(changedIDs []okf.ConceptID) (*GateResult, error) {
 			continue
 		}
 
-		if parsed.Type() != "Contradiction" {
+		if !IsContradictionType(parsed.Type()) {
 			continue
 		}
 

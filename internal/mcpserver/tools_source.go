@@ -144,7 +144,7 @@ func toolSourceRegister(k *kb.KB) Tool {
 				}
 				fmRaw, _, _ := okf.SplitFrontmatter(content)
 				fm, perr := okf.ParseFrontmatter(fmRaw)
-				if perr != nil || fm.Type() != kb.SourceType {
+				if perr != nil || !kb.IsSourceType(fm.Type()) {
 					return nil
 				}
 				sha, loc := fmString(fm, "sha256"), fmString(fm, "locator")
@@ -292,7 +292,7 @@ func toolSourceList(k *kb.KB) Tool {
 						}
 					}
 				}
-				if fm.Type() != kb.SourceType || !strings.HasPrefix(sid, p.Scope) || !Visible(ctx, k, sid) {
+				if !kb.IsSourceType(fm.Type()) || !strings.HasPrefix(sid, p.Scope) || !Visible(ctx, k, sid) {
 					return nil
 				}
 				st := fmString(fm, "ingest_status")
@@ -341,7 +341,7 @@ type sourceTally struct {
 }
 
 func (t *sourceTally) add(fm *okf.Frontmatter) {
-	if fm.Type() != kb.SourceType {
+	if !kb.IsSourceType(fm.Type()) {
 		return
 	}
 	if t.counts == nil {
@@ -377,7 +377,7 @@ func deleteBlockers(ctx requestContext, k *kb.KB, id string) ([]string, error) {
 	if rerr != nil {
 		return linkers, nil
 	}
-	if fm, perr := okf.ParseFrontmatter(data.FrontmatterRaw); perr != nil || fm.Type() != kb.SourceType {
+	if fm, perr := okf.ParseFrontmatter(data.FrontmatterRaw); perr != nil || !kb.IsSourceType(fm.Type()) {
 		return linkers, nil
 	}
 	have := map[string]bool{}

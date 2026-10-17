@@ -395,7 +395,7 @@ func uiServices(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 		return
 	}
 	for i, f := range lg.Facets {
-		if strings.EqualFold(f.Type, "Service") {
+		if kb.IsServiceType(f.Type) {
 			rows = append(rows, serviceRow{ID: string(lg.IDs[i]), Title: f.Title, Status: f.Status})
 		}
 	}

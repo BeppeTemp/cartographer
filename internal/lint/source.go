@@ -17,7 +17,7 @@ func FirstMachinePath(s string) string { return firstDisallowedMachinePath(s, ni
 func uncitedSourceFinding(relPath string, id okf.ConceptID, content string, cited map[string][]string) (Finding, bool) {
 	fmRaw, _, _ := okf.SplitFrontmatter(content)
 	fm, err := okf.ParseFrontmatter(fmRaw)
-	if err != nil || fm.Type() != kb.SourceType {
+	if err != nil || !kb.IsSourceType(fm.Type()) {
 		return Finding{}, false
 	}
 	if v, _ := fm.Get("ingest_status"); v != "ingested" || len(cited[string(id)]) > 0 {

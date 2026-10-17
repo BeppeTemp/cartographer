@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -95,7 +96,7 @@ func conceptFindings(c conceptCtx) []Finding {
 		// since D158): a concept declaring secrets under any other type is
 		// not listed there. Info, not warning: a dossier with a legitimate
 		// bundle is resolved by concept ID with secret_resolve.
-		if c.wants("secrets_on_non_service") && !strings.EqualFold(parsed.Type(), "Service") {
+		if c.wants("secrets_on_non_service") && !kb.IsServiceType(parsed.Type()) {
 			for _, field := range []string{"secrets_source", "secret_refs"} {
 				if v, ok := parsed.Get(field); ok && !emptyFrontmatterValue(v) {
 					out = append(out, newFinding("secrets_on_non_service", Finding{

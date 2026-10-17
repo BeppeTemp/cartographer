@@ -123,7 +123,7 @@ func hasSourceConcept(k *kb.KB) bool {
 		return false
 	}
 	for _, f := range lg.Facets {
-		if f.Type == kb.SourceType {
+		if kb.IsSourceType(f.Type) {
 			return true
 		}
 	}
