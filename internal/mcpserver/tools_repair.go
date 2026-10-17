@@ -911,31 +911,33 @@ func contractRenameUpdate(c kb.MapContract, ren map[string]string) (kb.MapContra
 		}
 		return out, hit
 	}
-	if l, hit := renameList(c.RequiredFields); hit {
-		upd.RequiredFields, changed = &l, true
+	// The update replaces the whole shape keyed by type ("*" for every type,
+	// D907), so a rename in one part writes every part back.
+	req := map[string][]string{}
+	hitReq := false
+	if l, hit := renameList(c.RequiredFields); len(c.RequiredFields) > 0 {
+		req[kb.AllTypes], hitReq = l, hit
 	}
-	byType := map[string][]string{}
-	hitType := false
 	for typ, l := range c.RequiredFieldsByType {
 		nl, hit := renameList(l)
-		byType[typ] = nl
-		hitType = hitType || hit
+		req[typ] = nl
+		hitReq = hitReq || hit
 	}
-	if hitType {
-		upd.RequiredFieldsByType, changed = byType, true
+	if hitReq {
+		upd.RequiredFields, changed = req, true
 	}
-	if v, hit := renameValues(c.FieldValues); hit {
-		upd.FieldValues, changed = v, true
-	}
-	fvt := map[string]map[string][]string{}
+	fv := map[string]map[string][]string{}
 	hitFV := false
+	if v, hit := renameValues(c.FieldValues); len(c.FieldValues) > 0 {
+		fv[kb.AllTypes], hitFV = v, hit
+	}
 	for typ, m := range c.FieldValuesByType {
 		nm, hit := renameValues(m)
-		fvt[typ] = nm
+		fv[typ] = nm
 		hitFV = hitFV || hit
 	}
 	if hitFV {
-		upd.FieldValuesByType, changed = fvt, true
+		upd.FieldValues, changed = fv, true
 	}
 	return upd, changed
 }

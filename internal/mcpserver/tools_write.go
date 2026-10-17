@@ -865,7 +865,7 @@ var (
 func toolMapCreate(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_create",
-		Description: "Creates a Map or Journal (kind: journal) with _map.md, index.md, log.md. ontology_mode: strict (enforces concept_types) or flexible. templates (slugs) make every page follow one. Contract options are lint only, not a write gate.",
+		Description: "Creates a Map or Journal (kind: journal) with _map.md, index.md, log.md. concept_types (non-empty) makes the map strict. templates (slugs) make every page follow one. required_fields and field_values are keyed by concept type, \"*\" for every type. No contract key switches a check off.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["name", "title"],
@@ -883,56 +883,33 @@ func toolMapCreate(k *kb.KB) Tool {
 					"type": "array",
 					"items": {"type": "string"}
 				},
-				"ontology_mode": {
-					"type": "string"
-				},
 				"required_fields": {
-					"type": "array",
-					"items": {"type": "string"}
-					},
-				"required_fields_by_type": {
 					"type": "object",
 					"additionalProperties": {"type": "array", "items": {"type": "string"}}
-					},
+				},
 				"field_values": {
 					"type": "object",
-					"additionalProperties": {"type": "array", "items": {"type": "string"}}
-					},
-				"field_values_by_type": {
-					"type": "object",
 					"additionalProperties": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
-					},
+				},
 				"forbidden_fields": {
 					"type": "array",
 					"items": {"type": "string"}
-					},
-				"require_index_entry": {
-					"type": "boolean"
-					},
-				"machine_path_allow_prefixes": {
-					"type": "array",
-					"items": {"type": "string"}
-					},
+				},
 				"templates": {"type": "array", "items": {"type": "string"}},
 				"default_template": {"type": "string"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
-				Name                     string                         `json:"name"`
-				Title                    string                         `json:"title"`
-				Kind                     string                         `json:"kind"`
-				ConceptTypes             []string                       `json:"concept_types"`
-				OntologyMode             string                         `json:"ontology_mode"`
-				RequiredFields           []string                       `json:"required_fields"`
-				RequiredFieldsByType     map[string][]string            `json:"required_fields_by_type"`
-				FieldValues              map[string][]string            `json:"field_values"`
-				FieldValuesByType        map[string]map[string][]string `json:"field_values_by_type"`
-				ForbiddenFields          []string                       `json:"forbidden_fields"`
-				RequireIndexEntry        *bool                          `json:"require_index_entry"`
-				MachinePathAllowPrefixes []string                       `json:"machine_path_allow_prefixes"`
-				Templates                []string                       `json:"templates"`
-				DefaultTemplate          string                         `json:"default_template"`
+				Name            string                         `json:"name"`
+				Title           string                         `json:"title"`
+				Kind            string                         `json:"kind"`
+				ConceptTypes    []string                       `json:"concept_types"`
+				RequiredFields  map[string][]string            `json:"required_fields"`
+				FieldValues     map[string]map[string][]string `json:"field_values"`
+				ForbiddenFields []string                       `json:"forbidden_fields"`
+				Templates       []string                       `json:"templates"`
+				DefaultTemplate string                         `json:"default_template"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -943,10 +920,10 @@ func toolMapCreate(k *kb.KB) Tool {
 			if params.Title == "" {
 				return errorResult("'title' is required"), nil
 			}
-			if msg := validateContractParams(params.RequiredFields, params.RequiredFieldsByType, params.MachinePathAllowPrefixes); msg != "" {
+			if msg := validateContractParams(params.RequiredFields); msg != "" {
 				return errorResult(msg), nil
 			}
-			if msg := validateFieldValueParams(params.FieldValues, params.FieldValuesByType, params.ForbiddenFields); msg != "" {
+			if msg := validateFieldValueParams(params.FieldValues, params.ForbiddenFields); msg != "" {
 				return errorResult(msg), nil
 			}
 
@@ -954,21 +931,13 @@ func toolMapCreate(k *kb.KB) Tool {
 				return errorResult(msg), nil
 			}
 			contract := kb.MapContract{
-				Templates:            params.Templates,
-				DefaultTemplate:      params.DefaultTemplate,
-				RequireTemplate:      len(params.Templates) > 0, // a new map starts strict (D352)
-				RequiredFields:       params.RequiredFields,
-				RequiredFieldsByType: params.RequiredFieldsByType,
-				FieldValues:          params.FieldValues,
-				FieldValuesByType:    params.FieldValuesByType,
-				ForbiddenFields:      params.ForbiddenFields,
-				// Absent means on (D325): a concept nobody links from its map's
-				// index is an orphan within one lint run. Only an explicit
-				// false opts out.
-				RequireIndexEntry:        params.RequireIndexEntry == nil || *params.RequireIndexEntry,
-				MachinePathAllowPrefixes: params.MachinePathAllowPrefixes,
+				Templates:       params.Templates,
+				DefaultTemplate: params.DefaultTemplate,
+				ForbiddenFields: params.ForbiddenFields,
 			}
-			if err := k.CreateMapWithContract(params.Name, params.Title, params.Kind, params.ConceptTypes, params.OntologyMode, contract); err != nil {
+			contract.RequiredFields, contract.RequiredFieldsByType = splitRequiredFields(params.RequiredFields)
+			contract.FieldValues, contract.FieldValuesByType = splitFieldValues(params.FieldValues)
+			if err := k.CreateMapWithContract(params.Name, params.Title, params.Kind, params.ConceptTypes, contract); err != nil {
 				return errorResult(fmt.Sprintf("map_create %q: %v", params.Name, err)), nil
 			}
 
@@ -977,7 +946,7 @@ func toolMapCreate(k *kb.KB) Tool {
 				"map":    params.Name,
 				"status": "created",
 			}
-			if w := mapTitleWarning(k, params.Name, params.Title); w != "" {
+			if w := mapTitleWarning(params.Name, params.Title); w != "" {
 				result["warnings"] = []string{w}
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
@@ -987,15 +956,11 @@ func toolMapCreate(k *kb.KB) Tool {
 }
 
 // mapTitleWarning explains, without refusing, why kb_review would flag a map
-// title (map_naming): "" when the title is fine or the map's own lint_ignore
-// dismisses map_naming.
-func mapTitleWarning(k *kb.KB, name, title string) string {
+// title (map_naming): "" when the title is fine.
+func mapTitleWarning(name, title string) string {
 	title = strings.TrimSpace(title)
 	reasons := lint.MapTitleIssues(name, title)
 	if len(reasons) == 0 {
-		return ""
-	}
-	if meta, err := k.ReadArchiveMeta(name); err == nil && lint.MapIgnoresCheck(meta, "map_naming") {
 		return ""
 	}
 	return fmt.Sprintf("kb_review flags map titles like this (map_naming): %q is off (%s); a map title is a short name recognisable from the folder %q, the explanation goes in the description. Rename with map_update title", title, strings.Join(reasons, "; "), name)
@@ -1025,27 +990,18 @@ func validateTemplateParams(templates []string, def string) string {
 }
 
 // validateContractParams rejects the empty entries a map contract must not
-// carry. Shared by map_create and map_update so the two cannot drift; returns
-// "" when the input is acceptable.
-func validateContractParams(requiredFields []string, byType map[string][]string, allowPrefixes []string) string {
-	for _, field := range requiredFields {
-		if strings.TrimSpace(field) == "" {
-			return "'required_fields' must not contain empty field names"
-		}
-	}
-	for typ, fields := range byType {
-		if strings.TrimSpace(typ) == "" {
-			return "'required_fields_by_type' must not contain an empty type name"
+// carry. required is keyed by concept type, "*" for every type (D907). Shared
+// by map_create and map_update so the two cannot drift; returns "" when the
+// input is acceptable.
+func validateContractParams(required map[string][]string) string {
+	for typ, fields := range required {
+		if strings.TrimSpace(typ) == "" || strings.Contains(typ, ".") {
+			return "'required_fields' keys must be a concept type or \"*\", non-empty and with no '.'"
 		}
 		for _, field := range fields {
 			if strings.TrimSpace(field) == "" {
-				return "'required_fields_by_type' must not contain empty field names"
+				return "'required_fields' must not contain empty field names"
 			}
-		}
-	}
-	for _, prefix := range allowPrefixes {
-		if strings.TrimSpace(prefix) == "" {
-			return "'machine_path_allow_prefixes' must not contain empty entries"
 		}
 	}
 	return ""
@@ -1053,35 +1009,25 @@ func validateContractParams(requiredFields []string, byType map[string][]string,
 
 // validateFieldValueParams rejects the malformed entries of the D275 contract
 // keys (empty field or type names, empty or blank allowed values, empty
-// forbidden names). An empty list inside an update is a removal only at the
-// whole-key level, so a per-field empty list is refused here as it is when read.
-func validateFieldValueParams(values map[string][]string, byType map[string]map[string][]string, forbidden []string) string {
-	check := func(label, field string, vals []string) string {
-		if strings.TrimSpace(field) == "" || strings.Contains(field, ".") {
-			return "'" + label + "' field names must be non-empty and contain no '.'"
-		}
-		if len(vals) == 0 {
-			return "'" + label + "' needs at least one allowed value for " + fmt.Sprintf("%q", field)
-		}
-		for _, v := range vals {
-			if strings.TrimSpace(v) == "" {
-				return "'" + label + "' must not contain empty values"
-			}
-		}
-		return ""
-	}
-	for field, vals := range values {
-		if msg := check("field_values", field, vals); msg != "" {
-			return msg
-		}
-	}
-	for typ, fields := range byType {
+// forbidden names). values is keyed by concept type, "*" for every type
+// (D907). An empty list inside an update is a removal only at the whole-key
+// level, so a per-field empty list is refused here as it is when read.
+func validateFieldValueParams(values map[string]map[string][]string, forbidden []string) string {
+	for typ, fields := range values {
 		if strings.TrimSpace(typ) == "" || strings.Contains(typ, ".") {
-			return "'field_values_by_type' type names must be non-empty and contain no '.'"
+			return "'field_values' keys must be a concept type or \"*\", non-empty and with no '.'"
 		}
 		for field, vals := range fields {
-			if msg := check("field_values_by_type", field, vals); msg != "" {
-				return msg
+			if strings.TrimSpace(field) == "" || strings.Contains(field, ".") {
+				return "'field_values' field names must be non-empty and contain no '.'"
+			}
+			if len(vals) == 0 {
+				return "'field_values' needs at least one allowed value for " + fmt.Sprintf("%q", field)
+			}
+			for _, v := range vals {
+				if strings.TrimSpace(v) == "" {
+					return "'field_values' must not contain empty values"
+				}
 			}
 		}
 	}
@@ -1091,6 +1037,37 @@ func validateFieldValueParams(values map[string][]string, byType map[string]map[
 		}
 	}
 	return ""
+}
+
+// splitRequiredFields turns the tool's one shape (keyed by concept type, "*"
+// for every type) into the contract's two views.
+func splitRequiredFields(in map[string][]string) (wide []string, byType map[string][]string) {
+	for typ, fields := range in {
+		if typ == kb.AllTypes {
+			wide = fields
+			continue
+		}
+		if byType == nil {
+			byType = map[string][]string{}
+		}
+		byType[typ] = fields
+	}
+	return wide, byType
+}
+
+// splitFieldValues is splitRequiredFields for field_values.
+func splitFieldValues(in map[string]map[string][]string) (wide map[string][]string, byType map[string]map[string][]string) {
+	for typ, fields := range in {
+		if typ == kb.AllTypes {
+			wide = fields
+			continue
+		}
+		if byType == nil {
+			byType = map[string]map[string][]string{}
+		}
+		byType[typ] = fields
+	}
+	return wide, byType
 }
 
 // generatedBlockEdited refuses an index_patch that changes the block the
@@ -1119,7 +1096,7 @@ func generatedBlockEdited(k *kb.KB, mapName, before, after string) string {
 func toolMapUpdate(k *kb.KB) Tool {
 	return Tool{
 		Name:        "map_update",
-		Description: "Changes a map's title or lint contract: given keys are replaced whole, an empty list, \"\", false or {} removes one. stale_after 0 = off, -1 = default.",
+		Description: "Changes a map's title or lint contract: given keys are replaced whole, an empty list, \"\" or {} removes one. required_fields and field_values are keyed by concept type, \"*\" for every type. stale_after and harvest_after: N days, -1 = the default (they cannot be switched off). A change that loosens a rule (drops a required field, a forbidden field, a field's allowed values or the type list or templates, or widens one) needs a reason.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["map"],
@@ -1128,29 +1105,14 @@ func toolMapUpdate(k *kb.KB) Tool {
 					"type": "string"
 				},
 				"required_fields": {
-					"type": "array",
-					"items": {"type": "string"}
-				},
-				"required_fields_by_type": {
 					"type": "object",
 					"additionalProperties": {"type": "array", "items": {"type": "string"}}
 				},
 				"field_values": {
 					"type": "object",
-					"additionalProperties": {"type": "array", "items": {"type": "string"}}
-				},
-				"field_values_by_type": {
-					"type": "object",
 					"additionalProperties": {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "string"}}}
 				},
 				"forbidden_fields": {
-					"type": "array",
-					"items": {"type": "string"}
-				},
-				"require_index_entry": {
-					"type": "boolean"
-				},
-				"machine_path_allow_prefixes": {
 					"type": "array",
 					"items": {"type": "string"}
 				},
@@ -1164,65 +1126,41 @@ func toolMapUpdate(k *kb.KB) Tool {
 				"stale_after": {"type": "integer"},
 				"harvest_after": {"type": "integer"},
 				"concept_types": {"type": "array", "items": {"type": "string"}},
-				"ontology_mode": {"type": "string", "enum": ["strict", "flexible", ""]},
-				"template_sections": {"type": "boolean"},
 				"templates": {"type": "array", "items": {"type": "string"}},
 				"default_template": {"type": "string"},
-				"require_template": {"type": "boolean"},
 				"promote_to": {"type": "string"},
 				"procedure_headings": {"type": "array", "items": {"type": "string"}},
 				"glossary": {"type": "boolean"},
 				"index": {"type": "string"},
-				"repeated_fact_min": {"type": "integer"},
-				"hotspot_in_degree": {"type": "integer"},
-				"hotspot_bytes": {"type": "integer"},
-				"oversize_bytes": {"type": "integer"},
-				"oversize_concepts": {"type": "integer"},
 				"work_map": {"type": "string"},
-				"title_max_length": {"type": "integer"},
 				"forbidden_title_terms": {"type": "array", "items": {"type": "string"}},
-				"title": {"type": "string"},
-				"lint_ignore": {"type": "array", "items": {"type": "string"}}
+				"title": {"type": "string"}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			// Pointers distinguish "not given" (leave it) from an empty value
 			// (remove it): the two must never collapse into one.
 			var params struct {
-				Map                      string                         `json:"map"`
-				RequiredFields           *[]string                      `json:"required_fields"`
-				RequiredFieldsByType     map[string][]string            `json:"required_fields_by_type"`
-				FieldValues              map[string][]string            `json:"field_values"`
-				FieldValuesByType        map[string]map[string][]string `json:"field_values_by_type"`
-				ForbiddenFields          *[]string                      `json:"forbidden_fields"`
-				RequireIndexEntry        *bool                          `json:"require_index_entry"`
-				MachinePathAllowPrefixes *[]string                      `json:"machine_path_allow_prefixes"`
-				ValueSynonyms            map[string][]string            `json:"value_synonyms"`
-				OpenStatuses             *[]string                      `json:"open_statuses"`
-				OpenField                *string                        `json:"open_field"`
-				OpenMarkers              *[]string                      `json:"open_markers"`
-				StaleAfter               *int                           `json:"stale_after"`
-				HarvestAfter             *int                           `json:"harvest_after"`
-				ConceptTypes             *[]string                      `json:"concept_types"`
-				OntologyMode             *string                        `json:"ontology_mode"`
-				TemplateSections         *bool                          `json:"template_sections"`
-				Templates                *[]string                      `json:"templates"`
-				DefaultTemplate          *string                        `json:"default_template"`
-				RequireTemplate          *bool                          `json:"require_template"`
-				PromoteTo                *string                        `json:"promote_to"`
-				ProcedureHeadings        *[]string                      `json:"procedure_headings"`
-				Glossary                 *bool                          `json:"glossary"`
-				Index                    *string                        `json:"index"`
-				RepeatedFactMin          *int                           `json:"repeated_fact_min"`
-				HotspotInDegree          *int                           `json:"hotspot_in_degree"`
-				HotspotBytes             *int                           `json:"hotspot_bytes"`
-				OversizeBytes            *int                           `json:"oversize_bytes"`
-				OversizeConcepts         *int                           `json:"oversize_concepts"`
-				WorkMap                  *string                        `json:"work_map"`
-				TitleMaxLength           *int                           `json:"title_max_length"`
-				ForbiddenTitleTerms      *[]string                      `json:"forbidden_title_terms"`
-				Title                    *string                        `json:"title"`
-				LintIgnore               *[]string                      `json:"lint_ignore"`
+				Map                 string                         `json:"map"`
+				RequiredFields      map[string][]string            `json:"required_fields"`
+				FieldValues         map[string]map[string][]string `json:"field_values"`
+				ForbiddenFields     *[]string                      `json:"forbidden_fields"`
+				ValueSynonyms       map[string][]string            `json:"value_synonyms"`
+				OpenStatuses        *[]string                      `json:"open_statuses"`
+				OpenField           *string                        `json:"open_field"`
+				OpenMarkers         *[]string                      `json:"open_markers"`
+				StaleAfter          *int                           `json:"stale_after"`
+				HarvestAfter        *int                           `json:"harvest_after"`
+				ConceptTypes        *[]string                      `json:"concept_types"`
+				Templates           *[]string                      `json:"templates"`
+				DefaultTemplate     *string                        `json:"default_template"`
+				PromoteTo           *string                        `json:"promote_to"`
+				ProcedureHeadings   *[]string                      `json:"procedure_headings"`
+				Glossary            *bool                          `json:"glossary"`
+				Index               *string                        `json:"index"`
+				WorkMap             *string                        `json:"work_map"`
+				ForbiddenTitleTerms *[]string                      `json:"forbidden_title_terms"`
+				Title               *string                        `json:"title"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -1230,28 +1168,20 @@ func toolMapUpdate(k *kb.KB) Tool {
 			if params.Map == "" {
 				return errorResult("'map' is required"), nil
 			}
-			if params.RequiredFields == nil && params.RequiredFieldsByType == nil &&
-				params.FieldValues == nil && params.FieldValuesByType == nil && params.ForbiddenFields == nil &&
-				params.RequireIndexEntry == nil && params.MachinePathAllowPrefixes == nil && params.ValueSynonyms == nil &&
-				params.OpenStatuses == nil && params.OpenField == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.HarvestAfter == nil && params.ConceptTypes == nil && params.OntologyMode == nil && params.TemplateSections == nil && params.Templates == nil && params.DefaultTemplate == nil && params.RequireTemplate == nil &&
+			if params.RequiredFields == nil && params.FieldValues == nil && params.ForbiddenFields == nil && params.ValueSynonyms == nil &&
+				params.OpenStatuses == nil && params.OpenField == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.HarvestAfter == nil && params.ConceptTypes == nil && params.Templates == nil && params.DefaultTemplate == nil &&
 				params.PromoteTo == nil && params.ProcedureHeadings == nil && params.Glossary == nil &&
-				params.Index == nil && params.RepeatedFactMin == nil && params.HotspotInDegree == nil && params.HotspotBytes == nil && params.OversizeBytes == nil && params.OversizeConcepts == nil && params.WorkMap == nil && params.TitleMaxLength == nil && params.ForbiddenTitleTerms == nil && params.Title == nil && params.LintIgnore == nil {
-				return errorResult("nothing to change: pass at least one of title, lint_ignore, require_index_entry, required_fields, required_fields_by_type, field_values, field_values_by_type, forbidden_fields, machine_path_allow_prefixes, value_synonyms, open_statuses, open_field, open_markers, stale_after, harvest_after, concept_types, ontology_mode, template_sections, templates, default_template, require_template, promote_to, procedure_headings, glossary, index, repeated_fact_min, hotspot_in_degree, hotspot_bytes, oversize_bytes, oversize_concepts, work_map, title_max_length, forbidden_title_terms"), nil
+				params.Index == nil && params.WorkMap == nil && params.ForbiddenTitleTerms == nil && params.Title == nil {
+				return errorResult("nothing to change: pass at least one of title, required_fields, field_values, forbidden_fields, value_synonyms, open_statuses, open_field, open_markers, stale_after, harvest_after, concept_types, templates, default_template, promote_to, procedure_headings, glossary, index, work_map, forbidden_title_terms"), nil
 			}
-			var fields, prefixes, forbidden []string
+			var forbidden []string
 			if params.ForbiddenFields != nil {
 				forbidden = *params.ForbiddenFields
 			}
-			if params.RequiredFields != nil {
-				fields = *params.RequiredFields
-			}
-			if params.MachinePathAllowPrefixes != nil {
-				prefixes = *params.MachinePathAllowPrefixes
-			}
-			if msg := validateContractParams(fields, params.RequiredFieldsByType, prefixes); msg != "" {
+			if msg := validateContractParams(params.RequiredFields); msg != "" {
 				return errorResult(msg), nil
 			}
-			if msg := validateFieldValueParams(params.FieldValues, params.FieldValuesByType, forbidden); msg != "" {
+			if msg := validateFieldValueParams(params.FieldValues, forbidden); msg != "" {
 				return errorResult(msg), nil
 			}
 			if _, err := k.ReadArchiveMeta(params.Map); err != nil {
@@ -1267,87 +1197,71 @@ func toolMapUpdate(k *kb.KB) Tool {
 				}
 			}
 
+			// A change that loosens a rule is allowed but says why (D907): the
+			// guard runs before anything is written, and the reason is the
+			// write's own (the Reason trailer every write carries).
+			reason := commitReason(args)
+			var loosened []string
 			contract, err := k.UpdateMapContract(params.Map, kb.MapContractUpdate{
-				RequiredFields:           params.RequiredFields,
-				RequiredFieldsByType:     params.RequiredFieldsByType,
-				FieldValues:              params.FieldValues,
-				FieldValuesByType:        params.FieldValuesByType,
-				ForbiddenFields:          params.ForbiddenFields,
-				RequireIndexEntry:        params.RequireIndexEntry,
-				MachinePathAllowPrefixes: params.MachinePathAllowPrefixes,
-				ValueSynonyms:            params.ValueSynonyms,
-				OpenStatuses:             params.OpenStatuses,
-				OpenField:                params.OpenField,
-				OpenMarkers:              params.OpenMarkers,
-				StaleAfterDays:           params.StaleAfter,
-				HarvestAfterDays:         params.HarvestAfter,
-				ConceptTypes:             params.ConceptTypes,
-				OntologyMode:             params.OntologyMode,
-				TemplateSections:         params.TemplateSections,
-				Templates:                params.Templates,
-				DefaultTemplate:          params.DefaultTemplate,
-				RequireTemplate:          params.RequireTemplate,
-				PromoteTo:                params.PromoteTo,
-				ProcedureHeadings:        params.ProcedureHeadings,
-				Glossary:                 params.Glossary,
-				Index:                    params.Index,
-				RepeatedFactMin:          params.RepeatedFactMin,
-				HotspotInDegree:          params.HotspotInDegree,
-				HotspotBytes:             params.HotspotBytes,
-				OversizeBytes:            params.OversizeBytes,
-				OversizeConcepts:         params.OversizeConcepts,
-				WorkMap:                  params.WorkMap,
-				TitleMaxLength:           params.TitleMaxLength,
-				ForbiddenTitleTerms:      params.ForbiddenTitleTerms,
-				Title:                    params.Title,
-				LintIgnore:               params.LintIgnore,
+				RequiredFields:      params.RequiredFields,
+				FieldValues:         params.FieldValues,
+				ForbiddenFields:     params.ForbiddenFields,
+				ValueSynonyms:       params.ValueSynonyms,
+				OpenStatuses:        params.OpenStatuses,
+				OpenField:           params.OpenField,
+				OpenMarkers:         params.OpenMarkers,
+				StaleAfterDays:      params.StaleAfter,
+				HarvestAfterDays:    params.HarvestAfter,
+				ConceptTypes:        params.ConceptTypes,
+				Templates:           params.Templates,
+				DefaultTemplate:     params.DefaultTemplate,
+				PromoteTo:           params.PromoteTo,
+				ProcedureHeadings:   params.ProcedureHeadings,
+				Glossary:            params.Glossary,
+				Index:               params.Index,
+				WorkMap:             params.WorkMap,
+				ForbiddenTitleTerms: params.ForbiddenTitleTerms,
+				Title:               params.Title,
+				Guard: func(before, after kb.MapContract) error {
+					loosened = kb.ContractLoosening(before, after)
+					if len(loosened) > 0 && reason == "" {
+						return fmt.Errorf("this change loosens the contract (%s) and needs a reason: pass reason with the why, or fix the pages instead of the rule", strings.Join(loosened, "; "))
+					}
+					return nil
+				},
 			})
 			if err != nil {
 				return errorResult(fmt.Sprintf("map_update %q: %v", params.Map, err)), nil
 			}
 
-			_ = k.AppendLog("map_update: "+params.Map, time.Now())
-			byType := contract.RequiredFieldsByType
-			if byType == nil {
-				byType = map[string][]string{}
+			logLine := "map_update: " + params.Map
+			if len(loosened) > 0 {
+				// The journal is what the Atlas Activity page shows: a loosened
+				// contract is visible there with its reason (D907).
+				logLine += " — loosened: " + strings.Join(loosened, "; ") + " (reason: " + reason + ")"
 			}
-			fieldValues := contract.FieldValues
-			if fieldValues == nil {
-				fieldValues = map[string][]string{}
-			}
-			fieldValuesByType := contract.FieldValuesByType
-			if fieldValuesByType == nil {
-				fieldValuesByType = map[string]map[string][]string{}
-			}
+			_ = k.AppendLog(logLine, time.Now())
 			title := ""
-			lintIgnore := []string{}
 			if meta, err := k.ReadArchiveMeta(params.Map); err == nil {
 				if v, ok := meta.Get("title"); ok {
 					title, _ = v.(string)
 				}
-				if v, ok := meta.Get("lint_ignore"); ok {
-					if l, ok := v.([]string); ok {
-						lintIgnore = l
-					}
-				}
 			}
 			result := map[string]interface{}{
-				"map":         params.Map,
-				"title":       title,
-				"lint_ignore": lintIgnore,
-				"status":      "updated",
+				"map":    params.Map,
+				"title":  title,
+				"status": "updated",
 				"contract": map[string]interface{}{
-					"require_index_entry":         contract.RequireIndexEntry,
-					"required_fields":             nonNilStrings(contract.RequiredFields),
-					"required_fields_by_type":     byType,
-					"field_values":                fieldValues,
-					"field_values_by_type":        fieldValuesByType,
-					"forbidden_fields":            nonNilStrings(contract.ForbiddenFields),
-					"machine_path_allow_prefixes": nonNilStrings(contract.MachinePathAllowPrefixes),
+					"required_fields":  nonNilFields(contractRequiredFieldsOut(contract)),
+					"field_values":     nonNilValues(contractFieldValuesOut(contract)),
+					"forbidden_fields": nonNilStrings(contract.ForbiddenFields),
 				},
 			}
+			if len(loosened) > 0 {
+				result["loosened"] = loosened
+			}
 			if params.Title != nil {
-				if w := mapTitleWarning(k, params.Map, title); w != "" {
+				if w := mapTitleWarning(params.Map, title); w != "" {
 					result["warnings"] = []string{w}
 				}
 			}
@@ -1368,9 +1282,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				valueSyn = map[string][]string{}
 			}
 			echo["value_synonyms"] = valueSyn
-			echo["template_sections"] = contract.TemplateSections
 			echo["templates"] = nonNilStrings(contract.Templates)
-			echo["require_template"] = contract.StrictTemplates()
 			if contract.DefaultTemplate != "" {
 				echo["default_template"] = contract.DefaultTemplate
 			}
@@ -1380,16 +1292,8 @@ func toolMapUpdate(k *kb.KB) Tool {
 					echo[k] = v
 				}
 			}
-			for k, v := range map[string]int{"harvest_after": contract.HarvestAfterDays, "repeated_fact_min": contract.RepeatedFactMin, "hotspot_in_degree": contract.HotspotInDegree, "hotspot_bytes": contract.HotspotBytes, "oversize_bytes": contract.OversizeBytes, "oversize_concepts": contract.OversizeConcepts} {
-				if v > 0 {
-					echo[k] = v
-				}
-			}
-			if contract.HarvestAfterDays < 0 {
-				echo["harvest_after"] = 0 // D347: explicit off
-			}
-			if contract.TitleMaxLength != nil {
-				echo["title_max_length"] = *contract.TitleMaxLength
+			if contract.HarvestAfterDays > 0 {
+				echo["harvest_after"] = contract.HarvestAfterDays
 			}
 			if days, defaulted := lint.EffectiveStaleAfter(&contract); days > 0 {
 				echo["stale_after"] = days
@@ -1401,6 +1305,22 @@ func toolMapUpdate(k *kb.KB) Tool {
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// nonNilFields renders a nil required_fields shape as {} rather than null.
+func nonNilFields(v map[string][]string) map[string][]string {
+	if v == nil {
+		return map[string][]string{}
+	}
+	return v
+}
+
+// nonNilValues renders a nil field_values shape as {} rather than null.
+func nonNilValues(v map[string]map[string][]string) map[string]map[string][]string {
+	if v == nil {
+		return map[string]map[string][]string{}
+	}
+	return v
 }
 
 // nonNilStrings renders a nil slice as [] rather than null in JSON output.

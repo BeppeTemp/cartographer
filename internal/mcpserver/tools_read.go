@@ -968,58 +968,52 @@ func toolMapList(k *kb.KB) Tool {
 			}
 
 			type mapInfo struct {
-				Name         string   `json:"name"`
-				Title        string   `json:"title,omitempty"`
-				Kind         string   `json:"kind,omitempty"`
+				Name  string `json:"name"`
+				Title string `json:"title,omitempty"`
+				Kind  string `json:"kind,omitempty"`
+				// OntologyMode is derived from ConceptTypes (D907): strict when
+				// the list is non-empty.
 				OntologyMode string   `json:"ontology_mode,omitempty"`
 				ConceptTypes []string `json:"concept_types,omitempty"`
-				// LintIgnore is the checks the map accepts as a whole (D306):
-				// map_update replaces the list, so this is what to extend.
-				LintIgnore []string `json:"lint_ignore,omitempty"`
-				Expanded   int      `json:"expanded_concepts"`
+				Expanded     int      `json:"expanded_concepts"`
 				// StaleAfter is the effective stale_open threshold in days
 				// (D346); StaleAfterDefaulted says it is the default for the
 				// map's kind, not a stale_after in _map.md.
 				StaleAfter          int  `json:"stale_after,omitempty"`
 				StaleAfterDefaulted bool `json:"stale_after_defaulted,omitempty"`
-				// FieldValues / FieldValuesByType are the map contract's
-				// allowed values, readable before a write (D343). A by-type
-				// list replaces the map-wide one for that type; the server
-				// does not merge them.
-				FieldValues       map[string][]string            `json:"field_values,omitempty"`
-				FieldValuesByType map[string]map[string][]string `json:"field_values_by_type,omitempty"`
+				// RequiredFields and FieldValues are the contract's one shape
+				// keyed by concept type, "*" for every type (D907), readable
+				// before a write (D343). A per-type list of allowed values
+				// replaces the "*" one for that type; the server does not
+				// merge them.
+				RequiredFields map[string][]string            `json:"required_fields,omitempty"`
+				FieldValues    map[string]map[string][]string `json:"field_values,omitempty"`
 				// The rest of the _map.md contract, so a reader sees all of it
 				// and not just the vocabularies. Every key is omitted when
-				// unset; RequireTemplate is the effective value
-				// (StrictTemplates, D371).
-				Description          string              `json:"description,omitempty"`
-				RequiredFields       []string            `json:"required_fields,omitempty"`
-				RequiredFieldsByType map[string][]string `json:"required_fields_by_type,omitempty"`
-				ForbiddenFields      []string            `json:"forbidden_fields,omitempty"`
-				RequireIndexEntry    bool                `json:"require_index_entry,omitempty"`
-				Templates            []string            `json:"templates,omitempty"`
-				DefaultTemplate      string              `json:"default_template,omitempty"`
-				RequireTemplate      bool                `json:"require_template,omitempty"`
-				TemplateSections     bool                `json:"template_sections,omitempty"`
-				OpenField            string              `json:"open_field,omitempty"`
-				OpenStatuses         []string            `json:"open_statuses,omitempty"`
-				OpenMarkers          []string            `json:"open_markers,omitempty"`
+				// unset. Templates declared means every page binds to one
+				// (D371, D907).
+				Description     string   `json:"description,omitempty"`
+				ForbiddenFields []string `json:"forbidden_fields,omitempty"`
+				Templates       []string `json:"templates,omitempty"`
+				DefaultTemplate string   `json:"default_template,omitempty"`
+				OpenField       string   `json:"open_field,omitempty"`
+				OpenStatuses    []string `json:"open_statuses,omitempty"`
+				OpenMarkers     []string `json:"open_markers,omitempty"`
 				// HarvestAfter is a journal's effective harvest_after in days
-				// (D322); HarvestAfterDefaulted says it is the default, and
-				// HarvestOff that harvest_after: 0 switched harvesting off
-				// (D347), in which case HarvestAfter is omitted.
-				HarvestAfter             int                 `json:"harvest_after,omitempty"`
-				HarvestAfterDefaulted    bool                `json:"harvest_after_defaulted,omitempty"`
-				HarvestOff               bool                `json:"harvest_off,omitempty"`
-				PromoteTo                string              `json:"promote_to,omitempty"`
-				ProcedureHeadings        []string            `json:"procedure_headings,omitempty"`
-				Glossary                 bool                `json:"glossary,omitempty"`
-				WorkMap                  string              `json:"work_map,omitempty"`
-				Index                    string              `json:"index,omitempty"`
-				ValueSynonyms            map[string][]string `json:"value_synonyms,omitempty"`
-				MachinePathAllowPrefixes []string            `json:"machine_path_allow_prefixes,omitempty"`
-				Thresholds               *mapThresholds      `json:"thresholds,omitempty"`
-				Malformed                []mapMalformed      `json:"malformed,omitempty"`
+				// (D322); HarvestAfterDefaulted says it is the default.
+				HarvestAfter          int                 `json:"harvest_after,omitempty"`
+				HarvestAfterDefaulted bool                `json:"harvest_after_defaulted,omitempty"`
+				PromoteTo             string              `json:"promote_to,omitempty"`
+				ProcedureHeadings     []string            `json:"procedure_headings,omitempty"`
+				Glossary              bool                `json:"glossary,omitempty"`
+				WorkMap               string              `json:"work_map,omitempty"`
+				Index                 string              `json:"index,omitempty"`
+				ValueSynonyms         map[string][]string `json:"value_synonyms,omitempty"`
+				ForbiddenTitleTerms   []string            `json:"forbidden_title_terms,omitempty"`
+				// LegacyKeys are the removed keys the descriptor still carries
+				// (D907); the repair drops them.
+				LegacyKeys []string       `json:"legacy_keys,omitempty"`
+				Malformed  []mapMalformed `json:"malformed,omitempty"`
 			}
 
 			var infos []mapInfo
@@ -1044,14 +1038,8 @@ func toolMapList(k *kb.KB) Tool {
 					if v, ok := meta.Get("kind"); ok {
 						info.Kind, _ = v.(string)
 					}
-					if v, ok := meta.Get("ontology_mode"); ok {
-						info.OntologyMode, _ = v.(string)
-					}
 					if v, ok := meta.Get("concept_types"); ok {
 						info.ConceptTypes, _ = v.([]string)
-					}
-					if v, ok := meta.Get("lint_ignore"); ok {
-						info.LintIgnore, _ = v.([]string)
 					}
 					if v, ok := meta.Get("description"); ok {
 						info.Description, _ = v.(string)
@@ -1059,14 +1047,13 @@ func toolMapList(k *kb.KB) Tool {
 				}
 				if c, cerr := k.ReadMapContract(name); cerr == nil {
 					info.StaleAfter, info.StaleAfterDefaulted = lint.EffectiveStaleAfter(&c)
-					info.FieldValues, info.FieldValuesByType = c.FieldValues, c.FieldValuesByType
-					info.RequiredFields, info.RequiredFieldsByType, info.ForbiddenFields = c.RequiredFields, c.RequiredFieldsByType, c.ForbiddenFields
-					info.RequireIndexEntry = c.RequireIndexEntry
+					info.OntologyMode = c.OntologyMode
+					info.FieldValues, info.RequiredFields = contractFieldValuesOut(c), contractRequiredFieldsOut(c)
+					info.ForbiddenFields = c.ForbiddenFields
 					info.Templates, info.DefaultTemplate = c.Templates, c.DefaultTemplate
-					info.RequireTemplate, info.TemplateSections = c.StrictTemplates(), c.TemplateSections
 					info.OpenField, info.OpenStatuses, info.OpenMarkers = c.OpenField, c.OpenStatuses, c.OpenMarkers
 					if c.Kind == "journal" {
-						info.HarvestAfter, info.HarvestAfterDefaulted, info.HarvestOff = effectiveHarvestAfter(&c)
+						info.HarvestAfter, info.HarvestAfterDefaulted = effectiveHarvestAfter(&c)
 					}
 					info.PromoteTo, info.ProcedureHeadings, info.Glossary, info.WorkMap = c.PromoteTo, c.ProcedureHeadings, c.Glossary, c.WorkMap
 					// promote_to and work_map name another Map (both are maps, never a
@@ -1079,8 +1066,7 @@ func toolMapList(k *kb.KB) Tool {
 						info.WorkMap = ""
 					}
 					info.Index = c.Index
-					info.ValueSynonyms, info.MachinePathAllowPrefixes = c.ValueSynonyms, c.MachinePathAllowPrefixes
-					info.Thresholds = contractThresholds(&c)
+					info.ValueSynonyms, info.ForbiddenTitleTerms, info.LegacyKeys = c.ValueSynonyms, c.ForbiddenTitleTerms, c.LegacyKeys
 					for _, m := range c.Malformed {
 						info.Malformed = append(info.Malformed, mapMalformed{Key: m.Key, Reason: "malformed value in " + m.Descriptor})
 					}
@@ -1093,55 +1079,56 @@ func toolMapList(k *kb.KB) Tool {
 	}
 }
 
-// mapThresholds is the cost and page-name half of a map contract that map_list
-// shows (D301, D313, D315). A zero int is the built-in default and is omitted;
-// TitleMaxLength is a pointer so an explicit 0 (title_quality off) survives.
-type mapThresholds struct {
-	RepeatedFactMin     int      `json:"repeated_fact_min,omitempty"`
-	HotspotInDegree     int      `json:"hotspot_in_degree,omitempty"`
-	HotspotBytes        int      `json:"hotspot_bytes,omitempty"`
-	OversizeBytes       int      `json:"oversize_bytes,omitempty"`
-	OversizeConcepts    int      `json:"oversize_concepts,omitempty"`
-	TitleMaxLength      *int     `json:"title_max_length,omitempty"`
-	ForbiddenTitleTerms []string `json:"forbidden_title_terms,omitempty"`
-}
-
 // mapMalformed is one contract entry the server tolerated but could not read.
 type mapMalformed struct {
 	Key    string `json:"key"`
 	Reason string `json:"reason"`
 }
 
-// contractThresholds returns the contract's thresholds, or nil when it sets none.
-func contractThresholds(c *kb.MapContract) *mapThresholds {
-	t := mapThresholds{
-		RepeatedFactMin:     c.RepeatedFactMin,
-		HotspotInDegree:     c.HotspotInDegree,
-		HotspotBytes:        c.HotspotBytes,
-		OversizeBytes:       c.OversizeBytes,
-		OversizeConcepts:    c.OversizeConcepts,
-		TitleMaxLength:      c.TitleMaxLength,
-		ForbiddenTitleTerms: c.ForbiddenTitleTerms,
+// contractRequiredFieldsOut is the contract's required fields in the one shape
+// keyed by concept type, "*" for every type (D907); nil when none.
+func contractRequiredFieldsOut(c kb.MapContract) map[string][]string {
+	out := map[string][]string{}
+	if len(c.RequiredFields) > 0 {
+		out[kb.AllTypes] = c.RequiredFields
 	}
-	if t.RepeatedFactMin == 0 && t.HotspotInDegree == 0 && t.HotspotBytes == 0 && t.OversizeBytes == 0 &&
-		t.OversizeConcepts == 0 && t.TitleMaxLength == nil && len(t.ForbiddenTitleTerms) == 0 {
+	for t, fields := range c.RequiredFieldsByType {
+		if len(fields) > 0 {
+			out[t] = fields
+		}
+	}
+	if len(out) == 0 {
 		return nil
 	}
-	return &t
+	return out
 }
 
-// effectiveHarvestAfter is the harvest_after a journal runs with (D322, D347),
-// the decision harvest_candidate takes: a negative HarvestAfterDays is an
-// explicit harvest_after: 0, harvesting off; zero is the default,
-// kb.DefaultHarvestAfterDays; anything else is what _map.md says.
-func effectiveHarvestAfter(c *kb.MapContract) (days int, defaulted, off bool) {
-	switch {
-	case c.HarvestAfterDays < 0:
-		return 0, false, true
-	case c.HarvestAfterDays == 0:
-		return kb.DefaultHarvestAfterDays, true, false
+// contractFieldValuesOut is the contract's allowed values in the one shape
+// keyed by concept type, "*" for every type (D907); nil when none.
+func contractFieldValuesOut(c kb.MapContract) map[string]map[string][]string {
+	out := map[string]map[string][]string{}
+	if len(c.FieldValues) > 0 {
+		out[kb.AllTypes] = c.FieldValues
 	}
-	return c.HarvestAfterDays, false, false
+	for t, fields := range c.FieldValuesByType {
+		if len(fields) > 0 {
+			out[t] = fields
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// effectiveHarvestAfter is the harvest_after a journal runs with (D322): zero
+// is the default, kb.DefaultHarvestAfterDays; anything else is what _map.md
+// says. There is no off (D907).
+func effectiveHarvestAfter(c *kb.MapContract) (days int, defaulted bool) {
+	if c.HarvestAfterDays <= 0 {
+		return kb.DefaultHarvestAfterDays, true
+	}
+	return c.HarvestAfterDays, false
 }
 
 // --- concept_list ---

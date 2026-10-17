@@ -706,18 +706,10 @@ func templateWriteState(p kb.Policy) string {
 func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {
 	return Tool{
 		Name:        "kb_status",
-		Description: "KB health in one call: concept counts, stale concepts, contradictions and gaps, git replication, capabilities (gate, state, key), source and search-miss counts, versions, conformance {findings by severity, fixable, last_doctor, doctor_suggested} (when doctor_suggested is true, follow the kb-doctor skill), usage of skills and agents, suppressions {entries, hidden, stale} (suppressions=true lists entries with when and why). Read-only.",
+		Description: "KB health in one call: concept counts, stale concepts, contradictions and gaps, git replication, capabilities (gate, state, key), source and search-miss counts, versions, conformance {findings by severity, fixable, last_doctor, doctor_suggested} (when doctor_suggested is true, follow the kb-doctor skill), usage of skills and agents. Read-only.",
 		ReadOnly:    true,
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"suppressions":{"type":"boolean","description":"List each entry with its git origin (slow)."}}}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-			var params struct {
-				Suppressions bool `json:"suppressions"`
-			}
-			if len(args) > 0 {
-				if err := json.Unmarshal(args, &params); err != nil {
-					return errorResult(fmt.Sprintf("kb_status: invalid arguments: %v", err)), nil
-				}
-			}
 			today := time.Now().UTC().Format("2006-01-02")
 			typeCounts := map[string]int{}
 			statusCounts := map[string]int{}
@@ -892,23 +884,8 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 			// D294: lint.Run is cached on the graph generation; the visibility
 			// filter stays outside the cache so a restricted caller never sees
 			// a hidden concept's findings from a warm cache.
-			if allFindings, allSups, lerr := cc.lintResult(k); lerr == nil {
+			if allFindings, lerr := cc.lintFindings(k); lerr == nil {
 				vis, _ := uiVisibleFindingsFrom(ctx, k, "", allFindings)
-				// D834: what the KB's lint_ignore / lint_accept entries hide.
-				if sups := visibleSuppressions(ctx, k, allSups); len(sups) > 0 {
-					section := suppressionsSummary(sups)
-					if params.Suppressions {
-						list, truncated, originsTruncated := suppressionsList(k, sups, suppressionRevisionBudget)
-						section["list"] = list
-						if truncated {
-							section["truncated"] = true
-						}
-						if originsTruncated {
-							section["origins_truncated"] = true
-						}
-					}
-					result["suppressions"] = section
-				}
 				result["conformance"] = summarizeConformance(vis, reviewTotal, cc.cachedDoctorDate(k), k.Policy().DoctorIntervalDays, time.Now().UTC())
 				// D370: the trend of the whole-KB totals, whole-KB callers only.
 				if WholeVisible(ctx, k, false) {
