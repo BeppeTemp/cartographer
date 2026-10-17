@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Review a pull request at a bounded token cost - a scripted triage that sends a PR back without reading its code when it lacks an approved plan, is over the size cap or has red CI, then a review by the pr-reviewer subagent on a cheaper model whose findings the coordinator verifies line by line. Use when asked to review, check or merge a PR, especially a contributor's, or before opening your own PR. Sibling of implement-issue, which reviews the PRs its own subagents open.
+description: Review a pull request at a bounded token cost - a scripted triage that sends a PR back without reading its code when it lacks an approved plan, is over the size cap or has red CI, then a review by the pr-reviewer subagent on a cheaper model whose findings the coordinator verifies line by line. Use when asked to review, check or merge a PR, especially a contributor's, or before opening your own PR. implement-issue and live-dev run this same procedure on the PRs they open.
 ---
 
 # review-pr — review a PR without reading all of it
