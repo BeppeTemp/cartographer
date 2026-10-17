@@ -703,8 +703,10 @@ export interface ClientProvider {
   name: string;
   /** "provider": every KB under the home directory; "workspace": per bound folder. */
   scope: string;
-  /** For a workspace-scoped client (issue 737): "workspace" when a bound folder's
-   *  session sees only its KBs, "none" when the global entry still exposes every KB. */
+  /** The client's global MCP entry (D737): the local stdio "bridge" that scopes a
+   *  session to its folder's KBs, or the "http" server URL. */
+  entry?: "bridge" | "http";
+  /** "workspace" when a session sees only its folder's KBs (bridge), else "none". */
   isolation?: "workspace" | "none";
   workspaces?: { path: string; remote?: string; kbs: string[] }[];
 }

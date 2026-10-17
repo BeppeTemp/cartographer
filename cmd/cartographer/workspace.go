@@ -10,6 +10,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/mcpbridge"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -44,11 +45,6 @@ type syncProjection struct {
 	BundleOnly bool
 	// Scope is the destination matrix half this projection writes through.
 	Scope provisioning.Scope
-	// ServerEntry is Cartographer's own MCP entry for this workspace, restricted
-	// to its KBs (D717). Nil means none is written (and a previous one removed);
-	// EntryNote then says why, when there is something to say.
-	ServerEntry *provisioning.ServerEntry
-	EntryNote   string
 }
 
 // Key is the lockfile projection this state is recorded under.
@@ -114,46 +110,9 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 			KBs:       w.KBs,
 			Scope:     provisioning.ScopeProject,
 		}
-		entry, note, err := workspaceServerEntry(cfg, p, w.KBs)
-		if err != nil {
-			return nil, fmt.Errorf("%s: workspace %s: %w", provider, w.Path, err)
-		}
-		sp.ServerEntry, sp.EntryNote = entry, note
 		out = append(out, sp)
 	}
 	return out, nil
-}
-
-// workspaceServerEntry derives Cartographer's own entry for one bound
-// workspace (D717): the global entry's name and the routed URL restricted to the
-// workspace's KBs. No entry is returned, with a note, when the client does not
-// let a project server replace the global one, when the server predates the
-// routed endpoint, or when the binding cannot be expressed as ?kbs= — an entry
-// without kbs would widen to every KB, so it is never written.
-func workspaceServerEntry(cfg *clientconfig.Config, p configurator.Provider, bound []string) (*provisioning.ServerEntry, string, error) {
-	if !provisioning.HasProjectMCPCell(p) {
-		return nil, "", nil
-	}
-	if !configurator.ProjectMCPShadowsGlobal(p) {
-		return nil, fmt.Sprintf("%s does not let a project server replace the global one; Cartographer's own entry is not written here and the session still sees every KB of the global binding", p), nil
-	}
-	if cfg.ServerRoutedPath == "" {
-		return nil, "the server has no routed endpoint (pre-D288), so a per-workspace entry could not replace the global one; Cartographer's own entry is not written here", nil
-	}
-	if len(bound) == 0 {
-		return nil, "no KB is bound here (--no-kb), so Cartographer's own entry is not written; the global entry still applies", nil
-	}
-	if len(routedBinding(cfg.KnownKBs, bound)) == 0 {
-		return nil, "every KB bound here is unmounted on the server, so Cartographer's own entry is not written; the global entry still applies", nil
-	}
-	entries, err := entriesForKBs(cfg.ServerName, cfg.ServerURL, cfg.KnownKBs, bound, cfg.ServerRoutedPath, true)
-	if err != nil {
-		return nil, "", err
-	}
-	if len(entries) != 1 || !strings.Contains(entries[0].URL, "kbs=") {
-		return nil, "", fmt.Errorf("workspace entry for %s is not restricted to its KBs", cfg.ServerName)
-	}
-	return &provisioning.ServerEntry{Name: entries[0].Name, URL: entries[0].URL, Auth: cfg.Auth, TokenEnv: cfg.TokenEnv}, "", nil
 }
 
 // artifactsForProjection narrows the fetched candidates to what one projection
@@ -213,6 +172,8 @@ func cmdWorkspace(args []string) int {
 		return cmdWorkspaceUnbind(rest)
 	case "list":
 		return cmdWorkspaceList(rest)
+	case "resolve":
+		return cmdWorkspaceResolve(rest)
 	default:
 		fmt.Fprintln(os.Stderr, workspaceUsage)
 		return 2
@@ -222,7 +183,8 @@ func cmdWorkspace(args []string) int {
 const workspaceUsage = `usage: cartographer workspace bind <provider> <path> --kb <name>[,<name>...]
        cartographer workspace bind <provider> <path> --no-kb
        cartographer workspace unbind <provider> <path>
-       cartographer workspace list [provider]`
+       cartographer workspace list [provider]
+       cartographer workspace resolve [<path>] [--provider <name>]`
 
 // loadWorkspaceConfig is the shared prologue: the config dir and the config.
 func loadWorkspaceConfig() (string, *clientconfig.Config, error) {
@@ -398,6 +360,90 @@ func cmdWorkspaceList(args []string) int {
 		fmt.Println("no provider is in workspace scope (bind one with `cartographer workspace bind`)")
 	}
 	return 0
+}
+
+// cmdWorkspaceResolve answers "why does a session here see these KBs": the
+// binding that wins for a folder, per provider, as the bridge would resolve it.
+func cmdWorkspaceResolve(args []string) int {
+	var path, provider string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--provider" && i+1 < len(args):
+			i++
+			provider = args[i]
+		case strings.HasPrefix(args[i], "--provider="):
+			provider = strings.TrimPrefix(args[i], "--provider=")
+		case strings.HasPrefix(args[i], "-"):
+			fmt.Fprintf(os.Stderr, "Error: unknown flag %q\n%s\n", args[i], workspaceUsage)
+			return 2
+		case path == "":
+			path = args[i]
+		default:
+			fmt.Fprintln(os.Stderr, workspaceUsage)
+			return 2
+		}
+	}
+	if path == "" {
+		// The process working directory, never $PWD (the bridge does the same).
+		wd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+		path = wd
+	}
+	_, cfg, err := loadWorkspaceConfig()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	providers := append([]string(nil), cfg.Agents...)
+	if provider != "" {
+		providers = []string{provider}
+	}
+	sort.Strings(providers)
+	fmt.Print(renderWorkspaceResolve(cfg, path, providers))
+	return 0
+}
+
+// renderWorkspaceResolve is the text of `workspace resolve`, split out so its
+// shape is pinned by a golden test.
+func renderWorkspaceResolve(cfg *clientconfig.Config, path string, providers []string) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "folder %s\n", path)
+	for _, p := range providers {
+		scope := mcpbridge.Resolve(cfg, p, path)
+		entry := "http"
+		if cfg.UsesBridge(p, cfg.ServerRoutedPath) {
+			entry = "bridge"
+		}
+		fmt.Fprintf(&sb, "%s  (global MCP entry: %s)\n", p, entry)
+		switch {
+		case scope.Err != nil:
+			fmt.Fprintf(&sb, "  unusable binding: %v\n  no KB is served here until it is fixed\n", scope.Err)
+		case scope.Binding != nil:
+			kbs := "no KB"
+			if len(scope.KBs) > 0 {
+				kbs = strings.Join(scope.KBs, ", ")
+			}
+			fmt.Fprintf(&sb, "  bound by %s  ->  %s\n", scope.Binding.Path, kbs)
+		case scope.All:
+			fmt.Fprintf(&sb, "  unbound: the provider's default set (every KB)\n")
+		default:
+			kbs := "no KB"
+			if len(scope.KBs) > 0 {
+				kbs = strings.Join(scope.KBs, ", ")
+			}
+			fmt.Fprintf(&sb, "  unbound: the provider's binding  ->  %s\n", kbs)
+		}
+		if entry == "bridge" && scope.Binding == nil && scope.Err == nil {
+			fmt.Fprintf(&sb, "  a client that declares MCP roots can still bind this session through them\n")
+		}
+		if entry == "http" {
+			fmt.Fprintf(&sb, "  this client has no bridge entry, so bindings do not narrow its session\n")
+		}
+	}
+	return sb.String()
 }
 
 // nonEmpty drops the empty elements splitCommaList preserves. It preserves them

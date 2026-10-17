@@ -4,6 +4,8 @@ topic: sync-provisioning
 
 # D717 — A workspace projection writes Cartographer's own MCP entry, restricted to its KBs
 
+> **Superseded by [D737](D737-workspace-scope-through-a-local-stdio-bridge.md)**: the tool scope is a local stdio bridge, and nothing is written into a workspace.
+
 **Decision.** `sync` writes, into the project `mcp` cell of each bound workspace, an entry named like
 the global one (`cfg.ServerName`) with the routed URL `?kbs=<workspace KBs>`, recorded in the
 workspace lock as `kind: mcp`, `source: client` (`provisioning.SourceClient`). It is written only for

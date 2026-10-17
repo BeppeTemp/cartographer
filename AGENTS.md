@@ -79,6 +79,7 @@ internal/gitx           provides a git wrapper via os/exec for the Agentic Wiki
 internal/graphalgo      holds the graph algorithms behind the retrieval tools (D242)
 internal/kb             implements the data plane of the OKF knowledge base
 internal/lint           implements deterministic lint checks on a KB scope
+internal/mcpbridge      is the local stdio MCP server that scopes one agent session to the KBs of the folder it was started in…
 internal/mcpserver      implements the control plane
 internal/okf            parser/serializer for the YAML subset used in OKF frontmatter
 internal/provisioning   manages the synchronization of artifacts (skill, agent, hook — D48

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -309,4 +310,34 @@ func pathWithin(target, root string) bool {
 		return false
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// RoutedBinding is an explicit KB binding as it goes into ?kbs=: sorted,
+// deduplicated and, when the server's KB list is known, restricted to what the
+// server mounts. Shared by the MCP entries `sync` writes and by the stdio
+// bridge (D737), so the two can never disagree about a set.
+func RoutedBinding(mounted, bound []string) []string {
+	live := map[string]bool{}
+	for _, n := range mounted {
+		live[n] = true
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, n := range bound {
+		if seen[n] || (len(live) > 0 && !live[n]) {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// UsesBridge reports whether provider's global MCP entry is the local stdio
+// bridge (D737) rather than the HTTP URL: it has at least one workspace binding
+// and the server has the routed endpoint the bridge proxies to. The single rule
+// both the entry writer and the Atlas report apply.
+func (c *Config) UsesBridge(provider, routedPath string) bool {
+	return routedPath != "" && len(c.Workspaces[provider]) > 0
 }
