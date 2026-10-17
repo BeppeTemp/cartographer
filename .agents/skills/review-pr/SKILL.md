@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Review a pull request at a bounded token cost - a scripted triage that sends a PR back without reading its code when it lacks an approved plan, is over the size cap or has red CI, then a review by the pr-reviewer subagent on a cheaper model whose findings the coordinator verifies line by line. Use when asked to review, check or merge a PR, especially a contributor's, or before opening your own PR. implement-issue and live-dev run this same procedure on the PRs they open.
+description: Review a pull request at a bounded token cost - a scripted triage that sends a PR back without reading its code when it lacks an approved plan, is over the size cap or has red CI, then a review by the pr-reviewer subagent (and, on the full tier, security-reviewer) on a cheaper model whose findings the coordinator verifies line by line. Use when asked to review, check or merge a PR, especially a contributor's, or before opening your own PR. implement-issue and live-dev run this same procedure on the PRs they open.
 ---
 
 # review-pr — review a PR without reading all of it
@@ -20,7 +20,7 @@ is the larger one. So:
 - the coordinator, on the most expensive model, reads the triage, the plan's work
   packages, the reviewer's findings and **only the lines those findings cite** —
   never the whole diff of a standard or full-tier PR;
-- the code is read by the `pr-reviewer` subagent, which runs on a cheaper model
+- the code is read by the `pr-reviewer` subagent (full tier: also `security-reviewer`), which run on a cheaper model
   (D327 pattern: `.claude/agents/`, `.codex/agents/`, `.kiro/agents/`, same text).
 
 ## 1 — Triage (no code read)
@@ -37,7 +37,7 @@ About 15 lines: size split into production, tests, docs and generated; areas;
 |---|---|---|
 | light | ≤ 50 production lines, outside the invariant areas | the coordinator reads the diff itself; no subagent |
 | standard | more, outside the invariant areas | `pr-reviewer`, then §4 |
-| full | production code in `internal/{mcpserver,provisioning,auth,gitx,sops,service}`, or any supply-chain file: a CI workflow, an installer, the release pipeline, a bundled skill | `pr-reviewer`, then §4 plus the coordinator reads the hunks the reviewer's invariants line names, against their `AGENTS.md` — not the whole area diff. Supply-chain hunks are read whole, by the user too: no standing approval merges them |
+| full | production code in `internal/{mcpserver,provisioning,auth,gitx,sops,service}`, or any supply-chain file: a CI workflow, an installer, the release pipeline, a bundled skill | `pr-reviewer` and `security-reviewer` in parallel, then §4 plus the coordinator reads the hunks the reviewer's invariants line names, against their `AGENTS.md` — not the whole area diff. Supply-chain hunks are read whole, by the user too: no standing approval merges them |
 
 ## 2 — Send back without reading the code
 
@@ -64,8 +64,11 @@ git worktree add --detach .worktrees/pr-<pr> FETCH_HEAD
 ```
 
 Spawn `pr-reviewer` with the PR number, the absolute worktree path, the tier and
-the plan issue number (or "none") and the round (§5). It carries the rest. Several PRs can be
-reviewed in parallel, one worktree and one subagent each, in the background.
+the plan issue number (or "none") and the round (§5). It carries the rest. On the
+full tier spawn `security-reviewer` too, in parallel on the same worktree with the
+same mandate: both are read-only. Standard and light tiers get no security pass,
+for cost. Several PRs can be reviewed in parallel, one worktree and one pair of
+subagents each, in the background.
 
 ## 4 — Verify, then decide
 
@@ -78,10 +81,17 @@ reviewed in parallel, one worktree and one subagent each, in the background.
 - Plan conformance: compare the reviewer's work-package line with the plan's
   `## WP` headings (`gh issue view <plan> --json body`), not with the whole
   discussion.
+- `security-reviewer` findings are verified the same way. A verified high or
+  medium one blocks the verdict and the merge, whatever standing approval exists;
+  the rounds rule of §5 applies to it unchanged.
 - Every verified finding is answered before the verdict: fixed, by a commit, or
   dismissed with a one-line reason. A `pre-existing` finding does not block and
   is not fixed in this PR: it becomes one `bug` issue each, drafted and opened on
   the user's word.
+- **A `pre-existing` security finding is never made public** (it concerns released
+  code): no `bug` issue, no PR comment. Draft a private GitHub security advisory
+  for the user (`SECURITY.md` §Reporting). A security finding about code the PR
+  adds may go in the review: that code is not released.
 - The verdict is one review, `gh pr review <pr> --approve` or `--request-changes`
   with the verified findings as `file:line` bullets — drafted, posted on the
   user's word.
@@ -110,16 +120,16 @@ The same procedure moves the review cost to the author, which is the point:
 
 1. `triage.sh` with no argument compares the current branch with `origin/main`;
    fix every `BLOCK`.
-2. Spawn `pr-reviewer` on your own worktree (tier from the triage, PR number
+2. Spawn the reviewers of the tier (§3) on your own worktree (tier from the triage, PR number
    "not opened yet"), fix or answer each finding, in rounds as in §5.
 3. Fill the PR template; its `## Self-review` section says what the review found
    and what you did with it.
 
 ## Per-client mechanics
 
-| | How to spawn `pr-reviewer` |
+| | How to spawn `pr-reviewer` and `security-reviewer` |
 |---|---|
-| **Claude Code** | `Agent` with `subagent_type: pr-reviewer`, `run_in_background: true` |
-| **Codex** | `collaboration.spawn_agent` with the `pr-reviewer` agent |
-| **Kiro** | `orchestrate_subagent` with the `pr-reviewer` agent, one stage per PR |
-| **Antigravity, Copilot CLI** | no repository agent: pass the definition in `.claude/agents/pr-reviewer.md` inline as the mandate |
+| **Claude Code** | `Agent` with `subagent_type: pr-reviewer` / `security-reviewer`, `run_in_background: true` |
+| **Codex** | `collaboration.spawn_agent` with the `pr-reviewer` / `security-reviewer` agent |
+| **Kiro** | `orchestrate_subagent` with the `pr-reviewer` / `security-reviewer` agent, one stage per PR and agent |
+| **Antigravity, Copilot CLI** | no repository agent: pass the definition in `.claude/agents/pr-reviewer.md` or `security-reviewer.md` inline as the mandate |

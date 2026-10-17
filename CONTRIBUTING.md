@@ -115,12 +115,13 @@ format and location — project-local for `.mcp.json`, `.codex/config.toml` and
 all of them machine-local and git-ignored. If you are pointing a client at a
 Cartographer server, use `cartographer connect`, not a hand-written file.
 
-The repository also ships three subagents: `plan-implementer`, the worker the
+The repository also ships four subagents: `plan-implementer`, the worker the
 `implement-issue` skill spawns per plan, `live-implementer`, the one the
-`live-dev` skill spawns per change, and `pr-reviewer`, the read-only reviewer
-the `review-pr`, `implement-issue` and `live-dev` skills spawn per pull request. Each exists in each client's own format —
+`live-dev` skill spawns per change, `pr-reviewer`, the read-only reviewer
+the `review-pr`, `implement-issue` and `live-dev` skills spawn per pull request, and
+`security-reviewer`, the read-only attacker's-view pass they add on full-tier PRs. Each exists in each client's own format —
 `.claude/agents/<name>.md`, `.codex/agents/<name>.toml`,
-`.kiro/agents/<name>.json` — and the three must say the same thing: the
+`.kiro/agents/<name>.json` — and the three formats must say the same thing: the
 procedure itself stays in the skill (D327).
 
 Working on more than one plan at a time? No client isolates its own subagents

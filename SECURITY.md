@@ -22,7 +22,10 @@ interest:
 - path traversal or writes escaping the KB root;
 - secret leakage (SOPS-managed values are referenced, never stored in
   plaintext — anything that surfaces plaintext secrets is a bug);
-- audit-log integrity issues (hash chain, signature).
+- audit-log integrity issues (hash chain, signature);
+- supply-chain defects: a CI workflow that runs PR code with secrets, an installer
+  or the release pipeline that does not verify what it downloads, a bundled skill
+  that makes a user's agent send KB content elsewhere.
 
 ## Supported versions
 
