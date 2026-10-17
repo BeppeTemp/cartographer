@@ -180,7 +180,9 @@ func TestFlushPush_AfterSchedule_WaitsForPush(t *testing.T) {
 	k.SchedulePush()
 
 	start := time.Now()
-	if err := k.FlushPush(5 * time.Second); err != nil {
+	// The bound only has to be far below the 1h debounce: a push on a loaded
+	// Windows runner has taken longer than 5s (#901 CI).
+	if err := k.FlushPush(30 * time.Second); err != nil {
 		t.Fatalf("FlushPush: %v", err)
 	}
 	if elapsed := time.Since(start); elapsed >= k.SyncOutDebounce {
