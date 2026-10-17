@@ -274,7 +274,7 @@
   height: 12px;
   margin: 0 0 0 var(--space-1);
   accent-color: var(--primary);
-}/* --- A titled block --- */
+} /* --- A titled block --- */
 
 .facet {
   min-width: 0;
@@ -566,7 +566,6 @@ button.row {
     flex-direction: column;
     align-items: flex-start;
   }
-
 }
 
 /* --- Activity: each day's changes on a rail coloured by Map --- */
@@ -579,7 +578,8 @@ button.row {
 
 .timeline__summary .figures__item dd {
   font-size: var(--text-xl);
-}.timeline__days {
+}
+.timeline__days {
   margin: 0;
   padding: 0;
   list-style: none;
@@ -825,12 +825,22 @@ button.row {
   color: var(--text-muted);
 }
 
-.health__go {
-  white-space: nowrap;
+.health__group .page-note {
+  margin-block-start: 0;
+  padding-inline: var(--space-3);
 }
 
-.row:hover .health__go {
+/* Every row opens its concept: the hint shows on the row being pointed at,
+   not repeated down the whole list. */
+.health__go {
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.row:hover .health__go,
+.row:focus-visible .health__go {
   color: var(--primary);
+  opacity: 1;
 }
 
 .health__glyph {
@@ -839,8 +849,8 @@ button.row {
   place-items: center;
   width: 24px;
   height: 24px;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
+  font-size: var(--text-md);
+  color: var(--text-secondary);
   background: var(--surface-2);
   border-radius: var(--radius-pill);
 }

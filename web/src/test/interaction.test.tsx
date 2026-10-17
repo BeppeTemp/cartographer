@@ -6,7 +6,7 @@ import { NodeList } from "../components/NodeList";
 import { LeftRail } from "../components/LeftRail";
 import { Health } from "../components/Health";
 import { json, stubApi } from "./fixtures";
-import type { GraphNode, KBStatus, LintReport, MaintenanceReview, Overview } from "../api/types";
+import type { GraphNode, LintReport, MaintenanceReview, Overview } from "../api/types";
 
 const nodes: GraphNode[] = [
   { id: "infra/gateway", collection: "infra", type: "Service", in_degree: 4, out_degree: 1 },
@@ -149,7 +149,6 @@ function health(
   props: Partial<{
     report: LintReport;
     scopeTitle: string | null;
-    status: KBStatus | null;
     checks: typeof catalog | null;
     review: MaintenanceReview | null;
     collections: { name: string; title: string; kind: string; concepts: number; expanded_concepts: number }[];
@@ -159,7 +158,6 @@ function health(
   return (
     <Health
       report={props.report ?? report}
-      status={props.status ?? null}
       checks={"checks" in props ? props.checks : catalog}
       review={"review" in props ? props.review : { items: [] }}
       collections={props.collections}
@@ -317,46 +315,6 @@ describe("health: what it checks", () => {
     expect(idle).toHaveAttribute("title", "glossary.yaml declares no forbidden term");
     expect(idle).not.toHaveTextContent(/\b0\b/);
     expect(screen.getByText(/In this KB:/)).toHaveTextContent("1 have nothing to read here");
-  });
-});
-
-describe("health knowledge", () => {
-  it("marks a miss whose search now finds something as resolved", () => {
-    render(
-      health({
-        status: {
-          search_misses: [
-            { query: "zephyr", count: 1 },
-            { query: "kafka", count: 3, resolved: true },
-          ],
-        },
-      }),
-    );
-    const resolved = screen.getByText("kafka").closest("li");
-    expect(resolved).toHaveClass("chip--resolved");
-    expect(resolved).toHaveTextContent("(now found)");
-    expect(screen.getByText("zephyr").closest("li")).not.toHaveClass("chip--resolved");
-  });
-
-  it("leaves the section out when the KB knows what it is asked", () => {
-    render(health({ status: { open_gaps: { total: 0 }, search_misses: [], stale_count: 0 } }));
-    expect(screen.queryByRole("heading", { name: /^What the KB doesn.t know/ })).not.toBeInTheDocument();
-  });
-
-  // Open questions are what the KB does not know, whoever asked them: listed
-  // apart from the issues, never as a step of upkeep (D704).
-  it("lists an open question apart from the issues and opens its concept", async () => {
-    const user = userEvent.setup();
-    const onReveal = vi.fn();
-    render(
-      health({
-        onReveal,
-        status: { open_gaps: { total: 1, recent: [{ id: "ops/q1", title: "Which port does the proxy listen on?", kind: "open_question" }] } },
-      }),
-    );
-    expect(screen.getByRole("heading", { name: /^What the KB doesn.t know/ })).toBeInTheDocument();
-    await user.click(screen.getByText("Which port does the proxy listen on?"));
-    expect(onReveal).toHaveBeenCalledWith("ops/q1", "");
   });
 });
 

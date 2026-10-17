@@ -44,7 +44,6 @@ import { ErrorState } from "./States";
  */
 export function Health({
   report,
-  status,
   checks,
   review = null,
   contradictions = null,
@@ -57,16 +56,18 @@ export function Health({
   onMap,
   loading,
   error,
+  searchMisses = null,
   onReveal,
+  onWork = () => undefined,
   onRetry,
 }: {
   report: LintReport | null;
-  /** kb_status's knowledge signals; null when the principal cannot see the whole KB. */
-  status: KBStatus | null;
   /** Every check the server runs (D365); null leaves the reference out. */
   checks?: CheckCatalog | null;
   /** The doctor's proposals beyond lint (D704); null leaves them out. */
   review?: MaintenanceReview | null;
+  /** kb_status's searches that found nothing; null when the principal cannot see the whole KB. */
+  searchMisses?: SearchMiss[] | null;
   /** The open Contradiction concepts; null when not visible or not arrived. */
   contradictions?: Contradiction[] | null;
   /** Open git rebase conflicts; null when not visible or not arrived, and the
@@ -85,6 +86,8 @@ export function Health({
   loading: boolean;
   error: unknown;
   onReveal(concept: string | null, message: string): void;
+  /** Opens the Work panel, where the open contradictions are listed. */
+  onWork?(): void;
   onRetry(): void;
 }) {
   // The agenda is the page; what the checks look for is a tab beside it (D365).
@@ -255,11 +258,11 @@ export function Health({
             </div>
           )}
 
-          {contradictions && <Contradictions items={contradictions} onReveal={onReveal} />}
+          {contradictions && <Contradictions items={contradictions} onWork={onWork} />}
+
+          {!!searchMisses?.length && <SearchMisses items={searchMisses} />}
 
           {!!conflicts?.length && <GitConflicts items={conflicts} onReveal={onReveal} />}
-
-          {status && hasKnowledge(status) && <Knowledge status={status} onReveal={onReveal} />}
         </>
       )}
     </Page>
@@ -429,9 +432,6 @@ function rowSize(g: CheckGroup): number {
 }
 
 /** Whether there is anything to list below the Knowledge facet's counts. */
-function hasKnowledge(status: KBStatus): boolean {
-  return !!status.open_gaps?.total || (status.search_misses ?? []).length > 0 || (status.stale_count ?? 0) > 0;
-}
 
 /**
  * The line every agenda row shares: what it is, a bar for how much of the KB
@@ -719,15 +719,7 @@ interface Rule {
  * what they found here -- folded until the reader opens it. Rules that found something
  * come first; the ones with nothing to read here wait at the end.
  */
-function Coverage({
-  catalog,
-  report,
-  review,
-}: {
-  catalog: CheckCatalog;
-  report: LintReport;
-  review: ReviewItem[];
-}) {
+function Coverage({ catalog, report, review }: { catalog: CheckCatalog; report: LintReport; review: ReviewItem[] }) {
   const count = (name: string) => report.by_check[name] ?? 0;
   // A check that cannot run here (D371) is neither clean nor dirty: its zero would lie.
   const idle = (c: CheckCatalog["checks"][number]) => c.active === false;
@@ -845,63 +837,76 @@ function Coverage({
 }
 
 /**
- * The Contradiction concepts still open: two pages that disagree. They are
- * recorded by agents (contradiction_report) and block commit_gate until
- * someone resolves them, so they sit beside what is wrong, not in a corner.
+ * The Contradiction concepts still open block commit_gate, so Health says so;
+ * deciding which page holds is work, listed in Work beside the rest.
  */
-function Contradictions({
-  items,
-  onReveal,
-}: {
-  items: Contradiction[];
-  onReveal(concept: string | null, message: string): void;
-}) {
+function Contradictions({ items, onWork }: { items: Contradiction[]; onWork(): void }) {
   return (
     <PageSection title="Contradictions" id="health-contradictions" count={items.length}>
       {items.length === 0 ? (
         <Quiet>
-          No open contradictions. An agent that finds two pages disagreeing records one (<code>contradiction_report</code>
+          No open contradictions. An agent that finds two pages disagreeing records one (
+          <code>contradiction_report</code>
           ); while it is open, <code>commit_gate</code> blocks.
         </Quiet>
       ) : (
-        <>
-          <p className="page-note">
-            Pages that disagree, recorded by agents. An open contradiction blocks <code>commit_gate</code> until it is
-            resolved.
-          </p>
-          <ul className="rows">
-            {items.map((c) => (
-              <li key={c.id} className="health__contradiction">
-                <button type="button" className="row" onClick={() => onReveal(c.id, "")}>
-                  <span className="health__glyph" aria-hidden="true">
-                    ≠
-                  </span>
-                  <span className="row__body">
-                    <span className="row__title">{c.title || c.id}</span>
-                    <span className="row__meta">
-                      {c.contradiction_kind && <span className="pill">{c.contradiction_kind.replace(/_/g, " ")}</span>}
-                      <code>{c.id}</code>
-                    </span>
-                  </span>
-                  <span className="row__end health__go">Open concept</span>
-                </button>
-                {!!c.involves?.length && (
-                  <p className="health__involves">
-                    Between{" "}
-                    {c.involves.map((id, i) => (
-                      <span key={id}>
-                        {i > 0 && ", "}
-                        <button type="button" className="ref-link" onClick={() => onReveal(id, "")}>
-                          {id}
-                        </button>
-                      </span>
-                    ))}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </>
+        <p className="page-note">
+          {items.length === 1 ? "One open contradiction blocks" : `${items.length} open contradictions block`}{" "}
+          <code>commit_gate</code> until someone decides which page holds.{" "}
+          <button type="button" className="ref-link" onClick={onWork}>
+            See {items.length === 1 ? "it" : "them"} in Work
+          </button>
+          .
+        </p>
+      )}
+    </PageSection>
+  );
+}
+
+type SearchMiss = NonNullable<KBStatus["search_misses"]>[number];
+
+/**
+ * What agents searched for and the KB could not answer (D247): not a defect
+ * of a page but of the KB, the pages it is missing. A search that finds
+ * something now is listed apart, since the gap it showed has closed.
+ */
+function SearchMisses({ items }: { items: SearchMiss[] }) {
+  const open = items.filter((m) => !m.resolved);
+  const found = items.filter((m) => m.resolved);
+  return (
+    <PageSection title="Searched for, not found" id="health-misses" count={open.length}>
+      <p className="page-note">
+        What agents searched for in the last 30 days and the KB could not answer. Each one is a page to write, or a
+        question to record: ask your agent.
+      </p>
+      {open.length > 0 && (
+        <ul className="rows">
+          {open.map((m) => (
+            <li key={m.query} className="row health__miss">
+              <span className="health__glyph" aria-hidden="true">
+                ⌕
+              </span>
+              <span className="row__body">
+                <span className="row__title">&ldquo;{m.query}&rdquo;</span>
+                <span className="row__meta">
+                  searched {m.count === 1 ? "once" : `${m.count} times`}
+                  {m.last_seen ? `, last on ${m.last_seen.slice(0, 10)}` : ""}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {found.length > 0 && (
+        <p className="page-note">
+          Found since:{" "}
+          {found.map((m, i) => (
+            <span key={m.query}>
+              {i > 0 && ", "}&ldquo;{m.query}&rdquo;
+            </span>
+          ))}
+          .
+        </p>
       )}
     </PageSection>
   );
@@ -909,93 +914,6 @@ function Contradictions({
 
 function plural(n: number, word: string, many = `${word}s`): string {
   return `${n} ${n === 1 ? word : many}`;
-}
-
-/**
- * What the KB does not know, beside what is wrong with it: the knowledge gaps
- * agents recorded, the searches that found nothing, and the pages past their
- * review date. Lint says a page is malformed; these say a page is missing or
- * stale.
- */
-function Knowledge({
-  status,
-  onReveal,
-}: {
-  status: KBStatus;
-  onReveal(concept: string | null, message: string): void;
-}) {
-  const gaps = status.open_gaps;
-  const misses = status.search_misses ?? [];
-  const stale = status.stale_count ?? 0;
-  const total = (gaps?.total ?? 0) + misses.filter((m) => !m.resolved).length + stale;
-  return (
-    <PageSection title="What the KB doesn't know" id="health-gaps" count={total}>
-      <>
-        {!!gaps?.total && (
-          <div className="health__group" role="group" aria-labelledby="health-open-gaps">
-            <h3 className="health__group-title" id="health-open-gaps">
-              Open questions and gaps
-              <span className="page-section__count">{gaps.total}</span>
-            </h3>
-            <ul className="rows">
-              {(gaps.recent ?? []).map((g) => (
-                <li key={g.id}>
-                  <button type="button" className="row" onClick={() => onReveal(g.id, "")}>
-                    <span className="health__glyph" aria-hidden="true">
-                      ◌
-                    </span>
-                    <span className="row__body">
-                      <span className="row__title">{g.title || g.id}</span>
-                      <span className="row__meta">
-                        <span className="pill">{(g.kind ?? "gap").replace(/_/g, " ")}</span>
-                        <code>{g.id}</code>
-                      </span>
-                    </span>
-                    <span className="row__end health__go">Open concept</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {misses.length > 0 && (
-          <div className="health__group" role="group" aria-labelledby="health-misses">
-            <h3 className="health__group-title" id="health-misses">
-              Searched for, not found
-              <span className="page-section__count">{misses.length}</span>
-            </h3>
-            <p className="page-note">
-              What agents searched for in the last 30 days and the KB could not answer. A ticked one finds something
-              now.
-            </p>
-            <ul className="health__misses">
-              {misses.map((m) => (
-                <li
-                  key={m.query}
-                  className={m.resolved ? "chip chip--resolved" : "chip"}
-                  title={m.resolved ? "This search finds something now" : undefined}
-                >
-                  {m.resolved && (
-                    <span className="chip__resolved" aria-hidden="true">
-                      ✓
-                    </span>
-                  )}
-                  {m.query}
-                  {m.resolved && <span className="sr-only"> (now found)</span>}
-                  <span className="chip__count">{m.count}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {stale > 0 && (
-          <Quiet tone="neutral">
-            {stale === 1 ? "One concept is" : `${stale} concepts are`} past its review date (<code>review_after</code>).
-          </Quiet>
-        )}
-      </>
-    </PageSection>
-  );
 }
 
 /**
@@ -1013,8 +931,8 @@ function GitConflicts({
   return (
     <PageSection title="Git conflicts" id="health-conflicts" count={items.length}>
       <p className="page-note">
-        A sync met two versions of these files and stopped. An agent settles each one with <code>git_conflict_resolve</code>{" "}
-        (the <code>kb-conflict-resolve</code> skill walks it through).
+        A sync met two versions of these files and stopped. An agent settles each one with{" "}
+        <code>git_conflict_resolve</code> (the <code>kb-conflict-resolve</code> skill walks it through).
       </p>
       <ul className="rows">
         {items.map((c) => (
@@ -1032,7 +950,9 @@ function GitConflicts({
                 <span className="row__title">{c.concept_id}</span>
                 <span className="row__meta">
                   {c.kind === "reserved" && <span className="pill">reserved file</span>}
-                  <span className="pill">{c.resolution_strategy ? `resolution: ${c.resolution_strategy}` : "unresolved"}</span>
+                  <span className="pill">
+                    {c.resolution_strategy ? `resolution: ${c.resolution_strategy}` : "unresolved"}
+                  </span>
                   {!!c.files && c.files.length > 1 && <span>{c.files.length} files in the same rebase</span>}
                 </span>
               </span>

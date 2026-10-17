@@ -11,7 +11,6 @@ function page(extra: { review?: MaintenanceReview | null; checks?: CheckCatalog 
   return (
     <Health
       report={lint}
-      status={null}
       scopeTitle={null}
       loading={false}
       error={null}

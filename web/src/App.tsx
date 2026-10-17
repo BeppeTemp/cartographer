@@ -13,9 +13,9 @@ import {
   fetchMaps,
   fetchMaintenanceReview,
   fetchOverview,
-  fetchStatus,
   fetchConflicts,
   fetchContradictions,
+  fetchStatus,
   restoreToken,
   setToken,
 } from "./api/client";
@@ -26,8 +26,8 @@ import type {
   Concept,
   Contradiction,
   GitConflict,
-  GraphSnapshot,
   KBStatus,
+  GraphSnapshot,
   KBSummary,
   LintReport,
   MapContract,
@@ -132,10 +132,10 @@ export function App() {
   );
   // kb_status's knowledge signals for Health; a principal that cannot see
   // the whole KB gets a 404 and those parts are simply absent.
-  const [kbStatus, setKbStatus] = useState<KBStatus | null>(null);
   const [checks, setChecks] = useState<CheckCatalog | null>(null);
   // The doctor's agenda beyond lint (D704); null leaves it out of Health.
   const [review, setReview] = useState<MaintenanceReview | null>(null);
+  const [kbStatus, setKbStatus] = useState<KBStatus | null>(null);
   const [contradictions, setContradictions] = useState<Contradiction[] | null>(null);
   const [conflicts, setConflicts] = useState<GitConflict[] | null>(null);
   // Health's review and checks have answered (or failed) for the current read.
@@ -554,9 +554,9 @@ export function App() {
   // filtered per principal and always answer.
   useEffect(() => {
     if (view.panel !== "health" || !activeKB || phase !== "ready") {
-      setKbStatus(null);
       setChecks(null);
       setReview(null);
+      setKbStatus(null);
       setContradictions(null);
       setConflicts(null);
       setHealthSettled(false);
@@ -566,9 +566,9 @@ export function App() {
     // the new reads fail. A live refresh of the same KB keeps what it shows.
     if (healthKB.current !== activeKB) {
       healthKB.current = activeKB;
-      setKbStatus(null);
       setChecks(null);
       setReview(null);
+      setKbStatus(null);
       setContradictions(null);
       setConflicts(null);
       setHealthSettled(false);
@@ -880,9 +880,9 @@ export function App() {
           ) : view.panel === "health" ? (
             <Health
               report={lint}
-              status={kbStatus}
               checks={checks}
               review={review}
+              searchMisses={kbStatus?.search_misses ?? null}
               contradictions={contradictions}
               conflicts={conflicts}
               pending={!healthSettled}
@@ -896,6 +896,7 @@ export function App() {
               loading={lintLoading}
               error={lintError}
               onRetry={() => setReloadKey((k) => k + 1)}
+              onWork={() => navigate({ panel: "work" })}
               onReveal={(conceptId, message) => {
                 if (conceptId) navigate({ panel: "atlas", concept: conceptId });
                 else announce(message);

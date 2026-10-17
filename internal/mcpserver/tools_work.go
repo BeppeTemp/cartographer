@@ -40,6 +40,7 @@ type workResponse struct {
 	Total        int            `json:"total"`
 	OpenConcepts int            `json:"open_concepts"`
 	ByStatus     map[string]int `json:"by_status"`
+	ByReason     map[string]int `json:"by_reason,omitempty"`
 	ByMap        map[string]int `json:"by_map"`
 	OpenItems    int            `json:"open_items"`
 	Entries      []workEntryOut `json:"entries"`
@@ -124,13 +125,17 @@ func runWorkQuery(ctx requestContext, k *kb.KB, cc *conformanceCache, q workQuer
 	}
 	sortWork(sel, q.OrderBy)
 
-	resp := workResponse{Total: len(sel), ByStatus: map[string]int{}, ByMap: map[string]int{}, Entries: []workEntryOut{}}
+	resp := workResponse{Total: len(sel), ByStatus: map[string]int{}, ByReason: map[string]int{}, ByMap: map[string]int{}, Entries: []workEntryOut{}}
 	// total counts entries, for paging; open_concepts and by_status count only
 	// the open-phase ones, so a closed concept listed for its unchecked items
 	// never shows its closed status as work, and open_concepts matches
-	// kb_status.work.
+	// kb_status.work. A concept that is work by its reason counts under
+	// by_reason, not under a status that does not say why.
 	for _, e := range sel {
-		if e.OpenPhase {
+		if e.Reason != "" {
+			resp.OpenConcepts++
+			resp.ByReason[e.Reason]++
+		} else if e.OpenPhase {
 			status := e.Status
 			if e.State != "" {
 				status = e.State // D347: group by the open_field value
@@ -233,7 +238,7 @@ func toolWorkList(k *kb.KB, cc *conformanceCache) Tool {
 	return Tool{
 		Name:        "work_list",
 		ReadOnly:    true,
-		Description: "Open work: concepts in an open status for their map, and unchecked - [ ] items in any concept, with section and line. where as in concept_list; fields and order_by name frontmatter keys. Read-only: change work with concept_patch.",
+		Description: "Open work: open-status concepts, open contradictions/gaps, pages past review_after (reason), unchecked - [ ] items. where as in concept_list; fields and order_by name frontmatter keys. Read-only: change work with concept_patch.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {

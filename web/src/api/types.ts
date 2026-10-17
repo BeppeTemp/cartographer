@@ -323,15 +323,20 @@ export interface WorkEntry {
   map?: string;
   status?: string;
   open_phase: boolean;
+  /** Why a concept is work when its status does not say so. */
+  reason?: "contradiction" | "gap" | "review";
   timestamp?: string;
   age_days?: number;
   stale: boolean;
   items: WorkItem[];
+  /** The frontmatter values asked for with fields. */
+  fields?: Record<string, string>;
 }
 export interface WorkResponse {
   total: number;
   open_concepts: number;
   by_status: Record<string, number>;
+  by_reason?: Record<string, number>;
   by_map: Record<string, number>;
   open_items: number;
   entries: WorkEntry[];

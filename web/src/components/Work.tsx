@@ -34,8 +34,29 @@ const ITEMS_ONLY = "unchecked items";
 /** The column of the sources registered and not ingested yet (D818). */
 const TO_INGEST = "to ingest";
 
+/**
+ * Work a concept carries by what it is rather than by its status: each reason
+ * has its own column, named for what a person does about it.
+ */
+const REASON_COLUMN: Record<NonNullable<WorkEntry["reason"]>, string> = {
+  contradiction: "to resolve",
+  gap: "to answer",
+  review: "to review",
+};
+
 /** Columns in the order work moves through them; anything else follows, sorted. */
-const STATUS_ORDER = ["decision-needed", "blocked", "in-progress", "open", "proposed", TO_INGEST, ITEMS_ONLY];
+const STATUS_ORDER = [
+  REASON_COLUMN.contradiction,
+  "decision-needed",
+  "blocked",
+  "in-progress",
+  "open",
+  REASON_COLUMN.gap,
+  "proposed",
+  REASON_COLUMN.review,
+  TO_INGEST,
+  ITEMS_ONLY,
+];
 
 /**
  * Open work (D302): concepts in an open status for their map, of any type,
@@ -269,7 +290,11 @@ function WorkCard({
         )}
         <span className="work__card-title">{entry.title || entry.id}</span>
         <span className="work__card-meta">
-          {entry.type && <span className="pill">{entry.type}</span>}
+          {entry.reason && entry.reason !== "review" ? (
+            <span className="pill">{(entry.fields?.contradiction_kind || entry.reason).replace(/_/g, " ")}</span>
+          ) : (
+            entry.type && <span className="pill">{entry.type}</span>
+          )}
           {showStatus && (
             <span className="pill">
               <StatusDot status={groupOf(entry)} />
@@ -320,10 +345,12 @@ function statusTone(status: string): string {
     case "blocked":
       return "error";
     case "decision-needed":
+    case REASON_COLUMN.contradiction:
       return "warning";
     case "in-progress":
       return "active";
     case "open":
+    case REASON_COLUMN.gap:
       return "info";
     case ITEMS_ONLY:
       return "items";
@@ -348,6 +375,7 @@ function statusOf(e: WorkEntry): string {
 }
 
 function groupOf(e: WorkEntry): string {
+  if (e.reason) return REASON_COLUMN[e.reason];
   return e.open_phase ? statusOf(e) : ITEMS_ONLY;
 }
 

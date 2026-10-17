@@ -43,7 +43,7 @@ describe("the Health panel", () => {
     }
   });
 
-  it("lists the open contradictions and says they block commit_gate", async () => {
+  it("says the open contradictions block commit_gate and sends to Work for them", async () => {
     stubApi({
       "/contradictions": () =>
         json({
@@ -60,9 +60,9 @@ describe("the Health panel", () => {
     });
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Health" });
-    expect(await within(panel).findByText("Ports disagree")).toBeInTheDocument();
-    expect(within(panel).getByRole("button", { name: "infra/b" })).toBeInTheDocument();
-    expect(within(panel).getByText(/blocks/)).toBeInTheDocument();
+    expect(await within(panel).findByText(/One open contradiction blocks/)).toBeInTheDocument();
+    expect(within(panel).queryByText("Ports disagree")).not.toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "See it in Work" })).toBeInTheDocument();
   });
 
   it("says in one line what contradictions are when none are open", async () => {

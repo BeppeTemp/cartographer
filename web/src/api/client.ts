@@ -244,11 +244,10 @@ export function fetchChanges(kb: string, since: string, signal?: AbortSignal): P
   );
 }
 
-/** The caller's open work, up to the route's cap (D302). */
+/** The caller's open work, up to the route's cap (D302), with the kind of each contradiction. */
 export function fetchWork(kb: string, signal?: AbortSignal): Promise<WorkResponse> {
-  return get<WorkResponse>(`/kbs/${encodeURIComponent(kb)}/work?limit=200`, signal);
+  return get<WorkResponse>(`/kbs/${encodeURIComponent(kb)}/work?limit=200&fields=contradiction_kind`, signal);
 }
-
 
 /** Every lint check the server runs, by category (D365). */
 export function fetchChecks(kb: string, signal?: AbortSignal): Promise<CheckCatalog> {
