@@ -117,8 +117,12 @@ release-please reads both.
   appear in the changelog: use them only when that is true of the whole PR.
 - **Several user-visible changes** in one session: one extra conventional-commit
   line per change in the PR body, each at the start of its own paragraph — release-please
-  turns each into a changelog entry. Changes that are unrelated go in separate PRs.
-  Conversely, no prose line in the body may start with `feat:`/`fix:` by accident.
+  turns each into a changelog entry. Each is **one unwrapped line** (release-please keeps
+  only the first physical line of an entry, so a hard-wrapped one is cut mid-sentence;
+  `pr-title` fails the PR) and its scope is one of the canonical scopes
+  (`CONTRIBUTING.md` §Pull requests), which the changelog groups by. Changes that are
+  unrelated go in separate PRs. Conversely, no prose line in the body may start with
+  `feat:`/`fix:` by accident.
 - **Body**: what changed and why, step by step as it was accepted; what the user
   verified on the instance; what was tried and dropped, when a reader would
   re-propose it; the decision file; the follow-ups opened as `idea` issues.

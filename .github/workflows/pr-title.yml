@@ -1,0 +1,58 @@
+name: pr-title
+
+# With squash-merge the PR title becomes the commit on main that release-please
+# reads, and the PR body its message (D865). Its own workflow, not a job of
+# ci.yml: it must re-run when a title or body is edited, and an `edited` trigger
+# in ci.yml would re-run the whole suite on every `gh pr edit` and every body
+# rewrite release-please does to its PR. The ruleset requires the job name
+# `pr-title`, not a workflow.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-title-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title:
+    name: pr-title
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      # release-please keeps only the first physical line of a conventional line
+      # in the body, so a hard-wrapped one is cut mid-sentence in the changelog.
+      # The body reaches the script through the environment, never interpolated.
+      - name: Conventional lines in the body are one unwrapped line
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s' "$PR_BODY" | go run ./internal/changelog/gen -check-body
+      # internal/changelog.CanonicalScopes(); a test fails when they differ.
+      - uses: amannn/action-semantic-pull-request@v6
+        if: ${{ !cancelled() }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          scopes: |
+            atlas
+            mcp
+            lint
+            client
+            kb
+            dev
+            demo
+            deploy
+            ci
+            docs
+            deps
+            main
+          requireScope: false

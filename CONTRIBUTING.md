@@ -183,6 +183,18 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   (`feat: ...`, `fix: ...`, `docs: ...`, ...). CI enforces this. Releases are
   cut automatically from these commits by release-please, so the title you
   write is the changelog line users will read.
+  - **Scope** (optional, enforced): one of `atlas`, `mcp`, `lint`, `client`, `kb`,
+    `dev`, `demo`, `deploy`, `ci`, `docs`, `deps` or `main`. The release changelog
+    is grouped by area from it (D865): `atlas` is **Atlas**, `mcp` **MCP tools**,
+    `lint` **Lint & repair**, `client` **Client & CLI**, `kb` **Server & KB**;
+    an unscoped entry is **General**. `dev`, `demo`, `deploy` and `ci` entries
+    do not appear in the changelog (they are not changes a user installs). The
+    older spellings (`webui`, `mcpserver`, `skills`, `gitx`, …) still group
+    correctly on `main`, but a title can no longer use them.
+  - **Body lines**: a line of the PR body that starts like a conventional commit
+    (`feat(mcp): ...`) becomes a changelog entry of its own, and release-please
+    keeps only its **first physical line**: write it as one unwrapped line, never
+    hard-wrapped at 72 columns. CI fails the PR otherwise (`pr-title`).
 - The project is in **beta** (pre-1.0): breaking changes bump the **minor**
   version (release-please `bump-minor-pre-major`), so any 0.x minor release
   may break compatibility. GitHub releases are marked as **pre-releases**

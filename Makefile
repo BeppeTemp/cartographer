@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm dev gate decisions-index decisions-new codemap settings-example web web-test web-check e2e-web hero
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -164,6 +164,11 @@ gate: fmt-check vet test race ## Everything that must be green before a PR is op
 # checker cannot drift apart.
 decisions-index: ## Regenerate the decision index in docs/decisions.md
 	@go test ./internal/repodocs -run TestDecisionIndexIsUpToDate -count=1 -args -update
+
+# The release PR job runs this after release-please has rewritten CHANGELOG.md
+# (D865); it is idempotent, so running it by hand on a grouped file changes nothing.
+changelog-areas: ## Group the newest CHANGELOG.md section by area (the release PR job runs it, D865)
+	@go run ./internal/changelog/gen -file CHANGELOG.md
 
 codemap: ## Regenerate the code map in AGENTS.md from the package doc comments
 	@go test ./internal/repodocs -run TestCodeMapIsUpToDate -count=1 -args -update
