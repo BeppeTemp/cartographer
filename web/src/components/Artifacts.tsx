@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { fetchArtifact } from "../api/client";
-import type { Artifact, ArtifactFile, ArtifactFinding, ArtifactList } from "../api/types";
+import type { Artifact, ArtifactFile, ArtifactFinding, ArtifactKindInfo, ArtifactList } from "../api/types";
+import { DocsLink } from "./DocsLink";
 import { Markdown } from "./Markdown";
 import { Count, FilterChip, FilterChips, Hero, HeroRow, Page, PageHeader } from "./Page";
 import { SeverityBadge } from "./SeverityBadge";
@@ -16,7 +17,19 @@ const KIND_ABOUT: Record<string, string> = {
   template: "The shape a new concept of a type starts from.",
 };
 
-/** Kinds in reading order: what an agent does, then what it is told. */
+/**
+ * A condition on the files of a kind, said where an empty kind tells the reader
+ * where to put them: a file that is written and still not listed would
+ * otherwise read as a bug. An MCP descriptor is served only when the server's
+ * `mcp_allowlist` for the KB names it, and the catalog drops the diagnostic
+ * (docs/sync.md §MCP servers).
+ */
+const KIND_NEEDS: Record<string, string> = {
+  mcp: "listed only when the server's mcp_allowlist for this KB allows the server",
+};
+
+/** Kinds in reading order: what an agent does, then what it is told. Used only
+ *  when the server does not send its own list (`kinds`, D864). */
 const KINDS: [string, string][] = [
   ["skill", "Skills"],
   ["agent", "Subagents"],
@@ -142,20 +155,30 @@ export function Artifacts({
     if (sl === "flagged") return !!a.findings?.length;
     return true;
   };
+  // The server lists every kind a KB can hold (D864); a server that predates
+  // it sends none, and the panel lists only the kinds that have an artifact.
+  const kinds = list?.kinds?.length ? list.kinds : undefined;
   const groups = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     const match = (a: Artifact) =>
       (!needle || a.name.toLowerCase().includes(needle) || (a.description ?? "").toLowerCase().includes(needle)) &&
       inSlice(a, slice);
-    return KINDS.filter(([k]) => kind === null || k === kind)
-      .map(([k, title]) => ({ kind: k, title, items: all.filter((a) => a.kind === k && match(a)) }))
-      .filter((g) => g.items.length > 0);
-  }, [all, filter, kind, slice]);
+    // An empty kind is a section of its own only while nothing narrows the
+    // list: with a filter, "no match" must still read as no match.
+    const keepEmpty = !!kinds && !needle && slice === null;
+    const rows: { kind: string; title: string; info?: ArtifactKindInfo }[] =
+      kinds?.map((info) => ({ kind: info.kind, title: info.title, info })) ??
+      KINDS.map(([k, title]) => ({ kind: k, title }));
+    return rows
+      .filter((r) => kind === null || r.kind === kind)
+      .map((r) => ({ ...r, items: all.filter((a) => a.kind === r.kind && match(a)) }))
+      .filter((g) => g.items.length > 0 || keepEmpty);
+  }, [all, filter, kind, slice, kinds]);
 
   if (loading && !list) return <Skeleton lines={6} label="Loading artifacts" />;
   if (error) return <ErrorState error={error} onRetry={onRetry} />;
   if (!list) return null;
-  if (list.artifacts.length === 0 && list.issues.length === 0) {
+  if (!kinds && list.artifacts.length === 0 && list.issues.length === 0) {
     return (
       <Page label="Artifact catalog" className="catalog">
         {tabs}
@@ -220,7 +243,9 @@ export function Artifacts({
         <HeroRow label="Kind">
           <FilterChips label="Show kind">
             <FilterChip label="All" count={all.length} pressed={kind === null} onToggle={() => setKind(null)} />
-            {KINDS.filter(([k]) => (list.counts[k] ?? 0) > 0).map(([k, title]) => (
+            {(kinds?.map((info): [string, string] => [info.kind, info.title]) ??
+              KINDS.filter(([k]) => (list.counts[k] ?? 0) > 0)
+            ).map(([k, title]) => (
               <FilterChip
                 key={k}
                 label={title}
@@ -268,13 +293,17 @@ export function Artifacts({
                   {group.title}{" "}
                   <span className="page-section__count">{list.counts[group.kind] ?? group.items.length}</span>
                 </h2>
-                <p className="catalog__about">
-                  {KIND_ABOUT[group.kind]}
-                  {shared !== null &&
-                    (shared === 0
-                      ? " Kept in the KB, synced to no client."
-                      : ` Synced to ${shared} client${shared === 1 ? "" : "s"}.`)}
-                </p>
+                {group.items.length === 0 && group.info ? (
+                  <EmptyKindAbout info={group.info} />
+                ) : (
+                  <p className="catalog__about">
+                    {KIND_ABOUT[group.kind]}
+                    {shared !== null &&
+                      (shared === 0
+                        ? " Kept in the KB, synced to no client."
+                        : ` Synced to ${shared} client${shared === 1 ? "" : "s"}.`)}
+                  </p>
+                )}
               </header>
               <ul className="catalog__tiles">
                 {group.items.map((a) => {
@@ -352,6 +381,26 @@ export function Artifacts({
       {catalog}
       {detail}
     </section>
+  );
+}
+
+/**
+ * What a kind is when the KB has none of it (D864): the blurb, where its files
+ * go, which clients receive it, and the docs. The path is text, never a link:
+ * it comes from the server and names a folder, not a page.
+ */
+function EmptyKindAbout({ info }: { info: ArtifactKindInfo }) {
+  const about = KIND_ABOUT[info.kind];
+  return (
+    <p className="catalog__about">
+      {about && `${about} `}
+      Files go in <code>{info.kb_path}</code>
+      {KIND_NEEDS[info.kind] && `, ${KIND_NEEDS[info.kind]}`}.{" "}
+      {info.kb_only || info.clients.length === 0
+        ? "Stays in the KB: no client receives it."
+        : `Synced to ${info.clients.map((c) => c.name || c.id).join(", ")}.`}{" "}
+      <DocsLink doc={info.doc} />
+    </p>
   );
 }
 

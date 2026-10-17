@@ -773,6 +773,23 @@ two lines of description, its clients when they differ, and its last use once
 any use has been reported. Bundled skills are not listed: they belong to the
 binary; skills left out for failing validation are listed above the catalog.
 
+Every kind a KB can hold gets a chip and a section, **whether or not the KB
+ships one** (D864): the page is also how a reader learns what a KB can provide
+to its agent clients. An empty kind's section is one line: what the kind is,
+where its files go in the KB (`skills/<name>/SKILL.md`, shown as text; for MCP
+servers with the reminder that a descriptor is listed only when the server's
+`mcp_allowlist` for the KB allows it, so a file that was written and still shows
+0 is explained), the clients that receive it or "Stays in the KB: no client receives it" for a
+template, and a *Docs* link to the page that explains it on GitHub (the
+repository's `main`, in a new tab). The kinds, their order, paths and docs come
+from the server (`kinds` in `GET …/artifacts`, from `provisioning.Kinds`); the
+blurb, the glyph and the colour of a kind are the page's own, and a kind it does
+not know gets a neutral glyph and no blurb. A filter or a *Show* slice hides the
+empty kinds, so "no match" still reads as no match, and a KB with nothing at all
+shows the six empty kinds instead of a page-level empty state. Against a server
+that sends no `kinds` the page behaves as before: only the kinds that have an
+artifact, and the page-level empty state.
+
 Selecting a tile opens the artifact beside the catalog, as the reading panel
 opens beside the atlas, with a close button; on a narrow screen it takes the
 whole width with a way back. The detail gives its description, its signature,
@@ -797,8 +814,9 @@ the values **in the browser**: the server only serves the ciphertext, never sees
 the key and never runs sops. Each value can then be shown or copied; *Lock*, closing
 the panel or switching KB forgets them, and the identity itself is not kept
 after the decryption. A key that is not a recipient of any file is reported as
-such. Like the Artifacts panel it exists only for a principal that can read the
-whole KB.
+such. A KB with no secrets says where a file goes (`secrets/<name>.sops.yaml`,
+from the `kind` the route sends, D864) and links the docs. Like the Artifacts
+panel it exists only for a principal that can read the whole KB.
 
 ### Runtime secrets
 

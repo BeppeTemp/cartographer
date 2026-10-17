@@ -3271,8 +3271,54 @@ const (
 
 // artifactKinds are the kinds the matrix must cover. A manifest built by a
 // newer server may carry a kind absent from this list; destDir returns "" for
-// it, exactly as it does for an unsupported cell.
+// it, exactly as it does for an unsupported cell. A kind added here needs its
+// KindInfo in kindInfos too (TestKindsMatchTheMatrix fails without it, D864).
 var artifactKinds = []string{"mcp", "instructions", "agent", "hook", "skill"}
+
+// KindInfo describes one kind of artifact a KB can hold: where its files go in
+// the KB and where the reader is told how it works. It is the contract between
+// provisioning and the Atlas Artifacts page (D864), which lists every kind a KB
+// can provide even when it has none, so a reader learns what a KB is able to
+// give to its agent clients.
+type KindInfo struct {
+	// Kind is the artifact kind, as the manifest and the UI API name it.
+	Kind string
+	// Title is the kind in a heading ("Subagents").
+	Title string
+	// KBPath is where an artifact of this kind lives in the KB, with <name>
+	// (<slug> for a template, which concept_new selects by slug) standing for
+	// the artifact's name. Slash-separated, relative to the KB root.
+	KBPath string
+	// Doc is the repository path of the page that documents the kind, with the
+	// anchor of the heading that does: "docs/sync.md#agents-and-hooks".
+	Doc string
+	// KBOnly marks a kind that never leaves the KB: it has no row in the
+	// destination matrix and no client receives it.
+	KBOnly bool
+}
+
+// kindInfos is the list behind Kinds. The layout is what BuildManifest scans
+// (skills/, agents/, hooks/, mcp/, instructions.md) plus the two KB-only kinds
+// the manifest ignores (templates/ and secrets/): TestKinds_PathsAreWhatTheScannerFinds
+// writes a file at each KBPath and checks the scanner picks it up, and
+// TestKindsMatchTheMatrix checks every matrix kind has a row here, so a kind
+// added to either place without the other fails the build.
+var kindInfos = []KindInfo{
+	{Kind: "skill", Title: "Skills", KBPath: "skills/<name>/SKILL.md", Doc: "docs/skills-services-secrets.md#skills"},
+	{Kind: "agent", Title: "Subagents", KBPath: "agents/<name>.md", Doc: "docs/sync.md#agents-and-hooks"},
+	{Kind: "hook", Title: "Hooks", KBPath: "hooks/<name>/hook.json", Doc: "docs/sync.md#agents-and-hooks"},
+	{Kind: "mcp", Title: "MCP servers", KBPath: "mcp/<name>.json", Doc: "docs/sync.md#mcp-servers-d69-d116"},
+	{Kind: "instructions", Title: "Instructions", KBPath: "instructions.md", Doc: "docs/sync.md#instructions-imprinting"},
+	{Kind: "template", Title: "Templates", KBPath: "templates/<slug>.md", Doc: "docs/data-plane.md#templates-are-page-schemas-d352", KBOnly: true},
+	{Kind: "secret", Title: "Secrets", KBPath: "secrets/<name>.sops.yaml", Doc: "docs/skills-services-secrets.md#sops-files", KBOnly: true},
+}
+
+// Kinds lists every kind of artifact a KB can hold, in reading order: what an
+// agent does, then what it is told, then what stays in the KB. The result is a
+// copy, safe to modify.
+func Kinds() []KindInfo {
+	return append([]KindInfo(nil), kindInfos...)
+}
 
 // ManagedDestinationRoots returns the absolute paths, under baseDir, that
 // provisioning writes into for this provider: one per artifact kind it

@@ -62,12 +62,18 @@ func TestUIAPI_ArtifactsListsWhatTheKBShips(t *testing.T) {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
 	var body struct {
-		Artifacts []uiArtifact   `json:"artifacts"`
-		Counts    map[string]int `json:"counts"`
-		Issues    []string       `json:"issues"`
+		Artifacts []uiArtifact     `json:"artifacts"`
+		Counts    map[string]int   `json:"counts"`
+		Kinds     []uiArtifactKind `json:"kinds"`
+		Issues    []string         `json:"issues"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
+	}
+	for _, k := range body.Kinds {
+		if k.Count != body.Counts[k.Kind] {
+			t.Errorf("kind %s: count %d, counts[%s] = %d", k.Kind, k.Count, k.Kind, body.Counts[k.Kind])
+		}
 	}
 	var names []string
 	byName := map[string]uiArtifact{}
@@ -123,6 +129,129 @@ func TestUIAPI_ArtifactsListsWhatTheKBShips(t *testing.T) {
 	}
 	if !hookClients[string(configurator.ProviderClaudeCode)] || !hookClients[string(configurator.ProviderKiro)] || hookClients[string(configurator.ProviderHermes)] {
 		t.Errorf("hook clients = %v", hookClients)
+	}
+}
+
+// D864: the page lists every kind a KB can hold, whatever it ships, so a reader
+// learns what the KB is able to give to its clients. The descriptors come from
+// provisioning.Kinds; the server adds the count and the clients.
+func TestUIAPI_ArtifactsListsEveryKindEvenWhenTheKBHasNone(t *testing.T) {
+	t.Parallel()
+	for name, shipsASkill := range map[string]bool{"one skill": true, "nothing": false} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			k := uiFixtureKB(t, "docs")
+			// A KB is born with its instructions.md (D325); the kind must
+			// list with a count of zero too.
+			if err := os.Remove(filepath.Join(k.Root, "instructions.md")); err != nil {
+				t.Fatal(err)
+			}
+			if shipsASkill {
+				dir := filepath.Join(k.Root, "skills", "review")
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: review\ndescription: Reviews a change\n---\n# Review\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+				{Token: "whole", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}}},
+			})
+			multi := NewMultiKBServer("test")
+			multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
+			multi.EnableWeb(nil)
+			rr := getUI(t, ts.Middleware(multi.Handler()), UIAPIPrefix+"/kbs/docs/artifacts", "whole")
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+			}
+			var body struct {
+				Kinds []uiArtifactKind `json:"kinds"`
+			}
+			if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			var order []string
+			byKind := map[string]uiArtifactKind{}
+			for _, k := range body.Kinds {
+				order = append(order, k.Kind)
+				byKind[k.Kind] = k
+				if _, ok := uiArtifactKinds[k.Kind]; !ok {
+					t.Errorf("kind %q is listed but the detail route would refuse it", k.Kind)
+				}
+				if k.Title == "" || k.KBPath == "" || !strings.Contains(k.Doc, "#") {
+					t.Errorf("kind %q lacks its title, path or doc: %+v", k.Kind, k)
+				}
+			}
+			if got, want := strings.Join(order, " "), "skill agent hook mcp instructions template"; got != want {
+				t.Fatalf("kinds = %s, want %s (secrets answer from /secrets)", got, want)
+			}
+			for kind, kinfo := range byKind {
+				want := 0
+				if kind == "skill" && shipsASkill {
+					want = 1
+				}
+				if kinfo.Count != want {
+					t.Errorf("%s count = %d, want %d", kind, kinfo.Count, want)
+				}
+			}
+			if got := byKind["skill"].KBPath; got != "skills/<name>/SKILL.md" {
+				t.Errorf("skill kb_path = %q", got)
+			}
+			if len(byKind["hook"].Clients) == 0 || byKind["hook"].KBOnly {
+				t.Errorf("hook = %+v, want clients and not KB-only", byKind["hook"])
+			}
+			for _, c := range byKind["hook"].Clients {
+				if c.Name == "" {
+					t.Errorf("hook client %q has no display name", c.ID)
+				}
+			}
+			if tpl := byKind["template"]; len(tpl.Clients) != 0 || !tpl.KBOnly {
+				t.Errorf("template = %+v, want KB-only with no client", tpl)
+			}
+			// An empty list, not null: the UI maps over it.
+			if !strings.Contains(rr.Body.String(), `"kb_only":true,"count":0,"clients":[]`) {
+				t.Errorf("a KB-only kind must send clients as [] (and count 0): %s", rr.Body.String())
+			}
+		})
+	}
+}
+
+// The KB-only kinds have no row in the destination matrix, so BuildManifest
+// does not scan them: their layout is held by the scanner the UI and the tools
+// use. A KBPath that stops matching it would send readers to a folder nothing
+// reads (D864). The synced kinds are checked in internal/provisioning.
+func TestKinds_KBOnlyPathsAreWhatTheScannersFind(t *testing.T) {
+	t.Parallel()
+	for _, info := range provisioning.Kinds() {
+		if !info.KBOnly {
+			continue
+		}
+		t.Run(info.Kind, func(t *testing.T) {
+			k := uiFixtureKB(t, "docs")
+			rel := strings.NewReplacer("<name>", "sample", "<slug>", "sample").Replace(info.KBPath)
+			full := filepath.Join(k.Root, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(full, []byte("---\ntype: Note\ntitle: Sample\n---\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			switch info.Kind {
+			case "template":
+				slugs, err := listTemplateSlugs(k)
+				if err != nil || strings.Join(slugs, ",") != "sample" {
+					t.Fatalf("a file at %s: listTemplateSlugs = %v, %v", info.KBPath, slugs, err)
+				}
+			case "secret":
+				files, err := uiSecretsList(k)
+				if err != nil || len(files) != 1 || files[0].Path != rel {
+					t.Fatalf("a file at %s: uiSecretsList = %+v, %v", info.KBPath, files, err)
+				}
+			default:
+				t.Fatalf("kind %q is KB-only and has no scanner in this test: add one", info.Kind)
+			}
+		})
 	}
 }
 

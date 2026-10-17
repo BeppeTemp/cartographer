@@ -163,9 +163,13 @@ test("the Artifacts panel lists what the KB ships and opens a skill", async ({ p
     /Skills/,
     /Subagents/,
     /Hooks/,
+    /MCP servers/,
     /Instructions/,
     /Templates/,
   ]);
+  // Every kind is listed, even the one this KB has none of (D864): the local
+  // server has no MCP allowlist, and the section says why nothing is listed.
+  await expect(nav.getByRole("region", { name: "MCP servers" })).toContainText("mcp_allowlist");
 
   await nav.getByRole("button", { name: /review/ }).click();
   await expect(page).toHaveURL(/panel=artifacts&artifact=skill%2Freview/);

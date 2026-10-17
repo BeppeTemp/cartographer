@@ -28,6 +28,65 @@ type uiArtifactClient struct {
 	Name string `json:"name"`
 }
 
+// uiKindInfo is one kind of artifact a KB can hold, as provisioning.Kinds
+// describes it (D864): the Atlas lists every kind, with the path its files go
+// in and the page that documents it, even when the KB has none.
+type uiKindInfo struct {
+	Kind   string `json:"kind"`
+	Title  string `json:"title"`
+	KBPath string `json:"kb_path"`
+	// Doc is a repository path with an anchor ("docs/sync.md#agents-and-hooks");
+	// the UI resolves it against the repository's blob URL, not this server.
+	Doc string `json:"doc"`
+	// KBOnly: no client receives it (templates, secrets).
+	KBOnly bool `json:"kb_only"`
+}
+
+func uiKindInfoFrom(k provisioning.KindInfo) uiKindInfo {
+	return uiKindInfo{Kind: k.Kind, Title: k.Title, KBPath: k.KBPath, Doc: k.Doc, KBOnly: k.KBOnly}
+}
+
+// uiArtifactKind is a row of the artifacts list's "kinds": the descriptor, how
+// many artifacts of the kind the KB ships, and the clients that receive one.
+type uiArtifactKind struct {
+	uiKindInfo
+	Count   int                `json:"count"`
+	Clients []uiArtifactClient `json:"clients"`
+}
+
+// uiArtifactKindRows lists, in reading order, every kind of the artifacts panel
+// with its count. Secrets are left out: they have their own tab and answer
+// from /secrets.
+func uiArtifactKindRows(counts map[string]int) []uiArtifactKind {
+	rows := []uiArtifactKind{}
+	for _, k := range provisioning.Kinds() {
+		if k.Kind == "secret" {
+			continue
+		}
+		rows = append(rows, uiArtifactKind{
+			uiKindInfo: uiKindInfoFrom(k),
+			Count:      counts[k.Kind],
+			Clients:    uiClientsFor(k.Kind, ""),
+		})
+	}
+	return rows
+}
+
+// uiClientsFor names the clients that receive an artifact of this kind, in
+// registry order, with the display names the Atlas shows. An empty name asks
+// for the kind as a whole (provisioning.Destinations accepts it).
+func uiClientsFor(kind, name string) []uiArtifactClient {
+	names := map[configurator.Provider]string{}
+	for _, d := range configurator.Providers() {
+		names[d.Provider] = d.DisplayName
+	}
+	out := []uiArtifactClient{}
+	for _, p := range provisioning.Destinations(kind, name) {
+		out = append(out, uiArtifactClient{ID: string(p), Name: names[p]})
+	}
+	return out
+}
+
 type uiArtifactFile struct {
 	Path       string `json:"path"`
 	SHA256     string `json:"sha256"`
@@ -142,7 +201,6 @@ func uiArtifactFrom(a kbArtifact, withContent bool, exists map[okf.ConceptID]str
 		Kind:        a.Kind,
 		Name:        a.Name,
 		Description: a.description(),
-		Clients:     []uiArtifactClient{},
 		Files:       []uiArtifactFile{},
 		Concepts:    artifactConceptRefs(a, exists),
 	}
@@ -155,13 +213,7 @@ func uiArtifactFrom(a kbArtifact, withContent bool, exists map[okf.ConceptID]str
 	// it does reach clients: sync folds it into the generated instructions
 	// block (D61). Templates never leave the KB, and the matrix has no row
 	// for them.
-	names := map[configurator.Provider]string{}
-	for _, d := range configurator.Providers() {
-		names[d.Provider] = d.DisplayName
-	}
-	for _, p := range provisioning.Destinations(a.Kind, a.Name) {
-		out.Clients = append(out.Clients, uiArtifactClient{ID: string(p), Name: names[p]})
-	}
+	out.Clients = uiClientsFor(a.Kind, a.Name)
 	for _, f := range a.Files {
 		file := uiArtifactFile{Path: f.Path, SHA256: sha256Hex(f.Content), Size: len(f.Content), Executable: f.Executable}
 		if withContent {
@@ -222,7 +274,7 @@ func (m *MultiKBServer) uiArtifacts(w http.ResponseWriter, r *http.Request, srv 
 		severityCounts[f.Severity]++
 	}
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{
-		"artifacts": list, "counts": counts, "issues": issues,
+		"artifacts": list, "counts": counts, "kinds": uiArtifactKindRows(counts), "issues": issues,
 		"finding_counts": findingCounts, "finding_severities": severityCounts,
 	})
 }
