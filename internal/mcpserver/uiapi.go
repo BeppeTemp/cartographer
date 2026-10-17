@@ -152,6 +152,8 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		m.uiArtifact(w, r, srv)
 	case "search":
 		uiSearch(w, r, srv)
+	case "retired":
+		uiRetired(w, r, srv)
 	case "changes":
 		uiChanges(w, r, srv)
 	case "status":
@@ -305,6 +307,8 @@ func (m *MultiKBServer) uiOverview(w http.ResponseWriter, r *http.Request, srv *
 		Kind     string `json:"kind"`
 		Concepts int    `json:"concepts"`
 		Expanded int    `json:"expanded_concepts"`
+		// Archive marks a map that lists retired pages by design (D820).
+		Archive bool `json:"archive"`
 	}
 	archives, err := k.ListArchives()
 	if err != nil {
@@ -312,12 +316,13 @@ func (m *MultiKBServer) uiOverview(w http.ResponseWriter, r *http.Request, srv *
 		return
 	}
 	collections := []collectionRow{}
+	counts := archiveCounts(res.Entries)
 	for _, name := range archives {
 		kind := uiArchiveKind(k, name)
 		if !VisibleCollection(ctx, k, name, kind) {
 			continue
 		}
-		row := collectionRow{Name: name, Kind: kind}
+		row := collectionRow{Name: name, Kind: kind, Archive: isArchiveCollection(k, name, counts[name])}
 		if agg, ok := perCollection[name]; ok {
 			row.Concepts, row.Expanded = agg.Concepts, agg.Expanded
 		}

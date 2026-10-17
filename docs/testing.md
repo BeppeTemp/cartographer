@@ -395,6 +395,9 @@ toolchain (D227). What they hold:
   of its kind (`internal/provisioning/kinds_test.go`, and
   `TestKinds_KBOnlyPathsAreWhatTheScannersFind` for templates and secrets), and
   each `Doc` is an existing page with the heading its anchor names.
+- the palette and archived pages (D820, `src/test/palette-archived.test.tsx`): the
+  "Include archived" toggle sending `include_archived=1`, badging archived hits and
+  saying so when the server fell back to them, and starting each opening unpressed.
 
 `make web` rebuilds the committed bundle; `make web-check` does a clean locked
 build and verifies `internal/webui/dist/provenance.json` still matches the

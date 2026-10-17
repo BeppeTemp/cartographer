@@ -127,9 +127,13 @@ func toolConceptArchive(k *kb.KB) Tool {
 				}
 			}
 
+			// One line: the reason is written into the first line of the log entry,
+			// where kb.Retirements reads it back, and a line break would split the
+			// entry or end it early (a line starting "## " opens a new one).
+			reason := strings.Join(strings.Fields(params.Reason), " ")
 			detail := status
-			if params.Reason != "" {
-				detail += ", " + params.Reason
+			if reason != "" {
+				detail += ", " + reason
 			}
 			result, errRes := applyConceptMoves(k, []conceptMoveEntry{{SourceID: params.ID, TargetID: target}}, true, moveOptions{
 				ForceSourceIndexRemoval: true,

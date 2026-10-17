@@ -61,7 +61,7 @@ func uiLimit(r *http.Request, def, max int) int {
 	return n
 }
 
-// GET /kbs/{kb}/search?q=&scope=&limit= — the search tool, without recording
+// GET /kbs/{kb}/search?q=&scope=&limit=&include_archived= — the search tool, without recording
 // misses (see Server.uiSearch).
 func uiSearch(w http.ResponseWriter, r *http.Request, srv *Server) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -75,12 +75,18 @@ func uiSearch(w http.ResponseWriter, r *http.Request, srv *Server) {
 	}
 	// related: 0 — the Atlas search has nowhere to show the block (D781) and
 	// would pay for it on every keystroke.
-	args, _ := json.Marshal(map[string]interface{}{
+	req := map[string]interface{}{
 		"query":   q,
 		"scope":   r.URL.Query().Get("scope"),
 		"limit":   uiLimit(r, 20, 100),
 		"related": 0,
-	})
+	}
+	// Archived pages stay hidden unless the reader asks, as for an agent; left
+	// out, the tool's own fallback still answers when nothing live matches.
+	if r.URL.Query().Get("include_archived") == "1" {
+		req["include_archived"] = true
+	}
+	args, _ := json.Marshal(req)
 	res, err := srv.uiSearch(r.Context(), args)
 	uiRelay(w, "search", res, err)
 }

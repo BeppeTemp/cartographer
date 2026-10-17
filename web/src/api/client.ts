@@ -216,8 +216,18 @@ export function fetchLint(
   );
 }
 
-export function fetchSearch(kb: string, query: string, signal?: AbortSignal): Promise<SearchResponse> {
-  return get<SearchResponse>(`/kbs/${encodeURIComponent(kb)}/search?q=${encodeURIComponent(query)}&limit=20`, signal);
+/** includeArchived asks for archived pages too; a search leaves them out by default (D820). */
+export function fetchSearch(
+  kb: string,
+  query: string,
+  signal?: AbortSignal,
+  includeArchived = false,
+): Promise<SearchResponse> {
+  const archived = includeArchived ? "&include_archived=1" : "";
+  return get<SearchResponse>(
+    `/kbs/${encodeURIComponent(kb)}/search?q=${encodeURIComponent(query)}&limit=20${archived}`,
+    signal,
+  );
 }
 
 export function fetchChanges(kb: string, since: string, signal?: AbortSignal): Promise<ChangesResponse> {

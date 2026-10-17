@@ -1675,7 +1675,7 @@ func indexListsRetired(k *kb.KB, mapName string, contract kb.MapContract, concep
 			}
 		}
 	}
-	if top > 0 && retiredTop*2 >= top {
+	if kb.IsArchiveMap(contract, top, retiredTop) {
 		return nil
 	}
 	content, err := k.ReadIndex(mapName)
