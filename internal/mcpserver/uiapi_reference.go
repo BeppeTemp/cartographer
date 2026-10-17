@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -434,9 +435,9 @@ func uiAudit(w http.ResponseWriter, r *http.Request, name string, srv *Server) {
 		return
 	}
 	limit := uiLimit(r, 100, uiAuditMaxLimit)
-	// The sink can be shared by every KB: read deeper than the limit so the
-	// filter on this KB still fills the page.
-	all, err := l.Tail(limit * 10)
+	// The sink can be shared by every KB: the filter goes into the backward
+	// read, so a quiet KB still gets a full page and nothing past it is parsed.
+	all, err := l.TailFunc(limit, func(e audit.Entry) bool { return e.KB == "" || e.KB == name })
 	if err != nil {
 		writeUIInternal(w, "audit: tail", err)
 		return
@@ -455,17 +456,11 @@ func uiAudit(w http.ResponseWriter, r *http.Request, name string, srv *Server) {
 	}
 	rows := []auditRow{}
 	for _, e := range all {
-		if e.KB != "" && e.KB != name {
-			continue
-		}
 		rows = append(rows, auditRow{
 			At: e.Timestamp.UTC().Format("2006-01-02T15:04:05Z"), Phase: e.Phase, Principal: e.PrincipalID,
 			Transport: e.Transport, Tool: e.Tool, ReadOnly: e.ReadOnly, Resources: e.Resources,
 			Outcome: e.Outcome, DurationMs: e.DurationMs, CommitSHA: e.CommitSHA,
 		})
-		if len(rows) == limit {
-			break
-		}
 	}
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{"enabled": true, "state": l.State(), "entries": rows})
 }

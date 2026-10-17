@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { focusDistance, focusPose, zoomLimits } from "../lib/graph3d/camera";
 import {
+  DRIFT_TICK_BUDGET_MS,
+  DRIFT_TICK_RESUME_MS,
   IDLE_RESUME_MS,
   IdleRotation,
   MAX_SIGNALS,
@@ -9,6 +11,7 @@ import {
   SIGNAL_WAVES,
   initialMotion,
   planBursts,
+  sustainsDrift,
 } from "../lib/graph3d/motion";
 
 describe("autonomous motion", () => {
@@ -53,6 +56,18 @@ describe("autonomous motion", () => {
     idle.setFocusing(false);
     idle.setLive(false);
     expect(idle.shouldRotate()).toBe(false);
+  });
+});
+
+describe("drift budget", () => {
+  it("rests a network whose tick costs more than its share of a frame, with a gap before it resumes", () => {
+    expect(sustainsDrift(2.4, true)).toBe(true);
+    expect(sustainsDrift(DRIFT_TICK_BUDGET_MS, true)).toBe(true);
+    expect(sustainsDrift(7.5, true)).toBe(false);
+    // Between the two thresholds a network keeps what it was doing.
+    expect(sustainsDrift(3.5, true)).toBe(true);
+    expect(sustainsDrift(3.5, false)).toBe(false);
+    expect(sustainsDrift(DRIFT_TICK_RESUME_MS - 0.1, false)).toBe(true);
   });
 });
 

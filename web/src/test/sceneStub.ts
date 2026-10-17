@@ -37,7 +37,11 @@ export const sceneStub = {
 };
 
 export class LivingScene {
-  readonly frameListeners = new Set<() => void>();
+  private readonly frameListeners = new Set<() => void>();
+  onFrame(listener: () => void): () => void {
+    this.frameListeners.add(listener);
+    return () => this.frameListeners.delete(listener);
+  }
   readonly canvas = document.createElement("canvas");
   private nodes: { id: string }[] = [];
   private links: { source: string; target: string }[] = [];

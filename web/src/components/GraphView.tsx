@@ -706,9 +706,9 @@ function View({
       el.hidden = !at;
       if (at) el.style.transform = `translate(-50%, -100%) translate(${Math.round(at.x)}px, ${Math.round(at.y - 9)}px)`;
     };
-    scene.frameListeners.add(place);
+    const off = scene.onFrame(place);
     return () => {
-      scene.frameListeners.delete(place);
+      off();
       el.remove();
     };
   }, [ready, highlighted, byId]);
@@ -949,9 +949,9 @@ function placeLabels(
       if (at) el.style.transform = `translate(-50%, -100%) translate(${Math.round(at.x)}px, ${Math.round(at.y - 9)}px)`;
     });
   };
-  scene.frameListeners.add(place);
+  const off = scene.onFrame(place);
   return () => {
-    scene.frameListeners.delete(place);
+    off();
     els.forEach((el) => el.remove());
   };
 }

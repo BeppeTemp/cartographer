@@ -62,6 +62,45 @@ func TestAppendAndTail(t *testing.T) {
 	}
 }
 
+// TailFunc reads backwards across chunk boundaries and stops at the page: a
+// filter that matches one entry in many still fills it, newest first.
+func TestTailFuncAcrossChunks(t *testing.T) {
+	l, path := tempLog(t)
+	// Lines of ~300 bytes: 600 of them span several 64 KiB chunks.
+	for i := 0; i < 600; i++ {
+		e := makeEntry(fmt.Sprintf("t%03d", i))
+		e.KB = "busy"
+		if i%50 == 0 {
+			e.KB = "quiet"
+		}
+		e.Args = strings.Repeat("x", 200)
+		if err := l.Append(e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if st, _ := os.Stat(path); st.Size() < 2*tailChunk {
+		t.Fatalf("fixture too small to cross chunks: %d bytes", st.Size())
+	}
+	quiet, err := l.TailFunc(5, func(e Entry) bool { return e.KB == "quiet" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range quiet {
+		got = append(got, e.Tool)
+	}
+	if want := "t550 t500 t450 t400 t350"; strings.Join(got, " ") != want {
+		t.Fatalf("quiet page = %v, want %s", got, want)
+	}
+	all, err := l.Tail(1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 600 || all[0].Tool != "t599" || all[599].Tool != "t000" {
+		t.Fatalf("whole tail: %d entries, first %s, last %s", len(all), all[0].Tool, all[len(all)-1].Tool)
+	}
+}
+
 func TestHashChain(t *testing.T) {
 	l, _ := tempLog(t)
 

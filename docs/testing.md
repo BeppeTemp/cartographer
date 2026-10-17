@@ -456,6 +456,27 @@ of a relationship — the inspector lists every link.
   few percent. Reference measurement for 2,000 nodes / ~3,900 edges: the 3D
   warm-up (300 ticks) takes ~2.2 s on an Apple M5 and ~5.4 s on a
   GitHub-hosted runner.
+- **Scale target** (#861: ten KBs, the largest at 5,000 concepts, the fleet
+  `make dev` serves). Measured by hand, not in CI, headed on the GPU (Apple M5,
+  ANGLE Metal, 144 Hz display) with `web/scripts/bench.mjs --gpu` and
+  `web/scripts/idle.mjs --gpu`, from `web/` after `make build`:
+
+  | | test-5000 (5,017 concepts) | test-800 (811) |
+  |---|---|---|
+  | Graph to first frame, cold / warm | 607 / 500 ms | 272 / 266 ms |
+  | Frame time at rest and orbiting, p95 | 17.7 ms | 17.7 ms |
+  | JS heap with the graph open | 121 MB | 37 MB |
+  | Largest Map's graph, in the app | 80 ms | 31 ms |
+  | Work / Activity / Settings / Health / Artifacts, in the app | 411 / 332 / 278 / 25 / 37 ms | 73 / 71 / 227 / 10 / 4 ms |
+  | Switch from test-5000 to test-800 | — | 143 ms |
+  | Untouched tab, graph, motion on: browser CPU (one core) | 25 % (110 % before D889) | 18 % (37 %) |
+  | Untouched tab, graph, motion off | 4 % (35 % before D889) | 4.5 % (30 %) |
+  | Untouched tab, Work panel | 3.6 % | 4.3 % |
+
+  The budget is what these say: an untouched tab under 30 % of one core with
+  motion on and under 5 % with it off, every view usable within half a second
+  at 5,000 concepts. The server computes every UI API route of test-5000 in
+  under 200 ms warm (`kb_status` is the slowest).
 - **Selection feedback**: the same file asserts the inspector skeleton renders
   while the concept request is still pending, so feedback never waits on the
   network.

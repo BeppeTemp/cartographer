@@ -27,7 +27,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CAMERA_MOVE, CAMERA_ZOOM, fitPose, focusPose, zoomLimits, type Pose } from "./camera";
 import { MOTION_MS, motionMs, type MotionToken } from "../theme";
 import { smooth } from "./transition";
-import { AUTO_ROTATE_SPEED, IdleRotation, MAX_SIGNALS, SIGNAL_PASS_MS, type Signal } from "./motion";
+import { AUTO_ROTATE_SPEED, IdleRotation, MAX_SIGNALS, SIGNAL_PASS_MS, sustainsDrift, type Signal } from "./motion";
 import {
   LINK_DISTANCE,
   LIVE_ALPHA,
@@ -135,6 +135,10 @@ const MORPH_MS = 900;
 const SIM_HZ = 60;
 /** At most this many ticks run in one frame. */
 const SIM_MAX_CATCHUP = 3;
+/** Draws are spaced at least this far apart: about 60 a second whatever the
+ *  display's refresh, since a 120-144 Hz screen drew every frame twice over
+ *  for a picture that moves at 60. */
+const MIN_DRAW_MS = 12;
 /** The longest the warm-up may hold the first frame of a new graph. */
 const WARMUP_BUDGET_MS = 120;
 const MORPH_ALPHA = 0.2;
@@ -306,6 +310,7 @@ export class LivingScene {
     replace = false,
     opts: { morph?: boolean; restore?: { pose: Pose; shift: number } } = {},
   ): void {
+    this.invalidate();
     const first = this.sim === null;
     // A morph needs a graph on screen to start from; with reduced motion the
     // swap is instant, as every other replacement is.
@@ -368,13 +373,15 @@ export class LivingScene {
       if (!this.live || this.offscreen) {
         // Still mode never finishes the settling on screen, and the video
         // export must be deterministic: both run the warm-up whole.
+        const t0 = performance.now();
         sim.tick(warmupTicks);
+        if (warmupTicks > 0) this.recordTick((performance.now() - t0) / warmupTicks);
       } else {
         // The warm-up blocks the first frame: on a large KB it stops at
         // WARMUP_BUDGET_MS, and the burst opens the graph while the still-warm
         // simulation finishes the settling in view.
         const until = performance.now() + WARMUP_BUDGET_MS;
-        for (let i = 0; i < warmupTicks && (i < 30 || performance.now() < until); i++) sim.tick();
+        for (let i = 0; i < warmupTicks && (i < 30 || performance.now() < until); i++) this.timedTick(sim);
       }
       this.touched = false;
       if (!this.reducedMotion && !this.offscreen) {
@@ -424,6 +431,9 @@ export class LivingScene {
       }
     }
     this.sim = sim;
+    // The warm-up has just timed this graph's ticks: a large one opens
+    // resting rather than drifting for a few seconds first.
+    if (!this.offscreen && this.tickMs !== null) this.breathing = sustainsDrift(this.tickMs, this.breathing);
     this.applyMotion();
 
     this.sphereNodes = nodes.filter((n) => !n.artifact);
@@ -533,6 +543,7 @@ export class LivingScene {
   }
 
   setColours(colours: string[], palette: ScenePalette): void {
+    this.invalidate();
     // The same nodes recoloured (a selection made or cleared) fade to their
     // new colours; anything else -- a new graph, a theme -- is painted at once.
     const same = this.drawnFor === this.nodes && this.palette?.background === palette.background;
@@ -590,6 +601,7 @@ export class LivingScene {
   // --- selection ----------------------------------------------------------
 
   setSelection(id: string | null): void {
+    this.invalidate();
     const node = id ? this.nodes[this.index.get(id) ?? -1] : undefined;
     this.selected = node ? node.id : null;
     this.activeLinks = node ? this.links.filter((l) => endpoint(l.source) === node.id || endpoint(l.target) === node.id) : [];
@@ -611,6 +623,7 @@ export class LivingScene {
 
   /** Signals for the current selection (planned by motion.planBursts). */
   sendSignals(plan: Signal<SceneLink>[]): void {
+    this.invalidate();
     this.burst = plan.length ? { start: this.clock(), plan: plan.slice(0, MAX_SIGNALS * 3) } : null;
   }
 
@@ -645,6 +658,7 @@ export class LivingScene {
   // --- motion and camera --------------------------------------------------
 
   setLive(live: boolean): void {
+    this.invalidate();
     this.live = live && !this.reducedMotion;
     this.idle.setLive(this.live);
     this.applyMotion();
@@ -657,7 +671,7 @@ export class LivingScene {
   /** Drift and the live simulation follow the motion toggle alone: a
    *  selection keeps the network breathing (the rest recedes instead). */
   private applyMotion(): void {
-    const drifting = this.live;
+    const drifting = this.live && this.breathing;
     this.driftForce.enabled(drifting);
     const target = drifting ? LIVE_ALPHA : 0;
     this.sim?.alphaTarget(this.bloom ? Math.max(target, BLOOM_WARMTH) : target);
@@ -752,6 +766,7 @@ export class LivingScene {
    * Called again while following, it keeps its momentum.
    */
   followFit(occludedBottom: number, minDistance = 0, ms = Infinity): void {
+    this.invalidate();
     const now = this.clock();
     if (!this.fitFollow || now >= this.fitFollow.until) this.settleFrom = now;
     this.cancelTween();
@@ -763,6 +778,7 @@ export class LivingScene {
   }
 
   stopFollowingFit(): void {
+    this.invalidate();
     this.fitFollow = null;
   }
 
@@ -844,6 +860,7 @@ export class LivingScene {
   }
 
   private animateTo(to: () => Pose, ms: number, shift = this.shift): void {
+    this.invalidate();
     const from = this.pose();
     if (ms <= 0) {
       this.tween = null;
@@ -856,6 +873,7 @@ export class LivingScene {
   }
 
   private setShift(px: number): void {
+    this.invalidate();
     this.shift = px;
     const w = Math.max(1, this.container.clientWidth);
     const h = Math.max(1, this.container.clientHeight);
@@ -888,6 +906,8 @@ export class LivingScene {
   // --- frame loop ---------------------------------------------------------
 
   private start(): void {
+    // A tab coming back draws at once: its canvas may have been discarded.
+    this.invalidate();
     if (this.frame === null && !this.offscreen) this.frame = requestAnimationFrame(this.tick);
   }
 
@@ -900,6 +920,45 @@ export class LivingScene {
   }
 
   private ticks = 0;
+  /** Something the frame loop does not see changed what is drawn (the data,
+   *  the colours, the camera's goal, a frame listener): the next frame draws
+   *  even if nothing moves. A frame where nothing changed draws nothing. */
+  private dirty = true;
+  /** The simulation moved the nodes since the buffers were last synced. */
+  private stale = true;
+  private lastDraw = Number.NEGATIVE_INFINITY;
+  /** The running average cost of one simulation tick, in ms. */
+  private tickMs: number | null = null;
+  /** Whether the live network drifts: false while a tick costs more than the
+   *  drift budget allows (sustainsDrift). */
+  private breathing = true;
+
+  private invalidate(): void {
+    this.dirty = true;
+  }
+
+  /** One simulation tick, timed into tickMs. */
+  private timedTick(sim: Simulation<SceneNode>): void {
+    const t0 = performance.now();
+    sim.tick();
+    this.recordTick(performance.now() - t0);
+  }
+
+  private recordTick(ms: number): void {
+    this.tickMs = this.tickMs === null ? ms : this.tickMs + (ms - this.tickMs) * 0.1;
+  }
+
+  /** Rests the drift of a network too costly to keep ticking, or resumes it
+   *  once a tick is cheap again (a smaller Map). An offline scene keeps its
+   *  motion: its frames must not depend on the exporting machine's speed. */
+  private reconsiderDrift(): void {
+    if (this.offscreen || this.tickMs === null) return;
+    const breathing = sustainsDrift(this.tickMs, this.breathing);
+    if (breathing === this.breathing) return;
+    this.breathing = breathing;
+    this.applyMotion();
+  }
+
   /** The simulation runs at a fixed SIM_HZ whatever the display's refresh:
    *  the forces are tuned per tick at 60 Hz, and a 120-144 Hz screen ticking
    *  once per frame drifted twice as fast at twice the CPU. Frames between two
@@ -926,12 +985,13 @@ export class LivingScene {
   renderFrame(nowMs: number): void {
     if (!this.offscreen) throw new Error("renderFrame needs an offscreen scene");
     this.virtualNow = nowMs;
-    this.step(nowMs);
+    this.step(nowMs, 1, true);
   }
 
   /** Where the nodes start, by id (the visible scene's layout): the offline
    *  scene draws the video from the picture on screen. */
   seedPositions(positions: Map<string, { x: number; y: number; z: number }>): void {
+    this.invalidate();
     for (const n of this.nodes) {
       const p = positions.get(n.id);
       if (p) Object.assign(n, { x: p.x, y: p.y, z: p.z, vx: 0, vy: 0, vz: 0 });
@@ -939,14 +999,20 @@ export class LivingScene {
     this.sync();
   }
 
-  private step(now: number, simTicks = 1): void {
+  private step(now: number, simTicks = 1, force = false): void {
     const sim = this.sim;
     // Still mode lets the simulation cool and then stops ticking it: at rest
     // the frame costs only the draw.
-    for (let i = 0; i < simTicks && sim && (this.live || sim.alpha() > 0.002); i++) {
-      sim.tick();
+    let ticked = 0;
+    for (; ticked < simTicks && sim && ((this.live && this.breathing) || sim.alpha() > 0.002); ticked++) {
+      this.timedTick(sim);
       if (++this.ticks % 30 === 0) sanitize(this.nodes, this.neighbours);
     }
+    if (ticked > 0) {
+      this.stale = true;
+      this.reconsiderDrift();
+    }
+    let moved = ticked > 0 || this.tween !== null;
     if (this.tween) {
       const t = Math.min(1, (now - this.tween.start) / this.tween.ms);
       const k = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
@@ -960,6 +1026,7 @@ export class LivingScene {
       });
       if (t >= 1) this.cancelTween();
     } else if (this.follow && this.selected) {
+      moved ||= ticked > 0;
       // Follow the selection as the physics moves it.
       const node = this.nodeById(this.selected);
       if (node && Number.isFinite(node.x)) {
@@ -975,6 +1042,7 @@ export class LivingScene {
       // A graph still settling (or growing, see followFit): ease a little of
       // the way to its fit every frame, so the camera follows it without a
       // jump and arrives as it comes to rest.
+      moved = true;
       const follow = this.fitFollow && now < this.fitFollow.until ? this.fitFollow : null;
       const pose = follow ? this.fitWithFloor(follow.occludedBottom, follow.minDistance) : this.fitPoseFor(0);
       if (pose) {
@@ -987,20 +1055,37 @@ export class LivingScene {
       }
     }
     this.controls.autoRotate = !this.tween && this.idle.shouldRotate();
-    this.controls.update();
+    // True while the camera moves: the reader's drag, its damping, the panorama.
+    if (this.controls.update()) moved = true;
+    const animating = !!(this.bloom || this.morph || this.colourFade || this.edgeFade || (this.burst && this.live));
+    if (!force) {
+      // Nothing moved and nothing changed: the picture on screen is still
+      // right, and drawing it again costs a frame of GPU for nothing.
+      if (!moved && !animating && !this.dirty) return;
+      if (!this.dirty && now - this.lastDraw < MIN_DRAW_MS) return;
+    }
     this.updateFog();
-    // Live, the simulation ticks at SIM_HZ and a frame between two ticks
-    // finds every position where the last one left it: unless something is
-    // animating, the buffers are already right and only the camera moved.
-    // (Still mode has no ticks, so it always syncs.)
-    const settled = simTicks === 0 && this.live && !this.bloom && !this.morph && !this.colourFade && !this.edgeFade && !this.burst;
-    if (!settled) this.sync(now);
+    // The buffers follow the nodes only when the simulation moved them or an
+    // animation draws them somewhere else; a frame where only the camera
+    // moved finds them already right.
+    if (this.stale || animating || this.dirty) {
+      this.sync(now);
+      this.stale = false;
+    }
+    this.dirty = false;
+    this.lastDraw = now;
     this.renderer.render(this.scene, this.camera);
     for (const listener of this.frameListeners) listener();
   }
 
-  /** Called after each rendered frame (the component places its labels). */
-  readonly frameListeners = new Set<() => void>();
+  /** Called after each drawn frame (the component places its labels); the
+   *  first call comes with the next frame. Returns the remover. */
+  onFrame(listener: () => void): () => void {
+    this.frameListeners.add(listener);
+    this.invalidate();
+    return () => this.frameListeners.delete(listener);
+  }
+  private readonly frameListeners = new Set<() => void>();
 
   private readonly dummy = new Object3D();
   /** A new graph opening out of its centre: drawn positions run from the
@@ -1318,6 +1403,7 @@ export class LivingScene {
     // a frame, a flash on every step of a canvas that is being resized (the
     // Map's contract panel sliding in).
     this.renderer.render(this.scene, this.camera);
+    this.lastDraw = this.clock();
     for (const listener of this.frameListeners) listener();
   }
 

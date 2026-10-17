@@ -14,6 +14,7 @@ package audit
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -733,22 +734,72 @@ func readEntries(path string) ([]Entry, error) {
 func (l *Log) readAll() ([]Entry, error) { return readEntries(l.path) }
 
 // Tail returns the last n entries in reverse chronological order (newest first).
-func (l *Log) Tail(n int) ([]Entry, error) {
+func (l *Log) Tail(n int) ([]Entry, error) { return l.TailFunc(n, nil) }
+
+// TailFunc returns, newest first, the last n entries of the active segment
+// that keep accepts (every one with a nil keep). It reads the file backwards
+// from its end and stops once it has n: the cost is the page asked for, not
+// the whole segment, which grows without bound when rotation is off, and a
+// filter on a shared sink (one KB's entries) still fills the page.
+func (l *Log) TailFunc(n int, keep func(Entry) bool) ([]Entry, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	return tailEntries(l.path, n, keep)
+}
 
-	entries, err := l.readAll()
+// tailChunk is how much of the segment one backward read takes.
+const tailChunk = 64 * 1024
+
+func tailEntries(path string, n int, keep func(Entry) bool) ([]Entry, error) {
+	out := []Entry{}
+	if n <= 0 {
+		return out, nil
+	}
+	f, err := os.Open(path)
+	if os.IsNotExist(err) {
+		return out, nil
+	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("audit: open %s: %w", path, err)
 	}
-	if n > len(entries) {
-		n = len(entries)
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("audit: stat %s: %w", path, err)
 	}
-	result := make([]Entry, n)
-	for i := 0; i < n; i++ {
-		result[i] = entries[len(entries)-1-i]
+	// carry is the start of a line whose beginning lies before the chunk
+	// just read: it is completed by the next (earlier) one.
+	var carry []byte
+	for end := st.Size(); end > 0; {
+		start := max(0, end-tailChunk)
+		buf := make([]byte, end-start, int(end-start)+len(carry))
+		if _, err := f.ReadAt(buf, start); err != nil {
+			return nil, fmt.Errorf("audit: read %s: %w", path, err)
+		}
+		lines := bytes.Split(append(buf, carry...), []byte{'\n'})
+		first := 0
+		carry = nil
+		if start > 0 {
+			carry, first = lines[0], 1
+		}
+		for i := len(lines) - 1; i >= first; i-- {
+			line := bytes.TrimSpace(lines[i])
+			if len(line) == 0 {
+				continue
+			}
+			var e Entry
+			if err := json.Unmarshal(line, &e); err != nil {
+				return nil, fmt.Errorf("audit: parse %s before byte %d: %w", path, end, err)
+			}
+			if keep == nil || keep(e) {
+				if out = append(out, e); len(out) == n {
+					return out, nil
+				}
+			}
+		}
+		end = start
 	}
-	return result, nil
+	return out, nil
 }
 
 // Count returns the total number of entries in the active segment.
