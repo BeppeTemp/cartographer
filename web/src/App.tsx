@@ -39,7 +39,7 @@ import type {
 import { Artifacts } from "./components/Artifacts";
 import { Secrets } from "./components/Secrets";
 import { PageTabs } from "./components/Page";
-import { MapContractPanel, MAP_PANEL_SLIDE_MS, MAP_PANEL_WIDTH } from "./components/MapContractPanel";
+import { MapContractPanel, MAP_PANEL_SLIDE, MAP_PANEL_WIDTH } from "./components/MapContractPanel";
 import { Legend } from "./components/Legend";
 import { Releases } from "./components/Releases";
 import { Settings } from "./components/Settings";
@@ -59,6 +59,7 @@ import { EmptyState, ErrorState, GraphSeed, ShellSkeleton } from "./components/S
 import { TopBar } from "./components/TopBar";
 import {
   applyTheme,
+  motionMs,
   onSystemThemeChange,
   prefersReducedMotion,
   readTheme,
@@ -215,7 +216,7 @@ export function App() {
     lastMap.current = null;
     if (!left || narrow || prefersReducedMotion()) return;
     setLeavingMap(left);
-    const timer = window.setTimeout(() => setLeavingMap(null), MAP_PANEL_SLIDE_MS);
+    const timer = window.setTimeout(() => setLeavingMap(null), motionMs(MAP_PANEL_SLIDE));
     return () => window.clearTimeout(timer);
   }, [scopedMap, narrow]);
   // The strip the docked contract takes at the right edge. The reading panel

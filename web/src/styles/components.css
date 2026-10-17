@@ -1867,7 +1867,7 @@ body.is-resizing {
   border-inline-start: 1px solid var(--border-subtle);
   /* Slides in from the right edge: the negative margin gives the canvas the
      strip back, so it narrows step by step instead of in one jump. */
-  animation: mapcontract-in var(--map-panel-slide) var(--ease-out) both;
+  animation: mapcontract-in var(--motion-deliberate) var(--ease-out) both;
 }
 
 .mapcontract--leaving {
@@ -2430,7 +2430,7 @@ code.mapcontract__label {
   height: 6px;
   border-radius: 50%;
   background: var(--text-muted);
-  animation: graph-seed 2.8s ease-in-out infinite;
+  animation: graph-seed var(--motion-breath) var(--ease-in-out) infinite;
 }
 
 @keyframes graph-seed {
@@ -3104,7 +3104,7 @@ code.mapcontract__label {
 /* A KB's Maps and Journals are dealt in one after another when it opens. */
 .rail__deal {
   animation: rail-deal var(--motion-base) var(--ease-out) both;
-  animation-delay: calc(var(--deal, 0) * 35ms);
+  animation-delay: calc(var(--deal, 0) * var(--motion-stagger));
 }
 
 @keyframes rail-deal {

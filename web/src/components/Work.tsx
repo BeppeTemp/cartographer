@@ -289,7 +289,7 @@ function WorkCard({
       </button>
       {n > 0 && (
         <button type="button" className="work__items-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
-          <span className="work__chevron" aria-hidden="true" />
+          <span className="chevron" aria-hidden="true" />
           {n} open item{n === 1 ? "" : "s"}
         </button>
       )}

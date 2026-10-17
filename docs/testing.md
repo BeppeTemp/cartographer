@@ -320,9 +320,11 @@ The Atlas UI's own tests: Vitest with Testing Library, under `web/`. They run in
 the `web` CI job, not in `make gate`, so a pure-Go change needs no Node
 toolchain (D227). What they hold:
 
-- the token contract — no literal colour or duration outside
-  `web/src/styles/tokens.css`, and every dark-theme colour has a light-theme
-  value;
+- the token contract — no literal colour, duration, delay or easing outside
+  `web/src/styles/tokens.css` (every `transition*` and `animation*`
+  declaration, multi-line ones included), the JavaScript motion scale
+  (`MOTION_MS`) equal to the CSS one, and every dark-theme colour has a
+  light-theme value;
 - the graph's appearance functions never emit a node or edge type stock Sigma
   has no program for (an unknown type throws inside the renderer and blanks the
   page);

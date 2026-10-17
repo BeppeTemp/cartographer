@@ -559,7 +559,7 @@ function CaseRow({ item, onReveal }: { item: Case; onReveal(concept: string | nu
         </button>
       ) : item.pages.length > 1 ? (
         <button type="button" className="issue__toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
-          {plural(item.pages.length, "page")} {open ? "▴" : "▾"}
+          {plural(item.pages.length, "page")} <span className="chevron" aria-hidden="true" />
         </button>
       ) : files.length > 0 ? (
         <code className="issue__file" title="Not a page: open it from an agent session">

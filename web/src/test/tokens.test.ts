@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { MOTION_MS } from "../lib/theme";
 
 // Resolved from the package root rather than from import.meta.url: under the
 // jsdom environment import.meta.url is an http:// URL, whose pathname is not a
@@ -84,18 +85,49 @@ describe("design tokens", () => {
     expect(offenders, "literal colours belong in tokens.css").toEqual([]);
   });
 
-  it("uses no literal transition duration outside tokens.css", () => {
-    const offenders: string[] = [];
-    for (const file of files.filter((f) => f.endsWith(".css"))) {
-      if (file.endsWith("styles/tokens.css")) continue;
-      readFileSync(file, "utf8")
-        .split("\n")
-        .forEach((text, index) => {
-          if (!/transition[^;]*\b\d+m?s\b/.test(text)) return;
-          offenders.push(`${file.slice(SRC.length)}:${index + 1} ${text.trim()}`);
-        });
+  // Every motion declaration, multi-line ones included, from the CSS outside
+  // tokens.css: the property and its value with the token references taken
+  // out, so what is left is what the file wrote literally. The vibe easter
+  // egg is exempt for the reason given above.
+  const motionDeclarations = () =>
+    files
+      .filter((f) => f.endsWith(".css") && !/styles\/(tokens|eggs)\.css$/.test(f))
+      .flatMap((file) =>
+        readFileSync(file, "utf8")
+          .replace(/\/\*[\s\S]*?\*\//g, "")
+          .split(/[;{}]/)
+          .map((d) => d.trim().replace(/\s+/g, " "))
+          .filter((d) => /^(transition|animation)(-[a-z-]+)?:/.test(d))
+          .map((d) => ({
+            where: `${file.slice(SRC.length)} ${d}`,
+            literal: d.slice(d.indexOf(":") + 1).replace(/var\(--[a-z0-9-]+(,[^)]*)?\)/g, ""),
+          })),
+      );
+
+  it("uses no literal duration or delay outside tokens.css", () => {
+    // 0s is not a duration: it is how a visibility change waits for a fade.
+    const offenders = motionDeclarations()
+      .filter((d) => [...d.literal.matchAll(/(?<![\w.-])(\d*\.?\d+)m?s\b/g)].some((m) => Number(m[1]) !== 0))
+      .map((d) => d.where);
+    expect(offenders, "durations belong in tokens.css (--motion-*)").toEqual([]);
+  });
+
+  it("uses no literal easing outside tokens.css", () => {
+    // linear only qualifies a 0s step, where there is no curve to choose.
+    const offenders = motionDeclarations()
+      .filter((d) => /\b(ease(-in|-out|-in-out)?|linear|cubic-bezier|steps)\b/.test(d.literal.replace(/\b0s linear\b/g, "")))
+      .map((d) => d.where);
+    expect(offenders, "easings belong in tokens.css (--ease-*)").toEqual([]);
+  });
+
+  it("times JavaScript motion on the same scale as the CSS", () => {
+    // MOTION_MS is what motionMs falls back to without the stylesheet, and
+    // what a video export uses: it must say what tokens.css says.
+    const tokens = readFileSync(TOKENS, "utf8");
+    const root = tokens.slice(0, tokens.indexOf('[data-theme="light"]'));
+    for (const [name, ms] of Object.entries(MOTION_MS)) {
+      expect(root, `${name} in tokens.css`).toContain(`${name}: ${ms}ms;`);
     }
-    expect(offenders, "durations belong in tokens.css").toEqual([]);
   });
 
   it("takes graph hues 1-6 from the brand's graph categories", () => {
