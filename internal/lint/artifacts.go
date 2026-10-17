@@ -189,11 +189,11 @@ func artifactAcceptable(check string) bool {
 // operator's judgement, keyed by path. A key ending in "/" covers every file
 // under it. Errors never go. A name that cannot be accepted, or a key that
 // matches no finding, is itself reported on instructions.md.
-func applyLintAccept(findings []Finding, accept map[string]map[string]bool) []Finding {
+func applyLintAccept(findings []Finding, accept map[string]map[string]bool) ([]Finding, []Suppression) {
 	if len(accept) == 0 {
-		return findings
+		return findings, nil
 	}
-	used := map[string]map[string]bool{}
+	used := map[string]map[string]int{} // key → check → findings dropped (D834)
 	matches := func(key, path string) bool {
 		return path == key || (strings.HasSuffix(key, "/") && strings.HasPrefix(path, key))
 	}
@@ -204,9 +204,9 @@ func applyLintAccept(findings []Finding, accept map[string]map[string]bool) []Fi
 			for key, checks := range accept {
 				if checks[f.Check] && matches(key, f.Path) {
 					if used[key] == nil {
-						used[key] = map[string]bool{}
+						used[key] = map[string]int{}
 					}
-					used[key][f.Check] = true
+					used[key][f.Check]++
 					dropped = true
 				}
 			}
@@ -220,6 +220,7 @@ func applyLintAccept(findings []Finding, accept map[string]map[string]bool) []Fi
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	var sups []Suppression
 	for _, key := range keys {
 		names := make([]string, 0, len(accept[key]))
 		for name := range accept[key] {
@@ -227,22 +228,26 @@ func applyLintAccept(findings []Finding, accept map[string]map[string]bool) []Fi
 		}
 		sort.Strings(names)
 		for _, name := range names {
+			sp := Suppression{Source: SourceAccept, Path: key, Check: name, Hidden: used[key][name]}
 			reason := ""
 			switch {
 			case !artifactAcceptable(name):
 				reason = "a check lint_accept cannot accept (unknown, a junk file to delete, or not reported on artifacts)"
-			case !used[key][name]:
+			case used[key][name] == 0:
 				reason = "no such finding on that path, so the entry is stale"
+				sp.Stale = true // already reported below: reportStale adds no second finding
 			default:
+				sups = append(sups, sp)
 				continue
 			}
+			sups = append(sups, sp)
 			out = append(out, newFinding("lint_ignore_invalid", Finding{
 				Path:    "instructions.md",
 				Message: fmt.Sprintf("lint_accept names %q on %q: %s", name, key, reason),
 			}))
 		}
 	}
-	return out
+	return out, sups
 }
 
 // parseLegacyPaths reads the indented `"old/": "new/"` lines of the
@@ -308,7 +313,7 @@ type artifactText struct {
 // checkArtifacts runs every artifact check of an unscoped lint. The skills are
 // loaded once and handed to each check that needs them: LoadAllSkills walks
 // the filesystem.
-func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount int, hasSecretsDir bool) []Finding {
+func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount int, hasSecretsDir bool) ([]Finding, []Suppression) {
 	skills, missing := loadSkills(k)
 	files := artifactTextFiles(k)
 
@@ -324,7 +329,7 @@ func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount i
 	findings = append(findings, checkCrossKBPaths(files, opts.CrossKBRoots)...)
 	findings = append(findings, checkSkillMissingPerimeter(skills, instr.perimeter)...)
 	findings = append(findings, checkArtifactUnused(k, skills, opts, time.Now())...)
-	findings = applyLintAccept(findings, instr.accept)
+	findings, sups := applyLintAccept(findings, instr.accept)
 	for i := range findings {
 		if findings[i].Path != "" {
 			findings[i].Artifact = true
@@ -336,7 +341,7 @@ func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount i
 		}
 		return findings[i].Check < findings[j].Check
 	})
-	return findings
+	return findings, sups
 }
 
 func skillFile(s skill.Skill) string { return s.DirPath + "/SKILL.md" }

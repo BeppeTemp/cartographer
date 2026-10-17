@@ -235,7 +235,7 @@ func runOptions(k *kb.KB) Options {
 // the files given (KB-root-relative), which Run finds by listing the whole git
 // tree. missing_instructions is never reported: it needs the concept count.
 func ArtifactFindings(k *kb.KB, files []string) []Finding {
-	findings := checkArtifacts(k, runOptions(k), readInstructions(k), 0, secretsDirExists(k))
+	findings, _ := checkArtifacts(k, runOptions(k), readInstructions(k), 0, secretsDirExists(k))
 	return append(findings, junkFindings(files, nil)...)
 }
 
@@ -246,11 +246,25 @@ func secretsDirExists(k *kb.KB) bool {
 
 // RunWithOptions is Run with the injected, non-KB inputs explicit.
 func RunWithOptions(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Finding, error) {
-	findings, err := runChecks(k, scope, scopeNeighbors, opts)
+	findings, _, err := RunWithSuppressions(k, scope, scopeNeighbors, opts)
+	return findings, err
+}
+
+// RunWithSuppressions is RunWithOptions that also returns the suppression
+// inventory (D834): every lint_ignore / lint_accept entry the run evaluated and
+// how many findings it hid. On a whole-KB run (scope "") an entry that hides
+// nothing is also reported as lint_ignore_invalid and marked Stale.
+func RunWithSuppressions(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Finding, []Suppression, error) {
+	findings, sups, err := runChecks(k, scope, scopeNeighbors, opts)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return applyMapIgnores(k, findings), nil
+	findings, sups = applyMapIgnores(k, findings, sups)
+	if scope == "" {
+		findings, sups = reportStale(findings, sups)
+	}
+	sortSuppressions(sups)
+	return findings, sups, nil
 }
 
 // mapOnlyIgnorable are the checks a map's _map.md may accept that no single
@@ -289,10 +303,17 @@ func CheckAcceptability(check string) string {
 // may be named, plus mapOnlyIgnorable; errors never go. An island goes when
 // any member's concept or map accepts it. A name that suppresses nothing is
 // itself reported, on the _map.md.
-func applyMapIgnores(k *kb.KB, findings []Finding) []Finding {
+func applyMapIgnores(k *kb.KB, findings []Finding, sups []Suppression) ([]Finding, []Suppression) {
 	archives, err := k.ListArchives()
 	if err != nil {
-		return findings
+		return findings, sups
+	}
+	mapSup := map[[2]string]int{} // (map, check) → index in sups
+	conceptSup := map[conceptCheck]int{}
+	for i, sp := range sups {
+		if sp.Source == SourceConcept {
+			conceptSup[conceptCheck{sp.id, sp.Check}] = i
+		}
 	}
 	ignores := map[string]map[string]bool{}
 	var invalid []Finding
@@ -312,6 +333,8 @@ func applyMapIgnores(k *kb.KB, findings []Finding) []Finding {
 		}
 		sort.Strings(names)
 		for _, name := range names {
+			mapSup[[2]string{a, name}] = len(sups)
+			sups = append(sups, Suppression{Source: SourceMap, Path: a + "/_map.md", Check: name})
 			if perConceptChecks[name] || mapOnlyIgnorable[name] {
 				continue
 			}
@@ -326,15 +349,28 @@ func applyMapIgnores(k *kb.KB, findings []Finding) []Finding {
 	}
 	out := findings[:0]
 	for _, f := range findings {
-		if mapSuppresses(ignores[owningMap(f.Path)], f) {
+		if m := owningMap(f.Path); mapSuppresses(ignores[m], f) {
+			if i, ok := mapSup[[2]string{m, f.Check}]; ok {
+				sups[i].Hidden++
+			}
 			continue
 		}
-		if f.Check == "island" && islandAccepted(k, f, accepts) {
-			continue
+		if f.Check == "island" {
+			if byMap, byConcept, ok := islandAcceptedBy(k, f, accepts); ok {
+				// The island is counted once, on the first accepting entry.
+				if byMap != "" {
+					if i, ok := mapSup[[2]string{byMap, "island"}]; ok {
+						sups[i].Hidden++
+					}
+				} else if i, ok := conceptSup[conceptCheck{byConcept, "island"}]; ok {
+					sups[i].Hidden++
+				}
+				continue
+			}
 		}
 		out = append(out, f)
 	}
-	return append(out, invalid...)
+	return append(out, invalid...), sups
 }
 
 // owningMap is the map a finding path or concept ID belongs to: its first path
@@ -360,26 +396,27 @@ func mapSuppresses(set map[string]bool, f Finding) bool {
 	return f.Severity != SevError && mapAcceptsCheck(set, f.Check)
 }
 
-// islandAccepted reports an island one of whose members, or whose map,
+// islandAcceptedBy reports an island one of whose members, or whose map,
 // accepts it: the finding is reported on one member, but the island is the
-// whole component's.
-func islandAccepted(k *kb.KB, f Finding, accepts func(mapName, check string) bool) bool {
+// whole component's. It says who accepted, a map name or the member concept
+// whose own lint_ignore did (D834: the inventory counts the island there).
+func islandAcceptedBy(k *kb.KB, f Finding, accepts func(mapName, check string) bool) (byMap string, byConcept okf.ConceptID, ok bool) {
 	for _, id := range f.members {
 		m, _, _ := strings.Cut(string(id), "/")
 		if accepts(m, "island") {
-			return true
+			return m, "", true
 		}
 		if cd, err := k.ReadConcept(id); err == nil {
 			if fm, _ := okf.ParseFrontmatter(cd.FrontmatterRaw); fm != nil && lintIgnoreSet(fm)["island"] {
-				return true
+				return "", id, true
 			}
 		}
 	}
-	return false
+	return "", "", false
 }
 
 // runChecks is Run before the map-level lint_ignore pass.
-func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Finding, error) {
+func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Finding, []Suppression, error) {
 	// Collect all non-reserved concepts and their physical paths.
 	// relPathOf mirrors resolveConceptRelPath on the read path: for a plain
 	// concept it holds "<id>.md", for an expanded one "<id>/index.md".  When
@@ -395,7 +432,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		}
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("lint.Run: walk: %w", err)
+		return nil, nil, fmt.Errorf("lint.Run: walk: %w", err)
 	}
 	// exists answers "is target a concept" from the walk, falling back to the
 	// filesystem only on a miss: a link may name an expanded concept by its
@@ -438,7 +475,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// validated the whole KB each time.
 	lg, err := k.LinkGraph(nil)
 	if err != nil {
-		return nil, fmt.Errorf("lint.Run: link graph: %w", err)
+		return nil, nil, fmt.Errorf("lint.Run: link graph: %w", err)
 	}
 	graph := lg.Links
 	isRetired := retiredOf(lg)
@@ -473,7 +510,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// Archive name set for orphan skip rule.
 	archives, err := k.ListArchives()
 	if err != nil {
-		return nil, fmt.Errorf("lint.Run: list archives: %w", err)
+		return nil, nil, fmt.Errorf("lint.Run: list archives: %w", err)
 	}
 	archiveSet := make(map[string]bool, len(archives))
 	for _, a := range archives {
@@ -530,7 +567,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		}
 		artifactIDs, artErr := k.ArtifactPlaceholders()
 		if artErr != nil {
-			return nil, fmt.Errorf("lint.Run: artifact placeholders: %w", artErr)
+			return nil, nil, fmt.Errorf("lint.Run: artifact placeholders: %w", artErr)
 		}
 		for _, id := range artifactIDs {
 			cited[id] = true
@@ -573,8 +610,11 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// and also drives the per-concept legacy_path check below.
 	instr := readInstructions(k)
 	hasSecretsDir := secretsDirExists(k)
+	var sups []Suppression // D834: what each lint_ignore / lint_accept entry hid
 	if scopeNorm == "" {
-		findings = append(findings, checkArtifacts(k, opts, instr, len(allConcepts), hasSecretsDir)...)
+		artifactFindings, acceptSups := checkArtifacts(k, opts, instr, len(allConcepts), hasSecretsDir)
+		findings = append(findings, artifactFindings...)
+		sups = append(sups, acceptSups...)
 	}
 	// junkAssets are the junk files the expanded-concept pass reported as
 	// junk_asset, so the whole-tree junk_file pass does not report them twice.
@@ -585,7 +625,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// scope only decides which findings are emitted (D243).
 	st, err := analyseStructure(k, lg, archives, contracts)
 	if err != nil {
-		return nil, fmt.Errorf("lint.Run: structure: %w", err)
+		return nil, nil, fmt.Errorf("lint.Run: structure: %w", err)
 	}
 
 	// readTargetBody serves reciprocal_link_item the body of a link target
@@ -607,7 +647,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// Each concept's checks read the run's shared data and write only their
 	// own findings, so they run on every core: on a KB of a thousand pages
 	// this is most of a whole-KB lint (the Atlas waits on it).
-	checkOne := func(id okf.ConceptID, content string) []Finding {
+	checkOne := func(id okf.ConceptID, content string) ([]Finding, []Suppression) {
 		var findings []Finding
 		relPath := okf.IDToPath(id)
 		// Relative links resolve against the file that contains them, which for
@@ -627,8 +667,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				conceptIgnores = lintIgnoreSet(parsedForIgnore)
 			}
 		}
+		hidden := map[string]int{} // D834: findings each lint_ignore name dropped
 		emit := func(f Finding) {
 			if suppressed(f, conceptIgnores) {
+				hidden[f.Check]++
 				return
 			}
 			findings = append(findings, f)
@@ -726,13 +768,18 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		for _, f := range st.conceptChecks(id, relPath) {
 			emit(f)
 		}
-		return findings
+		var sups []Suppression
+		for name := range conceptIgnores {
+			sups = append(sups, Suppression{Source: SourceConcept, Path: relPathOf[id], Check: name, id: id, Hidden: hidden[name]})
+		}
+		return findings, sups
 	}
 	ids := make([]okf.ConceptID, 0, len(toCheck))
 	for id := range toCheck {
 		ids = append(ids, id)
 	}
 	perConcept := make([][]Finding, len(ids))
+	perConceptSups := make([][]Suppression, len(ids))
 	var next atomic.Int64
 	var wg sync.WaitGroup
 	// A panic in a check is re-raised on the caller's goroutine, where the
@@ -749,7 +796,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}
 			}()
 			for i := int(next.Add(1)) - 1; i < len(ids); i = int(next.Add(1)) - 1 {
-				perConcept[i] = checkOne(ids[i], toCheck[ids[i]])
+				perConcept[i], perConceptSups[i] = checkOne(ids[i], toCheck[ids[i]])
 			}
 		}()
 	}
@@ -757,8 +804,9 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	if r := panicked.Load(); r != nil {
 		panic(fmt.Sprintf("lint: concept check: %v", r))
 	}
-	for _, f := range perConcept {
+	for i, f := range perConcept {
 		findings = append(findings, f...)
+		sups = append(sups, perConceptSups[i]...)
 	}
 	findings = append(findings, st.islandFindings(func(id okf.ConceptID) bool {
 		_, ok := toCheck[id]
@@ -1029,7 +1077,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	findings = append(findings, unmappedFolderFindings(k, archives, allConcepts, func(name string) bool { return scopeMatchesDir(scopeNorm, name) })...)
 	findings = append(findings, strayFileFindings(k, scopeNorm)...)
 
-	return findings, nil
+	return findings, sups, nil
 }
 
 // linkFindings are the checks one concept's body links drive: broken_link,

@@ -245,7 +245,7 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		checkCuratedIndex(k, folder, folder+"/index.md", curated[folder], false, &findings, exists, retiredOf(lg))
 	}
 
-	findings = applyMapIgnores(k, findings)
+	findings, _ = applyMapIgnores(k, findings, nil)
 	out := findings[:0]
 	for _, f := range findings {
 		// A map naming a check it cannot accept is the map's own finding, not
