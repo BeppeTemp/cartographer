@@ -10,8 +10,8 @@ import (
 
 func TestLocalReindexTargets(t *testing.T) {
 	base := t.TempDir()
-	explicit := filepath.Join(base, "explicit")
 	data := filepath.Join(base, "data")
+	explicit := filepath.Join(data, "explicit-name") // the clone of a remote entry
 	if _, err := kb.Init(explicit); err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestLocalReindexTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(base, "server.yaml")
-	configBody := "data: " + data + "\nkbs:\n  - name: explicit-name\n    path: " + explicit + "\n"
+	configBody := "data: " + data + "\nkbs:\n  - name: explicit-name\n    remote: https://git.example.com/user/explicit.git\n"
 	if err := os.WriteFile(configPath, []byte(configBody), 0o644); err != nil {
 		t.Fatal(err)
 	}

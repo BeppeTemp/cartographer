@@ -908,26 +908,71 @@ func TestCmdKBCreateWithoutFlagLeavesConfigUntouched(t *testing.T) {
 	}
 }
 
-func TestCmdKBCreateArtifactWriteWritesEntry(t *testing.T) {
+// emptyBare is an empty bare repository named name.git, and its URL.
+func emptyBare(t *testing.T, name string) string {
+	t.Helper()
+	bare := filepath.Join(t.TempDir(), name+".git")
+	mustRunGit(t, "", "init", "--bare", bare)
+	return fileURL(bare)
+}
+
+// A KB without a remote has no kbs[] entry to put the flag in (an entry names a
+// remote, D903): it carries the setting itself, in the settings.yaml of its
+// first commit, and the server config is left alone.
+func TestCmdKBCreateArtifactWriteNoRemoteWritesTheKBsOwnSetting(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
 	cfg, data := artifactWriteEnv(t, "")
+	before, _ := os.ReadFile(cfg)
 	if code, out := createKB(t, "alpha", "--config", cfg, "--local", "--no-remote", "--artifact-write"); code != 0 {
+		t.Fatalf("code %d: %s", code, out)
+	}
+	if after, _ := os.ReadFile(cfg); string(before) != string(after) {
+		t.Errorf("server config changed:\n%s", after)
+	}
+	k, err := kb.Open(filepath.Join(data, "alpha"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := k.ReadSettings()
+	if err != nil || !st.Settings.Has("allow_artifact_write") {
+		t.Fatalf("settings.yaml lacks the flag: %+v %v", st, err)
+	}
+	committed, err := gitx.ShowFile(k.Root, "HEAD", kb.SettingsFile)
+	if err != nil || !strings.Contains(committed, "allow_artifact_write: true") {
+		t.Errorf("the flag is not in the first commit:\n%s", committed)
+	}
+}
+
+func TestCmdKBCreateArtifactWriteWithARemoteWritesAnEntry(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	cfg, _ := artifactWriteEnv(t, "")
+	remote := emptyBare(t, "alpha")
+	if code, out := createKB(t, "alpha", "--config", cfg, "--local", "--remote", remote, "--artifact-write"); code != 0 {
 		t.Fatalf("code %d: %s", code, out)
 	}
 	c, err := config.Load(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.KBs) != 1 || !c.KBs[0].AllowArtifactWrite || filepath.Clean(c.KBs[0].Path) != filepath.Join(data, "alpha") {
-		t.Errorf("kbs = %+v", c.KBs)
+	if len(c.KBs) != 1 || !c.KBs[0].AllowArtifactWrite || c.KBs[0].Remote != remote || c.KBs[0].Name != "" {
+		t.Errorf("kbs = %+v, want one entry for the remote, named by it", c.KBs)
 	}
 }
 
 func TestCmdKBCreateArtifactWritePreflightCreatesNothing(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
 	tmp := t.TempDir()
 	data := filepath.Join(tmp, "data")
 	missing := filepath.Join(tmp, "absent.yaml")
-	code, out := createKB(t, "alpha", "--data", data, "--config", missing, "--no-remote", "--artifact-write")
-	if code != 1 || !strings.Contains(out, "allow_artifact_write: true") || !strings.Contains(out, filepath.Join(data, "alpha")) {
+	remote := emptyBare(t, "alpha")
+	code, out := createKB(t, "alpha", "--data", data, "--config", missing, "--remote", remote, "--artifact-write")
+	if code != 1 || !strings.Contains(out, "allow_artifact_write: true") || !strings.Contains(out, remote) {
 		t.Errorf("missing config: code %d, out:\n%s", code, out)
 	}
 	if _, err := os.Stat(missing); !os.IsNotExist(err) {
@@ -939,11 +984,11 @@ func TestCmdKBCreateArtifactWritePreflightCreatesNothing(t *testing.T) {
 
 	for name, body := range map[string]string{
 		"invalid":   "kbs: [\n",
-		"ambiguous": "kbs:\n  - path: " + filepath.Join(data, "alpha") + "\n  - name: alpha\n    path: /srv/x\n",
+		"ambiguous": "kbs:\n  - remote: " + remote + "\n  - name: alpha\n    remote: " + emptyBare(t, "x") + "\n",
 	} {
 		cfg := filepath.Join(tmp, name+".yaml")
 		os.WriteFile(cfg, []byte(body), 0o600)
-		if code, _ := createKB(t, "alpha", "--data", data, "--config", cfg, "--local", "--no-remote", "--artifact-write"); code != 1 {
+		if code, _ := createKB(t, "alpha", "--data", data, "--config", cfg, "--local", "--remote", remote, "--artifact-write"); code != 1 {
 			t.Errorf("%s: code %d, want 1", name, code)
 		}
 		if _, err := os.Stat(filepath.Join(data, "alpha")); !os.IsNotExist(err) {
@@ -971,11 +1016,15 @@ func TestCmdKBCreateArtifactWriteConfigWriteFailureKeepsKB(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores file modes")
 	}
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
 	cfg, data := artifactWriteEnv(t, "")
 	if err := os.Chmod(cfg, 0o400); err != nil {
 		t.Fatal(err)
 	}
-	code, out := createKB(t, "alpha", "--config", cfg, "--local", "--no-remote", "--artifact-write")
+	remote := emptyBare(t, "alpha")
+	code, out := createKB(t, "alpha", "--config", cfg, "--local", "--remote", remote, "--artifact-write")
 	if code != 1 || !strings.Contains(out, "allow_artifact_write: true") {
 		t.Errorf("code %d, out:\n%s", code, out)
 	}
@@ -1007,7 +1056,7 @@ func TestCmdKBCloneArtifactWrite(t *testing.T) {
 	}
 	remote := cloneSource(t)
 	for _, withFlag := range []bool{true, false} {
-		cfg, data := artifactWriteEnv(t, "")
+		cfg, _ := artifactWriteEnv(t, "")
 		args := []string{remote, "--config", cfg, "--local"}
 		if withFlag {
 			args = append(args, "--artifact-write")
@@ -1024,7 +1073,7 @@ func TestCmdKBCloneArtifactWrite(t *testing.T) {
 			t.Fatal(err)
 		}
 		if withFlag {
-			if len(c.KBs) != 1 || !c.KBs[0].AllowArtifactWrite || filepath.Clean(c.KBs[0].Path) != filepath.Join(data, "wiki-kb") {
+			if len(c.KBs) != 1 || !c.KBs[0].AllowArtifactWrite || c.KBs[0].Remote != remote {
 				t.Errorf("kbs = %+v", c.KBs)
 			}
 		} else if len(c.KBs) != 0 {

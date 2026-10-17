@@ -66,12 +66,14 @@ variables or the platform secret store, not in a committed YAML file.
 
 | Variable | Purpose |
 |---|---|
-| `CARTOGRAPHER_KB` | One or more explicit KB paths. |
+| `CARTOGRAPHER_KB` | One or more folders to mount as they are. A folder mounted this way has no remote, so it never syncs: for development and tests. |
+| `CARTOGRAPHER_KB_REMOTES` | One or more git remotes to clone under the data directory and mount. |
 | `CARTOGRAPHER_DATA` | Data directory whose direct subfolders are discovered as KBs. |
 | `CARTOGRAPHER_HTTP` | HTTP listen address, such as `:39273`. |
 | `CARTOGRAPHER_AUTH` | Explicit auth mode: on, off, or automatic when unset. |
 | `CARTOGRAPHER_TOKENS` | Bearer tokens, including optional per-KB scopes. |
-| `CARTOGRAPHER_GIT_SYNC` | Set `false` only when remote git synchronization around writes is intentionally disabled. |
+
+A KB syncs exactly when it has a remote, and every write is one commit: neither is a setting.
 
 ## Diagnosis playbook
 
@@ -90,14 +92,20 @@ variables or the platform secret store, not in a committed YAML file.
    configured against the previous version.
 6. If writes fail and `sync_status` reports `degraded` with `branch` different from
    `remote_default_branch`, the KB's clone is on a branch other than its canonical one — the
-   remote's default, or `kbs[].git_branch` when `branch_source` is `config` (D335) — and
-   Cartographer refuses to write rather than fork the KB on the remote (D264). Reads keep
-   working. Show the user `last_error`, which names both branches and the clone path; recovery
-   is theirs to choose: merge the stray branch into the default branch on the remote (a pull or
-   merge request), or check out the default branch in the clone — with `branch_source:
-   config`, check out the configured branch or change `git_branch`. Then
-   `cartographer service restart`. Never merge, rebase, push or delete a branch yourself.
-7. If a sync warns that a `{{repo:…}}`/`{{path:…}}` placeholder is not resolved, run
+   remote's default, or the `branch` of the `settings.yaml` committed on that default branch
+   when `branch_source` is `settings` (D335, D903) — and Cartographer refuses to write rather
+   than fork the KB on the remote (D264). Reads keep working. Show the user `last_error`, which
+   names both branches and the clone path; recovery is theirs to choose: merge the stray branch
+   into the default branch on the remote (a pull or merge request), or check out the default
+   branch in the clone — with `branch_source: settings`, check out the configured branch or
+   change `branch` on the default branch. Then `cartographer service restart`. Never merge,
+   rebase, push or delete a branch yourself.
+7. If `sync_status` is `failed` and `last_error` says the remote refused the push because the
+   branch is protected (D903), Cartographer pushes to the branch itself and never opens a pull
+   request: the commit is safe in the clone, and the way out is the user's — unprotect the
+   branch on the remote, or set `branch` in `settings.yaml` on the default branch so writes go
+   to another one. Do not retry in a loop: the remote's answer will not change.
+8. If a sync warns that a `{{repo:…}}`/`{{path:…}}` placeholder is not resolved, run
    `cartographer paths list`: it shows each key, the KBs citing it, what the KB's `paths.yaml`
    says it points at and its declared default (D263). A key resolves from `paths:` in
    `.cartographer.yaml` first, then (repo keys) from a clone under `search_roots`, found by the

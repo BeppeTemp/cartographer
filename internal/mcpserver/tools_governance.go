@@ -620,10 +620,6 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	if pol.DoctorAutoIntervalDays > 0 && len(pol.AutoRepair) > 0 {
 		autoInterval = fmt.Sprintf("%d days", pol.DoctorAutoIntervalDays)
 	}
-	workflow := "local"
-	if k.ServerGit != nil {
-		workflow = "pr"
-	}
 	_, ignoredAuto := splitAutoRepair(pol.AutoRepair)
 	info := k.SettingsInfo()
 	// cap builds one capability whose controlling key can be carried by the KB
@@ -652,8 +648,6 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		"artifact_write": cap("allow_artifact_write", onOff(pol.AllowArtifactWrite), "kbs[].allow_artifact_write"),
 		"template_write": cap("allow_template_write", templateWriteState(pol), "kbs[].allow_template_write"),
 		"secrets":        {State: secretsState, Setting: secretsSetting},
-		"git_sync":       {State: onOff(k.GitSync), Setting: "git.sync"},
-		"git_workflow":   cap("git_profile", workflow, "kbs[].git_profile or git.profile"),
 		// A discovered KB has no kbs[] entry: its policy comes from its own
 		// settings.yaml, which is the one place left that can carry it (D746).
 		"mount": {State: mount, Setting: "kbs[]"},
@@ -799,7 +793,6 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				return errorResult(fmt.Sprintf("kb_status: walk: %v", err)), nil
 			}
 
-			server := k.ServerGitStatus()
 			// Replication facts (D145): kb_status is the agent-visible tool, so it
 			// must answer "does this KB have a remote, and is it pushing" without
 			// the agent reaching for the advanced sync_status. Local state plus one
@@ -816,26 +809,16 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				"by_status":           statusCounts,
 				"stale_count":         staleCount,
 				"open_contradictions": openContradictions,
-				// git_workflow describes the write workflow (commit-and-push vs PR
-				// boundary, D117), never remote presence. git_profile is its
-				// deprecated alias, kept for one minor release.
-				"git_workflow":     server.Profile,
-				"git_profile":      server.Profile,
+				// A KB with a remote syncs and a KB without one never contacts
+				// anything (D903), so has_remote is also the answer to "does it sync".
 				"has_remote":       hasRemote,
 				"remote_url":       remoteURL,
-				"git_sync":         k.GitSync,
 				"push_state":       git.State,
 				"push_last_error":  git.LastError,
 				"unpushed_commits": git.UnpushedCommits,
 				"behind_commits":   git.BehindCommits,
 				"last_push_at":     git.LastPushAt,
 				"last_sync_in_at":  git.LastSyncInAt,
-				"base_branch":      server.BaseBranch,
-				"working_branch":   server.WorkingBranch,
-				"pr_number":        server.PRNumber,
-				"pr_url":           server.PRURL,
-				"pr_head_sha":      server.PRHeadSHA,
-				"last_forge_error": server.LastForgeError,
 				// capabilities (D151): what this KB is allowed to do, and the
 				// YAML key that controls each gate. kb_status is where an agent
 				// already looks to learn the state of a KB, and it was
@@ -1126,35 +1109,27 @@ func toolConflictsList(k *kb.KB) Tool {
 			}
 
 			type conflictJSON struct {
-				ConceptID     string   `json:"concept_id"`
-				Path          string   `json:"path"`
-				LocalSHA      string   `json:"local_sha"`
-				RemoteSHA     string   `json:"remote_sha"`
-				Branch        string   `json:"branch"`
-				BaseBranch    string   `json:"base_branch,omitempty"`
-				WorkingBranch string   `json:"working_branch,omitempty"`
-				PRNumber      int      `json:"pr_number,omitempty"`
-				PRURL         string   `json:"pr_url,omitempty"`
-				Files         []string `json:"files"`
-				DetectedAt    string   `json:"detected_at"`
-				Kind          string   `json:"kind,omitempty"`
-				Guidance      string   `json:"guidance"`
+				ConceptID  string   `json:"concept_id"`
+				Path       string   `json:"path"`
+				LocalSHA   string   `json:"local_sha"`
+				RemoteSHA  string   `json:"remote_sha"`
+				Branch     string   `json:"branch"`
+				Files      []string `json:"files"`
+				DetectedAt string   `json:"detected_at"`
+				Kind       string   `json:"kind,omitempty"`
+				Guidance   string   `json:"guidance"`
 			}
 			results := make([]conflictJSON, len(conflicts))
 			for i, c := range conflicts {
 				results[i] = conflictJSON{
-					ConceptID:     c.ConceptID,
-					Path:          c.Path,
-					LocalSHA:      c.LocalSHA,
-					RemoteSHA:     c.RemoteSHA,
-					Branch:        c.Branch,
-					BaseBranch:    c.BaseBranch,
-					WorkingBranch: c.WorkingBranch,
-					PRNumber:      c.PRNumber,
-					PRURL:         c.PRURL,
-					Files:         c.Files,
-					DetectedAt:    c.DetectedAt,
-					Kind:          c.Kind,
+					ConceptID:  c.ConceptID,
+					Path:       c.Path,
+					LocalSHA:   c.LocalSHA,
+					RemoteSHA:  c.RemoteSHA,
+					Branch:     c.Branch,
+					Files:      c.Files,
+					DetectedAt: c.DetectedAt,
+					Kind:       c.Kind,
 					Guidance: "Read the concept with concept_read, reconcile the content, " +
 						"then rewrite it with concept_write removing status:degraded. " +
 						"See the kb-conflict-resolve skill for the full procedure.",

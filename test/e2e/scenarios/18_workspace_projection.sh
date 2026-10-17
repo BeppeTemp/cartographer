@@ -87,11 +87,6 @@ done
 cat > "$CONFIG" <<YAML
 http: ":${E2E_HTTP_PORT}"
 init: true
-kbs:
-  - path: ${WORK_KB}
-    name: work-kb
-  - path: ${HOMELAB_KB}
-    name: homelab-kb
 YAML
 
 E2E_CONFIG="$CONFIG" server_start "${WORK_KB},${HOMELAB_KB}"

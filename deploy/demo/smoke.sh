@@ -48,7 +48,8 @@ start() {
   docker rm -f "$name" >/dev/null 2>&1 || true
   docker run -d --name "$name" -p 127.0.0.1:0:8080 -v "$volume:/remote" \
     -e "CARTOGRAPHER_TOKENS=$read_token|kb:astronomy:r;kb:guestbook:r,$write_token|kb:guestbook:rw" \
-    -e "GUESTBOOK_REMOTE=$1" -e CARTOGRAPHER_GIT_TOKEN_DIR=/remote/tokens "$image" >/dev/null
+    -e "GUESTBOOK_REMOTE=$1" -e CARTOGRAPHER_GIT_TOKEN_DIR=/remote/tokens \
+    -e K_SERVICE=cartographer-demo "$image" >/dev/null
   local port
   port=$(docker port "$name" 8080/tcp | head -1 | sed 's/.*://')
   url=http://127.0.0.1:$port
@@ -115,8 +116,8 @@ is_error "$(body "$r")" || fail "concept_new on astronomy with the write token w
 r=$(rpc "$write_token" '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"concept_new","arguments":{"kb":"guestbook",'"$msg"'}}}')
 [ "$(status "$r")" = 200 ] || fail "concept_new with the write token: status $(status "$r")"
 is_error "$(body "$r")" && fail "concept_new with the write token was refused: $(body "$r")"
-# The push is synchronous (CARTOGRAPHER_SYNC_OUT_DEBOUNCE=0): the commit is in
-# the remote by the time the call returned.
+# The push is synchronous on Cloud Run (K_SERVICE, set by `start` below): the
+# commit is in the remote by the time the call returned.
 pushed=$(remote_git log --format=%s main)
 case $pushed in
 *"concept_new: messages/2026-01-01-smoke"*) ;;

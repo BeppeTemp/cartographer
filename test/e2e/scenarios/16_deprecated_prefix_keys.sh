@@ -48,14 +48,6 @@ init: true
 mcp:
   mount_mode: per-kb
   tool_prefix_mode: kb-name
-kbs:
-  - path: ${DIR}/plainkb
-    name: plainkb
-  - path: ${DIR}/prefixedkb
-    name: prefixedkb
-    tool_prefix: "zzarb"
-  - path: ${DIR}/routed
-    name: routed
 YAML
 
 E2E_CONFIG="$CONFIG" server_start "${DIR}/plainkb,${DIR}/prefixedkb,${DIR}/routed"

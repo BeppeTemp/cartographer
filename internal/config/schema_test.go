@@ -99,7 +99,7 @@ func TestSchemaKBScope(t *testing.T) {
 	}
 	want := []string{"allow_artifact_write", "allow_template_write", "write_gate", "auto_repair", "repair_on_write",
 		"doctor_mode", "doctor_interval", "doctor_auto_interval", "doctor_budget", "usage_stale_days",
-		"mcp_allowlist", "git_profile", "git_base_branch", "git_forge", "github_owner", "github_repository", "secrets"}
+		"mcp_allowlist", "secrets"}
 	sort.Strings(got)
 	sort.Strings(want)
 	if !reflect.DeepEqual(got, want) {
@@ -157,7 +157,7 @@ func TestExampleLoadsAsDefaultsPlusExplicitValues(t *testing.T) {
 
 // A file with the comments stripped behaves as the commented one.
 func TestFormattedFileLoadsLikeTheOriginal(t *testing.T) {
-	src := "http: \":8080\"\nkbs:\n  - path: /tmp/kb-a\n    write_gate: error\n"
+	src := "http: \":8080\"\nkbs:\n  - remote: https://git.example.com/user/kb-a.git\n    write_gate: error\n"
 	dir := t.TempDir()
 	plain := filepath.Join(dir, "plain.yaml")
 	if err := os.WriteFile(plain, []byte(src), 0o600); err != nil {

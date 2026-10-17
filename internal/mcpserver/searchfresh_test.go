@@ -163,7 +163,6 @@ func TestSearchFollowsGitConflictResolve(t *testing.T) {
 func TestSearchFollowsPullWithoutSQLite(t *testing.T) {
 	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
-	k.GitSync = true
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}

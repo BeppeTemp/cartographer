@@ -18,7 +18,7 @@ func writeCfg(t *testing.T, body string) string {
 
 func TestOriginDefaultLayer(t *testing.T) {
 	c := Default()
-	for _, p := range []string{"git.sync", "http", "kbs[a].write_gate"} {
+	for _, p := range []string{"git.known_hosts", "http", "kbs[a].write_gate"} {
 		if got := c.OriginOf(p); got != OriginDefault {
 			t.Errorf("%s origin = %s, want default", p, got)
 		}
@@ -26,17 +26,17 @@ func TestOriginDefaultLayer(t *testing.T) {
 }
 
 func TestOriginFileLayer(t *testing.T) {
-	c, err := Load(writeCfg(t, "http: \":1\"\nauth:\n  mode: on\nkbs:\n  - path: /x/kb-a\n    write_gate: error\n  - remote: https://example.com/u/kb-b.git\n    name: renamed\n"))
+	c, err := Load(writeCfg(t, "http: \":1\"\nauth:\n  mode: on\nkbs:\n  - remote: https://example.com/u/kb-a.git\n    write_gate: error\n  - remote: https://example.com/u/kb-b.git\n    name: renamed\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{"http", "auth.mode", "kbs", "kbs[kb-a].path", "kbs[kb-a].write_gate", "kbs[renamed].remote", "kbs[renamed].name"} {
+	for _, p := range []string{"http", "auth.mode", "kbs", "kbs[kb-a].remote", "kbs[kb-a].write_gate", "kbs[renamed].remote", "kbs[renamed].name"} {
 		if got := c.OriginOf(p); got != OriginFile {
 			t.Errorf("%s origin = %s, want file", p, got)
 		}
 	}
-	if got := c.OriginOf("git.sync"); got != OriginDefault {
-		t.Errorf("git.sync origin = %s, want default", got)
+	if got := c.OriginOf("git.known_hosts"); got != OriginDefault {
+		t.Errorf("git.known_hosts origin = %s, want default", got)
 	}
 	if got := c.OriginOf("kbs[kb-a].doctor_budget"); got != OriginDefault {
 		t.Errorf("unset per-KB key origin = %s, want default", got)
@@ -45,17 +45,17 @@ func TestOriginFileLayer(t *testing.T) {
 
 // A value written in the file equal to its default is still the file's.
 func TestOriginFileExplicitDefaultValue(t *testing.T) {
-	c, err := Load(writeCfg(t, "git:\n  sync: true\n"))
+	c, err := Load(writeCfg(t, "git:\n  known_hosts: /k\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.OriginOf("git.sync"); got != OriginFile {
+	if got := c.OriginOf("git.known_hosts"); got != OriginFile {
 		t.Errorf("origin = %s, want file", got)
 	}
 }
 
 func TestOriginEnvOverridesFile(t *testing.T) {
-	c, err := Load(writeCfg(t, "http: \":1\"\ngit:\n  sync: true\n"))
+	c, err := Load(writeCfg(t, "http: \":1\"\ngit:\n  known_hosts: /k\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,8 +65,8 @@ func TestOriginEnvOverridesFile(t *testing.T) {
 	if got := c.OriginOf("http"); got != OriginEnv {
 		t.Errorf("http origin = %s, want env", got)
 	}
-	if got := c.OriginOf("git.sync"); got != OriginFile {
-		t.Errorf("git.sync origin = %s, want file", got)
+	if got := c.OriginOf("git.known_hosts"); got != OriginFile {
+		t.Errorf("git.known_hosts origin = %s, want file", got)
 	}
 	if got := c.OriginOf("kbs[kb-env].path"); got != OriginEnv {
 		t.Errorf("env KB origin = %s, want env", got)
@@ -91,8 +91,8 @@ func TestOriginFlagOverridesEnv(t *testing.T) {
 }
 
 func TestOriginSurvivesReordering(t *testing.T) {
-	a, _ := Load(writeCfg(t, "kbs:\n  - path: /x/kb-a\n    write_gate: error\n  - path: /x/kb-b\n"))
-	b, _ := Load(writeCfg(t, "kbs:\n  - path: /x/kb-b\n  - path: /x/kb-a\n    write_gate: error\n"))
+	a, _ := Load(writeCfg(t, "kbs:\n  - remote: https://example.com/u/kb-a.git\n    write_gate: error\n  - remote: https://example.com/u/kb-b.git\n"))
+	b, _ := Load(writeCfg(t, "kbs:\n  - remote: https://example.com/u/kb-b.git\n  - remote: https://example.com/u/kb-a.git\n    write_gate: error\n"))
 	for _, c := range []*Config{a, b} {
 		if c.OriginOf("kbs[kb-a].write_gate") != OriginFile || c.OriginOf("kbs[kb-b].write_gate") != OriginDefault {
 			t.Errorf("origins by name wrong: %v", c.Origins)
@@ -122,7 +122,7 @@ func TestSettingsRedactsSecrets(t *testing.T) {
 	c := Default()
 	c.Auth.Tokens = []TokenSpec{{Token: "tok-secret-1"}}
 	c.Audit.KeySeed = "seed-secret-2"
-	c.KBs = []KBSpec{{Path: "/x/kb-a", ArtifactSigningSeed: "sign-secret-3"}}
+	c.KBs = []KBSpec{{Remote: "https://example.com/u/kb-a.git", ArtifactSigningSeed: "sign-secret-3"}}
 	v := c.Settings([]string{"kb-a"})
 	var b strings.Builder
 	for _, e := range v.Server {

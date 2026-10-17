@@ -47,10 +47,16 @@ func cmdSync(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
+	if !*dryRun {
+		realignClientConfig(dir)
+	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: no client config found in %s (run `cartographer connect` first): %v\n", dir, err)
 		return 2
+	}
+	for _, w := range cfg.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: %s: %s\n", clientconfig.Path(dir), w)
 	}
 	if len(cfg.Agents) == 0 {
 		// Nothing left to sync, but a config that listed only a client the

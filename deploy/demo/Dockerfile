@@ -21,15 +21,16 @@ COPY deploy/demo/entrypoint.sh /usr/local/bin/demo-entrypoint.sh
 # 8080 is Cloud Run's default port, so the server needs no PORT handling. The
 # token is not baked in: CARTOGRAPHER_TOKENS comes from the Cloud Run service,
 # so rotating it is a deploy, not a rebuild. Auth stays on: `off` would give admin.
-# The push after a guestbook write is synchronous (SYNC_OUT_DEBOUNCE=0): Cloud
-# Run throttles the CPU between requests, which would strand a pending push.
+# The push after a guestbook write is made before the response returns: Cloud
+# Run throttles the CPU between requests, which would strand a pending push. The
+# server knows it runs on Cloud Run from K_SERVICE, which the platform sets, and
+# pushes inline there (D903): no setting is needed.
 # GUESTBOOK_REMOTE and the git token file come from the Cloud Run service.
 ENV CARTOGRAPHER_KB=/home/cartographer/astronomy \
     CARTOGRAPHER_DATA=/home/cartographer/data \
     CARTOGRAPHER_HTTP=:8080 \
     CARTOGRAPHER_AUTH=on \
     CARTOGRAPHER_UPDATE_CHECK=false \
-    CARTOGRAPHER_SYNC_OUT_DEBOUNCE=0 \
     CARTOGRAPHER_GIT_TOKEN_DIR=/etc/guestbook-git \
     GIT_AUTHOR_NAME="Cartographer guestbook" \
     GIT_AUTHOR_EMAIL=noreply@example.com \

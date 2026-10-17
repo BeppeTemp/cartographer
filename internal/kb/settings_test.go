@@ -28,13 +28,16 @@ usage_stale_days: 0
 mcp_allowlist:
   - {name: tool-a, transport: http, target: "https://example.com/mcp"}
 secrets: true
-git_profile: server
+branch: kb-data
 `)
 	if len(bad) != 0 {
 		t.Fatalf("malformed = %v", bad)
 	}
 	if got := len(s.Keys()); got != 9 {
 		t.Errorf("accepted %d keys, want 9: %v", got, s.Keys())
+	}
+	if v, ok := s.String("branch"); !ok || v != "kb-data" {
+		t.Errorf("String(branch) = %q, %v", v, ok)
 	}
 	if !s.Has("secrets") || s.Has("doctor_mode") {
 		t.Errorf("Has is wrong: %v", s.Keys())
@@ -73,7 +76,8 @@ usage_stale_days: -1
 auto_repair: not-a-list
 mcp_allowlist: [{name: a, port: 1}]
 repair_on_write: maybe
-git_forge: gitlab
+git_forge: github
+git_branch: kb-data
 write_gate: off
 `)
 	if !s.Has("allow_artifact_write") || len(s.Keys()) != 1 {
@@ -89,7 +93,8 @@ write_gate: off
 		"auto_repair":      "list of names",
 		"mcp_allowlist":    "not name, transport or target",
 		"repair_on_write":  "true or false",
-		"git_forge":        "one of github",
+		"git_forge":        "removed setting",
+		"git_branch":       "use branch",
 	}
 	got := map[string]string{}
 	for _, m := range bad {
@@ -177,5 +182,48 @@ func TestInitWithSettingsWritesTheFileOnlyForANewKB(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(other, SettingsFile)); err == nil {
 		t.Error("Init without settings must not write the file")
+	}
+}
+
+// A KB that still carries the server git profile (D903) is told what to do, and
+// the profile itself, a value that cannot be honoured, marks the finding as a
+// refusal. The other removed keys are only ignored.
+func TestParseSettingsRetiredKeys(t *testing.T) {
+	t.Parallel()
+	s, bad := keysOf(t, `
+git_profile: server
+git_base_branch: main
+github_owner: user
+git_branch: kb-data
+write_gate: error
+`)
+	if len(s.Keys()) != 1 || !s.Has("write_gate") {
+		t.Errorf("accepted keys = %v, want only write_gate", s.Keys())
+	}
+	refused := map[string]bool{}
+	reasons := map[string]string{}
+	for _, m := range bad {
+		refused[m.Key] = m.Refuse
+		reasons[m.Key] = m.Reason
+	}
+	if !refused["git_profile"] {
+		t.Error("git_profile: server must be a refusal")
+	}
+	for _, k := range []string{"git_base_branch", "github_owner", "git_branch"} {
+		if refused[k] {
+			t.Errorf("%s is only ignored, not refused", k)
+		}
+	}
+	if !strings.Contains(reasons["git_profile"], "unprotect the branch") || !strings.Contains(reasons["git_profile"], "`branch`") {
+		t.Errorf("git_profile reason does not say what to do: %q", reasons["git_profile"])
+	}
+	if !strings.Contains(reasons["git_branch"], "use branch") {
+		t.Errorf("git_branch reason does not name its replacement: %q", reasons["git_branch"])
+	}
+
+	// git_profile: local was the default: removed, ignored, not refused.
+	_, bad = keysOf(t, "git_profile: local\n")
+	if len(bad) != 1 || bad[0].Refuse {
+		t.Errorf("git_profile: local = %v, want one finding, not a refusal", bad)
 	}
 }

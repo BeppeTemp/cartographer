@@ -108,7 +108,6 @@ func TestConceptRead_MatchCapAndGuard(t *testing.T) {
 func TestConceptRead_MatchAtRev(t *testing.T) {
 	t.Parallel()
 	c := newChangesLinksKB(t)
-	c.k.AutoCommit = true
 	c.write("ops/page", "alpha old\n")
 	c.commit(true)
 	c.write("ops/page", "alpha new\n")

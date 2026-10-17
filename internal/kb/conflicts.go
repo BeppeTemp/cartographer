@@ -24,17 +24,13 @@ const (
 
 // Conflict describes a rebase conflict detected on a specific concept.
 type Conflict struct {
-	ConceptID     string   `json:"concept_id"`
-	Path          string   `json:"path"`       // git-relative file path (e.g. "data/shared/notes/c.md")
-	LocalSHA      string   `json:"local_sha"`  // HEAD SHA before the failed rebase
-	RemoteSHA     string   `json:"remote_sha"` // SHA of <remote>/<branch> after fetch
-	Branch        string   `json:"branch"`
-	BaseBranch    string   `json:"base_branch,omitempty"`    // server profile only (D117)
-	WorkingBranch string   `json:"working_branch,omitempty"` // server profile only (D117)
-	PRNumber      int      `json:"pr_number,omitempty"`      // server profile only (D117)
-	PRURL         string   `json:"pr_url,omitempty"`         // server profile only (D117)
-	Files         []string `json:"files"`                    // all conflicting git paths in the same rebase
-	DetectedAt    string   `json:"detected_at"`              // RFC3339 UTC
+	ConceptID  string   `json:"concept_id"`
+	Path       string   `json:"path"`       // git-relative file path (e.g. "data/shared/notes/c.md")
+	LocalSHA   string   `json:"local_sha"`  // HEAD SHA before the failed rebase
+	RemoteSHA  string   `json:"remote_sha"` // SHA of <remote>/<branch> after fetch
+	Branch     string   `json:"branch"`
+	Files      []string `json:"files"`       // all conflicting git paths in the same rebase
+	DetectedAt string   `json:"detected_at"` // RFC3339 UTC
 	// Kind is ConflictKindReserved for a reserved file the server could not
 	// reconcile by itself (D311): ConceptID then holds its git path. Empty for
 	// a concept.
@@ -220,15 +216,12 @@ func (k *KB) resolvedContent(c Conflict) (string, error) {
 // FinalizeConflicts converges the diverged history in a single git merge: it merges the
 // remote conflict SHA into the current branch, overwrites every conflicting file with the
 // content chosen by its recorded resolution, commits the merge, pushes (best-effort,
-// respecting GitSync/remote), and clears the registry and degraded markers.
+// when the KB has a remote), and clears the registry and degraded markers.
 //
 // It must only be called when every open conflict has a recorded resolution (see
 // PendingConflictCount). Returns the resolved concept IDs. On any git failure the merge is
 // aborted and the pre-merge working tree (including the degraded markers) is restored.
 func (k *KB) FinalizeConflicts() ([]string, error) {
-	if k.ServerGit != nil {
-		return k.finalizeServerConflicts()
-	}
 	conflicts, err := k.loadConflicts()
 	if err != nil {
 		return nil, err
@@ -345,57 +338,6 @@ func (k *KB) FinalizeConflicts() ([]string, error) {
 	}
 
 	// Clear the registry.
-	for _, c := range conflicts {
-		_ = k.ClearConflict(c.ConceptID)
-	}
-	return ids, nil
-}
-
-// finalizeServerConflicts keeps the server profile on its dedicated working
-// branch: it never performs the Local Core merge/push-to-current-branch flow.
-// Resolution is committed on the working branch, rebased onto the current
-// base, and pushed/PR-updated by SyncOut — it never merges or pushes base
-// directly (D117).
-func (k *KB) finalizeServerConflicts() ([]string, error) {
-	conflicts, err := k.loadConflicts()
-	if err != nil {
-		return nil, err
-	}
-	if len(conflicts) == 0 {
-		return nil, nil
-	}
-	for _, c := range conflicts {
-		if c.ResolutionStrategy == "" {
-			return nil, fmt.Errorf("FinalizeConflicts: conflict on %q has no recorded resolution", c.ConceptID)
-		}
-	}
-	ids := make([]string, 0, len(conflicts))
-	for _, c := range conflicts {
-		content, cerr := k.resolvedContent(c)
-		if cerr != nil {
-			return nil, cerr
-		}
-		abs := filepath.Join(k.Root, filepath.FromSlash(c.Path))
-		if werr := writeFileAtomic(abs, []byte(content)); werr != nil {
-			return nil, fmt.Errorf("FinalizeConflicts: write %s: %w", c.Path, werr)
-		}
-		ids = append(ids, c.ConceptID)
-	}
-	authorName, authorEmail := k.gitAuthor()
-	msg := "resolve git conflict: " + strings.Join(ids, ", ")
-	if err := gitx.Commit(k.Root, msg, authorName, authorEmail, k.GitEnv...); err != nil && !errors.Is(err, gitx.ErrNothingToCommit) {
-		return nil, fmt.Errorf("FinalizeConflicts: commit: %w", err)
-	}
-	if err := gitx.Fetch(k.Root, "origin", k.GitEnv...); err != nil {
-		return nil, err
-	}
-	if err := gitx.RebaseOntoAutostash(k.Root, "origin", k.ServerGit.BaseBranch, k.GitEnv...); err != nil {
-		k.RecordServerRebaseConflict(err)
-		return nil, err
-	}
-	if err := k.SyncOut(); err != nil {
-		return nil, fmt.Errorf("FinalizeConflicts server push/PR update: %w", err)
-	}
 	for _, c := range conflicts {
 		_ = k.ClearConflict(c.ConceptID)
 	}

@@ -36,7 +36,6 @@ func repairKB(t *testing.T, n int) (*kb.KB, *Server) {
 			t.Fatal(err)
 		}
 	}
-	k.AutoCommit = true
 	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}

@@ -34,9 +34,6 @@ type Spec struct {
 	// Bare leaves out git, artifacts, services, paths and instructions: the
 	// KB the empty states are judged on.
 	Bare bool
-	// Remote is set as the origin remote (never contacted: the dev server
-	// runs with git sync off), so Settings shows a KB with a remote.
-	Remote string
 	// Conflicts plants unresolved git conflicts in the local state.
 	Conflicts bool
 }
@@ -50,8 +47,6 @@ func Fleet() []Spec {
 	for i, n := range Sizes {
 		s := Spec{Name: fmt.Sprintf("test-%d", n), Concepts: n, Seed: uint32(7 + i*31)}
 		switch n {
-		case 3000:
-			s.Remote = "https://gitlab.example.com/kb/test-3000.git"
 		case 2000:
 			s.Conflicts = true
 		case 30:
@@ -881,9 +876,6 @@ func (g *kbgen) replay(root string) error {
 		if err := gitRun(root, env, "commit", "-q", "--no-verify", "--allow-empty", "-m", msg); err != nil {
 			return err
 		}
-	}
-	if g.spec.Remote != "" {
-		return gitRun(root, nil, "remote", "add", "origin", g.spec.Remote)
 	}
 	return nil
 }

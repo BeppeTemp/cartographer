@@ -2112,8 +2112,9 @@ func kbStatusResult(t *testing.T, s *Server) map[string]json.RawMessage {
 	return result
 }
 
-// D145: kb_status is the agent-visible tool, so a reader must never be able to
-// conclude "this KB has no remote" from a workflow field.
+// D145: kb_status is the agent-visible tool, so a reader can tell from it
+// whether the KB has a remote: a KB with one syncs, one without never contacts
+// anything (D903).
 func TestServer_KBStatus_NoRemote(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
@@ -2124,9 +2125,6 @@ func TestServer_KBStatus_NoRemote(t *testing.T) {
 	for field, want := range map[string]string{
 		"has_remote":       "false",
 		"remote_url":       `""`,
-		"git_workflow":     `"local"`,
-		"git_profile":      `"local"`,
-		"git_sync":         "false",
 		"unpushed_commits": "null",
 		"behind_commits":   "null",
 		"last_push_at":     "null",
@@ -2151,10 +2149,9 @@ func TestServer_KBStatus_RemoteRedacted(t *testing.T) {
 	if !gitx.IsRepo(k.Root) {
 		t.Skip("KB root is not a git repository")
 	}
-	if err := gitx.AddRemote(k.Root, "origin", "https://user:ghp_secret@gitlab.com/o/wiki.git"); err != nil {
+	if err := gitx.AddRemote(k.Root, "origin", "https://user:ghp_secret@127.0.0.1:1/o/wiki.git"); err != nil {
 		t.Fatalf("AddRemote: %v", err)
 	}
-	k.GitSync = true
 	s := New("0.7.0")
 	RegisterKBTools(s, k, Deps{})
 
@@ -2162,18 +2159,17 @@ func TestServer_KBStatus_RemoteRedacted(t *testing.T) {
 	if string(result["has_remote"]) != "true" {
 		t.Errorf("has_remote = %s, want true", result["has_remote"])
 	}
-	if string(result["remote_url"]) != `"https://gitlab.com/o/wiki.git"` {
+	if string(result["remote_url"]) != `"https://127.0.0.1:1/o/wiki.git"` {
 		t.Errorf("remote_url = %s, want the redacted URL", result["remote_url"])
-	}
-	if string(result["git_sync"]) != "true" {
-		t.Errorf("git_sync = %s, want true", result["git_sync"])
 	}
 	if strings.Contains(string(result["remote_url"]), "ghp_secret") {
 		t.Error("remote_url leaked credential material")
 	}
-	// The deprecated alias keeps reporting the same value for one minor release.
-	if string(result["git_profile"]) != string(result["git_workflow"]) {
-		t.Errorf("git_profile = %s, want it equal to git_workflow = %s", result["git_profile"], result["git_workflow"])
+	// The workflow keys went with the server git profile (D903).
+	for _, gone := range []string{"git_workflow", "git_profile", "git_sync", "pr_number", "pr_url", "last_forge_error"} {
+		if _, ok := result[gone]; ok {
+			t.Errorf("kb_status still reports %s", gone)
+		}
 	}
 }
 

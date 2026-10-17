@@ -27,7 +27,6 @@ func newTransferFixture(t *testing.T) *transferFixture {
 	a, _ := setupGitKB(t)
 	b, _ := setupGitKB(t)
 	a.AuthName, b.AuthName = "kb-a", "kb-b"
-	a.AutoCommit, b.AutoCommit = true, true
 	f := &transferFixture{a: a, b: b, byName: map[string]*kb.KB{"kb-a": a, "kb-b": b}}
 	deps := Deps{KBByName: func(n string) (*kb.KB, bool) { k, ok := f.byName[n]; return k, ok }}
 	f.srvA = New("test")

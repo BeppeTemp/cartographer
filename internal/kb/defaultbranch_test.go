@@ -32,7 +32,6 @@ func remoteWithDefault(t *testing.T) (k *KB, bare string) {
 	if err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	k.GitSync, k.AutoCommit = true, true
 	// A clone predating D311 has no .gitattributes: without this, the first
 	// SyncIn adds it in an unpushed commit and the status reads "pending".
 	k.gitattrsChecked = true
@@ -165,7 +164,6 @@ func TestSyncIn_EmptyRemoteIsNoOp(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, _ := setupKBWithRemote(t)
-	k.GitSync = true
 	headBefore := gitHere(t, k.Root, "rev-parse", "HEAD")
 	fetched, err := k.SyncIn()
 	if err != nil || !fetched {
@@ -183,7 +181,6 @@ func TestSyncOut_EmptyRemoteFirstPushCreatesMain(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("SyncIn: %v", err)
 	}
@@ -205,7 +202,6 @@ func TestSyncOut_EmptyRemoteRefusesOtherBranch(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	gitHere(t, k.Root, "branch", "-m", "master")
 	err := k.SyncOut()
 	if !errors.Is(err, ErrBranchDiverged) || !strings.Contains(err.Error(), "remote is empty") {

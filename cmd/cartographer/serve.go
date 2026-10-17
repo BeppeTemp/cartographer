@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -46,19 +45,17 @@ const shutdownHTTPTimeout = 10 * time.Second
 // variables, and CLI flags (flag > env > YAML > default).
 func cmdServe(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	kbFlag := fs.String("kb", "", "Path(s) to KB(s), comma-separated (or CARTOGRAPHER_KB)")
+	kbFlag := fs.String("kb", "", "Folder(s) of KB(s) to mount, comma-separated (or CARTOGRAPHER_KB); a folder mounted this way has no remote, so it never syncs")
 	dataFlag := fs.String("data", "", "Directory whose direct subdirs are each a separate KB (or CARTOGRAPHER_DATA)")
 	initFlag := fs.Bool("init", false, "Initialize KB(s) if they do not exist")
 	httpFlag := fs.String("http", "", "HTTP listen address, e.g. :39273 (or CARTOGRAPHER_HTTP)")
 	tokensFlag := fs.String("tokens", "", "Comma-separated bearer tokens (or CARTOGRAPHER_TOKENS)")
-	gitAutoCommitFlag := fs.Bool("git-autocommit", true, "Create a git commit after each successful write operation (default true; or CARTOGRAPHER_GIT_AUTOCOMMIT=false to disable)")
-	gitSyncFlag := fs.Bool("git-sync", true, "Fetch+pull before and push after each write when a remote is configured (default true; or CARTOGRAPHER_GIT_SYNC=false to disable)")
 	configFlag := fs.String("config", "", "Path to a YAML config file (or CARTOGRAPHER_CONFIG)")
 	toolsProfileFlag := fs.String("tools-profile", "", "Tools advertised by tools/list: 'agent' (default, core set) or 'full' (or CARTOGRAPHER_TOOLS_PROFILE)")
 	webEnabledFlag := fs.Bool("web-enabled", true, "Serve the embedded read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode (or CARTOGRAPHER_WEB_ENABLED)")
 	updateCheckFlag := fs.Bool("update-check", true, "Look up the latest release once a day and report it in /health and kb_status when newer, and let the Atlas read the release history on demand; off, neither call is made (or CARTOGRAPHER_UPDATE_CHECK)")
 	logFileFlag := fs.String("log-file", "", "Append the server log to this file instead of stderr (created if absent; never rotated)")
-	fs.Parse(args)
+	fs.Parse(dropRemovedFlags(args))
 
 	// Before anything else can log: a service definition that names a log file
 	// expects everything in it, the startup lines included.
@@ -71,20 +68,19 @@ func cmdServe(args []string) int {
 	}
 
 	cfg, err := loadServeConfig(fs, config.FlagOverrides{
-		HTTP:          httpFlag,
-		Init:          initFlag,
-		KB:            kbFlag,
-		Data:          dataFlag,
-		Tokens:        tokensFlag,
-		GitAutocommit: gitAutoCommitFlag,
-		GitSync:       gitSyncFlag,
-		ToolsProfile:  toolsProfileFlag,
-		WebEnabled:    webEnabledFlag,
-		UpdateCheck:   updateCheckFlag,
+		HTTP:         httpFlag,
+		Init:         initFlag,
+		KB:           kbFlag,
+		Data:         dataFlag,
+		Tokens:       tokensFlag,
+		ToolsProfile: toolsProfileFlag,
+		WebEnabled:   webEnabledFlag,
+		UpdateCheck:  updateCheckFlag,
 	}, *configFlag)
 	if err != nil {
 		log.Fatal(err)
 	}
+	announceConfig(cfg, envFallback(*configFlag, "CARTOGRAPHER_CONFIG"))
 
 	runServe(cfg)
 	return 0
@@ -123,10 +119,6 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 			explicit.Data = overrides.Data
 		case "tokens":
 			explicit.Tokens = overrides.Tokens
-		case "git-autocommit":
-			explicit.GitAutocommit = overrides.GitAutocommit
-		case "git-sync":
-			explicit.GitSync = overrides.GitSync
 		case "tools-profile":
 			explicit.ToolsProfile = overrides.ToolsProfile
 		case "web-enabled":
@@ -142,6 +134,12 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 	// an invalid one used to widen access rather than stop startup (D179).
 	if err := config.ValidateAuth(cfg.Auth); err != nil {
 		return nil, fmt.Errorf("config: auth: %w", err)
+	}
+	// A configuration that asks for the server git profile (removed, D903)
+	// stops here, before anything is realigned or mounted: ignoring it would
+	// write straight to a branch the operator had protected.
+	if err := cfg.RefusalError(); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil
@@ -225,12 +223,9 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	phase("cloning")
 	var mounts []kbMount
 	for _, spec := range cfg.KBs {
-		if err := spec.GitBranchProfileError(cfg.Git.Profile); err != nil {
-			log.Fatalf("config: %v", err)
-		}
 		if spec.Remote != "" {
 			name := resolveKBName(spec, "")
-			dest, err := ensureClonedKB(spec.Remote, name, cfg.Data, spec.GitBranch, gitEnvForKB(spec, cfg.Git, name)...)
+			dest, err := ensureClonedKB(spec.Remote, name, cfg.Data, gitEnvForKB(spec, cfg.Git, name)...)
 			if err != nil {
 				log.Fatalf("KB remote %q: %v", spec.Remote, err)
 			}
@@ -284,7 +279,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		var k *kb.KB
 		var err error
 		if cfg.Init {
-			k, err = kb.InitOnBranch(m.Path, m.Spec.GitBranch)
+			k, err = kb.Init(m.Path)
 			if err != nil {
 				log.Fatalf("KB init %q failed: %v", m.Path, err)
 			}
@@ -295,12 +290,9 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 				log.Fatalf("KB open %q failed: %v\n(use --init to create a new KB)", m.Path, err)
 			}
 		}
-		k.AutoCommit = cfg.Git.Autocommit
-		k.GitSync = cfg.Git.Sync
-		k.SyncInWindow = cfg.Git.SyncInWindow
-		k.SyncOutDebounce = cfg.Git.SyncOutDebounce
+		k.SyncInWindow = kb.DefaultSyncInWindow
+		k.SyncOutDebounce = kb.SyncOutDebounceFor(os.Getenv)
 		k.GitEnv = gitEnvForKB(m.Spec, cfg.Git, m.Name)
-		k.ConfiguredBranch = m.Spec.GitBranch
 		if err := completeIdentity(m.Spec.AuthorName, m.Spec.AuthorEmail, "kbs[]"); err != nil {
 			log.Fatal(err)
 		}
@@ -323,6 +315,13 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			}
 		}
 		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(m.Spec, cfg.Sops, m.Name)
+		// The KB's settings.yaml is brought up to date first (D903): a retired
+		// key is dropped, in one commit of its own, and a KB that still asks for
+		// the server git profile does not mount at all.
+		if refusal := realignKBSettings(k, m.Name); refusal != "" {
+			log.Printf("ERROR: KB %q (%s) refuses to mount: %s", m.Name, m.Path, refusal)
+			continue
+		}
 		// The KB's own settings.yaml wins over kbs[] (D746): resolve it first,
 		// then every policy read below sees the effective spec. A later pull
 		// or edit re-resolves through k.SettingsReload.
@@ -342,22 +341,6 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			continue
 		}
 		seenNames[name] = m.Path
-		serverGit, err := serverGitConfigFor(m.Spec, cfg.Git, name)
-		if err != nil && !reflect.DeepEqual(m.Spec, serverSpec) {
-			// A KB must not stop the server with a settings.yaml it carries
-			// (D746): fall back to the server's own git keys and say so.
-			log.Printf("warning: KB %q: git settings from its settings.yaml are unusable (%v) — using the server's", name, err)
-			serverGit, err = serverGitConfigFor(serverSpec, cfg.Git, name)
-		}
-		if err != nil {
-			log.Fatalf("config: %v", err)
-		}
-		if serverGit != nil {
-			if err := k.ConfigureServerGit(*serverGit); err != nil {
-				log.Fatalf("KB %q: %v", name, err)
-			}
-			log.Printf("KB %q: server git profile, working branch %s → PRs to %s", name, serverGit.WorkingBranch, serverGit.BaseBranch)
-		}
 		var artifactSigner ed25519.PrivateKey
 		if m.Spec.ArtifactSigningSeed != "" {
 			artifactSigner, err = artifactsig.ParseSeed(m.Spec.ArtifactSigningSeed)
@@ -385,7 +368,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			// Its policy comes from its own settings.yaml (D746), when it has one.
 			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — its policy comes from its settings.yaml if it has one, sops_age_key_file and machine_path allow-prefixes are at their defaults", name)
 		}
-		if _, ok := k.HasRemote(); kb.ShouldWarnGitIdentity(k.GitSync, ok, k.GitAuthorEmail) {
+		if _, ok := k.HasRemote(); kb.ShouldWarnGitIdentity(ok, k.GitAuthorEmail) {
 			log.Printf("WARNING: KB %q commits will be authored as cartographer@localhost; forges with author push rules will reject the push", name)
 		}
 	}
@@ -394,7 +377,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		log.Fatal("no KBs specified")
 	}
 
-	log.Printf("cartographer %s — %d KB(s) mounted (git-autocommit=%v git-sync=%v)", version, len(kbs), cfg.Git.Autocommit, cfg.Git.Sync)
+	log.Printf("cartographer %s — %d KB(s) mounted", version, len(kbs))
 
 	phase("indexing")
 	// Open per-KB SQLite search index (best-effort; falls back to in-memory).
