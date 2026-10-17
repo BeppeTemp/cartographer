@@ -38,9 +38,6 @@ func harvestCandidateItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 		if NormValue(c.status) == kb.StatusArchived || !closedPhase(c.fm, &contract) {
 			continue
 		}
-		if contract.HarvestAfterDays < 0 {
-			continue // harvest_after: 0, off (D347)
-		}
 		if len(c.timestamp) < 10 {
 			continue
 		}

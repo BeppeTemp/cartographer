@@ -1761,57 +1761,46 @@ func (kb *KB) mapDescriptorRelPath(archive string) (string, error) {
 }
 
 // MapContract declares the optional deterministic lint contract of a map.
-// RequiredFields apply to every concept; RequiredFieldsByType are additive.
-// MachinePathAllowPrefixes lists path prefixes — POSIX-absolute, Windows
-// drive-absolute, or "~/"-anchored (D159) — that the machine_path
-// lint (D124) must treat as this map's operational target paths rather than
-// client-local paths — e.g. a container image's home directory or a remote
-// node's runtime path, which are identical across every reader's machine and
-// therefore not a false positive.
+// RequiredFields apply to every concept (the `*` entry of the on-disk
+// required_fields.<type|*> shape, D907); RequiredFieldsByType are additive.
+// FieldValues are the `*` entry of field_values.<type|*>.<field>,
+// FieldValuesByType the per-type ones. No key of the contract switches a check
+// off or loosens it (D907): the only rules a map states are the ones it adds.
 type MapContract struct {
-	OntologyMode             string   // "strict" or "flexible" (default)
-	ConceptTypes             []string // allowed types when OntologyMode is "strict"
-	RequiredFields           []string
-	RequiredFieldsByType     map[string][]string
-	FieldValues              map[string][]string
-	FieldValuesByType        map[string]map[string][]string
-	ForbiddenFields          []string
-	RequireIndexEntry        bool
-	MachinePathAllowPrefixes []string
+	// OntologyMode is derived, never read from the descriptor (D907): "strict"
+	// when ConceptTypes is non-empty, "flexible" otherwise.
+	OntologyMode         string   // "strict" or "flexible"
+	ConceptTypes         []string // the allowed types; non-empty makes the map strict
+	RequiredFields       []string
+	RequiredFieldsByType map[string][]string
+	FieldValues          map[string][]string
+	FieldValuesByType    map[string]map[string][]string
+	ForbiddenFields      []string
 	// ValueSynonyms extends the built-in value families for this map
 	// (value_synonyms.<canonical>: [synonym, ...], D296).
 	ValueSynonyms map[string][]string
 	// Lifecycle keys (D297): the map's kind ("map" or "journal"), the
 	// statuses that mean "not finished", the age after which such a concept
-	// is stale, whether pages must carry their template's H2 sections, and
-	// the words that mark an open question.
+	// is stale, and the words that mark an open question.
 	Kind         string
 	OpenStatuses []string
 	// OpenField names the frontmatter key that carries a concept's open or
 	// closed state in this map (D347); open_statuses then lists that field's
 	// open values. A concept without the field falls back to status.
-	OpenField      string
+	OpenField string
+	// StaleAfterDays is an explicit stale_after, always positive: 0 means the
+	// default for the map's kind. Staleness cannot be switched off (D907).
 	StaleAfterDays int
-	// StaleAfterOff is an explicit stale_after: 0 (D346): the map is never
-	// stale, whatever its kind or statuses. Unset is not off: it takes the
-	// default for the map's kind.
-	StaleAfterOff bool
 	// HarvestAfterDays is the age after which a closed journal entry is a
-	// harvest candidate (D322); 0 means the default, DefaultHarvestAfterDays,
-	// and -1 is an explicit harvest_after: 0 in _map.md, harvesting off (D347).
+	// harvest candidate (D322); 0 means the default, DefaultHarvestAfterDays.
 	HarvestAfterDays int
-	TemplateSections bool
 	OpenMarkers      []string
-	// Template keys (D352): the shapes (template slugs) this map accepts, the
-	// one a page of the matching type follows when it names none, and whether
-	// every page must bind to one of them.
+	// Template keys (D352): the shapes (template slugs) this map accepts and
+	// the one a page of the matching type follows when it names none. A map
+	// that declares templates requires every page to bind to one (D371, D907):
+	// there is no key to say otherwise.
 	Templates       []string
 	DefaultTemplate string
-	// RequireTemplate is an explicit require_template: true; RequireTemplateOff
-	// an explicit false, the map's opt-out (D371). Read the effective value with
-	// StrictTemplates, never these two.
-	RequireTemplate    bool
-	RequireTemplateOff bool
 	// Review keys (D298): the map a journal's reusable procedures belong in,
 	// the H2 prefixes that mark a procedure, and whether this map is where
 	// the KB defines its terms.
@@ -1821,24 +1810,18 @@ type MapContract struct {
 	// WorkMap (D302) is the map where this map's work belongs: an open item
 	// or open-phase concept here with no link into it is scattered_work.
 	WorkMap string
-	// Cost keys (D301): Index is "generated" when the server maintains the
-	// map's concept list in a marked block of its index.md ("" = curated);
-	// the integers override the review and oversize thresholds for this map
-	// (0 = the built-in default).
-	Index           string
-	RepeatedFactMin int
-	HotspotInDegree int
-	HotspotBytes    int
-	OversizeBytes   int
-	// OversizeConcepts (D313) is the top-level concept count above which the map
-	// is map_oversize; 0 keeps the built-in threshold.
-	OversizeConcepts int
-	// Page-name keys (D315): TitleMaxLength is the title length above which
-	// title_quality fires (nil = built-in default, 0 = off);
-	// ForbiddenTitleTerms are substrings no title in this map may carry.
-	TitleMaxLength      *int
+	// Index is "generated" when the server maintains the map's concept list in
+	// a marked block of its index.md ("" = curated, D301).
+	Index string
+	// ForbiddenTitleTerms are substrings no title in this map may carry (D315).
 	ForbiddenTitleTerms []string
-	Malformed           []ContractMalformed
+	// LegacyKeys are the removed keys the descriptor still carries (D907),
+	// sorted: contract_legacy_key reports them and the repair rewrites the
+	// descriptor. They have no effect on the contract, except that a flat
+	// required_fields and field_values.<field> are still read as the `*` entry
+	// until the repair moves them.
+	LegacyKeys []string
+	Malformed  []ContractMalformed
 }
 
 // AllowedValues returns the allowed values declared for field on conceptType:
@@ -1883,15 +1866,16 @@ var DefaultJournalOpenStatuses = []string{"open", "in-progress", "blocked"}
 // index.md, log.md (D77 WP1 — replaces the former CreateArchive/
 // "_archive.md" pair, which is now read-compat only, never written).
 // name must be a kebab-case segment; the map must not already exist.
-// kind must be "map" or "journal"; empty defaults to "map". If ontologyMode
-// is empty, defaults to "flexible". It creates no optional lint contract.
-func (kb *KB) CreateMap(name, title, kind string, conceptTypes []string, ontologyMode string) error {
-	return kb.CreateMapWithContract(name, title, kind, conceptTypes, ontologyMode, MapContract{})
+// kind must be "map" or "journal"; empty defaults to "map". A non-empty
+// conceptTypes makes the map strict (D907: the mode is derived, never stored).
+// It creates no optional lint contract.
+func (kb *KB) CreateMap(name, title, kind string, conceptTypes []string) error {
+	return kb.CreateMapWithContract(name, title, kind, conceptTypes, MapContract{})
 }
 
 // CreateMapWithContract creates a map or journal with its optional lint
 // contract serialized deterministically in _map.md.
-func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []string, ontologyMode string, contract MapContract) error {
+func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []string, contract MapContract) error {
 	if _, err := okf.PathToID(name + ".md"); err != nil {
 		return fmt.Errorf("%w: invalid map name %q", okf.ErrInvalidPath, name)
 	}
@@ -1915,7 +1899,7 @@ func (kb *KB) CreateMapWithContract(name, title, kind string, conceptTypes []str
 		return fmt.Errorf("CreateMap: invalid kind %q (must be \"map\" or \"journal\")", kind)
 	}
 
-	return kb.writeMapFiles(mapAbs, title, kind, conceptTypes, ontologyMode, contract, false)
+	return kb.writeMapFiles(mapAbs, title, kind, conceptTypes, contract, false)
 }
 
 // ScaffoldMap writes the descriptor of a data/ folder that holds concepts and
@@ -1939,17 +1923,14 @@ func (kb *KB) ScaffoldMap(name, title string) error {
 			return fmt.Errorf("ScaffoldMap: folder %q already has %s", name, d)
 		}
 	}
-	return kb.writeMapFiles(mapAbs, title, "map", nil, "", MapContract{}, true)
+	return kb.writeMapFiles(mapAbs, title, "map", nil, MapContract{}, true)
 }
 
 // writeMapFiles writes a map's _map.md, index.md and log.md into mapAbs
 // (CreateMapWithContract and ScaffoldMap share it, so a scaffolded map is the
 // map map_create would have made). onlyMissing keeps an index.md or log.md
 // that is already there.
-func (kb *KB) writeMapFiles(mapAbs, title, kind string, conceptTypes []string, ontologyMode string, contract MapContract, onlyMissing bool) error {
-	if ontologyMode == "" {
-		ontologyMode = "flexible"
-	}
+func (kb *KB) writeMapFiles(mapAbs, title, kind string, conceptTypes []string, contract MapContract, onlyMissing bool) error {
 	if err := os.MkdirAll(mapAbs, 0o755); err != nil {
 		return fmt.Errorf("CreateMap: mkdir: %w", err)
 	}
@@ -1961,9 +1942,8 @@ func (kb *KB) writeMapFiles(mapAbs, title, kind string, conceptTypes []string, o
 	if len(conceptTypes) > 0 {
 		mapFM.WriteString("concept_types: [" + strings.Join(conceptTypes, ", ") + "]\n")
 	}
-	mapFM.WriteString("ontology_mode: " + ontologyMode + "\n")
 	if len(contract.RequiredFields) > 0 {
-		mapFM.WriteString("required_fields: [" + strings.Join(sortedUnique(contract.RequiredFields), ", ") + "]\n")
+		mapFM.WriteString("required_fields.*: [" + strings.Join(sortedUnique(contract.RequiredFields), ", ") + "]\n")
 	}
 	types := make([]string, 0, len(contract.RequiredFieldsByType))
 	for typ := range contract.RequiredFieldsByType {
@@ -1982,19 +1962,10 @@ func (kb *KB) writeMapFiles(mapAbs, title, kind string, conceptTypes []string, o
 	if len(contract.ForbiddenFields) > 0 {
 		mapFM.WriteString("forbidden_fields: [" + strings.Join(sortedUnique(contract.ForbiddenFields), ", ") + "]\n")
 	}
-	if contract.RequireIndexEntry {
-		mapFM.WriteString("require_index_entry: true\n")
-	}
-	if len(contract.MachinePathAllowPrefixes) > 0 {
-		mapFM.WriteString("machine_path_allow_prefixes: [" + strings.Join(sortedUnique(contract.MachinePathAllowPrefixes), ", ") + "]\n")
-	}
 	if len(contract.Templates) > 0 {
 		mapFM.WriteString("templates: [" + strings.Join(sortedUnique(contract.Templates), ", ") + "]\n")
 		if contract.DefaultTemplate != "" {
 			mapFM.WriteString("default_template: " + contract.DefaultTemplate + "\n")
-		}
-		if contract.RequireTemplate {
-			mapFM.WriteString("require_template: true\n")
 		}
 	}
 	// A journal declares what "open" means (D321): the server default is the
@@ -2036,8 +2007,9 @@ type fieldValueKey struct {
 }
 
 // fieldValueKeys flattens the field_values contract into descriptor keys in
-// sorted order: map-wide keys first, then per-type ones. Empty lists are
-// skipped; values are de-duplicated and sorted.
+// sorted order: the `*` (every type) keys first, then per-type ones, all in the
+// one field_values.<type|*>.<field> shape (D907). Empty lists are skipped;
+// values are de-duplicated and sorted.
 func fieldValueKeys(wide map[string][]string, byType map[string]map[string][]string) []fieldValueKey {
 	var out []fieldValueKey
 	fields := make([]string, 0, len(wide))
@@ -2047,7 +2019,7 @@ func fieldValueKeys(wide map[string][]string, byType map[string]map[string][]str
 	sort.Strings(fields)
 	for _, f := range fields {
 		if v := sortedUnique(wide[f]); len(v) > 0 {
-			out = append(out, fieldValueKey{"field_values." + f, v})
+			out = append(out, fieldValueKey{"field_values.*." + f, v})
 		}
 	}
 	types := make([]string, 0, len(byType))
@@ -2096,9 +2068,6 @@ func (kb *KB) isMapName(name string) bool {
 // the agent.
 const IndexGenerated = "generated"
 
-// costIntKeys are the D301 positive-integer threshold overrides.
-var costIntKeys = map[string]bool{"repeated_fact_min": true, "hotspot_in_degree": true, "hotspot_bytes": true, "oversize_bytes": true, "oversize_concepts": true}
-
 // validOpenField reports whether s can name an open_field (D347): a flat
 // frontmatter key, so non-empty, one line, no whitespace and no '.'.
 func validOpenField(s string) bool {
@@ -2112,34 +2081,29 @@ const DefaultHarvestAfterDays = 45
 // MapContractUpdate is a partial change to an existing map's lint contract:
 // a nil field is left as it is. An empty list (or false) removes the key, so
 // the descriptor ends up exactly as CreateMapWithContract would have written
-// it for the resulting contract. A non-nil RequiredFieldsByType replaces every
-// per-type key, not only the types it names. FieldValues and FieldValuesByType
-// work the same way on the map-wide and per-type field_values.* keys (D275); an
-// empty non-nil map removes them all.
+// it for the resulting contract. RequiredFields and FieldValues are the one
+// shape keyed by concept type, with "*" for every type (D907): a non-nil value
+// replaces every required_fields.* / field_values.* key, an empty non-nil map
+// removes them all.
 type MapContractUpdate struct {
-	RequiredFields           *[]string
-	RequiredFieldsByType     map[string][]string
-	FieldValues              map[string][]string
-	FieldValuesByType        map[string]map[string][]string
-	ForbiddenFields          *[]string
-	RequireIndexEntry        *bool
-	MachinePathAllowPrefixes *[]string
+	RequiredFields  map[string][]string
+	FieldValues     map[string]map[string][]string
+	ForbiddenFields *[]string
 	// ValueSynonyms replaces every value_synonyms.* key (D296); an empty
 	// non-nil map removes them.
 	ValueSynonyms map[string][]string
-	// D297 lifecycle keys: nil leaves the key, an empty list, 0 or false
-	// removes it.
-	OpenStatuses     *[]string
-	OpenField        *string // D347: nil leaves, "" removes
+	// D297 lifecycle keys: nil leaves the key, an empty list removes it.
+	OpenStatuses *[]string
+	OpenField    *string // D347: nil leaves, "" removes
+	// StaleAfterDays and HarvestAfterDays: nil leaves; N>0 sets; -1 removes
+	// (back to the default). 0 is refused: staleness cannot be switched off
+	// (D907).
 	StaleAfterDays   *int
-	HarvestAfterDays *int // D322/D347: nil leaves; >0 sets, 0 writes an explicit off, <0 removes
-	TemplateSections *bool
+	HarvestAfterDays *int
 	OpenMarkers      *[]string
-	// D352 template keys: nil leaves the key, an empty list / "" / false
-	// removes it.
+	// D352 template keys: nil leaves the key, an empty list / "" removes it.
 	Templates       *[]string
 	DefaultTemplate *string
-	RequireTemplate *bool
 	// D298 review keys: nil leaves the key, "" / an empty list / false
 	// removes it.
 	PromoteTo         *string
@@ -2147,31 +2111,21 @@ type MapContractUpdate struct {
 	Glossary          *bool
 	// D302: nil leaves work_map, "" removes it.
 	WorkMap *string
-	// D301 cost keys: nil leaves the key; "" or "curated" / 0 removes it.
-	Index            *string
-	RepeatedFactMin  *int
-	HotspotInDegree  *int
-	HotspotBytes     *int
-	OversizeBytes    *int
-	OversizeConcepts *int
-	// D315 page-name keys: TitleMaxLength nil leaves the key, a negative
-	// value removes it (default length), 0 turns the length rule off;
-	// ForbiddenTitleTerms nil leaves it, an empty list removes it.
-	TitleMaxLength      *int
+	// D301: nil leaves the key; "" or "curated" removes it.
+	Index *string
+	// D315: ForbiddenTitleTerms nil leaves it, an empty list removes it.
 	ForbiddenTitleTerms *[]string
-	// D322: ConceptTypes nil leaves the list, an empty one removes it (the
-	// types are then unconstrained); OntologyMode nil leaves it, "" removes
-	// it (flexible), otherwise "strict" or "flexible". A list on a map that
-	// is not strict is refused: a flexible map ignores it.
+	// ConceptTypes nil leaves the list, an empty one removes it (the map is
+	// then flexible); a non-empty list makes the map strict (D907: the mode is
+	// derived from it).
 	ConceptTypes *[]string
-	OntologyMode *string
 	// Title renames the map: the title key and the H1 that repeats it, in
 	// _map.md and in index.md. nil leaves it; "" is refused, a map has one.
 	Title *string
-	// LintIgnore is the map-wide lint_ignore (D306): the checks the whole map
-	// accepts. nil leaves it, an empty list removes it; lint reports names a
-	// map cannot accept.
-	LintIgnore *[]string
+	// Guard, when set, sees the contract before and after the change and may
+	// refuse it: nothing has been written yet (D907 uses it to demand a reason
+	// for a loosening).
+	Guard func(before, after MapContract) error
 }
 
 // UpdateMapContract rewrites the contract keys of an existing map's _map.md,
@@ -2205,6 +2159,10 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 		return MapContract{}, fmt.Errorf("UpdateMapContract %s: %w", name, err)
 	}
 
+	before, err := kb.ReadMapContract(name)
+	if err != nil {
+		return MapContract{}, err
+	}
 	setList := func(key string, values []string) {
 		if v := sortedUnique(values); len(v) > 0 {
 			fm.Set(key, v)
@@ -2213,40 +2171,40 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 		}
 	}
 	if upd.RequiredFields != nil {
-		setList("required_fields", *upd.RequiredFields)
-	}
-	if upd.RequiredFieldsByType != nil {
 		for _, key := range fm.Keys() {
-			if strings.HasPrefix(key, "required_fields.") {
+			if key == "required_fields" || strings.HasPrefix(key, "required_fields.") {
 				fm.Delete(key)
 			}
 		}
-		types := make([]string, 0, len(upd.RequiredFieldsByType))
-		for typ := range upd.RequiredFieldsByType {
+		types := make([]string, 0, len(upd.RequiredFields))
+		for typ := range upd.RequiredFields {
+			if strings.TrimSpace(typ) == "" || strings.Contains(typ, ".") {
+				return MapContract{}, fmt.Errorf("UpdateMapContract %s: required_fields type %q must be a concept type or \"*\" and contain no '.'", name, typ)
+			}
 			types = append(types, typ)
 		}
 		sort.Strings(types)
 		for _, typ := range types {
-			setList("required_fields."+typ, upd.RequiredFieldsByType[typ])
+			setList("required_fields."+typ, upd.RequiredFields[typ])
 		}
 	}
 	if upd.FieldValues != nil {
 		for _, key := range fm.Keys() {
-			if strings.HasPrefix(key, "field_values.") && strings.Count(key, ".") == 1 {
+			if strings.HasPrefix(key, "field_values.") {
 				fm.Delete(key)
 			}
 		}
-		for _, k := range fieldValueKeys(upd.FieldValues, nil) {
-			fm.Set(k.name, k.values)
-		}
-	}
-	if upd.FieldValuesByType != nil {
-		for _, key := range fm.Keys() {
-			if strings.HasPrefix(key, "field_values.") && strings.Count(key, ".") >= 2 {
-				fm.Delete(key)
+		wide := upd.FieldValues[AllTypes]
+		byType := map[string]map[string][]string{}
+		for typ, fields := range upd.FieldValues {
+			if strings.TrimSpace(typ) == "" || strings.Contains(typ, ".") {
+				return MapContract{}, fmt.Errorf("UpdateMapContract %s: field_values type %q must be a concept type or \"*\" and contain no '.'", name, typ)
+			}
+			if typ != AllTypes {
+				byType[typ] = fields
 			}
 		}
-		for _, k := range fieldValueKeys(nil, upd.FieldValuesByType) {
+		for _, k := range fieldValueKeys(wide, byType) {
 			fm.Set(k.name, k.values)
 		}
 	}
@@ -2271,33 +2229,30 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 		setList("open_markers", *upd.OpenMarkers)
 	}
 	if upd.StaleAfterDays != nil {
-		// D346: N>0 sets, 0 writes an explicit off, -1 deletes (back to the
-		// default). An integer schema cannot carry null, so -1 is the reset.
+		// N>0 sets, -1 deletes (back to the default). An integer schema cannot
+		// carry null, so -1 is the reset. 0 would switch staleness off (D346),
+		// which D907 removed.
 		switch n := *upd.StaleAfterDays; {
-		case n >= 0:
+		case n > 0:
 			fm.Set("stale_after", strconv.Itoa(n))
 		case n == -1:
 			fm.Delete("stale_after")
 		default:
-			return MapContract{}, fmt.Errorf("stale_after must be a positive number of days, 0 (off) or -1 (default)")
+			return MapContract{}, fmt.Errorf("stale_after must be a positive number of days or -1 (the default): staleness cannot be switched off")
 		}
 	}
 	if upd.HarvestAfterDays != nil {
-		if *upd.HarvestAfterDays >= 0 {
-			fm.Set("harvest_after", strconv.Itoa(*upd.HarvestAfterDays))
-		} else {
+		switch n := *upd.HarvestAfterDays; {
+		case n > 0:
+			fm.Set("harvest_after", strconv.Itoa(n))
+		case n == -1:
 			fm.Delete("harvest_after")
+		default:
+			return MapContract{}, fmt.Errorf("harvest_after must be a positive number of days or -1 (the default): harvesting cannot be switched off")
 		}
 	}
 	if err := kb.applyOntologyUpdate(name, fm, upd); err != nil {
 		return MapContract{}, err
-	}
-	if upd.TemplateSections != nil {
-		if *upd.TemplateSections {
-			fm.Set("template_sections", "true")
-		} else {
-			fm.Delete("template_sections")
-		}
 	}
 	if upd.Templates != nil {
 		for _, slug := range *upd.Templates {
@@ -2317,15 +2272,6 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 			fm.Delete("default_template")
 		}
 	}
-	if upd.RequireTemplate != nil {
-		if *upd.RequireTemplate {
-			fm.Set("require_template", "true")
-		} else {
-			// Not a delete: a map that declares templates is strict by default
-			// (D371), so the opt-out is written down.
-			fm.Set("require_template", "false")
-		}
-	}
 	if upd.PromoteTo != nil {
 		if v := strings.TrimSpace(*upd.PromoteTo); v != "" {
 			if _, err := okf.PathToID(v + ".md"); err != nil || strings.Contains(v, "/") {
@@ -2341,13 +2287,6 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 	}
 	if upd.ForbiddenTitleTerms != nil {
 		setList("forbidden_title_terms", *upd.ForbiddenTitleTerms)
-	}
-	if upd.TitleMaxLength != nil {
-		if *upd.TitleMaxLength >= 0 {
-			fm.Set("title_max_length", strconv.Itoa(*upd.TitleMaxLength))
-		} else {
-			fm.Delete("title_max_length")
-		}
 	}
 	if upd.WorkMap != nil {
 		if v := strings.TrimSpace(*upd.WorkMap); v != "" {
@@ -2367,19 +2306,6 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 			fm.Delete("index")
 		default:
 			return MapContract{}, fmt.Errorf("UpdateMapContract %s: index %q must be generated or curated", name, v)
-		}
-	}
-	for _, kv := range []struct {
-		key string
-		val *int
-	}{{"repeated_fact_min", upd.RepeatedFactMin}, {"hotspot_in_degree", upd.HotspotInDegree}, {"hotspot_bytes", upd.HotspotBytes}, {"oversize_bytes", upd.OversizeBytes}, {"oversize_concepts", upd.OversizeConcepts}} {
-		if kv.val == nil {
-			continue
-		}
-		if *kv.val > 0 {
-			fm.Set(kv.key, strconv.Itoa(*kv.val))
-		} else {
-			fm.Delete(kv.key)
 		}
 	}
 	if upd.Glossary != nil {
@@ -2407,9 +2333,6 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 			setList("value_synonyms."+c, upd.ValueSynonyms[c])
 		}
 	}
-	if upd.LintIgnore != nil {
-		setList("lint_ignore", *upd.LintIgnore)
-	}
 	var oldTitle, newTitle string
 	if upd.Title != nil {
 		newTitle = strings.TrimSpace(*upd.Title)
@@ -2421,16 +2344,6 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 		}
 		fm.Set("title", newTitle)
 		body = retitleH1(body, oldTitle, newTitle)
-	}
-	if upd.RequireIndexEntry != nil {
-		if *upd.RequireIndexEntry {
-			fm.Set("require_index_entry", "true")
-		} else {
-			fm.Delete("require_index_entry")
-		}
-	}
-	if upd.MachinePathAllowPrefixes != nil {
-		setList("machine_path_allow_prefixes", *upd.MachinePathAllowPrefixes)
 	}
 
 	if upd.Templates != nil || upd.DefaultTemplate != nil {
@@ -2449,6 +2362,11 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 		}
 	}
 
+	if upd.Guard != nil {
+		if err := upd.Guard(before, kb.contractFromMeta(relPath, fm)); err != nil {
+			return MapContract{}, err
+		}
+	}
 	abs, err := kb.ResolvePath(relPath, false)
 	if err != nil {
 		return MapContract{}, fmt.Errorf("UpdateMapContract %s: %w", name, err)
@@ -2465,76 +2383,24 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 	return kb.ReadMapContract(name)
 }
 
-// applyOntologyUpdate writes concept_types and ontology_mode (D322), the two
-// keys map_create sets and map_update used to leave out: a strict map could
-// not learn a type it did not know at creation.
+// applyOntologyUpdate writes concept_types (D322). The map's mode is derived
+// from it (D907): a non-empty list is strict, no list is flexible, so there is
+// no ontology_mode key to keep in step.
 func (kb *KB) applyOntologyUpdate(name string, fm *okf.Frontmatter, upd MapContractUpdate) error {
-	if upd.ConceptTypes == nil && upd.OntologyMode == nil {
+	if upd.ConceptTypes == nil {
 		return nil
 	}
-	mode := "flexible"
-	if v, ok := fm.Get("ontology_mode"); ok {
-		if str, _ := v.(string); str != "" {
-			mode = str
+	var types []string
+	for _, t := range *upd.ConceptTypes {
+		if strings.TrimSpace(t) == "" {
+			return fmt.Errorf("UpdateMapContract %s: concept_types must not contain an empty type", name)
 		}
+		types = append(types, strings.TrimSpace(t))
 	}
-	if upd.OntologyMode != nil {
-		switch m := strings.TrimSpace(*upd.OntologyMode); m {
-		case "":
-			fm.Delete("ontology_mode")
-			mode = "flexible"
-		case "strict", "flexible":
-			fm.Set("ontology_mode", m)
-			mode = m
-		default:
-			return fmt.Errorf("UpdateMapContract %s: ontology_mode %q must be strict or flexible", name, m)
-		}
-	}
-	if upd.ConceptTypes != nil {
-		var types []string
-		for _, t := range *upd.ConceptTypes {
-			if strings.TrimSpace(t) == "" {
-				return fmt.Errorf("UpdateMapContract %s: concept_types must not contain an empty type", name)
-			}
-			types = append(types, strings.TrimSpace(t))
-		}
-		types = uniqueKeepOrder(types)
-		if len(types) > 0 && mode != "strict" {
-			return fmt.Errorf("UpdateMapContract %s: concept_types is ignored by a flexible map: set ontology_mode: strict with it", name)
-		}
-		if len(types) > 0 {
-			fm.Set("concept_types", types)
-		} else {
-			fm.Delete("concept_types")
-		}
-		return nil
-	}
-	// Switching to strict with no list: infer it from what the map holds, or
-	// the new mode would refuse every concept already there.
-	if mode == "strict" {
-		if _, has := fm.Get("concept_types"); !has {
-			var types []string
-			prefix := name + "/"
-			err := kb.WalkConcepts(func(id okf.ConceptID, content string) error {
-				if !strings.HasPrefix(string(id), prefix) {
-					return nil
-				}
-				if fmRaw, _, ok := okf.SplitFrontmatter(content); ok {
-					if cfm, err := okf.ParseFrontmatter(fmRaw); err == nil {
-						if t := cfm.Type(); t != "" {
-							types = append(types, t)
-						}
-					}
-				}
-				return nil
-			})
-			if err != nil {
-				return fmt.Errorf("UpdateMapContract %s: infer concept_types: %w", name, err)
-			}
-			if types = sortedUnique(types); len(types) > 0 {
-				fm.Set("concept_types", types)
-			}
-		}
+	if types = uniqueKeepOrder(types); len(types) > 0 {
+		fm.Set("concept_types", types)
+	} else {
+		fm.Delete("concept_types")
 	}
 	return nil
 }
@@ -2602,55 +2468,6 @@ func retitleH1(body, oldTitle, newTitle string) string {
 		break
 	}
 	return strings.Join(lines, "\n")
-}
-
-// normalizeAllowPrefix validates and normalizes one
-// machine_path_allow_prefixes entry (D124). Only an absolute path is
-// accepted: POSIX ("/...") or Windows drive-absolute ("C:\..." or "C:/...").
-// A relative path — including a drive-less Windows form such as
-// "Users\foo" or "\Users\foo" — is rejected as malformed, same as an empty
-// entry. Normalization is limited to stripping harmless trailing separators;
-// everything else (case, "..", separator style) is compared literally by
-// the caller.
-func normalizeAllowPrefix(raw string) (string, bool) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", false
-	}
-
-	isPOSIX := strings.HasPrefix(trimmed, "/")
-	isWindows := isWindowsDriveAbsolute(trimmed)
-	// A "~/"-anchored prefix is accepted (D159): ~/.ssh/config means "your ssh
-	// config" on every machine, exactly as /etc/... does, and machinePathRe
-	// already matches that form — so a literal comparison works with no home
-	// expansion anywhere. Expanding ~ would make the contract's meaning depend on
-	// the reader's home directory, which is the opposite of what an allow-list
-	// for portable paths is for. "~user/..." is deliberately rejected: the regex
-	// never produces that form, so such a prefix could never match.
-	isTilde := trimmed == "~" || strings.HasPrefix(trimmed, "~/")
-	if !isPOSIX && !isWindows && !isTilde {
-		return "", false
-	}
-	if trimmed == "~" {
-		trimmed = "~/"
-	}
-
-	minLen := 1 // bare POSIX root "/"
-	if isWindows {
-		minLen = 3 // bare Windows drive root "C:\" or "C:/"
-	}
-	if isTilde {
-		minLen = 2 // bare "~/"
-	}
-	normalized := trimmed
-	for len(normalized) > minLen {
-		last := normalized[len(normalized)-1]
-		if last != '/' && last != '\\' {
-			break
-		}
-		normalized = normalized[:len(normalized)-1]
-	}
-	return normalized, true
 }
 
 // isWindowsDriveAbsolute reports whether s starts with a drive letter
@@ -2799,6 +2616,47 @@ func (kb *KB) ReadArchiveMeta(archive string) (*okf.Frontmatter, error) {
 	return parsed, nil
 }
 
+// AllTypes is the type key of required_fields.<type|*> and
+// field_values.<type|*>.<field> that stands for every concept type (D907).
+const AllTypes = "*"
+
+// legacyContractKeys are the contract keys D907 removed: each one switched a
+// check off or loosened it (or, for ontology_mode and the two flat shapes,
+// duplicated what another key already said). They take no part in the
+// contract; contract_legacy_key reports them and the repair drops them.
+var legacyContractKeys = map[string]bool{
+	"lint_ignore": true, "require_template": true, "template_sections": true,
+	"require_index_entry": true, "machine_path_allow_prefixes": true,
+	"repeated_fact_min": true, "hotspot_in_degree": true, "hotspot_bytes": true,
+	"oversize_bytes": true, "oversize_concepts": true, "title_max_length": true,
+	"ontology_mode": true,
+}
+
+// LegacyContractKeys lists, sorted, the removed keys of a map descriptor's
+// frontmatter (D907): the keys of legacyContractKeys; the flat required_fields
+// and field_values.<field> shapes, replaced by the `*` entry of the one shape;
+// and stale_after / harvest_after set to 0, which switched the ageing off.
+func LegacyContractKeys(meta *okf.Frontmatter) []string {
+	if meta == nil {
+		return nil
+	}
+	var out []string
+	for _, key := range meta.Keys() {
+		switch {
+		case legacyContractKeys[key], key == "required_fields":
+			out = append(out, key)
+		case strings.HasPrefix(key, "field_values.") && strings.Count(key, ".") == 1:
+			out = append(out, key)
+		case key == "stale_after" || key == "harvest_after":
+			if v, _ := meta.Get(key); strings.TrimSpace(fmt.Sprint(v)) == "0" {
+				out = append(out, key)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // ReadMapContract reads a map's optional lint contract. Unknown descriptor
 // keys remain ignored for permissive consumption; malformed recognized keys
 // are returned as findings for lint to surface without blocking reads.
@@ -2811,24 +2669,28 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 	if err != nil {
 		return MapContract{}, err
 	}
+	return kb.contractFromMeta(relPath, meta), nil
+}
+
+// contractFromMeta is the parser of a descriptor's frontmatter, shared by
+// ReadMapContract and the guard of UpdateMapContract (which judges the
+// contract before it is written).
+func (kb *KB) contractFromMeta(relPath string, meta *okf.Frontmatter) MapContract {
 	contract := MapContract{RequiredFieldsByType: map[string][]string{}}
-	// Populate ontology mode and concept types for map_misfit filtering (D295 WP3).
-	if om, ok := meta.Get("ontology_mode"); ok {
-		if s, ok := om.(string); ok {
-			contract.OntologyMode = s
-		}
-	}
 	if kind, ok := meta.Get("kind"); ok {
 		contract.Kind, _ = kind.(string)
 	}
-	if contract.OntologyMode == "" {
-		contract.OntologyMode = "flexible"
-	}
+	// The ontology mode is derived from the list (D907), never read.
 	if ctVal, ok := meta.Get("concept_types"); ok {
 		if ctList, ok := ctVal.([]string); ok {
 			contract.ConceptTypes = ctList
 		}
 	}
+	contract.OntologyMode = "flexible"
+	if len(contract.ConceptTypes) > 0 {
+		contract.OntologyMode = "strict"
+	}
+	contract.LegacyKeys = LegacyContractKeys(meta)
 	malformedKeys := map[string]bool{}
 	bad := func(key string) {
 		if malformedKeys[key] {
@@ -2840,47 +2702,16 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 	for _, key := range meta.Keys() {
 		if key != "required_fields" && !strings.HasPrefix(key, "required_fields.") &&
 			key != "forbidden_fields" && !strings.HasPrefix(key, "field_values.") &&
-			key != "require_index_entry" && key != "machine_path_allow_prefixes" &&
 			!strings.HasPrefix(key, "value_synonyms.") &&
-			key != "open_statuses" && key != "open_field" && key != "stale_after" && key != "harvest_after" && key != "template_sections" && key != "open_markers" &&
-			key != "templates" && key != "default_template" && key != "require_template" &&
+			key != "open_statuses" && key != "open_field" && key != "stale_after" && key != "harvest_after" && key != "open_markers" &&
+			key != "templates" && key != "default_template" &&
 			key != "promote_to" && key != "procedure_headings" && key != "glossary" &&
-			key != "index" && !costIntKeys[key] && key != "work_map" &&
-			key != "title_max_length" && key != "forbidden_title_terms" {
+			key != "index" && key != "work_map" &&
+			key != "forbidden_title_terms" {
 			continue
 		}
 		value, _ := meta.Get(key)
 		switch {
-		case key == "require_index_entry":
-			v, ok := value.(string)
-			if !ok || (v != "true" && v != "false") {
-				bad(key)
-				continue
-			}
-			contract.RequireIndexEntry = v == "true"
-		case key == "machine_path_allow_prefixes":
-			raws, ok := value.([]string)
-			if !ok {
-				bad(key)
-				continue
-			}
-			seen := map[string]bool{}
-			valid := make([]string, 0, len(raws))
-			malformed := false
-			for _, raw := range raws {
-				normalized, normOK := normalizeAllowPrefix(raw)
-				if !normOK || seen[normalized] {
-					malformed = true
-					continue
-				}
-				seen[normalized] = true
-				valid = append(valid, normalized)
-			}
-			if malformed {
-				bad(key)
-			}
-			sort.Strings(valid)
-			contract.MachinePathAllowPrefixes = valid
 		case strings.HasPrefix(key, "field_values."):
 			vals, ok := value.([]string)
 			parts := strings.Split(strings.TrimPrefix(key, "field_values."), ".")
@@ -2907,20 +2738,26 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				}
 			}
 			sort.Strings(valid)
-			if len(parts) == 1 {
+			// field_values.<field> is the removed flat shape; it reads as the
+			// `*` entry until the repair moves it (D907).
+			typ, field := AllTypes, parts[0]
+			if len(parts) == 2 {
+				typ, field = parts[0], parts[1]
+			}
+			if typ == AllTypes {
 				if contract.FieldValues == nil {
 					contract.FieldValues = map[string][]string{}
 				}
-				contract.FieldValues[parts[0]] = valid
+				contract.FieldValues[field] = valid
 				continue
 			}
 			if contract.FieldValuesByType == nil {
 				contract.FieldValuesByType = map[string]map[string][]string{}
 			}
-			if contract.FieldValuesByType[parts[0]] == nil {
-				contract.FieldValuesByType[parts[0]] = map[string][]string{}
+			if contract.FieldValuesByType[typ] == nil {
+				contract.FieldValuesByType[typ] = map[string][]string{}
 			}
-			contract.FieldValuesByType[parts[0]][parts[1]] = valid
+			contract.FieldValuesByType[typ][field] = valid
 		case key == "open_statuses" || key == "open_markers":
 			vals, ok := value.([]string)
 			if !ok || len(vals) == 0 {
@@ -2950,56 +2787,27 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				bad(key)
 				continue
 			}
-		case costIntKeys[key]:
-			s, _ := value.(string)
-			n, err := strconv.Atoi(strings.TrimSpace(s))
-			if err != nil || n <= 0 {
-				bad(key)
-				continue
-			}
-			switch key {
-			case "repeated_fact_min":
-				contract.RepeatedFactMin = n
-			case "hotspot_in_degree":
-				contract.HotspotInDegree = n
-			case "hotspot_bytes":
-				contract.HotspotBytes = n
-			case "oversize_bytes":
-				contract.OversizeBytes = n
-			case "oversize_concepts":
-				contract.OversizeConcepts = n
-			}
-		case key == "stale_after":
+		case key == "stale_after" || key == "harvest_after":
 			s, _ := value.(string)
 			n, err := strconv.Atoi(strings.TrimSpace(s))
 			if err != nil || n < 0 {
 				bad(key)
 				continue
 			}
-			contract.StaleAfterDays = n
-			contract.StaleAfterOff = n == 0 // D346
-		case key == "harvest_after":
-			s, _ := value.(string)
-			n, err := strconv.Atoi(strings.TrimSpace(s))
-			if err != nil || n < 0 {
-				bad(key)
-				continue
+			// 0 switched the ageing off (D346, D347); it is a removed key now
+			// and means the default, like an absent one.
+			if key == "stale_after" {
+				contract.StaleAfterDays = n
+			} else {
+				contract.HarvestAfterDays = n
 			}
-			if n == 0 {
-				n = -1 // D347: explicit off
-			}
-			contract.HarvestAfterDays = n
-		case key == "template_sections" || key == "glossary":
+		case key == "glossary":
 			v, ok := value.(string)
 			if !ok || (v != "true" && v != "false") {
 				bad(key)
 				continue
 			}
-			if key == "glossary" {
-				contract.Glossary = v == "true"
-			} else {
-				contract.TemplateSections = v == "true"
-			}
+			contract.Glossary = v == "true"
 		case key == "templates":
 			vals, ok := value.([]string)
 			if !ok {
@@ -3025,14 +2833,6 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				continue
 			}
 			contract.DefaultTemplate = v
-		case key == "require_template":
-			v, ok := value.(string)
-			if !ok || (v != "true" && v != "false") {
-				bad(key)
-				continue
-			}
-			contract.RequireTemplate = v == "true"
-			contract.RequireTemplateOff = v == "false"
 		case key == "promote_to":
 			v, ok := value.(string)
 			v = strings.TrimSpace(v)
@@ -3049,14 +2849,6 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				continue
 			}
 			contract.WorkMap = v
-		case key == "title_max_length":
-			s, _ := value.(string)
-			n, err := strconv.Atoi(strings.TrimSpace(s))
-			if err != nil || n < 0 {
-				bad(key)
-				continue
-			}
-			contract.TitleMaxLength = &n
 		case key == "forbidden_title_terms":
 			vals, ok := value.([]string)
 			if !ok || len(vals) == 0 {
@@ -3127,11 +2919,13 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 				bad(key)
 			}
 			sort.Strings(valid)
-			if key == "required_fields" {
-				contract.RequiredFields = valid
+			typ := strings.TrimPrefix(key, "required_fields.")
+			if key == "required_fields" || typ == AllTypes {
+				// The flat key is the removed shape of required_fields.*; both
+				// read as the same entry until the repair moves it (D907).
+				contract.RequiredFields = sortedUnique(append(contract.RequiredFields, valid...))
 				continue
 			}
-			typ := strings.TrimPrefix(key, "required_fields.")
 			if strings.TrimSpace(typ) == "" {
 				bad(key)
 				continue
@@ -3150,7 +2944,7 @@ func (kb *KB) ReadMapContract(archive string) (MapContract, error) {
 			contract.DefaultTemplate = ""
 		}
 	}
-	return contract, nil
+	return contract
 }
 
 // Validate validates .md files in the scope (path relative to the KB; if empty, the entire KB).

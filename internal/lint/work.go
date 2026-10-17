@@ -127,7 +127,7 @@ func workPhase(fm *okf.Frontmatter, contract *kb.MapContract) bool {
 }
 
 // EffectiveStaleAfter is the one place that decides stale_open's threshold
-// (D346): an explicit stale_after wins, 0 is off, else 60 in a journal, 30 in
+// (D346): an explicit stale_after wins, else 60 in a journal, 30 in
 // a map that holds work, none in a reference map. defaulted is true when the
 // value comes from the default, never written to _map.md.
 func EffectiveStaleAfter(contract *kb.MapContract) (days int, defaulted bool) {
@@ -136,9 +136,6 @@ func EffectiveStaleAfter(contract *kb.MapContract) (days int, defaulted bool) {
 	}
 	if contract.StaleAfterDays > 0 {
 		return contract.StaleAfterDays, false
-	}
-	if contract.StaleAfterOff {
-		return 0, false
 	}
 	if contract.Kind == "journal" {
 		return journalStaleAfterDays, true

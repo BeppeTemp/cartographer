@@ -126,7 +126,6 @@ func trimTrailingBlank(lines []string) []string {
 // templateInput is the part of conceptInput the template checks read.
 type templateCtx struct {
 	in       conceptInput
-	strict   bool
 	closed   bool
 	shape    string // the page's shape as written ("" when absent or not a string)
 	hasShape bool
@@ -143,7 +142,7 @@ func newTemplateCtx(in conceptInput) (templateCtx, bool) {
 	if in.Parsed == nil || c == nil || !c.HasTemplateKeys() {
 		return templateCtx{}, false
 	}
-	x := templateCtx{in: in, strict: c.StrictTemplates(), pageType: strings.TrimSpace(in.Parsed.Type())}
+	x := templateCtx{in: in, pageType: strings.TrimSpace(in.Parsed.Type())}
 	if v, ok := in.Parsed.Get(kb.ShapeField); ok {
 		x.hasShape = true
 		x.shape, _ = v.(string)
@@ -160,20 +159,16 @@ func templateFindings(in conceptInput) []Finding {
 	if !ok {
 		return nil
 	}
-	c := in.Contract
 
-	var out []Finding
-	if x.strict {
-		out = append(out, x.bindingFindings()...)
-	}
-	if x.bound && (x.strict || c.TemplateSections) {
+	// A map that declares templates requires every page to bind to one, and a
+	// bound page to follow it (D371, D907): there is no key to say otherwise.
+	out := x.bindingFindings()
+	if x.bound {
 		if !x.closed {
 			out = append(out, x.missingSections()...)
 		}
-		if x.strict {
-			out = append(out, x.fieldFindings()...)
-			out = append(out, x.sectionShapeFindings()...)
-		}
+		out = append(out, x.fieldFindings()...)
+		out = append(out, x.sectionShapeFindings()...)
 	}
 	return out
 }
@@ -316,11 +311,7 @@ func (x templateCtx) missingSections() []Finding {
 	if len(missing) == 0 {
 		return nil
 	}
-	f := x.finding("template_section_missing", missingSectionsMessage(x.tpl.Slug, missing), nil)
-	if x.strict {
-		f.Severity = SevWarning
-	}
-	return []Finding{f}
+	return []Finding{x.finding("template_section_missing", missingSectionsMessage(x.tpl.Slug, missing), nil)}
 }
 
 // missingSectionsMessage names the missing sections. When one is a links
@@ -342,7 +333,7 @@ func missingSectionsMessage(slug string, missing []string) string {
 // gone. A page in a closed phase is not asked for its sections, yet keeps the
 // heading here: an empty heading costs nothing, and the page may reopen.
 func (x templateCtx) requiresSection(heading string) bool {
-	if !x.bound || !(x.strict || x.in.Contract.TemplateSections) {
+	if !x.bound {
 		return false
 	}
 	i, ok := namesOf(x.tpl).index(foldHeading(heading))
