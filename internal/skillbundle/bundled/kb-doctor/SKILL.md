@@ -143,7 +143,7 @@ Token economy (a doctor session reads a KB, not a page):
    silence it.
 5. **Review items.** `kb_review` with `limit` set to `capabilities.doctor_budget` minus the decisions steps 3-4 used.
    Assisted: present **one numbered list**; for each item the kind, the concepts, the evidence and 2-3 options:
-   - **act** with the ordinary tools: `concept_merge` or a cross-link (`duplicate_candidate`), close
+   - **act** with the ordinary tools: `concept_merge` or a link from each page to the other saying how they differ (`duplicate_candidate`), close
      or update (`zombie_work`, `stale_open`, `closed_with_open_items`), `concept_new` from the target
      map's template and links both ways (`promotion_candidate`), a glossary entry
      (`glossary_gap`), `concept_move` (`map_misfit`), `concept_expand` or a split

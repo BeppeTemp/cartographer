@@ -311,7 +311,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	}
 
 	var items []ReviewItem
-	items = append(items, duplicateItems(concepts)...)
+	items = append(items, duplicateItems(concepts, links)...)
 	items = append(items, templateProposalItems(concepts, contracts, k.TemplateCatalog())...)
 	zombies, zombieItems := zombieWorkItems(k, byID, concepts, contracts, byConcept, links)
 	items = append(items, zombieItems...)
@@ -434,7 +434,7 @@ func findingConceptID(path string) okf.ConceptID {
 // resource need before they are duplicate candidates (D313).
 const resourceTitleJaccardMin = 0.3
 
-func duplicateItems(concepts []*reviewConcept) []ReviewItem {
+func duplicateItems(concepts []*reviewConcept, links kb.Links) []ReviewItem {
 	var out []ReviewItem
 	paired := map[[2]okf.ConceptID]bool{}
 
@@ -455,16 +455,25 @@ func duplicateItems(concepts []*reviewConcept) []ReviewItem {
 		}
 		// D313: a shared resource alone is not duplication (a dozen tasks on
 		// one cluster); at least one pair must also share
-		// resourceTitleJaccardMin of its title words.
-		similar := false
+		// resourceTitleJaccardMin of its title words, and (D854) stay open: a
+		// pair each page links the other is closed, unless it is a
+		// satellite and its parent or the titles are made of the same words.
+		open, sameTitle := false, false
 		for i := range ids {
 			for j := i + 1; j < len(ids); j++ {
-				if Jaccard(groupTokens[ids[i]], groupTokens[ids[j]]) >= resourceTitleJaccardMin {
-					similar = true
+				if Jaccard(groupTokens[ids[i]], groupTokens[ids[j]]) < resourceTitleJaccardMin {
+					continue
+				}
+				if pairClosed(ids[i], ids[j], groupTokens[ids[i]], groupTokens[ids[j]], links) {
+					continue
+				}
+				open = true
+				if sameWords(groupTokens[ids[i]], groupTokens[ids[j]]) {
+					sameTitle = true
 				}
 			}
 		}
-		if !similar {
+		if !open {
 			continue
 		}
 		for i := range ids {
@@ -477,7 +486,7 @@ func duplicateItems(concepts []*reviewConcept) []ReviewItem {
 			Kind:            ReviewDuplicate,
 			Concepts:        names,
 			Evidence:        fmt.Sprintf("%d concepts of type %s document the same resource %q", len(ids), k.typ, k.resource),
-			SuggestedAction: duplicateAction(ids),
+			SuggestedAction: duplicateAction(ids, sameTitle),
 			Weight:          100 + len(ids),
 		})
 	}
@@ -528,12 +537,15 @@ func duplicateItems(concepts []*reviewConcept) []ReviewItem {
 				if paired[pair] || namedAfterParent(c.id, other, titles) || SeriesSiblings(titles[c.id], string(c.id), titles[other], string(other)) {
 					continue
 				}
+				if pairClosed(c.id, other, ts, tokens[other], links) {
+					continue
+				}
 				paired[pair] = true
 				out = append(out, ReviewItem{
 					Kind:            ReviewDuplicate,
 					Concepts:        []string{string(c.id), string(other)},
 					Evidence:        fmt.Sprintf("titles %q and %q share %.0f%% of their words in map %s", titles[c.id], titles[other], j*100, c.mapName),
-					SuggestedAction: duplicateAction(pair[:]),
+					SuggestedAction: duplicateAction(pair[:], sameWords(ts, tokens[other])),
 					Weight:          int(j * 100),
 				})
 			}
@@ -557,17 +569,56 @@ func namedAfterParent(a, b okf.ConceptID, titles map[okf.ConceptID]string) bool 
 	return pt != "" && len(ct) > len(pt) && strings.HasPrefix(ct, pt)
 }
 
-func duplicateAction(ids []okf.ConceptID) string {
-	if len(ids) == 2 {
-		a, b := string(ids[0]), string(ids[1])
-		if strings.HasPrefix(a, b+"/") && strings.Count(a, "/") == 2 {
-			return fmt.Sprintf("concept_merge %s into its parent %s", a, b)
-		}
-		if strings.HasPrefix(b, a+"/") && strings.Count(b, "/") == 2 {
-			return fmt.Sprintf("concept_merge %s into its parent %s", b, a)
+// pairClosed reports a pair each page links the other in its body (D854):
+// someone edited both pages to say how they differ. A satellite and its
+// parent link each other by construction, and titles made of the same words
+// are not told apart by a link in search or the index, so neither closes.
+func pairClosed(a, b okf.ConceptID, ta, tb map[string]bool, links kb.Links) bool {
+	if _, _, sat := satellitePair(a, b); sat || sameWords(ta, tb) {
+		return false
+	}
+	_, ab := links.Out[a][b]
+	_, ba := links.Out[b][a]
+	return ab && ba
+}
+
+// sameWords reports two non-empty token sets that are equal (stop-words and
+// order already dropped by TitleTokens).
+func sameWords(a, b map[string]bool) bool {
+	if len(a) == 0 || len(a) != len(b) {
+		return false
+	}
+	for t := range a {
+		if !b[t] {
+			return false
 		}
 	}
-	return "merge them into one concept, or link them saying how they differ"
+	return true
+}
+
+// satellitePair reports a concept_expand satellite (parent/child, two
+// levels) and its parent; the one predicate behind the action and the
+// closure.
+func satellitePair(a, b okf.ConceptID) (parent, child okf.ConceptID, ok bool) {
+	if strings.HasPrefix(string(a), string(b)+"/") && strings.Count(string(a), "/") == 2 {
+		return b, a, true
+	}
+	if strings.HasPrefix(string(b), string(a)+"/") && strings.Count(string(b), "/") == 2 {
+		return a, b, true
+	}
+	return "", "", false
+}
+
+func duplicateAction(ids []okf.ConceptID, sameTitleWords bool) string {
+	if len(ids) == 2 {
+		if parent, child, ok := satellitePair(ids[0], ids[1]); ok {
+			return fmt.Sprintf("concept_merge %s into its parent %s", child, parent)
+		}
+	}
+	if sameTitleWords {
+		return "retitle one so the titles tell them apart, then merge them into one concept, or link each to the other saying how they differ"
+	}
+	return "merge them into one concept, or link each to the other saying how they differ"
 }
 
 func idStrings(ids []okf.ConceptID) []string {
