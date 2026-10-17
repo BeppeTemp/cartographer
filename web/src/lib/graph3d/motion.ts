@@ -68,7 +68,7 @@ export class IdleRotation {
  * Past it the drift rests and the simulation cools and stops, as with motion
  * off; the panorama and the signals still run. On an Apple M5 a tick costs
  * ~2.4 ms at 800 concepts, ~3.8 ms at 1,200, ~7.5 ms at 2,000 and ~23 ms at
- * 5,000, which no frame budget holds at 60 Hz (#861).
+ * 5,000, which no frame budget holds at 60 Hz.
  */
 export const DRIFT_TICK_BUDGET_MS = 4;
 /** A resting network resumes its drift only below this: the gap keeps a graph
