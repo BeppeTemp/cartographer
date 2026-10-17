@@ -222,7 +222,7 @@ test("a hidden tab stops the render loop", async ({ page }) => {
   });
   await open3D(page);
   // Past the one-off re-framing tween after the settle (Graph3D, ~1.8 s +
-  // FOCUS_MS), which is its own short rAF loop.
+  // CAMERA_MOVE), which is its own short rAF loop.
   await page.waitForTimeout(3000);
   const frames = () => page.evaluate(() => (window as unknown as { __frames: number }).__frames);
   const during = async (ms: number) => {

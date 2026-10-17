@@ -24,7 +24,8 @@ import {
   WebGLRenderer,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { fitPose, focusPose, FOCUS_MS, zoomLimits, type Pose } from "./camera";
+import { CAMERA_MOVE, CAMERA_ZOOM, fitPose, focusPose, zoomLimits, type Pose } from "./camera";
+import { MOTION_MS, motionMs, type MotionToken } from "../theme";
 import { smooth } from "./transition";
 import { AUTO_ROTATE_SPEED, IdleRotation, MAX_SIGNALS, SIGNAL_PASS_MS, type Signal } from "./motion";
 import {
@@ -165,7 +166,7 @@ const EDGE_BEHIND_SELECTION = 0.06;
 /** A selection made or cleared recedes the rest of the graph, or brings it
  *  back, over this long: with the camera easing at the same time, a colour
  *  snapped at once reads as the whole picture jumping. */
-const RECEDE_MS = 450;
+const RECEDE: MotionToken = "--motion-slow";
 
 const endpoint = (end: string | SceneNode) => (typeof end === "object" ? end.id : end);
 
@@ -211,8 +212,8 @@ export class LivingScene {
   private drawn: Color[] = [];
   /** The nodes `drawn` belongs to: another set is painted at once. */
   private drawnFor: SceneNode[] | null = null;
-  private colourFade: { start: number; from: Color[] } | null = null;
-  private edgeFade: { start: number; from: number } | null = null;
+  private colourFade: { start: number; ms: number; from: Color[] } | null = null;
+  private edgeFade: { start: number; ms: number; from: number } | null = null;
   private palette: ScenePalette | null = null;
   private selected: string | null = null;
   private activeLinks: SceneLink[] = [];
@@ -538,7 +539,7 @@ export class LivingScene {
     this.colours = colours;
     this.palette = palette;
     if (same && !this.reducedMotion && !this.offscreen && this.drawn.length) {
-      this.colourFade = { start: this.clock(), from: this.drawn.map((c) => c.clone()) };
+      this.colourFade = { start: this.clock(), ms: Math.max(1, motionMs(RECEDE)), from: this.drawn.map((c) => c.clone()) };
     } else {
       this.colourFade = null;
     }
@@ -600,7 +601,7 @@ export class LivingScene {
     // screen yet to fade from.
     this.edgeFade =
       opacity !== this.edgeMaterial.opacity && !this.reducedMotion && !this.offscreen && this.drawn.length && !this.bloom
-        ? { start: this.clock(), from: this.edgeMaterial.opacity }
+        ? { start: this.clock(), ms: Math.max(1, motionMs(RECEDE)), from: this.edgeMaterial.opacity }
         : null;
     this.edgeMaterial.opacity = this.edgeFade ? this.edgeFade.from : opacity;
     this.burst = null;
@@ -680,7 +681,7 @@ export class LivingScene {
         occludedLeft: 0,
       });
     const shift = (Math.max(0, occluded.right) - Math.max(0, occluded.left)) / 2;
-    this.animateTo(target, this.reducedMotion ? 0 : FOCUS_MS, shift);
+    this.animateTo(target, this.cameraMs(CAMERA_MOVE), shift);
     this.follow = new Vector3(node.x, node.y, node.z);
   }
 
@@ -696,7 +697,7 @@ export class LivingScene {
     // direction, instead (the settle then has nothing left to do).
     let to = pose;
     if (!this.touched && this.clock() < this.settleUntil) to = this.fitPoseFor(0, pose) ?? pose;
-    this.animateTo(() => to, this.reducedMotion ? 0 : FOCUS_MS, 0);
+    this.animateTo(() => to, this.cameraMs(CAMERA_MOVE), 0);
   }
 
   /** The screen shift now in force, in CSS pixels (see `shift`). */
@@ -726,14 +727,14 @@ export class LivingScene {
 
   /** Frames the whole visible graph, every node included, from the current
    *  viewpoint. */
-  frameAll(ms = this.reducedMotion ? 0 : FOCUS_MS): void {
+  frameAll(ms = this.cameraMs(CAMERA_MOVE)): void {
     this.fitEverything(0, ms);
   }
 
   /** Frames every drawn node, outliers and loose ones included, in the
    *  canvas above `occludedBottom` pixels, from the current viewpoint: the
    *  growth replay keeps the whole graph in sight with it as it grows. */
-  fitEverything(occludedBottom: number, ms = this.reducedMotion ? 0 : FOCUS_MS, minDistance = 0): void {
+  fitEverything(occludedBottom: number, ms = this.cameraMs(CAMERA_MOVE), minDistance = 0): void {
     const pose = this.fitWithFloor(occludedBottom, minDistance);
     if (!pose) return;
     this.radius = boundingRadius(this.nodes);
@@ -832,7 +833,14 @@ export class LivingScene {
       position: { x: t.x + offset.x, y: t.y + offset.y, z: t.z + offset.z },
       lookAt: { x: t.x, y: t.y, z: t.z },
     };
-    this.animateTo(() => to, this.reducedMotion ? 0 : 220);
+    this.animateTo(() => to, this.cameraMs(CAMERA_ZOOM));
+  }
+
+  /** A camera move's length: the motion token on screen, 0 under reduced
+   *  motion; a video export keeps the scale whatever the exporter's setting. */
+  private cameraMs(token: MotionToken): number {
+    if (this.offscreen) return MOTION_MS[token];
+    return this.reducedMotion ? 0 : motionMs(token);
   }
 
   private animateTo(to: () => Pose, ms: number, shift = this.shift): void {
@@ -1042,12 +1050,12 @@ export class LivingScene {
       this.edgeMaterial.opacity = base * fade * fade;
     }
     if (this.colourFade) {
-      const k = smooth((now - this.colourFade.start) / RECEDE_MS);
+      const k = smooth((now - this.colourFade.start) / this.colourFade.ms);
       this.paintNodes(k);
       if (k >= 1) this.colourFade = null;
     }
     if (this.edgeFade && !bloom) {
-      const k = smooth((now - this.edgeFade.start) / RECEDE_MS);
+      const k = smooth((now - this.edgeFade.start) / this.edgeFade.ms);
       const to = this.selected ? EDGE_BEHIND_SELECTION : EDGE_REST;
       this.edgeMaterial.opacity = this.edgeFade.from + (to - this.edgeFade.from) * k;
       if (k >= 1) this.edgeFade = null;

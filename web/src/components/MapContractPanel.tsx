@@ -1,12 +1,13 @@
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 import type { MapContract } from "../api/types";
+import type { MotionToken } from "../lib/theme";
 
 /** The docked panel's width in px: the strip it takes beside the graph, which
  *  App also takes off what the reading panel may cover. */
 export const MAP_PANEL_WIDTH = 420;
-/** How long the docked panel takes to slide in or out, in ms: the canvas beside
- *  it resizes along, so the graph never jumps. */
-export const MAP_PANEL_SLIDE_MS = 600;
+/** How long the docked panel takes to slide in or out: the canvas beside it
+ *  resizes along, so the graph never jumps. The CSS animation uses the same token. */
+export const MAP_PANEL_SLIDE: MotionToken = "--motion-deliberate";
 
 /** What the server does with an ontology mode (docs/data-plane.md §Maps and Journals). */
 const ONTOLOGY_NOTE: Record<string, string> = {
@@ -112,7 +113,6 @@ export function MapContractPanel({
         {
           width: MAP_PANEL_WIDTH,
           "--map-panel-width": `${MAP_PANEL_WIDTH}px`,
-          "--map-panel-slide": `${MAP_PANEL_SLIDE_MS}ms`,
         } as CSSProperties
       }
     >

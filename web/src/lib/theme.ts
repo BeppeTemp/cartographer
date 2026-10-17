@@ -46,11 +46,35 @@ export function systemTheme(): "dark" | "light" {
 
 /**
  * prefersReducedMotion is read in JavaScript as well as in CSS: the graph
- * camera is animated by Sigma, not by a transition, so the media query alone
- * would not stop it. Under the preference the camera jumps.
+ * camera is animated frame by frame, not by a transition, so the media query
+ * alone would not stop it. Under the preference the camera jumps.
  */
 export function prefersReducedMotion(): boolean {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+}
+
+/** The --motion-* scale of tokens.css, in ms: the fallback for a page without
+ *  the stylesheet (a test), and kept equal to it by tokens.test.ts. */
+export const MOTION_MS = {
+  "--motion-instant": 80,
+  "--motion-fast": 140,
+  "--motion-base": 220,
+  "--motion-slow": 360,
+  "--motion-deliberate": 520,
+} as const;
+export type MotionToken = keyof typeof MOTION_MS;
+
+/**
+ * motionMs is a --motion-* token in ms, for what JavaScript times: the graph
+ * camera, a count, the timer that ends a CSS slide. One scale for both sides,
+ * so a JS move and the CSS around it end together, and 0 under reduced motion.
+ */
+export function motionMs(token: MotionToken): number {
+  if (prefersReducedMotion()) return 0;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  const m = /^(\d*\.?\d+)(ms|s)$/.exec(raw);
+  if (!m) return MOTION_MS[token];
+  return Number(m[1]) * (m[2] === "s" ? 1000 : 1);
 }
 
 /**

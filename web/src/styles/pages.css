@@ -1046,16 +1046,22 @@ button.row {
   box-shadow: inset var(--focus-ring);
 }
 
-.work__chevron {
+/* The chevron of a button that folds something (Work's items, Health's pages):
+   the same turn as a folded group's. */
+.chevron {
+  display: inline-block;
+  flex: none;
   width: 6px;
   height: 6px;
   border-block-end: 1.5px solid currentColor;
   border-inline-end: 1.5px solid currentColor;
+  margin-inline: 2px;
+  vertical-align: 0.15em;
   transform: rotate(-45deg);
   transition: transform var(--motion-fast) var(--ease-out);
 }
 
-.work__items-toggle[aria-expanded="true"] .work__chevron {
+[aria-expanded="true"] > .chevron {
   transform: rotate(45deg);
 }
 
@@ -1722,13 +1728,23 @@ button.row {
   color: var(--text-primary);
 }
 
+/* The same chevron as every other folded group (Settings, Work, the Map
+   contract): it turns, rather than swapping a glyph. */
 .rules__title::before {
-  content: "▸ ";
-  color: var(--text-muted);
+  content: "";
+  margin-inline: 2px 10px;
+  vertical-align: 0.15em;
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-inline-end: 1.5px solid var(--text-muted);
+  border-block-end: 1.5px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 
 .rules__group[open] .rules__title::before {
-  content: "▾ ";
+  transform: rotate(45deg);
 }
 
 .rules__about {
@@ -1844,12 +1860,20 @@ button.row {
 }
 
 .agenda > .agenda__head::before {
-  content: "▸";
-  color: var(--text-muted);
+  content: "";
+  flex: none;
+  margin-inline: 2px;
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-inline-end: 1.5px solid var(--text-muted);
+  border-block-end: 1.5px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform var(--motion-fast) var(--ease-out);
 }
 
 .agenda[open] > .agenda__head::before {
-  content: "▾";
+  transform: rotate(45deg);
 }
 
 .agenda__title {

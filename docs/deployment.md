@@ -639,7 +639,12 @@ the new set (with reduced motion the swap is instant). Leaving the Atlas for
 another panel and coming back shows the graph settled where it was left, camera
 included. Selecting a concept, or closing the reading panel, fades the rest of
 the graph out or back in while the camera moves, rather than recolouring it at
-once. The *Replay growth* control replays how the KB
+once. Every move the reader starts -- a camera flight, the Map contract sliding
+in with the canvas narrowing beside it, a folded group turning its chevron, a
+count running to its new value -- is timed on the one `--motion-*` scale of
+`web/src/styles/tokens.css`, the JavaScript ones included, and none lasts
+longer than `--motion-deliberate` (520 ms); with reduced motion each is
+instant. The *Replay growth* control replays how the KB
 grew (D367): the concepts appear in the order their files were first committed,
 those born in one commit along their links, in 8 to 20 seconds whatever the
 KB's size, under a timeline with one bar per day that saw concepts born. It can

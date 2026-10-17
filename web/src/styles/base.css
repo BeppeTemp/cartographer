@@ -307,7 +307,7 @@ a {
   );
   background-size: 200% 100%;
   border-radius: var(--radius-control);
-  animation: skeleton-shimmer 1.4s var(--ease-out) infinite;
+  animation: skeleton-shimmer var(--motion-shimmer) var(--ease-out) infinite;
 }
 
 @keyframes skeleton-shimmer {

@@ -29,8 +29,11 @@ export interface Viewport {
   occludedLeft?: number;
 }
 
-/** Focus lasts this long, eased in and out, cancelled by any input. */
-export const FOCUS_MS = 750;
+/** A camera move -- focus, fit, return -- lasts this long, eased in and out,
+ *  cancelled by any input: the longest step of the UI's motion scale. */
+export const CAMERA_MOVE: MotionToken = "--motion-deliberate";
+/** A zoom step from the buttons. */
+export const CAMERA_ZOOM: MotionToken = "--motion-base";
 
 const sub = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
 const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
@@ -163,4 +166,5 @@ export function fitPose(bodies: readonly Body[], camera: Vec3, lookAt: Vec3, vie
     );
   }
   return { position: add(centre, scale(back, distance)), lookAt: centre };
-}
+}import type { MotionToken } from "../theme";
+
