@@ -82,6 +82,8 @@ const cleanup = () => {
   rmSync(work, { recursive: true, force: true });
 };
 process.on("exit", cleanup);
+// Ctrl-C or a kill would skip "exit" and leave the server running, orphaned.
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => process.exit(130));
 
 // /health answers before the KBs are indexed: wait for the UI API to report
 // every one ready.

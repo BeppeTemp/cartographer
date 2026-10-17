@@ -104,6 +104,8 @@ process.on("exit", () => {
   server.kill();
   rmSync(work, { recursive: true, force: true });
 });
+// Ctrl-C or a kill would skip "exit" and leave the server running, orphaned.
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => process.exit(130));
 for (let i = 0; i < 1200; i++) {
   try {
     const body = await (await fetch(`${base}/api/ui/v1/kbs`)).json();
