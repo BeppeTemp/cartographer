@@ -17,8 +17,8 @@ import (
 const OriginKB Origin = "kb"
 
 // KBSettingsSchema is the kb scope of Schema as the keys of a settings.yaml:
-// top-level names, with the kbs[]. prefix dropped. `kb create` renders the
-// commented file from it.
+// top-level names, with the kbs[]. prefix dropped, then the keys only a KB has
+// (KBOnlyKeys). `kb create` renders the commented file from it.
 func KBSettingsSchema() settingschema.Schema {
 	var s settingschema.Schema
 	for _, k := range Schema.Keys {
@@ -30,6 +30,7 @@ func KBSettingsSchema() settingschema.Schema {
 		k.Env, k.Flag, k.Restart, k.Example = "", "", false, ""
 		s.Keys = append(s.Keys, k)
 	}
+	s.Keys = append(s.Keys, KBOnlyKeys...)
 	return s
 }
 
@@ -112,6 +113,8 @@ func ResolveKBSettings(server KBSpec, serverSet func(key string) bool, st kb.Set
 		info.Findings = append(info.Findings, fmt.Sprintf("%s: %v", kb.SettingsFile, err))
 		return server, info
 	}
+	// branch has no kbs[] counterpart, so no yaml tag to decode it through.
+	part.Branch, _ = st.Settings.String("branch")
 	eff := server
 	for _, key := range st.Settings.Keys() {
 		if reason := checkKBValue(key, part); reason != "" {
@@ -199,18 +202,10 @@ func setKBField(dst *KBSpec, part KBSpec, key string) bool {
 		dst.UsageStaleDays = part.UsageStaleDays
 	case "mcp_allowlist":
 		dst.MCPAllowlist = part.MCPAllowlist
-	case "git_profile":
-		dst.GitProfile = part.GitProfile
-	case "git_base_branch":
-		dst.GitBaseBranch = part.GitBaseBranch
-	case "git_forge":
-		dst.GitForge = part.GitForge
-	case "github_owner":
-		dst.GitHubOwner = part.GitHubOwner
-	case "github_repository":
-		dst.GitHubRepository = part.GitHubRepository
 	case "secrets":
 		dst.Secrets = part.Secrets
+	case "branch":
+		dst.Branch = part.Branch
 	default:
 		return false
 	}

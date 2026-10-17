@@ -4,8 +4,9 @@
 # hot reload against it. Run from the worktree being edited: `make dev`.
 #
 # DATA is a data directory (one subdirectory per KB). It is copied into a
-# temporary directory with every git remote removed and git sync off, so what
-# the session writes never leaves the machine and the source is never touched.
+# temporary directory with every git remote removed (a KB syncs exactly when it
+# has one), so what the session writes never leaves the machine and the source
+# is never touched.
 # Without DATA it runs on a throwaway copy of the generated test KBs.
 #
 # Polling rather than a file watcher: no watcher is a dependency of this
@@ -98,7 +99,7 @@ start() {
 	# shared server. An exported CARTOGRAPHER_TOKENS would otherwise apply here,
 	# and the UI's API calls would answer 401.
 	env -u CARTOGRAPHER_TOKENS CARTOGRAPHER_AUDIT_LOG="$work/audit.jsonl" "$work/cartographer" serve "${kbargs[@]}" \
-		--http "127.0.0.1:$API_PORT" --git-sync=false --update-check=false &
+		--http "127.0.0.1:$API_PORT" --update-check=false &
 	pid=$!
 	for _ in $(seq 1 30); do
 		kill -0 "$pid" 2>/dev/null || { echo "[dev] the server exited: its log is above" >&2; exit 1; }

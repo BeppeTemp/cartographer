@@ -15,6 +15,9 @@ import (
 // two drift, in either direction, and when a key has no field to copy to.
 func TestKBSettingsKeysMatchSchema(t *testing.T) {
 	var kbKeys, serverKeys []string
+	for _, k := range KBOnlyKeys {
+		kbKeys = append(kbKeys, k.Path)
+	}
 	for _, k := range Schema.Keys {
 		name, ok := strings.CutPrefix(k.Path, "kbs[].")
 		if !ok {
@@ -70,13 +73,15 @@ func TestResolveServerOnly(t *testing.T) {
 	}
 }
 
-// The server sends its GitHub token to github_api_url: a KB file must not be
-// able to redirect it, whoever can push to the KB.
-func TestResolveKBCannotSetGitHubAPIURL(t *testing.T) {
-	srv := KBSpec{GitHubAPIURL: "https://api.github.com"}
-	eff, _ := ResolveKBSettings(srv, always, parse(t, "github_api_url: https://evil.example.com\n"))
-	if eff.GitHubAPIURL != "https://api.github.com" {
-		t.Fatalf("github_api_url from the KB file reached the effective spec: %q", eff.GitHubAPIURL)
+// branch is a key only a KB has (D903): it reaches the effective spec for the
+// view, and a retired key of the same family does not.
+func TestResolveBranchIsKBOnly(t *testing.T) {
+	eff, info := ResolveKBSettings(KBSpec{}, nil, parse(t, "branch: kb-data\ngit_branch: other\n"))
+	if eff.Branch != "kb-data" || !info.FromKBHas("branch") {
+		t.Errorf("eff = %+v info = %+v", eff, info)
+	}
+	if len(info.Findings) != 1 || !strings.Contains(info.Findings[0], "git_branch") {
+		t.Errorf("findings = %v, want the retired git_branch named", info.Findings)
 	}
 }
 

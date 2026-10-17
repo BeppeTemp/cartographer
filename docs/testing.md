@@ -95,15 +95,14 @@ Provisioning signature coverage includes deterministic Ed25519 envelopes, strict
 key parsing and identity separation, plus remote `sync_pull` verification and
 tampering rejection before `Apply`.
 
-Server Git profile coverage (D117) uses local two-clone remotes plus an injected
-fake forge over `httptest`: branch startup and resume, PR create/reuse and
-duplicate handling, base rebases, conflict registry resolution, stale caller
-heads, review/check rejection, finalize leases, base-SHA races and post-merge
-reconciliation after an uncertain outcome. CI never calls GitHub. Release
-validation may additionally run an opt-in sandbox smoke against a disposable
-protected repository and token; that smoke must assert the protected base stays
-unchanged until the forge confirms the squash merge, and must exercise a
-timeout-after-merge restart.
+Git write coverage (D903) uses local bare remotes: a KB with a remote syncs and one
+without never contacts anything, every write commits, the branch named by `branch` counts
+only when committed on the remote's default branch, and a push the remote refuses
+because the branch is protected (a `pre-receive` hook standing in for the forge) is
+reported as such and not retried. Realignment of the three settings files (server YAML,
+client file, a KB's `settings.yaml`) is tested for what it drops, what it resets, what
+it keeps, its report, its backup (or, for a KB, its commit) and that a second run
+changes nothing. CI never calls a forge.
 
 CLI JSON tests decode stdout as JSON and assert that diagnostics remain on
 stderr. Golden help is limited to 80 columns. Bubble Tea view/update tests use

@@ -53,7 +53,6 @@ const supNote = "---\ntype: Note\ntitle: %s\n%s---\n%s\n"
 func TestKBStatus_Suppressions(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	k.AutoCommit = true
 	k.AuthName = "kb-a"
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -122,7 +121,6 @@ func TestSuppressionsList_OrderAndTruncation(t *testing.T) {
 func TestKBStatus_SuppressionsAcceptOrigin(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	k.AutoCommit = true
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	skill := func(name string) string {
@@ -171,7 +169,6 @@ func TestKBStatus_SuppressionsAcceptOrigin(t *testing.T) {
 func TestSuppressionsList_RevisionBudget(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	k.AutoCommit = true
 	writeKBFile(t, k, "ops/a.md", fmt.Sprintf(supNote, "A", "lint_ignore: [broken_link]\n", "x"))
 	gitCommit(t, k, "add a\n\nReason: because")
 	sups := []lint.Suppression{{Source: lint.SourceConcept, Path: "ops/a.md", Check: "broken_link", Hidden: 1}}

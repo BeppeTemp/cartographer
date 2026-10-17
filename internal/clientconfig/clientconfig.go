@@ -156,6 +156,10 @@ type Config struct {
 	// resolve one to a directory; the next Save writes the file without them.
 	// Not persisted. Reported once per run through the commands that print it.
 	Unsupported []string `yaml:"-"`
+	// Warnings are the removed keys Load found in the file (Retired, D903): each
+	// is ignored, and the line names what to use instead. Not persisted;
+	// `sync` prints them, and its realignment (RealignFile) drops the keys.
+	Warnings []string `yaml:"-"`
 }
 
 // UpdateSettings is the `update:` block. Check nil means the default, true;
@@ -354,6 +358,8 @@ func Load(dir string) (*Config, error) {
 	for key := range droppedKeys {
 		delete(extra, key)
 	}
+	var yamlDoc yaml.Node
+	_ = yaml.Unmarshal(data, &yamlDoc) // parsed above: it cannot fail here
 	var legacy legacyCaches
 	if err := yaml.Unmarshal(data, &legacy); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse caches %s: %w", Path(dir), err)
@@ -420,6 +426,9 @@ func Load(dir string) (*Config, error) {
 		cfg.Update = UpdateSettings{Check: y.Update.Check, Policy: policy}
 	}
 	cfg.dropUnsupportedProviders()
+	for _, h := range Retired.Find(&yamlDoc) {
+		cfg.Warnings = append(cfg.Warnings, h.Message())
+	}
 	if len(cfg.SearchRoots) == 0 {
 		// Absent `search_roots` key: both brand-new configs and files written
 		// before this field existed default here, matching Default().

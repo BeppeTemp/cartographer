@@ -57,11 +57,6 @@ for name in "${KBS[@]}"; do kb_make "${DIR}/${name}"; done
 {
     echo "http: \":${E2E_HTTP_PORT}\""
     echo "init: true"
-    echo "kbs:"
-    for name in "${KBS[@]}"; do
-        echo "  - path: ${DIR}/${name}"
-        echo "    name: ${name}"
-    done
 } > "$CONFIG"
 
 KB_CSV="$(IFS=,; echo "${KBS[*]/#/${DIR}/}")"

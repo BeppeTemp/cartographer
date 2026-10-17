@@ -178,7 +178,6 @@ func TestConceptBatch_PreflightFailureLeavesFilesLogIndexUnchanged(t *testing.T)
 func TestConceptBatch_HappyPath_OneCommitOneLogEntryOrderedResults(t *testing.T) {
 	t.Parallel()
 	k, sha1 := setupGitKB(t)
-	k.AutoCommit = true
 	// Seed a concept the patch operation will target.
 	fm, _ := okf.ParseFrontmatter("type: Runbook\ntitle: Seed")
 	if _, err := k.WriteConcept(okf.ConceptID("batch/seed"), fm, "# Seed\n\nOriginal body.\n", ""); err != nil {

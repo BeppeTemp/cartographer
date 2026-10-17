@@ -49,14 +49,14 @@ func TestCmdKBRename_RecordsAliasWithEntry(t *testing.T) {
 	}
 	withClientServerURL(t, "")
 	dataDir := seedRenameKB(t, "wiki")
-	cfgPath := writeServerConfig(t, "# operator note\ndata: "+dataDir+"\nkbs:\n  - path: "+filepath.Join(dataDir, "wiki")+"\n    tool_prefix: wk\n")
+	cfgPath := writeServerConfig(t, "# operator note\ndata: "+dataDir+"\nkbs:\n  - remote: https://git.example.com/user/wiki.git\n    tool_prefix: wk\n")
 
 	if code, out := runRename(t, "wiki", "atlas", dataDir, cfgPath); code != 0 {
 		t.Fatalf("exit = %d:\n%s", code, out)
 	}
 	wantAliases(t, loadAliases(t, cfgPath), config.KBAlias{From: "wiki", To: "atlas"})
 	body, _ := os.ReadFile(cfgPath)
-	for _, want := range []string{"# operator note", "tool_prefix: wk", filepath.Join(dataDir, "atlas")} {
+	for _, want := range []string{"# operator note", "tool_prefix: wk", "name: atlas"} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("config lost %q:\n%s", want, body)
 		}

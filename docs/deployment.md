@@ -105,12 +105,12 @@ data: /data                   # (data) directory with KB auto-discovery (one sub
                               # paths already mounted explicitly (kbs[], including remote KBs cloned
                               # into this directory) are excluded from discovery — no double mount
 
-kbs:                          # (kbs[]) explicit KBs, local path or remote git (bootstrap, see below)
+kbs:                          # (kbs[]) KBs to clone from a git remote (bootstrap, see below); a KB
+                              # that is a folder under data needs no entry (D903)
   - remote: ssh://git@host:2222/user/wiki-kb.git
-  - path: /data/kb-locale
   - remote: https://gitea.example.com/team/shared-kb.git
     name: shared-kb                                  # (kbs[].name) explicit name (D53): overrides
-                                                      # the name derived from remote/path — the HTTP
+                                                      # the name derived from the remote — the HTTP
                                                       # endpoint, token scope, clone dir, and the
                                                       # token_dir/age_key_dir conventions below all use
                                                       # this name
@@ -146,7 +146,7 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
     write_gate: error                                # (kbs[].write_gate) off (default), error or warning:
                                                       # a concept write that introduces a finding of that
                                                       # severity or worse is refused and rolled back
-                                                      # (D350); needs auto-commit on a git repository
+                                                      # (D350); needs a git repository
     doctor_auto_interval: 1d                         # (kbs[].doctor_auto_interval) how often the server
                                                       # applies auto_repair by itself, to a fixpoint,
                                                       # at most 500 concepts per run, one commit per run
@@ -167,27 +167,11 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # disables the finding, default 42
 mcp:
 git:
-  autocommit: true            # (git.autocommit) commit after every write
-  sync: true                  # (git.sync) read/write fetch/pull-rebase + post-write push if the KB has a remote
   ssh_key: /etc/kb-ssh/id_ed25519      # (git.ssh_key) default SSH identity for cloning kbs[] remotes
   known_hosts: /etc/kb-ssh/known_hosts # (git.known_hosts) host verification for the same clone
   author_name: "Team Bot"             # (git.author_name) default author (set with author_email)
   author_email: team-bot@example.com   # explicit configuration wins over Git config
   token_dir: /etc/kb-git-tokens         # (git.token_dir) directory <token_dir>/<name>.token (D53, see below)
-  in_window: 30s                # (git.in_window) SyncIn freshness window: within this duration
-                                # since the last successful fetch+pull, subsequent reads and writes skip it
-                                # (no-op). Default 30s, 0 = sync on every write (D76)
-  out_debounce: 3s              # (git.out_debounce) debounce of the per-KB async push after the
-                                # commit: N writes in quick succession = 1 push. Default 3s, 0 = push
-                                # synchronously inline, no worker (rollback flag, D76)
-  # profile: server             # (git.profile) local (default) | server (D117): the fields below
-  # base_branch: main           # become required. Protected review target, never directly pushed.
-  # working_branch: cartographer/wiki  # optional; defaults to cartographer/<kb-name>
-  # forge: github               # only supported forge today
-  # github_owner: example-org   # must match the origin remote path exactly (HTTPS or SSH)
-  # github_repository: wiki
-  # github_api_url: https://api.github.com
-  # github_token_env: CARTOGRAPHER_GITHUB_TOKEN  # the value stays in this process environment only
 audit:
   log: ""                      # (audit.log) path to the audit log's JSONL file
   key_seed: ""                 # (audit.key_seed) Ed25519 hex seed for signing
@@ -203,9 +187,40 @@ tools:
                                # Hidden tools remain callable via tools/call (D65).
 ```
 
-`kbs[]` (YAML) is additive to `--kb`/`CARTOGRAPHER_KB` and `CARTOGRAPHER_KB_REMOTES` (append, not
-replace) — all listed KBs get mounted. Scalar fields (`http`, `data`, tokens, ...)
-instead follow flag > env > YAML precedence: the last explicitly set level wins.
+`kbs[]` (YAML) is additive to `CARTOGRAPHER_KB_REMOTES` (append, not replace) — all listed KBs get
+mounted — and every entry has a `remote`: a KB without one is a folder under `data`, which is discovered
+(there is no `kbs[].path`). The `--kb` flag and `CARTOGRAPHER_KB` mount one more folder from the command
+line, for development and tests: it is not a key of the YAML file, and a folder mounted that way has no
+remote, so it never syncs. Scalar fields (`http`, `data`, tokens, ...) follow flag > env > YAML
+precedence: the last explicitly set level wins.
+
+**Git: one way to write (D903).** Cartographer has no git settings of its own beyond the SSH identity and the
+author above. Every write is one commit on the KB's branch, and that is not configurable; a KB syncs exactly
+when it has a remote (fetch and pull-rebase before a read or write, push after a write) and a KB without one
+never contacts anything. The freshness window of the pull (30s) and the debounce of the background push (3s)
+are constants. There is no pull-request boundary and no forge: the server git profile (D117) and its keys
+(`git.profile`, `git.base_branch`, `git.working_branch`, `git.forge`, `git.github_*` and their `kbs[]` forms)
+are gone with the `pr_status` and `pr_finalize` tools, and so are `git.autocommit`, `git.sync`, `git.in_window`,
+`git.out_debounce` and `kbs[].path`. Cartographer pushes to the KB's branch itself; if the remote refuses
+because the branch is protected, the push is reported as that (`sync_status` `failed`, `last_error` naming the
+way out: unprotect the branch, or set `branch` in the KB's `settings.yaml`), the change stays committed in the
+clone, and the push is not retried.
+
+**Upgrading: realignment (D903).** The first start of a version that removed keys rewrites the server YAML into
+its commented form: the removed keys are dropped, values that switched a feature off are reset to the default,
+every other value, comment and key order stays, and the original is kept beside it as
+`config.yaml.bak-<version>` (`.1`, `.2`… when one of that name exists). The server logs what it changed, one line
+per key, and does nothing, writing no backup, to a file already in that form; a file it cannot write (a
+read-only mount) keeps working, since a removed key is ignored with a warning that names its replacement.
+The same applies to a removed environment variable and flag (`CARTOGRAPHER_GIT_SYNC`, `--git-sync`, ...): ignored
+with a warning, never an error. Each KB's `settings.yaml` is realigned the same way as one commit by the server,
+through the normal commit and push, so it is revertible; a file with uncommitted edits is left alone. The client
+file `~/.cartographer.yaml` is realigned by the first `cartographer sync`. The one removed value that is refused
+and not ignored is the server profile (`git.profile: server`, `kbs[].git_profile: server`,
+`CARTOGRAPHER_GIT_PROFILE=server`, or `git_profile: server` in a KB's `settings.yaml`): the server does not start
+(or, for a KB's own file, that KB does not mount) and says what to do, because ignoring it would write straight
+to the branch the profile protected. The registry of removed keys sits next to each schema
+(`config.Retired`, `kb.SettingsRetired`, `clientconfig.Retired`).
 
 ### Bootstrapping a KB from a git remote (replaces the init container)
 
@@ -213,14 +228,14 @@ Every `kbs: [{remote: ...}]` entry (YAML) or `CARTOGRAPHER_KB_REMOTES` (env, CSV
 cloned by `cartographer serve` at startup into `<data>/<name>` (name derived from the last segment
 of the remote, without `.git` — or the explicit `kbs[].name`, if set, see D53 below), **only if
 the destination doesn't already exist** — an existing clone is left untouched: the existing
-`git-autocommit`/`git-sync` cycle handles fetch/push on subsequent writes
+sync that follows the remote handles fetch/push on subsequent writes
 (`cmd/cartographer/bootstrap.go`). Requires `--data`/`CARTOGRAPHER_DATA`/`data:` as the destination
 directory for clones. A remote that is still empty clones to a branch with no commit, named by the
 host's git (often `master`); with `--init` the KB is pinned to `main` and given its initial commit,
 which the first write pushes as the remote's first branch. From then on writes follow the remote's
-default branch (`concurrency.md` §Git profiles, D264), unless `kbs[].git_branch` names another one
-(D335): a fresh clone is then checked out on that branch, `--init` pins an empty clone to it, and
-the first push creates it on the remote if it is missing. An existing clone is never switched.
+default branch (`concurrency.md` §How changes land, D264), unless the `settings.yaml` committed on that
+default branch sets `branch` (D335, D903): a fresh clone is then checked out on that branch, and the first
+push creates it on the remote if it is missing. An existing clone is never switched.
 
 The clone is atomic (D348): it lands in `<data>/.<name>.cloning` and is renamed to `<data>/<name>` only when complete, so a process killed mid-clone leaves no half-clone that the next start would take for a finished one. A half-clone left at `<data>/<name>` by an older binary is not detected (an existing clone is never touched): remove that directory.
 
@@ -290,18 +305,14 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | Variable | Equivalent flag | Description |
 |---|---|---|
 | `CARTOGRAPHER_CONFIG` | `--config` | Path to a YAML config file (see §Configuration: flags, env, YAML) |
-| `CARTOGRAPHER_KB` | `--kb` | Path(s) to the KB(s), comma-separated |
+| `CARTOGRAPHER_KB` | `--kb` | Folder(s) to mount as they are, comma-separated. No remote, so no sync: for development and tests (D903) |
 | `CARTOGRAPHER_KB_REMOTES` | — | Git remotes to clone into `--data` at startup, comma-separated (see §Bootstrapping a KB) |
 | `CARTOGRAPHER_DATA` | `--data` | Directory whose direct subfolders are separate KBs (auto-discovery) |
 | `CARTOGRAPHER_HTTP` | `--http` | HTTP listen address, e.g. `:39273` |
 | `CARTOGRAPHER_TOKENS` | `--tokens` | Bearer tokens, comma/whitespace-separated. Each entry is either a bare `token` (admin, full access to every KB) or `token\|scope1;scope2` with per-KB scopes `kb:<name>:r\|rw` (scopes separated by `;`, never by spaces/commas, to avoid colliding with the between-entry separator). E.g. `admintok, readtok\|kb:wiki:r, writetok\|kb:wiki:rw;kb:notes:r` (D44). |
 | `CARTOGRAPHER_AUTH` | — | Explicit auth toggle (see §Auth) |
 | — | — | Fine-grained roles have no env form: `auth.roles` is YAML-only, because a rule is a structured object (see §Fine-grained roles). |
-| `CARTOGRAPHER_GIT_AUTOCOMMIT` | `--git-autocommit` | Enables the git commit after every write. Default `true`; set to `false` or `0` to disable. |
-| `CARTOGRAPHER_GIT_SYNC` | `--git-sync` | If the KB has an `origin` remote, runs fetch+pull-rebase before reads and writes, then pushes after writes (git as inter-instance sync). Default `true`; `false`/`0` to disable. Inert if the KB has no remote. Read-side sync is best-effort: a network failure serves the local replica; a rebase conflict is registered and the read also serves locally. |
 | `CARTOGRAPHER_GIT_TOKEN_DIR` | — | Directory with one file per KB (`<dir>/<name>.token`) used as the HTTPS credential for that KB's git (D53, see §Bootstrapping a KB from a git remote). |
-| `CARTOGRAPHER_SYNC_IN_WINDOW` | — | Go duration (e.g. `30s`, `0`) of the freshness window on `SyncIn`: within this window since the last successful fetch+pull, subsequent reads and writes skip it. Default `30s`; `0` = sync on every read and write (D76, D93). |
-| `CARTOGRAPHER_SYNC_OUT_DEBOUNCE` | — | Go duration (e.g. `3s`, `0`) of the per-KB async push debounce: N writes in quick succession = 1 push, performed this long after the last signal. Default `3s`; `0` = push synchronously inline, no worker (rollback flag, D76). |
 | `CARTOGRAPHER_SOPS_AGE_KEY_DIR` | — | Directory with a per-KB age key (`<dir>/<name>.age`), a fallback checked before `CARTOGRAPHER_SOPS_AGE_KEY_FILE` (D53). |
 | `CARTOGRAPHER_TOOLS_PROFILE` | `--tools-profile` | `tools/list` tool profile: `agent` (default, only the core set for the LLM agent) \| `full` (all of them). Hidden tools remain callable via `tools/call` (D65, → `control-plane.md` §MCP API). |
 | `CARTOGRAPHER_AUDIT_LOG` | — | Path to the audit log's JSONL file (e.g. `/data/audit.log`). If empty, audit is disabled. |
@@ -330,7 +341,7 @@ cartographer service start|stop|restart
 cartographer service uninstall               # removes the service; config and data remain
 cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, pushes it to <url> (D85, D134)
 cartographer kb clone <remote>               # mounts an existing remote KB in that data dir (D97)
-                                             # create/clone --artifact-write: also records a kbs[] entry with allow_artifact_write: true (D711)
+                                             # create/clone --artifact-write: also records a kbs[] entry (remote, allow_artifact_write: true) (D711, D903)
 cartographer kb list                         # what is on disk, and what the server actually serves (D173)
 cartographer kb rename <old> <new>           # renames the mount point: directory + kbs[] entry + kb_aliases record + client bindings (D177, D754, D772)
 cartographer kb unmount <name>               # retires a KB locally: kbs[] entry + kb_aliases pointing at it + client bindings, clone parked or deleted (D761, D772)
@@ -349,9 +360,9 @@ cartographer kb unmount <name>               # retires a KB locally: kbs[] entry
 
 `service restart --wait` (D121) is a **graceful** replacement everywhere, and on Windows that took a mechanism of its own: there is no CLI-deliverable `SIGTERM`, `Stop-ScheduledTask` is a kill, and `GenerateConsoleCtrlEvent` cannot reach a process with no console. `serve` therefore also waits on a named event in the user's session (`Local\cartographer-serve-shutdown`) and triggers the same drain a `SIGTERM` does; the Manager sets it, waits for the server to exit, and then **starts the task again** — a Scheduled Task is not a supervisor, so nothing else would bring back a server that exited cleanly. `Local\` is per logon session, so from another session — `upgrade-repair` or an `auto-patch` apply run over SSH while the server runs on the desktop — the event cannot be opened: the Manager then stops the task with `Stop-ScheduledTask`, waits for the exit, and prints why, since that stop cuts in-flight requests and does not flush pending pushes. The verification that follows only accepts a `/health` answer from a **new** process: `/health` reports `started_at`, and a value equal to the one read before the restart is the old process still draining (D266).
 
-**Per-KB policy lives in the KB (D746).** The `kbs[]` keys of the schema's `kb` scope (`allow_artifact_write`, `allow_template_write`, `write_gate`, `auto_repair`, `repair_on_write`, `doctor_*`, `usage_stale_days`, `mcp_allowlist`, `git_profile`, `git_base_branch`, `git_forge`, `github_owner`, `github_repository`, `github_api_url`, `secrets`) can also be set in the KB's own `settings.yaml` (`docs/data-plane.md` §The KB's own settings). The KB file wins: a differing `kbs[]`/env/flag value is ignored and reported (startup warning, `kb_status` `ignored_server_settings`, origin `kb` in `cartographer config`). The `kbs[]` form stays for KBs that do not carry the file; the machine-bound keys (`path`, `remote`, `name`, `ssh_key`, `known_hosts`, `author_*`, `committer_*`, `sops_age_key_file`, `github_token_env`, `git_working_branch`, `git_branch`, `artifact_signing_seed`) are server-only.
+**Per-KB policy lives in the KB (D746).** The `kbs[]` keys of the schema's `kb` scope (`allow_artifact_write`, `allow_template_write`, `write_gate`, `auto_repair`, `repair_on_write`, `doctor_*`, `usage_stale_days`, `mcp_allowlist`, `secrets`) can also be set in the KB's own `settings.yaml` (`docs/data-plane.md` §The KB's own settings). The KB file wins: a differing `kbs[]`/env/flag value is ignored and reported (startup warning, `kb_status` `ignored_server_settings`, origin `kb` in `cartographer config`). The `kbs[]` form stays for KBs that do not carry the file; the machine-bound keys (`remote`, `name`, `ssh_key`, `known_hosts`, `author_*`, `committer_*`, `sops_age_key_file`, `artifact_signing_seed`) are server-only. `branch`, the branch Cartographer writes to, is the opposite: it has no `kbs[]` form and lives only in the KB's `settings.yaml`, because it is a decision of the team that owns the KB, the same for every server that mounts it (D903).
 
-**Configured versus discovered mounts.** A KB listed in `kbs[]` is *configured*; a KB found by scanning `data:` is *discovered* and has **no `KBSpec`**, so every per-KB setting sits at its zero value unless the KB carries a `settings.yaml` (D746, which a discovered KB reads like any other) — `allow_artifact_write` false, no `sops_age_key_file`, no `machine_path_allow_prefixes` — and nothing but adding the entry can change that. A discovered KB otherwise works and looks identical from every client surface, which is how one deployment ran a whole migration with artifact writes silently off. Startup now warns once per discovered KB, `kb_status` reports `capabilities.mount: discovered`, and `cartographer doctor` raises a `capability` finding (D151). `kb create` / `kb clone` mount a KB *discovered* by default; `--artifact-write` additionally upserts a `kbs[]` entry (`path` = the absolute KB path, `allow_artifact_write: true`) in the server config so it mounts *configured* with artifact writes on. It stays opt-in because artifacts, hooks included, reach client machines through `sync` (D71); it needs an existing, valid server config (checked before anything is created, `--config` names it) and a config-write failure keeps the KB and prints the entry to add by hand ([D711](decisions/D711-kb-create-can-record-its-kbs-entry.md)). An existing discovered KB is still fixed by editing `kbs[]`. Dot-directories are never discovered: `kb unmount` parks a retired clone in `<data>/.unmounted/` for that reason (D761).
+**Configured versus discovered mounts.** A KB listed in `kbs[]` is *configured*; a KB found by scanning `data:` is *discovered* and has **no `KBSpec`**, so every per-KB setting sits at its zero value unless the KB carries a `settings.yaml` (D746, which a discovered KB reads like any other) — `allow_artifact_write` false, no `sops_age_key_file`, no `machine_path_allow_prefixes` — and nothing but adding the entry can change that. A discovered KB otherwise works and looks identical from every client surface, which is how one deployment ran a whole migration with artifact writes silently off. Startup now warns once per discovered KB, `kb_status` reports `capabilities.mount: discovered`, and `cartographer doctor` raises a `capability` finding (D151). `kb create` / `kb clone` mount a KB *discovered* by default; `--artifact-write` additionally upserts a `kbs[]` entry (`remote` = the KB's remote, `allow_artifact_write: true`, and a `name` when it differs from the one the remote gives) in the server config so it mounts *configured* with artifact writes on; for `kb create --no-remote`, which has no remote for an entry to name, it writes `allow_artifact_write: true` into the new KB's own `settings.yaml` instead (D903). It stays opt-in because artifacts, hooks included, reach client machines through `sync` (D71); the entry form needs an existing, valid server config (checked before anything is created, `--config` names it) and a config-write failure keeps the KB and prints the entry to add by hand ([D711](decisions/D711-kb-create-can-record-its-kbs-entry.md)). An existing discovered KB is still fixed by editing `kbs[]`. Dot-directories are never discovered: `kb unmount` parks a retired clone in `<data>/.unmounted/` for that reason (D761).
 
 `kb create` authors the KB's initial commit with the identity the server would use: `git.author_name`/`git.author_email` from the service config, then git's own `user.name`/`user.email`, then the product default `cartographer@localhost`. It warns before pushing when it falls back to that default, because a forge with an author-membership push rule rejects it. **Before pushing it asks the remote (`ls-remote`).** An empty repository gets the scaffold as is. A repository holding only a forge's initial commit — one branch, one commit, top-level README/LICENSE/LICENCE/COPYING/`.gitignore`/`.gitattributes` files — is adopted automatically: the scaffold commit is rebased on top of it (the forge's files are kept), the KB lives on the remote's default branch whatever its name (D264), and the push is a fast-forward, never forced; a scaffold path that collides with a forge file (e.g. `.gitattributes`) is a refusal, not a merge. Any other non-empty remote is refused with a `kb clone` / kb-import hint. These refusals happen before any push, so the local KB is deleted and the command can be rerun (D710). **If the push fails the scaffold is kept**, not rolled back: the local KB is complete and valid and only the push failed, so the command exits non-zero and prints the `commit --amend --author` and `push -u origin` lines to finish by hand — or the command that discards it (`rm -rf`, or `Remove-Item -Recurse -Force` on Windows), noting that a server started with that data dir would otherwise mount it (D156). If git refuses the initial commit itself (a commit hook, signing without a key), `kb create` reports that error and stops before the push (D265).
 
@@ -408,8 +419,6 @@ data:
     kbs:
       - remote: ssh://git@gitea.example.com:2222/user/wiki-kb.git
     git:
-      autocommit: true
-      sync: true
       ssh_key: /etc/kb-ssh/id_ed25519
       known_hosts: /etc/kb-ssh/known_hosts
 ```
@@ -560,7 +569,8 @@ read tools with nothing installed, and leave a message in a guestbook. It is a s
   clones it into `CARTOGRAPHER_DATA` with a 20 s timeout and the same per-KB credential helper the server uses; on
   any failure it logs one line and the server starts with astronomy alone, because a remote that fails to clone is
   fatal inside `serve`. Each message is one commit, pushed inside the request
-  (`CARTOGRAPHER_SYNC_OUT_DEBOUNCE=0`), so Cloud Run's CPU throttling cannot strand a push.
+  (the server sees `K_SERVICE`, which Cloud Run sets, and pushes inline, D903), so Cloud Run's CPU throttling
+  cannot strand a push.
 
 Auth stays `on` with two tokens: a read token `kb:astronomy:r;kb:guestbook:r` and a write token
 `kb:guestbook:rw`. A Cloudflare Worker forwards the hostname to the `*.run.app` URL (Cloud Run routes by Host),

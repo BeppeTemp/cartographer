@@ -30,7 +30,6 @@ func chainKB(t *testing.T, n int) (*kb.KB, *Server) {
 	for i := 0; i < n; i++ {
 		writeChainPage(t, k, fmt.Sprintf("n%d", i))
 	}
-	k.AutoCommit = true
 	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}

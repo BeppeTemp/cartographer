@@ -87,7 +87,7 @@ func TestHandleConflictError_ReservedWithConceptStaysOutOfRegistry(t *testing.T)
 func TestGitWrap_UnreachableRemoteWriteSucceedsDegraded(t *testing.T) {
 	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
-	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
+	k.SyncOutDebounce = time.Hour
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestGitWrap_UnreachableRemoteWriteSucceedsDegraded(t *testing.T) {
 func TestGitWrap_UnreachableRemoteMessagesAreExplicit(t *testing.T) {
 	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
-	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
+	k.SyncOutDebounce = time.Hour
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestGitWrap_UnreachableRemoteMessagesAreExplicit(t *testing.T) {
 func TestGitWrap_PendingPushHasNoCommitHint(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKBWithRemote(t)
-	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
+	k.SyncOutDebounce = time.Hour
 	res := writeWrappedTool(t, k, "test_write", nil)
 	if res.IsError {
 		t.Fatalf("write failed: %+v", res)
@@ -198,7 +198,7 @@ func TestGitWrap_PendingPushHasNoCommitHint(t *testing.T) {
 func TestGitWrap_ConflictDegradedHasNoCommitHint(t *testing.T) {
 	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
-	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
+	k.SyncOutDebounce = time.Hour
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}

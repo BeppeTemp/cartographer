@@ -10,7 +10,11 @@ source "${E2E_DIR}/lib/server.sh"
 
 SCENARIO_NAME="11_signed_provisioning"
 BIN="${REPO_ROOT}/bin/cartographer"
-KB_DIR="${E2E_TMP_DIR}/${SCENARIO_NAME}/kb"
+# The signing seed is a server-only setting, and a kbs[] entry names a remote
+# (D903): the KB is cloned from a local bare repository into the data directory.
+SEED_DIR="${E2E_TMP_DIR}/${SCENARIO_NAME}/seed"
+BARE_DIR="${E2E_TMP_DIR}/${SCENARIO_NAME}/kb.git"
+DATA_DIR="${E2E_TMP_DIR}/${SCENARIO_NAME}/data"
 SANDBOX_DIR="${E2E_TMP_DIR}/${SCENARIO_NAME}/sandbox"
 CONFIG="${E2E_TMP_DIR}/${SCENARIO_NAME}/server.yaml"
 SERVER_URL="http://127.0.0.1:${E2E_HTTP_PORT}/mcp"
@@ -21,25 +25,34 @@ SECOND_SEED="4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"
 write_config() { cat >"${CONFIG}" <<EOF
 http: ":${E2E_HTTP_PORT}"
 init: true
+data: ${DATA_DIR}
 kbs:
-  - path: ${KB_DIR}
+  - remote: file://${BARE_DIR}
+    name: kb
     artifact_signing_seed: $1
 EOF
 }
 
 mkdir -p "${E2E_TMP_DIR}/${SCENARIO_NAME}" "${SANDBOX_DIR}"
-kb_make "${KB_DIR}"
-mkdir -p "${KB_DIR}/skills/signed"
-cat >"${KB_DIR}/skills/signed/SKILL.md" <<'EOF'
+kb_make "${SEED_DIR}"
+mkdir -p "${SEED_DIR}/skills/signed"
+cat >"${SEED_DIR}/skills/signed/SKILL.md" <<'EOF'
 ---
 name: signed
 description: Signed provisioning E2E fixture
 ---
 signed content
 EOF
+git init --bare "${BARE_DIR}" >/dev/null 2>&1
+git -C "${BARE_DIR}" symbolic-ref HEAD refs/heads/main
+git -C "${SEED_DIR}" init -q
+git -C "${SEED_DIR}" symbolic-ref HEAD refs/heads/main
+git -C "${SEED_DIR}" -c user.name=e2e -c user.email=e2e@example.com add -A
+git -C "${SEED_DIR}" -c user.name=e2e -c user.email=e2e@example.com commit -q -m "seed"
+git -C "${SEED_DIR}" push -q "${BARE_DIR}" main
 write_config "${FIRST_SEED}"
 export E2E_CONFIG="${CONFIG}"
-server_start "${KB_DIR}"
+server_start ""
 server_wait_health 20
 trap 'server_stop' EXIT
 
@@ -53,7 +66,7 @@ cp "${LOCK_FILE}" "${SANDBOX_DIR}/lock.before"
 
 server_stop
 write_config "${SECOND_SEED}"
-server_start "${KB_DIR}"
+server_start ""
 server_wait_health 20
 if sync_output=$(cd "${SANDBOX_DIR}" && HOME="${SANDBOX_DIR}" "${BIN}" sync 2>&1); then _assert_fail "sync unexpectedly accepts artifacts signed by an unpinned key"; else _assert_pass "sync rejects artifacts signed by an unpinned key"; [[ "${sync_output}" == *"unknown signing key"* ]] && _assert_pass "unknown key error is actionable" || _assert_fail "missing actionable unknown-key error: ${sync_output}"; fi
 cmp -s "${SANDBOX_DIR}/provider.before" "${PROVIDER_FILE}" && _assert_pass "failed signed sync leaves provider file unchanged" || _assert_fail "failed signed sync changed provider file"

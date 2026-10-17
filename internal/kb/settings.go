@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/settingschema"
 	"gopkg.in/yaml.v3"
 )
 
@@ -34,6 +35,7 @@ const (
 	kindInt1      // integer >= 1
 	kindStringSeq // sequence of scalars; empty allowed
 	kindMCPList   // sequence of {name, transport, target}
+	kindBranch    // a git branch name
 )
 
 type settingSpec struct {
@@ -56,26 +58,41 @@ var settingsKeys = map[string]settingSpec{
 	"doctor_budget":        {kind: kindInt1},
 	"usage_stale_days":     {kind: kindInt0},
 	"mcp_allowlist":        {kind: kindMCPList},
-	"git_profile":          {kind: kindEnum, values: []string{"local", "server"}},
-	"git_base_branch":      {kind: kindString},
-	"git_forge":            {kind: kindEnum, values: []string{"github"}},
-	"github_owner":         {kind: kindString},
-	"github_repository":    {kind: kindString},
 	"secrets":              {kind: kindBool},
+	// branch is read from the remote's default branch only (D903): see
+	// KB.branchSettingAt. The working copy's value is parsed and shown, and
+	// changes nothing until it reaches the default branch.
+	"branch": {kind: kindBranch},
 }
 
 // settingsServerOnly are the kbs[] keys bound to one machine; a KB that names
 // one gets a finding that says so rather than "unknown key".
 var settingsServerOnly = map[string]bool{
-	"path": true, "remote": true, "name": true, "ssh_key": true, "known_hosts": true,
+	"remote": true, "name": true, "ssh_key": true, "known_hosts": true,
 	"author_name": true, "author_email": true, "committer_name": true, "committer_email": true,
-	"sops_age_key_file": true, "github_token_env": true, "git_working_branch": true,
-	"git_branch": true, "artifact_signing_seed": true,
-	// The server sends its own GitHub token to this URL: a KB that could set
-	// it would let anyone who can push to the KB send the token to a host of
-	// theirs. Pushing to a KB never grants the server's forge credential.
-	"github_api_url": true,
+	"sops_age_key_file": true, "artifact_signing_seed": true,
 }
+
+// SettingsRetired is the registry of the keys a settings.yaml used to carry and
+// no longer does (D903): the server git profile and its forge, whose pull-request
+// boundary is gone, and git_branch, which became branch. Parsing a file that
+// still has one leaves it out with a finding that names what to use; realigning
+// the file drops it.
+var SettingsRetired = settingschema.Registry{Removed: []settingschema.Removed{
+	{Path: "git_profile", Plan: 903, Refuse: "server", Note: ServerProfileRemoved},
+	{Path: "git_base_branch", Plan: 903, Note: ServerProfileRemoved},
+	{Path: "git_working_branch", Plan: 903, Note: ServerProfileRemoved},
+	{Path: "git_forge", Plan: 903, Note: ServerProfileRemoved},
+	{Path: "github_owner", Plan: 903, Note: ServerProfileRemoved},
+	{Path: "github_repository", Plan: 903, Note: ServerProfileRemoved},
+	{Path: "github_api_url", Plan: 903, Note: ServerProfileRemoved},
+	{Path: "github_token_env", Plan: 903, Note: ServerProfileRemoved},
+	{Path: "git_branch", Plan: 903, Replacement: "branch", Note: "committed on the remote's default branch"},
+}}
+
+// ServerProfileRemoved is the reason given wherever the server git profile
+// (D117, removed by D903) is met again, and what to do instead.
+const ServerProfileRemoved = "the server git profile (a pull request per write) was removed: unprotect the branch Cartographer writes to, or set `branch` in settings.yaml on the default branch to write to another one"
 
 // SettingsKeyNames returns the keys the KB file accepts, sorted.
 func SettingsKeyNames() []string {
@@ -101,6 +118,9 @@ func SettingsServerOnlyNames() []string {
 type SettingsMalformed struct {
 	Key    string
 	Reason string
+	// Refuse is set for a retired setting whose value cannot be honoured at
+	// all (git_profile: server): the KB does not mount until it is dealt with.
+	Refuse bool
 }
 
 func (m SettingsMalformed) String() string {
@@ -125,6 +145,19 @@ func (s Settings) Has(key string) bool {
 		}
 	}
 	return false
+}
+
+// String returns the value of a scalar key the file sets, and whether it does.
+func (s Settings) String(key string) (string, bool) {
+	if s.mapping == nil {
+		return "", false
+	}
+	for i := 0; i+1 < len(s.mapping.Content); i += 2 {
+		if s.mapping.Content[i].Value == key && s.mapping.Content[i+1].Kind == yaml.ScalarNode {
+			return s.mapping.Content[i+1].Value, true
+		}
+	}
+	return "", false
 }
 
 // Keys lists the accepted keys in file order.
@@ -161,24 +194,33 @@ func ParseSettings(data []byte) (Settings, []SettingsMalformed, error) {
 	var bad []SettingsMalformed
 	out := Settings{mapping: &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}}
 	seen := map[string]bool{}
+	retired := map[string]settingschema.Hit{}
+	for _, h := range SettingsRetired.Find(&root) {
+		retired[h.Path] = h
+	}
 	for i := 0; i+1 < len(doc.Content); i += 2 {
 		k, v := doc.Content[i], doc.Content[i+1]
 		key := k.Value
 		spec, known := settingsKeys[key]
 		switch {
+		case retired[key].Removed != nil:
+			h := retired[key]
+			_, refuse := h.Refused()
+			bad = append(bad, SettingsMalformed{Key: key, Reason: h.Removed.Advice(), Refuse: refuse})
+			continue
 		case settingsServerOnly[key]:
-			bad = append(bad, SettingsMalformed{key, "server-only setting: it is bound to one machine and belongs in the server's kbs[] entry, not in the KB"})
+			bad = append(bad, SettingsMalformed{Key: key, Reason: "server-only setting: it is bound to one machine and belongs in the server's kbs[] entry, not in the KB"})
 			continue
 		case !known:
-			bad = append(bad, SettingsMalformed{key, "unknown setting"})
+			bad = append(bad, SettingsMalformed{Key: key, Reason: "unknown setting"})
 			continue
 		case seen[key]:
-			bad = append(bad, SettingsMalformed{key, "declared twice"})
+			bad = append(bad, SettingsMalformed{Key: key, Reason: "declared twice"})
 			continue
 		}
 		seen[key] = true
 		if reason := checkSetting(spec, v); reason != "" {
-			bad = append(bad, SettingsMalformed{key, reason})
+			bad = append(bad, SettingsMalformed{Key: key, Reason: reason})
 			continue
 		}
 		out.keys = append(out.keys, key)
@@ -218,6 +260,13 @@ func checkSetting(spec settingSpec, v *yaml.Node) string {
 		n, err := strconv.Atoi(v.Value)
 		if !scalar || err != nil || n < min {
 			return fmt.Sprintf("must be an integer, %d or more", min)
+		}
+	case kindBranch:
+		if !scalar {
+			return "must be a branch name"
+		}
+		if err := ValidateBranchName(v.Value); err != nil {
+			return err.Error()
 		}
 	case kindStringSeq:
 		if v.Kind != yaml.SequenceNode {
@@ -385,4 +434,37 @@ func (k *KB) MarkSettingsSeen() {
 	k.settingsMu.Lock()
 	k.settingsStamp = stamp
 	k.settingsMu.Unlock()
+}
+
+// ValidateBranchName rejects a branch name that git would not accept (the rules
+// of `git check-ref-format --branch`), so a typo in settings.yaml is a finding
+// at load and not a failure at the first push. Empty is valid: the key is unset.
+func ValidateBranchName(name string) error {
+	if name == "" {
+		return nil
+	}
+	bad := func(why string) error { return fmt.Errorf("%q is not a valid branch name: %s", name, why) }
+	switch {
+	case name == "HEAD" || name == "@":
+		return bad("reserved name")
+	case strings.HasPrefix(name, "-"):
+		return bad("starts with '-'")
+	case strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.Contains(name, "//"):
+		return bad("empty path component")
+	case strings.HasSuffix(name, "."):
+		return bad("ends with '.'")
+	case strings.Contains(name, "..") || strings.Contains(name, "@{"):
+		return bad("contains '..' or '@{'")
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune(" ~^:?*[\\", r) {
+			return bad(fmt.Sprintf("contains %q", r))
+		}
+	}
+	for _, part := range strings.Split(name, "/") {
+		if strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return bad("a component starts with '.' or ends with '.lock'")
+		}
+	}
+	return nil
 }

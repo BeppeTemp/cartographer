@@ -50,7 +50,6 @@ func headMessage(t *testing.T, dir string) string {
 func TestGitWrap_AgentTrailer(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	k.AutoCommit = true
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -115,7 +114,6 @@ func TestGitWrap_AgentTrailerOrder(t *testing.T) {
 func TestGitWrap_ExternalChangesCommitHasNoAgent(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	k.AutoCommit = true
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	// Leave an uncommitted file so the next write commits it first (D357).
@@ -147,7 +145,6 @@ func TestGitWrap_ExternalChangesCommitHasNoAgent(t *testing.T) {
 func TestChangesSince_AgentsAndHistory(t *testing.T) {
 	t.Parallel()
 	c := newChangesLinksKB(t)
-	c.k.AutoCommit = true
 	a := asClient(authLocalContext(), "client-a")
 	b := asClient(authLocalContext(), "client-b")
 	writeAs(t, c.s, a, "ops/page", nil)

@@ -80,14 +80,12 @@ auth:
     - token: e2e-narrow-token
       id: e2e-narrow
       roles: [infra-entities]
-kbs:
-  - path: ${TMP}/auth/atlas
-  - path: ${TMP}/auth/annex
-  - path: ${TMP}/auth/void
 EOF
 # The tokens come from the YAML alone: an operator's exported env must not
 # widen or replace them.
+# The KBs are folders, mounted from the command line: a kbs[] entry names a remote.
 env -u CARTOGRAPHER_TOKENS -u CARTOGRAPHER_AUTH "$BIN" serve --config "${TMP}/auth.yaml" \
+    --kb "${TMP}/auth/atlas,${TMP}/auth/annex,${TMP}/auth/void" \
     >"${TMP}/auth.log" 2>&1 &
 PIDS+=("$!")
 

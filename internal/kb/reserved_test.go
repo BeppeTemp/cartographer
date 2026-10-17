@@ -16,8 +16,6 @@ import (
 func reservedSyncKB(t *testing.T, withAttrs bool, seed map[string]string) (k *KB, other, branch string) {
 	t.Helper()
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
-	k.AutoCommit = true
 	if !withAttrs {
 		tgit(t, k.Root, "rm", "-q", gitAttributesFile)
 		tgit(t, k.Root, "commit", "-q", "-m", "drop attributes")
@@ -282,7 +280,6 @@ func TestSyncIn_FetchFailureWithCurrentBaseProceedsDegraded(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}
@@ -313,7 +310,6 @@ func TestSyncIn_FetchFailureWithUnpushedCommitFails(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}
@@ -332,7 +328,6 @@ func TestSyncIn_FetchFailureWithoutTrackingRefFails(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t) // never pushed: no origin/<branch>
-	k.GitSync = true
 	if err := os.RemoveAll(bare); err != nil {
 		t.Fatal(err)
 	}

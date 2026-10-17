@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -22,8 +21,8 @@ type Config struct {
 	Init  bool        // initialize missing KBs
 	Auth  AuthConfig  // HTTP bearer-token auth
 	Data  string      // directory whose direct subdirs are auto-discovered KBs
-	KBs   []KBSpec    // explicit KBs (local path or git remote)
-	Git   GitConfig   // per-KB git autocommit/sync + SSH identity for remotes
+	KBs   []KBSpec    // KBs to clone from a git remote, or mounted from a folder by --kb
+	Git   GitConfig   // SSH identity for remotes, and the default git author
 	Audit AuditConfig // append-only audit log
 	Sops  SopsConfig  // default SOPS age key for secret refs
 	// ToolsProfile selects which tools tools/list advertises: "agent"
@@ -46,6 +45,15 @@ type Config struct {
 	// Origins records which layer set each setting (D743), keyed by schema
 	// path; read it through OriginOf. A key no layer set is absent: default.
 	Origins map[string]Origin
+	// Warnings are the retired keys, environment variables and entries the
+	// layers still carried (D903): each is ignored, and the line names what to
+	// use instead. The server logs them at startup.
+	Warnings []string
+	// Refusals are retired settings whose value cannot be honoured at all: the
+	// server git profile (D117, removed by D903). A configuration that has one
+	// must not start, because ignoring it would write straight to a branch the
+	// operator had protected.
+	Refusals []string
 
 	// kbPolicy holds the effective per-KB specs once the KBs' own settings.yaml
 	// are laid over kbs[] (D746); see kbsettings.go.
@@ -173,11 +181,11 @@ func (t *TokenSpec) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// KBSpec identifies a single KB: either already present on disk (Path), or
-// to be cloned from a git remote (Remote) into Config.Data before opening.
-// Exactly one of Path/Remote is expected to be set. The remaining fields are
-// optional per-KB overrides for git identity and SOPS; a zero value falls
-// back to the corresponding global GitConfig/SopsConfig setting.
+// KBSpec identifies a single KB: one to be cloned from a git remote (Remote)
+// into Config.Data before opening, or, from the command line only, a folder
+// already on disk (Path). The remaining fields are optional per-KB overrides for
+// git identity and SOPS; a zero value falls back to the corresponding global
+// GitConfig/SopsConfig setting.
 type KBSpec struct {
 	// ArtifactSigningSeed is a 32-byte hexadecimal Ed25519 seed used only to
 	// sign provisioning artifacts served from this KB. It is never exposed by
@@ -186,8 +194,15 @@ type KBSpec struct {
 	// MCPAllowlist is the per-KB operator policy for third-party HTTP MCP
 	// descriptors. An absent or empty list intentionally denies every one.
 	MCPAllowlist []provisioning.MCPAllowlistEntry `yaml:"mcp_allowlist,omitempty"`
-	Path         string                           `yaml:"path"`
-	Remote       string                           `yaml:"remote"`
+	// Path is a folder mounted from the command line: --kb and CARTOGRAPHER_KB
+	// (dev and tests; no remote, so no sync). It is not a key of the YAML file:
+	// a KB without a remote is a folder under data, which is discovered (D903).
+	Path   string `yaml:"-"`
+	Remote string `yaml:"remote"`
+	// Branch is the effective `branch` of the KB's settings.yaml in the working
+	// copy, for the settings view. Sync does not read it: the branch writes go
+	// to is the one committed on the remote's default branch (KB.ConfiguredBranch).
+	Branch string `yaml:"-"`
 
 	// Name overrides the KB name that would otherwise be derived from the
 	// basename of Remote/Path (see cmd/cartographer.resolveKBName). If set,
@@ -204,24 +219,6 @@ type KBSpec struct {
 	CommitterName  string `yaml:"committer_name,omitempty"`
 	CommitterEmail string `yaml:"committer_email,omitempty"`
 	SopsAgeKeyFile string `yaml:"sops_age_key_file,omitempty"`
-
-	// GitProfile and the server-git fields override their git: counterparts
-	// for this KB. Empty values retain the global/local defaults (D117).
-	GitProfile       string `yaml:"git_profile,omitempty"`
-	GitBaseBranch    string `yaml:"git_base_branch,omitempty"`
-	GitWorkingBranch string `yaml:"git_working_branch,omitempty"`
-	GitForge         string `yaml:"git_forge,omitempty"`
-	GitHubOwner      string `yaml:"github_owner,omitempty"`
-	GitHubRepository string `yaml:"github_repository,omitempty"`
-	GitHubAPIURL     string `yaml:"github_api_url,omitempty"`
-	GitHubTokenEnv   string `yaml:"github_token_env,omitempty"`
-
-	// GitBranch is the branch a local-profile KB writes to, in place of the
-	// remote's default branch (D335): the first push creates it on the
-	// remote when it is missing. Empty keeps D264 (follow the remote
-	// default). Not valid with the server profile, which has its own
-	// branch keys; checked by ValidateGitBranch and GitBranchProfileError.
-	GitBranch string `yaml:"git_branch,omitempty"`
 
 	// AllowArtifactWrite enables the artifact_write/artifact_delete MCP tools
 	// (D71) for this KB — writing a provisioning artifact (skill/agent/hook/
@@ -293,12 +290,11 @@ type KBSpec struct {
 	Secrets bool `yaml:"secrets,omitempty"`
 }
 
-// GitConfig controls per-KB git autocommit/sync, the SSH identity used to
-// reach remote KBs during bootstrap, and the default author/committer
-// identity used for autocommits.
+// GitConfig is the SSH identity used to reach remote KBs during bootstrap, and
+// the default author/committer identity of the server's commits. Whether to
+// commit and whether to sync are not settings: every write is a commit, and a
+// KB with a remote syncs while one without never contacts anything (D903).
 type GitConfig struct {
-	Autocommit     bool
-	Sync           bool
 	SSHKey         string
 	KnownHosts     string
 	AuthorName     string
@@ -311,26 +307,6 @@ type GitConfig struct {
 	// config (D53). Injected via a credential.helper in the process env
 	// (cmd/cartographer.gitTokenCredentialEnv); never written to disk/argv.
 	TokenDir string
-	// SyncInWindow is the freshness window for SyncIn (D76/WP3): within this
-	// window after a successful SyncIn, subsequent SyncIn calls are a no-op
-	// (see kb.KB.SyncInWindow). Zero disables the window.
-	SyncInWindow time.Duration
-	// SyncOutDebounce is the debounce window for the async push worker
-	// (D76/WP4): a successful write schedules a push instead of pushing
-	// inline, and the worker waits SyncOutDebounce after the last write
-	// before actually pushing (see kb.KB.SyncOutDebounce). Zero disables
-	// the worker: pushes stay synchronous and inline, as before D76/WP4.
-	SyncOutDebounce time.Duration
-	// Profile selects "local" (the backwards-compatible default) or "server"
-	// (D117: dedicated working branch + GitHub PR boundary).
-	Profile          string
-	BaseBranch       string
-	WorkingBranch    string
-	Forge            string
-	GitHubOwner      string
-	GitHubRepository string
-	GitHubAPIURL     string
-	GitHubTokenEnv   string
 }
 
 // SopsConfig controls the default SOPS age key used to decrypt secret refs.
@@ -382,14 +358,8 @@ const DefaultAuditRetentionDays = 90
 // Default returns the configuration used when no YAML file is provided.
 func Default() *Config {
 	return &Config{
-		Auth:  AuthConfig{Mode: "auto"},
-		Audit: AuditConfig{RetentionDays: DefaultAuditRetentionDays},
-		Git: GitConfig{
-			Autocommit:      true,
-			Sync:            true,
-			SyncInWindow:    30 * time.Second,
-			SyncOutDebounce: 3 * time.Second,
-		},
+		Auth:         AuthConfig{Mode: "auto"},
+		Audit:        AuditConfig{RetentionDays: DefaultAuditRetentionDays},
 		ToolsProfile: "agent",
 		MCP:          MCPConfig{},
 		Web:          WebConfig{Enabled: true},
@@ -398,7 +368,7 @@ func Default() *Config {
 }
 
 // rawConfig mirrors the YAML shape. Fields whose zero value would silently
-// clobber a non-zero default (git.autocommit, git.sync) are pointers, so
+// clobber a non-zero default (web.enabled, update_check) are pointers, so
 // Load can distinguish "absent from YAML" from "explicitly false".
 type rawConfig struct {
 	HTTP  string     `yaml:"http"`
@@ -420,9 +390,8 @@ type rawConfig struct {
 	KBAliases []KBAlias `yaml:"kb_aliases"`
 }
 
-// rawWeb mirrors the `web:` block. Enabled is a pointer for the same reason
-// git.autocommit is: the zero value of a bool would silently clobber a `true`
-// default, so "absent from YAML" has to be distinguishable from "explicitly
+// rawWeb mirrors the `web:` block. Enabled is a pointer because the zero value
+// of a bool would silently clobber a `true` default, so "absent from YAML" has to be distinguishable from "explicitly
 // false".
 type rawWeb struct {
 	Enabled *bool `yaml:"enabled"`
@@ -443,25 +412,13 @@ type rawAuth struct {
 }
 
 type rawGit struct {
-	Autocommit       *bool  `yaml:"autocommit"`
-	Sync             *bool  `yaml:"sync"`
-	SSHKey           string `yaml:"ssh_key"`
-	KnownHosts       string `yaml:"known_hosts"`
-	AuthorName       string `yaml:"author_name"`
-	AuthorEmail      string `yaml:"author_email"`
-	CommitterName    string `yaml:"committer_name"`
-	CommitterEmail   string `yaml:"committer_email"`
-	TokenDir         string `yaml:"token_dir"`
-	InWindow         string `yaml:"in_window"`
-	OutDebounce      string `yaml:"out_debounce"`
-	Profile          string `yaml:"profile"`
-	BaseBranch       string `yaml:"base_branch"`
-	WorkingBranch    string `yaml:"working_branch"`
-	Forge            string `yaml:"forge"`
-	GitHubOwner      string `yaml:"github_owner"`
-	GitHubRepository string `yaml:"github_repository"`
-	GitHubAPIURL     string `yaml:"github_api_url"`
-	GitHubTokenEnv   string `yaml:"github_token_env"`
+	SSHKey         string `yaml:"ssh_key"`
+	KnownHosts     string `yaml:"known_hosts"`
+	AuthorName     string `yaml:"author_name"`
+	AuthorEmail    string `yaml:"author_email"`
+	CommitterName  string `yaml:"committer_name"`
+	CommitterEmail string `yaml:"committer_email"`
+	TokenDir       string `yaml:"token_dir"`
 }
 
 // Load parses a YAML config file, layering it on top of Default().
@@ -477,6 +434,7 @@ func Load(path string) (*Config, error) {
 
 	cfg := Default()
 	cfg.markFile(data, raw.KBs)
+	cfg.noteRetired(data, raw.KBs)
 	cfg.HTTP = raw.HTTP
 	cfg.Init = raw.Init
 	cfg.Data = raw.Data
@@ -506,9 +464,6 @@ func Load(path string) (*Config, error) {
 		}
 		if _, err := spec.DoctorAutoIntervalDays(); err != nil {
 			return nil, fmt.Errorf("config: doctor_auto_interval: %w", err)
-		}
-		if err := ValidateGitBranch(spec.GitBranch); err != nil {
-			return nil, fmt.Errorf("config: kbs[] %q: git_branch: %w", firstNonEmptyStr(spec.Name, spec.Remote, spec.Path), err)
 		}
 		if spec.UsageStaleDays != nil && *spec.UsageStaleDays < 0 {
 			return nil, fmt.Errorf("config: usage_stale_days: %d is negative (a number of days, or 0 to disable)", *spec.UsageStaleDays)
@@ -543,12 +498,6 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: auth: %w", err)
 	}
 
-	if raw.Git.Autocommit != nil {
-		cfg.Git.Autocommit = *raw.Git.Autocommit
-	}
-	if raw.Git.Sync != nil {
-		cfg.Git.Sync = *raw.Git.Sync
-	}
 	cfg.Git.SSHKey = raw.Git.SSHKey
 	cfg.Git.KnownHosts = raw.Git.KnownHosts
 	if raw.Git.AuthorName != "" {
@@ -560,22 +509,6 @@ func Load(path string) (*Config, error) {
 	cfg.Git.CommitterName = raw.Git.CommitterName
 	cfg.Git.CommitterEmail = raw.Git.CommitterEmail
 	cfg.Git.TokenDir = raw.Git.TokenDir
-	if raw.Git.Profile != "" {
-		cfg.Git.Profile = normalizeGitProfile(raw.Git.Profile)
-	}
-	cfg.Git.BaseBranch = raw.Git.BaseBranch
-	cfg.Git.WorkingBranch = raw.Git.WorkingBranch
-	cfg.Git.Forge = raw.Git.Forge
-	cfg.Git.GitHubOwner = raw.Git.GitHubOwner
-	cfg.Git.GitHubRepository = raw.Git.GitHubRepository
-	cfg.Git.GitHubAPIURL = raw.Git.GitHubAPIURL
-	cfg.Git.GitHubTokenEnv = raw.Git.GitHubTokenEnv
-	if raw.Git.InWindow != "" {
-		cfg.Git.SyncInWindow = parseDuration(raw.Git.InWindow, cfg.Git.SyncInWindow)
-	}
-	if raw.Git.OutDebounce != "" {
-		cfg.Git.SyncOutDebounce = parseDuration(raw.Git.OutDebounce, cfg.Git.SyncOutDebounce)
-	}
 
 	cfg.Sops = raw.Sops
 
@@ -600,6 +533,7 @@ func Load(path string) (*Config, error) {
 // variables that are actually set (non-empty) are considered; unset ones
 // leave cfg untouched so the YAML/default values remain in effect.
 func FromEnv(cfg *Config) {
+	cfg.noteRetiredEnv()
 	if v := os.Getenv("CARTOGRAPHER_KB"); v != "" {
 		for _, p := range splitCSV(v) {
 			spec := KBSpec{Path: p}
@@ -630,14 +564,6 @@ func FromEnv(cfg *Config) {
 		cfg.mark(OriginEnv, "auth.mode")
 		cfg.Auth.Mode = normalizeAuthMode(v)
 	}
-	if v := os.Getenv("CARTOGRAPHER_GIT_AUTOCOMMIT"); v != "" {
-		cfg.mark(OriginEnv, "git.autocommit")
-		cfg.Git.Autocommit = parseBool(v, cfg.Git.Autocommit)
-	}
-	if v := os.Getenv("CARTOGRAPHER_GIT_SYNC"); v != "" {
-		cfg.mark(OriginEnv, "git.sync")
-		cfg.Git.Sync = parseBool(v, cfg.Git.Sync)
-	}
 	if v := os.Getenv("CARTOGRAPHER_WEB_ENABLED"); v != "" {
 		cfg.mark(OriginEnv, "web.enabled")
 		cfg.Web.Enabled = parseBool(v, cfg.Web.Enabled)
@@ -646,21 +572,9 @@ func FromEnv(cfg *Config) {
 		cfg.mark(OriginEnv, "update_check")
 		cfg.UpdateCheck = parseBool(v, cfg.UpdateCheck)
 	}
-	if v := os.Getenv("CARTOGRAPHER_GIT_PROFILE"); v != "" {
-		cfg.mark(OriginEnv, "git.profile")
-		cfg.Git.Profile = normalizeGitProfile(v)
-	}
 	if v := os.Getenv("CARTOGRAPHER_GIT_TOKEN_DIR"); v != "" {
 		cfg.mark(OriginEnv, "git.token_dir")
 		cfg.Git.TokenDir = v
-	}
-	if v := os.Getenv("CARTOGRAPHER_SYNC_IN_WINDOW"); v != "" {
-		cfg.mark(OriginEnv, "git.in_window")
-		cfg.Git.SyncInWindow = parseDuration(v, cfg.Git.SyncInWindow)
-	}
-	if v := os.Getenv("CARTOGRAPHER_SYNC_OUT_DEBOUNCE"); v != "" {
-		cfg.mark(OriginEnv, "git.out_debounce")
-		cfg.Git.SyncOutDebounce = parseDuration(v, cfg.Git.SyncOutDebounce)
 	}
 	if v := os.Getenv("CARTOGRAPHER_AUDIT_LOG"); v != "" {
 		cfg.mark(OriginEnv, "audit.log")
@@ -692,16 +606,14 @@ func FromEnv(cfg *Config) {
 // explicitly passed on the command line (nil = not passed). Applying it via
 // ApplyFlags is the last, highest-precedence layer of the merge.
 type FlagOverrides struct {
-	HTTP          *string
-	Init          *bool
-	KB            *string // comma-separated paths, appended as KBSpec{Path: ...}
-	Data          *string
-	Tokens        *string // comma-separated, replaces Auth.Tokens
-	GitAutocommit *bool
-	GitSync       *bool
-	ToolsProfile  *string // "agent" | "full"
-	WebEnabled    *bool
-	UpdateCheck   *bool
+	HTTP         *string
+	Init         *bool
+	KB           *string // comma-separated folders, mounted as KBSpec{Path: ...} (no remote, so no sync)
+	Data         *string
+	Tokens       *string // comma-separated, replaces Auth.Tokens
+	ToolsProfile *string // "agent" | "full"
+	WebEnabled   *bool
+	UpdateCheck  *bool
 }
 
 // ApplyFlags layers the explicitly-passed serve flags on top of cfg.
@@ -734,14 +646,6 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 		cfg.mark(OriginFlag, "auth.tokens")
 		cfg.Auth.Tokens = parseTokenSpecs(*o.Tokens)
 	}
-	if o.GitAutocommit != nil {
-		cfg.mark(OriginFlag, "git.autocommit")
-		cfg.Git.Autocommit = *o.GitAutocommit
-	}
-	if o.GitSync != nil {
-		cfg.mark(OriginFlag, "git.sync")
-		cfg.Git.Sync = *o.GitSync
-	}
 	if o.ToolsProfile != nil {
 		cfg.mark(OriginFlag, "tools.profile")
 		cfg.ToolsProfile = normalizeToolsProfile(*o.ToolsProfile)
@@ -754,69 +658,6 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 		cfg.mark(OriginFlag, "update_check")
 		cfg.UpdateCheck = *o.UpdateCheck
 	}
-}
-
-// ValidateGitBranch rejects a kbs[].git_branch that git would not accept as a
-// branch name (the rules of `git check-ref-format --branch`), so a typo fails
-// at load instead of at the first push. Empty is valid: the key is unset.
-func ValidateGitBranch(name string) error {
-	if name == "" {
-		return nil
-	}
-	bad := func(why string) error { return fmt.Errorf("%q is not a valid branch name: %s", name, why) }
-	switch {
-	case name == "HEAD" || name == "@":
-		return bad("reserved name")
-	case strings.HasPrefix(name, "-"):
-		return bad("starts with '-'")
-	case strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.Contains(name, "//"):
-		return bad("empty path component")
-	case strings.HasSuffix(name, "."):
-		return bad("ends with '.'")
-	case strings.Contains(name, "..") || strings.Contains(name, "@{"):
-		return bad("contains '..' or '@{'")
-	}
-	for _, r := range name {
-		if r < 0x20 || r == 0x7f || strings.ContainsRune(" ~^:?*[\\", r) {
-			return bad(fmt.Sprintf("contains %q", r))
-		}
-	}
-	for _, part := range strings.Split(name, "/") {
-		if strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
-			return bad("a component starts with '.' or ends with '.lock'")
-		}
-	}
-	return nil
-}
-
-// GitBranchProfileError reports a kbs[].git_branch set on a KB whose
-// effective git profile is "server" (D335): that profile writes through its
-// own base/working branches, and a third branch key would be ignored.
-func (s KBSpec) GitBranchProfileError(globalProfile string) error {
-	profile := globalProfile
-	if s.GitProfile != "" {
-		profile = normalizeGitProfile(s.GitProfile)
-	}
-	if s.GitBranch != "" && profile == "server" {
-		return fmt.Errorf("kbs[] %q: git_branch is for the local git profile; the server profile uses git_base_branch and git_working_branch", firstNonEmptyStr(s.Name, s.Remote, s.Path))
-	}
-	return nil
-}
-
-func firstNonEmptyStr(vs ...string) string {
-	for _, v := range vs {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-// normalizeGitProfile canonicalizes the profile spelling. It intentionally
-// leaves invalid values visible so server startup can fail fast rather than
-// silently turn a requested review boundary into direct pushes.
-func normalizeGitProfile(v string) string {
-	return strings.ToLower(strings.TrimSpace(v))
 }
 
 // normalizeToolsProfile maps a tools-profile spelling onto the canonical
@@ -850,16 +691,6 @@ func parseBool(v string, fallback bool) bool {
 		return fallback
 	}
 	return b
-}
-
-// parseDuration parses v as a Go duration (e.g. "30s"), returning fallback
-// if v is not a valid duration.
-func parseDuration(v string, fallback time.Duration) time.Duration {
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return fallback
-	}
-	return d
 }
 
 // splitCSV splits a comma-separated string, trimming whitespace and

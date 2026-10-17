@@ -36,3 +36,7 @@ test or a decision record: none of them is a preference.
   documentation (D101). Renaming one is a breaking change, not a cleanup.
 - Registration is per-KB: a tool added outside `RegisterKBTools` is invisible in
   multi-KB mounts.
+- **A test that gives a KB a remote makes it sync with that remote** (D903: a KB syncs
+  exactly when it has one, and no setting turns it off). Use a bare repository in
+  `t.TempDir()`, or an address that refuses at once such as `127.0.0.1:1`; never a real
+  host, which a read or a write would then contact.

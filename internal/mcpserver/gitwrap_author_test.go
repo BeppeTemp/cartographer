@@ -41,7 +41,6 @@ func wrappedWriteAs(t *testing.T, k *kb.KB, p auth.Principal, content string) {
 func TestGitWrap_CommitAuthorFollowsTokenIdentity(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	k.AutoCommit = true
 	k.GitAuthorName, k.GitAuthorEmail, k.GitAuthorExplicit = "Owner", "owner@example.com", true
 	k.GitEnv = append(k.GitEnv, "GIT_COMMITTER_NAME=Owner", "GIT_COMMITTER_EMAIL=owner@example.com")
 

@@ -366,7 +366,7 @@ resource they address:
 | collection | `search`, `concept_list`, `atlas_overview`, `contradiction_report`, … | results are filtered per element |
 | source/destination | `concept_move` | both ends must be allowed, and for an expanded concept so must each satellite (its own type, source and destination); link rewriting additionally requires whole-KB write |
 | curated index | `index_patch` | the target Map/Journal must be allowed for write; the root index (no single Map/Journal of its own) requires whole-KB write even under a policy that already grants a write inside one of its Maps (D122) |
-| whole KB | `snapshot`, `sync_*`, `lint`, `pr_finalize`, … | require whole-KB access, since they have no safe partial semantics |
+| whole KB | `snapshot`, `sync_*`, `lint`, … | require whole-KB access, since they have no safe partial semantics |
 
 A tool absent from the registry is denied, so a newly added tool fails closed
 until its resource semantics are chosen deliberately.

@@ -114,7 +114,7 @@ func displayKBName(name string) string {
 
 // localReindexTargets reproduces the local mount resolution relevant to the
 // administrative fallback. Remote specs point at their clone destination;
-// auto-discovered data children are included after explicit specs.
+// auto-discovered data children are included after them.
 func localReindexTargets(only string) ([]reindexTarget, error) {
 	path, err := reindexConfigPath()
 	if err != nil {
@@ -127,17 +127,14 @@ func localReindexTargets(only string) ([]reindexTarget, error) {
 
 	byName := make(map[string]reindexTarget)
 	for _, spec := range cfg.KBs {
-		name := resolveKBName(spec, spec.Path)
-		localPath := spec.Path
-		if spec.Remote != "" {
-			if cfg.Data == "" {
-				return nil, fmt.Errorf("KB %q is remote but server config has no data directory", name)
-			}
-			localPath = filepath.Join(cfg.Data, name)
+		if spec.Remote == "" {
+			continue // a folder is found through data, below
 		}
-		if localPath != "" {
-			byName[name] = reindexTarget{Name: name, Path: localPath}
+		name := resolveKBName(spec, "")
+		if cfg.Data == "" {
+			return nil, fmt.Errorf("KB %q is remote but server config has no data directory", name)
 		}
+		byName[name] = reindexTarget{Name: name, Path: filepath.Join(cfg.Data, name)}
 	}
 	if cfg.Data != "" {
 		paths, err := discoverKBPaths(cfg.Data)
