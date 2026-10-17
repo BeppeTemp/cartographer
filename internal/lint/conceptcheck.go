@@ -18,11 +18,8 @@ type conceptCtx struct {
 	// are evaluated, and the run-only inputs below are never read.
 	Write bool
 
-	// Oversize is the byte threshold of concept_oversize for the page's map
-	// (the contract's oversize_bytes, D301, or the default). Run only.
-	Oversize int
 	// KBRoot, HasSecretsDir and LegacyPaths drive the artifact-flavoured
-	// body checks (D316). Run only.
+	// body checks (D316).
 	KBRoot        string
 	HasSecretsDir bool
 	LegacyPaths   []legacyPath
@@ -45,8 +42,7 @@ func (c conceptCtx) wants(checks ...string) bool {
 // conceptFindings is the one evaluator of the LevelConcept checks (D354): the
 // ones one page's own frontmatter, body and map contract decide. Run calls it
 // for every page and CheckConcept for the written one, so the two cannot
-// disagree about a page (TestCheckConceptAgreesWithRun). It applies no
-// lint_ignore: the caller does. A check added here must be registered; one the
+// disagree about a page (TestCheckConceptAgreesWithRun). A check added here must be registered; one the
 // write path should report is registered OnWrite.
 func conceptFindings(c conceptCtx) []Finding {
 	var out []Finding
@@ -54,7 +50,7 @@ func conceptFindings(c conceptCtx) []Finding {
 	parts := strings.Split(string(c.ID), "/")
 
 	// --- concept_oversize (info) ---
-	if c.wants("concept_oversize") && len(in.Body) > c.Oversize {
+	if c.wants("concept_oversize") && len(in.Body) > conceptOversizeThreshold {
 		// concept_expand requires exactly two segments and the write path caps
 		// depth at three, so for a satellite the remedy this check used to
 		// advise is structurally unavailable — and the two largest concepts in
@@ -65,7 +61,7 @@ func conceptFindings(c conceptCtx) []Finding {
 		}
 		out = append(out, newFinding("concept_oversize", Finding{
 			Path:    string(c.ID),
-			Message: fmt.Sprintf("%d bytes in one concept (threshold %d; concept_read returns an outline instead of the body above %d) — %s", len(in.Body), c.Oversize, okf.ConceptReadSizeGuard, remedy),
+			Message: fmt.Sprintf("%d bytes in one concept (threshold %d; concept_read returns an outline instead of the body above %d) — %s", len(in.Body), conceptOversizeThreshold, okf.ConceptReadSizeGuard, remedy),
 		}))
 	}
 

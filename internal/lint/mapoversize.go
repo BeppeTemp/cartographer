@@ -31,9 +31,6 @@ func mapOversizeCount(lg *kb.LinkGraph, mapName string) int {
 // mapOversizeThresholdOf resolves a map's threshold: its oversize_concepts,
 // else the built-in default.
 func mapOversizeThresholdOf(c kb.MapContract) int {
-	if c.OversizeConcepts > 0 {
-		return c.OversizeConcepts
-	}
 	return mapOversizeThreshold
 }
 
@@ -51,7 +48,7 @@ func mapOversizeFinding(mapName string, c kb.MapContract, count int) (Finding, b
 	}
 	return newFinding("map_oversize", Finding{
 		Path:    mapName + "/_map.md",
-		Message: fmt.Sprintf("%d top-level concepts in one map (threshold %d) — consider a thematic split into a new map, raise oversize_concepts, or accept with lint_ignore: [map_oversize] in _map.md", count, threshold),
+		Message: fmt.Sprintf("%d top-level concepts in one map (threshold %d) — split it thematically into a new map", count, threshold),
 	}), true
 }
 
@@ -60,8 +57,7 @@ func mapOversizeFinding(mapName string, c kb.MapContract, count int) (Finding, b
 // the write-time half of the check: ScopedCheck has no "before" state and sees
 // one ID at a time, so the creating handlers pass the whole created set here
 // once. Only top-level creations count; updates and satellites never do, and a
-// map already over the threshold stays silent (D312). lint_ignore in the
-// map's _map.md applies. Advisory: nil on any error.
+// map already over the threshold stays silent (D312). Advisory: nil on any error.
 func MapOversizeCrossings(k *kb.KB, created []okf.ConceptID) []Finding {
 	perMap := map[string]int{}
 	for _, id := range created {
@@ -101,14 +97,7 @@ func MapOversizeCrossings(k *kb.KB, created []okf.ConceptID) []Finding {
 	if len(findings) == 0 {
 		return nil
 	}
-	findings, _ = applyMapIgnores(k, findings, nil, nil)
-	out := findings[:0]
-	for _, f := range findings {
-		if f.Check == "lint_ignore_invalid" && strings.HasSuffix(f.Path, "/_map.md") {
-			continue
-		}
-		out = append(out, f)
-	}
+	out := findings
 	if len(out) == 0 {
 		return nil
 	}

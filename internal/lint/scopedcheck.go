@@ -73,21 +73,6 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		return err == nil
 	}
 
-	ignoreCache := map[okf.ConceptID]map[string]bool{}
-	ignoresOf := func(id okf.ConceptID) map[string]bool {
-		if set, ok := ignoreCache[id]; ok {
-			return set
-		}
-		var set map[string]bool
-		if data, err := k.ReadConcept(id); err == nil {
-			if fm, _ := okf.ParseFrontmatter(data.FrontmatterRaw); fm != nil {
-				set = lintIgnoreSet(fm)
-			}
-		}
-		ignoreCache[id] = set
-		return set
-	}
-
 	// Provenance citations need every concept's frontmatter: read once, and
 	// only when an orphan candidate asks.
 	var citedSet map[string][]string
@@ -105,12 +90,8 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 	}
 
 	var findings []Finding
-	emitFor := func(id okf.ConceptID) func(Finding) {
-		return func(f Finding) {
-			if !suppressed(f, ignoresOf(id)) {
-				findings = append(findings, f)
-			}
-		}
+	emitFor := func(okf.ConceptID) func(Finding) {
+		return func(f Finding) { findings = append(findings, f) }
 	}
 
 	registry, _ := loadRegistryLint(k)
@@ -239,22 +220,13 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 	for _, folder := range folders {
 		mapName, _, _ := strings.Cut(folder, "/")
 		contract, ok := contractOf(mapName)
-		if !ok || contract.Index == kb.IndexGenerated || !contract.RequireIndexEntry {
+		if !ok || contract.Index == kb.IndexGenerated {
 			continue
 		}
 		checkCuratedIndex(k, folder, folder+"/index.md", curated[folder], false, &findings, exists, retiredOf(lg))
 	}
 
-	findings, _ = applyMapIgnores(k, findings, nil, nil)
-	out := findings[:0]
-	for _, f := range findings {
-		// A map naming a check it cannot accept is the map's own finding, not
-		// something this write did.
-		if f.Check == "lint_ignore_invalid" && strings.HasSuffix(f.Path, "/_map.md") {
-			continue
-		}
-		out = append(out, f)
-	}
+	out := findings
 	if len(out) == 0 {
 		return nil
 	}
