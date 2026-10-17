@@ -57,7 +57,7 @@ the two places where the clients genuinely differ.
 
 ## Consuming a plan (implementing session)
 
-1. `gh issue view <n>` (add `--comments`: later amendments live there).
+1. `gh issue view <n> --json body,comments --jq '.body, (.comments[].body)'` (body, then the comments where later amendments live).
 2. Execute the WPs in order, `make gate` after each.
 3. Update the docs per the closing checklist and, if it names one, write the
    decision file `docs/decisions/D<issue>-<slug>.md` (never regenerate `docs/decisions.md` in the

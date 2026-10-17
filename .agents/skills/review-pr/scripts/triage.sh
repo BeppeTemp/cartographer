@@ -106,6 +106,8 @@ if [ -z "$docs_touched" ] && [ "$prod" -gt 50 ]; then
   echo "WARN: production code changed and no docs/ page touched — check docs/index.md §Documentation maintenance rules"
 fi
 [ -n "$decision" ] && echo "Decision file: $decision"
+regression=$(grep -i -m1 '^regression-of:' <<<"$body" || true)
+[ -n "$regression" ] && echo "$regression — a regression: if it merges, add it to .agents/skills/review-pr/evals/cases.md (review-pr §When a defect escapes)"
 if [ $# -ge 1 ]; then
   for section in '## Self-review' '## Docs' '## Revert'; do
     grep -qF "$section" <<<"$body" || echo "WARN: PR body has no \"$section\" section (.github/pull_request_template.md)"

@@ -175,7 +175,9 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     section reports an independent review run before opening — the
     `pr-reviewer` subagent of the `review-pr` skill, or your client's equivalent,
     at most three rounds — and its `Revert` section says what a revert of the
-    released change would not undo.
+    released change would not undo. A `fix:` PR that repairs a regression also
+    names the PR that introduced it, on a line `Regression-of: #<n>`: the
+    reviewers are scored against such PRs (`review-pr` §When a defect escapes).
 - PRs are **squash-merged** and the PR title becomes the commit message on
   `main`: it must be a valid [conventional commit](https://www.conventionalcommits.org/)
   (`feat: ...`, `fix: ...`, `docs: ...`, ...). CI enforces this. Releases are

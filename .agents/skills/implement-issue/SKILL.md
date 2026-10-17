@@ -94,7 +94,7 @@ worktree path. Where the client has no such agent, pass the mandate inline.
 Canonical mandate (self-contained — the subagent never sees this conversation):
 
 - Work **only** inside `<absolute-worktree-path>`; every command runs there. The tools inherit no working directory from this conversation, so pass it explicitly: `git -C <path>`, `make -C <path>`. Sibling subagents are active on other worktrees: never revert or touch their files.
-- Read the plan: `gh issue view <n> --comments` — later amendments live in the comments.
+- Read the plan: `gh issue view <n> --json body,comments --jq '.body, (.comments[].body)'` — later amendments live in the comments. Not `--comments`: without a TTY (every subagent) it prints the comments only and drops the body.
 - Implement **all** WPs exactly, starting from the `file:line` pointers in the plan; do not re-explore from scratch.
 - Write the tests in the plan's "Tests" section.
 - **Same session**: update the docs in the "Closing" section per `docs/index.md` §Documentation maintenance rules, and, if the Closing section names one, add the decision file `docs/decisions/D<issue>-<slug>.md` (`make decisions-new`); never regenerate `docs/decisions.md` (the release PR does, D328). Every trap you hit is fixed where it bites: a test if it can be checked, a comment next to the code otherwise (D214).

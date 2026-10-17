@@ -64,7 +64,7 @@ git worktree add --detach .worktrees/pr-<pr> FETCH_HEAD
 ```
 
 Spawn `pr-reviewer` with the PR number, the absolute worktree path, the tier and
-the plan issue number (or "none") and the round (§5). It carries the rest. On the
+the plan issue number (or "none") and the round (§5), and a `base` when the change is not against `origin/main` (default `origin/main`; §Changing the reviewer). It carries the rest. On the
 full tier spawn `security-reviewer` too, in parallel on the same worktree with the
 same mandate: both are read-only. Standard and light tiers get no security pass,
 for cost. Several PRs can be reviewed in parallel, one worktree and one pair of
@@ -113,6 +113,44 @@ every finding costs the author a commit and the reviewer another round (D857):
 - A finding the reviewer has to make in two PRs becomes a rule where it bites —
   a test or a lint check, else a line in the area `AGENTS.md` or in this skill
   (D214) — so that no review has to make it a third time.
+
+## Changing the reviewer
+
+A reviewer is a definition (`.claude/agents/pr-reviewer.md` and its `.codex/` and
+`.kiro/` copies, `security-reviewer` likewise), a model pin and §3–§5 of this
+skill. A PR that changes any of them runs the evals and reports the score in its
+`## Self-review`; nothing runs them in CI (D856: an eval is N reviewer spawns).
+
+1. `.agents/skills/review-pr/scripts/eval-setup.sh` (or `<id>…` for some cases)
+   adds one detached worktree per distinct squash commit of `evals/cases.md`
+   (cases on the same commit share it, as `eval-c2-c3`) and prints one mandate
+   line each: the case ids it serves (`c2,c3`), worktree, `base` (the commit's
+   parent), plan, round 1, and an `eval:` constraint. `--clean` removes them.
+2. The coordinator spawns one `pr-reviewer` per mandate line, in the background,
+   with that line verbatim (a subagent cannot spawn one). The worktree holds the
+   whole history, so the `eval:` constraint is what keeps the reviewer from
+   finding the fix: both reviewer definitions honour it (no history after HEAD,
+   no reading of `evals/`, no `gh` lookup but the plan). Case `c4`, the
+   `security` class, is also given to `security-reviewer`.
+3. It compares each report with the rows; the reviewer is not told them. A case
+   is **caught** when a high or medium finding names the defect's file and its
+   class; a shared run is scored once per case it serves. **Noise** is the high
+   or medium findings on the clean PRs that §4 verification drops.
+4. One line is appended to `evals/scores.md`: date, reviewer definition commit,
+   model pin, caught/cases, noise/clean. Recall comes first, noise second: a
+   change that loses a case needs a reason, one that adds noise only needs to
+   say so.
+
+## When a defect escapes
+
+A fix for a regression names its origin in the PR body, `Regression-of: #<pr>`
+(`triage.sh` prints the line). When such a PR merges, the coordinator:
+
+1. adds the introducing PR as a row of `evals/cases.md` (squash commit, fixing PR,
+   defect as `file:line` at the introducing commit, expected finding, class);
+2. answers in the row's last cell: what did the reviewer not have in front of it?
+3. fixes that where it bites (D214): a test or a lint check, a line in the area
+   `AGENTS.md`, or an entry in the reviewer's list of things to look for.
 
 ## Before opening your own PR
 
