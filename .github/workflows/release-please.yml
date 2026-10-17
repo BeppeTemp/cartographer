@@ -8,6 +8,14 @@ permissions:
   contents: write
   pull-requests: write
 
+# The release-pr job reads the PR body, groups it and writes it back: two runs
+# close together would race between the read and the write, and the grouped body
+# of the earlier one would then lack the later run's entries (Regroup leaves a
+# grouped body alone). One run at a time; a waiting one is replaced by the newest.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
@@ -19,12 +27,15 @@ jobs:
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
-  # The decision index is regenerated here, not in feature PRs (D328): each
-  # PR adds only its docs/decisions/D<n>-*.md file, and the release PR — the
-  # one full pass before a tag, where CI checks the index strictly — carries
-  # the regenerated docs/decisions.md. release-please rewrites its branch on
-  # every push to main, so this runs after it every time.
-  decisions-index:
+  # release-please rewrites its branch and its PR body on every push to main, so
+  # this runs after it every time, and every step is idempotent.
+  # - The decision index is regenerated here, not in feature PRs (D328): each PR
+  #   adds only its docs/decisions/D<n>-*.md file, and the release PR — the one
+  #   full pass before a tag, where CI checks the index strictly — carries the
+  #   regenerated docs/decisions.md.
+  # - The changelog is grouped by area here (D865), in CHANGELOG.md and in the
+  #   PR body: release-please builds the GitHub release from the merged body.
+  release-pr:
     needs: release-please
     runs-on: ubuntu-latest
     steps:
@@ -45,9 +56,19 @@ jobs:
           go-version-file: go.mod
       - if: steps.branch.outputs.name != ''
         run: |
-          make decisions-index
-          if git diff --quiet docs/decisions.md; then exit 0; fi
+          make decisions-index changelog-areas
+          if git diff --quiet docs/decisions.md CHANGELOG.md; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "docs: regenerate the decision index" docs/decisions.md
+          git commit -m "docs: regenerate the decision index and group the changelog by area" docs/decisions.md CHANGELOG.md
           git push
+      # Edited only when the grouping changes it: an edit re-runs pr-title.
+      - if: steps.branch.outputs.name != ''
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+        run: |
+          gh pr view -R "${{ github.repository }}" "$BRANCH" --json body -q .body > "$RUNNER_TEMP/body.md"
+          go run ./internal/changelog/gen -stdin < "$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/grouped.md"
+          if cmp -s "$RUNNER_TEMP/body.md" "$RUNNER_TEMP/grouped.md"; then exit 0; fi
+          gh pr edit -R "${{ github.repository }}" "$BRANCH" --body-file "$RUNNER_TEMP/grouped.md"

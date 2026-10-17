@@ -251,18 +251,8 @@ jobs:
           case "$RESULT" in failure|cancelled) exit 1 ;; esac
 
 
-  # With squash-merge the PR title becomes the commit on main that
-  # release-please reads: it must be a valid conventional commit.
-  pr-title:
-    name: pr-title
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: read
-    steps:
-      - uses: amannn/action-semantic-pull-request@v6
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # The PR title and body lint (the required `pr-title` check) is its own
+  # workflow, pr-title.yml: it re-runs on `edited`, which this one must not (D865).
 
   # A red main is a signal, not something the next PR discovers (D672): the
   # first failing push opens a `ci-red` issue, later ones comment on it, and the

@@ -51,7 +51,7 @@ on `main` right after the merge. The `web` legs run after every push to `main`
 and on a PR that touches their paths (D672, D255); the Playwright browser is
 cached by version. A `changes` job decides both, failing open, and the
 release-please PR always runs everything. `test`, `test-windows`, `web` and
-`pr-title` are required checks; a job skipped by its path condition reports as
+`pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) are required checks; a job skipped by its path condition reports as
 passed. On `main` every push gets its own run (the concurrency group is the
 commit), and the `main-status` job opens a `ci-red` issue on the first
 failing push, comments on later ones, and closes it on the next green push. `docs/decisions.md`'s
