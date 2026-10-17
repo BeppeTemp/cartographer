@@ -141,3 +141,54 @@ func TestSuppressionsAcceptCounts(t *testing.T) {
 		t.Fatalf("accept stale = %+v (%v)", sp, sups)
 	}
 }
+
+// An entry is credited with every finding it would hide on its own: a
+// redundant but valid entry is not stale.
+func TestSuppressionsEveryAcceptorIsCredited(t *testing.T) {
+	t.Parallel()
+	s := newStructKB(t, map[string]string{"ops": "map", "notes": "map"})
+	writeFile(t, s.k.DataRoot(), "notes/_map.md", "---\ntype: Map\ntitle: notes\nkind: map\nlint_ignore: [island]\n---\n")
+	s.mainGraph(nil)
+	s.concept("notes/a", "lint_ignore: [island]\n", "notes/b")
+	s.concept("notes/b", "lint_ignore: [island]\n")
+	findings, sups := supsOf(t, s, "")
+	if len(findingsOf(findings, "island")) != 0 {
+		t.Fatal("island not accepted")
+	}
+	for _, want := range [][2]string{{SourceMap, "notes/_map.md"}, {SourceConcept, "notes/a.md"}, {SourceConcept, "notes/b.md"}} {
+		if sp, ok := supFor(sups, want[0], want[1], "island"); !ok || sp.Hidden != 1 || sp.Stale {
+			t.Errorf("%v = %+v (%v)", want, sp, ok)
+		}
+	}
+	if inv := findingsOf(findings, "lint_ignore_invalid"); len(inv) != 0 {
+		t.Errorf("stale reported: %+v", inv)
+	}
+}
+
+func TestSuppressionsConceptAndMapOverlap(t *testing.T) {
+	t.Parallel()
+	s := newStructKB(t, map[string]string{"ops": "map"})
+	writeFile(t, s.k.DataRoot(), "ops/_map.md", "---\ntype: Map\ntitle: ops\nkind: map\nlint_ignore: [broken_link]\n---\n")
+	writeFile(t, s.k.DataRoot(), "ops/a.md", "---\ntype: Note\ntitle: A\nlint_ignore: [broken_link]\n---\n"+brokenLinks+"[[ops/b]]\n")
+	writeFile(t, s.k.DataRoot(), "ops/b.md", "---\ntype: Note\ntitle: B\n---\n[[ops/a]]\n")
+	findings, sups := supsOf(t, s, "")
+	for _, want := range [][2]string{{SourceConcept, "ops/a.md"}, {SourceMap, "ops/_map.md"}} {
+		if sp, ok := supFor(sups, want[0], want[1], "broken_link"); !ok || sp.Hidden != 2 || sp.Stale {
+			t.Errorf("%v = %+v (%v)", want, sp, ok)
+		}
+	}
+	if inv := findingsOf(findings, "lint_ignore_invalid"); len(inv) != 0 {
+		t.Errorf("stale reported: %+v", inv)
+	}
+}
+
+func TestSuppressionsNeverSuppressIsInvalidNotStale(t *testing.T) {
+	t.Parallel()
+	s := newStructKB(t, map[string]string{"ops": "map"})
+	writeFile(t, s.k.DataRoot(), "ops/a.md", "---\ntype: Note\ntitle: A\nlint_ignore: [stringified_list]\n---\nbody\n")
+	findings, _ := supsOf(t, s, "")
+	inv := findingsOf(findings, "lint_ignore_invalid")
+	if len(inv) != 1 || !strings.Contains(inv[0].Message, "a check lint_ignore cannot suppress") || strings.Contains(inv[0].Message, "stale") {
+		t.Fatalf("got %+v", inv)
+	}
+}

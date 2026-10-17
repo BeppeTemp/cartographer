@@ -20,6 +20,11 @@ const (
 	// suppressionHistoryScan is how many commits of one file the walk reads: an
 	// entry older than that has no `added`.
 	suppressionHistoryScan = 200
+	// suppressionRevisionBudget caps the file revisions (one `git show` each)
+	// one kb_status call reads: 200 entries on 200 files of 200 commits would
+	// otherwise spawn ~40,000 git processes. Past it the remaining entries
+	// carry no origin and the section says origins_truncated.
+	suppressionRevisionBudget = 1000
 )
 
 // suppressionItem is one entry of suppressions.list.
@@ -78,7 +83,7 @@ func suppressionsSummary(sups []lint.Suppression) map[string]interface{} {
 
 // suppressionsList is the on-request part: entries by hidden count, then path,
 // at most suppressionListMax, each with what git says about its origin.
-func suppressionsList(k *kb.KB, sups []lint.Suppression) (items []suppressionItem, truncated bool) {
+func suppressionsList(k *kb.KB, sups []lint.Suppression, revisionBudget int) (items []suppressionItem, truncated, originsTruncated bool) {
 	sorted := append([]lint.Suppression(nil), sups...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		a, b := sorted[i], sorted[j]
@@ -93,7 +98,7 @@ func suppressionsList(k *kb.KB, sups []lint.Suppression) (items []suppressionIte
 	if len(sorted) > suppressionListMax {
 		sorted, truncated = sorted[:suppressionListMax], true
 	}
-	origins := suppressionOrigins{k: k, byFile: map[string]*fileOrigins{}}
+	origins := suppressionOrigins{k: k, byFile: map[string]*fileOrigins{}, budget: revisionBudget}
 	items = make([]suppressionItem, 0, len(sorted))
 	for _, sp := range sorted {
 		it := suppressionItem{Source: sp.Source, Path: sp.Path, Check: sp.Check, Hidden: sp.Hidden, Stale: sp.Stale}
@@ -105,7 +110,7 @@ func suppressionsList(k *kb.KB, sups []lint.Suppression) (items []suppressionIte
 		}
 		items = append(items, it)
 	}
-	return items, truncated
+	return items, truncated, origins.exhausted
 }
 
 // suppressionOrigins walks the history of each file once and shares it among
@@ -113,6 +118,10 @@ func suppressionsList(k *kb.KB, sups []lint.Suppression) (items []suppressionIte
 type suppressionOrigins struct {
 	k      *kb.KB
 	byFile map[string]*fileOrigins
+	// budget is the file revisions still readable in this call; exhausted
+	// says a file was skipped for lack of it.
+	budget    int
+	exhausted bool
 }
 
 // fileOrigins is one file's walk: per declared name (key + "\x00" + check for
@@ -128,7 +137,7 @@ func (o *suppressionOrigins) of(sp lint.Suppression) (gitx.FileRevision, bool) {
 	path := suppressionGitPath(o.k, sp)
 	fo, ok := o.byFile[path]
 	if !ok {
-		fo = walkSuppressionFile(o.k, sp.Source, path, sp.Path)
+		fo = walkSuppressionFile(o, sp.Source, path)
 		o.byFile[path] = fo
 	}
 	name := sp.Check
@@ -163,12 +172,18 @@ func suppressionGitPath(k *kb.KB, sp lint.Suppression) string {
 // A name present in the oldest revision read, of a history cut at the scan
 // limit, has an unknown origin and is left out; so is everything when a
 // revision cannot be read.
-func walkSuppressionFile(k *kb.KB, source, gitPath, entryPath string) *fileOrigins {
+func walkSuppressionFile(o *suppressionOrigins, source, gitPath string) *fileOrigins {
+	k := o.k
 	fo := &fileOrigins{start: map[string]gitx.FileRevision{}}
 	revs, err := gitx.FileHistory(k.Root, gitPath, suppressionHistoryScan)
 	if err != nil || len(revs) == 0 {
 		return fo
 	}
+	if len(revs) > o.budget {
+		o.exhausted = true // all or nothing: a half-read file would date wrongly
+		return fo
+	}
+	o.budget -= len(revs)
 	cut := len(revs) >= suppressionHistoryScan
 	// accept entries share one file: names are (key, check) pairs.
 	names := func(content string) map[string]bool {

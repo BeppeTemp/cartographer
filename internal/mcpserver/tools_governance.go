@@ -898,10 +898,13 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				if sups := visibleSuppressions(ctx, k, allSups); len(sups) > 0 {
 					section := suppressionsSummary(sups)
 					if params.Suppressions {
-						list, truncated := suppressionsList(k, sups)
+						list, truncated, originsTruncated := suppressionsList(k, sups, suppressionRevisionBudget)
 						section["list"] = list
 						if truncated {
 							section["truncated"] = true
+						}
+						if originsTruncated {
+							section["origins_truncated"] = true
 						}
 					}
 					result["suppressions"] = section

@@ -105,7 +105,7 @@ func TestSuppressionsList_OrderAndTruncation(t *testing.T) {
 	for i := 0; i < suppressionListMax+5; i++ {
 		sups = append(sups, lint.Suppression{Source: lint.SourceConcept, Path: fmt.Sprintf("ops/p%03d.md", i), Check: "broken_link", Hidden: i % 3})
 	}
-	items, truncated := suppressionsList(k, sups)
+	items, truncated, _ := suppressionsList(k, sups, suppressionRevisionBudget)
 	if !truncated || len(items) != suppressionListMax {
 		t.Fatalf("len=%d truncated=%v", len(items), truncated)
 	}
@@ -163,5 +163,24 @@ func TestKBStatus_SuppressionsAcceptOrigin(t *testing.T) {
 	}
 	if it := byPath["skills/two/SKILL.md"]; it.Reason != "accept two" || it.Commit == byPath["skills/one/SKILL.md"].Commit {
 		t.Errorf("two = %+v", it)
+	}
+}
+
+// A spent revision budget leaves the remaining entries without an origin and
+// says so; nothing is dated from a half-read file.
+func TestSuppressionsList_RevisionBudget(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	k.AutoCommit = true
+	writeKBFile(t, k, "ops/a.md", fmt.Sprintf(supNote, "A", "lint_ignore: [broken_link]\n", "x"))
+	gitCommit(t, k, "add a\n\nReason: because")
+	sups := []lint.Suppression{{Source: lint.SourceConcept, Path: "ops/a.md", Check: "broken_link", Hidden: 1}}
+	items, _, spent := suppressionsList(k, sups, 1)
+	if spent || items[0].Reason != "because" {
+		t.Fatalf("budget 1: spent=%v items=%+v", spent, items)
+	}
+	items, _, spent = suppressionsList(k, sups, 0)
+	if !spent || items[0].Commit != "" || items[0].Reason != "" {
+		t.Fatalf("budget 0: spent=%v items=%+v", spent, items)
 	}
 }

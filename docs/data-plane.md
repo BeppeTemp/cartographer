@@ -361,7 +361,7 @@ A whole-KB `lint` also reports a **stale** entry (D834): a `lint_ignore` name, o
 `_map.md`, that hid no finding in the run is reported as `lint_ignore_invalid` ("hides no finding here,
 so the entry is stale"), like a stale `lint_accept` key. A scoped run and the write path never report
 it (they do not evaluate every check), and a `kb_review` kind is never stale (the lint run cannot see
-what it would hide); a name already reported invalid is not reported twice.
+what it would hide); a name already reported invalid is not reported twice, and a name lint cannot suppress at all (`stringified_list`…) is invalid, never stale. A finding is credited to **every** entry that would hide it on its own (the concept's, its map's, each accepting member or map of an island), so only an entry that would hide nothing alone is stale.
 
 #### The suppression inventory (D834)
 
@@ -373,7 +373,7 @@ an island accepted by a map or a member counts on that entry). With `suppression
 (`source` is `concept`, `map` or `accept`), sorted by `hidden` descending then path, at most 200
 (`truncated: true` past that). `added` (date), `commit` and `reason` are **derived from git**, nothing is
 stored beside the entry: the commit that started the name's current unbroken presence in the file
-(the last 200 commits of it are read), its `Reason:` trailer or else its subject. They are omitted
+(the last 200 commits of it are read, at most 1000 revisions per call: past that the remaining entries carry no origin and the section says `origins_truncated: true`), its `Reason:` trailer or else its subject. They are omitted
 when the history does not say (no git, an entry older than the window).
 
 Where each check can be accepted (D313) is `lint.CheckAcceptability` — `concept`, `map` (only the
