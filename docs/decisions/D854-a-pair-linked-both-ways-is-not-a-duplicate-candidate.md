@@ -1,5 +1,5 @@
 ---
-topic: lint
+topic: control-plane
 ---
 
 # D854 — A pair linked both ways is not a duplicate candidate
