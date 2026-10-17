@@ -185,6 +185,10 @@ func TestConceptArchive_Refusals(t *testing.T) {
 		{"stale", `{"id":"src/mover","if_match":"deadbeef"}`, "stale_write:"},
 		{"target exists", `{"id":"src/mover","if_match":"` + good + `"}`, "conflict: target already exists: archive/mover"},
 	}
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "src/replaced.md"), []byte("---\ntype: Note\ntitle: Replaced\nstatus: superseded\nsuperseded_by: src/mover\n---\nx\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases = append(cases, struct{ name, args, want string }{"superseded", `{"id":"src/replaced","if_match":"` + hashOf(t, k, "src/replaced") + `"}`, "is superseded"})
 	for _, c := range cases {
 		res := callTool(t, s, "concept_archive", c.args)
 		if !res.IsError || !strings.Contains(res.Content[0].Text, c.want) {
@@ -195,6 +199,9 @@ func TestConceptArchive_Refusals(t *testing.T) {
 	d, err := k.ReadConcept("src/mover")
 	if err != nil || !strings.Contains(d.FrontmatterRaw, "status: active") {
 		t.Errorf("a refusal wrote to the source: %v %v", err, d)
+	}
+	if d, err := k.ReadConcept("src/replaced"); err != nil || !strings.Contains(d.FrontmatterRaw, "status: superseded") {
+		t.Errorf("the superseded refusal wrote to the page: %v %v", err, d)
 	}
 }
 
