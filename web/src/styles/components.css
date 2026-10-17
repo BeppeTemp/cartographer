@@ -577,6 +577,16 @@
   margin-top: var(--space-3);
 }
 
+/* An archive map (D820): listed after the live ones and marked. */
+.rail__archive {
+  flex: none;
+  padding: 0 var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+}
+
 .rail__collection-count {
   margin-inline-start: auto;
   font-size: var(--text-xs);

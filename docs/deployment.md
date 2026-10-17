@@ -489,7 +489,9 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   the route answers `unavailable: "disabled"` and the server makes no call.
   The rail holds six panels: Atlas, Activity, Work, Health, Artifacts and Settings (D818).
   Artifacts has a Secrets tab (the secrets grouped by the Service that uses each value, the files summed up
-  below); the command palette's "Include archived" toggle adds archived pages to a search (D820);
+  below); Activity has a Retired tab (D820: every deprecated, superseded or archived concept with where it went,
+  when and why, read from the root `log.md`, and each journal's harvest state; an archive map wears an "Archive"
+  badge in the rail); the command palette's "Include archived" toggle adds archived pages to a search;
   pending sources are Work's "to ingest" column. Settings has three tabs, Client, Server and Knowledge Base,
   each with a readable view (folded groups, each key with its value and where it was set) and a YAML view; the
   Knowledge Base tab lists the KB's placeholders, the Client tab the viewer's own client as its last `sync`

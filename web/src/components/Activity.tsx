@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { fetchAudit, fetchChanges, fetchJournal } from "../api/client";
 import type { AuditLog, ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot } from "../api/types";
 import { changedAt, changeKind, mostWorked, shownReasons, type ChangeKind } from "../lib/activity";
@@ -65,12 +65,15 @@ export function Activity({
   snapshot,
   collections = [],
   live = 0,
+  tabs,
   onOpen,
 }: {
   kb: string;
   snapshot: GraphSnapshot | null;
   collections?: CollectionSummary[];
   live?: number;
+  /** The section tabs (Activity · Retired), drawn under the header. */
+  tabs?: ReactNode;
   onOpen(conceptId: string): void;
 }) {
   const [since, setSince] = useState<Window>("7d");
@@ -196,6 +199,7 @@ export function Activity({
         }
         actions={<Segmented<Window> label="Changes since" value={since} options={WINDOWS} onChange={setSince} />}
       />
+      {tabs}
 
       <div className="page__body" data-loading={loading && data !== null}>
         {data && all.length > 0 && (

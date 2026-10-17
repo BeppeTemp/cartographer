@@ -1968,3 +1968,110 @@ button.row {
 .page__tabs.inspector__tabs {
   padding-inline: 0;
 }
+
+/* --- Retired: what the KB retired, where it went and why (D820) --- */
+
+.retired__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.retired__row {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-inline-start: 3px solid var(--map);
+  border-radius: var(--radius-control);
+}
+
+.retired__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.retired__title,
+.retired__link {
+  padding: 0;
+  font: inherit;
+  color: var(--text-primary);
+  text-align: start;
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.retired__title {
+  font-weight: 600;
+}
+
+.retired__link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.retired__title:focus-visible,
+.retired__link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.retired__map {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-inline-start: auto;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.retired__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.retired__id {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.retired__reason {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.retired__journals {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.retired__journal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.retired__journal-name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: 600;
+  color: var(--text-primary);
+}

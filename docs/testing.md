@@ -397,7 +397,12 @@ toolchain (D227). What they hold:
   each `Doc` is an existing page with the heading its anchor names.
 - the palette and archived pages (D820, `src/test/palette-archived.test.tsx`): the
   "Include archived" toggle sending `include_archived=1`, badging archived hits and
-  saying so when the server fell back to them, and starting each opening unpressed.
+  saying so when the server fell back to them, and starting each opening unpressed;
+- the Retired tab of Activity (D820, `src/test/retired.test.tsx`): a row with its
+  recorded story (from, date, reason, successor) and one with none, the status and
+  text filters, a journal's harvest line, the empty and the unavailable state, the
+  tab round-tripping through the URL and Back with Activity staying current in the
+  rail, an archive map badged and listed after the live ones.
 
 `make web` rebuilds the committed bundle; `make web-check` does a clean locked
 build and verifies `internal/webui/dist/provenance.json` still matches the

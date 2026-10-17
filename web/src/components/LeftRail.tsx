@@ -84,7 +84,7 @@ export function LeftRail({
             className="rail__panel"
             aria-label="Activity"
             title={collapsed ? "Activity" : undefined}
-            aria-current={panel === "activity" ? "page" : undefined}
+            aria-current={panel === "activity" || panel === "retired" ? "page" : undefined}
             onClick={() => onPanel("activity")}
           >
             <span className="rail__glyph">
@@ -169,9 +169,11 @@ export function LeftRail({
         >
           <section className="rail__section">
             {(["map", "journal"] as const).map((kind, groupIndex, kinds) => {
-              const group = (overview?.collections ?? []).filter(
-                (c) => (c.kind === "journal" ? "journal" : "map") === kind,
-              );
+              // An archive map is listed after the live ones (D820); the sort is
+              // stable, so each half keeps the server's order.
+              const group = (overview?.collections ?? [])
+                .filter((c) => (c.kind === "journal" ? "journal" : "map") === kind)
+                .sort((a, b) => Number(a.archive === true) - Number(b.archive === true));
               if (group.length === 0) return null;
               // The whole atlas heads the first list shown: one row among the
               // others, set apart only by its mark.
@@ -202,6 +204,7 @@ export function LeftRail({
                             style={{ background: collectionVar(collection.name) }}
                           />
                           <span className="rail__collection-name">{collection.title || collection.name}</span>
+                          {collection.archive && <span className="rail__archive">Archive</span>}
                           <span className="rail__collection-count">
                             <Count value={collection.concepts} />
                           </span>

@@ -23,6 +23,7 @@ import type {
   KBStatus,
   MaintenanceReview,
   MaintenanceSummary,
+  RetiredResponse,
   SearchResponse,
   WorkResponse,
   CheckCatalog,
@@ -228,6 +229,11 @@ export function fetchSearch(
     `/kbs/${encodeURIComponent(kb)}/search?q=${encodeURIComponent(query)}&limit=20${archived}`,
     signal,
   );
+}
+
+/** What the KB retired, where it went and why (D820). */
+export function fetchRetired(kb: string, signal?: AbortSignal): Promise<RetiredResponse> {
+  return get<RetiredResponse>(`/kbs/${encodeURIComponent(kb)}/retired`, signal);
 }
 
 export function fetchChanges(kb: string, since: string, signal?: AbortSignal): Promise<ChangesResponse> {
