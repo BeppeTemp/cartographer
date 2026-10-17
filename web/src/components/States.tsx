@@ -121,7 +121,7 @@ export function EmptyState({
   action,
 }: {
   title: string;
-  detail?: string;
+  detail?: ReactNode;
   action?: ReactNode;
 }) {
   return (

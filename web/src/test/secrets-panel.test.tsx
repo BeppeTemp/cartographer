@@ -44,6 +44,46 @@ describe("the Secrets panel", () => {
     await waitFor(() => expect(window.location.search).not.toContain("panel=secrets"));
   });
 
+  it("tells an empty KB where a secrets file goes and links the docs (D864)", async () => {
+    const kind = {
+      kind: "secret",
+      title: "Secrets",
+      kb_path: "secrets/<name>.sops.yaml",
+      doc: "docs/skills-services-secrets.md#sops-files",
+      kb_only: true,
+    };
+    const fetchMock = stubApi({ "/secrets": () => json({ files: [], kind }) });
+    const route = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url: string) =>
+      url.endsWith("/kbs")
+        ? json({ kbs: [{ name: "kb-a", status: "normal", ready: true, artifacts: true, secrets: true }] })
+        : route(url),
+    );
+    render(<App />);
+    expect(await screen.findByText("This KB keeps no secrets")).toBeInTheDocument();
+    expect(screen.getByText("secrets/<name>.sops.yaml").tagName).toBe("CODE");
+    const link = screen.getByRole("link", { name: "Docs" });
+    expect(link).toHaveAttribute(
+      "href",
+      "https://github.com/BeppeTemp/cartographer/blob/main/docs/skills-services-secrets.md#sops-files",
+    );
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("keeps the plain empty state against a server that sends no kind", async () => {
+    const fetchMock = stubApi({ "/secrets": () => json({ files: [] }) });
+    const route = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url: string) =>
+      url.endsWith("/kbs")
+        ? json({ kbs: [{ name: "kb-a", status: "normal", ready: true, artifacts: true, secrets: true }] })
+        : route(url),
+    );
+    render(<App />);
+    expect(await screen.findByText("This KB keeps no secrets")).toBeInTheDocument();
+    expect(screen.getByText(/Files named secrets\/\*\.sops\.yaml appear here/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Docs" })).not.toBeInTheDocument();
+  });
+
   it("lists the structure masked, then decrypts with a pasted key without sending it anywhere", { timeout: 20_000 }, async () => {
     const requested = stub(true);
     const user = userEvent.setup();

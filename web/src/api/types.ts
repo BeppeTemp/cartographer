@@ -68,9 +68,34 @@ export interface ArtifactFinding {
   message: string;
 }
 
+/** One kind of artifact a KB can hold, as provisioning describes it (D864). */
+export interface KindInfo {
+  kind: string;
+  title: string;
+  /** Where its files go in the KB; `<name>` stands for the artifact's name. */
+  kb_path: string;
+  /** A repository path with an anchor, "docs/sync.md#agents-and-hooks". */
+  doc: string;
+  /** No client receives it: it stays in the KB. */
+  kb_only: boolean;
+}
+
+/** A KindInfo with what this KB ships of it: every kind comes, even one the KB has none of. */
+export interface ArtifactKindInfo extends KindInfo {
+  count: number;
+  /** The clients that receive an artifact of this kind; empty for a KB-only kind. */
+  clients: ArtifactClient[];
+}
+
 export interface ArtifactList {
   artifacts: Artifact[];
   counts: Record<string, number>;
+  /**
+   * Every kind a KB can hold, in reading order, whatever this KB ships (D864).
+   * Absent from a server that predates it: the panel then lists only the
+   * kinds that have an artifact.
+   */
+  kinds?: ArtifactKindInfo[];
   /** Why a skill was left out of what the KB ships. */
   issues: string[];
   /** Every artifact finding by check, including those no listed artifact owns (D316). */
@@ -371,6 +396,8 @@ export interface SecretFile {
 
 export interface SecretList {
   files: SecretFile[];
+  /** The secrets kind's descriptor (D864); absent from a server that predates it. */
+  kind?: KindInfo;
 }
 
 /** One key of GET /kbs/{kb}/placeholders: a {{repo:key}} or {{path:key}}

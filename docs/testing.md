@@ -386,7 +386,15 @@ toolchain (D227). What they hold:
   KB's `artifacts` flag is false, with a link to it falling back to the atlas;
   grouped by kind, filtered, the selection round-tripping through the URL and
   Back; an artifact's Markdown, frontmatter and script files render inert
-  (`security.test.tsx`).
+  (`security.test.tsx`); every kind listed even for a KB that ships none
+  (D864): its path as text, its clients, a Docs link that is only ever a
+  repository docs path on `main` with `noopener noreferrer`, empty kinds hidden
+  by a filter or a slice, and the older-server fallback (no `kinds`) unchanged.
+  On the Go side, `provisioning.Kinds` is pinned from both ends: every matrix
+  kind has a descriptor, a file written at each `KBPath` is found by the scanner
+  of its kind (`internal/provisioning/kinds_test.go`, and
+  `TestKinds_KBOnlyPathsAreWhatTheScannersFind` for templates and secrets), and
+  each `Doc` is an existing page with the heading its anchor names.
 
 `make web` rebuilds the committed bundle; `make web-check` does a clean locked
 build and verifies `internal/webui/dist/provenance.json` still matches the

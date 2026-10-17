@@ -13,6 +13,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 // The Atlas UI's Secrets route: the structure of the KB's sops files, for a
@@ -58,7 +59,15 @@ func (m *MultiKBServer) uiSecrets(w http.ResponseWriter, r *http.Request, srv *S
 		writeUIInternal(w, "secrets", err)
 		return
 	}
-	writeUIJSON(w, http.StatusOK, map[string]interface{}{"files": files})
+	body := map[string]interface{}{"files": files}
+	// The kind's own descriptor (D864): the empty state says where a secrets
+	// file goes and links the docs, with the path provisioning declares.
+	for _, k := range provisioning.Kinds() {
+		if k.Kind == "secret" {
+			body["kind"] = uiKindInfoFrom(k)
+		}
+	}
+	writeUIJSON(w, http.StatusOK, body)
 }
 
 // uiSecretsVisible is the `secrets` flag of GET /kbs.

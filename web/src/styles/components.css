@@ -2401,6 +2401,12 @@ code.mapcontract__label {
   color: var(--text-muted);
 }
 
+.catalog__about code,
+.state__detail code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+
 .catalog__tiles {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

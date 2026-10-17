@@ -68,9 +68,17 @@ func TestUIAPI_SecretsStructure(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
-	var out struct{ Files []uiSecretFile }
+	var out struct {
+		Files []uiSecretFile
+		Kind  uiKindInfo
+	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)
+	}
+	// The kind's descriptor rides along (D864): the empty state tells the
+	// reader where a secrets file goes.
+	if out.Kind.Kind != "secret" || out.Kind.KBPath != "secrets/<name>.sops.yaml" || !out.Kind.KBOnly || !strings.Contains(out.Kind.Doc, "#") {
+		t.Errorf("kind = %+v", out.Kind)
 	}
 	if len(out.Files) != 1 || out.Files[0].Path != "secrets/demo.sops.yaml" {
 		t.Fatalf("symlinked file must not be listed: %+v", out.Files)

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchSecrets, fetchServices } from "../api/client";
 import type { SecretEntry, SecretFile, SecretList, ServiceEntry } from "../api/types";
 import { decryptFile, encType, InvalidKeyError, looksLikeAgeKey, WrongKeyError } from "../lib/secrets";
+import { DocsLink } from "./DocsLink";
 import { Icon } from "./Icon";
 import { Count, Page, PageHeader } from "./Page";
 import { EmptyState, ErrorState, Skeleton } from "./States";
@@ -180,7 +181,16 @@ export function Secrets({
         {tabs}
         <EmptyState
           title="This KB keeps no secrets"
-          detail="Files named secrets/*.sops.yaml appear here, with their keys in the clear and their values masked."
+          detail={
+            list.kind ? (
+              <>
+                Files go in <code>{list.kind.kb_path}</code> and appear here, with their keys in the clear and their
+                values masked. <DocsLink doc={list.kind.doc} />
+              </>
+            ) : (
+              "Files named secrets/*.sops.yaml appear here, with their keys in the clear and their values masked."
+            )
+          }
         />
       </Page>
     );
