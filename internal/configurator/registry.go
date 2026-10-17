@@ -340,16 +340,6 @@ func ManagesMCPConfig(p Provider) bool {
 	return ok && d.ManagesMCPConfig()
 }
 
-// ProjectMCPShadowsGlobal reports whether a same-named server in the provider's
-// project MCP cell replaces the user-scoped one inside that project, so that a
-// workspace entry restricted to the workspace's KBs is the only one the session
-// sees (D717 WP0). Only a client whose vendor documentation states entry-level
-// replacement qualifies; every other one is false until a probe says otherwise
-// (the per-client outcomes are in docs/harnesses.md).
-func ProjectMCPShadowsGlobal(p Provider) bool {
-	return ManagesMCPConfig(p) && p == ProviderClaudeCode
-}
-
 // ErrBaseDirUnset is returned by ResolveBaseDir when a provider declares a
 // BaseDirEnv that is not set in the environment.
 var ErrBaseDirUnset = errors.New("provider base directory environment variable is not set")

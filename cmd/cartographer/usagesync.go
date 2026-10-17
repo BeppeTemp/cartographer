@@ -7,7 +7,6 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -80,20 +79,16 @@ func reportClientSettings(cfg *clientconfig.Config, dir string) bool {
 }
 
 // reportProviders describes each connected agent client: its scope, its bound
-// folders and whether a binding narrows what a session sees (#737).
+// folders and whether a binding narrows what a session sees (D737).
 func reportProviders(cfg *clientconfig.Config) []clientconfig.ReportProvider {
 	out := []clientconfig.ReportProvider{}
 	for _, name := range cfg.Agents {
-		p := clientconfig.ReportProvider{Name: name, Scope: cfg.WorkspaceScope(name)}
-		if p.Scope == clientconfig.ScopeWorkspace {
-			prov := configurator.Provider(name)
-			p.Isolation = "none"
-			if provisioning.HasProjectMCPCell(prov) && configurator.ProjectMCPShadowsGlobal(prov) {
-				p.Isolation = "workspace"
-			}
-			for _, b := range cfg.Workspaces[name] {
-				p.Workspaces = append(p.Workspaces, clientconfig.ReportWorkspace{Path: b.Path, Remote: b.Remote, KBs: b.KBs})
-			}
+		p := clientconfig.ReportProvider{Name: name, Scope: cfg.WorkspaceScope(name), Entry: "http", Isolation: "none"}
+		if cfg.UsesBridge(name, cfg.ServerRoutedPath) {
+			p.Entry, p.Isolation = "bridge", "workspace"
+		}
+		for _, b := range cfg.Workspaces[name] {
+			p.Workspaces = append(p.Workspaces, clientconfig.ReportWorkspace{Path: b.Path, Remote: b.Remote, KBs: b.KBs})
 		}
 		out = append(out, p)
 	}

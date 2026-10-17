@@ -288,9 +288,6 @@ type ApplyOptions struct {
 	// It is authorization, not verification; Signed is never mutated by it.
 	ApprovedMCP map[string]string
 	Lock        Lock // current lockfile
-	// ReservedMCPName is the name of Cartographer's own server entry in this
-	// workspace (D717): a KB mcp artifact carrying it is ignored with a warning.
-	ReservedMCPName string
 
 	// Scope selects which half of the destination matrix this apply writes
 	// through (D193). The zero value is ScopeGlobal, so every existing caller
@@ -1805,11 +1802,6 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			// ignored with a warning, never materialized.
 			result.Warnings = append(result.Warnings, fmt.Sprintf(
 				"hook %q: name reserved by Cartographer (client-generated hook), KB artifact ignored", a.Name))
-			continue
-		}
-		if a.Kind == "mcp" && opts.ReservedMCPName != "" && a.Name == opts.ReservedMCPName {
-			result.Warnings = append(result.Warnings, fmt.Sprintf(
-				"mcp %q: name reserved by Cartographer's own entry in this workspace, KB artifact ignored", a.Name))
 			continue
 		}
 		if !artifactAuthorized(a, opts) {

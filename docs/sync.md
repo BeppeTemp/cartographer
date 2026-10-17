@@ -161,7 +161,7 @@ incremental state to go stale.
 Next to the usage report, and under the same conditions (not a dry run, server reachable), `sync` posts this machine's client
 settings to `POST /api/client-settings` (`reportClientSettings` in `cmd/cartographer/usagesync.go`, built by
 `clientconfig.Report`): keys and origins, the `.cartographer.yaml`, the connected agent clients with their scope, workspace
-bindings and isolation, and the resolved placeholders. The server keeps it in memory for the sending principal and shows it
+bindings (whatever the artifact scope) and the entry kind (`bridge` or `http`), and the resolved placeholders. The server keeps it in memory for the sending principal and shows it
 back to that principal only (`docs/control-plane.md` §Client settings reports). A failure never fails the sync.
 
 ## Writing a placeholder literally, and how deep the repo scan goes
@@ -469,21 +469,32 @@ all. "No KBs" and "several KBs" are distinct explicit states; neither is ever "e
 bound path that is gone or whose git remote has changed is an **error**, never a fall-back — falling
 back is the exposure the scope exists to close.
 
-**Cartographer's own entry (D717).** Skills are scoped by the projection; the tools would not be,
-because the global `cartographer` MCP entry lists every KB of the global binding. So `sync` also
-writes, into each bound workspace's project `mcp` cell, an entry with the **same name** as the global
-one and the routed URL restricted to the workspace's KBs (`…/mcp/routed?kbs=<kb>,…`). A same-named
-project server replaces the user-scoped one, so a session in the workspace sees only those KBs. The
-entry is recorded in the workspace lock as `kind: mcp`, `source: client`, so a manifest never
-removes it and `workspace unbind` prunes it with the rest. Nothing is written, and `sync` prints one
-line per projection, when: the server predates the routed endpoint; the workspace is bound with
-`--no-kb`; every bound KB is unmounted (`?kbs=` cannot say "none", and an entry without it would
-widen to every KB); or the client is not known to let a project server replace the global one. Only
-Claude Code qualifies today; the per-client outcomes are in [harnesses.md](harnesses.md). A KB `mcp`
-artifact named like the server is ignored with a warning. Claude Code asks once to approve a project
-server; Codex reads its project config only in a trusted project (`doctor` hints at it).
+**Which KBs a session reaches: the stdio bridge (D737).** Skills are scoped by the projection; the
+tools are scoped by the global MCP entry. A provider with at least one workspace binding gets, as its
+global entry, `cartographer mcp --provider <p>` (a local stdio command) instead of the HTTP URL. The
+bridge resolves the folder it was started in (`os.Getwd`, never `$PWD`: OpenCode starts its children
+with `$PWD` set to `$HOME`) with the binding table, **deepest binding wins**, so a binding on `$HOME`
+and one on `$HOME/projects/<area>` coexist, and proxies the whole session to the routed endpoint with
+`?kbs=<set>`. The server already enforces the set and refuses any other `kb`. Nothing is written into
+the workspace for this: no `.mcp.json`, no project entry, whichever client.
+Rules: a folder under no binding gets the provider's default set (today's behaviour); an empty
+binding (`--no-kb`), or one whose KBs are all unmounted, gets a session with no Cartographer tools,
+never every KB (the bridge answers the handshake itself and sends nothing to the server); a binding
+whose directory is gone or whose git remote changed serves no KB and says why. A client that declares
+MCP `roots` while the working directory is under no binding is scoped by the union of the bindings its
+roots resolve to; the scope is fixed once, at the start of the session. A provider with no binding keeps
+its HTTP entry, and unbinding the last workspace returns to it on the next `sync`. The bridge reads
+the token from `$CARTOGRAPHER_TOKEN` (or the private token file); the entry never holds it, and for
+Codex, which filters the environment of an MCP server, names the variable in `env_vars`. The command
+is the one found on `PATH`, never the path of the running binary (a versioned Cellar directory). The
+first `sync` after upgrading removes the project entries that D717 wrote into repositories.
+`cartographer workspace resolve [<path>]` prints which binding wins for a folder.
 
-**A projection is not an authorization boundary.** A process running as the same user can read any
+**A projection is not an authorization boundary.** `?kbs=` is a scope filter, not a security
+boundary: the token in the session's environment can reach every KB it allows. Hard isolation needs a
+per-workspace token (D44/D45).
+
+ A process running as the same user can read any
 file on the machine ([D169](decisions/D169-per-provider-kb-binding-a-user-owned-preference-beside.md)). What this prevents is accidental
 exposure and activation, and that is all it claims.
 

@@ -227,10 +227,16 @@ that repository's own project-local directories and nothing KB-sourced is writte
 more. `connect --workspace <repo>` makes the same choice at connect time, which is the only moment
 it is free — a provider-global connect materializes every selected KB into `$HOME` first, and moving
 them afterwards is a migration. `workspace unbind` removes the declaration and the next `sync`
-prunes what was projected there. `sync` also writes Cartographer's own MCP entry, restricted to the
-workspace's KBs, into the project `mcp` cell of the clients that let it replace the global one (D717).
-`workspace list` shows the bindings, with `[gone]` next to a
-directory that is not there any more.
+prunes what was projected there. A binding also scopes the **tools** in every client, with no file
+written into the workspace: `sync` writes the provider's global MCP entry as a local stdio bridge,
+`cartographer mcp --provider <p>`, which serves only the KBs of the folder the session runs in
+(deepest binding wins; an unbound folder keeps the provider's default set; `--no-kb` means no KB,
+never every KB). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
+token (D44/D45). Artifacts stay opt-in per scope (above). `workspace resolve [<path>]` shows which
+binding wins for a folder. `workspace list` shows the bindings, with `[gone]` next to a
+directory that is not there any more (D737, `sync.md` §Workspace scope). Limits: the bridge opens no
+server-push stream; if `cartographer` is not on `PATH` when `sync` runs, the provider keeps its HTTP
+entry with a warning; a client with `roots` in an unbound folder gets a handshake naming no KB.
 
 Existing configurations are untouched: the scope is per provider, absent means the historical global
 catalogue, and no upgrade changes it. Full rules, the project-local destination matrix, the
@@ -832,7 +838,7 @@ one-line note instead of the server group, and the exit code stays 0. The same d
 
 The Atlas Settings page also shows the client, as `sync` last reported it: after every apply, `sync` posts a report to
 `POST /api/client-settings` (`control-plane.md` §Client settings reports): the client schema keys with their origin, the
-`.cartographer.yaml` as on disk, the connected agent clients (scope, isolation of a workspace binding, bound folders and their
+`.cartographer.yaml` as on disk, the connected agent clients (scope, entry kind, bound folders whatever the scope, and their
 KBs) and where each placeholder of the connected KBs resolves on this machine. No secret value, token or file content other
 than that config file. The server keeps it in memory for the sending principal only. Best-effort: a server that is
 unreachable, predates the route or refuses the token costs a debug line, never the sync (D818).

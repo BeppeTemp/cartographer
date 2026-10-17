@@ -53,6 +53,11 @@ type ServerSpec struct {
 	Args    []string
 	Headers map[string]string
 	Env     map[string]string
+	// PassEnv names variables the client must hand on from its own environment
+	// to a stdio server. Most clients start the child with their full
+	// environment and need nothing; Codex filters it and lists the variables in
+	// `env_vars` (D737). Never a value: a secret is not written into a config.
+	PassEnv []string
 }
 
 // Spec is the exported form of toSpec, for callers that write the entry into a
@@ -632,6 +637,15 @@ func emitCodexServer(name string, spec ServerSpec) (*EmitResult, error) {
 				quoted[i] = QuoteTOMLString(arg)
 			}
 			fmt.Fprintf(&sb, "args = [%s]\n", strings.Join(quoted, ", "))
+		}
+		if len(spec.PassEnv) > 0 {
+			// Codex starts an MCP server with a filtered environment, so a
+			// token the server reads from it must be named here (D737).
+			quoted := make([]string, len(spec.PassEnv))
+			for i, v := range spec.PassEnv {
+				quoted[i] = QuoteTOMLString(v)
+			}
+			fmt.Fprintf(&sb, "env_vars = [%s]\n", strings.Join(quoted, ", "))
 		}
 		if len(spec.Env) > 0 {
 			keys := make([]string, 0, len(spec.Env))

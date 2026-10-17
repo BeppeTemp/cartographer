@@ -53,7 +53,7 @@ jobs:
           # Windows: the packages that carry platform-specific files or
           # behaviour (process, service, paths in client configs, git, the
           # execute bit), the installers, and anything named *_windows.go.
-          echo "windows=$(any '^(cmd/|internal/(service|provisioning|configurator|clientconfig|agents|execbit|gitx|kb|repoindex|defaults)/|install\.(sh|ps1)$|test/install/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$)|_windows(_test)?\.go$')" >> "$GITHUB_OUTPUT"
+          echo "windows=$(any '^(cmd/|internal/(service|provisioning|configurator|clientconfig|mcpbridge|agents|execbit|gitx|kb|repoindex|defaults)/|install\.(sh|ps1)$|test/install/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$)|_windows(_test)?\.go$')" >> "$GITHUB_OUTPUT"
 
   test:
     name: test

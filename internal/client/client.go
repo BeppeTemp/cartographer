@@ -619,3 +619,12 @@ func (c *MCPClient) Call(tool string, args any) (json.RawMessage, error) {
 	combined, _ := json.Marshal(texts)
 	return combined, nil
 }
+
+// UnreachableMessage is the text of a request that never got an answer, for
+// callers that speak HTTP themselves but must word the failure the same way
+// (the stdio bridge, D737).
+func UnreachableMessage(reqURL string, err error) string { return unreachableMessage(reqURL, err) }
+
+// UnauthorizedError is the cause of a 401 for this client's credential, naming
+// the environment variable when there is one (D222).
+func (c *MCPClient) UnauthorizedError() error { return c.unauthorizedCauseFor() }

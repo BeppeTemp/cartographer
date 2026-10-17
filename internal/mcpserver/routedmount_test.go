@@ -286,7 +286,7 @@ func TestRoutedMount_MountedButUnbound(t *testing.T) {
 	}
 	res := decodeToolResult(t, resp)
 	text := res.Content[0].Text
-	if !res.IsError || !strings.Contains(text, "mounted on this server but not bound") || !strings.Contains(text, "cartographer sync") {
+	if !res.IsError || !strings.Contains(text, "mounted on this server but not bound") || !strings.Contains(text, "cartographer sync") || !strings.Contains(text, "cartographer workspace resolve") {
 		t.Fatalf("want mounted-but-unbound refusal, got %+v", res)
 	}
 }

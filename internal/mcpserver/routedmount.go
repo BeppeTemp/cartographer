@@ -155,6 +155,14 @@ func (m *MultiKBServer) SetKBAliases(aliases []config.KBAlias) {
 	}
 }
 
+// routedScopeHint is appended to the refusal of a KB outside the connection's
+// set. A client with a workspace binding starts a local bridge that sets the
+// set from the folder the session runs in (D737), so "not allowed" can mean
+// "this folder is bound elsewhere". No local path is sent to the server: the
+// agent is told which command shows the answer on the machine that has it.
+const routedScopeHint = "If the client has a workspace binding, this connection's KB set comes from the folder " +
+	"the session was started in: run `cartographer workspace resolve` there to see which binding applies."
+
 // routedFor resolves the `kbs` query parameter of a routed request to the
 // server that answers it (D288). Absent or empty means every mounted KB. The
 // binding only narrows: the effective set is the requested names that are
@@ -352,7 +360,7 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 			if _, mounted := m.servers[kbName]; mounted {
 				return errorResult(fmt.Sprintf("kb %q is mounted on this server but not bound to this connection (allowed: %s): "+
 					"bind it to this client (cartographer client bind), run cartographer sync, then start a new agent session — "+
-					"an open session keeps the tool list it started with", kbName, allowed)), nil
+					"an open session keeps the tool list it started with. "+routedScopeHint, kbName, allowed)), nil
 			}
 			if containsString(routedUnknown(ctx), kbName) {
 				return errorResult(fmt.Sprintf("kb %q is in this connection's kbs but is not mounted on this server (renamed or removed?): "+
@@ -360,7 +368,7 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 			}
 			return errorResult(fmt.Sprintf("kb %q is not available on this connection — allowed: %s"+
 				"; a KB created after the server started is mounted only by a server restart (cartographer service restart), "+
-				"then cartographer sync and a new agent session", kbName, allowed)), nil
+				"then cartographer sync and a new agent session. "+routedScopeHint, kbName, allowed)), nil
 		}
 		srv := m.servers[kbName]
 		srv.mu.Lock()

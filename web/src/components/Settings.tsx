@@ -442,8 +442,9 @@ function KBName({ name, activeKB }: { name: string; activeKB?: string }) {
 
 /**
  * Where each agent client receives its KBs: everywhere (provider scope) or per
- * bound folder (workspace scope), and whether a binding really narrows what a
- * session sees (issue 737) — a label only: the fix lives in the client.
+ * bound folder (workspace scope), and which global MCP entry the client has:
+ * the local bridge that narrows a session to its folder's KBs, or the plain
+ * HTTP URL (D737). A scope filter, not a security boundary.
  */
 function Workspaces({ providers, activeKB, open }: { providers: ClientProvider[]; activeKB?: string; open: boolean }) {
   return (
@@ -460,18 +461,22 @@ function Workspaces({ providers, activeKB, open }: { providers: ClientProvider[]
               <code className="settings__key">{p.name}</code>
               <span className="settings__chip-row">
                 <span className="pill">{p.scope === "workspace" ? "per workspace" : "every KB, everywhere"}</span>
-                {p.isolation === "workspace" && <span className="pill pill--ok">isolated</span>}
-                {p.isolation === "none" && (
+                {p.isolation === "workspace" && (
                   <span
-                    className="pill pill--warning"
-                    title="This client does not let a project MCP entry replace the global one: a session in a bound folder still reaches every KB the token allows."
+                    className="pill pill--ok"
+                    title="This client starts the Cartographer bridge: a session sees only the KBs bound to its folder."
                   >
-                    not isolated
+                    bridge
+                  </span>
+                )}
+                {p.isolation === "none" && (
+                  <span className="pill" title="This client uses the server URL: a session reaches every KB the client is bound to.">
+                    http
                   </span>
                 )}
               </span>
             </span>
-            {p.scope === "workspace" &&
+            {(p.scope === "workspace" || !!p.workspaces?.length) &&
               (p.workspaces?.length ? (
                 <ul className="settings__ws-list">
                   {p.workspaces.map((w) => (

@@ -37,11 +37,15 @@ type ReportProvider struct {
 	// Scope is "provider" (every KB, under the home directory) or
 	// "workspace" (each bound folder receives its own KBs).
 	Scope string `json:"scope"`
-	// Isolation says whether a workspace-scoped session sees only its KBs
-	// (#737): "workspace" when the client lets the project MCP entry replace
-	// the global one, "none" when the global entry still exposes every KB the
-	// token allows; "" for a provider-scoped client.
-	Isolation  string            `json:"isolation,omitempty"`
+	// Entry is the kind of global MCP entry the client has: "bridge" (the
+	// local stdio bridge, D737, written when the client has a workspace
+	// binding) or "http" (the server URL).
+	Entry string `json:"entry"`
+	// Isolation says whether a session sees only the KBs of its folder:
+	// "workspace" when the client has the bridge, "none" when the global entry
+	// still exposes every KB the token allows. It is a scope filter, not a
+	// security boundary (D737).
+	Isolation  string            `json:"isolation"`
 	Workspaces []ReportWorkspace `json:"workspaces,omitempty"`
 }
 

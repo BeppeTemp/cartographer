@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -25,6 +26,9 @@ type mcpEntry struct {
 	// reaches the server's default endpoint. Carried so a client-side check can
 	// pair an entry with the KB facts /health reports for it (D152).
 	KBName string
+	// Bridge marks the entry as the local stdio bridge (D737): no URL, the
+	// command is `cartographer mcp --provider <p>`.
+	Bridge bool
 }
 
 // kbTarget is one resolved remote-KB target for a top-level administrative
@@ -374,25 +378,10 @@ func entriesForKBs(baseName, serverURL string, mounted, bound []string, routedPa
 	return entries, nil
 }
 
-// routedBinding is the explicit binding of a provider as it goes into ?kbs=:
-// sorted, deduplicated and, when the server's KB list is known, restricted to
-// what the server mounts.
+// routedBinding is the explicit binding of a provider as it goes into ?kbs=;
+// the rule lives in clientconfig so the stdio bridge applies the same one (D737).
 func routedBinding(mounted, bound []string) []string {
-	live := map[string]bool{}
-	for _, n := range mounted {
-		live[n] = true
-	}
-	seen := map[string]bool{}
-	var out []string
-	for _, n := range bound {
-		if seen[n] || (len(live) > 0 && !live[n]) {
-			continue
-		}
-		seen[n] = true
-		out = append(out, n)
-	}
-	sort.Strings(out)
-	return out
+	return clientconfig.RoutedBinding(mounted, bound)
 }
 
 // managedEntryNames returns every name this client may have owned for the
@@ -418,6 +407,34 @@ func managedEntryNames(baseName string, kbs []string) []string {
 func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseName, serverURL string, mounted []string, routedPath string) (map[string][]mcpEntry, error) {
 	out := make(map[string][]mcpEntry, len(providers))
 	for _, p := range providers {
+		if cfg.UsesBridge(p, routedPath) {
+			// D737: a provider with a workspace binding gets the bridge, which
+			// resolves the session's folder to a KB set itself. It replaces the
+			// HTTP entry whatever the provider's global binding says: the global
+			// binding is only the bridge's answer for an unbound folder.
+			//
+			// URL is the entry the provider had before: where the bridge cannot
+			// be started (no `cartographer` on PATH) it is written instead of
+			// failing the whole run. It is empty when the provider's own binding
+			// said "no KB" or named only unmounted KBs: no entry is better than
+			// one that widens.
+			e := mcpEntry{Name: baseName, Bridge: true}
+			bound, explicit := cfg.BoundKBs(p)
+			if !explicit {
+				bound = mounted
+			}
+			if !explicit || len(routedBinding(mounted, bound)) > 0 || len(mounted) == 0 {
+				fallback, err := entriesForKBs(baseName, serverURL, mounted, bound, routedPath, explicit)
+				if err != nil {
+					return nil, err
+				}
+				if len(fallback) == 1 {
+					e.URL = fallback[0].URL
+				}
+			}
+			out[p] = []mcpEntry{e}
+			continue
+		}
 		bound, explicit := cfg.BoundKBs(p)
 		if !explicit {
 			// The default is "every KB the server currently mounts", so it
@@ -492,7 +509,26 @@ func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string
 		}
 		results := make([]*configurator.EmitResult, 0, len(entries))
 		for _, entry := range entries {
-			r, err := configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider))
+			var r *configurator.EmitResult
+			var err error
+			if entry.Bridge {
+				var spec configurator.ServerSpec
+				if spec, err = bridgeServerSpec(provider, auth, tokenEnv); err == nil {
+					r, err = configurator.EmitServer(entry.Name, spec, configurator.Provider(provider))
+				} else {
+					// The bridge cannot be started here (a sync run by a hook
+					// with a minimal PATH, D300): keep the HTTP entry the
+					// provider had and say why, so no other provider stops.
+					warnings = append(warnings, fmt.Sprintf(
+						"%s: %v; its workspace bindings do not narrow the tools until `cartographer` is on PATH and `cartographer sync` runs again", provider, err))
+					if entry.URL == "" {
+						continue
+					}
+					r, err = configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider))
+				}
+			} else {
+				r, err = configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider))
+			}
 			if err != nil {
 				return nil, nil, fmt.Errorf("emit %s: %w", provider, err)
 			}
@@ -618,4 +654,32 @@ func claudeConfigDirs(home string, cfg *clientconfig.Config) (dirs []string, war
 		warnings = append(warnings, fmt.Sprintf("CLAUDE_CONFIG_DIR=%s is not declared: its .claude.json is not updated; add it to clients.claude.config_dirs in %s", env, clientconfig.FileName))
 	}
 	return dirs, warnings
+}
+
+// bridgeCommand finds the command a client starts for the bridge (D737).
+// TRAP: it is the path found on PATH, never os.Executable(): under Homebrew
+// that resolves to a versioned Cellar directory that the next upgrade deletes,
+// and every client's entry would then point at nothing. Indirected for tests.
+var bridgeCommand = func() (string, error) {
+	path, err := exec.LookPath("cartographer")
+	if err != nil {
+		return "", fmt.Errorf("the MCP bridge needs `cartographer` on PATH so a client can start it: %w", err)
+	}
+	return path, nil
+}
+
+// bridgeServerSpec is the stdio entry of the bridge for one provider. The token
+// is not written anywhere: the bridge reads it from its own environment (or the
+// private token file, D699); only Codex, which filters the environment of an
+// MCP server, has to be told to pass the variable on.
+func bridgeServerSpec(provider string, auth bool, tokenEnv string) (configurator.ServerSpec, error) {
+	command, err := bridgeCommand()
+	if err != nil {
+		return configurator.ServerSpec{}, err
+	}
+	spec := configurator.ServerSpec{Type: "stdio", Command: command, Args: []string{"mcp", "--provider", provider}}
+	if auth && tokenEnv != "" {
+		spec.PassEnv = []string{tokenEnv}
+	}
+	return spec, nil
 }
