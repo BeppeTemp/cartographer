@@ -195,6 +195,9 @@ A value may be a scalar, a block list (`- item` on following lines), or a flow l
 flow form **on one line or across several** (D162), which is what any editor produces when a list gets
 long:
 
+Single-quoted YAML values decode a doubled apostrophe as one apostrophe (`'Don''t panic'` becomes
+`Don't panic`), including in block and flow lists. Apostrophes in double-quoted values stay as written.
+
 ```yaml
 provenance: [
   first/source.md,
