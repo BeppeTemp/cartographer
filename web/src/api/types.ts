@@ -110,6 +110,8 @@ export interface CollectionSummary {
   kind: string;
   concepts: number;
   expanded_concepts: number;
+  /** A map that lists retired pages by design (D820); absent from an older server. */
+  archive?: boolean;
 }
 
 export interface Overview {
@@ -247,6 +249,44 @@ export interface SearchResponse {
   results: SearchHit[] | null;
   /** Nothing live matched, so the hits are archived pages (D322). */
   archived_fallback?: boolean;
+}
+
+/** GET /kbs/{kb}/retired (D820): what the KB retired, where it went and why. */
+export interface RetiredConcept {
+  id: string;
+  title?: string;
+  status: string;
+  map?: string;
+  timestamp?: string;
+  /** Omitted when the caller cannot see the successor. */
+  superseded_by?: string;
+  superseded_by_title?: string;
+  supersede_reason?: string;
+  /** From the root log: absent for a status set by hand. */
+  retired_at?: string;
+  from?: string;
+  reason?: string;
+}
+export interface RetiredMap {
+  name: string;
+  title?: string;
+  kind: string;
+  archive: boolean;
+  retired: number;
+  total: number;
+}
+export interface RetiredJournal {
+  name: string;
+  title?: string;
+  harvest_after?: number;
+  harvest_off?: boolean;
+  waiting: number;
+  archived: number;
+}
+export interface RetiredResponse {
+  concepts: RetiredConcept[];
+  maps: RetiredMap[];
+  journals: RetiredJournal[];
 }
 
 /** GET /kbs/{kb}/changes: changes_since's own response. */

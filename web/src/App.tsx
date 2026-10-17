@@ -50,6 +50,7 @@ import { LeftRail } from "./components/LeftRail";
 import { Sheet, useMediaQuery } from "./components/Sheet";
 import { Splitter } from "./components/Splitter";
 import { Activity } from "./components/Activity";
+import { Retired } from "./components/Retired";
 import { Work } from "./components/Work";
 import { NodeList } from "./components/NodeList";
 import { Health } from "./components/Health";
@@ -352,6 +353,18 @@ export function App() {
       onSelect={(panel) => navigate({ panel, artifact: null })}
     />
   ) : null;
+  // Retired concepts are what happened to the KB: a tab of Activity (D820).
+  const activityTabs = (
+    <PageTabs<"activity" | "retired">
+      label="Activity section"
+      tabs={[
+        ["activity", "Activity"],
+        ["retired", "Retired"],
+      ]}
+      current={view.panel === "retired" ? "retired" : "activity"}
+      onSelect={(panel) => navigate({ panel, artifact: null, hmap: null })}
+    />
+  );
   // The last view of every KB and Map this tab has opened: going back to one
   // shows it at once, and the request below brings it up to date in place,
   // like a live refresh.
@@ -851,6 +864,14 @@ export function App() {
               live={live}
               collections={overview?.collections}
               snapshot={snapshot}
+              tabs={activityTabs}
+              onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
+            />
+          ) : view.panel === "retired" && activeKB ? (
+            <Retired
+              kb={activeKB}
+              live={live}
+              tabs={activityTabs}
               onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
             />
           ) : view.panel === "work" && activeKB ? (
