@@ -399,7 +399,7 @@ const REVIEW: Record<string, { label: string; help: string; fix: string; unit: [
   duplicate_candidate: {
     label: "Possible duplicates",
     help: "Two pages of one map with nearly the same title.",
-    fix: "Merge them, or link them saying how they differ.",
+    fix: "Merge them, or link each to the other saying how they differ.",
     unit: ["pair", "pairs"],
   },
   map_naming: {

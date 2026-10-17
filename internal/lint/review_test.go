@@ -237,10 +237,10 @@ func TestReviewDuplicateCandidate_ResourceNeedsSimilarTitle(t *testing.T) {
 
 func TestReviewDuplicateActionSatellite(t *testing.T) {
 	t.Parallel()
-	if got := duplicateAction(idsOf("m/x", "m/x/y")); !strings.Contains(got, "concept_merge m/x/y into its parent m/x") {
+	if got := duplicateAction(idsOf("m/x", "m/x/y"), false); !strings.Contains(got, "concept_merge m/x/y into its parent m/x") {
 		t.Fatalf("satellite pair: %q", got)
 	}
-	if got := duplicateAction(idsOf("m/x", "m/z")); strings.Contains(got, "concept_merge") {
+	if got := duplicateAction(idsOf("m/x", "m/z"), false); strings.Contains(got, "concept_merge") {
 		t.Fatalf("sibling pair: %q", got)
 	}
 }
@@ -856,5 +856,90 @@ func TestASCIIWordsMatchRegexps(t *testing.T) {
 				t.Errorf("isMixedCase(%q) = %v", w, isMixedCase(w))
 			}
 		}
+	}
+}
+
+// D854: a pair each page links the other is closed; every exclusion is
+// pinned by its own case.
+func TestReviewDuplicateLinkedPair(t *testing.T) {
+	t.Parallel()
+	const mapFile = "---\ntype: Map\ntitle: M\n---\n"
+	page := func(title, body string) string {
+		return "---\ntype: Note\ntitle: " + title + "\n---\n# " + title + "\n\n" + body + "\n"
+	}
+	res := func(title, body string) string {
+		return "---\ntype: Service\ntitle: " + title + "\nresource: https://example.com/gw\n---\n# " + title + "\n\n" + body + "\n"
+	}
+	cases := []struct {
+		name    string
+		files   map[string]string
+		want    string // joined ids of the expected item, "" for none
+		action  string // substring of suggested_action
+		noMatch string // substring the action must not have
+	}{
+		{"unlinked", map[string]string{
+			"m/foo-sync.md": page("Foo Sync", "Plain."), "m/foo-group-sync.md": page("Foo Group Sync", "Plain."),
+		}, "m/foo-group-sync|m/foo-sync", "link each to the other", ""},
+		{"linked both ways", map[string]string{
+			"m/foo-sync.md":       page("Foo Sync", "See [group](foo-group-sync.md)."),
+			"m/foo-group-sync.md": page("Foo Group Sync", "See [sync](foo-sync.md)."),
+		}, "", "", ""},
+		{"one way", map[string]string{
+			"m/foo-sync.md":       page("Foo Sync", "See [group](foo-group-sync.md)."),
+			"m/foo-group-sync.md": page("Foo Group Sync", "Plain."),
+		}, "m/foo-group-sync|m/foo-sync", "link each to the other", ""},
+		{"listed only by the map index", map[string]string{
+			"m/foo-sync.md": page("Foo Sync", "Plain."), "m/foo-group-sync.md": page("Foo Group Sync", "Plain."),
+			"m/index.md": "# M\n\n- [Foo Sync](foo-sync.md)\n- [Foo Group Sync](foo-group-sync.md)\n",
+		}, "m/foo-group-sync|m/foo-sync", "link each to the other", ""},
+		{"links inside code fences", map[string]string{
+			"m/foo-sync.md":       page("Foo Sync", "```\n[group](foo-group-sync.md)\n```"),
+			"m/foo-group-sync.md": page("Foo Group Sync", "```\n[sync](foo-sync.md)\n```"),
+		}, "m/foo-group-sync|m/foo-sync", "link each to the other", ""},
+		{"expanded concept through its index", map[string]string{
+			"m/foo-sync.md":               page("Foo Sync", "See [group](foo-group-sync/index.md)."),
+			"m/foo-group-sync/index.md":   page("Foo Group Sync", "See [sync](../foo-sync.md)."),
+			"m/foo-group-sync/details.md": page("Rollout checklist", "Unrelated."),
+		}, "", "", ""},
+		{"same words, linked both ways", map[string]string{
+			"m/backup-restore.md": page("Backup restore procedure", "See [other](restore-backup.md)."),
+			"m/restore-backup.md": page("The restore of a backup procedure", "See [other](backup-restore.md)."),
+		}, "m/backup-restore|m/restore-backup", "retitle one", ""},
+		{"parent and satellite linked both ways", map[string]string{
+			"m/x.md":   page("Alpha beta gamma", "See [part](x/y.md)."),
+			"m/x/y.md": page("Gamma beta alpha delta", "See [whole](../x.md)."),
+		}, "m/x|m/x/y", "concept_merge m/x/y into its parent m/x", "link each"},
+		{"resource group of two, linked", map[string]string{
+			"m/gw-one.md": res("Gateway one", "See [two](gw-two.md)."),
+			"m/gw-two.md": res("Gateway two", "See [one](gw-one.md)."),
+		}, "", "", ""},
+		{"resource group of three, one pair linked", map[string]string{
+			"m/gw-one.md":   res("Gateway one", "See [two](gw-two.md)."),
+			"m/gw-two.md":   res("Gateway two", "See [one](gw-one.md)."),
+			"m/gw-three.md": res("Gateway three", "Plain."),
+		}, "m/gw-one|m/gw-three|m/gw-two", "link each to the other", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			k := tempKB(t)
+			writeFile(t, k.DataRoot(), "m/_map.md", mapFile)
+			for p, body := range tc.files {
+				writeFile(t, k.DataRoot(), p, body)
+			}
+			dups := itemsOf(review(t, k), ReviewDuplicate)
+			if tc.want == "" {
+				if len(dups) != 0 {
+					t.Fatalf("want no item: %+v", dups)
+				}
+				return
+			}
+			if len(dups) != 1 || strings.Join(dups[0].Concepts, "|") != tc.want {
+				t.Fatalf("want one item %q: %+v", tc.want, dups)
+			}
+			if !strings.Contains(dups[0].SuggestedAction, tc.action) || (tc.noMatch != "" && strings.Contains(dups[0].SuggestedAction, tc.noMatch)) {
+				t.Fatalf("action %q, want %q", dups[0].SuggestedAction, tc.action)
+			}
+		})
 	}
 }
