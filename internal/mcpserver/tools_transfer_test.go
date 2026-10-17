@@ -439,6 +439,36 @@ func TestConceptTransfer_RefusesIgnoredFiles(t *testing.T) {
 	}
 }
 
+// TestConceptTransfer_RefusesFilesTheTargetIgnores: a file the target's
+// .gitignore excludes would miss the target commit and be deleted from the
+// source, so the transfer is refused before either KB changes (#873).
+func TestConceptTransfer_RefusesFilesTheTargetIgnores(t *testing.T) {
+	t.Parallel()
+	f := newTransferFixture(t)
+	if err := os.WriteFile(filepath.Join(f.b.Root, ".gitignore"), []byte("*.csv\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	xferCommit(t, f.b)
+	xferWrite(t, f.a, "notes/report/index.md", "---\ntype: Note\ntitle: R\n---\nr\n")
+	xferWrite(t, f.a, "notes/report/assets/data.csv", "a,b\n")
+	xferCommit(t, f.a)
+	headA, headB := xferHead(t, f.a), xferHead(t, f.b)
+
+	res := f.transfer(t, `{"target_kb":"kb-b","moves":[{"source_id":"notes/report","target_id":"wiki/report"}]}`)
+	if !res.IsError || !strings.Contains(xferText(res), "assets/data.csv") {
+		t.Fatalf("want a refusal naming the file the target ignores, got: %s", xferText(res))
+	}
+	if xferHead(t, f.a) != headA || xferHead(t, f.b) != headB {
+		t.Error("a KB changed on refusal")
+	}
+	if _, err := os.Stat(filepath.Join(f.b.DataRoot(), "wiki", "report")); !os.IsNotExist(err) {
+		t.Errorf("nothing may be written in the target, stat: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(f.a.DataRoot(), "notes", "report", "assets", "data.csv")); err != nil {
+		t.Error("the file must stay in the source")
+	}
+}
+
 // TestConceptTransfer_TargetAuthorizesEverySatellite: the destination slot of
 // each satellite is checked with that satellite's own type (#783).
 func TestConceptTransfer_TargetAuthorizesEverySatellite(t *testing.T) {

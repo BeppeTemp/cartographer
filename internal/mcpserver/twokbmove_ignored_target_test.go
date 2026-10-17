@@ -63,11 +63,14 @@ func TestTwoKBMove_ConceptTransferTargetIgnoreRuleLosesNoFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	xferCommit(t, f.a)
-	ignore := filepath.Join(f.b.Root, ".gitignore")
+	// The rule travels with the dossier: committed after the asset, it leaves
+	// the source's tracked copy alone, and the pre-check on the target's rules
+	// (#873) cannot see it, so only the target commit check catches it.
+	ignore := filepath.Join(f.a.DataRoot(), "notes", "dossier", ".gitignore")
 	if err := os.WriteFile(ignore, []byte("*.png\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	xferCommit(t, f.b)
+	xferCommit(t, f.a)
 	headA := xferHead(t, f.a)
 	const call = `{"target_kb":"kb-b","moves":[{"source_id":"notes/dossier","target_id":"wiki/dossier"}]}`
 	srcFiles := []string{"data/notes/dossier/index.md", "data/notes/dossier/diagram.png"}
@@ -93,7 +96,7 @@ func TestTwoKBMove_ConceptTransferTargetIgnoreRuleLosesNoFile(t *testing.T) {
 	if err := os.Remove(ignore); err != nil {
 		t.Fatal(err)
 	}
-	xferCommit(t, f.b)
+	xferCommit(t, f.a)
 	if res := f.transfer(t, call); res.IsError {
 		t.Fatalf("the retry after removing the ignore rule: %s", xferText(res))
 	}
@@ -166,11 +169,14 @@ func TestTwoKBMove_TargetCommitFailureRemovesIgnoredCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	xferCommit(t, f.a)
-	ignore := filepath.Join(f.b.Root, ".gitignore")
+	// The rule travels with the dossier: committed after the asset, it leaves
+	// the source's tracked copy alone, and the pre-check on the target's rules
+	// (#873) cannot see it, so only the target commit check catches it.
+	ignore := filepath.Join(f.a.DataRoot(), "notes", "dossier", ".gitignore")
 	if err := os.WriteFile(ignore, []byte("*.png\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	xferCommit(t, f.b)
+	xferCommit(t, f.a)
 	hook := filepath.Join(f.b.Root, ".git", "hooks", "pre-commit")
 	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
 		t.Fatal(err)
@@ -196,7 +202,7 @@ func TestTwoKBMove_TargetCommitFailureRemovesIgnoredCopies(t *testing.T) {
 	if err := os.Remove(ignore); err != nil {
 		t.Fatal(err)
 	}
-	xferCommit(t, f.b)
+	xferCommit(t, f.a)
 	if res := f.transfer(t, call); res.IsError {
 		t.Fatalf("the retry after the cause is gone: %s", xferText(res))
 	}

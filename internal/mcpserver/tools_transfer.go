@@ -410,6 +410,24 @@ func planTransfer(src, dst *kb.KB, p transferParams) (*transferPlan, *ToolResult
 			if len(ignored) > 0 {
 				return nil, errRes(errorResult(fmt.Sprintf("concept_transfer: %q holds files the source KB's .gitignore excludes (%s): move or delete them first", m.SourceID, strings.Join(kb.CapList(ignored, 10), ", "))))
 			}
+			// The same on the target side (#873): a destination path the target
+			// ignores is left out of the target commit, and the source removal
+			// would then delete the only committed copy.
+			dstPaths := make([]string, 0, len(files))
+			for _, f := range files {
+				rel, rerr := filepath.Rel(dst.Root, filepath.Join(dstLoc.Dir, filepath.FromSlash(f.rel)))
+				if rerr != nil {
+					return nil, errRes(errorResult(fmt.Sprintf("concept_transfer: %q: %v", m.TargetID, rerr)))
+				}
+				dstPaths = append(dstPaths, filepath.ToSlash(rel))
+			}
+			dstIgnored, ierr := gitx.IgnoredPaths(dst.Root, dstPaths)
+			if ierr != nil {
+				return nil, errRes(errorResult(fmt.Sprintf("concept_transfer: %q: list files the target ignores: %v", m.TargetID, ierr)))
+			}
+			if len(dstIgnored) > 0 {
+				return nil, errRes(errorResult(fmt.Sprintf("concept_transfer: the target KB's .gitignore excludes %s: move or delete them first, or change the target's ignore rules", strings.Join(kb.CapList(dstIgnored, 10), ", "))))
+			}
 			it.files = files
 			if err := src.WalkConcepts(func(id okf.ConceptID, _ string) error {
 				idStr := string(id)
