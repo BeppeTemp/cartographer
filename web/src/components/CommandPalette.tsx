@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchSearch } from "../api/client";
+import { canSearchArchived } from "../api/static";
 import { nameOf } from "../lib/names";
 import type { GraphNode, SearchHit } from "../api/types";
 import { collectionVar } from "../lib/palette";
@@ -28,6 +29,8 @@ interface Row {
   showId: boolean;
   collection: string;
   snippet?: string;
+  /** The page is archived (D322): marked, since a default search hides these. */
+  archived?: boolean;
 }
 
 /** Snippets are raw Markdown excerpts: heading marks and emphasis are noise
@@ -49,6 +52,11 @@ function cleanSnippet(s: string): string {
  */
 export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEgg }: Props) {
   const [textHits, setTextHits] = useState<SearchHit[]>([]);
+  // Archived pages stay out of a search unless asked for, as for an agent
+  // (D820); the choice lasts for this opening only.
+  const [includeArchived, setIncludeArchived] = useState(false);
+  // The server found nothing live and answered with archived pages instead.
+  const [archivedFallback, setArchivedFallback] = useState(false);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -64,6 +72,7 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
     picked.current = false;
     setQuery("");
     setCursor(0);
+    setIncludeArchived(false);
     // The effect runs after mount, so the input is already in the tree: focus
     // it now rather than a frame later, or the first keystroke goes nowhere.
     inputRef.current?.focus();
@@ -77,28 +86,35 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
   useEffect(() => {
     const needle = query.trim();
     setTextHits([]);
+    setArchivedFallback(false);
     // A secret phrase (lib/eggs.ts) is not a search worth sending.
     if (!open || !kb || needle.length < 2 || eggsFor(needle)) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      fetchSearch(kb, needle, controller.signal)
+      fetchSearch(kb, needle, controller.signal, includeArchived)
         // No hit comes back as `results: null` (the search tool's own encoding).
-        .then((r) => setTextHits(r.results ?? []))
+        .then((r) => {
+          setTextHits(r.results ?? []);
+          setArchivedFallback(r.archived_fallback === true);
+        })
         .catch(() => undefined);
     }, TEXT_DEBOUNCE_MS);
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [open, kb, query]);
+  }, [open, kb, query, includeArchived]);
 
   const titleMatches = useMemo(() => {
     const needle = query.trim().toLowerCase();
+    // Archived pages stay out of a title match too, as out of a search (D820):
+    // the snapshot lists them, so the toggle is what lets them in.
+    const pool = includeArchived ? nodes : nodes.filter((node) => node.status !== "archived");
     const matches = needle
-      ? nodes.filter(
+      ? pool.filter(
           (node) => node.id.toLowerCase().includes(needle) || (node.title ?? "").toLowerCase().includes(needle),
         )
-      : nodes;
+      : pool;
     return [...matches]
       .sort((a, b) => {
         // A name that starts with the query beats a substring buried in it.
@@ -108,7 +124,7 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
         return nameOf(a).localeCompare(nameOf(b));
       })
       .slice(0, MAX_RESULTS);
-  }, [nodes, query]);
+  }, [nodes, query, includeArchived]);
 
   const results: Row[] = useMemo(() => {
     const rows: Row[] = titleMatches.map((node) => ({
@@ -116,6 +132,7 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
       name: nameOf(node),
       showId: !!node.title,
       collection: node.collection ?? "",
+      archived: node.status === "archived",
     }));
     const seen = new Set(rows.map((r) => r.id));
     for (const hit of textHits) {
@@ -133,6 +150,7 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
         showId: !!hit.title,
         collection: hit.id.includes("/") ? hit.id.slice(0, hit.id.indexOf("/")) : "",
         snippet,
+        archived: hit.archived === true,
       });
     }
     return rows.slice(0, MAX_RESULTS);
@@ -206,6 +224,11 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
             }
           }}
         />
+        {archivedFallback && (
+          <p className="palette__note" role="status">
+            Nothing live matched: these are archived pages.
+          </p>
+        )}
         <ul id="palette-results" className="palette__results" role="listbox" ref={listRef}>
           {egg && (
             <li
@@ -252,6 +275,7 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
                   {row.showId && <span className="palette__id">{row.id}</span>}
                   {row.snippet && <span className="palette__snippet">{row.snippet}</span>}
                 </span>
+                {row.archived && <span className="pill palette__badge">Archived</span>}
                 <span className="palette__hint">{row.collection}</span>
               </li>
             ))
@@ -262,6 +286,19 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
           <kbd className="kbd">&darr;</kbd> to move
           <kbd className="kbd">Enter</kbd> to open
           <kbd className="kbd">Esc</kbd> to dismiss
+          {kb && canSearchArchived() && (
+            <button
+              type="button"
+              className="palette__toggle"
+              aria-pressed={includeArchived}
+              onClick={() => {
+                setIncludeArchived((v) => !v);
+                inputRef.current?.focus();
+              }}
+            >
+              Include archived
+            </button>
+          )}
         </footer>
       </div>
     </div>

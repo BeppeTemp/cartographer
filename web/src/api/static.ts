@@ -171,3 +171,11 @@ export async function staticSearch(path: string): Promise<SearchResponse | null>
   const params = new URLSearchParams(search[1]);
   return searchIndex(await loadIndex(), params.get("q") ?? "", Number(params.get("limit") ?? "20"));
 }
+
+/**
+ * Whether a search can include archived pages (D820). The exported index keeps
+ * no status, so a snapshot cannot tell them apart; a live origin can.
+ */
+export function canSearchArchived(): boolean {
+  return !STATIC_MODE || currentSource() === "live";
+}

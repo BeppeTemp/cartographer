@@ -237,12 +237,16 @@ export interface SearchHit {
   title?: string;
   snippet?: string;
   score: number;
+  /** The page's status is archived (D322); a default search leaves these out. */
+  archived?: boolean;
 }
 export interface SearchResponse {
   query: string;
   count: number;
   /** null when nothing matched. */
   results: SearchHit[] | null;
+  /** Nothing live matched, so the hits are archived pages (D322). */
+  archived_fallback?: boolean;
 }
 
 /** GET /kbs/{kb}/changes: changes_since's own response. */
