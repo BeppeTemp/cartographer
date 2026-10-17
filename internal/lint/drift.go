@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -92,14 +93,20 @@ func (d driftData) conceptFindings(relPath string, fm *okf.Frontmatter, contract
 	// unless a declared spelling matches it (that spelling's case fix still
 	// applies) or the page's map is strict, where validate refuses the page
 	// too and the warning stays.
-	if typ := fm.Type(); typ != "" && len(d.palette) > 0 && !d.palette[typ] && !strings.HasPrefix(typ, "{{") && !d.keyedExempt(typ, contract) {
+	// A strict map admits only its own concept_types: a type another strict
+	// map declares is in the KB-wide palette but still refused here (#896).
+	typ := fm.Type()
+	strict := contract != nil && contract.OntologyMode == "strict"
+	if strict && typ != "" && d.palette[typ] && !slices.Contains(contract.ConceptTypes, typ) && !strings.HasPrefix(typ, "{{") {
+		out = append(out, newFinding("unknown_type", Finding{Path: relPath,
+			Message: fmt.Sprintf("type %q is not one of this map's concept_types (%s) — fix: add it to the map's concept_types (map_update), or move the page", typ, strings.Join(contract.ConceptTypes, ", "))}))
+	} else if typ != "" && len(d.palette) > 0 && !d.palette[typ] && !strings.HasPrefix(typ, "{{") && !d.keyedExempt(typ, contract) {
 		var match []string
 		for known := range d.palette {
 			if strings.EqualFold(known, typ) {
 				match = append(match, known)
 			}
 		}
-		strict := contract != nil && contract.OntologyMode == "strict"
 		f := Finding{Path: relPath}
 		known := make([]string, 0, len(d.palette))
 		for t := range d.palette {
