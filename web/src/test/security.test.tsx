@@ -42,6 +42,13 @@ describe("markdown is rendered as untrusted content", () => {
     expect(internal).not.toHaveAttribute("target");
   });
 
+  it("opens a protocol-relative link in a new tab, never in the Atlas's own", () => {
+    const { container } = render(<Markdown>{"[away](//example.invalid/page)"}</Markdown>);
+    const link = container.querySelector('a[href="//example.invalid/page"]');
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+  });
+
   it("never fetches a remote image", () => {
     const { container } = render(<Markdown>{"![alt](https://example.invalid/pixel.gif)"}</Markdown>);
     expect(container.querySelector("img")).toBeNull();

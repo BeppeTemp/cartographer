@@ -48,7 +48,8 @@ export function Markdown({
                 </a>
               );
             }
-            const external = !!href && /^[a-z][a-z0-9+.-]*:/i.test(href) && !href.startsWith("#");
+            // A protocol-relative "//host" leaves the origin as surely as a scheme does.
+            const external = !!href && /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(href);
             return (
               <a
                 {...props}
