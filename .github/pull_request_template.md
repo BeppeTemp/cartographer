@@ -9,7 +9,8 @@ split by work package, or this body starts a line with `Size exception:` and why
 
 ## What
 
-<!-- One bullet per behaviour that changes: before → after. -->
+<!-- One bullet per behaviour that changes: before → after. A fix for a regression
+also names the PR that introduced it, on a line of its own: `Regression-of: #<n>`. -->
 
 ## Plan
 
