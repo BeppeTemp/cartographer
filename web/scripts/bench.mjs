@@ -292,3 +292,4 @@ for (const kb of kbs) {
 
 console.log(JSON.stringify({ renderer, readyMs, kbs: kbs.length }));
 await browser.close();
+process.exit(0); // the child server keeps the event loop alive: the exit handler stops it
