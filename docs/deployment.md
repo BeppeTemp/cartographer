@@ -776,8 +776,10 @@ binary; skills left out for failing validation are listed above the catalog.
 Every kind a KB can hold gets a chip and a section, **whether or not the KB
 ships one** (D864): the page is also how a reader learns what a KB can provide
 to its agent clients. An empty kind's section is one line: what the kind is,
-where its files go in the KB (`skills/<name>/SKILL.md`, shown as text), the
-clients that receive it or "Stays in the KB: no client receives it" for a
+where its files go in the KB (`skills/<name>/SKILL.md`, shown as text; for MCP
+servers with the reminder that a descriptor is listed only when the server's
+`mcp_allowlist` for the KB allows it, so a file that was written and still shows
+0 is explained), the clients that receive it or "Stays in the KB: no client receives it" for a
 template, and a *Docs* link to the page that explains it on GitHub (the
 repository's `main`, in a new tab). The kinds, their order, paths and docs come
 from the server (`kinds` in `GET …/artifacts`, from `provisioning.Kinds`); the

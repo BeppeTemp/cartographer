@@ -17,6 +17,17 @@ const KIND_ABOUT: Record<string, string> = {
   template: "The shape a new concept of a type starts from.",
 };
 
+/**
+ * A condition on the files of a kind, said where an empty kind tells the reader
+ * where to put them: a file that is written and still not listed would
+ * otherwise read as a bug. An MCP descriptor is served only when the server's
+ * `mcp_allowlist` for the KB names it, and the catalog drops the diagnostic
+ * (docs/sync.md §MCP servers).
+ */
+const KIND_NEEDS: Record<string, string> = {
+  mcp: "listed only when the server's mcp_allowlist for this KB allows the server",
+};
+
 /** Kinds in reading order: what an agent does, then what it is told. Used only
  *  when the server does not send its own list (`kinds`, D864). */
 const KINDS: [string, string][] = [
@@ -383,7 +394,8 @@ function EmptyKindAbout({ info }: { info: ArtifactKindInfo }) {
   return (
     <p className="catalog__about">
       {about && `${about} `}
-      Files go in <code>{info.kb_path}</code>.{" "}
+      Files go in <code>{info.kb_path}</code>
+      {KIND_NEEDS[info.kind] && `, ${KIND_NEEDS[info.kind]}`}.{" "}
       {info.kb_only || info.clients.length === 0
         ? "Stays in the KB: no client receives it."
         : `Synced to ${info.clients.map((c) => c.name || c.id).join(", ")}.`}{" "}

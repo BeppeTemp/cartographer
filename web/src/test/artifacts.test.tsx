@@ -174,6 +174,12 @@ describe("the Artifacts panel", () => {
     expect(within(hooks).getByText("hooks/<name>/hook.json").tagName).toBe("CODE");
     expect(within(hooks).getByText(/Synced to Claude Code, Codex CLI\./)).toBeInTheDocument();
     expect(within(hooks).getByText(/Commands a client runs on its own events\./)).toBeInTheDocument();
+    // A descriptor the server's allowlist does not name is never listed: the
+    // empty section says so, or a reader who wrote the file would see 0 and guess.
+    const mcp = within(nav).getByRole("region", { name: "MCP servers" });
+    expect(within(mcp).getByText("mcp/<name>.json").tagName).toBe("CODE");
+    expect(within(mcp).getByText(/mcp_allowlist for this KB allows the server/)).toBeInTheDocument();
+    expect(within(hooks).queryByText(/mcp_allowlist/)).not.toBeInTheDocument();
     const templates = within(nav).getByRole("region", { name: "Templates" });
     expect(within(templates).getByText(/Stays in the KB: no client receives it\./)).toBeInTheDocument();
     expect(within(templates).queryByText(/Synced to/)).not.toBeInTheDocument();
