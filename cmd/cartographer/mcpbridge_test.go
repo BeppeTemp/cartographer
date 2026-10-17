@@ -41,7 +41,7 @@ func TestEntriesSwitchBetweenHTTPAndBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if e := got["claude"]; len(e) != 1 || !e[0].Bridge || e[0].Name != "cartographer" || e[0].URL != "" {
+	if e := got["claude"]; len(e) != 1 || !e[0].Bridge || e[0].Name != "cartographer" {
 		t.Fatalf("claude (bound) = %+v, want the bridge", e)
 	}
 	if e := got["codex"]; len(e) != 1 || e[0].Bridge || e[0].URL != "https://example.com/mcp/routed" {
@@ -273,5 +273,53 @@ func TestCmdMCPUsesTheWorkingDirectoryNotPWD(t *testing.T) {
 func TestCmdMCPRequiresAProvider(t *testing.T) {
 	if code := cmdMCP(nil); code != 2 {
 		t.Fatalf("exit %d, want 2", code)
+	}
+}
+
+// A provider whose MCP configuration is not managed (hermes, D141) never has a
+// bridge: the report and `workspace resolve` must not claim one.
+func TestUnmanagedProviderNeverUsesTheBridge(t *testing.T) {
+	cfg := bridgeConfigFor(t, "hermes")
+	cfg.Workspaces = map[string][]clientconfig.WorkspaceBinding{"hermes": {{Path: t.TempDir(), KBs: []string{"kb-a"}}}}
+	if cfg.UsesBridge("hermes", "/mcp/routed") {
+		t.Fatal("hermes has no managed MCP config")
+	}
+	if p := reportProviders(cfg)[0]; p.Entry != "http" || p.Isolation != "none" {
+		t.Fatalf("report = %+v", p)
+	}
+	if out := renderWorkspaceResolve(cfg, t.TempDir(), []string{"hermes"}); !strings.Contains(out, "entry: http") {
+		t.Fatalf("resolve = %s", out)
+	}
+}
+
+// With no `cartographer` on PATH the provider keeps its HTTP entry, a warning
+// says why, and the other providers are still written.
+func TestMissingBridgeCommandFallsBackToHTTPWithAWarning(t *testing.T) {
+	old := bridgeCommand
+	bridgeCommand = func() (string, error) { return "", os.ErrNotExist }
+	t.Cleanup(func() { bridgeCommand = old })
+
+	cfg := bridgeConfigFor(t, "claude", "codex")
+	if err := cfg.BindWorkspace("claude", t.TempDir(), []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := entriesByProviderForKBs(cfg, []string{"claude", "codex"}, "cartographer", cfg.ServerURL, cfg.KnownKBs, "/mcp/routed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	_, warnings, err := applyMCPEntries(entries, []string{"claude", "codex"}, dir, nil, true, "CARTOGRAPHER_TOKEN", false)
+	if err != nil {
+		t.Fatalf("a missing bridge command must not fail the run: %v", err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "claude") || !strings.Contains(warnings[0], "PATH") {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	claude, _ := os.ReadFile(filepath.Join(dir, ".claude.json"))
+	if !strings.Contains(string(claude), "https://example.com/mcp/routed") || strings.Contains(string(claude), `"command"`) {
+		t.Fatalf("claude kept no HTTP entry: %s", claude)
+	}
+	if codex, _ := os.ReadFile(filepath.Join(dir, ".codex/config.toml")); !strings.Contains(string(codex), "https://example.com/mcp/routed") {
+		t.Fatalf("codex was not written: %s", codex)
 	}
 }

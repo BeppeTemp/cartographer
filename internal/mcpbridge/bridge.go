@@ -121,6 +121,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 	}()
 
 	var wg sync.WaitGroup
+	defer b.closeSession()
 	defer wg.Wait()
 	var stash [][]byte
 	next := func() (line, bool) {
@@ -156,6 +157,16 @@ func (b *Bridge) Run(ctx context.Context) error {
 		switch {
 		case m.Method == "initialize":
 			b.noteInitialize(m.Params)
+			if m.isRequest() && b.wantsRoots() {
+				// The folder is under no binding and the client has roots: the
+				// final set is not known until `initialized`, and a server
+				// cannot ask for roots before it has answered. Forwarding now
+				// would put the instructions of another set (naming its KBs)
+				// into a session that ends up with a different one, so the
+				// handshake is answered here without naming any KB.
+				b.answerInitialize(m, rootsPendingInstructions)
+				continue
+			}
 		case m.Method == "notifications/initialized":
 			if b.wantsRoots() {
 				stash = b.askRoots(ctx, lines, stash)
@@ -291,19 +302,7 @@ func (b *Bridge) answerLocally(scope Scope, m message) {
 	}
 	switch m.Method {
 	case "initialize":
-		var p struct {
-			ProtocolVersion string `json:"protocolVersion"`
-		}
-		_ = json.Unmarshal(m.Params, &p)
-		if p.ProtocolVersion == "" {
-			p.ProtocolVersion = "2025-06-18"
-		}
-		b.writeResult(m.ID, map[string]any{
-			"protocolVersion": p.ProtocolVersion,
-			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "cartographer", "version": orUnknown(b.Version)},
-			"instructions":    noKBInstructions(scope),
-		})
+		b.answerInitialize(m, noKBInstructions(scope))
 	case "tools/list":
 		b.writeResult(m.ID, map[string]any{"tools": []any{}})
 	case "ping":
@@ -313,6 +312,28 @@ func (b *Bridge) answerLocally(scope Scope, m message) {
 	default:
 		b.writeError(m.ID, -32601, "method not found")
 	}
+}
+
+// rootsPendingInstructions is the handshake text while the client's roots decide
+// the set. It names no KB: the tool list that follows is the real answer.
+const rootsPendingInstructions = "Cartographer's KBs for this session are chosen from the workspace roots " +
+	"the client reports; list the tools to see them."
+
+// answerInitialize answers the handshake locally.
+func (b *Bridge) answerInitialize(m message, instructions string) {
+	var p struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	_ = json.Unmarshal(m.Params, &p)
+	if p.ProtocolVersion == "" {
+		p.ProtocolVersion = "2025-06-18"
+	}
+	b.writeResult(m.ID, map[string]any{
+		"protocolVersion": p.ProtocolVersion,
+		"capabilities":    map[string]any{"tools": map[string]any{}},
+		"serverInfo":      map[string]any{"name": "cartographer", "version": orUnknown(b.Version)},
+		"instructions":    instructions,
+	})
 }
 
 func orUnknown(v string) string {
@@ -470,4 +491,37 @@ func mirroredName(m message) string {
 		return p.URI
 	}
 	return ""
+}
+
+// closeSession ends the server-side session, if the server opened one. The
+// routed server is stateless and opens none, so this is normally a no-op; it
+// keeps the bridge correct against a server that does. Best effort.
+//
+// Not done: the optional GET stream. Server notifications and requests that
+// are not part of a POST response never reach the client; the routed server
+// sends none (D737).
+func (b *Bridge) closeSession() {
+	b.mu.Lock()
+	sid, scope := b.sessionID, b.scope
+	b.mu.Unlock()
+	if sid == "" || scope == nil || scope.None() {
+		return
+	}
+	reqURL, err := b.endpoint(*scope)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Mcp-Session-Id", sid)
+	if b.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+b.Token)
+	}
+	if resp, err := b.HTTP.Do(req); err == nil {
+		resp.Body.Close()
+	}
 }

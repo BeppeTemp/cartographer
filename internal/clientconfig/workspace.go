@@ -2,6 +2,7 @@ package clientconfig
 
 import (
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -338,6 +339,10 @@ func RoutedBinding(mounted, bound []string) []string {
 // bridge (D737) rather than the HTTP URL: it has at least one workspace binding
 // and the server has the routed endpoint the bridge proxies to. The single rule
 // both the entry writer and the Atlas report apply.
+//
+// A provider whose MCP configuration Cartographer does not manage (hermes, D141)
+// never has a bridge entry: nothing is written for it, so nothing is claimed.
 func (c *Config) UsesBridge(provider, routedPath string) bool {
-	return routedPath != "" && len(c.Workspaces[provider]) > 0
+	return routedPath != "" && len(c.Workspaces[provider]) > 0 &&
+		configurator.ManagesMCPConfig(configurator.Provider(provider))
 }

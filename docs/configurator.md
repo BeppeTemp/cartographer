@@ -234,7 +234,9 @@ written into the workspace: `sync` writes the provider's global MCP entry as a l
 never every KB). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
 token (D44/D45). Artifacts stay opt-in per scope (above). `workspace resolve [<path>]` shows which
 binding wins for a folder. `workspace list` shows the bindings, with `[gone]` next to a
-directory that is not there any more (D737, `sync.md` §Workspace scope).
+directory that is not there any more (D737, `sync.md` §Workspace scope). Limits: the bridge opens no
+server-push stream; if `cartographer` is not on `PATH` when `sync` runs, the provider keeps its HTTP
+entry with a warning; a client with `roots` in an unbound folder gets a handshake naming no KB.
 
 Existing configurations are untouched: the scope is per provider, absent means the historical global
 catalogue, and no upgrade changes it. Full rules, the project-local destination matrix, the

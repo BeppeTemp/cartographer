@@ -412,7 +412,27 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 			// resolves the session's folder to a KB set itself. It replaces the
 			// HTTP entry whatever the provider's global binding says: the global
 			// binding is only the bridge's answer for an unbound folder.
-			out[p] = []mcpEntry{{Name: baseName, Bridge: true}}
+			//
+			// URL is the entry the provider had before: where the bridge cannot
+			// be started (no `cartographer` on PATH) it is written instead of
+			// failing the whole run. It is empty when the provider's own binding
+			// said "no KB" or named only unmounted KBs: no entry is better than
+			// one that widens.
+			e := mcpEntry{Name: baseName, Bridge: true}
+			bound, explicit := cfg.BoundKBs(p)
+			if !explicit {
+				bound = mounted
+			}
+			if !explicit || len(routedBinding(mounted, bound)) > 0 || len(mounted) == 0 {
+				fallback, err := entriesForKBs(baseName, serverURL, mounted, bound, routedPath, explicit)
+				if err != nil {
+					return nil, err
+				}
+				if len(fallback) == 1 {
+					e.URL = fallback[0].URL
+				}
+			}
+			out[p] = []mcpEntry{e}
 			continue
 		}
 		bound, explicit := cfg.BoundKBs(p)
@@ -495,6 +515,16 @@ func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string
 				var spec configurator.ServerSpec
 				if spec, err = bridgeServerSpec(provider, auth, tokenEnv); err == nil {
 					r, err = configurator.EmitServer(entry.Name, spec, configurator.Provider(provider))
+				} else {
+					// The bridge cannot be started here (a sync run by a hook
+					// with a minimal PATH, D300): keep the HTTP entry the
+					// provider had and say why, so no other provider stops.
+					warnings = append(warnings, fmt.Sprintf(
+						"%s: %v; its workspace bindings do not narrow the tools until `cartographer` is on PATH and `cartographer sync` runs again", provider, err))
+					if entry.URL == "" {
+						continue
+					}
+					r, err = configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider))
 				}
 			} else {
 				r, err = configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider))

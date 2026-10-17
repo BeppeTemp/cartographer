@@ -271,8 +271,13 @@ func TestBridgeRootsFallback(t *testing.T) {
 	}
 
 	send(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{}},"clientInfo":{"name":"t","version":"1"}}}`)
-	if _, ok := read()["result"]; !ok {
+	initRes, ok := read()["result"].(map[string]any)
+	if !ok {
 		t.Fatal("no initialize result")
+	}
+	// The handshake must not name KBs of a set the roots may still replace.
+	if instr, _ := initRes["instructions"].(string); instr != rootsPendingInstructions || strings.Contains(instr, "kb-") {
+		t.Fatalf("initialize instructions = %q", instr)
 	}
 	send(initedMsg)
 	req := read()
@@ -313,4 +318,44 @@ func TestBridgeBoundFolderIgnoresRoots(t *testing.T) {
 	if _, asked := got[`"cartographer-roots-1"`]; asked {
 		t.Fatal("bridge asked for roots inside a binding")
 	}
+}
+
+// The scope at initialize can be "no KB" (the provider's own binding is empty)
+// and the roots can still bind a non-empty set: later requests must reach the
+// server, which is stateless and needs no session opened by initialize.
+func TestBridgeRootsLiftAnEmptyProviderScope(t *testing.T) {
+	rs := newRoutedServer(t, "kb-a", "kb-b")
+	cfg := bridgeConfig(rs)
+	cfg.Clients = map[string]clientconfig.ClientBinding{"claude": {KBsSet: true}} // bound to no KB
+	ws := mkdir(t, t.TempDir())
+	bind(t, cfg, ws, "kb-b")
+
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir(), Token: testToken, In: inR, Out: outW, Log: io.Discard}
+	go func() { _ = b.Run(context.Background()); outW.Close() }()
+	sc := bufio.NewScanner(outR)
+	sc.Buffer(make([]byte, 1<<20), 1<<24)
+	read := func() map[string]any {
+		if !sc.Scan() {
+			t.Fatalf("stdout closed early: %v", sc.Err())
+		}
+		var m map[string]any
+		_ = json.Unmarshal(sc.Bytes(), &m)
+		return m
+	}
+	send := func(s string) { _, _ = io.WriteString(inW, s+"\n") }
+
+	send(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{}},"clientInfo":{"name":"t","version":"1"}}}`)
+	read()
+	send(initedMsg)
+	req := read()
+	send(string(mustJSON(map[string]any{"jsonrpc": "2.0", "id": req["id"],
+		"result": map[string]any{"roots": []any{map[string]any{"uri": fileURI(ws)}}}})))
+	send(listMsg)
+	res, _ := read()["result"].(map[string]any)
+	if tools, _ := res["tools"].([]any); len(tools) == 0 {
+		t.Fatalf("tools/list after roots is empty: %v", res)
+	}
+	inW.Close()
 }

@@ -36,3 +36,11 @@ on `PATH`, never `os.Executable()` (a versioned Cellar path); Codex needs the to
 `env_vars`. Release impact: a provider with a binding changes its global entry from HTTP to a stdio
 command on the first `sync` after the upgrade. Antigravity and Kiro IDE were not probed; a host that
 spawns outside the workspace and declares no roots gets the default set.
+
+Limits. When the folder is unbound and the client declares `roots`, a server cannot ask for them
+before it has answered `initialize`, so the bridge answers that handshake itself with instructions
+that name no KB, then asks once after `initialized`; the tool list that follows carries the real set.
+The bridge does not open the optional GET stream, so server messages outside a POST response are
+lost (the routed server sends none); it sends a DELETE for a server-opened session on exit. Where
+`cartographer` is not on `PATH` at `sync` time (a hook with a minimal `PATH`), the provider keeps its
+HTTP entry and `sync` warns: its bindings do not narrow the tools until the next `sync` finds it.
