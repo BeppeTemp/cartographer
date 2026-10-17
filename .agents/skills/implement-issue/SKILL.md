@@ -40,7 +40,7 @@ state; the plans are read by the subagents that implement them.
   agent definition (Claude `claude-sonnet-5-5`, Kiro `claude-sonnet-5.5`, Codex
   `terra-6`): the plan already carries the design, so the implementer executes,
   and the coordinator's §3 read is the quality gate.
-- **The code is read by `pr-reviewer`, not by the coordinator** (§3): the
+- **The code is read by the tier's reviewers, not by the coordinator** (§3): the
   coordinator reads the triage, the findings it has verified and the hunks §3
   names — never the whole diff of a standard or full tier PR.
 - **Run everything in the background** and act on completion notifications:
@@ -115,7 +115,8 @@ side and the implementer on the author side. Trust the disk, not the
 subagent's report — report text can be garbled or compressed.
 
 - **Light tier**: the coordinator reads `gh pr diff <pr>` itself; one round.
-- **Standard and full tier**: spawn `pr-reviewer` on `.worktrees/<slug>` (round 1,
+- **Standard and full tier**: spawn the reviewers of the tier (`review-pr` §3:
+  `pr-reviewer`, plus `security-reviewer` on full) on `.worktrees/<slug>` (round 1,
   plan = the issue number), verify its findings per `review-pr` §4, and send the
   **verified** findings — never the raw report — to the implementer that wrote
   the PR (§Per-client mechanics). The fix mandate: add commits on the branch,

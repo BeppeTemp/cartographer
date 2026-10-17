@@ -90,7 +90,7 @@ first (D703).
    `make gate` until green. The coordinator writes the decision file: it holds
    the why.
 3. Review: `review-pr` run on the draft PR — `triage.sh` on the branch,
-   `pr-reviewer` on the worktree, rounds per `review-pr` §5, fixes by you or a
+   the reviewers of the tier on the worktree, rounds per `review-pr` §5, fixes by you or a
    `live-implementer`. You have already read every step's diff (§2), so this pass
    is the independent read. The user tried the behaviour; nobody else has read
    the code. A review that returns no findings after no work has not happened: check that
@@ -144,4 +144,4 @@ release-please reads both.
 | **Kiro** | `orchestrate_subagent` with the `live-implementer` agent |
 | **Antigravity** | no project agent: make the change yourself |
 
-To spawn `pr-reviewer`, see `review-pr` §Per-client mechanics.
+To spawn the reviewers, see `review-pr` §Per-client mechanics.
