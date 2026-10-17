@@ -351,43 +351,6 @@ export interface KBStatus {
   stale_count?: number;
 }
 
-/** GET /kbs/{kb}/maintenance/summary (D323). */
-export interface MaintenanceRepair {
-  sha: string;
-  at: string;
-  subject: string;
-  reason?: string;
-  files: number;
-  /** Made by the server's own heartbeat, not by a kb_repair someone ran. */
-  background: boolean;
-  /** The command that undoes it: shown, never run, by the Atlas. */
-  revert: string;
-}
-export interface MaintenanceRun {
-  at: string;
-  skipped?: string;
-  checks?: { check: string; applied: number; skipped?: number; commit?: string; error?: string }[];
-}
-/** One daily sample of the whole-KB lint totals (D370). */
-export interface LintSample {
-  at: string;
-  total: number;
-  by_severity: Record<string, number>;
-  by_handler: Record<string, number>;
-}
-export interface MaintenanceSummary {
-  auto_repair: { enabled: boolean; default: boolean; checks: string[]; interval_days: number };
-  last_auto_repair: MaintenanceRun | null;
-  last_doctor?: string;
-  next_doctor?: string;
-  doctor_interval_days: number;
-  /** The background repair's runs of the last 30 days, newest first (D365). */
-  runs?: MaintenanceRun[];
-  /** One sample a day of the lint totals, oldest first, 90 days at most (D370). */
-  lint_history?: LintSample[];
-  repairs: MaintenanceRepair[];
-}
-
 /** GET /kbs/{kb}/maintenance/review (D704): the doctor's agenda beyond lint. */
 export interface ReviewItem {
   kind: string;

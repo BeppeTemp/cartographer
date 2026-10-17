@@ -6,7 +6,7 @@ import { NodeList } from "../components/NodeList";
 import { LeftRail } from "../components/LeftRail";
 import { Health } from "../components/Health";
 import { json, stubApi } from "./fixtures";
-import type { GraphNode, KBStatus, LintReport, MaintenanceReview, MaintenanceSummary, Overview } from "../api/types";
+import type { GraphNode, KBStatus, LintReport, MaintenanceReview, Overview } from "../api/types";
 
 const nodes: GraphNode[] = [
   { id: "infra/gateway", collection: "infra", type: "Service", in_degree: 4, out_degree: 1 },
@@ -134,13 +134,6 @@ const report: LintReport = {
   severity_min: "info",
 };
 
-const upkeep: MaintenanceSummary = {
-  auto_repair: { enabled: true, default: true, checks: ["nonstandard_field"], interval_days: 1 },
-  last_auto_repair: null,
-  doctor_interval_days: 1,
-  repairs: [],
-};
-
 const catalog = {
   categories: ["pages", "links"],
   checks: [
@@ -157,7 +150,6 @@ function health(
     report: LintReport;
     scopeTitle: string | null;
     status: KBStatus | null;
-    summary: MaintenanceSummary | null;
     checks: typeof catalog | null;
     review: MaintenanceReview | null;
     collections: { name: string; title: string; kind: string; concepts: number; expanded_concepts: number }[];
@@ -168,7 +160,6 @@ function health(
     <Health
       report={props.report ?? report}
       status={props.status ?? null}
-      summary={props.summary ?? null}
       checks={"checks" in props ? props.checks : catalog}
       review={"review" in props ? props.review : { items: [] }}
       collections={props.collections}
@@ -291,13 +282,6 @@ describe("health page field", () => {
 });
 
 describe("health: what it checks", () => {
-  const day = (daysAgo: number, total: number) => ({
-    at: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
-    total,
-    by_severity: {},
-    by_handler: {},
-  });
-
   it("explains how checking works, folds every category, and lists each rule with its sentence", async () => {
     const user = userEvent.setup();
     render(health({ checks: catalog }));
@@ -333,17 +317,6 @@ describe("health: what it checks", () => {
     expect(idle).toHaveAttribute("title", "glossary.yaml declares no forbidden term");
     expect(idle).not.toHaveTextContent(/\b0\b/);
     expect(screen.getByText(/In this KB:/)).toHaveTextContent("1 have nothing to read here");
-  });
-
-  it("shows the week's movement, and nothing with one sample", async () => {
-    const user = userEvent.setup();
-    const { unmount } = render(health({ checks: catalog, summary: { ...upkeep, lint_history: [day(0, 40)] } }));
-    await user.click(screen.getByRole("button", { name: "What it checks" }));
-    expect(screen.queryByRole("heading", { name: /^Trend/ })).not.toBeInTheDocument();
-    unmount();
-    render(health({ checks: catalog, summary: { ...upkeep, lint_history: [day(6, 188), day(0, 40)] } }));
-    await user.click(screen.getByRole("button", { name: "What it checks" }));
-    expect(screen.getByText("188 → 40 this week")).toBeInTheDocument();
   });
 });
 

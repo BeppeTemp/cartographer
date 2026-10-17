@@ -22,7 +22,6 @@ import type {
   ChangesResponse,
   KBStatus,
   MaintenanceReview,
-  MaintenanceSummary,
   RetiredResponse,
   SearchResponse,
   WorkResponse,
@@ -250,10 +249,6 @@ export function fetchWork(kb: string, signal?: AbortSignal): Promise<WorkRespons
   return get<WorkResponse>(`/kbs/${encodeURIComponent(kb)}/work?limit=200`, signal);
 }
 
-/** What the server repaired by itself and what the doctor left (D323). */
-export function fetchMaintenanceSummary(kb: string, signal?: AbortSignal): Promise<MaintenanceSummary> {
-  return get<MaintenanceSummary>(`/kbs/${encodeURIComponent(kb)}/maintenance/summary`, signal);
-}
 
 /** Every lint check the server runs, by category (D365). */
 export function fetchChecks(kb: string, signal?: AbortSignal): Promise<CheckCatalog> {

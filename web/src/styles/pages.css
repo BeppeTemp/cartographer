@@ -808,22 +808,6 @@ button.row {
   gap: var(--space-2);
 }
 
-/* The lint trend (D370): totals then and now, a sparkline of the daily samples. */
-.health__trend {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.health__trend[data-trend="better"] {
-  color: var(--sev-ok);
-}
-
-.health__spark {
-  flex: none;
-}
-
 .health__group + .health__group {
   margin-block-start: var(--space-4);
 }

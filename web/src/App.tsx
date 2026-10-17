@@ -12,7 +12,6 @@ import {
   fetchLint,
   fetchMaps,
   fetchMaintenanceReview,
-  fetchMaintenanceSummary,
   fetchOverview,
   fetchStatus,
   fetchConflicts,
@@ -33,7 +32,6 @@ import type {
   LintReport,
   MapContract,
   MaintenanceReview,
-  MaintenanceSummary,
   Overview,
 } from "./api/types";
 import { Artifacts } from "./components/Artifacts";
@@ -135,7 +133,6 @@ export function App() {
   // kb_status's knowledge signals for Health; a principal that cannot see
   // the whole KB gets a 404 and those parts are simply absent.
   const [kbStatus, setKbStatus] = useState<KBStatus | null>(null);
-  const [maintenance, setMaintenance] = useState<MaintenanceSummary | null>(null);
   const [checks, setChecks] = useState<CheckCatalog | null>(null);
   // The doctor's agenda beyond lint (D704); null leaves it out of Health.
   const [review, setReview] = useState<MaintenanceReview | null>(null);
@@ -552,14 +549,12 @@ export function App() {
     replaceView(next);
   }, [view, activeKB, kbs, secretsAllowed]);
 
-  // Health's whole-KB reads (D338): kb_status and the maintenance summary
-  // answer 404 to a principal that cannot see the whole KB, which is not an
+  // Health's whole-KB reads (D338): kb_status answers 404 to a principal that cannot see the whole KB, which is not an
   // error to show — the page leaves those parts out. The review items are
   // filtered per principal and always answer.
   useEffect(() => {
     if (view.panel !== "health" || !activeKB || phase !== "ready") {
       setKbStatus(null);
-      setMaintenance(null);
       setChecks(null);
       setReview(null);
       setContradictions(null);
@@ -572,7 +567,6 @@ export function App() {
     if (healthKB.current !== activeKB) {
       healthKB.current = activeKB;
       setKbStatus(null);
-      setMaintenance(null);
       setChecks(null);
       setReview(null);
       setContradictions(null);
@@ -591,11 +585,6 @@ export function App() {
     fetchConflicts(activeKB, controller.signal)
       .then((res) => setConflicts(Array.isArray(res) ? res : []))
       .catch(() => undefined);
-    fetchMaintenanceSummary(activeKB, controller.signal)
-      .then(setMaintenance)
-      .catch((err) => {
-        if (!controller.signal.aborted) handleFailure(err);
-      });
     // The coverage list: without it Health simply leaves the section out.
     const sources = [
       fetchChecks(activeKB, controller.signal).then(setChecks),
@@ -892,7 +881,6 @@ export function App() {
             <Health
               report={lint}
               status={kbStatus}
-              summary={maintenance}
               checks={checks}
               review={review}
               contradictions={contradictions}

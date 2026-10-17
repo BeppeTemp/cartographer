@@ -154,16 +154,6 @@ func TestKBStatusLintTrend(t *testing.T) {
 	}
 }
 
-// The Health summary carries the history as an array, even when empty.
-func TestUIAPI_MaintenanceSummaryLintHistory(t *testing.T) {
-	t.Parallel()
-	handler := maintenanceHandler(t, auth.NewTokenStore(nil))
-	body := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/maintenance/summary", ""))
-	if h, ok := body["lint_history"].([]any); !ok || h == nil {
-		t.Fatalf("lint_history = %v", body["lint_history"])
-	}
-}
-
 // The history never invalidates the lint cache it is written from, but the
 // rest of .cartographer does: usage.json is an input of artifact_unused.
 func TestLintHistoryOutsideTheStampUsageInside(t *testing.T) {

@@ -44,8 +44,8 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   reported `resolved` by `kb_status` before that (D319). Deleting the file is
   the only manual reset. `lint-history.jsonl` (D370) holds one sample a day of
   the whole-KB lint totals (`{at, total, by_severity, by_handler}`, the latest
-  of the UTC day, 90 days kept, pruned on write): derived state for the Health
-  trend and `kb_status.lint_trend`, rewritten whole, never in the KB's git
+  of the UTC day, 90 days kept, pruned on write): derived state for
+  `kb_status.lint_trend`, rewritten whole, never in the KB's git
   history, and lost harmlessly with the volume (the trend restarts from the
   next lint). `usage.json` (D326) holds the artifact usage clients
   report on `sync`: on an `emptyDir` it is lost at every restart, and until each

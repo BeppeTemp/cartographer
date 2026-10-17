@@ -7,9 +7,7 @@ import type {
   KBStatus,
   LintFinding,
   LintReport,
-  LintSample,
   MaintenanceReview,
-  MaintenanceSummary,
   ReviewItem,
 } from "../api/types";
 import {
@@ -26,7 +24,6 @@ import {
 import { Count, Page, PageHeader, PageSection, Quiet, Segmented, SkeletonRows } from "./Page";
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
-import { LintTrend } from "./LintTrend";
 import { ErrorState } from "./States";
 
 /**
@@ -35,20 +32,19 @@ import { ErrorState } from "./States";
  * page field (one square per page, clustered by Map) and lists one row per
  * kind -- a lint check or a kind of kb_review proposal -- problems first, then
  * suggestions; an open row says what it is and how to fix it. *What it checks*
- * explains the rules by category, with the result on this KB and the trend.
+ * explains the rules by category, with the result on this KB.
  *
  * Like the rest of the Atlas it reads and never writes: a fix happens in a
  * kb-doctor session the operator starts from an agent.
  *
  * The agenda is filtered by the page's own Map picker (the rail only
- * navigates). Status and the maintenance summary describe the whole KB, so a
- * principal that cannot see all of it gets neither (both 404) and the page
+ * navigates). Status describes the whole KB, so a
+ * principal that cannot see all of it does not get it (404) and the page
  * shows what it can.
  */
 export function Health({
   report,
   status,
-  summary,
   checks,
   review = null,
   contradictions = null,
@@ -67,8 +63,6 @@ export function Health({
   report: LintReport | null;
   /** kb_status's knowledge signals; null when the principal cannot see the whole KB. */
   status: KBStatus | null;
-  /** The maintenance summary (D323); null when not visible or not arrived. */
-  summary: MaintenanceSummary | null;
   /** Every check the server runs (D365); null leaves the reference out. */
   checks?: CheckCatalog | null;
   /** The doctor's proposals beyond lint (D704); null leaves them out. */
@@ -192,7 +186,7 @@ export function Health({
       )}
 
       {tab === "checks" && checks && settled ? (
-        <Coverage catalog={checks} report={report} review={review?.items ?? []} trend={summary?.lint_history} />
+        <Coverage catalog={checks} report={report} review={review?.items ?? []} />
       ) : (
         <>
           {/* Over the whole KB, not the chosen Map: a clean Map must not take
@@ -729,12 +723,10 @@ function Coverage({
   catalog,
   report,
   review,
-  trend,
 }: {
   catalog: CheckCatalog;
   report: LintReport;
   review: ReviewItem[];
-  trend?: LintSample[];
 }) {
   const count = (name: string) => report.by_check[name] ?? 0;
   // A check that cannot run here (D371) is neither clean nor dirty: its zero would lie.
@@ -801,7 +793,6 @@ function Coverage({
           </>
         )}
       </p>
-      <LintTrend history={trend} />
 
       <div className="rules">
         {groups.map(([title, about, rules]) => {
