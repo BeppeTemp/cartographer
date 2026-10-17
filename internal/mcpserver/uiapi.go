@@ -556,13 +556,12 @@ func uiLint(w http.ResponseWriter, r *http.Request, srv *Server) {
 		})
 	}
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{
-		"findings":      rows,
-		"count":         len(rows),
-		"total":         len(findings),
-		"by_severity":   bySeverity,
-		"by_check":      byCheck,
-		"acceptability": checkAcceptability(byCheck),
-		"severity_min":  severityMin,
+		"findings":     rows,
+		"count":        len(rows),
+		"total":        len(findings),
+		"by_severity":  bySeverity,
+		"by_check":     byCheck,
+		"severity_min": severityMin,
 	})
 }
 
@@ -728,14 +727,4 @@ func uiFindingConcept(path string) string {
 		return id
 	}
 	return strings.TrimSuffix(p, ".md")
-}
-
-// checkAcceptability maps each reported check to where it can be accepted
-// with lint_ignore or lint_accept (D313, D332): "concept", "map", "artifact" or "none".
-func checkAcceptability(byCheck map[string]int) map[string]string {
-	out := make(map[string]string, len(byCheck))
-	for check := range byCheck {
-		out[check] = lint.CheckAcceptability(check)
-	}
-	return out
 }

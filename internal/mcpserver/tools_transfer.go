@@ -713,7 +713,7 @@ func applyTransferTarget(src, dst *kb.KB, pl *transferPlan) (transferTargetOut, 
 		if !ok {
 			continue
 		}
-		if contract, err := dst.ReadMapContract(mapName); err == nil && contract.Index != kb.IndexGenerated && contract.RequireIndexEntry {
+		if contract, err := dst.ReadMapContract(mapName); err == nil && contract.Index != kb.IndexGenerated {
 			if err := appendCuratedEntry(dst, mapName, okf.ConceptID(it.toID)); err != nil {
 				out.notes = append(out.notes, fmt.Sprintf("curated index %s/index.md: %v", mapName, err))
 			} else {

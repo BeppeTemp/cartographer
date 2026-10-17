@@ -204,7 +204,6 @@ func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {
 // from a doctor session planning its mechanical pass.
 func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor string, intervalDays int, now time.Time) map[string]interface{} {
 	bySev := map[string]int{}
-	acceptability := map[string]string{}
 	fixable := 0
 	repairable := map[string]int{}
 	actionable := 0
@@ -218,7 +217,6 @@ func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor s
 		if !conformanceChecks[f.Check] {
 			continue
 		}
-		acceptability[f.Check] = lint.CheckAcceptability(f.Check)
 		bySev[f.Severity]++
 		if f.Fix != nil {
 			fixable++
@@ -228,7 +226,6 @@ func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor s
 		"findings":         bySev,
 		"fixable":          fixable,
 		"repairable":       repairable,
-		"acceptability":    acceptability,
 		"lint_findings":    len(findings),
 		"doctor_suggested": (actionable+reviewTotal) > 0 && doctorDue(lastDoctor, intervalDays, now),
 	}
@@ -257,9 +254,6 @@ type conformanceCache struct {
 	stamp    string
 	cached   bool // true once findings has been set (findings may be nil = no issues)
 	findings []lint.Finding
-	// sups is the suppression inventory of the same run (D834), cached and
-	// invalidated with findings.
-	sups []lint.Suppression
 
 	// lastDoctorDate, cached on the root log file's mtime+size.
 	doctorDate string
@@ -410,45 +404,32 @@ func (cc *conformanceCache) computeReview(k *kb.KB, gen uint64, stamp string) ([
 // serve stale findings. The result is never nil, so callers can tell "cached,
 // no findings" from "not computed".
 func (cc *conformanceCache) lintFindings(k *kb.KB) ([]lint.Finding, error) {
-	findings, _, err := cc.lintResult(k)
-	return findings, err
-}
-
-// lintResult is lintFindings that also returns the suppression inventory of
-// the same run (D834): one cache entry, one key.
-func (cc *conformanceCache) lintResult(k *kb.KB) ([]lint.Finding, []lint.Suppression, error) {
 	gen, err := k.GraphGeneration()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	stamp := lintInputsStamp(k)
 	cc.mu.Lock()
 	if cc.cached && gen == cc.gen && stamp == cc.stamp {
-		out, sups := cc.findings, cc.sups
+		out := cc.findings
 		cc.mu.Unlock()
-		return out, sups, nil
+		return out, nil
 	}
 	cc.mu.Unlock()
 	v, err, _ := cc.flight.Do(fmt.Sprintf("lint|%d|%s", gen, stamp), func() (interface{}, error) {
 		return cc.computeLint(k, gen, stamp)
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	r := v.(lintResult)
-	return r.findings, r.sups, nil
-}
-
-type lintResult struct {
-	findings []lint.Finding
-	sups     []lint.Suppression
+	return v.([]lint.Finding), nil
 }
 
 // computeLint is lintFindings' cache miss, run once per key (flight).
-func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) (lintResult, error) {
-	findings, sups, err := lint.RunWithSuppressions(k, "", false, lint.DefaultOptions(k))
+func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) ([]lint.Finding, error) {
+	findings, err := lint.Run(k, "", false)
 	if err != nil {
-		return lintResult{}, err
+		return nil, err
 	}
 	if findings == nil {
 		findings = []lint.Finding{}
@@ -459,7 +440,7 @@ func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) (lin
 	genAfter, gerr := k.GraphGeneration()
 	if gerr == nil && genAfter == gen && lintInputsStamp(k) == stamp {
 		cc.mu.Lock()
-		cc.gen, cc.stamp, cc.findings, cc.sups, cc.cached = gen, stamp, findings, sups, true
+		cc.gen, cc.stamp, cc.findings, cc.cached = gen, stamp, findings, true
 		cc.lintCalls++
 		cc.mu.Unlock()
 		// D370: one sample a day of the unfiltered totals, taken where the
@@ -474,7 +455,7 @@ func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) (lin
 		cc.lintCalls++
 		cc.mu.Unlock()
 	}
-	return lintResult{findings, sups}, nil
+	return findings, nil
 }
 
 // lintInputsStamp fingerprints (path, size, mtime) of every regular file in
