@@ -625,9 +625,8 @@ func uniformManifests(m provisioning.Manifest, providers []string) map[string]pr
 // means the server could not be asked, and leaves the recorded value
 // unchanged: an offline sync must not erase what the client knew. The lockfile
 // always lives in targetDir, but each
-// provider materializes under its OWN base dir (D141: every provider but
-// hermes shares targetDir; hermes writes under $HERMES_HOME), recorded in that
-// provider's Lock so prune and verification later find the same files. autoTrust is explicit authorization for eligible
+// provider materializes under its OWN base dir (a workspace projection writes
+// into its repository), recorded in that provider's Lock so prune and verification later find the same files. autoTrust is explicit authorization for eligible
 // unsigned KB artifacts, passed to ApplyOptions.AutoTrust; it never changes an
 // artifact's Signed verification result. searchRoots/paths come from the loaded
 // clientconfig.Config (cfg.SearchRoots/cfg.Paths) and drive placeholder expansion

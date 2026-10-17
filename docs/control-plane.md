@@ -2,7 +2,7 @@
 
 ## Rationale
 
-**Go**: static binary, performant on I/O across many files, containerizable. **MCP**: an abstraction layer that keeps the system agnostic to the agent (Claude Code, Codex, Kiro, OpenCode and Antigravity all speak the same protocol; Hermes receives artifacts through its deployment integration).
+**Go**: static binary, performant on I/O across many files, containerizable. **MCP**: an abstraction layer that keeps the system agnostic to the agent (Claude Code, Codex, Kiro, OpenCode and Antigravity all speak the same protocol).
 
 ## A (nearly) stateless server
 

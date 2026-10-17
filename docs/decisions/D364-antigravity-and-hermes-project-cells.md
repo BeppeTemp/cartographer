@@ -4,6 +4,8 @@ topic: sync-provisioning
 
 # D364 — Antigravity and Hermes get project-local cells; co-owned paths survive a prune
 
+> The Hermes half is superseded by [D898](D898-hermes-support-is-removed.md); Antigravity's cells and the co-owned paths stay.
+
 **Decision.** Antigravity projects all five kinds into a workspace: `skill` to `.agents/skills/<n>/`, `agent` to
 `.agents/agents/<n>.md` (the global translation), `hook` to `.agents/hooks/<n>/` registered in `.agents/hooks.json`,
 `mcp` to `.agents/mcp_config.json` (the global `mcpServers` shape) and `instructions` to the `AGENTS.md` marker block.

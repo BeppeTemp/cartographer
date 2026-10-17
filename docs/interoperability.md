@@ -93,7 +93,6 @@ the citation lives next to it in `internal/provisioning/workspacescope.go`.
 | Codex | `.agents/skills`, `.codex/agents`, `.codex/hooks`, `.codex/hooks.json`, `.codex/config.toml`, `AGENTS.md` | [skills](https://developers.openai.com/codex/skills), [subagents](https://developers.openai.com/codex/subagents), [hooks](https://developers.openai.com/codex/hooks), [mcp](https://developers.openai.com/codex/mcp) |
 | Kiro | `.kiro/skills/`, `.kiro/agents/`, `.kiro/steering/`, `.kiro/settings/mcp.json` | [skills](https://kiro.dev/docs/skills/), [custom agents](https://kiro.dev/docs/custom-agents/) |
 | OpenCode | `.opencode/skills`, `.opencode/agent`, `.opencode/hooks`, `opencode.json`, `AGENTS.md` | [skills](https://opencode.ai/docs/skills), [rules](https://opencode.ai/docs/rules), [agents](https://opencode.ai/docs/agents), [plugins](https://opencode.ai/docs/plugins) |
-| Hermes | **none** | its configuration is rendered by its own Ansible role and skills go to one inbox (D141) |
 | Antigravity | **none** | only a global configuration root is documented (D194) |
 | Copilot CLI | `AGENTS.md`, `.agents/skills` | the project mcp, agent and hook locations are gated on folder trust (D676) |
 
@@ -154,22 +153,3 @@ What this means for Cartographer:
 Kiro IDE (workspace `.kiro/hooks/<id>.json` is documented, a global directory
 is not) and Kiro Crew (`~/.kiro/crew/hooks/` is documented) were not installed
 on the probing machine, so no cell claims them.
-
-### Instruction slots Cartographer deliberately does not write
-
-Leveraging a provider to the fullest also means declining to write where the
-write would not survive, or would destroy what another owner maintains. Two
-Hermes slots are unsupported for that reason
-([D141](decisions/D141-hermes-is-a-supported-provider-that-receives.md)), not for lack of a mapping:
-
-- **`SOUL.md`**, its always-on instruction slot — operator-owned and rendered
-  from a template by an Ansible role, so a managed block written there is gone
-  on the next playbook run. The imprinting that reaches every other provider as
-  a `kind: instructions` block simply does not reach Hermes;
-- **`config.yaml`**, its MCP endpoint list — rendered by the same role, for the
-  same reason. `connect hermes` therefore configures no MCP entry and says so.
-
-- **`$HERMES_HOME/skills/`** is a third: not an instruction slot but the
-  agent's own curated skill store, rewritten by its curator from its learning
-  loop. Cartographer delivers proposals to `skill-inbox/<name>/cartographer/`
-  and the agent adopts what it chooses — see [`sync.md`](sync.md) §Hermes.

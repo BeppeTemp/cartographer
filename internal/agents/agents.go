@@ -1,5 +1,5 @@
 // Package agents detects which LLM agent CLIs/apps are installed on the local
-// machine (Claude Code, OpenCode, Codex CLI, Kiro, Hermes, Antigravity), so `cartographer agents`
+// machine (Claude Code, OpenCode, Codex CLI, Kiro, Antigravity), so `cartographer agents`
 // and `cartographer connect all` know which providers to target.
 package agents
 
@@ -22,7 +22,6 @@ const (
 	HeuristicBinary       Heuristic = "binary"         // one of the provider's binaries, found on PATH
 	HeuristicConfigDir    Heuristic = "config-dir"     // a config directory under the home directory
 	HeuristicEnvConfigDir Heuristic = "env-config-dir" // a config directory anchored at an environment variable
-	HeuristicProviderRoot Heuristic = "provider-root"  // the provider's own root directory (D141)
 	HeuristicAppDir       Heuristic = "app-dir"        // an application-installation directory for this GOOS
 )
 
@@ -102,13 +101,6 @@ func detect(d configurator.Descriptor, home string) Agent {
 		dir := filepath.Join(append([]string{base}, ed.Segments...)...)
 		if dirExists(dir) {
 			return a.found(HeuristicEnvConfigDir, dir)
-		}
-	}
-	// A provider with its own root directory (D141: $HERMES_HOME) is installed
-	// if that root exists — it is the same evidence `connect` needs anyway.
-	if d.BaseDirEnv != "" {
-		if root := getenv(d.BaseDirEnv); dirExists(root) {
-			return a.found(HeuristicProviderRoot, root)
 		}
 	}
 	// Per-GOOS rather than a darwin-only field: the descriptor should be able to

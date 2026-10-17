@@ -276,22 +276,6 @@ func TestCmdMCPRequiresAProvider(t *testing.T) {
 	}
 }
 
-// A provider whose MCP configuration is not managed (hermes, D141) never has a
-// bridge: the report and `workspace resolve` must not claim one.
-func TestUnmanagedProviderNeverUsesTheBridge(t *testing.T) {
-	cfg := bridgeConfigFor(t, "hermes")
-	cfg.Workspaces = map[string][]clientconfig.WorkspaceBinding{"hermes": {{Path: t.TempDir(), KBs: []string{"kb-a"}}}}
-	if cfg.UsesBridge("hermes", "/mcp/routed") {
-		t.Fatal("hermes has no managed MCP config")
-	}
-	if p := reportProviders(cfg)[0]; p.Entry != "http" || p.Isolation != "none" {
-		t.Fatalf("report = %+v", p)
-	}
-	if out := renderWorkspaceResolve(cfg, t.TempDir(), []string{"hermes"}); !strings.Contains(out, "entry: http") {
-		t.Fatalf("resolve = %s", out)
-	}
-}
-
 // With no `cartographer` on PATH the provider keeps its HTTP entry, a warning
 // says why, and the other providers are still written.
 func TestMissingBridgeCommandFallsBackToHTTPWithAWarning(t *testing.T) {

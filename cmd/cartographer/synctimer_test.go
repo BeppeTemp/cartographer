@@ -92,9 +92,9 @@ func TestPrintSyncTimerHint_KiroNamesWhereItsHookFires(t *testing.T) {
 	t.Cleanup(func() { syncTimerStatusFn = old })
 	syncTimerStatusFn = func() (service.SyncTimerStatus, error) { return service.SyncTimerStatus{}, nil }
 
-	out := withStdout(t, func() { printSyncTimerHint([]string{"hermes", "kiro"}) })
-	if !strings.Contains(out, "hermes has no session-start hook") {
-		t.Errorf("hermes must still be named as hookless: %q", out)
+	out := withStdout(t, func() { printSyncTimerHint([]string{"crush", "kiro"}) })
+	if !strings.Contains(out, "crush has no session-start hook") {
+		t.Errorf("crush must still be named as hookless: %q", out)
 	}
 	if !strings.Contains(out, "kiro's session-start hook fires only in `kiro-cli chat --v3 --tui`") {
 		t.Errorf("kiro must be named with its limit: %q", out)
@@ -179,13 +179,13 @@ func TestKiroHookLimitWarningPrintedOnce(t *testing.T) {
 
 	s := statusSnapshot{Schema: statusSchema, Reachable: true, State: "in_sync", Providers: []providerStatus{
 		{Name: "kiro", Connected: true, HookLimitAcked: true},
-		{Name: "hermes", Connected: true},
+		{Name: "crush", Connected: true},
 	}}
 	out := withStdout(t, func() { renderStatus("table", s, 0) })
 	if strings.Contains(out, "kiro-cli chat --v3 --tui") {
 		t.Errorf("status repeated an acknowledged limit: %q", out)
 	}
-	if !strings.Contains(out, "hermes has no session-start hook") {
+	if !strings.Contains(out, "crush has no session-start hook") {
 		t.Errorf("a hook-less provider must still be named: %q", out)
 	}
 }

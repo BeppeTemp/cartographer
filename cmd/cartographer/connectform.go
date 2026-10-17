@@ -41,10 +41,7 @@ const (
 )
 
 // formProviders are the providers the interactive connect form offers: the
-// ones whose MCP configuration `connect` actually writes. hermes is
-// deliberately absent (D141) — it has no MCP config to write and needs
-// $HERMES_HOME set in the environment, so it is connected from the CLI
-// (`cartographer connect hermes`), where that failure can be stated plainly.
+// ones `connect` can write an MCP entry for.
 //
 // The order is the order of the fieldAgent* constants: providerForField indexes
 // this slice by the field's offset, so a field without an entry here toggles

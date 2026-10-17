@@ -252,51 +252,6 @@ would flip a matrix cell is confirmed with a probe
   opencode/big-pickle` works without credentials, but the free tier refuses some
   custom primary agents ("can only be used from within OpenCode").
 
-## hermes
-
-- **Aligned with**: `v2026.9.24` (v0.21.5) — 2026-10-09, probed in an isolated
-  `HERMES_HOME` (#478).
-- **Sources**: releases <https://github.com/NousResearch/hermes-agent/releases>;
-  docs <https://hermes-agent.nousresearch.com/docs/> (skills, curator, hooks, mcp,
-  personality under `/docs/user-guide/features/`); version: `hermes --version`.
-  The upstream was identified from the repository's own vocabulary
-  (`$HERMES_HOME`, `skill_manage`, curator, `SOUL.md`), not from a cited URL.
-- **Depends on**:
-  - `skill` only, **delivered** to `$HERMES_HOME/skill-inbox/<name>/cartographer/`
-    for the agent to adopt, never installed (D141). The `skill-inbox/` convention
-    is `unverified` upstream: the curator docs say external skills have no
-    dedicated inbox and adoption is `hermes curator adopt` (v2026.8.3). The four
-    other kinds are unsupported for stated reasons (`config.yaml` rendered by an
-    Ansible role, `SOUL.md` operator-owned).
-  - Project-local cell (D364): `skill` only, written to `.hermes/skills/<name>/`
-    (not the inbox), active only when the workspace is in
-    `skills.trusted_project_dirs` of `$HERMES_HOME/config.yaml` (read-only check,
-    `HermesProjectTrusted`; otherwise `inactive` with the hint
-    `hermes skills trust <dir>`). `.agents/skills` is not used: Codex and
-    Antigravity own it. No session hook: sync layer 1 is the scheduled timer
-    (D140/D141).
-- **Probed on v0.21.5** (2026-10-09):
-  - nothing upstream reads `skill-inbox/` (no reference in the installed source);
-    adoption is `hermes curator adopt <name>`. The D141 delivery still works as a
-    hand-off the agent completes, not as a client feature.
-  - shell hooks in the `config.yaml` `hooks:` block fire in the CLI
-    (`on_session_start` in `hermes -z`), once allowlisted (`--accept-hooks` or
-    the allowlist); the command is not run through a shell (`>>` is passed as an
-    argument). No cell: `config.yaml` is operator-owned (D141).
-  - gateway hooks (`$HERMES_HOME/hooks/<name>/`, `HOOK.yaml` + `handler.py`,
-    `session:start`) did not fire from the CLI: gateway-only.
-  - project skills in `.hermes/skills/` and `.agents/skills/` load only after
-    `hermes skills trust <dir>` (`skills.trusted_project_dirs`); untrusted, they
-    are absent. A project `AGENTS.md` is read.
-- **Watch items**: `skills.external_dirs` in `config.yaml` as an alternative to
-  the inbox (not probed).
-- **Probe notes**: probe in a copy of the profile (`HERMES_HOME=/tmp/<dir>`
-  holding copies of `config.yaml`, `auth.json`, `.env`, owned by the user the
-  client runs as), never in the live one. The skill probe checks the inbox, and that `$HERMES_HOME/skills/`
-  is untouched; the agent's adoption may be gated by `skills.write_approval` and
-  by protected-file approval (v2026.8.31). Hooks and project-local skills need a
-  sentinel plus an untrusted negative control.
-
 ## antigravity
 
 - **Aligned with**: CLI `agy` `1.3.2` — 2026-10-09, probed (#478, #639). App

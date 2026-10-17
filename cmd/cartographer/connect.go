@@ -531,11 +531,8 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 		}
 		fmt.Printf("connected: %s\n", p)
 	}
-	// Only providers whose MCP configuration Cartographer writes have tools to
-	// load: telling someone to restart Hermes for MCP tools it never received
-	// contradicts the warning printed above (D147).
-	if mcpProviders := providersManagingMCP(providers); !opts.DryRun && len(mcpProviders) > 0 {
-		fmt.Printf("restart the %s sessions to load the MCP tools\n", strings.Join(mcpProviders, ", "))
+	if !opts.DryRun {
+		fmt.Printf("restart the %s sessions to load the MCP tools\n", strings.Join(providers, ", "))
 	}
 	if res.Deferred {
 		fmt.Println("warning: skill sync deferred (server unreachable); run `cartographer sync` once the server is up")
@@ -770,21 +767,16 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	// the local service does not listen (D231).
 	opts.ServerURL = defaults.MigrateLegacyMCPURL(opts.ServerURL)
 
-	// A provider with a root of its own (D141: $HERMES_HOME) cannot be
-	// connected without it. Fail here, naming the variable, rather than
-	// materializing into the home directory where the agent never looks.
-	for _, p := range opts.Providers {
-		if _, err := provisioning.BaseDirFor(configurator.Provider(p), opts.Dir); err != nil {
-			return connectResult{}, err
-		}
-	}
-
 	// 1. Discover mounted KBs before generating MCP entries. A down server
 	// deliberately falls back to the historical bare entry, so connection can
 	// still be recorded and materialized later with `cartographer sync`.
 	existing, err := clientconfig.Load(opts.Dir)
 	if err != nil {
 		existing = clientconfig.Default()
+	} else {
+		// connect saves the config itself, which drops the name; the lockfile
+		// section goes with the next sync (connect holds no client lock here).
+		handleUnsupportedProviders(opts.Dir, existing, false)
 	}
 	for _, pin := range opts.PinKeys {
 		kbName, key, found := strings.Cut(pin, "=")
@@ -912,14 +904,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	// materialize a KB it is not bound to (D170).
 	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, TokenEnv: opts.TokenEnv, KnownKBs: pullKBs, Clients: existing.Clients, SigningKeys: existing.SigningKeys}
 
-	// The MCP-entry lines report what was emitted, not what was asked for:
-	// entries is built from the client config alone, so keeping it when no
-	// selected provider has an MCP emitter announces a write into a file the
-	// output cannot even name (D147).
 	mcpEntries := allEntryNames(entriesByProvider)
-	if len(providersManagingMCP(opts.Providers)) == 0 {
-		mcpEntries = nil
-	}
 	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: mcpEntries, Warnings: configWarnings}
 	projections, projErr := allProjections(pullCfg, opts.Providers, opts.Dir)
 	if projErr != nil {
@@ -1007,9 +992,6 @@ func syncTokenFile(opts connectOptions) error {
 // actually have an emitter, either would announce a write into a file it does
 // not name and cannot have touched (D147).
 func printMCPEntryLines(providers, entries []string, dryRun bool) {
-	if len(providersManagingMCP(providers)) == 0 {
-		return
-	}
 	for _, entry := range entries {
 		if dryRun {
 			fmt.Printf("[dry-run] would write MCP entry %s\n", entry)
@@ -1026,9 +1008,6 @@ func printMCPEntryLines(providers, entries []string, dryRun bool) {
 // destructive. Under --dry-run this is the half of the plan that was missing
 // entirely (D172 WP4).
 func printMCPEntryRemovals(providers []string, removed map[string][]string, applied []string, dryRun bool) {
-	if len(providersManagingMCP(providers)) == 0 {
-		return
-	}
 	keep := make(map[string]bool, len(applied))
 	for _, name := range applied {
 		keep[name] = true
@@ -1097,20 +1076,6 @@ func sameStringSet(a, b []string) bool {
 		}
 	}
 	return true
-}
-
-// providersManagingMCP filters providers down to those whose MCP configuration
-// Cartographer actually writes. A provider configured outside Cartographer
-// (D141, hermes) receives artifacts but no MCP entry, so every line that talks
-// about MCP must be scoped to this subset rather than to the whole selection.
-func providersManagingMCP(providers []string) []string {
-	out := make([]string, 0, len(providers))
-	for _, p := range providers {
-		if configurator.ManagesMCPConfig(configurator.Provider(p)) {
-			out = append(out, p)
-		}
-	}
-	return out
 }
 
 // resolveConnectKBs decides which KBs this connect binds the target providers

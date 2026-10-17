@@ -1,5 +1,5 @@
 // Package configurator generates MCP configuration files for multiple LLM providers
-// (Claude Code, Codex CLI, Kiro, OpenCode, Hermes, Antigravity, Crush, GitHub Copilot CLI).
+// (Claude Code, Codex CLI, Kiro, OpenCode, Antigravity, Crush, GitHub Copilot CLI).
 package configurator
 
 import (
@@ -79,14 +79,10 @@ func (cfg *ServerConfig) toSpec() ServerSpec {
 type Provider string
 
 const (
-	ProviderClaudeCode Provider = "claude"
-	ProviderCodex      Provider = "codex"
-	ProviderKiro       Provider = "kiro"
-	ProviderOpenCode   Provider = "opencode"
-	// ProviderHermes is Hermes Agent (D141). It is a supported destination
-	// for artifact delivery only: its MCP endpoints are rendered by its own
-	// deployment role, so it has no emitter and no MCP config file here.
-	ProviderHermes      Provider = "hermes"
+	ProviderClaudeCode  Provider = "claude"
+	ProviderCodex       Provider = "codex"
+	ProviderKiro        Provider = "kiro"
+	ProviderOpenCode    Provider = "opencode"
 	ProviderAntigravity Provider = "antigravity"
 	ProviderCrush       Provider = "crush"
 	// ProviderCopilot is the GitHub Copilot CLI (the `copilot` binary, D676), not
@@ -141,12 +137,6 @@ func EmitServer(name string, spec ServerSpec, provider Provider) (*EmitResult, e
 	if !ok {
 		return nil, fmt.Errorf("unknown provider: %s", provider)
 	}
-	if d.emit == nil {
-		// A provider whose MCP configuration Cartographer does not own (D141:
-		// hermes' endpoints are rendered by its Ansible role). Callers skip it
-		// via ManagesMCPConfig; reaching here is a bug, not a user error.
-		return nil, fmt.Errorf("provider %s has no MCP emitter: its MCP configuration is not managed by Cartographer", provider)
-	}
 	return d.emit(name, spec)
 }
 
@@ -177,11 +167,6 @@ func EmitAll(cfg *ServerConfig) ([]*EmitResult, error) {
 	providers := ProviderList()
 	results := make([]*EmitResult, 0, len(providers))
 	for _, p := range providers {
-		if !ManagesMCPConfig(p) {
-			// Nothing to emit for a provider whose MCP configuration lives
-			// outside Cartographer (D141).
-			continue
-		}
 		r, err := Emit(cfg, p)
 		if err != nil {
 			return nil, fmt.Errorf("emit %s: %w", p, err)

@@ -26,11 +26,11 @@ func TestDestinationsFollowTheMatrix(t *testing.T) {
 
 func TestDestinationsSpotChecks(t *testing.T) {
 	agent := Destinations("agent", "reviewer")
-	if !slices.Contains(agent, configurator.ProviderClaudeCode) || slices.Contains(agent, configurator.ProviderHermes) {
-		t.Errorf("agent destinations = %v, want Claude Code and not Hermes", agent)
+	if !slices.Contains(agent, configurator.ProviderClaudeCode) || slices.Contains(agent, configurator.ProviderCrush) {
+		t.Errorf("agent destinations = %v, want Claude Code and not Crush", agent)
 	}
-	if hook := Destinations("hook", "guard"); !slices.Contains(hook, configurator.ProviderKiro) || slices.Contains(hook, configurator.ProviderHermes) {
-		t.Errorf("hook destinations = %v, want Kiro (D300) and not Hermes", hook)
+	if hook := Destinations("hook", "guard"); !slices.Contains(hook, configurator.ProviderKiro) || !slices.Contains(hook, configurator.ProviderClaudeCode) {
+		t.Errorf("hook destinations = %v, want Kiro (D300) and Claude Code", hook)
 	}
 	for _, kind := range []string{"template", "unknown", ""} {
 		if got := Destinations(kind, "x"); len(got) != 0 {

@@ -945,7 +945,7 @@ func TestApply_WarnsEveryRunAboutUnsupportedKinds(t *testing.T) {
 	m := agentManifest(t, kbRoot, "zorro")
 	base := t.TempDir()
 
-	first, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderHermes, BaseDir: base, Lock: provisioning.Lock{}, KBRoots: map[string]string{"homelab": kbRoot}})
+	first, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderCrush, BaseDir: base, Lock: provisioning.Lock{}, KBRoots: map[string]string{"homelab": kbRoot}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -961,7 +961,7 @@ func TestApply_WarnsEveryRunAboutUnsupportedKinds(t *testing.T) {
 		t.Fatalf("first run did not warn: %v", first.Warnings)
 	}
 	// Second run: nothing in the diff, and the warning must still be there.
-	second, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderHermes, BaseDir: base, Lock: first.NewLock, KBRoots: map[string]string{"homelab": kbRoot}})
+	second, err := provisioning.Apply(m, provisioning.ApplyOptions{Provider: configurator.ProviderCrush, BaseDir: base, Lock: first.NewLock, KBRoots: map[string]string{"homelab": kbRoot}})
 	if err != nil {
 		t.Fatal(err)
 	}

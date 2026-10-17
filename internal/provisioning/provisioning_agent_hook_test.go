@@ -300,8 +300,8 @@ func TestApply_DestDir_Matrix(t *testing.T) {
 			if len(res.NeedsApproval) != 0 {
 				t.Errorf("%s/%s: expected materialized, got NeedsApproval: %v", c.kind, c.provider, res.NeedsApproval)
 			}
-			// A skill also gets its generated SOURCE.env (D316), or hermes'
-			// SOURCE.md, after its own files.
+			// A skill also gets its generated SOURCE.env (D316) after its own
+			// files.
 			wantFiles := 1
 			if c.kind == "skill" {
 				wantFiles = 2

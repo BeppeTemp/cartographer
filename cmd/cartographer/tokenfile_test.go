@@ -94,7 +94,7 @@ func TestResolveTokenFallsBackToFile(t *testing.T) {
 	if got := resolveToken(cfg); got != "from-file" {
 		t.Fatalf("resolveToken = %q, want from-file", got)
 	}
-	if err := preflightEnvironment(cfg, cfg.Agents, t.TempDir()); err != nil {
+	if err := preflightEnvironment(cfg); err != nil {
 		t.Fatalf("preflight must accept the token file: %v", err)
 	}
 	t.Setenv("CARTOGRAPHER_TEST_TOKEN", "from-env")
@@ -112,7 +112,7 @@ func TestPreflightNamesBothPlacesAndUnsafeFile(t *testing.T) {
 	setHome(t, home)
 	t.Setenv("CARTOGRAPHER_TEST_TOKEN", "")
 	cfg := authCfg()
-	err := preflightEnvironment(cfg, cfg.Agents, t.TempDir())
+	err := preflightEnvironment(cfg)
 	if err == nil || !strings.Contains(err.Error(), "cartographer reconnect") || !strings.Contains(err.Error(), "$CARTOGRAPHER_TEST_TOKEN") {
 		t.Fatalf("message must name the variable and reconnect: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestPreflightNamesBothPlacesAndUnsafeFile(t *testing.T) {
 	if err := os.WriteFile(clientconfig.TokenPath(home), []byte("tok\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err = preflightEnvironment(cfg, cfg.Agents, t.TempDir())
+	err = preflightEnvironment(cfg)
 	if err == nil || !strings.Contains(err.Error(), "chmod 600") {
 		t.Fatalf("unsafe token file must be named: %v", err)
 	}

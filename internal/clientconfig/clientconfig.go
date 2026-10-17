@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 	"gopkg.in/yaml.v3"
@@ -148,6 +150,12 @@ type Config struct {
 	Update UpdateSettings `yaml:"-"`
 	// Extra retains unknown top-level YAML keys across approval updates.
 	Extra map[string]interface{} `yaml:"-"`
+	// Unsupported lists, sorted, the provider names Load found in the file and
+	// dropped because the registry no longer knows them (D898). They are gone
+	// from Agents, Clients, Scopes and Workspaces in memory, so no caller can
+	// resolve one to a directory; the next Save writes the file without them.
+	// Not persisted. Reported once per run through the commands that print it.
+	Unsupported []string `yaml:"-"`
 }
 
 // UpdateSettings is the `update:` block. Check nil means the default, true;
@@ -411,6 +419,7 @@ func Load(dir string) (*Config, error) {
 		}
 		cfg.Update = UpdateSettings{Check: y.Update.Check, Policy: policy}
 	}
+	cfg.dropUnsupportedProviders()
 	if len(cfg.SearchRoots) == 0 {
 		// Absent `search_roots` key: both brand-new configs and files written
 		// before this field existed default here, matching Default().
@@ -651,4 +660,51 @@ func TargetDir() (string, error) {
 		return "", fmt.Errorf("clientconfig: resolve home dir: %w", err)
 	}
 	return home, nil
+}
+
+// dropUnsupportedProviders removes every provider name the registry no longer
+// knows from the agents list, the per-provider bindings, scopes and workspace
+// bindings, and records the names in Unsupported (D898).
+//
+// A name the registry cannot resolve must never reach code that turns it into a
+// directory or a prune: a removed client leaves configurations naming it, and the generic answer is to skip it, not to guess. It
+// is a rule about the registry, not about one provider, so the next removal is
+// covered by the same path. No file is touched here.
+func (c *Config) dropUnsupportedProviders() {
+	known := func(name string) bool {
+		_, ok := configurator.Lookup(configurator.Provider(name))
+		return ok
+	}
+	seen := map[string]bool{}
+	kept := c.Agents[:0:0]
+	for _, a := range c.Agents {
+		if known(a) {
+			kept = append(kept, a)
+		} else {
+			seen[a] = true
+		}
+	}
+	c.Agents = kept
+	for name := range c.Clients {
+		if !known(name) {
+			seen[name] = true
+			delete(c.Clients, name)
+		}
+	}
+	for name := range c.Scopes {
+		if !known(name) {
+			seen[name] = true
+			delete(c.Scopes, name)
+		}
+	}
+	for name := range c.Workspaces {
+		if !known(name) {
+			seen[name] = true
+			delete(c.Workspaces, name)
+		}
+	}
+	for name := range seen {
+		c.Unsupported = append(c.Unsupported, name)
+	}
+	sort.Strings(c.Unsupported)
 }

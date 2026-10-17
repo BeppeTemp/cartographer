@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -54,6 +53,17 @@ func cmdSync(args []string) int {
 		return 2
 	}
 	if len(cfg.Agents) == 0 {
+		// Nothing left to sync, but a config that listed only a client the
+		// registry dropped (D898) must still be cleaned and say why.
+		if !*dryRun {
+			release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				return 2
+			}
+			defer release()
+		}
+		handleUnsupportedProviders(dir, cfg, !*dryRun)
 		fmt.Println("no agent connected (run `cartographer connect`)")
 		return 0
 	}
@@ -118,7 +128,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 
 	// Before the lock, so a run that cannot succeed takes none, and before the
 	// first network call, so --dry-run is diagnosed exactly like a real sync.
-	if err := preflightEnvironment(cfg, targets, dir); err != nil {
+	if err := preflightEnvironment(cfg); err != nil {
 		return syncResult{}, err
 	}
 
@@ -138,6 +148,8 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			repairStaleServiceBeforeSync(cfg.ServerURL)
 		}
 	}
+	// Under the lock: it rewrites the config and the lockfile (D898).
+	handleUnsupportedProviders(dir, cfg, !opts.DryRun)
 
 	// A plan restricted to some providers must say so: read without the
 	// command line that produced it, a partial plan looks like a complete one
@@ -344,11 +356,9 @@ func dropUnbuiltProviders(targets []string, projections []syncProjection, manife
 }
 
 // preflightEnvironment reports, in ONE error, every environment variable the
-// selected providers need and do not have. Without it the same misconfigured
-// shell fails once per variable, at three different depths of runSync: a
-// missing provider base directory surfaces in allProjections, a missing bearer
-// token only as a 401 from sync_pull, and /health's own failure is downgraded
-// to a warning — so learning two prerequisites costs two full runs (D222).
+// sync needs and does not have. Without it a missing bearer token surfaces only
+// as a 401 from sync_pull, deep in runSync (D222; the provider base directory
+// it also used to check was removed with a client, D898).
 // Whoever hits this is normally not at a console: the session-start bootstrap
 // hook and the sync timer start from an environment that never inherited a
 // login shell's exports.
@@ -357,24 +367,8 @@ func dropUnbuiltProviders(targets []string, projections []syncProjection, manife
 // EXISTS, not that it is accepted — only the server can judge that, and a wrong
 // token is still a 401 further down. Nothing downstream is removed; this only
 // moves the diagnosis earlier.
-func preflightEnvironment(cfg *clientconfig.Config, targets []string, clientBaseDir string) error {
+func preflightEnvironment(cfg *clientconfig.Config) error {
 	var missing []string
-
-	sorted := append([]string(nil), targets...)
-	sort.Strings(sorted)
-	for _, provider := range sorted {
-		d, ok := configurator.Lookup(configurator.Provider(provider))
-		if !ok || d.BaseDirEnv == "" {
-			// No BaseDirEnv means the provider shares the client base dir:
-			// there is nothing about the environment to check.
-			continue
-		}
-		// The same call allProjections makes, so what counts as "unset" (which
-		// includes whitespace-only) is defined in one place only.
-		if _, err := provisioning.BaseDirFor(d.Provider, clientBaseDir); errors.Is(err, configurator.ErrBaseDirUnset) {
-			missing = append(missing, fmt.Sprintf("  $%s — base directory for provider %s", d.BaseDirEnv, provider))
-		}
-	}
 
 	// The same condition resolveToken applies: auth off, or no token_env
 	// declared, means no credential is sent and none is required here. An

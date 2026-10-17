@@ -78,12 +78,6 @@ func TestDestDirPaths(t *testing.T) {
 		{"skill", configurator.ProviderCodex, ".codex/skills/demo"},
 		{"skill", configurator.ProviderKiro, ".kiro/skills/demo"},
 		{"skill", configurator.ProviderOpenCode, ".config/opencode/skills/demo"},
-		// hermes delivers skills to its inbox and supports nothing else (D141).
-		{"skill", configurator.ProviderHermes, "skill-inbox/demo/cartographer"},
-		{"agent", configurator.ProviderHermes, ""},
-		{"hook", configurator.ProviderHermes, ""},
-		{"mcp", configurator.ProviderHermes, ""},
-		{"instructions", configurator.ProviderHermes, ""},
 		// Antigravity supports every artifact kind; SessionStart bootstrap remains timer-based.
 		{"mcp", configurator.ProviderAntigravity, ".gemini/config/mcp_config.json"},
 		{"instructions", configurator.ProviderAntigravity, ".gemini/GEMINI.md"},

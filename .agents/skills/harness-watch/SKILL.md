@@ -1,6 +1,6 @@
 ---
 name: harness-watch
-description: Re-aligns Cartographer with the agent clients it supports (Claude Code, Codex, Kiro, OpenCode, Hermes, Antigravity, Crush, Copilot CLI) - what changed since the last review and what to do about it. Use when the user asks to check, audit or re-verify a client, to see what changed in a client release, or to refresh docs/harnesses.md.
+description: Re-aligns Cartographer with the agent clients it supports (Claude Code, Codex, Kiro, OpenCode, Antigravity, Crush, Copilot CLI) - what changed since the last review and what to do about it. Use when the user asks to check, audit or re-verify a client, to see what changed in a client release, or to refresh docs/harnesses.md.
 ---
 
 # harness-watch — what changed in the supported clients, and what to do

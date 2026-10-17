@@ -133,31 +133,33 @@ func TestDoReconnect_ConnectHalfFailsNamesDisconnected(t *testing.T) {
 	srv := multiKBServer(t, `{"status":"ok","version":"1.4.0","kbs":[{"name":"alpha"}]}`)
 	defer srv.Close()
 	dir := t.TempDir()
-	hermesHome := t.TempDir()
-	t.Setenv("HERMES_HOME", hermesHome)
-	if _, err := doConnect(connectOptions{Providers: []string{"hermes"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer"}); err != nil {
+	t.Setenv("CARTOGRAPHER_TEST_TOKEN", "a-token")
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Auth: true, TokenEnv: "CARTOGRAPHER_TEST_TOKEN"}); err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
 
-	// The provider's root disappears from the environment: the disconnect half
-	// still works (the lockfile records the base dir), the connect half cannot.
-	t.Setenv("HERMES_HOME", "")
+	// The private token file becomes a directory: the disconnect half keeps the
+	// token and succeeds, the connect half cannot rewrite it and fails at its
+	// last step.
+	tokenPath := clientconfig.TokenPath(dir)
+	if err := os.RemoveAll(tokenPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tokenPath, "blocker"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	res, err := doReconnect(reconnectOptions{Target: "all", Dir: dir})
 	if err == nil {
-		t.Fatal("doReconnect succeeded with $HERMES_HOME unset")
+		t.Fatal("doReconnect succeeded with an unwritable token file")
 	}
-	if strings.Join(res.LeftDisconnected, ",") != "hermes" {
-		t.Fatalf("LeftDisconnected = %v, want [hermes]", res.LeftDisconnected)
+	if strings.Join(res.LeftDisconnected, ",") != "claude" {
+		t.Fatalf("LeftDisconnected = %v, want [claude]", res.LeftDisconnected)
 	}
 	recovery := reconnectRecoveryCommand(res.LeftDisconnected, res.ConnectOptions)
-	for _, want := range []string{"cartographer connect", "hermes", srv.URL} {
+	for _, want := range []string{"cartographer connect", "claude", srv.URL} {
 		if !strings.Contains(recovery, want) {
 			t.Errorf("recovery command %q does not mention %q", recovery, want)
 		}
-	}
-	cfg, err := clientconfig.Load(dir)
-	if err != nil || len(cfg.Agents) != 0 {
-		t.Fatalf("agents after the failed rebuild = %v, err=%v", cfg.Agents, err)
 	}
 }
 

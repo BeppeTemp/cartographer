@@ -152,8 +152,7 @@ matched is reported in the DETECTION column, and as `detected_by` in JSON
 3. `env-config-dir` — a configuration directory anchored at an environment variable, for a location no home-relative
    path can express — today `%APPDATA%\opencode`. An entry whose variable is unset is skipped, so
    declaring one costs nothing on a platform that does not define it;
-4. `provider-root` — for a provider with a root of its own, that root (`$HERMES_HOME`);
-5. `app-dir` — an application-installation directory declared for this GOOS. Only a confirmed location is
+4. `app-dir` — an application-installation directory declared for this GOOS. Only a confirmed location is
    declared: `/Applications/Kiro.app` and `/Applications/Antigravity.app` on darwin, nothing on
    Windows, where the CLI on `PATH` is the detection that matters and an unverified install path
    would only invent evidence ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md)).
@@ -170,7 +169,7 @@ kiro       no         no         -           -
 ```
 
 The distinction the column carries is the one `INSTALLED` cannot: `binary` is a client that is
-on the machine now, while `config-dir`, `env-config-dir`, `provider-root` and `app-dir` are
+on the machine now, while `config-dir`, `env-config-dir` and `app-dir` are
 directories, which a client that was removed leaves behind. `INSTALLED` — and therefore which
 providers a bare `connect` or `connect all` targets — is unchanged: it is still true for any
 match ([#305](https://github.com/BeppeTemp/cartographer/issues/305)).
@@ -295,7 +294,7 @@ cartographer connect all --auto-trust --dry-run
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `crush` \| `copilot` \| `all` (all detected agents) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (all detected agents) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--kb` | *(unset)* | Which KBs this client may receive (repeatable, or comma-separated; `all` for every mounted KB). Required on a **first** connect against a server mounting two or more KBs — see below (D190) |
 | `--server-url` | `http://127.0.0.1:39273/mcp` | Cartographer server URL |
@@ -373,7 +372,7 @@ cartographer disconnect all --dry-run  # preview without writing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `crush` \| `copilot` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
 | `--dry-run` | `false` | Prints without removing |
 
@@ -478,15 +477,14 @@ the same code, and reports the provider sync as pending
 ([D257](decisions/D257-sync-continues-past-a-kb-that-cannot-be-pulled.md)).
 
 Before anything else — before the client-state lock and before the first network call, `--dry-run`
-included — `sync` checks the environment variables the targeted providers need: each provider's own
-base-directory variable (§Hermes Agent, `$HERMES_HOME`) and, when `.cartographer.yaml` has `auth: true` with a
-`token_env`, that variable **or the token file** (D699). Missing ones are reported **together, in one error naming each**, so an
+included — `sync` checks the environment it needs: when `.cartographer.yaml` has `auth: true` with a
+`token_env`, that variable **or the token file** (D699). Missing ones are reported in one error naming each, so an
 unattended run (session-start hook, sync timer, CI — none of which inherit a login shell's exports)
-diagnoses its whole misconfiguration in a single run
+diagnoses its misconfiguration before the first network call
 ([D222](decisions/D222-sync-checks-the-environment-once-and-the-401-names.md)). The check is
 read-only and never contacts the server: it verifies a token *exists*, not that the server accepts
 it — a token that is set but wrong is still a 401 from `sync_pull`. When nothing is missing it
-prints nothing. A provider left out by `--client` is not checked.
+prints nothing. 
 
 Every sync verifies the managed files on disk, not just the manifest revision, and restores what
 was edited or deleted locally — the restore is reported on its own line, because it discards
@@ -521,7 +519,7 @@ cartographer reconnect --dry-run       # preview both halves, write nothing
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `hermes` \| `antigravity` \| `crush` \| `copilot` \| `all` (every connected provider) |
+| (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (every connected provider) |
 | `--agents` | *(unset)* | Comma-separated subset; cannot be combined with the positional provider |
 | `--dry-run` | `false` | Both halves simulate, nothing is written |
 
@@ -910,31 +908,14 @@ Adding a provider therefore means: one descriptor, one emitter (provider output 
 differ, so that stays code), its cells in the kind × provider matrix (`internal/provisioning`, see
 [`sync.md`](sync.md) §Kind × provider matrix), and — if it has a native hook mechanism — one entry
 in `hookMechanisms`. A missing matrix cell fails a completeness test; nothing else needs editing.
-A provider whose MCP configuration Cartographer does not own declares neither a config file nor an
-emitter and is skipped by `connect`/`disconnect` (`ManagesMCPConfig`); one that materializes outside
-the shared base dir declares `BaseDirEnv` instead ([D141](decisions/D141-hermes-is-a-supported-provider-that-receives.md)).
+Every provider declares a config file and an emitter, and materializes under the shared base dir:
+the two mechanisms only Hermes used (`ManagesMCPConfig`, `BaseDirEnv`) went with it
+([D898](decisions/D898-hermes-support-is-removed.md)).
 
-### Hermes Agent
-
-`cartographer connect hermes` registers Hermes for **artifact delivery only**. It writes no MCP
-configuration: Hermes' endpoint list lives in a `config.yaml` rendered by its Ansible role and
-recreated on the next playbook run, so anything written there would be lost — `connect` says so
-explicitly rather than silently doing nothing, and pointing Hermes at the server stays the
-operator's job. The output is scoped to match: no MCP-entry line is printed, and the closing
-"restart the … sessions to load the MCP tools" hint names only the providers that received one
-([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)). For the same reason Hermes is absent from the interactive connect form, which offers
-the providers whose MCP configuration `connect` writes.
-
-- **`$HERMES_HOME` is required**: it is the base dir artifacts are materialized under, recorded as
-  `base_dir` in that provider's lockfile entry. Unset, `connect hermes` fails naming the variable
-  instead of writing into the home directory, where the agent would never look.
-- **Only `skill` is supported**, and it is *delivered* to `skill-inbox/<name>/cartographer/` rather
-  than installed — adoption is the agent's own decision, via `skill_manage`. Nothing is ever written
-  under `$HERMES_HOME/skills/`. See [`sync.md`](sync.md) §Hermes.
-- **The trigger is the scheduled timer** (`cartographer service sync-timer install`): Hermes has no
-  session hook, so nothing fires at conversation start.
-- `disconnect hermes` prunes the delivered inbox directories and drops the provider from
-  `.cartographer.yaml`; it touches nothing else.
+A configuration that still names a client the registry no longer knows keeps working: `Load` drops the
+name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
+`<name>: this agent client is no longer supported …`, the first writing command removes it from
+`.cartographer.yaml` and drops its lockfile section, and the files delivered earlier are never touched.
 
 ## Files generated per provider (HTTP transport)
 
@@ -947,7 +928,6 @@ the providers whose MCP configuration `connect` writes.
 | Google Antigravity | `.gemini/config/mcp_config.json` | `mcpServers` (JSON) |
 | Crush | `.config/crush/crush.json` | `mcp` (JSON) |
 | GitHub Copilot CLI | `.copilot/mcp-config.json` | `mcpServers` (JSON) |
-| Hermes Agent | none — see below | — |
 
 KB-provided stdio descriptors (D116) share these same files with per-name ownership. Claude Code,
 Codex and Kiro receive native `command`, `args` and `env` fields (Kiro also keeps `autoApprove: []`);

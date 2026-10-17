@@ -116,12 +116,6 @@ func TestProjectScopeDivergesWhereItMust(t *testing.T) {
 		{"mcp", configurator.ProviderCopilot, ""},
 		{"agent", configurator.ProviderCopilot, ""},
 		{"hook", configurator.ProviderCopilot, ""},
-		// hermes (D364): skills only, in its own directory.
-		{"skill", configurator.ProviderHermes, ".hermes/skills/demo"},
-		{"agent", configurator.ProviderHermes, ""},
-		{"hook", configurator.ProviderHermes, ""},
-		{"mcp", configurator.ProviderHermes, ""},
-		{"instructions", configurator.ProviderHermes, ""},
 	}
 	for _, tc := range cases {
 		if got := destDirScoped(tc.kind, "demo", tc.provider, ScopeProject); got != tc.want {
@@ -137,7 +131,7 @@ func TestSupportsProjectScope_FailsClosed(t *testing.T) {
 	for _, p := range []configurator.Provider{
 		configurator.ProviderClaudeCode, configurator.ProviderCodex,
 		configurator.ProviderOpenCode, configurator.ProviderKiro,
-		configurator.ProviderCrush, configurator.ProviderAntigravity, configurator.ProviderHermes,
+		configurator.ProviderCrush, configurator.ProviderAntigravity,
 		configurator.ProviderCopilot,
 	} {
 		if !SupportsProjectScope(p) {
@@ -199,8 +193,5 @@ func TestAntigravityProjectRoots(t *testing.T) {
 	}
 	if got := strings.Join(ProjectOwnedPaths(configurator.ProviderAntigravity), ","); got != want {
 		t.Errorf("owned paths = %s, want %s", got, want)
-	}
-	if got := strings.Join(ProjectOwnedPaths(configurator.ProviderHermes), ","); got != ".hermes/skills" {
-		t.Errorf("hermes owned paths = %s", got)
 	}
 }

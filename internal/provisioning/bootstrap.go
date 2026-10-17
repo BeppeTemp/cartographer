@@ -62,8 +62,8 @@ var bootstrapContentHash = contentHashBytes(append(bootstrapHookJSON(), []byte(b
 // lets a later session self-heal once it comes back.
 //
 // A provider that cannot run a hook at session start is a no-op here, lock
-// returned unchanged: hermes has no hook mechanism at all
-// (destDir("hook", _, p) == ""), antigravity and crush have one but no
+// returned unchanged: one with no hook cell
+// (destDir("hook", _, p) == ""), and antigravity and crush, which have one but no
 // session-start event (noSessionStartEvent). They sync on the scheduled trigger instead
 // (D140). Kiro gets the hook, which fires only in some of its sessions
 // (SessionHookLimit, D300).
