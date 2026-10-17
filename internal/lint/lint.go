@@ -339,12 +339,12 @@ func applyMapIgnores(k *kb.KB, findings []Finding, sups []Suppression, dropped [
 		for _, name := range names {
 			mapSup[[2]string{a, name}] = len(sups)
 			sups = append(sups, Suppression{Source: SourceMap, Path: a + "/_map.md", Check: name})
-			if perConceptChecks[name] || mapOnlyIgnorable[name] {
+			if mapCanAccept(name) {
 				continue
 			}
 			invalid = append(invalid, newFinding("lint_ignore_invalid", Finding{
 				Path:    a + "/_map.md",
-				Message: fmt.Sprintf("lint_ignore names %q, which a map cannot accept (unknown, an error, or a directory-level check), so nothing is suppressed", name),
+				Message: fmt.Sprintf("lint_ignore names %q, which a map cannot accept (unknown, an error, a never-suppressed check, or a directory-level check), so nothing is suppressed", name),
 			}))
 		}
 	}
@@ -401,11 +401,22 @@ func owningMap(path string) string {
 	return ""
 }
 
+// mapCanAccept reports whether a map's lint_ignore may name a check: one a
+// concept can silence or one only a map owns. A NeverSuppress check is in
+// perConceptChecks (its Accept is "concept"), so it is excluded here as the
+// concept path excludes it, or a map would silence what no page can.
+func mapCanAccept(check string) bool {
+	if spec, _ := Spec(check); spec.NeverSuppress {
+		return false
+	}
+	return perConceptChecks[check] || mapOnlyIgnorable[check]
+}
+
 // mapAcceptsCheck reports whether a map's lint_ignore set takes effect for a
-// check: named in the set, and one a map may accept (an unknown name or an
-// error check suppresses nothing).
+// check: named in the set, and one a map may accept (an unknown name, an
+// error or a never-suppressed check suppresses nothing).
 func mapAcceptsCheck(set map[string]bool, check string) bool {
-	return set[check] && (perConceptChecks[check] || mapOnlyIgnorable[check])
+	return set[check] && mapCanAccept(check)
 }
 
 // mapSuppresses is the one rule that drops a finding on a map's lint_ignore,
