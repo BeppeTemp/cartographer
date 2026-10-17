@@ -158,3 +158,52 @@ func TestDryRunReportsAnUnsupportedProviderWithoutWriting(t *testing.T) {
 		t.Error("a read-only run rewrote the config")
 	}
 }
+
+// `disconnect all` on a config that still lists a removed client: its lock
+// section must not keep the lockfile and the token file alive, the notice is
+// printed once, and nothing under the old base dir is touched (D898).
+func TestDisconnectAllCleansARemovedProviderSection(t *testing.T) {
+	dir := t.TempDir()
+	oldHome := t.TempDir()
+	oldFile := filepath.Join(oldHome, "skill-inbox", "demo", "cartographer", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(oldFile), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldFile, []byte("delivered earlier\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &clientconfig.Config{ServerURL: "http://127.0.0.1:1/mcp", ServerName: "cartographer", Agents: []string{"claude", "hermes"}, Trust: true}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.WriteToken(dir, "tok"); err != nil {
+		t.Fatal(err)
+	}
+	lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{
+		"claude": {Provider: "claude"},
+		"hermes": {Provider: "hermes", BaseDir: oldHome, Managed: []provisioning.ManagedFile{{Kind: "skill", Name: "demo", Path: "skill-inbox/demo/cartographer/SKILL.md", ContentHash: "h"}}},
+	}}
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		t.Fatal(err)
+	}
+
+	var err error
+	stderr := withStderr(t, func() {
+		_, err = doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir})
+	})
+	if err != nil {
+		t.Fatalf("doDisconnect: %v", err)
+	}
+	if n := strings.Count(stderr, "hermes: this agent client is no longer supported"); n != 1 {
+		t.Errorf("notice printed %d times:\n%s", n, stderr)
+	}
+	if _, err := os.Stat(lockFilePath(dir)); !os.IsNotExist(err) {
+		t.Errorf("lockfile survived a full disconnect: %v", err)
+	}
+	if _, err := os.Stat(clientconfig.TokenPath(dir)); !os.IsNotExist(err) {
+		t.Errorf("token file survived a full disconnect: %v", err)
+	}
+	if b, err := os.ReadFile(oldFile); err != nil || len(b) == 0 {
+		t.Errorf("a delivered file was touched: %v", err)
+	}
+}

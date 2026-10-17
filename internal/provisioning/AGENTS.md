@@ -49,7 +49,7 @@ modifies files a user did not ask about.
   never fails a session: a hook's non-zero exit is feedback or a block.
 - The lockfile is the client-side record of applied state. Changing its shape is a
   migration, and an empty new field must keep meaning what the files written
-  before it meant (see `base_dir`, D141).
+  before it meant (see `base_dir`, empty for a global projection, D193).
 
 ## Scope note
 

@@ -136,6 +136,11 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 	cfg, err := clientconfig.Load(opts.Dir)
 	if err != nil {
 		cfg = clientconfig.Default()
+	} else {
+		// Before the lockfile is read: a removed client's section would
+		// otherwise keep len(lockFile.Providers) above zero, and the lockfile
+		// and token file of a fully disconnected client would stay (D898).
+		handleUnsupportedProviders(opts.Dir, cfg, !opts.DryRun)
 	}
 	lockPath := lockFilePath(opts.Dir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
