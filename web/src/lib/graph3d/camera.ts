@@ -1,3 +1,5 @@
+import type { MotionToken } from "../theme";
+
 /**
  * Camera framing for the 3D atlas, as pure vector math (D234).
  *
@@ -166,5 +168,4 @@ export function fitPose(bodies: readonly Body[], camera: Vec3, lookAt: Vec3, vie
     );
   }
   return { position: add(centre, scale(back, distance)), lookAt: centre };
-}import type { MotionToken } from "../theme";
-
+}

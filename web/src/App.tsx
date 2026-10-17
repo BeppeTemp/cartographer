@@ -59,8 +59,8 @@ import { EmptyState, ErrorState, GraphSeed, ShellSkeleton } from "./components/S
 import { TopBar } from "./components/TopBar";
 import {
   applyTheme,
-  onSystemThemeChange,
   motionMs,
+  onSystemThemeChange,
   prefersReducedMotion,
   readTheme,
   useAppliedTheme,
