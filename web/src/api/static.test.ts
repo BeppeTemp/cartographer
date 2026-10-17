@@ -1,4 +1,4 @@
-import { LIVE_ORIGIN_POLL_MS, LIVE_POLL_MS, pollIntervalMs, probeSource, searchIndex, staticKey } from "./static";
+import { LIVE_ORIGIN_POLL_MS, LIVE_POLL_MS, pollIntervalMs, probeSource, searchIndex, staticKey, staticReleases } from "./static";
 
 describe("staticKey", () => {
   it("matches the names demo/export.mjs writes", () => {
@@ -85,5 +85,36 @@ describe("pollIntervalMs (D800)", () => {
     expect(pollIntervalMs(null, "https://demo.example.com")).toBe(LIVE_POLL_MS);
     expect(pollIntervalMs("live", "")).toBe(LIVE_POLL_MS);
     expect(LIVE_POLL_MS).toBe(10_000);
+  });
+});
+
+describe("the release history in the static demo (D862)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  it("is answered by staticReleases: the update check is off, and the GitHub release page is linked", () => {
+    expect(staticReleases()).toEqual({
+      current: "",
+      releases: [],
+      unavailable: "disabled",
+      releases_url: "https://github.com/BeppeTemp/cartographer/releases",
+    });
+  });
+
+  it("never reaches the network or demo/export.mjs: fetchReleases answers locally in a static build", async () => {
+    // Without this the public demo would 404 on the route (docs/index.md, D745):
+    // the snapshot exports no /releases file.
+    const fetchFn = vi.fn();
+    vi.stubGlobal("fetch", fetchFn);
+    vi.stubEnv("VITE_ATLAS_STATIC", "1");
+    vi.resetModules();
+    const { fetchReleases } = await import("./client");
+    const view = await fetchReleases();
+    expect(view.unavailable).toBe("disabled");
+    expect(view.releases).toEqual([]);
+    expect(fetchFn).not.toHaveBeenCalled();
   });
 });

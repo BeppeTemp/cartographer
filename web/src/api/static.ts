@@ -1,4 +1,4 @@
-import type { SearchHit, SearchResponse } from "./types";
+import type { ReleasesView, SearchHit, SearchResponse } from "./types";
 
 /**
  * The static demo build (D745): `VITE_ATLAS_STATIC=1 vite build` makes a
@@ -178,4 +178,16 @@ export async function staticSearch(path: string): Promise<SearchResponse | null>
  */
 export function canSearchArchived(): boolean {
   return !STATIC_MODE || currentSource() === "live";
+}
+
+/** The snapshot's answer to the release history (D862): it was never exported,
+ *  because a snapshot has no server to fetch it. The URL is the same one
+ *  updatecheck.ReleasesURL gives the server's own answer. */
+export function staticReleases(): ReleasesView {
+  return {
+    current: "",
+    releases: [],
+    unavailable: "disabled",
+    releases_url: "https://github.com/BeppeTemp/cartographer/releases",
+  };
 }

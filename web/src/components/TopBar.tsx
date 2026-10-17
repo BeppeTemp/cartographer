@@ -18,6 +18,8 @@ interface Props {
   onKBChange(name: string): void;
   onThemeChange(theme: Theme): void;
   onOpenPalette(): void;
+  /** The version opens the release history (D862). */
+  onOpenReleases?(): void;
   /** The brand leads back to the atlas: the whole graph (All), nothing selected. */
   onHome?(): void;
   onOpenNav?(): void;
@@ -40,6 +42,7 @@ export function TopBar({
   onKBChange,
   onThemeChange,
   onOpenPalette,
+  onOpenReleases,
   onHome,
   onOpenNav,
   onOpenInspector,
@@ -138,9 +141,16 @@ export function TopBar({
           </a>
         )}
         {version && (
-          <span className="topbar__version" title="Server version">
+          <button
+            type="button"
+            className="topbar__version"
+            title="Release history"
+            aria-haspopup="dialog"
+            aria-label={`Server version ${/^\d/.test(version) ? `v${version}` : version}: release history`}
+            onClick={onOpenReleases}
+          >
             {/^\d/.test(version) ? `v${version}` : version}
-          </span>
+          </button>
         )}
         <button
           type="button"

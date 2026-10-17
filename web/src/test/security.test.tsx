@@ -42,6 +42,13 @@ describe("markdown is rendered as untrusted content", () => {
     expect(internal).not.toHaveAttribute("target");
   });
 
+  it("opens a protocol-relative link in a new tab, never in the Atlas's own", () => {
+    const { container } = render(<Markdown>{"[away](//example.invalid/page)"}</Markdown>);
+    const link = container.querySelector('a[href="//example.invalid/page"]');
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+  });
+
   it("never fetches a remote image", () => {
     const { container } = render(<Markdown>{"![alt](https://example.invalid/pixel.gif)"}</Markdown>);
     expect(container.querySelector("img")).toBeNull();
@@ -142,6 +149,54 @@ describe("an artifact's files are rendered as untrusted content", () => {
     await user.click(within(detail).getByRole("tab", { name: "run.sh" }));
     expect(detail.querySelector("script")).toBeNull();
     expect(within(detail).getByText("<script>window.__pwned = true;</script>")).toBeInTheDocument();
+    expect((window as { __pwned?: boolean }).__pwned).toBeUndefined();
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("a release's changelog is rendered as untrusted content (D862)", () => {
+  it("keeps script, an onerror image and a javascript: link inert, and refuses a non-https release URL", async () => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a");
+    localStorage.clear();
+    sessionStorage.clear();
+    const hostile = {
+      current: "1.2.3",
+      releases_url: "javascript:window.__pwned = true",
+      releases: [
+        {
+          version: "1.2.3",
+          url: "javascript:window.__pwned = true",
+          published_at: "2026-09-02T10:00:00Z",
+          truncated: true,
+          prerelease: false,
+          current: true,
+          body: [
+            "### Features",
+            "",
+            "<script>window.__pwned = true;</script>",
+            "",
+            '<img src=x onerror="window.__pwned = true">',
+            "",
+            "[click](javascript:window.__pwned = true) and ![pixel](https://example.invalid/p.gif)",
+          ].join("\n"),
+        },
+      ],
+    };
+    stubApi({ "/health": () => json({ version: "1.2.3" }), "/releases": () => json(hostile) });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /Server version v1\.2\.3/ }));
+    const sheet = await screen.findByRole("dialog", { name: "Releases" });
+    await within(sheet).findByRole("heading", { name: "Features" });
+
+    expect(sheet.querySelector("script, img")).toBeNull();
+    expect(sheet.innerHTML).not.toContain("onerror");
+    // Shown, if at all, as text; and no link anywhere carries a javascript: target.
+    for (const a of sheet.querySelectorAll("a")) expect(a.getAttribute("href") ?? "").not.toMatch(/^javascript:/i);
+    // The server-supplied release URL is not followed unless it is https: the
+    // heading is plain text and the truncation notice has no link.
+    expect(within(sheet).getByRole("heading", { name: "v1.2.3" }).querySelector("a")).toBeNull();
+    expect(within(sheet).queryByRole("link", { name: /GitHub/ })).toBeNull();
     expect((window as { __pwned?: boolean }).__pwned).toBeUndefined();
     vi.unstubAllGlobals();
   });

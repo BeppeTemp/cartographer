@@ -403,6 +403,21 @@ toolchain (D227). What they hold:
   text filters, a journal's harvest line, the empty and the unavailable state, the
   tab round-tripping through the URL and Back with Activity staying current in the
   rail, an archive map badged and listed after the live ones.
+  saying so when the server fell back to them, and starting each opening unpressed.
+- the release history (D862, `src/test/releases.test.tsx`): the version in the
+  top bar and in the Settings title opens a sheet that fetches only then;
+  newest first, one `Current` badge, scrolled to only when newer releases
+  precede it; the upgrade block only with a command; the disabled, unreachable
+  and stale notices; a cut changelog pointing at GitHub; a changelog with
+  `<script>`, an `onerror` image and a `javascript:` link, and a non-https
+  release URL, stay inert (`security.test.tsx`); the static demo answers
+  `unavailable: "disabled"` locally and never fetches (`api/static.test.ts`).
+  Server side: `updatecheck/releases_test.go` (pages, drafts, truncation, ETag,
+  errors, token, tags that are not versions), `updatecheck_test.go` (a hostile
+  tag refused from the network and the cache), `mcpserver/uiapi_releases_test.go`
+  (current marking, TTL, stale, concurrent opens fetch once, `https`-only URLs)
+  and `cmd/cartographer/serverupdate_test.go` (the source follows the
+  update-check switch).
 
 `make web` rebuilds the committed bundle; `make web-check` does a clean locked
 build and verifies `internal/webui/dist/provenance.json` still matches the

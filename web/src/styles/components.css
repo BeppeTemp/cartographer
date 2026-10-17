@@ -32,11 +32,34 @@
   letter-spacing: -0.005em;
 }
 
+/* The version is a button (it opens the release history, D862) that reads as
+   the quiet text it was: no box, an underline on hover, the global focus ring. */
+.topbar__version,
+.page__version {
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
 .topbar__version {
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   white-space: nowrap;
+}
+
+.page__version {
+  font: inherit;
+  color: inherit;
+}
+
+.topbar__version:hover,
+.page__version:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .topbar__demo {
@@ -2146,9 +2169,126 @@ code.mapcontract__label {
   animation-name: sheet-in-end;
 }
 
+.sheet__panel--wide {
+  width: min(560px, 96vw);
+}
+
 .sheet__close {
   align-self: flex-end;
   margin: var(--space-2) var(--space-2) 0;
+}
+
+/* --- Release history sheet (D862) --- */
+
+.releases {
+  padding: 0 var(--space-4) var(--space-6);
+}
+
+.releases__head {
+  margin-bottom: var(--space-4);
+}
+
+.releases__title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.releases__subtitle,
+.releases__notice,
+.releases__name,
+.releases__truncated {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.releases__notice {
+  margin-bottom: var(--space-4);
+}
+
+.releases__upgrade {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.releases__upgrade-title {
+  margin: 0 0 var(--space-2);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.releases__command {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.releases__command code {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+
+.releases__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.releases__release {
+  padding-block: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.releases__release--current {
+  border-inline-start: 2px solid var(--primary);
+  padding-inline-start: var(--space-3);
+}
+
+.releases__release-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.releases__version {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.releases__version a {
+  color: var(--text-primary);
+}
+
+.releases__date {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.releases__release .markdown {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.releases__all {
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-sm);
 }
 
 /* Inside a sheet the panels are content, not grid columns: no borders of
