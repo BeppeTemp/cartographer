@@ -122,16 +122,20 @@ skill. A PR that changes any of them runs the evals and reports the score in its
 `## Self-review`; nothing runs them in CI (D856: an eval is N reviewer spawns).
 
 1. `.agents/skills/review-pr/scripts/eval-setup.sh` (or `<id>…` for some cases)
-   adds one detached worktree per row of `evals/cases.md` at the PR's squash
-   commit and prints one mandate line each: worktree, `base` (the commit's
-   parent), plan, round 1. `--clean` removes them.
-2. The coordinator spawns one `pr-reviewer` per worktree, in the background, with
-   that mandate (a subagent cannot spawn one). Case `c4`, the `security` class,
-   is also given to `security-reviewer`.
-3. It compares each report with the row. A case is **caught** when a high or
-   medium finding names the defect's file and its class; the reviewer is not
-   told the row. **Noise** is the high or medium findings on the clean PRs that
-   §4 verification drops.
+   adds one detached worktree per distinct squash commit of `evals/cases.md`
+   (cases on the same commit share it, as `eval-c2-c3`) and prints one mandate
+   line each: the case ids it serves (`c2,c3`), worktree, `base` (the commit's
+   parent), plan, round 1, and an `eval:` constraint. `--clean` removes them.
+2. The coordinator spawns one `pr-reviewer` per mandate line, in the background,
+   with that line verbatim (a subagent cannot spawn one). The worktree holds the
+   whole history, so the `eval:` constraint is what keeps the reviewer from
+   finding the fix: both reviewer definitions honour it (no history after HEAD,
+   no reading of `evals/`, no `gh` lookup but the plan). Case `c4`, the
+   `security` class, is also given to `security-reviewer`.
+3. It compares each report with the rows; the reviewer is not told them. A case
+   is **caught** when a high or medium finding names the defect's file and its
+   class; a shared run is scored once per case it serves. **Noise** is the high
+   or medium findings on the clean PRs that §4 verification drops.
 4. One line is appended to `evals/scores.md`: date, reviewer definition commit,
    model pin, caught/cases, noise/clean. Recall comes first, noise second: a
    change that loses a case needs a reason, one that adds noise only needs to
