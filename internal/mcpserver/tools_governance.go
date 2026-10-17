@@ -563,7 +563,7 @@ func toolConflictResolve(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("conflict_resolve: parse frontmatter: %v", err)), nil
 			}
 
-			if fm.Type() != "Contradiction" {
+			if !kb.IsContradictionType(fm.Type()) {
 				return errorResult(fmt.Sprintf("conflict_resolve: %q has type %q, expected Contradiction", params.ContradictionID, fm.Type())), nil
 			}
 
@@ -761,7 +761,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 					}
 				}
 
-				if t == "Contradiction" {
+				if kb.IsContradictionType(t) {
 					isOpen := false
 					rs, ok := fm.Get("resolution_status")
 					if !ok {
@@ -1048,7 +1048,7 @@ func listContradictions(ctx requestContext, k *kb.KB, scope, status, kind string
 		if err != nil {
 			return nil
 		}
-		if fm.Type() != "Contradiction" {
+		if !kb.IsContradictionType(fm.Type()) {
 			return nil
 		}
 

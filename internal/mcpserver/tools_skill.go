@@ -110,7 +110,7 @@ func toolServiceGet(k *kb.KB) Tool {
 			// of a non-English domain vocabulary) declared "service" and the
 			// service tools silently returned nothing, leaving secret resolution
 			// unusable with no error anywhere (D158).
-			if !strings.EqualFold(fm.Type(), "Service") {
+			if !kb.IsServiceType(fm.Type()) {
 				return errorResult(fmt.Sprintf("service_get: %q has type %q, expected Service", params.ServiceID, fm.Type())), nil
 			}
 
@@ -311,7 +311,7 @@ func toolServiceList(k *kb.KB) Tool {
 				if err != nil {
 					return nil
 				}
-				if !strings.EqualFold(fm.Type(), "Service") {
+				if !kb.IsServiceType(fm.Type()) {
 					return nil
 				}
 				e := svcEntry{ID: string(id)}

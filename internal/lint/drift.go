@@ -57,6 +57,21 @@ func newDriftData(k *kb.KB, concepts map[okf.ConceptID]string, contracts map[str
 	return d
 }
 
+// keyedExempt reports whether typ is a type the server keys on that unknown_type
+// leaves alone: no declared type matches it in any case and the page's map is
+// not strict (D853).
+func (d driftData) keyedExempt(typ string, contract *kb.MapContract) bool {
+	if !kb.IsKeyedType(typ) || (contract != nil && contract.OntologyMode == "strict") {
+		return false
+	}
+	for known := range d.palette {
+		if strings.EqualFold(known, typ) {
+			return false
+		}
+	}
+	return true
+}
+
 // statusSpelling is a concept's status as written, or "" when it has none or it
 // is not a plain string.
 func statusSpelling(fm *okf.Frontmatter) string {
@@ -73,14 +88,19 @@ func (d driftData) conceptFindings(relPath string, fm *okf.Frontmatter, contract
 	var out []Finding
 
 	// --- unknown_type (warning, D357) ---
-	if typ := fm.Type(); typ != "" && len(d.palette) > 0 && !d.palette[typ] && !strings.HasPrefix(typ, "{{") {
-		f := Finding{Path: relPath}
+	// A type the server keys on (D853) is known without a template: skipped
+	// unless a declared spelling matches it (that spelling's case fix still
+	// applies) or the page's map is strict, where validate refuses the page
+	// too and the warning stays.
+	if typ := fm.Type(); typ != "" && len(d.palette) > 0 && !d.palette[typ] && !strings.HasPrefix(typ, "{{") && !d.keyedExempt(typ, contract) {
 		var match []string
 		for known := range d.palette {
 			if strings.EqualFold(known, typ) {
 				match = append(match, known)
 			}
 		}
+		strict := contract != nil && contract.OntologyMode == "strict"
+		f := Finding{Path: relPath}
 		known := make([]string, 0, len(d.palette))
 		for t := range d.palette {
 			known = append(known, t)
@@ -91,6 +111,8 @@ func (d driftData) conceptFindings(relPath string, fm *okf.Frontmatter, contract
 		case len(match) == 1:
 			f.Fix = &Fix{Kind: FixSetValue, Field: "type", To: match[0]}
 			f.Message += fmt.Sprintf(" — fix: set it to %q", match[0])
+		case kb.IsKeyedType(typ) && strict:
+			f.Message += " — fix: add it to the map's concept_types (map_update), or move the page"
 		default:
 			f.Message += fmt.Sprintf(" — fix: declare a %s template (kb_review kind=template_proposal proposes one), or set type to a declared one", typ)
 			// A page in a map that has not adopted types (not strict, no

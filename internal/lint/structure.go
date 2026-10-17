@@ -313,7 +313,7 @@ func (s *structure) retiredLinkers(i int, facets kb.NodeFacets) []string {
 		// A digest (D322) is where archiving records what it archived: it
 		// links the archived entries by design. A journal's own index is a
 		// journal page, already out above.
-		if strings.EqualFold(s.lg.Facets[u].Type, "digest") {
+		if kb.IsDigestType(s.lg.Facets[u].Type) {
 			continue
 		}
 		linkers = append(linkers, string(uid))

@@ -6,9 +6,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
-// SourceType is the conventional concept type of a source-ledger entry (D278).
-const SourceType = "Source"
-
 // SourceIngestStatuses is the vocabulary of a Source's ingest_status.
 var SourceIngestStatuses = []string{"pending", "ingested", "skipped"}
 
