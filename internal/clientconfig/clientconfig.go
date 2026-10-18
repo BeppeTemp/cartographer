@@ -336,6 +336,7 @@ func Load(dir string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &y); err != nil {
 		return nil, fmt.Errorf("clientconfig: parse %s: %w", Path(dir), err)
 	}
+	warnRemovedKeys(Path(dir), Schema.RemovedKeysIn(data, RemovedKeys))
 	for provider, b := range y.Clients {
 		if len(b.ConfigDirs) > 0 && provider != "claude" {
 			return nil, fmt.Errorf("clientconfig: %s: clients.%s.config_dirs is only valid under clients.claude", Path(dir), provider)

@@ -1,6 +1,9 @@
 package clientconfig
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"github.com/BeppeTemp/cartographer/internal/settingschema"
 )
@@ -62,3 +65,13 @@ var RemovedKeys = []settingschema.Removed{}
 // OffResets is the registry of kept client keys whose off value the 0.25
 // cleanup no longer allows. Empty until a plan adds its first.
 var OffResets = []settingschema.OffReset{}
+
+// warnRemovedKeys logs one WARNING per removed key a .cartographer.yaml still
+// carries, naming the replacement (#903 WP4). Not an error: the key is
+// ignored, the client still loads. Empty today (RemovedKeys has no entries),
+// so this never prints until a plan removes a client key.
+func warnRemovedKeys(path string, hits []settingschema.Removed) {
+	for _, r := range hits {
+		fmt.Fprintf(os.Stderr, "cartographer: %s: %q was removed (%s): %s\n", path, r.Path, r.Plan, r.Replacement)
+	}
+}

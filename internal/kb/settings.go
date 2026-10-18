@@ -57,6 +57,7 @@ var settingsKeys = map[string]settingSpec{
 	"usage_stale_days":     {kind: kindInt0},
 	"mcp_allowlist":        {kind: kindMCPList},
 	"secrets":              {kind: kindBool},
+	"branch":               {kind: kindString},
 }
 
 // settingsServerOnly are the kbs[] keys bound to one machine; a KB that names
@@ -64,8 +65,27 @@ var settingsKeys = map[string]settingSpec{
 var settingsServerOnly = map[string]bool{
 	"path": true, "remote": true, "name": true, "ssh_key": true, "known_hosts": true,
 	"author_name": true, "author_email": true, "committer_name": true, "committer_email": true,
-	"sops_age_key_file": true,
-	"git_branch":        true, "artifact_signing_seed": true,
+	"sops_age_key_file": true, "artifact_signing_seed": true,
+}
+
+// BranchFromSettings reads the branch: key of a settings.yaml payload (#903
+// WP4). The git-sync layer runs it on the content committed on the remote's
+// default branch, never on the working copy, so the branch a KB writes to
+// cannot be redirected by an uncommitted local edit. An absent, malformed or
+// non-string branch: is reported as "": the caller then follows the remote's
+// default branch (D264).
+func BranchFromSettings(data []byte) string {
+	s, _, err := ParseSettings(data)
+	if err != nil || !s.Has("branch") {
+		return ""
+	}
+	var part struct {
+		Branch string `yaml:"branch"`
+	}
+	if s.Decode(&part) != nil {
+		return ""
+	}
+	return strings.TrimSpace(part.Branch)
 }
 
 // SettingsKeyNames returns the keys the KB file accepts, sorted.

@@ -120,9 +120,13 @@ type KB struct {
 	// pre-existing behaviour.
 	GitEnv []string
 
-	// ConfiguredBranch is kbs[].git_branch (D335): when set, the local
-	// profile writes to this branch instead of the remote's default, and the
-	// first push creates it on the remote. Empty keeps D264.
+	// ConfiguredBranch is the branch this KB writes to in place of the
+	// remote's default (#903 WP4, was kbs[].git_branch under D335). It is
+	// resolved by SyncIn from the branch: key of settings.yaml AS COMMITTED
+	// ON THE REMOTE'S DEFAULT BRANCH (resolveConfiguredBranch), never from the
+	// working copy, so an uncommitted edit cannot redirect a push. Empty
+	// follows the remote's default branch (D264). SyncIn/SyncOut set and read
+	// it under the git lock.
 	ConfiguredBranch string
 
 	// SopsAgeKeyFile is the path to the SOPS age key file used to decrypt
@@ -204,8 +208,8 @@ type KB struct {
 	// one bounded fetch, not one per queued call (#348).
 	lastFetchFail time.Time
 	// remoteDefault is the canonical branch last resolved by a local-profile
-	// sync (same lock): ConfiguredBranch when set (D335), otherwise the
-	// remote's default branch, "" when unknown (D264).
+	// sync (same lock): ConfiguredBranch when settings.yaml names one (#903
+	// WP4), otherwise the remote's default branch, "" when unknown (D264).
 	remoteDefault string
 	// gitattrsChecked records that ensureGitAttributes ran in this process
 	// (D311). Guarded by mu, the git-operation lock.
@@ -288,7 +292,8 @@ type GitStatus struct {
 	// the remote ("" when unknown); a Branch that differs blocks writes (D264).
 	RemoteDefaultBranch string `json:"remote_default_branch,omitempty"`
 	// BranchSource says where the canonical branch comes from: "config"
-	// (kbs[].git_branch, D335) or "remote" (the remote's default, D264).
+	// (branch: in settings.yaml, #903 WP4) or "remote" (the remote's default,
+	// D264).
 	BranchSource string `json:"branch_source,omitempty"`
 }
 
@@ -478,9 +483,10 @@ var (
 )
 
 // InitOnBranch is Init with the initial commit on branch rather than
-// gitx.DefaultBranch, for a KB configured with kbs[].git_branch (D335). It
-// only matters for a repository with no commit yet (a new KB, or the clone of
-// an empty remote); an existing history keeps its branch. Empty branch is Init.
+// gitx.DefaultBranch. It only matters for a repository with no commit yet (a
+// new KB, or the clone of an empty remote); an existing history keeps its
+// branch. Empty branch is Init. Used by tests that need a KB that starts on a
+// non-default branch.
 func InitOnBranch(root, branch string) (*KB, error) {
 	initBranch = branch
 	defer func() { initBranch = "" }()

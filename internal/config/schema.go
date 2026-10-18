@@ -35,7 +35,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "kbs", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Env: "CARTOGRAPHER_KB, CARTOGRAPHER_KB_REMOTES", Flag: "--kb", Restart: true,
 		Description: "The KBs to mount: each entry has a path or a remote. KBs from the environment and flags are added to this list."},
 	{Path: "kbs[].path", Scope: settingschema.ScopeServer, Type: "string", Default: `""`,
-		Description: "Local directory of a KB that already exists on disk. Exactly one of path and remote is set."},
+		Description: "Local directory of a KB already on disk. For a new local KB prefer a folder under data (discovered) or a --kb mount; a kbs[] entry is normally remote-only (#903 WP4). Exactly one of path and remote is set."},
 	{Path: "kbs[].remote", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Example: "https://git.example.com/user/kb-a.git",
 		Description: "Git remote a KB is cloned from, under data."},
 	{Path: "kbs[].name", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Example: "kb-a",
@@ -56,8 +56,8 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "The age key that decrypts this KB's secret references, in place of sops.age_key_dir and sops.age_key_file."},
 	{Path: "kbs[].artifact_signing_seed", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Secret: true,
 		Description: "A 32-byte hexadecimal Ed25519 seed that signs the provisioning artifacts served from this KB. Take it from a secret mount, for example ${CARTOGRAPHER_ARTIFACT_SIGNING_SEED}."},
-	{Path: "kbs[].git_branch", Scope: settingschema.ScopeServer, Type: "string", Default: `""`,
-		Description: "Branch a KB writes to, in place of the remote's default one; the first push creates it."},
+	{Path: "kbs[].branch", Scope: settingschema.ScopeKB, Type: "string", Default: `""`,
+		Description: "Branch a KB writes to, in place of the remote's default one; the first push creates it. Read from the KB's settings.yaml as committed on the remote's default branch, never from the working copy."},
 	{Path: "kbs[].allow_artifact_write", Scope: settingschema.ScopeKB, Type: "bool", Default: "false",
 		Description: "Enable artifact_write and artifact_delete on this KB. A written skill injects instructions that clients will run, so an rw token alone does not imply it."},
 	{Path: "kbs[].allow_template_write", Scope: settingschema.ScopeKB, Type: "bool", Default: "true",
@@ -155,6 +155,11 @@ var RemovedKeys = []settingschema.Removed{
 	{Path: "kbs[].github_repository", Plan: "#903", Replacement: "removed with the GitHub forge"},
 	{Path: "kbs[].github_api_url", Plan: "#903", Replacement: "removed with the GitHub forge"},
 	{Path: "kbs[].github_token_env", Plan: "#903", Replacement: "removed with the GitHub forge"},
+
+	// #903 WP4: a KB names its branch in its own settings.yaml (branch:), read
+	// as committed on the remote's default branch, in place of the removed
+	// kbs[].git_branch (was D335).
+	{Path: "kbs[].git_branch", Plan: "#903", Replacement: "set branch: in the KB's settings.yaml"},
 
 	// #903 WP3: autocommit and sync are no longer switches. A KB that is a git
 	// repository always commits after a write; it syncs (fetch/pull before,

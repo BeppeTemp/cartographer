@@ -188,7 +188,7 @@ func Init(dir string) error {
 }
 
 // InitOnBranch is Init with the unborn HEAD pinned to branch instead of
-// DefaultBranch: a KB configured with kbs[].git_branch (D335) starts there.
+// DefaultBranch: a KB whose settings.yaml names a branch (#903 WP4) starts there.
 func InitOnBranch(dir, branch string) error {
 	if !IsRepo(dir) {
 		if out, err := runGit(dir, "init"); err != nil {
@@ -868,7 +868,7 @@ func Push(dir, remote, branch string, env ...string) error {
 	out, err := runGitEnv(dir, env, "push", remote, branch)
 	if err != nil {
 		if isProtectedBranchRejection(out) {
-			return fmt.Errorf("git push %s %s: %w: unprotect the branch, or set kbs[].git_branch (branch:) to write elsewhere: %s", remote, branch, ErrProtectedBranch, out)
+			return fmt.Errorf("git push %s %s: %w: unprotect the branch, or set branch: in the KB's settings.yaml to write elsewhere: %s", remote, branch, ErrProtectedBranch, out)
 		}
 		return fmt.Errorf("git push %s %s: %w: %s", remote, branch, err, out)
 	}

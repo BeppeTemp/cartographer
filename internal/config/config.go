@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/settingschema"
 	"gopkg.in/yaml.v3"
 )
 
@@ -185,8 +186,14 @@ type KBSpec struct {
 	// MCPAllowlist is the per-KB operator policy for third-party HTTP MCP
 	// descriptors. An absent or empty list intentionally denies every one.
 	MCPAllowlist []provisioning.MCPAllowlistEntry `yaml:"mcp_allowlist,omitempty"`
-	Path         string                           `yaml:"path"`
-	Remote       string                           `yaml:"remote"`
+	// Path is a local KB directory, set by a kbs[] entry, by --kb/
+	// CARTOGRAPHER_KB, and by the CLI commands that resolve a local KB (kb
+	// create/rename, reindex). #903 WP4 makes a new local KB a folder under
+	// data (discovered) or a --kb mount rather than a kbs[].path entry, and
+	// records path: in the removed-key registry so the load warns — but the
+	// key is kept decodable so existing files and the KB CLI keep working.
+	Path   string `yaml:"path"`
+	Remote string `yaml:"remote"`
 
 	// Name overrides the KB name that would otherwise be derived from the
 	// basename of Remote/Path (see cmd/cartographer.resolveKBName). If set,
@@ -204,10 +211,16 @@ type KBSpec struct {
 	CommitterEmail string `yaml:"committer_email,omitempty"`
 	SopsAgeKeyFile string `yaml:"sops_age_key_file,omitempty"`
 
-	// GitBranch is the branch a KB writes to, in place of the remote's
-	// default branch (D335): the first push creates it on the remote when it
-	// is missing. Empty keeps D264 (follow the remote default).
-	GitBranch string `yaml:"git_branch,omitempty"`
+	// Branch is the git branch a KB writes to, in place of the remote's
+	// default (#903 WP4, was kbs[].git_branch under D335): the first push
+	// creates it on the remote when missing, empty follows the remote default
+	// (D264). It is a kb-scope key, set in the KB's own settings.yaml, but its
+	// EFFECTIVE value is resolved by the git-sync layer from the settings.yaml
+	// committed on the remote's default branch, never from the working copy
+	// (kb.KB.ResolveConfiguredBranch): the working-copy value decoded here is
+	// only what the settings view and schema render. Validated by
+	// ValidateGitBranch.
+	Branch string `yaml:"branch,omitempty"`
 
 	// AllowArtifactWrite enables the artifact_write/artifact_delete MCP tools
 	// (D71) for this KB — writing a provisioning artifact (skill/agent/hook/
@@ -423,6 +436,7 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("config: parse %q: %w", path, err)
 	}
+	warnRemovedKeys(path, Schema.RemovedKeysIn(data, RemovedKeys))
 
 	cfg := Default()
 	cfg.markFile(data, raw.KBs)
@@ -455,9 +469,6 @@ func Load(path string) (*Config, error) {
 		}
 		if _, err := spec.DoctorAutoIntervalDays(); err != nil {
 			return nil, fmt.Errorf("config: doctor_auto_interval: %w", err)
-		}
-		if err := ValidateGitBranch(spec.GitBranch); err != nil {
-			return nil, fmt.Errorf("config: kbs[] %q: git_branch: %w", firstNonEmptyStr(spec.Name, spec.Remote, spec.Path), err)
 		}
 		if spec.UsageStaleDays != nil && *spec.UsageStaleDays < 0 {
 			return nil, fmt.Errorf("config: usage_stale_days: %d is negative (a number of days, or 0 to disable)", *spec.UsageStaleDays)
@@ -653,9 +664,21 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	}
 }
 
-// ValidateGitBranch rejects a kbs[].git_branch that git would not accept as a
-// branch name (the rules of `git check-ref-format --branch`), so a typo fails
-// at load instead of at the first push. Empty is valid: the key is unset.
+// warnRemovedKeys logs one WARNING per removed key a config file still carries,
+// naming the replacement (#903 WP4). It is a warning, not an error: the key is
+// ignored, the server still starts, and the operator is told what to do
+// instead. The upgrade's realignment drops the keys; here the loader only
+// warns, so an edited-back-in key never goes silently ignored.
+func warnRemovedKeys(path string, hits []settingschema.Removed) {
+	for _, r := range hits {
+		fmt.Fprintf(os.Stderr, "cartographer: %s: %q was removed (%s): %s\n", path, r.Path, r.Plan, r.Replacement)
+	}
+}
+
+// ValidateGitBranch rejects a KB branch name that git would not accept (the
+// rules of `git check-ref-format --branch`), so a typo fails early instead of
+// at the first push. It validates the branch: value of the KB's settings.yaml
+// (#903 WP4). Empty is valid: the key is unset.
 func ValidateGitBranch(name string) error {
 	if name == "" {
 		return nil
@@ -684,15 +707,6 @@ func ValidateGitBranch(name string) error {
 		}
 	}
 	return nil
-}
-
-func firstNonEmptyStr(vs ...string) string {
-	for _, v := range vs {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // normalizeToolsProfile maps a tools-profile spelling onto the canonical

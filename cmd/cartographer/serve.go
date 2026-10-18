@@ -198,7 +198,7 @@ func refuseServerProfile(root string) error {
 		return nil
 	}
 	return fmt.Errorf("KB %s: the server git profile (git_profile: server in %s) was removed in #903, along with its GitHub forge and the pr_status/pr_finalize tools. "+
-		"Drop it: unprotect the branch, or use kbs[].git_branch (branch:) to write elsewhere", filepath.Base(root), kb.SettingsFile)
+		"Drop it: unprotect the branch, or set branch: in %s to write elsewhere", filepath.Base(root), kb.SettingsFile, kb.SettingsFile)
 }
 
 // resolveSopsAgeKeyFile resolves the SOPS age key file for a KB (D53).
@@ -243,7 +243,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	for _, spec := range cfg.KBs {
 		if spec.Remote != "" {
 			name := resolveKBName(spec, "")
-			dest, err := ensureClonedKB(spec.Remote, name, cfg.Data, spec.GitBranch, gitEnvForKB(spec, cfg.Git, name)...)
+			dest, err := ensureClonedKB(spec.Remote, name, cfg.Data, gitEnvForKB(spec, cfg.Git, name)...)
 			if err != nil {
 				log.Fatalf("KB remote %q: %v", spec.Remote, err)
 			}
@@ -297,7 +297,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		var k *kb.KB
 		var err error
 		if cfg.Init {
-			k, err = kb.InitOnBranch(m.Path, m.Spec.GitBranch)
+			k, err = kb.Init(m.Path)
 			if err != nil {
 				log.Fatalf("KB init %q failed: %v", m.Path, err)
 			}
@@ -319,7 +319,9 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		// recorded in D903 (WP4).
 		k.SyncPushSynchronous = os.Getenv("K_SERVICE") != ""
 		k.GitEnv = gitEnvForKB(m.Spec, cfg.Git, m.Name)
-		k.ConfiguredBranch = m.Spec.GitBranch
+		// ConfiguredBranch is no longer set from kbs[] (#903 WP4): SyncIn
+		// resolves it from the branch: key of settings.yaml as committed on
+		// the remote's default branch.
 		if err := completeIdentity(m.Spec.AuthorName, m.Spec.AuthorEmail, "kbs[]"); err != nil {
 			log.Fatal(err)
 		}
@@ -439,6 +441,14 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 	if err != nil {
 		log.Printf("warning: KB %q: %v — settings.yaml ignored", name, err)
 		st = kb.SettingsState{}
+	}
+	// #903 WP4: warn (never fail) on a settings.yaml key a release removed,
+	// naming the replacement. The parser already ignores it as an unknown
+	// setting; the warning is only shown on the first resolution.
+	if !refresh {
+		if raw, rerr := os.ReadFile(filepath.Join(k.Root, kb.SettingsFile)); rerr == nil {
+			config.WarnRemovedKBKeys("KB "+name, raw)
+		}
 	}
 	eff, info := config.ResolveKBSettings(server, cfg.ServerSetFunc(name), st)
 	prev := k.SettingsInfo()

@@ -446,6 +446,11 @@ func unsetEnvForTest(t *testing.T, key string) func() {
 // TestEnsureClonedKBConfiguredBranch: a fresh clone lands on kbs[].git_branch
 // (D335) — tracking it when the remote has it, created from the remote's
 // default branch otherwise — and an existing clone is never switched.
+// TestEnsureClonedKBConfiguredBranch: a fresh clone lands on the branch named
+// by branch: in the settings.yaml committed on the remote's default branch
+// (#903 WP4, checkoutConfiguredBranch), tracking it when the remote has it and
+// creating it from the default otherwise, and an existing clone is never
+// switched. The branch is no longer a kbs[].git_branch argument (D335 removed).
 func TestEnsureClonedKBConfiguredBranch(t *testing.T) {
 	if !hasGit() {
 		t.Skip("git not in PATH")
@@ -455,36 +460,34 @@ func TestEnsureClonedKBConfiguredBranch(t *testing.T) {
 	if _, err := kb.Init(srcDir); err != nil {
 		t.Fatalf("kb.Init(src): %v", err)
 	}
+	// branch: on the default branch (main) names where writes go.
+	if err := os.WriteFile(filepath.Join(srcDir, kb.SettingsFile), []byte("branch: feature\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRunGit(t, srcDir, "add", "-A")
+	mustRunGit(t, srcDir, "commit", "-qm", "configure branch")
 	bareDir := filepath.Join(tmp, "wiki-kb.git")
 	mustRunGit(t, "", "init", "--bare", bareDir)
 	mustRunGit(t, bareDir, "symbolic-ref", "HEAD", "refs/heads/main")
 	mustRunGit(t, srcDir, "remote", "add", "origin", bareDir)
-	mustRunGit(t, srcDir, "push", "origin", "main:main", "main:existing")
+	// Push main as the default, and also publish the feature branch so the
+	// clone tracks it rather than creating it locally.
+	mustRunGit(t, srcDir, "push", "origin", "main:main", "main:feature")
 	remoteURL := fileURL(bareDir)
 
-	for _, branch := range []string{"existing", "missing"} {
-		dest, err := ensureClonedKB(remoteURL, "kb-"+branch, filepath.Join(tmp, "data"), branch)
-		if err != nil {
-			t.Fatalf("ensureClonedKB(%s): %v", branch, err)
-		}
-		got, _ := gitx.Branch(dest)
-		if got != branch {
-			t.Fatalf("%s: branch = %q", branch, got)
-		}
-		// Existing clone: a different configured branch does not switch it.
-		if _, err := ensureClonedKB(remoteURL, "kb-"+branch, filepath.Join(tmp, "data"), "other"); err != nil {
-			t.Fatal(err)
-		}
-		if again, _ := gitx.Branch(dest); again != branch {
-			t.Fatalf("%s: existing clone switched to %q", branch, again)
-		}
-	}
-	out, err := exec.Command("git", "-C", bareDir, "for-each-ref", "--format=%(refname:short)", "refs/heads/").Output()
+	dest, err := ensureClonedKB(remoteURL, "kb-feature", filepath.Join(tmp, "data"))
 	if err != nil {
+		t.Fatalf("ensureClonedKB: %v", err)
+	}
+	if got, _ := gitx.Branch(dest); got != "feature" {
+		t.Fatalf("clone landed on %q, want feature (from settings.yaml on the default branch)", got)
+	}
+	// An existing clone is never switched, even if re-resolved.
+	if _, err := ensureClonedKB(remoteURL, "kb-feature", filepath.Join(tmp, "data")); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(out), "missing") {
-		t.Fatal("cloning created the configured branch on the remote")
+	if again, _ := gitx.Branch(dest); again != "feature" {
+		t.Fatalf("existing clone switched to %q", again)
 	}
 }
 

@@ -63,8 +63,8 @@ func (e *ErrRebaseStatePresent) Error() string {
 
 // ErrBranchDiverged is the sentinel for a local-profile KB whose checked-out
 // branch is not its canonical branch: the remote's default branch (D264), or
-// kbs[].git_branch when configured (D335). errors.Is matches every
-// *BranchDivergedError.
+// the branch: of settings.yaml committed on that default branch when it names
+// one (#903 WP4). errors.Is matches every *BranchDivergedError.
 var ErrBranchDiverged = errors.New("KB branch diverges from the remote default branch")
 
 // BranchDivergedError refuses a local-profile write that would commit or push
@@ -83,17 +83,18 @@ type BranchDivergedError struct {
 	// RemoteEmpty is true when the remote has no refs at all: the only push
 	// allowed then is the first one of gitx.DefaultBranch.
 	RemoteEmpty bool
-	// Configured is true when Default comes from kbs[].git_branch (D335)
-	// rather than from the remote.
+	// Configured is true when Default comes from the branch: of settings.yaml
+	// (committed on the remote's default branch, #903 WP4) rather than from
+	// the remote's default branch itself.
 	Configured bool
 }
 
 func (e *BranchDivergedError) Error() string {
 	switch {
 	case e.Configured:
-		return fmt.Sprintf("%s: %s is checked out on branch %q but the KB's configured branch (kbs[].git_branch) is %q, so writes are refused to keep the KB from forking on the remote. "+
-			"Check out %q in %s (`git -C %s checkout %s`, or `checkout -b %s` if it does not exist locally), or change git_branch, then restart the server",
-			ErrBranchDiverged, e.Root, e.Branch, e.Default, e.Default, e.Root, e.Root, e.Default, e.Default)
+		return fmt.Sprintf("%s: %s is checked out on branch %q but the KB's configured branch (branch: in %s) is %q, so writes are refused to keep the KB from forking on the remote. "+
+			"Check out %q in %s (`git -C %s checkout %s`, or `checkout -b %s` if it does not exist locally), or change branch:, then restart the server",
+			ErrBranchDiverged, e.Root, e.Branch, SettingsFile, e.Default, e.Default, e.Root, e.Root, e.Default, e.Default)
 	case e.Default != "":
 		return fmt.Sprintf("%s: %s is checked out on branch %q but the remote's default branch is %q, so writes are refused to keep the KB from forking on the remote. "+
 			"Merge %q into %q on the remote, or check out %q in %s, then restart the server",
@@ -132,6 +133,31 @@ func (k *KB) setRemoteDefault(branch string) {
 	k.lastSyncInMu.Lock()
 	k.remoteDefault = branch
 	k.lastSyncInMu.Unlock()
+}
+
+// resolveConfiguredBranch sets k.ConfiguredBranch from the branch: key of
+// settings.yaml AS COMMITTED ON THE REMOTE'S DEFAULT BRANCH (#903 WP4, was
+// kbs[].git_branch under D335). The working copy is deliberately not read:
+// branch decides where every push lands, so a value that has not been
+// committed on the default branch — reviewed through git like any Map
+// contract — must not take effect, or an uncommitted edit could fork the KB
+// onto a new remote branch. When the remote names no default (empty, or a
+// HEAD pointing at a missing branch) there is nothing committed to read, so
+// the KB follows the default-branch rule (D264) and ConfiguredBranch stays "".
+// A missing settings.yaml on that branch, or an absent/invalid branch:, is
+// the same. Callers hold the git lock and have just fetched, so the
+// remote-tracking ref origin/<default> is current.
+func (k *KB) resolveConfiguredBranch(remote, canonical string) {
+	if canonical == "" {
+		k.ConfiguredBranch = ""
+		return
+	}
+	data, err := gitx.ShowFile(k.Root, remote+"/"+canonical, SettingsFile)
+	if err != nil {
+		k.ConfiguredBranch = ""
+		return
+	}
+	k.ConfiguredBranch = BranchFromSettings([]byte(data))
 }
 
 // RemoteDefaultBranch returns the canonical branch last resolved from the
@@ -319,9 +345,21 @@ func (k *KB) SyncIn() (bool, error) {
 		}
 		return true, fmt.Errorf("SyncIn fetch: %w", err)
 	}
+	// Resolve the remote's default branch, then the KB's canonical branch: the
+	// branch: key of settings.yaml AS COMMITTED ON THE DEFAULT BRANCH when it
+	// names one (#903 WP4), otherwise the default branch itself (D264). The
+	// working copy of settings.yaml is deliberately ignored for branch: a
+	// write to it must not be able to redirect the next push to a branch the
+	// remote's committed history never named — that is what forks a KB.
+	refs, lsErr := gitx.LsRemote(k.Root, remote, k.GitEnv...)
+	if lsErr != nil {
+		return true, fmt.Errorf("SyncIn remote default branch: %w", lsErr)
+	}
+	k.resolveConfiguredBranch(remote, canonicalBranch(refs))
 	if k.ConfiguredBranch != "" {
-		// Local profile with kbs[].git_branch (D335): the configured branch is
-		// canonical, whatever the remote's default is.
+		// settings.yaml@default-branch names a branch (#903 WP4): it is
+		// canonical, whatever the remote's default is. The first push creates
+		// it on the remote.
 		k.setRemoteDefault(k.ConfiguredBranch)
 		if branch != k.ConfiguredBranch {
 			return true, k.divergedError(&BranchDivergedError{Root: k.Root, Branch: branch, Default: k.ConfiguredBranch, Configured: true}, 0)
@@ -335,10 +373,6 @@ func (k *KB) SyncIn() (bool, error) {
 		}
 	} else {
 		// Local profile: the KB's branch is the remote's default branch (D264).
-		refs, err := gitx.LsRemote(k.Root, remote, k.GitEnv...)
-		if err != nil {
-			return true, fmt.Errorf("SyncIn remote default branch: %w", err)
-		}
 		canonical := canonicalBranch(refs)
 		k.setRemoteDefault(canonical)
 		if !refs.HasRefs {
@@ -486,8 +520,8 @@ func (k *KB) SyncOut() error {
 // stays. A failure to ask the remote is returned as pushErr, retried like a
 // failed push.
 //
-// With kbs[].git_branch configured (D335) the configured branch is the only
-// one pushed, and the first push creates it on the remote when it is missing.
+// With a configured branch (branch: in settings.yaml, #903 WP4) that branch is
+// the only one pushed, and the first push creates it on the remote when missing.
 func (k *KB) pushLocal(remote, branch string) (pushErr error, diverged *BranchDivergedError) {
 	if k.ConfiguredBranch != "" {
 		return k.pushConfigured(remote, branch)
@@ -520,7 +554,7 @@ func (k *KB) pushLocal(remote, branch string) (pushErr error, diverged *BranchDi
 	}
 }
 
-// pushConfigured is pushLocal for a KB with kbs[].git_branch (D335).
+// pushConfigured is pushLocal for a KB whose settings.yaml names a branch (#903 WP4).
 func (k *KB) pushConfigured(remote, branch string) (pushErr error, diverged *BranchDivergedError) {
 	if branch != k.ConfiguredBranch {
 		return nil, &BranchDivergedError{Root: k.Root, Branch: branch, Default: k.ConfiguredBranch, Configured: true}

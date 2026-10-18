@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -50,6 +51,26 @@ var RemovedKBKeys = []settingschema.Removed{
 // OffResetsKB is the registry of kept KB keys whose off value the 0.25 cleanup
 // no longer allows. Empty until a plan adds its first.
 var OffResetsKB = []settingschema.OffReset{}
+
+// RemovedKBKeysIn returns the removed KB keys the raw settings.yaml in data
+// still carries (#903 WP4). The settings keys are top-level, so RemovedKBKeys
+// lists them with no prefix.
+func RemovedKBKeysIn(data []byte) []settingschema.Removed {
+	return settingschema.Schema{}.RemovedKeysIn(data, RemovedKBKeys)
+}
+
+// WarnRemovedKBKeys logs one WARNING per removed key a KB's settings.yaml still
+// carries, naming the replacement (#903 WP4). Like the server loader's warning
+// it is not an error: the key is ignored (the parser already drops it as an
+// unknown setting), the KB still mounts, and the operator is told what to do
+// instead. It returns the hits so a test can assert on them.
+func WarnRemovedKBKeys(label string, data []byte) []settingschema.Removed {
+	hits := RemovedKBKeysIn(data)
+	for _, r := range hits {
+		fmt.Fprintf(os.Stderr, "cartographer: %s: %s: %q was removed (%s): %s\n", label, kb.SettingsFile, r.Path, r.Plan, r.Replacement)
+	}
+	return hits
+}
 
 // kbPolicyStore is the effective per-KB specs and the keys that came from a
 // KB file, replaced whenever a KB's settings are re-resolved. A separate
@@ -182,6 +203,10 @@ func checkKBValue(key string, part KBSpec) string {
 		if _, err := part.DoctorAutoIntervalDays(); err != nil {
 			return err.Error()
 		}
+	case "branch":
+		if err := ValidateGitBranch(part.Branch); err != nil {
+			return err.Error()
+		}
 	}
 	return ""
 }
@@ -219,6 +244,12 @@ func setKBField(dst *KBSpec, part KBSpec, key string) bool {
 		dst.MCPAllowlist = part.MCPAllowlist
 	case "secrets":
 		dst.Secrets = part.Secrets
+	case "branch":
+		// The working-copy branch: is recorded for the settings view, but the
+		// EFFECTIVE branch a KB writes to is resolved by the git-sync layer
+		// from settings.yaml as committed on the remote's default branch
+		// (#903 WP4), so this copy never decides where a write goes.
+		dst.Branch = part.Branch
 	default:
 		return false
 	}

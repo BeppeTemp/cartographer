@@ -548,31 +548,38 @@ func TestLoadAuditRetention(t *testing.T) {
 	}
 }
 
-// D335: kbs[].git_branch is loaded, a malformed name fails at load, and the
-// key is refused on a KB whose effective profile is server.
+// #903 WP4: git_branch is a removed server key (a load warning, not an error);
+// a KB names its branch with branch: in settings.yaml, validated by
+// ValidateGitBranch. The removed key never fails the load.
 func TestKBGitBranch(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "c.yaml")
-	if err := os.WriteFile(path, []byte("kbs:\n  - path: /data/kb-a\n    git_branch: team/kb-data\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if got := cfg.KBs[0].GitBranch; got != "team/kb-data" {
-		t.Fatalf("GitBranch = %q", got)
-	}
-
 	for _, bad := range []string{"HEAD", "-x", "a..b", "a b", "a~1", "x.lock", ".hidden", "a/", "a//b", "a.", "a@{1}", "a:b"} {
 		if ValidateGitBranch(bad) == nil {
 			t.Errorf("ValidateGitBranch(%q) accepted", bad)
 		}
 	}
-	if err := os.WriteFile(path, []byte("kbs:\n  - path: /data/kb-a\n    git_branch: \"a..b\"\n"), 0o644); err != nil {
+	if err := ValidateGitBranch("team/kb-data"); err != nil {
+		t.Errorf("ValidateGitBranch(valid) = %v", err)
+	}
+
+	// A config that still carries the removed kbs[].git_branch loads without
+	// error: the loader warns, the key is ignored.
+	path := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(path, []byte("kbs:\n  - remote: https://git.example.com/user/kb-a.git\n    git_branch: team/kb-data\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "git_branch") {
-		t.Fatalf("Load with a malformed branch: err = %v", err)
+	if _, err := Load(path); err != nil {
+		t.Fatalf("Load with removed git_branch must warn, not fail: %v", err)
+	}
+
+	// branch: in a KB's settings.yaml is validated at resolution; a malformed
+	// one is left out with a finding (RemovedKBKeysIn is for removed keys).
+	_, info := ResolveKBSettings(KBSpec{}, nil, parse(t, "branch: \"a..b\"\n"))
+	if len(info.Findings) != 1 || !strings.Contains(info.Findings[0], "branch") {
+		t.Fatalf("a malformed branch: must be a finding, got %v", info.Findings)
+	}
+	eff, info := ResolveKBSettings(KBSpec{}, nil, parse(t, "branch: team/kb-data\n"))
+	if eff.Branch != "team/kb-data" || !info.FromKBHas("branch") {
+		t.Fatalf("branch not resolved: eff=%+v info=%+v", eff, info)
 	}
 }
 
