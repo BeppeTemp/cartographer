@@ -79,7 +79,9 @@ func TestConceptRead_MatchErrors(t *testing.T) {
 	if _, res := readMatch(t, c, `{"id":"ops/grep","match":""}`); !res.IsError || !strings.Contains(res.Content[0].Text, "'match' must not be empty") {
 		t.Errorf("empty match: %+v", res)
 	}
-	for _, other := range []string{`"section":"# H"`, `"outline":true`, `"with_content":true`} {
+	// section is no longer exclusive with match (#835): it narrows the grep to
+	// that section. outline and with_content stay exclusive.
+	for _, other := range []string{`"outline":true`, `"with_content":true`} {
 		_, res := readMatch(t, c, `{"id":"ops/grep","match":"x",`+other+`}`)
 		name := strings.Trim(strings.SplitN(other, ":", 2)[0], `"`)
 		if !res.IsError || !strings.Contains(res.Content[0].Text, "'match' is exclusive with '"+name+"'") {

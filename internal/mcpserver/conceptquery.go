@@ -31,6 +31,10 @@ type ConceptEntry struct {
 	// Fields holds the frontmatter keys the query asked for (D343): a string
 	// for a scalar, a []string for a list; absent or other types are omitted.
 	Fields map[string]any `json:"fields,omitempty"`
+	// ContentHash is the concept's content hash, filled only when the query
+	// asked for it (concept_list's content_hash pseudo-field, #835): an agent
+	// listing then patching concepts gets each if_match without a read apiece.
+	ContentHash string `json:"content_hash,omitempty"`
 }
 
 // ConceptQuery selects concepts from a KB. It holds no authorization logic:
@@ -39,12 +43,16 @@ type ConceptEntry struct {
 type ConceptQuery struct {
 	// Scope is a path prefix relative to the KB root, without a trailing
 	// slash. Empty means the whole KB.
-	Scope   string
-	Fields  []string
-	Filters []conceptListFilter
-	Before  *time.Time
-	After   *time.Time
-	Include func(id string) bool
+	Scope  string
+	Fields []string
+	// WithContentHash fills each entry's ContentHash (concept_list's
+	// content_hash pseudo-field, #835). The hash comes from the content the
+	// walk already holds, so it costs no extra read.
+	WithContentHash bool
+	Filters         []conceptListFilter
+	Before          *time.Time
+	After           *time.Time
+	Include         func(id string) bool
 }
 
 // ConceptQueryResult is the sorted inventory plus the accounting concept_list
@@ -85,6 +93,9 @@ func queryConcepts(k *kb.KB, q ConceptQuery) (ConceptQueryResult, error) {
 			ID:         idStr,
 			Collection: conceptCollection(idStr),
 			Expanded:   physicalPath == path.Join(idStr, "index.md"),
+		}
+		if q.WithContentHash {
+			entry.ContentHash = okf.ContentHash(content)
 		}
 		fm, parseErr := okf.ParseFrontmatter(fmRaw)
 		if parseErr == nil {
