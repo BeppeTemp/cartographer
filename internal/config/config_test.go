@@ -338,24 +338,38 @@ func TestNormalizeAuthMode(t *testing.T) {
 	}
 }
 
-// TestLoadServerGitProfile pins the YAML surface of the server Git profile
-// (D117): the keys are operator-facing, so a silent rename or a missing
-// mapping would leave a configured profile inert rather than failing.
-func TestLoadServerGitProfile(t *testing.T) {
+// TestServerGitProfileKeysRemoved pins that the server Git profile keys were
+// removed in #903: a config that still carries them loads without failing (the
+// loader warns through RemovedKeys), and the keys are in the removed registry
+// so the realignment drops them from an upgraded file.
+func TestServerGitProfileKeysRemoved(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	data := []byte("git:\n  profile: server\n  base_branch: main\n  working_branch: cartographer/wiki\n  forge: github\n  github_owner: acme\n  github_repository: wiki\n  github_api_url: https://api.github.test\n  github_token_env: CARTOGRAPHER_GITHUB_TOKEN\n")
+	data := []byte("git:\n  profile: server\n  base_branch: main\n  forge: github\n  github_owner: acme\n  github_repository: wiki\n")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := Load(path); err != nil {
+		t.Fatalf("a config with removed git-profile keys must still load: %v", err)
 	}
-	if cfg.Git.Profile != "server" || cfg.Git.BaseBranch != "main" || cfg.Git.WorkingBranch != "cartographer/wiki" || cfg.Git.Forge != "github" || cfg.Git.GitHubOwner != "acme" || cfg.Git.GitHubRepository != "wiki" {
-		t.Fatalf("server git config = %#v", cfg.Git)
+	want := map[string]bool{
+		"git.profile": true, "git.base_branch": true, "git.working_branch": true,
+		"git.forge": true, "git.github_owner": true, "git.github_repository": true,
+		"git.github_api_url": true, "git.github_token_env": true,
+		"kbs[].git_profile": true, "kbs[].git_base_branch": true, "kbs[].git_working_branch": true,
+		"kbs[].git_forge": true, "kbs[].github_owner": true, "kbs[].github_repository": true,
+		"kbs[].github_api_url": true, "kbs[].github_token_env": true,
 	}
-	if cfg.Git.GitHubAPIURL != "https://api.github.test" || cfg.Git.GitHubTokenEnv != "CARTOGRAPHER_GITHUB_TOKEN" {
-		t.Fatalf("server git endpoint/token config = %#v", cfg.Git)
+	got := map[string]bool{}
+	for _, r := range RemovedKeys {
+		if r.Plan != "#903" {
+			t.Errorf("removed key %q has plan %q, want #903", r.Path, r.Plan)
+		}
+		got[r.Path] = true
+	}
+	for p := range want {
+		if !got[p] {
+			t.Errorf("RemovedKeys missing %q", p)
+		}
 	}
 }
 
@@ -575,19 +589,6 @@ func TestKBGitBranch(t *testing.T) {
 	}
 	if got := cfg.KBs[0].GitBranch; got != "team/kb-data" {
 		t.Fatalf("GitBranch = %q", got)
-	}
-	if err := cfg.KBs[0].GitBranchProfileError("local"); err != nil {
-		t.Fatalf("local profile: %v", err)
-	}
-	if err := cfg.KBs[0].GitBranchProfileError("server"); err == nil || !strings.Contains(err.Error(), "git_branch") {
-		t.Fatalf("global server profile: err = %v", err)
-	}
-	spec := KBSpec{Name: "kb-a", GitBranch: "x", GitProfile: "Server"}
-	if err := spec.GitBranchProfileError("local"); err == nil || !strings.Contains(err.Error(), "kb-a") {
-		t.Fatalf("per-KB server profile: err = %v", err)
-	}
-	if err := (KBSpec{GitProfile: "server"}).GitBranchProfileError("server"); err != nil {
-		t.Fatalf("unset key: %v", err)
 	}
 
 	for _, bad := range []string{"HEAD", "-x", "a..b", "a b", "a~1", "x.lock", ".hidden", "a/", "a//b", "a.", "a@{1}", "a:b"} {

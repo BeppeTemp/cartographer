@@ -37,7 +37,15 @@ func KBSettingsSchema() settingschema.Schema {
 // (#903 WP1): the realignment commits a file with them dropped, and the loader
 // warns naming the replacement when one is edited back in. Empty until a plan
 // removes its first (plans #903 WP2+); it never shrinks.
-var RemovedKBKeys = []settingschema.Removed{}
+var RemovedKBKeys = []settingschema.Removed{
+	// #903: the server git profile and its GitHub forge are gone. A KB writes
+	// directly to its branch; protect the base branch on the remote.
+	{Path: "git_profile", Plan: "#903", Replacement: "removed with the server git profile; a KB now writes directly to its branch"},
+	{Path: "git_base_branch", Plan: "#903", Replacement: "removed with the server git profile; protect the base branch on the remote instead"},
+	{Path: "git_forge", Plan: "#903", Replacement: "removed with the GitHub forge"},
+	{Path: "github_owner", Plan: "#903", Replacement: "removed with the GitHub forge"},
+	{Path: "github_repository", Plan: "#903", Replacement: "removed with the GitHub forge"},
+}
 
 // OffResetsKB is the registry of kept KB keys whose off value the 0.25 cleanup
 // no longer allows. Empty until a plan adds its first.
@@ -209,16 +217,6 @@ func setKBField(dst *KBSpec, part KBSpec, key string) bool {
 		dst.UsageStaleDays = part.UsageStaleDays
 	case "mcp_allowlist":
 		dst.MCPAllowlist = part.MCPAllowlist
-	case "git_profile":
-		dst.GitProfile = part.GitProfile
-	case "git_base_branch":
-		dst.GitBaseBranch = part.GitBaseBranch
-	case "git_forge":
-		dst.GitForge = part.GitForge
-	case "github_owner":
-		dst.GitHubOwner = part.GitHubOwner
-	case "github_repository":
-		dst.GitHubRepository = part.GitHubRepository
 	case "secrets":
 		dst.Secrets = part.Secrets
 	default:

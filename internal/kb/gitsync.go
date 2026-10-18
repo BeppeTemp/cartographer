@@ -282,9 +282,6 @@ func (k *KB) SyncIn() (bool, error) {
 	if err := k.checkRebaseState(); err != nil {
 		return false, err
 	}
-	if err := k.ServerWritesBlocked(); err != nil {
-		return false, err
-	}
 	if !k.SyncInDue() {
 		return false, nil
 	}
@@ -305,23 +302,6 @@ func (k *KB) SyncIn() (bool, error) {
 			return true, nil
 		}
 		return true, fmt.Errorf("SyncIn fetch: %w", err)
-	}
-	if k.ServerGit != nil {
-		if branch != k.ServerGit.WorkingBranch {
-			return true, fmt.Errorf("SyncIn server profile: checked out %q, expected %q", branch, k.ServerGit.WorkingBranch)
-		}
-		if err := gitx.RebaseOntoAutostash(k.Root, remote, k.ServerGit.BaseBranch, k.GitEnv...); err != nil {
-			k.RecordServerRebaseConflict(err)
-			return true, err
-		}
-		k.setLastSyncIn(time.Now())
-		if headAfter, err := gitx.HeadSHA(k.Root); err == nil && headAfter != headBefore {
-			k.RefreshSettings() // D746: a pull may have changed settings.yaml
-			if k.OnSyncIn != nil {
-				k.OnSyncIn()
-			}
-		}
-		return true, nil
 	}
 	if k.ConfiguredBranch != "" {
 		// Local profile with kbs[].git_branch (D335): the configured branch is
@@ -394,13 +374,6 @@ func (k *KB) SyncOut() error {
 		k.setGitStatus("no_remote", nil, 0)
 		return nil
 	}
-	if k.ServerGit != nil {
-		if err := k.ServerWritesBlocked(); err != nil {
-			k.setGitStatus("degraded", err, 0)
-			return err
-		}
-		return k.syncOutServer(remote)
-	}
 
 	maxAttempts := syncOutMaxAttempts
 	backoff := syncOutInitialBackoff
@@ -421,6 +394,14 @@ func (k *KB) SyncOut() error {
 			k.recordPushSuccess()
 			k.setGitStatus("clean", nil, attempt)
 			return nil
+		}
+
+		// A branch-protection refusal is not a fast-forward race: a rebase and
+		// retry would hit the same wall. Report it as such, with the way out,
+		// rather than looping (#903).
+		if errors.Is(pushErr, gitx.ErrProtectedBranch) {
+			k.setGitStatus("failed", pushErr, attempt)
+			return pushErr
 		}
 
 		// Determine whether the failure is a non-fast-forward rejection.
@@ -541,67 +522,6 @@ func (k *KB) pushConfigured(remote, branch string) (pushErr error, diverged *Bra
 		return gitx.Push(k.Root, remote, branch, k.GitEnv...), nil
 	}
 	return gitx.PushSetUpstream(k.Root, remote, branch, k.GitEnv...), nil
-}
-
-// syncOutServer pushes only the dedicated working branch (D117): a
-// non-fast-forward rejection fetches and rebases the working branch onto the
-// remote working branch first (never onto itself as base), then re-rebases
-// onto the current base before retrying.
-func (k *KB) syncOutServer(remote string) error {
-	branch, _ := gitx.Branch(k.Root)
-	if branch != k.ServerGit.WorkingBranch {
-		err := fmt.Errorf("SyncOut server profile: checked out %q, expected %q", branch, k.ServerGit.WorkingBranch)
-		k.setGitStatus("failed", err, 1)
-		return err
-	}
-	for attempt := 1; attempt <= syncOutMaxAttempts; attempt++ {
-		pushErr := gitx.Push(k.Root, remote, branch, k.GitEnv...)
-		if pushErr == nil {
-			k.recordPushSuccess() // the push happened even if the forge step fails
-			ctx, cancel := serverGitContext()
-			forgeErr := k.syncServerPR(ctx)
-			cancel()
-			if forgeErr != nil {
-				return forgeErr
-			}
-			k.setGitStatus("clean", nil, attempt)
-			return nil
-		}
-		errMsg := pushErr.Error()
-		isRejected := strings.Contains(errMsg, "non-fast-forward") ||
-			strings.Contains(errMsg, "[rejected]") ||
-			strings.Contains(errMsg, "Updates were rejected")
-		if !isRejected {
-			if attempt == syncOutMaxAttempts {
-				k.setGitStatus("failed", pushErr, attempt)
-				return pushErr
-			}
-		} else {
-			if fetchErr := gitx.Fetch(k.Root, remote, k.GitEnv...); fetchErr != nil {
-				if attempt == syncOutMaxAttempts {
-					k.setGitStatus("failed", fetchErr, attempt)
-					return fetchErr
-				}
-			} else {
-				// First incorporate a concurrent update to the working branch, then
-				// rebase onto base again. The working branch is never used as base.
-				if rebaseErr := gitx.PullRebaseAutostash(k.Root, remote, branch, k.GitEnv...); rebaseErr != nil {
-					k.RecordServerRebaseConflict(rebaseErr)
-					k.setGitStatus("failed", rebaseErr, attempt)
-					return rebaseErr
-				}
-				if rebaseErr := gitx.RebaseOntoAutostash(k.Root, remote, k.ServerGit.BaseBranch, k.GitEnv...); rebaseErr != nil {
-					k.RecordServerRebaseConflict(rebaseErr)
-					k.setGitStatus("failed", rebaseErr, attempt)
-					return rebaseErr
-				}
-			}
-		}
-		syncOutSleep(syncOutInitialBackoff * time.Duration(1<<(attempt-1)))
-	}
-	err := fmt.Errorf("SyncOut server profile: push failed after %d attempts", syncOutMaxAttempts)
-	k.setGitStatus("failed", err, syncOutMaxAttempts)
-	return err
 }
 
 // HasRemote reports whether the KB has a configured origin remote.

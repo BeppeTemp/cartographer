@@ -130,14 +130,6 @@ type KB struct {
 	// first push creates it on the remote. Empty keeps D264.
 	ConfiguredBranch string
 
-	// ServerGit is non-nil only for the opt-in server profile. Its dedicated
-	// working branch is the only branch this process may push (D117).
-	ServerGit *ServerGitConfig
-	// ServerMergeLint is wired by the MCP layer to run the full lint during a
-	// server-profile PR finalization. Keeping it injectable avoids a kb↔lint
-	// import cycle while preserving an in-lock gate.
-	ServerMergeLint func() error
-
 	// SopsAgeKeyFile is the path to the SOPS age key file used to decrypt
 	// this KB's secrets (e.g. via service_get resolve_secrets). Empty means
 	// no per-KB key is configured — secret resolution fails clearly instead
@@ -393,11 +385,9 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 	}
 	s.Branch, _ = gitx.Branch(k.Root)
 	s.RemoteDefaultBranch = k.RemoteDefaultBranch()
-	if k.ServerGit == nil {
-		s.BranchSource = "remote"
-		if k.ConfiguredBranch != "" {
-			s.BranchSource = "config"
-		}
+	s.BranchSource = "remote"
+	if k.ConfiguredBranch != "" {
+		s.BranchSource = "config"
 	}
 	_, remote := k.hasRemote()
 	s.IdentityWarning = ShouldWarnGitIdentity(k.GitSync, remote, k.GitAuthorEmail)

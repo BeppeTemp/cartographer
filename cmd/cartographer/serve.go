@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -29,6 +28,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 	"github.com/BeppeTemp/cartographer/internal/webui"
+	"gopkg.in/yaml.v3"
 )
 
 // shutdownPushFlushTimeout bounds how long serve waits, at shutdown, for a
@@ -185,6 +185,30 @@ func completeIdentity(name, email, scope string) error {
 	return nil
 }
 
+// refuseServerProfile rejects a KB still asking for the server git profile,
+// which, with its GitHub forge and the PR tools, was removed in #903. The
+// profile lived in the KB's own settings.yaml ("git_profile: server"); the
+// server config.yaml twin is a load-time warning (config.RemovedKeys). A KB
+// that still names it cannot be mounted, and the message names the way out
+// rather than silently writing somewhere the operator did not choose.
+func refuseServerProfile(root string) error {
+	data, err := os.ReadFile(filepath.Join(root, kb.SettingsFile))
+	if err != nil {
+		return nil // no settings.yaml, or unreadable: nothing to refuse here
+	}
+	var doc struct {
+		GitProfile string `yaml:"git_profile"`
+	}
+	if yaml.Unmarshal(data, &doc) != nil {
+		return nil
+	}
+	if strings.ToLower(strings.TrimSpace(doc.GitProfile)) != "server" {
+		return nil
+	}
+	return fmt.Errorf("KB %s: the server git profile (git_profile: server in %s) was removed in #903, along with its GitHub forge and the pr_status/pr_finalize tools. "+
+		"Drop it: unprotect the branch, or use kbs[].git_branch (branch:) to write elsewhere", filepath.Base(root), kb.SettingsFile)
+}
+
 // resolveSopsAgeKeyFile resolves the SOPS age key file for a KB (D53).
 // Resolution order: spec.SopsAgeKeyFile (explicit per-KB override) wins;
 // otherwise <sops.AgeKeyDir>/<name>.age if that file exists; otherwise the
@@ -225,9 +249,6 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	phase("cloning")
 	var mounts []kbMount
 	for _, spec := range cfg.KBs {
-		if err := spec.GitBranchProfileError(cfg.Git.Profile); err != nil {
-			log.Fatalf("config: %v", err)
-		}
 		if spec.Remote != "" {
 			name := resolveKBName(spec, "")
 			dest, err := ensureClonedKB(spec.Remote, name, cfg.Data, spec.GitBranch, gitEnvForKB(spec, cfg.Git, name)...)
@@ -342,21 +363,12 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			continue
 		}
 		seenNames[name] = m.Path
-		serverGit, err := serverGitConfigFor(m.Spec, cfg.Git, name)
-		if err != nil && !reflect.DeepEqual(m.Spec, serverSpec) {
-			// A KB must not stop the server with a settings.yaml it carries
-			// (D746): fall back to the server's own git keys and say so.
-			log.Printf("warning: KB %q: git settings from its settings.yaml are unusable (%v) — using the server's", name, err)
-			serverGit, err = serverGitConfigFor(serverSpec, cfg.Git, name)
-		}
-		if err != nil {
+		// The server git profile, its GitHub forge and the PR tools were
+		// removed in #903: a KB still asking for them cannot be mounted, and
+		// the message names the way out rather than silently writing somewhere
+		// the operator did not choose.
+		if err := refuseServerProfile(k.Root); err != nil {
 			log.Fatalf("config: %v", err)
-		}
-		if serverGit != nil {
-			if err := k.ConfigureServerGit(*serverGit); err != nil {
-				log.Fatalf("KB %q: %v", name, err)
-			}
-			log.Printf("KB %q: server git profile, working branch %s → PRs to %s", name, serverGit.WorkingBranch, serverGit.BaseBranch)
 		}
 		var artifactSigner ed25519.PrivateKey
 		if m.Spec.ArtifactSigningSeed != "" {

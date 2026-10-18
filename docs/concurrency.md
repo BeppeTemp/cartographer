@@ -92,15 +92,15 @@ and before D172 the loser of that race silently dropped another provider's lockf
 `flock` on unix and a `LockFileEx` byte-range lock on Windows, released on every exit path, with a
 bounded 30s wait that fails naming the file rather than proceeding. Details and the surrounding order of operations: `sync.md` §The client lock.
 
-## Git profiles
+## Git workflow
 
-`git.profile: local` is the default and the historical behavior. When
-`git.auto_commit` is enabled, successful write tools are wrapped by `gitWrap` and
+When `git.auto_commit` is enabled, successful write tools are wrapped by `gitWrap` and
 produce one commit per logical operation, on the branch currently checked out in
 the KB clone. Multi-file operations are committed together, individual file
 replacement is atomic, and Cartographer creates no working branch, opens no pull
 request and never merges into `main`: repository review policy belongs to the
-remote hosting workflow.
+remote hosting workflow. (The opt-in server Git profile and its GitHub forge were
+removed in #903; a KB now always writes directly to its branch.)
 
 With a remote and `git.sync` on, that branch must be the KB's **canonical
 branch**: `kbs[].git_branch` when the operator set it (D335), otherwise the
@@ -108,8 +108,8 @@ remote's default branch (D264). Without the key, Cartographer asks the remote on
 re-points `origin/HEAD` at the answer, since the one `git clone` wrote is never
 refreshed by a fetch); when the remote's `HEAD` names a branch it does not have —
 a self-hosted bare repository initialised with `master` and then pushed `main` —
-the canonical branch is `main` if the remote has it, and unknown otherwise. In the
-local profile Cartographer never creates, deletes or force-pushes a branch on the
+the canonical branch is `main` if the remote has it, and unknown otherwise.
+Cartographer never creates, deletes or force-pushes a branch on the
 remote and never checks out a different branch in the clone. The single exception
 is the first push of a KB to an **empty** remote, which creates `main` with
 upstream tracking. A clone of an empty remote (server bootstrap with `--init`) is
@@ -121,9 +121,14 @@ creates it on the remote, with upstream tracking, when it is missing — on an
 empty remote as on one that already has other branches. No other branch is ever
 created. A fresh clone is checked out on it (tracking it when the remote has it,
 branched from the remote's default branch otherwise; the clone of an empty remote
-is pinned to it by `--init`); an existing clone is never switched. The key is not
-valid with the server profile, which has its own branch keys, and a name git would
+is pinned to it by `--init`); an existing clone is never switched. A name git would
 not accept fails at config load.
+
+A push the remote refuses because the branch is protected — a forge's `GH006` /
+"protected branch" response, or a declined `pre-receive` hook (recognised across
+forges, not tied to a provider) — is reported as a `failed` sync, not retried:
+a rebase would hit the same wall. The message names the way out: unprotect the
+branch on the remote, or set `kbs[].git_branch` to write elsewhere.
 
 Each commit subject is `<tool_name>: <resource>`, so the history of a KB is
 readable as an audit trail. The resource is built from the arguments that
@@ -131,31 +136,6 @@ identify what the write touched: `path` for the artifact tools, `concept_id/path
 for the asset tools, and otherwise the first of `id`, `name`, `source_id`,
 `contradiction_id` present in the call. A tool invoked with none of them commits
 as the bare tool name.
-
-`git.profile: server` (D117) is an opt-in GitHub review boundary. It requires a
-base branch, a dedicated working branch, GitHub owner/repository/API URL and the
-name of an environment variable holding a token. On mount Cartographer fetches
-`origin`, checks out or creates the dedicated branch from the remote base, and
-refuses dirty, detached, ambiguous, mismatched or shared-working-branch checkouts.
-The `origin` path must exactly match the configured `github_owner/github_repository`
-for both HTTPS and SSH remotes (credentials are never logged). The base branch is
-never a push target. The profile is resolved per KB (`kbs[].git_profile`, then
-`git.profile`); an unknown profile, a missing field, a forge other than `github` or
-an empty token variable stops startup naming the KB — a server never falls back to
-direct pushes when it was asked for a review boundary.
-
-Each successful server-profile push creates or reuses exactly one open PR from the
-working branch to the base. `pr_status` and `sync_status` expose the non-secret PR
-identity and forge degradation. `pr_finalize(head_sha)` is an advanced operator
-action: it requires the caller's current PR head, satisfied reviews and checks, a
-fresh rebase and validation, then uses force-with-lease only on the working branch
-before requesting a GitHub squash merge. After the merge the clean working branch is
-reset to the fetched base for the next PR cycle.
-
-If a forge timeout happens after the merge request, the profile enters
-`merge_uncertain`: new writes are refused until startup or `pr_status` verifies the
-merged PR's resulting commit on the base and safely resets the working branch. It
-never opens a replacement PR during that recovery.
 
 ## Remote synchronization
 

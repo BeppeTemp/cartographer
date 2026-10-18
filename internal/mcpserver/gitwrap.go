@@ -502,9 +502,6 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string
 			DetectedAt: now,
 			Kind:       kind,
 		}
-		if state := k.ServerGitStatus(); state.Profile == "server" {
-			c.BaseBranch, c.WorkingBranch, c.PRNumber, c.PRURL = state.BaseBranch, state.WorkingBranch, state.PRNumber, state.PRURL
-		}
 		if err := k.RegisterConflict(c); err != nil {
 			fmt.Fprintf(os.Stderr, "cartographer: register conflict %q: %v\n", conceptID, err)
 		}

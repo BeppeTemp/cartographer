@@ -28,13 +28,12 @@ usage_stale_days: 0
 mcp_allowlist:
   - {name: tool-a, transport: http, target: "https://example.com/mcp"}
 secrets: true
-git_profile: server
 `)
 	if len(bad) != 0 {
 		t.Fatalf("malformed = %v", bad)
 	}
-	if got := len(s.Keys()); got != 9 {
-		t.Errorf("accepted %d keys, want 9: %v", got, s.Keys())
+	if got := len(s.Keys()); got != 8 {
+		t.Errorf("accepted %d keys, want 8: %v", got, s.Keys())
 	}
 	if !s.Has("secrets") || s.Has("doctor_mode") {
 		t.Errorf("Has is wrong: %v", s.Keys())
@@ -89,7 +88,7 @@ write_gate: off
 		"auto_repair":      "list of names",
 		"mcp_allowlist":    "not name, transport or target",
 		"repair_on_write":  "true or false",
-		"git_forge":        "one of github",
+		"git_forge":        "unknown setting",
 	}
 	got := map[string]string{}
 	for _, m := range bad {

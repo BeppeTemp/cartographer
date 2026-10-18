@@ -281,22 +281,6 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return c.Git.SyncInWindow.String(), true
 	case "git.out_debounce":
 		return c.Git.SyncOutDebounce.String(), true
-	case "git.profile":
-		return str(c.Git.Profile)
-	case "git.base_branch":
-		return str(c.Git.BaseBranch)
-	case "git.working_branch":
-		return str(c.Git.WorkingBranch)
-	case "git.forge":
-		return str(c.Git.Forge)
-	case "git.github_owner":
-		return str(c.Git.GitHubOwner)
-	case "git.github_repository":
-		return str(c.Git.GitHubRepository)
-	case "git.github_api_url":
-		return str(c.Git.GitHubAPIURL)
-	case "git.github_token_env":
-		return str(c.Git.GitHubTokenEnv)
 	case "audit.log":
 		return str(c.Audit.Log)
 	case "audit.key_seed":

@@ -38,7 +38,6 @@ var readOnlyToolNames = map[string]bool{
 	"template_list":   true,
 	"asset_read":      true,
 	"asset_list":      true,
-	"pr_status":       true,
 	"source_list":     true,
 }
 

@@ -88,34 +88,6 @@ git:
   # Values: a Go duration; 0 pushes synchronously, with no worker
   # Default: 3s. Env: CARTOGRAPHER_SYNC_OUT_DEBOUNCE. Needs a restart.
   # out_debounce: 3s
-  # How changes land by default. The server profile adds a GitHub pull-request
-  # boundary and requires the branch, forge and repository keys.
-  # Values: local | server
-  # Default: local. Env: CARTOGRAPHER_GIT_PROFILE. Needs a restart.
-  # profile: local
-  # Protected base branch of the server profile.
-  # Default: "". Needs a restart.
-  # base_branch: ""
-  # Branch the server profile writes to.
-  # Default: cartographer/<kb name>. Needs a restart.
-  # working_branch: cartographer/<kb name>
-  # Forge of the server profile.
-  # Values: github
-  # Default: "". Needs a restart.
-  # forge: ""
-  # Owner of the GitHub repository; it must match the origin remote path
-  # exactly.
-  # Default: "". Needs a restart.
-  # github_owner: ""
-  # Name of the GitHub repository.
-  # Default: "". Needs a restart.
-  # github_repository: ""
-  # GitHub API base URL, for example https://api.github.com.
-  # Default: "". Needs a restart.
-  # github_api_url: ""
-  # Name of the environment variable that holds the GitHub token.
-  # Default: "". Needs a restart.
-  # github_token_env: ""
 web:
   # Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode.
   # false removes both routes.

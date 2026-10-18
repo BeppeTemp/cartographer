@@ -205,22 +205,9 @@ type KBSpec struct {
 	CommitterEmail string `yaml:"committer_email,omitempty"`
 	SopsAgeKeyFile string `yaml:"sops_age_key_file,omitempty"`
 
-	// GitProfile and the server-git fields override their git: counterparts
-	// for this KB. Empty values retain the global/local defaults (D117).
-	GitProfile       string `yaml:"git_profile,omitempty"`
-	GitBaseBranch    string `yaml:"git_base_branch,omitempty"`
-	GitWorkingBranch string `yaml:"git_working_branch,omitempty"`
-	GitForge         string `yaml:"git_forge,omitempty"`
-	GitHubOwner      string `yaml:"github_owner,omitempty"`
-	GitHubRepository string `yaml:"github_repository,omitempty"`
-	GitHubAPIURL     string `yaml:"github_api_url,omitempty"`
-	GitHubTokenEnv   string `yaml:"github_token_env,omitempty"`
-
-	// GitBranch is the branch a local-profile KB writes to, in place of the
-	// remote's default branch (D335): the first push creates it on the
-	// remote when it is missing. Empty keeps D264 (follow the remote
-	// default). Not valid with the server profile, which has its own
-	// branch keys; checked by ValidateGitBranch and GitBranchProfileError.
+	// GitBranch is the branch a KB writes to, in place of the remote's
+	// default branch (D335): the first push creates it on the remote when it
+	// is missing. Empty keeps D264 (follow the remote default).
 	GitBranch string `yaml:"git_branch,omitempty"`
 
 	// AllowArtifactWrite enables the artifact_write/artifact_delete MCP tools
@@ -321,16 +308,6 @@ type GitConfig struct {
 	// before actually pushing (see kb.KB.SyncOutDebounce). Zero disables
 	// the worker: pushes stay synchronous and inline, as before D76/WP4.
 	SyncOutDebounce time.Duration
-	// Profile selects "local" (the backwards-compatible default) or "server"
-	// (D117: dedicated working branch + GitHub PR boundary).
-	Profile          string
-	BaseBranch       string
-	WorkingBranch    string
-	Forge            string
-	GitHubOwner      string
-	GitHubRepository string
-	GitHubAPIURL     string
-	GitHubTokenEnv   string
 }
 
 // SopsConfig controls the default SOPS age key used to decrypt secret refs.
@@ -443,25 +420,17 @@ type rawAuth struct {
 }
 
 type rawGit struct {
-	Autocommit       *bool  `yaml:"autocommit"`
-	Sync             *bool  `yaml:"sync"`
-	SSHKey           string `yaml:"ssh_key"`
-	KnownHosts       string `yaml:"known_hosts"`
-	AuthorName       string `yaml:"author_name"`
-	AuthorEmail      string `yaml:"author_email"`
-	CommitterName    string `yaml:"committer_name"`
-	CommitterEmail   string `yaml:"committer_email"`
-	TokenDir         string `yaml:"token_dir"`
-	InWindow         string `yaml:"in_window"`
-	OutDebounce      string `yaml:"out_debounce"`
-	Profile          string `yaml:"profile"`
-	BaseBranch       string `yaml:"base_branch"`
-	WorkingBranch    string `yaml:"working_branch"`
-	Forge            string `yaml:"forge"`
-	GitHubOwner      string `yaml:"github_owner"`
-	GitHubRepository string `yaml:"github_repository"`
-	GitHubAPIURL     string `yaml:"github_api_url"`
-	GitHubTokenEnv   string `yaml:"github_token_env"`
+	Autocommit     *bool  `yaml:"autocommit"`
+	Sync           *bool  `yaml:"sync"`
+	SSHKey         string `yaml:"ssh_key"`
+	KnownHosts     string `yaml:"known_hosts"`
+	AuthorName     string `yaml:"author_name"`
+	AuthorEmail    string `yaml:"author_email"`
+	CommitterName  string `yaml:"committer_name"`
+	CommitterEmail string `yaml:"committer_email"`
+	TokenDir       string `yaml:"token_dir"`
+	InWindow       string `yaml:"in_window"`
+	OutDebounce    string `yaml:"out_debounce"`
 }
 
 // Load parses a YAML config file, layering it on top of Default().
@@ -560,16 +529,6 @@ func Load(path string) (*Config, error) {
 	cfg.Git.CommitterName = raw.Git.CommitterName
 	cfg.Git.CommitterEmail = raw.Git.CommitterEmail
 	cfg.Git.TokenDir = raw.Git.TokenDir
-	if raw.Git.Profile != "" {
-		cfg.Git.Profile = normalizeGitProfile(raw.Git.Profile)
-	}
-	cfg.Git.BaseBranch = raw.Git.BaseBranch
-	cfg.Git.WorkingBranch = raw.Git.WorkingBranch
-	cfg.Git.Forge = raw.Git.Forge
-	cfg.Git.GitHubOwner = raw.Git.GitHubOwner
-	cfg.Git.GitHubRepository = raw.Git.GitHubRepository
-	cfg.Git.GitHubAPIURL = raw.Git.GitHubAPIURL
-	cfg.Git.GitHubTokenEnv = raw.Git.GitHubTokenEnv
 	if raw.Git.InWindow != "" {
 		cfg.Git.SyncInWindow = parseDuration(raw.Git.InWindow, cfg.Git.SyncInWindow)
 	}
@@ -645,10 +604,6 @@ func FromEnv(cfg *Config) {
 	if v := os.Getenv("CARTOGRAPHER_UPDATE_CHECK"); v != "" {
 		cfg.mark(OriginEnv, "update_check")
 		cfg.UpdateCheck = parseBool(v, cfg.UpdateCheck)
-	}
-	if v := os.Getenv("CARTOGRAPHER_GIT_PROFILE"); v != "" {
-		cfg.mark(OriginEnv, "git.profile")
-		cfg.Git.Profile = normalizeGitProfile(v)
 	}
 	if v := os.Getenv("CARTOGRAPHER_GIT_TOKEN_DIR"); v != "" {
 		cfg.mark(OriginEnv, "git.token_dir")
@@ -789,20 +744,6 @@ func ValidateGitBranch(name string) error {
 	return nil
 }
 
-// GitBranchProfileError reports a kbs[].git_branch set on a KB whose
-// effective git profile is "server" (D335): that profile writes through its
-// own base/working branches, and a third branch key would be ignored.
-func (s KBSpec) GitBranchProfileError(globalProfile string) error {
-	profile := globalProfile
-	if s.GitProfile != "" {
-		profile = normalizeGitProfile(s.GitProfile)
-	}
-	if s.GitBranch != "" && profile == "server" {
-		return fmt.Errorf("kbs[] %q: git_branch is for the local git profile; the server profile uses git_base_branch and git_working_branch", firstNonEmptyStr(s.Name, s.Remote, s.Path))
-	}
-	return nil
-}
-
 func firstNonEmptyStr(vs ...string) string {
 	for _, v := range vs {
 		if v != "" {
@@ -810,13 +751,6 @@ func firstNonEmptyStr(vs ...string) string {
 		}
 	}
 	return ""
-}
-
-// normalizeGitProfile canonicalizes the profile spelling. It intentionally
-// leaves invalid values visible so server startup can fail fast rather than
-// silently turn a requested review boundary into direct pushes.
-func normalizeGitProfile(v string) string {
-	return strings.ToLower(strings.TrimSpace(v))
 }
 
 // normalizeToolsProfile maps a tools-profile spelling onto the canonical

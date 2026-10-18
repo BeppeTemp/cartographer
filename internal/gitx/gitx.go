@@ -840,12 +840,36 @@ func ResetHardTo(dir, ref string, env ...string) error {
 	return nil
 }
 
+// ErrProtectedBranch reports a push the remote refused because the branch is
+// protected: a pre-receive hook declined it, or a forge returned GH006 /
+// "protected branch". It is not a provider-specific failure — any remote that
+// enforces branch protection can produce it — and it is not retryable: a
+// rebase would not change the outcome, so SyncOut reports it as is with an
+// actionable message rather than looping (#903).
+var ErrProtectedBranch = errors.New("push rejected: the remote branch is protected")
+
+// isProtectedBranchRejection recognises a branch-protection refusal in a git
+// push's output, across forges: GitHub's GH006, the generic "protected
+// branch" wording, and a declined pre-receive hook. Deliberately not tied to
+// one provider.
+func isProtectedBranchRejection(out string) bool {
+	l := strings.ToLower(out)
+	return strings.Contains(l, "gh006") ||
+		strings.Contains(l, "protected branch") ||
+		strings.Contains(l, "pre-receive hook declined")
+}
+
 // Push pushes the current branch to the remote. Never force-pushes.
 // Returns error on non-fast-forward (caller should rebase and retry).
+// A branch-protection refusal comes back wrapping ErrProtectedBranch, so the
+// caller can report it as such instead of retrying (#903).
 // env carries extra per-KB variables (e.g. GIT_SSH_COMMAND) — see runGitEnv.
 func Push(dir, remote, branch string, env ...string) error {
 	out, err := runGitEnv(dir, env, "push", remote, branch)
 	if err != nil {
+		if isProtectedBranchRejection(out) {
+			return fmt.Errorf("git push %s %s: %w: unprotect the branch, or set kbs[].git_branch (branch:) to write elsewhere: %s", remote, branch, ErrProtectedBranch, out)
+		}
 		return fmt.Errorf("git push %s %s: %w: %s", remote, branch, err, out)
 	}
 	return nil
