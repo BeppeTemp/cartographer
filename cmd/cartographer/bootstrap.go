@@ -152,8 +152,8 @@ func gitEnvForKB(spec config.KBSpec, g config.GitConfig, name string) []string {
 // (resolveKBName) — it drives the clone destination so an explicit
 // KBSpec.Name (D53) also determines where the KB is cloned. If the
 // destination already exists and looks like a git repository, it is left
-// untouched: the existing git-autocommit/git-sync flow handles fetch/push on
-// subsequent writes. env is the per-KB git environment from gitEnvForKB
+// untouched: a KB that is a git repo commits on every write and syncs when it
+// has a remote (#903 WP3). env is the per-KB git environment from gitEnvForKB
 // (GIT_SSH_COMMAND, credential.helper, etc.).
 //
 // branch is kbs[].git_branch (D335): a fresh clone is checked out on it —

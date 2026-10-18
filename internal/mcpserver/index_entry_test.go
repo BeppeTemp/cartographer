@@ -66,7 +66,6 @@ func runBatch(t *testing.T, s *Server, ops []map[string]any) (ToolResult, map[st
 func TestConceptBatch_IndexEntry_AddsOrderedEntriesInOneCommit(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	k.AutoCommit = true
 	seedIndexMaps(t, k, mapFiles("docs", "require_index_entry: true\n"))
 	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
@@ -232,7 +231,6 @@ func TestConceptNew_IndexEntry(t *testing.T) {
 	}
 	seedIndexMaps(t, k, mapFiles("docs", "require_index_entry: true\n"))
 	seedIndexMaps(t, k, mapFiles("gen", "index: generated\n"))
-	k.AutoCommit = true
 	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}

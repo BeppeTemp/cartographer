@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -23,7 +22,7 @@ type Config struct {
 	Auth  AuthConfig  // HTTP bearer-token auth
 	Data  string      // directory whose direct subdirs are auto-discovered KBs
 	KBs   []KBSpec    // explicit KBs (local path or git remote)
-	Git   GitConfig   // per-KB git autocommit/sync + SSH identity for remotes
+	Git   GitConfig   // git identity + SSH/token for remote KBs
 	Audit AuditConfig // append-only audit log
 	Sops  SopsConfig  // default SOPS age key for secret refs
 	// ToolsProfile selects which tools tools/list advertises: "agent"
@@ -280,12 +279,13 @@ type KBSpec struct {
 	Secrets bool `yaml:"secrets,omitempty"`
 }
 
-// GitConfig controls per-KB git autocommit/sync, the SSH identity used to
-// reach remote KBs during bootstrap, and the default author/committer
-// identity used for autocommits.
+// GitConfig controls the SSH identity used to reach remote KBs during
+// bootstrap, and the default author/committer identity used for commits. A KB
+// that is a git repo always commits after a write and syncs when it has a
+// remote (#903 WP3: git.autocommit/git.sync removed); the sync windows are the
+// kb.SyncInWindow/kb.SyncOutDebounce constants (#903 WP3: git.in_window/
+// git.out_debounce removed).
 type GitConfig struct {
-	Autocommit     bool
-	Sync           bool
 	SSHKey         string
 	KnownHosts     string
 	AuthorName     string
@@ -298,16 +298,6 @@ type GitConfig struct {
 	// config (D53). Injected via a credential.helper in the process env
 	// (cmd/cartographer.gitTokenCredentialEnv); never written to disk/argv.
 	TokenDir string
-	// SyncInWindow is the freshness window for SyncIn (D76/WP3): within this
-	// window after a successful SyncIn, subsequent SyncIn calls are a no-op
-	// (see kb.KB.SyncInWindow). Zero disables the window.
-	SyncInWindow time.Duration
-	// SyncOutDebounce is the debounce window for the async push worker
-	// (D76/WP4): a successful write schedules a push instead of pushing
-	// inline, and the worker waits SyncOutDebounce after the last write
-	// before actually pushing (see kb.KB.SyncOutDebounce). Zero disables
-	// the worker: pushes stay synchronous and inline, as before D76/WP4.
-	SyncOutDebounce time.Duration
 }
 
 // SopsConfig controls the default SOPS age key used to decrypt secret refs.
@@ -359,14 +349,9 @@ const DefaultAuditRetentionDays = 90
 // Default returns the configuration used when no YAML file is provided.
 func Default() *Config {
 	return &Config{
-		Auth:  AuthConfig{Mode: "auto"},
-		Audit: AuditConfig{RetentionDays: DefaultAuditRetentionDays},
-		Git: GitConfig{
-			Autocommit:      true,
-			Sync:            true,
-			SyncInWindow:    30 * time.Second,
-			SyncOutDebounce: 3 * time.Second,
-		},
+		Auth:         AuthConfig{Mode: "auto"},
+		Audit:        AuditConfig{RetentionDays: DefaultAuditRetentionDays},
+		Git:          GitConfig{},
 		ToolsProfile: "agent",
 		MCP:          MCPConfig{},
 		Web:          WebConfig{Enabled: true},
@@ -375,7 +360,7 @@ func Default() *Config {
 }
 
 // rawConfig mirrors the YAML shape. Fields whose zero value would silently
-// clobber a non-zero default (git.autocommit, git.sync) are pointers, so
+// clobber a non-zero default (web.enabled, update_check) are pointers, so
 // Load can distinguish "absent from YAML" from "explicitly false".
 type rawConfig struct {
 	HTTP  string     `yaml:"http"`
@@ -397,10 +382,9 @@ type rawConfig struct {
 	KBAliases []KBAlias `yaml:"kb_aliases"`
 }
 
-// rawWeb mirrors the `web:` block. Enabled is a pointer for the same reason
-// git.autocommit is: the zero value of a bool would silently clobber a `true`
-// default, so "absent from YAML" has to be distinguishable from "explicitly
-// false".
+// rawWeb mirrors the `web:` block. Enabled is a pointer so the zero value of a
+// bool does not silently clobber a `true` default: "absent from YAML" has to
+// be distinguishable from "explicitly false".
 type rawWeb struct {
 	Enabled *bool `yaml:"enabled"`
 }
@@ -420,8 +404,6 @@ type rawAuth struct {
 }
 
 type rawGit struct {
-	Autocommit     *bool  `yaml:"autocommit"`
-	Sync           *bool  `yaml:"sync"`
 	SSHKey         string `yaml:"ssh_key"`
 	KnownHosts     string `yaml:"known_hosts"`
 	AuthorName     string `yaml:"author_name"`
@@ -429,8 +411,6 @@ type rawGit struct {
 	CommitterName  string `yaml:"committer_name"`
 	CommitterEmail string `yaml:"committer_email"`
 	TokenDir       string `yaml:"token_dir"`
-	InWindow       string `yaml:"in_window"`
-	OutDebounce    string `yaml:"out_debounce"`
 }
 
 // Load parses a YAML config file, layering it on top of Default().
@@ -512,12 +492,6 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: auth: %w", err)
 	}
 
-	if raw.Git.Autocommit != nil {
-		cfg.Git.Autocommit = *raw.Git.Autocommit
-	}
-	if raw.Git.Sync != nil {
-		cfg.Git.Sync = *raw.Git.Sync
-	}
 	cfg.Git.SSHKey = raw.Git.SSHKey
 	cfg.Git.KnownHosts = raw.Git.KnownHosts
 	if raw.Git.AuthorName != "" {
@@ -529,12 +503,6 @@ func Load(path string) (*Config, error) {
 	cfg.Git.CommitterName = raw.Git.CommitterName
 	cfg.Git.CommitterEmail = raw.Git.CommitterEmail
 	cfg.Git.TokenDir = raw.Git.TokenDir
-	if raw.Git.InWindow != "" {
-		cfg.Git.SyncInWindow = parseDuration(raw.Git.InWindow, cfg.Git.SyncInWindow)
-	}
-	if raw.Git.OutDebounce != "" {
-		cfg.Git.SyncOutDebounce = parseDuration(raw.Git.OutDebounce, cfg.Git.SyncOutDebounce)
-	}
 
 	cfg.Sops = raw.Sops
 
@@ -589,14 +557,6 @@ func FromEnv(cfg *Config) {
 		cfg.mark(OriginEnv, "auth.mode")
 		cfg.Auth.Mode = normalizeAuthMode(v)
 	}
-	if v := os.Getenv("CARTOGRAPHER_GIT_AUTOCOMMIT"); v != "" {
-		cfg.mark(OriginEnv, "git.autocommit")
-		cfg.Git.Autocommit = parseBool(v, cfg.Git.Autocommit)
-	}
-	if v := os.Getenv("CARTOGRAPHER_GIT_SYNC"); v != "" {
-		cfg.mark(OriginEnv, "git.sync")
-		cfg.Git.Sync = parseBool(v, cfg.Git.Sync)
-	}
 	if v := os.Getenv("CARTOGRAPHER_WEB_ENABLED"); v != "" {
 		cfg.mark(OriginEnv, "web.enabled")
 		cfg.Web.Enabled = parseBool(v, cfg.Web.Enabled)
@@ -608,14 +568,6 @@ func FromEnv(cfg *Config) {
 	if v := os.Getenv("CARTOGRAPHER_GIT_TOKEN_DIR"); v != "" {
 		cfg.mark(OriginEnv, "git.token_dir")
 		cfg.Git.TokenDir = v
-	}
-	if v := os.Getenv("CARTOGRAPHER_SYNC_IN_WINDOW"); v != "" {
-		cfg.mark(OriginEnv, "git.in_window")
-		cfg.Git.SyncInWindow = parseDuration(v, cfg.Git.SyncInWindow)
-	}
-	if v := os.Getenv("CARTOGRAPHER_SYNC_OUT_DEBOUNCE"); v != "" {
-		cfg.mark(OriginEnv, "git.out_debounce")
-		cfg.Git.SyncOutDebounce = parseDuration(v, cfg.Git.SyncOutDebounce)
 	}
 	if v := os.Getenv("CARTOGRAPHER_AUDIT_LOG"); v != "" {
 		cfg.mark(OriginEnv, "audit.log")
@@ -647,16 +599,14 @@ func FromEnv(cfg *Config) {
 // explicitly passed on the command line (nil = not passed). Applying it via
 // ApplyFlags is the last, highest-precedence layer of the merge.
 type FlagOverrides struct {
-	HTTP          *string
-	Init          *bool
-	KB            *string // comma-separated paths, appended as KBSpec{Path: ...}
-	Data          *string
-	Tokens        *string // comma-separated, replaces Auth.Tokens
-	GitAutocommit *bool
-	GitSync       *bool
-	ToolsProfile  *string // "agent" | "full"
-	WebEnabled    *bool
-	UpdateCheck   *bool
+	HTTP         *string
+	Init         *bool
+	KB           *string // comma-separated paths, appended as KBSpec{Path: ...}
+	Data         *string
+	Tokens       *string // comma-separated, replaces Auth.Tokens
+	ToolsProfile *string // "agent" | "full"
+	WebEnabled   *bool
+	UpdateCheck  *bool
 }
 
 // ApplyFlags layers the explicitly-passed serve flags on top of cfg.
@@ -688,14 +638,6 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	if o.Tokens != nil {
 		cfg.mark(OriginFlag, "auth.tokens")
 		cfg.Auth.Tokens = parseTokenSpecs(*o.Tokens)
-	}
-	if o.GitAutocommit != nil {
-		cfg.mark(OriginFlag, "git.autocommit")
-		cfg.Git.Autocommit = *o.GitAutocommit
-	}
-	if o.GitSync != nil {
-		cfg.mark(OriginFlag, "git.sync")
-		cfg.Git.Sync = *o.GitSync
 	}
 	if o.ToolsProfile != nil {
 		cfg.mark(OriginFlag, "tools.profile")
@@ -784,16 +726,6 @@ func parseBool(v string, fallback bool) bool {
 		return fallback
 	}
 	return b
-}
-
-// parseDuration parses v as a Go duration (e.g. "30s"), returning fallback
-// if v is not a valid duration.
-func parseDuration(v string, fallback time.Duration) time.Duration {
-	d, err := time.ParseDuration(v)
-	if err != nil {
-		return fallback
-	}
-	return d
 }
 
 // splitCSV splits a comma-separated string, trimming whitespace and

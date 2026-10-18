@@ -44,50 +44,6 @@ kbs:
     # file conventions.
     # Default: "".
     name: kb-a
-git:
-  # Create a git commit after each successful write.
-  # Default: true. Env: CARTOGRAPHER_GIT_AUTOCOMMIT. Flag: --git-autocommit.
-  # Needs a restart.
-  autocommit: true
-  # When a remote is configured, fetch and pull before and push after each
-  # write.
-  # Default: true. Env: CARTOGRAPHER_GIT_SYNC. Flag: --git-sync. Needs a
-  # restart.
-  sync: true
-  # --- available settings ---
-  # SSH private key used to reach remote KBs.
-  # Default: "". Needs a restart.
-  # ssh_key: ""
-  # The known_hosts file used to reach remote KBs.
-  # Default: "". Needs a restart.
-  # known_hosts: ""
-  # Default git author name of autocommits; set both name and e-mail when remote
-  # push rules validate authors.
-  # Default: "". Needs a restart.
-  # author_name: ""
-  # Default git author e-mail of autocommits.
-  # Default: "". Needs a restart.
-  # author_email: ""
-  # Default git committer name; empty follows the author.
-  # Default: "". Needs a restart.
-  # committer_name: ""
-  # Default git committer e-mail; empty follows the author.
-  # Default: "". Needs a restart.
-  # committer_email: ""
-  # Directory with one file per KB, <token_dir>/<name>.token (its trimmed
-  # content is the token), used as HTTPS git credentials for that KB's remote.
-  # Default: "". Env: CARTOGRAPHER_GIT_TOKEN_DIR. Needs a restart.
-  # token_dir: ""
-  # Freshness window of the pull before a read or write: within it of the last
-  # successful pull, the pull is skipped.
-  # Values: a Go duration; 0 syncs on every read and write
-  # Default: 30s. Env: CARTOGRAPHER_SYNC_IN_WINDOW. Needs a restart.
-  # in_window: 30s
-  # Debounce of the background push: a burst of writes coalesces into one push
-  # this long after the last one.
-  # Values: a Go duration; 0 pushes synchronously, with no worker
-  # Default: 3s. Env: CARTOGRAPHER_SYNC_OUT_DEBOUNCE. Needs a restart.
-  # out_debounce: 3s
 web:
   # Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode.
   # false removes both routes.
@@ -108,6 +64,30 @@ web:
 # writes it. One step only, and a mounted name wins over an alias.
 # Default: []. Needs a restart.
 # kb_aliases: []
+# git:
+#   SSH private key used to reach remote KBs.
+#   Default: "". Needs a restart.
+#   ssh_key: ""
+#   The known_hosts file used to reach remote KBs.
+#   Default: "". Needs a restart.
+#   known_hosts: ""
+#   Default git author name of commits; set both name and e-mail when remote
+#   push rules validate authors.
+#   Default: "". Needs a restart.
+#   author_name: ""
+#   Default git author e-mail of commits.
+#   Default: "". Needs a restart.
+#   author_email: ""
+#   Default git committer name; empty follows the author.
+#   Default: "". Needs a restart.
+#   committer_name: ""
+#   Default git committer e-mail; empty follows the author.
+#   Default: "". Needs a restart.
+#   committer_email: ""
+#   Directory with one file per KB, <token_dir>/<name>.token (its trimmed
+#   content is the token), used as HTTPS git credentials for that KB's remote.
+#   Default: "". Env: CARTOGRAPHER_GIT_TOKEN_DIR. Needs a restart.
+#   token_dir: ""
 # audit:
 #   Path of the append-only operation log. Empty turns the audit trail off.
 #   Default: "". Env: CARTOGRAPHER_AUDIT_LOG. Needs a restart.

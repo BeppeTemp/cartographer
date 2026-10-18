@@ -17,14 +17,23 @@ import (
 // signals were sent back-to-back with no gap, well inside a single debounce
 // window) the worker only had one debounce cycle to react to, so it can only
 // have performed a single SyncOut for the whole burst.
+// setSyncOutDebounce overrides the package debounce for one test and restores
+// it afterwards. #903 WP3 turned the debounce into a constant backed by a
+// package var (gitsync.go): a test that needs a specific window sets it here
+// rather than on the KB. It must not run in parallel with another that does.
+func setSyncOutDebounce(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := syncOutDebounce
+	syncOutDebounce = d
+	t.Cleanup(func() { syncOutDebounce = old })
+}
+
 func TestSchedulePush_Burst_CoalescesIntoOnePush(t *testing.T) {
-	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
+	setSyncOutDebounce(t, 200*time.Millisecond)
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
-	k.SyncOutDebounce = 200 * time.Millisecond
 
 	const n = 5
 	for i := 0; i < n; i++ {
@@ -61,7 +70,6 @@ func TestSyncStatus_RealPushClearsPendingAndRecordsAttempt(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, _ := setupKBWithRemote(t)
-	k.GitSync = true
 	k.MarkPushPending()
 	if s := k.GitStatusSnapshot(); s.State != "pending" {
 		t.Fatalf("pending = %+v", s)
@@ -98,13 +106,11 @@ func writeFileT(t *testing.T, root, relPath, content string) {
 // conflict hit by the async push worker is routed to k.OnPushConflict rather
 // than only logged to stderr.
 func TestSchedulePush_Conflict_InvokesOnPushConflict(t *testing.T) {
-	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
+	setSyncOutDebounce(t, 20*time.Millisecond)
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
-	k.SyncOutDebounce = 20 * time.Millisecond
 
 	// Seed the remote so there is a common ancestor to diverge from.
 	if err := k.SyncOut(); err != nil {
@@ -169,13 +175,11 @@ func TestFlushPush_NoPending_NoOp(t *testing.T) {
 // immediate push (rather than waiting out the full debounce) and that the
 // commit has reached the remote once FlushPush returns.
 func TestFlushPush_AfterSchedule_WaitsForPush(t *testing.T) {
-	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
+	setSyncOutDebounce(t, 1*time.Hour) // would never fire on its own within the test
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
-	k.SyncOutDebounce = 1 * time.Hour // would never fire on its own within the test
 
 	k.SchedulePush()
 
@@ -185,7 +189,7 @@ func TestFlushPush_AfterSchedule_WaitsForPush(t *testing.T) {
 	if err := k.FlushPush(30 * time.Second); err != nil {
 		t.Fatalf("FlushPush: %v", err)
 	}
-	if elapsed := time.Since(start); elapsed >= k.SyncOutDebounce {
+	if elapsed := time.Since(start); elapsed >= syncOutDebounce {
 		t.Fatalf("FlushPush took %s — did not force an immediate push, waited out the debounce", elapsed)
 	}
 
@@ -206,10 +210,8 @@ func TestFlushPush_AfterSchedule_WaitsForPush(t *testing.T) {
 // which is what makes "flush arrives mid-push" deterministic rather than a
 // timing gamble.
 func TestFlushPushDuringRunDoesNotLeakForce(t *testing.T) {
-	t.Parallel()
+	setSyncOutDebounce(t, time.Millisecond)
 	k, _ := initGitKB(t)
-	k.GitSync = true
-	k.SyncOutDebounce = time.Millisecond
 
 	// Block the git lock: the worker will enter doAsyncPush and park there.
 	k.mu.Lock()

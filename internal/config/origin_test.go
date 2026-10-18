@@ -18,7 +18,7 @@ func writeCfg(t *testing.T, body string) string {
 
 func TestOriginDefaultLayer(t *testing.T) {
 	c := Default()
-	for _, p := range []string{"git.sync", "http", "kbs[a].write_gate"} {
+	for _, p := range []string{"git.token_dir", "http", "kbs[a].write_gate"} {
 		if got := c.OriginOf(p); got != OriginDefault {
 			t.Errorf("%s origin = %s, want default", p, got)
 		}
@@ -35,8 +35,8 @@ func TestOriginFileLayer(t *testing.T) {
 			t.Errorf("%s origin = %s, want file", p, got)
 		}
 	}
-	if got := c.OriginOf("git.sync"); got != OriginDefault {
-		t.Errorf("git.sync origin = %s, want default", got)
+	if got := c.OriginOf("git.token_dir"); got != OriginDefault {
+		t.Errorf("git.token_dir origin = %s, want default", got)
 	}
 	if got := c.OriginOf("kbs[kb-a].doctor_budget"); got != OriginDefault {
 		t.Errorf("unset per-KB key origin = %s, want default", got)
@@ -45,17 +45,17 @@ func TestOriginFileLayer(t *testing.T) {
 
 // A value written in the file equal to its default is still the file's.
 func TestOriginFileExplicitDefaultValue(t *testing.T) {
-	c, err := Load(writeCfg(t, "git:\n  sync: true\n"))
+	c, err := Load(writeCfg(t, "update_check: true\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.OriginOf("git.sync"); got != OriginFile {
+	if got := c.OriginOf("update_check"); got != OriginFile {
 		t.Errorf("origin = %s, want file", got)
 	}
 }
 
 func TestOriginEnvOverridesFile(t *testing.T) {
-	c, err := Load(writeCfg(t, "http: \":1\"\ngit:\n  sync: true\n"))
+	c, err := Load(writeCfg(t, "http: \":1\"\ngit:\n  token_dir: /x\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,8 +65,8 @@ func TestOriginEnvOverridesFile(t *testing.T) {
 	if got := c.OriginOf("http"); got != OriginEnv {
 		t.Errorf("http origin = %s, want env", got)
 	}
-	if got := c.OriginOf("git.sync"); got != OriginFile {
-		t.Errorf("git.sync origin = %s, want file", got)
+	if got := c.OriginOf("git.token_dir"); got != OriginFile {
+		t.Errorf("git.token_dir origin = %s, want file", got)
 	}
 	if got := c.OriginOf("kbs[kb-env].path"); got != OriginEnv {
 		t.Errorf("env KB origin = %s, want env", got)

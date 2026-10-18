@@ -100,16 +100,11 @@ type KB struct {
 	Root string
 	// AuthName is the mounted logical name used by authorization policy. It is
 	// set by the transport at mount time and never contains a bearer secret.
-	AuthName   string
-	AutoCommit bool // if true, CommitOp creates a git commit after each write
-	GitSync    bool // if true, SyncIn/SyncOut fetch/push with the "origin" remote
-
-	// SyncInWindow is the freshness window for SyncIn (D76/WP3): if the last
-	// successful SyncIn happened less than SyncInWindow ago, SyncIn is a
-	// no-op — avoids a redundant fetch+pull on every write during a burst.
-	// Zero disables the window (SyncIn runs on every call, pre-existing
-	// behaviour).
-	SyncInWindow time.Duration
+	AuthName string
+	// A KB that is a git repository always commits after a write (#903 WP3:
+	// git.autocommit removed); SyncIn/SyncOut fetch/push exactly when the KB
+	// has a remote configured (#903 WP3: git.sync removed — the remote is the
+	// switch). The freshness window of SyncIn is the SyncInWindow constant.
 
 	// GitAuthorName/GitAuthorEmail set the commit author identity used by
 	// CommitOp and conflict-resolution commits. Empty values fall back to
@@ -158,15 +153,16 @@ type KB struct {
 	// from any client surface (D151).
 	Discovered bool
 
-	// SyncOutDebounce is the debounce window for the async push worker
-	// (D76/WP4): when > 0, gitWrap calls SchedulePush instead of SyncOut
-	// inline, taking the push off the critical path of a write response.
-	// The worker waits SyncOutDebounce after the last SchedulePush signal
-	// before actually pushing, coalescing a burst of writes into one push.
-	// Zero disables the worker entirely: gitWrap falls back to the
-	// pre-existing synchronous SyncOut call (rollback flag) — see
-	// pushworker.go.
-	SyncOutDebounce time.Duration
+	// SyncPushSynchronous, when true, makes gitWrap push synchronously after a
+	// commit (SyncOut inline) instead of scheduling the debounced async worker.
+	// It replaces the old git.out_debounce:0 escape hatch (#903 WP3): a
+	// platform that freezes an instance the moment a request returns (Cloud
+	// Run and the like, detected by the K_SERVICE env var set at serve time)
+	// would never run the background push, so the write must push before it
+	// answers. The normal path keeps the debounced worker (SyncOutDebounce
+	// constant). Not a YAML key: it is a property of the runtime, read from a
+	// platform env var. The rationale is recorded in D903 (WP4).
+	SyncPushSynchronous bool
 
 	// OnPushConflict, if set, is invoked by the async push worker (see
 	// pushworker.go, doAsyncPush) when SyncOut hits a rebase conflict, so
@@ -335,7 +331,7 @@ func (k *KB) setGitStatus(state string, err error, attempts int) {
 		}
 	}
 	_, remote := k.hasRemote()
-	s.IdentityWarning = ShouldWarnGitIdentity(k.GitSync, remote, k.GitAuthorEmail)
+	s.IdentityWarning = ShouldWarnGitIdentity(remote, k.GitAuthorEmail)
 	k.gitStatusMu.Lock()
 	k.gitStatus = s
 	k.gitStatusMu.Unlock()
@@ -354,7 +350,7 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 	s := k.gitStatus
 	k.gitStatusMu.RUnlock()
 	if s.State == "" {
-		if !k.GitSync || !gitx.IsRepo(k.Root) {
+		if !gitx.IsRepo(k.Root) {
 			s.State = "disabled"
 		} else if _, ok := k.hasRemote(); !ok {
 			s.State = "no_remote"
@@ -390,14 +386,15 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 		s.BranchSource = "config"
 	}
 	_, remote := k.hasRemote()
-	s.IdentityWarning = ShouldWarnGitIdentity(k.GitSync, remote, k.GitAuthorEmail)
+	s.IdentityWarning = ShouldWarnGitIdentity(remote, k.GitAuthorEmail)
 	return s
 }
 
 // ShouldWarnGitIdentity reports whether a synchronised remote KB still uses
-// Cartographer's placeholder author identity.
-func ShouldWarnGitIdentity(gitSync, hasRemote bool, authorEmail string) bool {
-	return gitSync && hasRemote && authorEmail == defaultGitAuthorEmail
+// Cartographer's placeholder author identity. A KB syncs exactly when it has a
+// remote (#903 WP3), so the remote is the only switch.
+func ShouldWarnGitIdentity(hasRemote bool, authorEmail string) bool {
+	return hasRemote && authorEmail == defaultGitAuthorEmail
 }
 
 // MarkPushPending keeps an existing failure visible until a push succeeds,

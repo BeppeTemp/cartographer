@@ -15,6 +15,25 @@ import (
 // lock before proceeding without it (D155).
 var processLockTimeout = 30 * time.Second
 
+// SyncInWindow is the freshness window of SyncIn: a fetch+pull within this of
+// the last successful one is skipped, so a burst of writes does not pull on
+// every one. SyncOutDebounce is how long the async push worker waits after the
+// last write before pushing, coalescing a burst into one push. They were the
+// git.in_window/git.out_debounce config keys until #903 WP3 turned them into
+// constants (the 0.25 cleanup: one tuned pair, not a per-deployment knob).
+const (
+	SyncInWindow    = 30 * time.Second
+	SyncOutDebounce = 3 * time.Second
+)
+
+// syncInWindow/syncOutDebounce back the constants above with a value the code
+// actually reads, so a test can tighten or lengthen the timing without a
+// config field. Production never writes them: they are the constants.
+var (
+	syncInWindow    = SyncInWindow
+	syncOutDebounce = SyncOutDebounce
+)
+
 var (
 	syncOutMaxAttempts    = 5
 	syncOutInitialBackoff = 50 * time.Millisecond
@@ -197,7 +216,7 @@ func (k *KB) hasRemote() (string, bool) {
 // SyncIn may make the answer stale before the caller acquires that lock; SyncIn
 // repeats the check and safely becomes a no-op in that case.
 func (k *KB) SyncInDue() bool {
-	if !k.GitSync || !gitx.IsRepo(k.Root) {
+	if !gitx.IsRepo(k.Root) {
 		return false
 	}
 	if k.syncInWithinWindow() {
@@ -240,13 +259,10 @@ func (k *KB) ReadFetchBackingOff() bool {
 }
 
 func (k *KB) syncInWithinWindow() bool {
-	if k.SyncInWindow <= 0 {
-		return false
-	}
 	k.lastSyncInMu.RLock()
 	last := k.lastSyncIn
 	k.lastSyncInMu.RUnlock()
-	return !last.IsZero() && time.Since(last) < k.SyncInWindow
+	return !last.IsZero() && time.Since(last) < syncInWindow
 }
 
 func (k *KB) setLastSyncIn(now time.Time) {
@@ -263,12 +279,12 @@ func (k *KB) lastSyncInAt() time.Time {
 
 // SyncIn performs a fetch + pull --rebase --autostash from the "origin" remote
 // before a git-synchronised operation. It is a no-op when:
-//   - k.GitSync is false, or
 //   - the KB root is not a git repository, or
-//   - no "origin" remote is configured, or
-//   - the freshness window has not elapsed: k.SyncInWindow > 0 and the last
-//     successful SyncIn happened less than k.SyncInWindow ago (D76/WP3) —
-//     avoids a redundant fetch+pull on every write during a burst.
+//   - no "origin" remote is configured (the remote is the sync switch, #903
+//     WP3), or
+//   - the freshness window has not elapsed: the last successful SyncIn
+//     happened less than SyncInWindow ago (#903 WP3) — avoids a redundant
+//     fetch+pull on every write during a burst.
 //
 // The returned bool reports whether a fetch was attempted, including a fetch
 // that failed. A failed fetch is not an error when HEAD has nothing unpushed
@@ -353,9 +369,9 @@ func (k *KB) SyncIn() (bool, error) {
 
 // SyncOut pushes the current branch to "origin" AFTER a successful commit.
 // It is a no-op when:
-//   - k.GitSync is false, or
 //   - the KB root is not a git repository, or
-//   - no "origin" remote is configured.
+//   - no "origin" remote is configured (the remote is the sync switch, #903
+//     WP3).
 //
 // On a non-fast-forward rejection the loop performs fetch + PullRebaseAutostash
 // and retries the push with exponential backoff, capped at 5 attempts total.
@@ -365,7 +381,7 @@ func (k *KB) SyncOut() error {
 	if err := k.checkRebaseState(); err != nil {
 		return err
 	}
-	if !k.GitSync || !gitx.IsRepo(k.Root) {
+	if !gitx.IsRepo(k.Root) {
 		k.setGitStatus("disabled", nil, 0)
 		return nil
 	}
@@ -566,19 +582,20 @@ func RedactRemoteURL(raw string) string {
 	return u.String()
 }
 
-// CommitOp creates a git commit if AutoCommit is enabled, the KB root is a git
-// repository, and the working tree is dirty. It is a no-op in every other case.
-// If git commit itself fails, the error is returned to the caller; the wrapper in
-// mcpserver treats commit errors as non-fatal (logs to stderr, does not surface to
-// the MCP client).
+// CommitOp creates a git commit when the KB root is a git repository and the
+// working tree is dirty. It is a no-op in every other case. A KB that is a git
+// repo always commits after a write (#903 WP3: the git.autocommit switch is
+// gone — a repo is the switch). If git commit itself fails, the error is
+// returned to the caller; the wrapper in mcpserver treats commit errors as
+// non-fatal (logs to stderr, does not surface to the MCP client).
 //
 // On a successful commit, sha is the new commit's SHA, resolved via
 // gitx.HeadSHA immediately after the commit — while the caller still holds
 // the per-KB git lock (WithGitLock in mcpserver.gitWrap), so this is never a
 // race with a concurrent commit/push on the same KB (D119: the audit log
 // records this SHA on the write's completion event instead of a later,
-// racier HEAD query). sha is empty when no commit was made (autocommit off,
-// not a repo, clean tree, or "nothing to commit").
+// racier HEAD query). sha is empty when no commit was made (not a repo, clean
+// tree, or "nothing to commit").
 func (k *KB) CommitOp(message string) (sha string, err error) {
 	return k.CommitOpAs(message, "", "")
 }
@@ -588,7 +605,7 @@ func (k *KB) CommitOp(message string) (sha string, err error) {
 // committer stays the KB's (GIT_COMMITTER_* in GitEnv). Empty values behave
 // exactly like CommitOp. Used to attribute a write to the token that made it.
 func (k *KB) CommitOpAs(message, overrideName, overrideEmail string) (sha string, err error) {
-	if !k.AutoCommit || !gitx.IsRepo(k.Root) {
+	if !gitx.IsRepo(k.Root) {
 		return "", nil
 	}
 	status, err := gitx.Status(k.Root)

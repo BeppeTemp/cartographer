@@ -648,7 +648,12 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		"artifact_write": cap("allow_artifact_write", onOff(pol.AllowArtifactWrite), "kbs[].allow_artifact_write"),
 		"template_write": cap("allow_template_write", templateWriteState(pol), "kbs[].allow_template_write"),
 		"secrets":        {State: secretsState, Setting: secretsSetting},
-		"git_sync":       {State: onOff(k.GitSync), Setting: "git.sync"},
+		// #903 WP3: a KB syncs exactly when it has a remote — the remote is
+		// the switch, there is no git.sync key.
+		"git_sync": func() KBCapability {
+			_, ok := k.HasRemote()
+			return KBCapability{State: onOff(ok), Setting: "kbs[].remote"}
+		}(),
 		// A discovered KB has no kbs[] entry: its policy comes from its own
 		// settings.yaml, which is the one place left that can carry it (D746).
 		"mount": {State: mount, Setting: "kbs[]"},
@@ -817,7 +822,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				"git_profile":      "local",
 				"has_remote":       hasRemote,
 				"remote_url":       remoteURL,
-				"git_sync":         k.GitSync,
+				"git_sync":         hasRemote,
 				"push_state":       git.State,
 				"push_last_error":  git.LastError,
 				"unpushed_commits": git.UnpushedCommits,

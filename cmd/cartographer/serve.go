@@ -51,8 +51,6 @@ func cmdServe(args []string) int {
 	initFlag := fs.Bool("init", false, "Initialize KB(s) if they do not exist")
 	httpFlag := fs.String("http", "", "HTTP listen address, e.g. :39273 (or CARTOGRAPHER_HTTP)")
 	tokensFlag := fs.String("tokens", "", "Comma-separated bearer tokens (or CARTOGRAPHER_TOKENS)")
-	gitAutoCommitFlag := fs.Bool("git-autocommit", true, "Create a git commit after each successful write operation (default true; or CARTOGRAPHER_GIT_AUTOCOMMIT=false to disable)")
-	gitSyncFlag := fs.Bool("git-sync", true, "Fetch+pull before and push after each write when a remote is configured (default true; or CARTOGRAPHER_GIT_SYNC=false to disable)")
 	configFlag := fs.String("config", "", "Path to a YAML config file (or CARTOGRAPHER_CONFIG)")
 	toolsProfileFlag := fs.String("tools-profile", "", "Tools advertised by tools/list: 'agent' (default, core set) or 'full' (or CARTOGRAPHER_TOOLS_PROFILE)")
 	webEnabledFlag := fs.Bool("web-enabled", true, "Serve the embedded read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode (or CARTOGRAPHER_WEB_ENABLED)")
@@ -71,16 +69,14 @@ func cmdServe(args []string) int {
 	}
 
 	cfg, err := loadServeConfig(fs, config.FlagOverrides{
-		HTTP:          httpFlag,
-		Init:          initFlag,
-		KB:            kbFlag,
-		Data:          dataFlag,
-		Tokens:        tokensFlag,
-		GitAutocommit: gitAutoCommitFlag,
-		GitSync:       gitSyncFlag,
-		ToolsProfile:  toolsProfileFlag,
-		WebEnabled:    webEnabledFlag,
-		UpdateCheck:   updateCheckFlag,
+		HTTP:         httpFlag,
+		Init:         initFlag,
+		KB:           kbFlag,
+		Data:         dataFlag,
+		Tokens:       tokensFlag,
+		ToolsProfile: toolsProfileFlag,
+		WebEnabled:   webEnabledFlag,
+		UpdateCheck:  updateCheckFlag,
 	}, *configFlag)
 	if err != nil {
 		log.Fatal(err)
@@ -123,10 +119,6 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 			explicit.Data = overrides.Data
 		case "tokens":
 			explicit.Tokens = overrides.Tokens
-		case "git-autocommit":
-			explicit.GitAutocommit = overrides.GitAutocommit
-		case "git-sync":
-			explicit.GitSync = overrides.GitSync
 		case "tools-profile":
 			explicit.ToolsProfile = overrides.ToolsProfile
 		case "web-enabled":
@@ -316,10 +308,16 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 				log.Fatalf("KB open %q failed: %v\n(use --init to create a new KB)", m.Path, err)
 			}
 		}
-		k.AutoCommit = cfg.Git.Autocommit
-		k.GitSync = cfg.Git.Sync
-		k.SyncInWindow = cfg.Git.SyncInWindow
-		k.SyncOutDebounce = cfg.Git.SyncOutDebounce
+		// #903 WP3: a KB that is a git repo always commits; it syncs when it
+		// has a remote. The only remaining runtime knob is whether the push
+		// after a commit is synchronous. A platform that freezes an instance
+		// the moment a request returns (Cloud Run and the like) would never run
+		// the debounced background push, so the write must push before it
+		// answers. We detect it from K_SERVICE, the env var Cloud Run always
+		// sets for a running service — a property of the runtime, not a YAML
+		// key (the old git.out_debounce:0 escape hatch is gone). Rationale
+		// recorded in D903 (WP4).
+		k.SyncPushSynchronous = os.Getenv("K_SERVICE") != ""
 		k.GitEnv = gitEnvForKB(m.Spec, cfg.Git, m.Name)
 		k.ConfiguredBranch = m.Spec.GitBranch
 		if err := completeIdentity(m.Spec.AuthorName, m.Spec.AuthorEmail, "kbs[]"); err != nil {
@@ -397,7 +395,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			// Its policy comes from its own settings.yaml (D746), when it has one.
 			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — its policy comes from its settings.yaml if it has one, sops_age_key_file and machine_path allow-prefixes are at their defaults", name)
 		}
-		if _, ok := k.HasRemote(); kb.ShouldWarnGitIdentity(k.GitSync, ok, k.GitAuthorEmail) {
+		if _, ok := k.HasRemote(); kb.ShouldWarnGitIdentity(ok, k.GitAuthorEmail) {
 			log.Printf("WARNING: KB %q commits will be authored as cartographer@localhost; forges with author push rules will reject the push", name)
 		}
 	}
@@ -406,7 +404,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		log.Fatal("no KBs specified")
 	}
 
-	log.Printf("cartographer %s — %d KB(s) mounted (git-autocommit=%v git-sync=%v)", version, len(kbs), cfg.Git.Autocommit, cfg.Git.Sync)
+	log.Printf("cartographer %s — %d KB(s) mounted (a git-repo KB commits every write; it syncs when it has a remote)", version, len(kbs))
 
 	phase("indexing")
 	// Open per-KB SQLite search index (best-effort; falls back to in-memory).

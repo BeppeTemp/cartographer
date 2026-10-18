@@ -167,19 +167,15 @@ kbs:                          # (kbs[]) explicit KBs, local path or remote git (
                                                       # disables the finding, default 42
 mcp:
 git:
-  autocommit: true            # (git.autocommit) commit after every write
-  sync: true                  # (git.sync) read/write fetch/pull-rebase + post-write push if the KB has a remote
+  # A KB that is a git repository always commits after a write, and syncs
+  # (fetch/pull-rebase before, push after) exactly when it has a remote (#903):
+  # there is no autocommit or sync switch. The pull freshness window (30s) and
+  # the post-write push debounce (3s) are built-in constants.
   ssh_key: /etc/kb-ssh/id_ed25519      # (git.ssh_key) default SSH identity for cloning kbs[] remotes
   known_hosts: /etc/kb-ssh/known_hosts # (git.known_hosts) host verification for the same clone
   author_name: "Team Bot"             # (git.author_name) default author (set with author_email)
   author_email: team-bot@example.com   # explicit configuration wins over Git config
   token_dir: /etc/kb-git-tokens         # (git.token_dir) directory <token_dir>/<name>.token (D53, see below)
-  in_window: 30s                # (git.in_window) SyncIn freshness window: within this duration
-                                # since the last successful fetch+pull, subsequent reads and writes skip it
-                                # (no-op). Default 30s, 0 = sync on every write (D76)
-  out_debounce: 3s              # (git.out_debounce) debounce of the per-KB async push after the
-                                # commit: N writes in quick succession = 1 push. Default 3s, 0 = push
-                                # synchronously inline, no worker (rollback flag, D76)
 audit:
   log: ""                      # (audit.log) path to the audit log's JSONL file
   key_seed: ""                 # (audit.key_seed) Ed25519 hex seed for signing
@@ -205,7 +201,7 @@ Every `kbs: [{remote: ...}]` entry (YAML) or `CARTOGRAPHER_KB_REMOTES` (env, CSV
 cloned by `cartographer serve` at startup into `<data>/<name>` (name derived from the last segment
 of the remote, without `.git` — or the explicit `kbs[].name`, if set, see D53 below), **only if
 the destination doesn't already exist** — an existing clone is left untouched: the existing
-`git-autocommit`/`git-sync` cycle handles fetch/push on subsequent writes
+`git` fetch/push cycle handles fetch/push on subsequent writes
 (`cmd/cartographer/bootstrap.go`). Requires `--data`/`CARTOGRAPHER_DATA`/`data:` as the destination
 directory for clones. A remote that is still empty clones to a branch with no commit, named by the
 host's git (often `master`); with `--init` the KB is pinned to `main` and given its initial commit,
@@ -289,11 +285,8 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_TOKENS` | `--tokens` | Bearer tokens, comma/whitespace-separated. Each entry is either a bare `token` (admin, full access to every KB) or `token\|scope1;scope2` with per-KB scopes `kb:<name>:r\|rw` (scopes separated by `;`, never by spaces/commas, to avoid colliding with the between-entry separator). E.g. `admintok, readtok\|kb:wiki:r, writetok\|kb:wiki:rw;kb:notes:r` (D44). |
 | `CARTOGRAPHER_AUTH` | — | Explicit auth toggle (see §Auth) |
 | — | — | Fine-grained roles have no env form: `auth.roles` is YAML-only, because a rule is a structured object (see §Fine-grained roles). |
-| `CARTOGRAPHER_GIT_AUTOCOMMIT` | `--git-autocommit` | Enables the git commit after every write. Default `true`; set to `false` or `0` to disable. |
-| `CARTOGRAPHER_GIT_SYNC` | `--git-sync` | If the KB has an `origin` remote, runs fetch+pull-rebase before reads and writes, then pushes after writes (git as inter-instance sync). Default `true`; `false`/`0` to disable. Inert if the KB has no remote. Read-side sync is best-effort: a network failure serves the local replica; a rebase conflict is registered and the read also serves locally. |
+| — | — | There is no autocommit or sync switch (#903): a KB that is a git repository always commits after a write, and syncs (fetch+pull-rebase before reads and writes, push after writes) exactly when it has an `origin` remote. Read-side sync is best-effort: a network failure serves the local replica; a rebase conflict is registered and the read also serves locally. The pull freshness window (30s) and the post-write push debounce (3s) are built-in constants, not keys. |
 | `CARTOGRAPHER_GIT_TOKEN_DIR` | — | Directory with one file per KB (`<dir>/<name>.token`) used as the HTTPS credential for that KB's git (D53, see §Bootstrapping a KB from a git remote). |
-| `CARTOGRAPHER_SYNC_IN_WINDOW` | — | Go duration (e.g. `30s`, `0`) of the freshness window on `SyncIn`: within this window since the last successful fetch+pull, subsequent reads and writes skip it. Default `30s`; `0` = sync on every read and write (D76, D93). |
-| `CARTOGRAPHER_SYNC_OUT_DEBOUNCE` | — | Go duration (e.g. `3s`, `0`) of the per-KB async push debounce: N writes in quick succession = 1 push, performed this long after the last signal. Default `3s`; `0` = push synchronously inline, no worker (rollback flag, D76). |
 | `CARTOGRAPHER_SOPS_AGE_KEY_DIR` | — | Directory with a per-KB age key (`<dir>/<name>.age`), a fallback checked before `CARTOGRAPHER_SOPS_AGE_KEY_FILE` (D53). |
 | `CARTOGRAPHER_TOOLS_PROFILE` | `--tools-profile` | `tools/list` tool profile: `agent` (default, only the core set for the LLM agent) \| `full` (all of them). Hidden tools remain callable via `tools/call` (D65, → `control-plane.md` §MCP API). |
 | `CARTOGRAPHER_AUDIT_LOG` | — | Path to the audit log's JSONL file (e.g. `/data/audit.log`). If empty, audit is disabled. |
@@ -400,8 +393,6 @@ data:
     kbs:
       - remote: ssh://git@gitea.example.com:2222/user/wiki-kb.git
     git:
-      autocommit: true
-      sync: true
       ssh_key: /etc/kb-ssh/id_ed25519
       known_hosts: /etc/kb-ssh/known_hosts
 ```
@@ -551,8 +542,10 @@ read tools with nothing installed, and leave a message in a guestbook. It is a s
   `guestbook` (the KB name is the remote's basename). The image's entrypoint (`deploy/demo/entrypoint.sh`)
   clones it into `CARTOGRAPHER_DATA` with a 20 s timeout and the same per-KB credential helper the server uses; on
   any failure it logs one line and the server starts with astronomy alone, because a remote that fails to clone is
-  fatal inside `serve`. Each message is one commit, pushed inside the request
-  (`CARTOGRAPHER_SYNC_OUT_DEBOUNCE=0`), so Cloud Run's CPU throttling cannot strand a push.
+  fatal inside `serve`. Each message is one commit, pushed inside the request, so Cloud Run's CPU throttling cannot
+  strand a push: the server pushes synchronously, before it answers, whenever it detects a platform that freezes
+  idle instances — Cloud Run sets `K_SERVICE` on every running service, and the server reads that env var rather
+  than a YAML key (#903 removed `git.out_debounce`; the rationale is D903).
 
 Auth stays `on` with two tokens: a read token `kb:astronomy:r;kb:guestbook:r` and a write token
 `kb:guestbook:rw`. A Cloudflare Worker forwards the hostname to the `*.run.app` URL (Cloud Run routes by Host),

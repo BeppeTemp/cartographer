@@ -34,8 +34,9 @@ const pushFlushTimeout = 5 * time.Second
 //   - If the commit itself fails, the error is logged to stderr but is NOT
 //     propagated to the MCP client: a commit failure never turns a successful
 //     operation into an error.
-//   - If k.AutoCommit is false (the zero-value default), CommitOp is a no-op,
-//     so existing tests that do not set AutoCommit are unaffected.
+//   - A KB that is not a git repository makes CommitOp a no-op (#903 WP3:
+//     git.autocommit is gone — a repo is the switch), so existing tests on a
+//     non-repo KB are unaffected.
 //
 // Step 3 — agentic conflict handling:
 //   - If SyncIn returns a *gitx.RebaseConflictError, each conflicting file is
@@ -67,7 +68,8 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 		start := time.Now()
 		k.WithGitLock(func() error { //nolint:errcheck // inner func always returns nil
 			// Step 2: fetch + pull --rebase before every write operation.
-			// If the KB has no remote or GitSync is false, SyncIn is a no-op.
+			// If the KB has no remote, SyncIn is a no-op (the remote is the
+			// sync switch, #903 WP3).
 			syncInStart := time.Now()
 			refused, syncRefused := syncInForWrite(k)
 			syncInDur = time.Since(syncInStart)
@@ -183,14 +185,23 @@ func commitTrailerBlock(ctx context.Context, args json.RawMessage, extra ...stri
 	return strings.Join(block, "\n")
 }
 
-// pushAfterCommit is gitWrap's step 2 / D76-WP4 after a commit: with
-// SyncOutDebounce set the push is scheduled on the per-KB async worker (which
-// runs under the same WithGitLock and surfaces conflicts via k.OnPushConflict);
-// otherwise it is done inline. A push failure, sync or async, is non-fatal;
-// Step 3 surfaces rebase conflicts as degraded concepts. It returns the inline
-// push duration and whether the push was left to the worker.
+// pushAfterCommit is gitWrap's step 2 / D76-WP4 after a commit: by default the
+// push is scheduled on the per-KB async worker (which runs under the same
+// WithGitLock and surfaces conflicts via k.OnPushConflict) with the
+// kb.SyncOutDebounce window; on a platform that freezes idle instances
+// (k.SyncPushSynchronous, #903 WP3) it is done inline so the write pushes
+// before it answers. A push failure, sync or async, is non-fatal; Step 3
+// surfaces rebase conflicts as degraded concepts. It returns the inline push
+// duration and whether the push was left to the worker.
+//
+// A KB with no remote never pushes (the remote is the sync switch, #903 WP3):
+// scheduling a worker for it would only report a spurious "pending" state for a
+// push that can never happen.
 func pushAfterCommit(k *kb.KB, tool string, res *ToolResult) (dur time.Duration, async bool) {
-	if k.SyncOutDebounce > 0 {
+	if _, ok := k.HasRemote(); !ok {
+		return 0, false
+	}
+	if !k.SyncPushSynchronous {
 		k.SchedulePush()
 		k.MarkPushPending()
 		appendSyncWarning(res, k)
@@ -227,12 +238,9 @@ const externalChangesSubject = "external changes"
 // and says why in the Reason trailer. It runs under the git lock before the
 // handler, after the pull; a KB with open conflicts is left alone (the write
 // is refused as before, and a conflict marker must not be committed). A
-// failure is logged and never fails the write. A clean tree, an AutoCommit-off
-// KB or a non-repository make it a no-op (CommitOpAs).
+// failure is logged and never fails the write. A clean tree or a
+// non-repository make it a no-op (CommitOpAs).
 func commitExternalChanges(k *kb.KB, tool string) {
-	if !k.AutoCommit {
-		return
-	}
 	if conflicts, err := k.ListConflicts(); err == nil && len(conflicts) > 0 {
 		return
 	}

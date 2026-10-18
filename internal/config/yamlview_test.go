@@ -14,8 +14,8 @@ func yamlView() View {
 			{Key: "auth.mode", Value: "on", Origin: OriginEnv, Env: "CARTOGRAPHER_AUTH"},
 			{Key: "auth.tokens", Value: SecretSet, Origin: OriginFile, Secret: true},
 			{Key: "audit.key_seed", Value: SecretUnset, Origin: OriginDefault, Secret: true},
-			{Key: "git.autocommit", Value: true, Origin: OriginDefault},
-			{Key: "git.sync", Value: false, Origin: OriginFile},
+			{Key: "update_check", Value: true, Origin: OriginDefault},
+			{Key: "git.token_dir", Value: "/x", Origin: OriginFile},
 			{Key: "kbs", Value: []string{"kb-a", "work-kb"}, Origin: OriginFile},
 		},
 		KBs: []KBEntries{
@@ -41,9 +41,9 @@ func TestServerYAMLIsTheEffectiveFileDocumented(t *testing.T) {
 		"http: 127.0.0.1:39273 # from --http",
 		"mode: \"on\" # from CARTOGRAPHER_AUTH",
 		"tokens: " + Redacted,
-		"sync: false",
+		"token_dir: /x",
 		// A key at its default is documented, commented out, not set.
-		"# autocommit: true",
+		"# update_check: true",
 		// The server file's kbs[] entry, not what the KB's own file sets.
 		"path: /data/kb-a",
 	} {

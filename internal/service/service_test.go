@@ -70,7 +70,7 @@ func TestDefaultServerYAML(t *testing.T) {
 		"author_name:",
 		"author_email:",
 		"# --- available settings ---",
-		"Default git author name of autocommits",
+		"Default git author name of commits",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("yaml missing %q\n---\n%s", want, out)

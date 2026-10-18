@@ -485,7 +485,7 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 	// writing on top of it would add to the mess.
 	if conflicts, err := k.ListConflicts(); err == nil && len(conflicts) > 0 {
 		run.Skipped = fmt.Sprintf("%d open git conflict(s)", len(conflicts))
-	} else if k.GitSync && k.GitStatusSnapshot().State == "degraded" {
+	} else if _, ok := k.HasRemote(); ok && k.GitStatusSnapshot().State == "degraded" {
 		run.Skipped = "git sync is degraded"
 	}
 	if run.Skipped != "" {

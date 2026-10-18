@@ -49,7 +49,7 @@ func writeGateState(k *kb.KB) string { return writeGateStateOf(k, k.Policy()) }
 func writeGateStateOf(k *kb.KB, p kb.Policy) string {
 	switch p.WriteGate {
 	case "error", "warning":
-		if !k.AutoCommit || !gitx.IsRepo(k.Root) {
+		if !gitx.IsRepo(k.Root) {
 			return "inactive"
 		}
 		return p.WriteGate

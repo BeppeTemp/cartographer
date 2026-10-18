@@ -552,7 +552,7 @@ func toolConceptHistory(k *kb.KB) Tool {
 			}
 			revisions := []map[string]interface{}{}
 			result := map[string]interface{}{"id": params.ID, "revisions": revisions, "truncated": false}
-			if !k.AutoCommit || !gitx.IsRepo(k.Root) {
+			if !gitx.IsRepo(k.Root) {
 				result["note"] = "no git history"
 				out, _ := json.MarshalIndent(result, "", "  ")
 				return textResult(string(out)), nil

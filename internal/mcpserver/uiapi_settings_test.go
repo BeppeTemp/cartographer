@@ -25,8 +25,8 @@ func settingsHandler(t *testing.T, cfg *config.Config, ts *auth.TokenStore, name
 func TestUIAPI_SettingsListsValuesOriginsAndFacts(t *testing.T) {
 	t.Parallel()
 	cfg := config.Default()
-	cfg.Git.Sync = false
-	cfg.Origins = map[string]config.Origin{"git.sync": config.OriginEnv}
+	cfg.UpdateCheck = false
+	cfg.Origins = map[string]config.Origin{"update_check": config.OriginEnv}
 	handler := settingsHandler(t, cfg, auth.NewTokenStore(nil), "docs")
 	rr := getUI(t, handler, UIAPIPrefix+"/settings", "")
 	if rr.Code != http.StatusOK {
@@ -39,15 +39,15 @@ func TestUIAPI_SettingsListsValuesOriginsAndFacts(t *testing.T) {
 	var found bool
 	for _, e := range body["server"].([]interface{}) {
 		row := e.(map[string]interface{})
-		if row["key"] == "git.sync" {
+		if row["key"] == "update_check" {
 			found = true
 			if row["value"] != false || row["origin"] != "env" || row["description"] == "" {
-				t.Errorf("git.sync row = %v", row)
+				t.Errorf("update_check row = %v", row)
 			}
 		}
 	}
 	if !found {
-		t.Error("git.sync missing from the server section")
+		t.Error("update_check missing from the server section")
 	}
 	kbs := body["kbs"].([]interface{})
 	if len(kbs) != 1 || kbs[0].(map[string]interface{})["name"] != "docs" {
@@ -58,7 +58,7 @@ func TestUIAPI_SettingsListsValuesOriginsAndFacts(t *testing.T) {
 	}
 	// The YAML views (D818): the server file with the env-set key and its
 	// origin, and the KB's settings.yaml, both documented by the schema.
-	if y, _ := body["server_yaml"].(string); !strings.Contains(y, "sync: false # from CARTOGRAPHER_GIT_SYNC") ||
+	if y, _ := body["server_yaml"].(string); !strings.Contains(y, "update_check: false # from CARTOGRAPHER_UPDATE_CHECK") ||
 		!strings.Contains(y, "# --- available settings ---") {
 		t.Errorf("server_yaml = %q", y)
 	}

@@ -86,28 +86,20 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "kb_aliases", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,
 		Description: "Old names of renamed KBs: each item has a from (the old name) and a to (the KB now mounted), so a routed ?kbs=<from> still reaches it. `kb rename` writes it. One step only, and a mounted name wins over an alias."},
 
-	{Path: "git.autocommit", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_GIT_AUTOCOMMIT", Flag: "--git-autocommit", Restart: true, Example: "true",
-		Description: "Create a git commit after each successful write."},
-	{Path: "git.sync", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_GIT_SYNC", Flag: "--git-sync", Restart: true, Example: "true",
-		Description: "When a remote is configured, fetch and pull before and push after each write."},
 	{Path: "git.ssh_key", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
 		Description: "SSH private key used to reach remote KBs."},
 	{Path: "git.known_hosts", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
 		Description: "The known_hosts file used to reach remote KBs."},
 	{Path: "git.author_name", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
-		Description: "Default git author name of autocommits; set both name and e-mail when remote push rules validate authors."},
+		Description: "Default git author name of commits; set both name and e-mail when remote push rules validate authors."},
 	{Path: "git.author_email", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
-		Description: "Default git author e-mail of autocommits."},
+		Description: "Default git author e-mail of commits."},
 	{Path: "git.committer_name", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
 		Description: "Default git committer name; empty follows the author."},
 	{Path: "git.committer_email", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
 		Description: "Default git committer e-mail; empty follows the author."},
 	{Path: "git.token_dir", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_GIT_TOKEN_DIR", Restart: true,
 		Description: "Directory with one file per KB, <token_dir>/<name>.token (its trimmed content is the token), used as HTTPS git credentials for that KB's remote."},
-	{Path: "git.in_window", Scope: settingschema.ScopeServer, Type: "duration", Values: "a Go duration; 0 syncs on every read and write", Default: "30s", Env: "CARTOGRAPHER_SYNC_IN_WINDOW", Restart: true,
-		Description: "Freshness window of the pull before a read or write: within it of the last successful pull, the pull is skipped."},
-	{Path: "git.out_debounce", Scope: settingschema.ScopeServer, Type: "duration", Values: "a Go duration; 0 pushes synchronously, with no worker", Default: "3s", Env: "CARTOGRAPHER_SYNC_OUT_DEBOUNCE", Restart: true,
-		Description: "Debounce of the background push: a burst of writes coalesces into one push this long after the last one."},
 
 	{Path: "audit.log", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_AUDIT_LOG", Restart: true,
 		Description: "Path of the append-only operation log. Empty turns the audit trail off."},
@@ -163,12 +155,29 @@ var RemovedKeys = []settingschema.Removed{
 	{Path: "kbs[].github_repository", Plan: "#903", Replacement: "removed with the GitHub forge"},
 	{Path: "kbs[].github_api_url", Plan: "#903", Replacement: "removed with the GitHub forge"},
 	{Path: "kbs[].github_token_env", Plan: "#903", Replacement: "removed with the GitHub forge"},
+
+	// #903 WP3: autocommit and sync are no longer switches. A KB that is a git
+	// repository always commits after a write; it syncs (fetch/pull before,
+	// push after) exactly when it has a remote configured. The two timers that
+	// tuned the sync are constants now (kb.SyncInWindow, kb.SyncOutDebounce).
+	{Path: "git.autocommit", Plan: "#903", Replacement: "removed: a KB that is a git repository always commits after a write"},
+	{Path: "git.sync", Plan: "#903", Replacement: "removed: a KB syncs exactly when it has a remote configured"},
+	{Path: "git.in_window", Plan: "#903", Replacement: "removed: the pull freshness window is a constant (30s)"},
+	{Path: "git.out_debounce", Plan: "#903", Replacement: "removed: the push debounce is a constant (3s); a platform that freezes idle instances pushes synchronously"},
 }
 
 // OffResets is the registry of kept keys whose "feature off" value the 0.25
 // cleanup no longer allows: the realignment resets each to the schema default
 // (every feature on, P4). Empty until a plan adds its first (plans #903 WP3+).
-var OffResets = []settingschema.OffReset{}
+//
+// git.autocommit and git.sync are removed keys (RemovedKeys above), not kept
+// ones; they are listed here too so a file that had them at false is reset
+// toward the default (on) before the key is dropped, rather than being read as
+// "off" for one last load. The realignment drops them afterward.
+var OffResets = []settingschema.OffReset{
+	{Path: "git.autocommit", Off: "false"},
+	{Path: "git.sync", Off: "false"},
+}
 
 // ExampleHeader is the comment at the top of the generated config.example.yaml.
 const ExampleHeader = `Example configuration for "cartographer serve --config config.yaml".

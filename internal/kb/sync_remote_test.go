@@ -26,6 +26,16 @@ func haveGit() bool {
 	return err == nil
 }
 
+// setSyncInWindow overrides the package SyncIn freshness window for one test
+// and restores it afterwards (#903 WP3: the window is a constant backed by a
+// package var — see gitsync.go). A test that sets it must not run in parallel.
+func setSyncInWindow(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := syncInWindow
+	syncInWindow = d
+	t.Cleanup(func() { syncInWindow = old })
+}
+
 // setupKBWithRemote initialises a KB (git repo + initial commit via Init) and
 // attaches a bare remote as "origin".
 func setupKBWithRemote(t *testing.T) (k *KB, bare string) {
@@ -45,21 +55,31 @@ func setupKBWithRemote(t *testing.T) (k *KB, bare string) {
 	return k, bare
 }
 
-func TestSyncOut_Disabled_NoOp(t *testing.T) {
+// setupKBNoRemote initialises a KB (git repo + initial commit via Init) with
+// no remote configured.
+func setupKBNoRemote(t *testing.T) *KB {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "kb")
+	k, err := Init(root)
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	return k
+}
+
+// TestSyncOut_NoRemote_NoOp verifies that SyncOut is a no-op on a KB without a
+// remote (#903 WP3: a KB syncs exactly when it has a remote).
+func TestSyncOut_NoRemote_NoOp(t *testing.T) {
 	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
-	k, bare := setupKBWithRemote(t)
-	k.GitSync = false // disabled → no-op
-
+	k := setupKBNoRemote(t)
 	if err := k.SyncOut(); err != nil {
-		t.Fatalf("SyncOut disabled must be a no-op, err: %v", err)
+		t.Fatalf("SyncOut without a remote must be a no-op, err: %v", err)
 	}
-	// The bare remote must not have received any branch.
-	out := gitHere(t, bare, "branch", "--list")
-	if strings.TrimSpace(out) != "" {
-		t.Fatalf("bare should have no branch with GitSync=false, has: %q", out)
+	if s := k.GitStatusSnapshot(); s.State != "no_remote" {
+		t.Fatalf("status without a remote = %q, want no_remote", s.State)
 	}
 }
 
@@ -69,7 +89,6 @@ func TestSyncOut_PushesToRemote(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("SyncOut: %v", err)
@@ -87,7 +106,6 @@ func TestSyncOut_DetachedHeadRecordsFailure(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, _ := setupKBWithRemote(t)
-	k.GitSync = true
 	gitHere(t, k.Root, "checkout", "--detach")
 	if err := k.SyncOut(); err == nil || !strings.Contains(err.Error(), "detached HEAD") {
 		t.Fatalf("SyncOut detached HEAD error = %v", err)
@@ -103,7 +121,6 @@ func TestGitStatusSnapshot_MissingRemoteTrackingRefHasUnknownAheadCount(t *testi
 		t.Skip("git not in PATH")
 	}
 	k, _ := setupKBWithRemote(t)
-	k.GitSync = true
 	if s := k.GitStatusSnapshot(); s.UnpushedCommits != nil {
 		t.Fatalf("unpushed commits = %v, want nil without origin tracking ref", *s.UnpushedCommits)
 	}
@@ -117,7 +134,6 @@ func TestSyncOut_PushFailureRecordsAllAttemptsWithoutBackoff(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	if err := os.RemoveAll(bare); err != nil {
 		t.Fatal(err)
 	}
@@ -163,19 +179,17 @@ func pushCommitToBare(t *testing.T, bare, branch, file string) {
 }
 
 func TestSyncIn_FreshnessWindow_SkipsRedundantFetch(t *testing.T) {
-	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	// Seed the remote so a concurrent clone has a branch to work with.
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}
 	branch, _ := gitx.Branch(k.Root)
 
-	k.SyncInWindow = 30 * time.Second
+	setSyncInWindow(t, 30*time.Second)
 	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("first SyncIn: %v", err)
 	}
@@ -206,18 +220,16 @@ func TestSyncIn_FreshnessWindow_SkipsRedundantFetch(t *testing.T) {
 }
 
 func TestSyncIn_WindowZero_AlwaysFetches(t *testing.T) {
-	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}
 	branch, _ := gitx.Branch(k.Root)
 
-	k.SyncInWindow = 0 // current behavior: sync on every call
+	setSyncInWindow(t, 0) // a zero window fetches on every call
 	callbackCalls := 0
 	k.OnSyncIn = func() { callbackCalls++ }
 	if _, err := k.SyncIn(); err != nil {
@@ -250,7 +262,6 @@ func TestSyncIn_NoRemote_NoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	k.GitSync = true // enabled but with no remote → still a no-op
 
 	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("SyncIn without a remote must be a no-op, err: %v", err)
@@ -264,7 +275,6 @@ func TestGitStatusSnapshot_BehindAndLastPush(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("SyncOut: %v", err)
 	}
@@ -320,7 +330,6 @@ func TestSyncIn_RecordsLastSyncInAt(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, _ := setupKBWithRemote(t)
-	k.GitSync = true
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("SyncOut: %v", err)
 	}

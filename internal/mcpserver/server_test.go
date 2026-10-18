@@ -2154,7 +2154,6 @@ func TestServer_KBStatus_RemoteRedacted(t *testing.T) {
 	if err := gitx.AddRemote(k.Root, "origin", "https://user:ghp_secret@gitlab.com/o/wiki.git"); err != nil {
 		t.Fatalf("AddRemote: %v", err)
 	}
-	k.GitSync = true
 	s := New("0.7.0")
 	RegisterKBTools(s, k, Deps{})
 

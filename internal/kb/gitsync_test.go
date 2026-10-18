@@ -1,7 +1,9 @@
 package kb
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,12 +26,12 @@ func initGitKB(t *testing.T) (*KB, string) {
 	return k, sha
 }
 
-// TestCommitOp_AutoCommitEnabled_DirtyTree verifies that CommitOp with
-// AutoCommit=true on a dirty working tree creates a new commit.
-func TestCommitOp_AutoCommitEnabled_DirtyTree(t *testing.T) {
+// TestCommitOp_GitRepo_DirtyTree verifies that CommitOp on a git repo with a
+// dirty working tree always creates a new commit (#903 WP3: autocommit is no
+// longer a switch — a git repo always commits).
+func TestCommitOp_GitRepo_DirtyTree(t *testing.T) {
 	t.Parallel()
 	k, sha1 := initGitKB(t)
-	k.AutoCommit = true
 
 	if err := k.WriteFileAtomic("data/gitsync-note.md", []byte("---\ntype: Note\ntitle: GitSync\n---\ntest\n")); err != nil {
 		t.Fatalf("WriteFileAtomic: %v", err)
@@ -45,24 +47,29 @@ func TestCommitOp_AutoCommitEnabled_DirtyTree(t *testing.T) {
 	}
 }
 
-// TestCommitOp_AutoCommitDisabled_NoCommit verifies that CommitOp with
-// AutoCommit=false (the zero-value default) never creates a commit.
-func TestCommitOp_AutoCommitDisabled_NoCommit(t *testing.T) {
+// TestCommitOp_NotARepo_NoCommit verifies that CommitOp is a no-op when the KB
+// root is not a git repository (#903 WP3: a repo is the only switch left).
+func TestCommitOp_NotARepo_NoCommit(t *testing.T) {
 	t.Parallel()
-	k, sha1 := initGitKB(t)
-	// AutoCommit defaults to false — do not set it.
-
+	dir := tempKB(t)
+	k, err := Init(dir)
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	// Drop the git repository: the KB skeleton stays, but it is no longer a
+	// repo, so CommitOp must be a no-op (#903 WP3).
+	if err := os.RemoveAll(filepath.Join(dir, ".git")); err != nil {
+		t.Fatalf("remove .git: %v", err)
+	}
 	if err := k.WriteFileAtomic("data/gitsync-note.md", []byte("---\ntype: Note\ntitle: GitSync\n---\ntest\n")); err != nil {
 		t.Fatalf("WriteFileAtomic: %v", err)
 	}
-
-	if _, err := k.CommitOp("test: gitsync disabled"); err != nil {
+	sha, err := k.CommitOp("test: not a repo")
+	if err != nil {
 		t.Fatalf("CommitOp unexpected error: %v", err)
 	}
-
-	sha2, _ := gitx.HeadSHA(k.Root)
-	if sha1 != sha2 {
-		t.Fatal("CommitOp: expected no commit (AutoCommit=false) but HEAD SHA changed")
+	if sha != "" {
+		t.Fatalf("CommitOp on a non-repo returned sha %q, want empty", sha)
 	}
 }
 
@@ -72,7 +79,6 @@ func TestCommitOp_AutoCommitDisabled_NoCommit(t *testing.T) {
 func TestCommitOp_PerKBIdentity(t *testing.T) {
 	t.Parallel()
 	k, _ := initGitKB(t)
-	k.AutoCommit = true
 	k.GitAuthorName = "Author Person"
 	k.GitAuthorEmail = "author@wiki.local"
 	k.GitAuthorExplicit = true
@@ -105,7 +111,6 @@ func TestCommitOp_PerKBIdentity(t *testing.T) {
 func TestCommitOp_DefaultIdentity_NoOverride(t *testing.T) {
 	t.Parallel()
 	k, _ := initGitKB(t)
-	k.AutoCommit = true
 	// Explicitly clear the fixture's repository identity and force the final
 	// fallback, so the placeholder assertion is independent of user config.
 	k.GitAuthorName, k.GitAuthorEmail = defaultGitAuthorName, defaultGitAuthorEmail
@@ -131,7 +136,6 @@ func TestCommitOp_DefaultIdentity_NoOverride(t *testing.T) {
 func TestCommitOp_NativeRepositoryIdentity(t *testing.T) {
 	t.Parallel()
 	k, _ := initGitKB(t)
-	k.AutoCommit = true
 	gitHere(t, k.Root, "config", "user.name", "Repository User")
 	gitHere(t, k.Root, "config", "user.email", "repo@example.test")
 	if err := k.WriteFileAtomic("data/native.md", []byte("native\n")); err != nil {
@@ -149,7 +153,6 @@ func TestCommitOp_NativeRepositoryIdentity(t *testing.T) {
 func TestCommitOp_PlaceholderFallbackWithoutRepositoryIdentity(t *testing.T) {
 	t.Parallel()
 	k, _ := initGitKB(t)
-	k.AutoCommit = true
 	k.GitEnv = []string{
 		"GIT_AUTHOR_NAME=",
 		"GIT_AUTHOR_EMAIL=",
@@ -171,7 +174,6 @@ func TestCommitOp_PlaceholderFallbackWithoutRepositoryIdentity(t *testing.T) {
 func TestGitStatusSnapshot_NoRemoteAndIdentityWarning(t *testing.T) {
 	t.Parallel()
 	k, _ := initGitKB(t)
-	k.GitSync = true
 	k.GitAuthorEmail = defaultGitAuthorEmail
 	if s := k.GitStatusSnapshot(); s.State != "no_remote" || s.IdentityWarning {
 		t.Fatalf("status = %+v", s)
@@ -181,17 +183,16 @@ func TestGitStatusSnapshot_NoRemoteAndIdentityWarning(t *testing.T) {
 func TestShouldWarnGitIdentity(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
-		name, email  string
-		sync, remote bool
-		want         bool
+		name, email string
+		remote      bool
+		want        bool
 	}{
-		{name: "placeholder with sync and remote", email: defaultGitAuthorEmail, sync: true, remote: true, want: true},
-		{name: "configured identity", email: "bot@example.test", sync: true, remote: true},
-		{name: "no remote", email: defaultGitAuthorEmail, sync: true},
-		{name: "sync disabled", email: defaultGitAuthorEmail, remote: true},
+		{name: "placeholder with remote", email: defaultGitAuthorEmail, remote: true, want: true},
+		{name: "configured identity", email: "bot@example.test", remote: true},
+		{name: "no remote", email: defaultGitAuthorEmail},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := ShouldWarnGitIdentity(tc.sync, tc.remote, tc.email); got != tc.want {
+			if got := ShouldWarnGitIdentity(tc.remote, tc.email); got != tc.want {
 				t.Fatalf("ShouldWarnGitIdentity = %v, want %v", got, tc.want)
 			}
 		})
@@ -214,7 +215,6 @@ func gitLogFormat(t *testing.T, dir, format string) (string, error) {
 func TestCommitOp_CleanTree_NoCommit(t *testing.T) {
 	t.Parallel()
 	k, sha1 := initGitKB(t)
-	k.AutoCommit = true
 
 	// Working tree is clean after Init — CommitOp should be a no-op.
 	if _, err := k.CommitOp("test: gitsync clean tree"); err != nil {

@@ -170,7 +170,9 @@ var GapDecisions = map[int]string{
 // number that already has a file fails the test. A plan abandoned without
 // implementing gets a "retired" record of its own (D130) or moves to
 // GapDecisions — it does not stay here.
-var ReservedDecisions = map[int]string{}
+var ReservedDecisions = map[int]string{
+	903: "settings cleanup 0.25; the decision record is written by #903 WP4",
+}
 
 // Decision is one record: exactly one file under docs/decisions.
 type Decision struct {

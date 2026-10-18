@@ -259,10 +259,6 @@ func (c *Config) serverValue(path string) (any, bool) {
 			pairs = append(pairs, a.From+" -> "+a.To)
 		}
 		return pairs, len(pairs) > 0
-	case "git.autocommit":
-		return c.Git.Autocommit, true
-	case "git.sync":
-		return c.Git.Sync, true
 	case "git.ssh_key":
 		return str(c.Git.SSHKey)
 	case "git.known_hosts":
@@ -277,10 +273,6 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return str(c.Git.CommitterEmail)
 	case "git.token_dir":
 		return str(c.Git.TokenDir)
-	case "git.in_window":
-		return c.Git.SyncInWindow.String(), true
-	case "git.out_debounce":
-		return c.Git.SyncOutDebounce.String(), true
 	case "audit.log":
 		return str(c.Audit.Log)
 	case "audit.key_seed":

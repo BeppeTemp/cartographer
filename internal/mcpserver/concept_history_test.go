@@ -2,8 +2,12 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 type historyEntry struct {
@@ -46,7 +50,6 @@ func (c *changesLinksKB) read(args string) (map[string]interface{}, ToolResult) 
 func TestConceptHistoryAndReadAtRev(t *testing.T) {
 	t.Parallel()
 	c := newChangesLinksKB(t)
-	c.k.AutoCommit = true
 	c.write("ops/page", "version one\n")
 	c.commit(true)
 	c.write("ops/page", "version two\n")
@@ -98,7 +101,6 @@ func TestConceptHistoryAndReadAtRev(t *testing.T) {
 func TestConceptReadAtRevAcrossRename(t *testing.T) {
 	t.Parallel()
 	c := newChangesLinksKB(t)
-	c.k.AutoCommit = true
 	c.write("ops/before", "original text\n")
 	c.commit(true)
 	c.rename("ops/before", "ops/after")
@@ -122,7 +124,6 @@ func TestConceptReadAtRevAcrossRename(t *testing.T) {
 func TestConceptReadAtRevBeforeCreation(t *testing.T) {
 	t.Parallel()
 	c := newChangesLinksKB(t)
-	c.k.AutoCommit = true
 	c.write("ops/early", "alpha bravo charlie delta echo foxtrot golf hotel india\n")
 	c.commit(true)
 	early, _ := c.history(`{"id":"ops/early"}`)
@@ -151,16 +152,39 @@ func TestConceptReadInvalidRev(t *testing.T) {
 func TestConceptHistoryNotFoundAndNoGit(t *testing.T) {
 	t.Parallel()
 	c := newChangesLinksKB(t)
-	c.k.AutoCommit = true
 	c.write("ops/page", "x\n")
 	c.commit(true)
 	_, res := c.history(`{"id":"ops/nope"}`)
 	if !res.IsError || !strings.Contains(res.Content[0].Text, `concept_history "ops/nope": not found`) {
 		t.Fatalf("missing concept = %+v", res)
 	}
-	c.k.AutoCommit = false
-	h, res := c.history(`{"id":"ops/page"}`)
-	if res.IsError || h.Note != "no git history" || len(h.Revisions) != 0 {
-		t.Fatalf("auto-commit off = %+v %+v, want empty revisions and a note", h, res)
+	// A KB that is not a git repository has no history to show (#903 WP3: a
+	// git repo always commits, so "no git history" is now the non-repo case).
+	dir := t.TempDir()
+	nk, err := kb.Init(dir)
+	if err != nil {
+		t.Fatalf("kb.Init: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, ".git")); err != nil {
+		t.Fatalf("remove .git: %v", err)
+	}
+	if err := nk.CreateMap("ops", "ops", "map", nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(nk.DataRoot(), "ops", "page.md")
+	if err := os.WriteFile(p, []byte("---\ntype: Note\ntitle: page\n---\nx\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ns := New("test")
+	RegisterKBTools(ns, nk, Deps{})
+	nres := ns.callTool(authLocalContext(), "concept_history", json.RawMessage(`{"id":"ops/page"}`))
+	var h historyResult
+	if !nres.IsError && len(nres.Content) > 0 {
+		if err := json.Unmarshal([]byte(nres.Content[0].Text), &h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if nres.IsError || h.Note != "no git history" || len(h.Revisions) != 0 {
+		t.Fatalf("non-repo KB = %+v %+v, want empty revisions and a note", h, nres)
 	}
 }

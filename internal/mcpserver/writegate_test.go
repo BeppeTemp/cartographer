@@ -25,7 +25,6 @@ func gateKB(t *testing.T, mode string) (*kb.KB, *Server) {
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "arch", "_map.md"), []byte(mapMD), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	k.AutoCommit = true
 	setPolicy(k, func(p *kb.Policy) { p.WriteGate = mode })
 	return k, nil
 }
@@ -265,10 +264,30 @@ func TestWriteGate_StashPopFailureRollsBack(t *testing.T) {
 	}
 }
 
-func TestWriteGate_InactiveWithoutAutoCommit(t *testing.T) {
+// TestWriteGate_InactiveOnNonRepo verifies the write gate is inactive on a KB
+// that is not a git repository: without a commit to roll back to, the gate
+// cannot undo a refused write (#903 WP3: a git repo always commits, so the
+// repo — not an autocommit flag — is what makes the gate active).
+func TestWriteGate_InactiveOnNonRepo(t *testing.T) {
 	t.Parallel()
-	k, _ := gateKB(t, "error")
-	k.AutoCommit = false
+	dir := t.TempDir()
+	k, err := kb.Init(dir)
+	if err != nil {
+		t.Fatalf("kb.Init: %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(dir, ".git")); err != nil {
+		t.Fatalf("remove .git: %v", err)
+	}
+	for _, m := range []string{"arch", "ops"} {
+		if err := k.CreateMap(m, strings.ToUpper(m), "map", nil, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mapMD := "---\ntype: Map\nkind: map\ntitle: Arch\nfield_values.status: [active, deprecated]\n---\n# Arch\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "arch", "_map.md"), []byte(mapMD), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	setPolicy(k, func(p *kb.Policy) { p.WriteGate = "error" })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	if st := writeGateState(k); st != "inactive" {

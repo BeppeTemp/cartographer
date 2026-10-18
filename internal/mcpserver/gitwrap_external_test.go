@@ -15,7 +15,6 @@ import (
 func externalKB(t *testing.T) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
-	k.AutoCommit = true
 	k.GitAuthorExplicit = true
 	k.GitAuthorName, k.GitAuthorEmail = "KB Identity", "kb@example.com"
 	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{"nonstandard_field"} })

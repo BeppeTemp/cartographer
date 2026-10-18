@@ -29,11 +29,11 @@ import (
 // The worker is started lazily on first use (ensurePushWorker) and, once
 // started, runs for the lifetime of the process — parked on a channel
 // receive between signals. This is a deliberate, bounded "leak": one
-// goroutine per KB that is mounted with SyncOutDebounce > 0, acceptable
-// because the number of KBs a server mounts is small and fixed. It is never
-// started at all when SyncOutDebounce == 0 (gitWrap keeps calling SyncOut
-// synchronously in that case — see gitwrap.go), and FlushPush is a no-op
-// without starting it either, so the "0 = no worker" rollback flag holds.
+// goroutine per KB whose writes schedule a push, acceptable because the number
+// of KBs a server mounts is small and fixed. It is never started when a KB
+// pushes synchronously (k.SyncPushSynchronous: gitWrap calls SyncOut inline on
+// a platform that freezes idle instances, #903 WP3 — see gitwrap.go), and
+// FlushPush is a no-op without starting it either.
 
 // ensurePushWorker lazily starts the async push worker goroutine on first
 // use. Safe to call concurrently; the goroutine is started at most once per
@@ -80,8 +80,8 @@ func (k *KB) SchedulePush() {
 // FlushPush forces immediate execution of any pending or in-flight push and
 // waits for it to finish (or for timeout to elapse). It is a no-op — and
 // does not start the worker — if the worker was never started (i.e.
-// SchedulePush was never called on this KB, which is always the case when
-// SyncOutDebounce == 0) or if there is currently nothing pending/running.
+// SchedulePush was never called on this KB, which is always the case when the
+// KB pushes synchronously) or if there is currently nothing pending/running.
 func (k *KB) FlushPush(timeout time.Duration) error {
 	k.pushMu.Lock()
 	if !k.pushStarted || (!k.pushPending && !k.pushRunning) {
@@ -113,7 +113,7 @@ func (k *KB) pushWorkerLoop() {
 			continue
 		}
 		force := k.pushForce
-		wait := k.SyncOutDebounce - time.Since(k.pushLastSignal)
+		wait := syncOutDebounce - time.Since(k.pushLastSignal)
 		k.pushMu.Unlock()
 
 		if !force && wait > 0 {

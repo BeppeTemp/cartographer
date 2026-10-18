@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/lint"
 )
@@ -15,15 +14,6 @@ func TestDefault(t *testing.T) {
 	cfg := Default()
 	if cfg.Auth.Mode != "auto" {
 		t.Errorf("Auth.Mode = %q, want %q", cfg.Auth.Mode, "auto")
-	}
-	if !cfg.Git.Autocommit || !cfg.Git.Sync {
-		t.Errorf("Git defaults = %+v, want Autocommit=true Sync=true", cfg.Git)
-	}
-	if cfg.Git.SyncInWindow != 30*time.Second {
-		t.Errorf("Git.SyncInWindow default = %v, want 30s", cfg.Git.SyncInWindow)
-	}
-	if cfg.Git.SyncOutDebounce != 3*time.Second {
-		t.Errorf("Git.SyncOutDebounce default = %v, want 3s", cfg.Git.SyncOutDebounce)
 	}
 	if cfg.Git.AuthorName != "" || cfg.Git.AuthorEmail != "" {
 		t.Errorf("Git author defaults should be unspecified, got %+v", cfg.Git)
@@ -134,17 +124,13 @@ func TestLoadFullYAML(t *testing.T) {
 			},
 		},
 		Git: GitConfig{
-			Autocommit:      false,
-			Sync:            false,
-			SSHKey:          "/etc/kb-ssh/id_ed25519",
-			KnownHosts:      "/etc/kb-ssh/known_hosts",
-			AuthorName:      "Cartographer Bot",
-			AuthorEmail:     "bot@example.com",
-			CommitterName:   "Cartographer Committer",
-			CommitterEmail:  "committer@example.com",
-			TokenDir:        "/etc/kb-git-tokens",
-			SyncInWindow:    45 * time.Second,
-			SyncOutDebounce: 5 * time.Second,
+			SSHKey:         "/etc/kb-ssh/id_ed25519",
+			KnownHosts:     "/etc/kb-ssh/known_hosts",
+			AuthorName:     "Cartographer Bot",
+			AuthorEmail:    "bot@example.com",
+			CommitterName:  "Cartographer Committer",
+			CommitterEmail: "committer@example.com",
+			TokenDir:       "/etc/kb-git-tokens",
 		},
 		Audit:        AuditConfig{Log: "/data/audit.log", KeySeed: "deadbeef", RetentionDays: 90},
 		Sops:         SopsConfig{AgeKeyFile: "/etc/cartographer/age.key", AgeKeyDir: "/etc/kb-sops-keys"},
@@ -177,8 +163,8 @@ func TestLoadPartialYAMLKeepsDefaults(t *testing.T) {
 	if cfg.HTTP != ":9090" {
 		t.Errorf("HTTP = %q, want :9090", cfg.HTTP)
 	}
-	if !cfg.Git.Autocommit || !cfg.Git.Sync {
-		t.Errorf("Git = %+v, want defaults (true, true)", cfg.Git)
+	if cfg.Git.TokenDir != "" {
+		t.Errorf("Git = %+v, want token_dir empty by default", cfg.Git)
 	}
 	if cfg.Auth.Mode != "auto" {
 		t.Errorf("Auth.Mode = %q, want default auto", cfg.Auth.Mode)
@@ -211,15 +197,11 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("CARTOGRAPHER_HTTP", ":7070")
 	t.Setenv("CARTOGRAPHER_TOKENS", "t1,t2")
 	t.Setenv("CARTOGRAPHER_AUTH", "false")
-	t.Setenv("CARTOGRAPHER_GIT_AUTOCOMMIT", "false")
-	t.Setenv("CARTOGRAPHER_GIT_SYNC", "false")
 	t.Setenv("CARTOGRAPHER_AUDIT_LOG", "/env-audit.log")
 	t.Setenv("CARTOGRAPHER_AUDIT_KEY", "cafef00d")
 	t.Setenv("CARTOGRAPHER_SOPS_AGE_KEY_FILE", "/env-age.key")
 	t.Setenv("CARTOGRAPHER_GIT_TOKEN_DIR", "/env-git-tokens")
 	t.Setenv("CARTOGRAPHER_SOPS_AGE_KEY_DIR", "/env-age-keys")
-	t.Setenv("CARTOGRAPHER_SYNC_IN_WINDOW", "45s")
-	t.Setenv("CARTOGRAPHER_SYNC_OUT_DEBOUNCE", "7s")
 
 	FromEnv(cfg)
 
@@ -246,15 +228,6 @@ func TestFromEnv(t *testing.T) {
 	if cfg.Auth.Mode != "off" {
 		t.Errorf("Auth.Mode = %q, want off", cfg.Auth.Mode)
 	}
-	if cfg.Git.Autocommit || cfg.Git.Sync {
-		t.Errorf("Git = %+v, want both false", cfg.Git)
-	}
-	if cfg.Git.SyncInWindow != 45*time.Second {
-		t.Errorf("Git.SyncInWindow = %v, want 45s", cfg.Git.SyncInWindow)
-	}
-	if cfg.Git.SyncOutDebounce != 7*time.Second {
-		t.Errorf("Git.SyncOutDebounce = %v, want 7s", cfg.Git.SyncOutDebounce)
-	}
 	if cfg.Audit.Log != "/env-audit.log" || cfg.Audit.KeySeed != "cafef00d" {
 		t.Errorf("Audit = %+v", cfg.Audit)
 	}
@@ -267,8 +240,7 @@ func TestFromEnvUnsetLeavesDefaults(t *testing.T) {
 	for _, v := range []string{
 		"CARTOGRAPHER_KB", "CARTOGRAPHER_KB_REMOTES", "CARTOGRAPHER_DATA",
 		"CARTOGRAPHER_HTTP", "CARTOGRAPHER_TOKENS", "CARTOGRAPHER_AUTH",
-		"CARTOGRAPHER_GIT_AUTOCOMMIT", "CARTOGRAPHER_GIT_SYNC",
-		"CARTOGRAPHER_GIT_TOKEN_DIR", "CARTOGRAPHER_SYNC_IN_WINDOW", "CARTOGRAPHER_AUDIT_LOG",
+		"CARTOGRAPHER_GIT_TOKEN_DIR", "CARTOGRAPHER_AUDIT_LOG",
 		"CARTOGRAPHER_AUDIT_KEY", "CARTOGRAPHER_SOPS_AGE_KEY_FILE",
 		"CARTOGRAPHER_SOPS_AGE_KEY_DIR",
 	} {

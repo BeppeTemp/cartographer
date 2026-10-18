@@ -17,7 +17,6 @@ import (
 func generatedKB(t *testing.T) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
-	k.AutoCommit = true
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	for _, m := range []string{"ga", "gb", "cur"} {

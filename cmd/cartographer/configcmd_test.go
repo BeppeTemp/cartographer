@@ -29,8 +29,8 @@ func TestConfigShowsClientOriginsAndServerSection(t *testing.T) {
 			return
 		}
 		_, _ = w.Write([]byte(`{"version":"v1","server":[` +
-			`{"key":"git.sync","value":false,"origin":"env","restart":true},` +
-			`{"key":"git.autocommit","value":true,"origin":"default"},` +
+			`{"key":"git.ssh_key","value":"/x","origin":"env","restart":true},` +
+			`{"key":"update_check","value":true,"origin":"default"},` +
 			`{"key":"auth.tokens","value":"(set)","origin":"file","secret":true}],` +
 			`"kbs":[{"name":"kb-a","entries":[{"key":"kbs[].write_gate","value":"error","origin":"file"}]}]}`))
 	}))
@@ -42,18 +42,18 @@ func TestConfigShowsClientOriginsAndServerSection(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	got := out.String()
-	for _, want := range []string{"server_url", "(file)", "trust", "false", "git.sync", "(env, restart required)", "auth.tokens", "(set)", "KB kb-a", "kbs[].write_gate"} {
+	for _, want := range []string{"server_url", "(file)", "trust", "/x", "git.ssh_key", "(env, restart required)", "auth.tokens", "(set)", "KB kb-a", "kbs[].write_gate"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output lacks %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "git.autocommit") || strings.Contains(got, "token_env") {
+	if strings.Contains(got, "update_check") || strings.Contains(got, "token_env") {
 		t.Errorf("a default key is listed without --all:\n%s", got)
 	}
 
 	out.Reset()
 	runConfig(&out, dir, false, true)
-	if !strings.Contains(out.String(), "git.autocommit") || !strings.Contains(out.String(), "token_env") {
+	if !strings.Contains(out.String(), "update_check") || !strings.Contains(out.String(), "token_env") {
 		t.Errorf("--all lacks the default keys:\n%s", out.String())
 	}
 }

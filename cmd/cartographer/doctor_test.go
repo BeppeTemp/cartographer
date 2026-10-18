@@ -477,7 +477,7 @@ func TestCheckCapabilities(t *testing.T) {
 	}
 
 	t.Run("reports a disabled gate with its setting", func(t *testing.T) {
-		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb","capabilities":{"artifact_write":{"state":"disabled","setting":"kbs[].allow_artifact_write"},"git_sync":{"state":"enabled","setting":"git.sync"}}}]}`)
+		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb","capabilities":{"artifact_write":{"state":"disabled","setting":"kbs[].allow_artifact_write"},"git_sync":{"state":"enabled","setting":"kbs[].remote"}}}]}`)
 		defer srv.Close()
 		findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: srv.URL})
 		if len(findings) != 1 {

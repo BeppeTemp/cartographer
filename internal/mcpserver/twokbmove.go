@@ -88,8 +88,8 @@ func (m *twoKBMove) run(ctx context.Context) ToolResult {
 func (m *twoKBMove) runLocked(ctx context.Context) ToolResult {
 	src, dst, srcName, dstName, tool := m.Src, m.Dst, m.SrcName, m.DstName, m.Tool
 	for _, k := range []*kb.KB{src, dst} {
-		if !k.AutoCommit || !gitx.IsRepo(k.Root) {
-			return errorResult(tool + " needs both KBs to be git repositories with auto-commit: it undoes a half-done transfer through git")
+		if !gitx.IsRepo(k.Root) {
+			return errorResult(tool + " needs both KBs to be git repositories: it undoes a half-done transfer through git")
 		}
 	}
 	for _, k := range []*kb.KB{src, dst} {

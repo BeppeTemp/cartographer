@@ -85,9 +85,8 @@ func TestHandleConflictError_ReservedWithConceptStaysOutOfRegistry(t *testing.T)
 // commits locally and reports degraded; once the remote is back the next
 // write syncs normally.
 func TestGitWrap_UnreachableRemoteWriteSucceedsDegraded(t *testing.T) {
-	t.Parallel()
+	defer kb.SetSyncOutDebounceForTest(time.Hour)()
 	k, bare := setupGitKBWithRemote(t)
-	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}
@@ -109,14 +108,14 @@ func TestGitWrap_UnreachableRemoteWriteSucceedsDegraded(t *testing.T) {
 	}
 
 	// The write scheduled an async push; drain it (it fails, the remote is
-	// still away) before touching SyncOutDebounce, which the worker reads.
+	// still away) before switching to synchronous push for the retry.
 	if err := k.FlushPush(10 * time.Second); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(moved, bare); err != nil {
 		t.Fatal(err)
 	}
-	k.SyncOutDebounce = 0
+	k.SyncPushSynchronous = true
 	tool := gitWrap(k, Tool{Name: "test_write_again", Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		if err := k.WriteFileAtomic("data/again.md", []byte("again\n")); err != nil {
 			return ToolResult{}, err
@@ -142,9 +141,9 @@ func TestGitWrap_UnreachableRemoteWriteSucceedsDegraded(t *testing.T) {
 // plainly that nothing was written; the write before it reports the commit as
 // safe locally (committed, commit_sha, unpushed_commits, hint).
 func TestGitWrap_UnreachableRemoteMessagesAreExplicit(t *testing.T) {
-	t.Parallel()
+	defer kb.SetSyncOutDebounceForTest(time.Hour)()
+	defer kb.SetSyncInWindowForTest(0)()
 	k, bare := setupGitKBWithRemote(t)
-	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}
@@ -159,7 +158,6 @@ func TestGitWrap_UnreachableRemoteMessagesAreExplicit(t *testing.T) {
 	if _, ok := warning["unpushed_commits"]; !ok {
 		t.Fatalf("warning lacks unpushed_commits: %+v", warning)
 	}
-	k.SyncInWindow = 0
 	res = writeWrappedTool(t, k, "test_write_again", nil)
 	if !res.IsError {
 		t.Fatalf("second write on an unpushed base accepted: %+v", res)
@@ -172,9 +170,8 @@ func TestGitWrap_UnreachableRemoteMessagesAreExplicit(t *testing.T) {
 
 // Pending is the normal debounced push: the response keeps the pre-hint shape.
 func TestGitWrap_PendingPushHasNoCommitHint(t *testing.T) {
-	t.Parallel()
+	defer kb.SetSyncOutDebounceForTest(time.Hour)()
 	k, _ := setupGitKBWithRemote(t)
-	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
 	res := writeWrappedTool(t, k, "test_write", nil)
 	if res.IsError {
 		t.Fatalf("write failed: %+v", res)
@@ -196,9 +193,8 @@ func TestGitWrap_PendingPushHasNoCommitHint(t *testing.T) {
 // A degraded state from a registered rebase conflict refuses the next write:
 // the "retried on the next write" hint would be false.
 func TestGitWrap_ConflictDegradedHasNoCommitHint(t *testing.T) {
-	t.Parallel()
+	defer kb.SetSyncOutDebounceForTest(time.Hour)()
 	k, bare := setupGitKBWithRemote(t)
-	k.AutoCommit, k.GitSync, k.SyncOutDebounce = true, true, time.Hour
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}

@@ -131,7 +131,7 @@ type fileOrigins struct {
 }
 
 func (o *suppressionOrigins) of(sp lint.Suppression) (gitx.FileRevision, bool) {
-	if !o.k.AutoCommit || !gitx.IsRepo(o.k.Root) {
+	if !gitx.IsRepo(o.k.Root) {
 		return gitx.FileRevision{}, false
 	}
 	path := suppressionGitPath(o.k, sp)

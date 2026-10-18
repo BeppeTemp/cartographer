@@ -71,7 +71,7 @@ func TestConfiguredBranch_EmptyRemote(t *testing.T) {
 	if b, _ := gitx.Branch(root); b != "kb-data" {
 		t.Fatalf("branch = %q, want kb-data", b)
 	}
-	k.GitSync, k.ConfiguredBranch = true, "kb-data"
+	k.ConfiguredBranch = "kb-data"
 	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("SyncIn: %v", err)
 	}
