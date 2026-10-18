@@ -52,3 +52,13 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "sync_timer_opt_out", Scope: settingschema.ScopeClient, Type: "bool", Default: "false",
 		Description: "Set by `service sync-timer uninstall`: connect and setup then stop installing the sync timer themselves."},
 }}
+
+// RemovedKeys is the registry of keys .cartographer.yaml no longer accepts
+// (#903 WP1): the realignment drops them, and a sync warns naming the
+// replacement when one is edited back in. Empty until a plan removes its first
+// (plans #906 onward); it never shrinks.
+var RemovedKeys = []settingschema.Removed{}
+
+// OffResets is the registry of kept client keys whose off value the 0.25
+// cleanup no longer allows. Empty until a plan adds its first.
+var OffResets = []settingschema.OffReset{}

@@ -33,6 +33,16 @@ func KBSettingsSchema() settingschema.Schema {
 	return s
 }
 
+// RemovedKBKeys is the registry of keys a KB's settings.yaml no longer accepts
+// (#903 WP1): the realignment commits a file with them dropped, and the loader
+// warns naming the replacement when one is edited back in. Empty until a plan
+// removes its first (plans #903 WP2+); it never shrinks.
+var RemovedKBKeys = []settingschema.Removed{}
+
+// OffResetsKB is the registry of kept KB keys whose off value the 0.25 cleanup
+// no longer allows. Empty until a plan adds its first.
+var OffResetsKB = []settingschema.OffReset{}
+
 // kbPolicyStore is the effective per-KB specs and the keys that came from a
 // KB file, replaced whenever a KB's settings are re-resolved. A separate
 // object, behind a pointer, because the settings view reads it from the HTTP

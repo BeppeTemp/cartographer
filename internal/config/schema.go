@@ -169,6 +169,18 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode. false removes both routes."},
 }}
 
+// RemovedKeys is the registry of keys the server config.yaml no longer accepts
+// (#903 WP1): the realignment drops them from an upgraded file, and the loader
+// warns, naming the replacement, when one is edited back in. It is empty until
+// a plan removes its first key (plans #903 WP2+ onward); it never shrinks, so
+// an old file keeps being understood.
+var RemovedKeys = []settingschema.Removed{}
+
+// OffResets is the registry of kept keys whose "feature off" value the 0.25
+// cleanup no longer allows: the realignment resets each to the schema default
+// (every feature on, P4). Empty until a plan adds its first (plans #903 WP3+).
+var OffResets = []settingschema.OffReset{}
+
 // ExampleHeader is the comment at the top of the generated config.example.yaml.
 const ExampleHeader = `Example configuration for "cartographer serve --config config.yaml".
 Generated from the settings schema (internal/config/schema.go) by "make settings-example": edit the schema, not this file.
