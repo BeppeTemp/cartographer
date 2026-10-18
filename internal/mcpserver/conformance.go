@@ -119,6 +119,46 @@ func findingsOut(findings []lint.Finding) []findingOut {
 	return out
 }
 
+// compactFinding is the lint compact mode shape (#841): check and path only,
+// the two fields that locate the debt. It is a distinct type so the full
+// findingOut contract (severity, message always present, D342) is untouched.
+type compactFinding struct {
+	Check string `json:"check"`
+	Path  string `json:"path"`
+}
+
+// findingsOutMode returns the full findingOut slice, or the compact
+// check+path shape when compact is set (lint compact mode, #841): the
+// per-finding message repeats across a check, and an agent locating debt needs
+// only check and path. The full shape stays the default so no caller is
+// surprised.
+func findingsOutMode(findings []lint.Finding, compact bool) interface{} {
+	if !compact {
+		return findingsOut(findings)
+	}
+	out := make([]compactFinding, 0, len(findings))
+	for _, f := range findings {
+		out = append(out, compactFinding{Check: f.Check, Path: f.Path})
+	}
+	return out
+}
+
+// findingMap is the map a finding belongs to, for the lint group_by=map
+// breakdown (#841): a concept path's first segment is its map (as
+// conceptMapName derives it from an id). An artifact finding (skills/…,
+// agents/…, instructions.md — never a concept, lint.Finding.Artifact) has no
+// concept map, and a path with no separator is a KB-root file; both group under
+// "(root)" so the breakdown stays total.
+func findingMap(f lint.Finding) string {
+	if f.Artifact {
+		return "(root)"
+	}
+	if i := strings.IndexByte(f.Path, '/'); i > 0 {
+		return f.Path[:i]
+	}
+	return "(root)"
+}
+
 // rejectToolParamKeys refuses a frontmatter map that carries a write-tool
 // parameter name as a key (D289): an agent that passed if_match, body... inside
 // the frontmatter object, which would otherwise be persisted as a field. With

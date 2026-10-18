@@ -126,7 +126,7 @@ func toolLint(k *kb.KB) Tool {
 	return Tool{
 		Name:        "lint",
 		ReadOnly:    true,
-		Description: "Deterministic checks; every finding is a problem to fix. check, limit (max 200), offset filter and page. Counts ignore them.",
+		Description: "Deterministic checks; every finding is a problem to fix. check, limit (max 200), offset filter and page; digest folds. Counts ignore them.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -144,7 +144,8 @@ func toolLint(k *kb.KB) Tool {
 					]
 				},
 				"limit": {"type": "integer"},
-				"offset": {"type": "integer"}
+				"offset": {"type": "integer"},
+				"digest": {"type": "string", "enum": ["by_map", "paths", "compact"]}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -154,8 +155,15 @@ func toolLint(k *kb.KB) Tool {
 				Check          json.RawMessage `json:"check"`
 				Limit          int             `json:"limit"`
 				Offset         int             `json:"offset"`
+				Digest         string          `json:"digest"`
 			}
 			json.Unmarshal(args, &params)
+
+			switch params.Digest {
+			case "", "by_map", "paths", "compact":
+			default:
+				return errorResult("lint: 'digest' must be one of by_map, paths, compact"), nil
+			}
 
 			// check is a view filter: a name no check carries yields zero
 			// matches instead of an error, which tells the caller it is empty.
@@ -196,11 +204,40 @@ func toolLint(k *kb.KB) Tool {
 			}
 
 			afterFilter := len(findings)
+
+			// digest=paths collapses a check's findings to its unique paths,
+			// sorted (Filter already ordered them): "which pages", not "how
+			// many findings". It needs exactly one check to be unambiguous.
+			if params.Digest == "paths" {
+				if len(checks) != 1 {
+					return errorResult("lint: 'digest=paths' needs exactly one 'check'"), nil
+				}
+				seen := map[string]bool{}
+				paths := []string{}
+				for _, f := range findings {
+					if !seen[f.Path] {
+						seen[f.Path] = true
+						paths = append(paths, f.Path)
+					}
+				}
+				sort.Strings(paths)
+				result := map[string]interface{}{
+					"check":          checks[0],
+					"distinct_paths": paths,
+					"count":          len(paths),
+				}
+				out, _ := json.MarshalIndent(result, "", "  ")
+				return textResult(string(out)), nil
+			}
+
 			offset := max(params.Offset, 0)
 			limit := params.Limit
 			if limit <= 0 {
 				limit = afterFilter
 			}
+			// The clamp to lintMaxPage used to be silent (D324): a caller asking
+			// for 500 got 200 with no word. limit_clamped says so below.
+			limitClamped := params.Limit > lintMaxPage
 			limit = min(limit, lintMaxPage)
 			var page []lint.Finding
 			if offset < afterFilter {
@@ -211,11 +248,30 @@ func toolLint(k *kb.KB) Tool {
 			// changes it, so a caller knows the shape of what it is not shown.
 			result := map[string]interface{}{
 				"count":                 total,
-				"findings":              findingsOut(page),
+				"findings":              findingsOutMode(page, params.Digest == "compact"),
 				"findings_in_page":      len(page),
 				"findings_after_filter": afterFilter,
 				"offset":                offset,
 				"counts_by_check":       countsByCheck,
+			}
+			if limitClamped {
+				result["limit_clamped"] = true
+			}
+			// digest=by_map breaks the KB-wide counts_by_check down per map, so
+			// "where is the debt" is one call. Built on the whole filtered set,
+			// not the page, like counts_by_check. The map is a path's first
+			// segment; an artifact finding (skills/…, agents/…) has no concept
+			// map and is grouped under "(root)".
+			if params.Digest == "by_map" {
+				byMap := map[string]map[string]int{}
+				for _, f := range findings {
+					m := findingMap(f)
+					if byMap[m] == nil {
+						byMap[m] = map[string]int{}
+					}
+					byMap[m][f.Check]++
+				}
+				result["counts_by_check_and_map"] = byMap
 			}
 			if next := offset + len(page); next < afterFilter {
 				result["next_offset"] = next
