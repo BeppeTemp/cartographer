@@ -217,6 +217,13 @@ func TestBootstrapRefusesTheProfileKBAndSetsTheConstants(t *testing.T) {
 
 	t.Setenv("K_SERVICE", "")
 	bs := bootstrapKBs(cfg, func(string) {})
+	closeIndexes := func() {
+		for _, ix := range bs.sqlIdxs {
+			ix.Close()
+		}
+	}
+	// Windows cannot delete the index file while it is open.
+	t.Cleanup(func() { closeIndexes() })
 	if len(bs.names) != 1 || bs.names[0] != "kb-ok" {
 		t.Fatalf("mounted %v, want only kb-ok", bs.names)
 	}
@@ -230,6 +237,7 @@ func TestBootstrapRefusesTheProfileKBAndSetsTheConstants(t *testing.T) {
 
 	// Cloud Run freezes an idle instance: the push is made before the write returns.
 	t.Setenv("K_SERVICE", "cartographer")
+	closeIndexes()
 	bs = bootstrapKBs(cfg, func(string) {})
 	if got := bs.kbs[0].SyncOutDebounce; got != 0 {
 		t.Errorf("on Cloud Run the push debounce = %v, want 0 (inline)", got)

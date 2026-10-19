@@ -67,9 +67,11 @@ func TestRealignSettingsIsOneRevertibleCommit(t *testing.T) {
 	if body := gitHere(t, k.Root, "log", "-1", "--format=%B"); !strings.Contains(body, "Reason: test run") {
 		t.Errorf("no Reason trailer:\n%s", body)
 	}
-	// Reverting it restores the file as it was.
+	// Reverting it restores the file as it was (git on Windows may check it out
+	// with CRLF line endings).
 	gitHere(t, k.Root, "-c", "user.name=user", "-c", "user.email=user@example.com", "revert", "--no-edit", "HEAD")
-	if restored, _ := os.ReadFile(filepath.Join(k.Root, SettingsFile)); string(restored) != old {
+	restored, _ := os.ReadFile(filepath.Join(k.Root, SettingsFile))
+	if string(restored) != old && strings.ReplaceAll(string(restored), "\r\n", "\n") != old {
 		t.Errorf("revert did not restore the file:\n%s", restored)
 	}
 }

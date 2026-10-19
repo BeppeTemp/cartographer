@@ -69,7 +69,7 @@ func TestRealignServerFile(t *testing.T) {
 	if orig, err := os.ReadFile(backup); err != nil || string(orig) != oldServerYAML {
 		t.Errorf("backup does not hold the original: %v\n%s", err, orig)
 	}
-	if st, err := os.Stat(path); err != nil || st.Mode().Perm() != 0o640 {
+	if st, err := os.Stat(path); err != nil || (runtime.GOOS != "windows" && st.Mode().Perm() != 0o640) {
 		t.Errorf("the realigned file lost its permissions: %v %v", st, err)
 	}
 
