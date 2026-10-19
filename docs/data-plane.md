@@ -814,10 +814,11 @@ mounting the same KB get the same behaviour. `settings.yaml` at the KB root, bes
 
 Names and values are those of the same `kbs[]` keys (`docs/deployment.md`, `config.example.yaml`),
 and `branch`. The keys bound to one machine (`remote`, `name`, `ssh_key`, `known_hosts`,
-`author_*`, `committer_*`, `sops_age_key_file`, `artifact_signing_seed`) stay in the server's
-`kbs[]`; naming one in `settings.yaml` is a finding. So is a removed key (D903): the server git
-profile's `git_profile`, `git_base_branch`, `git_forge`, `github_*`, `git_working_branch`, and
-`git_branch`, which became `branch`. Each is ignored with a finding that names what to use, and
+`sops_age_key_file`, `artifact_signing_seed`) stay in the server's `kbs[]`; naming one in
+`settings.yaml` is a finding. So is a removed key: the server git profile's `git_profile`,
+`git_base_branch`, `git_forge`, `github_*`, `git_working_branch`, and `git_branch`, which became
+`branch` (D903); `author_*` and `committer_*`, since the writer is the author and the server the
+committer (D904). Each is ignored with a finding that names what to use, and
 dropped when the server realigns the file; `git_profile: server`, which cannot be honoured, makes
 the KB refuse to mount. The realignment is one commit by the server, through the normal write
 path, so it is revertible (`docs/deployment.md` §Upgrading: realignment); a KB created by

@@ -213,6 +213,11 @@ In the handshake era every JSON-RPC error is still carried inside HTTP **200**.
 
 `Mcp-Session-Id` and `Last-Event-ID` are ignored if sent, and never issued.
 
+`Cartographer-Author` is not an MCP header and is not checked against the body:
+it names the git author of the writes the request makes (D904), it decides
+nothing about access, and a missing or invalid one falls back to the token
+(§Identity and audit boundaries).
+
 ### Origin
 
 The MCP endpoint validates the `Origin` header. A request without one — every
