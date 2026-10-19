@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -230,6 +231,75 @@ func TestFindRefusedAnyValue(t *testing.T) {
 		if refused && (!strings.Contains(msg, "items[0].branch") || !strings.Contains(msg, hits[0].Value) || !strings.Contains(msg, "branch in the KB (on the default branch)")) {
 			t.Errorf("%q: refusal %q does not name the key, its value and where it goes", in, msg)
 		}
+	}
+}
+
+// A key cannot hide behind YAML anchors (D903): a value given through an alias,
+// an entry that is an alias, and a key merged with << are found where the
+// decoder would read them, and refused. A quoted "null" is a branch name, and a
+// list is a value too.
+func TestFindRefusesThroughAnchors(t *testing.T) {
+	reg := Registry{Removed: []Removed{
+		{Path: "git.profile", Plan: 903, Refuse: "server", Note: "unprotect the branch"},
+		{Path: "items[].branch", Replacement: "branch in the KB", Plan: 903, RefuseAny: true},
+	}}
+	for in, path := range map[string]string{
+		"p: &p server\ngit:\n  profile: *p\n":                                 "git.profile",
+		"b: &b team/x\nitems:\n  - branch: *b\n":                              "items[0].branch",
+		"x: &i\n  branch: team/x\nitems:\n  - *i\n":                           "items[0].branch",
+		"x: &d\n  branch: team/x\nitems:\n  - <<: *d\n    id: a\n":            "items[0].branch",
+		"x: &d\n  branch: team/x\ny: &e\n  id: b\nitems:\n  - <<: [*e, *d]\n": "items[0].branch",
+		"items:\n  - branch: [team/x]\n":                                      "items[0].branch",
+		"items:\n  - branch: \"null\"\n":                                      "items[0].branch",
+	} {
+		refused := false
+		for _, h := range reg.FindBytes([]byte(in)) {
+			if _, ok := h.Refused(); ok && h.Path == path {
+				refused = true
+			}
+		}
+		if !refused {
+			t.Errorf("%q: %s is not refused", in, path)
+		}
+	}
+}
+
+// A key reached through an anchor lives where other places read it too: the
+// realignment leaves it as written, and stays idempotent.
+func TestRealignLeavesAKeyBehindAnAnchor(t *testing.T) {
+	out, rep := realign(t, "defaults: &d\n  tag: x\nitems:\n  - <<: *d\n    id: a\n")
+	if !strings.Contains(out, "tag: x") {
+		t.Errorf("the anchor was edited:\n%s", out)
+	}
+	for _, c := range rep.Changes {
+		if c.Kind == ChangeRemoved {
+			t.Errorf("a shared key was reported removed: %+v", c)
+		}
+	}
+	if again, rep := realign(t, out); again != out || !rep.Empty() {
+		t.Errorf("not idempotent: %v\n%s", rep.Lines(), again)
+	}
+}
+
+// Aliases nested on aliases cost Find their size, not their expansion: a KB's
+// settings.yaml comes from its remote, and one built to explode must not hang
+// the mount.
+func TestFindBoundedOnAnAliasBomb(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("l0: &l0\n  id: a\n")
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&b, "l%d: &l%d\n  <<: [*l%d, *l%d]\n", i, i, i-1, i-1)
+	}
+	b.WriteString("items:\n  - <<: *l40\n")
+	done := make(chan struct{})
+	go func() {
+		realignRegistry.FindBytes([]byte(b.String()))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Find expands nested aliases")
 	}
 }
 

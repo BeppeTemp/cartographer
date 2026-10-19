@@ -44,11 +44,13 @@ type Removed struct {
 	RefuseAny bool
 }
 
-// Refuses reports whether value is one the key cannot be ignored with.
+// Refuses reports whether value, an environment variable's, is one the key
+// cannot be ignored with. A key in a file is judged from its YAML node instead
+// (Hit.Refused), where a null is told apart from the string "null".
 func (r Removed) Refuses(value string) bool {
 	v := strings.TrimSpace(value)
 	if r.RefuseAny {
-		return v != "" && v != "~" && !strings.EqualFold(v, "null")
+		return v != ""
 	}
 	return r.Refuse != "" && strings.EqualFold(v, r.Refuse)
 }
@@ -134,11 +136,17 @@ type Hit struct {
 	// Removed is set for a removed key, Off for an off value.
 	Removed *Removed
 	Off     *Off
-	// Value is the value the key holds, as the YAML literal ("server").
+	// Value is the value the key holds, as the YAML literal ("server"), with an
+	// alias resolved; "" for a list or a mapping.
 	Value string
 
+	value  *yaml.Node // the value node, an alias resolved
 	parent *yaml.Node // the mapping that holds the key
 	key    string
+	// shared is set for a pair reached through an alias or a merge key (<<):
+	// it lives in an anchor that other places use too, so a realignment does
+	// not edit it, and the key stays ignored with its warning.
+	shared bool
 }
 
 // Message is the warning a Load gives for a retired key that was met again: it
@@ -153,17 +161,40 @@ func (h Hit) Message() string {
 // Refused reports whether the key holds a value that cannot be honoured, and
 // the message that says what to do.
 func (h Hit) Refused() (string, bool) {
-	if h.Removed == nil || !h.Removed.Refuses(h.Value) {
+	if h.Removed == nil {
 		return "", false
 	}
 	if h.Removed.RefuseAny {
+		if !holdsValue(h.value) {
+			return "", false
+		}
+		shown := strings.TrimSpace(h.Value)
+		if h.value.Kind != yaml.ScalarNode {
+			shown = "a value that is not a branch name"
+		}
 		use := h.Removed.Replacement
 		if h.Removed.Note != "" {
 			use += " (" + h.Removed.Note + ")"
 		}
-		return fmt.Sprintf("%s: %s is still set, and ignoring it would change where writes go; set %s to that value, then remove this key", h.Path, strings.TrimSpace(h.Value), use), true
+		return fmt.Sprintf("%s: %s is still set, and ignoring it would change where writes go; set %s to that value, then remove this key", h.Path, shown, use), true
+	}
+	if !h.Removed.Refuses(h.Value) {
+		return "", false
 	}
 	return fmt.Sprintf("%s: %s", h.Path, h.Removed.Note), true
+}
+
+// holdsValue reports whether n, the value of a key, holds anything: a null (a
+// bare key, ~, null) or an empty string does not; any other scalar, the string
+// "null" included, a list or a mapping does.
+func holdsValue(n *yaml.Node) bool {
+	if n == nil {
+		return false
+	}
+	if n.Kind == yaml.ScalarNode {
+		return n.ShortTag() != "!!null" && strings.TrimSpace(n.Value) != ""
+	}
+	return true
 }
 
 // Advice says what became of the key and what to use: the text after the key in
@@ -203,15 +234,16 @@ func (r Registry) Find(doc *yaml.Node) []Hit {
 	var hits []Hit
 	for i := range r.Removed {
 		e := &r.Removed[i]
-		walkPath(root, strings.Split(e.Path, "."), "", func(parent *yaml.Node, idx int, concrete string) {
-			hits = append(hits, Hit{Path: concrete, Removed: e, Value: literal(parent.Content[idx+1]), parent: parent, key: parent.Content[idx].Value})
+		walkPath(root, strings.Split(e.Path, "."), "", false, map[walkStep]bool{}, func(parent *yaml.Node, idx int, concrete string, shared bool) {
+			v, _ := deref(parent.Content[idx+1])
+			hits = append(hits, Hit{Path: concrete, Removed: e, Value: literal(v), value: v, parent: parent, key: parent.Content[idx].Value, shared: shared})
 		})
 	}
 	for i := range r.Off {
 		e := &r.Off[i]
-		walkPath(root, strings.Split(e.Path, "."), "", func(parent *yaml.Node, idx int, concrete string) {
+		walkPath(root, strings.Split(e.Path, "."), "", false, map[walkStep]bool{}, func(parent *yaml.Node, idx int, concrete string, shared bool) {
 			if v := parent.Content[idx+1]; v.Kind == yaml.ScalarNode && sameLiteral(v, e.Value) {
-				hits = append(hits, Hit{Path: concrete, Off: e, Value: v.Value, parent: parent, key: parent.Content[idx].Value})
+				hits = append(hits, Hit{Path: concrete, Off: e, Value: v.Value, value: v, parent: parent, key: parent.Content[idx].Value, shared: shared})
 			}
 		})
 	}
@@ -237,29 +269,63 @@ func rootMapping(doc *yaml.Node) *yaml.Node {
 	return doc
 }
 
-// walkPath calls visit for every pair a registry path reaches in m.
-func walkPath(m *yaml.Node, segs []string, prefix string, visit func(parent *yaml.Node, idx int, concrete string)) {
-	if m.Kind != yaml.MappingNode || len(segs) == 0 {
+// walkStep is a mapping met at a concrete path: walkPath enters each once.
+type walkStep struct {
+	m      *yaml.Node
+	prefix string
+}
+
+// walkPath calls visit for every pair a registry path reaches in m. It follows
+// aliases and merge keys (<<) as the decoder does, so a key cannot hide behind
+// an anchor; a pair reached through either is shared with the anchor's other
+// uses, and visit is told so. seen enters each mapping once per path, so a file
+// of aliases nested on aliases costs its size, not their expansion.
+func walkPath(m *yaml.Node, segs []string, prefix string, shared bool, seen map[walkStep]bool, visit func(parent *yaml.Node, idx int, concrete string, shared bool)) {
+	m, viaAlias := deref(m)
+	shared = shared || viaAlias
+	if m == nil || m.Kind != yaml.MappingNode || len(segs) == 0 || seen[walkStep{m, prefix}] {
 		return
 	}
+	seen[walkStep{m, prefix}] = true
 	name := strings.TrimSuffix(segs[0], "[]")
 	list := strings.HasSuffix(segs[0], "[]")
 	for i := 0; i+1 < len(m.Content); i += 2 {
+		if k := m.Content[i]; k.Kind == yaml.ScalarNode && k.ShortTag() == "!!merge" {
+			src, _ := deref(m.Content[i+1])
+			from := []*yaml.Node{src}
+			if src != nil && src.Kind == yaml.SequenceNode {
+				from = src.Content
+			}
+			for _, f := range from {
+				walkPath(f, segs, prefix, true, seen, visit)
+			}
+			continue
+		}
 		if m.Content[i].Value != name {
 			continue
 		}
-		v := m.Content[i+1]
+		v, viaAlias := deref(m.Content[i+1])
 		switch {
 		case len(segs) == 1 && !list:
-			visit(m, i, prefix+name)
+			visit(m, i, prefix+name, shared)
 		case list && v.Kind == yaml.SequenceNode && len(segs) > 1:
 			for j, item := range v.Content {
-				walkPath(item, segs[1:], fmt.Sprintf("%s%s[%d].", prefix, name, j), visit)
+				walkPath(item, segs[1:], fmt.Sprintf("%s%s[%d].", prefix, name, j), shared || viaAlias, seen, visit)
 			}
 		case !list && len(segs) > 1:
-			walkPath(v, segs[1:], prefix+name+".", visit)
+			walkPath(v, segs[1:], prefix+name+".", shared || viaAlias, seen, visit)
 		}
 	}
+}
+
+// deref follows n through its aliases to the node they name, and reports
+// whether there was one.
+func deref(n *yaml.Node) (*yaml.Node, bool) {
+	via := false
+	for n != nil && n.Kind == yaml.AliasNode && n.Alias != nil {
+		n, via = n.Alias, true
+	}
+	return n, via
 }
 
 // literal is a scalar's text, and "" for anything else.
@@ -308,6 +374,9 @@ func (s Schema) Realign(data []byte, reg Registry) (out []byte, rep Report, err 
 	hits := reg.Find(&doc)
 	var touched []*yaml.Node
 	for _, h := range hits {
+		if h.shared {
+			continue
+		}
 		idx := pairIdx(h.parent, h.key)
 		if idx < 0 {
 			continue
