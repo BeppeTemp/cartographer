@@ -1144,6 +1144,9 @@ search_roots: ["~/Documents"]   # where repoindex.Scan looks for git clones for 
 search_depth: 4                 # how many levels repoindex descends from each root (D162); omitted when 0 = the default
 paths: {}                       # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}, D75); edit with `cartographer paths set`
 ignored_paths: []               # placeholder ids known to be absent on this machine, e.g. repo:work-tools (D282); edit with `cartographer paths ignore`
+identities:                     # D904; the git author of this machine's writes, by KB name or default; without an entry, the identity git resolves in the session's repository
+  default: Ada Lovelace <ada@example.com>
+  work-kb: Ada Lovelace <ada@corp.example>   # an entry decides: "" sends no author (the server names the token), an invalid one sends none and `sync` warns
 update:                         # D254; omitted entirely when both are the default
   check: true                   # false: no update lookup at all
   policy: notify                # notify | auto-patch (patch releases via homebrew/install.sh/install.ps1 install themselves)

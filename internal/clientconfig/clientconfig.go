@@ -117,6 +117,10 @@ type Config struct {
 	// SigningKeys pins Ed25519 public keys by source KB. Pins are configured
 	// out of band and are never learned from sync_pull responses.
 	SigningKeys map[string][]string `yaml:"signing_keys,omitempty"`
+	// Identities names the git author of this machine's writes, as
+	// "Name <email>", by KB name or under IdentityDefault (D904); see Identity.
+	// User-owned: never written by a command.
+	Identities map[string]string `yaml:"identities,omitempty"`
 	// MCPApprovals is keyed by source KB then artifact name. Each entry binds
 	// consent to one exact descriptor content hash.
 	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
@@ -157,8 +161,10 @@ type Config struct {
 	// Not persisted. Reported once per run through the commands that print it.
 	Unsupported []string `yaml:"-"`
 	// Warnings are the removed keys Load found in the file (Retired, D903): each
-	// is ignored, and the line names what to use instead. Not persisted;
-	// `sync` prints them, and its realignment (RealignFile) drops the keys.
+	// is ignored, and the line names what to use instead; and the identities
+	// entries that are not a valid "Name <email>", which send no author. Not
+	// persisted; `sync` prints them, and its realignment (RealignFile) drops the
+	// removed keys.
 	Warnings []string `yaml:"-"`
 }
 
@@ -270,6 +276,7 @@ type yamlConfig struct {
 	Paths             map[string]string                 `yaml:"paths,omitempty"`
 	IgnoredPaths      []string                          `yaml:"ignored_paths,omitempty"`
 	SigningKeys       map[string][]string               `yaml:"signing_keys,omitempty"`
+	Identities        map[string]string                 `yaml:"identities,omitempty"`
 	MCPApprovals      map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
 	Update            *UpdateSettings                   `yaml:"update,omitempty"`
 	UsageScan         *bool                             `yaml:"usage_scan,omitempty"`
@@ -383,6 +390,7 @@ func Load(dir string) (*Config, error) {
 		Paths:           y.Paths,
 		IgnoredPaths:    y.IgnoredPaths,
 		SigningKeys:     y.SigningKeys,
+		Identities:      y.Identities,
 		MCPApprovals:    y.MCPApprovals,
 		SyncTimerOptOut: y.SyncTimerOptOut,
 		Extra:           extra,
@@ -429,6 +437,7 @@ func Load(dir string) (*Config, error) {
 	for _, h := range Retired.Find(&yamlDoc) {
 		cfg.Warnings = append(cfg.Warnings, h.Message())
 	}
+	cfg.Warnings = append(cfg.Warnings, cfg.identityWarnings()...)
 	if len(cfg.SearchRoots) == 0 {
 		// Absent `search_roots` key: both brand-new configs and files written
 		// before this field existed default here, matching Default().
@@ -465,6 +474,7 @@ func Save(dir string, cfg *Config) error {
 		Paths:           cfg.Paths,
 		IgnoredPaths:    cfg.IgnoredPaths,
 		SigningKeys:     cfg.SigningKeys,
+		Identities:      cfg.Identities,
 		MCPApprovals:    cfg.MCPApprovals,
 		SyncTimerOptOut: cfg.SyncTimerOptOut,
 	}
