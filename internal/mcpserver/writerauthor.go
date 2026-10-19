@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -23,9 +23,6 @@ const (
 	authorHeader = "Cartographer-Author"
 
 	commitTokenKey = "Cartographer-Token"
-
-	// maxAuthorHeaderBytes bounds the header: a name and an email, not a document.
-	maxAuthorHeaderBytes = 256
 )
 
 type callerAuthorKey struct{}
@@ -62,43 +59,8 @@ func withAuthorHeader(ctx context.Context, h http.Header) context.Context {
 	if len(vals) > 1 {
 		return context.WithValue(ctx, callerAuthorKey{}, callerAuthor{problem: "sent more than once"})
 	}
-	name, email, problem := parseAuthorHeader(vals[0])
+	name, email, problem := gitx.ParseIdent(vals[0])
 	return context.WithValue(ctx, callerAuthorKey{}, callerAuthor{name: name, email: email, problem: problem})
-}
-
-// parseAuthorHeader validates "Name <email>". TRAP: the value is client text
-// going into a commit's author line; control characters (newlines first) and
-// the angle brackets inside either part are refused, not cleaned.
-func parseAuthorHeader(raw string) (name, email, problem string) {
-	s := strings.TrimSpace(raw)
-	switch {
-	case s == "":
-		return "", "", "empty"
-	case len(s) > maxAuthorHeaderBytes:
-		return "", "", "longer than 256 bytes"
-	case !utf8.ValidString(s):
-		return "", "", "not valid UTF-8"
-	}
-	for _, r := range s {
-		if unicode.IsControl(r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
-			return "", "", "contains a control character"
-		}
-	}
-	open := strings.LastIndex(s, "<")
-	if open < 0 || !strings.HasSuffix(s, ">") {
-		return "", "", "not in the form Name <email>"
-	}
-	name = strings.TrimSpace(s[:open])
-	email = s[open+1 : len(s)-1]
-	if !hasLetterOrDigit(name) || strings.ContainsAny(name, "<>") {
-		return "", "", "the name is missing or holds angle brackets"
-	}
-	at := strings.Index(email, "@")
-	if at <= 0 || at == len(email)-1 || strings.Count(email, "@") != 1 ||
-		strings.ContainsAny(email, "<> \t\"") {
-		return "", "", "the email is not a plain local@domain"
-	}
-	return name, email, ""
 }
 
 func hasLetterOrDigit(s string) bool {
