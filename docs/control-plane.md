@@ -356,7 +356,7 @@ public either — it sits inside the same `OriginGuard` → bearer-token chain a
 | `GET /api/ui/v1/kbs/{kb}/sources?status=&limit=` | `{sources}`: `source_list`'s own entries, oldest first (`id`, `title`, `source_kind`, `ingest_status`, `timestamp`, `cited_by`, `cited_by_ids`), filtered to what the caller sees. `status` is `pending` (default), `ingested`, `skipped` or `*`. |
 | `GET /api/ui/v1/kbs/{kb}/services` | `{services}` (D818): the concepts of type `Service` (`id`, `title`, `status`), each filtered with the caller's principal. Not a relay of `service_list`, which lists every Service of the KB. |
 | `GET /api/ui/v1/kbs/{kb}/conflicts` | `conflicts_list`'s own array (`concept_id`, `path`, `files`, `kind`, `detected_at`, `resolution_strategy`), `[]` when there are none. The registry names files KB-wide: `404` for a caller that cannot see the whole KB. |
-| `GET /api/ui/v1/kbs/{kb}/audit?limit=` | `{enabled, state, entries}`: the newest audit entries for this KB, newest first (`at`, `phase`, `principal`, `tool`, `outcome`, `commit_sha`, …), `limit` defaults to 100, at most 500; `enabled: false` when the server keeps no audit log. The log names other principals: admin only, `404` for anyone else. |
+| `GET /api/ui/v1/kbs/{kb}/audit?limit=` | `{enabled, state, entries}`: the newest audit entries for this KB, newest first (`at`, `phase`, `principal`, `tool`, `outcome`, `commit_sha`, …), `limit` defaults to 100, at most 500; `enabled: false` when the server runs without one (a `best_effort` log that could not be opened, D905). The log names other principals: admin only, `404` for anyone else. |
 | `GET /api/ui/v1/whoami` | `{id, admin, permissions}`: the principal behind the request and its own policy rules (`kb`, `write`, `maps`, `journals`, `types`), narrowed to the KBs this server mounts. Nothing in it is anyone else's, so no extra scope; a KB-less route like `/kbs` and `/settings`. |
 | `GET /api/ui/v1/kbs/{kb}/assets?id=` | `{id, assets}`: `asset_list` for an expanded concept (`path`, `size`, `sha256`, `executable`, `oversized?`). `id` is required; `404` for a missing or invisible concept, `400` for one that is not expanded. |
 | `GET /api/ui/v1/settings` | The Settings page's data (D743): `version`, `latest_version` and `update_channel` when known, `server` (every server-level schema key from `internal/config/schema.go`) and `kbs` (one section per KB the caller can see, with the `kbs[]` keys and, for a caller that sees the whole KB, `git`: remote, sync and push state). plus `server_yaml` (the server's configuration as the YAML file it amounts to, commented by the schema, its `kbs[]` entries limited to the KBs the caller sees), a `yaml` per KB section (the same for that KB's own keys) and `clients` (D818): the caller's own client settings reports (§Client settings reports), `[]` when none, never another principal's. Each entry is `{key, value, origin, description, default, type?, values?, env?, flag?, restart?, secret?}` (`type` is the kind of value, `values` the accepted ones in free text, both from the schema); `origin` is `default`, `file`, `env` or `flag`, recorded by the loaders. A secret's `value` is `"(set)"` or `"(unset)"`, never the value. Same auth as the other routes, no new role. |
@@ -457,8 +457,8 @@ Provenance and citation sections are KB conventions; the server does not
 require them on every concept. `log.md` is updated only through explicit log
 tools. Git commits are the durable change history.
 
-`internal/audit` implements a JSONL hash-chain with optional Ed25519
-signatures. When `audit.log` is configured, every `tools/call` appends an
+`internal/audit` implements a JSONL hash-chain with Ed25519 signatures. The
+log is always on (D905): every `tools/call` appends an
 attempt event before dispatch and a completion event after it (D119), so the
 log is a complete operational audit trail: semantics, failure modes and the
 `cartographer audit verify|export` commands are in

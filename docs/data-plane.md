@@ -813,12 +813,12 @@ mounting the same KB get the same behaviour. `settings.yaml` at the KB root, bes
   `capabilities.secrets: missing key` and warns at startup, instead of a silent `disabled`.
 
 Names and values are those of the same `kbs[]` keys (`docs/deployment.md`, `config.example.yaml`),
-and `branch`. The keys bound to one machine (`remote`, `name`, `ssh_key`, `known_hosts`,
-`sops_age_key_file`, `artifact_signing_seed`) stay in the server's `kbs[]`; naming one in
+and `branch`. The keys bound to one machine (`remote`, `name`) stay in the server's `kbs[]`; naming one in
 `settings.yaml` is a finding. So is a removed key: the server git profile's `git_profile`,
 `git_base_branch`, `git_forge`, `github_*`, `git_working_branch`, and `git_branch`, which became
 `branch` (D903); `author_*` and `committer_*`, since the writer is the author and the server the
-committer (D904). Each is ignored with a finding that names what to use, and
+committer (D904); `ssh_key`, `known_hosts`, `sops_age_key_file` and `artifact_signing_seed`, whose
+files are in the server's credentials directory, since a secret never belongs in the KB (D905). Each is ignored with a finding that names what to use, and
 dropped when the server realigns the file; `git_profile: server`, which cannot be honoured, makes
 the KB refuse to mount. The realignment is one commit by the server, through the normal write
 path, so it is revertible (`docs/deployment.md` §Upgrading: realignment); a KB created by
