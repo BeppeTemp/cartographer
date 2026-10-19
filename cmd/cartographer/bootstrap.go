@@ -48,9 +48,10 @@ func setupGitSSH(credDir string) error {
 }
 
 // sshCommandWithHosts is sshCommand with the credentials directory's one
-// known_hosts, when it has one.
+// known_hosts, when it has one. It holds public host keys, 0644 like OpenSSH's
+// own, so its permissions are not warned about.
 func sshCommandWithHosts(credDir, key string) string {
-	hosts, _ := sharedCredentialFile(credDir, config.KnownHostsFile)
+	hosts, _ := config.SharedCredentialFile(credDir, config.KnownHostsFile)
 	return sshCommand(key, hosts)
 }
 

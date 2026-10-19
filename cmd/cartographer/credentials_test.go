@@ -24,6 +24,29 @@ func writeCredential(t *testing.T, dir, name, content string) string {
 	return p
 }
 
+// known_hosts holds public host keys, 0644 like OpenSSH's own: it is not
+// reported as a credential file other users can read, while a key file is.
+func TestKnownHostsIsNotALooseCredential(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("permissions are not checked on Windows")
+	}
+	dir := t.TempDir()
+	key := writeCredential(t, dir, "kb.ssh", "key")
+	hosts := writeCredential(t, dir, config.KnownHostsFile, "host key")
+	for _, p := range []string{key, hosts} {
+		if err := os.Chmod(p, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	logs := captureLog(t)
+	if env := gitEnvForKB("kb", dir); len(env) != 1 || !strings.Contains(env[0], hosts) {
+		t.Fatalf("gitEnvForKB = %v, want the key with %s", env, hosts)
+	}
+	if out := logs.String(); strings.Contains(out, hosts) || !strings.Contains(out, key) {
+		t.Errorf("want the key reported and known_hosts not:\n%s", out)
+	}
+}
+
 // A KB's own file wins over the default, and a KB without one takes the default.
 func TestCredentialFilePerKBWinsOverDefault(t *testing.T) {
 	dir := t.TempDir()

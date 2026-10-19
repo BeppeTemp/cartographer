@@ -243,7 +243,8 @@ not configured. A KB name that would point outside the directory has no file of 
   file. A read-only directory needs `audit.key` in it (`openssl rand -hex 32`): without it, with
   `audit.mode: best_effort` the log runs unsigned with a warning at every start, and with `required` the
   server does not start.
-- **Permissions are warned about, never refused.** A file other users can read is reported once per start.
+- **Permissions are warned about, never refused.** A file other users can read is reported once per start,
+  except `known_hosts`, which holds public host keys.
   A file its group can read is reported only when the server owns it: a Kubernetes Secret reaches a server
   that does not run as root as `root:<fsGroup>` with mode `0440`, whatever `defaultMode` says, and the
   group bit is how the server reads it. OpenSSH draws the same line for a private key.

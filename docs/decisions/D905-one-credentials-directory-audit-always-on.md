@@ -28,7 +28,7 @@ The choices the plan left to the implementation:
   secrets of the upgrade. A secret it cannot place is listed for the operator, and a key it cannot generate
   follows the audit mode above.
 - **Permissions are warned about, never refused**, once per file per process. A file other users can read is
-  reported. A file its group can read is reported only when the server's user owns it. This narrows the plan's
+  reported, except `known_hosts`, whose host keys are public. A file its group can read is reported only when the server's user owns it. This narrows the plan's
   "group or others" (see Why).
 - **The directory must not be in a KB.** A KB commits its whole working tree (`git add -A`), so a
   `credentials_dir` that holds `data/index.md` or lies below a directory that does, inside a `kbs[].path` or
