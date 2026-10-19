@@ -69,15 +69,15 @@ var settingsKeys = map[string]settingSpec{
 // one gets a finding that says so rather than "unknown key".
 var settingsServerOnly = map[string]bool{
 	"remote": true, "name": true, "ssh_key": true, "known_hosts": true,
-	"author_name": true, "author_email": true, "committer_name": true, "committer_email": true,
 	"sops_age_key_file": true, "artifact_signing_seed": true,
 }
 
 // SettingsRetired is the registry of the keys a settings.yaml used to carry and
 // no longer does (D903): the server git profile and its forge, whose pull-request
-// boundary is gone, and git_branch, which became branch. Parsing a file that
-// still has one leaves it out with a finding that names what to use; realigning
-// the file drops it.
+// boundary is gone, and git_branch, which became branch. The author and
+// committer keys were server-only and are gone everywhere (D904). Parsing a file
+// that still has one leaves it out with a finding that names what to use;
+// realigning the file drops it.
 var SettingsRetired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "git_profile", Plan: 903, Refuse: "server", Note: ServerProfileRemoved},
 	{Path: "git_base_branch", Plan: 903, Note: ServerProfileRemoved},
@@ -88,6 +88,10 @@ var SettingsRetired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "github_api_url", Plan: 903, Note: ServerProfileRemoved},
 	{Path: "github_token_env", Plan: 903, Note: ServerProfileRemoved},
 	{Path: "git_branch", Plan: 903, Replacement: "branch", Note: "committed on the remote's default branch"},
+	{Path: "author_name", Plan: 904, Note: AuthorSettingRemoved},
+	{Path: "author_email", Plan: 904, Note: AuthorSettingRemoved},
+	{Path: "committer_name", Plan: 904, Note: AuthorSettingRemoved},
+	{Path: "committer_email", Plan: 904, Note: AuthorSettingRemoved},
 }}
 
 // ServerProfileRemoved is the reason given wherever the server git profile

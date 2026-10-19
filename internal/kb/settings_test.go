@@ -226,4 +226,11 @@ write_gate: error
 	if len(bad) != 1 || bad[0].Refuse {
 		t.Errorf("git_profile: local = %v, want one finding, not a refusal", bad)
 	}
+
+	// The author keys are gone everywhere (D904): a KB that names one is told
+	// who the author is now, not that the key belongs on the server.
+	_, bad = keysOf(t, "author_name: Bot\n")
+	if len(bad) != 1 || bad[0].Refuse || !strings.Contains(bad[0].Reason, AuthorSettingRemoved) {
+		t.Errorf("author_name = %v, want one finding that names the writer, not a refusal", bad)
+	}
 }

@@ -184,7 +184,7 @@ func (t *TokenSpec) UnmarshalYAML(node *yaml.Node) error {
 // KBSpec identifies a single KB: one to be cloned from a git remote (Remote)
 // into Config.Data before opening, or, from the command line only, a folder
 // already on disk (Path). The remaining fields are optional per-KB overrides for
-// git identity and SOPS; a zero value falls back to the corresponding global
+// SSH and SOPS; a zero value falls back to the corresponding global
 // GitConfig/SopsConfig setting.
 type KBSpec struct {
 	// ArtifactSigningSeed is a 32-byte hexadecimal Ed25519 seed used only to
@@ -214,10 +214,6 @@ type KBSpec struct {
 
 	SSHKey         string `yaml:"ssh_key,omitempty"`
 	KnownHosts     string `yaml:"known_hosts,omitempty"`
-	AuthorName     string `yaml:"author_name,omitempty"`
-	AuthorEmail    string `yaml:"author_email,omitempty"`
-	CommitterName  string `yaml:"committer_name,omitempty"`
-	CommitterEmail string `yaml:"committer_email,omitempty"`
 	SopsAgeKeyFile string `yaml:"sops_age_key_file,omitempty"`
 
 	// AllowArtifactWrite enables the artifact_write/artifact_delete MCP tools

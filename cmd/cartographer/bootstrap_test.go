@@ -209,16 +209,12 @@ func TestSetupGitSSHEnvironmentWins(t *testing.T) {
 }
 
 // TestGitEnvForKB_SSHFromSpec verifies that a KBSpec's SSH settings win over
-// the global GitConfig. The environment carries no identity, whatever the
-// legacy author/committer keys say: the committer is the server's (D904).
+// the global GitConfig. The environment carries no identity: the committer is
+// the server's (D904).
 func TestGitEnvForKB_SSHFromSpec(t *testing.T) {
 	spec := config.KBSpec{
-		SSHKey:         "/spec/key",
-		KnownHosts:     "/spec/known_hosts",
-		AuthorName:     "Spec Author",
-		AuthorEmail:    "spec-author@wiki.local",
-		CommitterName:  "Spec Committer",
-		CommitterEmail: "spec-committer@wiki.local",
+		SSHKey:     "/spec/key",
+		KnownHosts: "/spec/known_hosts",
 	}
 	g := config.GitConfig{
 		SSHKey:     "/global/key",
