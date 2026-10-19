@@ -813,6 +813,8 @@ var DefaultAutoRepair = []string{
 	"value_case_variant", "unmapped_folder",
 	// D366: the unambiguous part of three doctor-only checks.
 	"index_lists_retired", "link_to_retired", "title_quality",
+	// D907: a removed contract key is realigned by one unattended commit.
+	"contract_legacy_key",
 	// D352, in the order a page needs them: bind it, set its type, its values,
 	// reorder its sections, then rename the aliases (a reorder lists headings
 	// as written, so it runs before the rename changes them).

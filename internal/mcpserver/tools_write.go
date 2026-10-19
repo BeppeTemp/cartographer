@@ -3010,19 +3010,16 @@ func mapContractViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
 		return nil
 	}
 	conceptType := fm.Type()
-	if modeVal, ok := meta.Get("ontology_mode"); ok {
-		if modeStr, _ := modeVal.(string); modeStr == "strict" {
-			if ctVal, ok := meta.Get("concept_types"); ok {
-				if ctList, ok := ctVal.([]string); ok {
-					allowed := make(map[string]bool, len(ctList))
-					for _, ct := range ctList {
-						allowed[ct] = true
-					}
-					if !allowed[conceptType] {
-						return fmt.Errorf("type %q not allowed in map %s (strict)", conceptType, archiveName)
-					}
-				}
-			}
+	// The mode is derived (D907): a non-empty concept_types makes the map
+	// strict, whatever a leftover ontology_mode key says.
+	ctVal, _ := meta.Get("concept_types")
+	if ctList, ok := ctVal.([]string); ok && len(ctList) > 0 {
+		allowed := make(map[string]bool, len(ctList))
+		for _, ct := range ctList {
+			allowed[ct] = true
+		}
+		if !allowed[conceptType] {
+			return fmt.Errorf("type %q not allowed in map %s (strict)", conceptType, archiveName)
 		}
 	}
 	contract, err := k.ReadMapContract(archiveName)

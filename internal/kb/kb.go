@@ -2988,24 +2988,19 @@ func (kb *KB) Validate(scope string) ([]ValidationError, error) {
 			continue
 		}
 
-		ontMode, _ := meta.Get("ontology_mode")
-		modeStr, _ := ontMode.(string)
-		if modeStr == "strict" {
-			ctVal, ok := meta.Get("concept_types")
-			if ok {
-				ctList, ok := ctVal.([]string)
-				if ok {
-					allowed := make(map[string]bool, len(ctList))
-					for _, ct := range ctList {
-						allowed[ct] = true
-					}
-					if !allowed[parsed.Type()] {
-						errs = append(errs, ValidationError{
-							Path:    rel,
-							Message: fmt.Sprintf("type %q not allowed in archive %s (strict)", parsed.Type(), archiveName),
-						})
-					}
-				}
+		// The mode is derived (D907): a non-empty concept_types makes the map
+		// strict, whatever a leftover ontology_mode key says.
+		ctVal, _ := meta.Get("concept_types")
+		if ctList, ok := ctVal.([]string); ok && len(ctList) > 0 {
+			allowed := make(map[string]bool, len(ctList))
+			for _, ct := range ctList {
+				allowed[ct] = true
+			}
+			if !allowed[parsed.Type()] {
+				errs = append(errs, ValidationError{
+					Path:    rel,
+					Message: fmt.Sprintf("type %q not allowed in archive %s (strict)", parsed.Type(), archiveName),
+				})
 			}
 		}
 	}
