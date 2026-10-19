@@ -31,25 +31,21 @@ recipients is an operator action"*. Do not try to create the first file with it.
 ### 2.1 Generate an age key
 
 ```bash
-age-keygen -o ~/.config/cartographer/kb-<kb-name>.age
+age-keygen -o <credentials_dir>/<kb-name>.age
 ```
 
-Keep it **outside the KB**. It is passed to the `sops` child process as
-`SOPS_AGE_KEY_FILE` and must never be committed. The server selects it in this
-order, first match wins:
+`<credentials_dir>` is the server's credentials directory (`credentials_dir`,
+default `<data>/credentials`, e.g. `~/cartographer-data/credentials` for a local
+service); on Kubernetes the key goes into the Secret mounted there instead. Keep
+it **outside the KB**. It is passed to the `sops` child process as
+`SOPS_AGE_KEY_FILE` and must never be committed. The server reads
+`<kb-name>.age`, else `default.age`, the key of every KB without its own.
 
-1. `kbs[].sops_age_key_file` in the server config;
-2. global `sops.age_key_file`;
-3. the `CARTOGRAPHER_SOPS_AGE_KEY_FILE` environment variable.
-
-This configured file is the **only** key the server's `sops` can use: it runs
+This file is the **only** key the server's `sops` can use: it runs
 `sops` with an isolated environment and an empty home, so a `SOPS_AGE_KEY`
 exported in your shell, `~/.config/sops/age/keys.txt` or an SSH key under
 `~/.ssh` is ignored. `sops` working in your terminal does not prove the server
-can decrypt — the configured key must be a recipient of the file.
-
-On a GitOps deployment with `sops.age_key_dir` set, the convention is
-`<age_key_dir>/<kb-name>.age` and no per-KB config key is needed.
+can decrypt — this key must be a recipient of the file.
 
 ### 2.2 Write the root `.sops.yaml`
 
@@ -139,8 +135,8 @@ secret_set(path: "secrets/keycloak.sops.yaml", key: "/work_client/DEV/client_sec
 ```
 
 It runs `sops set --value-stdin`, verifies the result is still encrypted, and
-commits through the normal KB write flow. Requires `rw` scope over HTTP and a
-`sops_age_key_file` configured for the KB.
+commits through the normal KB write flow. Requires `rw` scope over HTTP and the
+KB's age key in the server's credentials directory.
 
 ## 4. JSON Pointer rules
 

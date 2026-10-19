@@ -85,25 +85,21 @@ Add an entry under `kbs:` in the server's YAML config (`CARTOGRAPHER_CONFIG`, se
 `config.example.yaml`) with the `remote:` pointing at the Gitea repo from step 1:
 
 ```yaml
-git:
-  token_dir: /etc/kb-git      # per-KB git credentials: <token_dir>/<nome>.token (D53)
-sops:
-  age_key_dir: /etc/kb-sops   # per-KB age keys: <age_key_dir>/<nome>.age (D53)
+credentials_dir: /etc/cartographer-credentials # every secret file, by KB name (D905)
 kbs:
   - name: <nome>
     remote: https://gitea.example.com/user/<nome>.git
-    # optional per-KB overrides (zero value = fall back to the global git/sops config):
-    # sops_age_key_file: /path/custom.age   # only to override the age_key_dir convention
 ```
 
-No per-KB paths are needed in the config: with `git.token_dir` and `sops.age_key_dir` set once,
-the server picks up `<nome>.token` and `<nome>.age` by convention. SSH remotes
-(`ssh_key`/`known_hosts`) remain supported for setups without token auth.
+No per-KB paths are needed in the config: the server reads the KB's files from `credentials_dir`
+(default `<data>/credentials`; on Kubernetes the mount path of one Secret) by its name,
+`<nome>.token` for the HTTPS remote and `<nome>.age` for its SOPS key, else `default.token` and
+`default.age`. SSH remotes read `<nome>.ssh` or `default.ssh`, with the one `known_hosts`.
 
 ### 4. Create/extend the per-KB secret and add a scoped token
-- Add the Gitea token from step 1 to the k8s `Secret` backing `git.token_dir` (key
-  `<nome>.token`); if the KB has SOPS secrets, add its age key as `<nome>.age` in the secret
-  backing `sops.age_key_dir`. Never inline key material in the ConfigMap itself.
+- Add the Gitea token from step 1 to the k8s `Secret` mounted as `credentials_dir` (key
+  `<nome>.token`); if the KB has SOPS secrets, add its age key as `<nome>.age` in the same
+  Secret. Never inline key material in the ConfigMap itself.
 - **The age key is the deployment half only.** Generating that key, writing the root `.sops.yaml`
   creation rules and creating the first encrypted file are operator actions Cartographer never
   performs — `secret_set` refuses a file that does not exist. Do them **before** this step, and do
@@ -166,8 +162,8 @@ How the KB behaves (artifact and template writes, write gate, auto-repair, docto
 allow-list, how changes land, whether it uses secrets) is the KB's own, so every mount of it
 behaves the same (D746). `cartographer kb create` writes `settings.yaml` at the KB root with every
 key documented and commented out; uncomment and commit what the KB needs. It wins over the same
-key in a server's `kbs[]`, which is then ignored and reported. Machine-bound keys (`ssh_key`,
-`author_*`, `sops_age_key_file`, tokens) stay in the server config. No MCP tool writes the file:
+key in a server's `kbs[]`, which is then ignored and reported. Machine-bound keys (`remote`,
+`name`, tokens) stay in the server config, and secrets are files of its `credentials_dir`. No MCP tool writes the file:
 change it with git, reviewed like a Map contract. On a KB made another way, create the file by hand
 from the same key list (`cartographer config --all` shows each `kbs[]` key with its description).
 
