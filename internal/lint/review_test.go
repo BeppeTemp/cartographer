@@ -159,6 +159,90 @@ func TestReviewKindsHaveFixture(t *testing.T) {
 	}
 }
 
+// reviewClosers write, per kind, the page state that closes its fixture's
+// item (D907, docs/data-plane.md §Nothing dismisses a review item): nothing
+// dismisses an item, so each kind needs a state the pages can express. The
+// trap test iterates ReviewKinds over this map, so a new kind without one
+// fails.
+var reviewClosers = map[string]func(t *testing.T, k *kb.KB){
+	// Link each page to the other (D854).
+	ReviewDuplicate: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Service\ntitle: Alpha gateway\nresource: https://example.com/x\n---\n# A\n\nThe public one; [Beta](b.md) is internal.\n")
+		writeFile(t, k.DataRoot(), "m/b.md", "---\ntype: Service\ntitle: Beta gateway\nresource: https://example.com/x\n---\n# B\n\nThe internal one; [Alpha](a.md) is public.\n")
+	},
+	// Close the page.
+	ReviewZombie: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "b/task.md", "---\ntype: Task\ntitle: Task\nstatus: done\n---\n# Task\n\n## Origin\n\nSee [old](old.md).\n")
+	},
+	// Create the procedure in promote_to and link it.
+	ReviewPromotion: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "p/steps.md", "---\ntype: Procedure\ntitle: Steps\n---\n# Steps\n\n1. one\n2. two\n3. three\n4. four\n5. five\n")
+		writeFile(t, k.DataRoot(), "j/e1.md", "---\ntype: Note\ntitle: E1\n---\n# E1\n\nFollowed [the procedure](../p/steps.md).\n")
+	},
+	// Define the term in glossary.yaml.
+	ReviewGlossary: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.Root, "glossary.yaml", "terms:\n  - canonical: ZFS\n")
+	},
+	// Keep the fact in one concept and link to it.
+	ReviewRepeatedFact: func(t *testing.T, k *kb.KB) {
+		for i := 1; i < repeatedFactMinConcepts; i++ {
+			writeFile(t, k.DataRoot(), fmt.Sprintf("m/r%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: R%d\n---\n# R\n\nBackups: see [R0](r0.md).\n", i))
+		}
+	},
+	// Split the page: the hub keeps a short summary.
+	ReviewReadHotspot: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "m/hub.md", "---\ntype: Note\ntitle: Hub\n---\n# Hub\n\nA short summary.\n")
+	},
+	// Create the concept in the work_map and link the page to it.
+	ReviewScatteredWork: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "backlog/migrate-host.md", "---\ntype: Task\ntitle: Migrate the host\nstatus: open\n---\n# Migrate the host\n\nFrom [Page](../ref/page.md).\n")
+		writeFile(t, k.DataRoot(), "ref/page.md", "---\ntype: Topic\ntitle: Page\n---\n# Page\n\n## Follow-up\n\nTracked in [Migrate the host](../backlog/migrate-host.md).\n")
+	},
+	// Harvest the entry, then archive it (D322).
+	ReviewHarvestCandidate: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: archived\ntimestamp: 2026-07-01\n---\n# E\n")
+	},
+	// Set the status the item proposes.
+	ReviewStatusReclassify: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: done\n---\n# E\n")
+	},
+	// Give the maps' titles one shape.
+	ReviewMapNaming: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "a/_map.md", "---\ntype: Map\ntitle: Alpha\n---\n")
+	},
+	// Declare the template in the map.
+	ReviewTemplateProposal: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.Root, "templates/note.md", "---\ntype: Note\ntitle: \"{{title}}\"\n---\n# {{title}}\n\n## Purpose\n")
+		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\ntemplates: [note]\n---\n")
+	},
+	// Fix the page until the check no longer reports it.
+	ReviewLintJudgement: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nThe link was dropped.\n")
+	},
+}
+
+// TestReviewKindsCloseOnPageState is the D907 trap: every review kind's
+// fixture item disappears once its closing state is written, with nothing kept
+// outside the pages.
+func TestReviewKindsCloseOnPageState(t *testing.T) {
+	for _, kind := range ReviewKinds {
+		t.Run(kind, func(t *testing.T) {
+			closer, ok := reviewClosers[kind]
+			if !ok {
+				t.Fatalf("no closing page state for %s", kind)
+			}
+			k, id := reviewFixtures[kind](t)
+			if !names(itemsOf(review(t, k), kind), id) {
+				t.Fatalf("fixture produced no %s item naming %s", kind, id)
+			}
+			closer(t, k)
+			if got := itemsOf(review(t, k), kind); len(got) != 0 {
+				t.Fatalf("%s still listed after its closing state: %+v", kind, got)
+			}
+		})
+	}
+}
+
 func TestReviewDuplicateCandidate(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
@@ -542,10 +626,12 @@ func TestReviewMapNamingIndividual(t *testing.T) {
 		folders, titles []string
 		want            string
 	}{
-		"clean":           {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", "Notes"}, ""},
-		"long title":      {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", long}, "50 characters; map titles are 1-3 words"},
-		"long subtitles":  {[]string{"infra", "clients", "notes"}, []string{"Infra — the cluster and its nodes", "Clients — who we work for here", "Notes — whatever comes to mind"}, "subtitle is a description, not a qualifier"},
-		"folder mismatch": {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", "Ricerche"}, `does not match folder "notes"`},
+		"clean":          {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", "Notes"}, ""},
+		"long title":     {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", long}, "50 characters; map titles are 1-3 words"},
+		"long subtitles": {[]string{"infra", "clients", "notes"}, []string{"Infra — the cluster and its nodes", "Clients — who we work for here", "Notes — whatever comes to mind"}, "subtitle is a description, not a qualifier"},
+		// A title its folder does not echo is the write's warning only
+		// (MapTitleIssues): no page state could close it (D907).
+		"folder mismatch": {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", "Ricerche"}, ""},
 		"folder prefix":   {[]string{"managed-services", "clients", "notes"}, []string{"Managed", "Clients", "Notes"}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {

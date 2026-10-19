@@ -1034,27 +1034,40 @@ func mapNamingItems(titles []mapTitle) []ReviewItem {
 type poorTitle struct{ name, title, reason string }
 
 // poorMapTitles lists the map titles that are individually off, each with
-// every reason (D315). The folder mismatch is a signal, not a rule: a title
-// in another language than its folder is the agent's to judge.
+// every reason a retitle can always clear (D315). The folder mismatch is not
+// one of them: it is a signal, not a rule (a title in another language than
+// its folder is the agent's to judge), and no page state could say the title
+// is fine as it is, which a review item must close on (D907). The write that
+// names the map hears it instead (MapTitleIssues).
 func poorMapTitles(named []mapTitle) []poorTitle {
 	var out []poorTitle
 	for _, m := range named {
-		if reasons := MapTitleIssues(m.name, m.title); len(reasons) > 0 {
+		if reasons, _ := mapTitleShapeIssues(m.title); len(reasons) > 0 {
 			out = append(out, poorTitle{m.name, m.title, strings.Join(reasons, ", ")})
 		}
 	}
 	return out
 }
 
-// MapTitleIssues is the single-title predicate behind poorMapTitles: every
-// reason a map's title is off for the map folder name, empty when it is fine.
-// map_create and map_update use it to warn at write time.
+// MapTitleIssues is every reason a map's title is off for the map folder
+// name, empty when it is fine: map_create and map_update warn with it at
+// write time. kb_review reports the shape reasons only (poorMapTitles).
 func MapTitleIssues(name, title string) []string {
-	var reasons []string
+	reasons, head := mapTitleShapeIssues(title)
+	if slug, folder := slugOf(head), slugOf(name); slug != "" && !strings.HasPrefix(slug, folder) && !strings.HasPrefix(folder, slug) {
+		reasons = append(reasons, fmt.Sprintf("does not match folder %q", name))
+	}
+	return reasons
+}
+
+// mapTitleShapeIssues are the reasons a map title is off whatever its folder
+// (too long, a subtitle that is a description), and head is the title without
+// its subtitle or parenthetical, the part a folder should echo.
+func mapTitleShapeIssues(title string) (reasons []string, head string) {
 	if n := len([]rune(title)); n > mapTitleMaxRunes {
 		reasons = append(reasons, fmt.Sprintf("%d characters; map titles are 1-3 words", n))
 	}
-	head := title
+	head = title
 	if loc := subtitleSep.FindStringIndex(title); loc != nil {
 		head = title[:loc[0]]
 		if rest := strings.TrimSpace(title[loc[1]:]); len([]rune(rest)) > mapSubtitleMaxRunes {
@@ -1064,10 +1077,7 @@ func MapTitleIssues(name, title string) []string {
 	if i := strings.Index(head, " ("); i >= 0 {
 		head = head[:i]
 	}
-	if slug, folder := slugOf(head), slugOf(name); slug != "" && !strings.HasPrefix(slug, folder) && !strings.HasPrefix(folder, slug) {
-		reasons = append(reasons, fmt.Sprintf("does not match folder %q", name))
-	}
-	return reasons
+	return reasons, head
 }
 
 // slugOf lowercases s, turns spaces into hyphens and drops what is neither a

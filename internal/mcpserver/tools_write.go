@@ -955,15 +955,16 @@ func toolMapCreate(k *kb.KB) Tool {
 	}
 }
 
-// mapTitleWarning explains, without refusing, why kb_review would flag a map
-// title (map_naming): "" when the title is fine.
+// mapTitleWarning explains, without refusing, why a map title is off: "" when
+// it is fine. kb_review flags the shape reasons (map_naming); a title its
+// folder does not echo is heard only here (D907: no page state could close it).
 func mapTitleWarning(name, title string) string {
 	title = strings.TrimSpace(title)
 	reasons := lint.MapTitleIssues(name, title)
 	if len(reasons) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("kb_review flags map titles like this (map_naming): %q is off (%s); a map title is a short name recognisable from the folder %q, the explanation goes in the description. Rename with map_update title", title, strings.Join(reasons, "; "), name)
+	return fmt.Sprintf("map title %q is off (%s); a map title is a short name recognisable from the folder %q, the explanation goes in the description. Rename with map_update title", title, strings.Join(reasons, "; "), name)
 }
 
 // validateTemplateParams rejects a templates / default_template pair a map
