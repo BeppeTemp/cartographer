@@ -9,9 +9,10 @@ topic: concurrency-git
 `<token id> <cartographer@<host>>`. The committer of every commit is the server, `Cartographer
 <cartographer@<host>>` (`<host>` the machine name reduced to what an email domain accepts). Every write ends its
 trailer paragraph with `Cartographer-Token: <token id>`, appended last by the server, which drops any such line
-the caller put in the message. A commit that is not a write (the `external changes` commit, a sync merge or
-rebase, conflict resolution, the first commit `serve --init` makes) is authored by the server too; `kb create`
-authors a new KB's first commit as the operator running it.
+the caller put in the message. A commit that is not a write (the `external changes` commit, a sync merge,
+conflict resolution, the first commit `serve --init` makes) is authored by the server too; a sync that rebases
+local writes keeps their authors and makes the server their committer; `kb create` authors a new KB's first
+commit as the operator running it.
 
 A valid header is one `Name <email>` of at most 256 bytes, valid UTF-8, with no control character, a non-empty
 name and a plain `local@domain` email. A value outside plain ASCII travels in MCP's encoded form for header values

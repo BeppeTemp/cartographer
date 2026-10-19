@@ -249,8 +249,9 @@ commit. It needs no configuration and no account on the forge. The author of a w
 it: the `Cartographer-Author: Name <email>` header of the request, else `<token id>
 <cartographer@<host>>`; every write also carries a `Cartographer-Token: <token id>` trailer that
 cannot be forged (see [control plane](control-plane.md)). A commit that is not a write (the
-`external changes` commit, a sync merge or rebase, conflict resolution, the KB's first commit made by
-`serve --init`) is authored by the server too. The git config of the machine, `GIT_AUTHOR_*` and
+`external changes` commit, a sync merge, conflict resolution, the KB's first commit made by
+`serve --init`) is authored by the server too; a sync that rebases local writes keeps their authors.
+The git config of the machine, `GIT_AUTHOR_*` and
 `GIT_COMMITTER_*` in the environment no longer influence any of it. `author_name`/`author_email`/
 `committer_name`/`committer_email` (global `git.*`, `kbs[]`, and a token's `author_name`/`author_email`)
 are removed settings: a file that still has them loads with a warning, and the realignment above drops

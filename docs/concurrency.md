@@ -110,8 +110,9 @@ Each commit names two parties (D904). The author of a write is the writer: the r
 is always the server, `Cartographer <cartographer@<host>>`, and a write's message ends with a
 `Cartographer-Token: <token id>` trailer the server appends itself. A call that commits to two KBs
 (`concept_transfer`, `artifact_move`) gives both commits the same author. A commit that is not a
-write (the `external changes` commit, a sync merge or rebase, conflict resolution) is authored by
-the server. Format and validation: [control plane](control-plane.md).
+write (the `external changes` commit, a sync merge, conflict resolution) is authored by the server.
+A sync that rebases local writes onto the remote keeps their authors and makes the server their
+committer. Format and validation: [control plane](control-plane.md).
 
 A KB syncs exactly when it has a remote, and that branch must be the KB's **canonical branch**:
 the `branch` of the `settings.yaml` committed on the remote's default branch when it sets one

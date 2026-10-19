@@ -276,6 +276,33 @@ func TestFinalizeConflictsReservedUnion(t *testing.T) {
 	assertServerAuthoredHead(t, k)
 }
 
+// TestSyncIn_RebaseKeepsTheWriterAndCommitsAsTheServer: a sync that replays a
+// local write on top of the remote keeps the writer as its author and records
+// the server as the committer of the replayed commit (D904).
+func TestSyncIn_RebaseKeepsTheWriterAndCommitsAsTheServer(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, other, branch := reservedSyncKB(t, true, nil)
+	colleaguePush(t, other, branch, map[string]string{"data/remote.md": "remote\n"})
+	writeRel(t, k.Root, "data/local.md", "local\n")
+	tgit(t, k.Root, "add", "-A")
+	tgit(t, k.Root, "commit", "-q", "--author", "Writer <writer@example.com>", "-m", "local write")
+
+	if _, err := k.SyncIn(); err != nil {
+		t.Fatalf("SyncIn: %v", err)
+	}
+	if parent := tgit(t, k.Root, "log", "-1", "--format=%s", "HEAD~1"); parent != "colleague" {
+		t.Fatalf("HEAD~1 = %q, want the colleague's commit under the replayed write", parent)
+	}
+	name, email := ServerIdentity()
+	want := "Writer <writer@example.com> | " + name + " <" + email + ">"
+	if got := tgit(t, k.Root, "log", "-1", "--format=%an <%ae> | %cn <%ce>"); got != want {
+		t.Errorf("replayed write author | committer = %q, want %q", got, want)
+	}
+}
+
 // assertServerAuthoredHead: a commit that is not a write (a conflict
 // resolution) is authored and committed by the server identity (D904).
 func assertServerAuthoredHead(t *testing.T, k *KB) {
