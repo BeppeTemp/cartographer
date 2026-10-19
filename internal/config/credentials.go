@@ -135,20 +135,37 @@ func isFile(p string) bool {
 	return err == nil && fi.Mode().IsRegular()
 }
 
-// LoosePermissions describes why a credential file is too open: readable by
-// group or others. It is a warning and never a refusal, because a mounted
-// Kubernetes Secret is 0644 unless defaultMode says otherwise. Windows has no
-// such mode, so it never reports one.
+// LoosePermissions describes why a credential file is too open. A file other
+// users can read always is. A file its group can read is too open only when the
+// server owns it, as it owns one it generated or a copy made for it: a file of
+// another user shared with the server's group is access the platform granted,
+// and the only way a server that does not run as root reads a Kubernetes
+// Secret, whose files the kubelet makes 0440 with the pod's fsGroup whatever
+// defaultMode says. OpenSSH draws the same line for a private key. It is a
+// warning and never a refusal, because a mounted Kubernetes Secret is 0644
+// unless defaultMode says otherwise. Windows has no such mode, so it never
+// reports one.
 func LoosePermissions(path string) (string, bool) {
 	if runtime.GOOS == "windows" {
 		return "", false
 	}
 	fi, err := os.Stat(path)
-	if err != nil || fi.Mode().Perm()&0o044 == 0 {
+	if err != nil {
 		return "", false
 	}
-	return fmt.Sprintf("credential file %s is readable by group or others (mode %04o): restrict it to the server's user, chmod 600 (on a Kubernetes Secret volume, defaultMode: 0400)", path, fi.Mode().Perm()), true
+	perm := fi.Mode().Perm()
+	switch {
+	case perm&0o004 != 0:
+		return fmt.Sprintf("credential file %s is readable by other users (mode %04o): chmod 600, or on a Kubernetes Secret volume set defaultMode: 0440 with the pod's fsGroup", path, perm), true
+	case perm&0o040 != 0 && ownedByProcess(fi):
+		return fmt.Sprintf("credential file %s is the server's own and readable by its group (mode %04o): chmod 600", path, perm), true
+	}
+	return "", false
 }
+
+// processUID is the user the ownership of a credential file is compared with;
+// a variable so a test can play a file of another user without being root.
+var processUID = os.Getuid
 
 // WriteCredential writes a new file of the credentials directory with mode
 // 0600, creating the directory (0700) when it is missing. It never replaces:

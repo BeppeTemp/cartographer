@@ -68,6 +68,36 @@ func TestLoosePermissions(t *testing.T) {
 	}
 }
 
+// A Kubernetes Secret mounted for a server that does not run as root is
+// root-owned and 0440 with the pod's fsGroup, whatever defaultMode says: the
+// group bit is how the server reads it, so it is not a warning. Others reading
+// it still is.
+func TestLoosePermissionsOfAnotherUsersFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no POSIX modes")
+	}
+	p := filepath.Join(t.TempDir(), "k")
+	if err := os.WriteFile(p, []byte("x"), 0o440); err != nil {
+		t.Fatal(err)
+	}
+	if _, loose := LoosePermissions(p); !loose {
+		t.Fatal("the server's own 0440 file is not reported loose")
+	}
+	uid := processUID()
+	processUID = func() int { return uid + 1 }
+	t.Cleanup(func() { processUID = os.Getuid })
+
+	if msg, loose := LoosePermissions(p); loose {
+		t.Errorf("another user's 0440 file reported loose: %s", msg)
+	}
+	if err := os.Chmod(p, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	if _, loose := LoosePermissions(p); !loose {
+		t.Error("another user's 0444 file, readable by others, not reported loose")
+	}
+}
+
 func TestIsReservedDataName(t *testing.T) {
 	if !IsReservedDataName("credentials") || IsReservedDataName("kb-a") {
 		t.Error("only the server's own directory names are reserved")

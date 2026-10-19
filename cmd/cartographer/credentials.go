@@ -22,8 +22,8 @@ var loosePermissionWarned sync.Map
 // credentialFile is the one lookup of a KB's secret file (D905): <kb>.<kind> in
 // the credentials directory, then default.<kind>, with no default for the
 // signing seed. ok is false when there is no such file, which behaves as the
-// credential being unset. A file that group or others can read is warned about,
-// never refused.
+// credential being unset. A file that is too open (config.LoosePermissions) is
+// warned about, never refused.
 func credentialFile(credDir, kbName, kind string) (string, bool) {
 	return warnLoose(config.CredentialFile(credDir, kbName, kind))
 }

@@ -17,8 +17,9 @@ data: /data
 # Directory with every secret file, looked up by KB name: <kb>.ssh, <kb>.token
 # and <kb>.age (each with a default.* for the KBs without their own),
 # <kb>.signing (the artifact signing seed, no default) and known_hosts (one
-# file for every remote). On Kubernetes it is one mounted Secret. A file
-# readable by group or others is warned about once at start.
+# file for every remote). On Kubernetes it is one mounted Secret (defaultMode
+# 0440 with the pod's fsGroup). A file readable by other users, or by the
+# group when it is the server's own, is warned about once at start.
 # Default: <data>/credentials. Env: CARTOGRAPHER_CREDENTIALS_DIR. Needs a
 # restart.
 credentials_dir: /etc/cartographer/credentials
