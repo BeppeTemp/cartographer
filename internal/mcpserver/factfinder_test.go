@@ -171,8 +171,8 @@ func TestRepeatedFactHidesInvisibleOwners(t *testing.T) {
 	for _, m := range []string{"visible", "hidden"} {
 		writeKBFile(t, k, m+"/_map.md", "---\ntype: Map\ntitle: "+m+"\n---\n")
 	}
-	writeKBFile(t, k, "visible/_map.md", "---\ntype: Map\ntitle: visible\nrepeated_fact_min: 2\n---\n")
 	writeKBFile(t, k, "visible/a.md", "---\ntype: Note\ntitle: A\n---\n"+repeatedLine+"\n")
+	writeKBFile(t, k, "visible/b.md", "---\ntype: Note\ntitle: B\n---\n"+repeatedLine+"\n")
 	writeKBFile(t, k, "hidden/b.md", "---\ntype: Note\ntitle: B\n---\n"+repeatedLine+"\n")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -180,7 +180,7 @@ func TestRepeatedFactHidesInvisibleOwners(t *testing.T) {
 	args, _ := json.Marshal(map[string]interface{}{"id": "visible/c", "frontmatter": map[string]interface{}{"type": "Note", "title": "C"}, "body": repeatedLine + "\n"})
 	res := s.callTool(ctx, "concept_write", args)
 	got := repeatedFindings(t, res)
-	// visible/a + visible/c reach the map's threshold of 2; hidden/b is not named.
+	// visible/a, visible/b and visible/c reach the threshold of 3; hidden/b is not named.
 	if len(got) != 1 || !strings.Contains(got[0], "visible/a") || strings.Contains(res.Content[0].Text, "hidden/") {
 		t.Fatalf("hidden owner counted or named: %v %s", got, res.Content[0].Text)
 	}

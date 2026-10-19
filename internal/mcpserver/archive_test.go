@@ -51,9 +51,10 @@ func archiveArgs(t *testing.T, k *kb.KB, extra string) string {
 	return `{"id":"src/mover","if_match":"` + hashOf(t, k, "src/mover") + `"` + extra + `}`
 }
 
-// The reproduction of the plan issue: a map that never declared
-// require_index_entry still loses the entry, and nothing is left behind.
-func TestConceptArchive_RemovesTheEntryWithoutRequireIndexEntry(t *testing.T) {
+// The reproduction of the plan issue: a plain map loses the entry and nothing
+// is left behind; the archive map's curated index gains one (D907: every
+// curated index is maintained).
+func TestConceptArchive_MaintainsBothCuratedIndexes(t *testing.T) {
 	t.Parallel()
 	k, s := archiveFixture(t, "", "- [mover](mover.md)\n- [friend](friend.md)\n")
 	res := callTool(t, s, "concept_archive", archiveArgs(t, k, `,"reason":"replaced"`))
@@ -75,8 +76,8 @@ func TestConceptArchive_RemovesTheEntryWithoutRequireIndexEntry(t *testing.T) {
 		t.Errorf("source index wrong:\n%s", idx)
 	}
 	archIdx, _ := k.ReadIndex("archive")
-	if strings.Contains(archIdx, "mover") {
-		t.Errorf("destination without require_index_entry must not get an entry:\n%s", archIdx)
+	if !strings.Contains(archIdx, "mover.md") {
+		t.Errorf("destination entry missing:\n%s", archIdx)
 	}
 	var out map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil {
@@ -104,16 +105,17 @@ func TestConceptArchive_RemovesTheEntryWithoutRequireIndexEntry(t *testing.T) {
 	}
 }
 
-// The trap: concept_move keeps its conservatism on the same fixture.
-func TestConceptMove_StillLeavesTheEntryWithoutRequireIndexEntry(t *testing.T) {
+// concept_move maintains the curated index of the source map like
+// concept_archive does: no map opts in or out.
+func TestConceptMove_RemovesTheSourceEntry(t *testing.T) {
 	t.Parallel()
 	k, s := archiveFixture(t, "", "- [mover](mover.md)\n")
 	if res := callTool(t, s, "concept_move", `{"source_id":"src/mover","target_id":"archive/mover"}`); res.IsError {
 		t.Fatalf("concept_move: %+v", res.Content)
 	}
 	idx, _ := k.ReadIndex("src")
-	if !strings.Contains(idx, "mover") {
-		t.Errorf("concept_move must not edit an index nobody declared curated:\n%s", idx)
+	if strings.Contains(idx, "mover") {
+		t.Errorf("concept_move must remove the entry from a curated index:\n%s", idx)
 	}
 }
 
@@ -147,13 +149,9 @@ func TestConceptArchive_LeavesAGeneratedIndexAlone(t *testing.T) {
 	_ = before
 }
 
-func TestConceptArchive_AddsTheDestinationEntryWhenOptedIn(t *testing.T) {
+func TestConceptArchive_AddsTheDestinationEntryWithItsStatus(t *testing.T) {
 	t.Parallel()
 	k, s := archiveFixture(t, "", "- [mover](mover.md)\n")
-	if err := os.WriteFile(filepath.Join(k.DataRoot(), "archive/_map.md"),
-		[]byte("---\ntype: Map\nkind: map\ntitle: Archive\nrequire_index_entry: true\n---\n# Archive\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	args := archiveArgs(t, k, `,"status":"archived"`)
 	if res := callTool(t, s, "concept_archive", args); res.IsError {
 		t.Fatalf("concept_archive: %+v", res.Content)

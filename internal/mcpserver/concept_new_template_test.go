@@ -34,7 +34,7 @@ func conceptNewTemplateKB(t *testing.T, templates map[string]string) (*Server, *
 		}
 		slugs = append(slugs, slug)
 	}
-	if err := k.CreateMapWithContract("notes", "Notes", "map", nil, "", kb.MapContract{Templates: slugs, RequireTemplate: true}); err != nil {
+	if err := k.CreateMapWithContract("notes", "Notes", "map", nil, kb.MapContract{Templates: slugs}); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")

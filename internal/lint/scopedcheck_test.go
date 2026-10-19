@@ -31,7 +31,7 @@ func TestScopedCheck_BrokenLinkOnWrittenConcept(t *testing.T) {
 func TestScopedCheck_IndexIncomplete(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
 	writeFile(t, k.DataRoot(), "ops/index.md", "# Ops\n")
 	writeFile(t, k.DataRoot(), "ops/x.md", noteHead+"---\nBody.\n")
 	got := ScopedCheck(k, ids("ops/x"))
@@ -103,20 +103,6 @@ func TestScopedCheck_GoneIDReportsLinkers(t *testing.T) {
 	}
 	if len(got) != 1 {
 		t.Fatalf("only the linker's finding is expected: %v", got)
-	}
-}
-
-func TestScopedCheck_LintIgnore(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "ops/x.md", "---\ntype: Note\ntitle: T\nlint_ignore: [broken_link]\n---\nSee [gone](gone.md).\n")
-	if got := ScopedCheck(k, ids("ops/x")); hasCheck(got, "ops/x.md", "broken_link") {
-		t.Fatalf("concept lint_ignore must suppress: %v", got)
-	}
-	writeFile(t, k.DataRoot(), "ops/x.md", noteHead+"---\nSee [gone](gone.md).\n")
-	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nlint_ignore: [broken_link]\n---\n")
-	if got := ScopedCheck(k, ids("ops/x")); hasCheck(got, "ops/x.md", "broken_link") {
-		t.Fatalf("map lint_ignore must suppress: %v", got)
 	}
 }
 
@@ -192,12 +178,11 @@ func TestMapOversizeCrossings(t *testing.T) {
 		created  []okf.ConceptID
 		want     bool
 	}{
-		{"crossing", "kind: map\noversize_concepts: 3\n", 3, []string{"m/n1.md", "m/n2.md"}, ids("m/n1", "m/n2"), true},
-		{"already over", "kind: map\noversize_concepts: 3\n", 5, []string{"m/n1.md"}, ids("m/n1"), false},
-		{"update only", "kind: map\noversize_concepts: 3\n", 5, nil, nil, false},
-		{"satellite not counted", "kind: map\noversize_concepts: 3\n", 3, []string{"m/a/index.md", "m/a/b.md"}, ids("m/a/b"), false},
-		{"journal exempt", "kind: journal\noversize_concepts: 3\n", 3, []string{"m/n1.md"}, ids("m/n1"), false},
-		{"lint_ignore", "kind: map\noversize_concepts: 3\nlint_ignore: [map_oversize]\n", 3, []string{"m/n1.md"}, ids("m/n1"), false},
+		{"crossing", "kind: map\n", mapOversizeThreshold, []string{"m/n1.md", "m/n2.md"}, ids("m/n1", "m/n2"), true},
+		{"already over", "kind: map\n", mapOversizeThreshold + 2, []string{"m/n1.md"}, ids("m/n1"), false},
+		{"update only", "kind: map\n", mapOversizeThreshold + 2, nil, nil, false},
+		{"satellite not counted", "kind: map\n", mapOversizeThreshold, []string{"m/a/index.md", "m/a/b.md"}, ids("m/a/b"), false},
+		{"journal exempt", "kind: journal\n", mapOversizeThreshold, []string{"m/n1.md"}, ids("m/n1"), false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -217,10 +202,10 @@ func TestMapOversizeCrossings(t *testing.T) {
 func TestMapOversizeCrossings_ArchivedNotCounted(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
-	crossingMap(t, k, "kind: map\noversize_concepts: 3\n", 2)
+	crossingMap(t, k, "kind: map\n", mapOversizeThreshold-1)
 	writeFile(t, k.DataRoot(), "m/done.md", "---\ntype: Note\nstatus: archived\n---\nBody.\n")
 	writeFile(t, k.DataRoot(), "m/n1.md", "---\ntype: Note\n---\nBody.\n")
-	// 3 live + 1 archived: after = 3, not over 3.
+	// threshold live + 1 archived: after = threshold, not over it.
 	if got := MapOversizeCrossings(k, ids("m/n1")); hasCheck(got, "m/_map.md", "map_oversize") {
 		t.Fatalf("archived pages must not count: %v", got)
 	}

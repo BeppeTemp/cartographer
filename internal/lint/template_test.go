@@ -23,7 +23,7 @@ func runStrict(t *testing.T, pages map[string]string) []Finding {
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/server.md", tplServer)
 	writeFile(t, k.Root, "templates/appliance.md", tplServiceB)
-	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplates: [server, appliance]\nrequire_template: true\n---\n# Infra\n")
+	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplates: [server, appliance]\n---\n# Infra\n")
 	for id, c := range pages {
 		writeFile(t, k.DataRoot(), id+".md", c)
 	}
@@ -114,7 +114,7 @@ func TestTemplateChecks(t *testing.T) {
 	}
 	// Severities and fixes.
 	if m := tplFinding(f, "infra/lack.md", "template_section_missing"); m == nil || m.Severity != SevWarning {
-		t.Errorf("section_missing under require_template is a warning: %+v", m)
+		t.Errorf("section_missing is a warning: %+v", m)
 	}
 	if m := tplFinding(f, "infra/order.md", "template_section_order"); m == nil || m.Severity != SevInfo || m.Fix == nil || m.Fix.Kind != FixReorderSections {
 		t.Errorf("order: %+v", m)
@@ -144,7 +144,7 @@ func TestTemplateMissingFixWhenOneCandidate(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/server.md", tplServer)
-	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplates: [server]\nrequire_template: true\n---\n")
+	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplates: [server]\n---\n")
 	writeFile(t, k.DataRoot(), "infra/a.md", page("", "", "## Purpose\n\nx\n\n## Operations\n\ny\n"))
 	f, _ := Run(k, "", false)
 	m := tplFinding(f, "infra/a.md", "template_missing")
@@ -158,7 +158,7 @@ func TestTemplateNotAllowedAndDefault(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/server.md", tplServer)
 	writeFile(t, k.Root, "templates/appliance.md", tplServiceB)
-	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplates: [server]\ndefault_template: server\nrequire_template: true\n---\n")
+	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplates: [server]\ndefault_template: server\n---\n")
 	ok := "## Purpose\n\nx\n\n## Operations\n\ny\n"
 	writeFile(t, k.DataRoot(), "infra/a.md", page("appliance", "", "## Role\n\nr\n"))
 	writeFile(t, k.DataRoot(), "infra/b.md", page("", "", ok)) // default_template resolves it by type
@@ -181,24 +181,6 @@ func TestNoTemplateKeysNoTemplateFindings(t *testing.T) {
 	for _, x := range f {
 		if strings.HasPrefix(x.Check, "template_") {
 			t.Errorf("a map with no template key reported %s", x.Check)
-		}
-	}
-}
-
-func TestTemplateSectionsKeepsItsMeaning(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.Root, "templates/host.md", tplServer)
-	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplate_sections: true\n---\n")
-	writeFile(t, k.DataRoot(), "infra/a.md", page("", "", "## Purpose\n\nx\n"))
-	f, _ := Run(k, "", false)
-	m := tplFinding(f, "infra/a.md", "template_section_missing")
-	if m == nil || m.Severity != SevInfo || !strings.Contains(m.Message, "Operations") || strings.Contains(m.Message, "Notes") {
-		t.Fatalf("template_sections: true gives an info naming the required sections only: %+v", m)
-	}
-	for _, x := range f {
-		if x.Check == "template_missing" || x.Check == "template_extra_section" {
-			t.Errorf("template_sections alone must not enforce the schema: %s", x.Check)
 		}
 	}
 }
@@ -255,7 +237,7 @@ func TestTemplateChecksOnWriteAgreeWithRun(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/server.md", tplServer)
 	writeFile(t, k.Root, "templates/appliance.md", tplServiceB)
-	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplates: [server, appliance]\nrequire_template: true\n---\n")
+	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplates: [server, appliance]\n---\n")
 	pages := map[string]string{
 		"infra/a": page("", "", "## Purpose\n\nx\n"),
 		"infra/b": page("server", "state: UP\n", "## Operations\n\nx\n\n## Objective\n\ny\n\n## Odd\n"),

@@ -24,7 +24,7 @@ func chainKB(t *testing.T, n int) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
 	contract := kb.MapContract{FieldValues: map[string][]string{"status": {"active", "draft", "deprecated"}}}
-	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, "", contract); err != nil {
+	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, contract); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < n; i++ {
@@ -257,8 +257,7 @@ func TestDefaultAutoRepairRunsEveryUnattendedCheck(t *testing.T) {
 func TestRepairOnWriteConvergesTheChainInOneWrite(t *testing.T) {
 	t.Parallel()
 	k, s := rowKB(t, chainChecks...)
-	contract := kb.MapContract{FieldValues: map[string][]string{"status": {"active", "draft", "deprecated"}}}
-	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: contract.FieldValues}); err != nil {
+	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string]map[string][]string{kb.AllTypes: {"status": {"active", "draft", "deprecated"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	out := decodeJSON(t, mustText(t, s, "concept_write",

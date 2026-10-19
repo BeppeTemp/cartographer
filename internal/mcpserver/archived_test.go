@@ -129,12 +129,12 @@ func TestLinkSuggest_SkipsArchived(t *testing.T) {
 	}
 }
 
-// --- map_update: concept_types, ontology_mode, harvest_after (D322) ---
+// --- map_update: concept_types, harvest_after (D322) ---
 
 func strictMapServer(t *testing.T) (*Server, *kb.KB) {
 	t.Helper()
 	k, s := repairKB(t, 0)
-	if err := k.CreateMapWithContract("jr", "Journal", "journal", []string{"Note"}, "strict", kb.MapContract{}); err != nil {
+	if err := k.CreateMapWithContract("jr", "Journal", "journal", []string{"Note"}, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 	return s, k
@@ -159,30 +159,15 @@ func TestMapUpdate_ExtendsConceptTypes(t *testing.T) {
 	}
 }
 
-func TestMapUpdate_OntologyStrictInfersTypes(t *testing.T) {
+func TestMapUpdate_ConceptTypesMakeTheMapStrict(t *testing.T) {
 	t.Parallel()
-	k, s := repairKB(t, 3) // ops holds Note concepts, flexible
-	callOK(t, s, "map_update", `{"map":"ops","ontology_mode":"strict"}`)
-	meta, err := k.ReadArchiveMeta("ops")
-	if err != nil {
-		t.Fatal(err)
+	k, s := repairKB(t, 0)
+	if c, err := k.ReadMapContract("ops"); err != nil || c.OntologyMode != "flexible" {
+		t.Fatalf("ops starts flexible: %+v %v", c, err)
 	}
-	ct, _ := meta.Get("concept_types")
-	if got, _ := ct.([]string); len(got) != 1 || got[0] != "Note" {
-		t.Fatalf("concept_types must be inferred from the map: %v", ct)
-	}
-}
-
-func TestMapUpdate_ConceptTypesOnFlexibleRefused(t *testing.T) {
-	t.Parallel()
-	_, s := repairKB(t, 0)
-	res := callTool(t, s, "map_update", `{"map":"ops","concept_types":["Note"]}`)
-	if !res.IsError || !strings.Contains(res.Content[0].Text, "flexible") {
-		t.Fatalf("want a refusal naming the flexible map: %+v", res)
-	}
-	callOK(t, s, "map_update", `{"map":"ops","ontology_mode":"strict","concept_types":["Note"]}`)
-	if res := callTool(t, s, "map_update", `{"map":"ops","ontology_mode":"bogus"}`); !res.IsError {
-		t.Fatal("an unknown ontology_mode must be refused")
+	callOK(t, s, "map_update", `{"map":"ops","concept_types":["Note"]}`)
+	if c, err := k.ReadMapContract("ops"); err != nil || c.OntologyMode != "strict" || len(c.ConceptTypes) != 1 {
+		t.Fatalf("concept_types must make the map strict: %+v %v", c, err)
 	}
 }
 
@@ -193,9 +178,11 @@ func TestMapUpdate_HarvestAfter(t *testing.T) {
 	if c, err := k.ReadMapContract("ops"); err != nil || c.HarvestAfterDays != 90 {
 		t.Fatalf("harvest_after not written: %+v %v", c, err)
 	}
-	callOK(t, s, "map_update", `{"map":"ops","harvest_after":0}`)
-	if c, _ := k.ReadMapContract("ops"); c.HarvestAfterDays != -1 || len(c.Malformed) != 0 {
-		t.Fatalf("harvest_after 0 must read back as off: %+v", c)
+	if res := callTool(t, s, "map_update", `{"map":"ops","harvest_after":0}`); !res.IsError || !strings.Contains(res.Content[0].Text, "harvest_after must be") {
+		t.Fatalf("harvest_after 0 must be refused: %+v", res)
+	}
+	if c, _ := k.ReadMapContract("ops"); c.HarvestAfterDays != 90 {
+		t.Fatalf("a refused 0 must leave the value alone: %+v", c)
 	}
 	callOK(t, s, "map_update", `{"map":"ops","harvest_after":-1}`)
 	if c, _ := k.ReadMapContract("ops"); c.HarvestAfterDays != 0 {
@@ -379,9 +366,10 @@ func TestSearchHitIsNotARead(t *testing.T) {
 	}
 }
 
-// D346: stale_after 0 is an explicit off, -1 resets to the default, the
-// response echoes what was written, and map_list shows the effective value.
-func TestMapUpdate_StaleAfterOffAndReset(t *testing.T) {
+// D346: stale_after -1 resets to the default, 0 is refused (no way to switch
+// it off), the response echoes what was written, and map_list shows the
+// effective value.
+func TestMapUpdate_StaleAfterReset(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 0)
 	out := callOK(t, s, "map_update", `{"map":"ops","open_statuses":["open"],"harvest_after":90,"stale_after":90}`)
@@ -393,18 +381,17 @@ func TestMapUpdate_StaleAfterOffAndReset(t *testing.T) {
 	if strings.Contains(out, "stale_after_defaulted") {
 		t.Fatalf("explicit value reported as defaulted: %s", out)
 	}
-	callOK(t, s, "map_update", `{"map":"ops","stale_after":0}`)
-	if c, err := k.ReadMapContract("ops"); err != nil || !c.StaleAfterOff || c.StaleAfterDays != 0 || len(c.Malformed) != 0 {
-		t.Fatalf("stale_after 0 must persist as off: %+v %v", c, err)
+	if res := callTool(t, s, "map_update", `{"map":"ops","stale_after":0}`); !res.IsError || !strings.Contains(res.Content[0].Text, "stale_after must be") {
+		t.Fatalf("stale_after 0 must be refused: %+v", res)
 	}
-	if out := callOK(t, s, "map_list", `{}`); strings.Contains(out, `"stale_after"`) {
-		t.Fatalf("off must be omitted from map_list: %s", out)
+	if c, err := k.ReadMapContract("ops"); err != nil || c.StaleAfterDays != 90 {
+		t.Fatalf("a refused 0 must leave the value alone: %+v %v", c, err)
 	}
 	out = callOK(t, s, "map_update", `{"map":"ops","stale_after":-1}`)
 	if !strings.Contains(out, `"stale_after": 30`) || !strings.Contains(out, `"stale_after_defaulted": true`) {
 		t.Fatalf("-1 must fall back to the work-map default: %s", out)
 	}
-	if c, _ := k.ReadMapContract("ops"); c.StaleAfterOff || c.StaleAfterDays != 0 {
+	if c, _ := k.ReadMapContract("ops"); c.StaleAfterDays != 0 {
 		t.Fatalf("-1 must delete the key: %+v", c)
 	}
 	if out := callOK(t, s, "map_list", `{}`); !strings.Contains(out, `"stale_after": 30`) || !strings.Contains(out, `"stale_after_defaulted": true`) {

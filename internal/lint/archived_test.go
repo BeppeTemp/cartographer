@@ -103,7 +103,6 @@ func TestHarvestCandidate(t *testing.T) {
 		{"only 30 days old", "", "---\ntype: Note\ntitle: E\nstatus: done\ntimestamp: 2026-09-01\n---\n# E\n", false},
 		{"contract harvest_after 90", "harvest_after: 90\n", old, false},
 		{"open entry", "", "---\ntype: Note\ntitle: E\nstatus: open\ntimestamp: 2026-08-02\n---\n# E\n", false},
-		{"harvest_after 0 is off", "harvest_after: 0\n", old, false},
 		{"resolved outcome", "open_field: outcome\nopen_statuses: [open]\n", "---\ntype: Note\ntitle: E\nstatus: active\noutcome: resolved\ntimestamp: 2026-08-02\n---\n# E\n", true},
 		{"open outcome, active status", "open_field: outcome\nopen_statuses: [open]\n", "---\ntype: Note\ntitle: E\nstatus: active\noutcome: open\ntimestamp: 2026-08-02\n---\n# E\n", false},
 	}
@@ -135,7 +134,7 @@ func TestHarvestCandidate_EvidenceNamesDurableSections(t *testing.T) {
 }
 
 // D344: a curated index of a live map that links a retired concept is a
-// finding per retired concept listed (D366), with or without require_index_entry.
+// finding per retired concept listed (D366).
 func TestIndexListsRetired(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T, mapFM, idx string, extra map[string]string) []Finding {
@@ -171,12 +170,6 @@ func TestIndexListsRetired(t *testing.T) {
 	}
 	if n := count(setup(t, "", idx, live3)); n != 2 {
 		t.Errorf("one finding per retired concept, got %d", n)
-	}
-	if n := count(setup(t, "require_index_entry: true\n", idx, live3)); n != 2 {
-		t.Errorf("with require_index_entry, got %d", n)
-	}
-	if n := count(setup(t, "lint_ignore: [index_lists_retired]\n", idx, live3)); n != 0 {
-		t.Errorf("lint_ignore in _map.md must silence it, got %d", n)
 	}
 	if n := count(setup(t, "index: generated\n", idx, live3)); n != 0 {
 		t.Errorf("generated index is skipped, got %d", n)

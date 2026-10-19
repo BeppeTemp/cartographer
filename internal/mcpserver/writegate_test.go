@@ -17,7 +17,7 @@ func gateKB(t *testing.T, mode string) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
 	for _, m := range []string{"arch", "ops"} {
-		if err := k.CreateMap(m, strings.ToUpper(m), "map", nil, ""); err != nil {
+		if err := k.CreateMap(m, strings.ToUpper(m), "map", nil); err != nil {
 			t.Fatal(err)
 		}
 	}

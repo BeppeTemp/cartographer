@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -724,7 +723,7 @@ func TestWriteConcept_StubDossierIndexSuDossierImplicito(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
-	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+	if err := kb.CreateMap("entities", "Entities", "map", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 
@@ -750,7 +749,7 @@ func TestWriteConcept_NonSovrascriveIndexDossierEsistente(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
-	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+	if err := kb.CreateMap("entities", "Entities", "map", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 	// Pre-create the dossier directory with a custom index.md (no CreateDossier
@@ -778,7 +777,7 @@ func TestWriteConcept_ErroreProfonditaMassima(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
-	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+	if err := kb.CreateMap("entities", "Entities", "map", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 
@@ -1067,7 +1066,7 @@ func TestCreateMap_CreaStruttura(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
-	err := kb.CreateMap("manutenzione", "Manutenzione", "map", []string{"Runbook", "Postmortem"}, "strict")
+	err := kb.CreateMap("manutenzione", "Manutenzione", "map", []string{"Runbook", "Postmortem"})
 	if err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
@@ -1094,8 +1093,14 @@ func TestCreateMap_CreaStruttura(t *testing.T) {
 	if !strings.Contains(content, "kind: map") {
 		t.Errorf("_map.md does not contain 'kind: map': %q", content)
 	}
-	if !strings.Contains(content, "ontology_mode: strict") {
-		t.Errorf("_map.md does not contain 'ontology_mode: strict': %q", content)
+	if !strings.Contains(content, "concept_types: [Runbook, Postmortem]") {
+		t.Errorf("_map.md does not contain the concept_types: %q", content)
+	}
+	if strings.Contains(content, "ontology_mode") {
+		t.Errorf("_map.md must not write the removed ontology_mode key: %q", content)
+	}
+	if c, err := kb.ReadMapContract("manutenzione"); err != nil || c.OntologyMode != "strict" {
+		t.Errorf("concept_types make the map strict: %+v %v", c, err)
 	}
 }
 
@@ -1104,7 +1109,7 @@ func TestCreateMap_KindJournal(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
-	if err := kb.CreateMap("incidents", "Incidents", "journal", nil, ""); err != nil {
+	if err := kb.CreateMap("incidents", "Incidents", "journal", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 	content, err := kb.ReadRaw("incidents/_map.md")
@@ -1121,7 +1126,7 @@ func TestCreateMap_KindVuoto_DefaultMap(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
-	if err := kb.CreateMap("manutenzione", "Manutenzione", "", nil, ""); err != nil {
+	if err := kb.CreateMap("manutenzione", "Manutenzione", "", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 	content, err := kb.ReadRaw("manutenzione/_map.md")
@@ -1138,7 +1143,7 @@ func TestCreateMap_KindInvalido_Errore(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
-	err := kb.CreateMap("manutenzione", "Manutenzione", "dossier", nil, "")
+	err := kb.CreateMap("manutenzione", "Manutenzione", "dossier", nil)
 	if err == nil {
 		t.Fatal("CreateMap: expected error for invalid kind")
 	}
@@ -1149,10 +1154,10 @@ func TestCreateMap_ErroreSeEsiste(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
-	if err := kb.CreateMap("manutenzione", "Manutenzione", "map", nil, ""); err != nil {
+	if err := kb.CreateMap("manutenzione", "Manutenzione", "map", nil); err != nil {
 		t.Fatalf("first CreateMap: %v", err)
 	}
-	err := kb.CreateMap("manutenzione", "Manutenzione 2", "map", nil, "")
+	err := kb.CreateMap("manutenzione", "Manutenzione 2", "map", nil)
 	if err == nil {
 		t.Fatal("CreateMap: expected error for already existing map")
 	}
@@ -1217,7 +1222,7 @@ func TestCreateMap_ServicesReserved(t *testing.T) {
 						}
 					}
 					before := snapshotTree(t, dir)
-					err := k.CreateMap("services", "Services", kind, nil, "")
+					err := k.CreateMap("services", "Services", kind, nil)
 					if !errors.Is(err, okf.ErrInvalidPath) {
 						t.Fatalf("CreateMap services: err = %v, want ErrInvalidPath", err)
 					}
@@ -1245,7 +1250,7 @@ func TestCreateMap_ServicesLikeNameAllowed(t *testing.T) {
 	t.Parallel()
 	dir := tempKB(t)
 	k, _ := Init(dir)
-	if err := k.CreateMap("application-services", "Application Services", "", nil, ""); err != nil {
+	if err := k.CreateMap("application-services", "Application Services", "", nil); err != nil {
 		t.Fatalf("CreateMap application-services: %v", err)
 	}
 	if _, err := k.ReadRaw("application-services/_map.md"); err != nil {
@@ -1300,114 +1305,16 @@ func TestCreateMap_ContractRoundTrip(t *testing.T) {
 	contract := MapContract{
 		RequiredFields:       []string{"timestamp", "provenance", "timestamp"},
 		RequiredFieldsByType: map[string][]string{"Runbook": {"owner", "provenance"}},
-		RequireIndexEntry:    true,
 	}
-	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, "", contract); err != nil {
+	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, contract); err != nil {
 		t.Fatalf("CreateMapWithContract: %v", err)
 	}
 	got, err := k.ReadMapContract("ops")
 	if err != nil {
 		t.Fatalf("ReadMapContract: %v", err)
 	}
-	if !got.RequireIndexEntry || strings.Join(got.RequiredFor("Runbook"), ",") != "owner,provenance,timestamp" || strings.Join(got.RequiredFor("Note"), ",") != "provenance,timestamp" {
+	if strings.Join(got.RequiredFor("Runbook"), ",") != "owner,provenance,timestamp" || strings.Join(got.RequiredFor("Note"), ",") != "provenance,timestamp" {
 		t.Fatalf("unexpected contract: %#v", got)
-	}
-}
-
-// --- MachinePathAllowPrefixes (D124) ---
-
-func TestCreateMap_MachinePathAllowPrefixesRoundTrip(t *testing.T) {
-	t.Parallel()
-	dir := tempKB(t)
-	k, _ := Init(dir)
-	contract := MapContract{
-		MachinePathAllowPrefixes: []string{"/home/nonroot", `C:\Data\App`, "/home/nonroot"},
-	}
-	if err := k.CreateMapWithContract("infra", "Infra", "map", nil, "", contract); err != nil {
-		t.Fatalf("CreateMapWithContract: %v", err)
-	}
-	got, err := k.ReadMapContract("infra")
-	if err != nil {
-		t.Fatalf("ReadMapContract: %v", err)
-	}
-	want := []string{"/home/nonroot", `C:\Data\App`}
-	sort.Strings(want)
-	if strings.Join(got.MachinePathAllowPrefixes, ",") != strings.Join(want, ",") {
-		t.Fatalf("MachinePathAllowPrefixes = %v, want %v", got.MachinePathAllowPrefixes, want)
-	}
-	if len(got.Malformed) != 0 {
-		t.Fatalf("unexpected malformed entries: %v", got.Malformed)
-	}
-}
-
-func TestReadMapContract_MachinePathAllowPrefixes_ValidForms(t *testing.T) {
-	t.Parallel()
-	dir := tempKB(t)
-	k, _ := Init(dir)
-	if err := k.CreateMap("infra", "Infra", "map", nil, ""); err != nil {
-		t.Fatal(err)
-	}
-	descriptor := filepath.Join(k.DataRoot(), "infra", "_map.md")
-	content := "---\ntype: Map\ntitle: Infra\nkind: map\nontology_mode: flexible\n" +
-		`machine_path_allow_prefixes: [/home/ubuntu/.cache/huggingface, C:\Data\App, C:/Other/App/]` + "\n---\n# Infra\n"
-	if err := os.WriteFile(descriptor, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, err := k.ReadMapContract("infra")
-	if err != nil {
-		t.Fatalf("ReadMapContract: %v", err)
-	}
-	if len(got.Malformed) != 0 {
-		t.Fatalf("unexpected malformed entries for valid POSIX/Windows prefixes: %v", got.Malformed)
-	}
-	want := []string{"/home/ubuntu/.cache/huggingface", `C:/Other/App`, `C:\Data\App`}
-	sort.Strings(want)
-	if strings.Join(got.MachinePathAllowPrefixes, ",") != strings.Join(want, ",") {
-		t.Fatalf("MachinePathAllowPrefixes = %v, want %v", got.MachinePathAllowPrefixes, want)
-	}
-}
-
-func TestReadMapContract_MachinePathAllowPrefixes_Malformed(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name  string
-		value string
-	}{
-		// A TRAILING comma is valid YAML and no longer yields an empty element
-		// (D162), so the malformed case is an empty entry in the middle.
-		{"empty entry", "[/home/nonroot, , /home/other]"},
-		{"duplicate entry", "[/home/nonroot, /home/nonroot]"},
-		{"relative path", "[relative/path]"},
-		{"windows relative form", `[Users\foo]`},
-		{"windows root-relative form", `[\Users\foo]`},
-		{"wrong type (scalar not list)", "not-a-list"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := tempKB(t)
-			k, _ := Init(dir)
-			if err := k.CreateMap("infra", "Infra", "map", nil, ""); err != nil {
-				t.Fatal(err)
-			}
-			descriptor := filepath.Join(k.DataRoot(), "infra", "_map.md")
-			var raw string
-			if strings.HasPrefix(tt.value, "[") {
-				raw = "machine_path_allow_prefixes: " + tt.value
-			} else {
-				raw = "machine_path_allow_prefixes: " + tt.value
-			}
-			content := "---\ntype: Map\ntitle: Infra\nkind: map\nontology_mode: flexible\n" + raw + "\n---\n# Infra\n"
-			if err := os.WriteFile(descriptor, []byte(content), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			got, err := k.ReadMapContract("infra")
-			if err != nil {
-				t.Fatalf("ReadMapContract: %v", err)
-			}
-			if len(got.Malformed) != 1 || got.Malformed[0].Key != "machine_path_allow_prefixes" {
-				t.Fatalf("%s: expected one contract_malformed finding for machine_path_allow_prefixes, got %#v", tt.name, got.Malformed)
-			}
-		})
 	}
 }
 
@@ -1422,7 +1329,7 @@ func TestReadMapContract_LegacyDescriptorIsEmpty(t *testing.T) {
 		t.Fatal(err)
 	}
 	contract, err := k.ReadMapContract("legacy")
-	if err != nil || contract.RequireIndexEntry || len(contract.RequiredFor("Note")) != 0 || len(contract.Malformed) != 0 {
+	if err != nil || len(contract.RequiredFor("Note")) != 0 || len(contract.Malformed) != 0 {
 		t.Fatalf("legacy contract = %#v, %v", contract, err)
 	}
 }
@@ -1434,7 +1341,7 @@ func TestDeleteMap_RefusesAssetOnlyEntry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CreateMap("evidence", "Evidence", "map", nil, ""); err != nil {
+	if err := k.CreateMap("evidence", "Evidence", "map", nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "evidence", "asset-only"), 0o755); err != nil {
@@ -1458,7 +1365,7 @@ func TestDeleteMap_Force(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := k.CreateMap("x", "X", "map", nil, ""); err != nil {
+		if err := k.CreateMap("x", "X", "map", nil); err != nil {
 			t.Fatal(err)
 		}
 		dir := filepath.Join(k.DataRoot(), "x")
@@ -1569,7 +1476,7 @@ func TestReadArchiveMeta_LegacyArchiveDescriptor(t *testing.T) {
 	// KB legacy: descriptor _archive.md, nessun campo kind.
 	os.MkdirAll(filepath.Join(kb.DataRoot(), "entities"), 0o755)
 	os.WriteFile(filepath.Join(kb.DataRoot(), "entities", "_archive.md"),
-		[]byte("---\ntype: Archive\ntitle: Entities\narchive_type: ops\nontology_mode: flexible\n---\n# Entities\n"), 0o644)
+		[]byte("---\ntype: Archive\ntitle: Entities\narchive_type: ops\n---\n# Entities\n"), 0o644)
 
 	meta, err := kb.ReadArchiveMeta("entities")
 	if err != nil {
@@ -1609,7 +1516,7 @@ func TestValidate_KBValida(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
-	if err := kb.CreateMap("manutenzione", "Manutenzione", "map", []string{"Runbook"}, "flexible"); err != nil {
+	if err := kb.CreateMap("manutenzione", "Manutenzione", "map", []string{"Runbook"}); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 	fm, _ := okf.ParseFrontmatter("type: Runbook\ntitle: Test")
@@ -1685,7 +1592,7 @@ func TestValidate_StrictOntologiaTypeNonAmmesso(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
-	if err := kb.CreateMap("manutenzione", "Manutenzione", "map", []string{"Runbook"}, "strict"); err != nil {
+	if err := kb.CreateMap("manutenzione", "Manutenzione", "map", []string{"Runbook"}); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 
@@ -1738,7 +1645,7 @@ func TestIndexHash_Map(t *testing.T) {
 	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
-	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+	if err := kb.CreateMap("entities", "Entities", "map", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 
@@ -1759,7 +1666,7 @@ func TestIndexHash_Journal(t *testing.T) {
 	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
-	if err := kb.CreateMap("incidents", "Incidents", "journal", nil, ""); err != nil {
+	if err := kb.CreateMap("incidents", "Incidents", "journal", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 
@@ -1805,10 +1712,10 @@ func TestPatchIndex_HappyPath_MapAndJournal(t *testing.T) {
 	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
-	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+	if err := kb.CreateMap("entities", "Entities", "map", nil); err != nil {
 		t.Fatalf("CreateMap(map): %v", err)
 	}
-	if err := kb.CreateMap("incidents", "Incidents", "journal", nil, ""); err != nil {
+	if err := kb.CreateMap("incidents", "Incidents", "journal", nil); err != nil {
 		t.Fatalf("CreateMap(journal): %v", err)
 	}
 
@@ -1887,7 +1794,7 @@ func TestPatchIndex_NestedPath(t *testing.T) {
 	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
-	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+	if err := kb.CreateMap("entities", "Entities", "map", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 	os.MkdirAll(filepath.Join(kb.DataRoot(), "entities", "smart-home"), 0o755)
@@ -1919,7 +1826,7 @@ func TestPatchIndex_ExpandedOwnerRedirect(t *testing.T) {
 	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
-	if err := kb.CreateMap("map", "Map", "map", nil, ""); err != nil {
+	if err := kb.CreateMap("map", "Map", "map", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 	os.MkdirAll(filepath.Join(kb.DataRoot(), "map", "owner"), 0o755)
@@ -1946,7 +1853,7 @@ func TestPatchIndex_SymlinkEscape(t *testing.T) {
 	t.Parallel()
 	dir := tempKB(t)
 	kb, _ := Init(dir)
-	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+	if err := kb.CreateMap("entities", "Entities", "map", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 	indexPath := filepath.Join(kb.DataRoot(), "entities", "index.md")
@@ -2027,7 +1934,7 @@ func TestValidate_UnparseableFrontmatterNamesPathKeyAndLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CreateMap("notes", "Notes", "map", nil, ""); err != nil {
+	if err := k.CreateMap("notes", "Notes", "map", nil); err != nil {
 		t.Fatal(err)
 	}
 	rel := filepath.Join("notes", "broken.md")
@@ -2068,44 +1975,38 @@ func TestUpdateMapContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CreateMap("m", "M", "map", nil, ""); err != nil {
+	if err := k.CreateMap("m", "M", "map", nil); err != nil {
 		t.Fatal(err)
 	}
-	yes := true
-	fields := []string{"owner", "owner", "status"}
 	contract, err := k.UpdateMapContract("m", MapContractUpdate{
-		RequireIndexEntry:    &yes,
-		RequiredFields:       &fields,
-		RequiredFieldsByType: map[string][]string{"Runbook": {"service"}},
+		RequiredFields: map[string][]string{AllTypes: {"owner", "owner", "status"}, "Runbook": {"service"}},
 	})
 	if err != nil {
 		t.Fatalf("UpdateMapContract: %v", err)
 	}
-	if !contract.RequireIndexEntry || strings.Join(contract.RequiredFields, ",") != "owner,status" ||
-		strings.Join(contract.RequiredFieldsByType["Runbook"], ",") != "service" || len(contract.Malformed) != 0 {
+	if strings.Join(contract.RequiredFields, ",") != "owner,status" ||
+		strings.Join(contract.RequiredFieldsByType["Runbook"], ",") != "service" || len(contract.Malformed) != 0 || len(contract.LegacyKeys) != 0 {
 		t.Fatalf("contract after opt-in = %+v", contract)
 	}
 	raw, err := k.ReadRaw("m/_map.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"type: Map", "title: M", "kind: map", "ontology_mode: flexible", "require_index_entry: true", "required_fields.Runbook: [service]", "\n# M\n"} {
+	for _, want := range []string{"type: Map", "title: M", "kind: map", "required_fields.*: [owner, status]", "required_fields.Runbook: [service]", "\n# M\n"} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("_map.md lost or lacks %q:\n%s", want, raw)
 		}
 	}
 
-	no := false
-	none := []string{}
-	contract, err = k.UpdateMapContract("m", MapContractUpdate{RequireIndexEntry: &no, RequiredFields: &none, RequiredFieldsByType: map[string][]string{}})
+	contract, err = k.UpdateMapContract("m", MapContractUpdate{RequiredFields: map[string][]string{}})
 	if err != nil {
 		t.Fatalf("UpdateMapContract (remove): %v", err)
 	}
-	if contract.RequireIndexEntry || len(contract.RequiredFields) != 0 || len(contract.RequiredFieldsByType) != 0 {
+	if len(contract.RequiredFields) != 0 || len(contract.RequiredFieldsByType) != 0 {
 		t.Errorf("contract after removal = %+v", contract)
 	}
 	raw, _ = k.ReadRaw("m/_map.md")
-	if strings.Contains(raw, "require_index_entry") || strings.Contains(raw, "required_fields") {
+	if strings.Contains(raw, "required_fields") {
 		t.Errorf("removed keys still in _map.md:\n%s", raw)
 	}
 
@@ -2115,7 +2016,7 @@ func TestUpdateMapContract(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "legacy", "_archive.md"), []byte("---\ntype: Archive\ntitle: L\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.UpdateMapContract("legacy", MapContractUpdate{RequireIndexEntry: &yes}); err == nil || !strings.Contains(err.Error(), "legacy") {
+	if _, err := k.UpdateMapContract("legacy", MapContractUpdate{RequiredFields: map[string][]string{AllTypes: {"owner"}}}); err == nil || !strings.Contains(err.Error(), "legacy") {
 		t.Errorf("legacy descriptor: err = %v, want a refusal naming it", err)
 	}
 }
@@ -2130,14 +2031,14 @@ func TestCreateMap_FieldValuesRoundTrip(t *testing.T) {
 		FieldValuesByType: map[string]map[string][]string{"Incident": {"outcome": {"open", "resolved"}, "status": {"open"}}},
 		ForbiddenFields:   []string{"state", "state", "legacy"},
 	}
-	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, "", contract); err != nil {
+	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, contract); err != nil {
 		t.Fatalf("CreateMapWithContract: %v", err)
 	}
 	got, err := k.ReadMapContract("ops")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Malformed) != 0 {
+	if len(got.Malformed) != 0 || len(got.LegacyKeys) != 0 {
 		t.Fatalf("malformed: %v", got.Malformed)
 	}
 	if v, ok := got.AllowedValues("Note", "status"); !ok || strings.Join(v, ",") != "active,draft" {
@@ -2156,7 +2057,7 @@ func TestCreateMap_FieldValuesRoundTrip(t *testing.T) {
 		t.Errorf("forbidden = %v", got.ForbiddenFields)
 	}
 	raw, _ := k.ReadRaw("ops/_map.md")
-	for _, want := range []string{"field_values.status: [active, draft]", "field_values.Incident.outcome: [open, resolved]", "forbidden_fields: [legacy, state]"} {
+	for _, want := range []string{"field_values.*.status: [active, draft]", "field_values.Incident.outcome: [open, resolved]", "forbidden_fields: [legacy, state]"} {
 		if !strings.Contains(raw, want) {
 			t.Errorf("_map.md lacks %q:\n%s", want, raw)
 		}
@@ -2166,32 +2067,35 @@ func TestCreateMap_FieldValuesRoundTrip(t *testing.T) {
 func TestUpdateMapContract_FieldValues(t *testing.T) {
 	t.Parallel()
 	k, _ := Init(tempKB(t))
-	if err := k.CreateMap("m", "M", "map", nil, ""); err != nil {
+	if err := k.CreateMap("m", "M", "map", nil); err != nil {
 		t.Fatal(err)
 	}
 	forbidden := []string{"state"}
 	c, err := k.UpdateMapContract("m", MapContractUpdate{
-		FieldValues:       map[string][]string{"status": {"active", "draft"}, "tier": {"a"}},
-		FieldValuesByType: map[string]map[string][]string{"Incident": {"outcome": {"open"}}},
-		ForbiddenFields:   &forbidden,
+		FieldValues: map[string]map[string][]string{
+			AllTypes:   {"status": {"active", "draft"}, "tier": {"a"}},
+			"Incident": {"outcome": {"open"}},
+		},
+		ForbiddenFields: &forbidden,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.FieldValues) != 2 || len(c.FieldValuesByType["Incident"]) != 1 || len(c.ForbiddenFields) != 1 {
+	if len(c.FieldValues) != 2 || len(c.FieldValuesByType["Incident"]) != 1 || len(c.ForbiddenFields) != 1 || len(c.LegacyKeys) != 0 {
 		t.Fatalf("after set: %+v", c)
 	}
-	// Replace map-wide only: per-type keys survive, unlisted map-wide keys go.
-	c, err = k.UpdateMapContract("m", MapContractUpdate{FieldValues: map[string][]string{"status": {"active"}}})
+	// A non-nil value replaces every field_values key: the per-type ones and
+	// the unlisted map-wide ones go.
+	c, err = k.UpdateMapContract("m", MapContractUpdate{FieldValues: map[string]map[string][]string{AllTypes: {"status": {"active"}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.FieldValues) != 1 || strings.Join(c.FieldValues["status"], ",") != "active" || len(c.FieldValuesByType["Incident"]) != 1 {
-		t.Fatalf("after map-wide replace: %+v", c)
+	if len(c.FieldValues) != 1 || strings.Join(c.FieldValues["status"], ",") != "active" || len(c.FieldValuesByType) != 0 {
+		t.Fatalf("after replace: %+v", c)
 	}
 	// Empty non-nil values remove.
 	none := []string{}
-	c, err = k.UpdateMapContract("m", MapContractUpdate{FieldValues: map[string][]string{}, FieldValuesByType: map[string]map[string][]string{}, ForbiddenFields: &none})
+	c, err = k.UpdateMapContract("m", MapContractUpdate{FieldValues: map[string]map[string][]string{}, ForbiddenFields: &none})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2260,7 +2164,7 @@ func TestExpandConcept_KeepsFrontmatterBytes(t *testing.T) {
 func TestUpdateMapContract_ReviewKeys(t *testing.T) {
 	t.Parallel()
 	k, _ := Init(tempKB(t))
-	if err := k.CreateMap("j", "J", "journal", nil, ""); err != nil {
+	if err := k.CreateMap("j", "J", "journal", nil); err != nil {
 		t.Fatal(err)
 	}
 	to, headings, yes := "procedures", []string{"Procedure", "Steps"}, true
@@ -2297,20 +2201,20 @@ func TestUpdateMapContract_ReviewKeys(t *testing.T) {
 func TestCreateMapJournalDefaultOpenStatuses(t *testing.T) {
 	t.Parallel()
 	k, _ := Init(tempKB(t))
-	if err := k.CreateMap("j", "J", "journal", nil, ""); err != nil {
+	if err := k.CreateMap("j", "J", "journal", nil); err != nil {
 		t.Fatal(err)
 	}
 	c, err := k.ReadMapContract("j")
 	if err != nil || strings.Join(c.OpenStatuses, ",") != "open,in-progress,blocked" {
 		t.Fatalf("default: %+v %v", c.OpenStatuses, err)
 	}
-	if err := k.CreateMapWithContract("j2", "J2", "journal", nil, "", MapContract{OpenStatuses: []string{"custom"}}); err != nil {
+	if err := k.CreateMapWithContract("j2", "J2", "journal", nil, MapContract{OpenStatuses: []string{"custom"}}); err != nil {
 		t.Fatal(err)
 	}
 	if c, _ := k.ReadMapContract("j2"); strings.Join(c.OpenStatuses, ",") != "custom" {
 		t.Fatalf("explicit: %+v", c.OpenStatuses)
 	}
-	if err := k.CreateMap("m", "M", "map", nil, ""); err != nil {
+	if err := k.CreateMap("m", "M", "map", nil); err != nil {
 		t.Fatal(err)
 	}
 	if c, _ := k.ReadMapContract("m"); len(c.OpenStatuses) != 0 {
@@ -2321,20 +2225,19 @@ func TestCreateMapJournalDefaultOpenStatuses(t *testing.T) {
 func TestMapContractTemplateKeys(t *testing.T) {
 	t.Parallel()
 	k := mustInitKB(t)
-	if err := k.CreateMapWithContract("m", "M", "map", nil, "", MapContract{Templates: []string{"b-tpl", "a-tpl"}, DefaultTemplate: "a-tpl", RequireTemplate: true}); err != nil {
+	if err := k.CreateMapWithContract("m", "M", "map", nil, MapContract{Templates: []string{"b-tpl", "a-tpl"}, DefaultTemplate: "a-tpl"}); err != nil {
 		t.Fatal(err)
 	}
 	c, err := k.ReadMapContract("m")
 	if err != nil || len(c.Malformed) != 0 {
 		t.Fatalf("%v %+v", err, c.Malformed)
 	}
-	if strings.Join(c.Templates, ",") != "a-tpl,b-tpl" || c.DefaultTemplate != "a-tpl" || !c.RequireTemplate {
+	if strings.Join(c.Templates, ",") != "a-tpl,b-tpl" || c.DefaultTemplate != "a-tpl" || !c.StrictTemplates() {
 		t.Fatalf("contract = %+v", c)
 	}
 	empty, no := []string{}, ""
-	f := false
-	c, err = k.UpdateMapContract("m", MapContractUpdate{DefaultTemplate: &no, RequireTemplate: &f})
-	if err != nil || c.DefaultTemplate != "" || c.RequireTemplate || len(c.Templates) != 2 {
+	c, err = k.UpdateMapContract("m", MapContractUpdate{DefaultTemplate: &no})
+	if err != nil || c.DefaultTemplate != "" || len(c.Templates) != 2 {
 		t.Fatalf("removal: %v %+v", err, c)
 	}
 	def := "zzz"
@@ -2357,7 +2260,7 @@ func TestMapContractTemplateKeysMalformed(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "m"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	desc := "---\ntype: Map\nkind: map\ntitle: M\ntemplates: [ok, \"../x\"]\ndefault_template: other\nrequire_template: maybe\n---\n"
+	desc := "---\ntype: Map\nkind: map\ntitle: M\ntemplates: [ok, \"../x\"]\ndefault_template: other\n---\n"
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "m", "_map.md"), []byte(desc), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -2369,12 +2272,12 @@ func TestMapContractTemplateKeysMalformed(t *testing.T) {
 	for _, m := range c.Malformed {
 		bad[m.Key] = true
 	}
-	for _, key := range []string{"templates", "default_template", "require_template"} {
+	for _, key := range []string{"templates", "default_template"} {
 		if !bad[key] {
 			t.Errorf("%s should be malformed: %+v", key, c.Malformed)
 		}
 	}
-	if strings.Join(c.Templates, ",") != "ok" || c.DefaultTemplate != "" || c.RequireTemplate {
+	if strings.Join(c.Templates, ",") != "ok" || c.DefaultTemplate != "" {
 		t.Errorf("tolerant read: %+v", c)
 	}
 }

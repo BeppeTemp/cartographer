@@ -58,7 +58,7 @@ func TestTemplateProposal(t *testing.T) {
 	if v := strings.Join(info.FieldValues["state"], ","); v != "down,up" {
 		t.Errorf("state values = %q", v)
 	}
-	if it.MapUpdate["map"] != "infra" || it.MapUpdate["default_template"] != "host" || it.MapUpdate["require_template"] != true {
+	if it.MapUpdate["map"] != "infra" || it.MapUpdate["default_template"] != "host" {
 		t.Errorf("map_update args: %+v", it.MapUpdate)
 	}
 	// Deterministic: the same KB gives the same bytes.

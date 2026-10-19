@@ -165,7 +165,7 @@ func TestRepairUnmappedFolder_ScaffoldsWhatMapCreateWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The descriptor map_create writes for a plain map, with no contract.
-	want := "---\ntype: Map\ntitle: Loose notes\nkind: map\nontology_mode: flexible\n---\n# Loose notes\n"
+	want := "---\ntype: Map\ntitle: Loose notes\nkind: map\n---\n# Loose notes\n"
 	if string(raw) != want {
 		t.Fatalf("_map.md:\n%s\nwant:\n%s", raw, want)
 	}

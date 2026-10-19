@@ -92,7 +92,7 @@ func TestConceptNewStampsShapeAndStripsSchema(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(k.Root, "templates", "server.md"), []byte(tpl+"\n## Operations\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CreateMapWithContract("infra", "Infra", "map", nil, "", kb.MapContract{Templates: []string{"server"}, RequireTemplate: true}), error(nil); err != nil {
+	if _, err := k.CreateMapWithContract("infra", "Infra", "map", nil, kb.MapContract{Templates: []string{"server"}}), error(nil); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")
@@ -135,7 +135,7 @@ func TestMapCreateAndUpdateTemplateKeys(t *testing.T) {
 		t.Fatalf("map_create: %+v", res.Content)
 	}
 	c, err := k.ReadMapContract("infra")
-	if err != nil || !c.RequireTemplate || c.DefaultTemplate != "server" || strings.Join(c.Templates, ",") != "runbook,server" {
+	if err != nil || !c.StrictTemplates() || c.DefaultTemplate != "server" || strings.Join(c.Templates, ",") != "runbook,server" {
 		t.Fatalf("a map created with templates starts strict: %v %+v", err, c)
 	}
 	if res := callTool(t, s, "map_create", `{"name":"bad","title":"Bad","templates":["a"],"default_template":"b"}`); !res.IsError {
@@ -144,11 +144,11 @@ func TestMapCreateAndUpdateTemplateKeys(t *testing.T) {
 	if res := callTool(t, s, "map_create", `{"name":"bad2","title":"Bad","templates":["../x"]}`); !res.IsError {
 		t.Fatal("a path is not a template slug")
 	}
-	res := callTool(t, s, "map_update", `{"map":"infra","require_template":false,"templates":["server"],"default_template":"server"}`)
+	res := callTool(t, s, "map_update", `{"map":"infra","templates":["server"],"default_template":"server"}`)
 	if res.IsError {
 		t.Fatalf("map_update: %+v", res.Content)
 	}
-	if !strings.Contains(res.Content[0].Text, `"require_template": false`) || !strings.Contains(res.Content[0].Text, `"default_template": "server"`) {
+	if !strings.Contains(res.Content[0].Text, `"default_template": "server"`) {
 		t.Fatalf("the contract echo lacks the template keys: %s", res.Content[0].Text)
 	}
 	if res := callTool(t, s, "map_update", `{"map":"infra","templates":["runbook"]}`); !res.IsError {
@@ -209,7 +209,7 @@ func TestTemplateWriteOffRegistersNothing(t *testing.T) {
 func TestTemplateProposalPassesValidation(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	if err := k.CreateMapWithContract("infra", "Infra", "map", nil, "", kb.MapContract{}); err != nil {
+	if err := k.CreateMapWithContract("infra", "Infra", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 	for i, n := range []string{"a", "b", "c", "d"} {
@@ -258,7 +258,7 @@ func TestFixpointRepairsTemplateShape(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(k.Root, "templates", "server.md"), []byte(tpl), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CreateMapWithContract("infra", "Infra", "map", nil, "", kb.MapContract{Templates: []string{"server"}, RequireTemplate: true}); err != nil {
+	if err := k.CreateMapWithContract("infra", "Infra", "map", nil, kb.MapContract{Templates: []string{"server"}}); err != nil {
 		t.Fatal(err)
 	}
 	page := "---\ntype: Host\ntitle: Box\n---\n# Box\n\nIntro line.\n\n## Operations\n\nops text\n\n## Odd one\n\nodd text\n\n## Objective\n\nwhy text\n\n```\n## Fenced\n```\n"

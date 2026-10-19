@@ -2,8 +2,6 @@ package mcpserver
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -29,10 +27,6 @@ func TestIndexGet_WithHashReturnsContentOverGuard(t *testing.T) {
 func TestConceptMove_CuratedEntryHasNoMovedFromSuffix(t *testing.T) {
 	t.Parallel()
 	k, s := archiveFixture(t, "", "- [mover](mover.md)\n")
-	if err := os.WriteFile(filepath.Join(k.DataRoot(), "archive/_map.md"),
-		[]byte("---\ntype: Map\nkind: map\ntitle: Archive\nrequire_index_entry: true\n---\n# Archive\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	if res := callTool(t, s, "concept_move", `{"source_id":"src/mover","target_id":"archive/mover"}`); res.IsError {
 		t.Fatalf("concept_move: %+v", res.Content)
 	}

@@ -1036,14 +1036,14 @@ func TestServer_MapCreate_Contract(t *testing.T) {
 	RegisterKBTools(s, k, Deps{})
 	resps := runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"contract-map","title":"Contract","required_fields":["timestamp","timestamp"],"required_fields_by_type":{"Runbook":["provenance"]},"require_index_entry":true}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"contract-map","title":"Contract","required_fields":{"*":["timestamp","timestamp"],"Runbook":["provenance"]}}}}`,
 	})
 	tr := decodeToolResult(t, resps[1])
 	if tr.IsError {
 		t.Fatalf("map_create: %v", tr.Content)
 	}
 	content, err := k.ReadRaw("contract-map/_map.md")
-	if err != nil || !strings.Contains(content, "required_fields: [timestamp]") || !strings.Contains(content, "required_fields.Runbook: [provenance]") || !strings.Contains(content, "require_index_entry: true") {
+	if err != nil || !strings.Contains(content, "required_fields.*: [timestamp]") || !strings.Contains(content, "required_fields.Runbook: [provenance]") || strings.Contains(content, "require_index_entry") {
 		t.Fatalf("contract descriptor = %q, %v", content, err)
 	}
 }
@@ -1055,10 +1055,10 @@ func TestServer_MapCreateUpdate_FieldValues(t *testing.T) {
 	RegisterKBTools(s, k, Deps{})
 	resps := runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"fv-map","title":"FV","field_values":{"status":["active","draft"]},"field_values_by_type":{"Incident":{"outcome":["open","resolved"]}},"forbidden_fields":["state"]}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values":{"status":["active"]},"forbidden_fields":[]}}}`,
-		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"fv-bad","title":"Bad","field_values":{"status":[]}}}}`,
-		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values_by_type":{"T":{"a.b":["x"]}}}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"fv-map","title":"FV","field_values":{"*":{"status":["active","draft"]},"Incident":{"outcome":["open","resolved"]}},"forbidden_fields":["state"]}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values":{"*":{"status":["active"]},"Incident":{"outcome":["open","resolved"]}},"forbidden_fields":[]}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"fv-bad","title":"Bad","field_values":{"*":{"status":[]}}}}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values":{"T":{"a.b":["x"]}}}}}`,
 	})
 	if tr := decodeToolResult(t, resps[1]); tr.IsError {
 		t.Fatalf("map_create: %v", tr.Content)
@@ -1068,7 +1068,7 @@ func TestServer_MapCreateUpdate_FieldValues(t *testing.T) {
 		t.Fatalf("map_update: %v", tr.Content)
 	}
 	content, _ := k.ReadRaw("fv-map/_map.md")
-	if !strings.Contains(content, "field_values.status: [active]") || !strings.Contains(content, "field_values.Incident.outcome: [open, resolved]") || strings.Contains(content, "forbidden_fields") {
+	if !strings.Contains(content, "field_values.*.status: [active]") || !strings.Contains(content, "field_values.Incident.outcome: [open, resolved]") || strings.Contains(content, "forbidden_fields") {
 		t.Fatalf("descriptor = %q", content)
 	}
 	for _, r := range resps[3:] {
@@ -1085,90 +1085,13 @@ func TestServer_MapCreate_RejectsEmptyContractNames(t *testing.T) {
 	RegisterKBTools(s, k, Deps{})
 	resps := runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-field","title":"Bad","required_fields":[" "]}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-type","title":"Bad","required_fields_by_type":{" ":["owner"]}}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-field","title":"Bad","required_fields":{"*":[" "]}}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-type","title":"Bad","required_fields":{" ":["owner"]}}}}`,
 	})
 	for _, response := range resps[1:] {
 		if result := decodeToolResult(t, response); !result.IsError {
 			t.Fatalf("map_create accepted an empty contract name: %#v", result)
 		}
-	}
-}
-
-// TestServer_MapCreate_MachinePathAllowPrefixes verifies map_create writes
-// machine_path_allow_prefixes into the Map descriptor and that ReadMapContract
-// round-trips it, exercising the D124 field end to end via MCP.
-func TestServer_MapCreate_MachinePathAllowPrefixes(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	resps := runMCPSequence(t, s, []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"infra","title":"Infra","machine_path_allow_prefixes":["/home/nonroot","/home/ubuntu/.cache/huggingface"]}}}`,
-	})
-	tr := decodeToolResult(t, resps[1])
-	if tr.IsError {
-		t.Fatalf("map_create: %v", tr.Content)
-	}
-	content, err := k.ReadRaw("infra/_map.md")
-	if err != nil || !strings.Contains(content, "machine_path_allow_prefixes: [/home/nonroot, /home/ubuntu/.cache/huggingface]") {
-		t.Fatalf("contract descriptor = %q, %v", content, err)
-	}
-}
-
-func TestServer_MapCreate_RejectsEmptyMachinePathAllowPrefix(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	resps := runMCPSequence(t, s, []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-prefix","title":"Bad","machine_path_allow_prefixes":[" "]}}}`,
-	})
-	if result := decodeToolResult(t, resps[1]); !result.IsError {
-		t.Fatalf("map_create accepted an empty machine_path_allow_prefixes entry: %#v", result)
-	}
-}
-
-// TestServer_Lint_MachinePath_ContractMalformed verifies that a malformed
-// machine_path_allow_prefixes entry in a Map descriptor surfaces as a
-// contract_malformed finding through the lint tool (D124), the same way
-// other malformed contract keys already do.
-func TestServer_Lint_MachinePath_ContractMalformed(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "_map.md"),
-		[]byte("---\ntype: Map\nmachine_path_allow_prefixes: [relative/path]\n---\n"), 0o644)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	resps := runMCPSequence(t, s, []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lint","arguments":{"scope":"manutenzione"}}}`,
-	})
-	tr := decodeToolResult(t, resps[1])
-	if tr.IsError || !strings.Contains(tr.Content[0].Text, "contract_malformed") || !strings.Contains(tr.Content[0].Text, "machine_path_allow_prefixes") {
-		t.Fatalf("lint contract_malformed result: %#v", tr)
-	}
-}
-
-// TestServer_GateCheck_MachinePath_AllowedOperationalPath verifies gate_check
-// consumes the same Map contract as lint: an operational path covered by
-// machine_path_allow_prefixes must not block the gate (D124).
-func TestServer_GateCheck_MachinePath_AllowedOperationalPath(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	resps := runMCPSequence(t, s, []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"infra","title":"Infra","machine_path_allow_prefixes":["/home/nonroot"]}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"infra/image","frontmatter":{"type":"Note","title":"Image"},"body":"Config lives at /home/nonroot/.headroom.\n"}}}`,
-		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"gate_check","arguments":{"changed_ids":["infra/image"]}}}`,
-	})
-	tr := decodeToolResult(t, resps[3])
-	if tr.IsError || strings.Contains(tr.Content[0].Text, "machine_path") {
-		t.Fatalf("gate_check should not flag an allowed operational path: %#v", tr)
 	}
 }
 
@@ -1582,7 +1505,7 @@ func TestServer_MapList(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"test-map","title":"Test Map","kind":"journal","ontology_mode":"strict","concept_types":["Runbook","Note"]}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"test-map","title":"Test Map","kind":"journal","concept_types":["Runbook","Note"]}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_list","arguments":{}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -5413,13 +5336,13 @@ func TestConceptMove_IsCompleteAcrossMaps(t *testing.T) {
 		}
 	}
 
-	// Two maps, both with a curated-index contract. The moved concept links a
+	// Two maps with a curated index. The moved concept links a
 	// sibling relatively, which is what breaks on a depth change.
-	write("src/_map.md", "---\ntype: Map\nkind: map\ntitle: Src\nrequire_index_entry: true\n---\n# Src\n")
+	write("src/_map.md", "---\ntype: Map\nkind: map\ntitle: Src\n---\n# Src\n")
 	write("src/index.md", "---\ntype: Index\ntitle: Src\n---\n- [mover](mover.md)\n- [friend](friend.md)\n")
 	write("src/friend.md", "---\ntype: Note\ntitle: Friend\n---\n# Friend\n")
 	write("src/mover.md", "---\ntype: Note\ntitle: Mover\n---\nSee [friend](friend.md).\n")
-	write("dst/_map.md", "---\ntype: Map\nkind: map\ntitle: Dst\nrequire_index_entry: true\n---\n# Dst\n")
+	write("dst/_map.md", "---\ntype: Map\nkind: map\ntitle: Dst\n---\n# Dst\n")
 	write("dst/index.md", "---\ntype: Index\ntitle: Dst\n---\n# Dst\n")
 
 	move := s.Tools()["concept_move"]
@@ -5482,7 +5405,7 @@ func TestConceptMove_KeepsAMultiLinkIndexLine(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("src/_map.md", "---\ntype: Map\nkind: map\ntitle: Src\nrequire_index_entry: true\n---\n# Src\n")
+	write("src/_map.md", "---\ntype: Map\nkind: map\ntitle: Src\n---\n# Src\n")
 	write("src/index.md", "---\ntype: Index\ntitle: Src\n---\n- see [mover](mover.md) and [friend](friend.md)\n")
 	write("src/friend.md", "---\ntype: Note\ntitle: Friend\n---\n# Friend\n")
 	write("src/mover.md", "---\ntype: Note\ntitle: Mover\n---\n# Mover\n")
@@ -5977,34 +5900,6 @@ func TestServer_GateCheck_EmptyChangedIDsIsWholeKBGate(t *testing.T) {
 	g = decodeGate(t, callTool(t, s, "gate_check", `{"changed_ids":[]}`))
 	if g.Pass || g.CountsBySeverity["error"] == 0 {
 		t.Fatalf("whole-KB gate must fail on an error finding: %+v", g)
-	}
-}
-
-// TestServer_MapCreate_DefaultRequireIndexEntry: a map created without the
-// key demands index entries (D325); only an explicit false opts out, and the
-// descriptor then carries no key.
-func TestServer_MapCreate_DefaultRequireIndexEntry(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	resps := runMCPSequence(t, s, []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"dflt-map","title":"Default"}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"optout-map","title":"Opt out","require_index_entry":false}}}`,
-	})
-	for _, r := range resps[1:] {
-		if tr := decodeToolResult(t, r); tr.IsError {
-			t.Fatalf("map_create: %v", tr.Content)
-		}
-	}
-	on, err := k.ReadRaw("dflt-map/_map.md")
-	if err != nil || !strings.Contains(on, "require_index_entry: true") {
-		t.Fatalf("default descriptor = %q, %v", on, err)
-	}
-	off, err := k.ReadRaw("optout-map/_map.md")
-	if err != nil || strings.Contains(off, "require_index_entry") {
-		t.Fatalf("opt-out descriptor = %q, %v", off, err)
 	}
 }
 

@@ -64,7 +64,7 @@ func TestLint_SkillNotInScopedRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range findings {
-		if artifactChecks[f.Check] {
+		if spec, ok := Spec(f.Check); ok && spec.Level == LevelArtifact {
 			t.Errorf("a scoped lint must not report artifact findings: %v", f)
 		}
 	}
@@ -242,32 +242,6 @@ func TestLint_SkillGitCommand(t *testing.T) {
 	}
 }
 
-// D332: instructions.md lint_accept accepts an artifact finding by path; a
-// directory key covers the files under it, and a name that cannot be accepted
-// or matches nothing is reported.
-func TestLint_LintAccept(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.Root, "skills/committer/SKILL.md", skillMD("committer", "c", "Then `git commit -m \"save\"`.\n"))
-	writeFile(t, k.Root, "skills/pusher/SKILL.md", skillMD("pusher", "c", "Then `git push`.\n"))
-	writeFile(t, k.Root, "skills/other/SKILL.md", skillMD("other", "c", "Then `git pull`.\n"))
-	writeFile(t, k.Root, "instructions.md", "---\nlint_accept:\n  \"skills/committer/SKILL.md\": [skill_git_command]  # a code repo, not the KB\n  skills/pusher/: skill_git_command\n  skills/other/SKILL.md: [junk_file, artifact_unused]\n---\n# I\n")
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := findingsOf(findings, "skill_git_command")
-	if len(got) != 1 || got[0].Path != "skills/other/SKILL.md" {
-		t.Fatalf("want only other's skill_git_command left, got %v", got)
-	}
-	inv := findingsOf(findings, "lint_ignore_invalid")
-	if len(inv) != 2 || inv[0].Path != "instructions.md" ||
-		!strings.Contains(inv[0].Message, `"artifact_unused"`) || !strings.Contains(inv[0].Message, "stale") ||
-		!strings.Contains(inv[1].Message, `"junk_file"`) || !strings.Contains(inv[1].Message, "cannot accept") {
-		t.Fatalf("lint_ignore_invalid = %v", inv)
-	}
-}
-
 func TestLint_SopsFormatMismatch(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
@@ -286,12 +260,6 @@ func TestLint_SopsFormatMismatch(t *testing.T) {
 	}
 	if !hasCheck(findings, "skills/vault/SKILL.md", "sops_format_mismatch") {
 		t.Errorf("want sops_format_mismatch on the skill: %v", findingsOf(findings, "sops_format_mismatch"))
-	}
-	// Dismissible on the concept that shows the wrong way on purpose.
-	writeFile(t, k.Root, "data/ops/bad.md", "---\ntype: Note\ntitle: B\nlint_ignore: [sops_format_mismatch]\n---\n# B\n\n`sops decrypt secrets/db.sops.yaml | jq .password`\n")
-	findings, _ = Run(k, "", false)
-	if hasCheck(findings, "ops/bad.md", "sops_format_mismatch") {
-		t.Error("lint_ignore must suppress sops_format_mismatch")
 	}
 }
 
@@ -441,19 +409,6 @@ func TestParseLegacyPaths_LongestFirst(t *testing.T) {
 	want := []legacyPath{{"wiki/ops/", "ops/"}, {"plain/", "x/"}, {"wiki/", ""}}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("got %v, want %v", got, want)
-	}
-}
-
-func TestLint_ArtifactCheckNotConceptIgnorable(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.Root, "data/ops/a.md", "---\ntype: Note\ntitle: A\nlint_ignore: [skill_invalid]\n---\n# A\n")
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !hasCheck(findings, "ops/a.md", "lint_ignore_invalid") {
-		t.Error("lint_ignore naming an artifact check must be reported as invalid")
 	}
 }
 

@@ -131,7 +131,7 @@ func TestUnknownType(t *testing.T) {
 func TestUnknownType_StrictMapPalette(t *testing.T) {
 	t.Parallel()
 	f := findingsOf(driftRun(t, map[string]string{
-		"strict/_map.md": "---\ntype: Map\nkind: map\ntitle: S\nontology_mode: strict\nconcept_types: [Alpha, Beta]\n---\n# S\n",
+		"strict/_map.md": "---\ntype: Map\nkind: map\ntitle: S\nconcept_types: [Alpha, Beta]\n---\n# S\n",
 		"strict/y.md":    "---\ntype: Gamma\ntitle: Y\n---\n# Y\n",
 		"other/x.md":     "---\ntype: Gamma\ntitle: X\n---\n# X\n",
 	}), "unknown_type")
@@ -144,8 +144,8 @@ func TestUnknownType_StrictMapPalette(t *testing.T) {
 func TestUnknownType_OtherStrictMapsType(t *testing.T) {
 	t.Parallel()
 	f := findingsOf(driftRun(t, map[string]string{
-		"a/_map.md": "---\ntype: Map\nkind: map\ntitle: A\nontology_mode: strict\nconcept_types: [Source]\n---\n# A\n",
-		"b/_map.md": "---\ntype: Map\nkind: map\ntitle: B\nontology_mode: strict\nconcept_types: [Note]\n---\n# B\n",
+		"a/_map.md": "---\ntype: Map\nkind: map\ntitle: A\nconcept_types: [Source]\n---\n# A\n",
+		"b/_map.md": "---\ntype: Map\nkind: map\ntitle: B\nconcept_types: [Note]\n---\n# B\n",
 		"a/ok.md":   "---\ntype: Source\ntitle: OK\n---\n# OK\n",
 		"b/x.md":    "---\ntype: Source\ntitle: X\n---\n# X\n",
 	}), "unknown_type")
@@ -192,9 +192,6 @@ func TestUnmappedFolder(t *testing.T) {
 	f := findingsOf(driftRun(t, files), "unmapped_folder")
 	if len(f) != 1 || f[0].Path != "loose" || f[0].Fix == nil || f[0].Fix.Kind != FixScaffoldMap || f[0].Fix.Field != "loose" || f[0].Fix.To != "Loose" {
 		t.Fatalf("findings: %+v", f)
-	}
-	if CheckAcceptability("unmapped_folder") != AcceptNone {
-		t.Error("unmapped_folder must not be acceptable")
 	}
 }
 

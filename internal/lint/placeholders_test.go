@@ -56,23 +56,6 @@ func TestRun_UnknownPlaceholder(t *testing.T) {
 	}
 }
 
-func TestRun_UnknownPlaceholder_Suppressible(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.Root, "paths.yaml", lintRegistry)
-	writeFile(t, k.DataRoot(), "arch/a.md", "---\ntype: Note\ntitle: A\nlint_ignore: [unknown_placeholder]\n---\nOld key {{path:editor-home}}.\n")
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := findingsOf(findings, "unknown_placeholder"); len(got) != 0 {
-		t.Errorf("lint_ignore did not silence it: %v", got)
-	}
-	if got := findingsOf(findings, "lint_ignore_invalid"); len(got) != 0 {
-		t.Errorf("unknown_placeholder must be a valid lint_ignore name: %v", got)
-	}
-}
-
 func TestRun_UnusedPlaceholder(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
@@ -95,13 +78,6 @@ func TestRun_UnusedPlaceholder(t *testing.T) {
 	}
 	if got := findingsOf(scoped, "unused_placeholder"); len(got) != 0 {
 		t.Errorf("scoped lint reported a KB-level finding: %v", got)
-	}
-	// Not suppressible per concept.
-	writeFile(t, k.DataRoot(), "arch/b.md", "---\ntype: Note\ntitle: B\nlint_ignore: [unused_placeholder]\n---\n[[arch/a]]\n")
-	findings, _ = Run(k, "", false)
-	invalid := findingsOf(findings, "lint_ignore_invalid")
-	if len(invalid) != 1 || !strings.Contains(invalid[0].Message, "directory-level") {
-		t.Errorf("lint_ignore of unused_placeholder: %v", invalid)
 	}
 }
 

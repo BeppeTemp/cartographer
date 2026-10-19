@@ -23,7 +23,7 @@ func findingChecks(out map[string]interface{}) map[string]bool {
 func requireIndexEntry(t *testing.T, s *Server, index string) {
 	t.Helper()
 	k := s.kbRef
-	if err := os.WriteFile(filepath.Join(k.DataRoot(), "ops", "_map.md"), []byte("---\ntype: Map\nkind: map\ntitle: Ops\nrequire_index_entry: true\n---\n# Ops\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "ops", "_map.md"), []byte("---\ntype: Map\nkind: map\ntitle: Ops\n---\n# Ops\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "ops", "index.md"), []byte(index), 0o644); err != nil {

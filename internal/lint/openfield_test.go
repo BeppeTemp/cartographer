@@ -100,7 +100,7 @@ func TestOpenField_ContractMalformed(t *testing.T) {
 			t.Errorf("%s: %+v %v", v, c, err)
 		}
 	}
-	for v, want := range map[string]int{"0": -1, "-3": 0} {
+	for v, want := range map[string]int{"-3": 0} {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\nharvest_after: "+v+"\n---\n")
 		c, _ := k.ReadMapContract("j")

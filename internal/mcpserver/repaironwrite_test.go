@@ -16,7 +16,7 @@ import (
 func rowKB(t *testing.T, checks ...string) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
-	if err := k.CreateMap("ops", "Ops", "map", nil, ""); err != nil {
+	if err := k.CreateMap("ops", "Ops", "map", nil); err != nil {
 		t.Fatal(err)
 	}
 	seed := map[string]string{

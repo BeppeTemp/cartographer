@@ -780,7 +780,7 @@ func TestGitWrap_ReauthorizesAfterSyncInChangesConceptType(t *testing.T) {
 	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.AuthName = "docs"
-	if err := k.CreateMap("manutenzione", "Maintenance", "map", nil, ""); err != nil {
+	if err := k.CreateMap("manutenzione", "Maintenance", "map", nil); err != nil {
 		t.Fatal(err)
 	}
 	fm, err := okf.ParseFrontmatter("")

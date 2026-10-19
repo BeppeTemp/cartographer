@@ -767,7 +767,7 @@ func renderLintCatalogue() string {
 		return "-"
 	}
 	var b strings.Builder
-	b.WriteString("| Check | Severity | Level | Accept | Fix | Auto-repair safe | On write |\n")
+	b.WriteString("| Check | Severity | Level | Avoidable at write | Fix | Auto-repair safe | On write |\n")
 	b.WriteString("|---|---|---|---|---|---|---|\n")
 	for _, c := range lint.Checks() {
 		fix := "-"
@@ -775,7 +775,7 @@ func renderLintCatalogue() string {
 			fix = "`" + strings.Join(c.FixKinds, "`, `") + "`"
 		}
 		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %s | %s |\n",
-			c.Name, c.Severity, c.Level, c.Accept, fix, yes(c.AutoRepairSafe), yes(c.OnWrite))
+			c.Name, c.Severity, c.Level, yes(c.AvoidableAtWrite), fix, yes(c.AutoRepairSafe), yes(c.OnWrite))
 	}
 	return b.String()
 }

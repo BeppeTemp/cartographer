@@ -32,7 +32,7 @@ func newChangesLinksKB(t *testing.T) *changesLinksKB {
 	}
 	k.AuthName = "docs"
 	for _, m := range []string{"ops", "other", "hidden"} {
-		if err := k.CreateMap(m, m, "map", nil, ""); err != nil {
+		if err := k.CreateMap(m, m, "map", nil); err != nil {
 			t.Fatal(err)
 		}
 	}

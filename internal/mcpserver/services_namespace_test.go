@@ -94,7 +94,7 @@ func writeNote(t *testing.T, k *kb.KB, id, body string) {
 func namespaceServer(t *testing.T) (*kb.KB, *Server) {
 	t.Helper()
 	k := setupTestKB(t)
-	if err := k.CreateMap("application-services", "Application Services", "map", nil, ""); err != nil {
+	if err := k.CreateMap("application-services", "Application Services", "map", nil); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")
@@ -409,8 +409,7 @@ func TestConceptMove_ServicesPreflightRefusals(t *testing.T) {
 func TestConceptMove_ServicesLinkMaintenance(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	contract := kb.MapContract{RequireIndexEntry: true}
-	if err := k.CreateMapWithContract("application-services", "Application Services", "map", nil, "", contract); err != nil {
+	if err := k.CreateMapWithContract("application-services", "Application Services", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 	s := New("test")
