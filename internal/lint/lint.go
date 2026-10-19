@@ -652,9 +652,11 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			}
 			// A full lint or an explicit map scope also validates the map index
 			// when it has no direct concepts. A scope inside an expanded concept
-			// must not surface unrelated map-index content.
-			if len(direct) > 0 || scopeNorm == "" || scopeNorm == archiveName {
-				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, true, &findings, exists, isRetired)
+			// must not surface unrelated map-index content, and a concept scope
+			// gets only its own entries: the index's dead links are the map's.
+			wholeMap := scopeNorm == "" || scopeNorm == archiveName
+			if len(direct) > 0 || wholeMap {
+				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, wholeMap, &findings, exists, isRetired)
 			}
 		} else if scopeNorm == "" || scopeNorm == archiveName {
 			// A folder with no readable descriptor has no contract to say
@@ -1209,7 +1211,7 @@ func retiredOf(lg *kb.LinkGraph) func(okf.ConceptID) bool {
 	}
 }
 
-// checkCuratedIndex verifies both directions of an opted-in curated index.
+// checkCuratedIndex verifies both directions of a curated index (D907).
 // folder is passed to ReadIndex; indexPath is the exact physical base used by
 // ExtractLinks so relative Markdown links resolve from the right directory.
 // A retired candidate is never reported missing: index_lists_retired (and its
