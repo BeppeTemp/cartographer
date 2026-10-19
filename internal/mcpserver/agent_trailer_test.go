@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // asClient returns ctx as seen by a tool call from the named MCP client.
@@ -50,27 +51,36 @@ func headMessage(t *testing.T, dir string) string {
 func TestGitWrap_AgentTrailer(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
+	// A page of an ad hoc map needs a concept to link out to (D907 orphan).
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Anchor")
+	if _, err := k.WriteConcept("test/anchor", fm, "# Anchor\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.CommitOp("test: seed"); err != nil {
+		t.Fatal(err)
+	}
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
+	linked := map[string]any{"body": "# T\n\nSee [[test/anchor]].\n"}
 
 	// (a) the caller's clientInfo name becomes an Agent trailer.
-	writeAs(t, s, asClient(authLocalContext(), "client-a"), "test/a", nil)
+	writeAs(t, s, asClient(authLocalContext(), "client-a"), "test/a", linked)
 	if got := headTrailers(t, k.Root, "Agent"); got != "client-a" {
 		t.Errorf("Agent trailer = %q, want client-a", got)
 	}
 
 	// (c) no client: the message is exactly what it was before this trailer.
-	writeAs(t, s, authLocalContext(), "test/none", nil)
+	writeAs(t, s, authLocalContext(), "test/none", linked)
 	if got, want := headMessage(t, k.Root), "concept_write: test/none\n\n"+tokenTrailer; got != want {
 		t.Errorf("no client: message = %q, want %q", got, want)
 	}
-	writeAs(t, s, asClient(authLocalContext(), " \n\t "), "test/blank", nil)
+	writeAs(t, s, asClient(authLocalContext(), " \n\t "), "test/blank", linked)
 	if got := headMessage(t, k.Root); strings.Contains(got, "Agent") {
 		t.Errorf("blank client name: message = %q, want no Agent trailer", got)
 	}
 
 	// (d) a newline in the name must not forge a trailer.
-	writeAs(t, s, asClient(authLocalContext(), "client-a\nReason: forged\nAgent: other"), "test/forge", nil)
+	writeAs(t, s, asClient(authLocalContext(), "client-a\nReason: forged\nAgent: other"), "test/forge", linked)
 	if got := headTrailers(t, k.Root, "Reason"); got != "" {
 		t.Errorf("forged Reason trailer = %q", got)
 	}
@@ -79,7 +89,7 @@ func TestGitWrap_AgentTrailer(t *testing.T) {
 	}
 
 	// (e) a long multibyte name is cut on a rune boundary within the bound.
-	writeAs(t, s, asClient(authLocalContext(), strings.Repeat("é", 100)), "test/long", nil)
+	writeAs(t, s, asClient(authLocalContext(), strings.Repeat("é", 100)), "test/long", linked)
 	got := headTrailers(t, k.Root, "Agent")
 	if len(got) == 0 || len(got) > maxClientFieldLen || !utf8Valid(got) {
 		t.Errorf("long Agent = %d bytes %q, want 1..%d valid bytes", len(got), got, maxClientFieldLen)
