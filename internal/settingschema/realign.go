@@ -510,6 +510,13 @@ func BackupPath(path, version string) string {
 // says why. The report is returned with that error, so a caller can tell a file
 // that holds removed keys it could not drop from one that only lacks comments.
 func (s Schema) RealignFile(path string, reg Registry, version string) (rep Report, backup string, err error) {
+	// A symlinked file (one a dotfiles tool manages) is realigned where it
+	// lives: renaming over the link would replace it with a regular file.
+	if fi, lerr := os.Lstat(path); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+		if real, rerr := filepath.EvalSymlinks(path); rerr == nil {
+			path = real
+		}
+	}
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return Report{}, "", nil

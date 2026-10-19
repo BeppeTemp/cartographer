@@ -269,3 +269,25 @@ func TestRealignKBSettings(t *testing.T) {
 		t.Errorf("a fresh settings.yaml is not canonical: %v %v", err, rep3.Lines())
 	}
 }
+
+// A symlinked config file is realigned where it lives: the link stays a link.
+func TestRealignFileKeepsASymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "managed.yaml")
+	link := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(target, []byte(oldServerYAML), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, _, err := Schema.RealignFile(link, Retired, "0.25.0"); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the symlink was replaced: %v", err)
+	}
+	if got, _ := os.ReadFile(target); strings.Contains(string(got), "autocommit") {
+		t.Errorf("the target was not realigned:\n%s", got)
+	}
+}
