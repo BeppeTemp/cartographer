@@ -313,7 +313,6 @@ regenerate this list with `make decisions-index`.
 - [D311 — The server settles reserved-file conflicts itself, and a write survives a failed fetch on a current base](decisions/D311-reserved-file-conflicts-and-network-resilient-writes.md)
 - [D335 — KB writes follow a configured branch](decisions/D335-kb-writes-follow-a-configured-branch.md)
 - [D718 — Commits carry an `Agent:` trailer naming the calling MCP client](decisions/D718-commits-carry-an-agent-trailer.md)
-- [D904 — The writer is the author of a commit, the server its committer, the token a trailer](decisions/D904-the-writer-is-the-author.md)
 
 <a id="skills-services-secrets"></a>
 
