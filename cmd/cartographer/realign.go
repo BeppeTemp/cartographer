@@ -2,9 +2,7 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -138,12 +136,15 @@ func placeLegacyCredentials(credDir string, creds []config.LegacyCredential) (li
 			}
 			continue
 		}
-		if err := publishCredentialFile(credDir, path, string(content)); err != nil && !errors.Is(err, fs.ErrExist) {
+		created, err := config.WriteCredential(credDir, target, content)
+		if err != nil {
 			lines = append(lines, fmt.Sprintf("%s: cannot write it (%v); create %s", from, err, path))
 			pending = true
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("%s: placed as %s", from, path))
+		if created {
+			lines = append(lines, fmt.Sprintf("%s: placed as %s", from, path))
+		}
 	}
 	return lines, pending
 }

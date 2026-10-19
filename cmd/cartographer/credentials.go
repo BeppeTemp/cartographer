@@ -2,9 +2,7 @@ package main
 
 import (
 	"crypto/ed25519"
-	"errors"
 	"fmt"
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -95,13 +93,14 @@ func loadAuditKey(credDir string) (kp audit.KeyPair, generated bool, err error) 
 	if err != nil {
 		return audit.KeyPair{}, false, err
 	}
-	if err := publishCredentialFile(credDir, p, kp.SeedToHex()+"\n"); err != nil {
-		if errors.Is(err, fs.ErrExist) {
-			// Another process generated it first: both must sign with that one.
-			kp, err := readAuditKey(p)
-			return kp, false, err
-		}
+	created, err := config.WriteCredential(credDir, config.AuditKeyFile, []byte(kp.SeedToHex()+"\n"))
+	if err != nil {
 		return audit.KeyPair{}, false, fmt.Errorf("generate %s: %w", p, err)
+	}
+	if !created {
+		// Another process generated it first: both must sign with that one.
+		kp, err := readAuditKey(p)
+		return kp, false, err
 	}
 	return kp, true, nil
 }
@@ -117,33 +116,6 @@ func readAuditKey(p string) (audit.KeyPair, error) {
 		return audit.KeyPair{}, fmt.Errorf("%s is not a 64-character hexadecimal seed", p)
 	}
 	return kp, nil
-}
-
-// publishCredentialFile creates path, 0600, with content, and never replaces a
-// file that is already there (fs.ErrExist). The content is written to a
-// temporary file and linked into place, so a concurrent reader sees the whole
-// file or none of it.
-func publishCredentialFile(credDir, path, content string) error {
-	if err := os.MkdirAll(credDir, 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(credDir, ".tmp-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(content); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Link(tmp.Name(), path)
 }
 
 // checkCredentialsDir refuses a credentials directory that is itself a KB: the

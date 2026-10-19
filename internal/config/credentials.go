@@ -152,12 +152,22 @@ func LoosePermissions(path string) (string, bool) {
 
 // WriteCredential writes a new file of the credentials directory with mode
 // 0600, creating the directory (0700) when it is missing. It never replaces:
-// created is false, with no error, when the file is already there.
+// created is false, with no error, when the file is already there. The data is
+// written to a temporary file and linked into place, so a process that reads
+// the file at the same time sees all of it or none; a filesystem without hard
+// links gets an exclusive create instead.
 func WriteCredential(dir, name string, data []byte) (created bool, err error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return false, err
 	}
 	path := filepath.Join(dir, name)
+	created, err = linkCredential(dir, path, data)
+	if err == nil || errors.Is(err, fs.ErrExist) {
+		return created, nil
+	}
+	if _, serr := os.Lstat(path); serr == nil {
+		return false, nil
+	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, fs.ErrExist) {
 		return false, nil
@@ -172,6 +182,31 @@ func WriteCredential(dir, name string, data []byte) (created bool, err error) {
 	if werr != nil {
 		_ = os.Remove(path)
 		return false, werr
+	}
+	return true, nil
+}
+
+// linkCredential publishes data at path through a temporary file of dir. An
+// error other than fs.ErrExist from the link means the filesystem cannot link,
+// and the caller writes the file another way.
+func linkCredential(dir, path string, data []byte) (bool, error) {
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return false, err
+	}
+	defer os.Remove(tmp.Name())
+	_, err = tmp.Write(data)
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := os.Link(tmp.Name(), path); err != nil {
+		return false, err
 	}
 	return true, nil
 }
