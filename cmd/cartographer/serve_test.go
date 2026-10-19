@@ -82,14 +82,15 @@ func TestOpenAuditLogWithoutAWritableCredentialsDir(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []string{"best_effort", "required"} {
+	// A mode the log does not know is required there, so it is here too.
+	for _, mode := range []string{"best_effort", "required", "requierd"} {
 		t.Run(mode, func(t *testing.T) {
 			logs := captureLog(t)
 			cfg := auditTestConfig(t, mode)
 			cfg.CredentialsDir = filepath.Join(blocker, "credentials")
 			keyPath := filepath.Join(cfg.CredentialsDir, config.AuditKeyFile)
 			l, err := openAuditLog(cfg)
-			if mode == "required" {
+			if mode != "best_effort" {
 				if err == nil || l != nil || !strings.Contains(err.Error(), keyPath) {
 					t.Fatalf("openAuditLog = %v, %v; want a refusal naming %s", l, err, keyPath)
 				}

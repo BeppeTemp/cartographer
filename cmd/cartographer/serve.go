@@ -806,7 +806,7 @@ func auditOptions(c config.AuditConfig) audit.Options {
 func openAuditLog(cfg *config.Config) (*audit.Log, error) {
 	path := cfg.AuditLogPath()
 	opts := auditOptions(cfg.Audit)
-	required := strings.EqualFold(strings.TrimSpace(opts.Mode), "required")
+	required := audit.IsRequired(opts.Mode)
 
 	kp, generated, keyErr := loadAuditKey(cfg.CredentialsPath())
 	if keyErr != nil {

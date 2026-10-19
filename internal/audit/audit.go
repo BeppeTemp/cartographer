@@ -334,6 +334,13 @@ func releaseWriter(f *os.File) {
 	}
 }
 
+// IsRequired says whether a configured mode is required once normalized: an
+// unrecognized one is, as the log itself treats it, so a caller deciding
+// before the log exists fails closed in the same cases.
+func IsRequired(mode string) bool {
+	return normalizeOptions(Options{Mode: mode}).Mode == "required"
+}
+
 func normalizeOptions(o Options) Options {
 	o.Mode = strings.ToLower(strings.TrimSpace(o.Mode))
 	if o.Mode == "" {
