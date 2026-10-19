@@ -1,7 +1,11 @@
 package settingschema
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -225,6 +229,35 @@ func TestFindRefusedAnyValue(t *testing.T) {
 		}
 		if refused && (!strings.Contains(msg, "items[0].branch") || !strings.Contains(msg, hits[0].Value) || !strings.Contains(msg, "branch in the KB (on the default branch)")) {
 			t.Errorf("%q: refusal %q does not name the key, its value and where it goes", in, msg)
+		}
+	}
+}
+
+// Processes realigning the same file at once each keep their own original: a
+// backup name is taken exclusively, never shared, so none is overwritten.
+func TestWriteBackupConcurrentCallersGetDistinctNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	names := make([]string, 16)
+	var wg sync.WaitGroup
+	for i := range names {
+		wg.Go(func() {
+			p, err := writeBackup(path, "0.25.0", fmt.Appendf(nil, "copy %d\n", i), 0o600)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			names[i] = p
+		})
+	}
+	wg.Wait()
+	seen := map[string]bool{}
+	for i, p := range names {
+		if seen[p] {
+			t.Errorf("backup %s was taken twice", p)
+		}
+		seen[p] = true
+		if got, _ := os.ReadFile(p); string(got) != fmt.Sprintf("copy %d\n", i) {
+			t.Errorf("%s holds %q, want copy %d", p, got, i)
 		}
 	}
 }

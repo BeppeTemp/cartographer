@@ -2,7 +2,9 @@ package settingschema
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -493,12 +495,17 @@ func (r Registry) retiredPaths() map[string]bool {
 	return out
 }
 
-// BackupPath is where the original of a realigned file is kept: beside it, as
+// maxBackups bounds the search for a free backup name: past it something other
+// than earlier realignments is filling the directory, and the realignment stops.
+const maxBackups = 1000
+
+// writeBackup keeps data, the original of a realigned file, beside it as
 // <file>.bak-<version>. A backup of that name already there (an earlier
 // realignment under the same version) is never overwritten, the oldest one is
 // the file as it was before the upgrade: the next free <file>.bak-<version>.<n>
-// is used.
-func BackupPath(path, version string) string {
+// is used. Each name is created exclusively, so two processes realigning at once
+// cannot both take it, and a symlink planted at the name is not followed.
+func writeBackup(path, version string, data []byte, perm fs.FileMode) (string, error) {
 	clean := strings.Map(func(r rune) rune {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_', r == '+':
@@ -510,19 +517,33 @@ func BackupPath(path, version string) string {
 		clean = "unknown"
 	}
 	base := path + ".bak-" + clean
-	for n := 0; ; n++ {
+	for n := 0; n < maxBackups; n++ {
 		p := base
 		if n > 0 {
 			p = fmt.Sprintf("%s.%d", base, n)
 		}
-		if _, err := os.Lstat(p); os.IsNotExist(err) {
-			return p
+		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+		if errors.Is(err, fs.ErrExist) {
+			continue
 		}
+		if err != nil {
+			return "", err
+		}
+		_, err = f.Write(data)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			_ = os.Remove(p)
+			return "", err
+		}
+		return p, nil
 	}
+	return "", fmt.Errorf("no free backup name: %s and its .1 to .%d all exist", base, maxBackups-1)
 }
 
 // RealignFile realigns the settings file at path in place (Realign), keeping the
-// original beside it first (BackupPath). A file that is absent, or already in
+// original beside it first (writeBackup). A file that is absent, or already in
 // canonical form, is left alone: no backup is written and the report is empty.
 // The new contents replace the old atomically, with the old file's permissions;
 // when the backup or the replacement cannot be written (a file mounted read-only
@@ -555,8 +576,8 @@ func (s Schema) RealignFile(path string, reg Registry, version string) (rep Repo
 	if rep.Empty() {
 		return Report{}, "", nil
 	}
-	backup = BackupPath(path, version)
-	if err := os.WriteFile(backup, data, info.Mode().Perm()); err != nil {
+	backup, err = writeBackup(path, version, data, info.Mode().Perm())
+	if err != nil {
 		return rep, "", fmt.Errorf("keeping a backup of %s: %w", path, err)
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".realign-*")
