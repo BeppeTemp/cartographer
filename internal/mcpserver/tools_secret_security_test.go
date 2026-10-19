@@ -88,7 +88,7 @@ func TestServiceLegacyAndMalformedRefsPrecedeSOPSGuards(t *testing.T) {
 	t.Parallel()
 	k := setupServiceTestKB(t, "")
 	res := callServiceGet(t, k, "svc-test", true)
-	if !res.IsError || !strings.Contains(res.Content[0].Text, "sops_age_key_file") {
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "age key") {
 		t.Fatal(res.Content)
 	}
 	writeSecretConcept(t, k.Root, "bad", "type: Service\nsecret_refs:\n  - malformed\n")

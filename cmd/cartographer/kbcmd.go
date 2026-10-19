@@ -572,6 +572,9 @@ func scanDataDir(dataDir string) ([]kbRow, error) {
 			continue
 		}
 		path := filepath.Join(dataDir, e.Name())
+		if serverOwnDataDir(path) {
+			continue
+		}
 		row := kbRow{Name: e.Name(), IsRepo: gitx.IsRepo(path)}
 		if _, err := os.Stat(filepath.Join(path, "data", "index.md")); err == nil {
 			row.IsKB = true

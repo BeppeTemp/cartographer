@@ -18,7 +18,7 @@ func writeCfg(t *testing.T, body string) string {
 
 func TestOriginDefaultLayer(t *testing.T) {
 	c := Default()
-	for _, p := range []string{"git.known_hosts", "http", "kbs[a].write_gate"} {
+	for _, p := range []string{"credentials_dir", "http", "kbs[a].write_gate"} {
 		if got := c.OriginOf(p); got != OriginDefault {
 			t.Errorf("%s origin = %s, want default", p, got)
 		}
@@ -35,8 +35,8 @@ func TestOriginFileLayer(t *testing.T) {
 			t.Errorf("%s origin = %s, want file", p, got)
 		}
 	}
-	if got := c.OriginOf("git.known_hosts"); got != OriginDefault {
-		t.Errorf("git.known_hosts origin = %s, want default", got)
+	if got := c.OriginOf("credentials_dir"); got != OriginDefault {
+		t.Errorf("credentials_dir origin = %s, want default", got)
 	}
 	if got := c.OriginOf("kbs[kb-a].doctor_budget"); got != OriginDefault {
 		t.Errorf("unset per-KB key origin = %s, want default", got)
@@ -45,17 +45,17 @@ func TestOriginFileLayer(t *testing.T) {
 
 // A value written in the file equal to its default is still the file's.
 func TestOriginFileExplicitDefaultValue(t *testing.T) {
-	c, err := Load(writeCfg(t, "git:\n  known_hosts: /k\n"))
+	c, err := Load(writeCfg(t, "credentials_dir: /k\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := c.OriginOf("git.known_hosts"); got != OriginFile {
+	if got := c.OriginOf("credentials_dir"); got != OriginFile {
 		t.Errorf("origin = %s, want file", got)
 	}
 }
 
 func TestOriginEnvOverridesFile(t *testing.T) {
-	c, err := Load(writeCfg(t, "http: \":1\"\ngit:\n  known_hosts: /k\n"))
+	c, err := Load(writeCfg(t, "http: \":1\"\ncredentials_dir: /k\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,8 +65,8 @@ func TestOriginEnvOverridesFile(t *testing.T) {
 	if got := c.OriginOf("http"); got != OriginEnv {
 		t.Errorf("http origin = %s, want env", got)
 	}
-	if got := c.OriginOf("git.known_hosts"); got != OriginFile {
-		t.Errorf("git.known_hosts origin = %s, want file", got)
+	if got := c.OriginOf("credentials_dir"); got != OriginFile {
+		t.Errorf("credentials_dir origin = %s, want file", got)
 	}
 	if got := c.OriginOf("kbs[kb-env].path"); got != OriginEnv {
 		t.Errorf("env KB origin = %s, want env", got)
@@ -122,7 +122,7 @@ func TestSettingsRedactsSecrets(t *testing.T) {
 	c := Default()
 	c.Auth.Tokens = []TokenSpec{{Token: "tok-secret-1"}}
 	c.Audit.KeySeed = "seed-secret-2"
-	c.KBs = []KBSpec{{Remote: "https://example.com/u/kb-a.git", ArtifactSigningSeed: "sign-secret-3"}}
+	c.KBs = []KBSpec{{Remote: "https://example.com/u/kb-a.git"}}
 	v := c.Settings([]string{"kb-a"})
 	var b strings.Builder
 	for _, e := range v.Server {
@@ -132,12 +132,12 @@ func TestSettingsRedactsSecrets(t *testing.T) {
 		b.WriteString(e.Key + "=" + toString(e.Value) + "\n")
 	}
 	out := b.String()
-	for _, secret := range []string{"tok-secret-1", "seed-secret-2", "sign-secret-3"} {
+	for _, secret := range []string{"tok-secret-1", "seed-secret-2"} {
 		if strings.Contains(out, secret) {
 			t.Errorf("secret %q leaked into the view", secret)
 		}
 	}
-	for _, want := range []string{"auth.tokens=(set)", "audit.key_seed=(set)", "kbs[].artifact_signing_seed=(set)"} {
+	for _, want := range []string{"auth.tokens=(set)", "audit.key_seed=(set)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("view lacks %q:\n%s", want, out)
 		}

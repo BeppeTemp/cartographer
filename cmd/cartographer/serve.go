@@ -146,13 +146,12 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 }
 
 // kbMount pairs a resolved filesystem path and resolved name with the
-// config.KBSpec it came from, so each KB can carry its own SSH
-// override through the open/init step. Name is resolved once via
-// resolveKBName (D53) — before the git-token/SOPS-age-key conventions are
-// applied — so it is used verbatim afterwards instead of being re-derived.
-// KBs auto-discovered from --data have a zero-value Spec, which falls back
-// entirely to the global cfg.Git settings; their Name is just the directory
-// basename (no config.KBSpec to carry an override).
+// config.KBSpec it came from, so each KB carries its own policy through the
+// open/init step. Name is resolved once via resolveKBName (D53) — before the
+// files named after the KB in the credentials directory are looked up (D905) —
+// so it is used verbatim afterwards instead of being re-derived. KBs
+// auto-discovered from --data have a zero-value Spec; their Name is just the
+// directory basename (no config.KBSpec to carry an override).
 type kbMount struct {
 	Path string
 	Name string
@@ -164,23 +163,6 @@ type kbMount struct {
 	// who writes kbs: [{path: ...}] with no options also has a zero Spec, and
 	// that KB is configured — it chose the defaults.
 	Discovered bool
-}
-
-// resolveSopsAgeKeyFile resolves the SOPS age key file for a KB (D53).
-// Resolution order: spec.SopsAgeKeyFile (explicit per-KB override) wins;
-// otherwise <sops.AgeKeyDir>/<name>.age if that file exists; otherwise the
-// global sops.AgeKeyFile.
-func resolveSopsAgeKeyFile(spec config.KBSpec, sops config.SopsConfig, name string) string {
-	if spec.SopsAgeKeyFile != "" {
-		return spec.SopsAgeKeyFile
-	}
-	if sops.AgeKeyDir != "" && name != "" {
-		p := filepath.Join(sops.AgeKeyDir, name+".age")
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return sops.AgeKeyFile
 }
 
 // kbBootstrap is what bootstrapKBs hands to the transport: the mounted KBs and
@@ -200,16 +182,20 @@ type kbBootstrap struct {
 // they always were.
 func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	// Collect all KB mounts: explicit KBSpec paths first (local, then
-	// remote clones — each carrying its own spec for per-KB SSH),
-	// then auto-discovered from Data (zero-value spec = fallback to the
-	// global cfg.Git SSH settings).
+	// remote clones — each carrying its own spec), then auto-discovered from
+	// Data (zero-value spec). A KB's credentials are files named after it in
+	// the credentials directory, whatever its origin (D905).
 	phase("cloning")
+	credDir := cfg.CredentialsPath()
 	var mounts []kbMount
 	for _, spec := range cfg.KBs {
 		if spec.Remote != "" {
 			name := resolveKBName(spec, "")
-			dest, err := ensureClonedKB(spec.Remote, name, cfg.Data, gitEnvForKB(spec, cfg.Git, name)...)
+			dest, err := ensureClonedKB(spec.Remote, name, cfg.Data, gitEnvForKB(name, credDir)...)
 			if err != nil {
+				if hint := credentialHint(spec.Remote, name, credDir); hint != "" {
+					err = fmt.Errorf("%w\n%s", err, hint)
+				}
 				log.Fatalf("KB remote %q: %v", spec.Remote, err)
 			}
 			mounts = append(mounts, kbMount{Path: dest, Name: name, Spec: spec})
@@ -275,8 +261,8 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		}
 		k.SyncInWindow = kb.DefaultSyncInWindow
 		k.SyncOutDebounce = kb.SyncOutDebounceFor(os.Getenv)
-		k.GitEnv = gitEnvForKB(m.Spec, cfg.Git, m.Name)
-		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(m.Spec, cfg.Sops, m.Name)
+		k.GitEnv = gitEnvForKB(m.Name, credDir)
+		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(credDir, m.Name)
 		// The KB's settings.yaml is brought up to date first (D903): a retired
 		// key is dropped, in one commit of its own, and a KB that still asks for
 		// the server git profile does not mount at all.
@@ -303,12 +289,11 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			continue
 		}
 		seenNames[name] = m.Path
-		var artifactSigner ed25519.PrivateKey
-		if m.Spec.ArtifactSigningSeed != "" {
-			artifactSigner, err = artifactsig.ParseSeed(m.Spec.ArtifactSigningSeed)
-			if err != nil {
-				log.Fatalf("KB %q artifact signing seed invalid: %v", name, err)
-			}
+		artifactSigner, signed, err := loadArtifactSigner(credDir, name)
+		if err != nil {
+			log.Fatalf("KB %q artifact signing seed invalid: %v", name, err)
+		}
+		if signed {
 			log.Printf("KB %q provisioning artifact signing enabled (key ID %s)", name, artifactsig.KeyID(artifactSigner.Public().(ed25519.PublicKey)))
 		}
 		if _, scanErr := provisioning.BuildManifest(nil, map[string]string{name: k.Root}, provisioning.BuildOptions{
@@ -328,7 +313,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			// surface, which is how one deployment ran for a whole migration with
 			// artifact writes and tool prefixes silently off (D151).
 			// Its policy comes from its own settings.yaml (D746), when it has one.
-			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — its policy comes from its settings.yaml if it has one, sops_age_key_file and machine_path allow-prefixes are at their defaults", name)
+			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — its policy comes from its settings.yaml if it has one, and machine_path allow-prefixes are at their defaults", name)
 		}
 	}
 
@@ -400,7 +385,7 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 		log.Printf("warning: KB %q: %s sets %s to %s; the server's value %s is ignored — the KB is authoritative", name, kb.SettingsFile, g.Key, g.KBValue, g.ServerValue)
 	}
 	if info.SecretsDeclared && k.SopsAgeKeyFile == "" {
-		log.Printf("warning: KB %q declares secrets: true but no age key is configured for it (sops_age_key_file, or sops.age_key_dir/<name>.age)", name)
+		log.Printf("warning: KB %q declares secrets: true but no age key is configured for it (create %s.age or default.age in credentials_dir)", name, name)
 	}
 	if refresh {
 		log.Printf("KB %q: settings.yaml changed, effective settings re-resolved (mcp_allowlist and git workflow keys apply at the next start)", name)
@@ -410,6 +395,9 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 
 // runServe opens/bootstraps all configured KBs and starts the server.
 func runServe(cfg *config.Config) {
+	if err := checkCredentialsDir(cfg.CredentialsPath()); err != nil {
+		log.Fatal(err)
+	}
 	var auditLog *audit.Log
 	if cfg.Audit.Log != "" {
 		opts := auditOptions(cfg.Audit)
@@ -434,7 +422,7 @@ func runServe(cfg *config.Config) {
 		}
 	}
 
-	if err := setupGitSSH(cfg.Git); err != nil {
+	if err := setupGitSSH(cfg.CredentialsPath()); err != nil {
 		log.Fatalf("git SSH setup: %v", err)
 	}
 
@@ -792,12 +780,23 @@ func discoverKBPaths(dataDir string) ([]string, error) {
 	}
 	var paths []string
 	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || serverOwnDataDir(filepath.Join(dataDir, e.Name())) {
 			continue
 		}
 		paths = append(paths, filepath.Join(dataDir, e.Name()))
 	}
 	return paths, nil
+}
+
+// serverOwnDataDir says whether a subdirectory of data is one the server keeps
+// for itself (credentials) and not a KB: discovery leaves it alone. One that
+// holds a KB is a KB, and the server then refuses to put its own files in it.
+func serverOwnDataDir(path string) bool {
+	if !config.IsReservedDataName(filepath.Base(path)) {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(path, "data", "index.md"))
+	return err != nil
 }
 
 // auditOptions maps the operator-facing audit configuration onto the package

@@ -10,9 +10,18 @@ http: ":39273"
 # Default: false. Flag: --init. Needs a restart.
 init: true
 # Directory whose direct subdirectories are discovered as KBs, and where
-# remote KBs are cloned.
+# remote KBs are cloned. The name credentials is the server's own and is never
+# discovered.
 # Default: "". Env: CARTOGRAPHER_DATA. Flag: --data. Needs a restart.
 data: /data
+# Directory with every secret file, looked up by KB name: <kb>.ssh, <kb>.token
+# and <kb>.age (each with a default.* for the KBs without their own),
+# <kb>.signing (the artifact signing seed, no default) and known_hosts (one
+# file for every remote). On Kubernetes it is one mounted Secret. A file
+# readable by group or others is warned about once at start.
+# Default: <data>/credentials. Env: CARTOGRAPHER_CREDENTIALS_DIR. Needs a
+# restart.
+credentials_dir: /etc/cartographer/credentials
 auth:
   # Bearer-token authentication of the HTTP transport. auto turns it on when at
   # least one token is configured.
@@ -40,8 +49,8 @@ kbs:
   # Default: "".
   - remote: https://git.example.com/user/kb-a.git
     # KB name, in place of the one derived from the remote. It drives the
-    # endpoint, the token scopes, the clone directory and the token and age-key
-    # file conventions.
+    # endpoint, the token scopes, the clone directory and the names of the KB's
+    # files in credentials_dir.
     # Default: "".
     name: kb-a
 web:
@@ -64,17 +73,6 @@ web:
 # writes it. One step only, and a mounted name wins over an alias.
 # Default: []. Needs a restart.
 # kb_aliases: []
-# git:
-#   SSH private key used to reach remote KBs.
-#   Default: "". Needs a restart.
-#   ssh_key: ""
-#   The known_hosts file used to reach remote KBs.
-#   Default: "". Needs a restart.
-#   known_hosts: ""
-#   Directory with one file per KB, <token_dir>/<name>.token (its trimmed
-#   content is the token), used as HTTPS git credentials for that KB's remote.
-#   Default: "". Env: CARTOGRAPHER_GIT_TOKEN_DIR. Needs a restart.
-#   token_dir: ""
 # audit:
 #   Path of the append-only operation log. Empty turns the audit trail off.
 #   Default: "". Env: CARTOGRAPHER_AUDIT_LOG. Needs a restart.
@@ -101,15 +99,6 @@ web:
 #   Values: days; 0 keeps everything
 #   Default: 90. Needs a restart.
 #   retention_days: 90
-# sops:
-#   Default age key that decrypts secret references, for every KB without its
-#   own.
-#   Default: "". Env: CARTOGRAPHER_SOPS_AGE_KEY_FILE. Needs a restart.
-#   age_key_file: ""
-#   Directory with one age key per KB, <age_key_dir>/<name>.age. Resolution:
-#   kbs[].sops_age_key_file, then this, then age_key_file.
-#   Default: "". Env: CARTOGRAPHER_SOPS_AGE_KEY_DIR. Needs a restart.
-#   age_key_dir: ""
 # tools:
 #   Which tools tools/list advertises. agent is the core set; full advertises
 #   every tool. Hidden tools stay callable.

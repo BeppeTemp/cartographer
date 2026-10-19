@@ -121,7 +121,7 @@ func TestLoadServeConfigRefusesAPerKBGitBranch(t *testing.T) {
 func TestAnnounceConfigRealignsTheServerFile(t *testing.T) {
 	buf := captureLog(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	old := "http: \":9090\"\ngit:\n  sync: false\n  autocommit: true\n  ssh_key: /k\nkbs:\n  - path: /srv/kb-a\n"
+	old := "http: \":9090\"\ngit:\n  sync: false\n  autocommit: true\ncredentials_dir: /k\nkbs:\n  - path: /srv/kb-a\n"
 	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestAnnounceConfigRealignsTheServerFile(t *testing.T) {
 		t.Errorf("the backup is not the original:\n%s", kept)
 	}
 	realigned, _ := os.ReadFile(path)
-	if strings.Contains(string(realigned), "autocommit: true") || !strings.Contains(string(realigned), "ssh_key: /k") {
+	if strings.Contains(string(realigned), "autocommit: true") || !strings.Contains(string(realigned), "credentials_dir: /k") {
 		t.Errorf("realigned file:\n%s", realigned)
 	}
 

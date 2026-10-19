@@ -66,18 +66,18 @@ func TestDefaultServerYAML(t *testing.T) {
 		"init: true",
 		"cartographer service install",
 		"config.example.yaml",
-		"git:",
-		"ssh_key:",
-		"token_dir:",
+		"credentials_dir:",
 		"# --- available settings ---",
-		"SSH private key used to reach remote KBs",
+		"Directory with every secret file",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("yaml missing %q\n---\n%s", want, out)
 		}
 	}
-	// The author and committer keys are removed (D904): the file must not offer them.
-	for _, gone := range []string{"author_name", "author_email", "committer_name", "committer_email"} {
+	// The author and committer keys are removed (D904), and the secrets are files
+	// of credentials_dir (D905): the file must not offer them.
+	for _, gone := range []string{"author_name", "author_email", "committer_name", "committer_email",
+		"ssh_key", "known_hosts:", "token_dir", "age_key", "artifact_signing_seed"} {
 		if strings.Contains(out, gone) {
 			t.Errorf("yaml still offers the removed key %q", gone)
 		}

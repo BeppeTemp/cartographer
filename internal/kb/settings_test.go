@@ -69,6 +69,7 @@ func TestParseSettingsKeyErrorsLeaveTheRestAlone(t *testing.T) {
 allow_artifact_write: true
 frobnicate: 1
 ssh_key: /home/user/.ssh/id
+author_name: Bot
 write_gate: loud
 doctor_interval: soon
 doctor_budget: 0
@@ -85,7 +86,8 @@ write_gate: off
 	}
 	want := map[string]string{
 		"frobnicate":       "unknown setting",
-		"ssh_key":          "server-only",
+		"ssh_key":          "<kb>.ssh",
+		"author_name":      "server-only",
 		"write_gate":       "", // first one invalid; the second is a duplicate
 		"doctor_interval":  "number of days",
 		"doctor_budget":    "1 or more",
