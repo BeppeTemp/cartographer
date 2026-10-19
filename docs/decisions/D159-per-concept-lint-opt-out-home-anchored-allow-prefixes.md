@@ -4,6 +4,8 @@ topic: data-plane
 
 # D159 — Per-concept lint opt-out, home-anchored allow prefixes, related size thresholds
 
+> **Amended by [D907](D907-the-lint-cannot-be-escaped.md)**: the per-concept `lint_ignore` and `machine_path_allow_prefixes` are removed (nothing switches a check off; use `{{repo:}}`, `{{path:}}` or `$HOME` for a conventional path). The size thresholds stay.
+
 **Status: implemented (2026-08-28).** Amends [D124](D124-machine-path-distinguishes-client-local-paths-from-a.md) and [D107](D107-declarative-lint-contracts-in-map-descriptors.md). Closes #180.
 
 **Context.** Four findings an author could not legitimately clear, or a remedy the product itself
