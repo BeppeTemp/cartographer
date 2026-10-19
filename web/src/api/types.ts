@@ -228,8 +228,6 @@ export interface LintReport {
   total: number;
   by_severity: Record<string, number>;
   by_check: Record<string, number>;
-  /** Where each reported check can be accepted with lint_ignore (D313). */
-  acceptability?: Record<string, "concept" | "map" | "artifact" | "none">;
   severity_min: string;
 }
 
@@ -279,7 +277,6 @@ export interface RetiredJournal {
   name: string;
   title?: string;
   harvest_after?: number;
-  harvest_off?: boolean;
   waiting: number;
   archived: number;
 }
@@ -497,40 +494,34 @@ export interface MapContract {
   name: string;
   title?: string;
   kind?: string;
+  /** Derived from concept_types (D907): "strict" when the Map lists types,
+   *  "flexible" otherwise. Not a key of _map.md. */
   ontology_mode?: string;
   concept_types?: string[];
-  /** Checks the map accepts as a whole (D306). */
-  lint_ignore?: string[];
   /** Whole-KB callers only (0 otherwise). */
   expanded_concepts: number;
   /** Effective stale_open threshold in days (D346). */
   stale_after?: number;
   /** stale_after is the default for the map's kind, not set in _map.md. */
   stale_after_defaulted?: boolean;
-  /** Allowed values per frontmatter field (D343); a by-type list replaces the
-   *  map-wide one for that type. */
-  field_values?: Record<string, string[]>;
-  field_values_by_type?: Record<string, Record<string, string[]>>;
+  /** Allowed values per frontmatter field (D343), keyed by concept type, `*`
+   *  for every type (D907): a type's list replaces the `*` one for that type. */
+  field_values?: Record<string, Record<string, string[]>>;
   /** The rest of the _map.md contract, as map_list returns it; every key is
    *  omitted when the contract does not set it. */
   description?: string;
-  required_fields?: string[];
-  required_fields_by_type?: Record<string, string[]>;
+  /** Required fields keyed by concept type, `*` for every type (D907). */
+  required_fields?: Record<string, string[]>;
   forbidden_fields?: string[];
-  require_index_entry?: boolean;
+  /** Declared templates bind every page to one of them (D371, D907). */
   templates?: string[];
   default_template?: string;
-  /** Effective: a Map that declares templates is strict without saying so (D371). */
-  require_template?: boolean;
-  template_sections?: boolean;
   open_field?: string;
   open_statuses?: string[];
   open_markers?: string[];
-  /** A journal's effective harvest_after in days (D322); absent when
-   *  `harvest_off` says harvest_after: 0 switched it off (D347). */
+  /** A journal's effective harvest_after in days (D322). */
   harvest_after?: number;
   harvest_after_defaulted?: boolean;
-  harvest_off?: boolean;
   promote_to?: string;
   procedure_headings?: string[];
   /** This Map defines the KB's terms. */
@@ -540,23 +531,13 @@ export interface MapContract {
   index?: string;
   /** Canonical value -> the synonyms the server treats as it. */
   value_synonyms?: Record<string, string[]>;
-  machine_path_allow_prefixes?: string[];
-  thresholds?: MapThresholds;
+  /** Substrings no page title here may carry (D315). */
+  forbidden_title_terms?: string[];
+  /** Removed keys the descriptor still carries (D907): they take no part in
+   *  the contract, and kb_repair drops them. */
+  legacy_keys?: string[];
   /** Entries of _map.md the server tolerated but could not read. */
   malformed?: { key: string; reason: string }[];
-}
-
-/** The cost and page-name keys a contract sets (D301, D313, D315); a key left
- *  out runs at the built-in default. `title_max_length: 0` turns the length
- *  rule off. */
-export interface MapThresholds {
-  repeated_fact_min?: number;
-  hotspot_in_degree?: number;
-  hotspot_bytes?: number;
-  oversize_bytes?: number;
-  oversize_concepts?: number;
-  title_max_length?: number;
-  forbidden_title_terms?: string[];
 }
 
 /** GET /kbs/{kb}/maps. */

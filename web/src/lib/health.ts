@@ -133,7 +133,6 @@ const LABELS: Record<string, string> = {
   missing_instructions: "No instructions for agents",
   hook_invalid: "Invalid hooks",
   unused_placeholder: "Placeholders nobody uses",
-  lint_ignore_invalid: "Exemptions that exempt nothing",
 };
 
 /**
@@ -237,7 +236,6 @@ const HELP: Record<string, string> = {
   missing_instructions: "No instructions.md telling agents how to work on this KB.",
   missing_registry: "Placeholders are cited but paths.yaml does not exist.",
   unused_placeholder: "A placeholder declared in paths.yaml that no page uses.",
-  lint_ignore_invalid: "An exemption that exempts nothing: the check it names never fires there.",
 };
 
 /**

@@ -252,7 +252,6 @@ function breakdown(counts: Map<string, number>): string {
 
 function harvestLine(j: RetiredJournal): string {
   const archived = `${j.archived} archived`;
-  if (j.harvest_off) return `harvest off · ${archived}`;
   const waiting = `${j.waiting} closed ${j.waiting === 1 ? "entry" : "entries"} waiting to be harvested`;
   return `${waiting}${j.harvest_after ? ` (after ${j.harvest_after} days)` : ""} · ${archived}`;
 }
