@@ -713,19 +713,21 @@ func (k *KB) CommitOpAs(message, authorName, authorEmail string) (sha string, er
 	return sha, nil
 }
 
-// CommitPaths creates one commit containing changes to paths only. The
-// per-KB lock serialises its staging and commit with other git operations;
-// gitx uses a temporary index so unrelated dirty work remains untouched.
-func (k *KB) CommitPaths(paths []string, message string) error {
-	return k.WithGitLock(func() error { return k.commitPathsLocked(paths, message) })
+// CommitPaths creates one commit containing changes to paths only, authored
+// as authorName/authorEmail, or as the server identity when either is empty;
+// the committer is always the server (D904). The per-KB lock serialises its
+// staging and commit with other git operations; gitx uses a temporary index so
+// unrelated dirty work remains untouched.
+func (k *KB) CommitPaths(paths []string, message, authorName, authorEmail string) error {
+	return k.WithGitLock(func() error { return k.commitPathsLocked(paths, message, authorName, authorEmail) })
 }
 
 // commitPathsLocked is CommitPaths for a caller that already holds the git lock.
-func (k *KB) commitPathsLocked(paths []string, message string) error {
+func (k *KB) commitPathsLocked(paths []string, message, authorName, authorEmail string) error {
 	if !gitx.IsRepo(k.Root) {
 		return fmt.Errorf("CommitPaths: KB root is not a git repository")
 	}
-	if err := gitx.CommitPaths(k.Root, paths, message, "", "", k.GitCommandEnv()...); err != nil {
+	if err := gitx.CommitPaths(k.Root, paths, message, authorName, authorEmail, k.GitCommandEnv()...); err != nil {
 		if errors.Is(err, gitx.ErrNothingToCommit) {
 			return nil
 		}

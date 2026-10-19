@@ -309,6 +309,13 @@ func TestCmdImport_MessageCommitsOnlyImportPaths(t *testing.T) {
 	if message != "import: only planned paths" {
 		t.Errorf("commit message = %q", message)
 	}
+	// The operator who runs the import is its writer: git's identity for the
+	// KB's folder is the author, the server the committer (D904).
+	name, email := kb.ServerIdentity()
+	want := "Wiki Test <test@wiki.local> | " + name + " <" + email + ">"
+	if got := strings.TrimSpace(runImportGit(t, kbDir, "log", "-1", "--format=%an <%ae> | %cn <%ce>")); got != want {
+		t.Errorf("author | committer = %q, want %q", got, want)
+	}
 	files := runImportGit(t, kbDir, "show", "--format=", "--name-only", "HEAD")
 	for _, want := range []string{"data/notes/_map.md", "data/notes/index.md", "data/notes/log.md", "data/notes/note.md"} {
 		if !strings.Contains(files, want) {

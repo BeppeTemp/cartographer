@@ -89,7 +89,8 @@ func cmdImport(args []string) int {
 			commitMessage = fmt.Sprintf("import: %s -> %s", *source, *kbDir)
 		}
 		if len(writtenPaths) > 0 {
-			if err := k.CommitPaths(writtenPaths, commitMessage); err != nil {
+			authorName, authorEmail := operatorIdentity(k.Root)
+			if err := k.CommitPaths(writtenPaths, commitMessage, authorName, authorEmail); err != nil {
 				fmt.Fprintln(os.Stderr, "Error: commit:", err)
 				return 1
 			}

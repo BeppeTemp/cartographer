@@ -150,7 +150,7 @@ func cmdKBCreate(args []string) int {
 
 	// The author has to be right before the initial commit exists: it is the
 	// commit a forge with an author-membership push rule rejects (D156).
-	authorName, authorEmail := resolveCreateIdentity(path)
+	authorName, authorEmail := operatorIdentity(path)
 
 	// kb.Init creates <path> (and its parents, i.e. dataDir too) itself —
 	// no separate MkdirAll(dataDir) needed.
@@ -202,11 +202,12 @@ func cmdKBCreate(args []string) int {
 	return 0
 }
 
-// resolveCreateIdentity resolves the author of a new KB's initial commit: the
-// operator running the command is its writer, so git's own resolution for that
-// path (the per-folder identity included), then the server identity on a
-// machine with none (D904, D156).
-func resolveCreateIdentity(path string) (name, email string) {
+// operatorIdentity is the author of a commit a command makes directly in a
+// local KB at path (a new KB's initial commit, import --commit): the operator
+// running it is its writer, so git's own resolution for that path (the
+// per-folder identity included), then the server identity on a machine with
+// none (D904, D156).
+func operatorIdentity(path string) (name, email string) {
 	if n, e, err := gitx.AuthorIdent(path); err == nil && n != "" && e != "" {
 		return n, e
 	}
