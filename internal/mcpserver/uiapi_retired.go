@@ -82,7 +82,6 @@ type retiredJournal struct {
 	Name         string `json:"name"`
 	Title        string `json:"title,omitempty"`
 	HarvestAfter int    `json:"harvest_after,omitempty"`
-	HarvestOff   bool   `json:"harvest_off,omitempty"`
 	// Waiting is the closed entries kb_review offers for harvesting; Archived
 	// the ones already harvested.
 	Waiting  int `json:"waiting"`
@@ -223,7 +222,7 @@ func uiRetired(w http.ResponseWriter, r *http.Request, srv *Server) {
 		}
 		j := retiredJournal{Name: name, Title: title, Waiting: waiting[name], Archived: archivedIn[name]}
 		if contract, cerr := k.ReadMapContract(name); cerr == nil {
-			j.HarvestAfter, _, j.HarvestOff = effectiveHarvestAfter(&contract)
+			j.HarvestAfter, _ = effectiveHarvestAfter(&contract)
 		}
 		journals = append(journals, j)
 	}

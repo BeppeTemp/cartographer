@@ -1695,12 +1695,9 @@ func toolConceptMove(k *kb.KB) Tool {
 	}
 }
 
-// moveOptions are the two things concept_archive changes about the shared move
-// core (D344).
+// moveOptions is what concept_archive changes about the shared move core
+// (D344).
 type moveOptions struct {
-	// ForceSourceIndexRemoval removes the moved concept's entry from the source
-	// map's curated index even when that map never declared require_index_entry.
-	ForceSourceIndexRemoval bool
 	// LogTitle replaces the "concept_move (n move(s))" header of the log entry.
 	LogTitle string
 }
@@ -1891,7 +1888,7 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 		// not mention it (index_incomplete). Only maps that asked for a
 		// curated index are edited — rewriting prose nobody declared as
 		// curated would be an assumption, not a fix (D160).
-		if notes := maintainCuratedIndexes(k, applied, opts.ForceSourceIndexRemoval); len(notes) > 0 {
+		if notes := maintainCuratedIndexes(k, applied); len(notes) > 0 {
 			result["curated_indexes"] = notes
 			logLines = append(logLines, notes...)
 		}
@@ -2200,38 +2197,22 @@ func toolConceptCollapse(k *kb.KB) Tool {
 }
 
 // maintainCuratedIndexes removes the moved concept's entry from the source map's
-// curated index and appends one to the destination's, for maps that opted in with
-// require_index_entry (D160). Returns one human-readable note per action.
+// curated index and appends one to the destination's (D160). Every curated
+// index must list its map's concepts (index_incomplete is always on, D907), so
+// every curated index is maintained; a generated one (D301) is the server's
+// and gitWrap rewrites it. Returns one human-readable note per action.
 //
 // Both edits are conservative. A source line is removed only when the moved
 // concept is its ONLY link: a line citing two concepts is prose the operator
 // wrote, so it is kept and reported instead. The destination entry is appended
 // under a "## Moved here" heading created if absent — Cartographer cannot know the
 // right thematic section, and a wrong placement in a curated document is worse
-// than an obvious one at the end. Only maps that declared require_index_entry are
-// touched: editing an index nobody called curated would be an assumption.
-func maintainCuratedIndexes(k *kb.KB, applied []conceptMoveEntry, forceSourceRemoval bool) []string {
+// than an obvious one at the end.
+func maintainCuratedIndexes(k *kb.KB, applied []conceptMoveEntry) []string {
 	var notes []string
-	// A generated index (D301) is the server's: gitWrap rewrites it.
-	curated := func(mapName string) (contract kb.MapContract, ok bool) {
+	curated := func(mapName string) bool {
 		contract, err := k.ReadMapContract(mapName)
-		return contract, err == nil && contract.Index != kb.IndexGenerated
-	}
-	requiresIndex := func(mapName string) bool {
-		contract, ok := curated(mapName)
-		return ok && contract.RequireIndexEntry
-	}
-	// TRAP (D344): the two sides are gated differently on purpose. A generic
-	// rename (concept_move) edits the SOURCE index only when the map opted in
-	// with require_index_entry; a retirement (concept_archive) is explicit
-	// intent, so it removes the entry from any non-generated index. The
-	// destination side stays opt-in for both.
-	srcEdited := func(mapName string) bool {
-		if forceSourceRemoval {
-			_, ok := curated(mapName)
-			return ok
-		}
-		return requiresIndex(mapName)
+		return err == nil && contract.Index != kb.IndexGenerated
 	}
 	for _, mv := range applied {
 		srcMap, srcOK := conceptMapName(mv.SourceID)
@@ -2239,7 +2220,7 @@ func maintainCuratedIndexes(k *kb.KB, applied []conceptMoveEntry, forceSourceRem
 		if !srcOK || !dstOK || srcMap == dstMap {
 			continue
 		}
-		if srcEdited(srcMap) {
+		if curated(srcMap) {
 			removed, kept, err := removeCuratedEntry(k, srcMap, okf.ConceptID(mv.SourceID))
 			switch {
 			case err != nil:
@@ -2250,7 +2231,7 @@ func maintainCuratedIndexes(k *kb.KB, applied []conceptMoveEntry, forceSourceRem
 				notes = append(notes, fmt.Sprintf("curated index %s/index.md: kept a line citing %s alongside other concepts, edit it by hand: %q", srcMap, mv.SourceID, kept))
 			}
 		}
-		if requiresIndex(dstMap) {
+		if curated(dstMap) {
 			if err := appendCuratedEntry(k, dstMap, okf.ConceptID(mv.TargetID)); err != nil {
 				notes = append(notes, fmt.Sprintf("curated index %s/index.md: %v", dstMap, err))
 			} else {
@@ -2604,11 +2585,11 @@ func rewriteBacklinks(k *kb.KB, moveMap map[string]string) ([]rewrittenConcept, 
 
 // rewriteIndexLinks redirects the links to a moved concept in the root and
 // every map's index.md. Indexes are not concepts, so rewriteBacklinks never
-// reads them, and maintainCuratedIndexes only edits the source and target maps
-// that opted in: an index of a third map citing the concept kept the old path,
-// a broken_link with no mechanical fix. Pointing an existing link at where its
-// target now lives adds or removes no entry, so it needs no opt-in (D160 is
-// about entries). Returns the index paths written ("" is the root).
+// reads them, and maintainCuratedIndexes only edits the source and target
+// maps: an index of a third map citing the concept kept the old path, a
+// broken_link with no mechanical fix. Pointing an existing link at where its
+// target now lives adds or removes no entry (D160 is about entries). Returns
+// the index paths written ("" is the root).
 func rewriteIndexLinks(k *kb.KB, moveMap map[string]string) ([]string, error) {
 	maps, err := k.ListArchives()
 	if err != nil {

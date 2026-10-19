@@ -504,7 +504,7 @@ func createImportMaps(k *kb.KB, plan *importPlan) ([]string, error) {
 		if !os.IsNotExist(err) {
 			return nil, fmt.Errorf("stat destination map %q: %w", name, err)
 		}
-		if err := k.CreateMap(name, name, "map", nil, ""); err != nil {
+		if err := k.CreateMap(name, name, "map", nil); err != nil {
 			return nil, err
 		}
 		for _, scaffold := range []string{"_map.md", "index.md", "log.md"} {
