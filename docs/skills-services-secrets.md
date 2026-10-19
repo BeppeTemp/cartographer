@@ -12,9 +12,9 @@ bundled skill into the KB.
 
 The bundled catalog (`internal/skillbundle/bundled/`) is `cartographer-ops`, `kb-create`,
 `kb-import`, `kb-conflict-resolve`, `kb-doctor` and `kb-ingest`. `kb-doctor` (D290) aligns a
-drifted KB in budgeted sessions; it ships two read-only POSIX shell scripts under `scripts/`
-(`suppression_inventory.sh`, `section_freq.sh`) that answer aggregate questions from a local
-clone, guarded by `internal/skillbundle/scripts_test.go`. `kb-ingest` (D279) ingests **one** primary
+drifted KB in budgeted sessions; it ships one read-only POSIX shell script under `scripts/`
+(`section_freq.sh`) that answers an aggregate question from a local clone, guarded by
+`internal/skillbundle/scripts_test.go`. `kb-ingest` (D279) ingests **one** primary
 source (document, transcript, thread, ticket, incident timeline, email, web page, dataset) into
 existing pages through the source ledger of D278: register, distil, patch rather than create,
 cite via `provenance`, open a `Contradiction` instead of overwriting, record gaps, verify with
