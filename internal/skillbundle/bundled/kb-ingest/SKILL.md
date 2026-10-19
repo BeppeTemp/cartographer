@@ -1,7 +1,7 @@
 ---
 name: kb-ingest
 description: Ingest ONE primary source of any kind (document, meeting transcript or notes, chat thread, ticket or issue, incident timeline, email, web page, dataset) into an existing Cartographer KB - register it, merge its content into the pages that own the subject, record unknowns and contradictions, and leave a trace of which pages came from which source.
-version: "1.0"
+version: "1.1"
 ---
 # KB Ingest — Skill
 
@@ -56,10 +56,19 @@ plan first (pages to patch or create, gaps, contradictions) and wait for approva
 ingestions proceed directly. This threshold is the same for every client.
 
 ### 6. Write
+Every concept write goes through the write gate (D907): a call that introduces a finding a write
+can avoid (a broken link, an orphan, a missing index entry, a home path, a `TODO` marker, a
+missing template section…) is refused, nothing is written, and the refusal lists each finding
+with its fix. Write what the gate accepts:
 - `concept_patch` / `concept_new` / `concept_write`, each with a `reason` naming the Source ID.
 - Add the Source ID to the `provenance` of **every touched page**.
-- A new page is also added to its map's `index.md` (`index_patch`).
-- `concept_batch` when several pages change together (one commit).
+- A new page lands with its way in, in **one** `concept_batch` (atomic, one commit): `index_entry:
+  true` on its creating write, and a link to it from the page that owns the nearest subject. The
+  map's index is not a link: a page no concept links to is an orphan (one at the map's top level
+  escapes only by linking out).
+- **Link, don't copy**: a fact another page owns is a `[[id]]` link to that page, not a second copy.
+- Open work is a checkbox (`- [ ] …`) on the page that owns it, never a `TODO`/`TBD`/`FIXME`
+  marker; an unknown is a `Contradiction` (step 7).
 - Credentials found in the source never go into a page: store them with `secret_set` (SOPS; see
   the `kb-create` skill's `references/secrets.md`) or leave them out and flag them to the operator.
 
@@ -94,7 +103,8 @@ left for the operator: they block the gate on purpose.
 
 - Tools: `source_register`, `source_list`, `search`, `graph_context`, `link_suggest`,
   `concept_read`, `concept_history`, `concept_patch`, `concept_new`, `concept_write`,
-  `concept_batch`, `index_patch`, `gate_check`, `log_append`, `secret_set`, `conflict_resolve`.
+  `concept_batch`, `gate_check`, `log_append`, `secret_set`, `conflict_resolve`.
 - Per-kind guidance: `references/source-kinds.md`.
 - Rationale: decisions D278 (source ledger), D272 (`reason`), D273 (gaps), D274
-  (`concept_history`), D279 (this skill), found with `ls docs/decisions/D279-*`.
+  (`concept_history`), D279 (this skill), D907 (the write gate), found with
+  `ls docs/decisions/D279-*`.

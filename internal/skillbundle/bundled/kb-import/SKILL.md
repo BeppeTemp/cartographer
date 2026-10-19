@@ -1,7 +1,7 @@
 ---
 name: kb-import
 description: Agent-guided procedure to import an existing non-OKF wiki or knowledge base (Obsidian vault, markdown folder, wiki export) into a Cartographer KB, incrementally and without big-bang LLM rewriting.
-version: "1.3"
+version: "1.4"
 ---
 # KB Import — Skill
 
@@ -75,13 +75,19 @@ source directories to a map, rewrites relative markdown links best-effort
 (OKF invariants enforced), no per-file commits: make **one import commit** and push.
 
 *Fallback*: if the binary predates `cartographer import` or the source is not markdown, do the
-scaffold agent-side with `concept_write` in small batches (10–20 files), still marking each
-concept `status: imported` — the rest of the procedure is unchanged.
+scaffold agent-side with `concept_batch` (up to 50 operations per call), still marking each
+concept `status: imported`. Unlike the CLI scaffold, these writes go through the write gate
+(D907): a batch that introduces a finding a write can avoid (a broken link, an orphan, a missing
+index entry, a home path, a `TODO` marker…) is refused whole. So batch together pages that link
+to each other, set `index_entry: true` on every creating write, keep a link to a page a later
+batch creates as plain text (step 5 restores it), and write placeholders for home paths from the
+start — the rest of the procedure is unchanged.
 
 ### 4. Verify the import
 - `atlas_overview` — structure matches the approved plan;
 - `lint` on the imported scope — expect a backlog of `imported_draft` warnings (that is the
-  curation queue, not an error) plus possible `broken_link`/`orphan`; fix only what is trivial;
+  curation queue, not an error) plus, after a CLI scaffold, possible `broken_link`/`orphan`; fix
+  only what is trivial;
 - a couple of `search` spot-checks on known content.
 
 ### 5. Incremental curation (across sessions)
@@ -115,11 +121,11 @@ skill.
 ## Reference
 
 - Tools: `atlas_overview`, `map_create`, `concept_expand`, `concept_read`, `concept_write`,
-  `concept_patch`, `concept_move`, `concept_list`, `supersede`, `lint`, `search`, `log_append`;
-  `artifact_read`/`artifact_write` for the KB's `paths.yaml`.
+  `concept_patch`, `concept_batch`, `concept_move`, `concept_list`, `supersede`, `lint`, `search`,
+  `log_append`; `artifact_read`/`artifact_write` for the KB's `paths.yaml`.
 - CLI: `cartographer import` (see D74 WP2), `kb-create` skill for a brand-new target KB,
   for authoring artifacts (`references/artifacts.md`) and for the SOPS flow
   (`references/secrets.md`); `cartographer-ops` for operations after the import.
 - Rationale and scope: decisions D74 (import), D28 (why no server-side ingest), D72
-  (wiki-links, `concept_move` batch) — one file each under `docs/decisions/`,
-  found with `ls docs/decisions/D74-*`.
+  (wiki-links, `concept_move` batch), D907 (the write gate) — one file each under
+  `docs/decisions/`, found with `ls docs/decisions/D74-*`.
