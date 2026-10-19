@@ -96,3 +96,32 @@ kbs:
 		t.Errorf("a file without them: creds %v problems %v", creds, problems)
 	}
 }
+
+// A per-KB directory mounted from a Kubernetes Secret, sops-nix or agenix
+// holds links: the one to a file is copied, the one to a directory ignored,
+// and a broken one is a problem, so the config is not realigned without it.
+func TestLegacyCredentialsFollowLinks(t *testing.T) {
+	clearLegacyCredentialEnv(t)
+	tokens, data := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(data, "kb-a.token"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	links := map[string]string{
+		"kb-a.token":   filepath.Join(data, "kb-a.token"),
+		"kb-b.token":   filepath.Join(data, "missing"),
+		"nested.token": data,
+	}
+	for name, target := range links {
+		if err := os.Symlink(target, filepath.Join(tokens, name)); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	creds, problems := LegacyCredentials([]byte("git:\n  token_dir: " + tokens + "\n"))
+	want := []LegacyCredential{{Setting: "git.token_dir", Target: "kb-a.token", From: filepath.Join(tokens, "kb-a.token")}}
+	if !reflect.DeepEqual(creds, want) {
+		t.Errorf("creds = %+v, want %+v", creds, want)
+	}
+	if len(problems) != 1 || !strings.Contains(problems[0], "kb-b.token by hand") {
+		t.Errorf("problems = %v, want the broken link reported", problems)
+	}
+}

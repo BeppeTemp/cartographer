@@ -254,8 +254,8 @@ not configured. A KB name that would point outside the directory has no file of 
   settings point at: `git.ssh_key`, `kbs[].ssh_key`, `git.known_hosts`, `kbs[].known_hosts`,
   `git.token_dir`, `sops.age_key_file`, `sops.age_key_dir`, `kbs[].sops_age_key_file`,
   `kbs[].artifact_signing_seed` and `audit.key_seed`, and their `CARTOGRAPHER_*` variables. A file is
-  copied, never moved; an inline value is written; every known_hosts goes into the one file; a file already
-  in the directory is kept. The log names settings and files, never a value. What cannot be written (a
+  copied, never moved, links followed (a directory mounted from a Kubernetes Secret holds links); an inline
+  value is written; every known_hosts goes into the one file; a file already in the directory is kept. The log names settings and files, never a value. What cannot be written (a
   read-only directory) is logged as the file to create by hand, and the server YAML is not realigned until
   every secret is in place, so it still holds them at the next start.
 

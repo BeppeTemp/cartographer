@@ -93,9 +93,25 @@ func LegacyCredentials(data []byte) (creds []LegacyCredential, problems []string
 		}
 		names := make([]string, 0, len(entries))
 		for _, e := range entries {
-			if e.Type().IsRegular() && strings.HasSuffix(e.Name(), "."+kind) && safeCredentialName(strings.TrimSuffix(e.Name(), "."+kind)) {
-				names = append(names, e.Name())
+			n := e.Name()
+			if !strings.HasSuffix(n, "."+kind) || !safeCredentialName(strings.TrimSuffix(n, "."+kind)) {
+				continue
 			}
+			if e.Type()&os.ModeSymlink != 0 {
+				// A Kubernetes Secret volume, sops-nix and agenix present each
+				// file as a link, which the removed lookup read through.
+				fi, err := os.Stat(filepath.Join(path, n))
+				if err != nil {
+					problems = append(problems, fmt.Sprintf("%s: %v; copy %s by hand", setting, err, n))
+					continue
+				}
+				if !fi.Mode().IsRegular() {
+					continue
+				}
+			} else if !e.Type().IsRegular() {
+				continue
+			}
+			names = append(names, n)
 		}
 		sort.Strings(names)
 		for _, n := range names {
