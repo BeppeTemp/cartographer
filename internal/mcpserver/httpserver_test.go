@@ -458,15 +458,26 @@ func TestClients_NoOverflow(t *testing.T) {
 // --- D176: readiness accounts for a required-mode audit sink ---
 
 // unhealthyRequiredLog returns an audit log in required mode whose next append
-// fails, which is what makes it report not-ready. The file is opened per append
-// (audit.appendDurable), so making it read-only is enough.
+// fails, which is what makes it report not-ready.
 func unhealthyRequiredLog(t *testing.T) *audit.Log {
+	t.Helper()
+	l := unhealthyLog(t, "required")
+	if st := l.State(); st.Ready {
+		t.Fatal("expected the sink to report not-ready")
+	}
+	return l
+}
+
+// unhealthyLog returns an audit log in the given mode whose last append failed.
+// The file is opened per append (audit.appendDurable), so making it read-only
+// is enough.
+func unhealthyLog(t *testing.T, mode string) *audit.Log {
 	t.Helper()
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores file permissions, so the append cannot be made to fail")
 	}
 	path := filepath.Join(t.TempDir(), "audit.jsonl")
-	l, err := audit.OpenWithOptions(path, audit.Options{Mode: "required"})
+	l, err := audit.OpenWithOptions(path, audit.Options{Mode: mode})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -477,8 +488,8 @@ func unhealthyRequiredLog(t *testing.T) *audit.Log {
 	if err := l.Append(audit.Entry{Tool: "x"}); err == nil {
 		t.Fatal("expected the append to fail against a read-only file")
 	}
-	if st := l.State(); st.Ready {
-		t.Fatal("expected the sink to report not-ready")
+	if st := l.State(); st.Healthy {
+		t.Fatal("expected the sink to report unhealthy")
 	}
 	return l
 }
@@ -587,8 +598,10 @@ func TestMultiKB_Ready_SingleKBMountedStillGates(t *testing.T) {
 	}
 }
 
-// TestMultiKB_Ready_NoSinkUnaffected: a deployment without an audit sink, or
-// with one in best-effort mode, keeps reporting ready exactly as before.
+// TestMultiKB_Ready_NoSinkUnaffected: a deployment without an audit sink keeps
+// reporting ready exactly as before. Since D905 that is a best_effort server
+// whose always-on log could not be opened: openAuditLog returns no sink, the
+// state the server had when the log was off.
 func TestMultiKB_Ready_NoSinkUnaffected(t *testing.T) {
 	t.Parallel()
 	m := NewMultiKBServer("test")
@@ -599,6 +612,43 @@ func TestMultiKB_Ready_NoSinkUnaffected(t *testing.T) {
 	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ready", nil))
 	if rec.Code != http.StatusOK {
 		t.Errorf("/ready status = %d, want 200", rec.Code)
+	}
+}
+
+// TestMultiKB_Ready_BestEffortSinkUnaffected: since D905 every server has an
+// audit sink, best_effort unless configured otherwise. One that fails its
+// writes keeps the server ready, since the calls still succeed, and /health
+// still shows it unhealthy, so the failure is visible without failing a probe.
+func TestMultiKB_Ready_BestEffortSinkUnaffected(t *testing.T) {
+	t.Parallel()
+	m := NewMultiKBServer("test")
+	s := New("test")
+	s.SetAuditLog(unhealthyLog(t, "best_effort"))
+	m.servers["kb-a"] = s
+	m.kbs = []KBInfo{{Name: "kb-a", Status: "normal"}}
+
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("/ready status = %d, want 200 with a best_effort sink", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	var body struct {
+		Ready bool `json:"ready"`
+		KBs   []struct {
+			Audit *audit.State `json:"audit"`
+		} `json:"kbs"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Ready {
+		t.Error("/health ready = false with a best_effort sink")
+	}
+	if len(body.KBs) != 1 || body.KBs[0].Audit == nil || body.KBs[0].Audit.Healthy {
+		t.Errorf("/health does not show the unhealthy sink: %+v", body.KBs)
 	}
 }
 
