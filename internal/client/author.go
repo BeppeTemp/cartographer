@@ -15,11 +15,13 @@ const (
 )
 
 // EncodeAuthor is author as the header value every sender writes (D904): as is
-// when it is visible ASCII with no surrounding blank, else base64 in the
-// SEP-2243 form. A value with "$" or "{" is encoded too: a client config
-// expands "${VAR}" (and OpenCode "{env:VAR}") in a header it reads, so the
-// literal written by sync would not be what reaches the server. So is a
-// value that already reads as the encoded form.
+// when it holds only letters, digits, inner spaces and . - _ @ < > + ' ( ) ,
+// and else base64 in the SEP-2243 form. That is stricter than SEP-2243, which
+// leaves any visible ASCII plain: the value sync writes goes through a client
+// config, and those expand "${VAR}", "$VAR", "$(cmd)" (Crush) or "{env:VAR}"
+// (OpenCode) in a header, so only text no config can read as a template
+// stays plain. The encoded form itself is never plain, so a value that
+// already reads as it is encoded again.
 func EncodeAuthor(author string) string {
 	if author == "" || !authorNeedsBase64(author) {
 		return author
@@ -47,13 +49,16 @@ func DecodeAuthor(value string) (author string, ok bool) {
 }
 
 func authorNeedsBase64(s string) bool {
-	if s[0] == ' ' || s[0] == '\t' || s[len(s)-1] == ' ' || s[len(s)-1] == '\t' {
+	if s[0] == ' ' || s[len(s)-1] == ' ' {
 		return true
 	}
 	for i := 0; i < len(s); i++ {
-		if c := s[i]; c < 0x20 || c > 0x7E || c == '$' || c == '{' {
+		c := s[i]
+		plain := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			strings.IndexByte(" .-_@<>+'(),", c) >= 0
+		if !plain {
 			return true
 		}
 	}
-	return strings.HasPrefix(s, authorBase64Prefix) && strings.HasSuffix(s, authorBase64Suffix)
+	return false
 }

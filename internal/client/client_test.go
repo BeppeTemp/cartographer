@@ -652,9 +652,9 @@ func TestAuthorGoesOnToolCallsOnly(t *testing.T) {
 	}
 }
 
-// Whatever the author, what goes on the wire is visible ASCII that a client
-// config does not expand, and the server reads back the same text. Plain
-// ASCII stays readable.
+// Whatever the author, what goes on the wire is visible ASCII that no client
+// config reads as a template, and the server reads back the same text. A
+// plain name stays readable.
 func TestEncodeAuthorKeepsTheWireASCII(t *testing.T) {
 	for _, author := range []string{
 		"Ada Lovelace <ada@example.com>",
@@ -662,12 +662,14 @@ func TestEncodeAuthorKeepsTheWireASCII(t *testing.T) {
 		"李雷 <li@example.cn>",
 		"Ada ${HOME} <ada@example.com>",
 		"Ada {env:HOME} <ada@example.com>",
+		"Ada $(id) <ada@example.com>",
+		"Ada `id` %USERNAME% <ada@example.com>",
 		" Ada <ada@example.com>",
 		"=?base64?QWRh?=",
 	} {
 		wire := client.EncodeAuthor(author)
 		for i := 0; i < len(wire); i++ {
-			if c := wire[i]; c < 0x20 || c > 0x7E || c == '$' || c == '{' {
+			if c := wire[i]; c < 0x20 || c > 0x7E || strings.IndexByte("${}`%\\\"", c) >= 0 {
 				t.Errorf("EncodeAuthor(%q) = %q: byte %q on the wire", author, wire, c)
 				break
 			}
@@ -676,8 +678,10 @@ func TestEncodeAuthorKeepsTheWireASCII(t *testing.T) {
 			t.Errorf("DecodeAuthor(%q) = %q, %v, want %q", wire, got, ok, author)
 		}
 	}
-	if got := client.EncodeAuthor("Ada Lovelace <ada@example.com>"); got != "Ada Lovelace <ada@example.com>" {
-		t.Errorf("plain ASCII was encoded: %q", got)
+	for _, plain := range []string{"Ada Lovelace <ada@example.com>", "O'Brien-Smith, Jr. (ops) <ob+kb@example.com>"} {
+		if got := client.EncodeAuthor(plain); got != plain {
+			t.Errorf("a plain name was encoded: %q", got)
+		}
 	}
 	if _, ok := client.DecodeAuthor("=?base64?not base64!?="); ok {
 		t.Error("invalid base64 decoded")
