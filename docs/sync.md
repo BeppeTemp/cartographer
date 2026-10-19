@@ -628,10 +628,11 @@ anchor itself, so a default that is absolute or climbs out with `..` is ignored 
 sent it.
 
 The server-side `machine_path` lint flags a literal client-local path left in a concept body
-instead of one of these placeholders. Not every absolute path in a body is client-local: a Map's
-`machine_path_allow_prefixes` contract (D124, `docs/data-plane.md` §Maps and Journals) declares
-absolute prefixes — a container image's home directory, a remote node's runtime path — that are
-identical on every reader's machine and therefore not a placeholder candidate.
+instead of one of these placeholders. Not every absolute path in a body is client-local: a path
+inside a URL is not one (D124), a container or cluster path (`/etc/…`, `/var/…`) is never a
+candidate, and the conventional tool paths every machine agrees on (`~/.ssh/config`,
+`~/.kube/config`, D313) are documentation. No map declares more exceptions (D907): a remote
+node's home directory is written `$HOME/…`, a clone or a local folder as a placeholder.
 
 **No server-side expansion**: it would break `content_hash`/`if_match` (hash on the raw content, content
 served differently per client) and the server doesn't know clients' filesystems. `internal/mcpserver`

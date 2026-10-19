@@ -112,8 +112,9 @@ cheapest first:
    `log_append` listing every decision.
 4. **What the KB does not know**: a fact nobody in the session can supply yet becomes a
    `Contradiction` of kind `missing_context` or `open_question` naming the concept and the
-   question, and the review item is dismissed with `lint_ignore` citing the gap. Ingest and any
-   other session record gaps the same way. Gaps never block a gate (D273); `kb_status.open_gaps`
+   question; the review item stays listed until the answer is written (nothing dismisses an item,
+   D907), and the next session finds the gap instead of asking again. Ingest and any other session
+   record gaps the same way. Gaps never block a gate (D273); `kb_status.open_gaps`
    and the Atlas Health panel list them.
 
 The Atlas Health panel lists what layer 3 has to decide, by kind (lint findings and `kb_review`
