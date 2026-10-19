@@ -11,7 +11,9 @@ syncs exactly when it has a remote), `git.in_window` and `git.out_debounce` beco
 `kbs[].path` is removed (`kbs[]` entries name a remote; a folder under `data` is discovered; `--kb` and
 `CARTOGRAPHER_KB` mount one folder from the command line, with no remote and so no sync). `kbs[].git_branch`
 becomes `branch`, a key that exists only in the KB's `settings.yaml` and is read only from the file committed on
-the remote's default branch. A push the remote refuses because the branch is protected is reported as that and
+the remote's default branch. A `branch` that is not a valid branch name is not read as "no setting", which would
+send writes to the default branch: the sync and the push are refused with an error naming the setting until it is
+fixed on the default branch. A push the remote refuses because the branch is protected is reported as that and
 is not retried.
 
 Upgrading realigns the installation. One mechanism (`settingschema.Schema.Realign`) rewrites a settings file
