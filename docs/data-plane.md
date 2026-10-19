@@ -502,7 +502,7 @@ Every other check is avoidable at write, and the write gate refuses a write that
 | Whole graph, map or KB, not evaluated by the write path | `cut_concept`, `island`, `map_misfit` | they depend on concepts other than the one written (the registry's `WholeGraph`) |
 | Whole graph, map or KB, not evaluated by the write path | `facet_sprawl`, `missing_value_contract`, `map_without_templates` | a property of the whole map (its tags, a field's values, its page count), closed by the pages or the map's contract, not by the write that happens to land on it |
 | Whole graph, map or KB, not evaluated by the write path | `unused_placeholder` | a `paths.yaml` key no page or artifact cites: it depends on every page |
-| Not a lint finding | the twelve `kb_review` kinds: `duplicate_candidate`, `zombie_work`, `promotion_candidate`, `glossary_gap`, `lint_judgement`, `repeated_fact`, `read_hotspot`, `scattered_work`, `status_reclassify`, `harvest_candidate`, `template_proposal`, `map_naming` | an item of the doctor's list, not gated: each closes when the pages it names are in the state it asks for (§Review keys) |
+| Not a lint finding | the twelve review kinds: `duplicate_candidate`, `zombie_work`, `promotion_candidate`, `glossary_gap`, `lint_judgement`, `repeated_fact`, `read_hotspot`, `scattered_work`, `status_reclassify`, `harvest_candidate`, `template_proposal`, `map_naming` | a `kb_review` item of the doctor's list, not gated: each closes when the pages it names are in the state it asks for (§Review keys) |
 
 ### Conformance checks (D289)
 
