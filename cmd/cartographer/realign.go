@@ -47,7 +47,7 @@ func announceConfig(cfg *config.Config, configPath string) {
 	for _, w := range cfg.Warnings {
 		log.Printf("warning: %s", w)
 	}
-	placed := migrateCredentials(cfg.CredentialsPath(), configPath)
+	placed := migrateCredentials(cfg, configPath)
 	if configPath == "" {
 		return
 	}
@@ -75,7 +75,8 @@ func announceConfig(cfg *config.Config, configPath string) {
 // settings and files, never a value; what cannot be written (a read-only mount)
 // is listed as the file to create. It reports whether nothing is left to place,
 // which is also the case of a second run.
-func migrateCredentials(credDir, configPath string) (placed bool) {
+func migrateCredentials(cfg *config.Config, configPath string) (placed bool) {
+	credDir := cfg.CredentialsPath()
 	var data []byte
 	if configPath != "" {
 		data, _ = os.ReadFile(configPath) // a file that cannot be read did not load either
@@ -84,7 +85,7 @@ func migrateCredentials(credDir, configPath string) (placed bool) {
 	if len(creds) == 0 && len(problems) == 0 {
 		return true
 	}
-	if err := checkCredentialsDir(credDir); err != nil {
+	if err := checkCredentialsDir(cfg); err != nil {
 		// Nothing is written into a KB: the start refuses with this error.
 		return false
 	}

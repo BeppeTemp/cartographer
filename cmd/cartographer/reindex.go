@@ -137,7 +137,7 @@ func localReindexTargets(only string) ([]reindexTarget, error) {
 		byName[name] = reindexTarget{Name: name, Path: filepath.Join(cfg.Data, name)}
 	}
 	if cfg.Data != "" {
-		paths, err := discoverKBPaths(cfg.Data)
+		paths, err := discoverKBPaths(cfg.Data, cfg.CredentialsPath())
 		if err != nil {
 			return nil, err
 		}

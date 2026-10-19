@@ -27,7 +27,7 @@ func TestDiscoverKBPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := discoverKBPaths(base)
+	got, err := discoverKBPaths(base, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestDiscoverKBPaths(t *testing.T) {
 func TestDiscoverKBPathsMissingDirCreated(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "does-not-exist-yet")
 
-	got, err := discoverKBPaths(base)
+	got, err := discoverKBPaths(base, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestDiscoverKBPathsMissingDirCreated(t *testing.T) {
 
 func TestDiscoverKBPathsEmpty(t *testing.T) {
 	base := t.TempDir()
-	got, err := discoverKBPaths(base)
+	got, err := discoverKBPaths(base, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

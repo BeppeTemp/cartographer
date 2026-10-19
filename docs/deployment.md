@@ -247,9 +247,11 @@ not configured. A KB name that would point outside the directory has no file of 
   A file its group can read is reported only when the server owns it: a Kubernetes Secret reaches a server
   that does not run as root as `root:<fsGroup>` with mode `0440`, whatever `defaultMode` says, and the
   group bit is how the server reads it. OpenSSH draws the same line for a private key.
-- **Never inside a KB.** A `credentials_dir` that is itself a KB (it holds `data/index.md`) refuses the
-  start, because the KB would commit the secrets. `credentials` and `audit` under `data` are never
-  discovered as KBs.
+- **Never inside a KB.** Every commit of a KB stages its whole working tree, so a `credentials_dir` in one
+  refuses the start: one that is a KB (it holds `data/index.md`) or lies inside one, one inside a
+  `kbs[].path` or a remote KB's clone under `data`, even before it exists, and one below a subdirectory of
+  `data`, which is discovered as a KB. A direct subdirectory of `data` is fine: as the credentials directory
+  it is not discovered, and neither are `credentials` and `audit`.
 - **Upgrading.** The first start of this version copies into the directory the secrets that the removed
   settings point at: `git.ssh_key`, `kbs[].ssh_key`, `git.known_hosts`, `kbs[].known_hosts`,
   `git.token_dir`, `sops.age_key_file`, `sops.age_key_dir`, `kbs[].sops_age_key_file`,

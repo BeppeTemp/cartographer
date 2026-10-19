@@ -118,13 +118,66 @@ func readAuditKey(p string) (audit.KeyPair, error) {
 	return kp, nil
 }
 
-// checkCredentialsDir refuses a credentials directory that is itself a KB: the
-// KB commits what is in its working tree, and the secrets would go with it.
-func checkCredentialsDir(credDir string) error {
-	if _, err := os.Stat(filepath.Join(credDir, "data", "index.md")); err == nil {
-		return fmt.Errorf("credentials_dir %s is a KB, and its files would be committed with it: set credentials_dir to another directory, or rename the KB", credDir)
+// checkCredentialsDir refuses a credentials directory in the working tree of a
+// KB: every commit stages the whole tree, so the secrets would be committed,
+// and pushed with the KB. That is a directory holding a KB or inside one, one
+// inside a kbs[] path or a remote KB's clone, which may not exist yet, and one
+// below a subdirectory of data that discovery mounts. A direct subdirectory of
+// data is not discovered once it is the credentials directory.
+func checkCredentialsDir(cfg *config.Config) error {
+	credDir := absPath(cfg.CredentialsPath())
+	inside := func(kbRoot string) error {
+		return fmt.Errorf("credentials_dir %s is inside the KB %s, and its files would be committed with it: set credentials_dir outside every KB", credDir, kbRoot)
+	}
+	for d := credDir; ; d = filepath.Dir(d) {
+		if _, err := os.Stat(filepath.Join(d, "data", "index.md")); err == nil {
+			if d == credDir {
+				return fmt.Errorf("credentials_dir %s is a KB, and its files would be committed with it: set credentials_dir to another directory, or rename the KB", credDir)
+			}
+			return inside(d)
+		}
+		if filepath.Dir(d) == d {
+			break
+		}
+	}
+	for _, spec := range cfg.KBs {
+		root := spec.Path
+		if spec.Remote != "" {
+			root = ""
+			if cfg.Data != "" {
+				root = filepath.Join(cfg.Data, resolveKBName(spec, ""))
+			}
+		}
+		if root != "" && pathWithin(credDir, absPath(root)) {
+			return inside(root)
+		}
+	}
+	if cfg.Data != "" {
+		data := absPath(cfg.Data)
+		if rel, err := filepath.Rel(data, credDir); err == nil && pathWithin(credDir, data) && rel != "." {
+			first := strings.SplitN(rel, string(filepath.Separator), 2)[0]
+			child := filepath.Join(data, first)
+			if child != credDir && !strings.HasPrefix(first, ".") && !serverOwnDataDir(child) {
+				return inside(child)
+			}
+		}
 	}
 	return nil
+}
+
+// absPath is path made absolute and clean, for comparing directories; a path
+// that cannot be made absolute is only cleaned.
+func absPath(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return filepath.Clean(path)
+}
+
+// pathWithin says whether path is root or below it; both absolute and clean.
+func pathWithin(path, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // credentialHint says which file a KB's remote would have been reached with,

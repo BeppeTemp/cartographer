@@ -160,32 +160,95 @@ func TestDiscoveryAndTheCredentialsDirectory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	paths, err := discoverKBPaths(data)
+	paths, err := discoverKBPaths(data, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(paths) != 1 || filepath.Base(paths[0]) != "kb-a" {
 		t.Errorf("discovered %v, want only kb-a", paths)
 	}
-	if err := checkCredentialsDir(filepath.Join(data, "credentials")); err != nil {
+	cfg := &config.Config{Data: data}
+	if err := checkCredentialsDir(cfg); err != nil {
 		t.Errorf("a plain credentials dir is refused: %v", err)
 	}
 
-	if err := os.MkdirAll(filepath.Join(data, "credentials", "data"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(data, "credentials", "data", "index.md"), []byte("# index\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	paths, err = discoverKBPaths(data)
+	writeIndex(t, filepath.Join(data, "credentials"))
+	paths, err = discoverKBPaths(data, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(paths) != 2 {
 		t.Errorf("a KB named credentials is discovered as a KB, got %v", paths)
 	}
-	if err := checkCredentialsDir(filepath.Join(data, "credentials")); err == nil || !strings.Contains(err.Error(), "is a KB") {
+	if err := checkCredentialsDir(cfg); err == nil || !strings.Contains(err.Error(), "is a KB") {
 		t.Errorf("a credentials dir that is a KB must be refused, got %v", err)
+	}
+}
+
+// Every commit of a KB stages its whole working tree, so a credentials_dir in
+// one is refused, whether the KB exists yet or not and whether this server
+// mounts it or not; a direct subdirectory of data that is the credentials
+// directory is not discovered as a KB.
+func TestCredentialsDirOutsideEveryKB(t *testing.T) {
+	data := t.TempDir()
+	other := t.TempDir()
+	writeIndex(t, filepath.Join(data, "kb-a"))
+	writeIndex(t, filepath.Join(other, "unmounted"))
+	if err := os.MkdirAll(filepath.Join(data, "kb-b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	kbs := []config.KBSpec{
+		{Path: filepath.Join(other, "local")},
+		{Remote: "git@example.com:team/kb-c.git"},
+	}
+	for _, tc := range []struct {
+		credDir, refused string
+	}{
+		{filepath.Join(data, "kb-a", "secrets"), filepath.Join(data, "kb-a")},
+		{filepath.Join(data, "kb-b", "secrets"), filepath.Join(data, "kb-b")},
+		{filepath.Join(other, "local", "secrets"), filepath.Join(other, "local")},
+		{filepath.Join(other, "unmounted", "data", "secrets"), filepath.Join(other, "unmounted")},
+		{filepath.Join(data, "kb-c"), filepath.Join(data, "kb-c")},
+		{filepath.Join(data, "secrets"), ""},
+		{filepath.Join(data, "credentials", "prod"), ""},
+		{filepath.Join(data, ".secrets", "prod"), ""},
+		{filepath.Join(other, "secrets"), ""},
+		{data, ""},
+	} {
+		err := checkCredentialsDir(&config.Config{Data: data, CredentialsDir: tc.credDir, KBs: kbs})
+		switch {
+		case tc.refused == "" && err != nil:
+			t.Errorf("%s refused: %v", tc.credDir, err)
+		case tc.refused != "" && (err == nil || !strings.Contains(err.Error(), "inside the KB "+tc.refused+",")):
+			t.Errorf("%s: err = %v, want it inside %s", tc.credDir, err, tc.refused)
+		}
+	}
+
+	secrets := filepath.Join(data, "secrets")
+	if err := os.MkdirAll(secrets, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := discoverKBPaths(data, secrets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range paths {
+		if p == secrets {
+			t.Errorf("the credentials directory was discovered as a KB: %v", paths)
+		}
+	}
+	if len(paths) != 2 {
+		t.Errorf("discovered %v, want kb-a and kb-b", paths)
+	}
+}
+
+func writeIndex(t *testing.T, kbRoot string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(kbRoot, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(kbRoot, "data", "index.md"), []byte("# index\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

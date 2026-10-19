@@ -30,8 +30,11 @@ The choices the plan left to the implementation:
 - **Permissions are warned about, never refused**, once per file per process. A file other users can read is
   reported. A file its group can read is reported only when the server's user owns it. This narrows the plan's
   "group or others" (see Why).
-- **The directory must not be a KB.** A `credentials_dir` holding `data/index.md` refuses the start, and
-  `credentials` and `audit` under `data` are never discovered as KBs.
+- **The directory must not be in a KB.** A KB commits its whole working tree (`git add -A`), so a
+  `credentials_dir` that holds `data/index.md` or lies below a directory that does, inside a `kbs[].path` or
+  a remote KB's clone, or below a subdirectory of `data` (a discovered KB) refuses the start, whether that KB
+  exists yet or not. The credentials directory, `credentials` and `audit` under `data` are never discovered
+  as KBs.
 - **The upgrade copies, never moves.** The first start copies each removed setting's file, or writes its inline
   value (a `${NAME}` resolved), to its name in the directory, `0600`, never over an existing file; every
   `known_hosts` goes into the one file. The report names settings and files, never a value. What cannot be

@@ -206,7 +206,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		}
 	}
 	if cfg.Data != "" {
-		discovered, err := discoverKBPaths(cfg.Data)
+		discovered, err := discoverKBPaths(cfg.Data, cfg.CredentialsPath())
 		if err != nil {
 			log.Fatalf("--data discovery failed: %v", err)
 		}
@@ -395,7 +395,7 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 
 // runServe opens/bootstraps all configured KBs and starts the server.
 func runServe(cfg *config.Config) {
-	if err := checkCredentialsDir(cfg.CredentialsPath()); err != nil {
+	if err := checkCredentialsDir(cfg); err != nil {
 		log.Fatal(err)
 	}
 	auditLog, err := openAuditLog(cfg)
@@ -744,10 +744,11 @@ func resolveAuth(authCfg config.AuthConfig) (bool, error) {
 }
 
 // discoverKBPaths scans dataDir and returns the paths of its direct
-// subdirectories (dotfiles excluded). A missing dataDir is tolerated: it is
+// subdirectories (dotfiles excluded), except the server's own and credDir, the
+// credentials directory ("" for none). A missing dataDir is tolerated: it is
 // created and treated as empty (0 KB, matching D73's "empty data dir" case)
 // rather than failing the whole server startup.
-func discoverKBPaths(dataDir string) ([]string, error) {
+func discoverKBPaths(dataDir, credDir string) ([]string, error) {
 	entries, err := os.ReadDir(dataDir)
 	if os.IsNotExist(err) {
 		if mkErr := os.MkdirAll(dataDir, 0o755); mkErr != nil {
@@ -761,10 +762,12 @@ func discoverKBPaths(dataDir string) ([]string, error) {
 	}
 	var paths []string
 	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || serverOwnDataDir(filepath.Join(dataDir, e.Name())) {
+		path := filepath.Join(dataDir, e.Name())
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || serverOwnDataDir(path) ||
+			(credDir != "" && absPath(path) == absPath(credDir)) {
 			continue
 		}
-		paths = append(paths, filepath.Join(dataDir, e.Name()))
+		paths = append(paths, path)
 	}
 	return paths, nil
 }

@@ -745,7 +745,7 @@ func (h *healthInfo) hasNoKBs(dataDir string) bool {
 	if h.KBs != nil {
 		return len(*h.KBs) == 0
 	}
-	entries, err := discoverKBPaths(dataDir)
+	entries, err := discoverKBPaths(dataDir, "")
 	return err == nil && len(entries) == 0
 }
 
