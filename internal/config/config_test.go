@@ -339,7 +339,10 @@ func TestLoadRetiredGitKeysWarnAndTheProfileRefuses(t *testing.T) {
 func TestLoadRetiredAuthorKeysWarn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	data := []byte("git:\n  ssh_key: /k\n  author_name: Bot\n  author_email: bot@example.com\n  committer_name: Ci\n  committer_email: ci@example.com\n" +
-		"kbs:\n  - remote: https://git.example.com/user/kb-a.git\n    ssh_key: /a\n    author_name: Kb Bot\n    author_email: kb@example.com\n    committer_name: Kb Ci\n    committer_email: kb-ci@example.com\n")
+		"kbs:\n  - remote: https://git.example.com/user/kb-a.git\n    ssh_key: /a\n    author_name: Kb Bot\n    author_email: kb@example.com\n    committer_name: Kb Ci\n    committer_email: kb-ci@example.com\n" +
+		// A token with half an identity used to refuse the start; now it is only
+		// a warning.
+		"auth:\n  tokens:\n    - literal-token\n    - token: bot-token\n      id: bot\n      author_name: Bot\n")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -353,9 +356,13 @@ func TestLoadRetiredAuthorKeysWarn(t *testing.T) {
 	if len(cfg.KBs) != 1 || cfg.KBs[0].SSHKey != "/a" {
 		t.Errorf("KBs = %+v, want the entry with its SSH key", cfg.KBs)
 	}
+	if err := ValidateAuth(cfg.Auth); err != nil {
+		t.Errorf("auth with a retired token key: %v", err)
+	}
 	got := strings.Join(cfg.Warnings, "\n")
 	for _, key := range []string{"git.author_name", "git.author_email", "git.committer_name", "git.committer_email",
-		"kbs[0].author_name", "kbs[0].author_email", "kbs[0].committer_name", "kbs[0].committer_email"} {
+		"kbs[0].author_name", "kbs[0].author_email", "kbs[0].committer_name", "kbs[0].committer_email",
+		"auth.tokens[1].author_name"} {
 		if want := key + ": removed setting, ignored: " + kb.AuthorSettingRemoved; !strings.Contains(got, want) {
 			t.Errorf("warnings lack %q:\n%s", want, got)
 		}

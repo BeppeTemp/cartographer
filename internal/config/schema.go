@@ -31,7 +31,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "auth.mode", Scope: settingschema.ScopeServer, Type: "string", Values: "on | off | auto", Default: "auto", Env: "CARTOGRAPHER_AUTH", Restart: true, Example: "auto",
 		Description: "Bearer-token authentication of the HTTP transport. auto turns it on when at least one token is configured."},
 	{Path: "auth.tokens", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Env: "CARTOGRAPHER_TOKENS", Flag: "--tokens", Restart: true, Secret: true,
-		Description: "Bearer tokens: a bare string (admin, every KB) or a mapping with token, scopes (kb:<name>:r or kb:<name>:rw), roles, id, author_name and author_email. A token may be written ${NAME} to read it from the environment."},
+		Description: "Bearer tokens: a bare string (admin, every KB) or a mapping with token, scopes (kb:<name>:r or kb:<name>:rw), roles and id. A token may be written ${NAME} to read it from the environment."},
 	{Path: "auth.roles", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,
 		Description: "Named permission sets that tokens reference by name; each has a name and rules (kb, access r or rw, and optional maps, journals, types)."},
 
@@ -162,4 +162,6 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "kbs[].author_email", Plan: 904, Note: kb.AuthorSettingRemoved},
 	{Path: "kbs[].committer_name", Plan: 904, Note: kb.AuthorSettingRemoved},
 	{Path: "kbs[].committer_email", Plan: 904, Note: kb.AuthorSettingRemoved},
+	{Path: "auth.tokens[].author_name", Plan: 904, Note: kb.AuthorSettingRemoved + "; the token's id is a trailer of the commit"},
+	{Path: "auth.tokens[].author_email", Plan: 904, Note: kb.AuthorSettingRemoved + "; the token's id is a trailer of the commit"},
 }}

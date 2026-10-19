@@ -13,7 +13,7 @@ func TestLoadExpandsEnvRefsInSecretFields(t *testing.T) {
 	t.Setenv("CARTO_TEST_TOK", "s3cret")
 	t.Setenv("CARTO_TEST_SEED", "abcd")
 	path := filepath.Join(t.TempDir(), "c.yaml")
-	yaml := "auth:\n  tokens:\n    - token: ${CARTO_TEST_TOK}\n      id: bot\n      author_name: bot\n      author_email: bot@example.com\n    - literal-token\naudit:\n  key_seed: ${CARTO_TEST_SEED}\n"
+	yaml := "auth:\n  tokens:\n    - token: ${CARTO_TEST_TOK}\n      id: bot\n    - literal-token\naudit:\n  key_seed: ${CARTO_TEST_SEED}\n"
 	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -21,9 +21,8 @@ auth:
   mode: auto
   # --- available settings ---
   # Bearer tokens: a bare string (admin, every KB) or a mapping with token,
-  # scopes (kb:<name>:r or kb:<name>:rw), roles, id, author_name and
-  # author_email. A token may be written ${NAME} to read it from the
-  # environment.
+  # scopes (kb:<name>:r or kb:<name>:rw), roles and id. A token may be written
+  # ${NAME} to read it from the environment.
   # Default: []. Env: CARTOGRAPHER_TOKENS. Flag: --tokens. Needs a restart.
   # Secret: keep it out of version control.
   # tokens: []
