@@ -408,7 +408,7 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 	}
 	if m.Method == "tools/call" {
 		if a := b.author(scope, m.Params); a != "" {
-			req.Header.Set(client.AuthorHeader, a)
+			req.Header.Set(client.AuthorHeader, client.EncodeAuthor(a))
 		}
 	}
 

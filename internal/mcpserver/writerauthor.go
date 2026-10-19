@@ -17,7 +17,8 @@ import (
 
 // The author of a write is whoever wrote it (D904). A client that knows who it
 // acts for sends it in the Cartographer-Author request header as
-// "Name <email>"; without a valid one the write is authored as the token that
+// "Name <email>" (base64 in the SEP-2243 form when it is not plain ASCII,
+// client.EncodeAuthor); without a valid one the write is authored as the token that
 // made it. The committer is always the server, and the token id is recorded in
 // the Cartographer-Token trailer, which a client cannot forge.
 const (
@@ -60,7 +61,11 @@ func withAuthorHeader(ctx context.Context, h http.Header) context.Context {
 	if len(vals) > 1 {
 		return context.WithValue(ctx, callerAuthorKey{}, callerAuthor{problem: "sent more than once"})
 	}
-	name, email, problem := gitx.ParseIdent(vals[0])
+	value, ok := client.DecodeAuthor(vals[0])
+	if !ok {
+		return context.WithValue(ctx, callerAuthorKey{}, callerAuthor{problem: "not valid base64 in its encoded form"})
+	}
+	name, email, problem := gitx.ParseIdent(value)
 	return context.WithValue(ctx, callerAuthorKey{}, callerAuthor{name: name, email: email, problem: problem})
 }
 

@@ -313,8 +313,9 @@ const (
 const ClientName = "cartographer"
 
 // AuthorHeader carries the author of a tool call's writes, as "Name <email>"
-// (D904). The server reads it, and the clients send it on tools/call only: it
-// names a person, so it goes where a commit can come of it.
+// (D904) in its EncodeAuthor form. The server reads it, and the clients send it
+// on tools/call only: it names a person, so it goes where a commit can come of
+// it.
 const AuthorHeader = "Cartographer-Author"
 
 // clientVersion is the build stamp reported to the server, or "unknown".
@@ -384,7 +385,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 			}
 		}
 		if c.Author != "" {
-			httpReq.Header.Set(AuthorHeader, c.Author)
+			httpReq.Header.Set(AuthorHeader, EncodeAuthor(c.Author))
 		}
 	}
 	if c.Token != "" {

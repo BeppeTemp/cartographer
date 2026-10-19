@@ -2,6 +2,7 @@ package mcpbridge
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -169,5 +170,24 @@ func TestBridgeAuthorAsksGitOncePerFolder(t *testing.T) {
 	b.gitAuthor("/none")
 	if asked["/ws"] != 1 || asked["/none"] != 2 {
 		t.Errorf("after authorRetry git asked %v, want only the folder with no author again", asked)
+	}
+}
+
+// A name that is not plain ASCII goes in MCP's encoded form (SEP-2243).
+func TestBridgeEncodesANonASCIIAuthor(t *testing.T) {
+	rs := newRoutedServer(t, "kb-a")
+	cfg := bridgeConfig(rs)
+	ws := mkdir(t, t.TempDir())
+	bind(t, cfg, ws, "kb-a")
+	const who = "Zoë Pérez <zoe@example.test>"
+	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: ws, Token: testToken,
+		workTreeIdent: gitAnswers(map[string]string{ws: who})}
+	exchange(t, b, initMsg, initedMsg, callMsg(2, "kb_status", "kb-a"))
+
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	want := "=?base64?" + base64.StdEncoding.EncodeToString([]byte(who)) + "?="
+	if got := rs.authors["tools/call 2"]; len(got) != 1 || got[0] != want {
+		t.Errorf("author header = %q, want %q", got, want)
 	}
 }

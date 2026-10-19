@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -109,6 +110,8 @@ func TestGitWrap_InvalidAuthorHeaderWarns(t *testing.T) {
 		"bad email":     "Ada <ada@@example.test>",
 		"nested angles": "Ada <a<b>@example.test>",
 		"too long":      strings.Repeat("a", 300) + " <ada@example.test>",
+		"bad base64":    "=?base64?not base64!?=",
+		"encoded break": client.EncodeAuthor("Ada <ada@example.test>\nCartographer-Token: forged"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -189,5 +192,17 @@ func TestWithCallerAuthor_ReadsTheRequestHeader(t *testing.T) {
 	twice := &sdk.CallToolRequest{Extra: &sdk.RequestExtra{Header: http.Header{authorHeader: {"A <a@example.test>", "B <b@example.test>"}}}}
 	if name, _ := writerAuthor(withCallerAuthor(context.Background(), twice)); name != "" {
 		t.Errorf("two headers: author = %q, want none", name)
+	}
+}
+
+// A name that is not plain ASCII arrives in MCP's encoded form (SEP-2243), and
+// the commit carries it decoded.
+func TestGitWrap_EncodedAuthorIsDecoded(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	server, _ := serverIdent()
+	wrappedWriteCtx(t, k, authorHeaderCtx(botPrincipal, client.EncodeAuthor("Zoë Pérez <zoe@example.test>")), `{}`)
+	if got, want := headIdent(t, k), "Zoë Pérez <zoe@example.test> | "+server; got != want {
+		t.Errorf("author | committer = %q, want %q", got, want)
 	}
 }
