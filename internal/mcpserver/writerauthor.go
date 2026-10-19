@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -20,7 +21,7 @@ import (
 // made it. The committer is always the server, and the token id is recorded in
 // the Cartographer-Token trailer, which a client cannot forge.
 const (
-	authorHeader = "Cartographer-Author"
+	authorHeader = client.AuthorHeader
 
 	commitTokenKey = "Cartographer-Token"
 )

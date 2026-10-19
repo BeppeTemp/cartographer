@@ -462,6 +462,20 @@ is the one found on `PATH`, never the path of the running binary (a versioned Ce
 first `sync` after upgrading removes the project entries that D717 wrote into repositories.
 `cartographer workspace resolve [<path>]` prints which binding wins for a folder.
 
+**Who a session's writes are authored as (D904).** On each `tools/call`, and on nothing else, the
+bridge sends the `Cartographer-Author` header for the KB the server will pick: the `kb` argument,
+else the session's only KB; with several reachable and none named it sends none, and the server
+refuses the call anyway. The value is the KB's `identities` entry in `.cartographer.yaml`, else
+`identities.default`, else what git resolves in the folder the KB was bound from (the session's
+folder, or for a scope from roots the roots that bound it, which must agree), so an
+`includeIf gitdir:` setup applies to KB writes as to commits. A present entry always decides: an empty
+one sends no author, an invalid one sends none and the bridge logs it once. Git is asked only inside a
+work tree, never guesses `user@host` (`user.useConfigOnly`), and is asked once per folder for the
+session (a folder with no identity again after 30s). A call that writes to two KBs (`target_kb`)
+carries one author for both commits, so it is sent only when both KBs resolve to the same one. The
+`identities` keys are the client's KB names: a `kb_aliases` name the server resolves is not one.
+Without a header the server authors the write as the token.
+
 **A projection is not an authorization boundary.** `?kbs=` is a scope filter, not a security
 boundary: the token in the session's environment can reach every KB it allows. Hard isolation needs a
 per-workspace token (D44/D45).

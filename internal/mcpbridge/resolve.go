@@ -37,6 +37,10 @@ type Scope struct {
 	Source string
 	// Binding is the workspace binding that won, when one did.
 	Binding *clientconfig.WorkspaceBinding
+	// Dirs are, for a scope from roots, the root folders that bound each KB:
+	// the repositories whose git identity authors its writes (D904). Nil for
+	// any other scope, where the session's own folder stands for every KB.
+	Dirs map[string][]string
 	// Err is a binding that could not be honoured (bound directory gone, git
 	// remote changed). The scope is then empty: failing open here would hand a
 	// customer's folder another perimeter's KBs.
@@ -92,7 +96,7 @@ func providerScope(cfg *clientconfig.Config, provider string) Scope {
 // resolve to. ok is false when no root is bound, and the caller keeps the
 // provider scope.
 func ResolveRoots(cfg *clientconfig.Config, provider string, roots []string) (Scope, bool) {
-	set := map[string]bool{}
+	dirs := map[string][]string{}
 	var firstErr error
 	hit := false
 	for _, r := range roots {
@@ -112,7 +116,7 @@ func ResolveRoots(cfg *clientconfig.Config, provider string, roots []string) (Sc
 		}
 		hit = true
 		for _, kb := range clientconfig.RoutedBinding(cfg.KnownKBs, w.KBs) {
-			set[kb] = true
+			dirs[kb] = append(dirs[kb], dir)
 		}
 	}
 	if !hit {
@@ -121,12 +125,12 @@ func ResolveRoots(cfg *clientconfig.Config, provider string, roots []string) (Sc
 		}
 		return Scope{}, false
 	}
-	kbs := make([]string, 0, len(set))
-	for kb := range set {
+	kbs := make([]string, 0, len(dirs))
+	for kb := range dirs {
 		kbs = append(kbs, kb)
 	}
 	sort.Strings(kbs)
-	return Scope{KBs: kbs, Source: "roots"}, true
+	return Scope{KBs: kbs, Source: "roots", Dirs: dirs}, true
 }
 
 // rootPath turns a file:// root URI into a local path. Windows URIs look like

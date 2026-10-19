@@ -300,6 +300,11 @@ const (
 // so never receives the doctor nudge (D299).
 const ClientName = "cartographer"
 
+// AuthorHeader carries the author of a tool call's writes, as "Name <email>"
+// (D904). The server reads it, and the clients send it on tools/call only: it
+// names a person, so it goes where a commit can come of it.
+const AuthorHeader = "Cartographer-Author"
+
 // clientVersion is the build stamp reported to the server, or "unknown".
 func (c *MCPClient) clientVersion() string {
 	if c.Version == "" {
