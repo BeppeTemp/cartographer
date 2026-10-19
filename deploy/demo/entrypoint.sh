@@ -12,18 +12,38 @@
 # Trap: the KB name is the remote's basename without ".git" (internal/config/
 # origin.go), so the repository behind GUESTBOOK_REMOTE must be named
 # "guestbook" - the clone is placed at $CARTOGRAPHER_DATA/guestbook to match.
+#
+# Why the token is copied and not read from its mount (D905): the server's
+# credentials directory also holds audit.key, which it generates at the first
+# start to sign the always-on audit log. A Cloud Run secret mount is read-only
+# and holds one secret, so pointing credentials_dir at it would run the log
+# unsigned, with a warning at every cold start. The copy lands in the default
+# credentials_dir, <data>/credentials, on the instance's in-memory filesystem,
+# with mode 0600: what the server's own upgrade does with a token file.
 set -eu
 
 data=${CARTOGRAPHER_DATA:-}
 remote=${GUESTBOOK_REMOTE:-}
-token=${CARTOGRAPHER_GIT_TOKEN_DIR:-/nonexistent}/guestbook.token
+mounted=${GUESTBOOK_TOKEN_FILE:-}
+# config.CredentialsPath: credentials_dir, else <data>/credentials.
+creds=${CARTOGRAPHER_CREDENTIALS_DIR:-$data/credentials}
+token=$creds/guestbook.token
 dest=$data/guestbook
+
+if [ -n "$data" ] && [ -n "$mounted" ] && [ -f "$mounted" ]; then
+  # Copied at every start, so a new secret version is picked up by the next
+  # cold start. A failure only costs the guestbook, like a failed clone.
+  if ! (umask 077 && mkdir -p "$creds" && cp "$mounted" "$token"); then
+    echo "entrypoint: guestbook token not copied to $creds, starting without it" >&2
+  fi
+fi
 
 if [ -n "$remote" ] && [ -n "$data" ] && [ -f "$token" ] && [ ! -d "$dest/.git" ]; then
   # The same credential helper the server builds (cmd/cartographer/bootstrap.go
   # gitTokenCredentialEnv): the token is read from its file when git asks for
   # it, so it is never in argv, in the URL or in .git/config. The server keeps
-  # using it for pull and push through CARTOGRAPHER_GIT_TOKEN_DIR.
+  # using it for pull and push: it is the guestbook's <kb>.token in
+  # credentials_dir.
   helper="!f() { echo username=token; echo \"password=\$(cat '$token')\"; }; f"
   if GIT_TERMINAL_PROMPT=0 GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=credential.helper \
     GIT_CONFIG_VALUE_0=$helper timeout 20 git clone --quiet -- "$remote" "$dest" >/dev/null 2>&1; then
