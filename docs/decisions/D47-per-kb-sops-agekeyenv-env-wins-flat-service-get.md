@@ -4,6 +4,8 @@ topic: skills-services-secrets
 
 # D47 — Per-KB SOPS: `AgeKeyEnv` (env wins), flat `service_get(resolve_secrets)`, resolve requires rw
 
+> **Amended by [D905](D905-one-credentials-directory-audit-always-on.md)**: the per-KB age key is `<kb>.age`, else `default.age`, in the credentials directory; `kbs[].sops_age_key_file` and `sops.age_key_file` are removed.
+
 **Decision.** Connects `KBSpec.SopsAgeKeyFile`/`SopsConfig.AgeKeyFile` (D44) to the first real
 invocation of `internal/sops`. `Decrypt`/`DecryptAll`/`ResolveRefs` gain a variadic
 `env ...string` (same pattern as `gitx.runGitEnv`, D46: the caller's env wins). `service_get`
