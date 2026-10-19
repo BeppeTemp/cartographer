@@ -600,14 +600,10 @@ func applyMapRepair(k *kb.KB, targets []mapRepairTarget) (applied []mapRepairTar
 }
 
 // dropArtifactFrontmatterKey removes one frontmatter key of a KB-root artifact
-// under the rules artifact_write and the artifact repair follow: the KB must
-// allow artifact writes, no symlink on the path, the rewritten file must
+// under the rules artifact_write and the artifact repair follow: no symlink on the path, the rewritten file must
 // validate, the file mode is kept. Every other key, its comments and the body
 // are left as they are.
 func dropArtifactFrontmatterKey(k *kb.KB, rel, key string) error {
-	if !k.Policy().AllowArtifactWrite {
-		return fmt.Errorf("rewriting %s needs kbs[].allow_artifact_write for this KB", rel)
-	}
 	info, err := classifyArtifactPath(rel)
 	if err != nil {
 		return err
@@ -704,9 +700,6 @@ func kbRepairMaps(k *kb.KB, check, scope string, dryRun bool, limit int) (ToolRe
 // kbRepairArtifacts is kb_repair for an artifact check: the same response
 // shape, counted in files instead of concepts.
 func kbRepairArtifacts(k *kb.KB, check, scope string, dryRun bool, limit int) (ToolResult, error) {
-	if !dryRun && !k.Policy().AllowArtifactWrite {
-		return errorResult(fmt.Sprintf("kb_repair: %s rewrites artifact files, which needs kbs[].allow_artifact_write for this KB; dry_run still lists the plan", check)), nil
-	}
 	targets, items, err := planArtifactRepair(k, check, scope)
 	if err != nil {
 		return errorResult(fmt.Sprintf("kb_repair: %v", err)), nil

@@ -148,7 +148,7 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		// for a name this server has no allow-list entry for.
 		msg := s.legacyToolMessage(name)
 		if msg == "" {
-			msg = unknownToolMessage(name)
+			msg = "tool not found: " + name
 		}
 		result := errorResult(msg)
 		call, rejected, ok := s.beginAuditCall(principal, name, false, nil)

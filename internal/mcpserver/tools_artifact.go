@@ -4,9 +4,8 @@
 // internal/provisioning.BuildManifest; templates/ are KB-only artifacts (D109)
 // deliberately excluded from that manifest.
 //
-// Only artifact_read/artifact_list are always registered (read-only, see
-// RegisterKBTools); artifact_write/artifact_delete require the per-KB
-// KBSpec.AllowArtifactWrite flag (default false, see kb.Policy.AllowArtifactWrite).
+// All four are registered on every KB (RegisterKBTools); artifact_write and
+// artifact_delete need a token with rw scope on the KB, like any other write (D906).
 
 package mcpserver
 
@@ -186,7 +185,7 @@ func toolArtifactRead(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool
 	return Tool{
 		Name:        "artifact_read",
 		ReadOnly:    true,
-		Description: "Reads a KB-root artifact (skills/, agents/, hooks/, mcp/, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml). Returns content and sha256, the if_match for artifact_write/artifact_delete (present only if the KB sets allow_artifact_write).",
+		Description: "Reads a KB-root artifact (skills/, agents/, hooks/, mcp/, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml). Returns content and sha256, the if_match for artifact_write/artifact_delete.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["path"],
@@ -419,14 +418,13 @@ func toolTemplateList(k *kb.KB) Tool {
 func toolArtifactWrite(k *kb.KB) Tool {
 	return Tool{
 		Name: "artifact_write",
-		Description: "Creates or updates a KB-root artifact file (skills/<slug>/**, agents/<slug>.md, " +
+		Description: "Creates or updates a KB-root artifact (skills/<slug>/**, agents/<slug>.md, " +
 			"hooks/**, mcp/<slug>.json, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml). " +
-			"On an existing file, if_match is required (sha256 of the current content, from " +
-			"artifact_read/artifact_list) — fails with stale_write if it's missing or doesn't " +
-			"match. On a new file, omit if_match — fails with already_exists if the file is " +
-			"actually already there. Validates structured artifacts, including template frontmatter and variables " +
+			"On an existing file, if_match (sha256 from artifact_read/artifact_list) is required: " +
+			"stale_write if missing or different. On a new file omit it: already_exists if it exists. " +
+			"Validates structured artifacts before writing: template frontmatter and variables, " +
 			"the paths.yaml schema (paths:/repos: key -> {description, default: ~/…, remote}) and the glossary.yaml schema " +
-			"(terms: list of {canonical, aliases: [..], forbidden: [..]}), before writing.",
+			"(terms: list of {canonical, aliases: [..], forbidden: [..]}).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["path", "content"],
@@ -461,9 +459,6 @@ func toolArtifactWrite(k *kb.KB) Tool {
 			info, err := classifyArtifactPath(params.Path)
 			if err != nil {
 				return errorResult(err.Error()), nil
-			}
-			if msg := templateOnlyRefusal(k, "artifact_write", info); msg != "" {
-				return errorResult(msg), nil
 			}
 
 			if params.Encoding != "" && params.Encoding != "text" && params.Encoding != "base64" {
@@ -551,17 +546,6 @@ func toolArtifactWrite(k *kb.KB) Tool {
 			return textResult(string(out)), nil
 		},
 	}
-}
-
-// templateOnlyRefusal is the refusal of an artifact write or delete outside
-// templates/ on a KB that only has the template right (allow_template_write,
-// D352); "" when the path is allowed. The full right (allow_artifact_write) lifts
-// the limit.
-func templateOnlyRefusal(k *kb.KB, tool string, info artifactPathInfo) string {
-	if k.Policy().AllowArtifactWrite || info.Kind == "template" {
-		return ""
-	}
-	return tool + ": only templates/ is writable on this KB (set kbs[].allow_artifact_write for the rest)"
 }
 
 // validateArtifactContent runs the per-kind validation required before a
@@ -986,9 +970,6 @@ func toolArtifactDelete(k *kb.KB) Tool {
 			info, err := classifyArtifactPath(params.Path)
 			if err != nil {
 				return errorResult(err.Error()), nil
-			}
-			if msg := templateOnlyRefusal(k, "artifact_delete", info); msg != "" {
-				return errorResult(msg), nil
 			}
 			if params.IfMatch == "" {
 				return errorResult("'if_match' is required"), nil

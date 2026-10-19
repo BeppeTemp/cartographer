@@ -343,8 +343,7 @@ func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed
 //  3. if stage 2 changed anything, stage 1 runs once more on the concepts it
 //     touched: a rebased link can expose a duplicate.
 //
-// Artifact checks run last, and only where the KB allows artifact writes. The
-// caller holds the KB lock.
+// Artifact checks run last. The caller holds the KB lock.
 func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int) *stagedRepair {
 	return stagedAutoRepairLimited(ctx, k, checks, quota, false)
 }
@@ -488,26 +487,24 @@ func stagedAutoRepairLimited(ctx context.Context, k *kb.KB, checks []string, quo
 		}
 	}
 
-	if k.Policy().AllowArtifactWrite {
-		for _, check := range artifact {
-			if ctx.Err() != nil {
-				return r
-			}
-			targets, _, err := planArtifactRepair(k, check, "")
-			if err != nil {
-				r.errs = append(r.errs, check+": "+err.Error())
-				continue
-			}
-			if len(targets) > quota {
-				targets = targets[:quota]
-			}
-			if len(targets) == 0 {
-				continue
-			}
-			applied, skipped := applyArtifactRepair(k, targets)
-			r.applied[check] += len(applied)
-			r.skipped[check] += len(skipped)
+	for _, check := range artifact {
+		if ctx.Err() != nil {
+			return r
 		}
+		targets, _, err := planArtifactRepair(k, check, "")
+		if err != nil {
+			r.errs = append(r.errs, check+": "+err.Error())
+			continue
+		}
+		if len(targets) > quota {
+			targets = targets[:quota]
+		}
+		if len(targets) == 0 {
+			continue
+		}
+		applied, skipped := applyArtifactRepair(k, targets)
+		r.applied[check] += len(applied)
+		r.skipped[check] += len(skipped)
 	}
 	return r
 }

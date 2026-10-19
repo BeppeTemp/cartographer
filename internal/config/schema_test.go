@@ -97,7 +97,7 @@ func TestSchemaKBScope(t *testing.T) {
 			got = append(got, strings.TrimPrefix(k.Path, "kbs[]."))
 		}
 	}
-	want := []string{"allow_artifact_write", "allow_template_write", "write_gate", "auto_repair", "repair_on_write",
+	want := []string{"write_gate", "auto_repair", "repair_on_write",
 		"doctor_mode", "doctor_interval", "doctor_auto_interval", "doctor_budget", "usage_stale_days",
 		"mcp_allowlist", "secrets"}
 	sort.Strings(got)

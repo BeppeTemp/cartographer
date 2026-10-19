@@ -181,10 +181,9 @@ func locateKBEntry(p *renamePlan, cfg *config.Config) error {
 	return nil
 }
 
-// findKBEntry is the lookup behind locateKBEntry, shared with `kb create
-// --artifact-write`: the index of the one kbs[] entry matching the KB by
-// resolved name, -1 for none, an error for several. Only an entry with a remote
-// is a mount (D903).
+// findKBEntry is the lookup behind locateKBEntry, shared with `kb unmount`: the
+// index of the one kbs[] entry matching the KB by resolved name, -1 for none, an
+// error for several. Only an entry with a remote is a mount (D903).
 func findKBEntry(name, configPath string, cfg *config.Config) (int, error) {
 	var matches []int
 	for i, spec := range cfg.KBs {

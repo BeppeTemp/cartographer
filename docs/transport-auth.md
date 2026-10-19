@@ -111,11 +111,11 @@ accepted; any other value is refused. A KB is never guessed when the URL left
 more than one open: a default would land a write in the wrong archive on a model
 slip.
 
-**The advertised set is the union** of the connection's KBs. A tool one KB gates
-off — `artifact_write` under `kbs[].allow_artifact_write` — is still registered
-once, and refused at dispatch for the KB that gates it, with an error naming the
-tool, the KB and the setting. The alternative, an intersection, would silently
-hide a tool from a KB that allows it because a sibling does not. The metadata
+**The advertised set is the union** of the connection's KBs. A tool that only
+some of them register is advertised once, and refused at dispatch for a KB that
+does not, with an error naming the KB and the tool. The alternative, an
+intersection, would silently hide a tool from a KB that has it because a
+sibling does not. The metadata
 gate (`initialize`, `tools/list`) asks whether the principal can reach at least
 one KB of the connection's set.
 

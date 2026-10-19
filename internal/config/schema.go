@@ -43,10 +43,6 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Git remote a KB is cloned from, under data. A KB with a remote syncs with it; one without never contacts anything."},
 	{Path: "kbs[].name", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Example: "kb-a",
 		Description: "KB name, in place of the one derived from the remote. It drives the endpoint, the token scopes, the clone directory and the names of the KB's files in credentials_dir."},
-	{Path: "kbs[].allow_artifact_write", Scope: settingschema.ScopeKB, Type: "bool", Default: "false",
-		Description: "Enable artifact_write and artifact_delete on this KB. A written skill injects instructions that clients will run, so an rw token alone does not imply it."},
-	{Path: "kbs[].allow_template_write", Scope: settingschema.ScopeKB, Type: "bool", Default: "true",
-		Description: "Let artifact_write write templates/<slug>.md and nothing else when allow_artifact_write is off. Templates are never provisioned to a client."},
 	{Path: "kbs[].auto_repair", Scope: settingschema.ScopeKB, Type: "list", Default: "every check that is safe to run unattended",
 		Description: "Lint checks whose mechanical fix `kb repair --apply` and the background repair apply without review, by name; there is no all. An empty list means none."},
 	{Path: "kbs[].repair_on_write", Scope: settingschema.ScopeKB, Type: "bool", Default: "true when auto_repair is not empty",
@@ -154,4 +150,6 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "kbs[].sops_age_key_file", Plan: 905, Replacement: "<kb>.age in credentials_dir"},
 	{Path: "kbs[].artifact_signing_seed", Plan: 905, Replacement: "<kb>.signing in credentials_dir", Note: "the file holds the hexadecimal seed; there is no default.signing"},
 	{Path: "audit.key_seed", Plan: 905, Env: "CARTOGRAPHER_AUDIT_KEY", Replacement: "audit.key in credentials_dir", Note: "a missing one is generated at the first start"},
+	{Path: "kbs[].allow_artifact_write", Plan: 906, Note: kb.ArtifactWriteAlwaysOn},
+	{Path: "kbs[].allow_template_write", Plan: 906, Note: kb.ArtifactWriteAlwaysOn},
 }}

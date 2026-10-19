@@ -205,19 +205,6 @@ type KBSpec struct {
 	// <name>.token, <name>.age, <name>.signing) (D905).
 	Name string `yaml:"name,omitempty"`
 
-	// AllowArtifactWrite enables the artifact_write/artifact_delete MCP tools
-	// (D71) for this KB — writing a provisioning artifact (skill/agent/hook/
-	// mcp) injects instructions a client agent will execute, so the
-	// capability is opt-in per-KB rather than implied by an rw token alone.
-	// Default false. Propagated to kb.KB.AllowArtifactWrite (see serve.go).
-	AllowArtifactWrite bool `yaml:"allow_artifact_write,omitempty"`
-
-	// AllowTemplateWrite (D352) lets artifact_write/artifact_delete write
-	// templates/<slug>.md and nothing else when AllowArtifactWrite is off.
-	// Absent means on: templates are KB-only and never provisioned to a client.
-	// A pointer so absent and false differ. Read it through TemplateWriteEnabled.
-	AllowTemplateWrite *bool `yaml:"allow_template_write,omitempty"`
-
 	// AutoRepair lists the lint checks whose mechanical fix
 	// `cartographer kb repair --apply` may apply without a human reviewing
 	// the plan (D299). Each name must be in lint.FixableChecks. There is
@@ -831,11 +818,6 @@ func (s KBSpec) AutoRepairChecks() (checks []string, isDefault bool) {
 		return append([]string{}, DefaultAutoRepair...), true
 	}
 	return s.AutoRepair, false
-}
-
-// TemplateWriteEnabled resolves AllowTemplateWrite (D352): on unless set false.
-func (s KBSpec) TemplateWriteEnabled() bool {
-	return s.AllowTemplateWrite == nil || *s.AllowTemplateWrite
 }
 
 // RepairOnWriteEnabled resolves RepairOnWrite (D349): the explicit value when

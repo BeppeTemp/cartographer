@@ -56,8 +56,8 @@ func parse(t *testing.T, yml string) kb.SettingsState {
 func always(string) bool { return true }
 
 func TestResolveKBOnly(t *testing.T) {
-	eff, info := ResolveKBSettings(KBSpec{}, nil, parse(t, "allow_artifact_write: true\nwrite_gate: error\n"))
-	if !eff.AllowArtifactWrite || eff.WriteGateMode() != "error" {
+	eff, info := ResolveKBSettings(KBSpec{}, nil, parse(t, "secrets: true\nwrite_gate: error\n"))
+	if !eff.Secrets || eff.WriteGateMode() != "error" {
 		t.Fatalf("eff = %+v", eff)
 	}
 	if len(info.Ignored) != 0 || !info.FromKBHas("write_gate") {
@@ -66,7 +66,7 @@ func TestResolveKBOnly(t *testing.T) {
 }
 
 func TestResolveServerOnly(t *testing.T) {
-	srv := KBSpec{AllowArtifactWrite: true, WriteGate: "warning"}
+	srv := KBSpec{Secrets: true, WriteGate: "warning"}
 	eff, info := ResolveKBSettings(srv, always, kb.SettingsState{})
 	if !reflect.DeepEqual(eff, srv) || info.Present || len(info.FromKB) != 0 {
 		t.Fatalf("a KB without settings.yaml must behave as before: %+v %+v", eff, info)
@@ -86,12 +86,12 @@ func TestResolveBranchIsKBOnly(t *testing.T) {
 }
 
 func TestResolveBothKBWinsAndServerValueIsReported(t *testing.T) {
-	srv := KBSpec{AllowArtifactWrite: true, WriteGate: "warning"}
-	eff, info := ResolveKBSettings(srv, always, parse(t, "allow_artifact_write: false\nwrite_gate: warning\n"))
-	if eff.AllowArtifactWrite {
+	srv := KBSpec{Secrets: true, WriteGate: "warning"}
+	eff, info := ResolveKBSettings(srv, always, parse(t, "secrets: false\nwrite_gate: warning\n"))
+	if eff.Secrets {
 		t.Error("the KB's false must beat the server's true")
 	}
-	if len(info.Ignored) != 1 || info.Ignored[0].Key != "allow_artifact_write" ||
+	if len(info.Ignored) != 1 || info.Ignored[0].Key != "secrets" ||
 		info.Ignored[0].ServerValue != "true" || info.Ignored[0].KBValue != "false" {
 		t.Errorf("ignored = %+v (an equal write_gate is not ignored)", info.Ignored)
 	}
@@ -100,11 +100,11 @@ func TestResolveBothKBWinsAndServerValueIsReported(t *testing.T) {
 func TestResolveServerExplicitFalseCountsAsSet(t *testing.T) {
 	// A zero value written in kbs[] is absent from the marshalled spec: the
 	// origin map is what says it was set (D743).
-	_, info := ResolveKBSettings(KBSpec{}, always, parse(t, "allow_artifact_write: true\n"))
+	_, info := ResolveKBSettings(KBSpec{}, always, parse(t, "secrets: true\n"))
 	if len(info.Ignored) != 1 {
 		t.Errorf("ignored = %+v, want the explicit server false reported", info.Ignored)
 	}
-	_, info = ResolveKBSettings(KBSpec{}, func(string) bool { return false }, parse(t, "allow_artifact_write: true\n"))
+	_, info = ResolveKBSettings(KBSpec{}, func(string) bool { return false }, parse(t, "secrets: true\n"))
 	if len(info.Ignored) != 0 {
 		t.Errorf("ignored = %+v, want none when the server did not set it", info.Ignored)
 	}
@@ -113,12 +113,12 @@ func TestResolveServerExplicitFalseCountsAsSet(t *testing.T) {
 func TestResolveDoesNotWriteThroughServerPointers(t *testing.T) {
 	on := true
 	budget := 3
-	srv := KBSpec{AllowTemplateWrite: &on, DoctorBudget: &budget}
-	eff, _ := ResolveKBSettings(srv, always, parse(t, "allow_template_write: false\ndoctor_budget: 8\n"))
+	srv := KBSpec{RepairOnWrite: &on, DoctorBudget: &budget}
+	eff, _ := ResolveKBSettings(srv, always, parse(t, "repair_on_write: false\ndoctor_budget: 8\n"))
 	if !on || budget != 3 {
 		t.Fatalf("the server spec was modified: on=%v budget=%d", on, budget)
 	}
-	if eff.TemplateWriteEnabled() || eff.DoctorBudgetItems() != 8 {
+	if eff.RepairOnWriteEnabled() || eff.DoctorBudgetItems() != 8 {
 		t.Errorf("eff = %+v", eff)
 	}
 }
@@ -181,7 +181,7 @@ func TestSettingsViewShowsOriginKB(t *testing.T) {
 	if e := find("kb-discovered", "kbs[].usage_stale_days"); e.Origin != OriginKB {
 		t.Errorf("a discovered KB's settings.yaml must show origin kb: %+v", e)
 	}
-	if e := find("kb-a", "kbs[].allow_artifact_write"); e.Origin != OriginDefault {
+	if e := find("kb-a", "kbs[].repair_on_write"); e.Origin != OriginDefault {
 		t.Errorf("untouched key origin = %s", e.Origin)
 	}
 	// A refresh that drops a key takes its origin back.
@@ -206,7 +206,7 @@ func TestKBSettingsSchemaIsTheKBScopeWithoutPrefix(t *testing.T) {
 	if len(st.Settings.Keys()) != 0 || len(st.Malformed) != 0 {
 		t.Errorf("the rendered file must set nothing: %v %v", st.Settings.Keys(), st.Malformed)
 	}
-	if !strings.Contains(string(out), "# allow_artifact_write:") || strings.Contains(string(out), "ssh_key") {
+	if !strings.Contains(string(out), "# write_gate:") || strings.Contains(string(out), "ssh_key") {
 		t.Errorf("rendered file:\n%s", out)
 	}
 }

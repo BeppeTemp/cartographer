@@ -3742,7 +3742,7 @@ func TestServer_ToolsProfile(t *testing.T) {
 		"map_list", "concept_list", "graph_neighbors", "graph_context", "link_suggest", "search",
 		"supersede", "concept_move", "concept_delete",
 		"conflicts_list", "git_conflict_resolve",
-		"artifact_read", "template_list",
+		"artifact_read", "artifact_write", "artifact_delete", "template_list",
 		"asset_read", "asset_list", "asset_write", "asset_delete",
 		"validate", "lint", "gate_check", "kb_status", "kb_repair", "kb_review", "work_list", "source_register", "source_list",
 	}

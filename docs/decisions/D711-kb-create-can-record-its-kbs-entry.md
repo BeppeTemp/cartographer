@@ -4,6 +4,8 @@ topic: deployment-release
 
 # D711 — `kb create` / `kb clone` can record their `kbs[]` entry
 
+> **Superseded by [D906](D906-settings-cleanup.md)**: `allow_artifact_write` and the `--artifact-write` flag are removed; `kb create` and `kb clone` record no `kbs[]` entry.
+
 **Decision.** With `--artifact-write`, `cartographer kb create` and `kb clone`
 upsert a `kbs[]` entry (`path`, `allow_artifact_write: true`) in the server
 config, so the KB mounts configured instead of discovered. Without the flag

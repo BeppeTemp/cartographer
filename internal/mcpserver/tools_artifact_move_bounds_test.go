@@ -44,7 +44,7 @@ func assertRefusedUntouched(t *testing.T, f *transferFixture, res ToolResult, wa
 
 func TestArtifactMove_RefusesAnArtifactWithTooManyFiles(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	writeSkillFiles(t, f, artifactMoveMaxFiles+1, 1)
 	res := f.move(t, `{"target_kb":"kb-b","paths":["skills/s"]}`)
 	assertRefusedUntouched(t, f, res, "skills/s", fmt.Sprintf("more than %d files", artifactMoveMaxFiles))
@@ -52,7 +52,7 @@ func TestArtifactMove_RefusesAnArtifactWithTooManyFiles(t *testing.T) {
 
 func TestArtifactMove_RefusesAnArtifactOverTheByteBound(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	writeSkillFiles(t, f, artifactMoveMaxBytes/artifactMaxFileSize+2, artifactMaxFileSize)
 	res := f.move(t, `{"target_kb":"kb-b","paths":["skills/s"]}`)
 	assertRefusedUntouched(t, f, res, "skills/s", fmt.Sprintf("more than %d bytes", artifactMoveMaxBytes))
@@ -99,7 +99,7 @@ func refsOf(t *testing.T, res ToolResult) (refs []string, truncated bool) {
 
 func TestArtifactMove_ReferencesStopAtTheBound(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: A skill\n---\nbody\n"), 0o644)
 	for i := 0; i < artifactRefsMax+5; i++ {
 		amWriteBytes(t, f.a, fmt.Sprintf("data/notes/n%03d.md", i), []byte("---\ntype: Note\ntitle: N\n---\nSee skills/s.\n"), 0o644)
@@ -120,7 +120,7 @@ func TestArtifactMove_ReferencesStopAtTheBound(t *testing.T) {
 
 func TestArtifactMove_ReferencesBelowTheBoundAreNotTruncated(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: A skill\n---\nbody\n"), 0o644)
 	amWriteBytes(t, f.a, "data/notes/n.md", []byte("---\ntype: Note\ntitle: N\n---\nSee skills/s.\n"), 0o644)
 	xferCommit(t, f.a)
@@ -136,7 +136,7 @@ func TestArtifactMove_ReferencesBelowTheBoundAreNotTruncated(t *testing.T) {
 // incomplete rather than silently omitting what the file holds.
 func TestArtifactMove_ReferencesSkipAFileAboveTheScanCap(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: A skill\n---\nbody\n"), 0o644)
 	big := append([]byte("---\ntype: Note\ntitle: Big\n---\nSee skills/s.\n"), bytes.Repeat([]byte("x"), transferScanMaxBytes)...)
 	amWriteBytes(t, f.a, "data/notes/big.md", big, 0o644)
@@ -153,7 +153,7 @@ func TestArtifactMove_ReferencesSkipAFileAboveTheScanCap(t *testing.T) {
 // moved unit is still a finding of the target.
 func TestArtifactMove_LintStillReportsJunkInAMovedUnit(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: A skill\n---\nbody\n"), 0o644)
 	amWriteBytes(t, f.a, "skills/s/.DS_Store", []byte("x"), 0o644)
 	xferCommit(t, f.a)

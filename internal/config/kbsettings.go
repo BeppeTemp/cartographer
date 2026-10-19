@@ -177,10 +177,6 @@ func checkKBValue(key string, part KBSpec) string {
 // returns false; TestKBSettingsKeysMatchSchema fails when a key has no case.
 func setKBField(dst *KBSpec, part KBSpec, key string) bool {
 	switch key {
-	case "allow_artifact_write":
-		dst.AllowArtifactWrite = part.AllowArtifactWrite
-	case "allow_template_write":
-		dst.AllowTemplateWrite = part.AllowTemplateWrite
 	case "write_gate":
 		dst.WriteGate = part.WriteGate
 	case "auto_repair":

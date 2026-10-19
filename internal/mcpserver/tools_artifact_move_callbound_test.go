@@ -9,7 +9,7 @@ import (
 // when their sum is not, because the copy of both runs under both git locks.
 func TestArtifactMove_BoundIsPerCall(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	half := artifactMoveMaxFiles/2 + 1
 	for _, slug := range []string{"s", "t"} {
 		amWriteBytes(t, f.a, "skills/"+slug+"/SKILL.md", []byte("---\nname: "+slug+"\ndescription: A skill\n---\nbody\n"), 0o644)
@@ -34,7 +34,7 @@ func TestArtifactMove_BoundIsPerCall(t *testing.T) {
 // incomplete: artifactRefsMax alone bounds only a scan that keeps matching.
 func TestArtifactMove_ReferenceScanStopsAtItsBudget(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: A skill\n---\nbody\n"), 0o644)
 	for i := 0; i < 5; i++ {
 		amWriteBytes(t, f.a, fmt.Sprintf("data/notes/n%d.md", i), []byte("---\ntype: Note\ntitle: N\n---\nNothing here.\n"), 0o644)

@@ -36,8 +36,7 @@ run, one commit per run with reason "auto-repair (background)". It is not a sess
 
 **What a delegated session may decide.**
 - allowed: mechanical repairs outside `auto_repair` after a dry run you read yourself; vocabulary
-  and template proposals (`map_update`; `artifact_write` on `templates/`, which the server allows
-  for templates without `allow_artifact_write`, D352); a merge of `duplicate_candidate` when one
+  and template proposals (`map_update`; `artifact_write` on `templates/`); a merge of `duplicate_candidate` when one
   page's facts are a subset of the other's; moving a section to another page; closing work whose
   successor the KB names; filling a section from sources the KB cites;
 - never delete a concept, never rename a map's folder, never invent content; never decide a fact

@@ -21,7 +21,7 @@ exists as an ad-hoc runtime mount on an emptyDir is **not durable**.
 > **Local/native-service topology.** On a single machine served by the local service, the
 > equivalent one-liner is `cartographer kb create <name> --remote <url>`: it scaffolds the KB and
 > pushes it to the empty repository (or one holding only a forge's initial commit, which is kept: README/LICENSE/.gitignore) that becomes its `origin` (the remote is mandatory there too,
-> D134). Add `--artifact-write` (also on `kb clone`) when the KB will carry instructions, templates or skills: it records the `kbs[]` entry with `allow_artifact_write: true` in the server config, so no hand-edit or discovered-mount warning (artifacts reach clients via sync, so it is opt-in, D711). This skill remains the procedure for the GitOps/Kubernetes topology below, where the KB
+> D134). A token with `rw` scope on the KB can write its instructions, templates and skills: there is no setting to turn on. This skill remains the procedure for the GitOps/Kubernetes topology below, where the KB
 > also has to be declared in the server's ConfigMap.
 
 ## Reference Files
@@ -56,7 +56,7 @@ scaffolds the KB, attaches the remote and pushes the first commit:
 cartographer kb create <name> --remote <gitea-repo-url>
 ```
 
-`<name>` accepts letters, digits, `-` and `_` only. Add `--artifact-write` if the KB is operator-owned and will carry instructions, templates or skills: it mounts configured with artifact writes on (needs an existing server config; same flag on `kb clone`). `--remote` must point at the **empty**
+`<name>` accepts letters, digits, `-` and `_` only. `--remote` must point at the **empty**
 repository from step 1 — it becomes the KB's `origin`, and the remote is mandatory (D134):
 `--no-remote` is the explicit opt-out for a throwaway local KB that is neither durable nor synced.
 The KB lands in the local service's data dir (`--data <dir>` overrides it); add `--restart` to
@@ -158,7 +158,7 @@ and a structural mistake made now becomes long-lived knowledge debt. So **before
   "dossier create" step.
 
 ### Policy: the KB's own `settings.yaml`
-How the KB behaves (artifact and template writes, write gate, auto-repair, doctor cadence, MCP
+How the KB behaves (write gate, auto-repair, doctor cadence, MCP
 allow-list, how changes land, whether it uses secrets) is the KB's own, so every mount of it
 behaves the same (D746). `cartographer kb create` writes `settings.yaml` at the KB root with every
 key documented and commented out; uncomment and commit what the KB needs. It wins over the same

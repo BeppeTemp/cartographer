@@ -58,7 +58,6 @@ func TestValidateTemplateArtifactMetadata(t *testing.T) {
 func TestTemplateListCarriesTheSchema(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	if res := callTool(t, s, "artifact_write", `{"path":"templates/server.md","content":`+jsonString(schemaTemplate)+`}`); res.IsError {
@@ -163,52 +162,6 @@ func TestMapCreateAndUpdateTemplateKeys(t *testing.T) {
 	}
 	if res := callTool(t, s, "map_update", `{"map":"infra","templates":[]}`); res.IsError == false {
 		t.Fatal("removing the list while default_template stays must be refused")
-	}
-}
-
-func TestTemplateOnlyArtifactWrite(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowTemplateWrite = true }) // allow_artifact_write stays off
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	content := jsonString("---\ntype: Note\ntitle: x\n---\n# x\n")
-	if res := callTool(t, s, "artifact_write", `{"path":"templates/x.md","content":`+content+`}`); res.IsError {
-		t.Fatalf("a template is writable: %+v", res.Content)
-	}
-	for _, path := range []string{"skills/s/SKILL.md", "instructions.md", "paths.yaml", "agents/a.md"} {
-		res := callTool(t, s, "artifact_write", `{"path":"`+path+`","content":"x"}`)
-		if !res.IsError || !strings.Contains(res.Content[0].Text, "only templates/ is writable on this KB") {
-			t.Errorf("%s must be refused in template-only mode: %+v", path, res)
-		}
-	}
-	res := callTool(t, s, "artifact_read", `{"path":"templates/x.md"}`)
-	var read struct {
-		SHA256 string `json:"sha256"`
-	}
-	_ = json.Unmarshal([]byte(res.Content[0].Text), &read)
-	if res := callTool(t, s, "artifact_delete", `{"path":"instructions.md","if_match":"x"}`); !res.IsError || !strings.Contains(res.Content[0].Text, "only templates/") {
-		t.Fatalf("artifact_delete outside templates/: %+v", res)
-	}
-	if res := callTool(t, s, "artifact_delete", `{"path":"templates/x.md","if_match":"`+read.SHA256+`"}`); res.IsError {
-		t.Fatalf("a template is deletable: %+v", res.Content)
-	}
-	// The full right lifts the limit.
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
-	s2 := New("test")
-	RegisterKBTools(s2, k, Deps{})
-	if res := callTool(t, s2, "artifact_write", `{"path":"hooks/h/run.sh","content":"echo hi\n"}`); res.IsError {
-		t.Fatalf("allow_artifact_write unchanged: %+v", res.Content)
-	}
-}
-
-func TestTemplateWriteOffRegistersNothing(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	if _, ok := s.Tools()["artifact_write"]; ok {
-		t.Fatal("with neither right artifact_write is not registered")
 	}
 }
 

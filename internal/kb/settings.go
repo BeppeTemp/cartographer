@@ -47,8 +47,6 @@ type settingSpec struct {
 // whoever applies them (they need lint.FixableChecks); mcp_allowlist entries
 // are checked by provisioning.ValidateMCPAllowlist at apply time.
 var settingsKeys = map[string]settingSpec{
-	"allow_artifact_write": {kind: kindBool},
-	"allow_template_write": {kind: kindBool},
 	"write_gate":           {kind: kindEnum, values: []string{"off", "error", "warning"}},
 	"auto_repair":          {kind: kindStringSeq},
 	"repair_on_write":      {kind: kindBool},
@@ -74,11 +72,12 @@ var settingsServerOnly = map[string]bool{
 // SettingsRetired is the registry of the keys a settings.yaml used to carry and
 // no longer does: the server git profile and its forge, whose pull-request
 // boundary is gone, and git_branch, which became branch (D903); the author and
-// committer keys, which were server-only and are gone everywhere (D904); and
+// committer keys, which were server-only and are gone everywhere (D904);
 // the machine secrets a KB's file should never have carried, which are files of
-// the server's credentials directory now (D905). Parsing a file that still has
-// one leaves it out with a finding that names what to use; realigning the file
-// drops it.
+// the server's credentials directory now (D905); and allow_artifact_write and
+// allow_template_write, because artifact writes are always allowed (D906).
+// Parsing a file that still has one leaves it out with a finding that names what
+// to use; realigning the file drops it.
 var SettingsRetired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "git_profile", Plan: 903, Refuse: "server", Note: ServerProfileRemoved},
 	{Path: "git_base_branch", Plan: 903, Note: ServerProfileRemoved},
@@ -97,11 +96,17 @@ var SettingsRetired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "known_hosts", Plan: 905, Replacement: "known_hosts in the server's credentials_dir"},
 	{Path: "sops_age_key_file", Plan: 905, Replacement: "<kb>.age in the server's credentials_dir"},
 	{Path: "artifact_signing_seed", Plan: 905, Replacement: "<kb>.signing in the server's credentials_dir", Note: "a secret never belongs in the KB"},
+	{Path: "allow_artifact_write", Plan: 906, Note: ArtifactWriteAlwaysOn},
+	{Path: "allow_template_write", Plan: 906, Note: ArtifactWriteAlwaysOn},
 }}
 
 // ServerProfileRemoved is the reason given wherever the server git profile
 // (D117, removed by D903) is met again, and what to do instead.
 const ServerProfileRemoved = "the server git profile (a pull request per write) was removed: unprotect the branch Cartographer writes to, or set `branch` in settings.yaml on the default branch to write to another one"
+
+// ArtifactWriteAlwaysOn is the reason given wherever allow_artifact_write or
+// allow_template_write (removed by D906) is met again.
+const ArtifactWriteAlwaysOn = "artifact writes are always allowed (D906): a token with rw scope on the KB may write its skills, agents, hooks, MCP descriptors, instructions and templates"
 
 // SettingsKeyNames returns the keys the KB file accepts, sorted.
 func SettingsKeyNames() []string {

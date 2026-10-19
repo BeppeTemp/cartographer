@@ -63,7 +63,7 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 
 `services/` is included in `WalkConcepts` (search, graph, lint all see it) but its root is `kb.Root`, not `kb.DataRoot()`. Service concept IDs carry the `services/` prefix. `ResolvePath` is the one place that picks the root for an ID, and every operation that turns an ID into a file — read, write, collision check, removal, `concept_move` — goes through it (`LocateConcept` for callers that move files themselves). For the same reason `services` is not a valid map or journal name: `map_create` refuses it, since the scaffold would land under `data/services/`, where no read looks (D269). A `data/services/` left by an older version is neither read nor cleaned up. `agents/` and `hooks/` are not concepts (no OKF frontmatter, they don't go through `WalkConcepts`): they are provisioning artifacts materialized client-side — see `docs/sync.md` §Agents and hooks.
 
-`templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*` (templates alone with `allow_template_write`, default on, D352), discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision. A template is also a closed page schema that a map's pages bind to (§Templates are page schemas).
+`templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*`, discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision. A template is also a closed page schema that a map's pages bind to (§Templates are page schemas).
 
 `kb create` writes `data/.gitignore` with the junk patterns (`.DS_Store`, `__pycache__/`, `*.pyc`,
 `*.pyo`, `*~`, `*.swp`, `Thumbs.db` — `kb.JunkPatterns`), only when it creates the KB: the root
@@ -87,8 +87,7 @@ legacy_paths:                  # old path prefix -> replacement, for kb_repair l
 
 `instructions.md` holds no suppression: a `lint_accept` key (D332) was removed by D907, because no
 setting switches a check off. A file that still carries it gets `contract_legacy_key` on
-`instructions.md` (fix `rewrite_contract`) and `kb_repair` drops the key, where the KB allows
-artifact writes (`allow_artifact_write`; elsewhere the target is skipped); an artifact finding is
+`instructions.md` (fix `rewrite_contract`) and `kb_repair` drops the key; an artifact finding is
 closed by fixing the artifact it names (§No check can be switched off).
 
 `paths.yaml` is likewise KB-only data, not a concept and not a provisioning artifact: the KB's
@@ -770,8 +769,7 @@ How a KB behaves lives in the KB, not in the server that mounts it (D746): five 
 mounting the same KB get the same behaviour. `settings.yaml` at the KB root, beside
 `paths.yaml`, carries the schema's `kb` scope:
 
-- writes and governance: `allow_artifact_write`, `allow_template_write`, `write_gate`,
-  `auto_repair`, `repair_on_write`;
+- writes and governance: `write_gate`, `auto_repair`, `repair_on_write`;
 - doctor: `doctor_mode`, `doctor_interval`, `doctor_auto_interval`, `doctor_budget`,
   `usage_stale_days`;
 - provisioning: `mcp_allowlist`;

@@ -11,13 +11,13 @@ import (
 func TestKBStatus_ReportsKBSettingsAndIgnoredServerValues(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
+	setPolicy(k, func(p *kb.Policy) { p.RepairOnWrite, p.AutoRepair = true, []string{"missing_title"} })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	k.SetSettingsInfo(kb.SettingsInfo{
 		Present:         true,
-		FromKB:          []string{"allow_artifact_write"},
-		Ignored:         []kb.IgnoredSetting{{Key: "allow_artifact_write", ServerValue: "false", KBValue: "true"}},
+		FromKB:          []string{"repair_on_write"},
+		Ignored:         []kb.IgnoredSetting{{Key: "repair_on_write", ServerValue: "false", KBValue: "true"}},
 		Findings:        []string{"write_gate: must be one of off, error, warning"},
 		SecretsDeclared: true,
 	})
@@ -33,11 +33,11 @@ func TestKBStatus_ReportsKBSettingsAndIgnoredServerValues(t *testing.T) {
 	if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil {
 		t.Fatal(err)
 	}
-	c := out.Capabilities["artifact_write"]
-	if c.State != "enabled" || c.Setting != "settings.yaml allow_artifact_write" || c.IgnoredServerValue != "false" {
-		t.Errorf("artifact_write = %+v", c)
+	c := out.Capabilities["repair_on_write"]
+	if c.State != "enabled" || c.Setting != "settings.yaml repair_on_write" || c.IgnoredServerValue != "false" {
+		t.Errorf("repair_on_write = %+v", c)
 	}
-	if len(out.Ignored) != 1 || out.Ignored[0].Key != "allow_artifact_write" || len(out.Findings) != 1 {
+	if len(out.Ignored) != 1 || out.Ignored[0].Key != "repair_on_write" || len(out.Findings) != 1 {
 		t.Errorf("ignored=%+v findings=%v", out.Ignored, out.Findings)
 	}
 	if got := out.Capabilities["secrets"].State; got != "missing key" {

@@ -15,7 +15,6 @@ import (
 func TestArtifactTools_BinaryAndExecutableRoundTrip(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	data := []byte{0x00, 0xff, 0x80, 0x01}
@@ -47,7 +46,6 @@ func TestArtifactTools_BinaryAndExecutableRoundTrip(t *testing.T) {
 func TestArtifactTools_ExecutableTriState(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	path := "skills/mode/assets/run.sh"
@@ -155,7 +153,6 @@ func TestArtifactTools_SymlinksRejected(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			k := setupTestKB(t)
-			setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 			target := filepath.Join(t.TempDir(), "outside.bin")
 			if err := os.WriteFile(target, []byte("outside"), 0o644); err != nil {
 				t.Fatal(err)
@@ -227,7 +224,6 @@ func TestArtifactTools_ListReportsExecutableAuxiliarySkillFile(t *testing.T) {
 func TestArtifactTools_InvalidBase64DoesNotWrite(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	path := "skills/b64/assets/file.bin"
@@ -244,7 +240,6 @@ func TestArtifactTools_InvalidBase64DoesNotWrite(t *testing.T) {
 func TestArtifactTools_TextEncodingAndDecodedLimits(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	call := func(args map[string]any) ToolResult {
@@ -347,55 +342,67 @@ func TestClassifyArtifactPath(t *testing.T) {
 	}
 }
 
-// --- flag disabled: write/delete not registered (D71 WP4) ---
+// --- always on: no setting gates the write tools (D906) ---
 
-func TestArtifactTools_FlagDisabled_WriteDeleteNotRegistered(t *testing.T) {
+func TestArtifactTools_RegisteredAndUsableWithNoSettings(t *testing.T) {
 	t.Parallel()
-	k := setupTestKB(t) // AllowArtifactWrite defaults to false
+	k := setupTestKB(t)
+	k.SetPolicy(kb.Policy{})
+	k.SetSettingsInfo(kb.SettingsInfo{})
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
 	names := listToolNames(t, s)
-	if !names["artifact_read"] {
-		t.Error("artifact_read: expected to be registered regardless of AllowArtifactWrite")
-	}
-	if !names["artifact_list"] {
-		t.Error("artifact_list: expected to be registered regardless of AllowArtifactWrite")
-	}
-	if names["artifact_write"] {
-		t.Error("artifact_write: must not be registered when AllowArtifactWrite=false")
-	}
-	if names["artifact_delete"] {
-		t.Error("artifact_delete: must not be registered when AllowArtifactWrite=false")
+	for _, name := range []string{"artifact_read", "artifact_list", "artifact_write", "artifact_delete", "artifact_move"} {
+		if !names[name] {
+			t.Errorf("%s: expected to be registered on a KB with no settings", name)
+		}
 	}
 
-	// Also unreachable via tools/call: a real registry, not just hidden from tools/list.
+	path := "skills/my-test-skill/SKILL.md"
 	resps := runMCPSequence(t, s, []string{
 		initMsg,
-		artifactCallMsg(t, 2, "artifact_write", map[string]any{"path": "instructions.md", "content": "x"}),
+		artifactCallMsg(t, 2, "artifact_write", map[string]any{
+			"path": path, "content": "---\nname: my-test-skill\ndescription: A test skill\n---\nBody.\n",
+		}),
 	})
 	tr := decodeToolResult(t, resps[1])
-	if !tr.IsError || !containsText(tr, "tool not found") {
-		t.Fatalf("artifact_write: expected \"tool not found\" when unregistered, got: %+v", tr)
+	if tr.IsError {
+		t.Fatalf("artifact_write: %+v", tr.Content)
+	}
+	var written struct {
+		SHA256 string `json:"sha256"`
+	}
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &written); err != nil {
+		t.Fatal(err)
+	}
+	resps = runMCPSequence(t, s, []string{
+		initMsg,
+		artifactCallMsg(t, 2, "artifact_delete", map[string]any{"path": path, "if_match": written.SHA256}),
+	})
+	if tr = decodeToolResult(t, resps[1]); tr.IsError {
+		t.Fatalf("artifact_delete: %+v", tr.Content)
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, filepath.FromSlash(path))); !os.IsNotExist(err) {
+		t.Errorf("the skill is still on disk after artifact_delete: %v", err)
 	}
 }
 
-// --- flag enabled: golden profile (D71 WP4) ---
+// --- golden profile (D71 WP4) ---
 
-func TestArtifactTools_FlagEnabled_ProfileClassification(t *testing.T) {
+func TestArtifactTools_ProfileClassification(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	s.SetToolsProfile("agent")
 
 	names := listToolNames(t, s)
 	if !names["artifact_write"] {
-		t.Error("artifact_write: expected agent-visible (not advanced) when AllowArtifactWrite=true")
+		t.Error("artifact_write: expected agent-visible (not advanced)")
 	}
 	if !names["artifact_delete"] {
-		t.Error("artifact_delete: expected agent-visible when AllowArtifactWrite=true (D318)")
+		t.Error("artifact_delete: expected agent-visible (D318)")
 	}
 	if names["artifact_list"] {
 		t.Error("artifact_list: expected hidden (advanced) under the agent profile")
@@ -420,7 +427,6 @@ func TestArtifactTools_FlagEnabled_ProfileClassification(t *testing.T) {
 func TestArtifactTools_Skill_WriteReadListDelete(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -570,7 +576,6 @@ func TestArtifactTools_Skill_WriteReadListDelete(t *testing.T) {
 func TestArtifactTools_SkillWrite_InvalidRejected(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -606,7 +611,6 @@ func TestArtifactTools_SkillWrite_InvalidRejected(t *testing.T) {
 func TestArtifactTools_MCPWrite_InvalidRejected(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -627,7 +631,6 @@ func TestArtifactTools_MCPWrite_InvalidRejected(t *testing.T) {
 func TestArtifactTools_PathTraversal_Rejected(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -687,13 +690,6 @@ func TestKBStatus_ReportsCapabilities(t *testing.T) {
 	}
 
 	caps := read()
-	if got := caps["artifact_write"]["state"]; got != "disabled" {
-		t.Errorf("artifact_write state = %q, want disabled", got)
-	}
-	// A state without the name of the switch is only half an answer.
-	if got := caps["artifact_write"]["setting"]; got != "kbs[].allow_artifact_write" {
-		t.Errorf("artifact_write setting = %q", got)
-	}
 	if got := caps["mount"]["state"]; got != "configured" {
 		t.Errorf("mount state = %q, want configured", got)
 	}
@@ -702,32 +698,29 @@ func TestKBStatus_ReportsCapabilities(t *testing.T) {
 		t.Errorf("tool_prefix capability still reported: %v", caps["tool_prefix"])
 	}
 
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
+	// D906 removed the artifact write switches: no capability names them.
+	for _, name := range []string{"artifact_write", "template_write"} {
+		if _, ok := caps[name]; ok {
+			t.Errorf("%s capability still reported: %v", name, caps[name])
+		}
+	}
+
 	k.Discovered = true
 	caps = read()
-	if got := caps["artifact_write"]["state"]; got != "enabled" {
-		t.Errorf("after enabling, artifact_write state = %q", got)
-	}
 	if got := caps["mount"]["state"]; got != "discovered" {
 		t.Errorf("mount state = %q, want discovered", got)
 	}
 }
 
-// The three cases a client cannot distinguish, and the one the server can.
+// The two cases a client cannot distinguish, and the one the server can.
 func TestToolsCall_UnknownToolMessages(t *testing.T) {
 	t.Parallel()
-	t.Run("a gated tool names its setting", func(t *testing.T) {
-		got := unknownToolMessage("artifact_write")
-		for _, want := range []string{"artifact_write", "allow_artifact_write"} {
-			if !strings.Contains(got, want) {
-				t.Errorf("message %q does not mention %q", got, want)
-			}
-		}
-	})
-
-	t.Run("a genuinely unknown tool keeps the plain message", func(t *testing.T) {
-		if got := unknownToolMessage("nonsense_tool"); got != "tool not found: nonsense_tool" {
-			t.Errorf("message = %q, want the plain form", got)
+	t.Run("a genuinely unknown tool gets the plain message", func(t *testing.T) {
+		s := New("test")
+		RegisterKBTools(s, setupTestKB(t), Deps{})
+		res := s.callTool(authLocalContext(), "nonsense_tool", json.RawMessage(`{}`))
+		if !res.IsError || !containsText(res, "tool not found: nonsense_tool") {
+			t.Errorf("result = %+v, want the plain form", res)
 		}
 	})
 
@@ -738,23 +731,12 @@ func TestToolsCall_UnknownToolMessages(t *testing.T) {
 		s := New("test")
 		RegisterKBTools(s, k, Deps{})
 		if _, ok := s.Tools()["reindex"]; !ok {
-			t.Fatal("reindex is not registered, so the advanced/gated distinction is untestable")
+			t.Fatal("reindex is not registered, so the advanced distinction is untestable")
 		}
 		if !advancedToolNames["reindex"] {
 			t.Error("reindex is expected to be advanced")
 		}
 	})
-}
-
-func TestArtifactRead_DescriptionNamesTheGate(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	desc := s.Tools()["artifact_read"].Description
-	if !strings.Contains(desc, "allow_artifact_write") {
-		t.Errorf("artifact_read's description does not name the gate: %s", desc)
-	}
 }
 
 // The defect D212 fixes, on the MCP channel: a SKILL.md whose frontmatter is not
@@ -765,7 +747,6 @@ func TestArtifactRead_DescriptionNamesTheGate(t *testing.T) {
 func TestArtifactTools_SkillWriteRefusesFrontmatterAClientCannotParse(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -806,7 +787,6 @@ func TestArtifactTools_SkillWriteRefusesFrontmatterAClientCannotParse(t *testing
 func TestArtifactTools_AgentNameMustEqualFileName(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	call := func(path, name string) ToolResult {
@@ -831,7 +811,6 @@ func TestArtifactTools_AgentNameMustEqualFileName(t *testing.T) {
 func TestArtifactTools_AgentProvidersBlockIsValidated(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	n := 0
@@ -861,7 +840,6 @@ func TestArtifactTools_AgentProvidersBlockIsValidated(t *testing.T) {
 func TestArtifactWrite_HookJSONIsValidated(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	write := func(path, content string) ToolResult {

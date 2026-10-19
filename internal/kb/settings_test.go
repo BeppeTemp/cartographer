@@ -19,7 +19,7 @@ func keysOf(t *testing.T, yml string) (Settings, []SettingsMalformed) {
 func TestParseSettingsValid(t *testing.T) {
 	t.Parallel()
 	s, bad := keysOf(t, `
-allow_artifact_write: true
+repair_on_write: true
 write_gate: error
 auto_repair: [duplicate_link]
 doctor_interval: 7d
@@ -66,7 +66,7 @@ func TestParseSettingsWholeFileIgnored(t *testing.T) {
 func TestParseSettingsKeyErrorsLeaveTheRestAlone(t *testing.T) {
 	t.Parallel()
 	s, bad := keysOf(t, `
-allow_artifact_write: true
+secrets: true
 frobnicate: 1
 ssh_key: /home/user/.ssh/id
 remote: git@example.com:user/kb-a.git
@@ -81,8 +81,8 @@ git_forge: github
 git_branch: kb-data
 write_gate: off
 `)
-	if !s.Has("allow_artifact_write") || len(s.Keys()) != 1 {
-		t.Errorf("accepted keys = %v, want only allow_artifact_write", s.Keys())
+	if !s.Has("secrets") || len(s.Keys()) != 1 {
+		t.Errorf("accepted keys = %v, want only secrets", s.Keys())
 	}
 	want := map[string]string{
 		"frobnicate":       "unknown setting",
@@ -234,5 +234,14 @@ write_gate: error
 	_, bad = keysOf(t, "author_name: Bot\n")
 	if len(bad) != 1 || bad[0].Refuse || !strings.Contains(bad[0].Reason, AuthorSettingRemoved) {
 		t.Errorf("author_name = %v, want one finding that names the writer, not a refusal", bad)
+	}
+
+	// Artifact writes are always allowed (D906): the two settings that gated
+	// them are removed, and a file that sets either is told so.
+	for _, key := range []string{"allow_artifact_write", "allow_template_write"} {
+		s, bad = keysOf(t, key+": true\n")
+		if len(s.Keys()) != 0 || len(bad) != 1 || bad[0].Key != key || bad[0].Refuse || !strings.Contains(bad[0].Reason, ArtifactWriteAlwaysOn) {
+			t.Errorf("%s = keys %v findings %v, want one finding that says artifact writes are always allowed, not a refusal", key, s.Keys(), bad)
+		}
 	}
 }

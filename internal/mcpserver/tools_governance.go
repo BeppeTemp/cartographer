@@ -645,9 +645,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		}
 	}
 	return map[string]KBCapability{
-		"artifact_write": cap("allow_artifact_write", onOff(pol.AllowArtifactWrite), "kbs[].allow_artifact_write"),
-		"template_write": cap("allow_template_write", templateWriteState(pol), "kbs[].allow_template_write"),
-		"secrets":        {State: secretsState, Setting: secretsSetting},
+		"secrets": {State: secretsState, Setting: secretsSetting},
 		// A discovered KB has no kbs[] entry: its policy comes from its own
 		// settings.yaml, which is the one place left that can carry it (D746).
 		"mount": {State: mount, Setting: "kbs[]"},
@@ -683,18 +681,6 @@ func doctorBudget(p kb.Policy) int {
 // config.DefaultDoctorBudget, repeated because this package does not import
 // config; TestDoctorBudgetDefaultsMatchConfig pins them equal.
 const defaultDoctorBudget = 10
-
-// templateWriteState is the kb_status view of D352: artifact_write limited to
-// templates/, "full" when allow_artifact_write already lifts the limit.
-func templateWriteState(p kb.Policy) string {
-	switch {
-	case p.AllowArtifactWrite:
-		return "full"
-	case p.AllowTemplateWrite:
-		return "enabled"
-	}
-	return "disabled"
-}
 
 func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {
 	return Tool{

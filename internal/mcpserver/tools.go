@@ -175,12 +175,10 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolAssetList(k))
 	register(gitWrap(k, toolAssetWrite(k)))
 	register(gitWrap(k, toolAssetDelete(k)))
-	if pol := k.Policy(); pol.AllowArtifactWrite || pol.AllowTemplateWrite {
-		register(gitWrap(k, toolArtifactWrite(k)))
-		register(gitWrap(k, toolArtifactDelete(k)))
-		// Takes both KBs' git locks and commits each itself (D782): not gitWrap.
-		register(toolArtifactMove(k, deps))
-	}
+	register(gitWrap(k, toolArtifactWrite(k)))
+	register(gitWrap(k, toolArtifactDelete(k)))
+	// Takes both KBs' git locks and commits each itself (D782): not gitWrap.
+	register(toolArtifactMove(k, deps))
 
 	if deps.BundleFS != nil {
 		register(toolSkillListWithBundle(k, deps.BundleFS))

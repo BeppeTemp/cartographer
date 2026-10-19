@@ -25,21 +25,6 @@ import (
 // that takes one never sees a settings refresh half applied (D775). The zero
 // value is every capability off.
 type Policy struct {
-	// AllowArtifactWrite gates the artifact_write/artifact_delete MCP tools
-	// (D71): writing a provisioning artifact (skill/agent/hook/mcp) injects
-	// instructions a client agent will execute, so the capability is opt-in
-	// per-KB (config.KBSpec.AllowArtifactWrite), not implied by an rw token
-	// alone. Default false. artifact_read/artifact_list are unaffected.
-	AllowArtifactWrite bool
-
-	// AllowTemplateWrite (D352) registers artifact_write/artifact_delete for
-	// templates/<slug>.md only, when AllowArtifactWrite is off: a template is
-	// KB-only and never provisioned to a client (D109), so the risk the full
-	// right guards against does not apply, and an unattended doctor needs it to
-	// act on a template_proposal. The config default is on
-	// (config.KBSpec.TemplateWriteEnabled); the zero value here is off.
-	AllowTemplateWrite bool
-
 	// AutoRepair and DoctorIntervalDays are the per-KB doctor settings
 	// (D299, config.KBSpec): the checks `kb repair --apply` may apply
 	// unattended, and the days after the last kb-doctor session before the
