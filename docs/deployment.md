@@ -114,10 +114,6 @@ kbs:                          # (kbs[]) KBs to clone from a git remote (bootstra
                                                       # endpoint, token scope, clone dir, and the
                                                       # token_dir/age_key_dir conventions below all use
                                                       # this name
-    author_name: "Team Bot"                          # (kbs[].author_name) read but ignored (D904): the author is the writer
-    author_email: team-bot@example.com               # (kbs[].author_email) ignored, as above
-    committer_name: "Cartographer CI"                # (kbs[].committer_name) ignored: the committer is the server
-    committer_email: cartographer-ci@example.com     # (kbs[].committer_email) ignored, as above
     allow_artifact_write: true                       # (kbs[].allow_artifact_write) enables artifact_write/
                                                       # artifact_delete/artifact_move on this KB (default false, D71):
                                                       # writing a skill means injecting instructions that
@@ -169,8 +165,6 @@ mcp:
 git:
   ssh_key: /etc/kb-ssh/id_ed25519      # (git.ssh_key) default SSH identity for cloning kbs[] remotes
   known_hosts: /etc/kb-ssh/known_hosts # (git.known_hosts) host verification for the same clone
-  author_name: "Team Bot"             # (git.author_name) read but ignored (D904): the author is the writer
-  author_email: team-bot@example.com   # (git.author_email) ignored, as above
   token_dir: /etc/kb-git-tokens         # (git.token_dir) directory <token_dir>/<name>.token (D53, see below)
 audit:
   log: ""                      # (audit.log) path to the audit log's JSONL file
@@ -258,8 +252,9 @@ cannot be forged (see [control plane](control-plane.md)). A commit that is not a
 `external changes` commit, a sync merge or rebase, conflict resolution, the KB's first commit made by
 `serve --init`) is authored by the server too. The git config of the machine, `GIT_AUTHOR_*` and
 `GIT_COMMITTER_*` in the environment no longer influence any of it. `author_name`/`author_email`/
-`committer_name`/`committer_email` (global `git.*`, `kbs[]`, and a token's author fields) are still
-accepted so existing files load, and are ignored. The SSH key and the token credential helper of a
+`committer_name`/`committer_email` (global `git.*`, `kbs[]`, and a token's `author_name`/`author_email`)
+are removed settings: a file that still has them loads with a warning, and the realignment above drops
+them. The SSH key and the token credential helper of a
 `kbs[]` entry (`ssh_key`/`known_hosts`, `git.token_dir`) are still per-KB and **override** the server's
 process environment (the reverse of the "environment wins" rule that applies to the global
 `git.ssh_key`/`GIT_SSH_COMMAND` above) — see `internal/gitx.runGitEnv`.

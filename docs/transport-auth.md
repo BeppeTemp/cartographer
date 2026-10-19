@@ -414,7 +414,8 @@ appends itself. The author line is therefore a claim by the caller, and the
 trailer is what the server knows: attribution, not a signature, since whoever
 holds the token can write under any name. Format, validation and the warning on
 a rejected header → [control plane](control-plane.md). A token's `author_name`
-and `author_email` are still read but no longer used.
+and `author_email` are removed settings: a file that still has them loads with
+a warning, and they never refuse the start.
 
 Tokens are declared in the YAML `auth.tokens` list; the flat
 `CARTOGRAPHER_TOKENS` form cannot carry the fields of a
