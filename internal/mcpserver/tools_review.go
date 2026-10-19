@@ -27,7 +27,7 @@ func toolKBReview(k *kb.KB, cc *conformanceCache) Tool {
 		// The kinds are not listed here: they grow per release (D301) and
 		// are in docs/control-plane.md and in each item's kind.
 		Description: "Ranked kb-doctor work list: items {kind, concepts, evidence, suggested_action}. " +
-			"Dismiss: lint_ignore: [kind] on a named concept.",
+			"An item closes when its pages change; nothing dismisses it.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {

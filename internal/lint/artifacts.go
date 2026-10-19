@@ -517,7 +517,8 @@ func checkInstructions(instr kbInstructions, conceptCount int) []Finding {
 // checkSkillGitCommands reports a skill whose code runs a git mutation (WP6):
 // the KB is written only through MCP tools, and an agent's own git in the
 // clone is how a KB forks on its remote (D264). Info: the command may target
-// another repository, which only the author can tell.
+// another repository, which only the author can tell; `git -C <repo> <verb>`
+// names it, and is not matched (nothing accepts the finding, D907).
 func checkSkillGitCommands(skills []skill.Skill) []Finding {
 	var findings []Finding
 	for _, s := range skills {
@@ -530,7 +531,7 @@ func checkSkillGitCommands(skills []skill.Skill) []Finding {
 				seen[m[1]] = true
 				findings = append(findings, newFinding("skill_git_command", Finding{
 					Path:    skillFile(s),
-					Message: fmt.Sprintf("skill instructs git %s — if it targets the KB clone, write through the MCP tools instead; if it targets another repository, accept it in instructions.md lint_accept", m[1]),
+					Message: fmt.Sprintf("skill instructs git %s — if it targets the KB clone, write through the MCP tools instead; if it targets another repository, write it as `git -C <that repository> %s` so the step names it", m[1], m[1]),
 				}))
 			}
 		}

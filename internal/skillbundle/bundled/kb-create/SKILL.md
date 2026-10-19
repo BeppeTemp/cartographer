@@ -150,8 +150,8 @@ and a structural mistake made now becomes long-lived knowledge debt. So **before
 ### Content: Maps and Journals
 - Ask the user to describe the **Maps** (thematic, mixed concept types) or **Journals**
   (chronological logs, e.g. incidents/notes) they need: name, description, `kind`
-  (`map`/`journal`), `concept_types`, `ontology_mode`: `strict`/`emergent`/`off`, default
-  `emergent`.
+  (`map`/`journal`), `concept_types` (a non-empty list makes the map strict: a page of another
+  type is refused; leave it empty for a map open to any type).
 - Call `map_create` for each one.
 - A concept that outgrows a single file becomes an **expanded concept** via `concept_expand`
   (turns `<id>.md` into `<id>/index.md` plus satellite concepts) — there is no separate

@@ -232,12 +232,15 @@ func TestLint_SkillGitCommand(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.Root, "skills/committer/SKILL.md", skillMD("committer", "c", "Then `git commit -m \"save\"`.\n"))
 	writeFile(t, k.Root, "skills/cloner/SKILL.md", skillMD("cloner", "c", "```\ngit clone <url>\ngit status\n```\n"))
+	// The step that names another repository is how the finding closes, now
+	// that nothing accepts it (D907).
+	writeFile(t, k.Root, "skills/deployer/SKILL.md", skillMD("deployer", "d", "```\ngit -C /srv/app pull\n```\n"))
 	findings, err := Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := findingsOf(findings, "skill_git_command")
-	if len(got) != 1 || got[0].Path != "skills/committer/SKILL.md" || got[0].Severity != SevInfo || !strings.Contains(got[0].Message, "git commit") {
+	if len(got) != 1 || got[0].Path != "skills/committer/SKILL.md" || got[0].Severity != SevInfo || !strings.Contains(got[0].Message, "git commit") || !strings.Contains(got[0].Message, "git -C <that repository> commit") {
 		t.Fatalf("want 1 skill_git_command on committer, got %v", got)
 	}
 }

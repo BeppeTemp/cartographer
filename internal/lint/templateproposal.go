@@ -162,7 +162,7 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 			all = append(all, sl)
 		}
 		sort.Strings(all)
-		return map[string]interface{}{"map": name, "templates": all, "default_template": biggest, "require_template": true}
+		return map[string]interface{}{"map": name, "templates": all, "default_template": biggest}
 	}
 
 	var out []ReviewItem
