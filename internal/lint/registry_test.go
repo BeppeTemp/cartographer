@@ -202,7 +202,8 @@ func TestCheckConceptAgreesWithRun(t *testing.T) {
 		path := okf.IDToPath(okf.ConceptID(id))
 		var want []string
 		for _, f := range findings {
-			if s, ok := Spec(f.Check); f.Path == path && ok && s.Level == LevelConcept && s.OnWrite {
+			// concept_oversize names the page by its ID, the rest by its file (D78).
+			if s, ok := Spec(f.Check); (f.Path == path || f.Path == id) && ok && s.Level == LevelConcept && s.OnWrite {
 				want = append(want, key(f))
 			}
 		}
