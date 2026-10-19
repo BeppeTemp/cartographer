@@ -16,6 +16,11 @@
 // does not approve reaches the server with the read token and is refused by the
 // server's scope check, so a new write tool fails closed.
 //
+// The Worker also names the author of every request, replacing whatever the
+// client sent (D904): the server takes a write's git author from the
+// Cartographer-Author header, and on a public hostname a visitor's value would
+// put any name and email on a commit pushed to the guestbook's repository.
+//
 // /.well-known/ answers 404: the server's RFC 9728 metadata names the *.run.app
 // URL as authorization server, where none runs, and a client that finds it
 // starts an OAuth flow that cannot finish.
@@ -36,6 +41,7 @@ export const ATTEMPTS_PER_DAY = 100;
 export const CLASSIFIER_MODEL = "@cf/meta/llama-guard-3-8b";
 export const CLASSIFIER_TIMEOUT_MS = 5000;
 export const API_CACHE_SECONDS = 5;
+export const GUESTBOOK_AUTHOR = "Cartographer guestbook <noreply@example.com>";
 
 const FORBIDDEN_TEXT = ["http://", "https://", "www.", "](", "[[", "]]", "<", ">"];
 // Control characters other than \n (C0, DEL, C1).
@@ -348,6 +354,7 @@ function withBearer(request, url, token, body) {
   const init = body === undefined ? request : { method: request.method, headers: request.headers, body };
   const upstream = new Request(url, init);
   upstream.headers.set("Authorization", `Bearer ${token}`);
+  upstream.headers.set("Cartographer-Author", GUESTBOOK_AUTHOR);
   return upstream;
 }
 

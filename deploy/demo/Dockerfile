@@ -25,16 +25,14 @@ COPY deploy/demo/entrypoint.sh /usr/local/bin/demo-entrypoint.sh
 # Run throttles the CPU between requests, which would strand a pending push. The
 # server knows it runs on Cloud Run from K_SERVICE, which the platform sets, and
 # pushes inline there (D903): no setting is needed.
-# GUESTBOOK_REMOTE and the git token file come from the Cloud Run service.
+# GUESTBOOK_REMOTE and the git token file come from the Cloud Run service. A
+# guestbook commit is authored by the Worker's Cartographer-Author header and
+# committed by the server (D904): no git identity is set here.
 ENV CARTOGRAPHER_KB=/home/cartographer/astronomy \
     CARTOGRAPHER_DATA=/home/cartographer/data \
     CARTOGRAPHER_HTTP=:8080 \
     CARTOGRAPHER_AUTH=on \
     CARTOGRAPHER_UPDATE_CHECK=false \
-    CARTOGRAPHER_GIT_TOKEN_DIR=/etc/guestbook-git \
-    GIT_AUTHOR_NAME="Cartographer guestbook" \
-    GIT_AUTHOR_EMAIL=noreply@example.com \
-    GIT_COMMITTER_NAME="Cartographer guestbook" \
-    GIT_COMMITTER_EMAIL=noreply@example.com
+    CARTOGRAPHER_GIT_TOKEN_DIR=/etc/guestbook-git
 ENTRYPOINT ["demo-entrypoint.sh"]
 CMD ["serve"]
