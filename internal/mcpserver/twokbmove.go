@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
@@ -188,6 +187,7 @@ func (m *twoKBMove) runLocked(ctx context.Context) ToolResult {
 	out, _ := json.MarshalIndent(m.Report(srcSHA, dstSHA), "", "  ")
 	res.Content = append([]ContentBlock{{Type: "text", Text: string(out)}}, res.Content...)
 	res.CommitSHA = srcSHA
+	appendAuthorWarning(ctx, &res)
 	return res
 }
 
@@ -203,13 +203,13 @@ var errCommitUnknown = errors.New("commit: its outcome is unknown (HEAD unreadab
 // success is decided by HEAD moving, never by the returned SHA alone.
 func commitTransfer(ctx context.Context, args json.RawMessage, k *kb.KB, subject, trailerKey, otherKB string) (string, error) {
 	other := strings.Join(strings.Fields(otherKB), " ")
-	msg := subject
+	msg := stripTokenTrailers(subject)
 	if block := commitTrailerBlock(ctx, args, trailerKey+": "+other); block != "" {
 		msg += "\n\n" + block
 	}
 	before, _ := gitx.HeadSHA(k.Root)
-	p := auth.PrincipalFromContext(ctx)
-	sha, err := k.CommitOpAs(msg, p.AuthorName, p.AuthorEmail)
+	authorName, authorEmail := writerAuthor(ctx)
+	sha, err := k.CommitOpAs(msg, authorName, authorEmail)
 	if err != nil {
 		return "", fmt.Errorf("commit: %w", err)
 	}
@@ -237,8 +237,8 @@ func revertTransferTarget(ctx context.Context, tool string, dst *kb.KB, sha, src
 	msg := fmt.Sprintf("%s: revert %.7s (%s)", tool, sha, cause)
 	// nil args: the caller's Reason belongs to the transfer, the revert states its own.
 	msg += "\n\n" + commitTrailerBlock(ctx, nil, commitReasonKey+": the transfer from "+strings.Join(strings.Fields(srcName), " ")+" failed after this KB was written")
-	p := auth.PrincipalFromContext(ctx)
-	if _, err := dst.CommitOpAs(msg, p.AuthorName, p.AuthorEmail); err != nil {
+	authorName, authorEmail := writerAuthor(ctx)
+	if _, err := dst.CommitOpAs(msg, authorName, authorEmail); err != nil {
 		_ = gitx.DiscardChanges(dst.Root)
 		return err
 	}

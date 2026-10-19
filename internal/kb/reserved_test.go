@@ -166,6 +166,7 @@ func TestSyncIn_LogConflictWithoutAttributesAutoResolvedByUnion(t *testing.T) {
 	if subject := tgit(t, k.Root, "log", "-1", "--format=%s"); !strings.HasPrefix(subject, "auto-resolve reserved file conflict") {
 		t.Fatalf("HEAD subject = %q", subject)
 	}
+	assertServerAuthoredHead(t, k)
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("SyncOut after auto-resolution: %v", err)
 	}
@@ -271,6 +272,18 @@ func TestFinalizeConflictsReservedUnion(t *testing.T) {
 	got := readRel(t, k.Root, "data/log.md")
 	if !strings.Contains(got, "- local") || !strings.Contains(got, "- remote") {
 		t.Fatalf("log.md = %q, want the union", got)
+	}
+	assertServerAuthoredHead(t, k)
+}
+
+// assertServerAuthoredHead: a commit that is not a write (a conflict
+// resolution) is authored and committed by the server identity (D904).
+func assertServerAuthoredHead(t *testing.T, k *KB) {
+	t.Helper()
+	name, email := ServerIdentity()
+	want := name + " <" + email + "> | " + name + " <" + email + ">"
+	if got := tgit(t, k.Root, "log", "-1", "--format=%an <%ae> | %cn <%ce>"); got != want {
+		t.Errorf("HEAD author | committer = %q, want %q", got, want)
 	}
 }
 

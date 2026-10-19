@@ -1261,6 +1261,9 @@ func writeWithArgs(t *testing.T, k *kb.KB, id string, extra map[string]any) {
 	}
 }
 
+// tokenTrailer is the trailer the local admin's writes carry (D904).
+const tokenTrailer = "Cartographer-Token: local-admin"
+
 func TestGitWrap_ReasonBecomesTrailer(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
@@ -1270,21 +1273,21 @@ func TestGitWrap_ReasonBecomesTrailer(t *testing.T) {
 	if reason != "incident 42: DNS cutover" {
 		t.Errorf("reason trailer = %q, want normalised text", reason)
 	}
-	if body != "Reason: incident 42: DNS cutover" {
-		t.Errorf("body = %q, want a single Reason trailer", body)
+	if body != "Reason: incident 42: DNS cutover\n"+tokenTrailer {
+		t.Errorf("body = %q, want a single Reason trailer, then the token", body)
 	}
 	if got := headSubject(t, k.Root); got != "concept_write: test/with-reason" {
 		t.Errorf("subject = %q, must be unchanged by the reason", got)
 	}
 
 	writeWithArgs(t, k, "test/no-reason", nil)
-	if reason, body := headReason(t, k.Root); reason != "" || body != "" {
-		t.Errorf("no reason: trailer %q body %q, want both empty", reason, body)
+	if reason, body := headReason(t, k.Root); reason != "" || body != tokenTrailer {
+		t.Errorf("no reason: trailer %q body %q, want no reason and only the token", reason, body)
 	}
 
 	writeWithArgs(t, k, "test/blank-reason", map[string]any{"reason": " \n\t "})
-	if _, body := headReason(t, k.Root); body != "" {
-		t.Errorf("blank reason: body %q, want empty", body)
+	if _, body := headReason(t, k.Root); body != tokenTrailer {
+		t.Errorf("blank reason: body %q, want only the token", body)
 	}
 
 	long := strings.Repeat("é", 400) // 800 bytes
