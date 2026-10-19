@@ -1000,6 +1000,11 @@ Rollout notes:
   the signatures; it reports the unsigned count rather than silently passing.
   It is in the start's log line, and derives from `audit.key`: back the key up
   with the log, since a new one starts signing with a different key.
+- **An unsigned log stays verifiable.** A log kept without a key before D905 is
+  signed from the upgrade on. `audit verify` accepts its unsigned entries up to
+  the first signature, which covers them through the hash chain, and up to the
+  first checkpoint written with the key; an unsigned entry after either is
+  reported.
 - Verify from the operator machine, not the server: both commands read files
   and never contact a running instance, so they work during an outage.
 

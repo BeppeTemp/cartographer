@@ -996,6 +996,12 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey) (Summ
 	var timeline []Entry
 	var boundaries = map[int]boundary{} // index in timeline -> boundary info
 
+	// Once a checkpoint was written with a key loaded, signatures are
+	// mandatory from the first signed entry on, and in any case right after
+	// that checkpoint (signedFrom). Unsigned entries before both are the log
+	// kept before the key existed: the hash chain the first signature covers
+	// still authenticates them. Without such a checkpoint nothing changes.
+	signedFrom := -1
 	checkpointOnly, retained := 0, 0
 	previousCheckpoint := "genesis"
 	for _, cp := range idx.Segments {
@@ -1020,6 +1026,9 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey) (Summ
 		} else {
 			return Summary{}, statErr
 		}
+		if cp.SigningRequired && signedFrom < 0 {
+			signedFrom = len(timeline)
+		}
 		previousCheckpoint = cp.LastHash
 	}
 	activeStart := len(timeline)
@@ -1029,7 +1038,11 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey) (Summ
 	ids := map[string]bool{}
 	attempts := map[string]bool{}
 	prev := "genesis"
+	signing := false
 	for i, e := range timeline {
+		if i == signedFrom {
+			signing = true
+		}
 		if b, ok := boundaries[i]; ok {
 			if b.prevHash != prev {
 				sum.Corrupt++
@@ -1070,10 +1083,13 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey) (Summ
 				sum.Corrupt++
 				return sum, fmt.Errorf("audit: completion without attempt at entry %d", i)
 			}
-			if needsSignature && e.Sig == "" {
+			if signing && e.Sig == "" {
 				sum.Corrupt++
 				return sum, fmt.Errorf("audit: unsigned event in signing-required segment at entry %d", i)
 			}
+		}
+		if e.Sig != "" && needsSignature {
+			signing = true
 		}
 		if e.Sig == "" {
 			sum.Unsigned++

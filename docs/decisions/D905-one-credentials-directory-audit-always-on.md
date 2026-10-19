@@ -18,7 +18,10 @@ The audit log is always on: `<data>/audit/audit.log`, which `audit.log` only rel
 `audit.key`, which the first start generates (`0600`, never replacing a file) when it is missing.
 `audit.max_segment_bytes` defaults to 64 MiB, so retention has segments to delete. When the key can be neither
 read nor generated (a read-only directory without it), `best_effort` starts with an unsigned log and a warning
-naming the file to add, and `required` does not start. A log that cannot be opened does the same.
+naming the file to add, and `required` does not start. A log that cannot be opened does the same. A log kept
+unsigned before the upgrade is signed from then on: `audit verify` accepts its unsigned entries before the
+first signature and the first checkpoint written with the key, which the hash chain authenticates, and still
+refuses an unsigned entry after either.
 
 The choices the plan left to the implementation:
 - **The directory may be read-only.** The server writes into it only to generate `audit.key` and to place the
