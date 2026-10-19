@@ -133,6 +133,7 @@ func TestScopedCheck_CleanIsNil(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
+	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\ntitle: Ops\n---\n- [[ops/a]]\n- [[ops/b]]\n")
 	writeFile(t, k.DataRoot(), "ops/a.md", noteHead+"---\nSee [b](b.md).\n")
 	writeFile(t, k.DataRoot(), "ops/b.md", noteHead+"---\nSee [a](a.md).\n")
 	if got := ScopedCheck(k, ids("ops/a")); got != nil {
