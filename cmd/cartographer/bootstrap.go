@@ -16,17 +16,24 @@ import (
 // sshCommand builds a "ssh -i <key> [-o UserKnownHostsFile=... -o
 // StrictHostKeyChecking=yes]" string from a key/known-hosts pair, or ""
 // if key is empty. Shared by setupGitSSH (global GIT_SSH_COMMAND fallback)
-// and gitEnvForKB (per-KB GIT_SSH_COMMAND override).
+// and gitEnvForKB (per-KB GIT_SSH_COMMAND override). git runs it through the
+// shell, so each path is single-quoted: a space would split it and the
+// backslashes of a Windows credentials directory would be eaten. ssh splits
+// the UserKnownHostsFile value on whitespace itself, hence the double quotes.
 func sshCommand(key, knownHosts string) string {
 	if key == "" {
 		return ""
 	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "ssh -i %s", key)
+	cmd := "ssh -i " + shellQuote(key)
 	if knownHosts != "" {
-		fmt.Fprintf(&sb, " -o UserKnownHostsFile=%s -o StrictHostKeyChecking=yes", knownHosts)
+		cmd += " -o " + shellQuote(`UserKnownHostsFile="`+knownHosts+`"`) + " -o StrictHostKeyChecking=yes"
 	}
-	return sb.String()
+	return cmd
+}
+
+// shellQuote quotes s as one word for a POSIX shell.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // setupGitSSH configures GIT_SSH_COMMAND from the default SSH key of the

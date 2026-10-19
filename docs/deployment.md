@@ -280,7 +280,8 @@ push creates it on the remote if it is missing. An existing clone is never switc
 The clone is atomic (D348): it lands in `<data>/.<name>.cloning` and is renamed to `<data>/<name>` only when complete, so a process killed mid-clone leaves no half-clone that the next start would take for a finished one. A half-clone left at `<data>/<name>` by an older binary is not detected (an existing clone is never touched): remove that directory.
 
 `GIT_SSH_COMMAND` for the clone is built from `default.ssh` and `known_hosts` in the credentials
-directory (`ssh -i <key> -o UserKnownHostsFile=<known_hosts> -o StrictHostKeyChecking=yes`); if
+directory (`ssh -i '<key>' -o 'UserKnownHostsFile="<known_hosts>"' -o StrictHostKeyChecking=yes`, quoted so a
+path with spaces or a Windows one survives the shell git runs it with); if
 `GIT_SSH_COMMAND` is already present in the environment, it wins over `default.ssh`. This removes the need for
 a separate Kubernetes init container for the initial clone.
 

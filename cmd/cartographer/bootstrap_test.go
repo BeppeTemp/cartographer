@@ -190,12 +190,33 @@ func TestSetupGitSSHSetsCommand(t *testing.T) {
 		t.Fatalf("setupGitSSH: %v", err)
 	}
 	got := os.Getenv("GIT_SSH_COMMAND")
-	want := "ssh -i " + key + " -o UserKnownHostsFile=" + hosts + " -o StrictHostKeyChecking=yes"
+	want := "ssh -i '" + key + "' -o 'UserKnownHostsFile=\"" + hosts + "\"' -o StrictHostKeyChecking=yes"
 	if got != want {
 		t.Errorf("GIT_SSH_COMMAND = %q, want %q", got, want)
 	}
 	if strings.Contains(got, "key-material") {
 		t.Errorf("the key itself is in the command: %q", got)
+	}
+}
+
+// git runs GIT_SSH_COMMAND through the shell: a path with a space, a quote or
+// the backslashes of a Windows directory reaches ssh as one argument, and the
+// known_hosts value is double-quoted for ssh's own split on whitespace.
+func TestSSHCommandQuotesPaths(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh to run the command with")
+	}
+	key := `C:\Users\it's me\credentials\kb.ssh`
+	hosts := `/srv/cred dir/known_hosts`
+	cmd := sshCommand(key, hosts)
+	out, err := exec.Command(sh, "-c", `ssh() { printf '%s\n' "$@"; }; `+cmd).Output()
+	if err != nil {
+		t.Fatalf("sh -c %q: %v", cmd, err)
+	}
+	want := "-i\n" + key + "\n-o\nUserKnownHostsFile=\"" + hosts + "\"\n-o\nStrictHostKeyChecking=yes\n"
+	if string(out) != want {
+		t.Errorf("ssh received\n%s\nwant\n%s", out, want)
 	}
 }
 
@@ -228,7 +249,7 @@ func TestGitEnvForKB_OwnSSHKey(t *testing.T) {
 
 	got := gitEnvForKB("wiki-kb", dir)
 	want := []string{
-		"GIT_SSH_COMMAND=ssh -i " + key + " -o UserKnownHostsFile=" + hosts + " -o StrictHostKeyChecking=yes",
+		"GIT_SSH_COMMAND=ssh -i '" + key + "' -o 'UserKnownHostsFile=\"" + hosts + "\"' -o StrictHostKeyChecking=yes",
 	}
 	if !equalStringSlices(got, want) {
 		t.Errorf("gitEnvForKB(own key) = %v, want %v", got, want)
