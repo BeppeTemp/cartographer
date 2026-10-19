@@ -57,12 +57,11 @@ type Policy struct {
 	// way leaves both at zero, which is off.
 	AutoRepairDefault bool
 
-	// RepairOnWrite makes the write tools apply the mechanical AutoRepair
-	// fixes to the concepts they just wrote (D349). Zero value off: a KB
-	// opened without a spec never repairs on write.
-	RepairOnWrite bool
-	// WriteGate is the per-KB write gate (D350, config.KBSpec): "off" or
-	// empty, "error" or "warning". Zero value off.
+	// RepairOnWrite and WriteGate carry kbs[].repair_on_write and
+	// kbs[].write_gate (D349, D350) and nothing acts on them: a write always
+	// applies the safe fixes and always goes through the gate (D907). They
+	// leave with the keys.
+	RepairOnWrite          bool
 	WriteGate              string
 	DoctorAutoIntervalDays int
 

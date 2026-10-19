@@ -97,9 +97,10 @@ The server finds the problems; an agent works on them only when the operator ask
 is deterministic (`lint`, `kb_review`) and never runs a model on the server (D14). Four layers,
 cheapest first:
 
-1. **Write-time repair** (D349, D355): a write applies the mechanical
-   `auto_repair` fixes to the concepts it just wrote, to a fixpoint, and the
-   write gate (D350) refuses what introduces findings.
+1. **Write-time repair** (D349, D355): a write applies the safe mechanical
+   fixes to the concepts it just wrote, to a fixpoint, and the write gate
+   (D350) refuses what introduces a finding the write could have avoided;
+   both are fixed behaviour, with no setting to turn them off (D907).
 2. **Background repair** (D323): the server applies `auto_repair` over the KB, in one commit, with
    no agent: at every start (an upgrade or a config change can make untouched pages fixable), after
    a pull that moved HEAD, and once per `doctor_auto_interval`.

@@ -238,10 +238,12 @@ func TestAutoRepairIgnoresChecksThatAreNotSafe(t *testing.T) {
 	if len(run.Checks) != 1 || run.Checks[0].Check != "nonstandard_field" {
 		t.Fatalf("run = %+v", run)
 	}
-	// Repair-on-write follows the same rule.
-	setPolicy(k, func(p *kb.Policy) { p.RepairOnWrite = true })
-	if got := repairOnWriteChecks(k); len(got) != 1 || got[0] != "nonstandard_field" {
-		t.Fatalf("repair-on-write checks = %v", got)
+	// Repair-on-write leaves the link-dropping checks to kb_repair too,
+	// whatever the list says (D907: it does not read it).
+	for _, c := range repairOnWriteChecks() {
+		if c == "broken_link" || c == "reciprocal_link_item" {
+			t.Fatalf("repair-on-write applies %s", c)
+		}
 	}
 }
 

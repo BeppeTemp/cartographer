@@ -18,29 +18,25 @@ type repairedOut struct {
 	Count int    `json:"count"`
 }
 
-// repairOnWriteChecks is the auto_repair list a write may apply (D349, D355):
-// only checks whose fix is safe to run unattended (D354) and stays inside the
+// repairOnWriteChecks are the fixes a write applies to what it wrote (D349),
+// always since D907: no setting turns them off or shortens the list. They are
+// the checks whose fix is safe to run unattended (D354) and stays inside the
 // concept. broken_link and reciprocal_link_item drop or rewrite links (D309),
 // and a single write has no cross-concept state for the mutual-pair guard, so
-// they stay with kb_repair; artifact checks never concern a concept.
-func repairOnWriteChecks(k *kb.KB) []string {
-	pol := k.Policy()
-	if !pol.RepairOnWrite {
-		return nil
-	}
+// they stay with kb_repair; artifact and map checks never concern a concept.
+func repairOnWriteChecks() []string {
 	var out []string
-	for _, c := range pol.AutoRepair {
-		s, ok := lint.Spec(c)
-		if !ok || !s.AutoRepairSafe || s.CrossConcept || lint.ArtifactRepairCheck(c) || lint.MapRepairCheck(c) {
+	for _, s := range lint.Checks() {
+		if !s.AutoRepairSafe || s.CrossConcept || lint.ArtifactRepairCheck(s.Name) || lint.MapRepairCheck(s.Name) {
 			continue
 		}
-		out = append(out, c)
+		out = append(out, s.Name)
 	}
 	return out
 }
 
 // repairWritten is what the write handlers report findings through (D349): it
-// applies the mechanical auto_repair fixes of the concepts the call left on
+// applies the safe mechanical fixes to the concepts the call left on
 // disk, then reports what remains. It must run inside gitWrap (the handler
 // holds the KB lock and the repair lands in the same commit; a handler still
 // never locks or commits itself). It never fails the write: an error leaves
@@ -50,7 +46,7 @@ func repairOnWriteChecks(k *kb.KB) []string {
 // ScopedCheck reports are never rewritten.
 func repairWritten(k *kb.KB, written, gone []string) (findings []findingOut, repaired []repairedOut, hashes map[string]string) {
 	found := writeLintFindings(k, written, gone)
-	checks := repairOnWriteChecks(k)
+	checks := repairOnWriteChecks()
 	if len(checks) == 0 || len(found) == 0 {
 		return findingsOrNil(found), nil, nil
 	}

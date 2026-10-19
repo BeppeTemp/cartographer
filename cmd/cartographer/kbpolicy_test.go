@@ -40,9 +40,6 @@ func TestApplyKBPolicy_KBFileOnly(t *testing.T) {
 	if c := caps["artifact_write"]; c.State != "enabled" || c.Setting != "settings.yaml allow_artifact_write" {
 		t.Errorf("artifact_write = %+v", c)
 	}
-	if c := caps["write_gate"]; c.Setting != "settings.yaml write_gate" {
-		t.Errorf("write_gate = %+v", c)
-	}
 }
 
 func TestApplyKBPolicy_ServerOnlyIsUnchanged(t *testing.T) {
@@ -59,7 +56,9 @@ func TestApplyKBPolicy_ServerOnlyIsUnchanged(t *testing.T) {
 }
 
 // Acceptance: two servers mounting the same KB report the same artifact_write
-// and write_gate even when one of them sets a different value in kbs[].
+// and resolve the same write_gate even when one of them sets a different
+// value in kbs[]. write_gate is no longer a capability (D907): the gate is
+// fixed, and the key is resolved only until it is removed.
 func TestApplyKBPolicy_TwoServersAgree(t *testing.T) {
 	k1 := policyKB(t, "allow_artifact_write: true\nwrite_gate: error\n")
 	k2, err := kb.Open(k1.Root)
@@ -73,16 +72,14 @@ func TestApplyKBPolicy_TwoServersAgree(t *testing.T) {
 	applyKBPolicy(k2, cfg2, cfg2.KBs[0], "kb-a", false)
 
 	c1, c2 := mcpserver.KBCapabilitiesFor(k1), mcpserver.KBCapabilitiesFor(k2)
-	for _, key := range []string{"artifact_write", "write_gate"} {
-		if c1[key].State != c2[key].State {
-			t.Errorf("%s: %q vs %q", key, c1[key].State, c2[key].State)
-		}
+	if c1["artifact_write"].State != c2["artifact_write"].State {
+		t.Errorf("artifact_write: %q vs %q", c1["artifact_write"].State, c2["artifact_write"].State)
 	}
-	if k2.Policy().WriteGate != "error" || c2["write_gate"].IgnoredServerValue != "warning" {
-		t.Errorf("the server that disagrees must report the ignored value: %+v", c2["write_gate"])
+	if k2.Policy().WriteGate != "error" {
+		t.Errorf("write_gate = %q, want the KB's error", k2.Policy().WriteGate)
 	}
-	if info := k2.SettingsInfo(); len(info.Ignored) != 1 || info.Ignored[0].Key != "write_gate" {
-		t.Errorf("ignored = %+v", info.Ignored)
+	if info := k2.SettingsInfo(); len(info.Ignored) != 1 || info.Ignored[0].Key != "write_gate" || info.Ignored[0].ServerValue != "warning" {
+		t.Errorf("the server that disagrees must report the ignored value: %+v", info.Ignored)
 	}
 }
 

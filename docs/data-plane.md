@@ -506,7 +506,7 @@ Every other check is avoidable at write, and the write gate refuses a write that
 
 ### Conformance checks (D289)
 
-Findings report on every write and never fail it by default; a KB can opt in to refusing a write that introduces one (`kbs[].write_gate`, D350, `control-plane.md` §Commit per logical operation).
+Findings report on every write. In a git KB a write that introduces a finding it could have avoided is refused, at any severity, and nothing switches that off or accepts the finding (D350, D907, `control-plane.md` §Commit per logical operation; the checks no write can avoid are listed above).
 
 A write response carries these checks for the concept it wrote, plus the body, link and light graph checks `lint.ScopedCheck` runs without walking the KB (D312, `control-plane.md` §`concept_write`); the whole-KB structural checks stay with `lint` and `gate_check`.
 

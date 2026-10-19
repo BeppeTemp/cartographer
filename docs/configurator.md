@@ -617,7 +617,7 @@ report); a check outside it is never applied. A KB that never wrote `auto_repair
 the report says so, and says that earlier releases applied none, so an upgrade followed by `--apply` is not
 a surprise; an explicit `auto_repair: []` is reported as such. The server applies the same list by
 itself every `doctor_auto_interval`, and each write already repairs the concepts it wrote
-(`repair_on_write`, D349), so `--apply` usually finds little. It ends with the judgement
+(D349, always since D907), so `--apply` usually finds little. It ends with the judgement
 work left — the `kb_review` counts by kind — which only a `kb-doctor` session with the operator handles.
 It writes no `kb-doctor` log entry: a mechanical pass is not a doctor session, and the entry would
 silence the server's doctor proposal while the judgement work is undone (each applied check still

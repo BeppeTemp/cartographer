@@ -656,10 +656,9 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		"auto_repair": with(cap("auto_repair", onOff(len(pol.AutoRepair) > 0), "kbs[].auto_repair"), func(c *KBCapability) {
 			c.Checks, c.Default, c.Ignored = pol.AutoRepair, pol.AutoRepairDefault, ignoredAuto
 		}),
-		// D349: a write applies the mechanical auto_repair fixes to what it wrote.
-		"repair_on_write": cap("repair_on_write", onOff(pol.RepairOnWrite && len(pol.AutoRepair) > 0), "kbs[].repair_on_write"),
-		// D350: a write that introduces findings at or above the floor is refused.
-		"write_gate":      cap("write_gate", writeGateStateOf(k, pol), "kbs[].write_gate"),
+		// No repair_on_write nor write_gate: a write always applies the safe
+		// fixes and the gate always judges it (D907), so there is no state to
+		// report.
 		"doctor_interval": cap("doctor_interval", interval, "kbs[].doctor_interval"),
 		// D704: always assisted. Still reported because a kb-doctor skill
 		// synced before 0.24 reads a missing doctor_mode as unattended and would

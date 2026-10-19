@@ -88,11 +88,11 @@ func TestGitWrap_AgentTrailer(t *testing.T) {
 
 func TestGitWrap_AgentTrailerOrder(t *testing.T) {
 	t.Parallel()
-	// (b) Reason, Agent, Accepted-Finding in one trailer paragraph.
-	k, _ := gateKB(t, "error")
+	// (b) Reason, Agent and the token in one trailer paragraph.
+	k := gateKB(t)
 	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
-	acc := `{"source_id":"ops/p","target_id":"arch/p","reason":"why","accept_findings":[{"check":"invalid_field_value","reason":"legacy"}]}`
-	if text, isErr := callJSON(t, s, asClient(authLocalContext(), "client-a"), "concept_move", acc); isErr {
+	mv := `{"source_id":"ops/p","target_id":"ops/p2","reason":"why"}`
+	if text, isErr := callJSON(t, s, asClient(authLocalContext(), "client-a"), "concept_move", mv); isErr {
 		t.Fatalf("move: %s", text)
 	}
 	out, err := exec.Command("git", "-C", k.Root, "log", "-1", "--format=%B").Output()
@@ -105,7 +105,7 @@ func TestGitWrap_AgentTrailerOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "Reason: why\nAgent: client-a\nAccepted-Finding: invalid_field_value: legacy\n" + tokenTrailer + "\n"
+	want := "Reason: why\nAgent: client-a\n" + tokenTrailer + "\n"
 	if string(parsed) != want {
 		t.Errorf("trailers = %q, want %q", parsed, want)
 	}

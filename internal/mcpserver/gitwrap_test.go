@@ -1056,8 +1056,8 @@ func TestToolDescriptions_StateTheirEnforcedLimits(t *testing.T) {
 		{"asset_write", []string{byteBudget(kb.AssetMaxFileSize)}},
 		// The signpost to concept_batch, now a listed tool (D318).
 		{"concept_patch", []string{"concept_batch", fmt.Sprintf("%d operations", conceptBatchMaxOps)}},
-		// required_fields reads as a write gate and is not one.
-		{"map_create", []string{"not a write gate"}},
+		// A contract key never switches a check off (D907).
+		{"map_create", []string{"No contract key switches a check off"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {

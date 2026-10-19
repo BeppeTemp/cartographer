@@ -181,11 +181,11 @@ func TestRepairUnmappedFolder_ScaffoldsWhatMapCreateWrites(t *testing.T) {
 // repair-on-write handles concept checks only: a folder check never runs there.
 func TestRepairOnWriteSkipsFolderChecks(t *testing.T) {
 	t.Parallel()
-	k, _ := repairKB(t, 0)
-	setPolicy(k, func(p *kb.Policy) { p.RepairOnWrite = true })
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{"unmapped_folder", "missing_title"} })
-	got := repairOnWriteChecks(k)
-	if len(got) != 1 || got[0] != "missing_title" {
+	got := map[string]bool{}
+	for _, c := range repairOnWriteChecks() {
+		got[c] = true
+	}
+	if got["unmapped_folder"] || got["contract_legacy_key"] || !got["missing_title"] {
 		t.Fatalf("checks = %v", got)
 	}
 }

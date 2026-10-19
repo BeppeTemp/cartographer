@@ -141,8 +141,8 @@ func TestGitWrap_HeaderNewlineIsRefused(t *testing.T) {
 }
 
 // A caller cannot put its own Cartographer-Token in the commit: whatever it
-// writes in the reason, in an id in the subject, or as an Accepted-Finding
-// line, the one trailer left is the token's id, and it is the last.
+// writes in the reason or in an id in the subject, the one trailer left is the
+// token's id, and it is the last.
 func TestGitWrap_ForgedTokenTrailerIsStripped(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
