@@ -903,7 +903,8 @@ func generateKBInstructions(kbName, kbRoot string, routed bool) string {
 		// this line names; nothing else in the session says when to use it.
 		sb.WriteString("- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n")
 		sb.WriteString("- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n")
-		sb.WriteString("- a write is done when its response has no findings (broken links, missing index entry, orphan): fix them, or `lint_ignore` them with a reason;\n")
+		// D907: the write gate is always on and nothing accepts a finding.
+		sb.WriteString("- a write that would introduce an avoidable finding (broken link, missing index entry, orphan) is refused with each finding's fix and nothing is committed: write the target, the index entry and the link in the same `concept_batch`;\n")
 		// D321: one meaning for `active`, said once, true for every KB.
 		sb.WriteString("- status convention: `active` means the page is valid and current; open work uses `open`, `in-progress` or `blocked`, and a wait is declared with `waiting_on` and `review_after`;\n")
 		sb.WriteString("- every write is a git commit, revertible.\n")
