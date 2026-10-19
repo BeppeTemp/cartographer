@@ -34,24 +34,3 @@ func wrappedWriteAs(t *testing.T, k *kb.KB, p auth.Principal, content string) {
 		t.Fatalf("wrapped handler: err=%v res=%+v", err, res)
 	}
 }
-
-// A token that declares an author identity is the author of the commits its
-// writes produce; the committer stays the KB's identity. A token without one
-// commits as the KB.
-func TestGitWrap_CommitAuthorFollowsTokenIdentity(t *testing.T) {
-	t.Parallel()
-	k, _ := setupGitKB(t)
-	k.GitAuthorName, k.GitAuthorEmail, k.GitAuthorExplicit = "Owner", "owner@example.com", true
-	k.GitEnv = append(k.GitEnv, "GIT_COMMITTER_NAME=Owner", "GIT_COMMITTER_EMAIL=owner@example.com")
-
-	agent := auth.Principal{ID: "agent", Policy: auth.Policy{Admin: true}, AuthorName: "agent-bot", AuthorEmail: "agent@example.com"}
-	wrappedWriteAs(t, k, agent, "one\n")
-	if got, want := headIdent(t, k), "agent-bot <agent@example.com> | Owner <owner@example.com>"; got != want {
-		t.Fatalf("token with identity: HEAD = %q, want %q", got, want)
-	}
-
-	wrappedWriteAs(t, k, auth.Principal{ID: "plain", Policy: auth.Policy{Admin: true}}, "two\n")
-	if got, want := headIdent(t, k), "Owner <owner@example.com> | Owner <owner@example.com>"; got != want {
-		t.Fatalf("token without identity: HEAD = %q, want %q", got, want)
-	}
-}

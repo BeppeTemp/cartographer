@@ -683,10 +683,10 @@ func (k *KB) CommitOp(message string) (sha string, err error) {
 }
 
 // CommitOpAs is CommitOp with an explicit author: a non-empty authorName and
-// authorEmail replace the KB's author identity for this one commit, while the
-// committer stays the KB's (GIT_COMMITTER_* in GitEnv). Empty values behave
-// exactly like CommitOp. Used to attribute a write to the token that made it.
-func (k *KB) CommitOpAs(message, overrideName, overrideEmail string) (sha string, err error) {
+// authorEmail author this one commit. Empty values mean the server identity
+// (ServerIdentity): the commit is not a write, or the writer did not declare
+// who it is. The committer is always the server's (D904).
+func (k *KB) CommitOpAs(message, authorName, authorEmail string) (sha string, err error) {
 	if !gitx.IsRepo(k.Root) {
 		return "", nil
 	}
@@ -695,16 +695,10 @@ func (k *KB) CommitOpAs(message, overrideName, overrideEmail string) (sha string
 		// Either status check failed or working tree is clean — nothing to commit.
 		return "", nil
 	}
-	authorName, authorEmail := "", ""
-	if k.GitAuthorExplicit {
-		authorName, authorEmail = k.gitAuthor()
-	} else if _, _, identErr := gitx.AuthorIdent(k.Root, k.GitEnv...); identErr != nil {
-		authorName, authorEmail = defaultGitAuthorName, defaultGitAuthorEmail
+	if authorName == "" || authorEmail == "" {
+		authorName, authorEmail = "", ""
 	}
-	if overrideName != "" && overrideEmail != "" {
-		authorName, authorEmail = overrideName, overrideEmail
-	}
-	if err := gitx.Commit(k.Root, message, authorName, authorEmail, k.GitEnv...); err != nil {
+	if err := gitx.Commit(k.Root, message, authorName, authorEmail, k.GitCommandEnv()...); err != nil {
 		if errors.Is(err, gitx.ErrNothingToCommit) {
 			return "", nil
 		}
@@ -731,13 +725,7 @@ func (k *KB) commitPathsLocked(paths []string, message string) error {
 	if !gitx.IsRepo(k.Root) {
 		return fmt.Errorf("CommitPaths: KB root is not a git repository")
 	}
-	authorName, authorEmail := "", ""
-	if k.GitAuthorExplicit {
-		authorName, authorEmail = k.gitAuthor()
-	} else if _, _, err := gitx.AuthorIdent(k.Root, k.GitEnv...); err != nil {
-		authorName, authorEmail = defaultGitAuthorName, defaultGitAuthorEmail
-	}
-	if err := gitx.CommitPaths(k.Root, paths, message, authorName, authorEmail, k.GitEnv...); err != nil {
+	if err := gitx.CommitPaths(k.Root, paths, message, "", "", k.GitCommandEnv()...); err != nil {
 		if errors.Is(err, gitx.ErrNothingToCommit) {
 			return nil
 		}

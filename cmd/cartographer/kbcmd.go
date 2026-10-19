@@ -148,13 +148,9 @@ func cmdKBCreate(args []string) int {
 		}
 	}
 
-	// The identity has to be right before the initial commit exists: it is the
+	// The author has to be right before the initial commit exists: it is the
 	// commit a forge with an author-membership push rule rejects (D156).
 	authorName, authorEmail := resolveCreateIdentity(path)
-	if remote != "" && authorEmail == kb.DefaultGitAuthorEmail {
-		fmt.Fprintf(os.Stderr, "Warning: commits will be authored as %s; forges with author push rules will reject the push.\n", authorEmail)
-		fmt.Fprintln(os.Stderr, "  Set git.author_name/git.author_email in the server config, or git config --global user.email, then retry.")
-	}
 
 	// kb.Init creates <path> (and its parents, i.e. dataDir too) itself —
 	// no separate MkdirAll(dataDir) needed.
@@ -206,24 +202,15 @@ func cmdKBCreate(args []string) int {
 	return 0
 }
 
-// resolveCreateIdentity resolves the author of a new KB's initial commit, in
-// the same order the server uses when it mounts one (serve.go): the server
-// config's git.author_name/git.author_email, then git's own resolution for that
-// path, then the product default. Before D156 the CLI path ignored the first two
-// and always committed as the product default, which a forge with an
-// author-membership push rule rejects.
+// resolveCreateIdentity resolves the author of a new KB's initial commit: the
+// operator running the command is its writer, so git's own resolution for that
+// path (the per-folder identity included), then the server identity on a
+// machine with none (D904, D156).
 func resolveCreateIdentity(path string) (name, email string) {
-	if cfgPath, err := service.NewManager().EffectiveConfigPath(""); err == nil {
-		if cfg, cfgErr := config.Load(cfgPath); cfgErr == nil {
-			if cfg.Git.AuthorName != "" && cfg.Git.AuthorEmail != "" {
-				return cfg.Git.AuthorName, cfg.Git.AuthorEmail
-			}
-		}
-	}
 	if n, e, err := gitx.AuthorIdent(path); err == nil && n != "" && e != "" {
 		return n, e
 	}
-	return kb.DefaultGitAuthorName, kb.DefaultGitAuthorEmail
+	return kb.ServerIdentity()
 }
 
 // printUnpushedScaffoldGuidance explains what to do with a KB whose scaffold is
@@ -380,9 +367,8 @@ func adoptForgeCommit(path, remote, branch string, refs gitx.RemoteRefs, authorN
 	}
 
 	// The rebased commit is created by this git, so its committer must be the
-	// resolved identity too (D265), not whatever git would guess.
-	env := []string{"GIT_COMMITTER_NAME=" + authorName, "GIT_COMMITTER_EMAIL=" + authorEmail}
-	if err := gitx.RebaseOntoAutostash(path, "origin", target, env...); err != nil {
+	// server identity (D904, D265), not whatever git would guess.
+	if err := gitx.RebaseOntoAutostash(path, "origin", target, kb.ServerGitEnv()...); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return refuse()
 	}

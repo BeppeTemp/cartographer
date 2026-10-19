@@ -92,13 +92,11 @@ func gitTokenCredentialEnv(tokenDir, name string) []string {
 }
 
 // gitEnvForKB assembles the per-KB git environment: GIT_SSH_COMMAND (from
-// spec.SSHKey/KnownHosts, falling back to g.SSHKey/KnownHosts),
-// GIT_COMMITTER_NAME/EMAIL (from spec.CommitterName/Email, falling back to
-// spec.AuthorName/Email, then g.CommitterName/Email, then
-// g.AuthorName/Email — i.e. the default committer is the default author),
-// and — if g.TokenDir/<name>.token exists — a credential.helper (D53,
+// spec.SSHKey/KnownHosts, falling back to g.SSHKey/KnownHosts) and — if
+// g.TokenDir/<name>.token exists — a credential.helper (D53,
 // gitTokenCredentialEnv). name is the resolved KB name (resolveKBName). Only
-// entries that resolve to a non-empty value are included. The result is
+// entries that resolve to a non-empty value are included. It carries no
+// identity: the committer is the server's, added by kb.KB.GitCommandEnv (D904). The result is
 // passed to gitx as env: it takes precedence over the process environment
 // (runGitEnv), the inverse of setupGitSSH's "process environment wins" rule.
 func gitEnvForKB(spec config.KBSpec, g config.GitConfig, name string) []string {
@@ -113,34 +111,6 @@ func gitEnvForKB(spec config.KBSpec, g config.GitConfig, name string) []string {
 	}
 	if cmd := sshCommand(sshKey, knownHosts); cmd != "" {
 		env = append(env, "GIT_SSH_COMMAND="+cmd)
-	}
-
-	committerName := spec.CommitterName
-	if committerName == "" {
-		committerName = spec.AuthorName
-	}
-	if committerName == "" {
-		committerName = g.CommitterName
-	}
-	if committerName == "" {
-		committerName = g.AuthorName
-	}
-	if committerName != "" {
-		env = append(env, "GIT_COMMITTER_NAME="+committerName)
-	}
-
-	committerEmail := spec.CommitterEmail
-	if committerEmail == "" {
-		committerEmail = spec.AuthorEmail
-	}
-	if committerEmail == "" {
-		committerEmail = g.CommitterEmail
-	}
-	if committerEmail == "" {
-		committerEmail = g.AuthorEmail
-	}
-	if committerEmail != "" {
-		env = append(env, "GIT_COMMITTER_EMAIL="+committerEmail)
 	}
 
 	env = append(env, gitTokenCredentialEnv(g.TokenDir, name)...)

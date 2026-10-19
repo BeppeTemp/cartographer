@@ -15,8 +15,6 @@ import (
 func externalKB(t *testing.T) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
-	k.GitAuthorExplicit = true
-	k.GitAuthorName, k.GitAuthorEmail = "KB Identity", "kb@example.com"
 	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{"nonstandard_field"} })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -56,8 +54,9 @@ func TestExternalChanges_NoOpWriteCommitsOnlyTheExternalWork(t *testing.T) {
 	if !strings.Contains(body, "Reason: uncommitted changes found before kb_repair") {
 		t.Fatalf("no reason trailer:\n%s", body)
 	}
-	if author := gitOut(t, k, "log", "-1", "--format=%an <%ae>"); author != "KB Identity <kb@example.com>" {
-		t.Fatalf("author = %q", author)
+	name, email := kb.ServerIdentity()
+	if got := gitOut(t, k, "log", "-1", "--format=%an <%ae> | %cn <%ce>"); got != name+" <"+email+"> | "+name+" <"+email+">" {
+		t.Fatalf("identity = %q, want the server for author and committer", got)
 	}
 	gateClean(t, k)
 }

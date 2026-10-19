@@ -67,129 +67,63 @@ func TestCommitOp_NotARepository_NoOp(t *testing.T) {
 	}
 }
 
-// TestCommitOp_PerKBIdentity verifies that CommitOp uses k.GitAuthorName/
-// GitAuthorEmail as the commit author and picks up the committer from
-// k.GitEnv (GIT_COMMITTER_NAME/EMAIL).
-func TestCommitOp_PerKBIdentity(t *testing.T) {
-	t.Parallel()
-	k, _ := initGitKB(t)
-	k.GitAuthorName = "Author Person"
-	k.GitAuthorEmail = "author@wiki.local"
-	k.GitAuthorExplicit = true
-	k.GitEnv = []string{"GIT_COMMITTER_NAME=Committer Bot", "GIT_COMMITTER_EMAIL=committer@wiki.local"}
-
-	if err := k.WriteFileAtomic("data/gitsync-identity.md", []byte("---\ntype: Note\ntitle: Identity\n---\ntest\n")); err != nil {
-		t.Fatalf("WriteFileAtomic: %v", err)
-	}
-	if _, err := k.CommitOp("test: per-KB identity"); err != nil {
-		t.Fatalf("CommitOp: %v", err)
-	}
-
-	out, err := gitx.HeadSHA(k.Root)
-	if err != nil || out == "" {
-		t.Fatalf("HeadSHA: %v", err)
-	}
-	log, logErr := gitLogFormat(t, k.Root, "%an <%ae> %cn <%ce>")
-	if logErr != nil {
-		t.Fatalf("git log: %v", logErr)
-	}
-	want := "Author Person <author@wiki.local> Committer Bot <committer@wiki.local>"
-	if log != want {
-		t.Fatalf("git log identity = %q, want %q", log, want)
-	}
-}
-
-// TestCommitOp_DefaultIdentity_NoOverride verifies that CommitOp falls back
-// to the package defaults (cartographer/cartographer@localhost) when
-// GitAuthorName/GitAuthorEmail are unset, preserving the pre-M3 behaviour.
-func TestCommitOp_DefaultIdentity_NoOverride(t *testing.T) {
-	t.Parallel()
-	k, _ := initGitKB(t)
-	// Explicitly clear the fixture's repository identity and force the final
-	// fallback, so the placeholder assertion is independent of user config.
-	k.GitAuthorName, k.GitAuthorEmail = defaultGitAuthorName, defaultGitAuthorEmail
-	k.GitAuthorExplicit = true
-
-	if err := k.WriteFileAtomic("data/gitsync-default-identity.md", []byte("---\ntype: Note\ntitle: Default\n---\ntest\n")); err != nil {
-		t.Fatalf("WriteFileAtomic: %v", err)
-	}
-	if _, err := k.CommitOp("test: default identity"); err != nil {
-		t.Fatalf("CommitOp: %v", err)
-	}
-
-	log, err := gitLogFormat(t, k.Root, "%an <%ae>")
-	if err != nil {
-		t.Fatalf("git log: %v", err)
-	}
-	want := "cartographer <cartographer@localhost>"
-	if log != want {
-		t.Fatalf("git log author = %q, want %q", log, want)
-	}
-}
-
-func TestCommitOp_NativeRepositoryIdentity(t *testing.T) {
+// Every commit has the server as committer (D904). A commit with no declared
+// author is authored by the server too, whatever git would have resolved from
+// the repository, the user config or the process environment; a declared author
+// authors it, and only it.
+func TestCommitOp_ServerIsCommitterAndDefaultAuthor(t *testing.T) {
 	t.Parallel()
 	k, _ := initGitKB(t)
 	gitHere(t, k.Root, "config", "user.name", "Repository User")
 	gitHere(t, k.Root, "config", "user.email", "repo@example.test")
-	if err := k.WriteFileAtomic("data/native.md", []byte("native\n")); err != nil {
-		t.Fatal(err)
+	k.GitEnv = []string{"GIT_COMMITTER_NAME=Ignored", "GIT_COMMITTER_EMAIL=ignored@example.test"}
+	name, email := ServerIdentity()
+	server := name + " <" + email + ">"
+
+	commit := func(file string, commitOp func() error) {
+		t.Helper()
+		if err := k.WriteFileAtomic(file, []byte("x\n")); err != nil {
+			t.Fatal(err)
+		}
+		if err := commitOp(); err != nil {
+			t.Fatalf("commit: %v", err)
+		}
 	}
-	if _, err := k.CommitOp("native"); err != nil {
-		t.Fatal(err)
+	commit("data/no-author.md", func() error { _, err := k.CommitOp("test: no author"); return err })
+	if got, err := gitLogFormat(t, k.Root, "%an <%ae> | %cn <%ce>"); err != nil || got != server+" | "+server {
+		t.Fatalf("no author: %q, %v, want the server for both", got, err)
 	}
-	got, err := gitLogFormat(t, k.Root, "%an <%ae>")
-	if err != nil || got != "Repository User <repo@example.test>" {
-		t.Fatalf("native identity = %q, %v", got, err)
+	commit("data/with-author.md", func() error {
+		_, err := k.CommitOpAs("test: with author", "Writer Person", "writer@example.test")
+		return err
+	})
+	if got, err := gitLogFormat(t, k.Root, "%an <%ae> | %cn <%ce>"); err != nil || got != "Writer Person <writer@example.test> | "+server {
+		t.Fatalf("with author: %q, %v", got, err)
 	}
 }
 
-func TestCommitOp_PlaceholderFallbackWithoutRepositoryIdentity(t *testing.T) {
+func TestServerIdentity_HostIsAValidEmailDomain(t *testing.T) {
 	t.Parallel()
-	k, _ := initGitKB(t)
-	k.GitEnv = []string{
-		"GIT_AUTHOR_NAME=",
-		"GIT_AUTHOR_EMAIL=",
-		"GIT_COMMITTER_NAME=Committer",
-		"GIT_COMMITTER_EMAIL=committer@example.test",
-	}
-	if err := k.WriteFileAtomic("data/fallback.md", []byte("fallback\n")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := k.CommitOp("fallback"); err != nil {
-		t.Fatal(err)
-	}
-	got, err := gitLogFormat(t, k.Root, "%an <%ae>")
-	if err != nil || got != "cartographer <cartographer@localhost>" {
-		t.Fatalf("placeholder identity = %q, %v", got, err)
-	}
-}
-
-func TestGitStatusSnapshot_NoRemoteAndIdentityWarning(t *testing.T) {
-	t.Parallel()
-	k, _ := initGitKB(t)
-	k.GitAuthorEmail = defaultGitAuthorEmail
-	if s := k.GitStatusSnapshot(); s.State != "no_remote" || s.IdentityWarning {
-		t.Fatalf("status = %+v", s)
-	}
-}
-
-func TestShouldWarnGitIdentity(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name, email string
-		remote      bool
-		want        bool
-	}{
-		{name: "placeholder with a remote", email: defaultGitAuthorEmail, remote: true, want: true},
-		{name: "configured identity", email: "bot@example.test", remote: true},
-		{name: "no remote", email: defaultGitAuthorEmail},
+	for host, want := range map[string]string{
+		"Build-Host.Example.COM": "build-host.example.com",
+		"my host_01":             "my-host-01",
+		"":                       "localhost",
+		"...":                    "localhost",
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := ShouldWarnGitIdentity(tc.remote, tc.email); got != tc.want {
-				t.Fatalf("ShouldWarnGitIdentity = %v, want %v", got, tc.want)
-			}
-		})
+		if got := identityHost(host); got != want {
+			t.Errorf("identityHost(%q) = %q, want %q", host, got, want)
+		}
+	}
+	if _, email := ServerIdentity(); !strings.HasPrefix(email, "cartographer@") {
+		t.Errorf("server email = %q", email)
+	}
+}
+
+func TestGitStatusSnapshot_NoRemote(t *testing.T) {
+	t.Parallel()
+	k, _ := initGitKB(t)
+	if s := k.GitStatusSnapshot(); s.State != "no_remote" {
+		t.Fatalf("status = %+v", s)
 	}
 }
 

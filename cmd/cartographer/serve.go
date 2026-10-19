@@ -21,7 +21,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/config"
-	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -167,23 +166,6 @@ type kbMount struct {
 	Discovered bool
 }
 
-// firstNonEmpty returns the first non-empty string among vs, or "" if all are empty.
-func firstNonEmpty(vs ...string) string {
-	for _, v := range vs {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
-}
-
-func completeIdentity(name, email, scope string) error {
-	if (name == "") != (email == "") {
-		return fmt.Errorf("%s git author_name and author_email must be configured together", scope)
-	}
-	return nil
-}
-
 // resolveSopsAgeKeyFile resolves the SOPS age key file for a KB (D53).
 // Resolution order: spec.SopsAgeKeyFile (explicit per-KB override) wins;
 // otherwise <sops.AgeKeyDir>/<name>.age if that file exists; otherwise the
@@ -294,27 +276,6 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		k.SyncInWindow = kb.DefaultSyncInWindow
 		k.SyncOutDebounce = kb.SyncOutDebounceFor(os.Getenv)
 		k.GitEnv = gitEnvForKB(m.Spec, cfg.Git, m.Name)
-		if err := completeIdentity(m.Spec.AuthorName, m.Spec.AuthorEmail, "kbs[]"); err != nil {
-			log.Fatal(err)
-		}
-		if err := completeIdentity(m.Spec.CommitterName, m.Spec.CommitterEmail, "kbs[] committer"); err != nil {
-			log.Fatal(err)
-		}
-		if err := completeIdentity(cfg.Git.AuthorName, cfg.Git.AuthorEmail, "git"); err != nil {
-			log.Fatal(err)
-		}
-		if err := completeIdentity(cfg.Git.CommitterName, cfg.Git.CommitterEmail, "git committer"); err != nil {
-			log.Fatal(err)
-		}
-		k.GitAuthorName, k.GitAuthorEmail = firstNonEmpty(m.Spec.AuthorName, cfg.Git.AuthorName), firstNonEmpty(m.Spec.AuthorEmail, cfg.Git.AuthorEmail)
-		k.GitAuthorExplicit = k.GitAuthorName != ""
-		if !k.GitAuthorExplicit {
-			if name, email, identErr := gitx.AuthorIdent(k.Root, k.GitEnv...); identErr == nil {
-				k.GitAuthorName, k.GitAuthorEmail = name, email
-			} else {
-				k.GitAuthorName, k.GitAuthorEmail, k.GitAuthorExplicit = "cartographer", "cartographer@localhost", true
-			}
-		}
 		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(m.Spec, cfg.Sops, m.Name)
 		// The KB's settings.yaml is brought up to date first (D903): a retired
 		// key is dropped, in one commit of its own, and a KB that still asks for
@@ -368,9 +329,6 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			// artifact writes and tool prefixes silently off (D151).
 			// Its policy comes from its own settings.yaml (D746), when it has one.
 			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — its policy comes from its settings.yaml if it has one, sops_age_key_file and machine_path allow-prefixes are at their defaults", name)
-		}
-		if _, ok := k.HasRemote(); kb.ShouldWarnGitIdentity(ok, k.GitAuthorEmail) {
-			log.Printf("WARNING: KB %q commits will be authored as cartographer@localhost; forges with author push rules will reject the push", name)
 		}
 	}
 

@@ -319,8 +319,7 @@ func (k *KB) FinalizeConflicts() ([]string, error) {
 		ids = append(ids, c.ConceptID)
 	}
 	msg := "resolve git conflict: " + strings.Join(ids, ", ")
-	authorName, authorEmail := k.gitAuthor()
-	if err := gitx.Commit(k.Root, msg, authorName, authorEmail, k.GitEnv...); err != nil && !errors.Is(err, gitx.ErrNothingToCommit) {
+	if err := gitx.Commit(k.Root, msg, "", "", k.GitCommandEnv()...); err != nil && !errors.Is(err, gitx.ErrNothingToCommit) {
 		_ = gitx.MergeAbort(k.Root)
 		restore()
 		return nil, fmt.Errorf("FinalizeConflicts: commit: %w", err)

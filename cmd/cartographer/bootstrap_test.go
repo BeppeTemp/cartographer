@@ -208,10 +208,10 @@ func TestSetupGitSSHEnvironmentWins(t *testing.T) {
 	}
 }
 
-// TestGitEnvForKB_FullSpec verifies that a fully-populated KBSpec produces
-// GIT_SSH_COMMAND and GIT_COMMITTER_NAME/EMAIL entries drawn entirely from
-// the spec, ignoring the global GitConfig.
-func TestGitEnvForKB_FullSpec(t *testing.T) {
+// TestGitEnvForKB_SSHFromSpec verifies that a KBSpec's SSH settings win over
+// the global GitConfig. The environment carries no identity, whatever the
+// legacy author/committer keys say: the committer is the server's (D904).
+func TestGitEnvForKB_SSHFromSpec(t *testing.T) {
 	spec := config.KBSpec{
 		SSHKey:         "/spec/key",
 		KnownHosts:     "/spec/known_hosts",
@@ -232,8 +232,6 @@ func TestGitEnvForKB_FullSpec(t *testing.T) {
 	got := gitEnvForKB(spec, g, "wiki-kb")
 	want := []string{
 		"GIT_SSH_COMMAND=ssh -i /spec/key -o UserKnownHostsFile=/spec/known_hosts -o StrictHostKeyChecking=yes",
-		"GIT_COMMITTER_NAME=Spec Committer",
-		"GIT_COMMITTER_EMAIL=spec-committer@wiki.local",
 	}
 	if !equalStringSlices(got, want) {
 		t.Errorf("gitEnvForKB(full spec) = %v, want %v", got, want)
@@ -241,57 +239,22 @@ func TestGitEnvForKB_FullSpec(t *testing.T) {
 }
 
 // TestGitEnvForKB_EmptySpec verifies that an empty KBSpec falls back
-// entirely to the global GitConfig for SSH and committer identity.
+// entirely to the global GitConfig for SSH.
 func TestGitEnvForKB_EmptySpec(t *testing.T) {
-	g := config.GitConfig{
-		SSHKey:      "/global/key",
-		AuthorName:  "Global Author",
-		AuthorEmail: "global-author@wiki.local",
-		// CommitterName/Email left unset: committer falls back to author.
-	}
-
-	got := gitEnvForKB(config.KBSpec{}, g, "")
-	want := []string{
-		"GIT_SSH_COMMAND=ssh -i /global/key",
-		"GIT_COMMITTER_NAME=Global Author",
-		"GIT_COMMITTER_EMAIL=global-author@wiki.local",
-	}
+	got := gitEnvForKB(config.KBSpec{}, config.GitConfig{SSHKey: "/global/key"}, "")
+	want := []string{"GIT_SSH_COMMAND=ssh -i /global/key"}
 	if !equalStringSlices(got, want) {
 		t.Errorf("gitEnvForKB(empty spec) = %v, want %v", got, want)
 	}
 }
 
-// TestGitEnvForKB_CommitterFallsBackToAuthor verifies the fallback cascade
-// for the committer: spec committer > spec author > global committer >
-// global author.
-func TestGitEnvForKB_CommitterFallsBackToAuthor(t *testing.T) {
-	spec := config.KBSpec{
-		AuthorName:  "Spec Author",
-		AuthorEmail: "spec-author@wiki.local",
-		// CommitterName/Email left unset: falls back to spec author.
-	}
-	g := config.GitConfig{
-		CommitterName:  "Global Committer",
-		CommitterEmail: "global-committer@wiki.local",
-	}
-
-	got := gitEnvForKB(spec, g, "")
-	want := []string{
-		"GIT_COMMITTER_NAME=Spec Author",
-		"GIT_COMMITTER_EMAIL=spec-author@wiki.local",
-	}
-	if !equalStringSlices(got, want) {
-		t.Errorf("gitEnvForKB(committer fallback to author) = %v, want %v", got, want)
-	}
-}
-
-// TestGitEnvForKB_NoIdentityAtAll verifies that gitEnvForKB returns an empty
-// (nil) env when neither the spec nor the global config carry any identity
-// or SSH override — the pre-M3 behaviour (run with the process environment).
-func TestGitEnvForKB_NoIdentityAtAll(t *testing.T) {
+// TestGitEnvForKB_NothingConfigured verifies that gitEnvForKB returns an empty
+// (nil) env when neither the spec nor the global config carry any SSH
+// override: git runs with the process environment.
+func TestGitEnvForKB_NothingConfigured(t *testing.T) {
 	got := gitEnvForKB(config.KBSpec{}, config.GitConfig{}, "")
 	if len(got) != 0 {
-		t.Errorf("gitEnvForKB(no identity) = %v, want empty", got)
+		t.Errorf("gitEnvForKB(nothing configured) = %v, want empty", got)
 	}
 }
 

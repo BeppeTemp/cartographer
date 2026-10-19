@@ -109,18 +109,10 @@ type KB struct {
 	// to DefaultSyncInWindow; it is not a setting (D903).
 	SyncInWindow time.Duration
 
-	// GitAuthorName/GitAuthorEmail set the commit author identity used by
-	// CommitOp and conflict-resolution commits. Empty values fall back to
-	// defaultGitAuthorName/defaultGitAuthorEmail.
-	GitAuthorName  string
-	GitAuthorEmail string
-	// GitAuthorExplicit is true only when Cartographer configuration supplied a
-	// complete identity. When false CommitOp lets Git resolve its native author.
-	GitAuthorExplicit bool
-	// GitEnv is the per-KB environment (e.g. GIT_SSH_COMMAND,
-	// GIT_COMMITTER_NAME/EMAIL) layered onto git subprocesses — see
-	// gitx.runGitEnv. Nil means "run with the process environment", the
-	// pre-existing behaviour.
+	// GitEnv is the per-KB environment (GIT_SSH_COMMAND, the credential
+	// helper) layered onto git subprocesses — see gitx.runGitEnv. Nil means
+	// "run with the process environment". It carries no identity: GitCommandEnv
+	// adds the server's (D904).
 	GitEnv []string
 
 	// SopsAgeKeyFile is the path to the SOPS age key file used to decrypt
@@ -278,10 +270,9 @@ type GitStatus struct {
 	// LastPushAt is the last successful push since this process started (nil
 	// after a restart until the next push); LastSyncInAt is the last
 	// successful fetch+pull, i.e. how fresh BehindCommits is.
-	LastPushAt      *time.Time `json:"last_push_at"`
-	LastSyncInAt    *time.Time `json:"last_sync_in_at"`
-	IdentityWarning bool       `json:"identity_warning,omitempty"`
-	Attempts        int        `json:"attempts"`
+	LastPushAt   *time.Time `json:"last_push_at"`
+	LastSyncInAt *time.Time `json:"last_sync_in_at"`
+	Attempts     int        `json:"attempts"`
 	// Branch is the checked-out branch ("" when HEAD is detached).
 	Branch string `json:"branch,omitempty"`
 	// RemoteDefaultBranch is the KB's canonical branch as last resolved from
@@ -291,25 +282,6 @@ type GitStatus struct {
 	// (the `branch` of settings.yaml on the default branch, D335, D903) or
 	// "remote" (the remote's default, D264).
 	BranchSource string `json:"branch_source,omitempty"`
-}
-
-// Default git author identity used when GitAuthorName/GitAuthorEmail are
-// unset (zero-value KB, e.g. constructed directly by tests).
-const (
-	defaultGitAuthorName  = "cartographer"
-	defaultGitAuthorEmail = "cartographer@localhost"
-
-	// DefaultGitAuthorName/DefaultGitAuthorEmail are the same values, exported
-	// so a caller resolving an identity can tell whether it fell back to the
-	// product default and warn before a forge rejects the push (D156).
-	DefaultGitAuthorName  = defaultGitAuthorName
-	DefaultGitAuthorEmail = defaultGitAuthorEmail
-)
-
-// gitAuthor returns k.GitAuthorName/GitAuthorEmail, falling back to the
-// package defaults when either is empty.
-func (k *KB) gitAuthor() (name, email string) {
-	return k.GitAuthorName, k.GitAuthorEmail
 }
 
 // SetGitStatus records a status transition without taking the git-operation lock.
@@ -331,8 +303,6 @@ func (k *KB) setGitStatus(state string, err error, attempts int) {
 			s.UnpushedCommits, s.BehindCommits = &a, &b
 		}
 	}
-	_, remote := k.hasRemote()
-	s.IdentityWarning = ShouldWarnGitIdentity(remote, k.GitAuthorEmail)
 	k.gitStatusMu.Lock()
 	k.gitStatus = s
 	k.gitStatusMu.Unlock()
@@ -386,15 +356,7 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 	if k.ConfiguredBranch() != "" {
 		s.BranchSource = "settings"
 	}
-	_, remote := k.hasRemote()
-	s.IdentityWarning = ShouldWarnGitIdentity(remote, k.GitAuthorEmail)
 	return s
-}
-
-// ShouldWarnGitIdentity reports whether a remote KB, which syncs, still uses
-// Cartographer's placeholder author identity.
-func ShouldWarnGitIdentity(hasRemote bool, authorEmail string) bool {
-	return hasRemote && authorEmail == defaultGitAuthorEmail
 }
 
 // MarkPushPending keeps an existing failure visible until a push succeeds,
@@ -462,7 +424,7 @@ func Open(root string) (*KB, error) {
 // ensureInfoExclude), never via a versioned .gitignore.
 // initAuthorName/initAuthorEmail carry the identity InitWithIdentity supplies
 // to the KB's initial commit, for the duration of that call. Init leaves them
-// empty and the package defaults apply, which is the pre-D156 behaviour.
+// empty and the server identity (ServerIdentity) authors it.
 //
 // These are process-global: a test that calls InitWithIdentity or
 // InitWithSettings must stay serial (no t.Parallel), or it changes what a
@@ -478,7 +440,8 @@ var (
 // `cartographer kb create` uses it: the initial commit is the one a forge with
 // an author-membership push rule rejects, and by then the scaffold already
 // exists, so the identity has to be right the first time (D156).
-// An empty name or email falls back to the package defaults.
+// An empty name or email falls back to the server identity. The committer is
+// always the server's (D904).
 func InitWithIdentity(root, authorName, authorEmail string) (*KB, error) {
 	initAuthorName, initAuthorEmail = authorName, authorEmail
 	defer func() { initAuthorName, initAuthorEmail = "", "" }()
@@ -592,9 +555,9 @@ func Init(root string) (*KB, error) {
 			}
 			name, email := initAuthorName, initAuthorEmail
 			if name == "" || email == "" {
-				name, email = defaultGitAuthorName, defaultGitAuthorEmail
+				name, email = ServerIdentity()
 			}
-			if err := gitx.Commit(abs, "init: KB initialized", name, email); err != nil && !errors.Is(err, gitx.ErrNothingToCommit) {
+			if err := gitx.Commit(abs, "init: KB initialized", name, email, ServerGitEnv()...); err != nil && !errors.Is(err, gitx.ErrNothingToCommit) {
 				return nil, fmt.Errorf("Init: initial commit: %w", err)
 			}
 		}
