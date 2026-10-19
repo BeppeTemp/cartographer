@@ -820,3 +820,24 @@ func TestResultBytesKeepsOldHashesAndIsCovered(t *testing.T) {
 		t.Fatal("tampered result_bytes still verifies")
 	}
 }
+
+// SingleWriter keeps a second writer off the log, which would fork the chain it
+// holds in memory, until the first closes it.
+func TestSingleWriterLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	first, err := OpenWithOptions(path, Options{SingleWriter: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenWithOptions(path, Options{SingleWriter: true}); !errors.Is(err, ErrLocked) {
+		t.Fatalf("second writer: err = %v, want ErrLocked", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := OpenWithOptions(path, Options{SingleWriter: true})
+	if err != nil {
+		t.Fatalf("after Close: %v", err)
+	}
+	again.Close()
+}

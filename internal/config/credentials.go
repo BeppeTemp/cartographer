@@ -24,15 +24,23 @@ const (
 
 	// KnownHostsFile is the one known_hosts file for every remote.
 	KnownHostsFile = "known_hosts"
+
+	// AuditKeyFile is the seed that signs the audit log, hex; generated at the
+	// first start when it is missing.
+	AuditKeyFile = "audit.key"
 )
 
 // credentialsDirName is the directory kept under data when credentials_dir is
 // not set; it is never discovered as a KB.
 const credentialsDirName = "credentials"
 
+// auditDirName is the directory under data that holds the audit log when
+// audit.log does not relocate it; it is never discovered as a KB.
+const auditDirName = "audit"
+
 // reservedDataNames are the direct subdirectories of data that the server keeps
 // for itself and does not discover as KBs, unless one of them holds a KB.
-var reservedDataNames = []string{credentialsDirName}
+var reservedDataNames = []string{credentialsDirName, auditDirName}
 
 // DefaultDataDir is the data directory a server uses when none is configured
 // and one is needed anyway: where `cartographer service install` puts it.
@@ -58,6 +66,15 @@ func (c *Config) CredentialsPath() string {
 		return c.CredentialsDir
 	}
 	return filepath.Join(c.dataBase(), credentialsDirName)
+}
+
+// AuditLogPath is the audit log in effect: audit.log, or <data>/audit/audit.log.
+// The log is always on (D905); the setting only relocates it.
+func (c *Config) AuditLogPath() string {
+	if c.Audit.Log != "" {
+		return c.Audit.Log
+	}
+	return filepath.Join(c.dataBase(), auditDirName, "audit.log")
 }
 
 // IsReservedDataName says whether a subdirectory of data is one the server

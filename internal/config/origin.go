@@ -263,8 +263,6 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return pairs, len(pairs) > 0
 	case "audit.log":
 		return str(c.Audit.Log)
-	case "audit.key_seed":
-		return str(c.Audit.KeySeed)
 	case "audit.mode":
 		return str(c.Audit.Mode)
 	case "audit.max_segment_bytes":

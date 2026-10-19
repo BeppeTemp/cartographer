@@ -57,6 +57,9 @@ node "${WEB_DIR}/e2e/fixture.mjs" "${TMP}/auth"
 LOCAL_PORT="$(free_port)"
 AUTH_PORT="$(free_port)"
 
+# Each server keeps its credentials and its audit log (always on, D905) in its
+# own temp directory, not in the runner's home.
+CARTOGRAPHER_CREDENTIALS_DIR="${TMP}/local-credentials" CARTOGRAPHER_AUDIT_LOG="${TMP}/local-audit/audit.log" \
 CARTOGRAPHER_AUTH=false "$BIN" serve --init --http "127.0.0.1:${LOCAL_PORT}" \
     --kb "${TMP}/local/atlas,${TMP}/local/annex,${TMP}/local/void" \
     >"${TMP}/local.log" 2>&1 &
@@ -84,7 +87,9 @@ EOF
 # The tokens come from the YAML alone: an operator's exported env must not
 # widen or replace them.
 # The KBs are folders, mounted from the command line: a kbs[] entry names a remote.
-env -u CARTOGRAPHER_TOKENS -u CARTOGRAPHER_AUTH "$BIN" serve --config "${TMP}/auth.yaml" \
+env -u CARTOGRAPHER_TOKENS -u CARTOGRAPHER_AUTH \
+    CARTOGRAPHER_CREDENTIALS_DIR="${TMP}/auth-credentials" CARTOGRAPHER_AUDIT_LOG="${TMP}/auth-audit/audit.log" \
+    "$BIN" serve --config "${TMP}/auth.yaml" \
     --kb "${TMP}/auth/atlas,${TMP}/auth/annex,${TMP}/auth/void" \
     >"${TMP}/auth.log" 2>&1 &
 PIDS+=("$!")

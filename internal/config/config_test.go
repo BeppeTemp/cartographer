@@ -59,7 +59,6 @@ search:
   ollama_model: custom-model
 audit:
   log: /data/audit.log
-  key_seed: deadbeef
 tools:
   profile: full
 `
@@ -91,7 +90,7 @@ func TestLoadFullYAML(t *testing.T) {
 				Remote: "ssh://git@gitea.example.com:2222/user/kb-locale.git",
 			},
 		},
-		Audit:        AuditConfig{Log: "/data/audit.log", KeySeed: "deadbeef", RetentionDays: 90},
+		Audit:        AuditConfig{Log: "/data/audit.log", RetentionDays: 90, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
 		ToolsProfile: "full",
 		// The YAML sets neither deprecated mcp key (D288): both stay empty.
 		MCP: MCPConfig{},
@@ -153,7 +152,6 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("CARTOGRAPHER_TOKENS", "t1,t2")
 	t.Setenv("CARTOGRAPHER_AUTH", "false")
 	t.Setenv("CARTOGRAPHER_AUDIT_LOG", "/env-audit.log")
-	t.Setenv("CARTOGRAPHER_AUDIT_KEY", "cafef00d")
 	t.Setenv("CARTOGRAPHER_CREDENTIALS_DIR", "/env-creds")
 
 	FromEnv(cfg)
@@ -178,7 +176,7 @@ func TestFromEnv(t *testing.T) {
 	if cfg.Auth.Mode != "off" {
 		t.Errorf("Auth.Mode = %q, want off", cfg.Auth.Mode)
 	}
-	if cfg.Audit.Log != "/env-audit.log" || cfg.Audit.KeySeed != "cafef00d" {
+	if cfg.Audit.Log != "/env-audit.log" {
 		t.Errorf("Audit = %+v", cfg.Audit)
 	}
 }
@@ -581,15 +579,58 @@ func TestLoadAuditRetention(t *testing.T) {
 	}
 	// The other audit keys survive the layering.
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("audit:\n  log: /tmp/a.log\n  key_seed: abc\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("audit:\n  log: /tmp/a.log\n  mode: required\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Audit.Log != "/tmp/a.log" || cfg.Audit.KeySeed != "abc" {
-		t.Errorf("Audit = %+v, want log and key_seed kept", cfg.Audit)
+	if cfg.Audit.Log != "/tmp/a.log" || cfg.Audit.Mode != "required" {
+		t.Errorf("Audit = %+v, want log and mode kept", cfg.Audit)
+	}
+}
+
+// The active segment rotates at 64 MiB unless the operator sets a size (D905):
+// without a size the log never rotated, so retention never deleted anything. A
+// zero is the default, not "never rotate".
+func TestLoadAuditMaxSegmentBytes(t *testing.T) {
+	cases := []struct {
+		name, yaml string
+		want       int64
+	}{
+		{"absent", "audit:\n  mode: best_effort\n", DefaultAuditMaxSegmentBytes},
+		{"zero is the default", "audit:\n  max_segment_bytes: 0\n", DefaultAuditMaxSegmentBytes},
+		{"explicit value", "audit:\n  max_segment_bytes: 1048576\n", 1 << 20},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(c.yaml), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Audit.MaxSegmentBytes != c.want {
+				t.Errorf("MaxSegmentBytes = %d, want %d", cfg.Audit.MaxSegmentBytes, c.want)
+			}
+		})
+	}
+}
+
+// AuditLogPath is the log in effect: audit.log when set, otherwise under the
+// data directory, so the log is always on (D905).
+func TestAuditLogPath(t *testing.T) {
+	c := Default()
+	c.Data = "/srv/data"
+	if want := filepath.Join("/srv/data", "audit", "audit.log"); c.AuditLogPath() != want {
+		t.Errorf("AuditLogPath() = %q, want %q", c.AuditLogPath(), want)
+	}
+	c.Audit.Log = "/var/log/carto.jsonl"
+	if c.AuditLogPath() != "/var/log/carto.jsonl" {
+		t.Errorf("AuditLogPath() = %q, want audit.log", c.AuditLogPath())
 	}
 }
 

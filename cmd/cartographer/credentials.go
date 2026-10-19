@@ -2,7 +2,9 @@ package main
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
+	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/config"
 )
 
@@ -76,6 +79,71 @@ func loadArtifactSigner(credDir, name string) (ed25519.PrivateKey, bool, error) 
 		return nil, false, fmt.Errorf("%s: %w", p, err)
 	}
 	return key, true, nil
+}
+
+// loadAuditKey is the key that signs the audit log: audit.key in the
+// credentials directory, the hexadecimal seed with whitespace around it
+// ignored. A missing one is generated, so the log is signed from the first
+// start (D905); generated reports it. The seed is never in an error message.
+func loadAuditKey(credDir string) (kp audit.KeyPair, generated bool, err error) {
+	if p, ok := sharedCredentialFile(credDir, config.AuditKeyFile); ok {
+		kp, err := readAuditKey(p)
+		return kp, false, err
+	}
+	p := filepath.Join(credDir, config.AuditKeyFile)
+	kp, err = audit.GenerateKeyPair()
+	if err != nil {
+		return audit.KeyPair{}, false, err
+	}
+	if err := publishCredentialFile(credDir, p, kp.SeedToHex()+"\n"); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			// Another process generated it first: both must sign with that one.
+			kp, err := readAuditKey(p)
+			return kp, false, err
+		}
+		return audit.KeyPair{}, false, fmt.Errorf("generate %s: %w", p, err)
+	}
+	return kp, true, nil
+}
+
+func readAuditKey(p string) (audit.KeyPair, error) {
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return audit.KeyPair{}, fmt.Errorf("read %s: %w", p, err)
+	}
+	kp, err := audit.KeyPairFromSeed(strings.TrimSpace(string(raw)))
+	if err != nil {
+		// The decode error can quote a character of the seed.
+		return audit.KeyPair{}, fmt.Errorf("%s is not a 64-character hexadecimal seed", p)
+	}
+	return kp, nil
+}
+
+// publishCredentialFile creates path, 0600, with content, and never replaces a
+// file that is already there (fs.ErrExist). The content is written to a
+// temporary file and linked into place, so a concurrent reader sees the whole
+// file or none of it.
+func publishCredentialFile(credDir, path, content string) error {
+	if err := os.MkdirAll(credDir, 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(credDir, ".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Link(tmp.Name(), path)
 }
 
 // checkCredentialsDir refuses a credentials directory that is itself a KB: the

@@ -11,8 +11,11 @@
 #   4. `cartographer audit export` refuses to export a chain it cannot verify,
 #      and exports JSON containing the recorded events once the log is intact.
 #
-# The audit log is configured through a YAML config file (E2E_CONFIG) because
-# audit.mode/max_segment_bytes have no environment form.
+# The audit mode is configured through a YAML config file (E2E_CONFIG) because
+# it has no environment form; the log path goes through E2E_AUDIT_LOG, the
+# environment server_start sets for every scenario. The log is signed with the
+# audit.key the server generates (D905); verify without --public-key checks the
+# chain.
 #
 # Expected environment variables: E2E_TMP_DIR, E2E_HTTP_PORT, REPO_ROOT.
 
@@ -46,11 +49,10 @@ cat > "$CONFIG" <<YAML
 http: ":${E2E_HTTP_PORT}"
 init: true
 audit:
-  log: ${AUDIT_LOG}
   mode: best_effort
 YAML
 
-E2E_CONFIG="$CONFIG" server_start "$KB_DIR"
+E2E_CONFIG="$CONFIG" E2E_AUDIT_LOG="$AUDIT_LOG" server_start "$KB_DIR"
 server_wait_health 20
 trap 'server_stop' EXIT
 

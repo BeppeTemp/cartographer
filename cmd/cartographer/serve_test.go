@@ -1,15 +1,140 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
+
+// --- D905: the audit log is always on and signed ---
+
+func auditTestConfig(t *testing.T, mode string) *config.Config {
+	t.Helper()
+	cfg := config.Default()
+	cfg.Data = t.TempDir()
+	cfg.Audit.Mode = mode
+	return cfg
+}
+
+func appendAuditTestEntry(t *testing.T, l *audit.Log) {
+	t.Helper()
+	if err := l.Append(audit.Entry{Timestamp: time.Now(), Tool: "search", AgentID: "test", Outcome: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A fresh start opens the log under data and signs it with an audit.key it
+// generates, 0600; the next start reads the same key. The seed is never logged,
+// the public key a verification needs is.
+func TestOpenAuditLogGeneratesTheKeyAndSigns(t *testing.T) {
+	logs := captureLog(t)
+	cfg := auditTestConfig(t, "")
+	l, err := openAuditLog(cfg)
+	if err != nil || l == nil {
+		t.Fatalf("openAuditLog = %v, %v", l, err)
+	}
+	appendAuditTestEntry(t, l)
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	keyPath := filepath.Join(cfg.CredentialsPath(), config.AuditKeyFile)
+	info, err := os.Stat(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Errorf("%s mode = %v, want 0600", keyPath, info.Mode().Perm())
+	}
+	kp, generated, err := loadAuditKey(cfg.CredentialsPath())
+	if err != nil || generated {
+		t.Fatalf("second load: generated=%v err=%v, want the key already there", generated, err)
+	}
+	sum, err := audit.VerifyAudit(cfg.AuditLogPath(), "", kp.Public)
+	if err != nil || sum.Valid != 1 || sum.Unsigned != 0 {
+		t.Errorf("verify = %+v, %v; want one signed entry", sum, err)
+	}
+	out := logs.String()
+	if strings.Contains(out, kp.SeedToHex()) {
+		t.Error("the audit seed is in the log")
+	}
+	for _, want := range []string{"audit key generated: " + keyPath, "--public-key "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+// A credentials directory the server cannot write leaves the key missing: in
+// best_effort the log runs unsigned after one warning naming the file, in
+// required the server does not start.
+func TestOpenAuditLogWithoutAWritableCredentialsDir(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"best_effort", "required"} {
+		t.Run(mode, func(t *testing.T) {
+			logs := captureLog(t)
+			cfg := auditTestConfig(t, mode)
+			cfg.CredentialsDir = filepath.Join(blocker, "credentials")
+			keyPath := filepath.Join(cfg.CredentialsDir, config.AuditKeyFile)
+			l, err := openAuditLog(cfg)
+			if mode == "required" {
+				if err == nil || l != nil || !strings.Contains(err.Error(), keyPath) {
+					t.Fatalf("openAuditLog = %v, %v; want a refusal naming %s", l, err, keyPath)
+				}
+				return
+			}
+			if err != nil || l == nil {
+				t.Fatalf("openAuditLog = %v, %v; want an unsigned log", l, err)
+			}
+			appendAuditTestEntry(t, l)
+			if err := l.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if sum, err := audit.VerifyAudit(cfg.AuditLogPath(), "", nil); err != nil || sum.Unsigned != 1 {
+				t.Errorf("verify = %+v, %v; want one unsigned entry", sum, err)
+			}
+			if out := logs.String(); !strings.Contains(out, "NOT signed") || !strings.Contains(out, keyPath) {
+				t.Errorf("log lacks the warning naming %s:\n%s", keyPath, out)
+			}
+		})
+	}
+}
+
+// A log has one writer: a second process on it (a second stdio session) runs
+// without one in best_effort, and does not start in required.
+func TestOpenAuditLogHasOneWriter(t *testing.T) {
+	cfg := auditTestConfig(t, "best_effort")
+	first, err := openAuditLog(cfg)
+	if err != nil || first == nil {
+		t.Fatalf("first = %v, %v", first, err)
+	}
+	defer first.Close()
+
+	logs := captureLog(t)
+	second, err := openAuditLog(cfg)
+	if err != nil || second != nil {
+		t.Fatalf("second = %v, %v; want no log and no error", second, err)
+	}
+	if !strings.Contains(logs.String(), "WITHOUT an audit log") {
+		t.Errorf("log lacks the warning:\n%s", logs)
+	}
+	cfg.Audit.Mode = "required"
+	if _, err := openAuditLog(cfg); !errors.Is(err, audit.ErrLocked) {
+		t.Errorf("required: err = %v, want ErrLocked", err)
+	}
+}
 
 // --- D179: the effective configuration is validated, not just the YAML ---
 

@@ -277,15 +277,17 @@ type KBSpec struct {
 
 // AuditConfig controls the append-only audit log.
 type AuditConfig struct {
-	Log     string `yaml:"log"`
-	KeySeed string `yaml:"key_seed"`
+	// Log relocates the audit log; empty means <data>/audit/audit.log. The log
+	// is always on and signed with audit.key from the credentials directory
+	// (D905): read the path through Config.AuditLogPath.
+	Log string `yaml:"log"`
 	// Mode is "best_effort" (default) or "required" (D119). In best_effort a
 	// failed append is logged and the MCP call proceeds; in required the call
 	// is rejected before the tool runs, so the log can never be missing an
 	// operation that actually happened.
 	Mode string `yaml:"mode,omitempty"`
-	// MaxSegmentBytes rotates the active segment once it exceeds this size.
-	// Zero keeps the package default.
+	// MaxSegmentBytes rotates the active segment once it exceeds this size, so
+	// retention has segments to delete. DefaultAuditMaxSegmentBytes unless set.
 	MaxSegmentBytes int64 `yaml:"max_segment_bytes,omitempty"`
 	// ArchiveDir holds rotated segments. Empty keeps them beside the log.
 	ArchiveDir string `yaml:"archive_dir,omitempty"`
@@ -300,7 +302,6 @@ type AuditConfig struct {
 // (default 90) differs from an explicit 0 (keep forever).
 type rawAudit struct {
 	Log             string `yaml:"log"`
-	KeySeed         string `yaml:"key_seed"`
 	Mode            string `yaml:"mode"`
 	MaxSegmentBytes int64  `yaml:"max_segment_bytes"`
 	ArchiveDir      string `yaml:"archive_dir"`
@@ -311,11 +312,16 @@ type rawAudit struct {
 // the operator does not say (D325).
 const DefaultAuditRetentionDays = 90
 
+// DefaultAuditMaxSegmentBytes is the size at which the active audit segment is
+// rotated when the operator does not say (D905). Without a size the log never
+// rotated, and retention never had a segment to delete.
+const DefaultAuditMaxSegmentBytes int64 = 64 << 20
+
 // Default returns the configuration used when no YAML file is provided.
 func Default() *Config {
 	return &Config{
 		Auth:         AuthConfig{Mode: "auto"},
-		Audit:        AuditConfig{RetentionDays: DefaultAuditRetentionDays},
+		Audit:        AuditConfig{RetentionDays: DefaultAuditRetentionDays, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
 		ToolsProfile: "agent",
 		MCP:          MCPConfig{},
 		Web:          WebConfig{Enabled: true},
@@ -416,13 +422,10 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	cfg.Audit.Log = raw.Audit.Log
-	seed, err := expandEnvRef(raw.Audit.KeySeed)
-	if err != nil {
-		return nil, fmt.Errorf("config: audit.key_seed: %w", err)
-	}
-	cfg.Audit.KeySeed = seed
 	cfg.Audit.Mode = raw.Audit.Mode
-	cfg.Audit.MaxSegmentBytes = raw.Audit.MaxSegmentBytes
+	if raw.Audit.MaxSegmentBytes > 0 {
+		cfg.Audit.MaxSegmentBytes = raw.Audit.MaxSegmentBytes
+	}
 	cfg.Audit.ArchiveDir = raw.Audit.ArchiveDir
 	if raw.Audit.RetentionDays != nil {
 		cfg.Audit.RetentionDays = *raw.Audit.RetentionDays
@@ -511,10 +514,6 @@ func FromEnv(cfg *Config) {
 	if v := os.Getenv("CARTOGRAPHER_AUDIT_LOG"); v != "" {
 		cfg.mark(OriginEnv, "audit.log")
 		cfg.Audit.Log = v
-	}
-	if v := os.Getenv("CARTOGRAPHER_AUDIT_KEY"); v != "" {
-		cfg.mark(OriginEnv, "audit.key_seed")
-		cfg.Audit.KeySeed = v
 	}
 	if v := os.Getenv("CARTOGRAPHER_TOOLS_PROFILE"); v != "" {
 		cfg.mark(OriginEnv, "tools.profile")

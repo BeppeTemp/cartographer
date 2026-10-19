@@ -121,7 +121,6 @@ func TestServerValueCoversSchema(t *testing.T) {
 func TestSettingsRedactsSecrets(t *testing.T) {
 	c := Default()
 	c.Auth.Tokens = []TokenSpec{{Token: "tok-secret-1"}}
-	c.Audit.KeySeed = "seed-secret-2"
 	c.KBs = []KBSpec{{Remote: "https://example.com/u/kb-a.git"}}
 	v := c.Settings([]string{"kb-a"})
 	var b strings.Builder
@@ -132,12 +131,12 @@ func TestSettingsRedactsSecrets(t *testing.T) {
 		b.WriteString(e.Key + "=" + toString(e.Value) + "\n")
 	}
 	out := b.String()
-	for _, secret := range []string{"tok-secret-1", "seed-secret-2"} {
+	for _, secret := range []string{"tok-secret-1"} {
 		if strings.Contains(out, secret) {
 			t.Errorf("secret %q leaked into the view", secret)
 		}
 	}
-	for _, want := range []string{"auth.tokens=(set)", "audit.key_seed=(set)"} {
+	for _, want := range []string{"auth.tokens=(set)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("view lacks %q:\n%s", want, out)
 		}

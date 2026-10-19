@@ -13,7 +13,6 @@ func yamlView() View {
 			{Key: "http", Value: "127.0.0.1:39273", Origin: OriginFlag, Flag: "--http"},
 			{Key: "auth.mode", Value: "on", Origin: OriginEnv, Env: "CARTOGRAPHER_AUTH"},
 			{Key: "auth.tokens", Value: SecretSet, Origin: OriginFile, Secret: true},
-			{Key: "audit.key_seed", Value: SecretUnset, Origin: OriginDefault, Secret: true},
 			{Key: "credentials_dir", Value: "", Origin: OriginDefault},
 			{Key: "data", Value: "/etc/data", Origin: OriginFile},
 			{Key: "kbs", Value: []string{"kb-a", "work-kb"}, Origin: OriginFile},
@@ -51,7 +50,7 @@ func TestServerYAMLIsTheEffectiveFileDocumented(t *testing.T) {
 			t.Errorf("server YAML lacks %q:\n%s", want, text)
 		}
 	}
-	for _, unwanted := range []string{"doctor_mode: auto", "key_seed: " + Redacted, "work-kb"} {
+	for _, unwanted := range []string{"doctor_mode: auto", "work-kb"} {
 		if strings.Contains(text, unwanted) {
 			t.Errorf("server YAML carries %q:\n%s", unwanted, text)
 		}

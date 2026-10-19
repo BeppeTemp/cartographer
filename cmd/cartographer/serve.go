@@ -398,28 +398,9 @@ func runServe(cfg *config.Config) {
 	if err := checkCredentialsDir(cfg.CredentialsPath()); err != nil {
 		log.Fatal(err)
 	}
-	var auditLog *audit.Log
-	if cfg.Audit.Log != "" {
-		opts := auditOptions(cfg.Audit)
-		if cfg.Audit.KeySeed != "" {
-			kp, err := audit.KeyPairFromSeed(cfg.Audit.KeySeed)
-			if err != nil {
-				log.Fatalf("audit key seed invalid: %v", err)
-			}
-			al, err := audit.OpenWithKeyAndOptions(cfg.Audit.Log, kp, opts)
-			if err != nil {
-				log.Fatalf("audit log open: %v", err)
-			}
-			auditLog = al
-			log.Printf("audit log: %s (mode %s, signing enabled)", cfg.Audit.Log, auditLog.ModeName())
-		} else {
-			al, err := audit.OpenWithOptions(cfg.Audit.Log, opts)
-			if err != nil {
-				log.Fatalf("audit log open: %v", err)
-			}
-			auditLog = al
-			log.Printf("audit log: %s (mode %s)", cfg.Audit.Log, auditLog.ModeName())
-		}
+	auditLog, err := openAuditLog(cfg)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	if err := setupGitSSH(cfg.CredentialsPath()); err != nil {
@@ -800,15 +781,67 @@ func serverOwnDataDir(path string) bool {
 }
 
 // auditOptions maps the operator-facing audit configuration onto the package
-// options. An empty AuditConfig yields the zero Options, i.e. the pre-D119
-// best-effort behaviour.
+// options. The server is always the single writer of its log: a second process
+// on the same file would fork the hash chain.
 func auditOptions(c config.AuditConfig) audit.Options {
 	return audit.Options{
 		Mode:          c.Mode,
 		MaxBytes:      c.MaxSegmentBytes,
 		RetentionDays: c.RetentionDays,
 		ArchiveDir:    c.ArchiveDir,
+		SingleWriter:  true,
 	}
+}
+
+// openAuditLog opens the audit log, which is always on (D905): audit.log, or
+// <data>/audit/audit.log, signed with audit.key from the credentials directory,
+// generated at the first start. What cannot be had is one loud warning in
+// best_effort mode, and the server runs on: unsigned when the key cannot be
+// read or written, without a log when the log cannot be opened, which is also
+// the case of a second process on a log another one writes. In required mode
+// each of them refuses the start, the error naming the file.
+func openAuditLog(cfg *config.Config) (*audit.Log, error) {
+	path := cfg.AuditLogPath()
+	opts := auditOptions(cfg.Audit)
+	required := strings.EqualFold(strings.TrimSpace(opts.Mode), "required")
+
+	kp, generated, keyErr := loadAuditKey(cfg.CredentialsPath())
+	if keyErr != nil {
+		if required {
+			return nil, fmt.Errorf("audit log not started: audit.mode is required and the signing key is unusable: %w", keyErr)
+		}
+		log.Printf("WARNING: the audit log is NOT signed: %v. Create %s with a 64-character hexadecimal seed, or make the directory writable so the server generates it.",
+			keyErr, filepath.Join(cfg.CredentialsPath(), config.AuditKeyFile))
+	}
+
+	var (
+		l   *audit.Log
+		err error
+	)
+	if err = os.MkdirAll(filepath.Dir(path), 0o750); err == nil {
+		if keyErr == nil {
+			l, err = audit.OpenWithKeyAndOptions(path, kp, opts)
+		} else {
+			l, err = audit.OpenWithOptions(path, opts)
+		}
+	}
+	if err != nil {
+		if required {
+			return nil, fmt.Errorf("audit log not started: audit.mode is required: %w", err)
+		}
+		log.Printf("WARNING: this process runs WITHOUT an audit log: %v", err)
+		return nil, nil
+	}
+
+	if generated {
+		log.Printf("audit key generated: %s", filepath.Join(cfg.CredentialsPath(), config.AuditKeyFile))
+	}
+	if keyErr == nil {
+		log.Printf("audit log: %s (mode %s, signed; verify with --public-key %s)", path, l.ModeName(), hex.EncodeToString(kp.Public))
+	} else {
+		log.Printf("audit log: %s (mode %s, unsigned)", path, l.ModeName())
+	}
+	return l, nil
 }
 
 // displayAddr turns a listen address into something a person can paste into a

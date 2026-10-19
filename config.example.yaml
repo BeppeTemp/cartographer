@@ -74,23 +74,23 @@ web:
 # Default: []. Needs a restart.
 # kb_aliases: []
 # audit:
-#   Path of the append-only operation log. Empty turns the audit trail off.
+#   Path of the append-only operation log, which is always on and signed with
+#   audit.key from credentials_dir (generated at the first start). Empty keeps
+#   it at <data>/audit/audit.log.
 #   Default: "". Env: CARTOGRAPHER_AUDIT_LOG. Needs a restart.
 #   log: ""
-#   Seed that signs the audit trail, so it is tamper-evident. Write it ${NAME}
-#   to read it from the environment.
-#   Default: "". Env: CARTOGRAPHER_AUDIT_KEY. Needs a restart. Secret: keep it
-#   out of version control.
-#   key_seed: ""
-#   With best_effort a failed append is logged and the call carries on; with
-#   required the call is rejected before the tool runs.
+#   With best_effort a failed append is logged and the call carries on, and a
+#   log or key the server cannot open is a warning at start; with required the
+#   call is rejected before the tool runs, and the server does not start without
+#   its signed log.
 #   Values: best_effort | required
 #   Default: best_effort. Needs a restart.
 #   mode: best_effort
-#   Size after which the active log segment is rotated.
-#   Values: bytes; 0 keeps the built-in size
-#   Default: 0. Needs a restart.
-#   max_segment_bytes: 0
+#   Size after which the active log segment is rotated (64 MiB by default), so
+#   retention has segments to delete.
+#   Values: bytes; 0 keeps the default
+#   Default: 67108864. Needs a restart.
+#   max_segment_bytes: 67108864
 #   Directory of rotated segments; empty keeps them beside the log.
 #   Default: "". Needs a restart.
 #   archive_dir: ""

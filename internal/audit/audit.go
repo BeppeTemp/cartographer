@@ -150,7 +150,16 @@ type Options struct {
 	// (e.g. a momentary EBUSY/EINTR) without reordering queued events.
 	RetryAttempts int
 	RetryBackoff  time.Duration
+	// SingleWriter makes the Log the only writer of its file across processes:
+	// the hash chain lives in the writer's memory, so a second writer would
+	// fork it. Open takes an advisory lock on <path>.lock and fails with
+	// ErrLocked while another process holds it; Close releases it.
+	SingleWriter bool
 }
+
+// ErrLocked is the error of an Open with SingleWriter on a log that another
+// process already writes.
+var ErrLocked = errors.New("audit: the log is written by another process")
 
 // State reports the sink's current operational health, exposed via /health,
 // /ready, and `cartographer status`.
@@ -294,6 +303,35 @@ type Log struct {
 	sequence       uint64
 	queueDepth     int
 	index          checkpointIndex
+	lock           *os.File // the SingleWriter lock, held for the life of the Log
+}
+
+// writerLockPath is the lock file of a log opened with SingleWriter.
+func writerLockPath(path string) string { return path + ".lock" }
+
+// lockWriter takes the SingleWriter lock without waiting: a process that finds
+// it held has nothing to wait for, the holder writes for its whole life.
+func lockWriter(path string) (*os.File, error) {
+	lp := writerLockPath(path)
+	f, err := os.OpenFile(lp, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("audit: open lock %s: %w", lp, err)
+	}
+	if err := tryLockFile(f); err != nil {
+		f.Close()
+		if isLockBusy(err) {
+			return nil, fmt.Errorf("%w (lock %s)", ErrLocked, lp)
+		}
+		return nil, fmt.Errorf("audit: lock %s: %w", lp, err)
+	}
+	return f, nil
+}
+
+func releaseWriter(f *os.File) {
+	if f != nil {
+		_ = unlockFile(f)
+		_ = f.Close()
+	}
 }
 
 func normalizeOptions(o Options) Options {
@@ -340,22 +378,32 @@ func open(path string, kp *KeyPair, opts Options) (*Log, error) {
 	if path == "" {
 		return nil, errors.New("audit: empty log path")
 	}
+	var lock *os.File
+	if opts.SingleWriter {
+		var err error
+		if lock, err = lockWriter(path); err != nil {
+			return nil, err
+		}
+	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o640)
 	if err != nil {
+		releaseWriter(lock)
 		return nil, fmt.Errorf("audit: open %s: %w", path, err)
 	}
 	f.Close()
 
 	entries, err := readEntries(path)
 	if err != nil {
+		releaseWriter(lock)
 		return nil, err
 	}
 
 	opts = normalizeOptions(opts)
-	l := &Log{path: path, lastHash: "genesis", kp: kp, opts: opts, opened: time.Now().UTC(), healthy: true}
+	l := &Log{path: path, lastHash: "genesis", kp: kp, opts: opts, opened: time.Now().UTC(), healthy: true, lock: lock}
 
 	idx, err := loadCheckpointIndex(checkpointPath(path, opts.ArchiveDir))
 	if err != nil {
+		releaseWriter(lock)
 		return nil, err
 	}
 	l.index = idx
@@ -1116,6 +1164,8 @@ func (l *Log) Close() error {
 	if l.queueDepth != 0 {
 		return errors.New("audit: queue not drained")
 	}
+	releaseWriter(l.lock)
+	l.lock = nil
 	return nil
 }
 

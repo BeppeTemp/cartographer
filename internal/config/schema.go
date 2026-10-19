@@ -72,13 +72,11 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Old names of renamed KBs: each item has a from (the old name) and a to (the KB now mounted), so a routed ?kbs=<from> still reaches it. `kb rename` writes it. One step only, and a mounted name wins over an alias."},
 
 	{Path: "audit.log", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_AUDIT_LOG", Restart: true,
-		Description: "Path of the append-only operation log. Empty turns the audit trail off."},
-	{Path: "audit.key_seed", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_AUDIT_KEY", Restart: true, Secret: true,
-		Description: "Seed that signs the audit trail, so it is tamper-evident. Write it ${NAME} to read it from the environment."},
+		Description: "Path of the append-only operation log, which is always on and signed with audit.key from credentials_dir (generated at the first start). Empty keeps it at <data>/audit/audit.log."},
 	{Path: "audit.mode", Scope: settingschema.ScopeServer, Type: "string", Values: "best_effort | required", Default: "best_effort", Restart: true,
-		Description: "With best_effort a failed append is logged and the call carries on; with required the call is rejected before the tool runs."},
-	{Path: "audit.max_segment_bytes", Scope: settingschema.ScopeServer, Type: "int", Values: "bytes; 0 keeps the built-in size", Default: "0", Restart: true,
-		Description: "Size after which the active log segment is rotated."},
+		Description: "With best_effort a failed append is logged and the call carries on, and a log or key the server cannot open is a warning at start; with required the call is rejected before the tool runs, and the server does not start without its signed log."},
+	{Path: "audit.max_segment_bytes", Scope: settingschema.ScopeServer, Type: "int", Values: "bytes; 0 keeps the default", Default: "67108864", Restart: true,
+		Description: "Size after which the active log segment is rotated (64 MiB by default), so retention has segments to delete."},
 	{Path: "audit.archive_dir", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
 		Description: "Directory of rotated segments; empty keeps them beside the log."},
 	{Path: "audit.retention_days", Scope: settingschema.ScopeServer, Type: "int", Values: "days; 0 keeps everything", Default: "90", Restart: true,
@@ -155,4 +153,5 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "sops.age_key_dir", Plan: 905, Env: "CARTOGRAPHER_SOPS_AGE_KEY_DIR", Replacement: "<kb>.age in credentials_dir"},
 	{Path: "kbs[].sops_age_key_file", Plan: 905, Replacement: "<kb>.age in credentials_dir"},
 	{Path: "kbs[].artifact_signing_seed", Plan: 905, Replacement: "<kb>.signing in credentials_dir", Note: "the file holds the hexadecimal seed; there is no default.signing"},
+	{Path: "audit.key_seed", Plan: 905, Env: "CARTOGRAPHER_AUDIT_KEY", Replacement: "audit.key in credentials_dir", Note: "a missing one is generated at the first start"},
 }}

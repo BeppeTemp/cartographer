@@ -151,11 +151,11 @@ func TestLoadArtifactSignerBadSeedLeaksNothing(t *testing.T) {
 	}
 }
 
-// Discovery leaves the server's own credentials directory alone, but a KB that
+// Discovery leaves the server's own credentials and audit directories alone, but a KB that
 // happens to be called credentials is a KB, and then credentials_dir refuses it.
 func TestDiscoveryAndTheCredentialsDirectory(t *testing.T) {
 	data := t.TempDir()
-	for _, d := range []string{"kb-a", "credentials"} {
+	for _, d := range []string{"kb-a", "credentials", "audit"} {
 		if err := os.MkdirAll(filepath.Join(data, d), 0o755); err != nil {
 			t.Fatal(err)
 		}
