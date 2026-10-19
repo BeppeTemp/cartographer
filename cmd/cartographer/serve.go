@@ -146,7 +146,7 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 }
 
 // kbMount pairs a resolved filesystem path and resolved name with the
-// config.KBSpec it came from, so each KB can carry its own git identity/SSH
+// config.KBSpec it came from, so each KB can carry its own SSH
 // override through the open/init step. Name is resolved once via
 // resolveKBName (D53) — before the git-token/SOPS-age-key conventions are
 // applied — so it is used verbatim afterwards instead of being re-derived.
@@ -200,9 +200,9 @@ type kbBootstrap struct {
 // they always were.
 func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	// Collect all KB mounts: explicit KBSpec paths first (local, then
-	// remote clones — each carrying its own spec for per-KB git identity),
+	// remote clones — each carrying its own spec for per-KB SSH),
 	// then auto-discovered from Data (zero-value spec = fallback to the
-	// global cfg.Git identity).
+	// global cfg.Git SSH settings).
 	phase("cloning")
 	var mounts []kbMount
 	for _, spec := range cfg.KBs {

@@ -74,7 +74,7 @@ matching file **in the same session/PR** as the change:
 | New skill, service or secret handling | `skills-services-secrets.md` |
 | Client provisioning/sync logic | `sync.md` |
 | Client subcommands (`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`doctor`/TUI) or server YAML config | `configurator.md` (client) / `deployment.md` (server config) |
-| Token/scope format or enforcement (`kb:<name>:r\|rw`), per-KB git identity or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
+| Token/scope format or enforcement (`kb:<name>:r\|rw`), git identity (author, committer, `Cartographer-Token`) or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) + its `KindInfo` in `provisioning.Kinds` (the Atlas lists it; a test fails without it, D864) |
 | A feature is **not** implemented (deferred, planned, "future work") | A GitHub issue labelled `enhancement` — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |
 | Project status, milestone, task or bug changes | GitHub issue / pull request / release; update `CHANGELOG.md` only through the release workflow (which groups the newest section by area, D865) |

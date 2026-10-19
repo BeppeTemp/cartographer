@@ -114,10 +114,10 @@ kbs:                          # (kbs[]) KBs to clone from a git remote (bootstra
                                                       # endpoint, token scope, clone dir, and the
                                                       # token_dir/age_key_dir conventions below all use
                                                       # this name
-    author_name: "Team Bot"                          # (kbs[].author_name) commit author for this KB
-    author_email: team-bot@example.com               # (kbs[].author_email)
-    committer_name: "Cartographer CI"                # (kbs[].committer_name) optional, defaults to author
-    committer_email: cartographer-ci@example.com     # (kbs[].committer_email)
+    author_name: "Team Bot"                          # (kbs[].author_name) read but ignored (D904): the author is the writer
+    author_email: team-bot@example.com               # (kbs[].author_email) ignored, as above
+    committer_name: "Cartographer CI"                # (kbs[].committer_name) ignored: the committer is the server
+    committer_email: cartographer-ci@example.com     # (kbs[].committer_email) ignored, as above
     allow_artifact_write: true                       # (kbs[].allow_artifact_write) enables artifact_write/
                                                       # artifact_delete/artifact_move on this KB (default false, D71):
                                                       # writing a skill means injecting instructions that
@@ -169,8 +169,8 @@ mcp:
 git:
   ssh_key: /etc/kb-ssh/id_ed25519      # (git.ssh_key) default SSH identity for cloning kbs[] remotes
   known_hosts: /etc/kb-ssh/known_hosts # (git.known_hosts) host verification for the same clone
-  author_name: "Team Bot"             # (git.author_name) default author (set with author_email)
-  author_email: team-bot@example.com   # explicit configuration wins over Git config
+  author_name: "Team Bot"             # (git.author_name) read but ignored (D904): the author is the writer
+  author_email: team-bot@example.com   # (git.author_email) ignored, as above
   token_dir: /etc/kb-git-tokens         # (git.token_dir) directory <token_dir>/<name>.token (D53, see below)
 audit:
   log: ""                      # (audit.log) path to the audit log's JSONL file
@@ -194,8 +194,7 @@ line, for development and tests: it is not a key of the YAML file, and a folder 
 remote, so it never syncs. Scalar fields (`http`, `data`, tokens, ...) follow flag > env > YAML
 precedence: the last explicitly set level wins.
 
-**Git: one way to write (D903).** Cartographer has no git settings of its own beyond the SSH identity and the
-author above. Every write is one commit on the KB's branch, and that is not configurable; a KB syncs exactly
+**Git: one way to write (D903).** Cartographer has no git settings of its own beyond the SSH identity. Every write is one commit on the KB's branch, and that is not configurable; a KB syncs exactly
 when it has a remote (fetch and pull-rebase before a read or write, push after a write) and a KB without one
 never contacts anything. The freshness window of the pull (30s) and the debounce of the background push (3s)
 are constants. There is no pull-request boundary and no forge: the server git profile (D117) and its keys
@@ -249,27 +248,25 @@ The clone is atomic (D348): it lands in `<data>/.<name>.cloning` and is renamed 
 present in the environment, it wins and the YAML config is ignored. This removes the need for
 a separate Kubernetes init container for the initial clone.
 
-**Per-KB git identity (D46)**: each `kbs[]` entry can override, for that one KB, the SSH key
-(`ssh_key`/`known_hosts`) and the author/committer identity (`author_name`/`author_email`,
-`committer_name`/`committer_email`) used by `serve` for the initial clone and for every commit
-(`CommitOp`, conflict resolution). Fallback cascade: the KB's value → global `git.*` → the
-repository/global Git identity (including Git's native ambient resolution) → hard-coded
-`cartographer`/`cartographer@localhost` only when Git has no identity. Identity names and emails
-must be configured as pairs; the default committer follows the resolved author
-(the KB's own or the global one) if `committer_*` is not set. When no committer is configured
-anywhere and Git cannot resolve one (no `user.email` on the machine), every commit that carries an
-author records that author as committer too, instead of failing with `Committer identity unknown`
-(D265). The per-KB environment assembled
-this way **overrides** the server's process environment (the reverse of the "environment wins"
-rule that applies to the global `git.ssh_key`/`GIT_SSH_COMMAND` above) — see
-`internal/gitx.runGitEnv`. With the identity set via `kbs[].author_name`/`author_email`/`committer_*`
-(or via global `git.author_name`/`author_email`), any `GIT_AUTHOR_*`/`GIT_COMMITTER_*` in the k8s
-Deployment's `env:` become redundant and can be removed.
+**Git identity: the server commits, the writer is the author (D904).** The committer of every commit is
+`Cartographer <cartographer@<host>>`, `<host>` being the machine's name (a pod's hostname in
+Kubernetes, reduced to what an email domain accepts), so the history says which instance recorded a
+commit. It needs no configuration and no account on the forge. The author of a write is whoever wrote
+it: the `Cartographer-Author: Name <email>` header of the request, else `<token id>
+<cartographer@<host>>`; every write also carries a `Cartographer-Token: <token id>` trailer that
+cannot be forged (see [control plane](control-plane.md)). A commit that is not a write (the
+`external changes` commit, a sync merge or rebase, conflict resolution, the KB's first commit made by
+`serve --init`) is authored by the server too. The git config of the machine, `GIT_AUTHOR_*` and
+`GIT_COMMITTER_*` in the environment no longer influence any of it. `author_name`/`author_email`/
+`committer_name`/`committer_email` (global `git.*`, `kbs[]`, and a token's author fields) are still
+accepted so existing files load, and are ignored. The SSH key and the token credential helper of a
+`kbs[]` entry (`ssh_key`/`known_hosts`, `git.token_dir`) are still per-KB and **override** the server's
+process environment (the reverse of the "environment wins" rule that applies to the global
+`git.ssh_key`/`GIT_SSH_COMMAND` above) — see `internal/gitx.runGitEnv`.
 
-If your forge enforces author push rules, set a complete `author_name`/`author_email` pair to a
-forge account. `service install` writes the same commented identity block into its generated
-configuration. Existing placeholder-authored commits must be rewritten manually before the first
-accepted push, because the forge validates every commit in that push.
+If your forge enforces author push rules, the server and token-id authors a write falls back to are
+not forge accounts and the push is refused: have the client send a `Cartographer-Author` of a real
+account. Commits already pushed under another identity stay as they are.
 
 **Explicit KB name, git token, and per-KB SOPS key by convention (D53)**: `kbs[].name` fixes the
 KB's name (overrides the name derived from remote/path) — it's the name used everywhere: the HTTP
@@ -369,7 +366,7 @@ cartographer kb unmount <name>               # retires a KB locally: kbs[] entry
 
 **Configured versus discovered mounts.** A KB listed in `kbs[]` is *configured*; a KB found by scanning `data:` is *discovered* and has **no `KBSpec`**, so every per-KB setting sits at its zero value unless the KB carries a `settings.yaml` (D746, which a discovered KB reads like any other) — `allow_artifact_write` false, no `sops_age_key_file`, no `machine_path_allow_prefixes` — and nothing but adding the entry can change that. A discovered KB otherwise works and looks identical from every client surface, which is how one deployment ran a whole migration with artifact writes silently off. Startup now warns once per discovered KB, `kb_status` reports `capabilities.mount: discovered`, and `cartographer doctor` raises a `capability` finding (D151). `kb create` / `kb clone` mount a KB *discovered* by default; `--artifact-write` additionally upserts a `kbs[]` entry (`remote` = the KB's remote, `allow_artifact_write: true`, and a `name` when it differs from the one the remote gives) in the server config so it mounts *configured* with artifact writes on; for `kb create --no-remote`, which has no remote for an entry to name, it writes `allow_artifact_write: true` into the new KB's own `settings.yaml` instead (D903). It stays opt-in because artifacts, hooks included, reach client machines through `sync` (D71); the entry form needs an existing, valid server config (checked before anything is created, `--config` names it) and a config-write failure keeps the KB and prints the entry to add by hand ([D711](decisions/D711-kb-create-can-record-its-kbs-entry.md)). An existing discovered KB is still fixed by editing `kbs[]`. Dot-directories are never discovered: `kb unmount` parks a retired clone in `<data>/.unmounted/` for that reason (D761).
 
-`kb create` authors the KB's initial commit with the identity the server would use: `git.author_name`/`git.author_email` from the service config, then git's own `user.name`/`user.email`, then the product default `cartographer@localhost`. It warns before pushing when it falls back to that default, because a forge with an author-membership push rule rejects it. **Before pushing it asks the remote (`ls-remote`).** An empty repository gets the scaffold as is. A repository holding only a forge's initial commit — one branch, one commit, top-level README/LICENSE/LICENCE/COPYING/`.gitignore`/`.gitattributes` files — is adopted automatically: the scaffold commit is rebased on top of it (the forge's files are kept), the KB lives on the remote's default branch whatever its name (D264), and the push is a fast-forward, never forced; a scaffold path that collides with a forge file (e.g. `.gitattributes`) is a refusal, not a merge. Any other non-empty remote is refused with a `kb clone` / kb-import hint. These refusals happen before any push, so the local KB is deleted and the command can be rerun (D710). **If the push fails the scaffold is kept**, not rolled back: the local KB is complete and valid and only the push failed, so the command exits non-zero and prints the `commit --amend --author` and `push -u origin` lines to finish by hand — or the command that discards it (`rm -rf`, or `Remove-Item -Recurse -Force` on Windows), noting that a server started with that data dir would otherwise mount it (D156). If git refuses the initial commit itself (a commit hook, signing without a key), `kb create` reports that error and stops before the push (D265).
+`kb create` authors the KB's initial commit with the operator's own git identity (`user.name`/`user.email`) when git resolves one, otherwise the server identity (D904); the committer is the server. **Before pushing it asks the remote (`ls-remote`).** An empty repository gets the scaffold as is. A repository holding only a forge's initial commit — one branch, one commit, top-level README/LICENSE/LICENCE/COPYING/`.gitignore`/`.gitattributes` files — is adopted automatically: the scaffold commit is rebased on top of it (the forge's files are kept), the KB lives on the remote's default branch whatever its name (D264), and the push is a fast-forward, never forced; a scaffold path that collides with a forge file (e.g. `.gitattributes`) is a refusal, not a merge. Any other non-empty remote is refused with a `kb clone` / kb-import hint. These refusals happen before any push, so the local KB is deleted and the command can be rerun (D710). **If the push fails the scaffold is kept**, not rolled back: the local KB is complete and valid and only the push failed, so the command exits non-zero and prints the `commit --amend --author` and `push -u origin` lines to finish by hand — or the command that discards it (`rm -rf`, or `Remove-Item -Recurse -Force` on Windows), noting that a server started with that data dir would otherwise mount it (D156). If git refuses the initial commit itself (a commit hook, signing without a key), `kb create` reports that error and stops before the push (D265).
 
 Binds to **loopback** by default (`127.0.0.1:39273`) → auth is off (pinned in the generated config, D268) without exposing anything on the network. With an empty (or missing — D83: `serve` creates it and treats it as empty rather than failing) data dir the server starts with 0 KBs — `/health` is still up (liveness: `status:"ok"`) but `/ready` reports `503 {"ready":false}` (D84, §Observability): `cartographer kb create <name> --remote <url>` scaffolds a subfolder KB the same way `serve --kb <path> --init` would (D85) and pushes it to the empty repository at `<url>` (or builds it on the one commit a forge writes at project creation, D710), which becomes its `origin` — the remote is mandatory, `--no-remote` being the explicit opt-out for a local-only, non-durable KB (D134) — while `cartographer kb clone <remote>` mounts an existing OKF remote there (D97; `service install` itself prints a hint pointing at creation if it starts with 0 KBs mounted), or add `kbs:` entries to clone remotes (§Bootstrapping a KB) — either way, `service restart` (or `kb create --restart` / `kb clone --restart`, which do this for you and wait for the server to report healthy again) is what makes the new KB visible.
 
