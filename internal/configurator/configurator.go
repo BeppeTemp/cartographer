@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 )
 
@@ -23,6 +24,10 @@ type ServerConfig struct {
 	URL         string
 	AuthEnabled bool
 	TokenEnv    string
+	// Author is the writer identity, "Name <email>", the entry sends as the
+	// Cartographer-Author header, so the server authors this client's commits
+	// with it (D904). Empty sends none, and the server falls back to the token.
+	Author string
 }
 
 // DefaultConfig returns a ServerConfig with reasonable defaults.
@@ -41,11 +46,14 @@ func DefaultConfig() *ServerConfig {
 // below) and for third-party servers distributed by a KB (internal/provisioning
 // "mcp" artifact kind — see internal/provisioning/mcpspec.go and mcpsettings.go).
 //
-// Header values are expected to reference the client's own environment via a
-// "${VAR}" placeholder (translated to each provider's native syntax by the
-// per-provider emitters below) — never a literal secret: enforced upstream by
-// internal/provisioning's KB-side validator for third-party servers, and always
-// true by construction for Cartographer's own entry (toSpec below).
+// A header value that carries a secret references the client's own
+// environment via a "${VAR}" placeholder (translated to each provider's native
+// syntax by the per-provider emitters below) — never the literal secret:
+// enforced upstream by internal/provisioning's KB-side validator for
+// third-party servers, and true by construction for Cartographer's own
+// Authorization (toSpec below). The one literal value is Cartographer's own
+// Cartographer-Author (D904): no secret, and encoded by client.EncodeAuthor so
+// that no client reads it as a placeholder.
 type ServerSpec struct {
 	Type    string // "http" or "stdio"
 	URL     string
@@ -71,6 +79,12 @@ func (cfg *ServerConfig) toSpec() ServerSpec {
 		spec.Headers = map[string]string{
 			"Authorization": "Bearer ${" + cfg.TokenEnv + "}",
 		}
+	}
+	if cfg.Author != "" {
+		if spec.Headers == nil {
+			spec.Headers = map[string]string{}
+		}
+		spec.Headers[client.AuthorHeader] = client.EncodeAuthor(cfg.Author)
 	}
 	return spec
 }
@@ -109,8 +123,9 @@ type EmitResult struct {
 	// provider cannot represent natively (D69 — e.g. Codex's config.toml only
 	// exposes bearer_token_env_var for auth, not arbitrary headers) and so were
 	// dropped rather than silently guessed. Nil unless populated; empty for
-	// every one of Cartographer's own EmitAll calls today, since its own
-	// header (Authorization: Bearer ${TokenEnv}) is always representable.
+	// every one of Cartographer's own EmitAll calls today, since both its own
+	// headers are representable: Authorization as "Bearer ${VAR}", and the
+	// literal Cartographer-Author (D904).
 	// Surfaced by callers (internal/provisioning's "mcp" Apply path) instead of
 	// failing.
 	Warnings []string
@@ -605,9 +620,12 @@ var bearerEnvPattern = regexp.MustCompile(`^Bearer \$\{([A-Za-z_][A-Za-z0-9_]*)\
 // Codex's schema exposes exactly one auth mechanism for a remote MCP server:
 // bearer_token_env_var. So only a header literally named "Authorization" with
 // value "Bearer ${VAR}" is representable (D69); it is translated to
-// bearer_token_env_var = "VAR". Any other header (or an Authorization value in
-// a different shape) cannot be expressed here and is dropped, surfaced via
-// EmitResult.Warnings instead of silently guessed or failing.
+// bearer_token_env_var = "VAR". A header with a literal value (Cartographer's
+// own Cartographer-Author, D904) goes into http_headers, which Codex sends as
+// written. Any other header (one that reads the environment, or an
+// Authorization value in a different shape) is not translated here and is
+// dropped, surfaced via EmitResult.Warnings instead of silently guessed or
+// failing.
 //
 // Before D58, this wrote .codex/config.json with a "mcpServers" key — a format
 // Codex CLI never actually reads (it only reads config.toml); see D58.
@@ -659,11 +677,25 @@ func emitCodexServer(name string, spec ServerSpec) (*EmitResult, error) {
 				"mcp %q: Authorization header not in the form \"Bearer ${VAR}\", ignored for codex", name))
 		}
 	}
-	for k := range spec.Headers {
+	var literal []string
+	for k, v := range spec.Headers {
+		if k != "Authorization" && !strings.Contains(v, "${") {
+			literal = append(literal, k)
+			continue
+		}
 		if k != "Authorization" {
 			warnings = append(warnings, fmt.Sprintf(
-				"mcp %q: header %q not supported by codex (only Authorization Bearer ${VAR}), ignored", name, k))
+				"mcp %q: header %q is taken from the environment, which the codex entry supports only as Authorization: Bearer ${VAR}; ignored", name, k))
 		}
+	}
+
+	if len(literal) > 0 {
+		sort.Strings(literal)
+		pairs := make([]string, len(literal))
+		for i, k := range literal {
+			pairs[i] = QuoteTOMLString(k) + " = " + QuoteTOMLString(spec.Headers[k])
+		}
+		fmt.Fprintf(&sb, "http_headers = { %s }\n", strings.Join(pairs, ", "))
 	}
 
 	return &EmitResult{
