@@ -446,16 +446,26 @@ data:
     auth:
       mode: "on"
     data: /data
+    credentials_dir: /etc/cartographer-credentials
     kbs:
       - remote: ssh://git@gitea.example.com:2222/user/wiki-kb.git
-    git:
-      ssh_key: /etc/kb-ssh/id_ed25519
-      known_hosts: /etc/kb-ssh/known_hosts
 ```
 
-`Deployment` (excerpt — token and SSH key from a Secret, never in the ConfigMap):
+`Secret` (the credentials directory, §Credentials directory: one key per file):
+
+```sh
+kubectl create secret generic cartographer-credentials \
+  --from-file=default.ssh=./id_ed25519 \
+  --from-file=known_hosts=./known_hosts \
+  --from-literal=audit.key="$(openssl rand -hex 32)"
+```
+
+`Deployment` (excerpt — MCP tokens and the credentials from Secrets, never in the ConfigMap):
 
 ```yaml
+securityContext:
+  fsGroup: 2000 # any gid: the process joins it, and the kubelet gives it the Secret's files
+  fsGroupChangePolicy: OnRootMismatch # the data volume is not re-chowned at every start
 containers:
   - name: cartographer
     image: ghcr.io/beppetemp/cartographer:<tag>
@@ -466,16 +476,24 @@ containers:
           secretKeyRef: { name: cartographer-tokens, key: tokens }
     volumeMounts:
       - { name: config, mountPath: /etc/cartographer, readOnly: true }
-      - { name: kb-ssh, mountPath: /etc/kb-ssh, readOnly: true }
+      - { name: credentials, mountPath: /etc/cartographer-credentials, readOnly: true }
       - { name: data, mountPath: /data }
 volumes:
   - name: config
     configMap: { name: cartographer-config }
-  - name: kb-ssh
-    secret: { secretName: cartographer-kb-ssh, defaultMode: 0440 } # root-owned, private key + known_hosts
+  - name: credentials
+    secret: { secretName: cartographer-credentials, defaultMode: 0440 }
   - name: data
     persistentVolumeClaim: { claimName: cartographer-data }
 ```
+
+The image runs as a user that is not root, so the Secret needs `fsGroup`: the kubelet makes its files
+`root:<fsGroup>` and adds `0440` whatever `defaultMode` says, and without `fsGroup` a `0400` file is
+unreadable to the server. The group bit is not reported as a loose permission (§Credentials directory).
+The mount is read-only, so `audit.key` comes in the Secret: the server cannot generate it there, and
+without it a `best_effort` log runs unsigned, warning at every start, while `audit.mode: required` does
+not start. Back the key up, since the audit log's signatures depend on it. A KB that needs a key of its
+own adds `<kb>.ssh`; an HTTPS remote reads `<kb>.token` or `default.token`.
 
 This topology serves **multiple clients** (one or more agents connected via `cartographer connect` /
 `cartographer sync`, all over HTTP): git remains the sync/backup layer between the server and the
