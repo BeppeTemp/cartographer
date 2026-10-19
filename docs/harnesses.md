@@ -31,6 +31,7 @@ would flip a matrix cell is confirmed with a probe
   `/sub-agents`, `/skills`, `/hooks`, `/mcp`, `/settings` under the same prefix.
 - **Depends on**:
   - Stdio bridge (D737): `cartographer mcp --provider claude` is spawned in the session's folder (probe 2026-10-17, Claude Code 2.1.302: working directory yes, `roots` declared with `[cwd]`). The token variable reaches the child (the process environment is inherited). Replaces the D717 project-entry shadowing, which is no longer used.
+  - Writer header (D904): an HTTP entry carries `Cartographer-Author` in `headers`, next to `Authorization`.
   - `skill`/`agent`/`hook` in `~/.claude/{skills,agents,hooks}/`, project-local in
     `.claude/…` (D137, D193); `mcp` in `~/.claude.json` (project: `.mcp.json`);
     `instructions` in `~/.claude/CLAUDE.md` (project: `CLAUDE.md`).
@@ -95,6 +96,7 @@ would flip a matrix cell is confirmed with a probe
   <https://learn.chatgpt.com/docs/extend/mcp?surface=cli>.
 - **Depends on**:
   - Stdio bridge (D737): spawned in the session's folder with `$PWD` unset (probe 2026-10-17, Codex 0.163.0); `roots` not declared. Codex filters the environment of an MCP server, so the entry lists the token variable in `env_vars`; every other client inherits it.
+  - Writer header (D904): an HTTP entry carries it in `http_headers`, which Codex sends as written (config reference; not probed). Auth stays `bearer_token_env_var`.
   - `skill` global `~/.codex/skills/` (deliberate divergence from the documented
     `$HOME/.agents/skills`, still the only documented user path, D192, guarded by
     `clientcompat_test.go`); project `.agents/skills/` (D193).
@@ -150,6 +152,7 @@ would flip a matrix cell is confirmed with a probe
   (all cited in D195/D140); version: `brew info --cask kiro-cli`.
 - **Depends on**:
   - Stdio bridge (D737): spawned in the session's folder (probe 2026-10-17, Kiro CLI 2.32.0); `roots` not declared. Kiro IDE not probed: an IDE that spawns the server outside the workspace and declares no roots gets the provider's default set.
+  - Writer header (D904): none. Kiro documents `headers` for a remote server (<https://kiro.dev/docs/mcp/configuration/>), but the emitter writes no headers for Kiro, `Authorization` included (an older gap), so a write over a Kiro HTTP entry is authored by the token; the bridge names the writer.
   - `agent` as JSON (`name`/`description`/`prompt`) in `~/.kiro/agents/`,
     workspace `.kiro/agents/` wins over global (D195); native restriction keys
     believed to be `tools`/`allowedTools` (D291, not verified).
@@ -208,6 +211,7 @@ would flip a matrix cell is confirmed with a probe
   `/rules`, `/config`.
 - **Depends on**:
   - Stdio bridge (D737): spawned in the session's folder but with `$PWD` set to `$HOME` (probe 2026-10-17, OpenCode 2.0.30), which is why the bridge reads `os.Getwd`, never `$PWD`; `roots` declared with `[cwd]`.
+  - Writer header (D904): an HTTP entry carries it in `headers`; the token's `${VAR}` becomes `{env:VAR}`, the author is a literal.
   - `agent` global `~/.config/opencode/agents/` (the `config` directory of
     `opencode debug paths`, probed on 2.0.25 and the documented 1.x path, D360,
     guarded by `clientcompat_test.go`; `~/.opencode/agent/` is not loaded on 2.x):
@@ -265,6 +269,7 @@ would flip a matrix cell is confirmed with a probe
   version source: `unverified`.
 - **Depends on** (what the matrix encodes; D193/D207, not re-probed):
   - Stdio bridge (D737): not probed (2026-10-17) for the IDE nor for `agy`. If the host spawns the server outside the workspace and declares no `roots`, the session gets the provider's default set; `cartographer workspace resolve` shows what the bridge would pick for a folder.
+  - Writer header (D904): an HTTP entry carries it in `headers`.
   - Global, under `~/.gemini`: `skill` `config/skills`, `agent`
     `config/agents` (Markdown: `name`, `description`, `mainAgent: false`,
     `subagent: true`), `hook` `config/hooks` registered in
@@ -314,6 +319,7 @@ would flip a matrix cell is confirmed with a probe
   `charmbracelet/tap/crush`, npm `@charmland/crush` (not in homebrew-core).
 - **Depends on**:
   - Stdio bridge (D737): spawned in the session's folder (probe 2026-10-17, Crush 0.98.1); `roots` declared with an empty list, so the working directory decides.
+  - Writer header (D904): an HTTP entry carries it in `headers`; a value Crush would expand (`$VAR`, `$(cmd)`) is written in the encoded form, never as is.
   - `mcp` in `~/.config/crush/crush.json` — JSON Crush documents as deprecated (no
     new options) in favour of `crushrc`, a Bash file Cartographer refuses to
     write; `$VAR` form for values, `$(` refused (D225). JSON is still read and
@@ -354,6 +360,7 @@ would flip a matrix cell is confirmed with a probe
   directory, not from these pages.
 - **Depends on**:
   - Stdio bridge (D737): spawned in the session's folder (probe 2026-10-17, Copilot CLI 1.0.98); `roots` not declared.
+  - Writer header (D904): an HTTP entry carries it in `headers`, next to `Authorization`.
   - `mcp` in `~/.copilot/mcp-config.json` (`mcpServers`, `type: "http"`, `headers`,
     `"tools": ["*"]`); `${VAR}` in a header value is expanded from the environment.
     Without `tools` a non-interactive session is offered nothing from the server.

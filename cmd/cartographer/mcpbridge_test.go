@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
@@ -276,8 +277,30 @@ func TestCmdMCPRequiresAProvider(t *testing.T) {
 	}
 }
 
+// A bridge that starts names the writer per call (D904), so its entry carries
+// none, and git is not asked for an identity no entry would send.
+func TestSetEntryAuthorsLeavesAStartableBridgeToTheBridge(t *testing.T) {
+	stubBridgeCommand(t)
+	cfg := bridgeConfigFor(t, "claude")
+	if err := cfg.BindWorkspace("claude", t.TempDir(), []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := entriesByProviderForKBs(cfg, []string{"claude"}, "cartographer", cfg.ServerURL, cfg.KnownKBs, "/mcp/routed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	asked := 0
+	w := setEntryAuthors(cfg, entries, func() (string, bool) {
+		asked++
+		return "Git Person <git@example.test>", false
+	})
+	if e := entries["claude"][0]; !e.Bridge || e.Author != "" || asked != 0 || len(w) != 0 {
+		t.Fatalf("bridge %v, author %q, git asked %d times, warnings %q; want a bridge naming none, no ask, no warning", e.Bridge, e.Author, asked, w)
+	}
+}
+
 // With no `cartographer` on PATH the provider keeps its HTTP entry, a warning
-// says why, and the other providers are still written.
+// says why, and the other providers are still written; both name the writer.
 func TestMissingBridgeCommandFallsBackToHTTPWithAWarning(t *testing.T) {
 	old := bridgeCommand
 	bridgeCommand = func() (string, error) { return "", os.ErrNotExist }
@@ -287,9 +310,13 @@ func TestMissingBridgeCommandFallsBackToHTTPWithAWarning(t *testing.T) {
 	if err := cfg.BindWorkspace("claude", t.TempDir(), []string{"kb-a"}); err != nil {
 		t.Fatal(err)
 	}
+	cfg.Identities = map[string]string{"default": "Ada Lovelace <ada@example.com>"}
 	entries, err := entriesByProviderForKBs(cfg, []string{"claude", "codex"}, "cartographer", cfg.ServerURL, cfg.KnownKBs, "/mcp/routed")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if w := setEntryAuthors(cfg, entries, func() (string, bool) { return "", false }); len(w) != 0 {
+		t.Fatalf("author warnings = %v", w)
 	}
 	dir := t.TempDir()
 	_, warnings, err := applyMCPEntries(entries, []string{"claude", "codex"}, dir, nil, true, "CARTOGRAPHER_TOKEN", false)
@@ -303,7 +330,18 @@ func TestMissingBridgeCommandFallsBackToHTTPWithAWarning(t *testing.T) {
 	if !strings.Contains(string(claude), "https://example.com/mcp/routed") || strings.Contains(string(claude), `"command"`) {
 		t.Fatalf("claude kept no HTTP entry: %s", claude)
 	}
-	if codex, _ := os.ReadFile(filepath.Join(dir, ".codex/config.toml")); !strings.Contains(string(codex), "https://example.com/mcp/routed") {
+	codex, _ := os.ReadFile(filepath.Join(dir, ".codex/config.toml"))
+	if !strings.Contains(string(codex), "https://example.com/mcp/routed") {
 		t.Fatalf("codex was not written: %s", codex)
+	}
+	var claudeCfg struct {
+		MCPServers map[string]struct{ Headers map[string]string } `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(claude, &claudeCfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := claudeCfg.MCPServers["cartographer"].Headers[client.AuthorHeader]; got != "Ada Lovelace <ada@example.com>" ||
+		!strings.Contains(string(codex), `"Cartographer-Author" = "Ada Lovelace <ada@example.com>"`) {
+		t.Fatalf("the writer is missing: claude %q, codex:\n%s", got, codex)
 	}
 }

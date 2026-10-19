@@ -248,10 +248,12 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		if err != nil {
 			return syncResult{}, err
 		}
+		authorWarnings := setEntryAuthors(cfg, entriesByProvider, globalIdentFn)
 		_, warnings, err := applyMCPEntries(entriesByProvider, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv, opts.DryRun)
 		if err != nil {
 			return syncResult{}, err
 		}
+		warnings = append(warnings, authorWarnings...)
 		if slices.Contains(targets, string(configurator.ProviderClaudeCode)) {
 			warnings = append(warnings, claudeDirWarnings...)
 		}

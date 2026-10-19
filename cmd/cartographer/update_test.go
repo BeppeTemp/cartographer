@@ -51,6 +51,9 @@ func TestMain(m *testing.M) {
 	syncTimerStatusFn = func() (service.SyncTimerStatus, error) { return service.SyncTimerStatus{}, nil }
 	// Same for the leftover doctor job connect and upgrade-repair remove (D704).
 	removeLegacyDoctorTimerFn = func() (bool, error) { return false, nil }
+	// Nor the developer's global git identity, which connect and sync would
+	// write into HTTP entries (D904).
+	globalIdentFn = func() (string, bool) { return "", false }
 	code := m.Run()
 	os.RemoveAll(cache)
 	os.Exit(code)

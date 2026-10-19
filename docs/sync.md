@@ -476,6 +476,17 @@ carries one author for both commits, so it is sent only when both KBs resolve to
 `identities` keys are the client's KB names: a `kb_aliases` name the server resolves is not one.
 Without a header the server authors the write as the token.
 
+**Who an HTTP entry's writes are authored as (D904).** A provider without a workspace binding (or
+whose bridge cannot start) keeps an HTTP entry, written once into a file every folder shares, so
+`connect` and `sync` give it a static `Cartographer-Author` header. For each KB the entry reaches,
+the value is the KB's `identities` entry, else `identities.default`, else the global git identity
+(`git config --global`, never a folder's). It is written only when all those KBs agree: an entry that
+reaches KBs with different writers sends none, and an entry without `?kbs=` also answers for every KB
+`identities` names and any KB mounted later. A global git config with an `includeIf` is not read for
+it, since a folder may get another identity there: set `identities.default` (empty to send none) or
+bind a workspace, whose bridge reads each folder. Either case prints a warning on every `connect` and
+`sync`. Which clients take the header: [harness ledger](harnesses.md).
+
 **A projection is not an authorization boundary.** `?kbs=` is a scope filter, not a security
 boundary: the token in the session's environment can reach every KB it allows. Hard isolation needs a
 per-workspace token (D44/D45).
