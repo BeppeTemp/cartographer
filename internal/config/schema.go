@@ -169,5 +169,5 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "kbs[].github_repository", Plan: 903, Note: kb.ServerProfileRemoved},
 	{Path: "kbs[].github_api_url", Plan: 903, Note: kb.ServerProfileRemoved},
 	{Path: "kbs[].github_token_env", Plan: 903, Note: kb.ServerProfileRemoved},
-	{Path: "kbs[].git_branch", Plan: 903, Replacement: "branch in the KB's settings.yaml", Note: "committed on the remote's default branch"},
+	{Path: "kbs[].git_branch", Plan: 903, Replacement: "branch in the KB's settings.yaml", Note: "committed on the remote's default branch", RefuseAny: true},
 }}

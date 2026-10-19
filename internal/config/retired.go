@@ -12,9 +12,9 @@ import (
 
 // noteRetired records, as warnings, the removed keys the file still carries
 // (D903): each is ignored, and the line names what to use instead. A removed
-// key whose value cannot be honoured at all (the server git profile) is a
-// refusal as well, and so is an entry of kbs[] with no remote, which names
-// nothing to clone.
+// key that cannot be ignored without changing where writes go (the server git
+// profile, a kbs[].git_branch) is a refusal as well. An entry of kbs[] with no
+// remote, which names nothing to clone, is only a warning.
 func (c *Config) noteRetired(data []byte, specs []KBSpec) {
 	var doc yaml.Node
 	if yaml.Unmarshal(data, &doc) != nil {
@@ -45,7 +45,7 @@ func (c *Config) noteRetiredEnv() {
 			continue
 		}
 		c.Warnings = append(c.Warnings, fmt.Sprintf("%s: removed setting, ignored (%s)", e.Env, e.Advice()))
-		if e.Refuse != "" && strings.EqualFold(strings.TrimSpace(v), e.Refuse) {
+		if e.Refuses(v) {
 			c.Refusals = append(c.Refusals, fmt.Sprintf("%s=%s: %s", e.Env, v, e.Note))
 		}
 	}
@@ -57,7 +57,7 @@ func (c *Config) RefusalError() error {
 	if len(c.Refusals) == 0 {
 		return nil
 	}
-	return fmt.Errorf("config: refusing to start, the server git profile is no longer supported:\n  - %s", strings.Join(c.Refusals, "\n  - "))
+	return fmt.Errorf("config: refusing to start, a removed setting cannot be ignored without changing where writes go:\n  - %s", strings.Join(c.Refusals, "\n  - "))
 }
 
 // RemovedFlags are the command-line flags of removed settings, with the advice

@@ -215,11 +215,14 @@ read-only mount) keeps working, since a removed key is ignored with a warning th
 The same applies to a removed environment variable and flag (`CARTOGRAPHER_GIT_SYNC`, `--git-sync`, ...): ignored
 with a warning, never an error. Each KB's `settings.yaml` is realigned the same way as one commit by the server,
 through the normal commit and push, so it is revertible; a file with uncommitted edits is left alone. The client
-file `~/.cartographer.yaml` is realigned by the first `cartographer sync`. The one removed value that is refused
-and not ignored is the server profile (`git.profile: server`, `kbs[].git_profile: server`,
-`CARTOGRAPHER_GIT_PROFILE=server`, or `git_profile: server` in a KB's `settings.yaml`): the server does not start
-(or, for a KB's own file, that KB does not mount) and says what to do, because ignoring it would write straight
-to the branch the profile protected. The registry of removed keys sits next to each schema
+file `~/.cartographer.yaml` is realigned by the first `cartographer sync`. Two removed settings are refused and
+not ignored, because ignoring them would change where writes go. The server profile (`git.profile: server`,
+`kbs[].git_profile: server`, `CARTOGRAPHER_GIT_PROFILE=server`, or `git_profile: server` in a KB's
+`settings.yaml`) would write straight to the branch it protected: the server does not start (or, for a KB's own
+file, that KB does not mount) and says what to do. A `kbs[].git_branch` still set would move the KB's writes to
+the remote's default branch: the server does not start until that value is set as `branch` in the KB's
+`settings.yaml` (committed on the default branch) and the key is removed. A refused file is not rewritten. The
+registry of removed keys sits next to each schema
 (`config.Retired`, `kb.SettingsRetired`, `clientconfig.Retired`).
 
 ### Bootstrapping a KB from a git remote (replaces the init container)

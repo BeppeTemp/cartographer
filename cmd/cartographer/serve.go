@@ -135,9 +135,10 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 	if err := config.ValidateAuth(cfg.Auth); err != nil {
 		return nil, fmt.Errorf("config: auth: %w", err)
 	}
-	// A configuration that asks for the server git profile (removed, D903)
-	// stops here, before anything is realigned or mounted: ignoring it would
-	// write straight to a branch the operator had protected.
+	// A configuration that asks for the server git profile, or still names a
+	// kbs[].git_branch (both removed, D903), stops here, before anything is
+	// realigned or mounted: ignoring either would send writes to another
+	// branch, the one the operator had protected or the remote's default.
 	if err := cfg.RefusalError(); err != nil {
 		return nil, err
 	}

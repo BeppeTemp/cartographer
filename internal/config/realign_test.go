@@ -220,17 +220,17 @@ func TestRemovedKeyAddedBackByHandWarns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString("kbs:\n  - remote: https://git.example.com/user/kb-a.git\n    git_branch: team/kb-data\n")
+	f.WriteString("kbs:\n  - remote: https://git.example.com/user/kb-a.git\n    git_forge: github\n")
 	f.Close()
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("a removed key is not an error: %v", err)
 	}
-	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "kbs[0].git_branch") || !strings.Contains(cfg.Warnings[0], "branch in the KB's settings.yaml") {
-		t.Errorf("warnings = %q, want the one that names the replacement", cfg.Warnings)
+	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "kbs[0].git_forge") || !strings.Contains(cfg.Warnings[0], "set `branch`") {
+		t.Errorf("warnings = %q, want the one that says what to do instead", cfg.Warnings)
 	}
 	if cfg.RefusalError() != nil {
-		t.Errorf("git_branch is ignored, not refused: %v", cfg.RefusalError())
+		t.Errorf("git_forge is ignored, not refused: %v", cfg.RefusalError())
 	}
 }
 

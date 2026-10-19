@@ -23,11 +23,13 @@ of unset settings is rebuilt, and a report says what changed. It is idempotent. 
 the first start, keeping the original as `<file>.bak-<version>`; the client `.cartographer.yaml` at the first
 `sync`; a KB's `settings.yaml` as one commit by the server, through the normal commit and push, so the commit is
 the backup. A removed key met again (a file edited back by hand, an old environment variable, an old flag) is
-ignored with a warning that names its replacement, never an error. The one exception is a value that cannot be
-honoured: the server profile itself. A configuration that asks for it (`git.profile: server`,
-`kbs[].git_profile: server`, `CARTOGRAPHER_GIT_PROFILE=server`) stops startup, and a KB whose `settings.yaml`
-carries it does not mount, with the message to unprotect the branch or set `branch`; the file is not realigned
-first, so the evidence survives until someone deals with it.
+ignored with a warning that names its replacement, never an error. The exceptions are the removed settings that
+cannot be ignored without changing where writes go. The server profile itself: a configuration that asks for it
+(`git.profile: server`, `kbs[].git_profile: server`, `CARTOGRAPHER_GIT_PROFILE=server`) stops startup, and a KB
+whose `settings.yaml` carries it does not mount, with the message to unprotect the branch or set `branch`. And a
+`kbs[].git_branch` still set: ignoring it would move the KB's writes to the remote's default branch, so the server
+does not start, naming the value, until it is set as `branch` in the KB's `settings.yaml` and the key removed. In
+both cases the file is not realigned first, so the evidence survives until someone deals with it.
 
 On Cloud Run, which freezes an idle instance and so strands a debounced push, every push is made before the write
 returns. The server decides it from `K_SERVICE`, which the platform sets, with no key to remember.
@@ -50,6 +52,9 @@ and each only adds entries to the registries (#904, #905 and the rest of #890).
 - Ignoring `git.profile: server` with a warning like any removed key: it writes straight to a branch the operator
   protected. The push would then be rejected, and the rejection is reported as such, but a configuration that asks
   for a review boundary must not start without it (#575 made the same point for an incomplete profile).
+- Ignoring a `kbs[].git_branch` with a warning like any removed key, or honouring it until the KB sets `branch`:
+  the first moves the writes of an upgraded server to the default branch, unnoticed by whoever does not read the
+  log; the second keeps a second home for the branch, which P2 removes. Refusing costs one edit, made once.
 - Regenerating the file from the schema and the effective values (`Document` and `Set`) in place of editing the
   document: it loses every comment a person wrote and the order of the keys, for no gain; the old file is kept but
   nobody should have to diff it. The realignment edits the YAML document, so the survivors stay as written.
@@ -64,7 +69,8 @@ and each only adds entries to the registries (#904, #905 and the rest of #890).
 
 **Consequences.** Breaking: `pr_status` and `pr_finalize` are gone, the keys above are gone, the `git_workflow`,
 `git_profile` and `git_sync` fields and the pull-request fields of `kb_status` and `sync_status` are gone, and
-`branch_source` reads `settings` where it read `config`. The first start of a new version rewrites the server YAML
+`branch_source` reads `settings` where it read `config`. A server whose `kbs[]` still names a `git_branch` does not
+start until that value is the KB's `branch`. The first start of a new version rewrites the server YAML
 (backup kept) and commits a realigned `settings.yaml` to each KB that holds a removed key or lacks the comments;
 a file that cannot be written (a read-only mount) keeps working. `kb create --no-remote --artifact-write` writes
 `allow_artifact_write: true` into the new KB's `settings.yaml` (an entry in `kbs[]` needs a remote), and with a

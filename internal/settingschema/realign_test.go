@@ -202,3 +202,29 @@ func TestFindRefusedOnlyForTheRefusedValue(t *testing.T) {
 		}
 	}
 }
+
+// A key whose every value would change where writes go if ignored (D903,
+// kbs[].git_branch) is refused for any value it holds, and the message names
+// the value and where it has to go; an empty or null value refuses nothing.
+func TestFindRefusedAnyValue(t *testing.T) {
+	reg := Registry{Removed: []Removed{{Path: "items[].branch", Replacement: "branch in the KB", Note: "on the default branch", Plan: 903, RefuseAny: true}}}
+	for in, want := range map[string]bool{
+		"items:\n  - branch: team/kb-data\n": true,
+		"items:\n  - branch: main\n":         true,
+		"items:\n  - branch: \"\"\n":         false,
+		"items:\n  - branch:\n":              false,
+		"items:\n  - branch: ~\n":            false,
+	} {
+		hits := reg.FindBytes([]byte(in))
+		if len(hits) != 1 {
+			t.Fatalf("%q: hits = %v, want one", in, hits)
+		}
+		msg, refused := hits[0].Refused()
+		if refused != want {
+			t.Errorf("%q: refused = %v, want %v", in, refused, want)
+		}
+		if refused && (!strings.Contains(msg, "items[0].branch") || !strings.Contains(msg, hits[0].Value) || !strings.Contains(msg, "branch in the KB (on the default branch)")) {
+			t.Errorf("%q: refusal %q does not name the key, its value and where it goes", in, msg)
+		}
+	}
+}

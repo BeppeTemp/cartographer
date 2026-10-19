@@ -36,6 +36,19 @@ type Removed struct {
 	// holds it is refused, not ignored (the server git profile, D903). The
 	// refusal is Note.
 	Refuse string
+	// RefuseAny refuses the key whatever non-empty value it holds, because
+	// ignoring it would change where writes go (kbs[].git_branch, D903): the
+	// value has to reach Replacement first. The refusal names Replacement.
+	RefuseAny bool
+}
+
+// Refuses reports whether value is one the key cannot be ignored with.
+func (r Removed) Refuses(value string) bool {
+	v := strings.TrimSpace(value)
+	if r.RefuseAny {
+		return v != "" && v != "~" && !strings.EqualFold(v, "null")
+	}
+	return r.Refuse != "" && strings.EqualFold(v, r.Refuse)
 }
 
 // Off is a value that switched a feature off and that a realignment resets to
@@ -138,10 +151,17 @@ func (h Hit) Message() string {
 // Refused reports whether the key holds a value that cannot be honoured, and
 // the message that says what to do.
 func (h Hit) Refused() (string, bool) {
-	if h.Removed != nil && h.Removed.Refuse != "" && strings.EqualFold(strings.TrimSpace(h.Value), h.Removed.Refuse) {
-		return fmt.Sprintf("%s: %s", h.Path, h.Removed.Note), true
+	if h.Removed == nil || !h.Removed.Refuses(h.Value) {
+		return "", false
 	}
-	return "", false
+	if h.Removed.RefuseAny {
+		use := h.Removed.Replacement
+		if h.Removed.Note != "" {
+			use += " (" + h.Removed.Note + ")"
+		}
+		return fmt.Sprintf("%s: %s is still set, and ignoring it would change where writes go; set %s to that value, then remove this key", h.Path, strings.TrimSpace(h.Value), use), true
+	}
+	return fmt.Sprintf("%s: %s", h.Path, h.Removed.Note), true
 }
 
 // Advice says what became of the key and what to use: the text after the key in

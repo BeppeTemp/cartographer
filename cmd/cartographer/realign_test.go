@@ -79,6 +79,42 @@ func TestLoadServeConfigRefusesTheServerGitProfile(t *testing.T) {
 	}
 }
 
+// D903: a kbs[].git_branch still set does not start either: ignoring it would
+// move the KB's writes to the remote's default branch. The message names the
+// value and where it goes, and the file keeps its evidence. An empty one is just
+// a removed key.
+func TestLoadServeConfigRefusesAPerKBGitBranch(t *testing.T) {
+	t.Setenv("CARTOGRAPHER_GIT_PROFILE", "")
+	t.Setenv("CARTOGRAPHER_TOKENS", "")
+	in := "kbs:\n  - remote: https://git.example.com/user/kb-a.git\n    git_branch: team/kb-data\n"
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(in), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadServeConfig(serveFlagSet(), config.FlagOverrides{}, path)
+	if err == nil {
+		t.Fatal("a configuration with a per KB git_branch was accepted")
+	}
+	for _, want := range []string{"refusing to start", "kbs[0].git_branch: team/kb-data", "branch in the KB's settings.yaml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q", err, want)
+		}
+	}
+	if got, _ := os.ReadFile(path); string(got) != in {
+		t.Errorf("the refused file was rewritten:\n%s", got)
+	}
+	if matches, _ := filepath.Glob(path + ".bak-*"); len(matches) != 0 {
+		t.Errorf("a refused file got a backup: %v", matches)
+	}
+
+	if err := os.WriteFile(path, []byte("kbs:\n  - remote: https://git.example.com/user/kb-a.git\n    git_branch: \"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadServeConfig(serveFlagSet(), config.FlagOverrides{}, path); err != nil {
+		t.Errorf("an empty git_branch was refused: %v", err)
+	}
+}
+
 // The first start of the new version rewrites the server YAML in its commented
 // form, keeps the original, and says what it changed; the next start does
 // nothing.

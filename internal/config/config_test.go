@@ -311,7 +311,8 @@ func TestNormalizeAuthMode(t *testing.T) {
 // D903: the server git profile and the other git keys that went are ignored with
 // a warning that names what to use. The profile itself, a value that cannot be
 // honoured, is a refusal as well: the server must not start and write straight
-// to a branch the profile protected.
+// to a branch the profile protected. So is a kbs[].git_branch: ignoring it would
+// move the KB's writes to the remote's default branch.
 func TestLoadRetiredGitKeysWarnAndTheProfileRefuses(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	data := []byte("git:\n  autocommit: false\n  sync: false\n  in_window: 5s\n  profile: server\n  base_branch: main\n  github_owner: acme\n  ssh_key: /k\nkbs:\n  - remote: https://git.example.com/user/kb-a.git\n    git_profile: local\n    git_branch: team/kb-data\n  - path: /srv/kb-b\n")
@@ -345,7 +346,10 @@ func TestLoadRetiredGitKeysWarnAndTheProfileRefuses(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "git.profile") || !strings.Contains(err.Error(), "unprotect the branch") {
 		t.Fatalf("RefusalError = %v, want the profile named with what to do", err)
 	}
-	if strings.Contains(err.Error(), "kbs[0]") {
+	if !strings.Contains(err.Error(), "kbs[0].git_branch: team/kb-data is still set") || !strings.Contains(err.Error(), "set branch in the KB's settings.yaml") {
+		t.Errorf("RefusalError = %v, want kbs[0].git_branch named with where its value goes", err)
+	}
+	if strings.Contains(err.Error(), "kbs[0].git_profile") {
 		t.Errorf("git_profile: local was refused: %v", err)
 	}
 }
