@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -615,5 +616,37 @@ func TestHealth_BootstrappingIsAnError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "bootstrapping") {
 		t.Errorf("error = %v", err)
+	}
+}
+
+// The author names a person, so it goes on tools/call only, and only when the
+// caller set one (D904).
+func TestAuthorGoesOnToolCallsOnly(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		got = append(got, r.Header.Get("Mcp-Method")+" "+strings.Join(r.Header.Values(client.AuthorHeader), "|"))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{}"}]}}`))
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "").WithAuthor("Ada Lovelace <ada@example.com>")
+	if err := c.Ping(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Call("ok_tool", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.New(srv.URL, "").Call("ok_tool", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"server/discover ", "tools/call Ada Lovelace <ada@example.com>", "tools/call "}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("author headers:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }

@@ -627,6 +627,13 @@ leaves `kb_repair`'s own entry).
 auto-repair commit (its SHA is in the KB's `git log`, reason "auto-repair (background)") as a new commit through the server's
 ordinary write path, and refuses any other commit.
 
+The commits of `--apply` and `--revert` are authored as whoever runs the command (D904), by the
+bridge's rule: the KB's `identities` entry, else `identities.default`, else what git resolves in the
+folder the command runs in, and only inside a work tree. An empty entry sends no author, an invalid
+one sends none with a warning; without an author the server authors the commit as the token. A
+scheduled run outside any repository is therefore authored as its token unless `identities` names
+someone.
+
 Exit codes: `0` nothing left to do, `3` only judgement work or checks outside `auto_repair` remain,
 `2` error. `--json` prints the report as an object (`checks`, `review_total`, `review_by_kind`,
 `remaining`). Not to be confused with `cartographer doctor`, which checks the client's provisioning.

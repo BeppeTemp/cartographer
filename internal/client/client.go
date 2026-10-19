@@ -124,6 +124,10 @@ type MCPClient struct {
 	// reported as "unknown" rather than refused: a roster row with no version
 	// is still useful, and a missing build stamp must not stop a sync.
 	Version string
+	// Author is who this client writes as, "Name <email>" (D904), sent on
+	// tools/call only. Empty sends nothing and the server authors the write as
+	// the token.
+	Author string
 }
 
 // Health is the additive subset of the server's /health response that clients
@@ -223,6 +227,14 @@ func (c *MCPClient) WithKB(name string) *MCPClient {
 func (c *MCPClient) WithTokenEnv(name string) *MCPClient {
 	cp := *c
 	cp.TokenEnv = name
+	return &cp
+}
+
+// WithAuthor returns a copy of the client that names who its tool calls write
+// as. The caller resolves it; nothing is read from git or the config here.
+func (c *MCPClient) WithAuthor(author string) *MCPClient {
+	cp := *c
+	cp.Author = author
 	return &cp
 }
 
@@ -370,6 +382,9 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 				// needed. A future non-ASCII name would have to encode here.
 				httpReq.Header.Set("Mcp-Name", name)
 			}
+		}
+		if c.Author != "" {
+			httpReq.Header.Set(AuthorHeader, c.Author)
 		}
 	}
 	if c.Token != "" {
