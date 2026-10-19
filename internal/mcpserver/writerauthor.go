@@ -79,9 +79,9 @@ func hasLetterOrDigit(s string) bool {
 }
 
 // writerAuthor is the author of a write made under ctx: the header's identity
-// when valid, else the calling token's id at the server's email, else (no
-// authenticated principal, as on stdio) "" so the commit takes the server
-// identity.
+// when valid, else the calling token's id at the server's email (stdio and an
+// auth-less server run as local-admin), else (a context with no principal id)
+// "" so the commit takes the server identity.
 func writerAuthor(ctx context.Context) (name, email string) {
 	if a, _ := ctx.Value(callerAuthorKey{}).(callerAuthor); a.problem == "" && a.name != "" {
 		return a.name, a.email
