@@ -4,6 +4,8 @@ topic: transport-auth
 
 # D341 — A token may name the git author of its writes
 
+> **Superseded by [D904](D904-the-writer-is-the-author.md)**: a token names no author; the writer does, in the `Cartographer-Author` header, and the token is a `Cartographer-Token` trailer of every write.
+
 **Decision.** `auth.tokens[]` accepts an optional `author_name`/`author_email`
 pair. A write made through that token is committed with it as the author; the
 committer stays the KB's identity. A token without the pair commits as the KB.

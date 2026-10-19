@@ -4,6 +4,8 @@ topic: concurrency-git
 
 # D46 — Per-KB git identity (author/committer + SSH): per-KB env wins over the process, default committer = author
 
+> **Amended by [D904](D904-the-writer-is-the-author.md)**: the per-KB author and committer are removed (the writer is the author, the server the committer); the per-KB SSH key and credentials still win over the process.
+
 **Decision.** Connects the identity fields of `KBSpec`/`GitConfig` (D44) to the actual git commands.
 `internal/gitx.runGitEnv(dir, env, args...)` runs git with `env` **winning** over the process on
 duplicate keys; `Clone`/`Commit`/`Fetch`/`Push`/`PullRebaseAutostash` take a variadic
