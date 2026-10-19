@@ -407,8 +407,9 @@ resolver — pre-D118 deployments are unaffected.
 
 ## Identity and audit boundaries
 
-Bearer tokens authorize requests. SSH settings are configured globally or per
-KB as described in [deployment](deployment.md).
+Bearer tokens authorize requests. SSH keys and git tokens are files of the
+credentials directory, a KB's own or a default one, as described in
+[deployment](deployment.md) §Credentials directory (D905).
 
 The git **author** of a write is the writer, not a setting (D904). A client that
 knows who it acts for sends `Cartographer-Author: Name <email>` with the
@@ -431,7 +432,7 @@ that variable.
 
 ## Operational audit
 
-When `audit.log` is configured, every `tools/call` received over HTTP or
+The audit log is always on (D905): every `tools/call` received over HTTP or
 stdio records **two** events (D119), including one an authorization decision
 denies (D132): an *attempt* before the tool would run (or before the denial is
 returned) and a *completion* after it, carrying the tool name, the KB, the
@@ -448,8 +449,17 @@ amplification per session is measurable from the log without logging content.
 The field is hashed only when present, so events written before it verify
 unchanged.
 
-Entries form a JSONL hash chain with optional Ed25519 signatures: altering one
-recorded entry invalidates every entry after it.
+Entries form a JSONL hash chain signed with Ed25519: altering one recorded
+entry invalidates every entry after it.
+
+The log is `<data>/audit/audit.log` unless `audit.log` moves it, and its key is
+`audit.key` in the credentials directory, which the first start generates when
+it is missing; the start logs the path and the public key `audit verify`
+needs. A key the server can neither read nor generate (a read-only directory
+without `audit.key`) leaves the log unsigned under `best_effort`, with a
+warning at every start, and refuses the start under `required`. A log that
+cannot be opened does the same: `best_effort` runs without one and says so,
+`required` does not start. There is no setting that turns the log off.
 
 Two failure modes, selected by `audit.mode`:
 
