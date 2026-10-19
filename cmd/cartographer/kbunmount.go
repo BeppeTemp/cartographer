@@ -39,8 +39,7 @@ type unmountPlan struct {
 	Aliases []string
 
 	Scopes     []string
-	SigningKey bool
-	Approvals  bool
+	ClientKeys []string
 	Bindings   []string
 
 	// ParkPath is where the clone moves without --delete-clone, "" when it
@@ -156,7 +155,7 @@ func planKBUnmount(name, dataDir, configPath string, deleteClone bool) (*unmount
 	if _, err := os.Stat(filepath.Join(p.KBPath, "data", "index.md")); err != nil {
 		return nil, fmt.Errorf("%s is not an OKF KB (no data/index.md): nothing to unmount", p.KBPath)
 	}
-	p.SigningKey, p.Approvals = clientRefs(name)
+	p.ClientKeys = clientRefs(name)
 	p.Bindings = bindingRefs(name)
 
 	// TRAP: a clone left in the data dir is mounted again by discovery at the
@@ -227,18 +226,15 @@ func printUnmountPreflight(w io.Writer, p *unmountPlan) {
 	case p.ParkPath != "":
 		fmt.Fprintf(w, "parking the local clone in %s\n", p.ParkPath)
 	}
-	if len(p.Scopes) == 0 && !p.SigningKey && !p.Approvals {
+	if len(p.Scopes) == 0 && len(p.ClientKeys) == 0 {
 		return
 	}
 	fmt.Fprintf(w, "\nNOT removed by this command — update them yourself:\n")
 	for _, s := range p.Scopes {
 		fmt.Fprintf(w, "  auth scope in %s → %s\n", p.ConfigPath, s)
 	}
-	if p.SigningKey {
-		fmt.Fprintf(w, "  signing_keys[%q] in this machine's .cartographer.yaml\n", p.Name)
-	}
-	if p.Approvals {
-		fmt.Fprintf(w, "  mcp_approvals[%q] in this machine's .cartographer.yaml\n", p.Name)
+	for _, k := range p.ClientKeys {
+		fmt.Fprintf(w, "  %s in this machine's .cartographer.yaml\n", k)
 	}
 }
 

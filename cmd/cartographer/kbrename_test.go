@@ -192,6 +192,29 @@ func TestPlanKBRename_ReportsWhatItDoesNotMigrate(t *testing.T) {
 	}
 }
 
+// TestClientRefsListsKeysHeldUnderTheKB: the client keys named after the KB are
+// listed for the operator, the writer's identity included (D904), while the
+// identities default entry, which applies to every KB, is not.
+func TestClientRefsListsKeysHeldUnderTheKB(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	body := "schema_version: 1\nserver_url: http://127.0.0.1:1/mcp\n" +
+		"signing_keys:\n  wiki: [abc]\n" +
+		"mcp_approvals:\n  wiki:\n    tools:\n      content_hash: abc\n" +
+		"identities:\n  wiki: \"\"\n  default: Ada <ada@example.test>\n"
+	if err := os.WriteFile(filepath.Join(home, clientconfig.FileName), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := clientRefs("wiki")
+	want := []string{`signing_keys["wiki"]`, `mcp_approvals["wiki"]`, `identities["wiki"]`}
+	if !slices.Equal(got, want) {
+		t.Errorf("clientRefs(wiki) = %q, want %q", got, want)
+	}
+	if got := clientRefs("default"); len(got) != 0 {
+		t.Errorf("clientRefs(default) = %q, want none: identities.default is every KB's", got)
+	}
+}
+
 // TestApplyKBRename_RollsBackOnConfigFailure: directory and config change
 // together or not at all. An unwritable config leaves the KB under its
 // original name.
