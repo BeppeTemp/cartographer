@@ -210,7 +210,7 @@ func TestRealignServerFileAbsentIsFine(t *testing.T) {
 // an error, and the value changes nothing.
 func TestRemovedKeyAddedBackByHandWarns(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("git:\n  author_name: Bot\n  author_email: bot@example.com\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("git:\n  ssh_key: /etc/kb/id\n  known_hosts: /etc/kb/known_hosts\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := RealignServerFile(path, "0.25.0"); err != nil {

@@ -221,12 +221,8 @@ func TestGitEnvForKB_SSHFromSpec(t *testing.T) {
 		CommitterEmail: "spec-committer@wiki.local",
 	}
 	g := config.GitConfig{
-		SSHKey:         "/global/key",
-		KnownHosts:     "/global/known_hosts",
-		AuthorName:     "Global Author",
-		AuthorEmail:    "global-author@wiki.local",
-		CommitterName:  "Global Committer",
-		CommitterEmail: "global-committer@wiki.local",
+		SSHKey:     "/global/key",
+		KnownHosts: "/global/known_hosts",
 	}
 
 	got := gitEnvForKB(spec, g, "wiki-kb")

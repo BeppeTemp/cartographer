@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
@@ -14,12 +15,6 @@ func TestDefault(t *testing.T) {
 	cfg := Default()
 	if cfg.Auth.Mode != "auto" {
 		t.Errorf("Auth.Mode = %q, want %q", cfg.Auth.Mode, "auto")
-	}
-	if cfg.Git.AuthorName != "" || cfg.Git.AuthorEmail != "" {
-		t.Errorf("Git author defaults should be unspecified, got %+v", cfg.Git)
-	}
-	if cfg.Git.CommitterName != "" || cfg.Git.CommitterEmail != "" {
-		t.Errorf("Git committer defaults should be empty (fallback to author), got %+v", cfg.Git)
 	}
 	if cfg.ToolsProfile != "agent" {
 		t.Errorf("ToolsProfile = %q, want %q", cfg.ToolsProfile, "agent")
@@ -66,10 +61,6 @@ kbs:
 git:
   ssh_key: /etc/kb-ssh/id_ed25519
   known_hosts: /etc/kb-ssh/known_hosts
-  author_name: Cartographer Bot
-  author_email: bot@example.com
-  committer_name: Cartographer Committer
-  committer_email: committer@example.com
   token_dir: /etc/kb-git-tokens
 # The removed search block (D135) is deliberately kept in this fixture: a
 # config file carrying it after an upgrade must still load, ignored.
@@ -120,13 +111,9 @@ func TestLoadFullYAML(t *testing.T) {
 			},
 		},
 		Git: GitConfig{
-			SSHKey:         "/etc/kb-ssh/id_ed25519",
-			KnownHosts:     "/etc/kb-ssh/known_hosts",
-			AuthorName:     "Cartographer Bot",
-			AuthorEmail:    "bot@example.com",
-			CommitterName:  "Cartographer Committer",
-			CommitterEmail: "committer@example.com",
-			TokenDir:       "/etc/kb-git-tokens",
+			SSHKey:     "/etc/kb-ssh/id_ed25519",
+			KnownHosts: "/etc/kb-ssh/known_hosts",
+			TokenDir:   "/etc/kb-git-tokens",
 		},
 		Audit:        AuditConfig{Log: "/data/audit.log", KeySeed: "deadbeef", RetentionDays: 90},
 		Sops:         SopsConfig{AgeKeyFile: "/etc/cartographer/age.key", AgeKeyDir: "/etc/kb-sops-keys"},
@@ -351,6 +338,33 @@ func TestLoadRetiredGitKeysWarnAndTheProfileRefuses(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "kbs[0].git_profile") {
 		t.Errorf("git_profile: local was refused: %v", err)
+	}
+}
+
+// D904: the git identity is not configured any more. A file that still sets
+// it loads, with a warning per key that says who the author and the committer
+// are now, and the value changes nothing.
+func TestLoadRetiredAuthorKeysWarn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	data := []byte("git:\n  ssh_key: /k\n  author_name: Bot\n  author_email: bot@example.com\n  committer_name: Ci\n  committer_email: ci@example.com\n")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("a retired key is a warning, not a load error: %v", err)
+	}
+	if cfg.Git != (GitConfig{SSHKey: "/k"}) {
+		t.Errorf("Git = %+v, want only the SSH key", cfg.Git)
+	}
+	got := strings.Join(cfg.Warnings, "\n")
+	for _, key := range []string{"git.author_name", "git.author_email", "git.committer_name", "git.committer_email"} {
+		if want := key + ": removed setting, ignored: " + kb.AuthorSettingRemoved; !strings.Contains(got, want) {
+			t.Errorf("warnings lack %q:\n%s", want, got)
+		}
+	}
+	if err := cfg.RefusalError(); err != nil {
+		t.Errorf("an author key is ignored, not refused: %v", err)
 	}
 }
 

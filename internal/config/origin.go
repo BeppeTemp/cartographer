@@ -263,14 +263,6 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return str(c.Git.SSHKey)
 	case "git.known_hosts":
 		return str(c.Git.KnownHosts)
-	case "git.author_name":
-		return str(c.Git.AuthorName)
-	case "git.author_email":
-		return str(c.Git.AuthorEmail)
-	case "git.committer_name":
-		return str(c.Git.CommitterName)
-	case "git.committer_email":
-		return str(c.Git.CommitterEmail)
 	case "git.token_dir":
 		return str(c.Git.TokenDir)
 	case "audit.log":

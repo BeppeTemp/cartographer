@@ -12,6 +12,10 @@ import (
 // is whoever wrote it (mcpserver.gitWrap); it is never configured here.
 const serverIdentityName = "Cartographer"
 
+// AuthorSettingRemoved is the reason given wherever a removed author or
+// committer setting is met again (D904), and what takes its place.
+const AuthorSettingRemoved = "the author of a write is the writer's own git identity, sent by the client, and the committer is the server"
+
 var (
 	serverIdentityOnce  sync.Once
 	serverIdentityEmail string

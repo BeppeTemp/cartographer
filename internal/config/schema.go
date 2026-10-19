@@ -89,14 +89,6 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "SSH private key used to reach remote KBs."},
 	{Path: "git.known_hosts", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
 		Description: "The known_hosts file used to reach remote KBs."},
-	{Path: "git.author_name", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
-		Description: "Default git author name of the commits the server makes; set both name and e-mail when remote push rules validate authors."},
-	{Path: "git.author_email", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
-		Description: "Default git author e-mail of the commits the server makes."},
-	{Path: "git.committer_name", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
-		Description: "Default git committer name; empty follows the author."},
-	{Path: "git.committer_email", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true,
-		Description: "Default git committer e-mail; empty follows the author."},
 	{Path: "git.token_dir", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_GIT_TOKEN_DIR", Restart: true,
 		Description: "Directory with one file per KB, <token_dir>/<name>.token (its trimmed content is the token), used as HTTPS git credentials for that KB's remote."},
 
@@ -170,4 +162,8 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "kbs[].github_api_url", Plan: 903, Note: kb.ServerProfileRemoved},
 	{Path: "kbs[].github_token_env", Plan: 903, Note: kb.ServerProfileRemoved},
 	{Path: "kbs[].git_branch", Plan: 903, Replacement: "branch in the KB's settings.yaml", Note: "committed on the remote's default branch", RefuseAny: true},
+	{Path: "git.author_name", Plan: 904, Note: kb.AuthorSettingRemoved},
+	{Path: "git.author_email", Plan: 904, Note: kb.AuthorSettingRemoved},
+	{Path: "git.committer_name", Plan: 904, Note: kb.AuthorSettingRemoved},
+	{Path: "git.committer_email", Plan: 904, Note: kb.AuthorSettingRemoved},
 }}

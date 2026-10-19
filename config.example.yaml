@@ -72,19 +72,6 @@ web:
 #   The known_hosts file used to reach remote KBs.
 #   Default: "". Needs a restart.
 #   known_hosts: ""
-#   Default git author name of the commits the server makes; set both name and
-#   e-mail when remote push rules validate authors.
-#   Default: "". Needs a restart.
-#   author_name: ""
-#   Default git author e-mail of the commits the server makes.
-#   Default: "". Needs a restart.
-#   author_email: ""
-#   Default git committer name; empty follows the author.
-#   Default: "". Needs a restart.
-#   committer_name: ""
-#   Default git committer e-mail; empty follows the author.
-#   Default: "". Needs a restart.
-#   committer_email: ""
 #   Directory with one file per KB, <token_dir>/<name>.token (its trimmed
 #   content is the token), used as HTTPS git credentials for that KB's remote.
 #   Default: "". Env: CARTOGRAPHER_GIT_TOKEN_DIR. Needs a restart.

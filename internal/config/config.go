@@ -22,7 +22,7 @@ type Config struct {
 	Auth  AuthConfig  // HTTP bearer-token auth
 	Data  string      // directory whose direct subdirs are auto-discovered KBs
 	KBs   []KBSpec    // KBs to clone from a git remote, or mounted from a folder by --kb
-	Git   GitConfig   // SSH identity for remotes, and the default git author
+	Git   GitConfig   // SSH identity and credentials for remotes
 	Audit AuditConfig // append-only audit log
 	Sops  SopsConfig  // default SOPS age key for secret refs
 	// ToolsProfile selects which tools tools/list advertises: "agent"
@@ -290,17 +290,14 @@ type KBSpec struct {
 	Secrets bool `yaml:"secrets,omitempty"`
 }
 
-// GitConfig is the SSH identity used to reach remote KBs during bootstrap, and
-// the default author/committer identity of the server's commits. Whether to
-// commit and whether to sync are not settings: every write is a commit, and a
-// KB with a remote syncs while one without never contacts anything (D903).
+// GitConfig is the SSH identity and the credentials used to reach remote KBs.
+// Whether to commit and whether to sync are not settings: every write is a
+// commit, and a KB with a remote syncs while one without never contacts
+// anything (D903). Nor is the git identity: the committer is the server and the
+// author of a write is the writer (D904).
 type GitConfig struct {
-	SSHKey         string
-	KnownHosts     string
-	AuthorName     string
-	AuthorEmail    string
-	CommitterName  string
-	CommitterEmail string
+	SSHKey     string
+	KnownHosts string
 	// TokenDir, if set, is a directory holding one file per KB
 	// (<TokenDir>/<name>.token, trimmed content = the token) used as HTTPS
 	// git credentials for that KB's remote — convention over per-KB YAML
@@ -412,13 +409,9 @@ type rawAuth struct {
 }
 
 type rawGit struct {
-	SSHKey         string `yaml:"ssh_key"`
-	KnownHosts     string `yaml:"known_hosts"`
-	AuthorName     string `yaml:"author_name"`
-	AuthorEmail    string `yaml:"author_email"`
-	CommitterName  string `yaml:"committer_name"`
-	CommitterEmail string `yaml:"committer_email"`
-	TokenDir       string `yaml:"token_dir"`
+	SSHKey     string `yaml:"ssh_key"`
+	KnownHosts string `yaml:"known_hosts"`
+	TokenDir   string `yaml:"token_dir"`
 }
 
 // Load parses a YAML config file, layering it on top of Default().
@@ -500,14 +493,6 @@ func Load(path string) (*Config, error) {
 
 	cfg.Git.SSHKey = raw.Git.SSHKey
 	cfg.Git.KnownHosts = raw.Git.KnownHosts
-	if raw.Git.AuthorName != "" {
-		cfg.Git.AuthorName = raw.Git.AuthorName
-	}
-	if raw.Git.AuthorEmail != "" {
-		cfg.Git.AuthorEmail = raw.Git.AuthorEmail
-	}
-	cfg.Git.CommitterName = raw.Git.CommitterName
-	cfg.Git.CommitterEmail = raw.Git.CommitterEmail
 	cfg.Git.TokenDir = raw.Git.TokenDir
 
 	cfg.Sops = raw.Sops
