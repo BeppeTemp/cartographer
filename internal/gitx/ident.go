@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
@@ -69,15 +70,9 @@ func WorkTreeIdent(dir string) string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), workTreeIdentTimeout)
 	defer cancel()
-	env := []string{"GIT_TERMINAL_PROMPT=0"}
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "GIT_DIR=") && !strings.HasPrefix(kv, "GIT_WORK_TREE=") {
-			env = append(env, kv)
-		}
-	}
 	git := func(args ...string) (string, bool) {
 		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir, "-c", "user.useConfigOnly=true"}, args...)...)
-		cmd.Env = env
+		cmd.Env = identEnv()
 		out, err := cmd.Output()
 		return strings.TrimSpace(string(out)), err == nil
 	}
@@ -94,6 +89,56 @@ func WorkTreeIdent(dir string) string {
 		return ""
 	}
 	return name + " <" + email + ">"
+}
+
+// GlobalIdent returns the identity the global git config names, as
+// "Name <email>", for a client entry every folder shares (D904). It is "" with
+// perFolder true when that config includes files by condition (includeIf): one
+// of them can give a folder another identity, which a value written once into
+// an entry cannot follow, and a KB must not receive the identity a per-folder
+// setup keeps away from it. It is "" alone when the config names no valid
+// identity or cannot be read. GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL are not
+// read: they belong to one process, and the value goes into a file every later
+// session reads.
+func GlobalIdent() (ident string, perFolder bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), workTreeIdentTimeout)
+	defer cancel()
+	git := func(args ...string) (string, error) {
+		cmd := exec.CommandContext(ctx, "git", append([]string{"config", "--global", "--includes"}, args...)...)
+		cmd.Env = identEnv()
+		cmd.Dir = os.TempDir()
+		out, err := cmd.Output()
+		return strings.TrimSpace(string(out)), err
+	}
+	var exit *exec.ExitError
+	if _, err := git("--get-regexp", `^includeif\.`); err == nil {
+		return "", true
+	} else if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		return "", false
+	}
+	name, errName := git("--get", "user.name")
+	email, errEmail := git("--get", "user.email")
+	if errName != nil || errEmail != nil {
+		return "", false
+	}
+	n, e, problem := ParseIdent(name + " <" + email + ">")
+	if problem != "" {
+		return "", false
+	}
+	return n + " <" + e + ">", false
+}
+
+// identEnv is the environment of the git commands that read an identity:
+// GIT_DIR and GIT_WORK_TREE are dropped so no repository is forced on them,
+// and no prompt can block a write.
+func identEnv() []string {
+	env := []string{"GIT_TERMINAL_PROMPT=0"}
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_DIR=") && !strings.HasPrefix(kv, "GIT_WORK_TREE=") {
+			env = append(env, kv)
+		}
+	}
+	return env
 }
 
 func hasLetterOrDigit(s string) bool {

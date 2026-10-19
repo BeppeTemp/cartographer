@@ -92,3 +92,36 @@ func TestWorkTreeIdentNeverGuesses(t *testing.T) {
 		t.Errorf("WorkTreeIdent with GIT_AUTHOR_EMAIL = %q, want it applied", got)
 	}
 }
+
+func TestGlobalIdentNeverCarriesAPerFolderIdentity(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+	home := isolateGitIdentity(t)
+	t.Setenv("GIT_CONFIG_GLOBAL", "")
+	os.Unsetenv("GIT_CONFIG_GLOBAL")
+	included := filepath.ToSlash(filepath.Join(home, "id.gitconfig"))
+	if err := os.WriteFile(included, []byte("[user]\n\tname = Included Person\n\temail = inc@example.test\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, global, want string
+		perFolder          bool
+	}{
+		{"plain", "[user]\n\tname = Home Person\n\temail = home@example.test\n", "Home Person <home@example.test>", false},
+		{"unconditional include", "[include]\n\tpath = " + included + "\n", "Included Person <inc@example.test>", false},
+		{"includeIf", "[user]\n\tname = Home Person\n\temail = home@example.test\n[includeIf \"gitdir:~/work/\"]\n\tpath = " + included + "\n", "", true},
+		{"name only", "[user]\n\tname = Home Person\n", "", false},
+		{"invalid", "[user]\n\tname = Home <Person>\n\temail = home@example.test\n", "", false},
+		{"none", "", "", false},
+	} {
+		if err := os.WriteFile(filepath.Join(home, ".gitconfig"), []byte(tc.global), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("GIT_AUTHOR_NAME", "Process Person")
+		t.Setenv("GIT_AUTHOR_EMAIL", "process@example.test")
+		if got, perFolder := GlobalIdent(); got != tc.want || perFolder != tc.perFolder {
+			t.Errorf("%s: GlobalIdent() = %q, %v, want %q, %v", tc.name, got, perFolder, tc.want, tc.perFolder)
+		}
+	}
+}
