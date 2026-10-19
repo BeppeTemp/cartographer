@@ -153,12 +153,19 @@ func stripTokenTrailers(s string) string {
 	lines := strings.Split(s, "\n")
 	kept := lines[:0]
 	for _, l := range lines {
-		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(l)), strings.ToLower(commitTokenKey)+":") {
+		if isTokenTrailerLine(l) {
 			continue
 		}
 		kept = append(kept, l)
 	}
 	return strings.Join(kept, "\n")
+}
+
+// isTokenTrailerLine reports whether git would read l as a Cartographer-Token
+// trailer: the key in any case, then optional blanks, then the colon.
+func isTokenTrailerLine(l string) bool {
+	rest, ok := strings.CutPrefix(strings.ToLower(strings.TrimSpace(l)), strings.ToLower(commitTokenKey))
+	return ok && strings.HasPrefix(strings.TrimLeft(rest, " \t"), ":")
 }
 
 // appendAuthorWarning tells the caller, in one line, that its

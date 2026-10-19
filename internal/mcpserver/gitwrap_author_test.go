@@ -165,7 +165,8 @@ func TestGitWrap_ForgedTokenTrailerIsStripped(t *testing.T) {
 func TestCommitTrailerBlock_TokenLastAndExtraStripped(t *testing.T) {
 	t.Parallel()
 	ctx := auth.ContextWithPrincipal(context.Background(), auth.Principal{ID: "tok"})
-	got := commitTrailerBlock(ctx, json.RawMessage(`{"reason":"why"}`), "Moved-To: x", "Cartographer-Token: forged")
+	// Git reads a trailer key in any case and with blanks before the colon.
+	got := commitTrailerBlock(ctx, json.RawMessage(`{"reason":"why"}`), "Moved-To: x", "Cartographer-Token: forged", "Cartographer-Token : forged", "cartographer-token\t: forged")
 	if want := "Reason: why\nMoved-To: x\nCartographer-Token: tok"; got != want {
 		t.Errorf("block = %q, want %q", got, want)
 	}
