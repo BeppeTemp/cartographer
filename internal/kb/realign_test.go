@@ -181,3 +181,31 @@ func TestRealignSettingsIsPushed(t *testing.T) {
 		t.Error("the realignment commit did not reach the remote")
 	}
 }
+
+// Right after a restart the canonical branch is not resolved yet: the
+// realignment must not push to the checked-out branch when the default
+// branch's settings.yaml names another one.
+func TestRealignSettingsDoesNotPushToTheDefaultBranchBeforeResolvingIt(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, bare := setupKBWithRemote(t)
+	k.SyncOutDebounce = 0
+	if err := k.SyncOut(); err != nil {
+		t.Fatal(err)
+	}
+	writeSettings(t, k, "git_profile: local\nbranch: dev\n")
+	if err := k.SyncOut(); err != nil {
+		t.Fatal(err)
+	}
+	branch, _ := gitx.Branch(k.Root)
+	pushed := gitHere(t, bare, "rev-parse", branch)
+	k.setCanonical("", false) // as after a restart, before the first sync
+	if _, _, err := k.RealignSettings(realignBytes, "x"); err != nil {
+		t.Fatal(err)
+	}
+	if got := gitHere(t, bare, "rev-parse", branch); got != pushed {
+		t.Errorf("the realignment commit reached %s, but settings.yaml sends writes to dev", branch)
+	}
+}

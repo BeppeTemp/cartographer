@@ -184,3 +184,20 @@ func TestConfiguredBranch_InvalidNameIsIgnored(t *testing.T) {
 		t.Errorf("branch kb-data was refused: %v", bad)
 	}
 }
+
+// A `branch` committed on the default branch that is no valid name must not be
+// read as "no setting": that would send writes straight to the default branch.
+func TestConfiguredBranch_InvalidNameOnTheRemoteRefusesTheSync(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, bare := remoteWithDefault(t)
+	commitBranchSetting(t, bare, "main", `"has space"`)
+	if _, err := k.SyncIn(); err == nil || !strings.Contains(err.Error(), "branch") {
+		t.Fatalf("SyncIn error = %v, want a refusal naming `branch`", err)
+	}
+	if got := k.ConfiguredBranch(); got != "" {
+		t.Fatalf("ConfiguredBranch = %q, want empty", got)
+	}
+}

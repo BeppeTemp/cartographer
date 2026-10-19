@@ -143,31 +143,43 @@ func (k *KB) ConfiguredBranch() string {
 // `branch` is a decision of the team, the same for every server that mounts the
 // KB, so a change made on another branch has no effect until it reaches the
 // default one. "" when the file, the key or the ref is absent or unreadable.
-func (k *KB) branchSettingAt(ref string) string {
+// A `branch` that is present but not a valid branch name is an error, not "":
+// reading it as absent would send writes to the default branch the team meant
+// to keep clear of them.
+func (k *KB) branchSettingAt(ref string) (string, error) {
 	text, err := gitx.ShowFile(k.Root, ref, SettingsFile)
 	if err != nil {
-		return ""
+		return "", nil
 	}
-	s, _, perr := ParseSettings([]byte(text))
+	s, bad, perr := ParseSettings([]byte(text))
 	if perr != nil {
-		return ""
+		return "", nil
+	}
+	for _, m := range bad {
+		if m.Key == "branch" {
+			return "", fmt.Errorf("%s on %s: `branch` is not usable (%s): writes are refused until it is fixed on the default branch", SettingsFile, ref, m.Reason)
+		}
 	}
 	v, _ := s.String("branch")
-	return v
+	return v, nil
 }
 
 // resolveCanonical is the branch writes go to, given what the remote advertises
 // (after a fetch): the `branch` setting committed on the default branch, else
 // the default branch itself.
-func (k *KB) resolveCanonical(remote string, refs gitx.RemoteRefs) (branch string, configured bool) {
+func (k *KB) resolveCanonical(remote string, refs gitx.RemoteRefs) (branch string, configured bool, err error) {
 	def := canonicalBranch(refs)
 	if def == "" || !gitx.RemoteBranchExists(k.Root, remote, def) {
-		return def, false
+		return def, false, nil
 	}
-	if b := k.branchSettingAt(remote + "/" + def); b != "" {
-		return b, true
+	b, err := k.branchSettingAt(remote + "/" + def)
+	if err != nil {
+		return def, false, err
 	}
-	return def, false
+	if b != "" {
+		return b, true, nil
+	}
+	return def, false, nil
 }
 
 // RemoteDefaultBranch returns the canonical branch last resolved from the
@@ -364,7 +376,10 @@ func (k *KB) SyncIn() (bool, error) {
 	if err != nil {
 		return true, fmt.Errorf("SyncIn remote default branch: %w", err)
 	}
-	canonical, configured := k.resolveCanonical(remote, refs)
+	canonical, configured, rerr := k.resolveCanonical(remote, refs)
+	if rerr != nil {
+		return true, rerr
+	}
 	k.setCanonical(canonical, configured)
 	if !refs.HasRefs {
 		// An empty remote has nothing to pull (pulling it fails on the missing
@@ -524,19 +539,27 @@ func (k *KB) pushLocal(remote, branch string) (pushErr error, diverged *BranchDi
 	if configured := k.ConfiguredBranch(); configured != "" {
 		return k.pushConfigured(remote, branch, configured)
 	}
-	if canonical := k.RemoteDefaultBranch(); canonical != "" && branch != canonical {
+	canonical := k.RemoteDefaultBranch()
+	if canonical != "" && branch != canonical {
 		return nil, &BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical}
 	}
-	if gitx.RemoteBranchExists(k.Root, remote, branch) {
+	// A tracking ref alone is no proof the branch is the right one: while the
+	// canonical branch is unresolved (right after a start, before the first
+	// sync) the remote is asked below.
+	if canonical != "" && gitx.RemoteBranchExists(k.Root, remote, branch) {
 		return gitx.Push(k.Root, remote, branch, k.GitEnv...), nil
 	}
-	// No remote-tracking ref: ask the remote itself, since the ref may just be
-	// stale (SyncIn skipped by the freshness window, or never run).
+	// No remote-tracking ref, or nothing resolved yet: ask the remote itself,
+	// since the ref may just be stale (SyncIn skipped by the freshness window,
+	// or never run).
 	refs, err := gitx.LsRemote(k.Root, remote, k.GitEnv...)
 	if err != nil {
 		return err, nil
 	}
-	canonical, configured := k.resolveCanonical(remote, refs)
+	canonical, configured, rerr := k.resolveCanonical(remote, refs)
+	if rerr != nil {
+		return rerr, nil
+	}
 	k.setCanonical(canonical, configured)
 	if configured {
 		return k.pushConfigured(remote, branch, canonical)
