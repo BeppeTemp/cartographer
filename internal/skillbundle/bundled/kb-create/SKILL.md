@@ -93,7 +93,6 @@ kbs:
   - name: <nome>
     remote: https://gitea.example.com/user/<nome>.git
     # optional per-KB overrides (zero value = fall back to the global git/sops config):
-    # author_name / author_email, committer_name / committer_email
     # sops_age_key_file: /path/custom.age   # only to override the age_key_dir convention
 ```
 
