@@ -96,7 +96,7 @@ func findingsOrNil(f []lint.Finding) []findingOut {
 }
 
 // writeLintFindings returns the lint findings of the concepts a write left on
-// disk (written) or removed (gone), lint_ignore applied (D289, D312); gate_check's
+// disk (written) or removed (gone) (D289, D312); gate_check's
 // changed_ids path (D312) decides pass on the severities.
 func writeLintFindings(k *kb.KB, written, gone []string) []lint.Finding {
 	var found []lint.Finding

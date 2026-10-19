@@ -361,7 +361,7 @@ func nonstandardFieldFindings(in conceptInput) []Finding {
 }
 
 // toolParamFieldFindings reports each frontmatter key named like a concept-write
-// tool parameter (tool_param_field, warning, drop_field). Not suppressible.
+// tool parameter (tool_param_field, warning, drop_field).
 func toolParamFieldFindings(relPath string, parsed *okf.Frontmatter) []Finding {
 	var out []Finding
 	for _, key := range parsed.Keys() {

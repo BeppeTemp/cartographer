@@ -24,7 +24,7 @@ const scopedNeighbourCap = 200
 // On each existing ID it runs broken_link, duplicate_link, bare_link_list,
 // reciprocal_link_item, unknown_placeholder, forbidden_term, orphan,
 // broken_relation, link_to_retired (when the concept is retired) and
-// index_incomplete (its map or expanded concept opted into a curated index).
+// index_incomplete (its map or expanded concept keeps a curated index).
 // On the neighbours it reports only what the write introduced: a broken_link
 // on a page that links an ID that does not exist (a moved or deleted
 // concept), and link_to_retired on a retired concept the given ID links. A
@@ -33,8 +33,8 @@ const scopedNeighbourCap = 200
 // The whole-KB structural analysis stays out: cut_concept, island,
 // map_misfit, facet_sprawl and missing_value_contract need the whole graph and
 // are left to lint and gate_check. map_oversize needs a "before" state and the
-// whole created set, so it reaches writes through MapOversizeCrossings (D716). lint_ignore applies, on the
-// concept and on its map. The cost is one cached graph read, the written
+// whole created set, so it reaches writes through MapOversizeCrossings (D716).
+// Nothing silences a finding (D907). The cost is one cached graph read, the written
 // concepts' own files and at most scopedNeighbourCap neighbours per direction.
 // Nil when there is nothing to report.
 func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {

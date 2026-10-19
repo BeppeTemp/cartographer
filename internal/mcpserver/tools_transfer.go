@@ -707,7 +707,7 @@ func applyTransferTarget(src, dst *kb.KB, pl *transferPlan) (transferTargetOut, 
 		}
 	}
 
-	// Curated index of each destination map that asked for one.
+	// Curated index of each destination map (every non-generated one, D907).
 	for _, it := range pl.items {
 		mapName, ok := conceptMapName(it.toID)
 		if !ok {

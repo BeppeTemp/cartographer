@@ -28,9 +28,9 @@ import (
 // so they are intentionally not flagged.
 //
 // A candidate match here is not automatically a finding (D124): it can still
-// be inside a URL (urlRe below) or covered by the concept's Map
-// machine_path_allow_prefixes contract, both of which make it an
-// operational/target path rather than a client-local one.
+// be inside a URL (urlRe below) or under a built-in tool path (D313), both of
+// which make it an operational/target path rather than a client-local one. No
+// map adds its own prefixes (D907).
 var machinePathRe = regexp.MustCompile(`(?:/Users/|/home/|~/|C:\\Users\\)[^\s` + "`" + `'"()]*`)
 
 // urlRe matches a URL with an explicit scheme (e.g. "https://", "s3://"). A
@@ -657,11 +657,12 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, true, &findings, exists, isRetired)
 			}
 		} else if scopeNorm == "" || scopeNorm == archiveName {
-			// A dead link is dead whether or not the map promised completeness:
-			// without this, a map created before its contract kept every stale
-			// [[id]] a concept_move left behind and lint reported none (#320).
-			// Completeness stays opt-in; only the links are checked here. A
-			// missing index is not reported: nothing required one.
+			// A folder with no readable descriptor has no contract to say
+			// what its index is, so only the links are checked: a dead link
+			// is dead either way, and a concept_move's stale [[id]] would
+			// otherwise go unreported (#320). Completeness is checked on
+			// every map (the branch above); the folder itself is
+			// unmapped_folder's.
 			if content, err := k.ReadIndex(archiveName); err == nil {
 				_, body, _ := okf.SplitFrontmatter(content)
 				checkIndexLinks(k, archiveName+"/index.md", body, &findings, exists)
@@ -1283,7 +1284,7 @@ func scopeMatchesDir(scopeNorm, dir string) bool {
 
 // mapFieldContractFindings applies the value and forbidden-field parts of a
 // map contract (D275) to one concept's frontmatter. Both checks are error
-// severity and not suppressible with lint_ignore. An absent field is never an
+// severity, and nothing silences them (D907). An absent field is never an
 // invalid value: presence is required_fields' job.
 func mapFieldContractFindings(relPath, mapName string, contract kb.MapContract, parsed *okf.Frontmatter) []Finding {
 	if parsed == nil {
@@ -1365,7 +1366,7 @@ func fieldValueAllowed(allowed []string, v string) bool {
 // indexListsRetired is the index_lists_retired check (D344): the curated index of
 // a live map still links a retired concept, which is what a hand-made retirement
 // (status patch, move, no index edit) leaves behind. One finding per retired
-// concept listed (D366: each carries its own fix), whether or not the map declared require_index_entry. Exempt: journals, a
+// concept listed (D366: each carries its own fix). Exempt: journals, a
 // generated index (the server owns it), and a map where at least half of the
 // top-level concepts are retired, which lists them by design (an archive map,
 // including its "Moved here" entries). Not a write-path check: it is not tied

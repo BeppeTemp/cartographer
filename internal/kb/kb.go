@@ -2063,10 +2063,10 @@ type MapContractUpdate struct {
 
 // UpdateMapContract rewrites the contract keys of an existing map's _map.md,
 // leaving every other key, its comments and the descriptor body untouched,
-// and returns the contract as read back from disk. Before it existed the
-// contract could only be set at creation, so a map created without
-// require_index_entry could never opt in to curated-index maintenance (#320).
-// A legacy _archive.md descriptor is refused rather than rewritten: that form
+// and returns the contract as read back from disk (#320: before it existed
+// the contract could only be set at creation). upd.Guard sees the contract
+// before and after the change and can refuse it before anything is written
+// (map_update's loosening reason, D907). A legacy _archive.md descriptor is refused rather than rewritten: that form
 // is read-compat only and is never written (D77).
 func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract, error) {
 	if _, err := okf.PathToID(name + ".md"); err != nil {

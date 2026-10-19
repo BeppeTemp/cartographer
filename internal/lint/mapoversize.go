@@ -28,12 +28,6 @@ func mapOversizeCount(lg *kb.LinkGraph, mapName string) int {
 	return n
 }
 
-// mapOversizeThresholdOf resolves a map's threshold: its oversize_concepts,
-// else the built-in default.
-func mapOversizeThresholdOf(c kb.MapContract) int {
-	return mapOversizeThreshold
-}
-
 // mapOversizeFinding is the one place that decides and words map_oversize,
 // for the whole-KB pass and for the write path alike. A journal grows by
 // construction and needs harvest, not a split: the check is on contract.Kind,
@@ -42,7 +36,7 @@ func mapOversizeFinding(mapName string, c kb.MapContract, count int) (Finding, b
 	if c.Kind == "journal" {
 		return Finding{}, false
 	}
-	threshold := mapOversizeThresholdOf(c)
+	threshold := mapOversizeThreshold
 	if count <= threshold {
 		return Finding{}, false
 	}
@@ -87,7 +81,7 @@ func MapOversizeCrossings(k *kb.KB, created []okf.ConceptID) []Finding {
 		}
 		after := mapOversizeCount(lg, m)
 		before := after - perMap[m]
-		if before > mapOversizeThresholdOf(c) {
+		if before > mapOversizeThreshold {
 			continue
 		}
 		if f, ok := mapOversizeFinding(m, c, after); ok {

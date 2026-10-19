@@ -9,14 +9,14 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
-// Template checks (D352). Every page of a map that sets require_template binds
+// Template checks (D352). Every page of a map that declares templates binds
 // to one template ("shape") its map accepts, and a template is a closed page
 // schema: required fields and values, required and optional H2 sections, their
 // order, and the alternative names a heading may carry. All findings are
 // warning or info (D289): adopting templates never turns a gate red.
 //
-// No template is read, and nothing is reported, for a map that sets none of
-// templates, default_template, require_template and template_sections.
+// No template is read, and nothing is reported, for a map that sets neither
+// templates nor default_template; a map that sets one binds every page (D907).
 
 // Fix kinds of the template checks.
 const (
@@ -290,9 +290,8 @@ func (x templateCtx) optionalSet() map[string]bool {
 	return optional
 }
 
-// missingSections: template_section_missing. Info under template_sections,
-// warning under require_template. An alias counts as the section; no fix, an
-// empty heading is a hollow promise.
+// missingSections: template_section_missing (warning). An alias counts as the
+// section; no fix, an empty heading is a hollow promise.
 func (x templateCtx) missingSections() []Finding {
 	names := namesOf(x.tpl)
 	have := map[int]bool{}

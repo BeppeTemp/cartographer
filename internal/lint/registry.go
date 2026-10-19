@@ -112,8 +112,8 @@ var registry = []CheckSpec{
 	{Name: "closed_with_open_items", Severity: SevInfo, Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "template_section_missing", Severity: SevWarning, Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
 	// Templates are closed page schemas a map's pages bind to (D352). Evaluated
-	// only on a map that sets require_template, except template_section_missing,
-	// which template_sections: true also turns on.
+	// on a map that declares templates or a default template, which binds every
+	// page (D907: no key makes them optional).
 	{Name: "template_missing", Severity: SevWarning, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
 	{Name: "template_unknown", Severity: SevWarning, Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
 	{Name: "template_not_allowed", Severity: SevWarning, Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
@@ -185,7 +185,7 @@ var registry = []CheckSpec{
 	{Name: "unmapped_folder", Severity: SevWarning, Level: LevelMap, FixKinds: []string{FixScaffoldMap}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryMaps},
 	{Name: "stray_file", Severity: SevWarning, Level: LevelMap, Judgement: true, AvoidableAtWrite: true, Category: CategoryMaps},
 
-	// KB-root artifacts (lint_accept in instructions.md, D332).
+	// KB-root artifacts (D316).
 	{Name: "skill_invalid", Severity: SevWarning, Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	{Name: "skill_warning", Severity: SevInfo, Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	{Name: "legacy_tool_name", Severity: SevWarning, Level: LevelArtifact, Panel: true, FixKinds: []string{FixStripToolPrefix}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
@@ -207,7 +207,7 @@ var registry = []CheckSpec{
 	// kb_review kinds (D298): registered so the registry is the one list of
 	// names. They are not lint findings, except repeated_fact which a write
 	// response also reports (D351), and none is gated (D907): each closes on
-	// page state (docs/data-plane.md §The doctor's list).
+	// page state (docs/data-plane.md §Review keys (D298)).
 	{Name: ReviewDuplicate, Severity: SevInfo, Level: LevelKB},
 	{Name: ReviewZombie, Severity: SevInfo, Level: LevelKB},
 	{Name: ReviewPromotion, Severity: SevInfo, Level: LevelKB},

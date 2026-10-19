@@ -16,7 +16,7 @@ import (
 // The server never decides any of them (D14): it builds the list, the agent
 // judges, the operator confirms. An item is never dismissed (D907): each kind
 // closes when the pages it names are in the state it asks for, and the
-// generator stops listing it (docs/data-plane.md §The doctor's list).
+// generator stops listing it (docs/data-plane.md §Review keys (D298)).
 const (
 	ReviewDuplicate     = "duplicate_candidate"
 	ReviewZombie        = "zombie_work"
@@ -586,8 +586,8 @@ func idStrings(ids []okf.ConceptID) []string {
 // originHeadings are the headings (any level) whose section carries what an
 // open concept came from or waits on (D345). English and Italian, matched as
 // folded prefixes like the procedure headings; "prerequisit" covers the
-// Italian plural. Another language, or a page that differs on purpose, uses
-// lint_ignore: [zombie_work].
+// Italian plural. A page in another language closes the item as any other
+// does: closed, retargeted or moved (nothing dismisses it, D907).
 var originHeadings = []string{"origin", "origine", "depends on", "dipende da", "blocked by", "bloccato da", "derived from", "derivato da", "prerequisite", "prerequisit"}
 
 var atxHeading = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*#*\s*$`)
@@ -689,7 +689,7 @@ func zombieWorkItems(k *kb.KB, byID map[okf.ConceptID]*reviewConcept, concepts [
 	var out []ReviewItem
 	// A retired concept many open ones link is where they came from (an old
 	// backlog, a migrated page), not what each is about: one item for the
-	// group, dismissed once on the retired concept, instead of one per opener
+	// group, settled once on the retired concept, instead of one per opener
 	// burying the zombies that are real.
 	shared := map[string]bool{}
 	var sharedTargets []string

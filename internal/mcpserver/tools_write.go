@@ -2370,7 +2370,7 @@ func curatedEntryLine(k *kb.KB, mapName string, id okf.ConceptID) string {
 		}
 	}
 	// From a map index an expanded concept is "<concept>.md" — the form D149 WP3
-	// settled, and the one require_index_entry accepts.
+	// settled, and the one index_incomplete accepts.
 	rel := strings.TrimPrefix(string(id), mapName+"/") + ".md"
 	return fmt.Sprintf("- [%s](%s)", title, rel)
 }
