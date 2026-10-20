@@ -129,22 +129,35 @@ test-install: ## Run the network-free install.sh/Cask upgrade-repair suite and t
 	@./test/install/goreleaser_guard.sh
 
 
-# Isolated worktree for one plan branch. Every agent client shares the
+# Isolated worktree for one branch. Every agent client shares the
 # filesystem with its own subagents, so isolation is not free anywhere: these
 # two targets are the single client-neutral way to get it, and they are why the
 # implement-issue skill no longer carries four copies of the same git commands.
-worktree-add: ## Isolated worktree for a plan branch: make worktree-add SLUG=my-change
-	@test -n "$(SLUG)" || (echo "worktree-add: SLUG is required" && exit 1)
-	@git fetch origin
-	@git worktree add -b "feat/$(SLUG)" ".worktrees/$(SLUG)" origin/main
-	@echo "worktree: $(CURDIR)/.worktrees/$(SLUG) on feat/$(SLUG)"
+# The branch is <type>/<issue>-<slug> (D926): its name says what kind of change
+# it carries and which issue it follows, so `git branch` and `git worktree list`
+# map onto the backlog. Only a live session leaves ISSUE out: it has no issue
+# until its draft PR (live-dev skill).
+TYPE ?= feat
+WORKTREE = $(if $(ISSUE),$(ISSUE)-$(SLUG),$(SLUG))
 
-worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree-rm SLUG=my-change
+worktree-add: ## Isolated worktree on <type>/<issue>-<slug>: make worktree-add ISSUE=123 SLUG=my-change [TYPE=feat|fix|hot-fix]
+	@test -n "$(SLUG)" || (echo "worktree-add: SLUG is required" && exit 1)
+	@case "$(TYPE)" in feat|fix|hot-fix) ;; *) echo "worktree-add: TYPE is feat, fix or hot-fix, not '$(TYPE)'"; exit 1;; esac
+	@case "$(ISSUE)" in *[!0-9]*) echo "worktree-add: ISSUE is an issue number, not '$(ISSUE)'"; exit 1;; esac
+	@git fetch origin
+	@git worktree add -b "$(TYPE)/$(WORKTREE)" ".worktrees/$(WORKTREE)" origin/main
+	@echo "worktree: $(CURDIR)/.worktrees/$(WORKTREE) on $(TYPE)/$(WORKTREE)"
+
+# The branch is read from the worktree, not rebuilt from TYPE: a worktree made
+# with another TYPE, or before TYPE existed, loses its branch too. Only a branch
+# of a type worktree-add creates is deleted, never one checked out there by hand.
+worktree-rm: ## Remove a worktree and the branch it is on: make worktree-rm ISSUE=123 SLUG=my-change
 	@test -n "$(SLUG)" || (echo "worktree-rm: SLUG is required" && exit 1)
-	@test -d ".worktrees/$(SLUG)" || (echo "worktree-rm: no worktree at .worktrees/$(SLUG)" && exit 1)
-	@git worktree remove --force ".worktrees/$(SLUG)"
-	@git branch -D "feat/$(SLUG)" 2>/dev/null || true
-	@echo "worktree removed: .worktrees/$(SLUG)"
+	@test -d ".worktrees/$(WORKTREE)" || (echo "worktree-rm: no worktree at .worktrees/$(WORKTREE)" && exit 1)
+	@branch=$$(git -C ".worktrees/$(WORKTREE)" symbolic-ref --quiet --short HEAD 2>/dev/null); \
+		git worktree remove --force ".worktrees/$(WORKTREE)" || exit 1; \
+		case "$$branch" in feat/*|fix/*|hot-fix/*) git branch -D "$$branch" >/dev/null 2>&1 || true;; esac
+	@echo "worktree removed: .worktrees/$(WORKTREE)"
 
 # The live session's instance (the live-dev skill): Go rebuilt and restarted on
 # change, the UI hot-reloaded by Vite. DATA is copied, never served in place.

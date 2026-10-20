@@ -134,9 +134,14 @@ Working on more than one plan at a time? No client isolates its own subagents
 from your working copy, so use a worktree per plan:
 
 ```bash
-make worktree-add SLUG=my-change    # branches feat/my-change from origin/main
-make worktree-rm  SLUG=my-change    # after the PR is merged; --force, so check first
+make worktree-add ISSUE=123 SLUG=my-change   # branches feat/123-my-change from origin/main
+make worktree-rm  ISSUE=123 SLUG=my-change   # after the PR is merged; --force, so check first
 ```
+
+A branch is `<type>/<issue>-<slug>` (D926): `TYPE=fix` for a bug, `TYPE=hot-fix`
+for an urgent fix of a released version, `feat` (the default) for anything else.
+The PR title still carries the exact conventional-commit type. Only a live
+session, which has no issue until its draft PR, leaves `ISSUE` out.
 
 ## Adding a lint check
 

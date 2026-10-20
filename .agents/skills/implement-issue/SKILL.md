@@ -30,7 +30,7 @@ state; the plans are read by the subagents that implement them.
 
 - **Ask once, up front**, in a single question: the wave plan, plus a standing
   approval for self-merge (squash on green CI after the §3 read) and
-  `--force-with-lease` on `feat/*` for the session. Then run without
+  `--force-with-lease` on the session's plan branches. Then run without
   per-PR check-ins, stopping only at the §Explicit gates that remain.
 - **Never `gh issue view` a whole plan** for wave planning: extract only what the
   graph needs (step 2 below).
@@ -79,8 +79,11 @@ coordinator creates the worktree first and puts its absolute path in the
 mandate.
 
 ```bash
-make worktree-add SLUG=<slug>     # fetches origin, branches feat/<slug> from origin/main
+make worktree-add ISSUE=<n> SLUG=<slug>   # fetches origin, branches feat/<n>-<slug> from origin/main
 ```
+
+`TYPE=fix` when the plan was promoted from a `bug` issue, `TYPE=hot-fix` for an
+urgent fix of a released version; `feat` is the default (D926).
 
 `.worktrees/` is git-ignored, so a worktree never shows up as untracked noise.
 Never run two subagents in the same working copy. Worktrees branch from fresh
@@ -100,8 +103,8 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 - Write the tests in the plan's "Tests" section.
 - **Same session**: update the docs in the "Closing" section per `docs/index.md` §Documentation maintenance rules, and, if the Closing section names one, add the decision file `docs/decisions/D<issue>-<slug>.md` (`make decisions-new`); never regenerate `docs/decisions.md` (the release PR does, D328). Every trap you hit is fixed where it bites: a test if it can be checked, a comment next to the code otherwise (D214).
 - `make gate` green — iterate until it is.
-- One commit for the implementation on `feat/<slug>` (the branch already exists in the worktree), message = PR title (conventional commit, the plan gives it), Co-Authored-By trailer. A review fix round **adds commits, it never amends**: the next round diffs `<reviewed commit>..HEAD`, and an amend rewrites the commit it names.
-- `git push -u origin feat/<slug>` + `gh pr create` with a body ending `Closes #<n>`.
+- One commit for the implementation on the worktree's branch (it already exists, `<type>/<n>-<slug>`), message = PR title (conventional commit, the plan gives it), Co-Authored-By trailer. A review fix round **adds commits, it never amends**: the next round diffs `<reviewed commit>..HEAD`, and an amend rewrites the commit it names.
+- `git push -u origin HEAD` + `gh pr create` with a body ending `Closes #<n>`.
   The PR body, commit messages and any test fixture carry placeholder names only —
   never a KB, host, user or project from a real setup (D259, `AGENTS.md`).
   Leave the `## Self-review` section as "pending review": the coordinator writes
@@ -117,7 +120,7 @@ subagent's report — report text can be garbled or compressed.
 
 - **Light tier**: the coordinator reads `gh pr diff <pr>` itself; one round.
 - **Standard and full tier**: spawn the reviewers of the tier (`review-pr` §3:
-  `pr-reviewer`, plus `security-reviewer` on full) on `.worktrees/<slug>` (round 1,
+  `pr-reviewer`, plus `security-reviewer` on full) on `.worktrees/<n>-<slug>` (round 1,
   plan = the issue number), verify its findings per `review-pr` §4, and send the
   **verified** findings — never the raw report — to the implementer that wrote
   the PR (§Per-client mechanics). The fix mandate: add commits on the branch,
@@ -141,17 +144,17 @@ Merge in dependency order. Sibling PRs only conflict when their actual
 file-sets overlap:
 
 1. `git fetch origin`, then rebase **in the plan's own worktree**:
-   `git -C .worktrees/<slug> rebase origin/main`.
+   `git -C .worktrees/<n>-<slug> rebase origin/main`.
 2. A conflict inside the **generated block** of `docs/decisions.md` (an older
    PR that still regenerated it) is never resolved by hand: take `origin/main`'s
    side — the release PR regenerates it (D328). The same for
    `internal/webui/dist/`: take `origin/main`'s side, then `make web`. Any other conflict that is not a
    clean append — real code or current-state prose divergence — → **STOP** and
    surface it to the user.
-3. `git rebase --continue`, then the **full** `make -C .worktrees/<slug> gate` on the rebased tree, then `git push --force-with-lease`. Rebase onto the `main` that already holds the previous merges even when GitHub says the PR is mergeable: two PRs that each pass alone can fail together — a whole-catalogue budget (D285), a duplicate decision number — and only the combined tree shows it. The local gate (~2 min) catches that before it breaks `main` (D328).
+3. `git rebase --continue`, then the **full** `make -C .worktrees/<n>-<slug> gate` on the rebased tree, then `git push --force-with-lease`. Rebase onto the `main` that already holds the previous merges even when GitHub says the PR is mergeable: two PRs that each pass alone can fail together — a whole-catalogue budget (D285), a duplicate decision number — and only the combined tree shows it. The local gate (~2 min) catches that before it breaks `main` (D328).
 4. `gh pr merge <pr> --squash --delete-branch --auto` right after the push: GitHub merges it when the required checks pass (D329), with no wait loop on this side. Check `gh pr view <pr> --json state` before the next plan's rebase; a check that fails leaves the PR open (read it through `reader`, as in §3), and auto-merge is cancelled by any later push.
 5. `git checkout main && git pull --ff-only` in the main working copy, then
-   `make worktree-rm SLUG=<slug>`.
+   `make worktree-rm ISSUE=<n> SLUG=<slug>`.
 
 ## 5 — Close-out
 

@@ -4,7 +4,7 @@ mode: subagent
 model: anthropic/claude-sonnet-5-5
 ---
 
-You implement exactly ONE approved plan issue of this repository and open its PR. The coordinator gives you two things: the issue number and the absolute path of a worktree already on its `feat/<slug>` branch.
+You implement exactly ONE approved plan issue of this repository and open its PR. The coordinator gives you two things: the issue number and the absolute path of a worktree already on its `<type>/<n>-<slug>` branch.
 
 Your procedure is the "Canonical mandate" in `.agents/skills/implement-issue/SKILL.md` §2: read it from the worktree before starting and follow it to the letter. It is the single source of truth; this definition only fixes the defaults below.
 

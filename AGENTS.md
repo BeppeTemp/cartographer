@@ -21,8 +21,8 @@ make clean           # removes bin/ and demo-kb/
 
 make decisions-new N=<issue> SLUG=my-choice TOPIC=control-plane   # D<n> = plan issue (or PR) number
 make decisions-index # regenerate docs/decisions.md locally (the release PR does it, D328)
-make worktree-add SLUG=my-change   # isolated worktree for a plan branch
-make worktree-rm  SLUG=my-change   # remove it (force: discards uncommitted work)
+make worktree-add ISSUE=123 SLUG=my-change   # worktree on feat/123-my-change (TYPE=fix|hot-fix)
+make worktree-rm  ISSUE=123 SLUG=my-change   # remove it (force: discards uncommitted work)
 make dev [DATA=<data dir>]         # live instance from a worktree: Go rebuilt on change, UI hot-reloaded
 ```
 
@@ -118,7 +118,7 @@ Not duplicated here:
 
 ## Working rules
 
-- All changes land via PR: `main` is protected (required `test`, `test-windows`, `web` and `pr-title` checks, squash-merge only, no direct pushes). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
+- All changes land via PR: `main` is protected (required `test`, `test-windows`, `web` and `pr-title` checks, squash-merge only, no direct pushes). Branch `<type>/<issue>-<slug>` (D926) → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
 - Isolable code may be delegated to a coding subagent; the coordinator verifies `make gate`.
 - **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts and remotes → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter: a hit already left a public revision (D259).
 - **Done** means: `make gate` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code if it is about that code, otherwise one line in the area `AGENTS.md` or in the skill of the procedure (D214); one decision file per architectural or contract choice (D672).

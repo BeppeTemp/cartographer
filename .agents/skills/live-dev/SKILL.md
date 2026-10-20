@@ -45,8 +45,9 @@ user waits to see the result.
 
 ## 1 — Start
 
-1. `git pull --ff-only` on `main`, then `make worktree-add SLUG=<slug>` and work
-   from `.worktrees/<slug>`.
+1. `git pull --ff-only` on `main`, then `make worktree-add SLUG=<slug>` (plus
+   `ISSUE=<n>` when the session follows an issue, `TYPE=fix` for a fix: D926) and
+   work from the worktree it prints.
 2. `make dev` from the worktree, in the background. `DATA=<data dir>` serves a
    copy of real KBs (remotes removed, git sync off, deleted on exit); without it
    the demo KBs in `demo/` (astronomy with its history, guestbook). Another live session on the machine → pick other ports:
@@ -63,11 +64,11 @@ For each piece of feedback:
 2. Read `git diff` before the user looks.
 3. Tell the user what to look at, in one line. A build failure keeps the previous
    server running: the `make dev` log says so.
-4. When the user accepts a step, commit it on `feat/<slug>` (`wip:` messages are
+4. When the user accepts a step, commit it on the worktree's branch (`wip:` messages are
    fine, the merge squashes them): every accepted step is a point to go back to.
 
 **Open the PR as a draft after the first accepted commit**: `git push -u origin
-feat/<slug>` + `gh pr create --draft`. Its number is the decision number (D672):
+HEAD` + `gh pr create --draft`. Its number is the decision number (D672):
 run `make decisions-new N=<pr>` then and fill it as the choices are made. Never
 guess the next number from the issue and PR lists: another session can take it
 first (D703).
@@ -108,8 +109,8 @@ first (D703).
    required checks are green; confirm with `gh pr view <pr> --json state`. A
    required check that fails: spawn `reader` with the PR number and fix from its
    digest, not from the log.
-6. Stop `make dev`; after the merge, `make worktree-rm SLUG=<slug>` from the main
-   working copy, then `git pull --ff-only`.
+6. Stop `make dev`; after the merge, `make worktree-rm` with the `SLUG` (and
+   `ISSUE`) given to `worktree-add`, from the main working copy, then `git pull --ff-only`.
 
 ## The record — every live session ends in the changelog
 
