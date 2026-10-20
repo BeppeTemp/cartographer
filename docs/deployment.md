@@ -46,8 +46,8 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   reported `resolved` by `kb_status` before that (D319). Deleting the file is
   the only manual reset. `lint-history.jsonl` (D370) holds one sample a day of
   the whole-KB lint totals (`{at, total, by_handler}`, the latest
-  of the UTC day, 90 days kept, pruned on write): derived state for the Health
-  trend and `kb_status.lint_trend`, rewritten whole, never in the KB's git
+  of the UTC day, 90 days kept, pruned on write): derived state for
+  `kb_status.lint_trend`, rewritten whole, never in the KB's git
   history, and lost harmlessly with the volume (the trend restarts from the
   next lint). `usage.json` (D326) holds the artifact usage clients
   report on `sync`: on an `emptyDir` it is lost at every restart, and until each
@@ -77,7 +77,10 @@ scope, type, values, default, description, the environment variable and flag tha
 restart) by `make settings-example`; a test fails when the committed file differs, and another when a key reaches
 `rawConfig` or `KBSpec` without a schema entry. Edit the schema, not the example. A `config.yaml` written by
 `service install` is self-documenting the same way: the keys it sets carry their comment and the unset ones are listed
-commented out under `# --- available settings ---`. Comments are ignored by the parser, so a file without them behaves
+commented out under `# --- available settings: uncomment a key to set it ---` (the divider older versions wrote,
+`# --- available settings ---`, is read the same), a blank line between keys, each with the value to uncomment: the key's
+`Example` when its schema entry has one (a map or a list is shown in block style, indented under the key), its default
+otherwise. Comments are ignored by the parser, so a file without them behaves
 identically. `kb create`/`kb clone` and `kb rename` give a `kbs[]` entry they add the comment of the keys they set,
 and leave every comment already in the file alone.
 
@@ -498,7 +501,7 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   `/ui/`, and `/` does the same from outside the auth chain.
 - `/api/ui/v1/…` — the JSON the UI reads (→ `control-plane.md` §Read-only UI API). Its Settings page lists every
   server and per-KB setting with its value and origin, read-only (D743, §Configuration above).
-  The server's version, in the top bar and in the Settings title, opens the release history: a sheet
+  The server's version, in the top bar, opens the release history: a sheet
   with every release, newest first, each changelog rendered as sanitised Markdown, the running release marked
   `Current`, and, above them, the upgrade command when a newer release is known; a cut changelog links to
   GitHub, a disabled check is said so, and the static demo, with no server to ask, says the same.
@@ -509,14 +512,22 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   It obeys the update-check switch (`update_check`, `CARTOGRAPHER_NO_UPDATE_CHECK`, never on a `dev` build): off,
   the route answers `unavailable: "disabled"` and the server makes no call.
   The rail holds six panels: Atlas, Activity, Work, Health, Artifacts and Settings (D818).
-  Artifacts has a Secrets tab (the secrets grouped by the Service that uses each value, the files summed up
-  below); Activity has a Retired tab (D820: every deprecated, superseded or archived concept with where it went,
+  Health shows the lint's findings and nothing else; what a person has to answer or decide is in Work
+  (contradictions and gaps, the searches that found nothing under "to answer", the `kb_review` proposals
+  under "to decide", D948). Artifacts lists every kind, an empty one as an outline tile where its first
+  artifact would go, and has a Secrets tab (a card per Service that uses a value and per sops file, the same
+  detail panel as an artifact); Activity has a Retired tab (D820: every deprecated, superseded or archived concept with where it went,
   when and why, read from the root `log.md`, and each journal's harvest state; an archive map wears an "Archive"
   badge in the rail); the command palette's "Include archived" toggle adds archived pages to a search;
-  pending sources are Work's "to ingest" column. Settings has three tabs, Client, Server and Knowledge Base,
-  each with a readable view (folded groups, each key with its value and where it was set) and a YAML view; the
-  Knowledge Base tab lists the KB's placeholders, the Client tab the viewer's own client as its last `sync`
-  reported it (workspaces with their isolation, and where each placeholder resolves on that machine). The former
+  pending sources are Work's "to ingest" column. Settings has three tabs, Client, Server and
+  Knowledge Base (no counts on them), and opens on the Client one: the client's own settings first, as the
+  viewer's last `sync` reported them (its agents, the workspaces with their isolation), then the KBs as a row
+  of pills (the active one picked) and, for the picked one, the client keys that concern it: which of the machine's agents receive it and where (everywhere, or only the folders
+  bound to it, through the bridge or over HTTP) and where its placeholders resolve on that machine. Each key
+  shows its description and its value; the default, where it was set, the environment variable and the flag
+  open on a click. A readable view and a YAML view are switched in the header; the Knowledge Base tab lists the
+  KB's own keys and placeholders. Before any client of the viewer has reported, the Client tab shows the keys of
+  `.cartographer.yaml` at their defaults (`client_template`, D948). The former
   `panel=services`, `panel=sources` and `panel=paths` links land on Secrets, Work and Settings.
 
 The static bundle is reachable without a bearer token, because it is the page
@@ -746,60 +757,66 @@ recorded reason (upkeep reasons dropped when there is another) and the
 authors. Changing the window keeps the current answer on screen, dimmed,
 until the new one arrives. A row opens the concept on the atlas.
 
-The **Work** panel is `work_list` for the reader (D302): open-phase concepts and
-unchecked items, counted in the title. The band filters by Map (*Where*), by
-status and by staleness, each with its count; a search box filters titles and
-items. The board lays the work
-out by status, as columns in the order work moves (decision-needed, blocked,
-in-progress, open, proposed, then *unchecked items* for a closed concept listed
-only for its items), or by Map, as one column per Map, busiest first, with the
-same cards. A card
-shows its Map, title, type and age (stale ones flagged), expands to its items,
-and opens the concept on the atlas. It is read-only: work changes through the
-agents' write tools.
+The **Work** panel is where a person answers or decides (D302, D948). It is `work_list` for the reader:
+the concepts in an open phase, the concepts that are work by their `reason` (open contradictions, open gaps,
+pages past their `review_after`) and the unchecked items, to which it adds what has no page of its own, the
+searches that found nothing and the doctor's proposals. The band filters by Map (*Where*), by column and by
+staleness, each with its count; a search box filters titles, items and proposals. The board lays the work out by
+column, in the order work moves: *to resolve* (an open contradiction: `commit_gate` blocks until someone decides
+which page holds), decision-needed, blocked, in-progress, open, *to answer* (the open gaps, `missing_context` and
+`open_question`, and the searches of `kb_status.search_misses` that found nothing; one that finds something now
+leaves the column and is named under *Found since*, D319), proposed, *to review* (a page past its `review_after`
+that is neither open by its status nor finished), *to decide* (the proposals of `kb_review`, `observation` items
+included, `GET /api/ui/v1/kbs/<kb>/maintenance/review`), *to ingest* (pending sources) and *unchecked items* (a
+closed concept listed only for them); any other status a map's `open_statuses` names follows. The other layout is
+one column per Map, busiest first, with the same cards. A card shows its Map, title, type (a contradiction its
+kind) and age (stale ones flagged), expands to its items, and opens the concept on the atlas; a search opens
+nothing. It is read-only: work changes through the agents' write tools. The pending sources, `kb_status` and the
+review list are each optional: without one (a caller that cannot see the whole KB has no `kb_status`) the board
+shows the rest.
 
-The **Health** panel (D338, D365, D704, D947) shows the lint problems Cartographer found, and on a
-second tab what it checks. Two buttons in the header switch them, *Issues* and
-*What it checks*.
+The **Health** panel (D338, D365, D947, D948) shows what is wrong with the pages and nothing else: the lint's
+findings. What a person has to answer or decide is in Work. Two buttons in the header switch its views, *Issues*
+and *What it checks*.
 
 *Issues*: the title counts the kinds of issue found ("Cartographer found 25 kinds
 of issues"), the line under it every occurrence and how many pages carry one.
 The **page field** draws one square per page, clustered by Map under the Map's
-hue: amber for a page with a problem, dark when fine (the legend says *has
-problems* and *fine*); a lit square opens its page,
-a Map's name filters the page to it (`hmap=` in the URL, one whole-KB
+hue. A page with a problem takes the colour of the category of each of its problems (up to four, drawn as halves,
+stripes or quadrants); a page without one is dark (the legend names the categories present, and *fine*). A lit
+square opens its page, a Map's name filters the page to it (`hmap=` in the URL, one whole-KB
 `GET /api/ui/v1/kbs/<kb>/lint` filtered by path, counts over the unfiltered
-findings) and pressing it again returns to the KB. Under it one open, foldable
-band, *Problems*: a lint finding is a problem and has no severity (D947), so
-there is no *Suggestions* band. The doctor's `kb_review` items and the
-observations (`GET /api/ui/v1/kbs/<kb>/maintenance/review`) are decisions, not
-problems, and are not on this page.
-One row per kind, the heaviest first: its name, a bar for its weight against the heaviest row, and
+findings) and pressing it again returns to the KB. Under it the issues are grouped by the category of the check,
+in the catalog's order (pages, templates, validity, links, values, maps, artifacts, the KB itself), each category
+with its own colour, the same in the squares, the legend and the bars, and folding: one card, a row per category
+with its count of kinds, only the first open. A lint finding is a problem and has no
+severity (D947): there are no bands of problems and suggestions, no count by severity and no trend. The doctor's
+`kb_review` items, observations included, are decisions, and the open contradictions too: both are in Work.
+In each category one row per kind, the heaviest first: its name, a bar for its weight against the heaviest row, and
 its count in its own unit (pages, maps, files, terms, templates…); a kind
 Cartographer fixes by itself says *fixes itself*. Hovering a row lights its pages
 in the field. An open row says *What it is* and *To
 fix*, then one line per case with its page count; the pages unfold on click,
 named by their last segment, and a file that is no page is named without a link.
-*What the KB doesn't know* follows when there is
-any: open questions and gaps, searches that found nothing (ticked once they find
-something, D319), and the pages past their review date
-(`GET /api/ui/v1/kbs/<kb>/status`). The rail does not filter here: a Map click
+The rail does not filter here: a Map click
 opens the Atlas on it, and the Type and Status filters step aside.
 
-*What it checks*: how checking works in three steps (fixed rules, no AI; the
+When nothing is found the page keeps its shape and says what was read instead of what was found: the field
+turns green, one square per page, and under it one row per family of rules says how many of its rules ran and
+found nothing; a family whose rules have nothing to read in this KB (D371) says so instead of claiming a pass.
+A row opens *What it checks*.
+
+*What it checks* (`GET /api/ui/v1/kbs/<kb>/checks`): how checking works in three steps (fixed rules, no AI; the
 sure fixes applied by Cartographer; the rest shown under *Issues*), the result on
 this KB (rules that pass, that found something, that have nothing to read here),
-*Trend* (D370: how the total moved over the last week, absent with fewer than
-two samples), then one folded line per category with what its rules read and
+then one folded line per category with what its rules read and
 what they found. Open, each rule is one line — its name, what it looks for, a
 mark when Cartographer fixes it by itself, its count — those that found
 something first; a rule that cannot run on this KB is greyed out with its reason
 (D371) instead of a zero.
 
-Like the rest of the UI the panel writes nothing. The status and the summary are
-whole-KB: a caller that cannot see the whole KB gets the issues it can see, and
-the rest is left out rather than reported as an error. The rail marks Health with
-a dot while there are problems. The former Observatory and
+Like the rest of the UI the panel writes nothing. A caller that cannot see the whole KB gets the issues it can
+see. The rail marks Health with a dot while there are problems. The former Observatory and
 Maintenance links (`panel=observatory`, `panel=maintenance`) open Health.
 
 The **Artifacts** panel, last in the rail, shows what the KB ships to agent
@@ -820,8 +837,8 @@ binary; skills left out for failing validation are listed above the catalog.
 
 Every kind a KB can hold gets a chip and a section, **whether or not the KB
 ships one** (D864): the page is also how a reader learns what a KB can provide
-to its agent clients. An empty kind's section is one line: what the kind is,
-where its files go in the KB (`skills/<name>/SKILL.md`, shown as text), the clients that receive it or "Stays in the KB: no client receives it" for a
+to its agent clients. An empty kind is an outline tile where its first artifact would go (D948): what the kind
+is, where its files go in the KB (`skills/<name>/SKILL.md`, shown as text), the clients that receive it or "Stays in the KB: no client receives it" for a
 template, and a *Docs* link to the page that explains it on GitHub (the
 repository's `main`, in a new tab). The kinds, their order, paths and docs come
 from the server (`kinds` in `GET …/artifacts`, from `provisioning.Kinds`); the

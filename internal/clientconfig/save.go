@@ -119,7 +119,10 @@ func pairIndex(m *yaml.Node, key string) int {
 func removePair(doc, m *yaml.Node, idx int) {
 	k := m.Content[idx]
 	carry := k.HeadComment
-	if sk, ok := Schema.Lookup(k.Value); ok && carry == strings.Join(settingschema.Comment(sk), "\n") {
+	// Recognised as the realignment does (settingschema.IsGenerated): a file written
+	// by an earlier version carries the comments in the wording of its day, and
+	// those are the schema's too.
+	if sk, ok := Schema.Lookup(k.Value); ok && settingschema.IsGenerated(carry, sk) {
 		carry = ""
 	}
 	m.Content = append(m.Content[:idx], m.Content[idx+2:]...)

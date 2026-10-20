@@ -114,10 +114,13 @@ cheapest first:
    question; the review item stays listed until the answer is written (nothing dismisses an item,
    D907), and the next session finds the gap instead of asking again. Ingest and any other session
    record gaps the same way. Gaps never block a gate (D273); `kb_status.open_gaps`
-   and the Atlas Health panel list them.
+   and the Atlas Work panel (*to answer*) list them.
 
-The Atlas Health panel lists what layer 3 has to decide, by kind (lint findings and `kb_review`
-proposals), and layer 4 apart, under *What the KB doesn't know*.
+The Atlas keeps the two apart (D948). Its Health panel lists the lint's findings, which are
+problems to fix (layers 1 and 2 repair the mechanical ones). Its Work panel lists what a person
+answers or decides: layer 3's `kb_review` proposals, observations included (*to decide*);
+layer 4's gaps, with the searches that found nothing (*to answer*); the open contradictions
+(*to resolve*); and the pages past their `review_after` (*to review*).
 
 ## Compound useful results
 

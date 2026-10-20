@@ -29,11 +29,11 @@ func mustFormat(t *testing.T, in string) string {
 func TestSetKeysGetHeadCommentsAndUnsetKeysAreListed(t *testing.T) {
 	out := mustFormat(t, "name: a\ngit:\n  sync: false\n")
 	for _, want := range []string{
-		"# The name.\n# Default: \"\".\nname: a",
-		"  # Sync.\n  # Default: true.\n  sync: false",
-		Marker + "\n  # Profile.\n  # Default: local.\n  # profile: local",
-		"# mode: off",
-		"# items: []",
+		"# The name.\n# Default: none\nname: a",
+		"  # Sync.\n  # Default: true\n  sync: false",
+		"  " + Marker + "\n\n  # Profile.\n  # profile: local",
+		"# The mode.\n# Values: on | off · Env X_MODE · needs a restart\n# mode: off",
+		"# The items.\n# items: []",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)

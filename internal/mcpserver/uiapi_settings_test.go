@@ -59,11 +59,53 @@ func TestUIAPI_SettingsListsValuesOriginsAndFacts(t *testing.T) {
 	// The YAML views (D818): the server file with the env-set key and its
 	// origin, and the KB's settings.yaml, both documented by the schema.
 	if y, _ := body["server_yaml"].(string); !strings.Contains(y, "enabled: false # from CARTOGRAPHER_WEB_ENABLED") ||
-		!strings.Contains(y, "# --- available settings ---") {
+		!strings.Contains(y, "# --- available settings: uncomment a key to set it ---") {
 		t.Errorf("server_yaml = %q", y)
 	}
-	if y, _ := kbs[0].(map[string]interface{})["yaml"].(string); !strings.Contains(y, "# --- available settings ---") {
+	if y, _ := kbs[0].(map[string]interface{})["yaml"].(string); !strings.Contains(y, "# --- available settings: uncomment a key to set it ---") {
 		t.Errorf("kb yaml = %q", y)
+	}
+}
+
+// A viewer none of whose clients has reported still sees what a client can set
+// (D948): client_template carries every key of the client schema at its default,
+// the secrets masked, and the settings file they amount to, commented by the
+// same schema that writes it.
+func TestUIAPI_SettingsClientTemplate(t *testing.T) {
+	t.Parallel()
+	handler := settingsHandler(t, config.Default(), auth.NewTokenStore(nil), "docs")
+	rr := getUI(t, handler, UIAPIPrefix+"/settings", "")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body)
+	}
+	body := decodeUI(t, rr)
+	if clients, _ := body["clients"].([]interface{}); len(clients) != 0 {
+		t.Fatalf("clients = %v, want none reported", body["clients"])
+	}
+	tmpl, ok := body["client_template"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("client_template missing: %v", body)
+	}
+	entries, _ := tmpl["entries"].([]interface{})
+	if len(entries) == 0 {
+		t.Fatal("client_template has no entries")
+	}
+	byKey := map[string]map[string]interface{}{}
+	for _, e := range entries {
+		row := e.(map[string]interface{})
+		if row["origin"] != "default" || row["description"] == "" {
+			t.Errorf("entry %v: every key is at its default and documented", row)
+		}
+		byKey[row["key"].(string)] = row
+	}
+	if row := byKey["server_url"]; row == nil || row["value"] != row["default"] {
+		t.Errorf("server_url = %v, want its default as value", row)
+	}
+	if row := byKey["token"]; row == nil || row["value"] != "(unset)" {
+		t.Errorf("token = %v, want the masked marker", row)
+	}
+	if y, _ := tmpl["yaml"].(string); !strings.Contains(y, "# --- available settings: uncomment a key to set it ---") || !strings.Contains(y, "server_url") {
+		t.Errorf("client_template yaml = %q", y)
 	}
 }
 

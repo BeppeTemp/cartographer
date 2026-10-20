@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/settingschema"
+	"gopkg.in/yaml.v3"
 )
 
 func readFile(t *testing.T, path string) string {
@@ -73,7 +75,7 @@ func TestSaveRemovesNewlySetKeyFromTheCommentedBlock(t *testing.T) {
 	if !hasKey(raw, "search_roots") {
 		t.Errorf("search_roots not written:\n%s", raw)
 	}
-	if strings.Count(raw, "# --- available settings ---") != 1 {
+	if strings.Count(raw, "# --- available settings: uncomment a key to set it ---") != 1 {
 		t.Errorf("want one block:\n%s", raw)
 	}
 }
@@ -192,5 +194,47 @@ func TestRemovedKeyKeepsItsUserComment(t *testing.T) {
 	}
 	if raw := readFile(t, clientconfig.Path(dir)); !strings.Contains(raw, "# keep me") || hasKey(raw, "search_depth") {
 		t.Errorf("want the comment kept and the key gone:\n%s", raw)
+	}
+}
+
+// A key Save drops hands its comment to the next key only when a person wrote
+// it. The comment the schema generated goes with its key, in the wording this
+// version writes and in the one every file written before it carries.
+func TestDroppedKeyTakesItsGeneratedCommentInAnyWording(t *testing.T) {
+	sk, ok := clientconfig.Schema.Lookup("paths")
+	if !ok {
+		t.Fatal("paths is not in the schema")
+	}
+	current := strings.Join(settingschema.Comment(sk), "\n")
+	for name, comment := range map[string]string{
+		"current wording": current,
+		"old wording":     current + "\n# Default: {}.",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeConfigFile(t, dir, "server_url: http://127.0.0.1:39273/mcp\n"+comment+"\npaths:\n  work-tools: /x\nignored_paths:\n  - repo:a\n")
+			cfg, err := clientconfig.Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.Paths = nil
+			if err := clientconfig.Save(dir, cfg); err != nil {
+				t.Fatal(err)
+			}
+			var doc yaml.Node
+			raw := readFile(t, clientconfig.Path(dir))
+			if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+				t.Fatal(err)
+			}
+			root := doc.Content[0]
+			for i := 0; i+1 < len(root.Content); i += 2 {
+				if k := root.Content[i]; k.Value == "ignored_paths" && strings.Contains(k.HeadComment, "Manual name-to-directory") {
+					t.Errorf("the comment of the dropped key moved to ignored_paths as if a person wrote it:\n%s", raw)
+				}
+			}
+			if strings.Contains(raw, "\npaths:") {
+				t.Errorf("paths was not dropped:\n%s", raw)
+			}
+		})
 	}
 }

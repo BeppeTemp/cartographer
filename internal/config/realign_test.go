@@ -111,7 +111,7 @@ func TestRealignServerFile(t *testing.T) {
 			t.Errorf("%q was lost:\n%s", kept, text)
 		}
 	}
-	if !strings.Contains(text, "# Directory with every secret file") || !strings.Contains(text, "# --- available settings ---") {
+	if !strings.Contains(text, "# Directory with every secret file") || !strings.Contains(text, "# --- available settings: uncomment a key to set it ---") {
 		t.Errorf("the schema comments were not written:\n%s", text)
 	}
 

@@ -152,3 +152,75 @@ func TestWorkList_OpenFieldState(t *testing.T) {
 		t.Fatalf("by_status: %+v", r)
 	}
 }
+
+// D948: a concept that is work by its reason (an open contradiction, an open
+// gap, a page past review_after) is counted in open_concepts and by_reason, not
+// in by_status, and carries its reason; a retired page past review_after is not
+// due; a KB without a reason leaves by_reason out.
+func TestWorkList_Reason(t *testing.T) {
+	t.Parallel()
+	k, err := kb.Init(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeKBFile(t, k, "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	writeKBFile(t, k, "m/contra.md", "---\ntype: Contradiction\ntitle: C\nresolution_status: open\ncontradiction_kind: value_mismatch\ninvolves: [m/a, m/b]\n---\n# C\n")
+	writeKBFile(t, k, "m/gap.md", "---\ntype: Contradiction\ntitle: G\ncontradiction_kind: open_question\n---\n# G\n")
+	writeKBFile(t, k, "m/gap2.md", "---\ntype: Contradiction\ntitle: G2\ncontradiction_kind: missing_context\n---\n# G2\n")
+	writeKBFile(t, k, "m/done.md", "---\ntype: Contradiction\ntitle: D\nresolution_status: resolved\n---\n# D\n")
+	writeKBFile(t, k, "m/stale.md", "---\ntype: Topic\ntitle: S\nstatus: active\nreview_after: 2020-01-01\n---\n# S\n")
+	writeKBFile(t, k, "m/old.md", "---\ntype: Topic\ntitle: O\nstatus: superseded\nreview_after: 2020-01-01\n---\n# O\n")
+	writeKBFile(t, k, "m/later.md", "---\ntype: Topic\ntitle: L\nstatus: active\nreview_after: 2999-01-01\n---\n# L\n")
+	writeKBFile(t, k, "m/task.md", "---\ntype: Task\ntitle: T\nstatus: open\n---\n# T\n")
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+
+	r := workCall(t, s, `{"fields":["contradiction_kind"]}`)
+	if workIDs(r) != "m/contra,m/gap,m/gap2,m/stale,m/task" || r.Total != 5 || r.OpenConcepts != 5 {
+		t.Fatalf("entries: %s %+v", workIDs(r), r)
+	}
+	if len(r.ByReason) != 3 || r.ByReason["contradiction"] != 1 || r.ByReason["gap"] != 2 || r.ByReason["review"] != 1 {
+		t.Fatalf("by_reason: %+v", r.ByReason)
+	}
+	// by_status counts the concepts open by their status only, so it no longer
+	// sums to open_concepts.
+	if len(r.ByStatus) != 1 || r.ByStatus["open"] != 1 {
+		t.Fatalf("by_status: %+v", r.ByStatus)
+	}
+	for _, e := range r.Entries {
+		want := map[string]string{"m/contra": "contradiction", "m/gap": "gap", "m/gap2": "gap", "m/stale": "review", "m/task": ""}[e.ID]
+		if e.Reason != want || !e.OpenPhase {
+			t.Errorf("%s: reason %q open_phase %v, want %q open", e.ID, e.Reason, e.OpenPhase, want)
+		}
+	}
+	// The kind of each contradiction, for the caller that asked for it.
+	if r.Entries[0].Fields["contradiction_kind"] != "value_mismatch" || r.Entries[1].Fields["contradiction_kind"] != "open_question" {
+		t.Fatalf("fields: %+v", r.Entries)
+	}
+	// A reason is work in the concepts view, and filters like any field.
+	if got := workIDs(workCall(t, s, `{"include":"concepts"}`)); got != "m/contra,m/gap,m/gap2,m/stale,m/task" {
+		t.Fatalf("include concepts: %s", got)
+	}
+	if got := workIDs(workCall(t, s, `{"where":["contradiction_kind=open_question"]}`)); got != "m/gap" {
+		t.Fatalf("where: %s", got)
+	}
+	// kb_status.work counts the same concepts as open_concepts.
+	st, err := s.Tools()["kb_status"].Handler(authLocalContext(), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Work map[string]int `json:"work"`
+	}
+	_ = json.Unmarshal([]byte(st.Content[0].Text), &status)
+	if status.Work["open_concepts"] != 5 {
+		t.Fatalf("kb_status.work: %+v", status.Work)
+	}
+
+	// No reason in the KB: by_reason and every entry's reason are left out.
+	plain, _ := workServer(t)
+	text := callTool(t, plain, "work_list", `{}`).Content[0].Text
+	if strings.Contains(text, "by_reason") || strings.Contains(text, `"reason"`) {
+		t.Fatalf("a KB without a reason reports one: %s", text)
+	}
+}

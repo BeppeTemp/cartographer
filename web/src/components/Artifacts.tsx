@@ -225,7 +225,8 @@ export function Artifacts({
         <HeroRow label="Kind">
           <FilterChips label="Show kind">
             <FilterChip label="All" count={all.length} pressed={kind === null} onToggle={() => setKind(null)} />
-            {(kinds?.map((info): [string, string] => [info.kind, info.title]) ??
+            {(
+              kinds?.map((info): [string, string] => [info.kind, info.title]) ??
               KINDS.filter(([k]) => (list.counts[k] ?? 0) > 0)
             ).map(([k, title]) => (
               <FilterChip
@@ -275,19 +276,21 @@ export function Artifacts({
                   {group.title}{" "}
                   <span className="page-section__count">{list.counts[group.kind] ?? group.items.length}</span>
                 </h2>
-                {group.items.length === 0 && group.info ? (
-                  <EmptyKindAbout info={group.info} />
-                ) : (
-                  <p className="catalog__about">
-                    {KIND_ABOUT[group.kind]}
-                    {shared !== null &&
-                      (shared === 0
-                        ? " Kept in the KB, synced to no client."
-                        : ` Synced to ${shared} client${shared === 1 ? "" : "s"}.`)}
-                  </p>
-                )}
+                <p className="catalog__about">
+                  {KIND_ABOUT[group.kind]}
+                  {group.items.length > 0 &&
+                    shared !== null &&
+                    (shared === 0
+                      ? " Kept in the KB, synced to no client."
+                      : ` Synced to ${shared} client${shared === 1 ? "" : "s"}.`)}
+                </p>
               </header>
               <ul className="catalog__tiles">
+                {group.items.length === 0 && group.info && (
+                  <li>
+                    <EmptyKindTile info={group.info} />
+                  </li>
+                )}
                 {group.items.map((a) => {
                   const id = artifactId(a);
                   return (
@@ -365,22 +368,32 @@ export function Artifacts({
 }
 
 /**
- * What a kind is when the KB has none of it (D864): the blurb, where its files
- * go, which clients receive it, and the docs. The path is text, never a link:
- * it comes from the server and names a folder, not a page.
+ * The place of the first artifact of a kind the KB has none of (D864): a tile
+ * drawn in outline, with where its files go, which clients receive it, and the
+ * docs. The path is text, never a link: it comes from the server and names a
+ * folder, not a page.
  */
-function EmptyKindAbout({ info }: { info: ArtifactKindInfo }) {
-  const about = KIND_ABOUT[info.kind];
+function EmptyKindTile({ info }: { info: ArtifactKindInfo }) {
   return (
-    <p className="catalog__about">
-      {about && `${about} `}
-      Files go in <code>{info.kb_path}</code>
-      .{" "}
-      {info.kb_only || info.clients.length === 0
-        ? "Stays in the KB: no client receives it."
-        : `Synced to ${info.clients.map((c) => c.name || c.id).join(", ")}.`}{" "}
-      <DocsLink doc={info.doc} />
-    </p>
+    <div
+      className="catalog__tile catalog__tile--ghost"
+      style={{ "--kind": KIND_MARK[info.kind]?.hue } as CSSProperties}
+    >
+      <span className="catalog__tile-head">
+        <span className="catalog__tile-name">None yet</span>
+      </span>
+      <span className="catalog__tile-desc">
+        Add one as <code>{info.kb_path}</code>.
+      </span>
+      <span className="catalog__tile-foot">
+        <span>
+          {info.kb_only || info.clients.length === 0
+            ? "Stays in the KB: no client receives it."
+            : `Synced to ${info.clients.map((c) => c.name || c.id).join(", ")}.`}
+        </span>
+        <DocsLink doc={info.doc} />
+      </span>
+    </div>
   );
 }
 

@@ -1,4 +1,4 @@
-import type { LintFinding, LintReport } from "../api/types";
+import type { CheckCatalog, LintFinding, LintReport } from "../api/types";
 
 /** One cause on the Health page: a check's findings, folded by message. */
 export interface CheckGroup {
@@ -30,6 +30,92 @@ export function groupFindings(findings: LintFinding[]): CheckGroup[] {
     });
   }
   return groups.sort((a, b) => b.count - a.count || a.check.localeCompare(b.check));
+}
+
+/** The pages (or maps, or files) a check row touches. */
+export function rowSize(g: CheckGroup): number {
+  return new Set(g.messages.flatMap((m) => m.findings.map((f) => f.concept ?? f.path ?? ""))).size;
+}
+
+/** The group of a finding whose check is not in the catalog (no catalog, or a check it does not list). */
+export const OTHER = "other";
+
+/**
+ * The one place a category gets its colour: eight fixed slots of the theme's
+ * hue wheel (tokens.css), picked to stay apart from their neighbours in the
+ * catalog's order and to read in both themes. A category the table does not
+ * know, and the "other" group, are the muted text colour: neutral, not a hue.
+ */
+const CATEGORY_HUE: Record<string, number> = {
+  pages: 2,
+  templates: 8,
+  validity: 5,
+  links: 4,
+  values: 6,
+  maps: 7,
+  artifacts: 9,
+  kb: 3,
+};
+
+/** The CSS colour of a category (`var(--hue-n)`), `var(--text-muted)` for "other" and the unknown. */
+export function categoryHue(category: string): string {
+  const slot = CATEGORY_HUE[category];
+  return slot ? `var(--hue-${slot})` : "var(--text-muted)";
+}
+
+/** The catalog's categories in its order, then any a check names that the list leaves out, then "other". */
+export function categoryOrder(catalog: CheckCatalog | null | undefined): string[] {
+  const order = new Set<string>(catalog?.categories ?? []);
+  for (const c of catalog?.checks ?? []) order.add(c.category);
+  order.delete(OTHER);
+  return [...order, OTHER];
+}
+
+/** A check's category in the catalog; "other" when the catalog is missing or does not list the check. */
+export function categoryResolver(catalog: CheckCatalog | null | undefined): (check: string) => string {
+  const byCheck = new Map((catalog?.checks ?? []).map((c) => [c.name, c.category]));
+  return (check) => byCheck.get(check) ?? OTHER;
+}
+
+/** One category of the Health list: the check rows under its heading, the largest first. */
+export interface CategoryGroup {
+  category: string;
+  rows: CheckGroup[];
+}
+
+/** The check groups under their categories, in catalog order ("other" last); a category without findings has no heading. */
+export function groupByCategory(groups: CheckGroup[], catalog: CheckCatalog | null | undefined): CategoryGroup[] {
+  const of = categoryResolver(catalog);
+  const by = new Map<string, CheckGroup[]>();
+  for (const g of groups) {
+    const category = of(g.check);
+    (by.get(category) ?? by.set(category, []).get(category)!).push(g);
+  }
+  // Array.sort is stable: rows of the same size keep groupFindings' order (count, then name).
+  return categoryOrder(catalog)
+    .filter((category) => by.has(category))
+    .map((category) => ({ category, rows: [...by.get(category)!].sort((a, b) => rowSize(b) - rowSize(a)) }));
+}
+
+/** The categories of each page's problems, in catalog order: what a square of the page field is painted with. */
+export function pageCategories(
+  findings: LintFinding[],
+  catalog: CheckCatalog | null | undefined,
+): Map<string, string[]> {
+  const of = categoryResolver(catalog);
+  const rank = new Map(categoryOrder(catalog).map((c, i) => [c, i]));
+  const byPage = new Map<string, Set<string>>();
+  for (const f of findings) {
+    if (!f.concept) continue;
+    (byPage.get(f.concept) ?? byPage.set(f.concept, new Set()).get(f.concept)!).add(of(f.check));
+  }
+  const out = new Map<string, string[]>();
+  for (const [page, cats] of byPage)
+    out.set(
+      page,
+      [...cats].sort((a, b) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0)),
+    );
+  return out;
 }
 
 /** What a check finds, in words; the check's own name for the rest. */
@@ -221,15 +307,15 @@ const DECIDE: Record<string, string> = {
   broken_relation: "Point the field at the right page, or clear it.",
   index_incomplete: "Add the page to its map's index, or let the server keep the index.",
   index_lists_retired: "Drop the retired page from the index.",
-  link_to_retired: "Point the sentence at what replaced the page, or keep it where the mention is history.",
-  bare_link_list: "Say in a few words why each link matters, or accept the list as it is.",
+  link_to_retired: "Point the sentence at what replaced the page, or say in it that the page is history.",
+  bare_link_list: "Say in a few words why each link matters.",
   reciprocal_link_item: "Drop the entry and rely on the back-link, or keep both in sync.",
-  title_quality: "Shorten the title or drop the status word, or keep it as it is.",
-  machine_path: "Replace the path with a placeholder, or accept it if it is not on this machine.",
+  title_quality: "Shorten the title or drop the status word.",
+  machine_path: "Replace the path with a {{repo:…}} or {{path:…}} placeholder, or $HOME.",
   junk_file: "Remove the file from git.",
   junk_asset: "Remove the file.",
   missing_registry: "Create paths.yaml declaring the placeholders the pages cite.",
-  skill_git_command: "Rewrite the step to use the tools, or accept it if it targets another repository.",
+  skill_git_command: "Rewrite the step to use the tools.",
   stale_claim: "Check the page is still true, then set a new review date.",
   stale_open: "Close the work, update it, or say who it waits on.",
   closed_with_open_items: "Tick or move the open boxes, or reopen the work.",
@@ -243,7 +329,7 @@ const DECIDE: Record<string, string> = {
   expanded_as_category: "Link the children from the page's index, or move them to a map.",
   source_uncited: "Cite the source where it is used, or drop it.",
   forbidden_term: "Use the term the glossary prefers.",
-  template_missing: "Bind the page to its map's template, or keep it free-form.",
+  template_missing: "Bind the page to its map's template.",
   template_section_missing: "Fill the section from the sources, or record what is missing.",
   template_extra_section: "Move the section's text into a template section or another page.",
 };
@@ -262,33 +348,6 @@ export function checkLabel(check: string): string {
   if (LABELS[check]) return LABELS[check];
   const words = check.replace(/_/g, " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-/** What the trend line says: the total at the start and end of the window, and the daily totals between. */
-export interface Trend {
-  from: number;
-  to: number;
-  /** "this week" when the window covers the last 7 days, else "over N days". */
-  span: string;
-  points: number[];
-}
-
-/**
- * The trend of the lint totals (D370): samples of the last 7 days, or all of
- * them when the history is younger than a week. Null with fewer than two.
- */
-export function trendOf(history: { at: string; total: number }[], now: number): Trend | null {
-  const week = 7 * 86_400_000;
-  const win = history.filter((s) => now - Date.parse(s.at) <= week);
-  if (win.length < 2) return null;
-  const first = win[0]!;
-  const days = Math.max(1, Math.round((Date.parse(win[win.length - 1]!.at) - Date.parse(first.at)) / 86_400_000));
-  return {
-    from: first.total,
-    to: win[win.length - 1]!.total,
-    span: days >= 6 ? "this week" : `over ${days} ${days === 1 ? "day" : "days"}`,
-    points: win.map((s) => s.total),
-  };
 }
 
 /** Whether a finding's path lies in the Map (the server's own scope rule: the folder or beneath it). */

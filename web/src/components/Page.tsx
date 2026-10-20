@@ -41,7 +41,7 @@ export function PageHeader({
   help,
 }: {
   eyebrow: string;
-  title: ReactNode;
+  title?: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
   help?: ReactNode;
@@ -60,7 +60,7 @@ export function PageHeader({
             </details>
           )}
         </p>
-        <h1 className="page__title">{title}</h1>
+        {title && <h1 className="page__title">{title}</h1>}
         {subtitle && <p className="page__subtitle">{subtitle}</p>}
       </div>
       {actions && <div className="page__actions">{actions}</div>}
@@ -131,9 +131,9 @@ export function Facet({
  * chart and filters, separated by space and a hairline below. Boxes are kept
  * for content that is dense enough to fill them.
  */
-export function Hero({ label, children }: { label: string; children: ReactNode }) {
+export function Hero({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <div className="hero" role="region" aria-label={label}>
+    <div className={className ? `hero ${className}` : "hero"} role="region" aria-label={label}>
       {children}
     </div>
   );
