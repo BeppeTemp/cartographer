@@ -979,6 +979,7 @@ func TestResultBytesKeepsOldHashesAndIsCovered(t *testing.T) {
 // SingleWriter keeps a second writer off the log, which would fork the chain it
 // holds in memory, until the first closes it.
 func TestSingleWriterLock(t *testing.T) {
+	shortLockWait(t, 200*time.Millisecond)
 	path := filepath.Join(t.TempDir(), "audit.log")
 	first, err := OpenWithOptions(path, Options{SingleWriter: true})
 	if err != nil {
@@ -1030,5 +1031,46 @@ func TestVerifyAuditRefusesAnUnsignedEntryAfterTheFirstSignature(t *testing.T) {
 	}
 	if _, err := VerifyAudit(path, "", kp.Public); err == nil || !strings.Contains(err.Error(), "unsigned event") {
 		t.Errorf("VerifyAudit = %v, want the unsigned entry reported", err)
+	}
+}
+
+func shortLockWait(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := LockWait
+	LockWait = d
+	t.Cleanup(func() { LockWait = old })
+}
+
+// A writer started while its predecessor is still exiting waits for the lock;
+// one that stays held past the wait is refused.
+func TestSingleWriterLockWaitsForTheExitingHolder(t *testing.T) {
+	shortLockWait(t, 5*time.Second)
+	path := filepath.Join(t.TempDir(), "audit.log")
+	first, err := OpenWithOptions(path, Options{SingleWriter: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		first.Close()
+	}()
+	second, err := OpenWithOptions(path, Options{SingleWriter: true})
+	if err != nil {
+		t.Fatalf("open while the holder exits: %v", err)
+	}
+	second.Close()
+
+	held, err := OpenWithOptions(path, Options{SingleWriter: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	LockWait = 250 * time.Millisecond
+	start := time.Now()
+	if _, err := OpenWithOptions(path, Options{SingleWriter: true}); !errors.Is(err, ErrLocked) {
+		t.Fatalf("held throughout: err = %v, want ErrLocked", err)
+	}
+	if time.Since(start) < 200*time.Millisecond {
+		t.Errorf("gave up after %v, before the wait", time.Since(start))
 	}
 }

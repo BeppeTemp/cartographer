@@ -992,6 +992,10 @@ with --public-key <hex>)`, or `unsigned` with a warning that says why.
 
 Rollout notes:
 
+- **A restart waits for the previous process.** Only one process writes the log; a start that finds
+  its lock held retries for up to 10 seconds, so a rolling or service restart, where the old process
+  is still exiting, opens the log. A holder that stays longer is a live second writer: `required`
+  does not start and `best_effort` starts without a log, as for any log that cannot be opened.
 - **Start in `best_effort`.** It is the default and the pre-D119 behaviour: a
   broken sink never blocks a call. Move to `required` only once the log's
   storage is as available as the service itself — in `required` mode an

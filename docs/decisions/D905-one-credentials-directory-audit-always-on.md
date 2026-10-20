@@ -24,6 +24,9 @@ first signature and the first checkpoint written with the key, which the hash ch
 refuses an unsigned entry after either.
 
 The choices the plan left to the implementation:
+- **A restart waits for the previous writer.** The log has one writer (a lock beside it). Opening it retries
+  the lock for up to 10 seconds before reporting it held, so a restart whose predecessor is still exiting
+  gets the log; a holder that outlasts the wait is treated as any log that cannot be opened.
 - **The directory may be read-only.** The server writes into it only to generate `audit.key` and to place the
   secrets of the upgrade. A secret it cannot place is listed for the operator, and a key it cannot generate
   follows the audit mode above.

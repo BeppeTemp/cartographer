@@ -152,8 +152,9 @@ type Options struct {
 	RetryBackoff  time.Duration
 	// SingleWriter makes the Log the only writer of its file across processes:
 	// the hash chain lives in the writer's memory, so a second writer would
-	// fork it. Open takes an advisory lock on <path>.lock and fails with
-	// ErrLocked while another process holds it; Close releases it.
+	// fork it. Open takes an advisory lock on <path>.lock, waits up to LockWait
+	// for a holder that is exiting and then fails with ErrLocked; Close
+	// releases it.
 	SingleWriter bool
 }
 
@@ -309,22 +310,40 @@ type Log struct {
 // writerLockPath is the lock file of a log opened with SingleWriter.
 func writerLockPath(path string) string { return path + ".lock" }
 
-// lockWriter takes the SingleWriter lock without waiting: a process that finds
-// it held has nothing to wait for, the holder writes for its whole life.
+// LockWait is how long an Open with SingleWriter waits for a lock another
+// process holds before it gives up with ErrLocked. A server started while its
+// predecessor is still exiting (a rolling or service restart) finds the lock
+// held for a moment; a holder that stays past the wait is a live second writer.
+// A variable so tests do not wait the full time.
+var LockWait = 10 * time.Second
+
+// lockPoll is the interval between attempts while waiting for the lock.
+var lockPoll = 100 * time.Millisecond
+
+// lockWriter takes the SingleWriter lock, retrying for LockWait while it is held
+// elsewhere, then returns ErrLocked.
 func lockWriter(path string) (*os.File, error) {
 	lp := writerLockPath(path)
 	f, err := os.OpenFile(lp, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("audit: open lock %s: %w", lp, err)
 	}
-	if err := tryLockFile(f); err != nil {
-		f.Close()
-		if isLockBusy(err) {
+	deadline := time.Now().Add(LockWait)
+	for {
+		err := tryLockFile(f)
+		if err == nil {
+			return f, nil
+		}
+		if !isLockBusy(err) {
+			f.Close()
+			return nil, fmt.Errorf("audit: lock %s: %w", lp, err)
+		}
+		if !time.Now().Before(deadline) {
+			f.Close()
 			return nil, fmt.Errorf("%w (lock %s)", ErrLocked, lp)
 		}
-		return nil, fmt.Errorf("audit: lock %s: %w", lp, err)
+		time.Sleep(lockPoll)
 	}
-	return f, nil
 }
 
 func releaseWriter(f *os.File) {

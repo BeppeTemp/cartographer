@@ -123,6 +123,9 @@ func TestOpenAuditLogHasOneWriter(t *testing.T) {
 	}
 	defer first.Close()
 
+	oldWait := audit.LockWait
+	audit.LockWait = 50 * time.Millisecond
+	t.Cleanup(func() { audit.LockWait = oldWait })
 	logs := captureLog(t)
 	second, err := openAuditLog(cfg)
 	if err != nil || second != nil {
