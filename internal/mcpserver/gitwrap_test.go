@@ -179,11 +179,8 @@ func TestSyncStatus_MissingRemoteTrackingRefUsesJSONNull(t *testing.T) {
 // gate (D907) refuses a new page that links to nothing.
 func seedAnchor(t *testing.T, k *kb.KB) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "hub"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	anchor := "---\ntype: Note\ntitle: Anchor\n---\n# Anchor\n\nThe page the fixture's other pages link to.\n"
-	if err := os.WriteFile(filepath.Join(k.DataRoot(), "hub", "anchor.md"), []byte(anchor), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "anchor.md"), []byte(anchor), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := k.CommitOp("test: seed the anchor page"); err != nil {
@@ -227,7 +224,7 @@ func TestGitWrap_ConceptWrite_CreatesCommit(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"test/autocommit","frontmatter":{"type":"Note","title":"AutoCommit"},"body":"# Test\n\n[[hub/anchor]]\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"test/autocommit","frontmatter":{"type":"Note","title":"AutoCommit"},"body":"# Test\n\n[[anchor]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	if len(resps) != 2 {
@@ -254,7 +251,7 @@ func TestGitWrap_ConceptNew_CreatesOneCommit(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(k.Root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: {{title}}\n---\n# Details\n\n[[hub/anchor]]\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(k.Root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: {{title}}\n---\n# Details\n\n[[anchor]]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// Seed commit: a template left uncommitted would be
@@ -866,7 +863,7 @@ func TestGitWrap_AsyncPush_CommitIsSyncPushIsDeferred(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"test/async","frontmatter":{"type":"Note","title":"Async"},"body":"# Test\n\n[[hub/anchor]]\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"test/async","frontmatter":{"type":"Note","title":"Async"},"body":"# Test\n\n[[anchor]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	tr := decodeToolResult(t, resps[1])
@@ -1269,7 +1266,7 @@ func headReason(t *testing.T, dir string) (reason, body string) {
 
 func writeWithArgs(t *testing.T, k *kb.KB, id string, extra map[string]any) {
 	t.Helper()
-	args := map[string]any{"id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": "# T\n\n[[hub/anchor]]\n"}
+	args := map[string]any{"id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": "# T\n\n[[anchor]]\n"}
 	for key, v := range extra {
 		args[key] = v
 	}
