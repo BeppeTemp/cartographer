@@ -1,0 +1,83 @@
+name: plan-gate
+
+# The approved-plan rule of CONTRIBUTING.md §Pull requests, enforced where a
+# contributor's agent cannot skip it (D955). The rule itself lives in
+# .agents/skills/review-pr/scripts/triage.sh, the single source: this file only
+# runs it, so no threshold is duplicated here.
+#
+# INVARIANTS (pinned by internal/repodocs/plan_gate_test.go):
+#   - The trigger is `pull_request_target`: the workflow file and triage.sh come
+#     from the BASE branch. A `pull_request` workflow would run the PR's own,
+#     possibly edited, copy of both.
+#   - It checks out the base SHA only, never the PR head, and executes nothing
+#     from the PR. A fork PR's code never runs with this token.
+#   - Every `uses:` is pinned to a full commit SHA: this is the only workflow that holds
+#     the base repository token on fork-triggered events, so a moved tag must not reach it.
+#   - Read-only permissions and no secrets; only the re-run job gets actions: write.
+#
+# TRAP: a `pull_request_target` workflow added or changed by a PR does not run
+# from that PR (it runs from the base branch): this file starts working on the
+# first PR opened after the one that adds it merges.
+#
+# The ruleset requires the job name `plan-gate` once the maintainer adds it to
+# the required checks of `main-protection`.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled] # edited: `Closes #n` is often added later; labeled: the `size-exception` label
+  issues:
+    types: [labeled, assigned] # approved, or assigned to the contributor: the gate reads both
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  plan-gate:
+    name: plan-gate
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: plan-gate-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      # The base SHA, nothing else: see INVARIANTS.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      # Values reach the script through the environment, never interpolated into it.
+      - name: Approved plan, size cap
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
+          PR: ${{ github.event.pull_request.number }}
+        run: .agents/skills/review-pr/scripts/triage.sh --gate "$PR"
+
+  # A plan labelled `approved` or assigned after its PR was opened: the check that
+  # failed for want of either runs again, without a push.
+  rerun:
+    name: rerun-on-approval-or-assignment
+    if: github.event_name == 'issues' && (github.event.action == 'assigned' || github.event.label.name == 'approved')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      pull-requests: read
+      contents: read
+    steps:
+      - name: Re-run plan-gate on the PRs that close this plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          for pr in $(gh pr list --state open --limit 200 --json number,closingIssuesReferences \
+              --jq ".[] | select(any(.closingIssuesReferences[]?; .number == $ISSUE)) | .number"); do
+            url=$(gh pr view "$pr" --json statusCheckRollup \
+              --jq '[.statusCheckRollup[] | select(.name == "plan-gate")] | last | .detailsUrl // empty')
+            run=$(sed -nE 's#.*/actions/runs/([0-9]+)/.*#\1#p' <<<"$url")
+            [ -n "$run" ] || { echo "PR #$pr: no plan-gate run to re-run"; continue; }
+            echo "PR #$pr: re-running plan-gate run $run"
+            gh run rerun "$run" || echo "PR #$pr: run $run could not be re-run"
+          done

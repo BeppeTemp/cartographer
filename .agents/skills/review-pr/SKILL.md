@@ -10,6 +10,22 @@ approved plan, template) and `docs/index.md` §Documentation maintenance rules;
 this skill is only the procedure. `.claude/skills/review-pr`,
 `.kiro/skills/review-pr` and `.opencode/skills/review-pr` are symlinks to this file.
 
+## Role
+
+Before anything else, find your role (D955; `CONTRIBUTING.md` §Working with an agent client):
+
+```bash
+gh repo view "$(scripts/upstream-repo.sh)" --json viewerPermission --jq .viewerPermission
+```
+
+`ADMIN`, `MAINTAIN` or `WRITE` is **maintainer mode**; `TRIAGE`, `READ`, or any
+failure to read it, is **contributor mode**. State the mode to the user in one line.
+
+**Contributor mode** runs only §Before opening your own PR: triage and
+self-review. It never sends a `gh pr review` verdict, never edits labels, never
+files issues for others and never drafts advisories (§4, §2 comments). Maintainer
+mode is the whole skill.
+
 ## 0 — Where the cost goes
 
 A review costs the diff plus the context needed to trust it, and the second term
@@ -48,7 +64,7 @@ Any `BLOCK` line ends the review here, with one comment that names it:
   comment; on your own PR, spawn `reader` with the PR number and fix from its
   digest instead of opening the log;
 - **no approved plan** for a contributor's non-trivial change — ask for a plan
-  issue (or promote the linked idea or bug in place); the design discussion
+  issue (or promote the linked bug in place); the design discussion
   happens there, and the maintainer approves it with the `approved` label;
 - **over the size cap** without a `Size exception:` line — ask for a split by
   work package, one PR each, landing in order.
@@ -159,8 +175,9 @@ A fix for a regression names its origin in the PR body, `Regression-of: #<pr>`
 
 The same procedure moves the review cost to the author, which is the point:
 
-1. `triage.sh` with no argument compares the current branch with `origin/main`;
-   fix every `BLOCK`.
+1. `triage.sh` with no argument compares the current branch with `upstream/main`
+   (`origin/main` without that remote) and prints your role; fix every `BLOCK`.
+   The `plan-gate` check runs the same script on the PR.
 2. Spawn the reviewers of the tier (§3) on your own worktree (tier from the triage, PR number
    "not opened yet"), fix or answer each finding, in rounds as in §5.
 3. Fill the PR template; its `## Self-review` section says what the review found

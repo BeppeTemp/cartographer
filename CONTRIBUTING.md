@@ -74,6 +74,25 @@ Nothing else is needed to start. Concretely:
 | **OpenCode** | `AGENTS.md`, natively | `.opencode/skills/` → symlinks | It does **not** load `.claude/agents/`: its project agents are `.opencode/agents/`, and `opencode debug agents` from the repository root lists them (run `opencode reload` after editing one: a background service caches the configuration). Probed on 2.0.30: it also finds `.agents/skills/` and lists each skill once, `.opencode/skills/` winning; the bridge stays because it is the documented project cell |
 | **Copilot CLI** (`copilot`) | `AGENTS.md`, natively ("Repository instructions", probed on 1.0.94) | `.agents/skills/`, natively ("Project skills") | Its project agents, `.github/agents/<name>.agent.md`, load only once the folder is trusted (`copilot --agent <name>` selects one); the `model` key is honoured, and a model the subscription does not offer falls back to `auto` with a warning (probed on 1.0.98). Its project `mcp` and hook locations (`.mcp.json`, `.github/hooks`) are gated on folder trust and are not used (D676) |
 
+### Roles: contributor and maintainer
+
+The same skills serve two roles, and the role is your **GitHub permission on the
+upstream repository** (D955): `ADMIN`, `MAINTAIN` or `WRITE` is a maintainer;
+`TRIAGE`, `READ` (and anyone who works from a fork) is a contributor. The skills
+check it (`gh repo view <upstream> --json viewerPermission`) and say which mode
+they are in.
+
+- A **contributor's** agent implements one *approved* plan, opens the PR from the
+  fork and stops: it never merges, never arms auto-merge, never sends a review
+  verdict, never edits labels and never files issues for others. `review-pr` is
+  used only before opening your own PR.
+- A **maintainer's** agent runs the full flow (waves of plans, review rounds,
+  ordered merge), but still implements only plans carrying `approved`, its own
+  included, and adds that label only when the maintainer says so in the session.
+- The reviewer agents read `AGENTS.md`, `SECURITY.md` and the skills from the
+  **base branch**, never from the PR head: a PR that edits them is reviewed as a
+  change, not obeyed.
+
 Where a client reads its instructions and its skills is a fact this repository
 already owns, audited, in `internal/provisioning/workspacescope.go` and
 `internal/configurator/registry.go` (D193, D364).
@@ -175,18 +194,26 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
 ## Pull requests
 
 - Fork and open a PR against `main`. Direct pushes are disabled; every change
-  goes through a PR with green CI (`make gate` locally first).
+  goes through a PR with green CI (`make gate` locally first). In your clone,
+  add the upstream remote once, so that worktrees branch from it and your fork
+  (`origin`) only receives pushes:
+  `git remote add upstream https://github.com/beppetemp/cartographer.git`.
 - **Review costs more than writing**, so a PR is shaped to be cheap to review
   (D856). Three rules, checked by `.agents/skills/review-pr/scripts/triage.sh`
-  — run it on your branch before opening:
+  — run it on your branch before opening; the first rule is also enforced by
+  the required `plan-gate` check, which runs the same script on the PR:
   - a contributor's change over **150 production lines** (tests, docs and
     generated files excluded), or one that changes a public contract (MCP tool
     schema, CLI flag, config key, on-disk format), closes a **plan issue the
-    maintainer approved** — labelled `plan` and `approved`. The design is
+    maintainer approved** — labelled `plan` and `approved` — **and assigned to
+    you** (comment on the plan to claim it; the maintainer assigns it, so nobody
+    ships against a plan someone else holds). The design is
     reviewed there, before any code exists; a trivial fix needs only `Closes #<n>`;
   - at most **500 production lines added** per PR: a larger change is split by
-    work package into PRs that land in order, or the PR body has a line starting
-    `Size exception:` that says why it cannot be;
+    work package into PRs that land in order. The exception is a maintainer's
+    decision: the label `size-exception` on the PR (only triage rights set it;
+    a maintainer's own PR may instead have a body line starting `Size exception:`
+    that says why). A contributor's body line does not count;
   - the body follows `.github/pull_request_template.md`: its `Self-review`
     section reports an independent review run before opening — the
     `pr-reviewer` subagent of the `review-pr` skill, or your client's equivalent,
@@ -231,26 +258,48 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   and come with tests in `internal/mcpserver/server_test.go`.
 - Coding conventions: [`docs/conventions.md`](docs/conventions.md).
 
-## Issues: idea, bug, plan
+## Issues: bug, plan (ideas go to Discussions)
 
 An issue is the backlog. Open one as soon as something is worth coming back to,
 from the template that fits:
 
-- **Idea** (label `idea`): a few lines on what should be possible and why. No
-  design needed.
+- **Idea**: not an issue. Post it in
+  [Discussions](https://github.com/beppetemp/cartographer/discussions) (category
+  Ideas); blank issues are disabled. A maintainer turns an idea worth building
+  into a plan.
 - **Bug** (label `bug`): version, transport, what happened, a reproduction.
 - **Plan** (label `plan`): a self-contained implementation plan, below.
 
-When an idea or a bug is picked up for implementation, it is **promoted in
-place**: its body is rewritten from the Plan template and it gets the `plan`
-label, so the discussion and the plan stay in one issue. A trivial fix needs no
-plan: a PR that says `Closes #<n>` is enough. A plan written by a contributor
-is implemented once the maintainer has added the `approved` label, which only
-someone with triage rights can set — the template sets `plan` for anyone.
+The repository keeps only labels that a workflow or a skill reads, or that
+change who acts:
+
+| Label | Meaning |
+|---|---|
+| `bug`, `plan` | The two kinds of issue (ideas and questions are Discussions). An accepted issue without a plan yet sits in a milestone and is promoted to `plan` when it is not trivial |
+| `approved` | A maintainer accepted the plan (only triage rights can set it); for a contributor's PR the plan is also assigned to them |
+| `size-exception` | Maintainer-granted exception to the 500-line cap |
+| `good first issue` | Small, self-contained, suitable for a first contribution |
+| `ci-red` | Opened by CI when `main` is red |
+| `dependencies`, `autorelease: pending`, `autorelease: tagged` | Set by Dependabot and release-please, never by hand |
+
+Milestones are the roadmap: one per weekly release, `vX.Y.0`; an issue in a
+milestone is accepted work.
+
+When a bug is picked up for implementation, it is **promoted in place** (by a
+maintainer: the label edit needs triage rights; a contributor opens a new Plan
+issue that links the original): its body is rewritten from the Plan template and
+it gets the `plan` label, so the discussion and the plan stay in one issue. A
+trivial fix needs no plan: a PR that says `Closes #<n>` is enough. A plan is a
+**proposal** until a maintainer adds the `approved` label, which only someone
+with triage rights can set; no agent implements a plan without it, and none adds
+it on its own initiative. A contributor claims an approved plan by commenting on
+it; the maintainer assigns it to them, and `plan-gate` accepts only a plan
+assigned to the PR author.
 
 ## Plan issues (design → implementation handoff)
 
-Non-trivial changes start as a **plan issue**: a GitHub issue created from the
+Non-trivial changes start as a **plan issue** (proposed until a maintainer
+adds `approved`): a GitHub issue created from the
 `Plan` template (label `plan`) that packages the outcome of an analysis/design
 discussion into a self-contained implementation plan. The pattern: one session
 (or person) analyzes and decides; a separate one implements. The issue is the

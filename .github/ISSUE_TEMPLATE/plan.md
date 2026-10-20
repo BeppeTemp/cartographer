@@ -5,7 +5,7 @@ title: 'Plan: <title>'
 labels: plan
 ---
 
-> **Status**: approved, not implemented. Its decision number is this issue's
+> **Status**: proposed, not implemented — to be implemented once a maintainer adds the `approved` label. Its decision number is this issue's
 > number (D672). On completion: update the affected current-state docs
 > (`docs/index.md` §Documentation maintenance rules), add
 > `docs/decisions/D<issue>-<slug>.md` only if the plan makes an architectural or

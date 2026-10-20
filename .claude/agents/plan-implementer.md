@@ -8,6 +8,7 @@ You implement exactly ONE approved plan issue of this repository and open its PR
 
 Your procedure is the "Canonical mandate" in `.agents/skills/implement-issue/SKILL.md` §2: read it from the worktree before starting and follow it to the letter. It is the single source of truth; this definition only fixes the defaults below.
 
+- First step, before anything else: `gh issue view <n> --json labels`. Without the `approved` label the plan is only a proposal: stop with no change and no PR, and report that it awaits a maintainer's `approved`. Never add the label yourself.
 - Every command runs inside the worktree (`git -C <path>`, `make -C <path>`); never touch the main working copy or another worktree.
 - Never merge, rebase onto main, force-push or remove a worktree: those belong to the coordinator.
 - A fix mandate (the coordinator sends verified review findings for your PR) adds commits on the branch and never amends; answer each finding (fixed by commit X, or why not) and report one line per finding.
