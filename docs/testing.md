@@ -51,7 +51,7 @@ on `main` right after the merge. The `web` legs run after every push to `main`
 and on a PR that touches their paths (D672, D255); the Playwright browser is
 cached by version. A `changes` job decides both, failing open, and the
 release-please PR always runs everything. `test`, `test-windows`, `web` and
-`pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) are required checks; a job skipped by its path condition reports as
+`pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the approved-plan and size rule, D955) are required checks; a job skipped by its path condition reports as
 passed. On `main` every push gets its own run (the concurrency group is the
 commit), and the `main-status` job opens a `ci-red` issue on the first
 failing push, comments on later ones, and closes it on the next green push. `docs/decisions.md`'s
@@ -657,6 +657,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 
 ## Before a release
 
+- The Friday release candidate (`release-train.yml` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D956) has run on a real deployment; only then is the `rc-ok` label added to the release PR.
 - CI is green on the release commit, including `make e2e-web` in the `web` job.
 - `make smoke` succeeds for the packaged/local stdio path.
 - Installation and upgrade are verified on the target platform.

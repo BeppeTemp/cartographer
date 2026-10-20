@@ -120,7 +120,7 @@ first (D703).
    `main`'s side, then `make web`; any other non-append conflict → stop and ask),
    the full `make gate` on the rebased tree, `git push --force-with-lease`.
 5. Write the record (below), then `gh pr ready`. Contributor mode stops here: the maintainer merges. Maintainer mode merges only on the user's
-   decision: `gh pr merge --squash --delete-branch --auto` merges once the
+   decision, and not in the release freeze: from Friday 00:00 to Monday 08:30 Europe/Rome (`TZ=Europe/Rome date +%u%H%M`: weekday 5-7, or Monday before 0830) a PR whose title type is `feat`, `perf` or `refactor`, or that is breaking (`!:` or a `BREAKING CHANGE` footer), is not merged and gets no auto-merge: say it waits until after Monday's release. Other types are unaffected. Otherwise `gh pr merge --squash --delete-branch --auto` merges once the
    required checks are green; confirm with `gh pr view <pr> --json state`. A
    required check that fails: spawn `reader` with the PR number and fix from its
    digest, not from the log.

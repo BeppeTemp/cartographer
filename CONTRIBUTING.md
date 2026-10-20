@@ -258,6 +258,26 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   and come with tests in `internal/mcpserver/server_test.go`.
 - Coding conventions: [`docs/conventions.md`](docs/conventions.md).
 
+## Releases
+
+A release is a weekly **train**, not whatever has accumulated (D956). Times are Europe/Rome.
+
+- **The train leaves on Monday at 08:30.** The `release-train` workflow merges the open
+  release PR, and release-please then cuts the tag.
+- **Freeze, Friday 00:00 to Monday 08:30.** Nothing that adds or breaks behaviour
+  lands: no `feat`, `perf` or `refactor`, and no breaking change (`!:` in the title or
+  a `BREAKING CHANGE` footer). `fix`, `docs`, `test`, `ci`, `build` and `chore` may
+  land, so Dependabot keeps working. In short: a PR merged by Thursday ships the
+  following Monday; a blocked one waits until after the release. A blocked commit on
+  `main` during the freeze skips the train.
+- **The release candidate.** On Friday at 00:30 the workflow builds a server image
+  `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. A
+  maintainer runs it on a real deployment and adds the `rc-ok` label. Without the
+  label, or if `main` changed after it was added, the train is skipped with a comment
+  and the next one is a week later.
+- **Out of train**, only for a regression of the latest release or a security fix: the
+  maintainer merges the release PR by hand.
+
 ## Issues: bug, plan (ideas go to Discussions)
 
 An issue is the backlog. Open one as soon as something is worth coming back to,
