@@ -204,7 +204,6 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
     if (url.includes("/kbs/") && url.includes("/revision")) return json({ revision: "test-1" });
     // The reference panels' reads: empty, the way a KB that uses none of them answers.
     if (url.includes("/kbs/") && url.includes("/placeholders")) return json({ registry: false, keys: [] });
-    if (url.includes("/kbs/") && url.includes("/contradictions")) return json({ contradictions: [] });
     if (url.includes("/kbs/") && url.includes("/maps")) return json({ maps: [] });
     if (url.includes("/kbs/") && url.includes("/journal")) return json({ text: "" });
     if (url.includes("/kbs/") && url.includes("/services")) return json({ services: [] });

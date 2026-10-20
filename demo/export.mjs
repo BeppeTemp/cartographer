@@ -76,7 +76,8 @@ await api(`${k}/lint`);
 for (const since of ["1d", "7d", "30d", "90d", "365d", "36500d"]) {
   await api(`${k}/changes?since=${q(since)}&limit=500`);
 }
-await api(`${k}/work?limit=200`);
+// Work (web/src/api/client.ts fetchWork): the static keys include the query string.
+await api(`${k}/work?limit=200&fields=contradiction_kind`);
 for (const p of ["maintenance/summary", "maintenance/review", "checks", "revision", "births", "status", "secrets", "placeholders", "contradictions", "contradictions?status=all", "maps", "journal", "sources?status=pending&limit=500", "services", "retired"]) {
   await api(`${k}/${p}`);
 }

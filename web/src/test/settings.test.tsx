@@ -69,7 +69,6 @@ describe("the Settings panel", () => {
     expect(within(sync).getByText(/after the server restarts/)).toBeVisible();
     const tokens = within(screen.getByRole("list", { name: "Access settings" })).getByText("auth.tokens").closest("li")!;
     expect(within(tokens).getByLabelText("Value of auth.tokens")).toHaveTextContent("(set)");
-    expect(screen.getByText(/v1\.3\.0 available/)).toBeInTheDocument();
   });
 
   it("finds a key by name, description, value or override, opening the groups that hold it", async () => {
@@ -152,6 +151,9 @@ describe("the Settings panel", () => {
     expect(within(kbA).getByLabelText("Value of clients.<agent>.kbs")).toHaveTextContent("claude");
     expect(within(kbA).getByLabelText("Value of workspaces")).toHaveTextContent("claude: $HOME/work");
     expect(within(kbA).getByLabelText("Value of paths")).toHaveTextContent("repo:infra → $HOME/src/infra");
+    // the KBs are pills, the active one picked
+    const picker = screen.getByRole("group", { name: "Knowledge bases on this machine" });
+    expect(within(picker).getByRole("button", { name: "kb-a" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "YAML" }));
     expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("server_url: http://example.com/mcp");
   });
@@ -166,7 +168,6 @@ describe("the Settings panel", () => {
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     await user.click(within(tabs).getByRole("tab", { name: "Client" }));
-    expect(screen.getByText(/No client of yours has reported yet/)).toBeInTheDocument();
     // workspaces is set per KB: it reads in each KB's section, under its YAML key.
     expect(screen.queryByRole("list", { name: "Client Agents settings" })).toBeNull();
     expect(

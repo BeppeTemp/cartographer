@@ -149,8 +149,9 @@ func workPhase(fm *okf.Frontmatter, contract *kb.MapContract) bool {
 }
 
 // workReason is the WorkReason a concept carries, or "". A Contradiction
-// without resolution_status is open, as kb_status counts it; a closed page
-// past its review_after is finished, not due.
+// without resolution_status is open, as kb_status counts it; a finished page
+// (closedPhase) or a retired one (kb.IsRetired: deprecated, superseded,
+// archived) past its review_after is not due: there is nothing left to check.
 func workReason(fm *okf.Frontmatter, contract *kb.MapContract) string {
 	if fm == nil {
 		return ""
@@ -165,7 +166,7 @@ func workReason(fm *okf.Frontmatter, contract *kb.MapContract) string {
 		return WorkReasonContradiction
 	}
 	ra, _ := frontmatterValue(fm, "review_after").(string)
-	if len(ra) < 10 || closedPhase(fm, contract) {
+	if len(ra) < 10 || closedPhase(fm, contract) || retired(NormValue(statusOf(fm))) {
 		return ""
 	}
 	if t, err := time.Parse("2006-01-02", ra[:10]); err == nil && pastDay(t) {

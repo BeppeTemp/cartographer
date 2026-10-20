@@ -41,7 +41,7 @@ export function PageHeader({
   help,
 }: {
   eyebrow: string;
-  title: ReactNode;
+  title?: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
   help?: ReactNode;
@@ -60,7 +60,7 @@ export function PageHeader({
             </details>
           )}
         </p>
-        <h1 className="page__title">{title}</h1>
+        {title && <h1 className="page__title">{title}</h1>}
         {subtitle && <p className="page__subtitle">{subtitle}</p>}
       </div>
       {actions && <div className="page__actions">{actions}</div>}

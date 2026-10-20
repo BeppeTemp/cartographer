@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Health } from "../components/Health";
-import type { CheckCatalog, CollectionSummary, LintReport } from "../api/types";
+import type { CheckCatalog, CollectionSummary, GitConflict, LintReport } from "../api/types";
 
 /** The all-clear state of Health: a KB with no finding and no proposal still shows its page field and what was read. */
 
@@ -26,14 +26,14 @@ const checks: CheckCatalog = {
   ],
 };
 
-function page(extra: { checks?: CheckCatalog | null; hmap?: string | null } = {}) {
+function page(extra: { checks?: CheckCatalog | null; hmap?: string | null; conflicts?: GitConflict[] } = {}) {
   const hmap = extra.hmap ?? null;
   return (
     <Health
       report={clean}
       allFindings={[]}
       checks={extra.checks === undefined ? checks : extra.checks}
-      contradictions={[]}
+      conflicts={extra.conflicts ?? null}
       collections={collections}
       hmap={hmap}
       scopeTitle={hmap ? "Notes" : null}
@@ -94,10 +94,10 @@ describe("Health with nothing to fix", () => {
   });
 
   it("keeps the sections below as direct children of the page, where the spacing rule reaches them", () => {
-    const { container } = render(page());
+    const { container } = render(page({ conflicts: [{ concept_id: "infra/a", path: "infra/a.md" }] }));
     const section = container.querySelector(".health > .page-section");
     expect(section).not.toBeNull();
-    expect(within(section as HTMLElement).getByRole("heading", { name: /Contradictions/ })).toBeInTheDocument();
+    expect(within(section as HTMLElement).getByRole("heading", { name: /Git conflicts/ })).toBeInTheDocument();
   });
 
   it("counts the pages of the chosen map, and says which", () => {

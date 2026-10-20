@@ -97,14 +97,11 @@ type Mode = "readable" | "yaml";
 export function Settings({
   reloadKey,
   activeKB,
-  onOpenReleases,
   onRetry,
   onFailure,
 }: {
   /** Changes when the server moves under the page: the settings are read again. */
   reloadKey: string;
-  /** The version in the title opens the release history (D862). */
-  onOpenReleases?(): void;
   /** The KB picked in the top bar: its tab comes first after the server's. */
   activeKB?: string;
   onRetry(): void;
@@ -165,21 +162,6 @@ export function Settings({
     <Page label="Settings" className="settings">
       <PageHeader
         eyebrow="Settings"
-        title={
-          <>
-            Cartographer{" "}
-            <button
-              type="button"
-              className="page__version"
-              title="Release history"
-              aria-haspopup="dialog"
-              onClick={onOpenReleases}
-            >
-              {view.version}
-            </button>
-            {view.latest_version ? ` · ${view.latest_version} available` : ""}
-          </>
-        }
         subtitle={
           <>
             The configuration this server runs with, read-only
@@ -373,17 +355,13 @@ function ClientPanel({
   activeKB?: string;
 }) {
   if (!client) {
-    const note = (
-      <p className="page-note settings__reported">No client of yours has reported yet: every key at its default.</p>
-    );
-    if (!template) return note;
+    if (!template) return null;
     const groups = CLIENT_GROUPS.map(([group]) => ({ group, rows: [] as SettingEntry[] }));
     for (const e of template.entries.filter((e) => !PER_KB.includes(e.key) && matches(e, query))) {
       groups[CLIENT_GROUPS.findIndex(([, match]) => match(e.key))]!.rows.push(e);
     }
     return (
       <>
-        {note}
         {mode === "yaml" ? (
           <Yaml name=".cartographer.yaml" text={template.yaml} />
         ) : (
@@ -497,9 +475,12 @@ function ClientKBs({
   const names = [...kbs];
   for (const list of Object.values(workspaces))
     for (const w of list ?? []) for (const k of w.kbs ?? []) if (!names.includes(k)) names.push(k);
+  names.sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
   const q = query.trim().toLowerCase();
   const shown = names.filter((kb) => !q || kb.toLowerCase().includes(q));
-  if (q && shown.length === 0) return null;
+  const [picked, setPicked] = useState<string | undefined>(activeKB);
+  if (shown.length === 0) return null;
+  const kb = picked && shown.includes(picked) ? picked : shown[0]!;
 
   const settingsOf = (kb: string) => {
     const own = identities[kb];
@@ -540,21 +521,23 @@ function ClientKBs({
     };
   };
 
+  const k = settingsOf(kb);
   return (
     <Folded title="Knowledge bases" count={`${names.length} KB${names.length === 1 ? "" : "s"}`}>
-      <ul className="settings__rows client-kbs" aria-label="Knowledge bases on this machine">
-        {shown.map((kb) => {
-          const k = settingsOf(kb);
-          return (
-            <li key={kb} className="settings__row">
-              <details className="client-kb" open={kb === activeKB || !!q}>
-                <summary className="settings__row-head client-kb__head">
-                  <code className="settings__key">{kb}</code>
-                  {client && (
-                    <span className="client-kb__sum">{`${k.agents.length} agent${k.agents.length === 1 ? "" : "s"}${k.where.some((w) => !w.endsWith(": everywhere")) ? " · bound folders" : ""}`}</span>
-                  )}
-                </summary>
-                <ul className="client-kb__rows" aria-label={`Client settings of ${kb}`}>
+      <div className="client-kbs" role="group" aria-label="Knowledge bases on this machine">
+        {shown.map((name) => (
+          <button
+            key={name}
+            type="button"
+            className="chip client-kbs__pick"
+            aria-pressed={name === kb}
+            onClick={() => setPicked(name)}
+          >
+            {name}
+          </button>
+        ))}
+      </div>
+      <ul className="settings__rows" aria-label={`Client settings of ${kb}`}>
                   <KBSetting
                     yamlKey={`identities.${kb}`}
                     about="The git author of your writes to this KB."
@@ -583,11 +566,6 @@ function ClientKBs({
                     value={k.keys ? `${k.keys} pinned` : null}
                   />
                   <KBSetting yamlKey={`mcp_approvals.${kb}`} about="Its MCP servers you approved." value={k.approved} />
-                </ul>
-              </details>
-            </li>
-          );
-        })}
       </ul>
     </Folded>
   );
@@ -856,6 +834,11 @@ function Yaml({ name, text }: { name: string; text?: string }) {
   const lines = text.replace(/\n$/, "").split("\n");
   const cut = lines.findIndex((l) => AVAILABLE.test(l.trim()));
   const inForce = (cut < 0 ? lines : lines.slice(0, cut)).filter((l) => /^[^\s#][^:#]*:/.test(l)).length;
+  // The divider is the file's marker for the realignment, not something to read:
+  // the view leaves it out, with the blank line under it.
+  const shown = lines.filter(
+    (l, i) => !AVAILABLE.test(l.trim()) && !(l.trim() === "" && AVAILABLE.test(lines[i - 1]?.trim() ?? "")),
+  );
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
@@ -891,16 +874,9 @@ function Yaml({ name, text }: { name: string; text?: string }) {
         onMouseLeave={() => (hovered.current = false)}
       >
         <code>
-          {lines.map((line, i) =>
-            AVAILABLE.test(line.trim()) ? (
-              <span key={i} className="yaml__line yaml__divider">
-                {line}
-                {"\n"}
-              </span>
-            ) : (
-              <YamlLine key={i} line={line} />
-            ),
-          )}
+          {shown.map((line, i) => (
+            <YamlLine key={i} line={line} />
+          ))}
         </code>
       </pre>
     </figure>

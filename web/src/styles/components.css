@@ -3733,12 +3733,6 @@ code.mapcontract__label {
 .yaml__comment {
   color: var(--text-muted);
 }
-.yaml__divider {
-  margin-block: var(--space-3);
-  padding-block: var(--space-1);
-  font-weight: 600;
-  background: var(--surface-2);
-}
 
 /* Inspector History tab: revision timeline and assets. */
 .concept-history {
@@ -3785,38 +3779,17 @@ code.mapcontract__label {
   margin-inline-start: auto;
 }
 
-/* Settings → Client → Knowledge bases: one row per KB that opens to its
-   client settings, drawn as the rows of a settings group, indented. */
-.client-kb__head {
+/* Settings → Client → Knowledge bases: one pill per KB, the picked one's
+   client settings below as the rows of a settings group. */
+.client-kbs {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-  list-style: none;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
 }
-.client-kb__head::-webkit-details-marker {
-  display: none;
-}
-.client-kb__head::before {
-  content: "›";
-  flex: none;
-  width: 1ch;
-  color: var(--text-muted);
-  transition: transform var(--motion-fast) var(--ease-out);
-}
-.client-kb[open] > .client-kb__head::before {
-  transform: rotate(90deg);
-}
-.client-kb__sum {
-  margin-inline-start: auto;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-.client-kb__rows {
-  margin: 0 0 var(--space-2) calc(1ch + var(--space-2));
-  padding: 0;
-  list-style: none;
-  border-inline-start: 1px solid var(--border-subtle);
+.client-kbs__pick {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Secrets in the catalog's language: the key field sits where Artifacts has

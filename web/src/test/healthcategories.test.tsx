@@ -75,6 +75,10 @@ describe("Health's categories", () => {
     expect(pages.querySelector(".agenda__n")).toHaveTextContent("2");
     expect(screen.getByRole("group", { name: "Links" }).querySelector(".agenda__n")).toHaveTextContent("1");
     expect(screen.getByRole("group", { name: "Other" }).querySelector(".agenda__n")).toHaveTextContent("1");
+    // only the first category opens by default; the others fold under their heading
+    expect(pages).toHaveAttribute("open");
+    expect(screen.getByRole("group", { name: "Links" })).not.toHaveAttribute("open");
+    expect(screen.getByRole("group", { name: "Other" })).not.toHaveAttribute("open");
   });
 
   it("lists a category's rows largest first, and colours their bars with the category", () => {

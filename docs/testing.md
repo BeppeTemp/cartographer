@@ -293,7 +293,8 @@ To work on the UI live, `make dev` from a worktree runs both halves and rebuilds
 the server on every Go change (`CONTRIBUTING.md` §Live sessions). Without `DATA` it serves a throwaway copy of ten
 generated test KBs (`internal/testkbs`, 5,000 concepts down to 30, every Atlas state planted; D818), cached per day in
 `$TMPDIR/cartographer-testkbs`, with the audit log on; `internal/testkbs/testkbs_test.go` checks the planted states, the
-bare KB and the fleet's scale. By hand: run a
+bare KB and the fleet's scale. Beside the KBs it posts the settings report of an imaginary client (`client-report.json`,
+built by `clientconfig.Save` and `Report`) after every server start, so Settings → Client has a machine to show. By hand: run a
 server (`cartographer serve --http :39273 --kb …`) and `cd web && npm run dev`: Vite serves the UI with hot reload on
 `http://localhost:5173/ui/` and proxies `/api` and `/health` (the version beside the theme switch) to the server
 (`CARTOGRAPHER_DEV_API` for another address); the Atlas follows the KB live
@@ -405,7 +406,7 @@ toolchain (D227). What they hold:
   rail, an archive map badged and listed after the live ones.
   saying so when the server fell back to them, and starting each opening unpressed.
 - the release history (D862, `src/test/releases.test.tsx`): the version in the
-  top bar and in the Settings title opens a sheet that fetches only then;
+  top bar opens a sheet that fetches only then;
   newest first, one `Current` badge, scrolled to only when newer releases
   precede it; the upgrade block only with a command; the disabled, unreachable
   and stale notices; a cut changelog pointing at GitHub; a changelog with

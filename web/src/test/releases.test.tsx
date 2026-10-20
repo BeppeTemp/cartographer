@@ -183,23 +183,6 @@ describe("the release history sheet", () => {
     expect(screen.getByRole("button", { name: /Server version v1\.2\.3/ })).toHaveFocus();
   });
 
-  it("opens from the version in the Settings title too", async () => {
-    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=settings");
-    stubApi({
-      "/health": () => json({ version: "1.2.3" }),
-      "/settings": () => json({ version: "v1.2.3", server: [], kbs: [] }),
-      "/releases": () => json(VIEW),
-    });
-    const user = userEvent.setup();
-    render(<App />);
-    const title = await screen.findByRole("heading", { level: 1, name: /Cartographer v1\.2\.3/ });
-    await user.click(within(title).getByRole("button", { name: "v1.2.3" }));
-    const sheet = await screen.findByRole("dialog", { name: "Releases" });
-    expect(await within(sheet).findByRole("heading", { name: "v1.3.0" })).toBeInTheDocument();
-  });
-});
-
-describe("a release's own heading line", () => {
   it("is dropped when it only restates the version and the date", () => {
     const body = "## [0.24.0](https://example.com/compare/v0.23.0...v0.24.0) (2026-10-12)\n\n\n### Features\n\n* a thing";
     expect(withoutTitleLine(entry("0.24.0", { body }))).toBe("### Features\n\n* a thing");

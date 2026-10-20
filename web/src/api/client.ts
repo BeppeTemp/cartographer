@@ -5,7 +5,6 @@ import type {
   AssetList,
   ConceptHistory,
   AuditLog,
-  ContradictionList,
   GitConflict,
   ServiceList,
   Whoami,
@@ -282,16 +281,6 @@ export function fetchSecrets(kb: string, signal?: AbortSignal): Promise<SecretLi
 
 export function fetchPlaceholders(kb: string, signal?: AbortSignal): Promise<PlaceholderList> {
   return get<PlaceholderList>(`/kbs/${encodeURIComponent(kb)}/placeholders`, signal);
-}
-
-/** status: "open" (the server's default, so omitted) or "all". */
-export function fetchContradictions(
-  kb: string,
-  status?: "open" | "all",
-  signal?: AbortSignal,
-): Promise<ContradictionList> {
-  const query = status && status !== "open" ? `?status=${encodeURIComponent(status)}` : "";
-  return get<ContradictionList>(`/kbs/${encodeURIComponent(kb)}/contradictions${query}`, signal);
 }
 
 export function fetchMaps(kb: string, signal?: AbortSignal): Promise<MapList> {

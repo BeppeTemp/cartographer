@@ -430,23 +430,6 @@ export interface PlaceholderList {
   keys: PlaceholderKey[];
 }
 
-/** One Contradiction concept (GET /kbs/{kb}/contradictions), as the
- *  contradiction_report tool lists it. */
-export interface Contradiction {
-  id: string;
-  title?: string;
-  /** The concepts the contradiction is about. */
-  involves?: string[];
-  contradiction_kind?: string;
-  /** "open" unless the concept says otherwise. */
-  resolution_status: string;
-}
-
-/** GET /kbs/{kb}/contradictions?status=: gap-kind contradictions excluded. */
-export interface ContradictionList {
-  contradictions: Contradiction[];
-}
-
 /** One Map or Journal contract, as the map_list tool returns it. */
 export interface MapContract {
   name: string;

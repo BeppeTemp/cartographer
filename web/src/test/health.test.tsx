@@ -24,7 +24,7 @@ describe("the Health panel", () => {
     });
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Health" });
-    expect(await within(panel).findByText(/No open contradictions/)).toBeInTheDocument();
+    await within(panel).findByRole("heading", { level: 1 });
     expect(within(panel).queryByText("Possible duplicates")).not.toBeInTheDocument();
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     expect(fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes("/maintenance/review"))).toEqual([]);
@@ -46,34 +46,5 @@ describe("the Health panel", () => {
       const init = call[1] as RequestInit | undefined;
       expect(init?.method ?? "GET").toBe("GET");
     }
-  });
-
-  it("says the open contradictions block commit_gate and sends to Work for them", async () => {
-    stubApi({
-      "/contradictions": () =>
-        json({
-          contradictions: [
-            {
-              id: "notes/clash",
-              title: "Ports disagree",
-              involves: ["infra/a", "infra/b"],
-              contradiction_kind: "factual",
-              resolution_status: "open",
-            },
-          ],
-        }),
-    });
-    render(<App />);
-    const panel = await screen.findByRole("region", { name: "Health" });
-    expect(await within(panel).findByText(/One open contradiction blocks/)).toBeInTheDocument();
-    expect(within(panel).queryByText("Ports disagree")).not.toBeInTheDocument();
-    expect(within(panel).getByRole("button", { name: "See it in Work" })).toBeInTheDocument();
-  });
-
-  it("says in one line what contradictions are when none are open", async () => {
-    stubApi();
-    render(<App />);
-    const panel = await screen.findByRole("region", { name: "Health" });
-    expect(await within(panel).findByText(/No open contradictions/)).toBeInTheDocument();
   });
 });

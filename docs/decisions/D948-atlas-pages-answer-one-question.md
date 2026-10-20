@@ -6,8 +6,11 @@ topic: control-plane
 
 **Decision.** Health shows the lint's findings and nothing else: what is wrong
 with a page, and when nothing is, the same heatmap all green with the rule
-families it was read against. What a person has to answer or decide moves to
-Work, in the column of what they do with it: contradictions and gaps through the
+families it was read against. Its findings are grouped by the category of their
+rule, one folding row each with the first open, and the git conflicts a sync left
+are the only other section. What a person has to answer or decide moves to
+Work, in the column of what they do with it: contradictions (no longer repeated in
+Health) and gaps through the
 `reason` of `work_list`, the searches that found nothing under "to answer", the
 proposals of `kb_review` under "to decide". The Health trend is gone. The other
 pages follow the same rule: Secrets reads like the Artifacts catalog (a card per

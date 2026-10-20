@@ -13,7 +13,6 @@ import {
   fetchMaps,
   fetchOverview,
   fetchConflicts,
-  fetchContradictions,
   restoreToken,
   setToken,
 } from "./api/client";
@@ -22,7 +21,6 @@ import type {
   ArtifactList,
   CheckCatalog,
   Concept,
-  Contradiction,
   GitConflict,
   GraphSnapshot,
   KBSummary,
@@ -129,7 +127,6 @@ export function App() {
   // kb_status's knowledge signals for Health; a principal that cannot see
   // the whole KB gets a 404 and those parts are simply absent.
   const [checks, setChecks] = useState<CheckCatalog | null>(null);
-  const [contradictions, setContradictions] = useState<Contradiction[] | null>(null);
   const [conflicts, setConflicts] = useState<GitConflict[] | null>(null);
   // Health's checks have answered (or failed) for the current read.
   const [healthSettled, setHealthSettled] = useState(false);
@@ -542,12 +539,11 @@ export function App() {
     replaceView(next);
   }, [view, activeKB, kbs, secretsAllowed]);
 
-  // Health's whole-KB reads (D338): the contradictions and the git conflicts answer 404 to a principal that cannot see
+  // Health's whole-KB read (D338): the git conflicts answer 404 to a principal that cannot see
   // the whole KB, which is not an error to show — the page leaves those parts out.
   useEffect(() => {
     if (view.panel !== "health" || !activeKB || phase !== "ready") {
       setChecks(null);
-      setContradictions(null);
       setConflicts(null);
       setHealthSettled(false);
       return;
@@ -557,16 +553,11 @@ export function App() {
     if (healthKB.current !== activeKB) {
       healthKB.current = activeKB;
       setChecks(null);
-      setContradictions(null);
       setConflicts(null);
       setHealthSettled(false);
     }
     const controller = new AbortController();
-    // Whole-KB: a narrowed principal gets a 404 and no section.
-    fetchContradictions(activeKB, "open", controller.signal)
-      .then((res) => setContradictions(res.contradictions ?? []))
-      .catch(() => undefined);
-    // Whole-KB as well, and only shown when there is something to resolve.
+    // Whole-KB: a narrowed principal gets a 404 and no section, shown only when there is something to resolve.
     fetchConflicts(activeKB, controller.signal)
       .then((res) => setConflicts(Array.isArray(res) ? res : []))
       .catch(() => undefined);
@@ -862,7 +853,6 @@ export function App() {
             <Health
               report={lint}
               checks={checks}
-              contradictions={contradictions}
               conflicts={conflicts}
               pending={!healthSettled}
               scopeTitle={
@@ -875,7 +865,6 @@ export function App() {
               loading={lintLoading}
               error={lintError}
               onRetry={() => setReloadKey((k) => k + 1)}
-              onWork={() => navigate({ panel: "work" })}
               onReveal={(conceptId, message) => {
                 if (conceptId) navigate({ panel: "atlas", concept: conceptId });
                 else announce(message);
@@ -885,7 +874,6 @@ export function App() {
             <Settings
               reloadKey={`${reloadKey}:${live}`}
               activeKB={activeKB ?? undefined}
-              onOpenReleases={() => setReleasesOpen(true)}
               onRetry={() => setReloadKey((k) => k + 1)}
               onFailure={handleFailure}
             />

@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import type {
   CheckCatalog,
   CollectionSummary,
-  Contradiction,
   GitConflict,
   LintFinding,
   LintReport,
@@ -47,7 +46,6 @@ import { ErrorState } from "./States";
 export function Health({
   report,
   checks,
-  contradictions = null,
   conflicts = null,
   pending = false,
   scopeTitle,
@@ -58,14 +56,11 @@ export function Health({
   loading,
   error,
   onReveal,
-  onWork = () => undefined,
   onRetry,
 }: {
   report: LintReport | null;
   /** Every check the server runs (D365); null leaves the reference out. */
   checks?: CheckCatalog | null;
-  /** The open Contradiction concepts; null when not visible or not arrived. */
-  contradictions?: Contradiction[] | null;
   /** Open git rebase conflicts; null when not visible or not arrived, and the
    *  section is shown only when there are some. */
   conflicts?: GitConflict[] | null;
@@ -82,8 +77,6 @@ export function Health({
   loading: boolean;
   error: unknown;
   onReveal(concept: string | null, message: string): void;
-  /** Opens the Work panel, where the open contradictions are listed. */
-  onWork?(): void;
   onRetry(): void;
 }) {
   // The agenda is the page; what the checks look for is a tab beside it (D365).
@@ -236,8 +229,8 @@ export function Health({
             )
           ) : (
             <div className="agenda-list" aria-label="Issues">
-              {sections.map((s) => (
-                <AgendaGroup key={s.category} category={s.category} count={s.rows.length}>
+              {sections.map((s, i) => (
+                <AgendaGroup key={s.category} category={s.category} count={s.rows.length} open={i === 0}>
                   {s.rows.map((g) => (
                     <CheckRow
                       key={g.check}
@@ -253,7 +246,6 @@ export function Health({
             </div>
           )}
 
-          {contradictions && <Contradictions items={contradictions} onWork={onWork} />}
 
           {!!conflicts?.length && <GitConflicts items={conflicts} onReveal={onReveal} />}
         </>
@@ -332,27 +324,41 @@ function CategoryMark({ category }: { category: string }) {
   );
 }
 
-/** One category of the agenda: its colour, its name, how many kinds of issue, then those rows. */
-function AgendaGroup({ category, count, children }: { category: string; count: number; children: React.ReactNode }) {
+/**
+ * One category of the agenda: its colour, its name, how many kinds of issue, then
+ * those rows. It folds: only the first category opens by default, so the page
+ * starts on one list and names the others.
+ */
+function AgendaGroup({
+  category,
+  count,
+  open,
+  children,
+}: {
+  category: string;
+  count: number;
+  open: boolean;
+  children: React.ReactNode;
+}) {
   const title = categoryTitle(category);
   const id = `agenda-${category}`;
   return (
     // The rows below take the category's colour for their bars.
-    <div
+    <details
       className="agenda"
-      role="group"
+      open={open}
       aria-labelledby={id}
       style={{ "--tone": categoryHue(category) } as React.CSSProperties}
     >
-      <div className="agenda__head">
+      <summary className="agenda__head">
         <CategoryMark category={category} />
         <h2 className="agenda__title" id={id}>
           {title}
         </h2>
-        <span className="agenda__n">{count}</span>
-      </div>
+        <span className="agenda__n">{plural(count, "kind")}</span>
+      </summary>
       <ul className="agenda__rows">{children}</ul>
-    </div>
+    </details>
   );
 }
 
@@ -834,33 +840,6 @@ function Coverage({ catalog, report }: { catalog: CheckCatalog; report: LintRepo
         })}
       </div>
     </section>
-  );
-}
-
-/**
- * The Contradiction concepts still open block commit_gate, so Health says so;
- * deciding which page holds is work, listed in Work beside the rest.
- */
-function Contradictions({ items, onWork }: { items: Contradiction[]; onWork(): void }) {
-  return (
-    <PageSection title="Contradictions" id="health-contradictions" count={items.length}>
-      {items.length === 0 ? (
-        <Quiet>
-          No open contradictions. An agent that finds two pages disagreeing records one (
-          <code>contradiction_report</code>
-          ); while it is open, <code>commit_gate</code> blocks.
-        </Quiet>
-      ) : (
-        <p className="page-note">
-          {items.length === 1 ? "One open contradiction blocks" : `${items.length} open contradictions block`}{" "}
-          <code>commit_gate</code> until someone decides which page holds.{" "}
-          <button type="button" className="ref-link" onClick={onWork}>
-            See {items.length === 1 ? "it" : "them"} in Work
-          </button>
-          .
-        </p>
-      )}
-    </PageSection>
   );
 }
 
