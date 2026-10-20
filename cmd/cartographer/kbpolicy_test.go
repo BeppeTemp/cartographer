@@ -11,16 +11,14 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 )
 
 func policyKB(t *testing.T, settings string) *kb.KB {
 	t.Helper()
-	k, err := kb.Init(filepath.Join(t.TempDir(), "kb-a"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
 	if settings != "" {
 		if err := os.WriteFile(filepath.Join(k.Root, kb.SettingsFile), []byte(settings), 0o644); err != nil {
 			t.Fatal(err)

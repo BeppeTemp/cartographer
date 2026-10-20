@@ -14,6 +14,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
@@ -508,11 +509,7 @@ func TestKBStatusConformance(t *testing.T) {
 // kb_status runs a whole-KB lint on every call (D290): the benchmark is the
 // measurement the decision records.
 func BenchmarkKBStatusConformance1000(b *testing.B) {
-	dir := b.TempDir()
-	k, err := kb.Init(dir)
-	if err != nil {
-		b.Fatal(err)
-	}
+	k := kbtest.New(b)
 	for m := 0; m < 10; m++ {
 		name := fmt.Sprintf("m%d", m)
 		if err := k.CreateMapWithContract(name, name, "map", nil, kb.MapContract{}); err != nil {

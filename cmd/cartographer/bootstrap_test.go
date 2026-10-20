@@ -13,6 +13,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 )
 
 func hasGit() bool {
@@ -44,11 +45,8 @@ func TestEnsureClonedKBFromLocalRemote(t *testing.T) {
 
 	tmp := t.TempDir()
 
-	// Source working KB, committed by kb.Init.
-	srcDir := filepath.Join(tmp, "src-kb")
-	if _, err := kb.Init(srcDir); err != nil {
-		t.Fatalf("kb.Init(src): %v", err)
-	}
+	// Source working KB, with its initial commit.
+	srcDir := kbtest.New(t).Root
 
 	branchOut, err := exec.Command("git", "-C", srcDir, "symbolic-ref", "--short", "HEAD").Output()
 	if err != nil {
@@ -110,10 +108,7 @@ func TestEnsureClonedKBUsesExplicitName(t *testing.T) {
 	}
 
 	tmp := t.TempDir()
-	srcDir := filepath.Join(tmp, "src-kb")
-	if _, err := kb.Init(srcDir); err != nil {
-		t.Fatalf("kb.Init(src): %v", err)
-	}
+	srcDir := kbtest.New(t).Root
 	branchOut, err := exec.Command("git", "-C", srcDir, "symbolic-ref", "--short", "HEAD").Output()
 	if err != nil {
 		t.Fatalf("git symbolic-ref: %v", err)
@@ -424,10 +419,7 @@ func TestEnsureClonedKBConfiguredBranch(t *testing.T) {
 	}
 	tmp := t.TempDir()
 	for _, branch := range []string{"existing", "missing"} {
-		srcDir := filepath.Join(tmp, "src-"+branch)
-		if _, err := kb.Init(srcDir); err != nil {
-			t.Fatalf("kb.Init(src): %v", err)
-		}
+		srcDir := kbtest.New(t).Root
 		if err := os.WriteFile(filepath.Join(srcDir, kb.SettingsFile), []byte("branch: "+branch+"\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -469,10 +461,7 @@ func TestEnsureClonedKBConfiguredBranch(t *testing.T) {
 // its file:// URL (shared by the atomic-clone and listen-first tests).
 func bareRemoteWithKB(t *testing.T, tmp string) string {
 	t.Helper()
-	srcDir := filepath.Join(tmp, "src-kb")
-	if _, err := kb.Init(srcDir); err != nil {
-		t.Fatalf("kb.Init(src): %v", err)
-	}
+	srcDir := kbtest.New(t).Root
 	out, err := exec.Command("git", "-C", srcDir, "symbolic-ref", "--short", "HEAD").Output()
 	if err != nil {
 		t.Fatalf("git symbolic-ref: %v", err)

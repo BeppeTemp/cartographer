@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -16,10 +17,7 @@ import (
 // "gateway", plus an archived-only term.
 func archivedServer(t *testing.T) (*Server, *kb.KB) {
 	t.Helper()
-	k, err := kb.Init(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
 	writeKBFile(t, k, "ops/_map.md", "---\ntype: Map\ntitle: Ops\n---\n")
 	writeKBFile(t, k, "ops/live.md", "---\ntype: Note\ntitle: Live gateway\n---\n# Live\n\nThe gateway runs here.\n")
 	writeKBFile(t, k, "ops/old.md", "---\ntype: Note\ntitle: Old gateway\nstatus: archived\n---\n# Old\n\nThe gateway failed. Zebrafish only here.\n")
@@ -74,10 +72,7 @@ func TestSearch_ArchivedFallback(t *testing.T) {
 
 func TestReadCost_ExcludesArchived(t *testing.T) {
 	t.Parallel()
-	k, err := kb.Init(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
 	writeKBFile(t, k, "ops/_map.md", "---\ntype: Map\ntitle: Ops\n---\n")
 	writeKBFile(t, k, "ops/live.md", "---\ntype: Note\ntitle: L\n---\n# L\n")
 	writeKBFile(t, k, "ops/big.md", "---\ntype: Note\ntitle: B\nstatus: archived\n---\n# B\n\n"+strings.Repeat("x", 10000)+"\n")
@@ -92,10 +87,7 @@ func TestReadCost_ExcludesArchived(t *testing.T) {
 
 func TestAtlasStructure_ExcludesArchived(t *testing.T) {
 	t.Parallel()
-	k, err := kb.Init(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
 	writeKBFile(t, k, "ops/_map.md", "---\ntype: Map\ntitle: Ops\n---\n")
 	writeKBFile(t, k, "ops/a.md", "---\ntype: Note\ntitle: Live A\n---\n# A\n\n[b](b.md)\n")
 	writeKBFile(t, k, "ops/b.md", "---\ntype: Note\ntitle: Live B\n---\n# B\n\n[a](a.md)\n")
@@ -211,10 +203,7 @@ func TestMapUpdate_OpenField(t *testing.T) {
 
 func TestReadAccessLogRoundTrip(t *testing.T) {
 	t.Parallel()
-	k, err := kb.Init(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
 	l := newReadAccessLog(k)
 	if r, s, since := l.summary(); r.TrackedConcepts != 0 || s.TrackedConcepts != 0 || since == "" {
 		t.Fatalf("fresh log = %+v %+v %q", r, s, since)
@@ -247,10 +236,7 @@ func TestReadAccessLogRoundTrip(t *testing.T) {
 }
 
 func TestReadAccessLogFlushesAfterInterval(t *testing.T) {
-	k, err := kb.Init(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
 	now := time.Now()
 	prev := readAccessNow
 	readAccessNow = func() time.Time { return now }
@@ -280,10 +266,7 @@ func TestReadAccessLogFlushesAfterInterval(t *testing.T) {
 // opened: its entries come back as surfaced, never as reads, and reads start
 // counting from the upgrade.
 func TestReadAccessLogMigratesTheFlatFile(t *testing.T) {
-	k, err := kb.Init(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
 	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
 	prev := readAccessNow
 	readAccessNow = func() time.Time { return now }

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
-	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
@@ -191,11 +191,7 @@ func TestRepeatedFactHidesInvisibleOwners(t *testing.T) {
 // 50 patches, each adding 3 fact lines, on a 1,000-concept KB with the FTS5
 // index (D351). Acceptance: "with" under 50 ms over "without" (no finder).
 func BenchmarkWriteRepeatedFact(b *testing.B) {
-	dir := b.TempDir()
-	k, err := kb.Init(dir)
-	if err != nil {
-		b.Fatal(err)
-	}
+	k := kbtest.New(b)
 	for i := 0; i < 1000; i++ {
 		p := filepath.Join(k.DataRoot(), fmt.Sprintf("m%d", i%10), fmt.Sprintf("c%d.md", i))
 		_ = os.MkdirAll(filepath.Dir(p), 0o755)
@@ -204,7 +200,7 @@ func BenchmarkWriteRepeatedFact(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-	ix, err := sqlindex.Open(filepath.Join(dir, "idx.db"))
+	ix, err := sqlindex.Open(filepath.Join(k.Root, "idx.db"))
 	if err != nil {
 		b.Fatal(err)
 	}

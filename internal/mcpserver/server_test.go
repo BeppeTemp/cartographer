@@ -19,6 +19,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
@@ -29,16 +30,7 @@ import (
 // registered on a zero testing.T never runs and leaves the temp KB behind.
 func setupTestKB(t testing.TB) *kb.KB {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "wiki-mcp-test-*")
-	if err != nil {
-		t.Fatalf("MkdirTemp: %v", err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-
-	k, err := kb.Init(dir)
-	if err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	k := kbtest.New(t)
 	// Registered after the directory's removal, so it runs before it.
 	t.Cleanup(func() { waitReadRefresh(k) })
 

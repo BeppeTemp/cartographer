@@ -15,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
@@ -192,16 +193,8 @@ func seedAnchor(t *testing.T, k *kb.KB) {
 // If git is not available or not configured, the calling test is skipped.
 func setupGitKB(t *testing.T) (*kb.KB, string) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "wiki-gitwrap-test-*")
-	if err != nil {
-		t.Fatalf("MkdirTemp: %v", err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-
-	k, err := kb.Init(dir)
-	if err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	k := kbtest.New(t)
+	dir := k.Root
 	if _, err := gitx.HeadSHA(dir); err != nil {
 		t.Skipf("git not available or initial commit failed: %v", err)
 	}
@@ -584,19 +577,14 @@ func TestGitWrap_IndexPatch_FailedOp_NoCommit(t *testing.T) {
 // through gitWrap, not just kb.SchedulePush/FlushPush directly).
 func setupGitKBWithRemote(t *testing.T) (k *kb.KB, bare string) {
 	t.Helper()
-	base := t.TempDir()
-	root := filepath.Join(base, "kb")
-	k, err := kb.Init(root)
+	k = kbtest.New(t)
 	// A background read refresh must end before TempDir is removed: this
 	// cleanup is registered after it, so it runs first.
 	t.Cleanup(func() { waitReadRefresh(k) })
-	if err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
 	if _, err := gitx.HeadSHA(k.Root); err != nil {
 		t.Skipf("git not available or initial commit failed: %v", err)
 	}
-	bare = filepath.Join(base, "remote.git")
+	bare = filepath.Join(filepath.Dir(k.Root), "remote.git")
 	cmd := exec.Command("git", "init", "--bare", bare)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init --bare: %v\n%s", err, out)

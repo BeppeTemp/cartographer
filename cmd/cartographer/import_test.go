@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 )
 
 func writeSourceFile(t *testing.T, root, rel, content string) {
@@ -38,10 +39,7 @@ func TestCmdImport_HappyPath(t *testing.T) {
 	src := t.TempDir()
 	writeSourceFile(t, src, "my-note.md", "Just a note, no frontmatter.\n")
 
-	kbDir := t.TempDir()
-	if _, err := kb.Init(kbDir); err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	kbDir := kbtest.New(t).Root
 
 	out := withStdout(t, func() {
 		code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"})
@@ -74,10 +72,7 @@ func TestCmdImport_TitleFromH1(t *testing.T) {
 	src := t.TempDir()
 	writeSourceFile(t, src, "raw.md", "# My Real Title\n\nBody text.\n")
 
-	kbDir := t.TempDir()
-	if _, err := kb.Init(kbDir); err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	kbDir := kbtest.New(t).Root
 
 	withStdout(t, func() {
 		if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}); code != 0 {
@@ -97,10 +92,7 @@ func TestCmdImport_DryRun(t *testing.T) {
 	src := t.TempDir()
 	writeSourceFile(t, src, "a.md", "Content A.\n")
 
-	kbDir := t.TempDir()
-	if _, err := kb.Init(kbDir); err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	kbDir := kbtest.New(t).Root
 
 	out := withStdout(t, func() {
 		code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes", "--dry-run"})
@@ -128,10 +120,7 @@ func TestCmdImport_PreservesExistingFrontmatter(t *testing.T) {
 	writeSourceFile(t, src, "curated.md",
 		"---\ntype: Runbook\ntitle: Already Curated\n---\nBody.\n")
 
-	kbDir := t.TempDir()
-	if _, err := kb.Init(kbDir); err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	kbDir := kbtest.New(t).Root
 
 	withStdout(t, func() {
 		if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}); code != 0 {
@@ -159,10 +148,7 @@ func TestCmdImport_ExistingStatusPreserved(t *testing.T) {
 	writeSourceFile(t, src, "already-active.md",
 		"---\ntype: Note\ntitle: T\nstatus: active\n---\nBody.\n")
 
-	kbDir := t.TempDir()
-	if _, err := kb.Init(kbDir); err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	kbDir := kbtest.New(t).Root
 
 	withStdout(t, func() {
 		if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}); code != 0 {
@@ -184,10 +170,7 @@ func TestCmdImport_MapPerDirectory(t *testing.T) {
 	writeSourceFile(t, src, "people/alice.md", "About Alice.\n")
 	writeSourceFile(t, src, "misc.md", "Misc content.\n")
 
-	kbDir := t.TempDir()
-	if _, err := kb.Init(kbDir); err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	kbDir := kbtest.New(t).Root
 
 	withStdout(t, func() {
 		code := cmdImport([]string{
@@ -212,10 +195,7 @@ func TestCmdImport_NewMapHasScaffold(t *testing.T) {
 	src := t.TempDir()
 	writeSourceFile(t, src, "note.md", "A note.\n")
 
-	kbDir := t.TempDir()
-	if _, err := kb.Init(kbDir); err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	kbDir := kbtest.New(t).Root
 
 	withStdout(t, func() {
 		if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}); code != 0 {
@@ -234,10 +214,7 @@ func TestCmdImport_DirAsConcept(t *testing.T) {
 	writeSourceFile(t, src, "guide/index.md", "# Guide\n\nRead [setup](setup.md).\n")
 	writeSourceFile(t, src, "guide/setup.md", "# Setup\n")
 
-	kbDir := t.TempDir()
-	if _, err := kb.Init(kbDir); err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	kbDir := kbtest.New(t).Root
 	out := withStdout(t, func() {
 		code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes", "--dir-as-concept"})
 		if code != 0 {
@@ -264,10 +241,7 @@ func TestCmdImport_WithoutDirAsConceptKeepsFlattenAndRejectsIndex(t *testing.T) 
 	writeSourceFile(t, src, "guide/index.md", "# Guide\n")
 	writeSourceFile(t, src, "guide/setup.md", "# Setup\n")
 
-	kbDir := t.TempDir()
-	if _, err := kb.Init(kbDir); err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	kbDir := kbtest.New(t).Root
 	withStdout(t, func() {
 		code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"})
 		if code != 1 {
@@ -286,10 +260,7 @@ func TestCmdImport_MessageCommitsOnlyImportPaths(t *testing.T) {
 	src := t.TempDir()
 	writeSourceFile(t, src, "note.md", "A note.\n")
 
-	kbDir := t.TempDir()
-	if _, err := kb.Init(kbDir); err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	kbDir := kbtest.New(t).Root
 	runImportGit(t, kbDir, "config", "user.email", "test@wiki.local")
 	runImportGit(t, kbDir, "config", "user.name", "Wiki Test")
 	if err := exec.Command("git", "-C", kbDir, "rev-parse", "--verify", "HEAD").Run(); err != nil {
@@ -346,10 +317,7 @@ func TestCmdImport_UnmappedSourceWithoutMap_Errors(t *testing.T) {
 	src := t.TempDir()
 	writeSourceFile(t, src, "orphan/note.md", "Content.\n")
 
-	kbDir := t.TempDir()
-	if _, err := kb.Init(kbDir); err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	kbDir := kbtest.New(t).Root
 
 	code := cmdImport([]string{"--source", src, "--kb", kbDir})
 	if code != 2 {
@@ -376,10 +344,7 @@ func TestCmdImport_LinkRewriting(t *testing.T) {
 	writeSourceFile(t, src, "a.md", "See [b](b.md) and [[some-wiki-id]].\n")
 	writeSourceFile(t, src, "b.md", "Target content.\n")
 
-	kbDir := t.TempDir()
-	if _, err := kb.Init(kbDir); err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
+	kbDir := kbtest.New(t).Root
 
 	withStdout(t, func() {
 		if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}); code != 0 {
@@ -424,11 +389,8 @@ func TestCmdImport_RefusesWhileTheKBIsLocked(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("# A\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	kbDir := t.TempDir()
-	k, err := kb.Init(kbDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
+	kbDir := k.Root
 	release, err := k.AcquireProcessLock(time.Second, "cartographer serve")
 	if err != nil {
 		t.Fatal(err)
@@ -453,11 +415,8 @@ func TestCmdImport_DryRunDoesNotTakeTheLock(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("# A\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	kbDir := t.TempDir()
-	k, err := kb.Init(kbDir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
+	kbDir := k.Root
 	release, err := k.AcquireProcessLock(time.Second, "cartographer serve")
 	if err != nil {
 		t.Fatal(err)
@@ -483,10 +442,7 @@ func TestCmdImport_TellsTheOperatorToReindex(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(src, "a.md"), []byte("# A\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		kbDir := t.TempDir()
-		if _, err := kb.Init(kbDir); err != nil {
-			t.Fatal(err)
-		}
+		kbDir := kbtest.New(t).Root
 		return withStdout(t, func() {
 			if code := cmdImport([]string{"--source", src, "--kb", kbDir, "--default-map", "notes"}); code != 0 {
 				t.Errorf("cmdImport = %d, want 0", code)

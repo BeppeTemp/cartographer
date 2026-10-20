@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -84,10 +85,7 @@ func TestRewriteBacklinks_MatchesFullScan(t *testing.T) {
 	moveMap := map[string]string{"notes/x": "arch/x", "notes/exp": "arch/exp", "notes/y": "notes/y2", "notes/asset/Dockerfile": "gone"}
 
 	build := func() *kb.KB {
-		k, err := kb.Init(t.TempDir())
-		if err != nil {
-			t.Fatal(err)
-		}
+		k := kbtest.New(t)
 		for rel, content := range files {
 			abs := filepath.Join(k.DataRoot(), filepath.FromSlash(rel))
 			if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {

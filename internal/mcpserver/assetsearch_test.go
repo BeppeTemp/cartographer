@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
@@ -191,10 +192,7 @@ func TestPersistedHashWithAssets(t *testing.T) {
 func BenchmarkReconcileNoChangeWithAssets(b *testing.B) {
 	for _, withAssets := range []bool{false, true} {
 		b.Run(fmt.Sprintf("assets=%v", withAssets), func(b *testing.B) {
-			k, err := kb.Init(b.TempDir())
-			if err != nil {
-				b.Fatal(err)
-			}
+			k := kbtest.New(b)
 			if err := os.MkdirAll(filepath.Join(k.DataRoot(), "dossiers"), 0o755); err != nil {
 				b.Fatal(err)
 			}
