@@ -1257,9 +1257,14 @@ func BranchExists(dir, branch string) bool {
 	return err == nil
 }
 
+// noEOL keeps a stash round trip byte for byte: with core.autocrlf=true (the
+// Git for Windows default) a pop checks the stashed files out with CRLF, so a
+// write the gate stashed and restored came back rewritten.
+var noEOL = []string{"-c", "core.autocrlf=false"}
+
 // StashPush stashes uncommitted changes.
 func StashPush(dir string) error {
-	out, err := runGit(dir, "stash", "push")
+	out, err := runGit(dir, append(noEOL, "stash", "push")...)
 	if err != nil {
 		return fmt.Errorf("git stash push: %w: %s", err, out)
 	}
@@ -1268,7 +1273,7 @@ func StashPush(dir string) error {
 
 // StashPop pops the last stash. Returns error if nothing to pop.
 func StashPop(dir string) error {
-	out, err := runGit(dir, "stash", "pop")
+	out, err := runGit(dir, append(noEOL, "stash", "pop")...)
 	if err != nil {
 		return fmt.Errorf("git stash pop: %w: %s", err, out)
 	}
@@ -1421,7 +1426,7 @@ func DiscardChanges(dir string) error {
 // StashPushAll stashes every uncommitted change including untracked files, so
 // the tree is at HEAD until StashPop (StashPush leaves untracked files behind).
 func StashPushAll(dir string) error {
-	out, err := runGit(dir, "stash", "push", "--include-untracked")
+	out, err := runGit(dir, append(noEOL, "stash", "push", "--include-untracked")...)
 	if err != nil {
 		return fmt.Errorf("git stash push --include-untracked: %w: %s", err, out)
 	}

@@ -66,6 +66,14 @@ if r.get('isError'):
 "
 }
 
+# seed_index KB ID TITLE N creates an Index page and an overview page that links
+# it, in one concept_batch with their curated index entries: the write gate (D907)
+# refuses a page that is orphan or missing from its map's index.
+seed_index() {
+  local kb=$1 id=$2 title=$3 n=$4 map=${2%%/*}
+  mcp_call "$kb" concept_batch "{\"operations\":[{\"op\":\"write\",\"id\":\"$id\",\"index_entry\":true,\"frontmatter\":{\"type\":\"Index\",\"title\":\"$title\"},\"body\":\"# $title\\n\\nOverview: [[$map/overview]]\\n\"},{\"op\":\"write\",\"id\":\"$map/overview\",\"index_entry\":true,\"frontmatter\":{\"type\":\"Index\",\"title\":\"$title overview\"},\"body\":\"# $title overview\\n\\nSee [[$id]].\\n\"}]}" "$n"
+}
+
 echo "→ maps $KB1"
 mcp_call "$KB1" map_create '{"name":"notes","title":"Notes"}' 1
 mcp_call "$KB1" map_create '{"name":"decisions","title":"Decisions"}' 2
@@ -75,15 +83,15 @@ mcp_call "$KB2" map_create '{"name":"projects","title":"Projects"}' 3
 mcp_call "$KB2" map_create '{"name":"ops","title":"Operations"}' 4
 
 echo "→ expanded concept $KB1"
-mcp_call "$KB1" concept_write '{"id":"notes/quick-captures","frontmatter":{"type":"Index","title":"Quick Captures"},"body":"# Quick Captures\n"}' 5
+seed_index "$KB1" notes/quick-captures "Quick Captures" 5
 mcp_call "$KB1" concept_expand '{"id":"notes/quick-captures"}' 6
-mcp_call "$KB1" concept_write '{"id":"decisions/architecture","frontmatter":{"type":"Index","title":"Architecture Decisions"},"body":"# Architecture Decisions\n"}' 7
+seed_index "$KB1" decisions/architecture "Architecture Decisions" 7
 mcp_call "$KB1" concept_expand '{"id":"decisions/architecture"}' 8
 
 echo "→ expanded concept $KB2"
-mcp_call "$KB2" concept_write '{"id":"projects/cartographer","frontmatter":{"type":"Index","title":"Cartographer"},"body":"# Cartographer\n"}' 9
+seed_index "$KB2" projects/cartographer "Cartographer" 9
 mcp_call "$KB2" concept_expand '{"id":"projects/cartographer"}' 10
-mcp_call "$KB2" concept_write '{"id":"ops/runbooks","frontmatter":{"type":"Index","title":"Runbooks"},"body":"# Runbooks\n"}' 11
+seed_index "$KB2" ops/runbooks "Runbooks" 11
 mcp_call "$KB2" concept_expand '{"id":"ops/runbooks"}' 12
 
 echo "→ atlas_overview $KB1"

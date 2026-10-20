@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 )
@@ -147,7 +148,7 @@ func TestRepairContractLegacyKey_DropsLintAcceptOnlyWithArtifactWrite(t *testing
 	if want := "---\nperimeter: ops\n---\n# Instructions\n"; string(raw) != want {
 		t.Fatalf("instructions.md = %q, want %q", raw, want)
 	}
-	if fi, err := os.Lstat(path); err != nil || fi.Mode().Perm() != 0o640 {
+	if fi, err := os.Lstat(path); err != nil || (execbit.Supported && fi.Mode().Perm() != 0o640) {
 		t.Fatalf("file mode not kept: %v %v", fi, err)
 	}
 	if n := countFindings(t, k, "contract_legacy_key"); n != 0 {
