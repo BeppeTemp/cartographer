@@ -5808,15 +5808,17 @@ func TestConceptDeleteRefusesInboundLinksWithoutForce(t *testing.T) {
 	}
 }
 
-func TestConceptDeleteForceWarnsAboutLinkers(t *testing.T) {
+// force skips the inbound_links check, not the write gate (D907): a delete that
+// leaves a visible page with a broken link is refused and nothing is removed.
+func TestConceptDeleteForceStillMeetsTheWriteGate(t *testing.T) {
 	t.Parallel()
 	k, s := deleteLinkFixture(t)
 	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target","force":true}`)
-	if res.IsError || !strings.Contains(res.Content[0].Text, "Warning: 1 concept(s) still link to manutenzione/target: manutenzione/linker") {
-		t.Fatalf("want deleted with warning, got %+v", res)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "write_gate: refused") || !strings.Contains(res.Content[0].Text, `"path":"manutenzione/linker.md","check":"broken_link"`) {
+		t.Fatalf("want the gate's refusal naming the linker, got %+v", res)
 	}
-	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "target.md")); !os.IsNotExist(err) {
-		t.Fatalf("forced delete kept the file: %v", err)
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "target.md")); err != nil {
+		t.Fatalf("refused delete removed the file: %v", err)
 	}
 }
 
@@ -5866,7 +5868,15 @@ func TestConceptDeleteExpandedNotBlockedByOwnSatellites(t *testing.T) {
 	}
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
+	// The satellite is no inbound link (no inbound_links refusal), but it
+	// stays behind with a link to the deleted dossier: the gate refuses (D907)
+	// until the satellite stops linking it.
 	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/owner"}`)
+	if !res.IsError || strings.HasPrefix(res.Content[0].Text, "inbound_links:") || !strings.Contains(res.Content[0].Text, "write_gate: refused") {
+		t.Fatalf("own satellite must not count as an inbound link: %+v", res)
+	}
+	callOK(t, s, "concept_patch", `{"id":"manutenzione/owner/child","if_match":"`+readHash(t, k, "manutenzione/owner/child")+`","old_string":"[[manutenzione/owner]]","new_string":"the owner"}`)
+	res = callTool(t, s, "concept_delete", `{"id":"manutenzione/owner"}`)
 	if res.IsError || strings.Contains(res.Content[0].Text, "Warning") {
 		t.Fatalf("own satellite must not count as an inbound link: %+v", res)
 	}
@@ -5874,9 +5884,10 @@ func TestConceptDeleteExpandedNotBlockedByOwnSatellites(t *testing.T) {
 
 func TestConceptDeleteMissingWithDanglingLinksIsNotFound(t *testing.T) {
 	t.Parallel()
-	_, s := deleteLinkFixture(t)
-	if res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target","force":true}`); res.IsError {
-		t.Fatalf("setup delete: %+v", res)
+	k, s := deleteLinkFixture(t)
+	// The target goes away behind the server's back, leaving the link dangling.
+	if err := os.Remove(filepath.Join(k.DataRoot(), "manutenzione", "target.md")); err != nil {
+		t.Fatal(err)
 	}
 	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target"}`)
 	if !res.IsError || !strings.Contains(res.Content[0].Text, "not found") {
