@@ -730,7 +730,7 @@ func TestRepair_LegacyPath(t *testing.T) {
 }
 
 // TestRepair_LegacyToolName: the prefix is stripped from every artifact file
-// that carries it, the file mode kept, and only with allow_artifact_write.
+// that carries it, the file mode kept.
 func TestRepair_LegacyToolName(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 0)
@@ -742,10 +742,6 @@ func TestRepair_LegacyToolName(t *testing.T) {
 	if plan["planned_total"].(float64) != 3 || plan["found_files"].(float64) != 2 {
 		t.Fatalf("plan = %v", plan)
 	}
-	if res := callTool(t, s, "kb_repair", `{"check":"legacy_tool_name","dry_run":false}`); !res.IsError || !strings.Contains(res.Content[0].Text, "allow_artifact_write") {
-		t.Fatalf("apply without allow_artifact_write must be refused: %+v", res)
-	}
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	before := commitCount(t, k)
 	out := repairCall(t, s, `{"check":"legacy_tool_name","dry_run":false}`)
 	if out["applied"].(float64) != 2 {

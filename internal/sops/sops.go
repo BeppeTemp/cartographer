@@ -451,3 +451,41 @@ func nodeAtPointer(root *yaml.Node, pointer string) (*yaml.Node, error) {
 	}
 	return n, nil
 }
+
+// maxDeclaredFileSize bounds what Declared reads of one file: a sops file of a
+// KB is a few kilobytes.
+const maxDeclaredFileSize = 1 << 20
+
+// Declared reports whether the KB at kbRoot declares secrets (D906): at least
+// one plain YAML file directly under secrets/ carries sops metadata. Nothing is
+// decrypted, so it needs neither the sops binary nor a key. A secrets/ that is
+// a link, a link or directory inside it, and a file that is not YAML or has no
+// sops block all count for nothing.
+func Declared(kbRoot string) bool {
+	dir := filepath.Join(kbRoot, "secrets")
+	if fi, err := os.Lstat(dir); err != nil || !fi.IsDir() {
+		return false
+	}
+	items, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, it := range items {
+		name := it.Name()
+		if !it.Type().IsRegular() || !(strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".yml")) {
+			continue
+		}
+		p := filepath.Join(dir, name)
+		if fi, err := os.Lstat(p); err != nil || fi.Size() > maxDeclaredFileSize {
+			continue
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		if root, err := yamlDocument(data); err == nil && hasSOPSMetadata(root) {
+			return true
+		}
+	}
+	return false
+}

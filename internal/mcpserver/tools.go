@@ -9,7 +9,6 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
 
@@ -18,7 +17,6 @@ type Deps struct {
 	SQLIndex       *sqlindex.Index    // nil → in-memory index
 	BundleFS       fs.FS              // nil → no bundled skills
 	ArtifactSigner ed25519.PrivateKey // nil → KB artifacts remain unsigned
-	MCPAllowlist   []provisioning.MCPAllowlistEntry
 	// RoutedMount says this server's KBs are reachable through the single
 	// routed endpoint (D187). It reaches the generated instructions block, the
 	// part the model actually reads, so the imprinting names the bare tools and
@@ -51,7 +49,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 		k.AuthName = s.PolicyKB()
 	}
 	s.kbRef = k
-	s.kbArtifacts = artifactSource{allowlist: deps.MCPAllowlist, signer: deps.ArtifactSigner}
+	s.kbArtifacts = artifactSource{signer: deps.ArtifactSigner}
 	installPolicy(s, k)
 	register := func(t Tool) {
 		t.ResourceClass = resourceClassForTool(t.Name)
@@ -165,8 +163,8 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	// wrap explicitly so a synchronised KB is fresh before decryption.
 	register(readSyncWrap(k, toolSecretResolve(k)))
 	register(gitWrap(k, toolSecretSet(k)))
-	register(toolArtifactRead(k, deps.MCPAllowlist))
-	register(toolArtifactList(k, deps.MCPAllowlist))
+	register(toolArtifactRead(k))
+	register(toolArtifactList(k))
 	register(toolTemplateList(k))
 	register(gitWrap(k, toolConceptNew(k, sim, facts)))
 	register(gitWrap(k, toolConceptMerge(k)))
@@ -175,19 +173,17 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolAssetList(k))
 	register(gitWrap(k, toolAssetWrite(k)))
 	register(gitWrap(k, toolAssetDelete(k)))
-	if pol := k.Policy(); pol.AllowArtifactWrite || pol.AllowTemplateWrite {
-		register(gitWrap(k, toolArtifactWrite(k)))
-		register(gitWrap(k, toolArtifactDelete(k)))
-		// Takes both KBs' git locks and commits each itself (D782): not gitWrap.
-		register(toolArtifactMove(k, deps))
-	}
+	register(gitWrap(k, toolArtifactWrite(k)))
+	register(gitWrap(k, toolArtifactDelete(k)))
+	// Takes both KBs' git locks and commits each itself (D782): not gitWrap.
+	register(toolArtifactMove(k, deps))
 
 	if deps.BundleFS != nil {
 		register(toolSkillListWithBundle(k, deps.BundleFS))
 		register(gitWrap(k, toolSkillInstall(k, deps.BundleFS)))
-		register(toolSyncCheck(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner, deps.MCPAllowlist))
-		register(toolSyncApply(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner, deps.MCPAllowlist))
-		register(toolSyncPull(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner, deps.MCPAllowlist))
+		register(toolSyncCheck(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner))
+		register(toolSyncApply(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner))
+		register(toolSyncPull(k, deps.BundleFS, deps.RoutedMount, deps.ArtifactSigner))
 	} else {
 		register(toolSkillList(k))
 	}

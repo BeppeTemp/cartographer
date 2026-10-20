@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
-	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 // newRoutedAliasHandler is newRoutedTestHandler with kb_aliases applied and the
@@ -18,7 +17,6 @@ func newRoutedAliasHandler(t *testing.T, aliases []config.KBAlias, tokenKBs []st
 	multi := NewMultiKBServer("test")
 	for _, name := range names {
 		k := setupNamedTestKB(t, name)
-		setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 		multi.MountKB(name, func(s *Server) { RegisterKBTools(s, k, Deps{}) })
 	}
 	multi.SetKBAliases(aliases)

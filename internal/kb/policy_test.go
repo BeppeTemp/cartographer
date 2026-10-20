@@ -5,7 +5,7 @@ import "testing"
 // D775: a snapshot never aliases the stored policy, nor the caller's slice.
 func TestPolicySnapshotDoesNotAlias(t *testing.T) {
 	k := &KB{}
-	if got := k.Policy(); got.WriteGate != "" || got.AutoRepair != nil || got.AllowArtifactWrite {
+	if got := k.Policy(); got.WriteGate != "" || got.AutoRepair != nil {
 		t.Fatalf("unset policy = %+v, want zero", got)
 	}
 	in := Policy{AutoRepair: []string{"a", "b"}, WriteGate: "error"}

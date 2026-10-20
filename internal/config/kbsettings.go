@@ -2,13 +2,11 @@ package config
 
 import (
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 	"sync"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/settingschema"
 )
 
@@ -16,22 +14,10 @@ import (
 // The KB is authoritative: it beats the server's kbs[] entry, env and flags.
 const OriginKB Origin = "kb"
 
-// KBSettingsSchema is the kb scope of Schema as the keys of a settings.yaml:
-// top-level names, with the kbs[]. prefix dropped, then the keys only a KB has
-// (KBOnlyKeys). `kb create` renders the commented file from it.
+// KBSettingsSchema is the schema of a settings.yaml: KBKeys, the keys only a
+// KB has. `kb create` renders the commented file from it.
 func KBSettingsSchema() settingschema.Schema {
-	var s settingschema.Schema
-	for _, k := range Schema.Keys {
-		name, ok := strings.CutPrefix(k.Path, "kbs[].")
-		if !ok || k.Scope != settingschema.ScopeKB {
-			continue
-		}
-		k.Path = name
-		k.Env, k.Flag, k.Restart, k.Example = "", "", false, ""
-		s.Keys = append(s.Keys, k)
-	}
-	s.Keys = append(s.Keys, KBOnlyKeys...)
-	return s
+	return settingschema.Schema{Keys: append([]settingschema.Key(nil), KBKeys...)}
 }
 
 // kbPolicyStore is the effective per-KB specs and the keys that came from a
@@ -91,31 +77,29 @@ func (c *Config) originFromKB(originKey string) bool {
 	return p.fromKB[originKey]
 }
 
-// ResolveKBSettings overlays a KB's settings.yaml on the server's spec for that
-// KB (D746). Precedence: the KB file if it sets the key, else the server value,
-// else the default. When both set a key and differ the server value is
-// ignored and reported in the result; there is no local override. A key the
-// file sets that fails a value check the parser cannot make (an unknown
-// auto_repair check, a bad mcp_allowlist entry) is left out with a finding.
-//
-// serverSet says whether the server layers (kbs[], env, flag) set a key
-// explicitly: a zero value is not "unset" (D743 origin map).
-func ResolveKBSettings(server KBSpec, serverSet func(key string) bool, st kb.SettingsState) (KBSpec, kb.SettingsInfo) {
-	info := kb.SettingsInfo{Present: st.Present, SecretsDeclared: server.Secrets}
+// ResolveKBSettings reads a KB's policy from its settings.yaml (D746), the one
+// place that carries it (D906): the server file names a KB, it does not
+// configure it. server supplies the machine's side of the KB (its name, remote
+// and path), which the result keeps; every policy field starts at its default.
+// A key the file sets that fails a value check the parser cannot make (an
+// unknown auto_repair check) is left out with a finding; a usage_stale_days
+// under kb.MinUsageStaleDays is raised to it, with a finding.
+func ResolveKBSettings(server KBSpec, st kb.SettingsState) (KBSpec, kb.SettingsInfo) {
+	info := kb.SettingsInfo{Present: st.Present}
 	for _, m := range st.Malformed {
 		info.Findings = append(info.Findings, m.String())
 	}
+	eff := KBSpec{Path: server.Path, Remote: server.Remote, Name: server.Name}
 	if !st.Present || st.Unparseable {
-		return server, info
+		return eff, info
 	}
 	var part KBSpec
 	if err := st.Settings.Decode(&part); err != nil {
 		info.Findings = append(info.Findings, fmt.Sprintf("%s: %v", kb.SettingsFile, err))
-		return server, info
+		return eff, info
 	}
 	// branch has no kbs[] counterpart, so no yaml tag to decode it through.
 	part.Branch, _ = st.Settings.String("branch")
-	eff := server
 	for _, key := range st.Settings.Keys() {
 		if reason := checkKBValue(key, part); reason != "" {
 			info.Findings = append(info.Findings, key+": "+reason)
@@ -126,15 +110,10 @@ func ResolveKBSettings(server KBSpec, serverSet func(key string) bool, st kb.Set
 			continue
 		}
 		info.FromKB = append(info.FromKB, key)
-		sv, svSet := kbFieldValue(server, key)
-		kv, _ := kbFieldValue(part, key)
-		if svSet || serverSet != nil && serverSet(key) {
-			if !reflect.DeepEqual(sv, kv) {
-				info.Ignored = append(info.Ignored, kb.IgnoredSetting{Key: key, ServerValue: fmt.Sprint(sv), KBValue: fmt.Sprint(kv)})
-			}
-		}
 	}
-	info.SecretsDeclared = eff.Secrets
+	if n := eff.UsageStaleDays; n != nil && *n < kb.MinUsageStaleDays {
+		info.Findings = append(info.Findings, fmt.Sprintf("usage_stale_days: %d is under the minimum, %d is used", *n, kb.MinUsageStaleDays))
+	}
 	sort.Strings(info.FromKB)
 	return eff, info
 }
@@ -145,10 +124,6 @@ func checkKBValue(key string, part KBSpec) string {
 	switch key {
 	case "auto_repair":
 		if err := ValidateAutoRepair(part.AutoRepair); err != nil {
-			return err.Error()
-		}
-	case "mcp_allowlist":
-		if err := provisioning.ValidateMCPAllowlist(part.MCPAllowlist); err != nil {
 			return err.Error()
 		}
 	case "write_gate":
@@ -177,10 +152,6 @@ func checkKBValue(key string, part KBSpec) string {
 // returns false; TestKBSettingsKeysMatchSchema fails when a key has no case.
 func setKBField(dst *KBSpec, part KBSpec, key string) bool {
 	switch key {
-	case "allow_artifact_write":
-		dst.AllowArtifactWrite = part.AllowArtifactWrite
-	case "allow_template_write":
-		dst.AllowTemplateWrite = part.AllowTemplateWrite
 	case "write_gate":
 		dst.WriteGate = part.WriteGate
 	case "auto_repair":
@@ -200,53 +171,10 @@ func setKBField(dst *KBSpec, part KBSpec, key string) bool {
 		dst.DoctorBudget = part.DoctorBudget
 	case "usage_stale_days":
 		dst.UsageStaleDays = part.UsageStaleDays
-	case "mcp_allowlist":
-		dst.MCPAllowlist = part.MCPAllowlist
-	case "secrets":
-		dst.Secrets = part.Secrets
 	case "branch":
 		dst.Branch = part.Branch
 	default:
 		return false
 	}
 	return true
-}
-
-// ServerSetFunc answers, for the KB mounted under name, whether the server
-// layers set a per-KB key explicitly (file, env or flag), from the origin map.
-func (c *Config) ServerSetFunc(name string) func(key string) bool {
-	return func(key string) bool {
-		o, ok := c.Origins[KBOriginKey(name, key)]
-		return ok && o != OriginDefault && o != OriginKB
-	}
-}
-
-// kbFieldValue is the value of the KBSpec field with this YAML key, for
-// comparing a server value with a KB's, and whether the spec sets it: a
-// non-nil pointer or a non-zero value. A pointer is followed; an unset pointer
-// and an empty slice are nil. Marshalling the spec would drop a false or a zero
-// (omitempty) and make an explicit one indistinguishable from absent.
-func kbFieldValue(s KBSpec, key string) (val any, set bool) {
-	v := reflect.ValueOf(s)
-	for i := 0; i < v.NumField(); i++ {
-		tag := strings.Split(v.Type().Field(i).Tag.Get("yaml"), ",")[0]
-		if tag != key {
-			continue
-		}
-		f := v.Field(i)
-		if f.Kind() == reflect.Ptr {
-			if f.IsNil() {
-				return nil, false
-			}
-			return f.Elem().Interface(), true
-		}
-		if f.Kind() == reflect.Slice {
-			if f.Len() == 0 {
-				return nil, !f.IsNil()
-			}
-			return f.Interface(), true
-		}
-		return f.Interface(), !f.IsZero()
-	}
-	return nil, false
 }

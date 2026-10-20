@@ -49,7 +49,6 @@ func newRoutedTestHandler(t *testing.T, names ...string) http.Handler {
 	multi := NewMultiKBServer("test")
 	for _, name := range names {
 		k := setupNamedTestKB(t, name)
-		setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 		multi.MountKB(name, func(s *Server) { RegisterKBTools(s, k, Deps{}) })
 	}
 	if err := multi.EnableRoutedMount("test", nil); err != nil {
@@ -370,22 +369,20 @@ func TestRoutedMount_PerKBStatusHasNoConnection(t *testing.T) {
 	}
 }
 
-// TestRoutedMount_GatedTool_UnionThenAttributedRefusal: the exposed set is the
-// union, so artifact_write is advertised because one KB allows it; the KB that
-// does not gets an error naming itself and the setting, rather than the tool
-// silently vanishing for everyone.
-func TestRoutedMount_GatedTool_UnionThenAttributedRefusal(t *testing.T) {
+// TestRoutedMount_ToolMissingOnOneKB_AttributedRefusal: the exposed set is the
+// union, so a tool is advertised because one KB registers it; the KB that does
+// not gets an error naming itself, rather than the tool silently vanishing for
+// everyone.
+func TestRoutedMount_ToolMissingOnOneKB_AttributedRefusal(t *testing.T) {
 	t.Parallel()
 	multi := NewMultiKBServer("test")
-	allowed := setupNamedTestKB(t, "open-kb")
-	setPolicy(allowed, func(p *kb.Policy) { p.AllowArtifactWrite = true })
-	multi.MountKB("open-kb", func(s *Server) { RegisterKBTools(s, allowed, Deps{}) })
-	denied := setupNamedTestKB(t, "closed-kb") // AllowArtifactWrite stays false
-	multi.MountKB("closed-kb", func(s *Server) { RegisterKBTools(s, denied, Deps{}) })
+	full := setupNamedTestKB(t, "full-kb")
+	multi.MountKB("full-kb", func(s *Server) { RegisterKBTools(s, full, Deps{}) })
+	multi.MountKB("bare-kb", func(s *Server) {})
 	if err := multi.EnableRoutedMount("test", nil); err != nil {
 		t.Fatalf("EnableRoutedMount: %v", err)
 	}
-	handler := routedTokenStore("open-kb", "closed-kb").Middleware(multi.Handler())
+	handler := routedTokenStore("full-kb", "bare-kb").Middleware(multi.Handler())
 
 	found := false
 	for _, tool := range decodeToolList(t, routedPost(t, handler, RoutedMountPath, toolsListBody)) {
@@ -394,26 +391,25 @@ func TestRoutedMount_GatedTool_UnionThenAttributedRefusal(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("artifact_write is absent from the routed union although one KB allows it")
+		t.Fatal("artifact_write is absent from the routed union although one KB registers it")
 	}
 
 	res := routedCall(t, handler, "artifact_write", map[string]any{
-		"kb": "closed-kb", "path": "skills/x/SKILL.md", "content": "x",
+		"kb": "bare-kb", "path": "skills/x/SKILL.md", "content": "x",
 	})
 	if !res.IsError {
-		t.Fatal("artifact_write on a KB with the gate closed succeeded")
+		t.Fatal("artifact_write on a KB that does not register it succeeded")
 	}
-	text := res.Content[0].Text
-	if !strings.Contains(text, "closed-kb") || !strings.Contains(text, "allow_artifact_write") {
-		t.Errorf("refusal names neither the KB nor the setting: %s", text)
+	if text := res.Content[0].Text; !strings.Contains(text, "bare-kb") || !strings.Contains(text, "tool not found") {
+		t.Errorf("refusal names neither the KB nor the missing tool: %s", text)
 	}
 
 	res = routedCall(t, handler, "artifact_write", map[string]any{
-		"kb": "open-kb", "path": "skills/demo/SKILL.md",
+		"kb": "full-kb", "path": "skills/demo/SKILL.md",
 		"content": "---\nname: demo\ndescription: A demo skill for the routed mount test.\n---\nBody.\n",
 	})
 	if res.IsError {
-		t.Fatalf("artifact_write on the KB that allows it failed: %+v", res)
+		t.Fatalf("artifact_write on the KB that registers it failed: %+v", res)
 	}
 }
 

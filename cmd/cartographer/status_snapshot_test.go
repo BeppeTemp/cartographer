@@ -72,8 +72,9 @@ func TestSnapshotArtifactsMCPApprovalStates(t *testing.T) {
 	if err := cfg.ApproveMCP("kb", "stale", "old", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	arts := snapshotArtifacts([]provisioning.Artifact{{Kind: "mcp", Name: "approved", Source: "kb:kb", ContentHash: "same"}, {Kind: "mcp", Name: "stale", Source: "kb:kb", ContentHash: "new"}, {Kind: "mcp", Name: "pending", Source: "kb:kb", ContentHash: "x"}, {Kind: "mcp", Name: "verified", Source: "kb:kb", ContentHash: "x", Signed: true}}, cfg)
-	want := []string{"approved", "approval_stale", "needs_approval", "verified"}
+	arts := snapshotArtifacts([]provisioning.Artifact{{Kind: "mcp", Name: "approved", Source: "kb:kb", ContentHash: "same"}, {Kind: "mcp", Name: "stale", Source: "kb:kb", ContentHash: "new"}, {Kind: "mcp", Name: "pending", Source: "kb:kb", ContentHash: "x"}, {Kind: "mcp", Name: "signed", Source: "kb:kb", ContentHash: "x", Signed: true}}, cfg)
+	// A signed descriptor still needs approval (D906): a signature is not consent.
+	want := []string{"approved", "approval_stale", "needs_approval", "needs_approval"}
 	for i := range want {
 		if arts[i].Trust != want[i] {
 			t.Errorf("%s trust=%q want %q", arts[i].Name, arts[i].Trust, want[i])

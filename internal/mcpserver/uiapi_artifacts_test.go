@@ -15,8 +15,7 @@ import (
 )
 
 // artifactUIHandler mounts the UI fixture KB with one artifact of each kind,
-// a binary and an oversized skill file, an invalid skill and an MCP descriptor
-// outside the allowlist. Tokens: "whole" reads the whole KB, "narrow" only the
+// a binary and an oversized skill file, an invalid skill and an MCP descriptor. Tokens: "whole" reads the whole KB, "narrow" only the
 // "visible" Map.
 func artifactUIHandler(t *testing.T) http.Handler {
 	t.Helper()
@@ -39,7 +38,6 @@ func artifactUIHandler(t *testing.T) http.Handler {
 	write("hooks/guard/hook.json", []byte(`{"event":"SessionStart"}`), 0o644)
 	write("hooks/guard/run.sh", []byte("#!/bin/sh\n"), 0o755)
 	write("mcp/tools.json", []byte(`{"type":"stdio","command":"tool"}`), 0o644)
-	write("mcp/denied.json", []byte(`{"type":"stdio","command":"secret-tool"}`), 0o644)
 	write("instructions.md", []byte("# House rules\n"), 0o644)
 	write("templates/runbook.md", []byte("---\ntype: Runbook\ntitle: Runbook template\n---\n# {{title}}\n"), 0o644)
 
@@ -48,8 +46,7 @@ func artifactUIHandler(t *testing.T) http.Handler {
 		{Token: "narrow", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}}},
 	})
 	multi := NewMultiKBServer("test")
-	allow := []provisioning.MCPAllowlistEntry{{Name: "tools", Transport: "stdio", Target: "tool"}}
-	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{MCPAllowlist: allow}) })
+	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
 	multi.EnableWeb(nil)
 	return ts.Middleware(multi.Handler())
 }
@@ -88,18 +85,13 @@ func TestUIAPI_ArtifactsListsWhatTheKBShips(t *testing.T) {
 	}
 	want := "agent/triage hook/guard instructions/instructions mcp/tools skill/review template/runbook"
 	if got := strings.Join(names, " "); got != want {
-		t.Fatalf("artifacts = %s, want %s (bundled skills, the invalid skill and the denied descriptor excluded)", got, want)
+		t.Fatalf("artifacts = %s, want %s (bundled skills and the invalid skill excluded)", got, want)
 	}
 	if body.Counts["skill"] != 1 || body.Counts["template"] != 1 {
 		t.Errorf("counts = %v", body.Counts)
 	}
 	if len(body.Issues) != 1 || !strings.Contains(body.Issues[0], "skills/broken") || strings.HasPrefix(body.Issues[0], "KB ") {
 		t.Errorf("issues = %q, want one about skills/broken without the internal KB key", body.Issues)
-	}
-	for _, issue := range body.Issues {
-		if strings.Contains(issue, "secret-tool") || strings.Contains(issue, "denied") {
-			t.Errorf("an issue names the descriptor outside the allowlist: %q", issue)
-		}
 	}
 
 	skill := byName["skill/review"]
@@ -312,7 +304,7 @@ func TestUIAPI_ArtifactRequestErrors(t *testing.T) {
 		{"kind=widget&name=review", "kind", http.StatusBadRequest},
 		{"kind=skill", "name", http.StatusBadRequest},
 		{"kind=skill&name=nope", "", http.StatusNotFound},
-		{"kind=mcp&name=denied", "", http.StatusNotFound},
+		{"kind=mcp&name=absent", "", http.StatusNotFound},
 		{"kind=skill&name=broken", "", http.StatusNotFound},
 	} {
 		rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/artifact?"+tc.query, "whole")

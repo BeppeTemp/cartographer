@@ -20,7 +20,6 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
 
@@ -79,7 +78,6 @@ func TestServeHTTPListensBeforeBootstrap(t *testing.T) {
 			kbs:             []*kb.KB{k},
 			names:           []string{"kb-a"},
 			artifactSigners: make([]ed25519.PrivateKey, 1),
-			allowlists:      make([][]provisioning.MCPAllowlistEntry, 1),
 			sqlIdxs:         map[string]*sqlindex.Index{},
 		}
 	}

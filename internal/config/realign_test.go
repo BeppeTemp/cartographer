@@ -27,6 +27,11 @@ kbs:
   - remote: https://git.example.com/user/kb-a.git
     git_branch: team/kb-data
     write_gate: error
+    allow_artifact_write: true
+    allow_template_write: false
+    usage_stale_days: 3
+    mcp_allowlist: [{name: tools, transport: http, target: "https://example.com/mcp"}]
+    secrets: true
   - path: /srv/kb-b
 `
 
@@ -57,6 +62,12 @@ func TestRealignServerFile(t *testing.T) {
 		"removed git.in_window:",
 		"removed git.ssh_key: replaced by default.ssh in credentials_dir",
 		"removed kbs[0].git_branch: replaced by branch in the KB's settings.yaml",
+		"removed kbs[0].allow_artifact_write: artifact writes are always allowed",
+		"removed kbs[0].allow_template_write: artifact writes are always allowed",
+		"removed kbs[0].write_gate: replaced by write_gate in the KB's settings.yaml",
+		"removed kbs[0].usage_stale_days: replaced by usage_stale_days in the KB's settings.yaml",
+		"removed kbs[0].mcp_allowlist:",
+		"removed kbs[0].secrets:",
 		"removed kbs[1].path:",
 		"reset web.enabled: false switched a feature off",
 	} {
@@ -92,10 +103,10 @@ func TestRealignServerFile(t *testing.T) {
 	if doc.Web != nil {
 		t.Errorf("web = %v, want the reset mapping gone", doc.Web)
 	}
-	if len(doc.KBs) != 1 || len(doc.KBs[0]) != 2 {
-		t.Errorf("kbs = %v, want the one entry with remote and write_gate", doc.KBs)
+	if len(doc.KBs) != 1 || len(doc.KBs[0]) != 1 {
+		t.Errorf("kbs = %v, want the one entry with only its remote (D906)", doc.KBs)
 	}
-	for _, kept := range []string{"# my server", `http: ":9090" # kept as written`, "credentials_dir: /etc/kb/credentials", "write_gate: error", "remote: https://git.example.com/user/kb-a.git"} {
+	for _, kept := range []string{"# my server", `http: ":9090" # kept as written`, "credentials_dir: /etc/kb/credentials", "remote: https://git.example.com/user/kb-a.git"} {
 		if !strings.Contains(text, kept) {
 			t.Errorf("%q was lost:\n%s", kept, text)
 		}
@@ -109,7 +120,7 @@ func TestRealignServerFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the realigned file does not load: %v", err)
 	}
-	if len(cfg.Warnings) != 0 || cfg.HTTP != ":9090" || !cfg.Web.Enabled || cfg.KBs[0].WriteGate != "error" {
+	if len(cfg.Warnings) != 0 || cfg.HTTP != ":9090" || !cfg.Web.Enabled {
 		t.Errorf("realigned config = %+v warnings=%v", cfg, cfg.Warnings)
 	}
 	if cfg.CredentialsDir != "/etc/kb/credentials" {
@@ -222,14 +233,16 @@ func TestRemovedKeyAddedBackByHandWarns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString("kbs:\n  - remote: https://git.example.com/user/kb-a.git\n    git_forge: github\n")
+	f.WriteString("kbs:\n  - remote: https://git.example.com/user/kb-a.git\n    git_forge: github\n    allow_artifact_write: true\n")
 	f.Close()
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatalf("a removed key is not an error: %v", err)
 	}
-	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "kbs[0].git_forge") || !strings.Contains(cfg.Warnings[0], "set `branch`") {
+	if len(cfg.Warnings) != 2 || !strings.Contains(cfg.Warnings[0], "kbs[0].git_forge") || !strings.Contains(cfg.Warnings[0], "set `branch`") {
 		t.Errorf("warnings = %q, want the one that says what to do instead", cfg.Warnings)
+	} else if !strings.Contains(cfg.Warnings[1], "kbs[0].allow_artifact_write") || !strings.Contains(cfg.Warnings[1], "artifact writes are always allowed") {
+		t.Errorf("warnings = %q, want the removed artifact-write setting named", cfg.Warnings)
 	}
 	if cfg.RefusalError() != nil {
 		t.Errorf("git_forge is ignored, not refused: %v", cfg.RefusalError())
@@ -239,13 +252,13 @@ func TestRemovedKeyAddedBackByHandWarns(t *testing.T) {
 // The same machinery over a KB's settings.yaml, in bytes: the server commits
 // the result itself.
 func TestRealignKBSettings(t *testing.T) {
-	in := "# policy\nwrite_gate: error\ngit_profile: local\ngit_branch: team/kb-data\ngithub_owner: acme\nbranch: kb-data\n"
+	in := "# policy\nwrite_gate: error\ngit_profile: local\ngit_branch: team/kb-data\ngithub_owner: acme\nbranch: kb-data\nallow_artifact_write: true\nallow_template_write: false\nusage_stale_days: 0\nsecrets: true\nmcp_allowlist: [{name: a, transport: stdio, target: tool}]\n"
 	out, rep, err := RealignKBSettings([]byte(in))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(out)
-	for _, gone := range []string{"git_profile: local", "git_branch:", "github_owner: acme"} {
+	for _, gone := range []string{"git_profile: local", "git_branch:", "github_owner: acme", "allow_artifact_write", "allow_template_write", "usage_stale_days: 0", "\nsecrets:", "\nmcp_allowlist:"} {
 		if strings.Contains(text, gone) {
 			t.Errorf("%q survived:\n%s", gone, text)
 		}
@@ -256,7 +269,7 @@ func TestRealignKBSettings(t *testing.T) {
 		}
 	}
 	got := strings.Join(rep.Lines(), "\n")
-	for _, want := range []string{"removed git_profile:", "removed git_branch: replaced by branch", "removed github_owner:"} {
+	for _, want := range []string{"removed git_profile:", "removed git_branch: replaced by branch", "removed github_owner:", "removed allow_artifact_write: artifact writes are always allowed", "removed allow_template_write:", "reset usage_stale_days: 0 switched a feature off", "removed secrets:", "removed mcp_allowlist:"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("report lacks %q:\n%s", want, got)
 		}

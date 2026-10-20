@@ -28,7 +28,7 @@ overrides the default base port.
 | `09_git_conflict` | Conflict registry, degraded marker and conflict listing |
 | `10_scoped_tokens` | Per-KB `r`/`rw` scope enforcement |
 | `11_signed_provisioning` | Signed artifact verification and fail-closed unpinned rotation |
-| `12_mcp_approval` | D115 allow-list, point approval, stale hash rejection and revoke/prune |
+| `12_mcp_approval` | D115 point approval, stale hash rejection and revoke/prune |
 | `13_stdio_mcp` | D116 trusted stdio MCP lifecycle across all provider configurations |
 | `14_rbac_visibility` | D118 fine-grained RBAC: per-KB collection visibility, exact-resource non-disclosure, out-of-perimeter write denial, admin/legacy retrocompatibility |
 | `15_operational_audit` | D119 compliance audit: attempt/completion event pairs, chain verification, export, tamper detection |

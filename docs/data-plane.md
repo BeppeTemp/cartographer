@@ -57,13 +57,13 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 │
 ├── instructions.md                    # curated directives (D61), scaffolded by kb create (D325); frontmatter keys below
 ├── paths.yaml                         # optional: declared {{path:…}}/{{repo:…}} keys (D263)
-├── settings.yaml                      # optional: the KB's own policy, wins over a server's kbs[] (D746)
+├── settings.yaml                      # optional: the KB's own policy, set nowhere else (D746, D906)
 └── glossary.yaml                      # optional: canonical terms, aliases, forbidden forms (D276)
 ```
 
 `services/` is included in `WalkConcepts` (search, graph, lint all see it) but its root is `kb.Root`, not `kb.DataRoot()`. Service concept IDs carry the `services/` prefix. `ResolvePath` is the one place that picks the root for an ID, and every operation that turns an ID into a file — read, write, collision check, removal, `concept_move` — goes through it (`LocateConcept` for callers that move files themselves). For the same reason `services` is not a valid map or journal name: `map_create` refuses it, since the scaffold would land under `data/services/`, where no read looks (D269). A `data/services/` left by an older version is neither read nor cleaned up. `agents/` and `hooks/` are not concepts (no OKF frontmatter, they don't go through `WalkConcepts`): they are provisioning artifacts materialized client-side — see `docs/sync.md` §Agents and hooks.
 
-`templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*` (templates alone with `allow_template_write`, default on, D352), discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision. A template is also a closed page schema that a map's pages bind to (§Templates are page schemas).
+`templates/` is outside `WalkConcepts`: templates have no ConceptID and are never indexed, linted or added to the graph. A template is a KB-only artifact, not a provisioning kind: it is maintained through `artifact_*`, discovered with `template_list`, and used once by `concept_new`; it never affects a provisioning manifest or its revision. A template is also a closed page schema that a map's pages bind to (§Templates are page schemas).
 
 `kb create` writes `data/.gitignore` with the junk patterns (`.DS_Store`, `__pycache__/`, `*.pyc`,
 `*.pyo`, `*~`, `*.swp`, `Thumbs.db` — `kb.JunkPatterns`), only when it creates the KB: the root
@@ -87,8 +87,7 @@ legacy_paths:                  # old path prefix -> replacement, for kb_repair l
 
 `instructions.md` holds no suppression: a `lint_accept` key (D332) was removed by D907, because no
 setting switches a check off. A file that still carries it gets `contract_legacy_key` on
-`instructions.md` (fix `rewrite_contract`) and `kb_repair` drops the key, where the KB allows
-artifact writes (`allow_artifact_write`; elsewhere the target is skipped); an artifact finding is
+`instructions.md` (fix `rewrite_contract`) and `kb_repair` drops the key; an artifact finding is
 closed by fixing the artifact it names (§No check can be switched off).
 
 `paths.yaml` is likewise KB-only data, not a concept and not a provisioning artifact: the KB's
@@ -768,49 +767,58 @@ punctuation that follows a path, so fixing the first is not how the author learn
 
 How a KB behaves lives in the KB, not in the server that mounts it (D746): five people
 mounting the same KB get the same behaviour. `settings.yaml` at the KB root, beside
-`paths.yaml`, carries the schema's `kb` scope:
+`paths.yaml`, is the **only** place a KB's policy is set (D906): the server's `kbs[]` keeps just
+`name` and `remote`. It carries:
 
-- writes and governance: `allow_artifact_write`, `allow_template_write`, `write_gate`,
-  `auto_repair`, `repair_on_write`;
-- doctor: `doctor_mode`, `doctor_interval`, `doctor_auto_interval`, `doctor_budget`,
-  `usage_stale_days`;
-- provisioning: `mcp_allowlist`;
+- writes and governance: `write_gate`, `auto_repair`, `repair_on_write`;
+- doctor: `doctor_mode`, `doctor_interval`, `doctor_auto_interval`, `doctor_budget`;
+- `usage_stale_days`: days a skill or agent may go unused by every client before `artifact_unused`
+  reports it. Default 42, minimum 7, and no value turns the finding off: a value under 7 is raised
+  to 7 with a finding (`kb_status` `settings_findings`, a startup warning), and `0` or a negative
+  number is read as the default (the realignment resets a `0` by dropping the key);
 - how changes land: `branch`, the branch Cartographer commits and pushes to, in place of the
   remote's default one (D335, D903). It has no `kbs[]` form: it is a decision of the team that
   owns the KB, the same for every server that mounts it. It is read **only from the
   `settings.yaml` committed on the remote's default branch** (the working copy's file is parsed
   and shown, but changes nothing until it reaches the default branch), the first push creates the
-  branch when the remote lacks it, and a name git would not accept is a finding;
-- `secrets: true|false`: the KB uses secrets. A mount of it without an age key reports
-  `capabilities.secrets: missing key` and warns at startup, instead of a silent `disabled`.
+  branch when the remote lacks it, and a name git would not accept is a finding.
 
-Names and values are those of the same `kbs[]` keys (`docs/deployment.md`, `config.example.yaml`),
-and `branch`. The keys bound to one machine (`remote`, `name`) stay in the server's `kbs[]`; naming one in
+Two things are derived and have no key (D906). A KB **declares secrets** when at least one YAML
+file directly under `secrets/` carries sops metadata (read, never decrypted): a mount of such a KB
+without an age key reports `capabilities.secrets: missing key` and warns at startup, instead of a
+silent `disabled`. A KB's **MCP descriptors** (`mcp/<name>.json`) are always distributable: no list
+names them; each client still approves a descriptor before installing it (`docs/sync.md` §MCP
+servers).
+
+Names, values and defaults are in `config.example.yaml`'s KB sections and in the file `kb create`
+writes (`cartographer config --all` lists them). The keys bound to one machine (`remote`, `name`) stay in the server's `kbs[]`; naming one in
 `settings.yaml` is a finding. So is a removed key: the server git profile's `git_profile`,
 `git_base_branch`, `git_forge`, `github_*`, `git_working_branch`, and `git_branch`, which became
 `branch` (D903); `author_*` and `committer_*`, since the writer is the author and the server the
 committer (D904); `ssh_key`, `known_hosts`, `sops_age_key_file` and `artifact_signing_seed`, whose
-files are in the server's credentials directory, since a secret never belongs in the KB (D905). Each is ignored with a finding that names what to use, and
+files are in the server's credentials directory, since a secret never belongs in the KB (D905);
+`allow_artifact_write` and `allow_template_write`, since artifact writes are always allowed, and
+`mcp_allowlist` and `secrets`, derived as above (D906). Each is ignored with a finding that names what to use, and
 dropped when the server realigns the file; `git_profile: server`, which cannot be honoured, makes
 the KB refuse to mount. The realignment is one commit by the server, through the normal write
 path, so it is revertible (`docs/deployment.md` §Upgrading: realignment); a KB created by
 `kb create` starts with no key set.
 
-**Precedence: the KB is authoritative.** Effective value = the KB's `settings.yaml` if it sets
-the key, else the server's `kbs[]`/env/flag value, else the default. When both set a key and
-differ the server value is ignored and reported: a startup warning, `kb_status`
-`ignored_server_settings`, `capabilities.<gate>.ignored_server_value`, and origin `kb` in
-`cartographer config` and the Atlas settings page. There is no local override: an operator who
-disagrees with a KB's policy changes the KB or does not mount it. A KB without the file behaves
-exactly as before, on every server; a discovered KB reads it like a configured one.
+**One home (D906).** The effective value is the KB's `settings.yaml` if it sets the key, else the
+default. A key of the server's `kbs[]` that is a KB's setting (`write_gate`, `auto_repair`,
+`usage_stale_days`, …) is a removed key there: it is ignored with a warning that names the KB file,
+and dropped when the server realigns its file (`docs/deployment.md` §Upgrading: realignment). The
+origin of a value that comes from the file is `kb` in `cartographer config` and the Atlas settings
+page. There is no local override: an operator who disagrees with a KB's policy changes the KB or
+does not mount it. A KB without the file runs on the defaults, on every server; a discovered KB
+reads it like a configured one.
 
 The parser is tolerant, like `paths.yaml`'s: invalid YAML ignores the whole file (one finding);
 an unknown key, a server-only key or an invalid value ignores that entry (one finding each,
 `contract_malformed` on `settings.yaml`, and `kb_status` `settings_findings`).
 
 The server re-reads the file when it changes: after a pull that moves HEAD and before a write
-(`KB.RefreshSettings`). The per-KB policy is one immutable `kb.Policy` snapshot replaced whole (`KB.SetPolicy`) and read through `KB.Policy()`, so a refresh never races a reader and a tool call that takes one snapshot never mixes two policies (D775). `mcp_allowlist` is read when the KB is mounted
-and apply at the next start.
+(`KB.RefreshSettings`). The per-KB policy is one immutable `kb.Policy` snapshot replaced whole (`KB.SetPolicy`) and read through `KB.Policy()`, so a refresh never races a reader and a tool call that takes one snapshot never mixes two policies (D775).
 
 No MCP tool writes `settings.yaml` (`artifact_write` does not whitelist it): it changes the
 behaviour of every mount, so it goes through git review like a Map contract. `kb create` writes

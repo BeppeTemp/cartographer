@@ -102,7 +102,7 @@ func TestApply_RelocatesArtifactWhoseDestinationMoved(t *testing.T) {
 func TestApply_RelocatesWorkspaceMCPEntryToProjectCell(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeMCPFixture(t, kbRoot, "tools", `{"type":"http","url":"https://tools.example.com/mcp"}`)
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow("tools", "https://tools.example.com/mcp"))
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

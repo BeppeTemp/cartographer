@@ -44,7 +44,7 @@ func TestApplyAndPrune_AntigravityProjectScope(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(kbRoot, "agents", "reviewer.md"), []byte("---\nname: reviewer\ndescription: Reviews\n---\nBody.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow("docs", "https://example.com/mcp"))
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

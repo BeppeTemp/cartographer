@@ -65,7 +65,7 @@ func cmdKB(args []string) int {
 	case "unmount":
 		return cmdKBUnmount(rest)
 	default:
-		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--artifact-write] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--artifact-write] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
+		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
 		return 2
 	}
 }
@@ -100,11 +100,10 @@ func cmdKBCreate(args []string) int {
 	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository, or one holding only a forge's initial commit (README/LICENSE/.gitignore), which is kept: attached as origin and pushed to")
 	noRemoteFlag := fs.Bool("no-remote", false, "Create a local-only KB with no origin (not durable, never synced)")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after creating the KB")
-	artifactWriteFlag := fs.Bool("artifact-write", false, "Turn artifact writes on for the KB (artifacts reach client machines via sync): a kbs[] entry with allow_artifact_write: true in the server config, or, with --no-remote, in the new KB's settings.yaml")
 	fs.Parse(rest)
 
 	if name == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--artifact-write] [--restart]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]")
 		return 2
 	}
 	if err := validateKBName(name); err != nil {
@@ -133,20 +132,7 @@ func cmdKBCreate(args []string) int {
 		return 1
 	}
 
-	var entryPlan *kbEntryPlan
 	settingsFile := newKBSettingsFile()
-	if *artifactWriteFlag {
-		if remote == "" {
-			// A kbs[] entry names a remote (D903): a KB without one carries
-			// the setting in its own settings.yaml, in its first commit.
-			settingsFile = newKBSettingsFileWith("allow_artifact_write: true\n")
-		} else {
-			var code int
-			if entryPlan, code = preflightArtifactWrite(name, path, remote, *configFlag); code != 0 {
-				return code
-			}
-		}
-	}
 
 	// The author has to be right before the initial commit exists: it is the
 	// commit a forge with an author-membership push rule rejects (D156).
@@ -193,11 +179,6 @@ func cmdKBCreate(args []string) int {
 		printNoRemoteWarning(path)
 	}
 
-	if entryPlan != nil {
-		if code := finishArtifactWrite(entryPlan); code != 0 {
-			return code
-		}
-	}
 	printPostCreateGuidanceFn(*configFlag, *restartFlag)
 	return 0
 }
@@ -405,11 +386,10 @@ func cmdKBClone(args []string) int {
 	localFlag := fs.Bool("local", false, "Act on the local data dir even though the client points at a remote server")
 	timeoutFlag := fs.Duration("timeout", defaultCloneTimeout, "Time budget for the whole clone")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after mounting the KB")
-	artifactWriteFlag := fs.Bool("artifact-write", false, "Record a kbs[] entry with allow_artifact_write: true in the server config, so the KB mounts configured with artifact writes on (artifacts reach client machines via sync)")
 	fs.Parse(rest)
 
 	if remote == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb clone <remote> [name] [--data <dir>] [--artifact-write] [--restart]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb clone <remote> [name] [--data <dir>] [--restart]")
 		return 2
 	}
 	if name == "" {
@@ -434,13 +414,6 @@ func cmdKBClone(args []string) int {
 	} else if !os.IsNotExist(err) {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
-	}
-	var entryPlan *kbEntryPlan
-	if *artifactWriteFlag {
-		var code int
-		if entryPlan, code = preflightArtifactWrite(name, path, remote, *configFlag); code != 0 {
-			return code
-		}
 	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -486,11 +459,6 @@ func cmdKBClone(args []string) int {
 
 	cloned = true
 	fmt.Printf("KB %q mounted at %s\n", name, path)
-	if entryPlan != nil {
-		if code := finishArtifactWrite(entryPlan); code != 0 {
-			return code
-		}
-	}
 	printPostCreateGuidanceFn(*configFlag, *restartFlag)
 	return 0
 }

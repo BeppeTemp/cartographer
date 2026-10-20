@@ -31,7 +31,7 @@ func homeUIHandler(t *testing.T) http.Handler {
 		{Token: "narrow", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}}},
 	})
 	multi := NewMultiKBServer("test")
-	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{MCPAllowlist: []provisioning.MCPAllowlistEntry{}}) })
+	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
 	multi.EnableWeb(nil)
 	return ts.Middleware(multi.Handler())
 }
@@ -168,7 +168,7 @@ func TestUIAPI_RevisionMovesOnAnOutOfBandEdit(t *testing.T) {
 		{Token: "narrow", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}}},
 	})
 	multi := NewMultiKBServer("test")
-	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{MCPAllowlist: []provisioning.MCPAllowlistEntry{}}) })
+	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
 	multi.EnableWeb(nil)
 	handler := ts.Middleware(multi.Handler())
 

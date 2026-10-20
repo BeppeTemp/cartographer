@@ -103,10 +103,9 @@ func TestRepairContractLegacyKey_RealignsTheDescriptorInOneCommit(t *testing.T) 
 	}
 }
 
-// lint_accept in instructions.md is dropped by the same repair, under the
-// artifact-write rule: skipped where the KB does not allow artifact writes,
-// applied where it does, every other key and the body kept.
-func TestRepairContractLegacyKey_DropsLintAcceptOnlyWithArtifactWrite(t *testing.T) {
+// lint_accept in instructions.md is dropped by the same repair (artifact writes
+// are always allowed, D906), every other key and the body kept.
+func TestRepairContractLegacyKey_DropsLintAccept(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 0)
 	const instr = "---\nperimeter: ops\nlint_accept:\n  skill_git_command: [skills/a]\n---\n# Instructions\n"
@@ -121,23 +120,6 @@ func TestRepairContractLegacyKey_DropsLintAcceptOnlyWithArtifactWrite(t *testing
 		t.Fatal(err)
 	}
 
-	before := commitCount(t, k)
-	out := repairApply(t, s, "contract_legacy_key")
-	if out["applied"].(float64) != 0 {
-		t.Fatalf("applied without allow_artifact_write: %v", out)
-	}
-	skipped, _ := out["skipped"].([]any)
-	if len(skipped) != 1 || !strings.Contains(skipped[0].(map[string]any)["reason"].(string), "allow_artifact_write") {
-		t.Fatalf("want instructions.md skipped for allow_artifact_write: %v", out["skipped"])
-	}
-	if raw, _ := os.ReadFile(path); string(raw) != instr {
-		t.Fatalf("instructions.md changed without allow_artifact_write:\n%s", raw)
-	}
-	if got := commitCount(t, k); got != before {
-		t.Fatalf("a skipped repair committed: %d -> %d", before, got)
-	}
-
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	if out := repairApply(t, s, "contract_legacy_key"); out["applied"].(float64) != 1 {
 		t.Fatalf("applied = %v, want 1: %v", out["applied"], out)
 	}

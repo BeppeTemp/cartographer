@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"gopkg.in/yaml.v3"
 )
 
@@ -180,13 +180,11 @@ func (t *TokenSpec) UnmarshalYAML(node *yaml.Node) error {
 
 // KBSpec identifies a single KB: one to be cloned from a git remote (Remote)
 // into Config.Data before opening, or, from the command line only, a folder
-// already on disk (Path). The remaining fields are optional per-KB overrides for
-// the KB's policy. Its secrets (SSH key, token, age key, artifact signing seed)
+// already on disk (Path). Only Remote and Name are keys of the server file
+// (rawKB); the remaining fields are the KB's own policy, read from its
+// settings.yaml only (D906). Its secrets (SSH key, token, age key, artifact signing seed)
 // are files named after it in the credentials directory (D905).
 type KBSpec struct {
-	// MCPAllowlist is the per-KB operator policy for third-party HTTP MCP
-	// descriptors. An absent or empty list intentionally denies every one.
-	MCPAllowlist []provisioning.MCPAllowlistEntry `yaml:"mcp_allowlist,omitempty"`
 	// Path is a folder mounted from the command line: --kb and CARTOGRAPHER_KB
 	// (dev and tests; no remote, so no sync). It is not a key of the YAML file:
 	// a KB without a remote is a folder under data, which is discovered (D903).
@@ -204,19 +202,6 @@ type KBSpec struct {
 	// and the names of its files in the credentials directory (<name>.ssh,
 	// <name>.token, <name>.age, <name>.signing) (D905).
 	Name string `yaml:"name,omitempty"`
-
-	// AllowArtifactWrite enables the artifact_write/artifact_delete MCP tools
-	// (D71) for this KB — writing a provisioning artifact (skill/agent/hook/
-	// mcp) injects instructions a client agent will execute, so the
-	// capability is opt-in per-KB rather than implied by an rw token alone.
-	// Default false. Propagated to kb.KB.AllowArtifactWrite (see serve.go).
-	AllowArtifactWrite bool `yaml:"allow_artifact_write,omitempty"`
-
-	// AllowTemplateWrite (D352) lets artifact_write/artifact_delete write
-	// templates/<slug>.md and nothing else when AllowArtifactWrite is off.
-	// Absent means on: templates are KB-only and never provisioned to a client.
-	// A pointer so absent and false differ. Read it through TemplateWriteEnabled.
-	AllowTemplateWrite *bool `yaml:"allow_template_write,omitempty"`
 
 	// AutoRepair lists the lint checks whose mechanical fix
 	// `cartographer kb repair --apply` may apply without a human reviewing
@@ -265,14 +250,9 @@ type KBSpec struct {
 
 	// UsageStaleDays is how many days without a client activating a skill or
 	// agent before the artifact_unused lint reports it (D326): nil means
-	// DefaultUsageStaleDays, 0 disables the finding. Read it through
-	// UsageStale.
+	// DefaultUsageStaleDays, and a value under kb.MinUsageStaleDays is read as
+	// that minimum (D906). Read it through UsageStale.
 	UsageStaleDays *int `yaml:"usage_stale_days,omitempty"`
-
-	// Secrets says the KB uses secrets (D746): a mount of it without an age key
-	// reports secrets as missing key. It enables nothing by itself, the key is
-	// the KB's age file in the credentials directory.
-	Secrets bool `yaml:"secrets,omitempty"`
 }
 
 // AuditConfig controls the append-only audit log.
@@ -338,7 +318,7 @@ type rawConfig struct {
 	Auth           rawAuth  `yaml:"auth"`
 	Data           string   `yaml:"data"`
 	CredentialsDir string   `yaml:"credentials_dir"`
-	KBs            []KBSpec `yaml:"kbs"`
+	KBs            []rawKB  `yaml:"kbs"`
 	Audit          rawAudit `yaml:"audit"`
 	Tools          rawTools `yaml:"tools"`
 	MCP            rawMCP   `yaml:"mcp"`
@@ -349,6 +329,15 @@ type rawConfig struct {
 	// KBAliases is a list, like kbs and auth.roles: every structured setting
 	// of the schema is one (D772).
 	KBAliases []KBAlias `yaml:"kb_aliases"`
+}
+
+// rawKB is a kbs[] entry of the server file: the machine's side of a KB, its
+// remote and its name (D906). Every other key of a KB lives in the KB's own
+// settings.yaml; one met here is a retired key, warned about and dropped by the
+// realignment.
+type rawKB struct {
+	Remote string `yaml:"remote"`
+	Name   string `yaml:"name"`
 }
 
 // rawWeb mirrors the `web:` block. Enabled is a pointer because the zero value
@@ -384,43 +373,21 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg := Default()
-	cfg.markFile(data, raw.KBs)
-	cfg.noteRetired(data, raw.KBs)
+	var specs []KBSpec
+	for _, r := range raw.KBs {
+		specs = append(specs, KBSpec{Remote: r.Remote, Name: r.Name})
+	}
+	cfg.markFile(data, specs)
+	cfg.noteRetired(data, specs)
 	cfg.HTTP = raw.HTTP
 	cfg.Init = raw.Init
 	cfg.Data = raw.Data
 	cfg.CredentialsDir = raw.CredentialsDir
-	cfg.KBs = raw.KBs
+	cfg.KBs = specs
 	if err := ValidateKBAliases(raw.KBAliases); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
 	cfg.KBAliases = raw.KBAliases
-	for _, spec := range cfg.KBs {
-		if err := provisioning.ValidateMCPAllowlist(spec.MCPAllowlist); err != nil {
-			return nil, fmt.Errorf("config: mcp_allowlist: %w", err)
-		}
-		if err := ValidateAutoRepair(spec.AutoRepair); err != nil {
-			return nil, fmt.Errorf("config: auto_repair: %w", err)
-		}
-		if err := ValidateWriteGate(spec.WriteGate); err != nil {
-			return nil, err
-		}
-		if err := ValidateDoctorMode(spec.DoctorMode); err != nil {
-			return nil, err
-		}
-		if spec.DoctorBudget != nil && *spec.DoctorBudget < 1 {
-			return nil, fmt.Errorf("config: doctor_budget: %d: must be at least 1", *spec.DoctorBudget)
-		}
-		if _, err := spec.DoctorIntervalDays(); err != nil {
-			return nil, fmt.Errorf("config: doctor_interval: %w", err)
-		}
-		if _, err := spec.DoctorAutoIntervalDays(); err != nil {
-			return nil, fmt.Errorf("config: doctor_auto_interval: %w", err)
-		}
-		if spec.UsageStaleDays != nil && *spec.UsageStaleDays < 0 {
-			return nil, fmt.Errorf("config: usage_stale_days: %d is negative (a number of days, or 0 to disable)", *spec.UsageStaleDays)
-		}
-	}
 	cfg.Audit.Log = raw.Audit.Log
 	cfg.Audit.Mode = raw.Audit.Mode
 	if raw.Audit.MaxSegmentBytes > 0 {
@@ -833,11 +800,6 @@ func (s KBSpec) AutoRepairChecks() (checks []string, isDefault bool) {
 	return s.AutoRepair, false
 }
 
-// TemplateWriteEnabled resolves AllowTemplateWrite (D352): on unless set false.
-func (s KBSpec) TemplateWriteEnabled() bool {
-	return s.AllowTemplateWrite == nil || *s.AllowTemplateWrite
-}
-
 // RepairOnWriteEnabled resolves RepairOnWrite (D349): the explicit value when
 // set, otherwise on exactly when auto_repair resolves to a non-empty list.
 func (s KBSpec) RepairOnWriteEnabled() bool {
@@ -868,14 +830,16 @@ func (s KBSpec) WriteGateMode() string {
 
 // DefaultUsageStaleDays is the artifact_unused threshold of a KB that does not
 // set usage_stale_days: six weeks (D326).
-const DefaultUsageStaleDays = 42
+const DefaultUsageStaleDays = kb.DefaultUsageStaleDays
 
-// UsageStale resolves UsageStaleDays: the default when unset, 0 when disabled.
+// UsageStale resolves UsageStaleDays: the default when unset, and never less
+// than kb.MinUsageStaleDays (D906). There is no value that turns the finding
+// off.
 func (s KBSpec) UsageStale() int {
-	if s.UsageStaleDays == nil {
+	if s.UsageStaleDays == nil || *s.UsageStaleDays <= 0 {
 		return DefaultUsageStaleDays
 	}
-	return *s.UsageStaleDays
+	return max(*s.UsageStaleDays, kb.MinUsageStaleDays)
 }
 
 // ValidateAutoRepair rejects a auto_repair entry that is not a

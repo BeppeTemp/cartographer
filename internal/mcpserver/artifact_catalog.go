@@ -27,15 +27,12 @@ type kbArtifact struct {
 
 // artifactSource is what listKBArtifacts needs beside the KB itself.
 type artifactSource struct {
-	allowlist []provisioning.MCPAllowlistEntry
-	signer    ed25519.PrivateKey
+	signer ed25519.PrivateKey
 }
 
 // kbArtifactCatalog is a KB's artifacts, sorted by kind then name, and why a
 // skill was left out (D191): an excluded skill has no entry to attach its
-// reason to. The MCP allowlist diagnostics are deliberately not collected:
-// they name a descriptor's target, which artifact_read hides from the same
-// reader when the descriptor is not allowed.
+// reason to.
 type kbArtifactCatalog struct {
 	Artifacts []kbArtifact
 	Issues    []string
@@ -46,7 +43,7 @@ type kbArtifactCatalog struct {
 // stays in one place (D71 WP1) and bundled skills, which belong to the binary,
 // are not listed. signer, when set, is the KB's artifact signer: the UI shows
 // whether an artifact reaches clients signed.
-func listKBArtifacts(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry, signer ed25519.PrivateKey) (kbArtifactCatalog, error) {
+func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, error) {
 	if err := rejectArtifactTreeSymlinks(k.Root); err != nil {
 		return kbArtifactCatalog{}, err
 	}
@@ -58,7 +55,6 @@ func listKBArtifacts(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry, signe
 	}
 	kbRoots := map[string]string{artifactManifestKBKey: k.Root}
 	opts := provisioning.BuildOptions{
-		MCPAllowlists:   map[string][]provisioning.MCPAllowlistEntry{artifactManifestKBKey: allowlist},
 		SkillDiagnostic: note,
 	}
 	if signer != nil {

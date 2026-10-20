@@ -164,9 +164,6 @@ func runKBRepair(c toolCaller, apply, asJSON bool, out, errOut io.Writer) int {
 				Checks  []string `json:"checks"`
 				Default bool     `json:"default"`
 			} `json:"auto_repair"`
-			ArtifactWrite struct {
-				State string `json:"state"`
-			} `json:"artifact_write"`
 		} `json:"capabilities"`
 		Review struct {
 			Total  int            `json:"total"`
@@ -198,11 +195,7 @@ func runKBRepair(c toolCaller, apply, asJSON bool, out, errOut io.Writer) int {
 			return kbRepairExitError
 		}
 		dc.Auto = auto[check]
-		// An artifact check rewrites KB-root files, which the server allows
-		// only with kbs[].allow_artifact_write: without it the plan is shown
-		// and the apply is left to the operator (the default list names one).
-		artifactBlocked := lint.ArtifactRepairCheck(check) && status.Capabilities.ArtifactWrite.State != "enabled"
-		if apply && dc.Auto && dc.Planned > 0 && !artifactBlocked {
+		if apply && dc.Auto && dc.Planned > 0 {
 			done, err := kbRepairRun(c, check, false)
 			if err != nil {
 				fmt.Fprintf(errOut, "kb repair: kb_repair %s: %v\n", check, err)
@@ -291,7 +284,7 @@ func printKBRepairReport(w io.Writer, rep kbRepairReport) {
 	fmt.Fprintf(w, "KB %s — repair (%s)\n", displayKBName(rep.KB), mode)
 	switch {
 	case len(rep.AutoRepair) == 0:
-		fmt.Fprintln(w, "auto_repair is explicitly empty for this KB: nothing is applied unattended (set kbs[].auto_repair in the server config, or remove the key for the default).")
+		fmt.Fprintln(w, "auto_repair is explicitly empty for this KB: nothing is applied unattended (set auto_repair in the KB's settings.yaml, or remove the key for the default).")
 	case rep.AutoRepairDefault:
 		// Before D323 an unset auto_repair applied nothing: an operator who
 		// upgrades and runs --apply is told what is about to change.

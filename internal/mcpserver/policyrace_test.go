@@ -28,10 +28,10 @@ func TestPolicyRefreshDoesNotRaceReaders(t *testing.T) {
 		i := n
 		mu.Unlock()
 		k.SetPolicy(kb.Policy{
-			AllowArtifactWrite: i%2 == 0,
-			AutoRepair:         []string{"nonstandard_field", "missing_title"},
-			WriteGate:          []string{"off", "error", "warning"}[i%3],
-			UsageStaleDays:     i % 5,
+			RepairOnWrite:  i%2 == 0,
+			AutoRepair:     []string{"nonstandard_field", "missing_title"},
+			WriteGate:      []string{"off", "error", "warning"}[i%3],
+			UsageStaleDays: i % 5,
 		})
 	}
 

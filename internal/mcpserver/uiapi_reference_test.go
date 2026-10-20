@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 // referenceUIHandler mounts two KBs: "docs" (the fixture plus placeholders,
@@ -59,8 +58,8 @@ func referenceUIHandler(t *testing.T) http.Handler {
 		{Principal: "reader", Token: "narrow", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}}},
 	})
 	multi := NewMultiKBServer("test")
-	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{MCPAllowlist: []provisioning.MCPAllowlistEntry{}}) })
-	multi.MountKB("work-kb", func(s *Server) { RegisterKBTools(s, other, Deps{MCPAllowlist: []provisioning.MCPAllowlistEntry{}}) })
+	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
+	multi.MountKB("work-kb", func(s *Server) { RegisterKBTools(s, other, Deps{}) })
 	multi.EnableWeb(nil)
 	return ts.Middleware(multi.Handler())
 }

@@ -180,7 +180,7 @@ func TestApplyAndPrune_CrushProjectScope(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "guard", "PreToolUse", "bash", "./notify.sh")
 	writeMCPFixture(t, kbRoot, "docs", `{"type":"http","url":"https://example.com/mcp"}`)
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow("docs", "https://example.com/mcp"))
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

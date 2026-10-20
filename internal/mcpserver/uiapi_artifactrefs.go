@@ -118,7 +118,7 @@ func artifactRefsByConcept(srv *Server) (map[string][]uiArtifactRef, error) {
 	if err != nil {
 		return nil, err
 	}
-	catalog, err := listKBArtifacts(srv.kbRef, srv.kbArtifacts.allowlist, srv.kbArtifacts.signer)
+	catalog, err := listKBArtifacts(srv.kbRef, srv.kbArtifacts.signer)
 	if err != nil {
 		return nil, err
 	}

@@ -476,11 +476,13 @@ func TestMaterializeForProviders_StdioPreflightIsAtomic(t *testing.T) {
 	dir := t.TempDir()
 	content := []byte(`{"type":"stdio","command":"cartographer-definitely-missing-command"}`)
 	file := provisioning.ArtifactFile{Path: "missing.json", Content: content}
+	hash := provisioning.ContentHashFiles([]provisioning.ArtifactFile{file})
 	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{
 		Kind: "mcp", Name: "missing", Source: "kb:kb", Signed: true,
-		ContentHash: provisioning.ContentHashFiles([]provisioning.ArtifactFile{file}), Files: []provisioning.ArtifactFile{file},
+		ContentHash: hash, Files: []provisioning.ArtifactFile{file},
 	}}}
-	_, err := materializeForProviders(uniformManifests(m, []string{"claude", "codex"}), globalProjections([]string{"claude", "codex"}, dir), dir, "", false, false, false, portabilityOptions{}, nil)
+	approved := map[string]string{"kb:kb\x00missing": hash}
+	_, err := materializeForProviders(uniformManifests(m, []string{"claude", "codex"}), globalProjections([]string{"claude", "codex"}, dir), dir, "", false, false, false, portabilityOptions{}, nil, approved)
 	if err == nil || !strings.Contains(err.Error(), "not found on PATH") || !strings.Contains(err.Error(), "for claude") {
 		t.Fatalf("preflight error = %v", err)
 	}

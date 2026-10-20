@@ -20,15 +20,19 @@ const (
 	// 25 KiB since D318: concept_batch and asset_delete joined the agent
 	// profile (25322 bytes, +1.8 KiB over D302's 23190) after concept_batch's
 	// description and schema were cut from 3 KiB to 1.4 KiB; the remaining
-	// descriptions were already at their floor. artifact_delete (~0.3 KiB)
-	// appears only for a KB with allow_artifact_write and is not counted here.
+	// descriptions were already at their floor.
 	//
 	// 25.5 KiB since D315: map_update gained title_max_length and
 	// forbidden_title_terms (+0.1 KiB of schema, no description grew).
 	//
 	// 26 KiB since D715: concept_new's vars schema accepts a string or a list
 	// of strings (+17 bytes over the budget; no description grew).
-	toolsListBudgetBytes   = 26 * 1024
+	//
+	// 29 KiB since D906: the measured registry counts artifact_write and
+	// artifact_delete (+2.2 KiB; artifact_write's description was cut to the
+	// per-tool limit). A KB with default settings already listed them through
+	// allow_template_write (D352); the zero policy measured here did not.
+	toolsListBudgetBytes   = 29 * 1024
 	toolDescriptionMaxChar = 600
 )
 

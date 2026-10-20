@@ -995,7 +995,6 @@ func TestCommitMessage_IdentifiesTheResourceForEveryWriteTool(t *testing.T) {
 func TestGitWrap_ArtifactWriteCommitSubjectNamesThePath(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 

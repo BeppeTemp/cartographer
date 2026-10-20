@@ -116,7 +116,7 @@ func TestUIAPI_SettingsOmitsInvisibleKB(t *testing.T) {
 }
 
 // The capabilities kb_status reports name the setting that controls each: every
-// one must be a key of the schema, so the two cannot drift (D743).
+// one must be a key of the schema (the server's, or the KB's own), so the two cannot drift (D743).
 func TestKBCapabilitySettingsExistInSchema(t *testing.T) {
 	t.Parallel()
 	k := uiFixtureKB(t, "docs")
@@ -125,6 +125,16 @@ func TestKBCapabilitySettingsExistInSchema(t *testing.T) {
 			setting = strings.TrimSuffix(setting, " (ignored)")
 			if setting == "kbs[]" { // the list itself is the key "kbs"
 				setting = "kbs"
+			}
+			if key, ok := strings.CutPrefix(setting, "settings.yaml "); ok {
+				found := false
+				for _, k := range config.KBKeys {
+					found = found || k.Path == key
+				}
+				if !found {
+					t.Errorf("capability %s names %q, which is not a key of config.KBKeys", name, setting)
+				}
+				continue
 			}
 			if _, ok := config.Schema.Lookup(setting); !ok {
 				t.Errorf("capability %s names %q, which is not in config.Schema", name, setting)

@@ -43,30 +43,6 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Git remote a KB is cloned from, under data. A KB with a remote syncs with it; one without never contacts anything."},
 	{Path: "kbs[].name", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Example: "kb-a",
 		Description: "KB name, in place of the one derived from the remote. It drives the endpoint, the token scopes, the clone directory and the names of the KB's files in credentials_dir."},
-	{Path: "kbs[].allow_artifact_write", Scope: settingschema.ScopeKB, Type: "bool", Default: "false",
-		Description: "Enable artifact_write and artifact_delete on this KB. A written skill injects instructions that clients will run, so an rw token alone does not imply it."},
-	{Path: "kbs[].allow_template_write", Scope: settingschema.ScopeKB, Type: "bool", Default: "true",
-		Description: "Let artifact_write write templates/<slug>.md and nothing else when allow_artifact_write is off. Templates are never provisioned to a client."},
-	{Path: "kbs[].auto_repair", Scope: settingschema.ScopeKB, Type: "list", Default: "every check that is safe to run unattended",
-		Description: "Lint checks whose mechanical fix `kb repair --apply` and the background repair apply without review, by name; there is no all. An empty list means none."},
-	{Path: "kbs[].repair_on_write", Scope: settingschema.ScopeKB, Type: "bool", Default: "true when auto_repair is not empty",
-		Description: "Apply the auto_repair fixes to the concepts a write tool just wrote, in the same commit. false leaves the repair to the timer."},
-	{Path: "kbs[].write_gate", Scope: settingschema.ScopeKB, Type: "string", Values: "off | error | warning", Default: "off",
-		Description: "Refuse, and roll back, a write that introduces a finding at or above this severity."},
-	{Path: "kbs[].doctor_auto_interval", Scope: settingschema.ScopeKB, Type: "duration", Values: "<n>d, <n> days, or 0 to turn it off", Default: "1d",
-		Description: "How often the server applies auto_repair by itself, with no agent session."},
-	{Path: "kbs[].doctor_interval", Scope: settingschema.ScopeKB, Type: "duration", Values: "<n>d, <n> days, or 0 to disable", Default: "14d",
-		Description: "Days after the last kb-doctor session before the agent proposes the next one to the operator. A session never starts by itself."},
-	{Path: "kbs[].doctor_mode", Scope: settingschema.ScopeKB, Type: "string", Values: "unattended | assisted", Default: `""`,
-		Description: "Accepted and ignored: a kb-doctor session starts only when the operator asks. It is still validated."},
-	{Path: "kbs[].doctor_budget", Scope: settingschema.ScopeKB, Type: "int", Values: "1 or more", Default: "10",
-		Description: "Review items one kb-doctor session decides before it closes."},
-	{Path: "kbs[].usage_stale_days", Scope: settingschema.ScopeKB, Type: "int", Values: "0 or more; 0 disables", Default: "42",
-		Description: "Days a skill or agent may go unused by every client before artifact_unused reports it."},
-	{Path: "kbs[].mcp_allowlist", Scope: settingschema.ScopeKB, Type: "list", Default: "[]",
-		Description: "Third-party MCP endpoints a KB descriptor may point to, by name, transport (http or stdio) and exact target. An empty list denies every one."},
-	{Path: "kbs[].secrets", Scope: settingschema.ScopeKB, Type: "bool", Default: "false",
-		Description: "The KB uses secrets. A mount of it without an age key reports secrets as missing key instead of silently disabled. The key itself stays per machine (<kb>.age in credentials_dir)."},
 
 	{Path: "kb_aliases", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,
 		Description: "Old names of renamed KBs: each item has a from (the old name) and a to (the KB now mounted), so a routed ?kbs=<from> still reaches it. `kb rename` writes it. One step only, and a mounted name wins over an alias."},
@@ -97,16 +73,35 @@ const ExampleHeader = `Example configuration for "cartographer serve --config co
 Generated from the settings schema (internal/config/schema.go) by "make settings-example": edit the schema, not this file.
 Every key is optional. Precedence, highest first: flag, environment variable, this file, default.`
 
-// KBOnlyKeys are the settings a KB carries in its settings.yaml and that the
-// server file does not have at all (D903): a decision of the team that owns the
-// KB, the same for every server that mounts it, so there is no kbs[] form of it
-// to disagree. They are rendered into the comments of a KB's settings.yaml with
-// the kb scope of Schema (KBSettingsSchema); the kb package accepts and checks
-// them (TestKBSettingsKeysMatchSchema pins the two tables together).
-var KBOnlyKeys = []settingschema.Key{
+// KBKeys are the settings a KB carries in its settings.yaml (D746), and only
+// there (D906): how the KB behaves, whoever serves it, the same for every server
+// that mounts it, so there is no kbs[] form of them to disagree. They are
+// rendered into the comments of a KB's settings.yaml (KBSettingsSchema); the kb
+// package accepts and checks them (TestKBSettingsKeysMatchSchema pins the two
+// tables together).
+var KBKeys = []settingschema.Key{
+	{Path: "auto_repair", Scope: settingschema.ScopeKB, Type: "list", Default: "every check that is safe to run unattended",
+		Description: "Lint checks whose mechanical fix `kb repair --apply` and the background repair apply without review, by name; there is no all. An empty list means none."},
+	{Path: "repair_on_write", Scope: settingschema.ScopeKB, Type: "bool", Default: "true when auto_repair is not empty",
+		Description: "Apply the auto_repair fixes to the concepts a write tool just wrote, in the same commit. false leaves the repair to the timer."},
+	{Path: "write_gate", Scope: settingschema.ScopeKB, Type: "string", Values: "off | error | warning", Default: "off",
+		Description: "Refuse, and roll back, a write that introduces a finding at or above this severity."},
+	{Path: "doctor_auto_interval", Scope: settingschema.ScopeKB, Type: "duration", Values: "<n>d, <n> days, or 0 to turn it off", Default: "1d",
+		Description: "How often the server applies auto_repair by itself, with no agent session."},
+	{Path: "doctor_interval", Scope: settingschema.ScopeKB, Type: "duration", Values: "<n>d, <n> days, or 0 to disable", Default: "14d",
+		Description: "Days after the last kb-doctor session before the agent proposes the next one to the operator. A session never starts by itself."},
+	{Path: "doctor_mode", Scope: settingschema.ScopeKB, Type: "string", Values: "unattended | assisted", Default: `""`,
+		Description: "Accepted and ignored: a kb-doctor session starts only when the operator asks. It is still validated."},
+	{Path: "doctor_budget", Scope: settingschema.ScopeKB, Type: "int", Values: "1 or more", Default: "10",
+		Description: "Review items one kb-doctor session decides before it closes."},
+	{Path: "usage_stale_days", Scope: settingschema.ScopeKB, Type: "int", Values: "7 or more", Default: "42",
+		Description: "Days a skill or agent may go unused by every client before artifact_unused reports it. A value under 7 is raised to 7 with a warning; there is no value that turns the finding off."},
 	{Path: "branch", Scope: settingschema.ScopeKB, Type: "string", Default: `""`,
 		Description: "Branch Cartographer commits and pushes to, in place of the remote's default one; the first push creates it. Empty or absent: the remote's default branch. Only the settings.yaml committed on the remote's default branch counts: a change made on any other branch has no effect until it reaches the default one."},
 }
+
+// kbKeyHome is the reason given for a KB-scope key met in kbs[] (D906).
+const kbKeyHome = "a KB's behaviour is carried by the KB, the same on every server that mounts it; the server file keeps only name and remote"
 
 // Retired is the registry of the server config.yaml keys that were removed
 // (D903): each is ignored with a warning that names what to use, and dropped
@@ -154,4 +149,16 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "kbs[].sops_age_key_file", Plan: 905, Replacement: "<kb>.age in credentials_dir"},
 	{Path: "kbs[].artifact_signing_seed", Plan: 905, Replacement: "<kb>.signing in credentials_dir", Note: "the file holds the hexadecimal seed; there is no default.signing"},
 	{Path: "audit.key_seed", Plan: 905, Env: "CARTOGRAPHER_AUDIT_KEY", Replacement: "audit.key in credentials_dir", Note: "a missing one is generated at the first start"},
+	{Path: "kbs[].allow_artifact_write", Plan: 906, Note: kb.ArtifactWriteAlwaysOn},
+	{Path: "kbs[].allow_template_write", Plan: 906, Note: kb.ArtifactWriteAlwaysOn},
+	{Path: "kbs[].mcp_allowlist", Plan: 906, Note: kb.MCPAllowlistRemoved},
+	{Path: "kbs[].secrets", Plan: 906, Note: kb.SecretsDerived},
+	{Path: "kbs[].auto_repair", Plan: 906, Replacement: "auto_repair in the KB's settings.yaml", Note: kbKeyHome},
+	{Path: "kbs[].repair_on_write", Plan: 906, Replacement: "repair_on_write in the KB's settings.yaml", Note: kbKeyHome},
+	{Path: "kbs[].write_gate", Plan: 906, Replacement: "write_gate in the KB's settings.yaml", Note: kbKeyHome},
+	{Path: "kbs[].doctor_auto_interval", Plan: 906, Replacement: "doctor_auto_interval in the KB's settings.yaml", Note: kbKeyHome},
+	{Path: "kbs[].doctor_interval", Plan: 906, Replacement: "doctor_interval in the KB's settings.yaml", Note: kbKeyHome},
+	{Path: "kbs[].doctor_mode", Plan: 906, Replacement: "doctor_mode in the KB's settings.yaml", Note: kbKeyHome},
+	{Path: "kbs[].doctor_budget", Plan: 906, Replacement: "doctor_budget in the KB's settings.yaml", Note: kbKeyHome},
+	{Path: "kbs[].usage_stale_days", Plan: 906, Replacement: "usage_stale_days in the KB's settings.yaml", Note: kbKeyHome},
 }}

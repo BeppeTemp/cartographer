@@ -26,6 +26,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
+	"github.com/BeppeTemp/cartographer/internal/sops"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 	"github.com/BeppeTemp/cartographer/internal/webui"
 )
@@ -172,7 +173,6 @@ type kbBootstrap struct {
 	kbs             []*kb.KB
 	names           []string
 	artifactSigners []ed25519.PrivateKey
-	allowlists      [][]provisioning.MCPAllowlistEntry
 	sqlIdxs         map[string]*sqlindex.Index
 }
 
@@ -242,9 +242,8 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	phase("mounting")
 	seenNames := make(map[string]string) // name → first path seen
 	var kbs []*kb.KB
-	var kbNames []string                                   // index-aligned with kbs
-	var kbArtifactSigners []ed25519.PrivateKey             // index-aligned with kbs
-	var kbMCPAllowlists [][]provisioning.MCPAllowlistEntry // index-aligned with kbs
+	var kbNames []string                       // index-aligned with kbs
+	var kbArtifactSigners []ed25519.PrivateKey // index-aligned with kbs
 	for _, m := range mounts {
 		var k *kb.KB
 		var err error
@@ -298,8 +297,6 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			log.Printf("KB %q provisioning artifact signing enabled (key ID %s)", name, artifactsig.KeyID(artifactSigner.Public().(ed25519.PublicKey)))
 		}
 		if _, scanErr := provisioning.BuildManifest(nil, map[string]string{name: k.Root}, provisioning.BuildOptions{
-			MCPAllowlists:   map[string][]provisioning.MCPAllowlistEntry{name: m.Spec.MCPAllowlist},
-			MCPDiagnostic:   func(message string) { log.Printf("warning: %s", message) },
 			SkillDiagnostic: func(message string) { log.Printf("warning: %s", message) },
 		}); scanErr != nil {
 			log.Printf("warning: KB %q MCP descriptor scan: %v", name, scanErr)
@@ -307,7 +304,6 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		kbs = append(kbs, k)
 		kbNames = append(kbNames, name)
 		kbArtifactSigners = append(kbArtifactSigners, artifactSigner)
-		kbMCPAllowlists = append(kbMCPAllowlists, m.Spec.MCPAllowlist)
 		if m.Discovered {
 			// A discovered KB works — it serves tools, answers reads, commits
 			// writes — and looks identical to a configured one from every client
@@ -344,7 +340,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			log.Printf("sqlindex: reconciled at startup: indexed=%d updated=%d removed=%d", stats.Indexed, stats.Updated, stats.Removed)
 		}
 	}
-	return kbBootstrap{kbs: kbs, names: kbNames, artifactSigners: kbArtifactSigners, allowlists: kbMCPAllowlists, sqlIdxs: sqlIdxs}
+	return kbBootstrap{kbs: kbs, names: kbNames, artifactSigners: kbArtifactSigners, sqlIdxs: sqlIdxs}
 }
 
 // applyKBPolicy lays the KB's own settings.yaml over its server spec (D746) and
@@ -358,15 +354,13 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 		log.Printf("warning: KB %q: %v — settings.yaml ignored", name, err)
 		st = kb.SettingsState{}
 	}
-	eff, info := config.ResolveKBSettings(server, cfg.ServerSetFunc(name), st)
+	eff, info := config.ResolveKBSettings(server, st)
 	prev := k.SettingsInfo()
 	k.SetSettingsInfo(info)
 	cfg.RecordKBSettings(name, eff, info.FromKB)
 
 	// Validated by config.Load and by ResolveKBSettings; a zero spec yields the default.
 	var pol kb.Policy
-	pol.AllowArtifactWrite = eff.AllowArtifactWrite
-	pol.AllowTemplateWrite = eff.TemplateWriteEnabled()
 	pol.AutoRepair, pol.AutoRepairDefault = eff.AutoRepairChecks()
 	pol.RepairOnWrite = eff.RepairOnWriteEnabled()
 	pol.WriteGate = eff.WriteGateMode()
@@ -382,14 +376,11 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 	for _, f := range info.Findings {
 		log.Printf("warning: KB %q: %s: %s", name, kb.SettingsFile, f)
 	}
-	for _, g := range info.Ignored {
-		log.Printf("warning: KB %q: %s sets %s to %s; the server's value %s is ignored — the KB is authoritative", name, kb.SettingsFile, g.Key, g.KBValue, g.ServerValue)
-	}
-	if info.SecretsDeclared && k.SopsAgeKeyFile == "" {
-		log.Printf("warning: KB %q declares secrets: true but no age key is configured for it (create %s.age or default.age in credentials_dir)", name, name)
+	if sops.Declared(k.Root) && k.SopsAgeKeyFile == "" {
+		log.Printf("warning: KB %q holds sops files under secrets/ but no age key is configured for it (create %s.age or default.age in credentials_dir)", name, name)
 	}
 	if refresh {
-		log.Printf("KB %q: settings.yaml changed, effective settings re-resolved (mcp_allowlist and git workflow keys apply at the next start)", name)
+		log.Printf("KB %q: settings.yaml changed, effective settings re-resolved (git workflow keys apply at the next start)", name)
 	}
 	return eff
 }
@@ -413,17 +404,17 @@ func runServe(cfg *config.Config) {
 		serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.Web.Enabled, auditLog, latestVersion, cfg)
 	} else {
 		bs := bootstrapKBs(cfg, func(string) {})
-		serveStdio(bs.kbs[0], bs.artifactSigners[0], bs.allowlists[0], cfg.ToolsProfile, bs.sqlIdxs, auditLog, latestVersion)
+		serveStdio(bs.kbs[0], bs.artifactSigners[0], cfg.ToolsProfile, bs.sqlIdxs, auditLog, latestVersion)
 	}
 }
 
-func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry, toolsProfile string, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string) {
+func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, toolsProfile string, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
 	sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
 	s := mcpserver.New(version)
-	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigner, MCPAllowlist: allowlist})
+	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigner})
 	s.SetToolsProfile(toolsProfile)
 	s.SetAuditLog(auditLog)
 	s.SetKBName(k.AuthName)
@@ -528,7 +519,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	var mounted atomic.Pointer[[]*kb.KB]
 	go func() {
 		bs := boot(gate.SetPhase)
-		kbs, names, artifactSigners, allowlists, sqlIdxs := bs.kbs, bs.names, bs.artifactSigners, bs.allowlists, bs.sqlIdxs
+		kbs, names, artifactSigners, sqlIdxs := bs.kbs, bs.names, bs.artifactSigners, bs.sqlIdxs
 		multi := mcpserver.NewMultiKBServer(version)
 		multi.SetLatestVersionSource(latestVersion)
 		multi.SetSettings(settingsCfg, string(updateChannelFn()))
@@ -562,7 +553,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 					s.SetDisplayName("cartographer:" + name)
 				}
 				sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
-				mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i], RoutedMount: true, KBByName: kbByName})
+				mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], RoutedMount: true, KBByName: kbByName})
 				s.SetToolsProfile(toolsProfile)
 				s.SetAuditLog(auditLog)
 				s.SetKBName(name)
