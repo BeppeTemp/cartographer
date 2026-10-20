@@ -185,7 +185,7 @@ checks** — a figure and its documentation cannot drift apart.
 `required_fields`, `field_values`, `forbidden_fields` and the curated index are **lint contracts**: a
 violation is a `lint`/`validate` finding. A write never introduces one, though: each is a check a
 write can avoid, so in a git KB the write gate refuses the write that would (D907) and an existing
-violation is left to the doctor. A strict map's `concept_types` is checked earlier still, by `validate`,
+violation is left to the doctor. The refusal lists only findings on pages the caller can see. A strict map's `concept_types` is checked earlier still, by `validate`,
 which rejects an out-of-vocabulary type before anything is written. No contract key switches a check
 off (`data-plane.md` §No check can be switched off), and the `map_create` description says so.
 
