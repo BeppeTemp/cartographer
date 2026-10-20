@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/testtree"
@@ -42,7 +43,29 @@ func buildTemplate() (testtree.Tree, error) {
 	return testtree.Capture(root)
 }
 
-// New returns a fresh KB: a directory named "kb" under t.TempDir(), a git work
+// tempDir is t.TempDir without its cleanup check: the fixtures this package
+// replaces removed their directory with a best-effort os.RemoveAll, and a
+// background write of the code under test (a read refresh, a repair run) may
+// still be landing in the tree when the test ends. t.TempDir turns that race
+// into a failure of the test; here the removal is retried and then left alone.
+func tempDir(t testing.TB) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "kbtest-*")
+	if err != nil {
+		t.Fatalf("kbtest: %v", err)
+	}
+	t.Cleanup(func() {
+		for i := 0; i < 20; i++ {
+			if os.RemoveAll(dir) == nil {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	})
+	return dir
+}
+
+// New returns a fresh KB: a directory named "kb" in a temporary directory, a git work
 // tree with exactly the initial commit, on gitx.DefaultBranch. It spawns no git
 // process.
 //
@@ -59,7 +82,7 @@ func New(t testing.TB) *kb.KB {
 	if templateErr != nil {
 		t.Fatalf("kbtest: building the KB template: %v", templateErr)
 	}
-	root := filepath.Join(t.TempDir(), DirName)
+	root := filepath.Join(tempDir(t), DirName)
 	if err := template.Restore(root); err != nil {
 		t.Fatalf("kbtest: restoring the KB template: %v", err)
 	}

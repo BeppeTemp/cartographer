@@ -101,7 +101,7 @@ whose reason is a platform name is not accepted.
 A test that needs a blank KB takes it from `kbtest.New(t)` (inside `internal/kb`,
 from `newTestKB`), never from its own `kb.Init`: the suite is dominated by the
 git processes it spawns, and `Init` alone runs about a dozen, so a template
-built once per test binary and copied into the test's `t.TempDir()` (through
+built once per test binary and copied into a temporary directory of the test (through
 `internal/testtree`) is what keeps the suite fast (D812). `kb.Init` stays in the
 tests whose subject is what `Init` itself does (skeleton, git attributes and
 initial commit, identity, default branch, existing or unborn repositories) and
