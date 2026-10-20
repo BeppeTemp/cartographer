@@ -292,3 +292,49 @@ func TestCredentialHint(t *testing.T) {
 		t.Errorf("a KB that has its file gets a hint: %q", got)
 	}
 }
+
+// The audit log, and its archive directory, are committed with a KB that
+// holds them just like credentials: a KB named audit is refused.
+func TestAuditLogOutsideEveryKB(t *testing.T) {
+	data := t.TempDir()
+	creds := filepath.Join(t.TempDir(), "creds")
+
+	// A KB that is data/audit holds the default audit log.
+	writeIndex(t, filepath.Join(data, "audit"))
+	cfg := &config.Config{Data: data, CredentialsDir: creds}
+	if err := checkCredentialsDir(cfg); err == nil || !strings.Contains(err.Error(), "audit.log") || !strings.Contains(err.Error(), "is a KB") {
+		t.Errorf("data/audit as a KB: err = %v", err)
+	}
+
+	// A remote KB whose clone is data/audit.
+	data2 := t.TempDir()
+	cfg = &config.Config{Data: data2, CredentialsDir: creds, KBs: []config.KBSpec{{Remote: "git@example.com:team/audit.git"}}}
+	if err := checkCredentialsDir(cfg); err == nil || !strings.Contains(err.Error(), "audit.log") {
+		t.Errorf("remote KB named audit: err = %v", err)
+	}
+
+	// An audit.log, or an archive_dir, inside a discovered KB.
+	data3 := t.TempDir()
+	writeIndex(t, filepath.Join(data3, "kb-a"))
+	cfg = &config.Config{Data: data3, CredentialsDir: creds}
+	cfg.Audit.Log = filepath.Join(data3, "kb-a", "audit.log")
+	if err := checkCredentialsDir(cfg); err == nil || !strings.Contains(err.Error(), "audit.log") {
+		t.Errorf("audit.log in a KB: err = %v", err)
+	}
+	cfg.Audit.Log = ""
+	cfg.Audit.ArchiveDir = filepath.Join(data3, "kb-a", "archive")
+	if err := checkCredentialsDir(cfg); err == nil || !strings.Contains(err.Error(), "audit.archive_dir") {
+		t.Errorf("archive_dir in a KB: err = %v", err)
+	}
+	cfg.Audit.ArchiveDir = filepath.Join(data3, "kb-b")
+	if err := checkCredentialsDir(cfg); err == nil || !strings.Contains(err.Error(), "audit.archive_dir") {
+		t.Errorf("archive_dir directly under data is discovered as a KB: err = %v", err)
+	}
+
+	// The defaults and a log outside every KB are fine.
+	cfg = &config.Config{Data: data3, CredentialsDir: creds}
+	cfg.Audit.ArchiveDir = filepath.Join(t.TempDir(), "archive")
+	if err := checkCredentialsDir(cfg); err != nil {
+		t.Errorf("defaults refused: %v", err)
+	}
+}

@@ -45,6 +45,8 @@ The choices the plan left to the implementation:
   a remote KB's clone, or below a subdirectory of `data` (a discovered KB) refuses the start, whether that KB
   exists yet or not. The credentials directory, `credentials` and `audit` under `data` are never discovered
   as KBs.
+  The same check covers the directory of the audit log and `audit.archive_dir`, so a KB named `audit` cannot
+  hold the log; the error names the setting to move.
 - **The upgrade copies, never moves.** The first start copies each removed setting's file, or writes its inline
   value (a `${NAME}` resolved), to its name in the directory, `0600`, never over an existing file; every
   `known_hosts` goes into the one file. The report names settings and files, never a value. What cannot be

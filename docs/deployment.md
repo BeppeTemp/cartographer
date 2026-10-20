@@ -253,6 +253,9 @@ not configured. A KB name that would point outside the directory has no file of 
   `kbs[].path` or a remote KB's clone under `data`, even before it exists, and one below a subdirectory of
   `data`, which is discovered as a KB. A direct subdirectory of `data` is fine: as the credentials directory
   it is not discovered, and neither are `credentials` and `audit`.
+  The directory of the audit log (`audit.log`, or `<data>/audit`) and `audit.archive_dir` are held to the
+  same rule, since a KB named `audit` would otherwise hold the log and commit it: the start refuses, naming
+  the setting to move. Neither is checked in a `--kb` session without data, which has no default log.
 - **Upgrading.** The first start of this version copies into the directory the secrets that the removed
   settings point at: `git.ssh_key`, `kbs[].ssh_key`, `git.known_hosts`, `kbs[].known_hosts`,
   `git.token_dir`, `sops.age_key_file`, `sops.age_key_dir`, `kbs[].sops_age_key_file`,

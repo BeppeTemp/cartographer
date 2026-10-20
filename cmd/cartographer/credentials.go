@@ -127,19 +127,41 @@ func readAuditKey(p string) (audit.KeyPair, error) {
 // and pushed with the KB. That is a directory holding a KB or inside one, one
 // inside a kbs[] path or a remote KB's clone, which may not exist yet, and one
 // below a subdirectory of data that discovery mounts. A direct subdirectory of
-// data is not discovered once it is the credentials directory.
+// data is not discovered once it is the credentials directory. The directory of
+// the audit log, and audit.archive_dir when it is set, get the same check: a KB
+// named audit would otherwise hold the log and commit it.
 func checkCredentialsDir(cfg *config.Config) error {
-	if cfg.CredentialsPath() == "" {
-		return nil // a folder session without credentials_dir has none
+	if p := cfg.CredentialsPath(); p != "" {
+		if err := checkOutsideKBs(cfg, p, "credentials_dir", "its files", func(child, dir string) bool {
+			return child == dir || serverOwnDataDir(child)
+		}); err != nil {
+			return err
+		}
 	}
-	credDir := absPath(cfg.CredentialsPath())
+	if p := cfg.AuditLogPath(); p != "" {
+		audit := func(child, _ string) bool { return serverOwnDataDir(child) }
+		if err := checkOutsideKBs(cfg, filepath.Dir(p), "audit.log", "the audit log", audit); err != nil {
+			return err
+		}
+		if cfg.Audit.ArchiveDir != "" {
+			return checkOutsideKBs(cfg, cfg.Audit.ArchiveDir, "audit.archive_dir", "the rotated audit log", audit)
+		}
+	}
+	return nil
+}
+
+// checkOutsideKBs refuses dir, the directory of the named setting, when it is
+// in the working tree of a KB. exempt says whether a direct subdirectory
+// of data is left alone: the server does not mount it as a KB.
+func checkOutsideKBs(cfg *config.Config, dir, setting, what string, exempt func(child, dir string) bool) error {
+	dir = absPath(dir)
 	inside := func(kbRoot string) error {
-		return fmt.Errorf("credentials_dir %s is inside the KB %s, and its files would be committed with it: set credentials_dir outside every KB", credDir, kbRoot)
+		return fmt.Errorf("%s %s is inside the KB %s, and %s would be committed with it: move %s outside every KB", setting, dir, kbRoot, what, setting)
 	}
-	for d := credDir; ; d = filepath.Dir(d) {
+	for d := dir; ; d = filepath.Dir(d) {
 		if _, err := os.Stat(filepath.Join(d, "data", "index.md")); err == nil {
-			if d == credDir {
-				return fmt.Errorf("credentials_dir %s is a KB, and its files would be committed with it: set credentials_dir to another directory, or rename the KB", credDir)
+			if d == dir {
+				return fmt.Errorf("%s %s is a KB, and %s would be committed with it: move %s to another directory, or rename the KB", setting, dir, what, setting)
 			}
 			return inside(d)
 		}
@@ -155,16 +177,16 @@ func checkCredentialsDir(cfg *config.Config) error {
 				root = filepath.Join(cfg.Data, resolveKBName(spec, ""))
 			}
 		}
-		if root != "" && pathWithin(credDir, absPath(root)) {
+		if root != "" && pathWithin(dir, absPath(root)) {
 			return inside(root)
 		}
 	}
 	if cfg.Data != "" {
 		data := absPath(cfg.Data)
-		if rel, err := filepath.Rel(data, credDir); err == nil && pathWithin(credDir, data) && rel != "." {
+		if rel, err := filepath.Rel(data, dir); err == nil && pathWithin(dir, data) && rel != "." {
 			first := strings.SplitN(rel, string(filepath.Separator), 2)[0]
 			child := filepath.Join(data, first)
-			if child != credDir && !strings.HasPrefix(first, ".") && !serverOwnDataDir(child) {
+			if !strings.HasPrefix(first, ".") && !exempt(child, dir) {
 				return inside(child)
 			}
 		}
