@@ -192,7 +192,7 @@ func TestConceptBatch_HappyPath_OneCommitOneLogEntryOrderedResults(t *testing.T)
 	RegisterKBTools(s, k, Deps{})
 
 	ops := []map[string]any{
-		{"op": "write", "id": "batch/new-one", "frontmatter": map[string]any{"type": "Note", "title": "New One"}, "body": "# New One\n"},
+		{"op": "write", "id": "batch/new-one", "frontmatter": map[string]any{"type": "Note", "title": "New One"}, "body": "# New One\n\n[[batch/seed]]\n"},
 		{"op": "patch", "id": "batch/seed", "if_match": seedHash, "old_string": "Original body.", "new_string": "Patched body."},
 	}
 	resps := runMCPSequence(t, s, []string{initMsg, batchCallMsg(t, 2, ops)})
@@ -273,7 +273,7 @@ func TestConceptBatch_StdioRoundTrip(t *testing.T) {
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
-	ops := []map[string]any{{"op": "write", "id": "batch/stdio", "frontmatter": map[string]any{"type": "Note"}, "body": "x"}}
+	ops := []map[string]any{{"op": "write", "id": "batch/stdio", "frontmatter": map[string]any{"type": "Note"}, "body": "x\n\n[[manutenzione/test-runbook]]\n"}}
 	resps := runMCPSequence(t, s, []string{initMsg, batchCallMsg(t, 2, ops)})
 	if tr := decodeToolResult(t, resps[1]); tr.IsError {
 		t.Fatalf("stdio concept_batch: %+v", tr.Content)
@@ -286,7 +286,7 @@ func TestConceptBatch_HTTPRoundTrip(t *testing.T) {
 		{Token: "rw-tok", Scopes: []auth.KBScope{{KB: "kbx", Write: true}}},
 	})
 	handler := newScopedTestHandler(t, ts)
-	body := batchCallMsg(t, 1, []map[string]any{{"op": "write", "id": "batch/http", "frontmatter": map[string]any{"type": "Note"}, "body": "x"}})
+	body := batchCallMsg(t, 1, []map[string]any{{"op": "write", "id": "batch/http", "frontmatter": map[string]any{"type": "Note"}, "body": "x\n\n[[manutenzione/test-runbook]]\n"}})
 
 	rr := doMCP(handler, "kbx", "rw-tok", body)
 	if rr.Code != http.StatusOK {
@@ -327,7 +327,7 @@ func TestConceptBatch_VisibleUnderAgentAndFullProfile(t *testing.T) {
 	if !agentNames["concept_batch"] {
 		t.Error("concept_batch must be advertised in tools/list under the agent profile (D318)")
 	}
-	ops := []map[string]any{{"op": "write", "id": "batch/agent-profile", "frontmatter": map[string]any{"type": "Note"}, "body": "x"}}
+	ops := []map[string]any{{"op": "write", "id": "batch/agent-profile", "frontmatter": map[string]any{"type": "Note"}, "body": "x\n\n[[manutenzione/test-runbook]]\n"}}
 	resps := runMCPSequence(t, s, []string{initMsg, batchCallMsg(t, 2, ops)})
 	if tr := decodeToolResult(t, resps[1]); tr.IsError {
 		t.Fatalf("concept_batch must stay callable via tools/call under the agent profile: %+v", tr.Content)
@@ -356,19 +356,22 @@ func readHash(t *testing.T, k *kb.KB, id string) string {
 // concept_batch patch operation alike; the body is left byte-for-byte (#321).
 func TestConceptPatch_FrontmatterOnly(t *testing.T) {
 	t.Parallel()
+	// The title is the page's own H1: a write that changed it alone would have
+	// the body repaired to match (title_h1_mismatch), and this test is about
+	// a patch that touches no body.
 	const id = "manutenzione/test-runbook"
 	cases := []struct {
 		name string
 		call func(t *testing.T, k *kb.KB, hash string) string
 	}{
 		{"concept_patch, no edits key", func(t *testing.T, k *kb.KB, hash string) string {
-			return artifactCallMsg(t, 2, "concept_patch", map[string]any{"id": id, "if_match": hash, "frontmatter": map[string]any{"title": "Set alone"}})
+			return artifactCallMsg(t, 2, "concept_patch", map[string]any{"id": id, "if_match": hash, "frontmatter": map[string]any{"title": "Schema"}})
 		}},
 		{"concept_patch, empty edits", func(t *testing.T, k *kb.KB, hash string) string {
-			return artifactCallMsg(t, 2, "concept_patch", map[string]any{"id": id, "if_match": hash, "edits": []any{}, "frontmatter": map[string]any{"title": "Set alone"}})
+			return artifactCallMsg(t, 2, "concept_patch", map[string]any{"id": id, "if_match": hash, "edits": []any{}, "frontmatter": map[string]any{"title": "Schema"}})
 		}},
 		{"concept_batch patch", func(t *testing.T, k *kb.KB, hash string) string {
-			return batchCallMsg(t, 2, []map[string]any{{"op": "patch", "id": id, "if_match": hash, "frontmatter": map[string]any{"title": "Set alone"}}})
+			return batchCallMsg(t, 2, []map[string]any{{"op": "patch", "id": id, "if_match": hash, "frontmatter": map[string]any{"title": "Schema"}}})
 		}},
 	}
 	for _, tc := range cases {
@@ -395,8 +398,8 @@ func TestConceptPatch_FrontmatterOnly(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseFrontmatter: %v", err)
 			}
-			if v, _ := fm.Get("title"); v != "Set alone" {
-				t.Errorf("title = %v, want %q", v, "Set alone")
+			if v, _ := fm.Get("title"); v != "Schema" {
+				t.Errorf("title = %v, want %q", v, "Schema")
 			}
 		})
 	}
