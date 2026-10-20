@@ -58,9 +58,9 @@ func cmdClient(args []string) int {
 func printClientUsage(w *os.File) {
 	fmt.Fprintln(w, "Usage: cartographer client list")
 	fmt.Fprintln(w, "       cartographer client show <provider>")
-	fmt.Fprintln(w, "       cartographer client bind <provider> <kb>[,<kb>...]")
-	fmt.Fprintln(w, "       cartographer client unbind <provider> <kb>[,<kb>...]")
-	fmt.Fprintln(w, "       cartographer client reset <provider>")
+	fmt.Fprintln(w, "       cartographer client bind <provider> <kb>[,<kb>...]     adds KBs to the provider's binding")
+	fmt.Fprintln(w, "       cartographer client unbind <provider> <kb>[,<kb>...]   removes KBs from it")
+	fmt.Fprintln(w, "       cartographer client reset <provider>                   restores every known KB")
 	fmt.Fprintln(w, "       cartographer client update [--check=true|false]")
 }
 
@@ -111,6 +111,15 @@ func formatKBList(kbs []string) string {
 		return "none"
 	}
 	return strings.Join(kbs, ", ")
+}
+
+// addedList names what a bind added to the binding: "none" when every KB named
+// was already bound, so a repeated bind reads as a no-op and not as a change.
+func addedList(added []string) string {
+	if len(added) == 0 {
+		return "none, already bound"
+	}
+	return strings.Join(added, ", ")
 }
 
 func clientList(cfg *clientconfig.Config, args []string) int {
@@ -190,7 +199,14 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 		return code
 	}
 
-	_, wasExplicit := cfg.BoundKBs(provider)
+	before, wasExplicit := cfg.BoundKBs(provider)
+	var added []string
+	for _, kb := range kbs {
+		if (wasExplicit && slices.Contains(before, kb)) || slices.Contains(added, kb) {
+			continue
+		}
+		added = append(added, kb)
+	}
 	for _, kb := range kbs {
 		if err := cfg.Bind(provider, kb); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
@@ -241,7 +257,7 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 	}
 
 	bound, _ := cfg.BoundKBs(provider)
-	fmt.Printf("%s bound to %s\n", provider, formatKBList(bound))
+	fmt.Printf("%s bound to %s (added: %s)\n", provider, formatKBList(bound), addedList(added))
 	warnProviderCollisions(cfg, provider, bound)
 	fmt.Println("run `cartographer sync` to apply")
 	return 0

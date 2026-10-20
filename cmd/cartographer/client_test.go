@@ -115,6 +115,34 @@ func TestCmdClientBindAnnouncesTheReduction(t *testing.T) {
 	}
 }
 
+// TestCmdClientBindSaysItAdds: bind adds to the binding, and both the usage and
+// the output say so (#924): the resulting list, and what this call added.
+func TestCmdClientBindSaysItAdds(t *testing.T) {
+	writeClientCfg(t, []string{"claude"}, []string{"alpha", "beta", "gamma"}, nil)
+
+	run := func(kbs string) string {
+		return withStdout(t, func() {
+			if code := cmdClient([]string{"bind", "claude", kbs}); code != 0 {
+				t.Errorf("cmdClient bind %s = %d, want 0", kbs, code)
+			}
+		})
+	}
+	if out := run("alpha"); !strings.Contains(out, "claude bound to alpha (added: alpha)") {
+		t.Errorf("the first bind should name what it added:\n%s", out)
+	}
+	if out := run("beta,alpha"); !strings.Contains(out, "claude bound to alpha, beta (added: beta)") {
+		t.Errorf("a bind should show the whole list and only what is new:\n%s", out)
+	}
+	if out := run("beta"); !strings.Contains(out, "(added: none, already bound)") {
+		t.Errorf("binding a KB already bound should read as a no-op:\n%s", out)
+	}
+
+	usage := withStderr(t, func() { cmdClient([]string{"bogus"}) })
+	if !strings.Contains(usage, "adds KBs to the provider's binding") {
+		t.Errorf("the usage should say that bind adds:\n%s", usage)
+	}
+}
+
 // TestCmdClientBindWarnsOnUnadvertisedKB: binding a KB the server has not
 // advertised is deliberately allowed — it may be mounted later — but warned.
 func TestCmdClientBindWarnsOnUnadvertisedKB(t *testing.T) {
