@@ -2,7 +2,7 @@
 // net/http/httptest builds servers: test support, imported by _test.go files
 // only (a test in internal/repodocs enforces that).
 //
-// A fixture is a copy of a template, not a new kb.Init: Init spawns eleven git
+// A fixture is a copy of a template, not a new kb.Init: Init spawns about ten git
 // processes, and a test binary with hundreds of fixtures spent most of its
 // time and CPU creating them. The template is built once per test binary,
 // held in memory, and its directory is removed right after the capture.
@@ -55,12 +55,14 @@ func tempDir(t testing.TB) string {
 		t.Fatalf("kbtest: %v", err)
 	}
 	t.Cleanup(func() {
+		var err error
 		for i := 0; i < 20; i++ {
-			if os.RemoveAll(dir) == nil {
+			if err = os.RemoveAll(dir); err == nil {
 				return
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
+		t.Logf("kbtest: leaving %s behind: %v", dir, err)
 	})
 	return dir
 }

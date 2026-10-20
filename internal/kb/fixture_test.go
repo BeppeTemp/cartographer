@@ -10,7 +10,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/testtree"
 )
 
-// A fixture is a copy of a template, not a new Init: Init spawns eleven git
+// A fixture is a copy of a template, not a new Init: Init spawns about ten git
 // processes (D812). The template is built once per test binary and held in
 // memory; kbtest does the same for the packages that import kb, which this one
 // cannot.
