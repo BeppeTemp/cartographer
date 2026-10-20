@@ -125,3 +125,25 @@ func TestLegacyCredentialsFollowLinks(t *testing.T) {
 		t.Errorf("problems = %v, want the broken link reported", problems)
 	}
 }
+
+// A path KB without name or remote is named after its folder, like the KB
+// itself, so its files are migrated rather than left to be placed by hand.
+func TestLegacyCredentialsPathKB(t *testing.T) {
+	clearLegacyCredentialEnv(t)
+	data := []byte(`kbs:
+  - path: /srv/kbs/kb-a/
+    sops_age_key_file: /k/a.age
+    artifact_signing_seed: abcd
+`)
+	creds, problems := LegacyCredentials(data)
+	if len(problems) != 0 {
+		t.Fatalf("problems = %v", problems)
+	}
+	want := []LegacyCredential{
+		{Setting: "kbs[0].sops_age_key_file", Target: "kb-a.age", From: "/k/a.age"},
+		{Setting: "kbs[0].artifact_signing_seed", Target: "kb-a.signing", Value: "abcd"},
+	}
+	if !reflect.DeepEqual(creds, want) {
+		t.Errorf("creds = %+v, want %+v", creds, want)
+	}
+}

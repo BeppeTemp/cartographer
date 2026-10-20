@@ -42,6 +42,7 @@ type legacySecrets struct {
 	KBs []struct {
 		Remote              string `yaml:"remote"`
 		Name                string `yaml:"name"`
+		Path                string `yaml:"path"`
 		SSHKey              string `yaml:"ssh_key"`
 		KnownHosts          string `yaml:"known_hosts"`
 		SopsAgeKeyFile      string `yaml:"sops_age_key_file"`
@@ -129,6 +130,10 @@ func LegacyCredentials(data []byte) (creds []LegacyCredential, problems []string
 		name := kb.Name
 		if name == "" {
 			name = RemoteKBName(kb.Remote)
+		}
+		if name == "" && kb.Path != "" {
+			// A path KB is named after its folder, as resolveKBName does.
+			name = filepath.Base(strings.TrimRight(kb.Path, string(os.PathSeparator)))
 		}
 		at := fmt.Sprintf("kbs[%d].", i)
 		if !safeCredentialName(name) {
