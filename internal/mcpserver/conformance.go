@@ -273,7 +273,7 @@ func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {
 // KB. Every finding counts, not only the conformance checks (D336, D947): a
 // finding is a problem, the Health panel shows them all, every one has a way
 // out, and a doctor session is done only at zero — a debt that never calls the
-// doctor never gets there. Review items count too.
+// doctor never gets there. Review items count too, observations aside (D947).
 //
 // repairable counts, per check, every finding kb_repair can fix — conformance
 // check or not (D331): fixable alone hid stringified_list or title_h1_mismatch

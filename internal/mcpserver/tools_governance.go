@@ -736,10 +736,12 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				}
 			}
 			// D298: the size of the doctor's work list this caller may see.
+			// The summary lists every kind; the debt that suggests a session
+			// leaves out the observations (D947).
 			reviewTotal := 0
 			if items, rerr := visibleReview(ctx, k, cc); rerr == nil {
 				result["review"] = reviewSummary(items)
-				reviewTotal = len(items)
+				reviewTotal = reviewDebt(items)
 			}
 			// D302: the open work this caller can see.
 			if work, werr := visibleWork(ctx, k, cc); werr == nil {

@@ -406,6 +406,71 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 	}
 }
 
+// An observation is a state a maintainer may leave as it is (D947), so it is
+// not debt: a KB whose only item is an oversize concept lists it in kb_review
+// but does not suggest a doctor session, in kb_status and in the write nudge.
+// The same KB with a lint finding added does, so the test is not vacuous.
+func TestObservationsDoNotSuggestTheDoctor(t *testing.T) {
+	t.Parallel()
+	build := func(t *testing.T, withFinding bool) *Server {
+		t.Helper()
+		k, s := repairKB(t, 0)
+		// Listed in the map's curated index and linked to the fixture's
+		// anchor, so that it is neither incomplete nor an orphan: the oversize
+		// concept is the only thing wrong with this KB.
+		fm := newFM()
+		fm.Set("type", "Note")
+		fm.Set("title", "Big")
+		if _, err := k.WriteConcept("ops/big", fm, "# Big\n\nSee [[anchor]].\n\n"+strings.Repeat("a", okf.ConceptReadSizeGuard/2+1)+"\n", ""); err != nil {
+			t.Fatal(err)
+		}
+		writeKBFile(t, k, "ops/index.md", "---\ntype: Index\ntitle: ops\n---\n# ops\n\n- [Big](big.md)\n")
+		if _, err := k.CommitOp("test: an oversize concept"); err != nil {
+			t.Fatal(err)
+		}
+		if withFinding {
+			writeKBFile(t, k, "ops/broken.md", "---\ntype: Note\ntitle: Broken\n---\n# Broken\n\n[x](gone.md)\n")
+		}
+		now := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
+		s.now = func() time.Time { return now }
+		return s
+	}
+	conformance := func(t *testing.T, s *Server) map[string]any {
+		t.Helper()
+		var out map[string]any
+		if err := json.Unmarshal([]byte(callTool(t, s, "kb_status", `{}`).Content[0].Text), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out["conformance"].(map[string]any)
+	}
+
+	s := build(t, false)
+	rev := decodeReview(t, callTool(t, s, "kb_review", `{"kind":"observation"}`))
+	if rev.Total != 1 || rev.Items[0].Check != "concept_oversize" {
+		t.Fatalf("kb_review no longer lists the observation: %+v", rev)
+	}
+	c := conformance(t, s)
+	if c["lint_findings"].(float64) != 0 {
+		t.Fatalf("the fixture has a lint finding: %v", c)
+	}
+	if c["doctor_suggested"] != false {
+		t.Fatalf("an observation alone suggests a doctor session: %v", c)
+	}
+	// The nudge is probed in a session of its own: the calls above may have
+	// claimed the window of the shared one, which would hide a nudge.
+	if nudged(s.callTool(inSession("probe"), "search", json.RawMessage(`{"query":"Big"}`))) {
+		t.Fatal("an observation alone nudged toward a doctor session")
+	}
+
+	s = build(t, true)
+	if c := conformance(t, s); c["doctor_suggested"] != true {
+		t.Fatalf("a lint finding next to the observation does not suggest the doctor: %v", c)
+	}
+	if !nudged(s.callTool(inSession("probe"), "search", json.RawMessage(`{"query":"Big"}`))) {
+		t.Fatal("a lint finding next to the observation did not nudge")
+	}
+}
+
 func TestKBStatusConformance(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 2)

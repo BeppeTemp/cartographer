@@ -60,7 +60,11 @@ single right answer; hence the definite-fix criterion.
 **Consequences.**
 - Breaking: `gate_check` fails on any finding; a KB with old debt fails the whole-KB gate until repaired, as intended.
   `conformance.findings` in `kb_status` is a number (the conformance checks' findings), no longer a map by severity;
-  the doctor is suggested for any finding or review item once the interval has passed, `info` included.
+  the doctor is suggested for any finding, or any review item that is not an observation, once the interval has passed.
+- An observation never sets `doctor_suggested` (`kb_status`, the write-response nudge): it is a state a maintainer may
+  leave as it is, so a KB whose only items are observations is not nagged. The doctor still sees them in `kb_review`.
+- The write gate no longer refuses a concept over 30,000 bytes: `concept_oversize` left the lint, and the gate refuses
+  only what the lint reports and a write can avoid.
 - `lint` and the Atlas lint endpoint list every finding; an Atlas that sent `severity_min` gets all of them. The lint
   history samples keep `total` and `by_handler`.
 - A new check is a problem or an observation on purpose: `docs/data-plane.md` §Observations and `CONTRIBUTING.md`

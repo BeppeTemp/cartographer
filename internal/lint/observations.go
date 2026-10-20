@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -136,7 +137,7 @@ func categoryWeight(category string) int { return len(Categories) - categoryOrde
 // conceptOversizeObservation is concept_oversize for one page: a body over the
 // threshold. The threshold is derived from the read guard rather than an
 // independent number (D159): the observation fires at half the size at which a
-// plain concept_read degrades to an outline, so an author hears of it before
+// plain concept_read degrades to an outline, so the doctor hears of it before
 // reads change shape.
 func conceptOversizeObservation(id okf.ConceptID, body string) (Finding, bool) {
 	if len(body) <= conceptOversizeThreshold {
@@ -226,11 +227,16 @@ func observationItem(f Finding) (ReviewItem, bool) {
 	case strings.HasSuffix(f.Path, "/_map.md"):
 		ids = []string{strings.TrimSuffix(f.Path, ".md")}
 	default:
-		id := findingConceptID(f.Path)
+		// A concept path by construction: the carriers that reach here are a
+		// concept's own (cut_concept, map_misfit, concept_oversize). Not
+		// findingConceptID, which answers "" for any slashless path so that
+		// KB-level files such as paths.yaml are not taken for concepts — and
+		// so would drop a root-level concept's observation.
+		id := strings.TrimSuffix(filepath.ToSlash(f.Path), ".md")
 		if id == "" {
 			return ReviewItem{}, false
 		}
-		ids = []string{string(id)}
+		ids = []string{id}
 	}
 	return ReviewItem{
 		Kind:            ReviewObservation,

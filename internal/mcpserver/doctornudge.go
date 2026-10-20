@@ -8,6 +8,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -112,7 +113,7 @@ func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResul
 	vis, _ := uiVisibleFindingsFrom(ctx, k, "", all)
 	review := 0
 	if items, rerr := visibleReview(ctx, k, cc); rerr == nil {
-		review = len(items)
+		review = reviewDebt(items)
 	}
 	summary := summarizeConformance(vis, review, lastDoctor, intervalDays, now)
 	if summary["doctor_suggested"] != true {
@@ -124,6 +125,20 @@ func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResul
 	}
 	res.Content = append(res.Content, ContentBlock{Type: "text", Text: doctorNudgeText(kbName(k), lastDoctor, summary["lint_findings"].(int), fixable, review)})
 	return res
+}
+
+// reviewDebt is how many kb_review items count as debt for doctor_suggested
+// and the nudge: every item but the observations. An observation is a state a
+// maintainer may legitimately leave as it is (D947), so a KB whose only items
+// are observations is not nagged; the doctor still sees them in kb_review.
+func reviewDebt(items []lint.ReviewItem) int {
+	n := 0
+	for _, it := range items {
+		if it.Kind != lint.ReviewObservation {
+			n++
+		}
+	}
+	return n
 }
 
 // doctorNudgeText is the notice: counts only, never KB content. It asks the

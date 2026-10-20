@@ -664,7 +664,7 @@ A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_
 
 `machine_path` has no allow-list a map can extend (D907): a client-local path (`/Users/…`, `/home/…`, `~/…`, `C:\Users\…`) outside a URL is a finding, apart from the fixed tool paths above, and the page is fixed by writing `{{repo:<key>}}` or `{{path:<name>}}` (declared in `paths.yaml`, §The path placeholder registry) or `$HOME` where the path is the reader's own. The finding names every path it found and has no auto-fix: which placeholder a path stands for is the author's call.
 
-The two "too big" numbers are related, and both are constants (§Cost thresholds): the `concept_oversize` observation fires at **half** the size (30,000 bytes) at which `concept_read` degrades to an outline (60,000), so an author gets warning before reads change shape, and the
+The two "too big" numbers are related, and both are constants (§Cost thresholds): the `concept_oversize` observation fires at **half** the size (30,000 bytes) at which `concept_read` degrades to an outline (60,000), so the observation appears in `kb_review` before reads change shape (it is never raised at write time), and the
 message names both bounds. For a satellite the message does not advise `concept_expand` — the write
 path caps depth at three segments, so that remedy is structurally unavailable — and names splitting
 into sibling satellites instead.

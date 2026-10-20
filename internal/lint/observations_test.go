@@ -241,3 +241,53 @@ func TestObservationItemsFollowCategoryOrder(t *testing.T) {
 		t.Fatalf("weights pages=%d links=%d maps=%d: earlier categories must weigh more", pages, links, maps)
 	}
 }
+
+// A concept at the KB root has no directory in its path, and findingConceptID
+// answers "" for such a path (a slashless file is a KB-level one, like
+// paths.yaml): the carrier of a root-level concept still has to become an item
+// (D947), or its cut_concept and concept_oversize are lost.
+func TestObservationItemsOfRootLevelConcepts(t *testing.T) {
+	t.Parallel()
+	s := newStructKB(t, map[string]string{"ops": "map"})
+	s.mainGraph(nil)
+	// A root-level hub over three root-level leaves, reached from the main
+	// graph; its body is over the oversize threshold too.
+	s.concept("ops/m4", "", "ops/h", "home")
+	var body strings.Builder
+	for _, l := range []string{"leaf1", "leaf2", "leaf3"} {
+		fmt.Fprintf(&body, "See [[%s]].\n", l)
+		s.concept(l, "")
+	}
+	body.WriteString(strings.Repeat("a", conceptOversizeThreshold+1) + "\n")
+	writeFile(t, s.k.DataRoot(), "home.md", "---\ntype: Note\ntitle: home\n---\n"+body.String())
+
+	got := map[string][]string{}
+	for _, f := range observed(t, s.k) {
+		if f.Path != "home.md" && f.Path != "home" {
+			continue
+		}
+		it, ok := observationItem(f)
+		if !ok {
+			t.Errorf("%s on %q: no item", f.Check, f.Path)
+			continue
+		}
+		got[f.Check] = it.Concepts
+	}
+	for _, check := range []string{"cut_concept", "concept_oversize"} {
+		if c := got[check]; len(c) != 1 || c[0] != "home" {
+			t.Errorf("%s: Concepts = %v, want [home] (all: %v)", check, c, got)
+		}
+	}
+	// The same through kb_review.
+	for _, check := range []string{"cut_concept", "concept_oversize"} {
+		found := false
+		for _, it := range itemsOf(review(t, s.k), ReviewObservation) {
+			if it.Check == check && len(it.Concepts) == 1 && it.Concepts[0] == "home" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("kb_review lists no %s observation on home", check)
+		}
+	}
+}
