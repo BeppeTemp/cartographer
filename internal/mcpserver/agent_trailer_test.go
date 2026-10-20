@@ -20,7 +20,7 @@ func asClient(ctx context.Context, name string) context.Context {
 
 func writeAs(t *testing.T, s *Server, ctx context.Context, id string, extra map[string]any) {
 	t.Helper()
-	args := map[string]any{"id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": "# T\n"}
+	args := map[string]any{"id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": "# T\n\n[[hub/anchor]]\n"}
 	for key, v := range extra {
 		args[key] = v
 	}
