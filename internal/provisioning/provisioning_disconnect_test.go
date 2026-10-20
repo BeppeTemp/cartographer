@@ -225,13 +225,6 @@ func TestRoundTrip_ConnectDisconnect_NessunResiduo(t *testing.T) {
 		".config":          true,
 		".config/opencode": true,
 		".gemini":          true,
-		// Antigravity's global hooks.json is the user's shared registration file:
-		// pruning removes the entries the lockfile owns and leaves the file
-		// (removeAntigravityHook keeps a global one), which the check below
-		// requires to be empty. Reached since D906, when an unsigned KB hook is
-		// installed instead of waiting for an approval.
-		".gemini/config":            true,
-		".gemini/config/hooks.json": true,
 		// .claude.json: never deleted by construction (absolute rule), even
 		// if reduced to "{}" once just the cartographer entry is removed.
 		".claude.json": true,
@@ -255,13 +248,7 @@ func TestRoundTrip_ConnectDisconnect_NessunResiduo(t *testing.T) {
 
 	// The allowed exceptions must be genuinely empty (no files inside
 	// them), otherwise the prune failed to clean up something it should have.
-	if data, err := os.ReadFile(filepath.Join(targetDir, ".gemini", "config", "hooks.json")); err == nil {
-		var left map[string]any
-		if err := json.Unmarshal(data, &left); err != nil || len(left) != 0 {
-			t.Errorf("round-trip: .gemini/config/hooks.json still holds entries after disconnect: %s", data)
-		}
-	}
-	for _, dir := range []string{".kiro", ".opencode", ".config/opencode"} {
+	for _, dir := range []string{".kiro", ".opencode", ".config/opencode", ".gemini"} {
 		full := filepath.Join(targetDir, dir)
 		entries, err := os.ReadDir(full)
 		if err != nil {
