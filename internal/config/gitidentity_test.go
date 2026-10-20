@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -93,7 +94,7 @@ func TestMigrateGitIdentity_FromAuthorKeys(t *testing.T) {
 	if !strings.Contains(string(out), "# my server") || !strings.Contains(string(out), `identity: "Ada Example <ada@example.test>"`) {
 		t.Errorf("file after migration:\n%s", out)
 	}
-	if info, _ := os.Stat(p); info.Mode().Perm() != 0o640 {
+	if info, _ := os.Stat(p); runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 { // no POSIX modes on Windows
 		t.Errorf("mode = %v, want 0640 kept", info.Mode().Perm())
 	}
 	if wrote, err := MigrateGitIdentity(p); err != nil || wrote {
