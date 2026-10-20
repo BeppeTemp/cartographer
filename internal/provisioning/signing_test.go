@@ -76,3 +76,22 @@ func TestBuildManifestSignatureVerificationAndRotation(t *testing.T) {
 		t.Fatalf("duplicate key ID error = %v", err)
 	}
 }
+
+// A pinned KB accepts only signed artifacts: a response that strips the
+// signature must fail the sync, not install unsigned (D906).
+func TestVerifiedManifest_PinnedKBRejectsStrippedSignature(t *testing.T) {
+	_, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := priv.Public().(ed25519.PublicKey)
+	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: "h"}}}
+	_, err = provisioning.VerifiedManifest(m, map[string][]ed25519.PublicKey{"kb-a": {pub}})
+	if err == nil || !strings.Contains(err.Error(), `KB "kb-a"`) || !strings.Contains(err.Error(), "skill/s") {
+		t.Fatalf("stripped signature error = %v", err)
+	}
+	// No pin: an unsigned artifact is still installed (D906).
+	if _, err := provisioning.VerifiedManifest(m, nil); err != nil {
+		t.Fatalf("unpinned KB: %v", err)
+	}
+}

@@ -26,7 +26,7 @@ func applyKiroHooks(t *testing.T, kbRoot, baseDir string, lock provisioning.Lock
 		t.Fatal(err)
 	}
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderKiro, BaseDir: baseDir, Lock: lock,
 	})
 	if err != nil {
@@ -234,7 +234,7 @@ func TestApply_Kiro_Hook_RefusesSymlinkedHooksDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _ = provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderKiro, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
 	_, _ = provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderKiro, provisioning.Lock{}, false)

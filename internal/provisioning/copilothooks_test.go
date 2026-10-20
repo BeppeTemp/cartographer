@@ -23,7 +23,7 @@ func applyCopilotHook(t *testing.T, event, matcher string) (provisioning.Applied
 	}
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderCopilot, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
 	if err != nil {
@@ -170,7 +170,7 @@ func TestApply_Copilot_MaterializzaAgent(t *testing.T) {
 	}
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true, Provider: configurator.ProviderCopilot, BaseDir: baseDir, Lock: provisioning.Lock{},
+		Provider: configurator.ProviderCopilot, BaseDir: baseDir, Lock: provisioning.Lock{},
 	}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}

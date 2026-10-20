@@ -117,8 +117,7 @@ func isClientOwned(mf ManagedFile) bool {
 // for provider and returns lock with its ManagedFile entries refreshed
 // (idempotent). A provider without the verified feedback channel gets none and
 // loses a previously installed one.
-// enabled=false (`write_findings_hook: false` in .cartographer.yaml) removes a
-// previously installed hook through PruneManaged, the path `disconnect` uses;
+// enabled=false removes a previously installed hook through PruneManaged, the path `disconnect` uses;
 // idempotent when absent. dryRun performs no I/O.
 func EnsureWriteFindingsHook(baseDir string, provider configurator.Provider, lock Lock, enabled, dryRun bool) (Lock, error) {
 	// An unsupported client is pruned like an opt-out: OpenCode downgraded to

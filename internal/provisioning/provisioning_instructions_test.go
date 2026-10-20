@@ -571,7 +571,9 @@ func TestApply_Instructions_Idempotente(t *testing.T) {
 	}
 }
 
-func TestApply_Instructions_NonFirmato_NeedsApproval(t *testing.T) {
+// Since D906 an unsigned KB artifact is installed: the client has no trust
+// switch, and the pull has already rejected a bad signature or path.
+func TestApply_Instructions_NonFirmato_Installed(t *testing.T) {
 	baseDir := t.TempDir()
 	a := instructionsArtifact("homelab", "Content.\n")
 	a.Signed = false
@@ -583,14 +585,11 @@ func TestApply_Instructions_NonFirmato_NeedsApproval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if len(res.NeedsApproval) != 1 || res.NeedsApproval[0].Kind != "instructions" {
-		t.Errorf("expected 1 instructions artifact in NeedsApproval, got %+v", res.NeedsApproval)
+	if len(res.NeedsApproval) != 0 {
+		t.Errorf("an unsigned KB instructions artifact needs no approval: %+v", res.NeedsApproval)
 	}
-	if len(res.Written) != 0 {
-		t.Errorf("Written must stay empty for an unsigned artifact: %+v", res.Written)
-	}
-	if _, err := os.Stat(filepath.Join(baseDir, ".claude", "CLAUDE.md")); !os.IsNotExist(err) {
-		t.Errorf("no file must be written for an unsigned instructions artifact")
+	if _, err := os.Stat(filepath.Join(baseDir, ".claude", "CLAUDE.md")); err != nil {
+		t.Errorf("the unsigned instructions artifact must be written: %v", err)
 	}
 }
 

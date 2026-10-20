@@ -63,7 +63,7 @@ func failIfSyncCalled(t *testing.T) {
 // against a temp directory returned by repairTargetDirFn.
 func writeRepairClientConfig(t *testing.T, dir, serverURL string, agents []string) {
 	t.Helper()
-	if err := clientconfig.Save(dir, &clientconfig.Config{ServerURL: serverURL, Agents: agents, Trust: true}); err != nil {
+	if err := clientconfig.Save(dir, &clientconfig.Config{ServerURL: serverURL, Agents: agents}); err != nil {
 		t.Fatalf("clientconfig.Save: %v", err)
 	}
 }
@@ -150,10 +150,10 @@ func TestCmdUpgradeRepair_RunningAlreadyCurrent_NoRestart(t *testing.T) {
 	if gotDir != dir {
 		t.Errorf("runSync dir = %q, want %q", gotDir, dir)
 	}
-	// Policy options must be passed unchanged: AutoTrust=false, DryRun=false,
+	// Policy options must be passed unchanged: DryRun=false,
 	// and no --client narrowing (upgrade-repair always repairs every provider).
-	if gotOpts.AutoTrust || gotOpts.DryRun || gotOpts.NoHeal || len(gotOpts.Clients) != 0 {
-		t.Errorf("runSync opts = %+v, want zero value (AutoTrust=false, DryRun=false, no client filter)", gotOpts)
+	if gotOpts.DryRun || gotOpts.NoHeal || len(gotOpts.Clients) != 0 {
+		t.Errorf("runSync opts = %+v, want zero value (DryRun=false, no client filter)", gotOpts)
 	}
 	if !strings.Contains(out, "restart already-open provider sessions") {
 		t.Errorf("output = %q, want the provider-session restart reminder", out)

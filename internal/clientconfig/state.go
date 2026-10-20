@@ -15,13 +15,21 @@ import (
 // the cache never touches the file a person edits. Never hand-edited.
 const StateFileName = ".cartographer-state.json"
 
-// stateFile is the JSON shape of StateFileName: the three server-owned caches.
+// stateFile is the JSON shape of StateFileName: the server-owned caches and, since
+// D906, the two lists the client's own commands maintain (agents, the sync-timer
+// opt-out), which a person never edits.
 type stateFile struct {
 	// KnownKBs is the KB names advertised at the last successful connect/sync.
 	KnownKBs []string `json:"known_kbs"`
 	// ServerMountMode and ServerRoutedPath record the mount topology (D187).
 	ServerMountMode  string `json:"server_mount_mode,omitempty"`
 	ServerRoutedPath string `json:"server_routed_path,omitempty"`
+	// Agents are the connected provider names. A pointer, so an absent key (a
+	// state file from before D906: read the YAML's list) is told from an empty
+	// list (every client disconnected).
+	Agents *[]string `json:"agents,omitempty"`
+	// SyncTimerOptOut is the operator's `service sync-timer uninstall` (D325).
+	SyncTimerOptOut bool `json:"sync_timer_opt_out,omitempty"`
 }
 
 // StatePath returns the full path to the state file inside dir.
@@ -47,27 +55,42 @@ func loadState(dir string) (s stateFile, ok bool) {
 // writeState writes the state file when it differs from what is on disk. A
 // machine that has never synced, and has no state file yet, gets none.
 func writeState(dir string, cfg *Config) error {
-	s := stateFile{KnownKBs: cfg.KnownKBs, ServerMountMode: cfg.ServerMountMode, ServerRoutedPath: cfg.ServerRoutedPath}
+	_, err := writeStateChanged(dir, cfg)
+	return err
+}
+
+// writeStateChanged is writeState and says whether it wrote anything.
+func writeStateChanged(dir string, cfg *Config) (bool, error) {
+	s := stateFile{KnownKBs: cfg.KnownKBs, ServerMountMode: cfg.ServerMountMode, ServerRoutedPath: cfg.ServerRoutedPath, SyncTimerOptOut: cfg.SyncTimerOptOut}
+	if cfg.Agents != nil {
+		agents := cfg.Agents
+		s.Agents = &agents
+	}
 	if s.KnownKBs == nil {
 		s.KnownKBs = []string{}
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
-		return fmt.Errorf("clientconfig: marshal state: %w", err)
+		return false, fmt.Errorf("clientconfig: marshal state: %w", err)
 	}
 	data = append(data, '\n')
 	old, readErr := os.ReadFile(StatePath(dir))
-	if readErr != nil && len(s.KnownKBs) == 0 && s.ServerMountMode == "" && s.ServerRoutedPath == "" {
-		return nil
+	if readErr != nil && len(s.KnownKBs) == 0 && s.ServerMountMode == "" && s.ServerRoutedPath == "" && s.Agents == nil && !s.SyncTimerOptOut {
+		return false, nil
 	}
 	if bytes.Equal(old, data) {
-		return nil
+		return false, nil
 	}
-	return writeAtomic(dir, StateFileName, data)
+	return true, writeAtomic(dir, StateFileName, data)
 }
 
 // writeAtomic replaces dir/name with data through a temp file and a rename.
 func writeAtomic(dir, name string, data []byte) error {
+	return writeAtomicMode(dir, name, data, 0o644)
+}
+
+// writeAtomicMode is writeAtomic with the file mode of the result.
+func writeAtomicMode(dir, name string, data []byte, mode os.FileMode) error {
 	tmp, err := os.CreateTemp(dir, name+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("clientconfig: create temp: %w", err)
@@ -78,7 +101,7 @@ func writeAtomic(dir, name string, data []byte) error {
 		tmp.Close()
 		return fmt.Errorf("clientconfig: write temp: %w", err)
 	}
-	if err := tmp.Chmod(0o644); err != nil {
+	if err := tmp.Chmod(mode); err != nil {
 		tmp.Close()
 		return fmt.Errorf("clientconfig: chmod temp: %w", err)
 	}

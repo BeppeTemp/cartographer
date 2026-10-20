@@ -109,9 +109,9 @@ func cmdServiceSyncTimer(args []string) int {
 		}
 		fmt.Printf("sync timer installed (every %s)\n", *interval)
 		setSyncTimerOptOut(false)
-		// The timer never passes --auto-trust: an unattended job must not
-		// grant a trust the user never gave (D54).
-		fmt.Println("it runs `cartographer sync` without --auto-trust; the persisted `trust` setting still applies")
+		// The timer passes no flag: an MCP descriptor still needs the approval an
+		// unattended job cannot give (D906).
+		fmt.Println("it runs `cartographer sync`; an MCP descriptor still needs `cartographer approve`")
 		return 0
 	case "uninstall":
 		if err := syncTimerUninstallFn(); err != nil {

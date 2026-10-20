@@ -7,7 +7,7 @@ import (
 
 func TestReportMarksFileKeysAndDefaults(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(Path(dir), []byte("server_url: http://example.com/mcp\nupdate:\n  policy: auto-patch\n"), 0o600); err != nil {
+	if err := os.WriteFile(Path(dir), []byte("server_url: http://example.com/mcp\nupdate_check: false\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	r, err := Report(dir, "1.2.3")
@@ -24,11 +24,11 @@ func TestReportMarksFileKeysAndDefaults(t *testing.T) {
 	if len(by) != len(Schema.Keys) {
 		t.Fatalf("%d entries, want one per schema key (%d)", len(by), len(Schema.Keys))
 	}
-	if e := by["update.policy"]; e.Origin != "file" || e.Value != "auto-patch" {
-		t.Errorf("update.policy = %+v", e)
+	if e := by["update_check"]; e.Origin != "file" || e.Value != false {
+		t.Errorf("update_check = %+v", e)
 	}
-	if e := by["search_depth"]; e.Origin != "default" || e.Value != 4 {
-		t.Errorf("search_depth = %+v", e)
+	if e := by["search_roots"]; e.Origin != "default" || len(e.Value.([]any)) != 4 {
+		t.Errorf("search_roots = %+v", e)
 	}
 }
 

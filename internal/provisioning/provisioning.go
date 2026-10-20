@@ -266,9 +266,6 @@ type ApplyOptions struct {
 	Provider configurator.Provider // destination provider
 	BaseDir  string                // base directory where artifacts are materialized
 	DryRun   bool                  // if true, writes nothing
-	// AutoTrust explicitly authorizes eligible unsigned KB artifacts. It does
-	// not alter Artifact.Signed.
-	AutoTrust bool
 	// ApprovedMCP holds exact local approvals keyed as "kb:<source>\x00<name>".
 	// It is authorization, not verification; Signed is never mutated by it.
 	ApprovedMCP map[string]string
@@ -300,10 +297,7 @@ type ApplyOptions struct {
 	// its own local filesystem.
 	ExpandPlaceholders bool
 	SearchRoots        []string
-	// SearchDepth bounds how deep repoindex descends from each search root when
-	// resolving a {{repo:<key>}} placeholder (D162). Zero means the default.
-	SearchDepth int
-	Paths       map[string]string
+	Paths              map[string]string
 	// Placeholders are the keys to pre-resolve before anything is expanded,
 	// "kind:key" -> the KBs citing it (D262): the ones the server listed for
 	// the KBs bound to this projection, concept-only keys included. Apply
@@ -487,6 +481,13 @@ func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest
 		a.Signed = false
 		a.BuiltIn = a.Source == "bundle"
 		if a.Signature == nil {
+			// A pinned KB signs every artifact it ships (BuildManifest signs each
+			// kb: artifact, instructions and mcp included), so an unsigned one
+			// under a pin is a stripped signature, not a legacy artifact: fail
+			// closed (D906).
+			if strings.HasPrefix(a.Source, "kb:") && len(pins[strings.TrimPrefix(a.Source, "kb:")]) > 0 {
+				return Manifest{}, fmt.Errorf("provisioning: KB %q has a pinned signing key but %s/%s carries no signature", strings.TrimPrefix(a.Source, "kb:"), a.Kind, a.Name)
+			}
 			continue
 		}
 		kbName := strings.TrimPrefix(a.Source, "kb:")
@@ -695,8 +696,8 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// (backward compat). Parse+validation here (parseMCPServerSpec): a
 		// malformed file, or one with a headers/env value that looks like a
 		// literal secret, fails BuildManifest, not Apply (WP2). An unsigned MCP
-		// descriptor needs its own hash-bound approval: generic AutoTrust never
-		// authorizes it. A D114 signature remains independently verifiable.
+		// descriptor needs its own hash-bound approval, signed or not (D906). A
+		// D114 signature remains independently verifiable.
 		mcpDir := filepath.Join(kbRoot, "mcp")
 		mcpEntries, err := os.ReadDir(mcpDir)
 		if err == nil {
@@ -1596,13 +1597,15 @@ func KindCounts(m Manifest, lock Lock) map[string]KindCount {
 
 // --- Apply ---
 
-// Apply materializes verified, built-in, or explicitly authorized artifacts into BaseDir, prunes stale managed
+// Apply materializes built-in and KB artifacts into BaseDir, prunes stale managed
 // entries and writes the updated lockfile.
 //
 // Safety rules:
-//   - Signed:true or BuiltIn:true → copy/update into BaseDir for the given provider.
-//   - AutoTrust:true explicitly authorizes eligible unsigned KB artifacts.
-//   - all other artifacts → NeedsApproval.
+//   - BuiltIn:true or a KB-sourced artifact, signed or not → copy/update into
+//     BaseDir for the given provider (D906: the client has no trust switch; what
+//     a KB ships is installed, after the pull's signature and path checks).
+//   - an MCP descriptor → only with a local approval bound to its content hash
+//     (ApprovedMCP), signed or not; otherwise NeedsApproval.
 //
 // Providers supported for direct materialization:
 //   - claude: skill in .claude/skills/<name>/, agent in .claude/agents/<name>.md,
@@ -2715,13 +2718,10 @@ func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
 	if a.Kind == "mcp" {
 		return opts.ApprovedMCP[a.Source+"\x00"+a.Name] == a.ContentHash
 	}
-	if a.Signed {
-		return true
-	}
-	// MCP descriptors retain their pre-existing stricter explicit approval
-	// boundary; generic trust only preserves compatibility for ordinary KB
-	// provisioning artifacts.
-	return opts.AutoTrust && a.Kind != "mcp" && strings.HasPrefix(a.Source, "kb:")
+	// Everything else a KB ships is installed (D906): the pull has already
+	// rejected a path that escapes its directory and an artifact whose signature
+	// fails against a pinned key (D40, D114), so Signed does not gate this.
+	return a.Signed || strings.HasPrefix(a.Source, "kb:")
 }
 
 // PreflightStdioMCP verifies locally runnable commands without executing them.
@@ -2897,6 +2897,11 @@ func pruneEmptyDirs(baseDir, relPath string) {
 	dir := filepath.Dir(relPath)
 	for dir != "." && dir != string(filepath.Separator) {
 		if provisioningRootDirs[dir] {
+			return
+		}
+		// A symlinked directory is someone else's: os.Remove would unlink it
+		// even when its target is not empty.
+		if fi, err := os.Lstat(filepath.Join(baseDir, dir)); err == nil && !fi.IsDir() {
 			return
 		}
 		err := os.Remove(filepath.Join(baseDir, dir))

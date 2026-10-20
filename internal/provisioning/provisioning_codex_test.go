@@ -29,10 +29,9 @@ func TestApply_Codex_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		Provider:  configurator.ProviderCodex,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		Provider: configurator.ProviderCodex,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -68,10 +67,9 @@ func TestApply_Codex_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
 	_, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		Provider:  configurator.ProviderCodex,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		Provider: configurator.ProviderCodex,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -117,11 +115,10 @@ func applyCodexHookKB(t *testing.T, kbRoot, baseDir string, lock provisioning.Lo
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderCodex,
-		BaseDir:   baseDir,
-		Lock:      lock,
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderCodex,
+		BaseDir:  baseDir,
+		Lock:     lock,
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)

@@ -125,7 +125,7 @@ func TestApply_ProvidersReservedKeyOrUnknownClientFailsTheTranslation(t *testing
 		m, kbRoot := restrictedAgentManifest(t, map[string]string{"x": src})
 		base := t.TempDir()
 		_, err := provisioning.Apply(provisioning.FilterForProvider(m, configurator.ProviderCodex), provisioning.ApplyOptions{
-			AutoTrust: true, KBRoots: map[string]string{"kb-a": kbRoot}, Provider: configurator.ProviderCodex, BaseDir: base,
+			KBRoots: map[string]string{"kb-a": kbRoot}, Provider: configurator.ProviderCodex, BaseDir: base,
 		})
 		if err == nil || !strings.Contains(err.Error(), "providers") {
 			t.Errorf("%q: want an error naming providers, got %v", bad, err)
@@ -189,7 +189,7 @@ func TestSyncWarnsAbsentMCPServer(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, err := provisioning.Apply(provisioning.FilterForProvider(m, configurator.ProviderKiro), provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb-a": kbRoot}, Provider: configurator.ProviderKiro, BaseDir: base,
+		KBRoots: map[string]string{"kb-a": kbRoot}, Provider: configurator.ProviderKiro, BaseDir: base,
 	})
 	if err != nil {
 		t.Fatal(err)

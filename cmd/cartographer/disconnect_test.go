@@ -34,7 +34,7 @@ func setupDisconnectFixture(t *testing.T, providers ...string) string {
 	cfg := &clientconfig.Config{
 		ServerURL:  "http://localhost:8080/mcp",
 		ServerName: "wiki",
-		TokenEnv:   "CARTOGRAPHER_TOKENS",
+		Token:      "${CARTOGRAPHER_TOKENS}",
 		Agents:     append([]string(nil), providers...),
 	}
 	if err := clientconfig.Save(dir, cfg); err != nil {

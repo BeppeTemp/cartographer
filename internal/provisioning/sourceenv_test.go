@@ -30,7 +30,7 @@ func TestApply_SourceEnvCollision(t *testing.T) {
 			},
 		},
 	}
-	res, err := Apply(m, ApplyOptions{AutoTrust: true, KBRoots: map[string]string{"kb": t.TempDir()}, Provider: configurator.ProviderClaudeCode, BaseDir: baseDir})
+	res, err := Apply(m, ApplyOptions{KBRoots: map[string]string{"kb": t.TempDir()}, Provider: configurator.ProviderClaudeCode, BaseDir: baseDir})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}

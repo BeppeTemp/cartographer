@@ -64,7 +64,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
 			setHome(t, home)
-			if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: tc.serverURL, Agents: []string{"claude"}, Trust: true}); err != nil {
+			if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: tc.serverURL, Agents: []string{"claude"}}); err != nil {
 				t.Fatalf("save config: %v", err)
 			}
 			// Since D170 the lock records the revision of the manifest a
@@ -115,7 +115,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
-	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}, Trust: true}); err != nil {
+	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
 
@@ -187,7 +187,7 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 func TestStatus_ShadowedInstructionsNotCountedAsInstalled(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
-	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"codex"}, Trust: true}); err != nil {
+	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
 

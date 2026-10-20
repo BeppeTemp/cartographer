@@ -73,7 +73,7 @@ func TestReportUsage_PostsOnlyTheAggregatePerKB(t *testing.T) {
 	srv, posts := usageServer(t, http.StatusOK)
 	t.Setenv("CARTOGRAPHER_TEST_TOKEN", "secret")
 	cfg := clientconfig.Default()
-	cfg.ServerURL, cfg.Auth, cfg.TokenEnv = srv.URL+"/mcp", true, "CARTOGRAPHER_TEST_TOKEN"
+	cfg.ServerURL, cfg.Auth, cfg.Token = srv.URL+"/mcp", true, "${CARTOGRAPHER_TEST_TOKEN}"
 	if n := reportUsage(cfg, home); n != 1 {
 		t.Fatalf("reported %d entries, want 1 (the bundled skill is not a KB's)", n)
 	}

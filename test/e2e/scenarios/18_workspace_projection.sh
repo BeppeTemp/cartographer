@@ -104,7 +104,7 @@ echo "--- Phase 1: connect, then bind each workspace to its own KB ---"
 # Bound to ONE KB globally: that is the pre-D193 state this plan moves away
 # from, and it is also the only global state these two KBs can be in — binding
 # a single catalogue to both is refused as a collision (D171), which is phase 7.
-run_client "${DIR}/connect.log" connect claude --server-url "$SERVER_URL" --kb work-kb --auto-trust || true
+run_client "${DIR}/connect.log" connect claude --server-url "$SERVER_URL" --kb work-kb || true
 assert_file_exists "${SANDBOX}/.claude.json"
 
 # The global catalogue holds the WORK skill, reachable from every directory on

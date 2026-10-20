@@ -426,7 +426,7 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
-		c := client.New(reqURL, b.Token).WithTokenEnv(b.Cfg.TokenEnv)
+		c := client.New(reqURL, b.Token).WithTokenEnv(b.Cfg.TokenEnv())
 		b.writeError(m.ID, -32000, reqURL+" rejected the request: "+c.UnauthorizedError().Error())
 	case resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent:
 		// A notification or a client response: nothing to relay.

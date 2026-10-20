@@ -173,9 +173,10 @@ reaches an agent through a chain, and each link can stop it:
    fails a naming *error* is excluded here.
 2. **Binding** — the client must be bound to this KB. On a server with two or
    more KBs, `connect` requires the choice explicitly (D190).
-3. **Trust** — a KB artifact needs the user's persisted trust decision. Skills
-   and hooks execute with the agent's privileges; bundled artifacts are trusted by
-   construction, KB ones are not.
+3. **Consent** — everything a KB ships is installed (the client has no trust
+   switch), except an **MCP descriptor**, which an MCP server receives the agent's
+   data through: it needs the user's `cartographer approve mcp <name> --kb <kb>`,
+   bound to the descriptor's exact content hash, signed or not.
 4. **Materialization** — `cartographer sync` writes the translated artifact into
    the client's native directory.
 

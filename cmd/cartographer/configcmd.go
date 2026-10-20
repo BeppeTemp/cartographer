@@ -151,6 +151,13 @@ func clientEntries(dir string) []config.Entry {
 			Description: k.Description, Default: k.Default, Env: k.Env, Flag: k.Flag, Restart: k.Restart, Secret: k.Secret}
 		if v, ok := lookupPath(doc, k.Path); ok {
 			e.Value, e.Origin = v, config.OriginFile
+			// A literal secret is never printed; a ${NAME} reference names a
+			// variable, not a secret, and is shown as written.
+			if k.Secret {
+				if str, isStr := v.(string); !isStr || !clientconfig.IsEnvRef(str) {
+					e.Value = config.SecretSet
+				}
+			}
 		}
 		out = append(out, e)
 	}

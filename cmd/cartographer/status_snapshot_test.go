@@ -57,7 +57,7 @@ func TestClassifyNetworkErrorAndOutputValidation(t *testing.T) {
 func TestStatusTableRetainsDriftDetails(t *testing.T) {
 	s := statusSnapshot{Schema: statusSchema, Reachable: true, Client: "v1", Server: "v1", ServerURL: "http://x/mcp", State: "drift", Providers: []providerStatus{{Name: "claude", Connected: true, State: "drift", Revision: "new", LockRevision: "old", Kinds: "skill 0/1", Added: []statusArtifact{{Kind: "hook", Name: "h", Source: "kb:x", Signed: false}}, Updated: []statusArtifact{{Kind: "skill", Name: "s", Source: "kb:x", Signed: true}}, Removed: []statusArtifact{{Kind: "agent", Name: "a", Path: "a.json"}}}}}
 	out := withStdout(t, func() { renderStatus("table", s, 1) })
-	for _, want := range []string{"drift (manifest new, lock old)", "skill 0/1", "+ hook/h [kb:x] trust=needs_approval", "new hook:", "~ skill/s [kb:x] trust=verified", "- agent/a (a.json)", "cartographer sync --auto-trust"} {
+	for _, want := range []string{"drift (manifest new, lock old)", "skill 0/1", "+ hook/h [kb:x] trust=needs_approval", "new hook:", "~ skill/s [kb:x] trust=verified", "- agent/a (a.json)"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in %s", want, out)
 		}

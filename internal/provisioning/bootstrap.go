@@ -1,6 +1,6 @@
 // bootstrap.go (D60) — the "cartographer-bootstrap" hook: a synthetic artifact,
 // generated entirely by the client (not by the server/KB manifest), that at
-// session start silently runs `cartographer sync --auto-trust` so the LLM agent
+// session start silently runs `cartographer sync` so the LLM agent
 // always starts aligned with the server, without the user having to run `sync`
 // by hand. See D60, docs/sync.md §Layer 1.
 //

@@ -56,7 +56,7 @@ func TestDoReconnect_RebuildsAndPreservesSettings(t *testing.T) {
 
 	opts := connectOptions{
 		Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp",
-		Name: "cartographer", TokenEnv: "TOKEN", Trust: true,
+		Name: "cartographer", Token: "${TOKEN}",
 		PinKeys: []string{"alpha=" + strings.Repeat("ab", 32)},
 	}
 	if _, err := doConnect(opts); err != nil {
@@ -92,10 +92,7 @@ func TestDoReconnect_RebuildsAndPreservesSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if !cfg.Trust {
-		t.Error("trust did not survive the rebuild")
-	}
-	if cfg.ServerURL != srv.URL+"/mcp" || cfg.ServerName != "cartographer" || cfg.TokenEnv != "TOKEN" {
+	if cfg.ServerURL != srv.URL+"/mcp" || cfg.ServerName != "cartographer" || cfg.TokenEnv() != "TOKEN" {
 		t.Errorf("server settings did not survive: %+v", cfg)
 	}
 	if len(cfg.SigningKeys["alpha"]) != 1 {
@@ -134,7 +131,7 @@ func TestDoReconnect_ConnectHalfFailsNamesDisconnected(t *testing.T) {
 	defer srv.Close()
 	dir := t.TempDir()
 	t.Setenv("CARTOGRAPHER_TEST_TOKEN", "a-token")
-	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Auth: true, TokenEnv: "CARTOGRAPHER_TEST_TOKEN"}); err != nil {
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Auth: true, Token: "${CARTOGRAPHER_TEST_TOKEN}"}); err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
 
@@ -197,7 +194,7 @@ func TestMaterializeForProviders_RecordsServerVersion(t *testing.T) {
 	dir := t.TempDir()
 	m := kbSkillManifest()
 
-	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "1.4.0", true, false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "1.4.0", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
 	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
@@ -209,7 +206,7 @@ func TestMaterializeForProviders_RecordsServerVersion(t *testing.T) {
 	}
 
 	// An offline sync (empty version) must not erase the knowledge.
-	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", true, false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materializeForProviders offline: %v", err)
 	}
 	lockFile, err = provisioning.ReadLockFile(lockFilePath(dir))

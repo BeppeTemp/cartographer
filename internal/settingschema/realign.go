@@ -81,6 +81,7 @@ const (
 	ChangeRemoved    = "removed"    // a removed key was dropped
 	ChangeReset      = "reset"      // an off value was reset to the default
 	ChangeDocumented = "documented" // the file was rewritten into the commented form
+	ChangeMoved      = "moved"      // a key took another name or home (Prepare), its value kept
 )
 
 // Change is one thing a realignment did to a file.
@@ -100,6 +101,8 @@ func (c Change) String() string {
 		return fmt.Sprintf("removed %s: %s", c.Path, c.Detail)
 	case ChangeReset:
 		return fmt.Sprintf("reset %s: %s", c.Path, c.Detail)
+	case ChangeMoved:
+		return fmt.Sprintf("moved %s: %s", c.Path, c.Detail)
 	}
 	return c.Detail
 }
@@ -623,6 +626,18 @@ func writeBackup(path, version string, data []byte, perm fs.FileMode) (string, e
 // says why. The report is returned with that error, so a caller can tell a file
 // that holds removed keys it could not drop from one that only lacks comments.
 func (s Schema) RealignFile(path string, reg Registry, version string) (rep Report, backup string, err error) {
+	return s.RealignFileWith(path, reg, version, nil)
+}
+
+// Prepare rewrites a file's bytes before the registry is applied, for a key that
+// did not disappear but changed shape or home (token_env became token, D906): it
+// returns the new bytes and the changes it made, which lead the report. It must
+// be idempotent and leave bytes it has nothing to do with as they are.
+type Prepare func(data []byte) (out []byte, changes []Change, err error)
+
+// RealignFileWith is RealignFile with a Prepare step run first. The backup
+// holds the file as it was before the Prepare step, so it is the original.
+func (s Schema) RealignFileWith(path string, reg Registry, version string, prepare Prepare) (rep Report, backup string, err error) {
 	// A symlinked file (one a dotfiles tool manages) is realigned where it
 	// lives: renaming over the link would replace it with a regular file.
 	if fi, lerr := os.Lstat(path); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
@@ -641,9 +656,26 @@ func (s Schema) RealignFile(path string, reg Registry, version string) (rep Repo
 	if err != nil {
 		return Report{}, "", err
 	}
-	out, rep, err := s.Realign(data, reg)
+	prepared, pre := data, []Change(nil)
+	if prepare != nil {
+		if prepared, pre, err = prepare(data); err != nil {
+			return Report{}, "", fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	out, rep, err := s.Realign(prepared, reg)
 	if err != nil {
 		return Report{}, "", fmt.Errorf("%s: %w", path, err)
+	}
+	if len(pre) > 0 {
+		// A prepared file is written even when the registry changes nothing more;
+		// the comments-only change would be redundant next to the real ones.
+		var rest []Change
+		for _, c := range rep.Changes {
+			if c.Kind != ChangeDocumented {
+				rest = append(rest, c)
+			}
+		}
+		rep.Changes = append(pre, rest...)
 	}
 	if rep.Empty() {
 		return Report{}, "", nil

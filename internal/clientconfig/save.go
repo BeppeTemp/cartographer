@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/settingschema"
@@ -16,6 +17,11 @@ import (
 var droppedKeys = map[string]bool{
 	"kbs": true, "known_kbs": true, "server_mount_mode": true, "server_routed_path": true,
 	"doctor_timer_opt_out": true,
+	// Removed by D906 (the realignment registry, Retired, names what replaced
+	// each): they must not survive a save as unknown keys. agents and
+	// sync_timer_opt_out are written to the state file by the same Save.
+	"token_env": true, "trust": true, "write_findings_hook": true, "search_depth": true,
+	"agents": true, "sync_timer_opt_out": true, "update": true,
 }
 
 // yamlKeys lists the top-level YAML keys of yamlConfig, in field order.
@@ -32,7 +38,7 @@ func yamlKeys() []string {
 
 // keepWhenDefault lists the keys Save writes only when they differ from the
 // default. An explicit line of the default value that a person wrote is kept.
-var keepWhenDefault = map[string]bool{"usage_scan": true, "write_findings_hook": true}
+var keepWhenDefault = map[string]bool{"usage_scan": true}
 
 // buildDocument returns the YAML document that Save writes: the existing file's
 // document with the typed keys of y set in place, so every comment, every
@@ -175,14 +181,51 @@ func sortedKeys(m map[string]interface{}) []string {
 // writeYAML renders the document with the schema comments and writes it, unless
 // the file already holds exactly those bytes: a save that changes no setting
 // leaves .cartographer.yaml untouched, mtime included.
-func writeYAML(dir string, doc *yaml.Node) error {
+//
+// private is set when the file holds a literal token: it is then written with
+// mode 0600, and kept so on a rewrite (D906).
+func writeYAML(dir string, doc *yaml.Node, private bool) error {
 	Schema.Render(doc)
 	data, err := settingschema.Encode(doc)
 	if err != nil {
 		return fmt.Errorf("clientconfig: marshal: %w", err)
 	}
 	if old, err := os.ReadFile(Path(dir)); err == nil && string(old) == string(data) {
+		// Nothing to rewrite, but a file with a literal token must be private
+		// whatever mode it was created with.
+		if private {
+			return tightenFile(Path(dir))
+		}
 		return nil
 	}
-	return writeAtomic(dir, FileName, data)
+	mode := os.FileMode(0o644)
+	if private {
+		mode = 0o600
+	}
+	return writeAtomicMode(dir, FileName, data, mode)
+}
+
+// fileIsPrivate reports whether path is closed to group and others. Always true
+// on Windows, where the mode bits mean nothing, and for a missing file.
+func fileIsPrivate(path string) bool {
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	fi, err := os.Stat(path)
+	return err != nil || fi.Mode().Perm()&0o077 == 0
+}
+
+// tightenFile takes group and other access off a regular file (a symlink is
+// left alone: chmod would follow it to somewhere that is not ours).
+func tightenFile(path string) error {
+	if fileIsPrivate(path) {
+		return nil
+	}
+	if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() {
+		return nil
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("clientconfig: chmod %s: %w", path, err)
+	}
+	return nil
 }

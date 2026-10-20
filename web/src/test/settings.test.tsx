@@ -119,7 +119,7 @@ describe("the Settings panel", () => {
               yaml: "server_url: http://example.com/mcp\n",
               entries: [
                 { key: "server_url", value: "http://example.com/mcp", origin: "file", description: "MCP endpoint.", default: "x" },
-                { key: "update.check", value: true, origin: "default", description: "Look up releases.", default: "true" },
+                { key: "update_check", value: true, origin: "default", description: "Look up releases.", default: "true" },
               ],
             },
           ],
@@ -131,7 +131,7 @@ describe("the Settings panel", () => {
     await user.click(within(tabs).getByRole("tab", { name: /^Client/ }));
     expect(screen.getByText(/laptop · client v-client · reported/)).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Client Connection settings" })).toHaveTextContent("server_url");
-    expect(screen.getByRole("list", { name: "Client Updates & sync settings" })).toHaveTextContent("update.check");
+    expect(screen.getByRole("list", { name: "Client Updates & sync settings" })).toHaveTextContent("update_check");
     await user.click(screen.getByRole("button", { name: "YAML" }));
     expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("server_url: http://example.com/mcp");
   });

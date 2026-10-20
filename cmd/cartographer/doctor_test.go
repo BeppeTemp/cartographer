@@ -51,7 +51,7 @@ func doctorFixture(t *testing.T, provider string) string {
 	srv := multiKBServer(t, `{"status":"ok","version":"dev","kbs":[{"name":"alpha"}]}`)
 	t.Cleanup(srv.Close)
 	dir := t.TempDir()
-	if _, err := doConnect(connectOptions{Providers: []string{provider}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Trust: true}); err != nil {
+	if _, err := doConnect(connectOptions{Providers: []string{provider}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer"}); err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
 	return dir

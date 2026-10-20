@@ -83,7 +83,7 @@ type Options struct {
 	// CacheOnly never touches the network: `status`, `doctor` and the
 	// dashboard must not add latency, and read whatever the cache holds.
 	CacheOnly bool
-	// Disabled is the client configuration's `update.check: false`.
+	// Disabled is the client configuration's `update_check: false`.
 	Disabled bool
 	// ForceRefreshOnVersion treats a fresh cache as stale when its Latest
 	// equals this version (D320): a cache refreshed just before a release

@@ -59,19 +59,19 @@ func TestSaveRemovesNewlySetKeyFromTheCommentedBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw := readFile(t, clientconfig.Path(dir))
-	if !strings.Contains(raw, "# search_depth: 4") {
+	if !strings.Contains(raw, "# search_roots:") {
 		t.Fatalf("an unset key should be listed commented out:\n%s", raw)
 	}
-	cfg.SearchDepth = 6
+	cfg.SearchRoots = []string{"~/work"}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
 	raw = readFile(t, clientconfig.Path(dir))
-	if strings.Contains(raw, "# search_depth:") {
-		t.Errorf("search_depth is set and still listed as available:\n%s", raw)
+	if strings.Contains(raw, "# search_roots:") {
+		t.Errorf("search_roots is set and still listed as available:\n%s", raw)
 	}
-	if !hasKey(raw, "search_depth") {
-		t.Errorf("search_depth not written:\n%s", raw)
+	if !hasKey(raw, "search_roots") {
+		t.Errorf("search_roots not written:\n%s", raw)
 	}
 	if strings.Count(raw, "# --- available settings ---") != 1 {
 		t.Errorf("want one block:\n%s", raw)
@@ -94,6 +94,7 @@ func TestUpgradeFromUncommentedFileWithLegacyCaches(t *testing.T) {
 	if err := clientconfig.Save(dir, before); err != nil {
 		t.Fatal(err)
 	}
+	before.Warnings = nil // the legacy keys it warned of are gone now
 	raw := readFile(t, clientconfig.Path(dir))
 	for _, gone := range []string{"known_kbs", "server_mount_mode", "server_routed_path"} {
 		if hasKey(raw, gone) {
@@ -178,7 +179,7 @@ func TestCorruptStateFileIsTreatedAsAbsent(t *testing.T) {
 	}
 }
 
-// Removing a key does not take a person's comment with it.
+// Dropping a removed key does not take a person's comment with it.
 func TestRemovedKeyKeepsItsUserComment(t *testing.T) {
 	dir := t.TempDir()
 	writeConfigFile(t, dir, "server_url: http://127.0.0.1:39273/mcp\n# keep me\nsearch_depth: 6\ntrust: true\n")
@@ -186,7 +187,6 @@ func TestRemovedKeyKeepsItsUserComment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.SearchDepth = 0
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}

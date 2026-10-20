@@ -4,7 +4,7 @@
 # Verifies the full sync status cycle:
 #   (a) After `cartographer connect`, `cartographer status` exits 0 (in-sync).
 #   (b) After adding a skill to the KB, `cartographer status` exits 1 (drift).
-#   (c) After `cartographer sync --auto-trust`, `cartographer status` exits 0 again.
+#   (c) After `cartographer sync`, `cartographer status` exits 0 again.
 #
 # The oracle is the exit code of `cartographer status` (0=in-sync, 1=drift, 2=error).
 # Requires a live server (the client ALWAYS talks over HTTP; see D37).
@@ -86,10 +86,10 @@ else
     fi
 fi
 
-# --- (c) Re-sync to realign (--auto-trust: the new skill comes from the KB, unsigned) ---
+# --- (c) Re-sync to realign (the new skill comes from the KB, unsigned, and is installed: D906) ---
 echo ""
-echo "[05c] cartographer sync --auto-trust to realign..."
-(cd "$SANDBOX_DIR" && HOME="$SANDBOX_DIR" "$BIN" sync --auto-trust) 2>&1 || true
+echo "[05c] cartographer sync to realign..."
+(cd "$SANDBOX_DIR" && HOME="$SANDBOX_DIR" "$BIN" sync) 2>&1 || true
 
 echo "--- Assertions (c): in-sync after re-sync ---"
 if (cd "$SANDBOX_DIR" && HOME="$SANDBOX_DIR" "$BIN" status) 2>&1; then

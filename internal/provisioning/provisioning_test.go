@@ -225,7 +225,7 @@ func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
 		t.Fatal("script executable bit was not read")
 	}
 	base := t.TempDir()
-	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: provisioning.Lock{}}); err != nil {
+	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: provisioning.Lock{}}); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(filepath.Join(base, ".claude", "skills", "run", "run.sh"))
@@ -504,10 +504,13 @@ func TestApply_ScriveTrusted(t *testing.T) {
 	}
 }
 
-func TestApply_SaltaNonSigned(t *testing.T) {
+// An unsigned KB skill is installed (D906): there is no trust switch to leave
+// it waiting. An MCP descriptor is the one kind that still waits, signed or not
+// (TestApply_MCP_UnsignedNeedsApproval, TestApply_MCP_SignedStillNeedsApproval).
+func TestApply_InstallsNonSignedKBArtifact(t *testing.T) {
 	baseDir := t.TempDir()
 
-	// KB skill with autoTrust=false → Signed:false.
+	// KB skill built without a signer → Signed:false.
 	kbRoot := t.TempDir()
 	skillDir := filepath.Join(kbRoot, "skills", "kb-skill")
 	os.MkdirAll(skillDir, 0o755)
@@ -531,12 +534,11 @@ func TestApply_SaltaNonSigned(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	// Unsigned skill: no file written, goes to NeedsApproval.
-	if len(res.Written) != 0 {
-		t.Errorf("Apply: expected no file written for an unsigned skill, written: %v", res.Written)
+	if len(res.NeedsApproval) != 0 {
+		t.Errorf("Apply: an unsigned KB skill needs no approval: %v", res.NeedsApproval)
 	}
-	if len(res.NeedsApproval) == 0 {
-		t.Error("Apply: expected at least one artifact in NeedsApproval")
+	if _, err := os.Stat(filepath.Join(baseDir, ".claude", "skills", "kb-skill", "SKILL.md")); err != nil {
+		t.Errorf("Apply: the unsigned KB skill must be installed: %v", err)
 	}
 }
 
@@ -952,11 +954,10 @@ func sourceEnvApply(t *testing.T, lock provisioning.Lock) (kbRoot, baseDir strin
 	}
 	baseDir = t.TempDir()
 	res, err = provisioning.Apply(provisioning.FilterForProvider(m, configurator.ProviderClaudeCode), provisioning.ApplyOptions{
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		KBRoots:   kbRoots,
-		AutoTrust: true,
-		Lock:      lock,
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		KBRoots:  kbRoots,
+		Lock:     lock,
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -1682,7 +1683,7 @@ func TestManagedFileRecordsSource(t *testing.T) {
 		Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("# example")}},
 	}}}
 	applied, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		Provider: configurator.ProviderClaudeCode, BaseDir: t.TempDir(), AutoTrust: true, SkipLockWrite: true,
+		Provider: configurator.ProviderClaudeCode, BaseDir: t.TempDir(), SkipLockWrite: true,
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
