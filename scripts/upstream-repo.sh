@@ -18,8 +18,15 @@ if git remote get-url upstream >/dev/null 2>&1; then
   exit 0
 fi
 origin=$(slug_of origin)
-parent=$(gh repo view "$origin" --json isFork,parent \
-  --jq 'if .isFork then .parent.owner.login + "/" + .parent.name else "" end' 2>/dev/null || true)
+if ! parent=$(gh repo view "$origin" --json isFork,parent \
+  --jq 'if .isFork then .parent.owner.login + "/" + .parent.name else "" end' 2>/dev/null); then
+  if [ "${1:-}" = "--require-remote" ]; then
+    echo "the fork check of $origin could not run (gh failed): authenticate gh or add the upstream remote" >&2
+    exit 1
+  fi
+  echo "warning: the fork check of $origin could not run (gh failed); assuming it is the upstream" >&2
+  parent=""
+fi
 if [ -n "$parent" ]; then
   if [ "${1:-}" = "--require-remote" ]; then
     echo "origin ($origin) is a fork of $parent and there is no upstream remote: git remote add upstream https://github.com/$parent.git" >&2

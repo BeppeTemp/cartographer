@@ -25,7 +25,7 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened, edited, labeled, unlabeled] # edited: `Closes #n` is often added later; labeled: the `size-exception` label
   issues:
-    types: [labeled]
+    types: [labeled, assigned] # approved, or assigned to the contributor: the gate reads both
 
 permissions:
   contents: read
@@ -55,11 +55,11 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: .agents/skills/review-pr/scripts/triage.sh --gate "$PR"
 
-  # A plan labelled `approved` after its PR was opened: the check that failed
-  # for want of the label runs again, without a push.
+  # A plan labelled `approved` or assigned after its PR was opened: the check that
+  # failed for want of either runs again, without a push.
   rerun:
-    name: rerun-on-approval
-    if: github.event_name == 'issues' && github.event.label.name == 'approved'
+    name: rerun-on-approval-or-assignment
+    if: github.event_name == 'issues' && (github.event.action == 'assigned' || github.event.label.name == 'approved')
     runs-on: ubuntu-latest
     permissions:
       actions: write
