@@ -4,17 +4,13 @@ import type {
   CollectionSummary,
   Contradiction,
   GitConflict,
-  KBStatus,
   LintFinding,
   LintReport,
-  LintSample,
-  MaintenanceSummary,
 } from "../api/types";
 import { checkFix, checkHelp, checkLabel, groupFindings, type CheckGroup } from "../lib/health";
 import { Count, Page, PageHeader, PageSection, Quiet, Segmented, SkeletonRows } from "./Page";
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
-import { LintTrend } from "./LintTrend";
 import { ErrorState } from "./States";
 
 /**
@@ -24,21 +20,19 @@ import { ErrorState } from "./States";
  * field (one square per page, clustered by Map) and lists one row per lint
  * check, the largest first; an open row says what it is and how to fix it. The
  * doctor's other proposals (the kb_review items, observations included) are
- * decisions, not problems, and are not here. *What it checks* explains the
- * rules by category, with the result on this KB and the trend.
+ * decisions, not problems: they are Work's (D948). *What it checks* explains
+ * the rules by category, with the result on this KB.
  *
  * Like the rest of the Atlas it reads and never writes: a fix happens in a
  * kb-doctor session the operator starts from an agent.
  *
  * The agenda is filtered by the page's own Map picker (the rail only
- * navigates). Status and the maintenance summary describe the whole KB, so a
- * principal that cannot see all of it gets neither (both 404) and the page
+ * navigates). Status describes the whole KB, so a
+ * principal that cannot see all of it does not get it (404) and the page
  * shows what it can.
  */
 export function Health({
   report,
-  status,
-  summary,
   checks,
   contradictions = null,
   conflicts = null,
@@ -51,13 +45,10 @@ export function Health({
   loading,
   error,
   onReveal,
+  onWork = () => undefined,
   onRetry,
 }: {
   report: LintReport | null;
-  /** kb_status's knowledge signals; null when the principal cannot see the whole KB. */
-  status: KBStatus | null;
-  /** The maintenance summary (D323); null when not visible or not arrived. */
-  summary: MaintenanceSummary | null;
   /** Every check the server runs (D365); null leaves the reference out. */
   checks?: CheckCatalog | null;
   /** The open Contradiction concepts; null when not visible or not arrived. */
@@ -78,6 +69,8 @@ export function Health({
   loading: boolean;
   error: unknown;
   onReveal(concept: string | null, message: string): void;
+  /** Opens the Work panel, where the open contradictions are listed. */
+  onWork?(): void;
   onRetry(): void;
 }) {
   // The agenda is the page; what the checks look for is a tab beside it (D365).
@@ -111,6 +104,13 @@ export function Health({
   // Every single finding: the kinds are what to read, this is how much there is.
   const occurrences = problems.reduce((n, g) => n + g.count, 0);
   const pages = field.reduce((n, m) => n + m.total, 0);
+  // Nothing found anywhere in the KB: the goal state. It keeps the page of the
+  // issues state (headline, field, a list, the sections below) and says what
+  // was read instead of what was found.
+  const allClear = settled && !!report && issues === 0 && touched === 0 && pages > 0;
+  const scopePages = (hmap && field.find((m) => m.name === hmap)?.total) || pages;
+  // Rules that could run here (D371): an idle rule's silence is no pass.
+  const rules = checks ? checks.checks.filter((c) => c.active !== false).length : 0;
   // Bars are relative to the heaviest row: what matters is which issue weighs most.
   const heaviest = Math.max(1, ...problems.map(rowSize));
 
@@ -123,6 +123,10 @@ export function Health({
             <>Reading the KB&apos;s health…</>
           ) : tab === "checks" ? (
             <>What Cartographer checks</>
+          ) : allClear ? (
+            <>
+              <Count>Every page</Count> passes every check{where}
+            </>
           ) : issues > 0 ? (
             <>
               Cartographer found <Count>{issues}</Count> {issues === 1 ? "kind of issue" : "kinds of issues"}
@@ -158,24 +162,34 @@ export function Health({
         <p className="health__lede">
           {tab === "checks"
             ? "Every page is read against fixed rules. This is what they look for, and what they found here."
-            : issues > 0 && pages > 0
-              ? `${plural(occurrences, "occurrence")} in all, on ${touched} of ${pages} pages. Open one to see where.`
-              : "Every page is read against fixed rules, and none of them found anything."}
+            : allClear
+              ? clearLede(scopePages, rules)
+              : issues > 0 && pages > 0
+                ? `${plural(occurrences, "occurrence")} in all, on ${touched} of ${pages} pages. Open one to see where.`
+                : "Every page is read against fixed rules, and none of them found anything."}
         </p>
       )}
 
       {tab === "checks" && checks && settled ? (
-        <Coverage catalog={checks} report={report} trend={summary?.lint_history} />
+        <Coverage catalog={checks} report={report} />
       ) : (
         <>
           {/* Over the whole KB, not the chosen Map: a clean Map must not take
             away the field, which is also the way back to every Map. */}
-          {report && touched > 0 && (
+          {report && (touched > 0 || allClear) && (
             <div className="hfield">
-              <PageField field={field} focus={focus} hmap={hmap} onMap={onMap} onReveal={onReveal} />
+              <PageField field={field} focus={focus} clear={allClear} hmap={hmap} onMap={onMap} onReveal={onReveal} />
               <p className="pfield__legend">
-                <span className="pfield__key" data-problem /> has problems
-                <span className="pfield__key" /> fine
+                {allClear ? (
+                  <>
+                    <span className="pfield__key" data-tone="ok" /> fine
+                  </>
+                ) : (
+                  <>
+                    <span className="pfield__key" data-problem /> has problems
+                    <span className="pfield__key" /> fine
+                  </>
+                )}
                 <span className="pfield__hint">· one square per page · click a map to see only its pages</span>
               </p>
             </div>
@@ -188,7 +202,11 @@ export function Health({
               <SkeletonRows label="Loading the issues" rows={4} />
             ) : null
           ) : issues === 0 ? (
-            <Quiet>{scopeTitle ? `${scopeTitle} passes every check.` : "This KB passes every check."}</Quiet>
+            allClear && checks ? (
+              <AllClear catalog={checks} onOpen={() => setTab("checks")} />
+            ) : (
+              <Quiet>{scopeTitle ? `${scopeTitle} passes every check.` : "This KB passes every check."}</Quiet>
+            )
           ) : (
             <div className="agenda-list" aria-label="Issues">
               <AgendaGroup title="Problems" count={problems.length}>
@@ -199,27 +217,69 @@ export function Health({
             </div>
           )}
 
-          {contradictions && <Contradictions items={contradictions} onReveal={onReveal} />}
+          {contradictions && <Contradictions items={contradictions} onWork={onWork} />}
 
           {!!conflicts?.length && <GitConflicts items={conflicts} onReveal={onReveal} />}
-
-          {status && hasKnowledge(status) && <Knowledge status={status} onReveal={onReveal} />}
         </>
       )}
     </Page>
   );
 }
 
+/** The all-clear subline: what was read, and against how many rules (none known while the catalog is missing). */
+function clearLede(pages: number, rules: number) {
+  return (
+    <>
+      <strong>{plural(pages, "page")}</strong> read against{" "}
+      {rules > 0 ? <strong>{plural(rules, "rule")}</strong> : "fixed rules"}, and none of them found anything.
+    </>
+  );
+}
+
+/**
+ * The all-clear in place of the issues list: one row per family of rules, with
+ * how many of its rules ran and found nothing. A family whose rules all have
+ * nothing to read here (D371) says so instead of claiming a pass. A row opens
+ * the rules themselves, on the other tab.
+ */
+function AllClear({ catalog, onOpen }: { catalog: CheckCatalog; onOpen(): void }) {
+  const families = catalog.categories
+    .map((category) => {
+      const [title, about] = CATEGORY[category] ?? [category, ""];
+      const mine = catalog.checks.filter((c) => c.category === category);
+      return { category, title, about, total: mine.length, ran: mine.filter((c) => c.active !== false).length };
+    })
+    .filter((f) => f.total > 0);
+  return (
+    <ul className="rules clear" aria-label="Rule families">
+      {families.map((f) => (
+        <li key={f.category} className="rules__group">
+          <button
+            type="button"
+            className="rules__head clear__row"
+            data-idle={f.ran === 0 || undefined}
+            title="See these rules in What it checks"
+            onClick={onOpen}
+          >
+            <span className="clear__title">
+              <span className="clear__mark" aria-hidden="true">
+                {f.ran > 0 ? "✓" : "–"}
+              </span>
+              {f.title}
+            </span>
+            <span className="rules__about">{f.about}</span>
+            <span className="rules__tally">
+              {f.ran > 0 ? `${plural(f.ran, "rule")}, all clear` : "nothing to read here"}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** The agenda's band: its mark, its name, how many rows. */
-function AgendaGroup({
-  title,
-  count,
-  children,
-}: {
-  title: string;
-  count: number;
-  children: React.ReactNode;
-}) {
+function AgendaGroup({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
   return (
     // Open on arrival; the reader can fold it.
     <details className="agenda" aria-label={title} open>
@@ -279,6 +339,7 @@ function pageField(collections: CollectionSummary[], findings: LintFinding[]): F
 function PageField({
   field,
   focus,
+  clear = false,
   hmap,
   onMap,
   onReveal,
@@ -286,12 +347,20 @@ function PageField({
   field: FieldMap[];
   /** Pages to light, the rest dimmed; null shows every mark. */
   focus: Set<string> | null;
+  /** Nothing found in the KB: every square is "fine", shown in its green. */
+  clear?: boolean;
   hmap: string | null;
   onMap?(map: string | null): void;
   onReveal(concept: string | null, message: string): void;
 }) {
   return (
-    <div className="pfield" role="group" aria-label="Pages by Map" data-focus={focus ? "problem" : undefined}>
+    <div
+      className="pfield"
+      role="group"
+      aria-label="Pages by Map"
+      data-focus={focus ? "problem" : undefined}
+      data-clear={clear || undefined}
+    >
       {field.map((m) => {
         const clean = Math.max(0, m.total - m.marks.length);
         return (
@@ -344,9 +413,6 @@ function rowSize(g: CheckGroup): number {
 }
 
 /** Whether there is anything to list below the Knowledge facet's counts. */
-function hasKnowledge(status: KBStatus): boolean {
-  return !!status.open_gaps?.total || (status.search_misses ?? []).length > 0 || (status.stale_count ?? 0) > 0;
-}
 
 /**
  * The line every agenda row shares: what it is, a bar for how much of the KB
@@ -576,7 +642,7 @@ interface Rule {
  * what they found here -- folded until the reader opens it. Rules that found something
  * come first; the ones with nothing to read here wait at the end.
  */
-function Coverage({ catalog, report, trend }: { catalog: CheckCatalog; report: LintReport; trend?: LintSample[] }) {
+function Coverage({ catalog, report }: { catalog: CheckCatalog; report: LintReport }) {
   const count = (name: string) => report.by_check[name] ?? 0;
   // A check that cannot run here (D371) is neither clean nor dirty: its zero would lie.
   const idle = (c: CheckCatalog["checks"][number]) => c.active === false;
@@ -629,7 +695,6 @@ function Coverage({ catalog, report, trend }: { catalog: CheckCatalog; report: L
           </>
         )}
       </p>
-      <LintTrend history={trend} />
 
       <div className="rules">
         {groups.map(([title, about, rules]) => {
@@ -682,63 +747,27 @@ function Coverage({ catalog, report, trend }: { catalog: CheckCatalog; report: L
 }
 
 /**
- * The Contradiction concepts still open: two pages that disagree. They are
- * recorded by agents (contradiction_report) and block commit_gate until
- * someone resolves them, so they sit beside what is wrong, not in a corner.
+ * The Contradiction concepts still open block commit_gate, so Health says so;
+ * deciding which page holds is work, listed in Work beside the rest.
  */
-function Contradictions({
-  items,
-  onReveal,
-}: {
-  items: Contradiction[];
-  onReveal(concept: string | null, message: string): void;
-}) {
+function Contradictions({ items, onWork }: { items: Contradiction[]; onWork(): void }) {
   return (
     <PageSection title="Contradictions" id="health-contradictions" count={items.length}>
       {items.length === 0 ? (
         <Quiet>
-          No open contradictions. An agent that finds two pages disagreeing records one (<code>contradiction_report</code>
+          No open contradictions. An agent that finds two pages disagreeing records one (
+          <code>contradiction_report</code>
           ); while it is open, <code>commit_gate</code> blocks.
         </Quiet>
       ) : (
-        <>
-          <p className="page-note">
-            Pages that disagree, recorded by agents. An open contradiction blocks <code>commit_gate</code> until it is
-            resolved.
-          </p>
-          <ul className="rows">
-            {items.map((c) => (
-              <li key={c.id} className="health__contradiction">
-                <button type="button" className="row" onClick={() => onReveal(c.id, "")}>
-                  <span className="health__glyph" aria-hidden="true">
-                    ≠
-                  </span>
-                  <span className="row__body">
-                    <span className="row__title">{c.title || c.id}</span>
-                    <span className="row__meta">
-                      {c.contradiction_kind && <span className="pill">{c.contradiction_kind.replace(/_/g, " ")}</span>}
-                      <code>{c.id}</code>
-                    </span>
-                  </span>
-                  <span className="row__end health__go">Open concept</span>
-                </button>
-                {!!c.involves?.length && (
-                  <p className="health__involves">
-                    Between{" "}
-                    {c.involves.map((id, i) => (
-                      <span key={id}>
-                        {i > 0 && ", "}
-                        <button type="button" className="ref-link" onClick={() => onReveal(id, "")}>
-                          {id}
-                        </button>
-                      </span>
-                    ))}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-        </>
+        <p className="page-note">
+          {items.length === 1 ? "One open contradiction blocks" : `${items.length} open contradictions block`}{" "}
+          <code>commit_gate</code> until someone decides which page holds.{" "}
+          <button type="button" className="ref-link" onClick={onWork}>
+            See {items.length === 1 ? "it" : "them"} in Work
+          </button>
+          .
+        </p>
       )}
     </PageSection>
   );
@@ -746,93 +775,6 @@ function Contradictions({
 
 function plural(n: number, word: string, many = `${word}s`): string {
   return `${n} ${n === 1 ? word : many}`;
-}
-
-/**
- * What the KB does not know, beside what is wrong with it: the knowledge gaps
- * agents recorded, the searches that found nothing, and the pages past their
- * review date. Lint says a page is malformed; these say a page is missing or
- * stale.
- */
-function Knowledge({
-  status,
-  onReveal,
-}: {
-  status: KBStatus;
-  onReveal(concept: string | null, message: string): void;
-}) {
-  const gaps = status.open_gaps;
-  const misses = status.search_misses ?? [];
-  const stale = status.stale_count ?? 0;
-  const total = (gaps?.total ?? 0) + misses.filter((m) => !m.resolved).length + stale;
-  return (
-    <PageSection title="What the KB doesn't know" id="health-gaps" count={total}>
-      <>
-        {!!gaps?.total && (
-          <div className="health__group" role="group" aria-labelledby="health-open-gaps">
-            <h3 className="health__group-title" id="health-open-gaps">
-              Open questions and gaps
-              <span className="page-section__count">{gaps.total}</span>
-            </h3>
-            <ul className="rows">
-              {(gaps.recent ?? []).map((g) => (
-                <li key={g.id}>
-                  <button type="button" className="row" onClick={() => onReveal(g.id, "")}>
-                    <span className="health__glyph" aria-hidden="true">
-                      ◌
-                    </span>
-                    <span className="row__body">
-                      <span className="row__title">{g.title || g.id}</span>
-                      <span className="row__meta">
-                        <span className="pill">{(g.kind ?? "gap").replace(/_/g, " ")}</span>
-                        <code>{g.id}</code>
-                      </span>
-                    </span>
-                    <span className="row__end health__go">Open concept</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {misses.length > 0 && (
-          <div className="health__group" role="group" aria-labelledby="health-misses">
-            <h3 className="health__group-title" id="health-misses">
-              Searched for, not found
-              <span className="page-section__count">{misses.length}</span>
-            </h3>
-            <p className="page-note">
-              What agents searched for in the last 30 days and the KB could not answer. A ticked one finds something
-              now.
-            </p>
-            <ul className="health__misses">
-              {misses.map((m) => (
-                <li
-                  key={m.query}
-                  className={m.resolved ? "chip chip--resolved" : "chip"}
-                  title={m.resolved ? "This search finds something now" : undefined}
-                >
-                  {m.resolved && (
-                    <span className="chip__resolved" aria-hidden="true">
-                      ✓
-                    </span>
-                  )}
-                  {m.query}
-                  {m.resolved && <span className="sr-only"> (now found)</span>}
-                  <span className="chip__count">{m.count}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {stale > 0 && (
-          <Quiet tone="neutral">
-            {stale === 1 ? "One concept is" : `${stale} concepts are`} past its review date (<code>review_after</code>).
-          </Quiet>
-        )}
-      </>
-    </PageSection>
-  );
 }
 
 /**
@@ -850,8 +792,8 @@ function GitConflicts({
   return (
     <PageSection title="Git conflicts" id="health-conflicts" count={items.length}>
       <p className="page-note">
-        A sync met two versions of these files and stopped. An agent settles each one with <code>git_conflict_resolve</code>{" "}
-        (the <code>kb-conflict-resolve</code> skill walks it through).
+        A sync met two versions of these files and stopped. An agent settles each one with{" "}
+        <code>git_conflict_resolve</code> (the <code>kb-conflict-resolve</code> skill walks it through).
       </p>
       <ul className="rows">
         {items.map((c) => (
@@ -869,7 +811,9 @@ function GitConflicts({
                 <span className="row__title">{c.concept_id}</span>
                 <span className="row__meta">
                   {c.kind === "reserved" && <span className="pill">reserved file</span>}
-                  <span className="pill">{c.resolution_strategy ? `resolution: ${c.resolution_strategy}` : "unresolved"}</span>
+                  <span className="pill">
+                    {c.resolution_strategy ? `resolution: ${c.resolution_strategy}` : "unresolved"}
+                  </span>
                   {!!c.files && c.files.length > 1 && <span>{c.files.length} files in the same rebase</span>}
                 </span>
               </span>

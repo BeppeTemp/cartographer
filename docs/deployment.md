@@ -46,8 +46,8 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   reported `resolved` by `kb_status` before that (D319). Deleting the file is
   the only manual reset. `lint-history.jsonl` (D370) holds one sample a day of
   the whole-KB lint totals (`{at, total, by_handler}`, the latest
-  of the UTC day, 90 days kept, pruned on write): derived state for the Health
-  trend and `kb_status.lint_trend`, rewritten whole, never in the KB's git
+  of the UTC day, 90 days kept, pruned on write): derived state for
+  `kb_status.lint_trend`, rewritten whole, never in the KB's git
   history, and lost harmlessly with the volume (the trend restarts from the
   next lint). `usage.json` (D326) holds the artifact usage clients
   report on `sync`: on an `emptyDir` it is lost at every restart, and until each
@@ -77,7 +77,10 @@ scope, type, values, default, description, the environment variable and flag tha
 restart) by `make settings-example`; a test fails when the committed file differs, and another when a key reaches
 `rawConfig` or `KBSpec` without a schema entry. Edit the schema, not the example. A `config.yaml` written by
 `service install` is self-documenting the same way: the keys it sets carry their comment and the unset ones are listed
-commented out under `# --- available settings ---`. Comments are ignored by the parser, so a file without them behaves
+commented out under `# --- available settings: uncomment a key to set it ---` (the divider older versions wrote,
+`# --- available settings ---`, is read the same), a blank line between keys, each with the value to uncomment: the key's
+`Example` when its schema entry has one (a map or a list is shown in block style, indented under the key), its default
+otherwise. Comments are ignored by the parser, so a file without them behaves
 identically. `kb create`/`kb clone` and `kb rename` give a `kbs[]` entry they add the comment of the keys they set,
 and leave every comment already in the file alone.
 
@@ -509,14 +512,19 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   It obeys the update-check switch (`update_check`, `CARTOGRAPHER_NO_UPDATE_CHECK`, never on a `dev` build): off,
   the route answers `unavailable: "disabled"` and the server makes no call.
   The rail holds six panels: Atlas, Activity, Work, Health, Artifacts and Settings (D818).
-  Artifacts has a Secrets tab (the secrets grouped by the Service that uses each value, the files summed up
-  below); Activity has a Retired tab (D820: every deprecated, superseded or archived concept with where it went,
+  Health shows the lint's findings and nothing else; what a person has to answer or decide is in Work
+  (contradictions and gaps, the searches that found nothing under "to answer", the `kb_review` proposals
+  under "to decide", D948). Artifacts lists every kind, an empty one as an outline tile where its first
+  artifact would go, and has a Secrets tab (a card per Service that uses a value and per sops file, the same
+  detail panel as an artifact); Activity has a Retired tab (D820: every deprecated, superseded or archived concept with where it went,
   when and why, read from the root `log.md`, and each journal's harvest state; an archive map wears an "Archive"
   badge in the rail); the command palette's "Include archived" toggle adds archived pages to a search;
   pending sources are Work's "to ingest" column. Settings has three tabs, Client, Server and Knowledge Base,
-  each with a readable view (folded groups, each key with its value and where it was set) and a YAML view; the
-  Knowledge Base tab lists the KB's placeholders, the Client tab the viewer's own client as its last `sync`
-  reported it (workspaces with their isolation, and where each placeholder resolves on that machine). The former
+  each with a readable view (each key with its description and value; opening it shows the default, where it was
+  set, the environment variable and the flag) and a YAML view; the Knowledge Base tab lists the KB's
+  placeholders, the Client tab the viewer's own client as its last `sync` reported it (workspaces with their
+  isolation, and where each placeholder resolves on that machine), and before any client of the viewer has
+  reported, the keys of `.cartographer.yaml` at their defaults (`client_template`, D948). The former
   `panel=services`, `panel=sources` and `panel=paths` links land on Secrets, Work and Settings.
 
 The static bundle is reachable without a bearer token, because it is the page

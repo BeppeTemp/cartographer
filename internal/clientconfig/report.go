@@ -86,13 +86,27 @@ func Report(dir, version string) (*SettingsReport, error) {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("clientconfig: read %s: %w", Path(dir), err)
 	}
+	machine, _ := os.Hostname()
+	return report(data, machine, version)
+}
+
+// Template is the client settings of a machine with no .cartographer.yaml,
+// every key at its default. The Atlas shows it to a viewer none of whose
+// clients has reported yet (D818), so what a client can set is readable
+// before one connects.
+func Template() *SettingsReport {
+	r, _ := report(nil, "", "")
+	return r
+}
+
+// report builds the report of one settings file's bytes; nil is no file.
+func report(data []byte, machine, version string) (*SettingsReport, error) {
 	var doc yaml.Node
 	if len(data) > 0 {
 		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return nil, fmt.Errorf("clientconfig: parse %s: %w", Path(dir), err)
+			return nil, fmt.Errorf("clientconfig: parse settings: %w", err)
 		}
 	}
-	machine, _ := os.Hostname()
 	r := &SettingsReport{Machine: machine, Version: version, YAML: string(data), Entries: []ReportEntry{}}
 	for _, k := range Schema.Keys {
 		e := ReportEntry{Key: k.Path, Origin: "default", Description: k.Description, Default: k.Default, Type: k.Type, Values: k.Values}

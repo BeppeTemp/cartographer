@@ -6,7 +6,7 @@ import { NodeList } from "../components/NodeList";
 import { LeftRail } from "../components/LeftRail";
 import { Health } from "../components/Health";
 import { json, stubApi } from "./fixtures";
-import type { GraphNode, KBStatus, LintReport, MaintenanceSummary, Overview } from "../api/types";
+import type { GraphNode, LintReport, Overview } from "../api/types";
 
 const nodes: GraphNode[] = [
   { id: "infra/gateway", collection: "infra", type: "Service", in_degree: 4, out_degree: 1 },
@@ -131,13 +131,6 @@ const report: LintReport = {
   by_check: { broken_link: 1, index_incomplete: 1, nonstandard_field: 2, title_quality: 1 },
 };
 
-const upkeep: MaintenanceSummary = {
-  auto_repair: { enabled: true, default: true, checks: ["nonstandard_field"], interval_days: 1 },
-  last_auto_repair: null,
-  doctor_interval_days: 1,
-  repairs: [],
-};
-
 const catalog = {
   categories: ["pages", "links"],
   checks: [
@@ -153,8 +146,6 @@ function health(
   props: Partial<{
     report: LintReport;
     scopeTitle: string | null;
-    status: KBStatus | null;
-    summary: MaintenanceSummary | null;
     checks: typeof catalog | null;
     collections: { name: string; title: string; kind: string; concepts: number; expanded_concepts: number }[];
     onReveal: (concept: string | null, message: string) => void;
@@ -163,8 +154,6 @@ function health(
   return (
     <Health
       report={props.report ?? report}
-      status={props.status ?? null}
-      summary={props.summary ?? null}
       checks={"checks" in props ? props.checks : catalog}
       collections={props.collections}
       allFindings={(props.report ?? report).findings}
@@ -287,12 +276,6 @@ describe("health page field", () => {
 });
 
 describe("health: what it checks", () => {
-  const day = (daysAgo: number, total: number) => ({
-    at: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
-    total,
-    by_handler: {},
-  });
-
   it("explains how checking works, folds every category, and lists each rule with its sentence", async () => {
     const user = userEvent.setup();
     render(health({ checks: catalog }));
@@ -328,57 +311,6 @@ describe("health: what it checks", () => {
     expect(idle).toHaveAttribute("title", "glossary.yaml declares no forbidden term");
     expect(idle).not.toHaveTextContent(/\b0\b/);
     expect(screen.getByText(/In this KB:/)).toHaveTextContent("1 have nothing to read here");
-  });
-
-  it("shows the week's movement, and nothing with one sample", async () => {
-    const user = userEvent.setup();
-    const { unmount } = render(health({ checks: catalog, summary: { ...upkeep, lint_history: [day(0, 40)] } }));
-    await user.click(screen.getByRole("button", { name: "What it checks" }));
-    expect(screen.queryByRole("heading", { name: /^Trend/ })).not.toBeInTheDocument();
-    unmount();
-    render(health({ checks: catalog, summary: { ...upkeep, lint_history: [day(6, 188), day(0, 40)] } }));
-    await user.click(screen.getByRole("button", { name: "What it checks" }));
-    expect(screen.getByText("188 → 40 this week")).toBeInTheDocument();
-  });
-});
-
-describe("health knowledge", () => {
-  it("marks a miss whose search now finds something as resolved", () => {
-    render(
-      health({
-        status: {
-          search_misses: [
-            { query: "zephyr", count: 1 },
-            { query: "kafka", count: 3, resolved: true },
-          ],
-        },
-      }),
-    );
-    const resolved = screen.getByText("kafka").closest("li");
-    expect(resolved).toHaveClass("chip--resolved");
-    expect(resolved).toHaveTextContent("(now found)");
-    expect(screen.getByText("zephyr").closest("li")).not.toHaveClass("chip--resolved");
-  });
-
-  it("leaves the section out when the KB knows what it is asked", () => {
-    render(health({ status: { open_gaps: { total: 0 }, search_misses: [], stale_count: 0 } }));
-    expect(screen.queryByRole("heading", { name: /^What the KB doesn.t know/ })).not.toBeInTheDocument();
-  });
-
-  // Open questions are what the KB does not know, whoever asked them: listed
-  // apart from the issues, never as a step of upkeep (D704).
-  it("lists an open question apart from the issues and opens its concept", async () => {
-    const user = userEvent.setup();
-    const onReveal = vi.fn();
-    render(
-      health({
-        onReveal,
-        status: { open_gaps: { total: 1, recent: [{ id: "ops/q1", title: "Which port does the proxy listen on?", kind: "open_question" }] } },
-      }),
-    );
-    expect(screen.getByRole("heading", { name: /^What the KB doesn.t know/ })).toBeInTheDocument();
-    await user.click(screen.getByText("Which port does the proxy listen on?"));
-    expect(onReveal).toHaveBeenCalledWith("ops/q1", "");
   });
 });
 

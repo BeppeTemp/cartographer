@@ -66,7 +66,7 @@ func TestDefaultServerYAML(t *testing.T) {
 		"cartographer service install",
 		"config.example.yaml",
 		"credentials_dir:",
-		"# --- available settings ---",
+		"# --- available settings: uncomment a key to set it ---",
 		"Directory with every secret file",
 	} {
 		if !strings.Contains(out, want) {

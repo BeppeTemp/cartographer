@@ -59,10 +59,10 @@ func TestUIAPI_SettingsListsValuesOriginsAndFacts(t *testing.T) {
 	// The YAML views (D818): the server file with the env-set key and its
 	// origin, and the KB's settings.yaml, both documented by the schema.
 	if y, _ := body["server_yaml"].(string); !strings.Contains(y, "enabled: false # from CARTOGRAPHER_WEB_ENABLED") ||
-		!strings.Contains(y, "# --- available settings ---") {
+		!strings.Contains(y, "# --- available settings: uncomment a key to set it ---") {
 		t.Errorf("server_yaml = %q", y)
 	}
-	if y, _ := kbs[0].(map[string]interface{})["yaml"].(string); !strings.Contains(y, "# --- available settings ---") {
+	if y, _ := kbs[0].(map[string]interface{})["yaml"].(string); !strings.Contains(y, "# --- available settings: uncomment a key to set it ---") {
 		t.Errorf("kb yaml = %q", y)
 	}
 }

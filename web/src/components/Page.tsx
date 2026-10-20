@@ -131,9 +131,9 @@ export function Facet({
  * chart and filters, separated by space and a hairline below. Boxes are kept
  * for content that is dense enough to fill them.
  */
-export function Hero({ label, children }: { label: string; children: ReactNode }) {
+export function Hero({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <div className="hero" role="region" aria-label={label}>
+    <div className={className ? `hero ${className}` : "hero"} role="region" aria-label={label}>
       {children}
     </div>
   );

@@ -46,24 +46,22 @@ describe("the Settings panel", () => {
     stubApi({ "/settings": () => json(SETTINGS) });
     const user = userEvent.setup();
     render(<App />);
+    // Every group is open: its keys are read without a click.
     const git = await screen.findByRole("list", { name: "Git settings" });
-    // Every group starts folded.
-    expect(git.closest("details")).not.toHaveAttribute("open");
-    await user.click(screen.getByRole("heading", { name: "Git" }));
+    expect(screen.getByRole("heading", { name: "Git" })).toBeVisible();
     const sync = within(git).getByText("git.sync").closest("li")!;
-    expect(within(sync).getByText(/^set by environment · default true$/)).toBeVisible();
-    expect(within(sync).getByLabelText("Value of git.sync")).toHaveTextContent("false");
+    // A boolean reads as a switch.
+    expect(within(sync).getByLabelText("Value of git.sync")).toHaveTextContent("off");
     // What it does is on the row; the default, the override and the restart open with it.
     expect(within(sync).getByText(/fetch and pull before/)).toBeVisible();
-    expect(within(sync).getByText("CARTOGRAPHER_GIT_SYNC")).not.toBeVisible();
+    expect(within(sync).queryByText("CARTOGRAPHER_GIT_SYNC")).toBeNull();
     await user.click(within(sync).getByText("git.sync"));
+    // The table says the default and who set it.
+    expect(within(sync).getByText("environment")).toBeVisible();
     expect(within(sync).getByText("CARTOGRAPHER_GIT_SYNC")).toBeVisible();
     expect(within(sync).getByText(/after the server restarts/)).toBeVisible();
-    const auto = within(git).getByText("git.autocommit").closest("li")!;
-    expect(within(auto).getByText("default")).toBeInTheDocument();
     const tokens = within(screen.getByRole("list", { name: "Access settings" })).getByText("auth.tokens").closest("li")!;
     expect(within(tokens).getByLabelText("Value of auth.tokens")).toHaveTextContent("(set)");
-    expect(within(tokens).getByText(/^set by config file · default/)).toBeInTheDocument();
     expect(screen.getByText(/v1\.3\.0 available/)).toBeInTheDocument();
   });
 
@@ -74,7 +72,6 @@ describe("the Settings panel", () => {
     await screen.findByRole("list", { name: "Git settings" });
     await user.type(screen.getByRole("searchbox", { name: "Search settings" }), "bearer");
     const access = screen.getByRole("list", { name: "Access settings" });
-    expect(access.closest("details")).toHaveAttribute("open");
     expect(within(access).getByText("auth.tokens")).toBeVisible();
     expect(screen.queryByRole("list", { name: "Git settings" })).toBeNull();
     await user.clear(screen.getByRole("searchbox", { name: "Search settings" }));
@@ -136,13 +133,20 @@ describe("the Settings panel", () => {
     expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("server_url: http://example.com/mcp");
   });
 
-  it("says when the viewer's client has not reported yet", async () => {
-    stubApi({ "/settings": () => json(SETTINGS) });
+  it("shows what a client can set before any client of the viewer has reported", async () => {
+    const template = {
+      entries: [{ key: "workspaces", value: {}, origin: "default", description: "Which KBs a provider receives.", default: "{}" }],
+      yaml: "# --- available settings: uncomment a key to set it ---\n# workspaces:\n#   claude: []\n",
+    };
+    stubApi({ "/settings": () => json({ ...SETTINGS, client_template: template }) });
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     await user.click(within(tabs).getByRole("tab", { name: "Client" }));
-    expect(screen.getByText(/has not reported its settings/)).toBeInTheDocument();
+    expect(screen.getByText(/has reported to this server yet/)).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Client Agents & KBs settings" })).toHaveTextContent("workspaces");
+    await user.click(screen.getByRole("button", { name: "YAML" }));
+    expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("# workspaces:");
   });
 
   it("reaches the panel from the rail", async () => {

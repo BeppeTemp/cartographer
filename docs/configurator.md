@@ -1158,9 +1158,12 @@ usage_scan: true                # D326; written only when false. false: sync rea
 
 The write-findings hook (D353) is always installed (Claude Code, Codex, ...); `docs/sync.md` §Layer 1.
 
-**The file documents itself (D747).** Every key it holds carries a comment (what it does, its values,
-its default), and the keys that are not set are listed commented out under
-`# --- available settings ---`, like a Helm `values.yaml`. The text comes from one table, `Schema` in
+**The file documents itself (D747).** Every key it holds carries a comment (what it does, then one line
+with its values, default and notes), and the keys that are not set are listed commented out under
+`# --- available settings: uncomment a key to set it ---`, like a Helm `values.yaml`: a blank line between
+keys, each with the value to uncomment, and an example under a map or a list (`# scopes:` /
+`#   claude: workspace`). Files written before that wording have `# --- available settings ---`; a realignment
+reads either divider and writes the new one. The text comes from one table, `Schema` in
 `internal/clientconfig/schema.go`, which is also what `config.example.yaml` and the config view read;
 a test fails when a key exists in the file without an entry there, so a new setting starts in the
 table. `Save` is a `yaml.Node` round-trip of the existing file: a comment you wrote and a key the

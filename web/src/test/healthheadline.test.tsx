@@ -10,8 +10,6 @@ function page(extra: { checks?: CheckCatalog | null; pending?: boolean }) {
   return (
     <Health
       report={lint}
-      status={null}
-      summary={null}
       scopeTitle={null}
       loading={false}
       error={null}

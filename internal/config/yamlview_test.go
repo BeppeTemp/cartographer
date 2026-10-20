@@ -42,7 +42,7 @@ func TestServerYAMLIsTheEffectiveFileDocumented(t *testing.T) {
 		"tokens: " + Redacted,
 		"data: /etc/data",
 		// A key at its default is documented, commented out, not set.
-		"# credentials_dir: <data>/credentials",
+		"# credentials_dir: /etc/cartographer/credentials",
 		// The server file's kbs[] entry, not what the KB's own file sets.
 		"remote: https://git.example.com/user/kb-a.git",
 	} {
@@ -81,7 +81,7 @@ func TestKBYAMLIsTheKBsSettingsFile(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("KBYAML: ok=%v err=%v", ok, err)
 	}
-	if strings.HasPrefix(string(empty), "{}") || !strings.Contains(string(empty), "# --- available settings ---") {
+	if strings.HasPrefix(string(empty), "{}") || !strings.Contains(string(empty), "# --- available settings: uncomment a key to set it ---") {
 		t.Errorf("empty KB YAML:\n%s", empty)
 	}
 

@@ -11,9 +11,7 @@ import {
   fetchArtifacts,
   fetchLint,
   fetchMaps,
-  fetchMaintenanceSummary,
   fetchOverview,
-  fetchStatus,
   fetchConflicts,
   fetchContradictions,
   restoreToken,
@@ -27,11 +25,9 @@ import type {
   Contradiction,
   GitConflict,
   GraphSnapshot,
-  KBStatus,
   KBSummary,
   LintReport,
   MapContract,
-  MaintenanceSummary,
   Overview,
 } from "./api/types";
 import { Artifacts } from "./components/Artifacts";
@@ -132,8 +128,6 @@ export function App() {
   );
   // kb_status's knowledge signals for Health; a principal that cannot see
   // the whole KB gets a 404 and those parts are simply absent.
-  const [kbStatus, setKbStatus] = useState<KBStatus | null>(null);
-  const [maintenance, setMaintenance] = useState<MaintenanceSummary | null>(null);
   const [checks, setChecks] = useState<CheckCatalog | null>(null);
   const [contradictions, setContradictions] = useState<Contradiction[] | null>(null);
   const [conflicts, setConflicts] = useState<GitConflict[] | null>(null);
@@ -548,13 +542,10 @@ export function App() {
     replaceView(next);
   }, [view, activeKB, kbs, secretsAllowed]);
 
-  // Health's whole-KB reads (D338): kb_status and the maintenance summary
-  // answer 404 to a principal that cannot see the whole KB, which is not an
-  // error to show — the page leaves those parts out.
+  // Health's whole-KB reads (D338): the contradictions and the git conflicts answer 404 to a principal that cannot see
+  // the whole KB, which is not an error to show — the page leaves those parts out.
   useEffect(() => {
     if (view.panel !== "health" || !activeKB || phase !== "ready") {
-      setKbStatus(null);
-      setMaintenance(null);
       setChecks(null);
       setContradictions(null);
       setConflicts(null);
@@ -565,18 +556,13 @@ export function App() {
     // the new reads fail. A live refresh of the same KB keeps what it shows.
     if (healthKB.current !== activeKB) {
       healthKB.current = activeKB;
-      setKbStatus(null);
-      setMaintenance(null);
       setChecks(null);
       setContradictions(null);
       setConflicts(null);
       setHealthSettled(false);
     }
     const controller = new AbortController();
-    fetchStatus(activeKB, controller.signal)
-      .then(setKbStatus)
-      .catch(() => undefined);
-    // Whole-KB like the status: a narrowed principal gets a 404 and no section.
+    // Whole-KB: a narrowed principal gets a 404 and no section.
     fetchContradictions(activeKB, "open", controller.signal)
       .then((res) => setContradictions(res.contradictions ?? []))
       .catch(() => undefined);
@@ -584,11 +570,6 @@ export function App() {
     fetchConflicts(activeKB, controller.signal)
       .then((res) => setConflicts(Array.isArray(res) ? res : []))
       .catch(() => undefined);
-    fetchMaintenanceSummary(activeKB, controller.signal)
-      .then(setMaintenance)
-      .catch((err) => {
-        if (!controller.signal.aborted) handleFailure(err);
-      });
     // The coverage list: without it Health simply leaves the section out.
     void Promise.allSettled([fetchChecks(activeKB, controller.signal).then(setChecks)]).then(() => {
       if (!controller.signal.aborted) setHealthSettled(true);
@@ -880,8 +861,6 @@ export function App() {
           ) : view.panel === "health" ? (
             <Health
               report={lint}
-              status={kbStatus}
-              summary={maintenance}
               checks={checks}
               contradictions={contradictions}
               conflicts={conflicts}
@@ -896,6 +875,7 @@ export function App() {
               loading={lintLoading}
               error={lintError}
               onRetry={() => setReloadKey((k) => k + 1)}
+              onWork={() => navigate({ panel: "work" })}
               onReveal={(conceptId, message) => {
                 if (conceptId) navigate({ panel: "atlas", concept: conceptId });
                 else announce(message);

@@ -311,15 +311,20 @@ export interface WorkEntry {
   map?: string;
   status?: string;
   open_phase: boolean;
+  /** Why a concept is work when its status does not say so. */
+  reason?: "contradiction" | "gap" | "review";
   timestamp?: string;
   age_days?: number;
   stale: boolean;
   items: WorkItem[];
+  /** The frontmatter values asked for with fields. */
+  fields?: Record<string, string>;
 }
 export interface WorkResponse {
   total: number;
   open_concepts: number;
   by_status: Record<string, number>;
+  by_reason?: Record<string, number>;
   by_map: Record<string, number>;
   open_items: number;
   entries: WorkEntry[];
@@ -337,42 +342,6 @@ export interface KBStatus {
   /** resolved: the same search now finds something (D319); sorted last. */
   search_misses?: { query: string; count: number; last_seen?: string; resolved?: boolean }[];
   stale_count?: number;
-}
-
-/** GET /kbs/{kb}/maintenance/summary (D323). */
-export interface MaintenanceRepair {
-  sha: string;
-  at: string;
-  subject: string;
-  reason?: string;
-  files: number;
-  /** Made by the server's own heartbeat, not by a kb_repair someone ran. */
-  background: boolean;
-  /** The command that undoes it: shown, never run, by the Atlas. */
-  revert: string;
-}
-export interface MaintenanceRun {
-  at: string;
-  skipped?: string;
-  checks?: { check: string; applied: number; skipped?: number; commit?: string; error?: string }[];
-}
-/** One daily sample of the whole-KB lint totals (D370). */
-export interface LintSample {
-  at: string;
-  total: number;
-  by_handler: Record<string, number>;
-}
-export interface MaintenanceSummary {
-  auto_repair: { enabled: boolean; default: boolean; checks: string[]; interval_days: number };
-  last_auto_repair: MaintenanceRun | null;
-  last_doctor?: string;
-  next_doctor?: string;
-  doctor_interval_days: number;
-  /** The background repair's runs of the last 30 days, newest first (D365). */
-  runs?: MaintenanceRun[];
-  /** One sample a day of the lint totals, oldest first, 90 days at most (D370). */
-  lint_history?: LintSample[];
-  repairs: MaintenanceRepair[];
 }
 
 /** GET /kbs/{kb}/maintenance/review (D704): the doctor's agenda beyond lint. */
@@ -651,6 +620,8 @@ export interface SettingsView {
   kbs: SettingsKB[];
   /** The viewer's own clients, as each machine last reported them (D818). */
   clients?: SettingsClient[];
+  /** What a client can set, every key at its default: shown until a client reports. */
+  client_template?: { entries: SettingEntry[]; yaml?: string };
 }
 
 /** One machine's client settings, reported by its last sync (D818). */

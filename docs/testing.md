@@ -349,7 +349,7 @@ toolchain (D227). What they hold:
   (D337);
 - Health (D338, D365, D947): lint problems grouped by check with who acts on each (one list, no
   suggestions band, the doctor's review items left out), revealing a concept or saying there is none, scoped by its own Map chips so a
-  clean Map never reads as a clean KB; the lint trend (shown from two samples, absent with one), the upkeep, questions and repairs, each
+  clean Map never reads as a clean KB; the upkeep, questions and repairs, each
   copy action a clipboard write and every request a `GET`; a whole-KB `404`
   left out silently while another failure is reported; the old
   `panel=observatory` and `panel=maintenance` links landing on Health;

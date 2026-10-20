@@ -73,7 +73,7 @@ func TestSaveRemovesNewlySetKeyFromTheCommentedBlock(t *testing.T) {
 	if !hasKey(raw, "search_roots") {
 		t.Errorf("search_roots not written:\n%s", raw)
 	}
-	if strings.Count(raw, "# --- available settings ---") != 1 {
+	if strings.Count(raw, "# --- available settings: uncomment a key to set it ---") != 1 {
 		t.Errorf("want one block:\n%s", raw)
 	}
 }

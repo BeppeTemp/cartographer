@@ -445,7 +445,7 @@ func (s Schema) removePair(doc, m *yaml.Node, idx int) {
 
 func (s Schema) isGeneratedComment(c string) bool {
 	for _, k := range s.Keys {
-		if c == strings.Join(Comment(k), "\n") {
+		if isGenerated(c, k) {
 			return true
 		}
 	}

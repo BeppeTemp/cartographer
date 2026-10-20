@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 )
 
@@ -91,12 +92,29 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 		kbs = append(kbs, row)
 	}
 
+	// The caller's own clients, never anybody else's (D818). Each file is shown
+	// rendered by this server's schema, as the server's and the KBs' are: the
+	// keys it sets documented, the others listed ready to uncomment.
+	clients := m.clientReports.of(auth.PrincipalFromContext(ctx).ID)
+	for i := range clients {
+		if out, err := clientconfig.Schema.Format([]byte(clients[i].YAML)); err == nil {
+			clients[i].YAML = string(out)
+		}
+	}
 	payload := map[string]any{
 		"version": m.version,
 		"server":  view.Server,
 		"kbs":     kbs,
-		// The caller's own clients, never anybody else's (D818).
-		"clients": m.clientReports.of(auth.PrincipalFromContext(ctx).ID),
+		"clients": clients,
+	}
+	// What a client can set, for a viewer none of whose clients has reported:
+	// every key at its default, and the file they amount to.
+	if t := clientconfig.Template(); t != nil {
+		tmpl := map[string]any{"entries": t.Entries}
+		if out, err := clientconfig.Schema.Format(nil); err == nil {
+			tmpl["yaml"] = string(out)
+		}
+		payload["client_template"] = tmpl
 	}
 	// The server's configuration as the YAML file it amounts to, commented by
 	// the schema, its kbs[] entries limited to the KBs the caller sees (D818).

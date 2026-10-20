@@ -126,6 +126,13 @@ func TestLoadAllSkills(t *testing.T) {
 	}
 }
 
+func TestLoadAllSkillsWithoutSkillsDir(t *testing.T) {
+	skills, errs := LoadAllSkills(t.TempDir())
+	if len(skills) != 0 || len(errs) != 0 {
+		t.Fatalf("a KB without skills/ has no skills and no error, got %d skills, errors %v", len(skills), errs)
+	}
+}
+
 func TestLoadAllSkillsPartialError(t *testing.T) {
 	kbRoot := t.TempDir()
 	skillsDir := filepath.Join(kbRoot, "skills")

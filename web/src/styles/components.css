@@ -1142,9 +1142,10 @@ body.is-resizing {
   color: var(--text-secondary);
 }
 
+/* The selected tab is marked by its ::after bar alone: a coloured border as
+   well drew a second line just above it. */
 .inspector__tab[aria-selected="true"] {
   color: var(--text-primary);
-  border-block-end-color: var(--primary);
 }
 
 .inspector__tab::after {
@@ -2621,6 +2622,34 @@ code.mapcontract__label {
   border-color: var(--kind);
 }
 
+/* The place of a kind's first artifact: an outline, not a card. */
+.catalog__tile--ghost {
+  cursor: default;
+  background: transparent;
+  border-style: dashed;
+  border-block-start-style: dashed;
+}
+
+.catalog__tile--ghost:hover {
+  background: transparent;
+  border-color: var(--border-subtle);
+  border-block-start-color: color-mix(in srgb, var(--kind) 70%, transparent);
+  transform: none;
+}
+
+.catalog__tile--ghost .catalog__tile-name {
+  color: var(--text-muted);
+}
+
+.catalog__tile--ghost .catalog__tile-desc {
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+
+.catalog__tile--ghost .catalog__tile-foot {
+  align-items: baseline;
+}
+
 .catalog__tile:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
@@ -2783,10 +2812,6 @@ code.mapcontract__label {
   color: var(--text-muted);
 }
 
-.chip--static {
-  cursor: default;
-}
-
 .artifacts__files {
   display: flex;
   flex-wrap: wrap;
@@ -2927,19 +2952,6 @@ code.mapcontract__label {
 
 .artifacts__client {
   color: var(--text-primary);
-}
-
-/* --- Chips that report a state --- */
-
-/* A miss whose search now finds something (D319): closed, kept for the record. */
-.chip--resolved {
-  color: var(--text-muted);
-  border-style: dashed;
-  cursor: default;
-}
-
-.chip__resolved {
-  margin-inline-end: var(--space-1);
 }
 
 /* Reading panel: a closed table of contents, links as rows. */
@@ -3293,26 +3305,6 @@ code.mapcontract__label {
   color: var(--sev-error);
   font-size: var(--text-sm);
 }
-.secrets__file {
-  margin-block-end: var(--space-4);
-  padding: var(--space-4) var(--space-4) var(--space-2);
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-}
-.secrets__head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.secrets__path {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  overflow-wrap: anywhere;
-}
-.secrets__badge,
 .secrets__type {
   padding: 0 var(--space-2);
   color: var(--text-muted);
@@ -3451,169 +3443,202 @@ code.mapcontract__label {
   background: var(--surface-2);
   border-radius: var(--radius-pill);
 }
+/* A group in the catalog's language: always open, its mark and title, how
+   many keys it holds and how many were changed, one sentence under them. */
 .settings__group {
-  margin-top: var(--space-2);
-  border-block-end: 1px solid var(--border-subtle);
+  margin-top: var(--space-6);
 }
 .settings__group:first-of-type {
-  margin-top: var(--space-4);
+  margin-top: var(--space-8);
 }
-/* The folded group: its title, how many keys it sets, a chevron. */
 .settings__group-head {
   display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  padding: var(--space-3) 0;
-  cursor: pointer;
-  list-style: none;
-}
-.settings__group-head::-webkit-details-marker {
-  display: none;
-}
-.settings__group-head::before {
-  content: "";
-  flex: none;
-  margin-top: 0.45em;
-  width: 6px;
-  height: 6px;
-  margin-inline: 2px;
-  border-inline-end: 1.5px solid var(--text-muted);
-  border-block-end: 1.5px solid var(--text-muted);
-  transform: rotate(-45deg);
-  transition: transform var(--motion-fast) var(--ease-out);
-}
-.settings__group[open] > .settings__group-head::before {
-  transform: rotate(45deg);
-}
-/* Inset and keyboard-only: an outer ring overhung the rows below it and
-   showed after a mouse click too. */
-.settings__group-head:focus {
-  outline: none;
-}
-.settings__group-head:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: -2px;
-  border-radius: var(--radius-control);
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  margin-block-end: var(--space-3);
 }
 .settings__group-count {
-  margin-inline-start: auto;
   font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
   color: var(--text-muted);
 }
 .settings__heading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
-  font-size: var(--text-sm);
+  font-size: var(--text-md, var(--text-sm));
   font-weight: 600;
   color: var(--text-primary);
 }
-.settings__group-text {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-.settings__group-text .settings__intro {
+.settings__intro {
+  flex-basis: 100%;
   margin: 0;
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
   color: var(--text-muted);
 }
-.settings__intro {
-  margin: 0 0 var(--space-3);
-  line-height: var(--leading-normal);
-  color: var(--text-secondary);
-}
-/* A list in the Atlas's table style (the Map contract's): one row per key,
-   the name on the left, the value and its origin at the end of the same line,
-   what it does under them. A row opens on the rest. */
+/* One card per group, one row per key: the name and what it does on the left,
+   the value and where it comes from on the right. A row opens on the rest. */
 .settings__rows {
-  margin: 0 0 var(--space-4);
+  margin: 0;
   padding: 0;
   list-style: none;
   background: var(--surface-1);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-card);
+  overflow: hidden;
 }
 .settings__row + .settings__row {
   border-block-start: 1px solid var(--border-subtle);
 }
 .settings__row-head {
   display: grid;
-  gap: 2px;
-  padding: var(--space-2) var(--space-3);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  background: none;
+  border: 0;
   cursor: pointer;
-  list-style: none;
-  border-radius: var(--radius-control);
-}
-.settings__row-head::-webkit-details-marker {
-  display: none;
 }
 .settings__row-head:hover {
   background: var(--surface-2);
 }
+/* A row with nothing to open: a placeholder, a path, a workspace. */
+.settings__row-head--static {
+  cursor: default;
+}
+.settings__row-head--static:hover {
+  background: none;
+}
+.settings__note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.settings__val.settings__chip-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
 .settings__row-head:focus-visible {
   outline: none;
-  box-shadow: var(--focus-ring);
+  box-shadow: inset var(--focus-ring);
 }
-.settings__line {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
+.settings__what {
+  display: grid;
+  gap: 2px;
   min-width: 0;
 }
 .settings__key {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+  font-weight: 600;
   color: var(--text-primary);
   overflow-wrap: anywhere;
-}
-/* The value reads as a value: a code chip at the end of the line, brighter
-   when it was set than when it is the default. */
-/* The value, and under it where it comes from and what the default is. */
-.settings__val {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  max-width: 60%;
-  margin-inline-start: auto;
-  min-width: 0;
-}
-.settings__value {
-  max-width: 100%;
-  padding: 0 6px;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: 20px;
-  color: var(--text-secondary);
-  text-align: end;
-  background: var(--surface-2);
-  border-radius: var(--radius-small);
-  overflow-wrap: anywhere;
-}
-.settings__row[data-set] .settings__value {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--primary) 18%, var(--surface-1));
-}
-.settings__origin {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.settings__row[data-set] .settings__origin {
-  color: var(--primary);
 }
 .settings__desc {
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
+  color: var(--text-muted);
+}
+.settings__val {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 44ch;
+  min-width: 0;
+}
+.settings__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 18px;
   color: var(--text-secondary);
+  text-align: end;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  overflow-wrap: anywhere;
+}
+.settings__value[data-empty] {
+  font-family: inherit;
+  font-style: italic;
+  color: var(--text-muted);
+  background: transparent;
+}
+.settings__row[data-set] .settings__value {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface-1));
+  border-color: color-mix(in srgb, var(--primary) 45%, transparent);
+}
+/* A boolean is a small switch. */
+.settings__switch {
+  position: relative;
+  width: 20px;
+  height: 12px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  transition: background var(--motion-fast) var(--ease-out);
+}
+.settings__switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.settings__value--bool[data-on] .settings__switch {
+  background: color-mix(in srgb, var(--sev-ok) 55%, transparent);
+}
+.settings__value--bool[data-on] .settings__switch::after {
+  left: 10px;
+  background: var(--text-primary);
+}
+.settings__value--list {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+.settings__row[data-set] .settings__value--list {
+  background: none;
+  border: 0;
+}
+.settings__item {
+  padding: 1px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
 }
 .settings__meta {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
-  gap: 2px var(--space-3);
-  margin: 0;
-  padding: 0 var(--space-3) var(--space-3);
+  gap: 4px var(--space-4);
+  margin: 0 var(--space-4) var(--space-4);
+  padding: var(--space-3);
   font-size: var(--text-xs);
+  background: var(--surface-0);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
 }
 .settings__meta > div {
   display: contents;
@@ -3633,6 +3658,40 @@ code.mapcontract__label {
 .settings__nomatch {
   margin-top: var(--space-4);
 }
+/* The YAML view, as an editor shows a file: a title bar, line numbers, the
+   keys in force bright, the documented defaults dimmed under a divider. */
+.settings__file {
+  margin: var(--space-4) 0 0;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+.settings__file-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  background: var(--surface-2);
+  border-block-end: 1px solid var(--border-subtle);
+}
+.settings__file-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.settings__file-note {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.settings__file-head .button--icon {
+  padding: 6px;
+  color: var(--text-muted);
+  border-color: transparent;
+}
 .settings__yaml:focus {
   outline: none;
 }
@@ -3641,23 +3700,40 @@ code.mapcontract__label {
   outline-offset: -2px;
 }
 .settings__yaml {
-  margin: var(--space-4) 0 0;
-  padding: var(--space-3) var(--space-4);
+  margin: 0;
+  padding: var(--space-3) var(--space-4) var(--space-3) 0;
   overflow-x: auto;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  line-height: 1.65;
-  color: var(--text-primary);
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-control);
+  line-height: 1.7;
+  /* One tone for the whole file: keys, values and comments alike. */
+  color: var(--text-secondary);
   tab-size: 2;
+  counter-reset: yaml-line;
 }
-.yaml__key {
-  color: var(--primary);
+/* The number hangs in a gutter wide enough for four digits; a wrapped line
+   keeps its text aligned past it. */
+.yaml__line {
+  display: block;
+  padding-inline-start: calc(4ch + var(--space-4));
+  white-space: pre-wrap;
+  counter-increment: yaml-line;
 }
-.yaml__comment {
+.yaml__line::before {
+  content: counter(yaml-line);
+  display: inline-block;
+  width: 4ch;
+  margin-inline: calc(-4ch - var(--space-4)) var(--space-4);
+  text-align: end;
   color: var(--text-muted);
+  opacity: 0.5;
+  user-select: none;
+}
+.yaml__divider {
+  margin-block: var(--space-3);
+  padding-block: var(--space-1);
+  font-weight: 600;
+  background: var(--surface-2);
 }
 
 /* Inspector History tab: revision timeline and assets. */
@@ -3697,21 +3773,6 @@ code.mapcontract__label {
   background: var(--surface-2);
   border-radius: var(--radius-pill);
 }
-/* One sops file in the Files section: its path, then what is known about it. */
-.secrets__filerow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-1) var(--space-3);
-  padding: var(--space-2) var(--space-3);
-}
-.secrets__filerow + .secrets__filerow {
-  border-block-start: 1px solid var(--border-subtle);
-}
-.secrets__filerow .secrets__meta {
-  margin: 0;
-}
-
 /* Settings → Client: the agent clients and their bound folders. */
 .settings__chip-row {
   display: flex;
@@ -3755,6 +3816,33 @@ code.mapcontract__label {
   color: var(--text-primary);
   background: color-mix(in srgb, var(--primary) 22%, var(--surface-2));
 }
-.settings__origin .settings__kb + .settings__kb {
+.settings__note .settings__kb + .settings__kb {
   margin-inline-start: var(--space-1);
+}
+
+/* Secrets in the catalog's language: the key field sits where Artifacts has
+   its filter, a tile that cannot be read says so in words, and the values
+   open in the same detail panel as an artifact. */
+.secrets .page__actions .secrets__key {
+  margin-block: 0;
+  min-width: min(380px, 100%);
+}
+.catalog__tile[data-muted] .catalog__tile-name {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+.secrets__flag {
+  flex: none;
+  padding: 0 var(--space-2);
+  color: var(--sev-error);
+  border: 1px solid color-mix(in srgb, var(--sev-error) 60%, transparent);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  line-height: 18px;
+}
+.artifacts__detail .secrets__meta {
+  margin-block: var(--space-3);
+}
+.artifacts__detail .secrets__rows {
+  margin-block-start: var(--space-4);
 }
