@@ -20,7 +20,7 @@ func asClient(ctx context.Context, name string) context.Context {
 
 func writeAs(t *testing.T, s *Server, ctx context.Context, id string, extra map[string]any) {
 	t.Helper()
-	args := map[string]any{"id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": "# T\n\n[[anchor]]\n"}
+	args := map[string]any{"id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": "T text\n\n[[anchor]]\n"}
 	for key, v := range extra {
 		args[key] = v
 	}
@@ -158,8 +158,8 @@ func TestChangesSince_AgentsAndHistory(t *testing.T) {
 	a := asClient(authLocalContext(), "client-a")
 	b := asClient(authLocalContext(), "client-b")
 	writeAs(t, c.s, a, "ops/page", nil)
-	writeAs(t, c.s, b, "ops/page", map[string]any{"body": "# V2\n"})
-	writeAs(t, c.s, authLocalContext(), "ops/page", map[string]any{"body": "# V3\n"})
+	writeAs(t, c.s, b, "ops/page", map[string]any{"body": "V2 text\n\n[[anchor]]\n"})
+	writeAs(t, c.s, authLocalContext(), "ops/page", map[string]any{"body": "V3 text\n\n[[anchor]]\n"})
 	writeAs(t, c.s, a, "other/page", nil)
 
 	since := fmt.Sprintf(`{"since":%q}`, time.Now().Add(-time.Hour).UTC().Format(time.RFC3339))

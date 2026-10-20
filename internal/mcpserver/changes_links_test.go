@@ -36,6 +36,17 @@ func newChangesLinksKB(t *testing.T) *changesLinksKB {
 			t.Fatal(err)
 		}
 	}
+	// Pages the tests write link to this one, and every map lists its pages
+	// itself: the write gate (D907) refuses a page nothing reaches.
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "anchor.md"), []byte("---\ntype: Note\ntitle: Anchor\n---\n# Anchor\n\nThe page the others link to.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	generated := kb.IndexGenerated
+	for _, m := range []string{"ops", "other", "hidden"} {
+		if _, err := k.UpdateMapContract(m, kb.MapContractUpdate{Index: &generated}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	return &changesLinksKB{t: t, k: k, s: s, base: time.Now().UTC().Truncate(time.Second).Add(5 * time.Minute)}
