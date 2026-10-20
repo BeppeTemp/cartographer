@@ -270,6 +270,21 @@ from the template that fits:
 - **Bug** (label `bug`): version, transport, what happened, a reproduction.
 - **Plan** (label `plan`): a self-contained implementation plan, below.
 
+The repository keeps only labels that a workflow or a skill reads, or that
+change who acts:
+
+| Label | Meaning |
+|---|---|
+| `bug`, `plan` | The two kinds of issue (ideas and questions are Discussions). An accepted issue without a plan yet sits in a milestone and is promoted to `plan` when it is not trivial |
+| `approved` | A maintainer accepted the plan (only triage rights can set it); for a contributor's PR the plan is also assigned to them |
+| `size-exception` | Maintainer-granted exception to the 500-line cap |
+| `good first issue` | Small, self-contained, suitable for a first contribution |
+| `ci-red` | Opened by CI when `main` is red |
+| `dependencies`, `autorelease: pending`, `autorelease: tagged` | Set by Dependabot and release-please, never by hand |
+
+Milestones are the roadmap: one per weekly release, `vX.Y.0`; an issue in a
+milestone is accepted work.
+
 When a bug is picked up for implementation, it is **promoted in place** (by a
 maintainer: the label edit needs triage rights; a contributor opens a new Plan
 issue that links the original): its body is rewritten from the Plan template and

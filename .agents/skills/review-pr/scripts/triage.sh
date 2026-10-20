@@ -70,6 +70,8 @@ if [ $# -ge 1 ]; then
   issues=$(jq -r '.closingIssuesReferences[].number' <<<"$meta")
   body=$(jq -r .body <<<"$meta")
 else
+  # Fail closed on a fork clone without `upstream`: never diff against a stale fork main.
+  "$(dirname "$0")/../../../../scripts/upstream-repo.sh" --require-remote >/dev/null || exit 2
   git fetch -q "$remote" main
   files=$(git diff --numstat "$remote"/main...HEAD | awk -F'\t' '$1 != "-"')
   ci=local
