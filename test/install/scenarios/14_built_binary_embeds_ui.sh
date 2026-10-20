@@ -61,11 +61,13 @@ else
 fi
 
 # --- 2. It serves the UI with no Node on PATH -------------------------------
-# A PATH holding git and nothing else: serve --init needs git for the KB, and
-# must need nothing that a frontend toolchain would provide.
-mkdir -p "${TMP}/path" "${TMP}/data/ui-kb"
+# A PATH holding git and nothing else: the KB is a git repository, and
+# serving it must need nothing that a frontend toolchain would provide.
+mkdir -p "${TMP}/path" "${TMP}/data"
 GIT=$(command -v git)
 ln -s "$GIT" "${TMP}/path/git"
+# serve never creates a KB (D906): kb create does, here with the full PATH.
+"$BIN" kb create ui-kb --no-remote --local --data "${TMP}/data" >/dev/null 2>&1 || _assert_fail "kb create ui-kb"
 if PATH="${TMP}/path" command -v node >/dev/null 2>&1; then
     _assert_fail "the restricted PATH still resolves node"
 else
@@ -78,7 +80,7 @@ BASE="http://127.0.0.1:${PORT}"
 # "auto" mode would turn server auth on. /ui/ is public either way, but the
 # scenario must not depend on the developer's environment.
 env -i HOME="$TMP" PATH="${TMP}/path" CARTOGRAPHER_AUTH=false \
-    "$BIN" serve --data="${TMP}/data" --init --http="127.0.0.1:${PORT}" >"${TMP}/server.log" 2>&1 &
+    "$BIN" serve --data="${TMP}/data" --http="127.0.0.1:${PORT}" >"${TMP}/server.log" 2>&1 &
 SERVER_PID=$!
 i=0
 while [ $i -lt 40 ]; do

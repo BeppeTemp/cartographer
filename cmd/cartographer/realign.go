@@ -21,12 +21,19 @@ import (
 // value form (--git-sync=false); a bool flag never takes a separate value.
 func dropRemovedFlags(args []string) []string {
 	removed := config.RemovedFlags()
+	takesValue := config.RemovedValueFlags()
 	kept := make([]string, 0, len(args))
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		name := strings.TrimLeft(a, "-")
-		name, _, _ = strings.Cut(name, "=")
+		name, _, hasValue := strings.Cut(name, "=")
 		if advice, ok := removed[name]; ok && strings.HasPrefix(a, "-") {
 			log.Printf("warning: --%s: %s", name, advice)
+			// --flag value: the value is the next argument, dropped with it, or
+			// it would end the flags and hide the ones after it.
+			if takesValue[name] && !hasValue && i+1 < len(args) {
+				i++
+			}
 			continue
 		}
 		kept = append(kept, a)
@@ -54,6 +61,16 @@ func announceConfig(cfg *config.Config, configPath string) {
 	if !placed {
 		log.Printf("warning: config %s is not realigned until the credentials above are in place", configPath)
 		return
+	}
+	// The old names of renamed KBs move to the server state file before the key
+	// that held them is dropped (D906); a file whose list is not in place keeps it.
+	moved, err := config.MigrateKBAliases(configPath, cfg.Data)
+	if err != nil {
+		log.Printf("warning: config %s is not realigned until its kb_aliases are moved to the server state file: %v", configPath, err)
+		return
+	}
+	if moved > 0 {
+		log.Printf("kb_aliases of %s moved to %s (%d item(s), D906)", configPath, config.ServerStatePath(cfg.Data), moved)
 	}
 	rep, backup, err := config.RealignServerFile(configPath, version)
 	if err != nil {

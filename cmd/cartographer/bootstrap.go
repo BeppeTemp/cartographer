@@ -138,7 +138,7 @@ func gitEnvForKB(name, credDir string) []string {
 // A fresh clone is checked out on the `branch` its settings.yaml sets (D335,
 // D903) — tracking it when the remote has it, created from the remote's default
 // branch otherwise — read from the default branch the clone has just checked
-// out. The clone of an empty remote is left unborn for kb.Init. An existing
+// out. The clone of an empty remote is left unborn: serve cannot mount it and says to create the KB with `kb create` (D906). An existing
 // clone is never switched: SyncIn refuses its writes if it sits on another
 // branch.
 func ensureClonedKB(remote, name, dataDir string, env ...string) (string, error) {

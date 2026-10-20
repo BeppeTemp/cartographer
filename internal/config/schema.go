@@ -21,8 +21,6 @@ import (
 var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "http", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_HTTP", Flag: "--http", Restart: true, Example: `":39273"`,
 		Description: "Listen address of the HTTP transport, for example :39273. Empty serves MCP over stdio."},
-	{Path: "init", Scope: settingschema.ScopeServer, Type: "bool", Default: "false", Flag: "--init", Restart: true, Example: "true",
-		Description: "Initialize a KB that does not exist yet instead of failing."},
 	{Path: "data", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_DATA", Flag: "--data", Restart: true, Example: "/data",
 		Description: "Directory whose direct subdirectories are discovered as KBs, and where remote KBs are cloned. The name credentials is the server's own and is never discovered."},
 	{Path: "credentials_dir", Scope: settingschema.ScopeServer, Type: "string", Default: "<data>/credentials", Env: "CARTOGRAPHER_CREDENTIALS_DIR", Restart: true, Example: "/etc/cartographer/credentials",
@@ -44,9 +42,6 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "kbs[].name", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Example: "kb-a",
 		Description: "KB name, in place of the one derived from the remote. It drives the endpoint, the token scopes, the clone directory and the names of the KB's files in credentials_dir."},
 
-	{Path: "kb_aliases", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,
-		Description: "Old names of renamed KBs: each item has a from (the old name) and a to (the KB now mounted), so a routed ?kbs=<from> still reaches it. `kb rename` writes it. One step only, and a mounted name wins over an alias."},
-
 	{Path: "audit.log", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Env: "CARTOGRAPHER_AUDIT_LOG", Restart: true,
 		Description: "Path of the append-only operation log, which is always on and signed with audit.key from credentials_dir (generated at the first start). Empty keeps it at <data>/audit/audit.log."},
 	{Path: "audit.mode", Scope: settingschema.ScopeServer, Type: "string", Values: "best_effort | required", Default: "best_effort", Restart: true,
@@ -57,12 +52,6 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Directory of rotated segments; empty keeps them beside the log."},
 	{Path: "audit.retention_days", Scope: settingschema.ScopeServer, Type: "int", Values: "days; 0 keeps everything", Default: "90", Restart: true,
 		Description: "Rotated segments older than this are deleted once their checkpoint is written."},
-
-	{Path: "tools.profile", Scope: settingschema.ScopeServer, Type: "string", Values: "agent | full", Default: "agent", Env: "CARTOGRAPHER_TOOLS_PROFILE", Flag: "--tools-profile", Restart: true,
-		Description: "Which tools tools/list advertises. agent is the core set; full advertises every tool. Hidden tools stay callable."},
-
-	{Path: "mcp.allowed_origins", Scope: settingschema.ScopeServer, Type: "list", Values: "origins with scheme and port, or *", Default: "[]", Env: "CARTOGRAPHER_MCP_ALLOWED_ORIGINS", Restart: true,
-		Description: "Browser origins allowed to reach the MCP endpoint. Empty accepts only an Origin matching the request's own Host; * accepts any. A request with no Origin header is unaffected."},
 
 	{Path: "web.enabled", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_WEB_ENABLED", Flag: "--web-enabled", Restart: true, Example: "true",
 		Description: "Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode. false removes both routes."},
@@ -161,4 +150,8 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "kbs[].doctor_mode", Plan: 906, Replacement: "doctor_mode in the KB's settings.yaml", Note: kbKeyHome},
 	{Path: "kbs[].doctor_budget", Plan: 906, Replacement: "doctor_budget in the KB's settings.yaml", Note: kbKeyHome},
 	{Path: "kbs[].usage_stale_days", Plan: 906, Replacement: "usage_stale_days in the KB's settings.yaml", Note: kbKeyHome},
+	{Path: "init", Plan: 906, Flag: "--init", Note: "a KB that does not exist is an error: create it with `cartographer kb create`"},
+	{Path: "tools.profile", Plan: 906, Env: "CARTOGRAPHER_TOOLS_PROFILE", Flag: "--tools-profile", FlagValue: true, Note: "tools/list always shows the core set, and the other tools stay callable by name"},
+	{Path: "mcp.allowed_origins", Plan: 906, Env: "CARTOGRAPHER_MCP_ALLOWED_ORIGINS", Note: "a request with an Origin header is accepted only when the origin's host and port are the request's Host; one without an Origin header is accepted"},
+	{Path: "kb_aliases", Plan: 906, Note: "the old names of renamed KBs live in .cartographer/state.json under data, written by `kb rename`; the realignment moves the list there"},
 }}

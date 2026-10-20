@@ -152,7 +152,6 @@ func TestExampleLoadsAsDefaultsPlusExplicitValues(t *testing.T) {
 	}
 	want := Default()
 	want.HTTP = ":39273"
-	want.Init = true
 	want.Data = "/data"
 	want.CredentialsDir = "/etc/cartographer/credentials"
 	want.KBs = []KBSpec{{Remote: "https://git.example.com/user/kb-a.git", Name: "kb-a"}}

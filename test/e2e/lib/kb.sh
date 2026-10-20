@@ -16,7 +16,7 @@ kb_make() {
 # kb_copy_fixture <fixture_name> <dest_dir>
 #   Copies the given fixture (from test/e2e/fixtures/<fixture_name>/) into <dest_dir>.
 #   dest_dir is created if it does not exist.
-#   Does NOT include .git (fixtures have no .git; the server creates the repo with --init).
+#   Does NOT include .git (fixtures have no .git; kb_bootstrap gives the folder one).
 kb_copy_fixture() {
     local fixture_name="$1"
     local dest_dir="$2"
@@ -38,4 +38,18 @@ kb_copy_fixture() {
     mkdir -p "$dest_dir"
     cp -r "${fixture_src}/." "${dest_dir}/"
     echo "[kb] fixture '${fixture_name}' copied to ${dest_dir}" >&2
+}
+
+# kb_bootstrap <abs_dir>
+#   Makes <abs_dir> a KB the server can mount (D906: `serve` no longer creates
+#   one): test/lib/kb-bootstrap.sh. A folder that is already a git repository
+#   is left alone.
+kb_bootstrap() {
+    local dir="$1"
+    if [[ -z "$dir" ]]; then
+        echo "[ERROR] kb_bootstrap: missing argument (dir)" >&2
+        return 1
+    fi
+    "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/lib/kb-bootstrap.sh" "$dir" || return 1
+    echo "[kb] bootstrapped: ${dir}" >&2
 }

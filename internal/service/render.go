@@ -281,7 +281,6 @@ auth:
 
 http: %q
 data: %q
-init: true
 %s`, httpAddr, dataDir, authBlock)
 	// The settings schema documents the keys set above and lists the unset
 	// ones (D747). A failure to render leaves the plain file, which loads the same.

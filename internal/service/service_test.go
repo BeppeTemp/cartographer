@@ -63,7 +63,6 @@ func TestDefaultServerYAML(t *testing.T) {
 	for _, want := range []string{
 		`http: "127.0.0.1:39273"`,
 		`data: "/home/x/cartographer-data"`,
-		"init: true",
 		"cartographer service install",
 		"config.example.yaml",
 		"credentials_dir:",
@@ -90,7 +89,7 @@ func TestDefaultServerYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load generated YAML: %v", err)
 	}
-	if cfg.HTTP != defaults.DefaultListenAddress || cfg.Data != "/home/x/cartographer-data" || !cfg.Init {
+	if cfg.HTTP != defaults.DefaultListenAddress || cfg.Data != "/home/x/cartographer-data" {
 		t.Fatalf("loaded generated YAML = %+v", cfg)
 	}
 }
@@ -113,7 +112,7 @@ func TestDefaultServerYAMLIsDocumentedAndLoadsLikeThePlainOne(t *testing.T) {
 			t.Fatalf("%s: %v", addr, err)
 		}
 		want := config.Default()
-		want.HTTP, want.Data, want.Init = addr, "/d", true
+		want.HTTP, want.Data = addr, "/d"
 		if IsLoopbackListenAddr(addr) {
 			want.Auth.Mode = "off"
 		}

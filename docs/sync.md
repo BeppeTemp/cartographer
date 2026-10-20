@@ -473,7 +473,7 @@ one sends no author, an invalid one sends none and the bridge logs it once. Git 
 work tree, never guesses `user@host` (`user.useConfigOnly`), and is asked once per folder for the
 session (a folder with no identity again after 30s). A call that writes to two KBs (`target_kb`)
 carries one author for both commits, so it is sent only when both KBs resolve to the same one. The
-`identities` keys are the client's KB names: a `kb_aliases` name the server resolves is not one.
+`identities` keys are the client's KB names: a renamed KB's old name, which the server resolves through its state file, is not one.
 Without a header the server authors the write as the token.
 
 **Who an HTTP entry's writes are authored as (D904).** A provider without a workspace binding (or

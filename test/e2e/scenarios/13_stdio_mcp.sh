@@ -7,7 +7,7 @@ SCENARIO_NAME="13_stdio_mcp"; BIN="${REPO_ROOT}/bin/cartographer"; KB_DIR="${E2E
 # The sentinel is the resolved value of the referenced variable: it proves the
 # descriptor travels as a reference and no provider file ever materializes it.
 SENTINEL="D116_LOCAL_SECRET_MUST_NOT_APPEAR"
-write_config() { printf 'http: ":%s"\ninit: true\n' "${E2E_HTTP_PORT}" >"${CONFIG}"; }
+write_config() { printf 'http: "127.0.0.1:%s"\n' "${E2E_HTTP_PORT}" >"${CONFIG}"; }
 mkdir -p "${E2E_TMP_DIR}/${SCENARIO_NAME}" "${SANDBOX_DIR}"; SANDBOX_REAL="$(cd "${SANDBOX_DIR}" && pwd)"; FAKE="${SANDBOX_REAL}/fake-mcp"; MARKER="${SANDBOX_REAL}/executed"
 kb_make "${KB_DIR}"; mkdir -p "${KB_DIR}/mcp"
 # A real executable that leaves a marker if anything ever starts it.

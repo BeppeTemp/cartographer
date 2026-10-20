@@ -66,9 +66,9 @@ restart the local service and wait for it to come back healthy.
 your own choosing:
 
 ```
-cartographer serve --kb <dir> --init   # creates the layout, then Ctrl-C
-git -C <dir> remote add origin <gitea-repo-url>
-git -C <dir> push -u origin <branch>
+cartographer kb create <name> --no-remote --data <parent-dir>   # creates the layout in <parent-dir>/<name>
+git -C <parent-dir>/<name> remote add origin <gitea-repo-url>
+git -C <parent-dir>/<name> push -u origin <branch>
 ```
 
 Either way the standard layout is: `data/` (conceptual root), `services/`, `skills/`, `agents/`,

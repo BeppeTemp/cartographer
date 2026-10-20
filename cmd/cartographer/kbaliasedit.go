@@ -7,12 +7,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The kb_aliases list is edited through the same yaml.Node document as the
-// kbs[] entry, so a rename or an unmount is one read and one write of the
-// server config: comments, key order and unmodelled fields survive, and there
-// is no state in which the entry is rewritten and the alias is not (D772).
-
-const kbAliasesKey = "kb_aliases"
+// The list of renamed KBs' old names lives in the server state file under the
+// data dir (D906, config.ServerState), not in the server YAML: it is written
+// by `kb rename` and `kb unmount`, and read by the server at start.
 
 // rootMapping returns the top-level mapping of the document, creating it for
 // an empty file.
@@ -32,103 +29,51 @@ func rootMapping(doc *yaml.Node) (*yaml.Node, error) {
 	return doc.Content[0], nil
 }
 
-// aliasItem returns the from and to of one kb_aliases item, "" for a missing
-// key (config.Load has already rejected a file where that matters).
-func aliasItem(item *yaml.Node) (from, to *yaml.Node) {
-	return mapValue(item, "from"), mapValue(item, "to")
-}
-
-func setScalar(n *yaml.Node, value string) {
-	n.Value = value
-	n.Tag = "!!str"
-	n.Style = 0
-}
-
-func scalarNode(value string) *yaml.Node {
-	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
-}
-
-// kbAliasSeq returns the kb_aliases sequence of root, nil when there is none.
-func kbAliasSeq(root *yaml.Node) *yaml.Node {
-	if seq := mapValue(root, kbAliasesKey); seq != nil && seq.Kind == yaml.SequenceNode {
-		return seq
+// readAliases is the alias list the server of dataDir will resolve, for a
+// preflight: the state file's, plus the ones the server YAML at configPath ("" for
+// none) has not yet handed over to it. It writes nothing.
+func readAliases(dataDir, configPath string) ([]config.KBAlias, error) {
+	st, err := config.ReadServerState(dataDir)
+	if err != nil {
+		return nil, err
 	}
-	return nil
-}
-
-// dropKBAliasesKey removes an emptied kb_aliases key, so a config that never
-// needed aliases again reads as it did before.
-func dropKBAliasesKey(root *yaml.Node) {
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == kbAliasesKey {
-			root.Content = append(root.Content[:i], root.Content[i+2:]...)
-			return
+	out := st.KBAliases
+	if configPath != "" {
+		have := map[string]bool{}
+		for _, a := range out {
+			have[a.From] = true
+		}
+		for _, a := range config.ReadLegacyKBAliases(configPath) {
+			if !have[a.From] {
+				out = append(out, a)
+			}
 		}
 	}
+	return out, nil
 }
 
-// recordKBRename keeps the list flat and single hop (D772): the item whose
-// from is the restored name goes (that KB is mounted again), every item
-// pointing at the old name now points at the new one, and old → new is added.
-func recordKBRename(root *yaml.Node, old, newName string) {
-	seq := kbAliasSeq(root)
-	switch existing := mapValue(root, kbAliasesKey); {
-	case seq != nil:
-	case existing != nil:
-		// `kb_aliases:` with no value, or `[]`: fill it in place.
-		*existing = yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq", HeadComment: existing.HeadComment, LineComment: existing.LineComment}
-		seq = existing
-	default:
-		seq = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-		root.Content = append(root.Content, scalarNode(kbAliasesKey), seq)
-		config.Schema.CommentKey(root, kbAliasesKey, kbAliasesKey)
-	}
-	kept := seq.Content[:0]
-	for _, item := range seq.Content {
-		from, to := aliasItem(item)
-		if from != nil && (from.Value == newName || from.Value == old) {
-			continue
+// settleAliases brings every alias into the state file before a command edits
+// it (D906): the ones the server YAML still carries are moved there and the key
+// is dropped from the YAML, so the list that is edited is the only one. It
+// returns the state's list.
+func settleAliases(dataDir, configPath string) ([]config.KBAlias, error) {
+	if configPath != "" && len(config.ReadLegacyKBAliases(configPath)) > 0 {
+		if _, err := config.MigrateKBAliases(configPath, dataDir); err != nil {
+			return nil, err
 		}
-		if to != nil && to.Value == old {
-			setScalar(to, newName)
+		if err := config.DropKBAliasesKey(configPath); err != nil {
+			return nil, err
 		}
-		kept = append(kept, item)
 	}
-	seq.Content = append(kept, &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{
-		scalarNode("from"), scalarNode(old),
-		scalarNode("to"), scalarNode(newName),
-	}})
+	st, err := config.ReadServerState(dataDir)
+	return st.KBAliases, err
 }
 
-// pruneKBAliases removes the items that point at name and the ones that start
-// at it: an alias records where a KB went, not who owns a name, so once that KB
-// is unmounted a different KB later mounted under the name must not be reached
-// by an old URL, and a leftover item named name would take effect again the
-// moment the KB now mounted under it goes away (D772).
-func pruneKBAliases(root *yaml.Node, name string) {
-	seq := kbAliasSeq(root)
-	if seq == nil {
-		return
-	}
-	kept := seq.Content[:0]
-	for _, item := range seq.Content {
-		from, to := aliasItem(item)
-		if (to != nil && to.Value == name) || (from != nil && from.Value == name) {
-			continue
-		}
-		kept = append(kept, item)
-	}
-	seq.Content = kept
-	if len(kept) == 0 {
-		dropKBAliasesKey(root)
-	}
-}
-
-// aliasesPointingAt lists the items of cfg that start at or point at name, as
-// "from → to" for a preflight.
-func aliasesPointingAt(cfg *config.Config, name string) []string {
+// aliasesPointingAt lists the items of aliases that start at or point at name,
+// as "from → to" for a preflight.
+func aliasesPointingAt(aliases []config.KBAlias, name string) []string {
 	var out []string
-	for _, a := range cfg.KBAliases {
+	for _, a := range aliases {
 		if a.To == name || a.From == name {
 			out = append(out, a.From+" → "+a.To)
 		}

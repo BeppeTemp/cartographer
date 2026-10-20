@@ -15,8 +15,7 @@ resolving each conflict so the KB returns to a fully operational state.
 
 Write operations fail with a message such as "git conflict detected and registered on N
 concept(s)", or `conflicts_list` returns a non-empty list. (At operator level, `sync_check`
-also reports `open_conflicts > 0` — it is not advertised to agents under the default
-"agent" tools profile.)
+also reports `open_conflicts > 0` — it is not advertised to agents.)
 
 ## Procedure
 

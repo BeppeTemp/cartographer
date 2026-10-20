@@ -18,7 +18,6 @@ import (
 // Config is the fully resolved server configuration.
 type Config struct {
 	HTTP string     // listen address; empty = stdio transport
-	Init bool       // initialize missing KBs
 	Auth AuthConfig // HTTP bearer-token auth
 	Data string     // directory whose direct subdirs are auto-discovered KBs
 	// CredentialsDir holds every secret file the server reads: SSH keys, the
@@ -28,13 +27,6 @@ type Config struct {
 	CredentialsDir string
 	KBs            []KBSpec    // KBs to clone from a git remote, or mounted from a folder by --kb
 	Audit          AuditConfig // append-only audit log
-	// ToolsProfile selects which tools tools/list advertises: "agent"
-	// (default) hides the advanced/operator tools, "full" advertises all.
-	// Hidden tools stay callable via tools/call (D65).
-	ToolsProfile string
-	// MCP controls MCP-protocol-level server behaviour that isn't specific
-	// to a single KB (currently: the tool-name prefix default, D102).
-	MCP MCPConfig
 	// Web controls the embedded read-only Atlas UI (D227).
 	Web WebConfig
 	// UpdateCheck makes the server look up the latest release once a day and
@@ -42,9 +34,10 @@ type Config struct {
 	// YAML `update_check`, env CARTOGRAPHER_UPDATE_CHECK, flag --update-check.
 	// A dev build never checks, whatever this says.
 	UpdateCheck bool
-	// KBAliases maps the old name of a renamed KB to its new one, so a routed
-	// `?kbs=<old>` still reaches it (D772). `kb rename` writes it.
-	KBAliases []KBAlias
+	// legacyAliases are the kb_aliases the server YAML still carries (D906):
+	// the list moved to the server state file, and the realignment moves
+	// what the file holds. Until it has, they still resolve (KBAliases).
+	legacyAliases []KBAlias
 	// Origins records which layer set each setting (D743), keyed by schema
 	// path; read it through OriginOf. A key no layer set is absent: default.
 	Origins map[string]Origin
@@ -70,17 +63,6 @@ type WebConfig struct {
 	// server is for, and an operator who does not want the extra surface turns
 	// it off in one place. Stdio mode never serves it, whatever this says.
 	Enabled bool
-}
-
-// MCPConfig controls MCP-protocol-level server behaviour.
-type MCPConfig struct {
-	// AllowedOrigins lists the browser origins allowed to reach the MCP
-	// endpoint, scheme and port included ("https://app.example.com"). Empty
-	// (the default) accepts only an Origin matching the request's own Host;
-	// "*" accepts any, restoring the pre-D128 behaviour. A request with no
-	// Origin header at all — every non-browser client — is unaffected either
-	// way. See mcpserver.OriginGuard.
-	AllowedOrigins []string
 }
 
 // AuthConfig controls HTTP bearer-token authentication.
@@ -300,12 +282,10 @@ const DefaultAuditMaxSegmentBytes int64 = 64 << 20
 // Default returns the configuration used when no YAML file is provided.
 func Default() *Config {
 	return &Config{
-		Auth:         AuthConfig{Mode: "auto"},
-		Audit:        AuditConfig{RetentionDays: DefaultAuditRetentionDays, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
-		ToolsProfile: "agent",
-		MCP:          MCPConfig{},
-		Web:          WebConfig{Enabled: true},
-		UpdateCheck:  true,
+		Auth:        AuthConfig{Mode: "auto"},
+		Audit:       AuditConfig{RetentionDays: DefaultAuditRetentionDays, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
+		Web:         WebConfig{Enabled: true},
+		UpdateCheck: true,
 	}
 }
 
@@ -314,21 +294,15 @@ func Default() *Config {
 // Load can distinguish "absent from YAML" from "explicitly false".
 type rawConfig struct {
 	HTTP           string   `yaml:"http"`
-	Init           bool     `yaml:"init"`
 	Auth           rawAuth  `yaml:"auth"`
 	Data           string   `yaml:"data"`
 	CredentialsDir string   `yaml:"credentials_dir"`
 	KBs            []rawKB  `yaml:"kbs"`
 	Audit          rawAudit `yaml:"audit"`
-	Tools          rawTools `yaml:"tools"`
-	MCP            rawMCP   `yaml:"mcp"`
 	Web            rawWeb   `yaml:"web"`
 	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
 	// default is true.
 	UpdateCheck *bool `yaml:"update_check"`
-	// KBAliases is a list, like kbs and auth.roles: every structured setting
-	// of the schema is one (D772).
-	KBAliases []KBAlias `yaml:"kb_aliases"`
 }
 
 // rawKB is a kbs[] entry of the server file: the machine's side of a KB, its
@@ -345,14 +319,6 @@ type rawKB struct {
 // false".
 type rawWeb struct {
 	Enabled *bool `yaml:"enabled"`
-}
-
-type rawTools struct {
-	Profile string `yaml:"profile"`
-}
-
-type rawMCP struct {
-	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 type rawAuth struct {
@@ -380,14 +346,22 @@ func Load(path string) (*Config, error) {
 	cfg.markFile(data, specs)
 	cfg.noteRetired(data, specs)
 	cfg.HTTP = raw.HTTP
-	cfg.Init = raw.Init
 	cfg.Data = raw.Data
 	cfg.CredentialsDir = raw.CredentialsDir
 	cfg.KBs = specs
-	if err := ValidateKBAliases(raw.KBAliases); err != nil {
-		return nil, fmt.Errorf("config: %w", err)
+	// kb_aliases left the server file for the state file (D906): the list a
+	// file still holds keeps resolving until the realignment has moved it. A
+	// removed key never stops a start, so a bad list is dropped, said.
+	var legacy struct {
+		KBAliases []KBAlias `yaml:"kb_aliases"`
 	}
-	cfg.KBAliases = raw.KBAliases
+	if yaml.Unmarshal(data, &legacy) == nil {
+		if err := ValidateKBAliases(legacy.KBAliases); err != nil {
+			cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("kb_aliases is ignored: %v", err))
+		} else {
+			cfg.legacyAliases = legacy.KBAliases
+		}
+	}
 	cfg.Audit.Log = raw.Audit.Log
 	cfg.Audit.Mode = raw.Audit.Mode
 	if raw.Audit.MaxSegmentBytes > 0 {
@@ -420,14 +394,6 @@ func Load(path string) (*Config, error) {
 	if raw.UpdateCheck != nil {
 		cfg.UpdateCheck = *raw.UpdateCheck
 	}
-	if raw.Tools.Profile != "" {
-		cfg.ToolsProfile = normalizeToolsProfile(raw.Tools.Profile)
-	}
-
-	if len(raw.MCP.AllowedOrigins) > 0 {
-		cfg.MCP.AllowedOrigins = raw.MCP.AllowedOrigins
-	}
-
 	return cfg, nil
 }
 
@@ -482,28 +448,18 @@ func FromEnv(cfg *Config) {
 		cfg.mark(OriginEnv, "audit.log")
 		cfg.Audit.Log = v
 	}
-	if v := os.Getenv("CARTOGRAPHER_TOOLS_PROFILE"); v != "" {
-		cfg.mark(OriginEnv, "tools.profile")
-		cfg.ToolsProfile = normalizeToolsProfile(v)
-	}
-	if v := os.Getenv("CARTOGRAPHER_MCP_ALLOWED_ORIGINS"); v != "" {
-		cfg.mark(OriginEnv, "mcp.allowed_origins")
-		cfg.MCP.AllowedOrigins = splitCSV(v)
-	}
 }
 
 // FlagOverrides carries the `cartographer serve` flag values that were
 // explicitly passed on the command line (nil = not passed). Applying it via
 // ApplyFlags is the last, highest-precedence layer of the merge.
 type FlagOverrides struct {
-	HTTP         *string
-	Init         *bool
-	KB           *string // comma-separated folders, mounted as KBSpec{Path: ...} (no remote, so no sync)
-	Data         *string
-	Tokens       *string // comma-separated, replaces Auth.Tokens
-	ToolsProfile *string // "agent" | "full"
-	WebEnabled   *bool
-	UpdateCheck  *bool
+	HTTP        *string
+	KB          *string // comma-separated folders, mounted as KBSpec{Path: ...} (no remote, so no sync)
+	Data        *string
+	Tokens      *string // comma-separated, replaces Auth.Tokens
+	WebEnabled  *bool
+	UpdateCheck *bool
 }
 
 // ApplyFlags layers the explicitly-passed serve flags on top of cfg.
@@ -516,10 +472,6 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	if o.HTTP != nil {
 		cfg.mark(OriginFlag, "http")
 		cfg.HTTP = *o.HTTP
-	}
-	if o.Init != nil {
-		cfg.mark(OriginFlag, "init")
-		cfg.Init = *o.Init
 	}
 	if o.KB != nil {
 		for _, p := range splitCSV(*o.KB) {
@@ -536,10 +488,6 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 		cfg.mark(OriginFlag, "auth.tokens")
 		cfg.Auth.Tokens = parseTokenSpecs(*o.Tokens)
 	}
-	if o.ToolsProfile != nil {
-		cfg.mark(OriginFlag, "tools.profile")
-		cfg.ToolsProfile = normalizeToolsProfile(*o.ToolsProfile)
-	}
 	if o.WebEnabled != nil {
 		cfg.mark(OriginFlag, "web.enabled")
 		cfg.Web.Enabled = *o.WebEnabled
@@ -548,16 +496,6 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 		cfg.mark(OriginFlag, "update_check")
 		cfg.UpdateCheck = *o.UpdateCheck
 	}
-}
-
-// normalizeToolsProfile maps a tools-profile spelling onto the canonical
-// "agent"/"full". Anything unrecognized falls back to "agent" (fail-closed:
-// the smaller surface).
-func normalizeToolsProfile(v string) string {
-	if strings.ToLower(strings.TrimSpace(v)) == "full" {
-		return "full"
-	}
-	return "agent"
 }
 
 // normalizeAuthMode maps the legacy boolean-ish spellings (accepted by both

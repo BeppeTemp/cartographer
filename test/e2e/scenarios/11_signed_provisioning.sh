@@ -30,8 +30,7 @@ write_seed() { (umask 077 && printf '%s\n' "$1" >"${CREDENTIALS_DIR}/kb.signing"
 mkdir -p "${E2E_TMP_DIR}/${SCENARIO_NAME}" "${SANDBOX_DIR}"
 mkdir -m 700 -p "${CREDENTIALS_DIR}"
 cat >"${CONFIG}" <<EOF
-http: ":${E2E_HTTP_PORT}"
-init: true
+http: "127.0.0.1:${E2E_HTTP_PORT}"
 data: ${DATA_DIR}
 kbs:
   - remote: file://${BARE_DIR}
@@ -46,6 +45,8 @@ description: Signed provisioning E2E fixture
 ---
 signed content
 EOF
+# The remote's KB is a real one: serve never creates it (D906).
+kb_bootstrap "${SEED_DIR}"
 git init --bare "${BARE_DIR}" >/dev/null 2>&1
 git -C "${BARE_DIR}" symbolic-ref HEAD refs/heads/main
 git -C "${SEED_DIR}" init -q

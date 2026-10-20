@@ -131,7 +131,7 @@ try {
     # native-service case, where the Scheduled Task runs this very file.
     Copy-Fixture $OldBin $dest
     $kb = Join-Path $root 'kb'
-    $running = Start-Process -PassThru -WindowStyle Hidden -FilePath $dest -ArgumentList @('serve', '--kb', $kb, '--init', '--http', "127.0.0.1:$($port + 1)")
+    $running = Start-Process -PassThru -WindowStyle Hidden -FilePath $dest -ArgumentList @('serve', '--kb', $kb, '--http', "127.0.0.1:$($port + 1)")
     Start-Sleep -Seconds 2
     Check (-not $running.HasExited) 'the old binary is running and holds its file'
     $r = Invoke-Installer 'valid' @('update')

@@ -55,8 +55,7 @@ mkdir -p "$DIR" "$SANDBOX"
 for name in "${KBS[@]}"; do kb_make "${DIR}/${name}"; done
 
 {
-    echo "http: \":${E2E_HTTP_PORT}\""
-    echo "init: true"
+    echo "http: \"127.0.0.1:${E2E_HTTP_PORT}\""
 } > "$CONFIG"
 
 KB_CSV="$(IFS=,; echo "${KBS[*]/#/${DIR}/}")"

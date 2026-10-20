@@ -73,6 +73,18 @@ func RemovedFlags() map[string]string {
 	return out
 }
 
+// RemovedValueFlags are the removed flags that take their value as the next
+// argument (--tools-profile full): serve drops that argument with the flag.
+func RemovedValueFlags() map[string]bool {
+	out := map[string]bool{}
+	for _, e := range Retired.Removed {
+		if e.Flag != "" && e.FlagValue {
+			out[strings.TrimLeft(e.Flag, "-")] = true
+		}
+	}
+	return out
+}
+
 // RealignServerFile brings the server config.yaml at path up to date (D903):
 // the removed keys are dropped, off values reset to the default, the schema's
 // comments written, and the original kept beside it as <file>.bak-<version>.

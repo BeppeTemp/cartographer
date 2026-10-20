@@ -72,13 +72,12 @@ func cmdKB(args []string) int {
 
 // validateKBName returns an error describing why name is not a usable KB
 // name, or nil if it is. The rule lives in internal/config, which also checks
-// the names of kb_aliases (D772).
+// the names of the server state file's aliases (D772, D906).
 func validateKBName(name string) error { return config.ValidateKBName(name) }
 
 // cmdKBCreate implements `cartographer kb create <name> (--remote <url> |
 // --no-remote) [--data <dir>] [--restart]`: scaffolds a new KB at
-// <data>/<name> via the same kb.Init bootstrap used by `serve --kb <path>
-// --init` (git init + OKF layout), attaches its git remote, then prints
+// <data>/<name> via kb.Init (git init + OKF layout), attaches its git remote, then prints
 // guidance on how to get the server to pick it up (WP2, D85). The remote is
 // not optional (D134): a KB without an origin is neither durable nor
 // syncable, and nothing downstream surfaces that state — `--no-remote` is the

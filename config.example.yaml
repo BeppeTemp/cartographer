@@ -6,9 +6,6 @@
 # over stdio.
 # Default: "". Env: CARTOGRAPHER_HTTP. Flag: --http. Needs a restart.
 http: ":39273"
-# Initialize a KB that does not exist yet instead of failing.
-# Default: false. Flag: --init. Needs a restart.
-init: true
 # Directory whose direct subdirectories are discovered as KBs, and where
 # remote KBs are cloned. The name credentials is the server's own and is never
 # discovered.
@@ -69,11 +66,6 @@ web:
 # Default: true. Env: CARTOGRAPHER_UPDATE_CHECK. Flag: --update-check. Needs a
 # restart.
 # update_check: true
-# Old names of renamed KBs: each item has a from (the old name) and a to (the
-# KB now mounted), so a routed ?kbs=<from> still reaches it. `kb rename`
-# writes it. One step only, and a mounted name wins over an alias.
-# Default: []. Needs a restart.
-# kb_aliases: []
 # audit:
 #   Path of the append-only operation log, which is always on and signed with
 #   audit.key from credentials_dir (generated at the first start). Empty keeps
@@ -100,17 +92,3 @@ web:
 #   Values: days; 0 keeps everything
 #   Default: 90. Needs a restart.
 #   retention_days: 90
-# tools:
-#   Which tools tools/list advertises. agent is the core set; full advertises
-#   every tool. Hidden tools stay callable.
-#   Values: agent | full
-#   Default: agent. Env: CARTOGRAPHER_TOOLS_PROFILE. Flag: --tools-profile.
-#   Needs a restart.
-#   profile: agent
-# mcp:
-#   Browser origins allowed to reach the MCP endpoint. Empty accepts only an
-#   Origin matching the request's own Host; * accepts any. A request with no
-#   Origin header is unaffected.
-#   Values: origins with scheme and port, or *
-#   Default: []. Env: CARTOGRAPHER_MCP_ALLOWED_ORIGINS. Needs a restart.
-#   allowed_origins: []

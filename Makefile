@@ -44,21 +44,24 @@ fmt-check: ## Fail if anything is not gofmt-clean (part of the gate)
 	fi
 	@echo "gofmt: clean"
 
-run: build ## Start the stdio server with a demo KB
-	./bin/cartographer serve --kb ./demo-kb --init
+run: build demo-kb ## Start the stdio server with a demo KB
+	./bin/cartographer serve --kb ./demo-kb
 
-run-http: build ## Start the HTTP server on :39273 with a demo KB
-	./bin/cartographer serve --kb ./demo-kb --init --http :39273
+run-http: build demo-kb ## Start the HTTP server on 127.0.0.1:39273 with a demo KB
+	./bin/cartographer serve --kb ./demo-kb --http 127.0.0.1:39273
+
+demo-kb: ## Create the demo KB `run`, `run-http` and `smoke` serve (serve never creates one, D906)
+	@test -d demo-kb || ./bin/cartographer kb create demo-kb --no-remote --local --data . >/dev/null
 
 smoke-http: build ## HTTP flow smoke test: creates KB, archives, dossiers via MCP
 	@./test/smoke/http.sh
 
-smoke: build ## Build + quick stdio test
+smoke: build demo-kb ## Build + quick stdio test
 	@# stdin is held open past the request: in MCP stdio the client owns the
 	@# pipe's lifetime, and the server tears the session down on EOF. Closing
 	@# it immediately (a bare `echo |`) races the response out of existence.
 	@{ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'; sleep 1; } | \
-		./bin/cartographer serve --kb ./demo-kb --init 2>/dev/null | \
+		./bin/cartographer serve --kb ./demo-kb 2>/dev/null | \
 		grep -q '"protocolVersion"' && echo "smoke: OK" || (echo "smoke: FAIL" && exit 1)
 
 web: ## Build the embedded Atlas UI bundle into internal/webui/dist (needs Node, see web/.nvmrc)

@@ -38,6 +38,29 @@ is realigned. What each part removes, and what replaces it:
   between 1 and 6 is raised to 7 with a finding (`kb_status` `settings_findings`, startup warning); `0` or a
   negative number is read as 42, and the realignment resets a `0` by dropping the key. `artifact_unused`
   no longer has a disabled state, and a KB opened outside `serve` uses the default.
+- **A KB that does not exist is an error.** `init` (and `serve --init`) is removed. `serve` opens the KBs it is
+  told to mount and never creates one: a path that is not a KB fails the start with *create it with `cartographer
+  kb create`*. A `kbs[]` entry whose remote is still empty is the same case: `kb create <name> --remote <url>` is
+  what fills it.
+- **The tool set is fixed.** `tools.profile` (`CARTOGRAPHER_TOOLS_PROFILE`, `--tools-profile`) is removed.
+  `tools/list` always shows the core set (what the `agent` profile showed, `advancedToolNames`), and an advanced
+  tool absent from the list is served when a call names it (the SDK bridge only filters the list; a test and the
+  e2e scenario 20 pin that). The `full` profile is gone: whoever wants the plumbing tools calls them by name.
+- **The origin rule is fixed.** `mcp.allowed_origins` (`CARTOGRAPHER_MCP_ALLOWED_ORIGINS`) is removed. A request to
+  `/mcp` with an `Origin` header is accepted only when the origin's host and port are the request's `Host`
+  (scheme ignored); one with no `Origin` header is accepted. The Atlas behind an SSO proxy keeps working (D308),
+  because the proxy serves the page and the API from one origin. `*` and a list of foreign origins no longer exist.
+- **The old names of renamed KBs are state, not a setting.** `kb_aliases` leaves the server YAML for
+  `<data>/.cartographer/state.json` (`config.ServerState`), beside `update-check.json`, written atomically by
+  `kb rename` and `kb unmount` and read by the server at its start. A server without a `data` directory has no
+  state file and no aliases. The realignment moves the list a file still carries into the state file (an item the
+  state already has for the same old name wins) before the key is dropped, and a file whose list cannot be moved is
+  not realigned; until it is, the YAML list still resolves. A command that edits the state file settles the YAML
+  list first and drops its key, so the old list cannot come back behind the edit.
+- **Off-loopback needs a token.** Right after the auth mode is resolved, a server whose listen address is not
+  loopback (a host in `127.0.0.0/8`, `::1` or `localhost`; `:port` and `0.0.0.0` listen on every interface) with
+  authentication off (`auth.mode: off`, or `auto` with no token) does not start, and the message says why. The
+  local service pins auth off on `127.0.0.1` (D268) and is unaffected; a stdio server listens on nothing.
 
 **Why.** The settings grew with the features, often on two or three levels, and many of them switched something
 off. A long-lived installation ends up configured almost at random, and the Atlas cannot show a configuration
@@ -56,6 +79,16 @@ whose descriptor the list refused was silently shorter, which is the same trap a
 `secrets` repeated a fact the KB's files already state. The `kbs[]` twins let a server and a KB disagree,
 and the KB won anyway (D746): two places for one value, one of them always inert.
 
+`init` switched on a side effect that made a typo in a path create an empty KB, and a `kbs[]` entry on an empty
+remote become a KB without anyone choosing it; the command that creates a KB already exists and chooses its remote.
+`tools.profile` was a switch between a working set and everything, and the second was never needed: a tool the list
+omits is callable, so the profile only decided what a model is shown. `mcp.allowed_origins: ["*"]` turned the
+browser protection off, and a list of other origins needed an operator to know which browser pages should script a
+server; the only legitimate cross-origin case is a proxy, which is same-origin. The aliases are written by a command
+and read by the server, never meant to be edited, which is what a state file is. A server that listens on every
+interface with no token serves every KB, writes included, to anyone on the network: the configuration that reaches
+that state by omission (`auto` and no token, the default) is the one that must not start.
+
 **Alternatives rejected.**
 - Keeping `allow_artifact_write` with a default of true: a switch that nobody needs to turn off is a key the
   configuration does not need (P4), and the off position would keep the silent refusal.
@@ -63,6 +96,12 @@ and the KB won anyway (D746): two places for one value, one of them always inert
   ships with the binary, so no stored invocation outlives the release.
 - Keeping `usage_stale_days: 0` as the way to silence `artifact_unused`: the finding is `info`, it blocks
   nothing, and a KB that wants no retirement candidates is a KB that wants no usage signal (P1).
+- Keeping `tools.profile: full` for the clients that read only `tools/list` (D123): the core set already carries
+  what those clients need, and the rest is plumbing for the CLI and hooks that call it by name.
+- Keeping `kb_aliases` in the YAML and only changing who writes it: a file that a command rewrites on every
+  rename is a file an operator's dotfiles tool fights over; the state file is the server's own.
+- Refusing to start when the YAML still holds `init`, `tools.profile` or `mcp.allowed_origins`: a removed key is
+  never an error (below). Only the absence of a KB, and an unauthenticated off-loopback listener, stop a start.
 - Moving a `kbs[]` value into the KB's file during the realignment: the server rewrites its own file only,
   and a commit to a KB's repository on behalf of a setting of another machine is not its to make.
 
@@ -75,11 +114,21 @@ into the KB's `settings.yaml` first. A server that set `allow_artifact_write: fa
 `allow_template_write: false`) gets a warning, not a refusal: its KBs become writable by `rw` tokens on
 upgrade (release note).
 
-Supersedes the server allow-list of D115, amends D746 and D352.
+A server started with `--init` or `--tools-profile <value>` in a service definition still starts: both flags are
+dropped with a warning, the value with its flag. A server that relied on `init` to create its KB, or on `auto`
+auth with no token on a non-loopback address, stops at the start with a message that names the fix (release note).
+Breaking: `init`, `tools.profile` and `mcp.allowed_origins` are removed, `kb_aliases` moves, and an off-loopback
+server with no token refuses to start.
+
+Supersedes the server allow-list of D115 and the tool profile of D65, revises the Origin rule of D128 and the
+alias storage of D772, amends D746 and D352.
 
 A future change here must preserve all of these:
 - a removed key is never an error that stops a start or a mount: it is ignored, named in a warning with what to
   do instead, and dropped by the realignment;
 - the token's scope stays the gate of every write, artifacts included;
+- a server never creates a KB, never listens beyond this machine with authentication off, and never accepts a browser
+  request from another origin;
+- an advanced tool stays callable by name whatever `tools/list` shows;
 - the server never leaves a valid descriptor out of what it distributes, and a KB's policy is read from its own
   `settings.yaml` alone.
