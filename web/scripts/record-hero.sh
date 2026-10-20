@@ -43,9 +43,11 @@ trap cleanup EXIT
 
 make -C "$REPO_ROOT" --no-print-directory build
 node "${WEB_DIR}/scripts/demo-kb.mjs" "$TMP" >/dev/null
+# serve never creates a KB (D906): the fixture folder becomes one.
+"${REPO_ROOT}/test/lib/kb-bootstrap.sh" "${TMP}/demo"
 
 PORT="$(node -e 'const s=require("net").createServer();s.listen(0,"127.0.0.1",()=>{console.log(s.address().port);s.close()})')"
-CARTOGRAPHER_AUTH=false "$BIN" serve --init --http "127.0.0.1:${PORT}" --kb "${TMP}/demo" >"${TMP}/serve.log" 2>&1 &
+CARTOGRAPHER_AUTH=false "$BIN" serve --http "127.0.0.1:${PORT}" --kb "${TMP}/demo" >"${TMP}/serve.log" 2>&1 &
 PID="$!"
 URL="http://127.0.0.1:${PORT}"
 for _ in $(seq 1 60); do

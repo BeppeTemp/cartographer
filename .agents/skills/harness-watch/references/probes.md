@@ -20,7 +20,7 @@ Seeded from #637–#640 (2026-10-09). The question is three-fold: does a
 result, and which output channel reaches the model **without** making the agent
 believe the write failed.
 
-1. Server: `cartographer serve --kb <tmp>/kb --init` once, then the client's MCP
+1. Server: `cartographer kb create kb --no-remote --local --data <tmp>` once, then the client's MCP
    entry runs `cartographer serve --kb <tmp>/kb` (stdio). A `concept_write` whose
    body links to a missing page returns findings (`broken_link`, `orphan`).
 2. Hook: a script that saves stdin to a file, logs its argv, and answers per a

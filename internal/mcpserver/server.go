@@ -56,8 +56,8 @@ type Server struct {
 	toolsOrd      []string // maintains registration order for tools/list
 	// agentProfile hides advanced tools (advancedToolNames, D65) from
 	// tools/list; they remain callable via tools/call. Zero value = full list,
-	// so New() keeps its historical behavior; `serve` sets it from
-	// config.ToolsProfile (default "agent").
+	// so New() keeps its historical behavior; `serve` always sets "agent"
+	// (D906: there is no setting for it).
 	agentProfile bool
 	// displayName, when non-empty, overrides the "cartographer" literal
 	// reported as serverInfo.name by initialize (D102). Set via

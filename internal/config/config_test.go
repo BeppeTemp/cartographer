@@ -16,30 +16,10 @@ func TestDefault(t *testing.T) {
 	if cfg.Auth.Mode != "auto" {
 		t.Errorf("Auth.Mode = %q, want %q", cfg.Auth.Mode, "auto")
 	}
-	if cfg.ToolsProfile != "agent" {
-		t.Errorf("ToolsProfile = %q, want %q", cfg.ToolsProfile, "agent")
-	}
-}
-
-func TestToolsProfileEnvAndNormalization(t *testing.T) {
-	cfg := Default()
-	t.Setenv("CARTOGRAPHER_TOOLS_PROFILE", "FULL")
-	FromEnv(cfg)
-	if cfg.ToolsProfile != "full" {
-		t.Errorf("ToolsProfile from env = %q, want %q", cfg.ToolsProfile, "full")
-	}
-
-	// An unrecognized value degrades to "agent" (fail-closed).
-	bogus := "operator"
-	ApplyFlags(cfg, FlagOverrides{ToolsProfile: &bogus})
-	if cfg.ToolsProfile != "agent" {
-		t.Errorf("ToolsProfile with unrecognized value = %q, want %q", cfg.ToolsProfile, "agent")
-	}
 }
 
 const fullYAML = `
 http: ":39273"
-init: true
 auth:
   mode: "on"
   tokens:
@@ -59,8 +39,6 @@ search:
   ollama_model: custom-model
 audit:
   log: /data/audit.log
-tools:
-  profile: full
 `
 
 func TestLoadFullYAML(t *testing.T) {
@@ -77,7 +55,6 @@ func TestLoadFullYAML(t *testing.T) {
 
 	want := &Config{
 		HTTP: ":39273",
-		Init: true,
 		Auth: AuthConfig{Mode: "on", Tokens: []TokenSpec{
 			{Token: "tok-a"},
 			{Token: "tok-b", Scopes: []string{"kb:docs:rw", "kb:notes:r"}},
@@ -90,10 +67,7 @@ func TestLoadFullYAML(t *testing.T) {
 				Remote: "ssh://git@gitea.example.com:2222/user/kb-locale.git",
 			},
 		},
-		Audit:        AuditConfig{Log: "/data/audit.log", RetentionDays: 90, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
-		ToolsProfile: "full",
-		// The YAML sets neither deprecated mcp key (D288): both stay empty.
-		MCP: MCPConfig{},
+		Audit: AuditConfig{Log: "/data/audit.log", RetentionDays: 90, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
 		// The UI is on by default in HTTP mode; this YAML does not mention it.
 		Web:         WebConfig{Enabled: true},
 		UpdateCheck: true,

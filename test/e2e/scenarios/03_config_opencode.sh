@@ -33,7 +33,7 @@ if [[ ! -x "$BIN" ]]; then
     exit 1
 fi
 
-# --- Create temp KB (empty, --init populates it) and sandbox for the client ---
+# --- Create temp KB (empty; server_start makes it a KB) and sandbox for the client ---
 KB_DIR="${E2E_TMP_DIR}/${SCENARIO_NAME}/kb"
 SANDBOX_DIR="${E2E_TMP_DIR}/${SCENARIO_NAME}/sandbox"
 

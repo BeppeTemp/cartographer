@@ -27,7 +27,7 @@ make dev [DATA=<data dir>]         # live instance from a worktree: Go rebuilt o
 ```
 
 ```bash
-./bin/cartographer serve --kb /path/to/kb --init      # local stdio server
+./bin/cartographer serve --kb /path/to/kb             # local stdio server (the KB exists: `kb create`)
 ./bin/cartographer serve --config config.yaml         # HTTP/stdio server (YAML, see config.example.yaml)
 ./bin/cartographer connect|disconnect|status|sync     # multi-provider client (HTTP)
 ./bin/cartographer                                    # TUI dashboard (if TTY), otherwise usage

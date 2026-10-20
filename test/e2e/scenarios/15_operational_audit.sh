@@ -46,8 +46,7 @@ mkdir -p "$DIR"
 kb_make "$KB_DIR"
 
 cat > "$CONFIG" <<YAML
-http: ":${E2E_HTTP_PORT}"
-init: true
+http: "127.0.0.1:${E2E_HTTP_PORT}"
 audit:
   mode: best_effort
 YAML

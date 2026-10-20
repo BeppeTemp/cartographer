@@ -84,7 +84,8 @@ no tools, and falling back to all KBs would widen the binding). Duplicates are
 ignored.
 
 **A renamed KB keeps its URL working (D772).** `kb rename` records the old name
-in the server config's `kb_aliases` (`{from, to}` items). A name in `?kbs=` that is
+in the server state file, `<data>/.cartographer/state.json` (`kb_aliases`, `{from, to}`
+items; D906). A name in `?kbs=` that is
 not mounted but is the `from` of an alias whose `to` is mounted selects that KB;
 a mounted name always wins over an alias, so a KB later created under an old name
 is reached by its own name. The pair is reported, never silent:
@@ -220,18 +221,26 @@ nothing about access, and a missing or invalid one falls back to the token
 
 ### Origin
 
-The MCP endpoint validates the `Origin` header. A request without one — every
-non-browser client — is unaffected. With one, it must appear in
-`mcp.allowed_origins` (`CARTOGRAPHER_MCP_ALLOWED_ORIGINS`); when that list is
-empty, the default, only the request's own `Host` is accepted. `"*"` in the
-list disables the check. A refused origin gets HTTP 403 before authentication
-runs, and the CORS allow-origin response header echoes the accepted origin
-rather than a wildcard.
+The MCP endpoint validates the `Origin` header, and the rule is fixed (D906):
+a request without one — every non-browser client — is unaffected; with one, its
+host and port must be the request's own `Host`, whatever the scheme (a TLS-terminating
+proxy does not have to be told which one it terminated, and an Atlas behind an SSO
+proxy, which serves the page and the API from one origin, keeps working, D308). A
+refused origin gets HTTP 403 before authentication runs, and the CORS allow-origin
+response header echoes the accepted origin rather than a wildcard. There is no list
+of other origins to allow (`mcp.allowed_origins` was removed): a page of another
+site has no business scripting this server.
 
-Operators exposing Cartographer to a browser should list the origins
-explicitly: the same-origin default keeps a local browser working, but a
-rebound DNS name arrives with `Origin` and `Host` both naming the attacker, so
-it matches.
+The same-origin rule alone does not tell a page served from a rebound DNS name
+from the real one: `Origin` and `Host` then both name that name. A server that
+listens on a loopback address with authentication off (the local service, D268)
+therefore hardens the rule: every request on every route (`/mcp`, `/ui/`,
+`/api/ui/v1`, the health routes) must carry a `Host` naming this machine
+(`localhost`, an address in `127.0.0.0/8`, or `[::1]`, with any port), whether or
+not it carries an `Origin`; any other `Host` gets HTTP 403. It is installed only
+under that condition: with authentication on, the token is the access control,
+and a listen address beyond loopback with authentication off refuses to start
+(§Enabling bearer authentication). An `Origin` that carries userinfo is refused.
 
 ## Enabling bearer authentication
 
@@ -241,6 +250,15 @@ Tokens can be configured through server YAML or
 - unset: enable authentication when tokens exist;
 - `true`: require authentication and fail startup if no token is configured;
 - `false`: disable authentication.
+
+**Off-loopback needs a token (D906).** After the mode is resolved, a server whose
+listen address is reachable beyond this machine while authentication is off —
+`false`, or unset with no token — does not start, and the message says why.
+Loopback is a listen host in `127.0.0.0/8`, `::1` or `localhost`; an empty or
+wildcard host (`:39273`, `0.0.0.0:39273`) listens on every interface. The local
+service pins auth off and listens on `127.0.0.1` (D268), so it is unaffected; a
+remote deployment configures tokens, which turns authentication on in the default
+mode.
 
 Send a token only in `Authorization: Bearer <token>`, never in a URL.
 

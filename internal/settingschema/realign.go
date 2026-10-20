@@ -34,6 +34,9 @@ type Removed struct {
 	// used to feed the key, "" if none.
 	Env  string
 	Flag string
+	// FlagValue marks Flag as taking a value in a separate argument
+	// (--flag value), which is dropped with it.
+	FlagValue bool
 	// Refuse is a value of the key that cannot be honoured at all: a file that
 	// holds it is refused, not ignored (the server git profile, D903). The
 	// refusal is Note.

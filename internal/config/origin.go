@@ -242,8 +242,6 @@ func (c *Config) serverValue(path string) (any, bool) {
 	switch path {
 	case "http":
 		return str(c.HTTP)
-	case "init":
-		return c.Init, c.Init
 	case "data":
 		return str(c.Data)
 	case "credentials_dir":
@@ -266,12 +264,6 @@ func (c *Config) serverValue(path string) (any, bool) {
 			names = append(names, s.MountName())
 		}
 		return names, len(names) > 0
-	case "kb_aliases":
-		pairs := []string{}
-		for _, a := range c.KBAliases {
-			pairs = append(pairs, a.From+" -> "+a.To)
-		}
-		return pairs, len(pairs) > 0
 	case "audit.log":
 		return str(c.Audit.Log)
 	case "audit.mode":
@@ -282,14 +274,6 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return str(c.Audit.ArchiveDir)
 	case "audit.retention_days":
 		return c.Audit.RetentionDays, true
-	case "tools.profile":
-		return str(c.ToolsProfile)
-	case "mcp.allowed_origins":
-		o := c.MCP.AllowedOrigins
-		if o == nil {
-			o = []string{}
-		}
-		return o, len(o) > 0
 	case "web.enabled":
 		return c.Web.Enabled, true
 	}

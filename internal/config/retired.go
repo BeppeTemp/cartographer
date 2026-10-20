@@ -73,13 +73,45 @@ func RemovedFlags() map[string]string {
 	return out
 }
 
+// RemovedValueFlags are the removed flags that take their value as the next
+// argument (--tools-profile full): serve drops that argument with the flag.
+func RemovedValueFlags() map[string]bool {
+	out := map[string]bool{}
+	for _, e := range Retired.Removed {
+		if e.Flag != "" && e.FlagValue {
+			out[strings.TrimLeft(e.Flag, "-")] = true
+		}
+	}
+	return out
+}
+
 // RealignServerFile brings the server config.yaml at path up to date (D903):
 // the removed keys are dropped, off values reset to the default, the schema's
 // comments written, and the original kept beside it as <file>.bak-<version>.
 // It reports what it changed, and does nothing, writing no backup, to a file
 // that is already in that form.
 func RealignServerFile(path, version string) (rep settingschema.Report, backup string, err error) {
-	return Schema.RealignFile(path, Retired, version)
+	return RealignServerFileKeeping(path, version)
+}
+
+// RealignServerFileKeeping is RealignServerFile except that the removed keys
+// named in keep (by path) stay in the file: a key whose value could not be
+// moved elsewhere yet is not dropped with the others.
+func RealignServerFileKeeping(path, version string, keep ...string) (rep settingschema.Report, backup string, err error) {
+	reg := Retired
+	if len(keep) > 0 {
+		reg.Removed = nil
+		for _, e := range Retired.Removed {
+			kept := false
+			for _, k := range keep {
+				kept = kept || e.Path == k
+			}
+			if !kept {
+				reg.Removed = append(reg.Removed, e)
+			}
+		}
+	}
+	return Schema.RealignFile(path, reg, version)
 }
 
 // RealignKBSettings is the realignment of a KB's settings.yaml, over its bytes:

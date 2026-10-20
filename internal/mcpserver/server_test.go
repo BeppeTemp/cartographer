@@ -3819,6 +3819,22 @@ func TestServer_ToolsProfile(t *testing.T) {
 		}
 	}
 
+	// D906: unlisted does not mean refused. An advanced tool, absent from the
+	// list above, is served when a call names it.
+	if got["graph_path"] || !ToolAdvanced("graph_path") {
+		t.Fatal("graph_path must be an advanced tool for this check")
+	}
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"graph_path","arguments":{}}}`,
+	})
+	if len(resps) != 2 || resps[1].Error != nil {
+		t.Fatalf("tools/call of an advanced tool: unexpected responses: %+v", resps)
+	}
+	if b, _ := json.Marshal(resps[1].Result); strings.Contains(string(b), "tool not found") {
+		t.Errorf("an advanced tool hidden from tools/list must stay callable by name, got %s", b)
+	}
+
 	// Full profile: everything advertised again.
 	s.SetToolsProfile("full")
 	if got := listToolNames(t, s); len(got) != len(s.Tools()) {

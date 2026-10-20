@@ -127,8 +127,8 @@ a self-hosted bare repository initialised with `master` and then pushed `main` â
 the canonical branch is `main` if the remote has it, and unknown otherwise. Cartographer never
 deletes or force-pushes a branch on the remote and never checks out a different branch in the
 clone. The single exception to creating none is the first push of a KB to an **empty** remote,
-which creates `main` with upstream tracking. A clone of an empty remote (server bootstrap with
-`--init`) is pinned to `main` and given its initial commit, exactly like `kb create`.
+which creates `main` with upstream tracking. A KB made for an empty remote by
+`kb create --remote` is pinned to `main` and given its initial commit; a server never does that by itself (D906).
 
 With `branch` set, the remote's default branch plays no part for that KB beyond holding the
 file: the configured branch is the only one pulled and pushed, and the first push creates it on

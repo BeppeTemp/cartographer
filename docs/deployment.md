@@ -81,7 +81,11 @@ commented out under `# --- available settings ---`. Comments are ignored by the 
 identically. `kb create`/`kb clone` and `kb rename` give a `kbs[]` entry they add the comment of the keys they set,
 and leave every comment already in the file alone.
 
-`kb_aliases` is a list of `{from, to}` items (server config only, applied at the next start like `kbs`; `kb rename` writes it, an operator may edit it): it makes a routed `?kbs=<from>` select the KB mounted as `<to>`. It is validated at load (valid KB names, no `from` equal to its `to`, no duplicate `from`). A mounted name always wins over an alias.
+The old names of renamed KBs are not a setting (D906): they are a list of `{from, to}` items in the **server state file** `<data>/.cartographer/state.json` (`kb_aliases`), beside `update-check.json`. `kb rename` and `kb unmount` write it (offline, atomically), the server reads it at its start, and an operator never needs to edit it. It makes a routed `?kbs=<from>` select the KB mounted as `<to>`; it is validated when read (valid KB names, no `from` equal to its `to`, no duplicate `from`), and a mounted name always wins over an alias. A server YAML that still carries a `kb_aliases` key is realigned (D903): its items are moved into the state file first, and until then they resolve as before. A server with no `data` directory has no state file, hence no aliases.
+
+Three behaviours that used to be settings are fixed (D906): `serve` never creates a KB (a missing one fails with *create it with `cartographer kb create`*; the `init` key and `--init` flag are removed); `tools/list` shows the core set (below) with every other tool still callable by name (`tools.profile` is removed); and a request to `/mcp` with an `Origin` header is accepted only when the origin's host and port are the request's `Host`, one with no `Origin` header (a non-browser client) always is (`mcp.allowed_origins` is removed, see [transport-auth](transport-auth.md) §Origin). Each removed key, environment variable and flag is warned about and dropped by the realignment, never an error that stops the start.
+
+A server that would listen **off-loopback with authentication off** refuses to start and says why: loopback is a listen host in `127.0.0.0/8`, `::1` or `localhost`; `auth.mode: off`, or `auto` with no token, is auth off; `:39273` and `0.0.0.0:39273` listen on every interface. The local service pins auth off on `127.0.0.1` (D268) and is unaffected.
 
 One startup option is deliberately **flag-only**, with no YAML key and no environment variable:
 `serve --log-file <path>` appends the server log to a file instead of writing it to stderr,
@@ -98,8 +102,7 @@ still be able to log to two files.
 
 Schema (`internal/config.Config`, YAML tags in parentheses):
 ```yaml
-http: ":39273"                # (http) listen address; absent = stdio
-init: true                    # (init) initialize missing KBs
+http: ":39273"                # (http) listen address; absent = stdio. Off-loopback needs a token (D906)
 auth:
   mode: "on"                  # (auth.mode) on | off | auto (default auto: on if tokens are present)
   tokens: [...]                # (auth.tokens) prefer env CARTOGRAPHER_TOKENS instead (secret)
@@ -119,7 +122,6 @@ kbs:                          # (kbs[]) KBs to clone from a git remote (bootstra
                                                       # endpoint, token scope, clone dir, and the
                                                       # KB's files in credentials_dir all use
                                                       # this name
-mcp:
 audit:
   log: ""                      # (audit.log) the always-on audit log; empty = <data>/audit/audit.log,
                                # signed with audit.key from credentials_dir (D905)
@@ -127,10 +129,6 @@ audit:
   max_segment_bytes: 0         # (audit.max_segment_bytes) rotate past this size; 0 = package default
   archive_dir: ""              # (audit.archive_dir) rotated segments; empty = beside the log
   retention_days: 90           # (audit.retention_days) delete checkpointed segments older than N days; default 90; 0 = keep forever
-tools:
-  profile: agent               # (tools.profile) agent (default: tools/list exposes only the core
-                               # set for the LLM agent) | full (all tools, including governance/plumbing).
-                               # Hidden tools remain callable via tools/call (D65).
 ```
 
 `kbs[]` (YAML) is additive to `CARTOGRAPHER_KB_REMOTES` (append, not replace) — all listed KBs get
@@ -231,8 +229,9 @@ the destination doesn't already exist** — an existing clone is left untouched:
 sync that follows the remote handles fetch/push on subsequent writes
 (`cmd/cartographer/bootstrap.go`). Requires `--data`/`CARTOGRAPHER_DATA`/`data:` as the destination
 directory for clones. A remote that is still empty clones to a branch with no commit, named by the
-host's git (often `master`); with `--init` the KB is pinned to `main` and given its initial commit,
-which the first write pushes as the remote's first branch. From then on writes follow the remote's
+host's git (often `master`), and the server does not mount it: `serve` never creates a KB (D906), so it
+fails naming `cartographer kb create`. `kb create <name> --remote <url>` is what fills an empty remote: the KB is
+pinned to `main` and given its initial commit, which it pushes as the remote's first branch. From then on writes follow the remote's
 default branch (`concurrency.md` §How changes land, D264), unless the `settings.yaml` committed on that
 default branch sets `branch` (D335, D903): a fresh clone is then checked out on that branch, and the first
 push creates it on the remote if it is missing. An existing clone is never switched.
@@ -252,8 +251,7 @@ commit. It needs no configuration and no account on the forge. The author of a w
 it: the `Cartographer-Author: Name <email>` header of the request, else `<token id>
 <cartographer@<host>>`; every write also carries a `Cartographer-Token: <token id>` trailer that
 cannot be forged (see [control plane](control-plane.md)). A commit that is not a write (the
-`external changes` commit, a sync merge, conflict resolution, the KB's first commit made by
-`serve --init`) is authored by the server too; a sync that rebases local writes keeps their authors.
+`external changes` commit, a sync merge, conflict resolution) is authored by the server too; a sync that rebases local writes keeps their authors.
 The git config of the machine, `GIT_AUTHOR_*` and
 `GIT_COMMITTER_*` in the environment no longer influence any of it. `author_name`/`author_email`/
 `committer_name`/`committer_email` (global `git.*`, `kbs[]`, and a token's `author_name`/`author_email`)
@@ -309,12 +307,11 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_TOKENS` | `--tokens` | Bearer tokens, comma/whitespace-separated. Each entry is either a bare `token` (admin, full access to every KB) or `token\|scope1;scope2` with per-KB scopes `kb:<name>:r\|rw` (scopes separated by `;`, never by spaces/commas, to avoid colliding with the between-entry separator). E.g. `admintok, readtok\|kb:wiki:r, writetok\|kb:wiki:rw;kb:notes:r` (D44). |
 | `CARTOGRAPHER_AUTH` | — | Explicit auth toggle (see §Auth) |
 | — | — | Fine-grained roles have no env form: `auth.roles` is YAML-only, because a rule is a structured object (see §Fine-grained roles). |
-| `CARTOGRAPHER_TOOLS_PROFILE` | `--tools-profile` | `tools/list` tool profile: `agent` (default, only the core set for the LLM agent) \| `full` (all of them). Hidden tools remain callable via `tools/call` (D65, → `control-plane.md` §MCP API). |
 | `CARTOGRAPHER_AUDIT_LOG` | — | Path of the audit log's JSONL file, which is always on (D905); empty keeps it at `<data>/audit/audit.log`. Its signing key is `audit.key` in the credentials directory. |
 | `CARTOGRAPHER_SERVER_URL` | — | **Client** (not server): default server URL for `cartographer connect` on the client machine when no `.cartographer.yaml` exists yet. Precedence: existing yaml > env > `http://127.0.0.1:39273/mcp` (D64, `internal/clientconfig.Default`). |
 | `CARTOGRAPHER_WEB_ENABLED` | `--web-enabled` | Serve the embedded read-only Atlas UI at `/ui/` and its JSON API at `/api/ui/v1` in HTTP mode. Default `true`; `false` registers neither route, so both answer 404 and the HTTP surface is what it was before the UI. Stdio mode never serves it. D227, → `control-plane.md` §Read-only UI API. |
 | `CARTOGRAPHER_UPDATE_CHECK` | `--update-check` | YAML `update_check`. Look up the latest release (GitHub release list) 30 s after start and every 24 h, cached in the data dir's `.cartographer/update-check.json` (the user cache dir without a data dir), and report it as `latest_version` in `/health` and `kb_status` when newer. Default `true`; a failed lookup is silent and retried after an hour instead of 24 h, and a `dev` build never checks. D254. The same switch gates the UI API's release history (`GET /api/ui/v1/releases`), a second GitHub call made on demand (§The embedded Atlas UI, D862). |
-| `CARTOGRAPHER_MCP_ALLOWED_ORIGINS` | — | Comma-separated browser origins allowed to reach `/mcp`, scheme and port included. Empty (default) accepts only an `Origin` matching the request's own `Host`; `*` accepts any; a request without an `Origin` header is unaffected (D128, → `transport-auth.md` §Origin). |
+| — | — | Removed in D906, each warned about and ignored: `CARTOGRAPHER_TOOLS_PROFILE` and `--tools-profile` (the core set is fixed), `CARTOGRAPHER_MCP_ALLOWED_ORIGINS` (the same-origin rule is fixed, → `transport-auth.md` §Origin) and `--init` (`serve` never creates a KB). |
 
 **`CARTOGRAPHER_AUTH`** — three modes:
 
@@ -336,8 +333,8 @@ cartographer service uninstall               # removes the service; config and d
 cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, pushes it to <url> (D85, D134)
 cartographer kb clone <remote>               # mounts an existing remote KB in that data dir (D97)
 cartographer kb list                         # what is on disk, and what the server actually serves (D173)
-cartographer kb rename <old> <new>           # renames the mount point: directory + kbs[] entry + kb_aliases record + client bindings (D177, D754, D772)
-cartographer kb unmount <name>               # retires a KB locally: kbs[] entry + kb_aliases pointing at it + client bindings, clone parked or deleted (D761, D772)
+cartographer kb rename <old> <new>           # renames the mount point: directory + kbs[] entry + alias in the server state file + client bindings (D177, D754, D772, D906)
+cartographer kb unmount <name>               # retires a KB locally: kbs[] entry + state-file aliases pointing at it + client bindings, clone parked or deleted (D761, D772)
 ```
 
 `service install` (idempotent: re-running it rewrites the plist/unit and restarts):
@@ -359,19 +356,19 @@ cartographer kb unmount <name>               # retires a KB locally: kbs[] entry
 
 `kb create` authors the KB's initial commit with the operator's own git identity (`user.name`/`user.email`) when git resolves one, otherwise the server identity (D904); the committer is the server. **Before pushing it asks the remote (`ls-remote`).** An empty repository gets the scaffold as is. A repository holding only a forge's initial commit — one branch, one commit, top-level README/LICENSE/LICENCE/COPYING/`.gitignore`/`.gitattributes` files — is adopted automatically: the scaffold commit is rebased on top of it (the forge's files are kept), the KB lives on the remote's default branch whatever its name (D264), and the push is a fast-forward, never forced; a scaffold path that collides with a forge file (e.g. `.gitattributes`) is a refusal, not a merge. Any other non-empty remote is refused with a `kb clone` / kb-import hint. These refusals happen before any push, so the local KB is deleted and the command can be rerun (D710). **If the push fails the scaffold is kept**, not rolled back: the local KB is complete and valid and only the push failed, so the command exits non-zero and prints the `commit --amend --author` and `push -u origin` lines to finish by hand — or the command that discards it (`rm -rf`, or `Remove-Item -Recurse -Force` on Windows), noting that a server started with that data dir would otherwise mount it (D156). If git refuses the initial commit itself (a commit hook, signing without a key), `kb create` reports that error and stops before the push (D265).
 
-Binds to **loopback** by default (`127.0.0.1:39273`) → auth is off (pinned in the generated config, D268) without exposing anything on the network. With an empty (or missing — D83: `serve` creates it and treats it as empty rather than failing) data dir the server starts with 0 KBs — `/health` is still up (liveness: `status:"ok"`) but `/ready` reports `503 {"ready":false}` (D84, §Observability): `cartographer kb create <name> --remote <url>` scaffolds a subfolder KB the same way `serve --kb <path> --init` would (D85) and pushes it to the empty repository at `<url>` (or builds it on the one commit a forge writes at project creation, D710), which becomes its `origin` — the remote is mandatory, `--no-remote` being the explicit opt-out for a local-only, non-durable KB (D134) — while `cartographer kb clone <remote>` mounts an existing OKF remote there (D97; `service install` itself prints a hint pointing at creation if it starts with 0 KBs mounted), or add `kbs:` entries to clone remotes (§Bootstrapping a KB) — either way, `service restart` (or `kb create --restart` / `kb clone --restart`, which do this for you and wait for the server to report healthy again) is what makes the new KB visible.
+Binds to **loopback** by default (`127.0.0.1:39273`) → auth is off (pinned in the generated config, D268) without exposing anything on the network. With an empty (or missing — D83: `serve` creates the directory and treats it as empty rather than failing) data dir the server starts with 0 KBs — `/health` is still up (liveness: `status:"ok"`) but `/ready` reports `503 {"ready":false}` (D84, §Observability): `cartographer kb create <name> --remote <url>` scaffolds a subfolder KB (D85; `serve` itself never creates one, D906) and pushes it to the empty repository at `<url>` (or builds it on the one commit a forge writes at project creation, D710), which becomes its `origin` — the remote is mandatory, `--no-remote` being the explicit opt-out for a local-only, non-durable KB (D134) — while `cartographer kb clone <remote>` mounts an existing OKF remote there (D97; `service install` itself prints a hint pointing at creation if it starts with 0 KBs mounted), or add `kbs:` entries to clone remotes (§Bootstrapping a KB) — either way, `service restart` (or `kb create --restart` / `kb clone --restart`, which do this for you and wait for the server to report healthy again) is what makes the new KB visible.
 
 **The `kb` commands act on the LOCAL server's data dir** (D173). They take `--config <path>` to name the server config to read `data:` from, mirroring `service install`/`service status`: without it a service installed at a custom config path is invisible, and the command reports `KB "x" mounted at …` about a directory no running server reads. On a machine whose `.cartographer.yaml` points at a **remote** server they refuse to run, since mounting a KB on that server is an operation on its deployment — `--local` is the explicit opt-out, and `--data <dir>` (naming the target outright) bypasses the question.
 
 `kb clone` is bounded: `--timeout` (default 120s) caps the whole operation, `GIT_TERMINAL_PROMPT=0` and, for ssh remotes, `BatchMode=yes -o ConnectTimeout=10` make git fail instead of blocking on a credential or host-key prompt, and progress is streamed as it happens. Host-key *policy* is left to the operator's ssh config: `accept-new` would trade a hang for a silent trust-on-first-use decision. Recognised failures (DNS, SSH key, host key, repository not found, authentication) are reported with a remedy, and an interrupt removes the partial clone it created — never a directory that was already there. A pre-existing `GIT_SSH_COMMAND` is never overwritten.
 
-`kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]` renames a KB's **mount point**: the directory, the matching `kbs[]` entry when there is one, and a `kb_aliases` item `{from: <old>, to: <new>}` in the server config, together or neither (D177, D772). The alias is written whether or not the KB has an entry — a discovered KB has none, and no entry is created for it — in the same single write as the entry, so a routed `?kbs=<old>` from a client that has not synced yet still reaches the KB (see `transport-auth.md`). The list stays flat and single hop: renaming `b` to `c` after `a` to `b` leaves `a: c` and `b: c`, and renaming a KB back drops the alias of the restored name. With no server config nothing is recorded and the preflight says so. It is offline and local — it never contacts a server, a client or a git remote, and the git `origin` is untouched: renaming a mount point is not renaming a repository. A cross-filesystem move fails explicitly rather than falling back to a recursive copy, which would silently change the ownership and timestamps of a git repository.
+`kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]` renames a KB's **mount point**: the directory, the matching `kbs[]` entry when there is one, and an alias `{from: <old>, to: <new>}` in the server state file `<data>/.cartographer/state.json` (D177, D772, D906), together or neither: if the entry cannot be rewritten, the directory is renamed back and the alias removed. The alias is written whether or not the KB has an entry — a discovered KB has none, and no entry is created for it — and even with no server config, since the file lives under the data dir, so a routed `?kbs=<old>` from a client that has not synced yet still reaches the KB after the next restart (see `transport-auth.md`). A `kb_aliases` list the server YAML still carries is moved into the state file by the command, and the key leaves the YAML. The list stays flat and single hop: renaming `b` to `c` after `a` to `b` leaves `a: c` and `b: c`, and renaming a KB back drops the alias of the restored name. It is offline and local — it never contacts a server, a client or a git remote, and the git `origin` is untouched: renaming a mount point is not renaming a repository. A cross-filesystem move fails explicitly rather than falling back to a recursive copy, which would silently change the ownership and timestamps of a git repository.
 
 Before moving anything it reports what else the name is an identity for. Auth scopes (`kb:<old>:r|rw`), role rules, client `signing_keys` pins, `mcp_approvals` entries and `identities` entries (D904) are **listed, never rewritten**: they are configured out of band, and silently editing an operator's auth configuration would be worse than telling them what to change. This machine's client bindings that select the KB by name (`clients.<provider>.kbs`, `workspaces.<provider>[].kbs`) **are rewritten** to the new name, in place, when the client points at the local server — otherwise every `sync` would abort on a stale selection (D754); a client pointed at another server keeps its bindings, which name that server's KBs. Clients' MCP entries then reconcile on the next `cartographer sync`.
 
 Two entries that could both be the KB is a refusal, naming them: guessing there silently detaches a KB from its configuration. **No** entry is not a refusal — a KB created by `kb create` or found by discovery legitimately has none, and renaming its directory is then the whole job.
 
-`kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]` is the inverse of `kb create`/`kb clone`, offline and local like `kb rename` (D761). It refuses when the clone cannot be proven pushed — uncommitted changes, commits ahead of `origin/<branch>`, no upstream or no `origin` (it runs `git fetch` first) — unless `--force`. It then writes `server.yaml.bak-<UTC timestamp>` and removes the matching `kbs[]` entry in place (comments kept; a discovered KB has none) together with the `kb_aliases` items that point at the KB or start at its name (an alias records where a KB went, not who owns a name, so a different KB later mounted under it must not be reached by an old URL, D772), drops the KB from this machine's client and workspace bindings, and either deletes the clone (`--delete-clone`) or, when it sits under `data:`, parks it in `<data>/.unmounted/<name>`: a clone left in the data dir would be remounted by discovery at the next start. Auth scopes, signing-key pins, MCP approvals and `identities` entries naming the KB are listed, not removed. A failure after the config edit restores it from the backup. The remote stays the source of truth: the command prints the `kb clone` line that brings the KB back. Other machines' client URLs still name the KB until they `sync`; the routed endpoint serves them without it (D756).
+`kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]` is the inverse of `kb create`/`kb clone`, offline and local like `kb rename` (D761). It refuses when the clone cannot be proven pushed — uncommitted changes, commits ahead of `origin/<branch>`, no upstream or no `origin` (it runs `git fetch` first) — unless `--force`. It then writes `server.yaml.bak-<UTC timestamp>` and removes the matching `kbs[]` entry in place (comments kept; a discovered KB has none) together with the state-file aliases that point at the KB or start at its name (an alias records where a KB went, not who owns a name, so a different KB later mounted under it must not be reached by an old URL, D772), drops the KB from this machine's client and workspace bindings, and either deletes the clone (`--delete-clone`) or, when it sits under `data:`, parks it in `<data>/.unmounted/<name>`: a clone left in the data dir would be remounted by discovery at the next start. Auth scopes, signing-key pins, MCP approvals and `identities` entries naming the KB are listed, not removed. A failure after the config edit restores it from the backup, and the aliases with it. The remote stays the source of truth: the command prints the `kb clone` line that brings the KB back. Other machines' client URLs still name the KB until they `sync`; the routed endpoint serves them without it (D756).
 
 `kb list [--data <dir>] [--config <path>]` prints one row per subdirectory of the data dir — name, whether it is an OKF KB (`data/index.md`), whether it is a git repository, its `origin` — and a `MOUNTED` column when the server answers `/health`. When it does not, the column disappears and the reason is printed: absence of the signal is not evidence that nothing is mounted. The command writes **nothing**: a missing data dir is reported rather than created, and no repository is opened (which would migrate its git-exclude entry as a side effect).
 
@@ -627,7 +624,9 @@ does not refresh by itself.
 Behind an SSO reverse proxy that protects `/ui` and `/api/ui` only (leave `/mcp`
 on bearer auth) and injects a read-only bearer, the Atlas opens without the token
 prompt. The UI sends same-origin cookies so the proxy session reaches the API
-(D308).
+(D308). The origin rule of `/mcp` is fixed and keeps that setup working (D906): the
+proxy serves the page and the API from one origin, so a request's `Origin` has the
+`Host` it arrived with.
 
 The Atlas draws its graph in 3D, as a live force-directed network (D234, D235): it breathes and turns slowly on its own; drag to orbit, zoom with the
 wheel or a pinch, click a concept to select it (nodes are not dragged). A *Motion* toggle, remembered per browser,

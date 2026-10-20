@@ -26,13 +26,23 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "→ creating KB folders in $DATA"
-mkdir -p "$DATA/$KB1" "$DATA/$KB2"
+echo "→ creating KBs in $DATA"
+# serve never creates a KB (D906): kb create does.
+for kb in "$KB1" "$KB2"; do
+  "$BIN" kb create "$kb" --no-remote --local --data "$DATA" >/dev/null
+done
+
+echo "→ an off-loopback listen address with auth off must be refused (D906)"
+if CARTOGRAPHER_AUTH=false "$BIN" serve --data="$DATA" --http="0.0.0.0:$PORT" >"$DATA/refused.log" 2>&1; then
+  echo "serve started on 0.0.0.0 with auth off" >&2
+  exit 1
+fi
+grep -q "authentication off" "$DATA/refused.log" || { echo "refusal does not say why:" >&2; cat "$DATA/refused.log" >&2; exit 1; }
 
 echo "→ starting server on :$PORT"
 # CARTOGRAPHER_AUTH=false: the machine's environment may have CARTOGRAPHER_TOKENS
 # (client-side token), which in "auto" auth mode would turn on server auth.
-CARTOGRAPHER_AUTH=false "$BIN" serve --data="$DATA" --init --http="127.0.0.1:$PORT" >/dev/null 2>&1 &
+CARTOGRAPHER_AUTH=false "$BIN" serve --data="$DATA" --http="127.0.0.1:$PORT" >/dev/null 2>&1 &
 SERVER_PID=$!
 # /ready, not /health: since D348 /health answers while the KBs are still
 # being mounted, and /mcp is 503 until /ready turns 200.

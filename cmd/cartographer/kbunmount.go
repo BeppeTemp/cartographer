@@ -33,9 +33,9 @@ type unmountPlan struct {
 	// is the kbs[] entry to remove, -1 for a KB mounted by discovery.
 	ConfigPath string
 	EntryIndex int
-	// Aliases are the kb_aliases items pointing at the KB ("old → name"),
-	// removed with its entry so an old URL cannot reach a different KB later
-	// mounted under the name (D772).
+	// Aliases are the items of the server state file pointing at the KB, or
+	// starting at it ("old → name"), removed with its entry so an old URL
+	// cannot reach a different KB later mounted under the name (D772, D906).
 	Aliases []string
 
 	Scopes     []string
@@ -147,7 +147,6 @@ func planKBUnmount(name, dataDir, configPath string, deleteClone bool) (*unmount
 			}
 			p.EntryIndex = i
 			p.Scopes = scopeRefs(cfg, name)
-			p.Aliases = aliasesPointingAt(cfg, name)
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return nil, err
 		}
@@ -155,6 +154,11 @@ func planKBUnmount(name, dataDir, configPath string, deleteClone bool) (*unmount
 	if _, err := os.Stat(filepath.Join(p.KBPath, "data", "index.md")); err != nil {
 		return nil, fmt.Errorf("%s is not an OKF KB (no data/index.md): nothing to unmount", p.KBPath)
 	}
+	aliases, err := readAliases(dataDir, p.ConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	p.Aliases = aliasesPointingAt(aliases, name)
 	p.ClientKeys = clientRefs(name)
 	p.Bindings = bindingRefs(name)
 
@@ -215,7 +219,7 @@ func printUnmountPreflight(w io.Writer, p *unmountPlan) {
 		fmt.Fprintf(w, "%s: removing kbs[%d] (a backup is written first)\n", p.ConfigPath, p.EntryIndex)
 	}
 	for _, a := range p.Aliases {
-		fmt.Fprintf(w, "%s: removing kb_aliases %s (a backup is written first)\n", p.ConfigPath, a)
+		fmt.Fprintf(w, "%s: removing the alias %s\n", config.ServerStatePath(p.DataDir), a)
 	}
 	for _, b := range p.Bindings {
 		fmt.Fprintf(w, "this machine's .cartographer.yaml: removing the KB from the %s binding\n", b)
@@ -243,16 +247,34 @@ func printUnmountPreflight(w io.Writer, p *unmountPlan) {
 // restores the config from the backup; the bindings removal is reported, not
 // undone (a sync realigns a binding to a KB that is mounted again).
 func applyKBUnmount(p *unmountPlan) (backup string, err error) {
-	if p.EntryIndex >= 0 || len(p.Aliases) > 0 {
+	var prevAliases []config.KBAlias
+	aliasesChanged := false
+	if len(p.Aliases) > 0 {
+		prevAliases, err = settleAliases(p.DataDir, p.ConfigPath)
+		if err != nil {
+			return "", err
+		}
+		next := config.PruneKBAliases(prevAliases, p.Name)
+		if err := config.WriteServerState(p.DataDir, config.ServerState{KBAliases: next}); err != nil {
+			return "", fmt.Errorf("remove the aliases: %w", err)
+		}
+		aliasesChanged = true
+	}
+	if p.EntryIndex >= 0 {
 		backup, err = backupServerConfig(p.ConfigPath)
 		if err != nil {
 			return "", err
 		}
-		if err := editConfigForUnmount(p.ConfigPath, p.EntryIndex, p.Name); err != nil {
+		if err := editConfigForUnmount(p.ConfigPath, p.EntryIndex); err != nil {
 			return backup, err
 		}
 	}
 	restore := func(cause error) error {
+		if aliasesChanged {
+			if werr := config.WriteServerState(p.DataDir, config.ServerState{KBAliases: prevAliases}); werr != nil {
+				cause = fmt.Errorf("%w (and the aliases could not be restored in %s: %v)", cause, config.ServerStatePath(p.DataDir), werr)
+			}
+		}
 		if backup == "" {
 			return cause
 		}
@@ -298,11 +320,10 @@ func backupServerConfig(path string) (string, error) {
 	return backup, nil
 }
 
-// editConfigForUnmount deletes the index-th kbs[] item (none when index < 0)
-// and the kb_aliases items pointing at name in one write, through a yaml.Node
+// editConfigForUnmount deletes the index-th kbs[] item through a yaml.Node
 // document, so comments, key order and unmodelled fields survive (as
 // rewriteServerConfig).
-func editConfigForUnmount(path string, index int, name string) error {
+func editConfigForUnmount(path string, index int) error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -311,18 +332,11 @@ func editConfigForUnmount(path string, index int, name string) error {
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
-	if index >= 0 {
-		if _, err := kbEntryNode(&doc, index); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		kbs := mapValue(doc.Content[0], "kbs")
-		kbs.Content = append(kbs.Content[:index], kbs.Content[index+1:]...)
-	}
-	root, err := rootMapping(&doc)
-	if err != nil {
+	if _, err := kbEntryNode(&doc, index); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	pruneKBAliases(root, name)
+	kbs := mapValue(doc.Content[0], "kbs")
+	kbs.Content = append(kbs.Content[:index], kbs.Content[index+1:]...)
 	out, err := yaml.Marshal(&doc)
 	if err != nil {
 		return err

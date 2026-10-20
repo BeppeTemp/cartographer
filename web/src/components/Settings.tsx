@@ -51,8 +51,6 @@ const SERVER_GROUPS: Record<string, Group> = {
   git: { title: "Git", intro: "How every write becomes a commit, and how commits reach the remotes." },
   audit: { title: "Audit", intro: "The tamper-evident log of every call the server answers." },
   sops: { title: "Secrets", intro: "How the server decrypts the KBs' sops-encrypted secrets." },
-  tools: { title: "Tools", intro: "Which MCP tools an agent is shown." },
-  mcp: { title: "MCP endpoint", intro: "Which browser origins may call the MCP endpoint." },
   web: { title: "Atlas", intro: "The web UI this page is part of." },
 };
 

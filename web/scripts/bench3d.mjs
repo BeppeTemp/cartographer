@@ -70,8 +70,10 @@ async function frameTimes(page, ms, during) {
 async function run(size) {
   const dir = mkdtempSync(join(tmpdir(), "cartographer-bench3d-"));
   execFileSync("node", [join(WEB, "scripts", "demo-kb.mjs"), dir, String(size)], { stdio: "ignore" });
+  // serve never creates a KB (D906): the fixture folder becomes one.
+  execFileSync(join(WEB, "..", "test", "lib", "kb-bootstrap.sh"), [join(dir, "demo")], { stdio: "ignore" });
   const port = await freePort();
-  const server = spawn(BIN, ["serve", "--init", "--http", `127.0.0.1:${port}`, "--kb", join(dir, "demo")], {
+  const server = spawn(BIN, ["serve", "--http", `127.0.0.1:${port}`, "--kb", join(dir, "demo")], {
     env: { ...process.env, CARTOGRAPHER_AUTH: "false" },
     stdio: "ignore",
   });

@@ -5,7 +5,7 @@ SCENARIO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; E2E_DIR="$(cd "${S
 source "${E2E_DIR}/lib/assert.sh"; source "${E2E_DIR}/lib/kb.sh"; source "${E2E_DIR}/lib/server.sh"
 SCENARIO_NAME="12_mcp_approval"; BIN="${REPO_ROOT}/bin/cartographer"; KB_DIR="${E2E_TMP_DIR}/${SCENARIO_NAME}/kb"; SANDBOX_DIR="${E2E_TMP_DIR}/${SCENARIO_NAME}/sandbox"; CONFIG="${E2E_TMP_DIR}/${SCENARIO_NAME}/server.yaml"; SERVER_URL="http://127.0.0.1:${E2E_HTTP_PORT}/mcp"
 assert_file_absent_contains() { if [[ ! -f "$1" ]] || ! grep -qF "$2" "$1"; then _assert_pass "file '$1' does not contain '$2'"; else _assert_fail "file '$1' unexpectedly contains '$2'"; fi; }
-write_config() { printf 'http: ":%s"\ninit: true\n' "${E2E_HTTP_PORT}" >"${CONFIG}"; }
+write_config() { printf 'http: "127.0.0.1:%s"\n' "${E2E_HTTP_PORT}" >"${CONFIG}"; }
 mkdir -p "${E2E_TMP_DIR}/${SCENARIO_NAME}" "${SANDBOX_DIR}"; kb_make "${KB_DIR}"; mkdir -p "${KB_DIR}/mcp"
 printf '%s\n' '{"type":"http","url":"https://tools.example.com/mcp"}' >"${KB_DIR}/mcp/wiki-tools.json"; write_config; export E2E_CONFIG="${CONFIG}"
 server_start "${KB_DIR}"; server_wait_health 20; trap 'server_stop' EXIT

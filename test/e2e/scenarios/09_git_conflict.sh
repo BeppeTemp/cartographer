@@ -28,6 +28,8 @@ E2E_DIR="$(cd "${SCENARIO_DIR}/.." && pwd)"
 
 # shellcheck source=../lib/assert.sh
 source "${E2E_DIR}/lib/assert.sh"
+# shellcheck source=../lib/kb.sh
+source "${E2E_DIR}/lib/kb.sh"
 
 SCENARIO_NAME="09_git_conflict"
 echo "=== Scenario ${SCENARIO_NAME} ==="
@@ -87,10 +89,10 @@ git init --bare "$BARE" >/dev/null 2>&1
 # A KB is always initialized on main; make the remote advertise the same branch
 # so the scenario does not depend on the host's init.defaultBranch.
 git -C "$BARE" symbolic-ref HEAD refs/heads/main
-mkdir -p "$KBA"
+kb_bootstrap "$KBA"
 
 CARTOGRAPHER_AUTH=false K_SERVICE=e2e \
-    "$BIN" serve --kb "$KBA" --init --http ":${PORT_A}" >"${DIR}/srvA.log" 2>&1 &
+    "$BIN" serve --kb "$KBA" --http "127.0.0.1:${PORT_A}" >"${DIR}/srvA.log" 2>&1 &
 PID_A=$!
 wait_health "$PORT_A" || { echo "[ERROR] server A not responding"; cat "${DIR}/srvA.log" >&2; exit 1; }
 
@@ -105,7 +107,7 @@ git clone "$BARE" "$KBB" >/dev/null 2>&1
 git -C "$KBB" config user.email "test@wiki.local" && git -C "$KBB" config user.name "Wiki Test"
 
 CARTOGRAPHER_AUTH=false K_SERVICE=e2e \
-    "$BIN" serve --kb "$KBB" --init --http ":${PORT_B}" >"${DIR}/srvB.log" 2>&1 &
+    "$BIN" serve --kb "$KBB" --http "127.0.0.1:${PORT_B}" >"${DIR}/srvB.log" 2>&1 &
 PID_B=$!
 wait_health "$PORT_B" || { echo "[ERROR] server B not responding"; cat "${DIR}/srvB.log" >&2; exit 1; }
 

@@ -85,8 +85,7 @@ for ws in "$WS_WORK" "$WS_HOMELAB" "$WS_UNBOUND"; do
 done
 
 cat > "$CONFIG" <<YAML
-http: ":${E2E_HTTP_PORT}"
-init: true
+http: "127.0.0.1:${E2E_HTTP_PORT}"
 YAML
 
 E2E_CONFIG="$CONFIG" server_start "${WORK_KB},${HOMELAB_KB}"

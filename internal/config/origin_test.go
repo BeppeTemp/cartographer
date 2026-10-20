@@ -75,14 +75,14 @@ func TestOriginEnvOverridesFile(t *testing.T) {
 
 func TestOriginFlagOverridesEnv(t *testing.T) {
 	c := Default()
-	t.Setenv("CARTOGRAPHER_TOOLS_PROFILE", "full")
+	t.Setenv("CARTOGRAPHER_HTTP", ":1")
 	FromEnv(c)
-	if got := c.OriginOf("tools.profile"); got != OriginEnv {
+	if got := c.OriginOf("http"); got != OriginEnv {
 		t.Fatalf("origin = %s, want env", got)
 	}
-	full, kb := "agent", "/x/kb-flag"
-	ApplyFlags(c, FlagOverrides{ToolsProfile: &full, KB: &kb})
-	if got := c.OriginOf("tools.profile"); got != OriginFlag {
+	addr, kb := "127.0.0.1:2", "/x/kb-flag"
+	ApplyFlags(c, FlagOverrides{HTTP: &addr, KB: &kb})
+	if got := c.OriginOf("http"); got != OriginFlag {
 		t.Errorf("origin = %s, want flag", got)
 	}
 	if got := c.OriginOf("kbs[kb-flag].path"); got != OriginFlag {
