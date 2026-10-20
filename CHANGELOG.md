@@ -8,6 +8,14 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.25.1](https://github.com/BeppeTemp/cartographer/compare/v0.25.0...v0.25.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* **kb:** the writer is the committer and the server file names the ([4d88a51](https://github.com/BeppeTemp/cartographer/commit/4d88a519a0a7f6c3ef71713f69f43e5fd4b14d28))
+* **kb:** the writer is the committer and the server file names the identity per KB ([#953](https://github.com/BeppeTemp/cartographer/issues/953)) ([4d88a51](https://github.com/BeppeTemp/cartographer/commit/4d88a519a0a7f6c3ef71713f69f43e5fd4b14d28))
+
 ## [0.25.0](https://github.com/BeppeTemp/cartographer/compare/v0.24.0...v0.25.0) (2026-10-20)
 
 
