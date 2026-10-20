@@ -24,6 +24,13 @@ first signature and the first checkpoint written with the key, which the hash ch
 refuses an unsigned entry after either.
 
 The choices the plan left to the implementation:
+- **A session on `--kb` folders without data keeps neither.** When `data` is not configured (YAML or
+  environment) and every mounted KB comes from `--kb` / `CARTOGRAPHER_KB` (no `kbs[]` from the file), there is
+  no default credentials directory and no default audit log, because `DefaultDataDir` belongs to the native
+  service and a dev or test session would collide with its files and lock. The audit log then runs only when
+  `audit.log` is set, credentials are read only from `credentials_dir` when it is set, and the start logs
+  `audit log: off`. `audit.mode: required` without `audit.log` does not start. A server with `data`, or with
+  `kbs[]`, is unchanged. `Config.FolderSession` decides it; `CredentialsPath` and `AuditLogPath` return `""`.
 - **A restart waits for the previous writer.** The log has one writer (a lock beside it). Opening it retries
   the lock for up to 10 seconds before reporting it held, so a restart whose predecessor is still exiting
   gets the log; a holder that outlasts the wait is treated as any log that cannot be opened.

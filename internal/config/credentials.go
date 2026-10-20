@@ -52,29 +52,60 @@ func DefaultDataDir() string {
 	return filepath.Join(home, "cartographer-data")
 }
 
+// FolderSession says whether every KB comes from --kb or CARTOGRAPHER_KB and no
+// data directory is configured: a development or test session on folders (D905).
+// It has no data directory to keep a credentials directory or an audit log in,
+// and does not borrow DefaultDataDir, which belongs to the native service.
+func (c *Config) FolderSession() bool {
+	if c.Data != "" || len(c.KBs) == 0 {
+		return false
+	}
+	for _, kb := range c.KBs {
+		if kb.Path == "" || kb.Remote != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// dataBase is where the server keeps its own directories: data, else the default
+// data directory; "" in a folder session, which keeps none.
 func (c *Config) dataBase() string {
 	if c.Data != "" {
 		return c.Data
+	}
+	if c.FolderSession() {
+		return ""
 	}
 	return DefaultDataDir()
 }
 
 // CredentialsPath is the credentials directory in effect: credentials_dir, or
-// <data>/credentials, with the default data directory when there is none.
+// <data>/credentials, with the default data directory when there is none. ""
+// for a folder session without credentials_dir: it has no credentials.
 func (c *Config) CredentialsPath() string {
 	if c.CredentialsDir != "" {
 		return c.CredentialsDir
 	}
-	return filepath.Join(c.dataBase(), credentialsDirName)
+	base := c.dataBase()
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, credentialsDirName)
 }
 
 // AuditLogPath is the audit log in effect: audit.log, or <data>/audit/audit.log.
-// The log is always on (D905); the setting only relocates it.
+// The log is always on (D905); the setting only relocates it. "" for a folder
+// session without audit.log: it runs without an audit log.
 func (c *Config) AuditLogPath() string {
 	if c.Audit.Log != "" {
 		return c.Audit.Log
 	}
-	return filepath.Join(c.dataBase(), auditDirName, "audit.log")
+	base := c.dataBase()
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, auditDirName, "audit.log")
 }
 
 // IsReservedDataName says whether a subdirectory of data is one the server

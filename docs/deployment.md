@@ -990,6 +990,11 @@ audit:
 The start logs where the log is and whether it is signed: `audit log: <path> (mode <mode>, signed; verify
 with --public-key <hex>)`, or `unsigned` with a warning that says why.
 
+A session started with `serve --kb <folder>` and no `data` (stdio, development and tests) keeps no audit
+log and no credentials directory in the home directory: the log runs only if `audit.log` is set, and the start
+logs `audit log: off` otherwise (`audit.mode: required` then does not start). Credentials are read from
+`credentials_dir` when it is set. A server with `data` or `kbs[]` is unchanged.
+
 Rollout notes:
 
 - **A restart waits for the previous process.** Only one process writes the log; a start that finds

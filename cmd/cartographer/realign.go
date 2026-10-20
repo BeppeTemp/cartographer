@@ -85,6 +85,10 @@ func migrateCredentials(cfg *config.Config, configPath string) (placed bool) {
 	if len(creds) == 0 && len(problems) == 0 {
 		return true
 	}
+	if credDir == "" {
+		log.Printf("warning: config %s holds credentials of removed settings, and a session on --kb folders without data has no credentials directory: set credentials_dir to place them", configPath)
+		return false
+	}
 	if err := checkCredentialsDir(cfg); err != nil {
 		// Nothing is written into a KB: the start refuses with this error.
 		return false

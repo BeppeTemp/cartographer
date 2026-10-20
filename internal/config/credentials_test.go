@@ -103,3 +103,36 @@ func TestIsReservedDataName(t *testing.T) {
 		t.Error("only the server's own directory names are reserved")
 	}
 }
+
+// A session on --kb folders without data has no default credentials directory
+// and no default audit log: nothing is kept in the home directory.
+func TestFolderSessionHasNoDefaultDirectories(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	cfg := Default()
+	cfg.KBs = []KBSpec{{Path: "/work/kb-a"}}
+	if !cfg.FolderSession() || cfg.CredentialsPath() != "" || cfg.AuditLogPath() != "" {
+		t.Errorf("folder session: creds %q, audit %q", cfg.CredentialsPath(), cfg.AuditLogPath())
+	}
+	cfg.CredentialsDir, cfg.Audit.Log = "/c", "/a.log"
+	if cfg.CredentialsPath() != "/c" || cfg.AuditLogPath() != "/a.log" {
+		t.Errorf("explicit settings ignored: %q, %q", cfg.CredentialsPath(), cfg.AuditLogPath())
+	}
+
+	// Data, a remote KB, or no KB at all keep the server paths.
+	for name, mod := range map[string]func(*Config){
+		"data":   func(c *Config) { c.Data = "/srv/data" },
+		"remote": func(c *Config) { c.KBs = []KBSpec{{Remote: "https://example.com/kb-a.git"}} },
+		"mixed":  func(c *Config) { c.KBs = append(c.KBs, KBSpec{Remote: "https://example.com/kb-b.git"}) },
+		"none":   func(c *Config) { c.KBs = nil },
+	} {
+		c := Default()
+		c.KBs = []KBSpec{{Path: "/work/kb-a"}}
+		mod(c)
+		if c.FolderSession() || c.CredentialsPath() == "" || c.AuditLogPath() == "" {
+			t.Errorf("%s: creds %q, audit %q; want the server paths", name, c.CredentialsPath(), c.AuditLogPath())
+		}
+	}
+}

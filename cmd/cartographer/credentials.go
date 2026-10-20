@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -84,6 +85,9 @@ func loadArtifactSigner(credDir, name string) (ed25519.PrivateKey, bool, error) 
 // ignored. A missing one is generated, so the log is signed from the first
 // start (D905); generated reports it. The seed is never in an error message.
 func loadAuditKey(credDir string) (kp audit.KeyPair, generated bool, err error) {
+	if credDir == "" {
+		return audit.KeyPair{}, false, errors.New("no credentials directory (set credentials_dir)")
+	}
 	if p, ok := sharedCredentialFile(credDir, config.AuditKeyFile); ok {
 		kp, err := readAuditKey(p)
 		return kp, false, err
@@ -125,6 +129,9 @@ func readAuditKey(p string) (audit.KeyPair, error) {
 // below a subdirectory of data that discovery mounts. A direct subdirectory of
 // data is not discovered once it is the credentials directory.
 func checkCredentialsDir(cfg *config.Config) error {
+	if cfg.CredentialsPath() == "" {
+		return nil // a folder session without credentials_dir has none
+	}
 	credDir := absPath(cfg.CredentialsPath())
 	inside := func(kbRoot string) error {
 		return fmt.Errorf("credentials_dir %s is inside the KB %s, and its files would be committed with it: set credentials_dir outside every KB", credDir, kbRoot)

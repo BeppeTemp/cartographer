@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -807,6 +808,15 @@ func openAuditLog(cfg *config.Config) (*audit.Log, error) {
 	path := cfg.AuditLogPath()
 	opts := auditOptions(cfg.Audit)
 	required := audit.IsRequired(opts.Mode)
+	if path == "" {
+		// A session on --kb folders without data has no directory for a log:
+		// it runs without one unless audit.log says where.
+		if required {
+			return nil, errors.New("audit log not started: audit.mode is required and a session on --kb folders without data has no audit.log")
+		}
+		log.Printf("audit log: off (--kb session without data; set audit.log to keep one)")
+		return nil, nil
+	}
 
 	kp, generated, keyErr := loadAuditKey(cfg.CredentialsPath())
 	if keyErr != nil {

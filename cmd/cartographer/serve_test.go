@@ -238,3 +238,44 @@ func TestGeneratedLocalConfigIgnoresEnvTokens(t *testing.T) {
 		})
 	}
 }
+
+// A session on --kb folders without data keeps no audit log and no credentials
+// in the home directory; audit.log brings the log back.
+func TestOpenAuditLogFolderSessionWithoutData(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	cfg := config.Default()
+	cfg.KBs = []config.KBSpec{{Path: t.TempDir()}}
+
+	logs := captureLog(t)
+	l, err := openAuditLog(cfg)
+	if err != nil || l != nil {
+		t.Fatalf("openAuditLog = %v, %v; want no log and no error", l, err)
+	}
+	if !strings.Contains(logs.String(), "audit log: off") {
+		t.Errorf("log lacks the off line:\n%s", logs)
+	}
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Errorf("the home directory holds %d entries, want none", len(entries))
+	}
+	if err := checkCredentialsDir(cfg); err != nil {
+		t.Errorf("checkCredentialsDir = %v", err)
+	}
+
+	cfg.Audit.Mode = "required"
+	if _, err := openAuditLog(cfg); err == nil {
+		t.Error("required without any audit.log started")
+	}
+
+	cfg.Audit.Mode = "best_effort"
+	cfg.Audit.Log = filepath.Join(t.TempDir(), "audit.log")
+	l, err = openAuditLog(cfg)
+	if err != nil || l == nil {
+		t.Fatalf("with audit.log: %v, %v", l, err)
+	}
+	l.Close()
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Errorf("the home directory holds %d entries after an explicit audit.log, want none", len(entries))
+	}
+}
