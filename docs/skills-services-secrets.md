@@ -166,13 +166,9 @@ leaves using RFC 6901 JSON Pointers, for example
 `/work_client/DEV/client_secret` and `/admin/0/client_secret`. `~` and `/`
 in mapping keys are escaped as `~0` and `~1`; null is an empty string.
 
-The age key is selected in this order:
-
-1. `kbs[].sops_age_key_file`;
-2. global `sops.age_key_file`;
-3. `CARTOGRAPHER_SOPS_AGE_KEY_FILE`.
-
-It is passed to the child process as `SOPS_AGE_KEY_FILE` and must never be
+The age key is the KB's file in the server's credentials directory (D905,
+[deployment](deployment.md) §Credentials directory): `<kb>.age`, else
+`default.age`. It is passed to the child process as `SOPS_AGE_KEY_FILE` and must never be
 stored in the KB.
 
 That key file is the **only** identity `sops` can use. Every `sops` child runs
@@ -182,8 +178,9 @@ in a hermetic environment (D260): it inherits only `PATH`, `TMPDIR`, `TMP`,
 removed after the call, plus `SOPS_AGE_KEY_FILE`. An ambient `SOPS_AGE_KEY` or
 `SOPS_AGE_KEY_CMD`, the default `sops/age/keys.txt`, SSH keys under `~/.ssh` and
 cloud KMS / Vault credentials (`AWS_*`, `GOOGLE_*`, `AZURE_*`, `VAULT_*`) are
-ignored — without a configured `sops_age_key_file` nothing decrypts, and a KB
-cannot be opened with another KB's key or the operator's personal one. Only
+ignored — without an age key for the KB in the credentials directory nothing
+decrypts, and a KB cannot be opened with another KB's own key or the
+operator's personal one. Only
 `sops` stdout is parsed as the decrypted document; stderr surfaces only in the
 error of a failed decrypt.
 

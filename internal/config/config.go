@@ -17,14 +17,17 @@ import (
 
 // Config is the fully resolved server configuration.
 type Config struct {
-	HTTP  string      // listen address; empty = stdio transport
-	Init  bool        // initialize missing KBs
-	Auth  AuthConfig  // HTTP bearer-token auth
-	Data  string      // directory whose direct subdirs are auto-discovered KBs
-	KBs   []KBSpec    // KBs to clone from a git remote, or mounted from a folder by --kb
-	Git   GitConfig   // SSH identity and credentials for remotes
-	Audit AuditConfig // append-only audit log
-	Sops  SopsConfig  // default SOPS age key for secret refs
+	HTTP string     // listen address; empty = stdio transport
+	Init bool       // initialize missing KBs
+	Auth AuthConfig // HTTP bearer-token auth
+	Data string     // directory whose direct subdirs are auto-discovered KBs
+	// CredentialsDir holds every secret file the server reads: SSH keys, the
+	// known_hosts file, git tokens, age keys, artifact signing seeds and the
+	// audit key (D905). Empty means <data>/credentials; read it through
+	// CredentialsPath.
+	CredentialsDir string
+	KBs            []KBSpec    // KBs to clone from a git remote, or mounted from a folder by --kb
+	Audit          AuditConfig // append-only audit log
 	// ToolsProfile selects which tools tools/list advertises: "agent"
 	// (default) hides the advanced/operator tools, "full" advertises all.
 	// Hidden tools stay callable via tools/call (D65).
@@ -178,13 +181,9 @@ func (t *TokenSpec) UnmarshalYAML(node *yaml.Node) error {
 // KBSpec identifies a single KB: one to be cloned from a git remote (Remote)
 // into Config.Data before opening, or, from the command line only, a folder
 // already on disk (Path). The remaining fields are optional per-KB overrides for
-// SSH and SOPS; a zero value falls back to the corresponding global
-// GitConfig/SopsConfig setting.
+// the KB's policy. Its secrets (SSH key, token, age key, artifact signing seed)
+// are files named after it in the credentials directory (D905).
 type KBSpec struct {
-	// ArtifactSigningSeed is a 32-byte hexadecimal Ed25519 seed used only to
-	// sign provisioning artifacts served from this KB. It is never exposed by
-	// health, MCP responses, or diagnostic output.
-	ArtifactSigningSeed string `yaml:"artifact_signing_seed,omitempty"`
 	// MCPAllowlist is the per-KB operator policy for third-party HTTP MCP
 	// descriptors. An absent or empty list intentionally denies every one.
 	MCPAllowlist []provisioning.MCPAllowlistEntry `yaml:"mcp_allowlist,omitempty"`
@@ -202,13 +201,9 @@ type KBSpec struct {
 	// basename of Remote/Path (see cmd/cartographer.resolveKBName). If set,
 	// it wins everywhere the name is used: the HTTP endpoint (/mcp/<name>),
 	// token scopes (kb:<name>:r|rw), the clone destination under Config.Data,
-	// the git token-file convention (GitConfig.TokenDir/<name>.token), and
-	// the SOPS age-key convention (SopsConfig.AgeKeyDir/<name>.age) (D53).
+	// and the names of its files in the credentials directory (<name>.ssh,
+	// <name>.token, <name>.age, <name>.signing) (D905).
 	Name string `yaml:"name,omitempty"`
-
-	SSHKey         string `yaml:"ssh_key,omitempty"`
-	KnownHosts     string `yaml:"known_hosts,omitempty"`
-	SopsAgeKeyFile string `yaml:"sops_age_key_file,omitempty"`
 
 	// AllowArtifactWrite enables the artifact_write/artifact_delete MCP tools
 	// (D71) for this KB — writing a provisioning artifact (skill/agent/hook/
@@ -276,47 +271,23 @@ type KBSpec struct {
 
 	// Secrets says the KB uses secrets (D746): a mount of it without an age key
 	// reports secrets as missing key. It enables nothing by itself, the key is
-	// sops_age_key_file.
+	// the KB's age file in the credentials directory.
 	Secrets bool `yaml:"secrets,omitempty"`
-}
-
-// GitConfig is the SSH identity and the credentials used to reach remote KBs.
-// Whether to commit and whether to sync are not settings: every write is a
-// commit, and a KB with a remote syncs while one without never contacts
-// anything (D903). Nor is the git identity: the committer is the server and the
-// author of a write is the writer (D904).
-type GitConfig struct {
-	SSHKey     string
-	KnownHosts string
-	// TokenDir, if set, is a directory holding one file per KB
-	// (<TokenDir>/<name>.token, trimmed content = the token) used as HTTPS
-	// git credentials for that KB's remote — convention over per-KB YAML
-	// config (D53). Injected via a credential.helper in the process env
-	// (cmd/cartographer.gitTokenCredentialEnv); never written to disk/argv.
-	TokenDir string
-}
-
-// SopsConfig controls the default SOPS age key used to decrypt secret refs.
-type SopsConfig struct {
-	AgeKeyFile string `yaml:"age_key_file"`
-	// AgeKeyDir, if set, is a directory holding one age key file per KB
-	// (<AgeKeyDir>/<name>.age) — convention over per-KB YAML config (D53).
-	// Resolution order: KBSpec.SopsAgeKeyFile > <AgeKeyDir>/<name>.age (if
-	// present) > AgeKeyFile.
-	AgeKeyDir string `yaml:"age_key_dir"`
 }
 
 // AuditConfig controls the append-only audit log.
 type AuditConfig struct {
-	Log     string `yaml:"log"`
-	KeySeed string `yaml:"key_seed"`
+	// Log relocates the audit log; empty means <data>/audit/audit.log. The log
+	// is always on and signed with audit.key from the credentials directory
+	// (D905): read the path through Config.AuditLogPath.
+	Log string `yaml:"log"`
 	// Mode is "best_effort" (default) or "required" (D119). In best_effort a
 	// failed append is logged and the MCP call proceeds; in required the call
 	// is rejected before the tool runs, so the log can never be missing an
 	// operation that actually happened.
 	Mode string `yaml:"mode,omitempty"`
-	// MaxSegmentBytes rotates the active segment once it exceeds this size.
-	// Zero keeps the package default.
+	// MaxSegmentBytes rotates the active segment once it exceeds this size, so
+	// retention has segments to delete. DefaultAuditMaxSegmentBytes unless set.
 	MaxSegmentBytes int64 `yaml:"max_segment_bytes,omitempty"`
 	// ArchiveDir holds rotated segments. Empty keeps them beside the log.
 	ArchiveDir string `yaml:"archive_dir,omitempty"`
@@ -331,7 +302,6 @@ type AuditConfig struct {
 // (default 90) differs from an explicit 0 (keep forever).
 type rawAudit struct {
 	Log             string `yaml:"log"`
-	KeySeed         string `yaml:"key_seed"`
 	Mode            string `yaml:"mode"`
 	MaxSegmentBytes int64  `yaml:"max_segment_bytes"`
 	ArchiveDir      string `yaml:"archive_dir"`
@@ -342,11 +312,16 @@ type rawAudit struct {
 // the operator does not say (D325).
 const DefaultAuditRetentionDays = 90
 
+// DefaultAuditMaxSegmentBytes is the size at which the active audit segment is
+// rotated when the operator does not say (D905). Without a size the log never
+// rotated, and retention never had a segment to delete.
+const DefaultAuditMaxSegmentBytes int64 = 64 << 20
+
 // Default returns the configuration used when no YAML file is provided.
 func Default() *Config {
 	return &Config{
 		Auth:         AuthConfig{Mode: "auto"},
-		Audit:        AuditConfig{RetentionDays: DefaultAuditRetentionDays},
+		Audit:        AuditConfig{RetentionDays: DefaultAuditRetentionDays, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
 		ToolsProfile: "agent",
 		MCP:          MCPConfig{},
 		Web:          WebConfig{Enabled: true},
@@ -358,17 +333,16 @@ func Default() *Config {
 // clobber a non-zero default (web.enabled, update_check) are pointers, so
 // Load can distinguish "absent from YAML" from "explicitly false".
 type rawConfig struct {
-	HTTP  string     `yaml:"http"`
-	Init  bool       `yaml:"init"`
-	Auth  rawAuth    `yaml:"auth"`
-	Data  string     `yaml:"data"`
-	KBs   []KBSpec   `yaml:"kbs"`
-	Git   rawGit     `yaml:"git"`
-	Audit rawAudit   `yaml:"audit"`
-	Sops  SopsConfig `yaml:"sops"`
-	Tools rawTools   `yaml:"tools"`
-	MCP   rawMCP     `yaml:"mcp"`
-	Web   rawWeb     `yaml:"web"`
+	HTTP           string   `yaml:"http"`
+	Init           bool     `yaml:"init"`
+	Auth           rawAuth  `yaml:"auth"`
+	Data           string   `yaml:"data"`
+	CredentialsDir string   `yaml:"credentials_dir"`
+	KBs            []KBSpec `yaml:"kbs"`
+	Audit          rawAudit `yaml:"audit"`
+	Tools          rawTools `yaml:"tools"`
+	MCP            rawMCP   `yaml:"mcp"`
+	Web            rawWeb   `yaml:"web"`
 	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
 	// default is true.
 	UpdateCheck *bool `yaml:"update_check"`
@@ -398,12 +372,6 @@ type rawAuth struct {
 	Roles  []RoleSpec  `yaml:"roles"`
 }
 
-type rawGit struct {
-	SSHKey     string `yaml:"ssh_key"`
-	KnownHosts string `yaml:"known_hosts"`
-	TokenDir   string `yaml:"token_dir"`
-}
-
 // Load parses a YAML config file, layering it on top of Default().
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -421,6 +389,7 @@ func Load(path string) (*Config, error) {
 	cfg.HTTP = raw.HTTP
 	cfg.Init = raw.Init
 	cfg.Data = raw.Data
+	cfg.CredentialsDir = raw.CredentialsDir
 	cfg.KBs = raw.KBs
 	if err := ValidateKBAliases(raw.KBAliases); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
@@ -453,13 +422,10 @@ func Load(path string) (*Config, error) {
 		}
 	}
 	cfg.Audit.Log = raw.Audit.Log
-	seed, err := expandEnvRef(raw.Audit.KeySeed)
-	if err != nil {
-		return nil, fmt.Errorf("config: audit.key_seed: %w", err)
-	}
-	cfg.Audit.KeySeed = seed
 	cfg.Audit.Mode = raw.Audit.Mode
-	cfg.Audit.MaxSegmentBytes = raw.Audit.MaxSegmentBytes
+	if raw.Audit.MaxSegmentBytes > 0 {
+		cfg.Audit.MaxSegmentBytes = raw.Audit.MaxSegmentBytes
+	}
 	cfg.Audit.ArchiveDir = raw.Audit.ArchiveDir
 	if raw.Audit.RetentionDays != nil {
 		cfg.Audit.RetentionDays = *raw.Audit.RetentionDays
@@ -480,12 +446,6 @@ func Load(path string) (*Config, error) {
 	if err := ValidateAuthRoles(cfg.Auth); err != nil {
 		return nil, fmt.Errorf("config: auth: %w", err)
 	}
-
-	cfg.Git.SSHKey = raw.Git.SSHKey
-	cfg.Git.KnownHosts = raw.Git.KnownHosts
-	cfg.Git.TokenDir = raw.Git.TokenDir
-
-	cfg.Sops = raw.Sops
 
 	if raw.Web.Enabled != nil {
 		cfg.Web.Enabled = *raw.Web.Enabled
@@ -547,25 +507,13 @@ func FromEnv(cfg *Config) {
 		cfg.mark(OriginEnv, "update_check")
 		cfg.UpdateCheck = parseBool(v, cfg.UpdateCheck)
 	}
-	if v := os.Getenv("CARTOGRAPHER_GIT_TOKEN_DIR"); v != "" {
-		cfg.mark(OriginEnv, "git.token_dir")
-		cfg.Git.TokenDir = v
+	if v := os.Getenv("CARTOGRAPHER_CREDENTIALS_DIR"); v != "" {
+		cfg.mark(OriginEnv, "credentials_dir")
+		cfg.CredentialsDir = v
 	}
 	if v := os.Getenv("CARTOGRAPHER_AUDIT_LOG"); v != "" {
 		cfg.mark(OriginEnv, "audit.log")
 		cfg.Audit.Log = v
-	}
-	if v := os.Getenv("CARTOGRAPHER_AUDIT_KEY"); v != "" {
-		cfg.mark(OriginEnv, "audit.key_seed")
-		cfg.Audit.KeySeed = v
-	}
-	if v := os.Getenv("CARTOGRAPHER_SOPS_AGE_KEY_FILE"); v != "" {
-		cfg.mark(OriginEnv, "sops.age_key_file")
-		cfg.Sops.AgeKeyFile = v
-	}
-	if v := os.Getenv("CARTOGRAPHER_SOPS_AGE_KEY_DIR"); v != "" {
-		cfg.mark(OriginEnv, "sops.age_key_dir")
-		cfg.Sops.AgeKeyDir = v
 	}
 	if v := os.Getenv("CARTOGRAPHER_TOOLS_PROFILE"); v != "" {
 		cfg.mark(OriginEnv, "tools.profile")

@@ -6,6 +6,8 @@ topic: concurrency-git
 
 > **Amended by [D904](D904-the-writer-is-the-author.md)**: the per-KB author and committer are removed (the writer is the author, the server the committer); the per-KB SSH key and credentials still win over the process.
 
+> **Amended by [D905](D905-one-credentials-directory-audit-always-on.md)**: the per-KB SSH key is `<kb>.ssh` in the credentials directory (`kbs[].ssh_key` and `kbs[].known_hosts` are removed); it still wins over the process.
+
 **Decision.** Connects the identity fields of `KBSpec`/`GitConfig` (D44) to the actual git commands.
 `internal/gitx.runGitEnv(dir, env, args...)` runs git with `env` **winning** over the process on
 duplicate keys; `Clone`/`Commit`/`Fetch`/`Push`/`PullRebaseAutostash` take a variadic

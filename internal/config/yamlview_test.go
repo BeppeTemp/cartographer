@@ -13,9 +13,8 @@ func yamlView() View {
 			{Key: "http", Value: "127.0.0.1:39273", Origin: OriginFlag, Flag: "--http"},
 			{Key: "auth.mode", Value: "on", Origin: OriginEnv, Env: "CARTOGRAPHER_AUTH"},
 			{Key: "auth.tokens", Value: SecretSet, Origin: OriginFile, Secret: true},
-			{Key: "audit.key_seed", Value: SecretUnset, Origin: OriginDefault, Secret: true},
-			{Key: "git.ssh_key", Value: "", Origin: OriginDefault},
-			{Key: "git.known_hosts", Value: "/etc/known_hosts", Origin: OriginFile},
+			{Key: "credentials_dir", Value: "", Origin: OriginDefault},
+			{Key: "data", Value: "/etc/data", Origin: OriginFile},
 			{Key: "kbs", Value: []string{"kb-a", "work-kb"}, Origin: OriginFile},
 		},
 		KBs: []KBEntries{
@@ -41,9 +40,9 @@ func TestServerYAMLIsTheEffectiveFileDocumented(t *testing.T) {
 		"http: 127.0.0.1:39273 # from --http",
 		"mode: \"on\" # from CARTOGRAPHER_AUTH",
 		"tokens: " + Redacted,
-		"known_hosts: /etc/known_hosts",
+		"data: /etc/data",
 		// A key at its default is documented, commented out, not set.
-		"# ssh_key: \"\"",
+		"# credentials_dir: <data>/credentials",
 		// The server file's kbs[] entry, not what the KB's own file sets.
 		"remote: https://git.example.com/user/kb-a.git",
 	} {
@@ -51,7 +50,7 @@ func TestServerYAMLIsTheEffectiveFileDocumented(t *testing.T) {
 			t.Errorf("server YAML lacks %q:\n%s", want, text)
 		}
 	}
-	for _, unwanted := range []string{"doctor_mode: auto", "key_seed: " + Redacted, "work-kb"} {
+	for _, unwanted := range []string{"doctor_mode: auto", "work-kb"} {
 		if strings.Contains(text, unwanted) {
 			t.Errorf("server YAML carries %q:\n%s", unwanted, text)
 		}

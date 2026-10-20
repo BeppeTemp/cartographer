@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -383,9 +382,5 @@ func clientServerURL() string {
 // `service install`, falling back to a relative path if the home directory
 // cannot be resolved.
 func defaultDataDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "cartographer-data"
-	}
-	return filepath.Join(home, "cartographer-data")
+	return config.DefaultDataDir()
 }

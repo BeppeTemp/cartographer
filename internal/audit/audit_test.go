@@ -520,6 +520,161 @@ func TestVerifyAuditRequiresKeyWhenCheckpointSigned(t *testing.T) {
 	}
 }
 
+// appendCall records one completed tool call as an attempt/completion pair.
+func appendCall(t *testing.T, l *Log, id string) {
+	t.Helper()
+	if _, err := l.AppendEvent(Entry{RequestID: id, Phase: PhaseAttempt, Tool: "concept_read"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.AppendEvent(Entry{RequestID: id, Phase: PhaseCompletion, Tool: "concept_read", Outcome: OutcomeSuccess}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// legacyLog writes two unsigned calls, as a server without a seed did before
+// D905, and returns the active log size.
+func legacyLog(t *testing.T, path, archive string) int64 {
+	t.Helper()
+	l, err := OpenWithOptions(path, Options{ArchiveDir: archive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendCall(t, l, "old-1")
+	appendCall(t, l, "old-2")
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fi.Size()
+}
+
+// TestVerifyAuditAcceptsAnUnsignedPrefix: a log kept without a seed is signed
+// from the D905 upgrade on. The first signature covers the hash chain, so the
+// old entries are authenticated through it, and a rotation after the upgrade
+// must not turn them into unsigned events of a signing-required segment. An
+// unsigned entry after a signed one still is one.
+func TestVerifyAuditAcceptsAnUnsignedPrefix(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	archive := filepath.Join(dir, "archive")
+	legacyLog(t, path, archive)
+
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := OpenWithKeyAndOptions(path, kp, Options{MaxBytes: 1, ArchiveDir: archive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendCall(t, signed, "new-1")
+	appendCall(t, signed, "new-2")
+	if err := signed.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	sum, err := VerifyAudit(path, archive, kp.Public)
+	if err != nil {
+		t.Fatalf("VerifyAudit after the upgrade: %v", err)
+	}
+	if sum.Unsigned != 4 || sum.Retained == 0 {
+		t.Errorf("summary = %+v, want the 4 legacy entries unsigned and the log rotated", sum)
+	}
+
+	downgraded, err := OpenWithOptions(path, Options{ArchiveDir: archive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendCall(t, downgraded, "after")
+	if err := downgraded.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyAudit(path, archive, kp.Public); err == nil || !strings.Contains(err.Error(), "unsigned event") {
+		t.Errorf("VerifyAudit after an unsigned run = %v, want the unsigned event reported", err)
+	}
+}
+
+// TestVerifyAuditRequiresSignaturesAfterASigningCheckpoint: the rotation runs
+// before the append, so the first one after the upgrade can archive a segment
+// holding legacy entries only. Its checkpoint still says a key was loaded, so
+// an unsigned chain continuing from it (here: the signed active file replaced
+// by forged entries) is refused even though no signed entry precedes it.
+func TestVerifyAuditRequiresSignaturesAfterASigningCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	archive := filepath.Join(dir, "archive")
+	size := legacyLog(t, path, archive)
+
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := OpenWithKeyAndOptions(path, kp, Options{MaxBytes: size, ArchiveDir: archive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendCall(t, signed, "new")
+	if err := signed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if sum, err := VerifyAudit(path, archive, kp.Public); err != nil || sum.Retained != 1 || sum.Unsigned != 4 {
+		t.Fatalf("VerifyAudit = %+v, %v; want one archived legacy segment and a valid log", sum, err)
+	}
+
+	if err := os.Truncate(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	forged, err := OpenWithOptions(path, Options{ArchiveDir: archive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendCall(t, forged, "forged")
+	if err := forged.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyAudit(path, archive, kp.Public); err == nil || !strings.Contains(err.Error(), "unsigned event") {
+		t.Errorf("VerifyAudit of a forged unsigned tail = %v, want the unsigned event reported", err)
+	}
+}
+
+// TestVerifyAuditRefusesAnUnsignedRunBetweenSignedOnes: a keyed run, an
+// unsigned one and a keyed one again, all before the first rotation. The
+// archived segment holds an unsigned event after a signed one: a downgrade,
+// not a legacy prefix.
+func TestVerifyAuditRefusesAnUnsignedRunBetweenSignedOnes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	archive := filepath.Join(dir, "archive")
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, key := range []*KeyPair{&kp, nil} {
+		l, err := open(path, key, Options{ArchiveDir: archive})
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendCall(t, l, fmt.Sprintf("run-%d", i))
+		if err := l.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l, err := OpenWithKeyAndOptions(path, kp, Options{MaxBytes: 1, ArchiveDir: archive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendCall(t, l, "run-2")
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyAudit(path, archive, kp.Public); err == nil || !strings.Contains(err.Error(), "unsigned event") {
+		t.Errorf("VerifyAudit = %v, want the unsigned run reported", err)
+	}
+}
+
 // TestRotationCheckpointFailurePreservesActiveSegment is a fault-injection
 // test for the ordering guarantee documented on rotateLocked: if the
 // checkpoint index write fails, the active segment must be left completely
@@ -818,5 +973,104 @@ func TestResultBytesKeepsOldHashesAndIsCovered(t *testing.T) {
 	}
 	if s, err := VerifyFile(path, nil); err == nil && s.Valid == 4 {
 		t.Fatal("tampered result_bytes still verifies")
+	}
+}
+
+// SingleWriter keeps a second writer off the log, which would fork the chain it
+// holds in memory, until the first closes it.
+func TestSingleWriterLock(t *testing.T) {
+	shortLockWait(t, 200*time.Millisecond)
+	path := filepath.Join(t.TempDir(), "audit.log")
+	first, err := OpenWithOptions(path, Options{SingleWriter: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenWithOptions(path, Options{SingleWriter: true}); !errors.Is(err, ErrLocked) {
+		t.Fatalf("second writer: err = %v, want ErrLocked", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := OpenWithOptions(path, Options{SingleWriter: true})
+	if err != nil {
+		t.Fatalf("after Close: %v", err)
+	}
+	again.Close()
+}
+
+// TestVerifyAuditRefusesAnUnsignedEntryAfterTheFirstSignature: a log that never
+// rotated has no checkpoint, yet an unsigned entry after a signed one is still
+// a downgrade. The unsigned prefix before the first signature stays accepted.
+func TestVerifyAuditRefusesAnUnsignedEntryAfterTheFirstSignature(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, key := range []*KeyPair{nil, &kp} {
+		l, err := open(path, key, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendCall(t, l, fmt.Sprintf("run-%d", i))
+		if err := l.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := VerifyAudit(path, "", kp.Public); err != nil {
+		t.Fatalf("unsigned prefix then signed = %v, want accepted", err)
+	}
+	l, err := open(path, nil, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendCall(t, l, "run-2")
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyAudit(path, "", kp.Public); err == nil || !strings.Contains(err.Error(), "unsigned event") {
+		t.Errorf("VerifyAudit = %v, want the unsigned entry reported", err)
+	}
+}
+
+func shortLockWait(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := LockWait
+	LockWait = d
+	t.Cleanup(func() { LockWait = old })
+}
+
+// A writer started while its predecessor is still exiting waits for the lock;
+// one that stays held past the wait is refused.
+func TestSingleWriterLockWaitsForTheExitingHolder(t *testing.T) {
+	shortLockWait(t, 5*time.Second)
+	path := filepath.Join(t.TempDir(), "audit.log")
+	first, err := OpenWithOptions(path, Options{SingleWriter: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		first.Close()
+	}()
+	second, err := OpenWithOptions(path, Options{SingleWriter: true})
+	if err != nil {
+		t.Fatalf("open while the holder exits: %v", err)
+	}
+	second.Close()
+
+	held, err := OpenWithOptions(path, Options{SingleWriter: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	LockWait = 250 * time.Millisecond
+	start := time.Now()
+	if _, err := OpenWithOptions(path, Options{SingleWriter: true}); !errors.Is(err, ErrLocked) {
+		t.Fatalf("held throughout: err = %v, want ErrLocked", err)
+	}
+	if time.Since(start) < 200*time.Millisecond {
+		t.Errorf("gave up after %v, before the wait", time.Since(start))
 	}
 }

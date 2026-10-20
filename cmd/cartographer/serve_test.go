@@ -1,54 +1,143 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
-// TestResolveSopsAgeKeyFile covers the fallback chain (D53): explicit
-// spec.SopsAgeKeyFile wins; otherwise <AgeKeyDir>/<name>.age if present;
-// otherwise the global Sops.AgeKeyFile.
-func TestResolveSopsAgeKeyFile(t *testing.T) {
-	dir := t.TempDir()
-	keyPath := filepath.Join(dir, "wiki-kb.age")
-	if err := os.WriteFile(keyPath, []byte("age-key-material"), 0o600); err != nil {
+// --- D905: the audit log is always on and signed ---
+
+func auditTestConfig(t *testing.T, mode string) *config.Config {
+	t.Helper()
+	cfg := config.Default()
+	cfg.Data = t.TempDir()
+	cfg.Audit.Mode = mode
+	return cfg
+}
+
+func appendAuditTestEntry(t *testing.T, l *audit.Log) {
+	t.Helper()
+	if err := l.Append(audit.Entry{Timestamp: time.Now(), Tool: "search", AgentID: "test", Outcome: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A fresh start opens the log under data and signs it with an audit.key it
+// generates, 0600; the next start reads the same key. The seed is never logged,
+// the public key a verification needs is.
+func TestOpenAuditLogGeneratesTheKeyAndSigns(t *testing.T) {
+	logs := captureLog(t)
+	cfg := auditTestConfig(t, "")
+	l, err := openAuditLog(cfg)
+	if err != nil || l == nil {
+		t.Fatalf("openAuditLog = %v, %v", l, err)
+	}
+	appendAuditTestEntry(t, l)
+	if err := l.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Run("explicit override wins", func(t *testing.T) {
-		spec := config.KBSpec{SopsAgeKeyFile: "/explicit/key.age"}
-		sops := config.SopsConfig{AgeKeyDir: dir, AgeKeyFile: "/global/key.age"}
-		if got := resolveSopsAgeKeyFile(spec, sops, "wiki-kb"); got != "/explicit/key.age" {
-			t.Errorf("got %q, want /explicit/key.age", got)
+	keyPath := filepath.Join(cfg.CredentialsPath(), config.AuditKeyFile)
+	info, err := os.Stat(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Errorf("%s mode = %v, want 0600", keyPath, info.Mode().Perm())
+	}
+	kp, generated, err := loadAuditKey(cfg.CredentialsPath())
+	if err != nil || generated {
+		t.Fatalf("second load: generated=%v err=%v, want the key already there", generated, err)
+	}
+	sum, err := audit.VerifyAudit(cfg.AuditLogPath(), "", kp.Public)
+	if err != nil || sum.Valid != 1 || sum.Unsigned != 0 {
+		t.Errorf("verify = %+v, %v; want one signed entry", sum, err)
+	}
+	out := logs.String()
+	if strings.Contains(out, kp.SeedToHex()) {
+		t.Error("the audit seed is in the log")
+	}
+	for _, want := range []string{"audit key generated: " + keyPath, "--public-key "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log lacks %q:\n%s", want, out)
 		}
-	})
+	}
+}
 
-	t.Run("age_key_dir convention when file exists", func(t *testing.T) {
-		sops := config.SopsConfig{AgeKeyDir: dir, AgeKeyFile: "/global/key.age"}
-		if got := resolveSopsAgeKeyFile(config.KBSpec{}, sops, "wiki-kb"); got != keyPath {
-			t.Errorf("got %q, want %q", got, keyPath)
-		}
-	})
+// A credentials directory the server cannot write leaves the key missing: in
+// best_effort the log runs unsigned after one warning naming the file, in
+// required the server does not start.
+func TestOpenAuditLogWithoutAWritableCredentialsDir(t *testing.T) {
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A mode the log does not know is required there, so it is here too.
+	for _, mode := range []string{"best_effort", "required", "requierd"} {
+		t.Run(mode, func(t *testing.T) {
+			logs := captureLog(t)
+			cfg := auditTestConfig(t, mode)
+			cfg.CredentialsDir = filepath.Join(blocker, "credentials")
+			keyPath := filepath.Join(cfg.CredentialsDir, config.AuditKeyFile)
+			l, err := openAuditLog(cfg)
+			if mode != "best_effort" {
+				if err == nil || l != nil || !strings.Contains(err.Error(), keyPath) {
+					t.Fatalf("openAuditLog = %v, %v; want a refusal naming %s", l, err, keyPath)
+				}
+				return
+			}
+			if err != nil || l == nil {
+				t.Fatalf("openAuditLog = %v, %v; want an unsigned log", l, err)
+			}
+			appendAuditTestEntry(t, l)
+			if err := l.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if sum, err := audit.VerifyAudit(cfg.AuditLogPath(), "", nil); err != nil || sum.Unsigned != 1 {
+				t.Errorf("verify = %+v, %v; want one unsigned entry", sum, err)
+			}
+			if out := logs.String(); !strings.Contains(out, "NOT signed") || !strings.Contains(out, keyPath) {
+				t.Errorf("log lacks the warning naming %s:\n%s", keyPath, out)
+			}
+		})
+	}
+}
 
-	t.Run("falls back to global when convention file absent", func(t *testing.T) {
-		sops := config.SopsConfig{AgeKeyDir: dir, AgeKeyFile: "/global/key.age"}
-		if got := resolveSopsAgeKeyFile(config.KBSpec{}, sops, "no-such-kb"); got != "/global/key.age" {
-			t.Errorf("got %q, want /global/key.age", got)
-		}
-	})
+// A log has one writer: a second process on it (a second stdio session) runs
+// without one in best_effort, and does not start in required.
+func TestOpenAuditLogHasOneWriter(t *testing.T) {
+	cfg := auditTestConfig(t, "best_effort")
+	first, err := openAuditLog(cfg)
+	if err != nil || first == nil {
+		t.Fatalf("first = %v, %v", first, err)
+	}
+	defer first.Close()
 
-	t.Run("falls back to global when age_key_dir unset", func(t *testing.T) {
-		sops := config.SopsConfig{AgeKeyFile: "/global/key.age"}
-		if got := resolveSopsAgeKeyFile(config.KBSpec{}, sops, "wiki-kb"); got != "/global/key.age" {
-			t.Errorf("got %q, want /global/key.age", got)
-		}
-	})
+	oldWait := audit.LockWait
+	audit.LockWait = 50 * time.Millisecond
+	t.Cleanup(func() { audit.LockWait = oldWait })
+	logs := captureLog(t)
+	second, err := openAuditLog(cfg)
+	if err != nil || second != nil {
+		t.Fatalf("second = %v, %v; want no log and no error", second, err)
+	}
+	if !strings.Contains(logs.String(), "WITHOUT an audit log") {
+		t.Errorf("log lacks the warning:\n%s", logs)
+	}
+	cfg.Audit.Mode = "required"
+	if _, err := openAuditLog(cfg); !errors.Is(err, audit.ErrLocked) {
+		t.Errorf("required: err = %v, want ErrLocked", err)
+	}
 }
 
 // --- D179: the effective configuration is validated, not just the YAML ---
@@ -147,5 +236,46 @@ func TestGeneratedLocalConfigIgnoresEnvTokens(t *testing.T) {
 				t.Errorf("auth enabled = %v, want %v (mode %q, %d token(s))", on, tc.wantAuth, cfg.Auth.Mode, len(cfg.Auth.Tokens))
 			}
 		})
+	}
+}
+
+// A session on --kb folders without data keeps no audit log and no credentials
+// in the home directory; audit.log brings the log back.
+func TestOpenAuditLogFolderSessionWithoutData(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	cfg := config.Default()
+	cfg.KBs = []config.KBSpec{{Path: t.TempDir()}}
+
+	logs := captureLog(t)
+	l, err := openAuditLog(cfg)
+	if err != nil || l != nil {
+		t.Fatalf("openAuditLog = %v, %v; want no log and no error", l, err)
+	}
+	if !strings.Contains(logs.String(), "audit log: off") {
+		t.Errorf("log lacks the off line:\n%s", logs)
+	}
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Errorf("the home directory holds %d entries, want none", len(entries))
+	}
+	if err := checkCredentialsDir(cfg); err != nil {
+		t.Errorf("checkCredentialsDir = %v", err)
+	}
+
+	cfg.Audit.Mode = "required"
+	if _, err := openAuditLog(cfg); err == nil {
+		t.Error("required without any audit.log started")
+	}
+
+	cfg.Audit.Mode = "best_effort"
+	cfg.Audit.Log = filepath.Join(t.TempDir(), "audit.log")
+	l, err = openAuditLog(cfg)
+	if err != nil || l == nil {
+		t.Fatalf("with audit.log: %v, %v", l, err)
+	}
+	l.Close()
+	if entries, _ := os.ReadDir(home); len(entries) != 0 {
+		t.Errorf("the home directory holds %d entries after an explicit audit.log, want none", len(entries))
 	}
 }

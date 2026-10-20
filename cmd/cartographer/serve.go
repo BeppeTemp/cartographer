@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -146,13 +147,12 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 }
 
 // kbMount pairs a resolved filesystem path and resolved name with the
-// config.KBSpec it came from, so each KB can carry its own SSH
-// override through the open/init step. Name is resolved once via
-// resolveKBName (D53) — before the git-token/SOPS-age-key conventions are
-// applied — so it is used verbatim afterwards instead of being re-derived.
-// KBs auto-discovered from --data have a zero-value Spec, which falls back
-// entirely to the global cfg.Git settings; their Name is just the directory
-// basename (no config.KBSpec to carry an override).
+// config.KBSpec it came from, so each KB carries its own policy through the
+// open/init step. Name is resolved once via resolveKBName (D53) — before the
+// files named after the KB in the credentials directory are looked up (D905) —
+// so it is used verbatim afterwards instead of being re-derived. KBs
+// auto-discovered from --data have a zero-value Spec; their Name is just the
+// directory basename (no config.KBSpec to carry an override).
 type kbMount struct {
 	Path string
 	Name string
@@ -164,23 +164,6 @@ type kbMount struct {
 	// who writes kbs: [{path: ...}] with no options also has a zero Spec, and
 	// that KB is configured — it chose the defaults.
 	Discovered bool
-}
-
-// resolveSopsAgeKeyFile resolves the SOPS age key file for a KB (D53).
-// Resolution order: spec.SopsAgeKeyFile (explicit per-KB override) wins;
-// otherwise <sops.AgeKeyDir>/<name>.age if that file exists; otherwise the
-// global sops.AgeKeyFile.
-func resolveSopsAgeKeyFile(spec config.KBSpec, sops config.SopsConfig, name string) string {
-	if spec.SopsAgeKeyFile != "" {
-		return spec.SopsAgeKeyFile
-	}
-	if sops.AgeKeyDir != "" && name != "" {
-		p := filepath.Join(sops.AgeKeyDir, name+".age")
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return sops.AgeKeyFile
 }
 
 // kbBootstrap is what bootstrapKBs hands to the transport: the mounted KBs and
@@ -200,16 +183,20 @@ type kbBootstrap struct {
 // they always were.
 func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	// Collect all KB mounts: explicit KBSpec paths first (local, then
-	// remote clones — each carrying its own spec for per-KB SSH),
-	// then auto-discovered from Data (zero-value spec = fallback to the
-	// global cfg.Git SSH settings).
+	// remote clones — each carrying its own spec), then auto-discovered from
+	// Data (zero-value spec). A KB's credentials are files named after it in
+	// the credentials directory, whatever its origin (D905).
 	phase("cloning")
+	credDir := cfg.CredentialsPath()
 	var mounts []kbMount
 	for _, spec := range cfg.KBs {
 		if spec.Remote != "" {
 			name := resolveKBName(spec, "")
-			dest, err := ensureClonedKB(spec.Remote, name, cfg.Data, gitEnvForKB(spec, cfg.Git, name)...)
+			dest, err := ensureClonedKB(spec.Remote, name, cfg.Data, gitEnvForKB(name, credDir)...)
 			if err != nil {
+				if hint := credentialHint(spec.Remote, name, credDir); hint != "" {
+					err = fmt.Errorf("%w\n%s", err, hint)
+				}
 				log.Fatalf("KB remote %q: %v", spec.Remote, err)
 			}
 			mounts = append(mounts, kbMount{Path: dest, Name: name, Spec: spec})
@@ -220,7 +207,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		}
 	}
 	if cfg.Data != "" {
-		discovered, err := discoverKBPaths(cfg.Data)
+		discovered, err := discoverKBPaths(cfg.Data, cfg.CredentialsPath())
 		if err != nil {
 			log.Fatalf("--data discovery failed: %v", err)
 		}
@@ -275,8 +262,8 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		}
 		k.SyncInWindow = kb.DefaultSyncInWindow
 		k.SyncOutDebounce = kb.SyncOutDebounceFor(os.Getenv)
-		k.GitEnv = gitEnvForKB(m.Spec, cfg.Git, m.Name)
-		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(m.Spec, cfg.Sops, m.Name)
+		k.GitEnv = gitEnvForKB(m.Name, credDir)
+		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(credDir, m.Name)
 		// The KB's settings.yaml is brought up to date first (D903): a retired
 		// key is dropped, in one commit of its own, and a KB that still asks for
 		// the server git profile does not mount at all.
@@ -303,12 +290,11 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			continue
 		}
 		seenNames[name] = m.Path
-		var artifactSigner ed25519.PrivateKey
-		if m.Spec.ArtifactSigningSeed != "" {
-			artifactSigner, err = artifactsig.ParseSeed(m.Spec.ArtifactSigningSeed)
-			if err != nil {
-				log.Fatalf("KB %q artifact signing seed invalid: %v", name, err)
-			}
+		artifactSigner, signed, err := loadArtifactSigner(credDir, name)
+		if err != nil {
+			log.Fatalf("KB %q artifact signing seed invalid: %v", name, err)
+		}
+		if signed {
 			log.Printf("KB %q provisioning artifact signing enabled (key ID %s)", name, artifactsig.KeyID(artifactSigner.Public().(ed25519.PublicKey)))
 		}
 		if _, scanErr := provisioning.BuildManifest(nil, map[string]string{name: k.Root}, provisioning.BuildOptions{
@@ -328,7 +314,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			// surface, which is how one deployment ran for a whole migration with
 			// artifact writes and tool prefixes silently off (D151).
 			// Its policy comes from its own settings.yaml (D746), when it has one.
-			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — its policy comes from its settings.yaml if it has one, sops_age_key_file and machine_path allow-prefixes are at their defaults", name)
+			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — its policy comes from its settings.yaml if it has one, and machine_path allow-prefixes are at their defaults", name)
 		}
 	}
 
@@ -400,7 +386,7 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 		log.Printf("warning: KB %q: %s sets %s to %s; the server's value %s is ignored — the KB is authoritative", name, kb.SettingsFile, g.Key, g.KBValue, g.ServerValue)
 	}
 	if info.SecretsDeclared && k.SopsAgeKeyFile == "" {
-		log.Printf("warning: KB %q declares secrets: true but no age key is configured for it (sops_age_key_file, or sops.age_key_dir/<name>.age)", name)
+		log.Printf("warning: KB %q declares secrets: true but no age key is configured for it (create %s.age or default.age in credentials_dir)", name, name)
 	}
 	if refresh {
 		log.Printf("KB %q: settings.yaml changed, effective settings re-resolved (mcp_allowlist and git workflow keys apply at the next start)", name)
@@ -410,31 +396,15 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 
 // runServe opens/bootstraps all configured KBs and starts the server.
 func runServe(cfg *config.Config) {
-	var auditLog *audit.Log
-	if cfg.Audit.Log != "" {
-		opts := auditOptions(cfg.Audit)
-		if cfg.Audit.KeySeed != "" {
-			kp, err := audit.KeyPairFromSeed(cfg.Audit.KeySeed)
-			if err != nil {
-				log.Fatalf("audit key seed invalid: %v", err)
-			}
-			al, err := audit.OpenWithKeyAndOptions(cfg.Audit.Log, kp, opts)
-			if err != nil {
-				log.Fatalf("audit log open: %v", err)
-			}
-			auditLog = al
-			log.Printf("audit log: %s (mode %s, signing enabled)", cfg.Audit.Log, auditLog.ModeName())
-		} else {
-			al, err := audit.OpenWithOptions(cfg.Audit.Log, opts)
-			if err != nil {
-				log.Fatalf("audit log open: %v", err)
-			}
-			auditLog = al
-			log.Printf("audit log: %s (mode %s)", cfg.Audit.Log, auditLog.ModeName())
-		}
+	if err := checkCredentialsDir(cfg); err != nil {
+		log.Fatal(err)
+	}
+	auditLog, err := openAuditLog(cfg)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	if err := setupGitSSH(cfg.Git); err != nil {
+	if err := setupGitSSH(cfg.CredentialsPath()); err != nil {
 		log.Fatalf("git SSH setup: %v", err)
 	}
 
@@ -775,10 +745,11 @@ func resolveAuth(authCfg config.AuthConfig) (bool, error) {
 }
 
 // discoverKBPaths scans dataDir and returns the paths of its direct
-// subdirectories (dotfiles excluded). A missing dataDir is tolerated: it is
+// subdirectories (dotfiles excluded), except the server's own and credDir, the
+// credentials directory ("" for none). A missing dataDir is tolerated: it is
 // created and treated as empty (0 KB, matching D73's "empty data dir" case)
 // rather than failing the whole server startup.
-func discoverKBPaths(dataDir string) ([]string, error) {
+func discoverKBPaths(dataDir, credDir string) ([]string, error) {
 	entries, err := os.ReadDir(dataDir)
 	if os.IsNotExist(err) {
 		if mkErr := os.MkdirAll(dataDir, 0o755); mkErr != nil {
@@ -792,24 +763,98 @@ func discoverKBPaths(dataDir string) ([]string, error) {
 	}
 	var paths []string
 	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+		path := filepath.Join(dataDir, e.Name())
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || serverOwnDataDir(path) ||
+			(credDir != "" && absPath(path) == absPath(credDir)) {
 			continue
 		}
-		paths = append(paths, filepath.Join(dataDir, e.Name()))
+		paths = append(paths, path)
 	}
 	return paths, nil
 }
 
+// serverOwnDataDir says whether a subdirectory of data is one the server keeps
+// for itself (credentials) and not a KB: discovery leaves it alone. One that
+// holds a KB is a KB, and the server then refuses to put its own files in it.
+func serverOwnDataDir(path string) bool {
+	if !config.IsReservedDataName(filepath.Base(path)) {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(path, "data", "index.md"))
+	return err != nil
+}
+
 // auditOptions maps the operator-facing audit configuration onto the package
-// options. An empty AuditConfig yields the zero Options, i.e. the pre-D119
-// best-effort behaviour.
+// options. The server is always the single writer of its log: a second process
+// on the same file would fork the hash chain.
 func auditOptions(c config.AuditConfig) audit.Options {
 	return audit.Options{
 		Mode:          c.Mode,
 		MaxBytes:      c.MaxSegmentBytes,
 		RetentionDays: c.RetentionDays,
 		ArchiveDir:    c.ArchiveDir,
+		SingleWriter:  true,
 	}
+}
+
+// openAuditLog opens the audit log, which is always on (D905): audit.log, or
+// <data>/audit/audit.log, signed with audit.key from the credentials directory,
+// generated at the first start. What cannot be had is one loud warning in
+// best_effort mode, and the server runs on: unsigned when the key cannot be
+// read or written, without a log when the log cannot be opened, which is also
+// the case of a second process on a log another one writes. In required mode
+// each of them refuses the start, the error naming the file.
+func openAuditLog(cfg *config.Config) (*audit.Log, error) {
+	path := cfg.AuditLogPath()
+	opts := auditOptions(cfg.Audit)
+	required := audit.IsRequired(opts.Mode)
+	if path == "" {
+		// A session on --kb folders without data has no directory for a log:
+		// it runs without one unless audit.log says where.
+		if required {
+			return nil, errors.New("audit log not started: audit.mode is required and a session on --kb folders without data has no audit.log")
+		}
+		log.Printf("audit log: off (--kb session without data; set audit.log to keep one)")
+		return nil, nil
+	}
+
+	kp, generated, keyErr := loadAuditKey(cfg.CredentialsPath())
+	if keyErr != nil {
+		if required {
+			return nil, fmt.Errorf("audit log not started: audit.mode is required and the signing key is unusable: %w", keyErr)
+		}
+		log.Printf("WARNING: the audit log is NOT signed: %v. Create %s with a 64-character hexadecimal seed, or make the directory writable so the server generates it.",
+			keyErr, filepath.Join(cfg.CredentialsPath(), config.AuditKeyFile))
+	}
+
+	var (
+		l   *audit.Log
+		err error
+	)
+	if err = os.MkdirAll(filepath.Dir(path), 0o750); err == nil {
+		if keyErr == nil {
+			l, err = audit.OpenWithKeyAndOptions(path, kp, opts)
+		} else {
+			l, err = audit.OpenWithOptions(path, opts)
+		}
+	}
+	if err != nil {
+		if required {
+			return nil, fmt.Errorf("audit log not started: audit.mode is required: %w", err)
+		}
+		log.Printf("WARNING: this process runs WITHOUT an audit log: %v", err)
+		return nil, nil
+	}
+
+	if generated {
+		log.Printf("audit key generated: %s", filepath.Join(cfg.CredentialsPath(), config.AuditKeyFile))
+	}
+	if keyErr == nil {
+		log.Printf("audit log: %s (mode %s, signed; verify with --public-key %s)", path, l.ModeName(), hex.EncodeToString(kp.Public))
+	} else {
+		log.Printf("audit log: %s (mode %s, unsigned)", path, l.ModeName())
+	}
+	return l, nil
 }
 
 // displayAddr turns a listen address into something a person can paste into a

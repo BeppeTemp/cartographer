@@ -282,11 +282,7 @@ auth:
 http: %q
 data: %q
 init: true
-%s# Operation log (D325): rotated segments older than 90 days are deleted; set
-# audit.retention_days: 0 to keep everything. Signing (audit.key_seed) is opt-in.
-audit:
-  log: %q
-`, httpAddr, dataDir, authBlock, filepath.Join(dataDir, "audit.log"))
+%s`, httpAddr, dataDir, authBlock)
 	// The settings schema documents the keys set above and lists the unset
 	// ones (D747). A failure to render leaves the plain file, which loads the same.
 	out, err := config.Schema.Format([]byte(base))

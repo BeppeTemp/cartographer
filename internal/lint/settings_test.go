@@ -21,7 +21,7 @@ func TestRun_SettingsFile(t *testing.T) {
 		t.Fatalf("a valid file has findings: %+v", got)
 	}
 
-	writeFile(t, k.Root, "settings.yaml", "write_gate: loud\nfrobnicate: 1\nssh_key: x\nauto_repair: [no_such_check]\n")
+	writeFile(t, k.Root, "settings.yaml", "write_gate: loud\nfrobnicate: 1\nremote: x\nauto_repair: [no_such_check]\n")
 	got := findingsOf(mustRun(t, k), "contract_malformed")
 	if len(got) != 4 {
 		t.Fatalf("contract_malformed = %+v, want one per bad entry", got)

@@ -68,16 +68,17 @@ var settingsKeys = map[string]settingSpec{
 // settingsServerOnly are the kbs[] keys bound to one machine; a KB that names
 // one gets a finding that says so rather than "unknown key".
 var settingsServerOnly = map[string]bool{
-	"remote": true, "name": true, "ssh_key": true, "known_hosts": true,
-	"sops_age_key_file": true, "artifact_signing_seed": true,
+	"remote": true, "name": true,
 }
 
 // SettingsRetired is the registry of the keys a settings.yaml used to carry and
-// no longer does (D903): the server git profile and its forge, whose pull-request
-// boundary is gone, and git_branch, which became branch. The author and
-// committer keys were server-only and are gone everywhere (D904). Parsing a file
-// that still has one leaves it out with a finding that names what to use;
-// realigning the file drops it.
+// no longer does: the server git profile and its forge, whose pull-request
+// boundary is gone, and git_branch, which became branch (D903); the author and
+// committer keys, which were server-only and are gone everywhere (D904); and
+// the machine secrets a KB's file should never have carried, which are files of
+// the server's credentials directory now (D905). Parsing a file that still has
+// one leaves it out with a finding that names what to use; realigning the file
+// drops it.
 var SettingsRetired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "git_profile", Plan: 903, Refuse: "server", Note: ServerProfileRemoved},
 	{Path: "git_base_branch", Plan: 903, Note: ServerProfileRemoved},
@@ -92,6 +93,10 @@ var SettingsRetired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "author_email", Plan: 904, Note: AuthorSettingRemoved},
 	{Path: "committer_name", Plan: 904, Note: AuthorSettingRemoved},
 	{Path: "committer_email", Plan: 904, Note: AuthorSettingRemoved},
+	{Path: "ssh_key", Plan: 905, Replacement: "<kb>.ssh in the server's credentials_dir", Note: "a secret never belongs in the KB"},
+	{Path: "known_hosts", Plan: 905, Replacement: "known_hosts in the server's credentials_dir"},
+	{Path: "sops_age_key_file", Plan: 905, Replacement: "<kb>.age in the server's credentials_dir"},
+	{Path: "artifact_signing_seed", Plan: 905, Replacement: "<kb>.signing in the server's credentials_dir", Note: "a secret never belongs in the KB"},
 }}
 
 // ServerProfileRemoved is the reason given wherever the server git profile

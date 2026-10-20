@@ -121,7 +121,7 @@ func TestLoadServeConfigRefusesAPerKBGitBranch(t *testing.T) {
 func TestAnnounceConfigRealignsTheServerFile(t *testing.T) {
 	buf := captureLog(t)
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	old := "http: \":9090\"\ngit:\n  sync: false\n  autocommit: true\n  ssh_key: /k\nkbs:\n  - path: /srv/kb-a\n"
+	old := "http: \":9090\"\ngit:\n  sync: false\n  autocommit: true\ncredentials_dir: /k\nkbs:\n  - path: /srv/kb-a\n"
 	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestAnnounceConfigRealignsTheServerFile(t *testing.T) {
 		t.Errorf("the backup is not the original:\n%s", kept)
 	}
 	realigned, _ := os.ReadFile(path)
-	if strings.Contains(string(realigned), "autocommit: true") || !strings.Contains(string(realigned), "ssh_key: /k") {
+	if strings.Contains(string(realigned), "autocommit: true") || !strings.Contains(string(realigned), "credentials_dir: /k") {
 		t.Errorf("realigned file:\n%s", realigned)
 	}
 
@@ -170,6 +170,135 @@ func TestAnnounceConfigRealignsTheServerFile(t *testing.T) {
 	}
 	if again, _ := filepath.Glob(path + ".bak-*"); len(again) != 1 {
 		t.Errorf("the second start wrote a backup: %v", again)
+	}
+}
+
+// clearLegacyEnv keeps the variables a server file is read with, and the ones
+// of the settings D905 removed, out of a test.
+func clearLegacyEnv(t *testing.T) {
+	t.Helper()
+	for _, k := range []string{"CARTOGRAPHER_TOKENS", "CARTOGRAPHER_GIT_SYNC", "CARTOGRAPHER_CREDENTIALS_DIR", "CARTOGRAPHER_GIT_TOKEN_DIR",
+		"CARTOGRAPHER_SOPS_AGE_KEY_DIR", "CARTOGRAPHER_SOPS_AGE_KEY_FILE", "CARTOGRAPHER_AUDIT_KEY"} {
+		t.Setenv(k, "")
+	}
+}
+
+const legacyTestSeed = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
+
+// The secrets of the settings D905 removed are copied into the credentials
+// directory before the file is realigned, and no report holds one of them.
+func TestAnnounceConfigMovesTheCredentials(t *testing.T) {
+	buf := captureLog(t)
+	clearLegacyEnv(t)
+	dir := t.TempDir()
+	credDir := filepath.Join(dir, "credentials")
+	sshKey := filepath.Join(dir, "id_ed25519")
+	ageKey := filepath.Join(dir, "kb-a.agekey")
+	const sshSecret, ageSecret = "ssh-private-key-material", "AGE-SECRET-KEY-1TESTONLY"
+	for p, content := range map[string]string{sshKey: sshSecret + "\n", ageKey: ageSecret + "\n"} {
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(dir, "config.yaml")
+	old := "credentials_dir: " + credDir + "\ngit:\n  ssh_key: " + sshKey +
+		"\nkbs:\n  - remote: git@example.com:team/kb-a.git\n    sops_age_key_file: " + ageKey +
+		"\n    artifact_signing_seed: " + legacyTestSeed + "\n"
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadServeConfig(serveFlagSet(), config.FlagOverrides{}, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	announceConfig(cfg, path)
+
+	for name, want := range map[string]string{"default.ssh": sshSecret + "\n", "kb-a.age": ageSecret + "\n", "kb-a.signing": legacyTestSeed + "\n"} {
+		p := filepath.Join(credDir, name)
+		if got, err := os.ReadFile(p); err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v; want %q", name, got, err, want)
+		}
+		if fi, err := os.Stat(p); err == nil && runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode = %v, want 0600", name, fi.Mode().Perm())
+		}
+	}
+	if _, err := os.Stat(sshKey); err != nil {
+		t.Errorf("the source key was moved, not copied: %v", err)
+	}
+	logged := buf.String()
+	for _, want := range []string{
+		"git.ssh_key: placed as " + filepath.Join(credDir, "default.ssh"),
+		"kbs[0].sops_age_key_file: placed as " + filepath.Join(credDir, "kb-a.age"),
+		"kbs[0].artifact_signing_seed: placed as " + filepath.Join(credDir, "kb-a.signing"),
+		"removed kbs[0].artifact_signing_seed:",
+	} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("the log lacks %q:\n%s", want, logged)
+		}
+	}
+	for _, secret := range []string{sshSecret, ageSecret, legacyTestSeed} {
+		if strings.Contains(logged, secret) {
+			t.Errorf("the log holds a secret:\n%s", logged)
+		}
+	}
+	realigned, _ := os.ReadFile(path)
+	if strings.Contains(string(realigned), "ssh_key") || strings.Contains(string(realigned), legacyTestSeed) {
+		t.Errorf("the file still holds the removed keys:\n%s", realigned)
+	}
+
+	// The second start: the keys are gone, nothing to place or to say.
+	buf.Reset()
+	cfg2, err := loadServeConfig(serveFlagSet(), config.FlagOverrides{}, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	announceConfig(cfg2, path)
+	if logged := buf.String(); strings.Contains(logged, "credentials of removed settings") || strings.Contains(logged, "realigned") {
+		t.Errorf("the second start reported:\n%s", logged)
+	}
+}
+
+// A credentials directory that cannot be written: the report names the files to
+// create, and the server file is not realigned, so it still holds the secrets
+// and the next start lists them again.
+func TestAnnounceConfigCannotPlaceTheCredentials(t *testing.T) {
+	buf := captureLog(t)
+	clearLegacyEnv(t)
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "blocker")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	credDir := filepath.Join(blocker, "credentials")
+	path := filepath.Join(dir, "config.yaml")
+	old := "credentials_dir: " + credDir + "\nkbs:\n  - remote: git@example.com:team/kb-a.git\n    artifact_signing_seed: " + legacyTestSeed + "\n"
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadServeConfig(serveFlagSet(), config.FlagOverrides{}, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	announceConfig(cfg, path)
+
+	logged := buf.String()
+	for _, want := range []string{
+		"kbs[0].artifact_signing_seed: cannot write it",
+		"create " + filepath.Join(credDir, "kb-a.signing"),
+		"is not realigned until the credentials above are in place",
+	} {
+		if !strings.Contains(logged, want) {
+			t.Errorf("the log lacks %q:\n%s", want, logged)
+		}
+	}
+	if strings.Contains(logged, legacyTestSeed) {
+		t.Errorf("the log holds the seed:\n%s", logged)
+	}
+	if kept, _ := os.ReadFile(path); string(kept) != old {
+		t.Errorf("the file was rewritten:\n%s", kept)
+	}
+	if backups, _ := filepath.Glob(path + ".bak-*"); len(backups) != 0 {
+		t.Errorf("backups = %v, want none", backups)
 	}
 }
 

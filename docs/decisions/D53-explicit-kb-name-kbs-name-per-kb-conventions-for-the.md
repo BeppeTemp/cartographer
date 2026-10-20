@@ -4,6 +4,8 @@ topic: deployment-release
 
 # D53 — Explicit KB name (`kbs[].name`) + per-KB conventions for the git token (`git.token_dir`) and SOPS key (`sops.age_key_dir`)
 
+> **Amended by [D905](D905-one-credentials-directory-audit-always-on.md)**: `git.token_dir` and `sops.age_key_dir` are removed; their conventions live on as `<name>.token` and `<name>.age` in the one credentials directory, with `default.token` and `default.age` as the fallback.
+
 **Context.** With multiple remote KBs in `kbs[]`, the KB name was always derived from remote/path (no
 way to set it explicitly); git authentication on private HTTPS required the token
 in the remote URL (ends up in cleartext in `.git/config`) or out-of-band handling.

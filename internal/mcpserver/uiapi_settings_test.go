@@ -71,11 +71,10 @@ func TestUIAPI_SettingsRedactsSecrets(t *testing.T) {
 	t.Parallel()
 	cfg := config.Default()
 	cfg.Auth.Tokens = []config.TokenSpec{{Token: "tok-secret-1"}}
-	cfg.Audit.KeySeed = "audit-secret-2"
-	cfg.KBs = []config.KBSpec{{Path: "/x/docs", ArtifactSigningSeed: "seed-secret-3"}}
+	cfg.KBs = []config.KBSpec{{Path: "/x/docs"}}
 	handler := settingsHandler(t, cfg, auth.NewTokenStore(nil), "docs")
 	rr := getUI(t, handler, UIAPIPrefix+"/settings", "")
-	for _, secret := range []string{"tok-secret-1", "audit-secret-2", "seed-secret-3"} {
+	for _, secret := range []string{"tok-secret-1"} {
 		if strings.Contains(rr.Body.String(), secret) {
 			t.Errorf("secret %q is in the response", secret)
 		}

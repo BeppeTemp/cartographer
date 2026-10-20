@@ -148,6 +148,7 @@ func TestExampleLoadsAsDefaultsPlusExplicitValues(t *testing.T) {
 	want.HTTP = ":39273"
 	want.Init = true
 	want.Data = "/data"
+	want.CredentialsDir = "/etc/cartographer/credentials"
 	want.KBs = []KBSpec{{Remote: "https://git.example.com/user/kb-a.git", Name: "kb-a"}}
 	want.Origins = got.Origins // origins are covered in origin_test.go
 	if !reflect.DeepEqual(got, want) {

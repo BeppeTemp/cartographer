@@ -13,8 +13,10 @@ The server is distributed as a native **Go binary** (via `install.sh`, see §Cli
 
 ### Provisioning artifact signing
 
-An explicit `kbs:` entry may set `artifact_signing_seed` to a 32-byte hex
-Ed25519 seed. Mount it from a secret manager or protected secret volume: never
+A KB signs its artifacts with `<kb>.signing` in the credentials directory
+(§Credentials directory, D905): a 32-byte Ed25519 seed in hex. There is no
+`default.signing`, because a signature names its KB, so a KB without the file
+serves unsigned artifacts. Mount it from a secret manager or protected secret volume: never
 commit it, expose it in health/MCP output, or place it in logs. The server logs
 only the KB and derived key ID. Distribute and pin the corresponding public key
 on each client before switching a signer; unsigned KBs remain supported through
@@ -53,9 +55,10 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   start time, D333) and `artifact_unused` is silent. Keep `.cartographer/` on
   the KB's persistent volume when that signal matters.
 
-When `audit.log` is set, MCP tool execution appends an attempt+completion event
-pair per call, so the file is a complete operational request log (D119). See
-§Audit log below and [transport-auth](transport-auth.md) §Operational audit. `service install` writes `audit.log: <data>/audit.log` into its generated configuration, and `audit.retention_days` defaults to 90 (D325; `0` keeps everything).
+The audit log is always on (D905): MCP tool execution appends an attempt+completion event
+pair per call to `<data>/audit/audit.log`, or to `audit.log` when it is set, so the file is a complete
+operational request log (D119), signed with `audit.key` from the credentials directory. See
+§Audit log below and [transport-auth](transport-auth.md) §Operational audit. `audit.retention_days` defaults to 90 (D325; `0` keeps everything). A configuration that `service install` wrote before D905 sets `audit.log: <data>/audit.log` and keeps that path.
 
 ### Configuration: flags, env, YAML
 
@@ -104,6 +107,8 @@ auth:
 data: /data                   # (data) directory with KB auto-discovery (one subfolder = one KB);
                               # paths already mounted explicitly (kbs[], including remote KBs cloned
                               # into this directory) are excluded from discovery — no double mount
+credentials_dir: /etc/cartographer/credentials # (credentials_dir) every secret file, looked up by
+                              # KB name (D905, §Credentials directory); default <data>/credentials
 
 kbs:                          # (kbs[]) KBs to clone from a git remote (bootstrap, see below); a KB
                               # that is a folder under data needs no entry (D903)
@@ -112,7 +117,7 @@ kbs:                          # (kbs[]) KBs to clone from a git remote (bootstra
     name: shared-kb                                  # (kbs[].name) explicit name (D53): overrides
                                                       # the name derived from the remote — the HTTP
                                                       # endpoint, token scope, clone dir, and the
-                                                      # token_dir/age_key_dir conventions below all use
+                                                      # KB's files in credentials_dir all use
                                                       # this name
     allow_artifact_write: true                       # (kbs[].allow_artifact_write) enables artifact_write/
                                                       # artifact_delete/artifact_move on this KB (default false, D71):
@@ -162,19 +167,13 @@ kbs:                          # (kbs[]) KBs to clone from a git remote (bootstra
                                                       # artifact_unused lint reports it (D326); "0"
                                                       # disables the finding, default 42
 mcp:
-git:
-  ssh_key: /etc/kb-ssh/id_ed25519      # (git.ssh_key) default SSH identity for cloning kbs[] remotes
-  known_hosts: /etc/kb-ssh/known_hosts # (git.known_hosts) host verification for the same clone
-  token_dir: /etc/kb-git-tokens         # (git.token_dir) directory <token_dir>/<name>.token (D53, see below)
 audit:
-  log: ""                      # (audit.log) path to the audit log's JSONL file
-  key_seed: ""                 # (audit.key_seed) Ed25519 hex seed for signing
+  log: ""                      # (audit.log) the always-on audit log; empty = <data>/audit/audit.log,
+                               # signed with audit.key from credentials_dir (D905)
   mode: best_effort            # (audit.mode) best_effort (default) | required
   max_segment_bytes: 0         # (audit.max_segment_bytes) rotate past this size; 0 = package default
   archive_dir: ""              # (audit.archive_dir) rotated segments; empty = beside the log
   retention_days: 90           # (audit.retention_days) delete checkpointed segments older than N days; default 90; 0 = keep forever
-sops:
-  age_key_dir: /etc/kb-sops-keys # (sops.age_key_dir) directory <age_key_dir>/<name>.age (D53, see below)
 tools:
   profile: agent               # (tools.profile) agent (default: tools/list exposes only the core
                                # set for the LLM agent) | full (all tools, including governance/plumbing).
@@ -188,7 +187,7 @@ line, for development and tests: it is not a key of the YAML file, and a folder 
 remote, so it never syncs. Scalar fields (`http`, `data`, tokens, ...) follow flag > env > YAML
 precedence: the last explicitly set level wins.
 
-**Git: one way to write (D903).** Cartographer has no git settings of its own beyond the SSH identity. Every write is one commit on the KB's branch, and that is not configurable; a KB syncs exactly
+**Git: one way to write (D903).** Cartographer has no git settings of its own: the SSH key and the token that reach a remote are files of the credentials directory (D905). Every write is one commit on the KB's branch, and that is not configurable; a KB syncs exactly
 when it has a remote (fetch and pull-rebase before a read or write, push after a write) and a KB without one
 never contacts anything. The freshness window of the pull (30s) and the debounce of the background push (3s)
 are constants. There is no pull-request boundary and no forge: the server git profile (D117) and its keys
@@ -220,6 +219,56 @@ the remote's default branch: the server does not start until that value is set a
 registry of removed keys sits next to each schema
 (`config.Retired`, `kb.SettingsRetired`, `clientconfig.Retired`).
 
+### Credentials directory (D905)
+
+Every secret file the server reads is in one directory, `credentials_dir` (env `CARTOGRAPHER_CREDENTIALS_DIR`,
+default `<data>/credentials`), and is found by the KB's name (`kbs[].name`, or the name derived from the
+remote). On Kubernetes it is one mounted Secret (§Example: K8s pod).
+
+| File | What it holds | When it is missing |
+|---|---|---|
+| `<kb>.ssh`, else `default.ssh` | SSH private key for the KB's `ssh://` remote | git's own SSH setup |
+| `known_hosts` | host keys of every SSH remote, in one file | ssh's own known hosts |
+| `<kb>.token`, else `default.token` | HTTPS git token (§Bootstrapping a KB from a git remote) | no credential |
+| `<kb>.age`, else `default.age` | age identity that decrypts the KB's SOPS secrets | secrets report a missing key |
+| `<kb>.signing`, no default | artifact signing seed, 64 hex characters (§Provisioning artifact signing) | unsigned artifacts |
+| `audit.key` | audit log signing seed, 64 hex characters | generated at the first start |
+
+`default.token`, `default.ssh` and `default.age` are offered to every KB that has no file of its own,
+whatever its remote host: a KB whose remote is on another host than the others should get its own
+`<kb>.token` (or `.ssh`), or the default credential is sent to that host.
+
+The lookup applies to every mounted KB, discovered or configured. A file counts when it is a regular file
+or a symlink to one, which is how a Kubernetes Secret mounts its keys; a missing file means the credential is
+not configured. A KB name that would point outside the directory has no file of its own.
+
+- **Read-only is fine.** The server writes into the directory only to generate `audit.key` and to place the
+  secrets of removed settings when upgrading (below), `0600` in a `0700` directory, and never replaces a
+  file. A read-only directory needs `audit.key` in it (`openssl rand -hex 32`): without it, with
+  `audit.mode: best_effort` the log runs unsigned with a warning at every start, and with `required` the
+  server does not start.
+- **Permissions are warned about, never refused.** A file other users can read is reported once per start,
+  except `known_hosts`, which holds public host keys.
+  A file its group can read is reported only when the server owns it: a Kubernetes Secret reaches a server
+  that does not run as root as `root:<fsGroup>` with mode `0440`, whatever `defaultMode` says, and the
+  group bit is how the server reads it. OpenSSH draws the same line for a private key.
+- **Never inside a KB.** Every commit of a KB stages its whole working tree, so a `credentials_dir` in one
+  refuses the start: one that is a KB (it holds `data/index.md`) or lies inside one, one inside a
+  `kbs[].path` or a remote KB's clone under `data`, even before it exists, and one below a subdirectory of
+  `data`, which is discovered as a KB. A direct subdirectory of `data` is fine: as the credentials directory
+  it is not discovered, and neither are `credentials` and `audit`.
+  The directory of the audit log (`audit.log`, or `<data>/audit`) and `audit.archive_dir` are held to the
+  same rule, since a KB named `audit` would otherwise hold the log and commit it: the start refuses, naming
+  the setting to move. Neither is checked in a `--kb` session without data, which has no default log.
+- **Upgrading.** The first start of this version copies into the directory the secrets that the removed
+  settings point at: `git.ssh_key`, `kbs[].ssh_key`, `git.known_hosts`, `kbs[].known_hosts`,
+  `git.token_dir`, `sops.age_key_file`, `sops.age_key_dir`, `kbs[].sops_age_key_file`,
+  `kbs[].artifact_signing_seed` and `audit.key_seed`, and their `CARTOGRAPHER_*` variables. A file is
+  copied, never moved, links followed (a directory mounted from a Kubernetes Secret holds links); an inline
+  value is written; every known_hosts goes into the one file; a file already in the directory is kept. The log names settings and files, never a value. What cannot be written (a
+  read-only directory) is logged as the file to create by hand, and the server YAML is not realigned until
+  every secret is in place, so it still holds them at the next start.
+
 ### Bootstrapping a KB from a git remote (replaces the init container)
 
 Every `kbs: [{remote: ...}]` entry (YAML) or `CARTOGRAPHER_KB_REMOTES` (env, CSV of URLs) is
@@ -237,9 +286,10 @@ push creates it on the remote if it is missing. An existing clone is never switc
 
 The clone is atomic (D348): it lands in `<data>/.<name>.cloning` and is renamed to `<data>/<name>` only when complete, so a process killed mid-clone leaves no half-clone that the next start would take for a finished one. A half-clone left at `<data>/<name>` by an older binary is not detected (an existing clone is never touched): remove that directory.
 
-`GIT_SSH_COMMAND` for the clone is built from `git.ssh_key`/`git.known_hosts` (`ssh -i <key>
--o UserKnownHostsFile=<known_hosts> -o StrictHostKeyChecking=yes`); if `GIT_SSH_COMMAND` is already
-present in the environment, it wins and the YAML config is ignored. This removes the need for
+`GIT_SSH_COMMAND` for the clone is built from `default.ssh` and `known_hosts` in the credentials
+directory (`ssh -i '<key>' -o 'UserKnownHostsFile="<known_hosts>"' -o StrictHostKeyChecking=yes`, quoted so a
+path with spaces or a Windows one survives the shell git runs it with); if
+`GIT_SSH_COMMAND` is already present in the environment, it wins over `default.ssh`. This removes the need for
 a separate Kubernetes init container for the initial clone.
 
 **Git identity: the server commits, the writer is the author (D904).** The committer of every commit is
@@ -255,29 +305,24 @@ The git config of the machine, `GIT_AUTHOR_*` and
 `GIT_COMMITTER_*` in the environment no longer influence any of it. `author_name`/`author_email`/
 `committer_name`/`committer_email` (global `git.*`, `kbs[]`, and a token's `author_name`/`author_email`)
 are removed settings: a file that still has them loads with a warning, and the realignment above drops
-them. The SSH key and the token credential helper of a
-`kbs[]` entry (`ssh_key`/`known_hosts`, `git.token_dir`) are still per-KB and **override** the server's
-process environment (the reverse of the "environment wins" rule that applies to the global
-`git.ssh_key`/`GIT_SSH_COMMAND` above) — see `internal/gitx.runGitEnv`.
+them. A KB's own SSH key, `<kb>.ssh`, and its token helper (`<kb>.token` or `default.token`) **override**
+the server's process environment (the reverse of the "environment wins" rule that applies to `default.ssh`
+and `GIT_SSH_COMMAND` above) — see `internal/gitx.runGitEnv`.
 
 If your forge enforces author push rules, the server and token-id authors a write falls back to are
 not forge accounts and the push is refused: have the client send a `Cartographer-Author` of a real
 account. Commits already pushed under another identity stay as they are.
 
-**Explicit KB name, git token, and per-KB SOPS key by convention (D53)**: `kbs[].name` fixes the
+**Explicit KB name and its credential files (D53, D905)**: `kbs[].name` fixes the
 KB's name (overrides the name derived from remote/path) — it's the name used everywhere: the HTTP
-endpoint (`/mcp/<name>`, see below), the token scope (`kb:<name>:r|rw`), the clone directory (`<data>/<name>`), and the two
-conventions below. With an `http(s)://` remote, if the file
-`<git.token_dir>/<name>.token` exists (content: the token, trimmed), the server uses it as the HTTPS
+endpoint (`/mcp/<name>`, see below), the token scope (`kb:<name>:r|rw`), the clone directory (`<data>/<name>`), and the
+KB's files in the credentials directory (§Credentials directory). With an `http(s)://` remote, if
+`<name>.token` or `default.token` exists there (content: the token, trimmed), the server uses it as the HTTPS
 credential for clone/fetch/pull/push of that KB, injected via `credential.helper` in the
 per-process environment (`GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0`, D53): the token
 never appears in argv, in the remote URL, or in `.git/config` — only the file's *path* is
-embedded in the helper, which reads it (`cat`) whenever git invokes it. The existing SSH support
-(`ssh_key`/`known_hosts`, global and per-KB, above) remains unchanged for `ssh://` remotes.
-Similarly, `sops.age_key_dir` fixes a directory with a per-KB age key
-(`<age_key_dir>/<name>.age`); the cascade for the KB's SOPS key resolution is: `kbs[].sops_age_key_file`
-(explicit override) → `<sops.age_key_dir>/<name>.age` if the file exists → global
-`sops.age_key_file`.
+embedded in the helper, which reads it (`cat`) whenever git invokes it. `ssh://` remotes use
+`<name>.ssh` or `default.ssh` (above), and the KB's SOPS key is `<name>.age`, else `default.age`.
 
 ### MCP tool-name prefix (removed)
 
@@ -306,15 +351,13 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_KB` | `--kb` | Folder(s) to mount as they are, comma-separated. No remote, so no sync: for development and tests (D903) |
 | `CARTOGRAPHER_KB_REMOTES` | — | Git remotes to clone into `--data` at startup, comma-separated (see §Bootstrapping a KB) |
 | `CARTOGRAPHER_DATA` | `--data` | Directory whose direct subfolders are separate KBs (auto-discovery) |
+| `CARTOGRAPHER_CREDENTIALS_DIR` | — | The credentials directory, default `<data>/credentials`: every secret file, found by KB name (D905, see §Credentials directory). |
 | `CARTOGRAPHER_HTTP` | `--http` | HTTP listen address, e.g. `:39273` |
 | `CARTOGRAPHER_TOKENS` | `--tokens` | Bearer tokens, comma/whitespace-separated. Each entry is either a bare `token` (admin, full access to every KB) or `token\|scope1;scope2` with per-KB scopes `kb:<name>:r\|rw` (scopes separated by `;`, never by spaces/commas, to avoid colliding with the between-entry separator). E.g. `admintok, readtok\|kb:wiki:r, writetok\|kb:wiki:rw;kb:notes:r` (D44). |
 | `CARTOGRAPHER_AUTH` | — | Explicit auth toggle (see §Auth) |
 | — | — | Fine-grained roles have no env form: `auth.roles` is YAML-only, because a rule is a structured object (see §Fine-grained roles). |
-| `CARTOGRAPHER_GIT_TOKEN_DIR` | — | Directory with one file per KB (`<dir>/<name>.token`) used as the HTTPS credential for that KB's git (D53, see §Bootstrapping a KB from a git remote). |
-| `CARTOGRAPHER_SOPS_AGE_KEY_DIR` | — | Directory with a per-KB age key (`<dir>/<name>.age`), a fallback checked before `CARTOGRAPHER_SOPS_AGE_KEY_FILE` (D53). |
 | `CARTOGRAPHER_TOOLS_PROFILE` | `--tools-profile` | `tools/list` tool profile: `agent` (default, only the core set for the LLM agent) \| `full` (all of them). Hidden tools remain callable via `tools/call` (D65, → `control-plane.md` §MCP API). |
-| `CARTOGRAPHER_AUDIT_LOG` | — | Path to the audit log's JSONL file (e.g. `/data/audit.log`). If empty, audit is disabled. |
-| `CARTOGRAPHER_AUDIT_KEY` | — | Ed25519 seed (hex, 64 chars) for signing entries. Requires `CARTOGRAPHER_AUDIT_LOG`. |
+| `CARTOGRAPHER_AUDIT_LOG` | — | Path of the audit log's JSONL file, which is always on (D905); empty keeps it at `<data>/audit/audit.log`. Its signing key is `audit.key` in the credentials directory. |
 | `CARTOGRAPHER_SERVER_URL` | — | **Client** (not server): default server URL for `cartographer connect` on the client machine when no `.cartographer.yaml` exists yet. Precedence: existing yaml > env > `http://127.0.0.1:39273/mcp` (D64, `internal/clientconfig.Default`). |
 | `CARTOGRAPHER_WEB_ENABLED` | `--web-enabled` | Serve the embedded read-only Atlas UI at `/ui/` and its JSON API at `/api/ui/v1` in HTTP mode. Default `true`; `false` registers neither route, so both answer 404 and the HTTP surface is what it was before the UI. Stdio mode never serves it. D227, → `control-plane.md` §Read-only UI API. |
 | `CARTOGRAPHER_UPDATE_CHECK` | `--update-check` | YAML `update_check`. Look up the latest release (GitHub release list) 30 s after start and every 24 h, cached in the data dir's `.cartographer/update-check.json` (the user cache dir without a data dir), and report it as `latest_version` in `/health` and `kb_status` when newer. Default `true`; a failed lookup is silent and retried after an hour instead of 24 h, and a `dev` build never checks. D254. The same switch gates the UI API's release history (`GET /api/ui/v1/releases`), a second GitHub call made on demand (§The embedded Atlas UI, D862). |
@@ -358,9 +401,9 @@ cartographer kb unmount <name>               # retires a KB locally: kbs[] entry
 
 `service restart --wait` (D121) is a **graceful** replacement everywhere, and on Windows that took a mechanism of its own: there is no CLI-deliverable `SIGTERM`, `Stop-ScheduledTask` is a kill, and `GenerateConsoleCtrlEvent` cannot reach a process with no console. `serve` therefore also waits on a named event in the user's session (`Local\cartographer-serve-shutdown`) and triggers the same drain a `SIGTERM` does; the Manager sets it, waits for the server to exit, and then **starts the task again** — a Scheduled Task is not a supervisor, so nothing else would bring back a server that exited cleanly. `Local\` is per logon session, so from another session — `upgrade-repair` or an `auto-patch` apply run over SSH while the server runs on the desktop — the event cannot be opened: the Manager then stops the task with `Stop-ScheduledTask`, waits for the exit, and prints why, since that stop cuts in-flight requests and does not flush pending pushes. The verification that follows only accepts a `/health` answer from a **new** process: `/health` reports `started_at`, and a value equal to the one read before the restart is the old process still draining (D266).
 
-**Per-KB policy lives in the KB (D746).** The `kbs[]` keys of the schema's `kb` scope (`allow_artifact_write`, `allow_template_write`, `write_gate`, `auto_repair`, `repair_on_write`, `doctor_*`, `usage_stale_days`, `mcp_allowlist`, `secrets`) can also be set in the KB's own `settings.yaml` (`docs/data-plane.md` §The KB's own settings). The KB file wins: a differing `kbs[]`/env/flag value is ignored and reported (startup warning, `kb_status` `ignored_server_settings`, origin `kb` in `cartographer config`). The `kbs[]` form stays for KBs that do not carry the file; the machine-bound keys (`remote`, `name`, `ssh_key`, `known_hosts`, `author_*`, `committer_*`, `sops_age_key_file`, `artifact_signing_seed`) are server-only. `branch`, the branch Cartographer writes to, is the opposite: it has no `kbs[]` form and lives only in the KB's `settings.yaml`, because it is a decision of the team that owns the KB, the same for every server that mounts it (D903).
+**Per-KB policy lives in the KB (D746).** The `kbs[]` keys of the schema's `kb` scope (`allow_artifact_write`, `allow_template_write`, `write_gate`, `auto_repair`, `repair_on_write`, `doctor_*`, `usage_stale_days`, `mcp_allowlist`, `secrets`) can also be set in the KB's own `settings.yaml` (`docs/data-plane.md` §The KB's own settings). The KB file wins: a differing `kbs[]`/env/flag value is ignored and reported (startup warning, `kb_status` `ignored_server_settings`, origin `kb` in `cartographer config`). The `kbs[]` form stays for KBs that do not carry the file; the machine-bound keys (`remote`, `name`) are server-only. `branch`, the branch Cartographer writes to, is the opposite: it has no `kbs[]` form and lives only in the KB's `settings.yaml`, because it is a decision of the team that owns the KB, the same for every server that mounts it (D903).
 
-**Configured versus discovered mounts.** A KB listed in `kbs[]` is *configured*; a KB found by scanning `data:` is *discovered* and has **no `KBSpec`**, so every per-KB setting sits at its zero value unless the KB carries a `settings.yaml` (D746, which a discovered KB reads like any other) — `allow_artifact_write` false, no `sops_age_key_file`, no `machine_path_allow_prefixes` — and nothing but adding the entry can change that. A discovered KB otherwise works and looks identical from every client surface, which is how one deployment ran a whole migration with artifact writes silently off. Startup now warns once per discovered KB, `kb_status` reports `capabilities.mount: discovered`, and `cartographer doctor` raises a `capability` finding (D151). `kb create` / `kb clone` mount a KB *discovered* by default; `--artifact-write` additionally upserts a `kbs[]` entry (`remote` = the KB's remote, `allow_artifact_write: true`, and a `name` when it differs from the one the remote gives) in the server config so it mounts *configured* with artifact writes on; for `kb create --no-remote`, which has no remote for an entry to name, it writes `allow_artifact_write: true` into the new KB's own `settings.yaml` instead (D903). It stays opt-in because artifacts, hooks included, reach client machines through `sync` (D71); the entry form needs an existing, valid server config (checked before anything is created, `--config` names it) and a config-write failure keeps the KB and prints the entry to add by hand ([D711](decisions/D711-kb-create-can-record-its-kbs-entry.md)). An existing discovered KB is still fixed by editing `kbs[]`. Dot-directories are never discovered: `kb unmount` parks a retired clone in `<data>/.unmounted/` for that reason (D761).
+**Configured versus discovered mounts.** A KB listed in `kbs[]` is *configured*; a KB found by scanning `data:` is *discovered* and has **no `KBSpec`**, so every per-KB setting sits at its zero value unless the KB carries a `settings.yaml` (D746, which a discovered KB reads like any other) — `allow_artifact_write` false, no `machine_path_allow_prefixes` — and nothing but adding the entry can change that. A discovered KB otherwise works and looks identical from every client surface, which is how one deployment ran a whole migration with artifact writes silently off. Startup now warns once per discovered KB, `kb_status` reports `capabilities.mount: discovered`, and `cartographer doctor` raises a `capability` finding (D151). `kb create` / `kb clone` mount a KB *discovered* by default; `--artifact-write` additionally upserts a `kbs[]` entry (`remote` = the KB's remote, `allow_artifact_write: true`, and a `name` when it differs from the one the remote gives) in the server config so it mounts *configured* with artifact writes on; for `kb create --no-remote`, which has no remote for an entry to name, it writes `allow_artifact_write: true` into the new KB's own `settings.yaml` instead (D903). It stays opt-in because artifacts, hooks included, reach client machines through `sync` (D71); the entry form needs an existing, valid server config (checked before anything is created, `--config` names it) and a config-write failure keeps the KB and prints the entry to add by hand ([D711](decisions/D711-kb-create-can-record-its-kbs-entry.md)). An existing discovered KB is still fixed by editing `kbs[]`. Dot-directories are never discovered: `kb unmount` parks a retired clone in `<data>/.unmounted/` for that reason (D761).
 
 `kb create` authors the KB's initial commit with the operator's own git identity (`user.name`/`user.email`) when git resolves one, otherwise the server identity (D904); the committer is the server. **Before pushing it asks the remote (`ls-remote`).** An empty repository gets the scaffold as is. A repository holding only a forge's initial commit — one branch, one commit, top-level README/LICENSE/LICENCE/COPYING/`.gitignore`/`.gitattributes` files — is adopted automatically: the scaffold commit is rebased on top of it (the forge's files are kept), the KB lives on the remote's default branch whatever its name (D264), and the push is a fast-forward, never forced; a scaffold path that collides with a forge file (e.g. `.gitattributes`) is a refusal, not a merge. Any other non-empty remote is refused with a `kb clone` / kb-import hint. These refusals happen before any push, so the local KB is deleted and the command can be rerun (D710). **If the push fails the scaffold is kept**, not rolled back: the local KB is complete and valid and only the push failed, so the command exits non-zero and prints the `commit --amend --author` and `push -u origin` lines to finish by hand — or the command that discards it (`rm -rf`, or `Remove-Item -Recurse -Force` on Windows), noting that a server started with that data dir would otherwise mount it (D156). If git refuses the initial commit itself (a commit hook, signing without a key), `kb create` reports that error and stops before the push (D265).
 
@@ -414,16 +457,26 @@ data:
     auth:
       mode: "on"
     data: /data
+    credentials_dir: /etc/cartographer-credentials
     kbs:
       - remote: ssh://git@gitea.example.com:2222/user/wiki-kb.git
-    git:
-      ssh_key: /etc/kb-ssh/id_ed25519
-      known_hosts: /etc/kb-ssh/known_hosts
 ```
 
-`Deployment` (excerpt — token and SSH key from a Secret, never in the ConfigMap):
+`Secret` (the credentials directory, §Credentials directory: one key per file):
+
+```sh
+kubectl create secret generic cartographer-credentials \
+  --from-file=default.ssh=./id_ed25519 \
+  --from-file=known_hosts=./known_hosts \
+  --from-literal=audit.key="$(openssl rand -hex 32)"
+```
+
+`Deployment` (excerpt — MCP tokens and the credentials from Secrets, never in the ConfigMap):
 
 ```yaml
+securityContext:
+  fsGroup: 2000 # any gid: the process joins it, and the kubelet gives it the Secret's files
+  fsGroupChangePolicy: OnRootMismatch # the data volume is not re-chowned at every start
 containers:
   - name: cartographer
     image: ghcr.io/beppetemp/cartographer:<tag>
@@ -434,16 +487,24 @@ containers:
           secretKeyRef: { name: cartographer-tokens, key: tokens }
     volumeMounts:
       - { name: config, mountPath: /etc/cartographer, readOnly: true }
-      - { name: kb-ssh, mountPath: /etc/kb-ssh, readOnly: true }
+      - { name: credentials, mountPath: /etc/cartographer-credentials, readOnly: true }
       - { name: data, mountPath: /data }
 volumes:
   - name: config
     configMap: { name: cartographer-config }
-  - name: kb-ssh
-    secret: { secretName: cartographer-kb-ssh, defaultMode: 0440 } # root-owned, private key + known_hosts
+  - name: credentials
+    secret: { secretName: cartographer-credentials, defaultMode: 0440 }
   - name: data
     persistentVolumeClaim: { claimName: cartographer-data }
 ```
+
+The image runs as a user that is not root, so the Secret needs `fsGroup`: the kubelet makes its files
+`root:<fsGroup>` and adds `0440` whatever `defaultMode` says, and without `fsGroup` a `0400` file is
+unreadable to the server. The group bit is not reported as a loose permission (§Credentials directory).
+The mount is read-only, so `audit.key` comes in the Secret: the server cannot generate it there, and
+without it a `best_effort` log runs unsigned, warning at every start, while `audit.mode: required` does
+not start. Back the key up, since the audit log's signatures depend on it. A KB that needs a key of its
+own adds `<kb>.ssh`; an HTTPS remote reads `<kb>.token` or `default.token`.
 
 This topology serves **multiple clients** (one or more agents connected via `cartographer connect` /
 `cartographer sync`, all over HTTP): git remains the sync/backup layer between the server and the
@@ -852,9 +913,9 @@ panel it exists only for a principal that can read the whole KB.
 
 ### Runtime secrets
 
-Git credentials, MCP tokens, and the age/SOPS key (`SOPS_AGE_KEY_FILE`) are
-runtime secrets — never in the bundles. The same applies to the bootstrap SSH
-key (`git.ssh_key`): mount or configure it outside committed YAML.
+Git credentials, MCP tokens, and the age/SOPS keys are runtime secrets — never in the bundles. The
+files of the credentials directory (§Credentials directory) and `CARTOGRAPHER_TOKENS` are mounted or
+configured outside committed YAML.
 
 ### Cold start
 
@@ -897,7 +958,7 @@ auth:
       roles: [runbook-editor]
 ```
 
-`${NAME}` as the whole value of `token` (and of `audit.key_seed`) is read from
+`${NAME}` as the whole value of `token` is read from
 the environment at startup; an unset or empty variable refuses startup, naming
 the field (#680). Any other value is taken literally.
 
@@ -919,22 +980,34 @@ Rollout notes:
 
 ### Audit log
 
-`audit.log` turns on the compliance trail (D119). Semantics and the guarantees
-are in [transport-auth](transport-auth.md) §Operational audit; this is the
+The compliance trail (D119) is always on (D905): `<data>/audit/audit.log`, or `audit.log`, signed with
+`audit.key` from the credentials directory, which the first start generates when it is missing. Semantics
+and the guarantees are in [transport-auth](transport-auth.md) §Operational audit; this is the
 operator view.
 
 ```yaml
 audit:
-  log: /var/lib/cartographer/audit.jsonl
-  key_seed: ${CARTOGRAPHER_AUDIT_SEED}   # Ed25519 hex seed; enables signatures
+  log: /var/lib/cartographer/audit.jsonl # empty = <data>/audit/audit.log
   mode: required                         # best_effort (default) | required
   max_segment_bytes: 67108864
   archive_dir: /var/lib/cartographer/audit-archive
   retention_days: 400
 ```
 
+The start logs where the log is and whether it is signed: `audit log: <path> (mode <mode>, signed; verify
+with --public-key <hex>)`, or `unsigned` with a warning that says why.
+
+A session started with `serve --kb <folder>` and no `data` (stdio, development and tests) keeps no audit
+log and no credentials directory in the home directory: the log runs only if `audit.log` is set, and the start
+logs `audit log: off` otherwise (`audit.mode: required` then does not start). Credentials are read from
+`credentials_dir` when it is set. A server with `data` or `kbs[]` is unchanged.
+
 Rollout notes:
 
+- **A restart waits for the previous process.** Only one process writes the log; a start that finds
+  its lock held retries for up to 10 seconds, so a rolling or service restart, where the old process
+  is still exiting, opens the log. A holder that stays longer is a live second writer: `required`
+  does not start and `best_effort` starts without a log, as for any log that cannot be opened.
 - **Start in `best_effort`.** It is the default and the pre-D119 behaviour: a
   broken sink never blocks a call. Move to `required` only once the log's
   storage is as available as the service itself — in `required` mode an
@@ -945,6 +1018,15 @@ Rollout notes:
   still succeeds afterwards, but only if the index survives.
 - **Keep the public key.** Without it `audit verify` checks the chain but not
   the signatures; it reports the unsigned count rather than silently passing.
+  It is in the start's log line, and derives from `audit.key`: back the key up
+  with the log, since a new one starts signing with a different key.
+- **An unsigned log stays verifiable.** A log kept without a key before D905 is
+  signed from the upgrade on. `audit verify` accepts its unsigned entries up to
+  the first signature, which covers them through the hash chain, and up to the
+  first checkpoint written with the key; an unsigned entry after either is
+  reported. So a `best_effort` start without the key, once the log has been
+  signed, leaves a log that `audit verify` refuses from that entry on: restore
+  `audit.key` before restarting, or rotate the log and keep the old one aside.
 - Verify from the operator machine, not the server: both commands read files
   and never contact a running instance, so they work during an outage.
 

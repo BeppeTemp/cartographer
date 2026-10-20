@@ -47,17 +47,11 @@ auth:
     - token: tok-b
       scopes: ["kb:docs:rw", "kb:notes:r"]
 data: /data
+credentials_dir: /etc/cartographer/credentials
 kbs:
   - remote: ssh://git@gitea.example.com:2222/user/wiki-kb.git
     name: wiki
   - remote: ssh://git@gitea.example.com:2222/user/kb-locale.git
-    ssh_key: /etc/kb-ssh/kb-locale
-    known_hosts: /etc/kb-ssh/kb-locale-known-hosts
-    sops_age_key_file: /etc/kb-ssh/kb-locale-age.key
-git:
-  ssh_key: /etc/kb-ssh/id_ed25519
-  known_hosts: /etc/kb-ssh/known_hosts
-  token_dir: /etc/kb-git-tokens
 # The removed search block (D135) is deliberately kept in this fixture: a
 # config file carrying it after an upgrade must still load, ignored.
 search:
@@ -65,10 +59,6 @@ search:
   ollama_model: custom-model
 audit:
   log: /data/audit.log
-  key_seed: deadbeef
-sops:
-  age_key_file: /etc/cartographer/age.key
-  age_key_dir: /etc/kb-sops-keys
 tools:
   profile: full
 `
@@ -92,23 +82,15 @@ func TestLoadFullYAML(t *testing.T) {
 			{Token: "tok-a"},
 			{Token: "tok-b", Scopes: []string{"kb:docs:rw", "kb:notes:r"}},
 		}},
-		Data: "/data",
+		Data:           "/data",
+		CredentialsDir: "/etc/cartographer/credentials",
 		KBs: []KBSpec{
 			{Remote: "ssh://git@gitea.example.com:2222/user/wiki-kb.git", Name: "wiki"},
 			{
-				Remote:         "ssh://git@gitea.example.com:2222/user/kb-locale.git",
-				SSHKey:         "/etc/kb-ssh/kb-locale",
-				KnownHosts:     "/etc/kb-ssh/kb-locale-known-hosts",
-				SopsAgeKeyFile: "/etc/kb-ssh/kb-locale-age.key",
+				Remote: "ssh://git@gitea.example.com:2222/user/kb-locale.git",
 			},
 		},
-		Git: GitConfig{
-			SSHKey:     "/etc/kb-ssh/id_ed25519",
-			KnownHosts: "/etc/kb-ssh/known_hosts",
-			TokenDir:   "/etc/kb-git-tokens",
-		},
-		Audit:        AuditConfig{Log: "/data/audit.log", KeySeed: "deadbeef", RetentionDays: 90},
-		Sops:         SopsConfig{AgeKeyFile: "/etc/cartographer/age.key", AgeKeyDir: "/etc/kb-sops-keys"},
+		Audit:        AuditConfig{Log: "/data/audit.log", RetentionDays: 90, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
 		ToolsProfile: "full",
 		// The YAML sets neither deprecated mcp key (D288): both stay empty.
 		MCP: MCPConfig{},
@@ -137,9 +119,6 @@ func TestLoadPartialYAMLKeepsDefaults(t *testing.T) {
 	}
 	if cfg.HTTP != ":9090" {
 		t.Errorf("HTTP = %q, want :9090", cfg.HTTP)
-	}
-	if cfg.Git != (GitConfig{}) {
-		t.Errorf("Git = %+v, want the zero GitConfig", cfg.Git)
 	}
 	if cfg.Auth.Mode != "auto" {
 		t.Errorf("Auth.Mode = %q, want default auto", cfg.Auth.Mode)
@@ -173,10 +152,7 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("CARTOGRAPHER_TOKENS", "t1,t2")
 	t.Setenv("CARTOGRAPHER_AUTH", "false")
 	t.Setenv("CARTOGRAPHER_AUDIT_LOG", "/env-audit.log")
-	t.Setenv("CARTOGRAPHER_AUDIT_KEY", "cafef00d")
-	t.Setenv("CARTOGRAPHER_SOPS_AGE_KEY_FILE", "/env-age.key")
-	t.Setenv("CARTOGRAPHER_GIT_TOKEN_DIR", "/env-git-tokens")
-	t.Setenv("CARTOGRAPHER_SOPS_AGE_KEY_DIR", "/env-age-keys")
+	t.Setenv("CARTOGRAPHER_CREDENTIALS_DIR", "/env-creds")
 
 	FromEnv(cfg)
 
@@ -191,19 +167,16 @@ func TestFromEnv(t *testing.T) {
 	if !reflect.DeepEqual(cfg.Auth.Tokens, wantTokens) {
 		t.Errorf("Auth.Tokens = %+v, want %+v", cfg.Auth.Tokens, wantTokens)
 	}
-	if cfg.Sops.AgeKeyFile != "/env-age.key" {
-		t.Errorf("Sops.AgeKeyFile = %q, want /env-age.key", cfg.Sops.AgeKeyFile)
+	if cfg.CredentialsDir != "/env-creds" {
+		t.Errorf("CredentialsDir = %q, want /env-creds", cfg.CredentialsDir)
 	}
-	if cfg.Sops.AgeKeyDir != "/env-age-keys" {
-		t.Errorf("Sops.AgeKeyDir = %q, want /env-age-keys", cfg.Sops.AgeKeyDir)
-	}
-	if cfg.Git.TokenDir != "/env-git-tokens" {
-		t.Errorf("Git.TokenDir = %q, want /env-git-tokens", cfg.Git.TokenDir)
+	if cfg.OriginOf("credentials_dir") != OriginEnv {
+		t.Errorf("credentials_dir origin = %s, want env", cfg.OriginOf("credentials_dir"))
 	}
 	if cfg.Auth.Mode != "off" {
 		t.Errorf("Auth.Mode = %q, want off", cfg.Auth.Mode)
 	}
-	if cfg.Audit.Log != "/env-audit.log" || cfg.Audit.KeySeed != "cafef00d" {
+	if cfg.Audit.Log != "/env-audit.log" {
 		t.Errorf("Audit = %+v", cfg.Audit)
 	}
 }
@@ -217,9 +190,8 @@ func TestFromEnvUnsetLeavesDefaults(t *testing.T) {
 		"CARTOGRAPHER_HTTP", "CARTOGRAPHER_TOKENS", "CARTOGRAPHER_AUTH",
 		"CARTOGRAPHER_GIT_AUTOCOMMIT", "CARTOGRAPHER_GIT_SYNC", "CARTOGRAPHER_GIT_PROFILE",
 		"CARTOGRAPHER_SYNC_IN_WINDOW", "CARTOGRAPHER_SYNC_OUT_DEBOUNCE",
-		"CARTOGRAPHER_GIT_TOKEN_DIR", "CARTOGRAPHER_AUDIT_LOG",
-		"CARTOGRAPHER_AUDIT_KEY", "CARTOGRAPHER_SOPS_AGE_KEY_FILE",
-		"CARTOGRAPHER_SOPS_AGE_KEY_DIR",
+		"CARTOGRAPHER_AUDIT_LOG", "CARTOGRAPHER_CREDENTIALS_DIR",
+		"CARTOGRAPHER_AUDIT_KEY",
 	} {
 		t.Setenv(v, "")
 	}
@@ -294,7 +266,7 @@ func TestNormalizeAuthMode(t *testing.T) {
 // move the KB's writes to the remote's default branch.
 func TestLoadRetiredGitKeysWarnAndTheProfileRefuses(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	data := []byte("git:\n  autocommit: false\n  sync: false\n  in_window: 5s\n  profile: server\n  base_branch: main\n  github_owner: acme\n  ssh_key: /k\nkbs:\n  - remote: https://git.example.com/user/kb-a.git\n    git_profile: local\n    git_branch: team/kb-data\n  - path: /srv/kb-b\n")
+	data := []byte("git:\n  autocommit: false\n  sync: false\n  in_window: 5s\n  profile: server\n  base_branch: main\n  github_owner: acme\ncredentials_dir: /creds\nkbs:\n  - remote: https://git.example.com/user/kb-a.git\n    git_profile: local\n    git_branch: team/kb-data\n  - path: /srv/kb-b\n")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -302,8 +274,8 @@ func TestLoadRetiredGitKeysWarnAndTheProfileRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a retired key is a warning, not a load error: %v", err)
 	}
-	if cfg.Git.SSHKey != "/k" {
-		t.Errorf("a live key next to retired ones was lost: %+v", cfg.Git)
+	if cfg.CredentialsDir != "/creds" {
+		t.Errorf("a live key next to retired ones was lost: %q", cfg.CredentialsDir)
 	}
 	got := strings.Join(cfg.Warnings, "\n")
 	for _, want := range []string{
@@ -338,8 +310,8 @@ func TestLoadRetiredGitKeysWarnAndTheProfileRefuses(t *testing.T) {
 // are now, and the value changes nothing.
 func TestLoadRetiredAuthorKeysWarn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	data := []byte("git:\n  ssh_key: /k\n  author_name: Bot\n  author_email: bot@example.com\n  committer_name: Ci\n  committer_email: ci@example.com\n" +
-		"kbs:\n  - remote: https://git.example.com/user/kb-a.git\n    ssh_key: /a\n    author_name: Kb Bot\n    author_email: kb@example.com\n    committer_name: Kb Ci\n    committer_email: kb-ci@example.com\n" +
+	data := []byte("git:\n  author_name: Bot\n  author_email: bot@example.com\n  committer_name: Ci\n  committer_email: ci@example.com\n" +
+		"kbs:\n  - remote: https://git.example.com/user/kb-a.git\n    author_name: Kb Bot\n    author_email: kb@example.com\n    committer_name: Kb Ci\n    committer_email: kb-ci@example.com\n" +
 		// A token with half an identity used to refuse the start; now it is only
 		// a warning.
 		"auth:\n  tokens:\n    - literal-token\n    - token: bot-token\n      id: bot\n      author_name: Bot\n")
@@ -350,11 +322,8 @@ func TestLoadRetiredAuthorKeysWarn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a retired key is a warning, not a load error: %v", err)
 	}
-	if cfg.Git != (GitConfig{SSHKey: "/k"}) {
-		t.Errorf("Git = %+v, want only the SSH key", cfg.Git)
-	}
-	if len(cfg.KBs) != 1 || cfg.KBs[0].SSHKey != "/a" {
-		t.Errorf("KBs = %+v, want the entry with its SSH key", cfg.KBs)
+	if len(cfg.KBs) != 1 || cfg.KBs[0].Remote != "https://git.example.com/user/kb-a.git" {
+		t.Errorf("KBs = %+v, want the entry with its remote", cfg.KBs)
 	}
 	if err := ValidateAuth(cfg.Auth); err != nil {
 		t.Errorf("auth with a retired token key: %v", err)
@@ -401,9 +370,6 @@ func TestFromEnvRetiredVariablesWarn(t *testing.T) {
 	}
 	if cfg.RefusalError() != nil {
 		t.Errorf("CARTOGRAPHER_GIT_PROFILE=local was refused: %v", cfg.RefusalError())
-	}
-	if !reflect.DeepEqual(cfg.Git, Default().Git) {
-		t.Errorf("a retired variable changed the config: %+v", cfg.Git)
 	}
 	t.Setenv("CARTOGRAPHER_GIT_PROFILE", "server")
 	cfg = Default()
@@ -613,15 +579,58 @@ func TestLoadAuditRetention(t *testing.T) {
 	}
 	// The other audit keys survive the layering.
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("audit:\n  log: /tmp/a.log\n  key_seed: abc\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("audit:\n  log: /tmp/a.log\n  mode: required\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Audit.Log != "/tmp/a.log" || cfg.Audit.KeySeed != "abc" {
-		t.Errorf("Audit = %+v, want log and key_seed kept", cfg.Audit)
+	if cfg.Audit.Log != "/tmp/a.log" || cfg.Audit.Mode != "required" {
+		t.Errorf("Audit = %+v, want log and mode kept", cfg.Audit)
+	}
+}
+
+// The active segment rotates at 64 MiB unless the operator sets a size (D905):
+// without a size the log never rotated, so retention never deleted anything. A
+// zero is the default, not "never rotate".
+func TestLoadAuditMaxSegmentBytes(t *testing.T) {
+	cases := []struct {
+		name, yaml string
+		want       int64
+	}{
+		{"absent", "audit:\n  mode: best_effort\n", DefaultAuditMaxSegmentBytes},
+		{"zero is the default", "audit:\n  max_segment_bytes: 0\n", DefaultAuditMaxSegmentBytes},
+		{"explicit value", "audit:\n  max_segment_bytes: 1048576\n", 1 << 20},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(c.yaml), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Audit.MaxSegmentBytes != c.want {
+				t.Errorf("MaxSegmentBytes = %d, want %d", cfg.Audit.MaxSegmentBytes, c.want)
+			}
+		})
+	}
+}
+
+// AuditLogPath is the log in effect: audit.log when set, otherwise under the
+// data directory, so the log is always on (D905).
+func TestAuditLogPath(t *testing.T) {
+	c := Default()
+	c.Data = "/srv/data"
+	if want := filepath.Join("/srv/data", "audit", "audit.log"); c.AuditLogPath() != want {
+		t.Errorf("AuditLogPath() = %q, want %q", c.AuditLogPath(), want)
+	}
+	c.Audit.Log = "/var/log/carto.jsonl"
+	if c.AuditLogPath() != "/var/log/carto.jsonl" {
+		t.Errorf("AuditLogPath() = %q, want audit.log", c.AuditLogPath())
 	}
 }
 

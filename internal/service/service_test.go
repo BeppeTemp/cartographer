@@ -66,18 +66,18 @@ func TestDefaultServerYAML(t *testing.T) {
 		"init: true",
 		"cartographer service install",
 		"config.example.yaml",
-		"git:",
-		"ssh_key:",
-		"token_dir:",
+		"credentials_dir:",
 		"# --- available settings ---",
-		"SSH private key used to reach remote KBs",
+		"Directory with every secret file",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("yaml missing %q\n---\n%s", want, out)
 		}
 	}
-	// The author and committer keys are removed (D904): the file must not offer them.
-	for _, gone := range []string{"author_name", "author_email", "committer_name", "committer_email"} {
+	// The author and committer keys are removed (D904), and the secrets are files
+	// of credentials_dir (D905): the file must not offer them.
+	for _, gone := range []string{"author_name", "author_email", "committer_name", "committer_email",
+		"ssh_key", "known_hosts:", "token_dir", "age_key", "artifact_signing_seed"} {
 		if strings.Contains(out, gone) {
 			t.Errorf("yaml still offers the removed key %q", gone)
 		}
@@ -114,7 +114,6 @@ func TestDefaultServerYAMLIsDocumentedAndLoadsLikeThePlainOne(t *testing.T) {
 		}
 		want := config.Default()
 		want.HTTP, want.Data, want.Init = addr, "/d", true
-		want.Audit.Log = filepath.Join("/d", "audit.log")
 		if IsLoopbackListenAddr(addr) {
 			want.Auth.Mode = "off"
 		}
@@ -126,7 +125,8 @@ func TestDefaultServerYAMLIsDocumentedAndLoadsLikeThePlainOne(t *testing.T) {
 }
 
 // TestDefaultServerYAMLAudit: a fresh install has an operation log inside its
-// data directory, with the default retention (D325).
+// data directory, with the default retention (D325) and rotation size: the
+// file does not set audit.log, the log is always on under data (D905).
 func TestDefaultServerYAMLAudit(t *testing.T) {
 	dataDir := filepath.Join(t.TempDir(), "data")
 	path := filepath.Join(t.TempDir(), "server.yaml")
@@ -137,11 +137,17 @@ func TestDefaultServerYAMLAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(dataDir, "audit.log"); cfg.Audit.Log != want {
-		t.Errorf("audit.log = %q, want %q", cfg.Audit.Log, want)
+	if cfg.Audit.Log != "" {
+		t.Errorf("audit.log = %q, want it unset", cfg.Audit.Log)
+	}
+	if want := filepath.Join(dataDir, "audit", "audit.log"); cfg.AuditLogPath() != want {
+		t.Errorf("AuditLogPath() = %q, want %q", cfg.AuditLogPath(), want)
 	}
 	if cfg.Audit.RetentionDays != config.DefaultAuditRetentionDays {
 		t.Errorf("retention_days = %d, want %d", cfg.Audit.RetentionDays, config.DefaultAuditRetentionDays)
+	}
+	if cfg.Audit.MaxSegmentBytes != config.DefaultAuditMaxSegmentBytes {
+		t.Errorf("max_segment_bytes = %d, want %d", cfg.Audit.MaxSegmentBytes, config.DefaultAuditMaxSegmentBytes)
 	}
 }
 

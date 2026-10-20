@@ -11,7 +11,7 @@ and are never published.
 | Piece | Where | Defined in |
 |---|---|---|
 | Server + baked-in KB | Cloud Run `cartographer-demo`, project `cartographer-demo`, `europe-west1`; min 0, max 1 instance (a single writer), concurrency 20 | `main.tf`, `Dockerfile` |
-| Guestbook KB | Seed in `demo/guestbook/`; lives in a private git remote cloned at start by the entrypoint (the server starts without it if the clone fails), pushed after every write; the git token is a Secret Manager secret mounted as a file | `entrypoint.sh`, `main.tf` |
+| Guestbook KB | Seed in `demo/guestbook/`; lives in a private git remote cloned at start by the entrypoint (the server starts without it if the clone fails), pushed after every write; the git token is a Secret Manager secret mounted as a file, which the entrypoint copies into the server's credentials directory as `guestbook.token`, so that directory stays writable for the audit key (D905) | `entrypoint.sh`, `main.tf` |
 | KB history | `demo/replay.sh`, run in the image build (relative to the build date, so rebuilt every release) | `Dockerfile` |
 | Public hostname | Cloudflare Worker (custom domain): maps `/mcp` to `/mcp/routed`, sets the read token, moderates guestbook messages (rules, KV rate limits, Workers AI classifier, kill switch), caches `GET /api/ui/v1/*` for 5 s with CORS for the Pages Atlas, answers 404 under `/.well-known/`; plus one per-IP rate-limit rule (30 requests / 10 s) | `worker.js`, `main.tf` |
 | Public Atlas | GitHub Pages (`docs.yml`, `demo/build.sh`); reads the live API through the Worker, falls back to its snapshot | `demo/build.sh` |
@@ -105,7 +105,7 @@ and the Pages Atlas shows the live astronomy KB only.
 ## Checks
 
 - `make demo-smoke`: builds the image and runs it locally against a bare git repository seeded from
-  `demo/guestbook/` (a Docker volume, `file://`, a dummy token): read tool answers, write tools refused with
+  `demo/guestbook/` (a Docker volume, `file://`, a dummy token): the audit log is signed, read tool answers, write tools refused with
   the read token on both KBs, a message written with the write token reaches the remote, the routed
   `tools/list` shows `kb` as a required enum (and no `kb` with astronomy alone), no token gets 401, and an
   unreachable remote leaves astronomy up. `DEMO_BASE=cartographer` after `make docker` tests the working tree.

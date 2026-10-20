@@ -20,6 +20,7 @@ git:
   sync: false
   in_window: 5s
   ssh_key: /etc/kb/id
+credentials_dir: /etc/kb/credentials
 web:
   enabled: false
 kbs:
@@ -54,6 +55,7 @@ func TestRealignServerFile(t *testing.T) {
 		"removed git.autocommit:",
 		"removed git.sync:",
 		"removed git.in_window:",
+		"removed git.ssh_key: replaced by default.ssh in credentials_dir",
 		"removed kbs[0].git_branch: replaced by branch in the KB's settings.yaml",
 		"removed kbs[1].path:",
 		"reset web.enabled: false switched a feature off",
@@ -84,8 +86,8 @@ func TestRealignServerFile(t *testing.T) {
 	if err := yaml.Unmarshal(out, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if len(doc.Git) != 1 || doc.Git["ssh_key"] == nil {
-		t.Errorf("git = %v, want only ssh_key", doc.Git)
+	if len(doc.Git) != 0 {
+		t.Errorf("git = %v, want the emptied mapping gone", doc.Git)
 	}
 	if doc.Web != nil {
 		t.Errorf("web = %v, want the reset mapping gone", doc.Web)
@@ -93,12 +95,12 @@ func TestRealignServerFile(t *testing.T) {
 	if len(doc.KBs) != 1 || len(doc.KBs[0]) != 2 {
 		t.Errorf("kbs = %v, want the one entry with remote and write_gate", doc.KBs)
 	}
-	for _, kept := range []string{"# my server", `http: ":9090" # kept as written`, "ssh_key: /etc/kb/id", "write_gate: error", "remote: https://git.example.com/user/kb-a.git"} {
+	for _, kept := range []string{"# my server", `http: ":9090" # kept as written`, "credentials_dir: /etc/kb/credentials", "write_gate: error", "remote: https://git.example.com/user/kb-a.git"} {
 		if !strings.Contains(text, kept) {
 			t.Errorf("%q was lost:\n%s", kept, text)
 		}
 	}
-	if !strings.Contains(text, "# SSH private key used to reach remote KBs.") || !strings.Contains(text, "# --- available settings ---") {
+	if !strings.Contains(text, "# Directory with every secret file") || !strings.Contains(text, "# --- available settings ---") {
 		t.Errorf("the schema comments were not written:\n%s", text)
 	}
 
@@ -110,8 +112,8 @@ func TestRealignServerFile(t *testing.T) {
 	if len(cfg.Warnings) != 0 || cfg.HTTP != ":9090" || !cfg.Web.Enabled || cfg.KBs[0].WriteGate != "error" {
 		t.Errorf("realigned config = %+v warnings=%v", cfg, cfg.Warnings)
 	}
-	if cfg.Git.SSHKey != "/etc/kb/id" {
-		t.Errorf("git.ssh_key = %q", cfg.Git.SSHKey)
+	if cfg.CredentialsDir != "/etc/kb/credentials" {
+		t.Errorf("credentials_dir = %q", cfg.CredentialsDir)
 	}
 }
 

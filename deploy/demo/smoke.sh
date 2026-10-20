@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Smoke test of the demo image (D751, D800): readiness, a read tool, refused
-# writes on both KBs, one accepted guestbook write that reaches its git remote,
-# the routed tool schema, a request without the token, and a start with an
-# unreachable guestbook remote. Exits non-zero on any deviation.
+# Smoke test of the demo image (D751, D800): readiness, a signed audit log, a
+# read tool, refused writes on both KBs, one accepted guestbook write that
+# reaches its git remote, the routed tool schema, a request without the token,
+# and a start with an unreachable guestbook remote. Exits non-zero on any
+# deviation.
 #
 # Usage: deploy/demo/smoke.sh <image>
 #
@@ -48,7 +49,7 @@ start() {
   docker rm -f "$name" >/dev/null 2>&1 || true
   docker run -d --name "$name" -p 127.0.0.1:0:8080 -v "$volume:/remote" \
     -e "CARTOGRAPHER_TOKENS=$read_token|kb:astronomy:r;kb:guestbook:r,$write_token|kb:guestbook:rw" \
-    -e "GUESTBOOK_REMOTE=$1" -e CARTOGRAPHER_GIT_TOKEN_DIR=/remote/tokens \
+    -e "GUESTBOOK_REMOTE=$1" -e GUESTBOOK_TOKEN_FILE=/remote/tokens/guestbook.token \
     -e K_SERVICE=cartographer-demo "$image" >/dev/null
   local port
   port=$(docker port "$name" 8080/tcp | head -1 | sed 's/.*://')
@@ -83,6 +84,13 @@ init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 
 # --- two KBs: the clone worked, both are mounted ---------------------------------
 start file:///remote/guestbook.git
+
+# The token was copied into a writable credentials directory, so the server
+# generated its audit key there and signs the log (D905).
+case $(docker logs "$name" 2>&1) in
+*"audit log: "*", signed;"*) ;;
+*) fail "the audit log is not signed" ;;
+esac
 
 r=$(rpc "" "$init")
 [ "$(status "$r")" = 401 ] || fail "request without token: want 401, got $(status "$r")"

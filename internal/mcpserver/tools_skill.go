@@ -74,7 +74,7 @@ func toolServiceGet(k *kb.KB) Tool {
 				},
 				"resolve_secrets": {
 					"type": "boolean",
-					"description": "If true, decrypt the service's secrets_source (flat SOPS file) and include the resolved secrets in the result. Requires a KB with sops_age_key_file configured and rw scope. Default false."
+					"description": "If true, decrypt the service's secrets_source (flat SOPS file) and include the resolved secrets in the result. Requires a KB with an age key (<kb>.age or default.age in the server's credentials_dir) and rw scope. Default false."
 				},
 				"reveal": {
 					"type": "boolean",
@@ -191,7 +191,7 @@ func resolveFrontmatterSecrets(k *kb.KB, fm *okf.Frontmatter) (map[string]string
 		}
 	}
 	if k.SopsAgeKeyFile == "" {
-		return nil, "", false, fmt.Errorf("requires a sops_age_key_file configured for this KB")
+		return nil, "", false, fmt.Errorf("requires an age key for this KB (<kb>.age or default.age in the server's credentials_dir)")
 	}
 	if !sops.Available() {
 		return nil, "", false, fmt.Errorf("sops binary not found in PATH")
@@ -280,7 +280,7 @@ func toolSecretSet(k *kb.KB) Tool {
 			return errorResult("secret_set: file does not exist; bootstrapping an encrypted file and its recipients is an operator action"), nil
 		}
 		if k.SopsAgeKeyFile == "" {
-			return errorResult("secret_set: requires a sops_age_key_file configured for this KB"), nil
+			return errorResult("secret_set: requires an age key for this KB (<kb>.age or default.age in the server's credentials_dir)"), nil
 		}
 		if err := sops.Set(k.Root, p.Path, p.Key, p.Value, sops.AgeKeyEnv(k.SopsAgeKeyFile)...); err != nil {
 			return errorResult("secret_set: " + err.Error()), nil

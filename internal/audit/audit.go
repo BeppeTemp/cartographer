@@ -150,7 +150,17 @@ type Options struct {
 	// (e.g. a momentary EBUSY/EINTR) without reordering queued events.
 	RetryAttempts int
 	RetryBackoff  time.Duration
+	// SingleWriter makes the Log the only writer of its file across processes:
+	// the hash chain lives in the writer's memory, so a second writer would
+	// fork it. Open takes an advisory lock on <path>.lock, waits up to LockWait
+	// for a holder that is exiting and then fails with ErrLocked; Close
+	// releases it.
+	SingleWriter bool
 }
+
+// ErrLocked is the error of an Open with SingleWriter on a log that another
+// process already writes.
+var ErrLocked = errors.New("audit: the log is written by another process")
 
 // State reports the sink's current operational health, exposed via /health,
 // /ready, and `cartographer status`.
@@ -294,6 +304,60 @@ type Log struct {
 	sequence       uint64
 	queueDepth     int
 	index          checkpointIndex
+	lock           *os.File // the SingleWriter lock, held for the life of the Log
+}
+
+// writerLockPath is the lock file of a log opened with SingleWriter.
+func writerLockPath(path string) string { return path + ".lock" }
+
+// LockWait is how long an Open with SingleWriter waits for a lock another
+// process holds before it gives up with ErrLocked. A server started while its
+// predecessor is still exiting (a rolling or service restart) finds the lock
+// held for a moment; a holder that stays past the wait is a live second writer.
+// A variable so tests do not wait the full time.
+var LockWait = 10 * time.Second
+
+// lockPoll is the interval between attempts while waiting for the lock.
+var lockPoll = 100 * time.Millisecond
+
+// lockWriter takes the SingleWriter lock, retrying for LockWait while it is held
+// elsewhere, then returns ErrLocked.
+func lockWriter(path string) (*os.File, error) {
+	lp := writerLockPath(path)
+	f, err := os.OpenFile(lp, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("audit: open lock %s: %w", lp, err)
+	}
+	deadline := time.Now().Add(LockWait)
+	for {
+		err := tryLockFile(f)
+		if err == nil {
+			return f, nil
+		}
+		if !isLockBusy(err) {
+			f.Close()
+			return nil, fmt.Errorf("audit: lock %s: %w", lp, err)
+		}
+		if !time.Now().Before(deadline) {
+			f.Close()
+			return nil, fmt.Errorf("%w (lock %s)", ErrLocked, lp)
+		}
+		time.Sleep(lockPoll)
+	}
+}
+
+func releaseWriter(f *os.File) {
+	if f != nil {
+		_ = unlockFile(f)
+		_ = f.Close()
+	}
+}
+
+// IsRequired says whether a configured mode is required once normalized: an
+// unrecognized one is, as the log itself treats it, so a caller deciding
+// before the log exists fails closed in the same cases.
+func IsRequired(mode string) bool {
+	return normalizeOptions(Options{Mode: mode}).Mode == "required"
 }
 
 func normalizeOptions(o Options) Options {
@@ -340,22 +404,32 @@ func open(path string, kp *KeyPair, opts Options) (*Log, error) {
 	if path == "" {
 		return nil, errors.New("audit: empty log path")
 	}
+	var lock *os.File
+	if opts.SingleWriter {
+		var err error
+		if lock, err = lockWriter(path); err != nil {
+			return nil, err
+		}
+	}
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o640)
 	if err != nil {
+		releaseWriter(lock)
 		return nil, fmt.Errorf("audit: open %s: %w", path, err)
 	}
 	f.Close()
 
 	entries, err := readEntries(path)
 	if err != nil {
+		releaseWriter(lock)
 		return nil, err
 	}
 
 	opts = normalizeOptions(opts)
-	l := &Log{path: path, lastHash: "genesis", kp: kp, opts: opts, opened: time.Now().UTC(), healthy: true}
+	l := &Log{path: path, lastHash: "genesis", kp: kp, opts: opts, opened: time.Now().UTC(), healthy: true, lock: lock}
 
 	idx, err := loadCheckpointIndex(checkpointPath(path, opts.ArchiveDir))
 	if err != nil {
+		releaseWriter(lock)
 		return nil, err
 	}
 	l.index = idx
@@ -948,6 +1022,12 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey) (Summ
 	var timeline []Entry
 	var boundaries = map[int]boundary{} // index in timeline -> boundary info
 
+	// Signatures are mandatory from the first signed entry on, whatever its
+	// version and whether or not a checkpoint exists, and in any case right
+	// after a checkpoint written with a key loaded (signedFrom). Unsigned
+	// entries before both are the log kept before the key existed: the hash
+	// chain the first signature covers still authenticates them.
+	signedFrom := -1
 	checkpointOnly, retained := 0, 0
 	previousCheckpoint := "genesis"
 	for _, cp := range idx.Segments {
@@ -972,6 +1052,9 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey) (Summ
 		} else {
 			return Summary{}, statErr
 		}
+		if cp.SigningRequired && signedFrom < 0 {
+			signedFrom = len(timeline)
+		}
 		previousCheckpoint = cp.LastHash
 	}
 	activeStart := len(timeline)
@@ -981,7 +1064,11 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey) (Summ
 	ids := map[string]bool{}
 	attempts := map[string]bool{}
 	prev := "genesis"
+	signing := false
 	for i, e := range timeline {
+		if i == signedFrom {
+			signing = true
+		}
 		if b, ok := boundaries[i]; ok {
 			if b.prevHash != prev {
 				sum.Corrupt++
@@ -1022,10 +1109,13 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey) (Summ
 				sum.Corrupt++
 				return sum, fmt.Errorf("audit: completion without attempt at entry %d", i)
 			}
-			if needsSignature && e.Sig == "" {
-				sum.Corrupt++
-				return sum, fmt.Errorf("audit: unsigned event in signing-required segment at entry %d", i)
-			}
+		}
+		if signing && e.Sig == "" {
+			sum.Corrupt++
+			return sum, fmt.Errorf("audit: unsigned event after the first signature at entry %d", i)
+		}
+		if e.Sig != "" {
+			signing = true
 		}
 		if e.Sig == "" {
 			sum.Unsigned++
@@ -1116,6 +1206,8 @@ func (l *Log) Close() error {
 	if l.queueDepth != 0 {
 		return errors.New("audit: queue not drained")
 	}
+	releaseWriter(l.lock)
+	l.lock = nil
 	return nil
 }
 

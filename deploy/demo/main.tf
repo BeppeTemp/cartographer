@@ -42,8 +42,10 @@ resource "google_service_account" "runtime" {
 }
 
 # The guestbook repository's access token, mounted as the file guestbook.token
-# under CARTOGRAPHER_GIT_TOKEN_DIR: the entrypoint and the server read it when
-# git asks for credentials, so it is never in an env var, argv or .git/config.
+# under /etc/guestbook-git (GUESTBOOK_TOKEN_FILE in the image). The entrypoint
+# copies it into the server's credentials directory as guestbook.token (D905),
+# and git reads it from there when it asks for credentials, so it is never in an
+# env var, argv or .git/config.
 resource "google_secret_manager_secret" "guestbook_git_token" {
   secret_id = "guestbook-git-token"
 

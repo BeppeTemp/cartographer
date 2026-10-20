@@ -16,42 +16,57 @@ import (
 // sshCommand builds a "ssh -i <key> [-o UserKnownHostsFile=... -o
 // StrictHostKeyChecking=yes]" string from a key/known-hosts pair, or ""
 // if key is empty. Shared by setupGitSSH (global GIT_SSH_COMMAND fallback)
-// and gitEnvForKB (per-KB GIT_SSH_COMMAND override).
+// and gitEnvForKB (per-KB GIT_SSH_COMMAND override). git runs it through the
+// shell, so each path is single-quoted: a space would split it and the
+// backslashes of a Windows credentials directory would be eaten. ssh splits
+// the UserKnownHostsFile value on whitespace itself, hence the double quotes.
 func sshCommand(key, knownHosts string) string {
 	if key == "" {
 		return ""
 	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "ssh -i %s", key)
+	cmd := "ssh -i " + shellQuote(key)
 	if knownHosts != "" {
-		fmt.Fprintf(&sb, " -o UserKnownHostsFile=%s -o StrictHostKeyChecking=yes", knownHosts)
+		cmd += " -o " + shellQuote(`UserKnownHostsFile="`+knownHosts+`"`) + " -o StrictHostKeyChecking=yes"
 	}
-	return sb.String()
+	return cmd
 }
 
-// setupGitSSH configures GIT_SSH_COMMAND from g.SSHKey/g.KnownHosts so that
-// git subprocesses (clone, fetch, push) can reach remote KBs over SSH. It is
-// a no-op if no SSH key is configured, and never overrides an
-// already-set GIT_SSH_COMMAND (the environment wins). This is the global
-// fallback for KBs with no per-KB override; see gitEnvForKB for the
-// per-KB case, where — inversely — the per-KB env wins over the process
-// environment (D46).
-func setupGitSSH(g config.GitConfig) error {
-	cmd := sshCommand(g.SSHKey, g.KnownHosts)
-	if cmd == "" {
-		return nil
-	}
+// shellQuote quotes s as one word for a POSIX shell.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// setupGitSSH configures GIT_SSH_COMMAND from the default SSH key of the
+// credentials directory (default.ssh, with its known_hosts) so that git
+// subprocesses (clone, fetch, push) can reach remote KBs over SSH. It is a
+// no-op if there is no such key, and never overrides an already-set
+// GIT_SSH_COMMAND (the environment wins). This is the global fallback for KBs
+// with no key of their own; for the per-KB case, where the more specific
+// setting wins over the process environment (D46), see gitEnvForKB.
+func setupGitSSH(credDir string) error {
 	if _, exists := os.LookupEnv("GIT_SSH_COMMAND"); exists {
 		return nil
 	}
-	return os.Setenv("GIT_SSH_COMMAND", cmd)
+	key, ok := credentialFile(credDir, "", config.CredentialSSH)
+	if !ok {
+		return nil
+	}
+	return os.Setenv("GIT_SSH_COMMAND", sshCommandWithHosts(credDir, key))
+}
+
+// sshCommandWithHosts is sshCommand with the credentials directory's one
+// known_hosts, when it has one. It holds public host keys, 0644 like OpenSSH's
+// own, so its permissions are not warned about.
+func sshCommandWithHosts(credDir, key string) string {
+	hosts, _ := config.SharedCredentialFile(credDir, config.KnownHostsFile)
+	return sshCommand(key, hosts)
 }
 
 // resolveKBName resolves the name used for a KB everywhere it matters: the
 // HTTP mount endpoint (/mcp/<name>), token scopes (kb:<name>:r|rw), the
-// clone destination under Config.Data, and the git-token/SOPS-age-key
-// per-KB conventions (GitConfig.TokenDir/<name>.token,
-// SopsConfig.AgeKeyDir/<name>.age). spec.Name wins if set; otherwise the
+// clone destination under Config.Data, and the names of its files in the
+// credentials directory (<name>.ssh, <name>.token, <name>.age, <name>.signing;
+// D905). spec.Name wins if set; otherwise the
 // name is derived exactly as before D53: the last path segment of the
 // remote (remoteKBName) for remote KBs, or the basename of path for local
 // ones (path is spec.Path for explicit KBs, "" for remotes — resolved after
@@ -67,19 +82,15 @@ func resolveKBName(spec config.KBSpec, path string) string {
 }
 
 // gitTokenCredentialEnv returns the GIT_CONFIG_* environment entries that
-// inject a `credential.helper` reading the per-KB token file
-// <tokenDir>/<name>.token, if tokenDir is set and that file exists (D53).
-// Git only invokes a credential helper for http(s) transports, so this is a
-// no-op for ssh:// remotes even though it is unconditionally attempted here.
+// inject a `credential.helper` reading the token file at tokenPath, the
+// <kb>.token or default.token of the credentials directory (D905); no path, no
+// helper. Git only invokes a credential helper for http(s) transports, so this
+// is a no-op for ssh:// remotes even though it is attempted for every KB.
 // The helper is a shell one-liner that `cat`s the token file at
 // credential-prompt time: the token itself never appears in argv, the
 // remote URL, or .git/config — only the file path is embedded in the env.
-func gitTokenCredentialEnv(tokenDir, name string) []string {
-	if tokenDir == "" || name == "" {
-		return nil
-	}
-	tokenPath := filepath.Join(tokenDir, name+".token")
-	if _, err := os.Stat(tokenPath); err != nil {
+func gitTokenCredentialEnv(tokenPath string) []string {
+	if tokenPath == "" {
 		return nil
 	}
 	escaped := strings.ReplaceAll(tokenPath, "'", `'\''`)
@@ -91,29 +102,26 @@ func gitTokenCredentialEnv(tokenDir, name string) []string {
 	}
 }
 
-// gitEnvForKB assembles the per-KB git environment: GIT_SSH_COMMAND (from
-// spec.SSHKey/KnownHosts, falling back to g.SSHKey/KnownHosts) and — if
-// g.TokenDir/<name>.token exists — a credential.helper (D53,
+// gitEnvForKB assembles the per-KB git environment: GIT_SSH_COMMAND from the
+// KB's own key in the credentials directory, <name>.ssh (a KB without one uses
+// default.ssh through the process environment, setupGitSSH, and so an explicit
+// GIT_SSH_COMMAND still wins over the default), and — if <name>.token or
+// default.token exists — a credential.helper (D905,
 // gitTokenCredentialEnv). name is the resolved KB name (resolveKBName). Only
 // entries that resolve to a non-empty value are included. It carries no
 // identity: the committer is the server's, added by kb.KB.GitCommandEnv (D904). The result is
 // passed to gitx as env: it takes precedence over the process environment
-// (runGitEnv), the inverse of setupGitSSH's "process environment wins" rule.
-func gitEnvForKB(spec config.KBSpec, g config.GitConfig, name string) []string {
+// (runGitEnv).
+func gitEnvForKB(name, credDir string) []string {
 	var env []string
 
-	sshKey, knownHosts := spec.SSHKey, spec.KnownHosts
-	if sshKey == "" {
-		sshKey = g.SSHKey
-	}
-	if knownHosts == "" {
-		knownHosts = g.KnownHosts
-	}
-	if cmd := sshCommand(sshKey, knownHosts); cmd != "" {
-		env = append(env, "GIT_SSH_COMMAND="+cmd)
+	if key, ok := ownCredentialFile(credDir, name, config.CredentialSSH); ok {
+		env = append(env, "GIT_SSH_COMMAND="+sshCommandWithHosts(credDir, key))
 	}
 
-	env = append(env, gitTokenCredentialEnv(g.TokenDir, name)...)
+	if tokenPath, ok := credentialFile(credDir, name, config.CredentialToken); ok {
+		env = append(env, gitTokenCredentialEnv(tokenPath)...)
+	}
 
 	return env
 }

@@ -235,6 +235,8 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return c.Init, c.Init
 	case "data":
 		return str(c.Data)
+	case "credentials_dir":
+		return str(c.CredentialsDir)
 	case "update_check":
 		return c.UpdateCheck, true
 	case "auth.mode":
@@ -259,16 +261,8 @@ func (c *Config) serverValue(path string) (any, bool) {
 			pairs = append(pairs, a.From+" -> "+a.To)
 		}
 		return pairs, len(pairs) > 0
-	case "git.ssh_key":
-		return str(c.Git.SSHKey)
-	case "git.known_hosts":
-		return str(c.Git.KnownHosts)
-	case "git.token_dir":
-		return str(c.Git.TokenDir)
 	case "audit.log":
 		return str(c.Audit.Log)
-	case "audit.key_seed":
-		return str(c.Audit.KeySeed)
 	case "audit.mode":
 		return str(c.Audit.Mode)
 	case "audit.max_segment_bytes":
@@ -277,10 +271,6 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return str(c.Audit.ArchiveDir)
 	case "audit.retention_days":
 		return c.Audit.RetentionDays, true
-	case "sops.age_key_file":
-		return str(c.Sops.AgeKeyFile)
-	case "sops.age_key_dir":
-		return str(c.Sops.AgeKeyDir)
 	case "tools.profile":
 		return str(c.ToolsProfile)
 	case "mcp.allowed_origins":

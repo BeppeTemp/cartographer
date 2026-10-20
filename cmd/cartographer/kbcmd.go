@@ -572,6 +572,9 @@ func scanDataDir(dataDir string) ([]kbRow, error) {
 			continue
 		}
 		path := filepath.Join(dataDir, e.Name())
+		if serverOwnDataDir(path) {
+			continue
+		}
 		row := kbRow{Name: e.Name(), IsRepo: gitx.IsRepo(path)}
 		if _, err := os.Stat(filepath.Join(path, "data", "index.md")); err == nil {
 			row.IsKB = true
@@ -742,7 +745,7 @@ func (h *healthInfo) hasNoKBs(dataDir string) bool {
 	if h.KBs != nil {
 		return len(*h.KBs) == 0
 	}
-	entries, err := discoverKBPaths(dataDir)
+	entries, err := discoverKBPaths(dataDir, "")
 	return err == nil && len(entries) == 0
 }
 

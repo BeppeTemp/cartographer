@@ -44,8 +44,15 @@ server_start() {
 		fi
 	fi
 
+	# The server's own files stay in the run's temp directory, never in the
+	# runner's home: the audit log is always on and audit.key is generated at
+	# the first start (D905). E2E_CREDENTIALS_DIR and E2E_AUDIT_LOG let a
+	# scenario put them where it inspects them.
+	local own="${E2E_TMP_DIR:-/tmp}/${SCENARIO_NAME:-server}"
 	CARTOGRAPHER_AUTH="${auth}" \
 	CARTOGRAPHER_TOKENS="${tokens}" \
+	CARTOGRAPHER_CREDENTIALS_DIR="${E2E_CREDENTIALS_DIR:-${own}/credentials}" \
+	CARTOGRAPHER_AUDIT_LOG="${E2E_AUDIT_LOG:-${own}/audit/audit.log}" \
 		"$bin" "${args[@]}" \
         >"${E2E_TMP_DIR:-/tmp}/cartographer_e2e.log" 2>&1 &
 

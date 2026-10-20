@@ -637,7 +637,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	}
 	with := func(c KBCapability, f func(*KBCapability)) KBCapability { f(&c); return c }
 	secretsState := onOff(k.SopsAgeKeyFile != "")
-	secretsSetting := "kbs[].sops_age_key_file or sops.age_key_file"
+	secretsSetting := "credentials_dir"
 	if info.SecretsDeclared {
 		secretsSetting = kb.SettingsFile + " secrets, " + secretsSetting
 		if k.SopsAgeKeyFile == "" {

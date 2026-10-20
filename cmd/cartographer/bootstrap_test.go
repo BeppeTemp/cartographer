@@ -171,7 +171,7 @@ func TestSetupGitSSHNoopWithoutKey(t *testing.T) {
 	restore := unsetEnvForTest(t, "GIT_SSH_COMMAND")
 	defer restore()
 
-	if err := setupGitSSH(config.GitConfig{}); err != nil {
+	if err := setupGitSSH(t.TempDir()); err != nil {
 		t.Fatalf("setupGitSSH: %v", err)
 	}
 	if v, ok := os.LookupEnv("GIT_SSH_COMMAND"); ok {
@@ -183,13 +183,40 @@ func TestSetupGitSSHSetsCommand(t *testing.T) {
 	restore := unsetEnvForTest(t, "GIT_SSH_COMMAND")
 	defer restore()
 
-	if err := setupGitSSH(config.GitConfig{SSHKey: "/k", KnownHosts: "/kh"}); err != nil {
+	dir := t.TempDir()
+	key := writeCredential(t, dir, "default.ssh", "key-material")
+	hosts := writeCredential(t, dir, "known_hosts", "host key")
+	if err := setupGitSSH(dir); err != nil {
 		t.Fatalf("setupGitSSH: %v", err)
 	}
 	got := os.Getenv("GIT_SSH_COMMAND")
-	want := "ssh -i /k -o UserKnownHostsFile=/kh -o StrictHostKeyChecking=yes"
+	want := "ssh -i '" + key + "' -o 'UserKnownHostsFile=\"" + hosts + "\"' -o StrictHostKeyChecking=yes"
 	if got != want {
 		t.Errorf("GIT_SSH_COMMAND = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "key-material") {
+		t.Errorf("the key itself is in the command: %q", got)
+	}
+}
+
+// git runs GIT_SSH_COMMAND through the shell: a path with a space, a quote or
+// the backslashes of a Windows directory reaches ssh as one argument, and the
+// known_hosts value is double-quoted for ssh's own split on whitespace.
+func TestSSHCommandQuotesPaths(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh to run the command with")
+	}
+	key := `C:\Users\it's me\credentials\kb.ssh`
+	hosts := `/srv/cred dir/known_hosts`
+	cmd := sshCommand(key, hosts)
+	out, err := exec.Command(sh, "-c", `ssh() { printf '%s\n' "$@"; }; `+cmd).Output()
+	if err != nil {
+		t.Fatalf("sh -c %q: %v", cmd, err)
+	}
+	want := "-i\n" + key + "\n-o\nUserKnownHostsFile=\"" + hosts + "\"\n-o\nStrictHostKeyChecking=yes\n"
+	if string(out) != want {
+		t.Errorf("ssh received\n%s\nwant\n%s", out, want)
 	}
 }
 
@@ -200,7 +227,9 @@ func TestSetupGitSSHEnvironmentWins(t *testing.T) {
 	if err := os.Setenv("GIT_SSH_COMMAND", "ssh -i /already-set"); err != nil {
 		t.Fatal(err)
 	}
-	if err := setupGitSSH(config.GitConfig{SSHKey: "/k"}); err != nil {
+	dir := t.TempDir()
+	writeCredential(t, dir, "default.ssh", "key")
+	if err := setupGitSSH(dir); err != nil {
 		t.Fatalf("setupGitSSH: %v", err)
 	}
 	if got := os.Getenv("GIT_SSH_COMMAND"); got != "ssh -i /already-set" {
@@ -208,60 +237,49 @@ func TestSetupGitSSHEnvironmentWins(t *testing.T) {
 	}
 }
 
-// TestGitEnvForKB_SSHFromSpec verifies that a KBSpec's SSH settings win over
-// the global GitConfig. The environment carries no identity: the committer is
-// the server's (D904).
-func TestGitEnvForKB_SSHFromSpec(t *testing.T) {
-	spec := config.KBSpec{
-		SSHKey:     "/spec/key",
-		KnownHosts: "/spec/known_hosts",
-	}
-	g := config.GitConfig{
-		SSHKey:     "/global/key",
-		KnownHosts: "/global/known_hosts",
-	}
+// TestGitEnvForKB_OwnSSHKey verifies that a KB's own <kb>.ssh produces its
+// GIT_SSH_COMMAND and that default.ssh is left to setupGitSSH (the process
+// environment), not repeated per KB. The environment carries no identity: the
+// committer is the server's (D904).
+func TestGitEnvForKB_OwnSSHKey(t *testing.T) {
+	dir := t.TempDir()
+	key := writeCredential(t, dir, "wiki-kb.ssh", "key")
+	writeCredential(t, dir, "default.ssh", "other")
+	hosts := writeCredential(t, dir, "known_hosts", "host key")
 
-	got := gitEnvForKB(spec, g, "wiki-kb")
+	got := gitEnvForKB("wiki-kb", dir)
 	want := []string{
-		"GIT_SSH_COMMAND=ssh -i /spec/key -o UserKnownHostsFile=/spec/known_hosts -o StrictHostKeyChecking=yes",
+		"GIT_SSH_COMMAND=ssh -i '" + key + "' -o 'UserKnownHostsFile=\"" + hosts + "\"' -o StrictHostKeyChecking=yes",
 	}
 	if !equalStringSlices(got, want) {
-		t.Errorf("gitEnvForKB(full spec) = %v, want %v", got, want)
+		t.Errorf("gitEnvForKB(own key) = %v, want %v", got, want)
 	}
-}
 
-// TestGitEnvForKB_EmptySpec verifies that an empty KBSpec falls back
-// entirely to the global GitConfig for SSH.
-func TestGitEnvForKB_EmptySpec(t *testing.T) {
-	got := gitEnvForKB(config.KBSpec{}, config.GitConfig{SSHKey: "/global/key"}, "")
-	want := []string{"GIT_SSH_COMMAND=ssh -i /global/key"}
-	if !equalStringSlices(got, want) {
-		t.Errorf("gitEnvForKB(empty spec) = %v, want %v", got, want)
+	// Another KB has no file of its own: the default is the process's business.
+	if got := gitEnvForKB("other-kb", dir); len(got) != 0 {
+		t.Errorf("gitEnvForKB(default key only) = %v, want empty", got)
 	}
 }
 
 // TestGitEnvForKB_NothingConfigured verifies that gitEnvForKB returns an empty
-// (nil) env when neither the spec nor the global config carry any SSH
-// override: git runs with the process environment.
+// (nil) env when there is no credentials directory to look in: git runs with
+// the process environment.
 func TestGitEnvForKB_NothingConfigured(t *testing.T) {
-	got := gitEnvForKB(config.KBSpec{}, config.GitConfig{}, "")
+	got := gitEnvForKB("wiki-kb", "")
 	if len(got) != 0 {
 		t.Errorf("gitEnvForKB(nothing configured) = %v, want empty", got)
 	}
 }
 
 // TestGitTokenCredentialEnv_FilePresent verifies that gitTokenCredentialEnv
-// injects a GIT_CONFIG_* credential.helper referencing the token file's path
-// when <tokenDir>/<name>.token exists, and that the token content itself
-// never appears in the returned env (only the path does) (D53).
+// injects a GIT_CONFIG_* credential.helper referencing the token file's path,
+// and that the token content itself never appears in the returned env (only
+// the path does): the token is never in argv (D53, D905).
 func TestGitTokenCredentialEnv_FilePresent(t *testing.T) {
 	dir := t.TempDir()
-	tokenPath := filepath.Join(dir, "wiki-kb.token")
-	if err := os.WriteFile(tokenPath, []byte("s3cr3t-token\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	tokenPath := writeCredential(t, dir, "wiki-kb.token", "s3cr3t-token\n")
 
-	got := gitTokenCredentialEnv(dir, "wiki-kb")
+	got := gitTokenCredentialEnv(tokenPath)
 	if len(got) != 3 {
 		t.Fatalf("gitTokenCredentialEnv = %v, want 3 entries", got)
 	}
@@ -281,54 +299,49 @@ func TestGitTokenCredentialEnv_FilePresent(t *testing.T) {
 	}
 }
 
-// TestGitTokenCredentialEnv_FileAbsent verifies that no env is injected when
-// the token file does not exist, even if tokenDir/name are set.
-func TestGitTokenCredentialEnv_FileAbsent(t *testing.T) {
-	dir := t.TempDir()
-	if got := gitTokenCredentialEnv(dir, "no-such-kb"); got != nil {
-		t.Errorf("gitTokenCredentialEnv(file absent) = %v, want nil", got)
+// TestGitTokenCredentialEnv_NoPath verifies the no-op when there is no token
+// file.
+func TestGitTokenCredentialEnv_NoPath(t *testing.T) {
+	if got := gitTokenCredentialEnv(""); got != nil {
+		t.Errorf("gitTokenCredentialEnv(no path) = %v, want nil", got)
 	}
 }
 
-// TestGitTokenCredentialEnv_NoTokenDir verifies the no-op when TokenDir is
-// unset.
-func TestGitTokenCredentialEnv_NoTokenDir(t *testing.T) {
-	if got := gitTokenCredentialEnv("", "wiki-kb"); got != nil {
-		t.Errorf("gitTokenCredentialEnv(no dir) = %v, want nil", got)
-	}
-}
-
-// TestGitEnvForKB_TokenDirInjectsCredentialHelper verifies gitEnvForKB wires
-// GitConfig.TokenDir through to the credential.helper env alongside the
-// existing SSH/committer entries.
-func TestGitEnvForKB_TokenDirInjectsCredentialHelper(t *testing.T) {
+// TestGitEnvForKB_TokenInjectsCredentialHelper verifies gitEnvForKB wires the
+// KB's token file (own file, then default.token) through to the
+// credential.helper env, without the token value anywhere in it.
+func TestGitEnvForKB_TokenInjectsCredentialHelper(t *testing.T) {
 	dir := t.TempDir()
-	tokenPath := filepath.Join(dir, "wiki-kb.token")
-	if err := os.WriteFile(tokenPath, []byte("tok"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	own := writeCredential(t, dir, "wiki-kb.token", "own-tok")
+	def := writeCredential(t, dir, "default.token", "default-tok")
 
-	g := config.GitConfig{TokenDir: dir}
-	got := gitEnvForKB(config.KBSpec{}, g, "wiki-kb")
-	found := false
-	for _, e := range got {
-		if strings.HasPrefix(e, "GIT_CONFIG_VALUE_0=") && strings.Contains(e, tokenPath) {
-			found = true
+	for _, tc := range []struct{ kb, wantPath string }{
+		{"wiki-kb", own},
+		{"other-kb", def},
+	} {
+		got := gitEnvForKB(tc.kb, dir)
+		found := false
+		for _, e := range got {
+			if strings.HasPrefix(e, "GIT_CONFIG_VALUE_0=") && strings.Contains(e, tc.wantPath) {
+				found = true
+			}
+			if strings.Contains(e, "own-tok") || strings.Contains(e, "default-tok") {
+				t.Errorf("token value in env entry %q", e)
+			}
+		}
+		if !found {
+			t.Errorf("gitEnvForKB(%s) = %v, want a GIT_CONFIG_VALUE_0 entry referencing %q", tc.kb, got, tc.wantPath)
 		}
 	}
-	if !found {
-		t.Errorf("gitEnvForKB with TokenDir = %v, want a GIT_CONFIG_VALUE_0 entry referencing %q", got, tokenPath)
-	}
 }
 
-// TestGitEnvForKB_TokenDirNoFileNoInjection verifies that gitEnvForKB stays
-// as before (no GIT_CONFIG_* entries) when the per-KB token file is absent.
-func TestGitEnvForKB_TokenDirNoFileNoInjection(t *testing.T) {
-	dir := t.TempDir()
-	g := config.GitConfig{TokenDir: dir}
-	got := gitEnvForKB(config.KBSpec{}, g, "wiki-kb")
+// TestGitEnvForKB_TokenNoFileNoInjection verifies that gitEnvForKB adds no
+// GIT_CONFIG_* entries when the KB has no token file and there is no default:
+// the same as the key being unset.
+func TestGitEnvForKB_TokenNoFileNoInjection(t *testing.T) {
+	got := gitEnvForKB("wiki-kb", t.TempDir())
 	if len(got) != 0 {
-		t.Errorf("gitEnvForKB with TokenDir but no token file = %v, want empty", got)
+		t.Errorf("gitEnvForKB with no token file = %v, want empty", got)
 	}
 }
 

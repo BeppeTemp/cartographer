@@ -4,6 +4,8 @@ topic: control-plane
 
 # D325 — Out of the box, what keeps a KB healthy is on: new maps demand index entries, a fresh install keeps an audit log that rotates, a client with no reliable hook gets its sync timer, a new KB gets an `instructions.md`
 
+> **Amended by [D905](D905-one-credentials-directory-audit-always-on.md)**: the audit log no longer depends on `service install` writing `audit.log`: every server keeps one, signed, at `<data>/audit/audit.log`.
+
 **Decision.** `map_create` applies `require_index_entry: true` when the caller omits the key (only an explicit `false` opts out). `service install` writes `audit.log: <data>/audit.log` into the generated `server.yaml`, and `audit.retention_days` defaults to 90 (an explicit `0` keeps everything).
 
 `setup` and `connect` install the sync timer themselves when `providersNeedingSyncTimer` is non-empty (a connected provider with no session hook, or Kiro's partial one), revising D140's opt-in. `setup` lists it in its plan; `service sync-timer uninstall` is the explicit opt-out, stored as `sync_timer_opt_out` in `.cartographer.yaml` and cleared by `install`; `disconnect` removes the timer when no remaining client needs it, without recording an opt-out. `kb create` (`kb.Init`) writes a short generic `instructions.md` (status convention, write discipline) when it creates the KB.
