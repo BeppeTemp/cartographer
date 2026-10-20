@@ -14,11 +14,8 @@ import (
 // commit did not happen (git unavailable or not configured on this machine).
 func initGitKB(t *testing.T) (*KB, string) {
 	t.Helper()
-	dir := tempKB(t)
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	k := newTestKB(t)
+	dir := k.Root
 	sha, err := gitx.HeadSHA(dir)
 	if err != nil {
 		t.Skipf("git not available or initial commit failed: %v", err)
@@ -189,11 +186,7 @@ func TestRedactRemoteURL(t *testing.T) {
 
 func TestRemoteInfo(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	k := newTestKB(t)
 	if url, ok := k.RemoteInfo(); ok || url != "" {
 		t.Fatalf("RemoteInfo without origin = (%q, %v), want (\"\", false)", url, ok)
 	}

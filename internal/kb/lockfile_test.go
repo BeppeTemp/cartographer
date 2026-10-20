@@ -15,16 +15,7 @@ import (
 
 func mustInitKB(t *testing.T) *KB {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "kb-lock-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return k
+	return newTestKB(t)
 }
 
 func gitStatusPorcelain(dir string) (string, error) {

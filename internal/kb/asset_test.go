@@ -14,10 +14,7 @@ import (
 
 func expandedAssetKB(t *testing.T) *KB {
 	t.Helper()
-	k, err := Init(tempKB(t))
-	if err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	k := newTestKB(t)
 	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Asset owner")
 	if _, err := k.WriteConcept("map/owner", fm, "# Owner\n", ""); err != nil {
 		t.Fatalf("WriteConcept: %v", err)

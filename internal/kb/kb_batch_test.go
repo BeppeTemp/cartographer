@@ -14,8 +14,7 @@ import (
 
 func TestWriteConceptBatch_AppliesAllAndOneLogEntry(t *testing.T) {
 	t.Parallel()
-	dir := tempKB(t)
-	kb, _ := Init(dir)
+	kb := newTestKB(t)
 
 	fm1, _ := okf.ParseFrontmatter("type: Runbook\ntitle: One")
 	fm2, _ := okf.ParseFrontmatter("type: Runbook\ntitle: Two")
@@ -55,8 +54,7 @@ func TestWriteConceptBatch_AppliesAllAndOneLogEntry(t *testing.T) {
 
 func TestWriteConceptBatch_RollsBackOnMidBatchFailure(t *testing.T) {
 	t.Parallel()
-	dir := tempKB(t)
-	kb, _ := Init(dir)
+	kb := newTestKB(t)
 
 	fmExisting, _ := okf.ParseFrontmatter("type: Runbook\ntitle: Existing")
 	if _, err := kb.WriteConcept(okf.ConceptID("existing"), fmExisting, "# V1\n", ""); err != nil {
@@ -102,8 +100,7 @@ func TestWriteConceptBatch_RollsBackOnMidBatchFailure(t *testing.T) {
 
 func TestWriteConceptBatch_RollsBackOnWriteFailureAfterFirstOpSucceeded(t *testing.T) {
 	t.Parallel()
-	dir := tempKB(t)
-	kb, _ := Init(dir)
+	kb := newTestKB(t)
 
 	fmExisting, _ := okf.ParseFrontmatter("type: Runbook\ntitle: Existing")
 	firstHash, err := kb.WriteConcept(okf.ConceptID("existing"), fmExisting, "# V1\n", "")
@@ -142,8 +139,7 @@ func TestWriteConceptBatch_RollsBackOnWriteFailureAfterFirstOpSucceeded(t *testi
 
 func TestWriteConceptBatch_RollbackRestoresOriginalFileMode(t *testing.T) {
 	t.Parallel()
-	dir := tempKB(t)
-	kb, _ := Init(dir)
+	kb := newTestKB(t)
 
 	fm1, _ := okf.ParseFrontmatter("type: Runbook\ntitle: Existing")
 	if _, err := kb.WriteConcept(okf.ConceptID("existing"), fm1, "# V1\n", ""); err != nil {
@@ -182,8 +178,7 @@ func TestWriteConceptBatch_RollbackRestoresOriginalFileMode(t *testing.T) {
 
 func TestWriteConceptBatch_NewExpandedStubRolledBackAndPruned(t *testing.T) {
 	t.Parallel()
-	dir := tempKB(t)
-	kb, _ := Init(dir)
+	kb := newTestKB(t)
 
 	if err := kb.CreateMap("entities", "Entities", "map", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
@@ -210,8 +205,7 @@ func TestWriteConceptBatch_NewExpandedStubRolledBackAndPruned(t *testing.T) {
 
 func TestWriteConceptBatch_ExpandedOwnerUpdate(t *testing.T) {
 	t.Parallel()
-	dir := tempKB(t)
-	kb, _ := Init(dir)
+	kb := newTestKB(t)
 
 	if err := kb.CreateMap("entities", "Entities", "map", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
@@ -258,8 +252,8 @@ func TestWriteConceptBatch_ExpandedOwnerUpdate(t *testing.T) {
 
 func TestWriteConceptBatch_RestartReadbackAfterRollback(t *testing.T) {
 	t.Parallel()
-	dir := tempKB(t)
-	kb, _ := Init(dir)
+	kb := newTestKB(t)
+	dir := kb.Root
 
 	fm1, _ := okf.ParseFrontmatter("type: Runbook\ntitle: Existing")
 	if _, err := kb.WriteConcept(okf.ConceptID("existing"), fm1, "# V1\n", ""); err != nil {
@@ -296,8 +290,7 @@ func TestWriteConceptBatch_RestartReadbackAfterRollback(t *testing.T) {
 
 func TestWriteConceptBatch_EmptyBatchRejected(t *testing.T) {
 	t.Parallel()
-	dir := tempKB(t)
-	kb, _ := Init(dir)
+	kb := newTestKB(t)
 
 	if _, err := kb.WriteConceptBatch(nil, "concept_batch: 0 op(s)", nil); !errors.Is(err, okf.ErrInvalidConcept) {
 		t.Fatalf("expected ErrInvalidConcept for an empty batch, got: %v", err)

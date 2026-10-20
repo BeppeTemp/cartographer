@@ -9,10 +9,7 @@ import (
 
 func TestRetirements_ReadsArchivesAndSupersedes(t *testing.T) {
 	t.Parallel()
-	k, err := Init(tempKB(t))
-	if err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	k := newTestKB(t)
 	at := func(day int) time.Time { return time.Date(2026, 3, day, 9, 0, 0, 0, time.UTC) }
 	// Oldest first: AppendLog puts each entry on top, as concept_archive does.
 	for _, e := range []struct {
@@ -56,10 +53,7 @@ func TestRetirements_ReadsArchivesAndSupersedes(t *testing.T) {
 
 func TestRetirements_NoLogAndCacheFollowsTheFile(t *testing.T) {
 	t.Parallel()
-	k, err := Init(tempKB(t))
-	if err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	k := newTestKB(t)
 	logPath := filepath.Join(k.DataRoot(), "log.md")
 	if err := os.Remove(logPath); err != nil {
 		t.Fatal(err)
@@ -112,10 +106,7 @@ func TestIsArchiveMap(t *testing.T) {
 // still read back, with the reason on one line.
 func TestRetirements_MultiLineReasonFromAnOlderLog(t *testing.T) {
 	t.Parallel()
-	k, err := Init(tempKB(t))
-	if err != nil {
-		t.Fatalf("Init: %v", err)
-	}
+	k := newTestKB(t)
 	at := func(day int) time.Time { return time.Date(2026, 4, day, 9, 0, 0, 0, time.UTC) }
 	for _, e := range []struct {
 		text string

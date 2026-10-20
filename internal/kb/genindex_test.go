@@ -14,7 +14,7 @@ import (
 // removed, a bad value refused on update and reported when hand-written.
 func TestUpdateMapContract_IndexKey(t *testing.T) {
 	t.Parallel()
-	k, _ := Init(tempKB(t))
+	k := newTestKB(t)
 	if err := k.CreateMap("m", "M", "map", nil); err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestRenderIndexBlock_Journal(t *testing.T) {
 // a deleted concept leaves the block.
 func TestRegenerateIndexes(t *testing.T) {
 	t.Parallel()
-	k, _ := Init(tempKB(t))
+	k := newTestKB(t)
 	for _, m := range []string{"gen", "cur"} {
 		if err := k.CreateMap(m, m, "map", nil); err != nil {
 			t.Fatal(err)
@@ -149,7 +149,7 @@ func TestRegenerateIndexes(t *testing.T) {
 // TestUpdateMapContract_WorkMap (D302): work_map must name an existing map.
 func TestUpdateMapContract_WorkMap(t *testing.T) {
 	t.Parallel()
-	k, _ := Init(tempKB(t))
+	k := newTestKB(t)
 	for _, m := range []string{"ref", "backlog"} {
 		if err := k.CreateMap(m, m, "map", nil); err != nil {
 			t.Fatal(err)
@@ -171,7 +171,7 @@ func TestUpdateMapContract_WorkMap(t *testing.T) {
 // that repeats it in _map.md and index.md; an H1 written differently stays.
 func TestUpdateMapContract_Title(t *testing.T) {
 	t.Parallel()
-	k, _ := Init(tempKB(t))
+	k := newTestKB(t)
 	if err := k.CreateMap("ref", "Reference notes", "map", nil); err != nil {
 		t.Fatal(err)
 	}

@@ -168,16 +168,7 @@ func TestExtractLinks_MarkdownLinksUnaffectedByWikiSupport(t *testing.T) {
 
 func TestGraphNeighbors(t *testing.T) {
 	t.Parallel()
-	dir, err := os.MkdirTemp("", "kb-graph-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 
 	os.MkdirAll(filepath.Join(k.DataRoot(), "arch"), 0o755)
 	write := func(rel, content string) {
@@ -213,15 +204,7 @@ func TestGraphNeighbors(t *testing.T) {
 
 func TestGraphNeighbors_DirectionsAndExpandedPhysicalPath(t *testing.T) {
 	t.Parallel()
-	dir, err := os.MkdirTemp("", "kb-graph-directions-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	write := func(rel, content string) {
 		t.Helper()
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(k.DataRoot(), rel)), 0o755); err != nil {
@@ -286,16 +269,8 @@ func TestGraphNeighbors_DirectionsAndExpandedPhysicalPath(t *testing.T) {
 
 func TestWalkConcepts(t *testing.T) {
 	t.Parallel()
-	dir, err := os.MkdirTemp("", "kb-walk-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
+	dir := k.Root
 
 	os.MkdirAll(filepath.Join(k.DataRoot(), "arch"), 0o755)
 	os.WriteFile(filepath.Join(k.DataRoot(), "arch", "concept.md"), []byte("---\ntype: Note\n---\nbody\n"), 0o644)
@@ -308,7 +283,7 @@ func TestWalkConcepts(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "services", "keycloak.md"), []byte("---\ntype: Service\n---\nsvc\n"), 0o644)
 
 	var ids []string
-	err = k.WalkConcepts(func(id okf.ConceptID, content string) error {
+	err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
 		ids = append(ids, string(id))
 		return nil
 	})
@@ -387,15 +362,7 @@ func TestMaskCodeSpans_PreservesLengthAndLines(t *testing.T) {
 // produce a link to a nonexistent concept and leave the asset orphan forever.
 func TestExtractLinks_ExtensionlessAssetIsNotAConcept(t *testing.T) {
 	t.Parallel()
-	dir, err := os.MkdirTemp("", "graph-asset-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "m", "c"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -509,10 +476,7 @@ func TestRewriteLinks_MatchesExtractLinks(t *testing.T) {
 // TestWalkConceptsLinkingTo_ReadsOnlyCandidates proves the D248 invariant: a
 // concept that does not link to a moved id is not read.
 func TestWalkConceptsLinkingTo_ReadsOnlyCandidates(t *testing.T) {
-	k, err := Init(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	files := map[string]string{
 		"m/a.md":       "---\ntype: Note\n---\nsee [[m/target]]\n",
 		"m/b.md":       "---\ntype: Note\n---\nunrelated [[m/a]]\n",
@@ -545,7 +509,7 @@ func TestWalkConceptsLinkingTo_ReadsOnlyCandidates(t *testing.T) {
 	restore := SetReadRawHook(func(rel string) { reads = append(reads, rel) })
 	defer restore()
 	var visited []string
-	err = k.WalkConceptsLinkingTo([]okf.ConceptID{"m/target"}, []okf.ConceptID{"m/moved"}, func(id okf.ConceptID, rel, _ string) error {
+	err := k.WalkConceptsLinkingTo([]okf.ConceptID{"m/target"}, []okf.ConceptID{"m/moved"}, func(id okf.ConceptID, rel, _ string) error {
 		visited = append(visited, string(id)+"@"+rel)
 		return nil
 	})
