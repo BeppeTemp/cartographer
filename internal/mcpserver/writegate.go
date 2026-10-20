@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
@@ -119,6 +120,7 @@ func judgeWrite(k *kb.KB, toolName string) *ToolResult {
 	if len(written) == 0 && len(gone) == 0 {
 		return nil
 	}
+	pairUnmatchedMoves(changes, renamedFrom)
 	post := avoidableFindings(writeLintFindings(k, written, gone))
 	if len(post) == 0 {
 		return nil
@@ -145,6 +147,8 @@ func judgeWrite(k *kb.KB, toolName string) *ToolResult {
 	oldPath := map[string]string{} // finding path of a renamed concept -> its old path
 	for newID, oldID := range renamedFrom {
 		oldPath[newID+".md"] = oldID + ".md"
+		// An expanded concept's findings are reported on its index.md.
+		oldPath[newID+"/index.md"] = oldID + "/index.md"
 	}
 
 	var introduced []lint.Finding
@@ -175,6 +179,33 @@ func judgeWrite(k *kb.KB, toolName string) *ToolResult {
 		"Fix each one as its message and fix say, then retry; concept_batch is atomic, so a page and the link, index entry or target it needs can land in one call. A new page in a map with a curated index needs index_entry: true on its concept_new or creating concept_batch write.",
 		len(introduced), body))
 	return &res
+}
+
+// pairUnmatchedMoves completes renamedFrom for the pages git's similarity
+// heuristic reported as a delete plus an add: a small page whose frontmatter or
+// links a move rewrote falls under the rename threshold, and its findings would
+// then look new under the new id. A deleted and an added concept page that are
+// the only ones with that file name are the same page moved.
+func pairUnmatchedMoves(changes []gitx.FileChange, renamedFrom map[string]string) {
+	deleted, added := map[string][]string{}, map[string][]string{}
+	for _, c := range changes {
+		id, ok := kb.ConceptIDOfPath(c.Path)
+		if !ok {
+			continue
+		}
+		base := path.Base(c.Path)
+		switch c.Status {
+		case "D":
+			deleted[base] = append(deleted[base], string(id))
+		case "A":
+			added[base] = append(added[base], string(id))
+		}
+	}
+	for base, olds := range deleted {
+		if news := added[base]; len(olds) == 1 && len(news) == 1 {
+			renamedFrom[news[0]] = olds[0]
+		}
+	}
 }
 
 // discard returns the tree to HEAD; a failure is logged, the refusal still goes
