@@ -31,13 +31,30 @@ func requireIndexEntry(t *testing.T, s *Server, index string) {
 	}
 }
 
+// requireRefusal calls a gated tool and wants the write gate's refusal naming
+// each "<path> <check>" (D907): what a write used to answer with as a finding
+// it now answers with as a refusal, and nothing is written.
+func requireRefusal(t *testing.T, s *Server, tool, args string, wants ...string) {
+	t.Helper()
+	text, isErr := callJSON(t, s, adminCtx, tool, args)
+	if !isErr || !strings.Contains(text, "write_gate: refused") {
+		t.Fatalf("%s was not refused: %s", tool, text)
+	}
+	for _, w := range wants {
+		path, check, _ := strings.Cut(w, " ")
+		if !strings.Contains(text, `"path":"`+path+`","check":"`+check+`"`) {
+			t.Errorf("refusal lacks %s: %s", w, text)
+		}
+	}
+}
+
 func TestWriteFeedback_ConceptWriteBrokenLink(t *testing.T) {
 	t.Parallel()
 	s := graphToolKB(t, map[string]string{"ops/a.md": "See [b](b.md).\n", "ops/b.md": "See [a](a.md).\n"})
-	out := decodeJSON(t, mustText(t, s, "concept_write",
-		`{"id":"ops/c","frontmatter":{"type":"Note","title":"C"},"body":"See [a](a.md) and [gone](gone.md)."}`))
-	if !findingChecks(out)["ops/c.md broken_link"] {
-		t.Fatalf("findings = %v", out["findings"])
+	requireRefusal(t, s, "concept_write",
+		`{"id":"ops/c","frontmatter":{"type":"Note","title":"C"},"body":"See [a](a.md) and [gone](gone.md)."}`, "ops/c.md broken_link")
+	if _, err := s.kbRef.ReadConcept("ops/c"); err == nil {
+		t.Fatal("the refused page was written")
 	}
 }
 
@@ -51,9 +68,10 @@ func TestWriteFeedback_ConceptNewIndexIncomplete(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(s.kbRef.Root, "templates", "plain.md"), []byte("---\ntype: Note\ntitle: P\n---\nSee [a](a.md).\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out := decodeJSON(t, mustText(t, s, "concept_new", `{"template":"plain","id":"ops/p"}`))
-	if !findingChecks(out)["ops/index.md index_incomplete"] {
-		t.Fatalf("findings = %v", out["findings"])
+	requireRefusal(t, s, "concept_new", `{"template":"plain","id":"ops/p"}`, "ops/index.md index_incomplete")
+	out := decodeJSON(t, mustText(t, s, "concept_new", `{"template":"plain","id":"ops/p","index_entry":true}`))
+	if findingChecks(out)["ops/index.md index_incomplete"] {
+		t.Fatalf("index_entry left the index incomplete: %v", out["findings"])
 	}
 }
 
@@ -70,21 +88,26 @@ func TestWriteFeedback_ConceptMoveLinkToRetired(t *testing.T) {
 }
 
 // Without the backlink rewrite the pages still linking the old ID are broken
-// by the move, and the response says so.
+// by the move: a write that introduces them is refused (D907).
 func TestWriteFeedback_ConceptMoveLeavesBrokenLinkers(t *testing.T) {
 	t.Parallel()
 	s := graphToolKB(t, map[string]string{"ops/x.md": "X.\n", "ops/y.md": "See [x](x.md).\n"})
-	out := decodeJSON(t, mustText(t, s, "concept_move", `{"source_id":"ops/x","target_id":"ops/x2","rewrite_links":false}`))
-	if !findingChecks(out)["ops/y.md broken_link"] {
-		t.Fatalf("findings = %v", out["findings"])
+	requireRefusal(t, s, "concept_move", `{"source_id":"ops/x","target_id":"ops/x2","rewrite_links":false}`, "ops/y.md broken_link")
+	if _, err := s.kbRef.ReadConcept("ops/x"); err != nil {
+		t.Fatalf("the refused move was applied: %v", err)
 	}
 }
 
+// A supersede that leaves a live page linking the retired one is refused
+// (D907); once the linker is retargeted it goes through.
 func TestWriteFeedback_SupersedeReportsLinkers(t *testing.T) {
 	t.Parallel()
 	s := graphToolKB(t, map[string]string{"ops/old.md": "Old.\n", "ops/new.md": "New.\n", "ops/y.md": "See [old](old.md).\n"})
+	requireRefusal(t, s, "supersede", `{"source_id":"ops/old","target_id":"ops/new"}`, "ops/old.md link_to_retired")
+	hash := conceptHash(t, callTool(t, s, "concept_read", `{"id":"ops/y"}`))
+	mustText(t, s, "concept_patch", `{"id":"ops/y","if_match":"`+hash+`","old_string":"[old](old.md)","new_string":"[new](new.md)"}`)
 	text := mustText(t, s, "supersede", `{"source_id":"ops/old","target_id":"ops/new"}`)
-	if !strings.HasPrefix(text, "superseded ops/old → ops/new") || !strings.Contains(text, "link_to_retired") {
+	if !strings.HasPrefix(text, "superseded ops/old → ops/new") {
 		t.Fatalf("supersede = %q", text)
 	}
 }
@@ -109,7 +132,10 @@ func TestWriteFeedback_GateCheckChangedIDs(t *testing.T) {
 		"ops/bad.md":   "See [gone](gone.md).\n",
 		"ops/other.md": "See [gone](gone2.md).\n",
 	})
-	_, _ = callJSON(t, s, adminCtx, "concept_write", `{"id":"ops/ok","frontmatter":{"type":"Note","title":"Ok"},"body":"See [other](other.md)."}`)
+	mustText(t, s, "map_update", `{"map":"ops","index":"generated"}`)
+	if text, isErr := callJSON(t, s, adminCtx, "concept_write", `{"id":"ops/ok","frontmatter":{"type":"Note","title":"Ok"},"body":"See [other](other.md)."}`); isErr {
+		t.Fatalf("concept_write: %s", text)
+	}
 	out := decodeJSON(t, mustText(t, s, "gate_check", `{"changed_ids":["ops/ok"]}`))
 	if out["lint_scope"] != "changed_ids" || out["pass"] != true {
 		t.Fatalf("clean changed id: %v", out)

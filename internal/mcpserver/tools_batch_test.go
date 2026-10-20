@@ -237,8 +237,8 @@ func TestConceptBatch_HappyPath_OneCommitOneLogEntryOrderedResults(t *testing.T)
 		}
 		return n
 	}
-	if got := count(); got != 3 { // init + seed + batch
-		t.Fatalf("commit count = %d, want 3 (one commit for the whole batch)", got)
+	if got := count(); got != 4 { // init + anchor + seed + batch
+		t.Fatalf("commit count = %d, want 4 (one commit for the whole batch)", got)
 	}
 
 	logContent, err := k.ReadRaw("log.md")
