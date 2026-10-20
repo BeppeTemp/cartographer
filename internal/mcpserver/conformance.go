@@ -74,6 +74,48 @@ func (v *callerView) redact(f lint.Finding) lint.Finding {
 	return f
 }
 
+// filterRewritten keeps the rewritten concepts the caller can see.
+func (v *callerView) filterRewritten(in []rewrittenConcept) []rewrittenConcept {
+	if v == nil || v.whole {
+		return in
+	}
+	out := make([]rewrittenConcept, 0, len(in))
+	for _, r := range in {
+		if v.visible(r.ID) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// filterPaths keeps the index paths of pages or maps the caller can see.
+func (v *callerView) filterPaths(in []string) []string {
+	if v == nil || v.whole {
+		return in
+	}
+	out := make([]string, 0, len(in))
+	for _, p := range in {
+		if v.visible(strings.TrimSuffix(strings.TrimSuffix(p, ".md"), "/index")) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// filter keeps the findings the caller may see, each redacted.
+func (v *callerView) filter(findings []lint.Finding) []lint.Finding {
+	if v == nil || v.whole {
+		return findings
+	}
+	out := make([]lint.Finding, 0, len(findings))
+	for _, f := range findings {
+		if v.sees(f) {
+			out = append(out, v.redact(f))
+		}
+	}
+	return out
+}
+
 func findingsOut(findings []lint.Finding) []findingOut {
 	out := make([]findingOut, 0, len(findings))
 	for _, f := range findings {
@@ -114,7 +156,7 @@ func findingsOrEmpty(f []findingOut) []findingOut {
 // that changed no concept's own content (an index_patch, D312), keeping only
 // the findings of the check named: what the patch did, not what was already
 // there.
-func scopedFindings(k *kb.KB, ids []string, check string) []findingOut {
+func scopedFindings(k *kb.KB, ids []string, check string, view *callerView) []findingOut {
 	scoped := make([]okf.ConceptID, len(ids))
 	for i, id := range ids {
 		scoped[i] = okf.ConceptID(id)
@@ -125,6 +167,7 @@ func scopedFindings(k *kb.KB, ids []string, check string) []findingOut {
 			kept = append(kept, f)
 		}
 	}
+	kept = view.filter(kept)
 	if len(kept) == 0 {
 		return nil
 	}

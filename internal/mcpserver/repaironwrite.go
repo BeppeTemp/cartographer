@@ -44,11 +44,11 @@ func repairOnWriteChecks() []string {
 //
 // hashes maps a repaired concept to its new content hash. Neighbours that
 // ScopedCheck reports are never rewritten.
-func repairWritten(k *kb.KB, written, gone []string) (findings []findingOut, repaired []repairedOut, hashes map[string]string) {
+func repairWritten(k *kb.KB, written, gone []string, view *callerView) (findings []findingOut, repaired []repairedOut, hashes map[string]string) {
 	found := writeLintFindings(k, written, gone)
 	checks := repairOnWriteChecks()
 	if len(checks) == 0 || len(found) == 0 {
-		return findingsOrNil(found), nil, nil
+		return findingsOrNil(view.filter(found)), nil, nil
 	}
 	inChecks := map[string]bool{}
 	for _, c := range checks {
@@ -70,7 +70,7 @@ func repairWritten(k *kb.KB, written, gone []string) (findings []findingOut, rep
 		byConcept[id] = append(byConcept[id], f)
 	}
 	if len(byConcept) == 0 {
-		return findingsOrNil(found), nil, nil
+		return findingsOrNil(view.filter(found)), nil, nil
 	}
 
 	ids := make([]string, 0, len(byConcept))
@@ -99,13 +99,13 @@ func repairWritten(k *kb.KB, written, gone []string) (findings []findingOut, rep
 		}
 	}
 	if len(hashes) == 0 {
-		return findingsOrNil(found), nil, nil
+		return findingsOrNil(view.filter(found)), nil, nil
 	}
 	for c, n := range counts {
 		repaired = append(repaired, repairedOut{Check: c, Count: n})
 	}
 	sort.Slice(repaired, func(i, j int) bool { return repaired[i].Check < repaired[j].Check })
-	return findingsOrNil(writeLintFindings(k, written, gone)), repaired, hashes
+	return findingsOrNil(view.filter(writeLintFindings(k, written, gone))), repaired, hashes
 }
 
 // applyRepairResult adds what repairWritten did to a single-concept write

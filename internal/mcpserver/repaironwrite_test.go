@@ -154,7 +154,7 @@ func TestRepairOnWrite_NeighboursAndLinkDroppingChecksUntouched(t *testing.T) {
 	if err := os.WriteFile(p, []byte("---\ntype: Note\ntitle: D\n---\n# D\n\nSee [gone](gone.md) and [A](a.md).\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	findings, repaired, _ := repairWritten(k, []string{"ops/d"}, nil)
+	findings, repaired, _ := repairWritten(k, []string{"ops/d"}, nil, nil)
 	broken := false
 	for _, f := range findings {
 		broken = broken || (f.Path == "ops/d.md" && f.Check == "broken_link")
@@ -236,7 +236,7 @@ func TestRepairOnWrite_WriteErrorKeepsOriginal(t *testing.T) {
 		f.Close()
 		t.Skip("directory permissions are not enforced here")
 	}
-	findings, repaired, hashes := repairWritten(k, []string{"ops/a"}, nil)
+	findings, repaired, hashes := repairWritten(k, []string{"ops/a"}, nil, nil)
 	if repaired != nil || hashes != nil {
 		t.Fatalf("repaired = %v, hashes = %v", repaired, hashes)
 	}

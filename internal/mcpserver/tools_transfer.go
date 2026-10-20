@@ -727,7 +727,7 @@ func applyTransferTarget(src, dst *kb.KB, pl *transferPlan) (transferTargetOut, 
 		written = append(written, nw)
 	}
 	sort.Strings(written)
-	out.findings, _, _ = repairWritten(dst, written, nil)
+	out.findings, _, _ = repairWritten(dst, written, nil, nil)
 	return out, nil
 }
 
@@ -919,6 +919,6 @@ func applyTransferSource(src *kb.KB, pl *transferPlan) (transferSourceOut, error
 	}
 	sort.Strings(goneList)
 	sort.Strings(touched)
-	out.findings, _, _ = repairWritten(src, touched, goneList)
+	out.findings, _, _ = repairWritten(src, touched, goneList, nil)
 	return out, nil
 }

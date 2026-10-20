@@ -391,3 +391,27 @@ func TestWriteGate_RefusalNamesOnlyVisiblePages(t *testing.T) {
 		t.Fatalf("the refusal carries a whole-graph fix: %s", text)
 	}
 }
+
+// A successful write answers a scoped caller with the findings and rewritten
+// pages it can see: a move whose old id is linked from a hidden map names no
+// hidden id.
+func TestWriteResponse_ScopedCallerSeesNoHiddenPage(t *testing.T) {
+	t.Parallel()
+	k := gateKB(t)
+	k.AuthName = "docs"
+	hidden := "---\ntype: Note\ntitle: H\n---\n# H\n\nSee [R](../arch/r.md).\n"
+	s := gateSeed(t, k, map[string]string{
+		"arch/r":         "---\ntype: Note\ntitle: R\n---\n# R\n\nSee [S](s.md).\n",
+		"arch/s":         "---\ntype: Note\ntitle: S\n---\n# S\n",
+		"ops/hidden-one": hidden,
+		"ops/hidden-two": hidden,
+	})
+	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"arch"}}}})
+	text, isErr := callJSON(t, s, ctx, "concept_move", `{"source_id":"arch/r","target_id":"arch/r2","rewrite_links":false}`)
+	if strings.Contains(text, "ops/") || strings.Contains(text, "hidden") {
+		t.Fatalf("the response names a hidden page (error=%v): %s", isErr, text)
+	}
+	if isErr {
+		t.Fatalf("the move was refused: %s", text)
+	}
+}

@@ -84,7 +84,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				"id":           params.ID,
 				"content_hash": newHash,
 			}
-			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil)
+			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil, newCallerView(ctx, k))
 			findings = withFacts(findings, facts, ctx, params.ID, prev, newFactBudget())
 			if isNew {
 				// Advisory crossing report (D716), outside writeLintFindings: it
@@ -277,7 +277,7 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				}
 				result["curated_indexes"] = indexEntryNotes([]pendingIndexEntry{indexPlan})
 			}
-			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil)
+			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil, newCallerView(ctx, k))
 			findings = withFacts(findings, facts, ctx, params.ID, "", newFactBudget())
 			findings = append(findings, findingsOut(lint.MapOversizeCrossings(k, []okf.ConceptID{okf.ConceptID(params.ID)}))...) // D716
 			result["findings"] = findingsOrEmpty(findings)
@@ -649,7 +649,7 @@ func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 			if hasEdits && len(editMatches) > 0 {
 				result["edit_matches"] = editMatches
 			}
-			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil)
+			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil, newCallerView(ctx, k))
 			findings = append(findings, droppedFinding(params.ID, dropped)...)
 			findings = withFacts(findings, facts, ctx, params.ID, data.Body, newFactBudget())
 			result["findings"] = findingsOrEmpty(findings)
@@ -814,7 +814,7 @@ func toolIndexPatch(k *kb.KB) Tool {
 			// D312: the concepts this patch took out of the index may now be
 			// missing from it (index_incomplete).
 			if dropped := indexEntriesDropped(k, normalizedPath, original, content); len(dropped) > 0 {
-				if f := scopedFindings(k, dropped, "index_incomplete"); f != nil {
+				if f := scopedFindings(k, dropped, "index_incomplete", newCallerView(ctx, k)); f != nil {
 					result["findings"] = f
 				}
 			}
@@ -1587,7 +1587,7 @@ func toolSupersede(k *kb.KB) Tool {
 
 			_ = k.AppendLog(fmt.Sprintf("supersede: %s → %s", params.SourceID, params.TargetID), time.Now())
 			text := fmt.Sprintf("superseded %s → %s", params.SourceID, params.TargetID)
-			f, repaired, _ := repairWritten(k, []string{params.SourceID}, nil)
+			f, repaired, _ := repairWritten(k, []string{params.SourceID}, nil, newCallerView(ctx, k))
 			if f != nil {
 				enc, _ := json.MarshalIndent(f, "", "  ")
 				text += "\nfindings:\n" + string(enc)
@@ -1687,7 +1687,7 @@ func toolConceptMove(k *kb.KB) Tool {
 				rewriteLinks = *params.RewriteLinks
 			}
 
-			result, errRes := applyConceptMoves(k, moves, rewriteLinks, moveOptions{})
+			result, errRes := applyConceptMoves(k, moves, rewriteLinks, moveOptions{View: newCallerView(ctx, k)})
 			if errRes != nil {
 				return *errRes, nil
 			}
@@ -1702,6 +1702,9 @@ func toolConceptMove(k *kb.KB) Tool {
 type moveOptions struct {
 	// LogTitle replaces the "concept_move (n move(s))" header of the log entry.
 	LogTitle string
+	// View is what the caller may be told: the rewritten concepts and the
+	// findings of the response keep to pages it can see. nil shows everything.
+	View *callerView
 }
 
 // applyConceptMoves validates every move, applies them, rebases the moved
@@ -1904,7 +1907,7 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 			// caller knows some backlinks may be stale.
 			return nil, errRes(errorResult(fmt.Sprintf("concept_move: applied %d move(s) but rewrite_links failed: %v", len(applied), err)))
 		}
-		result["rewritten"] = touched
+		result["rewritten"] = opts.View.filterRewritten(touched)
 		if len(touched) > 0 {
 			logLines = append(logLines, fmt.Sprintf("rewrite_links: %d concept(s), %d replacement(s)", len(touched), totalReplacements))
 		}
@@ -1913,7 +1916,7 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 			return nil, errRes(errorResult(fmt.Sprintf("concept_move: applied %d move(s) but rewriting index links failed: %v", len(applied), err)))
 		}
 		if len(indexes) > 0 {
-			result["rewritten_indexes"] = indexes
+			result["rewritten_indexes"] = opts.View.filterPaths(indexes)
 			logLines = append(logLines, "rewrite_links: index(es) "+strings.Join(indexes, ", "))
 		}
 	} else {
@@ -1941,7 +1944,7 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 	}
 	sort.Strings(written)
 	sort.Strings(gone)
-	f, repaired, _ := repairWritten(k, written, gone)
+	f, repaired, _ := repairWritten(k, written, gone, opts.View)
 	if f != nil {
 		result["findings"] = f
 	}
@@ -2941,7 +2944,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 			entries := make([]batchResultEntry, len(results))
 			factBudget := newFactBudget() // one lookup budget for the whole batch
 			for i, r := range results {
-				findings, repaired, hashes := repairWritten(k, []string{r.ID}, nil)
+				findings, repaired, hashes := repairWritten(k, []string{r.ID}, nil, newCallerView(ctx, k))
 				findings = append(findings, droppedByID[r.ID]...)
 				findings = withFacts(findings, facts, ctx, r.ID, prevByID[r.ID], factBudget)
 				hash := r.ContentHash
