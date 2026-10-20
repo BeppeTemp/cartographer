@@ -841,3 +841,63 @@ func TestLogNameStatusAndFileHistory_Token(t *testing.T) {
 		}
 	}
 }
+
+// TestStashPushAllEnv_NoIdentityOnHost checks that a stash of uncommitted
+// work succeeds on a host with no git identity (no user.name/user.email in
+// the repo, the global config or the system config), when the caller passes
+// the server identity. git stash creates commits, so without it it fails with
+// "Committer identity unknown".
+func TestStashPushAllEnv_NoIdentityOnHost(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+
+	dir := t.TempDir()
+	home := t.TempDir()
+	// No identity anywhere git looks: empty home, no system config.
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "missing-gitconfig"))
+	t.Setenv("GIT_AUTHOR_NAME", "")
+	t.Setenv("GIT_AUTHOR_EMAIL", "")
+	t.Setenv("GIT_COMMITTER_NAME", "")
+	t.Setenv("GIT_COMMITTER_EMAIL", "")
+	t.Setenv("EMAIL", "")
+	t.Setenv("USER", "")
+	t.Setenv("USERNAME", "")
+
+	if err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	ident := []string{"GIT_AUTHOR_NAME=Server", "GIT_AUTHOR_EMAIL=server@wiki.local",
+		"GIT_COMMITTER_NAME=Server", "GIT_COMMITTER_EMAIL=server@wiki.local"}
+	f := filepath.Join(dir, "index.md")
+	if err := os.WriteFile(f, []byte("# Index\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := Commit(dir, "init", "Server", "server@wiki.local", ident...); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	// Uncommitted work, tracked and untracked.
+	if err := os.WriteFile(f, []byte("# Index\nchanged\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new.md"), []byte("new\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := StashPushAllEnv(dir, ident...); err != nil {
+		t.Fatalf("StashPushAllEnv with server identity: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "new.md")); !os.IsNotExist(err) {
+		t.Fatalf("untracked file should be stashed away, stat err = %v", err)
+	}
+	if err := StashPop(dir); err != nil {
+		t.Fatalf("StashPop: %v", err)
+	}
+	if got, _ := os.ReadFile(f); string(got) != "# Index\nchanged\n" {
+		t.Fatalf("restored index.md = %q", got)
+	}
+}

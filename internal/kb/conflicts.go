@@ -243,7 +243,7 @@ func (k *KB) FinalizeConflicts() ([]string, error) {
 	// merge. Stash them away (never popped on success — the resolution supersedes them).
 	stashed := false
 	if status, _ := gitx.Status(k.Root); strings.TrimSpace(status) != "" {
-		if err := gitx.StashPush(k.Root); err != nil {
+		if err := gitx.StashPushEnv(k.Root, ServerGitEnv()...); err != nil {
 			return nil, fmt.Errorf("FinalizeConflicts: stash: %w", err)
 		}
 		stashed = true
