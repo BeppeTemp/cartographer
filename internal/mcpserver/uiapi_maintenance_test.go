@@ -140,10 +140,18 @@ func TestUIAPI_FindingHandler(t *testing.T) {
 		// A runnable check whose finding has no fix needs judgement.
 		{lint.Finding{Check: "nonstandard_field"}, findingHandlerDoctor},
 		{lint.Finding{Check: "orphan"}, findingHandlerDoctor},
+		// Not listed, but the heartbeat always realigns a pre-D907 contract.
+		{lint.Finding{Check: "contract_legacy_key", Fix: fix}, findingHandlerAuto},
 	} {
 		if got := findingHandler(tc.f, auto); got != tc.want {
 			t.Errorf("%s fix=%v: handler %q, want %q", tc.f.Check, tc.f.Fix != nil, got, tc.want)
 		}
+	}
+	// An unlisted nonstandard_field stays the doctor's: the heartbeat only
+	// drops lint_ignore from it (D907).
+	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{} })
+	if got := findingHandler(lint.Finding{Check: "nonstandard_field", Fix: fix}, uiAutoChecks(k)); got != findingHandlerDoctor {
+		t.Errorf("unlisted nonstandard_field: handler %q", got)
 	}
 	// A heartbeat that never runs fixes nothing by itself.
 	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 0 })

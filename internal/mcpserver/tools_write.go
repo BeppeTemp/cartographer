@@ -84,12 +84,13 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				"id":           params.ID,
 				"content_hash": newHash,
 			}
-			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil, newCallerView(ctx, k))
+			view := newCallerView(ctx, k)
+			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil, view)
 			findings = withFacts(findings, facts, ctx, params.ID, prev, newFactBudget())
 			if isNew {
 				// Advisory crossing report (D716), outside writeLintFindings: it
 				// needs the created set, and an info finding must not feed the gate.
-				findings = append(findings, findingsOut(lint.MapOversizeCrossings(k, []okf.ConceptID{okf.ConceptID(params.ID)}))...)
+				findings = append(findings, findingsOut(view.oversize(lint.MapOversizeCrossings(k, []okf.ConceptID{okf.ConceptID(params.ID)})))...)
 			}
 			result["findings"] = findingsOrEmpty(findings)
 			applyRepairResult(result, params.ID, repaired, hashes)
@@ -277,9 +278,10 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				}
 				result["curated_indexes"] = indexEntryNotes([]pendingIndexEntry{indexPlan})
 			}
-			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil, newCallerView(ctx, k))
+			view := newCallerView(ctx, k)
+			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil, view)
 			findings = withFacts(findings, facts, ctx, params.ID, "", newFactBudget())
-			findings = append(findings, findingsOut(lint.MapOversizeCrossings(k, []okf.ConceptID{okf.ConceptID(params.ID)}))...) // D716
+			findings = append(findings, findingsOut(view.oversize(lint.MapOversizeCrossings(k, []okf.ConceptID{okf.ConceptID(params.ID)})))...) // D716
 			result["findings"] = findingsOrEmpty(findings)
 			applyRepairResult(result, params.ID, repaired, hashes)
 			if similar := sim.find(ctx, params.ID, frontmatterTitle(k, params.ID)); len(similar) > 0 {
@@ -2967,7 +2969,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				m, _, _ := strings.Cut(r.ID, "/")
 				lastCreated[m] = i
 			}
-			for _, f := range lint.MapOversizeCrossings(k, created) {
+			for _, f := range newCallerView(ctx, k).oversize(lint.MapOversizeCrossings(k, created)) {
 				m, _, _ := strings.Cut(f.Path, "/")
 				if i, ok := lastCreated[m]; ok {
 					entries[i].Findings = append(entries[i].Findings, findingsOut([]lint.Finding{f})...)

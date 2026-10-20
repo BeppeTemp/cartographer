@@ -215,7 +215,7 @@ func runTransfer(ctx context.Context, args json.RawMessage, src *kb.KB, srcName 
 		TargetFiles: func() []string { return plan.targetFiles(dst) },
 		ApplyTarget: func() error {
 			var err error
-			tgt, err = applyTransferTarget(src, dst, plan)
+			tgt, err = applyTransferTarget(src, dst, plan, newCallerView(ctx, dst))
 			if err == nil {
 				err = dst.AppendLog(fmt.Sprintf("concept_transfer (%d concept(s) from %s):\n%s", len(plan.items), srcName, strings.Join(plan.logLines(srcName, dstName, false), "\n")), time.Now())
 			}
@@ -652,7 +652,9 @@ type transferTargetOut struct {
 
 // applyTransferTarget writes the moved concepts into dst. Any error leaves a
 // half-written tree for the caller to discard.
-func applyTransferTarget(src, dst *kb.KB, pl *transferPlan) (transferTargetOut, error) {
+// view is the caller's on dst: the source needs whole-KB write, the target
+// only write on the destination slots, so its findings are filtered (D907).
+func applyTransferTarget(src, dst *kb.KB, pl *transferPlan, view *callerView) (transferTargetOut, error) {
 	var out transferTargetOut
 	for _, it := range pl.items {
 		if err := os.MkdirAll(filepath.Dir(it.dstLoc.Dir), 0o755); err != nil {
@@ -727,7 +729,7 @@ func applyTransferTarget(src, dst *kb.KB, pl *transferPlan) (transferTargetOut, 
 		written = append(written, nw)
 	}
 	sort.Strings(written)
-	out.findings, _, _ = repairWritten(dst, written, nil, nil)
+	out.findings, _, _ = repairWritten(dst, written, nil, view)
 	return out, nil
 }
 

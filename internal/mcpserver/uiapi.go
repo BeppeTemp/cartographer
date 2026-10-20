@@ -581,9 +581,14 @@ func uiAutoChecks(k *kb.KB) map[string]bool {
 	if k.Policy().DoctorAutoIntervalDays <= 0 {
 		return out
 	}
-	safe, _ := autoRepairSplit(k)
+	safe, _, lintIgnoreOnly := heartbeatChecks(k.Policy().AutoRepair)
 	for _, c := range safe {
 		out[c] = true
+	}
+	if lintIgnoreOnly {
+		// Of nonstandard_field the heartbeat only drops lint_ignore: the
+		// other renames stay the doctor's.
+		delete(out, "nonstandard_field")
 	}
 	return out
 }

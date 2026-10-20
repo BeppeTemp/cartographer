@@ -88,18 +88,23 @@ func (v *callerView) filterRewritten(in []rewrittenConcept) []rewrittenConcept {
 	return out
 }
 
-// filterPaths keeps the index paths of pages or maps the caller can see.
+// filterPaths keeps the index paths the caller may be told of: an index is a
+// whole-KB resource (index_get needs whole-KB access), so a caller without
+// whole-KB visibility is told of none.
 func (v *callerView) filterPaths(in []string) []string {
 	if v == nil || v.whole {
 		return in
 	}
-	out := make([]string, 0, len(in))
-	for _, p := range in {
-		if v.visible(strings.TrimSuffix(strings.TrimSuffix(p, ".md"), "/index")) {
-			out = append(out, p)
-		}
+	return []string{}
+}
+
+// oversize keeps the map-size crossings (D716) for a caller that sees the
+// whole KB only: the count is of every page of the map, hidden ones included.
+func (v *callerView) oversize(in []lint.Finding) []lint.Finding {
+	if v == nil || v.whole {
+		return in
 	}
-	return out
+	return nil
 }
 
 // filter keeps the findings the caller may see, each redacted.

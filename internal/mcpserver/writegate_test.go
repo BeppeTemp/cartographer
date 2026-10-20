@@ -10,6 +10,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
 // gateKB is a git KB: map "arch" generates its index and carries
@@ -413,5 +414,28 @@ func TestWriteResponse_ScopedCallerSeesNoHiddenPage(t *testing.T) {
 	}
 	if isErr {
 		t.Fatalf("the move was refused: %s", text)
+	}
+}
+
+// A caller without whole-KB visibility is told of no index path (an index is
+// a whole-KB resource) and of no map-size crossing (it counts hidden pages).
+func TestCallerView_IndexPathsAndOversizeAreWholeKBOnly(t *testing.T) {
+	t.Parallel()
+	over := []lint.Finding{{Check: "map_oversize", Path: "arch/_map.md", Message: "31 top-level concepts"}}
+	paths := []string{"arch/index.md", "index.md"}
+	scoped := &callerView{visible: func(string) bool { return true }}
+	if got := scoped.oversize(over); len(got) != 0 {
+		t.Errorf("scoped oversize = %v, want none", got)
+	}
+	if got := scoped.filterPaths(paths); len(got) != 0 {
+		t.Errorf("scoped index paths = %v, want none", got)
+	}
+	for _, v := range []*callerView{nil, {whole: true}} {
+		if got := v.oversize(over); len(got) != 1 {
+			t.Errorf("whole oversize = %v", got)
+		}
+		if got := v.filterPaths(paths); len(got) != 2 {
+			t.Errorf("whole index paths = %v", got)
+		}
 	}
 }
