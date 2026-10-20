@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/settingschema"
@@ -190,6 +191,11 @@ func writeYAML(dir string, doc *yaml.Node, private bool) error {
 		return fmt.Errorf("clientconfig: marshal: %w", err)
 	}
 	if old, err := os.ReadFile(Path(dir)); err == nil && string(old) == string(data) {
+		// Nothing to rewrite, but a file with a literal token must be private
+		// whatever mode it was created with.
+		if private {
+			return tightenFile(Path(dir))
+		}
 		return nil
 	}
 	mode := os.FileMode(0o644)
@@ -197,4 +203,29 @@ func writeYAML(dir string, doc *yaml.Node, private bool) error {
 		mode = 0o600
 	}
 	return writeAtomicMode(dir, FileName, data, mode)
+}
+
+// fileIsPrivate reports whether path is closed to group and others. Always true
+// on Windows, where the mode bits mean nothing, and for a missing file.
+func fileIsPrivate(path string) bool {
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	fi, err := os.Stat(path)
+	return err != nil || fi.Mode().Perm()&0o077 == 0
+}
+
+// tightenFile takes group and other access off a regular file (a symlink is
+// left alone: chmod would follow it to somewhere that is not ours).
+func tightenFile(path string) error {
+	if fileIsPrivate(path) {
+		return nil
+	}
+	if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() {
+		return nil
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("clientconfig: chmod %s: %w", path, err)
+	}
+	return nil
 }

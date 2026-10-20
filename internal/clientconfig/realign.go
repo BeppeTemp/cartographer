@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/settingschema"
 	"gopkg.in/yaml.v3"
@@ -44,9 +45,33 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 // state file is written before the YAML loses them, and a state that cannot be
 // written stops the realignment: the keys stay where they are, and still work.
 func RealignFile(dir, version string) (rep settingschema.Report, backup string, err error) {
+	// The realignment copies the file's mode to the rewrite and to the backup:
+	// with a literal token in it, close the file first so neither is open.
+	if data, rerr := os.ReadFile(Path(dir)); rerr == nil {
+		var y struct {
+			Token string `yaml:"token"`
+		}
+		if yaml.Unmarshal(data, &y) == nil && (&Config{Token: y.Token}).LiteralToken() != "" {
+			if terr := tightenFile(Path(dir)); terr != nil {
+				return settingschema.Report{}, "", terr
+			}
+		}
+	}
 	return Schema.RealignFileWith(Path(dir), Retired, version, func(data []byte) ([]byte, []settingschema.Change, error) {
 		return prepareRealign(dir, data)
 	})
+}
+
+// tokenLabel names a token value for a message: a ${NAME} reference as it is,
+// anything else as "a literal token", never its text.
+func tokenLabel(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "empty"
+	}
+	if IsEnvRef(v) {
+		return strings.TrimSpace(v)
+	}
+	return "a literal token"
 }
 
 func prepareRealign(dir string, data []byte) ([]byte, []settingschema.Change, error) {
@@ -76,14 +101,46 @@ func prepareRealign(dir string, data []byte) ([]byte, []settingschema.Change, er
 	}
 
 	edited := false
-	// token_env: NAME becomes token: ${NAME}, in place, comments kept.
-	if i := pairIndex(root, "token_env"); i >= 0 && pairIndex(root, "token") < 0 {
+	// token_env: NAME becomes token: ${NAME}, in place, comments kept. It is
+	// never dropped without a word: when token already holds a value, or NAME
+	// cannot be an environment variable, the key is removed here with a change
+	// that names what was lost (the registry would drop it silently).
+	if i := pairIndex(root, "token_env"); i >= 0 {
 		v := root.Content[i+1]
-		if v.Kind == yaml.ScalarNode && tokenEnvRef.MatchString(EnvRefToken(v.Value)) {
+		j := pairIndex(root, "token")
+		valid := v.Kind == yaml.ScalarNode && tokenEnvRef.MatchString(EnvRefToken(v.Value))
+		tokenEmpty := j < 0 || (root.Content[j+1].Kind == yaml.ScalarNode && strings.TrimSpace(root.Content[j+1].Value) == "")
+		switch {
+		case valid && j < 0:
 			name := v.Value
 			root.Content[i].Value = "token"
 			v.Value, v.Tag, v.Style = EnvRefToken(name), "!!str", 0
 			changes = append(changes, settingschema.Change{Kind: settingschema.ChangeMoved, Path: "token_env", Detail: "now token: " + v.Value})
+			edited = true
+		case valid && tokenEmpty:
+			tv := root.Content[j+1]
+			ref := EnvRefToken(v.Value)
+			tv.Kind, tv.Value, tv.Tag, tv.Style = yaml.ScalarNode, ref, "!!str", 0
+			removePair(&doc, root, i)
+			changes = append(changes, settingschema.Change{Kind: settingschema.ChangeMoved, Path: "token_env", Detail: "now token: " + ref + " (token was empty)"})
+			edited = true
+		case valid && root.Content[j+1].Value == EnvRefToken(v.Value):
+			removePair(&doc, root, i)
+			changes = append(changes, settingschema.Change{Kind: settingschema.ChangeRemoved, Path: "token_env", Detail: "token already is " + EnvRefToken(v.Value)})
+			edited = true
+		default:
+			name := strings.TrimSpace(v.Value)
+			var detail string
+			if valid {
+				detail = fmt.Sprintf("token_env %s was dropped because token is already set (%s); to read %s instead, set token: %s", name, tokenLabel(root.Content[j+1].Value), name, EnvRefToken(name))
+			} else {
+				detail = fmt.Sprintf("token_env %q is not an environment variable name and cannot become token: ${NAME}; set token to the reference you want", name)
+				if !tokenEmpty {
+					detail += fmt.Sprintf(" (token stays %s)", tokenLabel(root.Content[j+1].Value))
+				}
+			}
+			removePair(&doc, root, i)
+			changes = append(changes, settingschema.Change{Kind: settingschema.ChangeRemoved, Path: "token_env", Detail: detail})
 			edited = true
 		}
 	}
