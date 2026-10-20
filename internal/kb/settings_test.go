@@ -24,22 +24,19 @@ write_gate: error
 auto_repair: [duplicate_link]
 doctor_interval: 7d
 doctor_budget: 5
-usage_stale_days: 0
-mcp_allowlist:
-  - {name: tool-a, transport: http, target: "https://example.com/mcp"}
-secrets: true
+usage_stale_days: 3
 branch: kb-data
 `)
 	if len(bad) != 0 {
 		t.Fatalf("malformed = %v", bad)
 	}
-	if got := len(s.Keys()); got != 9 {
-		t.Errorf("accepted %d keys, want 9: %v", got, s.Keys())
+	if got := len(s.Keys()); got != 7 {
+		t.Errorf("accepted %d keys, want 7: %v", got, s.Keys())
 	}
 	if v, ok := s.String("branch"); !ok || v != "kb-data" {
 		t.Errorf("String(branch) = %q, %v", v, ok)
 	}
-	if !s.Has("secrets") || s.Has("doctor_mode") {
+	if !s.Has("usage_stale_days") || s.Has("doctor_mode") {
 		t.Errorf("Has is wrong: %v", s.Keys())
 	}
 }
@@ -66,7 +63,7 @@ func TestParseSettingsWholeFileIgnored(t *testing.T) {
 func TestParseSettingsKeyErrorsLeaveTheRestAlone(t *testing.T) {
 	t.Parallel()
 	s, bad := keysOf(t, `
-secrets: true
+write_gate: warning
 frobnicate: 1
 ssh_key: /home/user/.ssh/id
 remote: git@example.com:user/kb-a.git
@@ -75,14 +72,15 @@ doctor_interval: soon
 doctor_budget: 0
 usage_stale_days: -1
 auto_repair: not-a-list
-mcp_allowlist: [{name: a, port: 1}]
+mcp_allowlist: [{name: a, transport: http, target: "https://example.com/mcp"}]
+secrets: true
 repair_on_write: maybe
 git_forge: github
 git_branch: kb-data
 write_gate: off
 `)
-	if !s.Has("secrets") || len(s.Keys()) != 1 {
-		t.Errorf("accepted keys = %v, want only secrets", s.Keys())
+	if !s.Has("write_gate") || len(s.Keys()) != 1 {
+		t.Errorf("accepted keys = %v, want only write_gate", s.Keys())
 	}
 	want := map[string]string{
 		"frobnicate":       "unknown setting",
@@ -91,9 +89,10 @@ write_gate: off
 		"write_gate":       "", // first one invalid; the second is a duplicate
 		"doctor_interval":  "number of days",
 		"doctor_budget":    "1 or more",
-		"usage_stale_days": "0 or more",
+		"usage_stale_days": "7 or more",
 		"auto_repair":      "list of names",
-		"mcp_allowlist":    "not name, transport or target",
+		"mcp_allowlist":    "always distributed",
+		"secrets":          "under secrets/",
 		"repair_on_write":  "true or false",
 		"git_forge":        "removed setting",
 		"git_branch":       "use branch",

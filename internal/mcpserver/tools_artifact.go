@@ -181,7 +181,7 @@ func rejectArtifactTreeSymlinks(root string) error {
 
 // --- artifact_read ---
 
-func toolArtifactRead(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool {
+func toolArtifactRead(k *kb.KB) Tool {
 	return Tool{
 		Name:        "artifact_read",
 		ReadOnly:    true,
@@ -226,8 +226,7 @@ func toolArtifactRead(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool
 				return errorResult(fmt.Sprintf("artifact_read %q: %v", params.Path, err)), nil
 			}
 			if info.Kind == "mcp" {
-				spec, parseErr := provisioning.ParseMCPServerSpec(info.Name, data)
-				if parseErr != nil || !provisioning.MCPAllowed(allowlist, info.Name, spec) {
+				if _, parseErr := provisioning.ParseMCPServerSpec(info.Name, data); parseErr != nil {
 					return errorResult(fmt.Sprintf("not_found: %s", params.Path)), nil
 				}
 			}
@@ -301,7 +300,7 @@ func artifactFilePrefix(kind, name string) string {
 	return ""
 }
 
-func toolArtifactList(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool {
+func toolArtifactList(k *kb.KB) Tool {
 	return Tool{
 		Name:     "artifact_list",
 		ReadOnly: true,
@@ -309,7 +308,7 @@ func toolArtifactList(k *kb.KB, allowlist []provisioning.MCPAllowlistEntry) Tool
 			"KB-only templates. Each has files and sha256 values for artifact_write/artifact_delete.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-			catalog, err := listKBArtifacts(k, allowlist, nil)
+			catalog, err := listKBArtifacts(k, nil)
 			if err != nil {
 				return errorResult("artifact_list: " + err.Error()), nil
 			}

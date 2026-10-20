@@ -52,8 +52,8 @@ const root = (title) => ({
 });
 
 // What atlas ships to agent clients (D238): one artifact of each kind the
-// local server lists. An MCP descriptor is left out on purpose: the local
-// server has no MCP allowlist, so it would never be listed.
+// local server lists. An MCP descriptor is left out on purpose: the empty
+// MCP section of the catalog is part of what the flows check.
 const artifacts = {
   "skills/review/SKILL.md":
     "---\nname: review\ndescription: Reviews a change before it lands\n---\n# Review\n\nRead the diff, then the tests.\n",

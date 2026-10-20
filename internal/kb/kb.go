@@ -51,10 +51,20 @@ type Policy struct {
 	DoctorAutoIntervalDays int
 
 	// UsageStaleDays is the per-KB threshold (D326, config.KBSpec) past which
-	// an artifact no client has used is reported by the artifact_unused lint:
-	// 0 disables the finding. Set by serve; a KB opened any other way has it
-	// off, which is the safe reading of "nobody asked".
+	// an artifact no client has used is reported by the artifact_unused lint.
+	// Set by serve; read it through UsageStale, which never answers less than
+	// MinUsageStaleDays: there is no value that turns the finding off (D906).
 	UsageStaleDays int
+}
+
+// UsageStale is the artifact_unused threshold in days: the default when the
+// policy carries none (a KB opened without serve), and never under
+// MinUsageStaleDays.
+func (p Policy) UsageStale() int {
+	if p.UsageStaleDays <= 0 {
+		return DefaultUsageStaleDays
+	}
+	return max(p.UsageStaleDays, MinUsageStaleDays)
 }
 
 // Policy returns the current snapshot; the zero Policy when none was set.

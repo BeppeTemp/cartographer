@@ -511,8 +511,8 @@ func TestLint_ArtifactUnused_CustomThreshold(t *testing.T) {
 	if got := unusedFindings(t, k, usage, 14); len(got) != 2 {
 		t.Fatalf("threshold 14: got %v", got)
 	}
-	if got := unusedFindings(t, k, usage, 0); len(got) != 0 {
-		t.Fatalf("threshold 0 disables the check, got %v", got)
+	if got := unusedFindings(t, k, usage, 30); len(got) != 0 {
+		t.Fatalf("threshold 30: got %v", got)
 	}
 }
 

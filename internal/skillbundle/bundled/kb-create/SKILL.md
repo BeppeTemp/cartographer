@@ -158,14 +158,14 @@ and a structural mistake made now becomes long-lived knowledge debt. So **before
   "dossier create" step.
 
 ### Policy: the KB's own `settings.yaml`
-How the KB behaves (write gate, auto-repair, doctor cadence, MCP
-allow-list, how changes land, whether it uses secrets) is the KB's own, so every mount of it
-behaves the same (D746). `cartographer kb create` writes `settings.yaml` at the KB root with every
-key documented and commented out; uncomment and commit what the KB needs. It wins over the same
-key in a server's `kbs[]`, which is then ignored and reported. Machine-bound keys (`remote`,
+How the KB behaves (write gate, auto-repair, doctor cadence, how changes land) is the KB's own,
+so every mount of it behaves the same (D746). A KB declares secrets by holding a sops-encrypted
+file under `secrets/`, and its MCP descriptors are always distributed (D906): neither is a key. `cartographer kb create` writes `settings.yaml` at the KB root with every
+key documented and commented out; uncomment and commit what the KB needs. It is the only
+place these keys live: a server's `kbs[]` carries only `name` and `remote`. Machine-bound keys (`remote`,
 `name`, tokens) stay in the server config, and secrets are files of its `credentials_dir`. No MCP tool writes the file:
 change it with git, reviewed like a Map contract. On a KB made another way, create the file by hand
-from the same key list (`cartographer config --all` shows each `kbs[]` key with its description).
+from the same key list (`cartographer config --all` shows each key with its description).
 
 ### Vocabulary: the path placeholder registry
 Concepts cite machine-local locations as `{{path:<key>}}` and repositories as `{{repo:<key>}}`

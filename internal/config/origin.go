@@ -184,16 +184,27 @@ func (c *Config) Settings(kbNames []string) View {
 		}
 		fields := kbFields(spec)
 		section := KBEntries{Name: name, Entries: []Entry{}}
-		for _, k := range Schema.Keys {
-			key, ok := strings.CutPrefix(k.Path, "kbs[].")
-			if !ok {
-				continue
-			}
+		add := func(k settingschema.Key, key string) {
 			val, set := fields[key]
 			if !set {
 				val = k.Default
 			}
 			section.Entries = append(section.Entries, c.entry(k, KBOriginKey(name, key), val, set))
+		}
+		// The machine's side of the KB (remote, name), then the KB's own keys,
+		// which the view keeps in the "kbs[]." form (D746).
+		for _, k := range Schema.Keys {
+			if key, ok := strings.CutPrefix(k.Path, "kbs[]."); ok {
+				add(k, key)
+			}
+		}
+		for _, k := range KBKeys {
+			key := k.Path
+			if key == "branch" {
+				continue // not in the view before D906 either: it is the remote's to say
+			}
+			k.Path = "kbs[]." + key
+			add(k, key)
 		}
 		v.KBs = append(v.KBs, section)
 	}

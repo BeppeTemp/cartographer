@@ -22,15 +22,15 @@ only the KB and derived key ID. Distribute and pin the corresponding public key
 on each client before switching a signer; unsigned KBs remain supported through
 the explicit client trust policy.
 
-### KB-provided MCP allow-list
+### KB-provided MCP descriptors
 
-Third-party MCP descriptors under `mcp/*.json` are denied by default, including
-after an upgrade. To advertise one, add an exact per-KB `mcp_allowlist` entry
-with its artifact name, `http` transport and normalized absolute target URL.
-The server omits every unlisted descriptor from manifest and `artifact_list`
-responses and logs the configuration action at startup; headers and environment
-references never appear in that diagnostic. Stale allow-list entries are a
-warning, so an endpoint can be staged before its descriptor is committed.
+The descriptors under a KB's `mcp/*.json` are always distributable (D906): the server
+lists every valid one in the manifest and in `artifact_list`, and `artifact_read` returns it.
+There is no allow-list on the server (`mcp_allowlist`, in a KB's `settings.yaml` or `kbs[]`,
+is a removed key: it is ignored with a warning and dropped when the file is realigned). The
+consent lives on the client, which asks for a per-descriptor, hash-bound approval before it
+installs one (`docs/sync.md` §MCP servers). Headers and environment references stay references
+and are never written to the manifest as values.
 | **Partitioned servers** | Several instances mount different KBs. A client can connect to entries from more than one server. Do not use several active writer servers as replicas for the same KB; git conflict recovery is a safety net, not a write-scaling protocol. |
 
 ### State and volumes
@@ -119,40 +119,6 @@ kbs:                          # (kbs[]) KBs to clone from a git remote (bootstra
                                                       # endpoint, token scope, clone dir, and the
                                                       # KB's files in credentials_dir all use
                                                       # this name
-    auto_repair: [nonstandard_field, duplicate_link] # (kbs[].auto_repair) checks `cartographer kb repair
-                                                      # --apply` may apply unattended (D299); each must be
-                                                      # a check with a mechanical fix, listed by name (no
-                                                      # "all"). Absent: every check whose fix is safe to
-                                                      # run unattended (D323, D355); [] means none. A
-                                                      # listed check that is not safe is ignored by the
-                                                      # background repair and repair on write
-    repair_on_write: true                            # (kbs[].repair_on_write) a write applies the
-                                                      # auto_repair fixes (except broken_link and
-                                                      # reciprocal_link_item) to the concepts it wrote,
-                                                      # in the same commit (D349); absent follows
-                                                      # auto_repair, false = timer only
-    write_gate: error                                # (kbs[].write_gate) off (default), error or warning:
-                                                      # a concept write that introduces a finding of that
-                                                      # severity or worse is refused and rolled back
-                                                      # (D350); needs a git repository
-    doctor_auto_interval: 1d                         # (kbs[].doctor_auto_interval) how often the server
-                                                      # applies auto_repair by itself, to a fixpoint,
-                                                      # at most 500 concepts per run, one commit per run
-                                                      # (D323, D355, HTTP serve only); it also runs
-                                                      # shortly after every start and after a pull that
-                                                      # changed HEAD (at most once per 10 min, D704);
-                                                      # "0" disables, default 1d
-    doctor_interval: 14d                             # (kbs[].doctor_interval) days after the last
-                                                      # kb-doctor session before the agent proposes the
-                                                      # next one to the operator (D299, D704); "0"
-                                                      # disables; default 14d. doctor_mode is accepted
-                                                      # and ignored: a session never starts by itself
-    doctor_budget: 10                                # (kbs[].doctor_budget) review items one session
-                                                      # decides; default 10
-    usage_stale_days: 42                             # (kbs[].usage_stale_days) days without a client
-                                                      # activating a skill or agent before the
-                                                      # artifact_unused lint reports it (D326); "0"
-                                                      # disables the finding, default 42
 mcp:
 audit:
   log: ""                      # (audit.log) the always-on audit log; empty = <data>/audit/audit.log,
@@ -387,7 +353,7 @@ cartographer kb unmount <name>               # retires a KB locally: kbs[] entry
 
 `service restart --wait` (D121) is a **graceful** replacement everywhere, and on Windows that took a mechanism of its own: there is no CLI-deliverable `SIGTERM`, `Stop-ScheduledTask` is a kill, and `GenerateConsoleCtrlEvent` cannot reach a process with no console. `serve` therefore also waits on a named event in the user's session (`Local\cartographer-serve-shutdown`) and triggers the same drain a `SIGTERM` does; the Manager sets it, waits for the server to exit, and then **starts the task again** — a Scheduled Task is not a supervisor, so nothing else would bring back a server that exited cleanly. `Local\` is per logon session, so from another session — `upgrade-repair` or an `auto-patch` apply run over SSH while the server runs on the desktop — the event cannot be opened: the Manager then stops the task with `Stop-ScheduledTask`, waits for the exit, and prints why, since that stop cuts in-flight requests and does not flush pending pushes. The verification that follows only accepts a `/health` answer from a **new** process: `/health` reports `started_at`, and a value equal to the one read before the restart is the old process still draining (D266).
 
-**Per-KB policy lives in the KB (D746).** The `kbs[]` keys of the schema's `kb` scope (`write_gate`, `auto_repair`, `repair_on_write`, `doctor_*`, `usage_stale_days`, `mcp_allowlist`, `secrets`) can also be set in the KB's own `settings.yaml` (`docs/data-plane.md` §The KB's own settings). The KB file wins: a differing `kbs[]`/env/flag value is ignored and reported (startup warning, `kb_status` `ignored_server_settings`, origin `kb` in `cartographer config`). The `kbs[]` form stays for KBs that do not carry the file; the machine-bound keys (`remote`, `name`) are server-only. `branch`, the branch Cartographer writes to, is the opposite: it has no `kbs[]` form and lives only in the KB's `settings.yaml`, because it is a decision of the team that owns the KB, the same for every server that mounts it (D903).
+**Per-KB policy lives in the KB, and only there (D746, D906).** `kbs[]` keeps two keys, `remote` and `name`. A KB's behaviour (`write_gate`, `auto_repair`, `repair_on_write`, `doctor_*`, `usage_stale_days`, `branch`) is set in the KB's own `settings.yaml` (`docs/data-plane.md` §The KB's own settings), the same for every server that mounts it. The former `kbs[]` form of those keys, and `allow_artifact_write`, `allow_template_write`, `mcp_allowlist` and `secrets`, are removed keys: each is ignored with a warning that names the KB file (or says why the key is gone), and dropped when the server file is realigned. A KB declares secrets by holding a sops-encrypted file under `secrets/`; its MCP descriptors are always distributable; artifact writes need only a token with `rw` scope on the KB.
 
 **Configured versus discovered mounts.** A KB listed in `kbs[]` is *configured*; a KB found by scanning `data:` is *discovered* and has **no `KBSpec`**, so every per-KB setting sits at its zero value unless the KB carries a `settings.yaml` (D746, which a discovered KB reads like any other) — no `machine_path_allow_prefixes` — and nothing but adding the entry can change that. A discovered KB otherwise works and looks identical from every client surface, so the mount kind is reported explicitly: startup warns once per discovered KB, `kb_status` reports `capabilities.mount: discovered`, and `cartographer doctor` raises a `capability` finding (D151). `kb create` / `kb clone` mount a KB *discovered*. An existing discovered KB is still fixed by editing `kbs[]`. Dot-directories are never discovered: `kb unmount` parks a retired clone in `<data>/.unmounted/` for that reason (D761).
 
@@ -837,7 +803,7 @@ a dot while there are problems (errors or warnings). The former Observatory and
 Maintenance links (`panel=observatory`, `panel=maintenance`) open Health.
 
 The **Artifacts** panel, last in the rail, shows what the KB ships to agent
-clients: skills, subagents, hooks, MCP descriptors in the allowlist, the
+clients: skills, subagents, hooks, MCP descriptors, the
 curated `instructions.md` and templates. It is a catalog page built like the
 others (D339): its title counts the artifacts, the line under it gives the
 artifact findings ("No artifact findings" when clean, `finding_counts`/
@@ -855,10 +821,7 @@ binary; skills left out for failing validation are listed above the catalog.
 Every kind a KB can hold gets a chip and a section, **whether or not the KB
 ships one** (D864): the page is also how a reader learns what a KB can provide
 to its agent clients. An empty kind's section is one line: what the kind is,
-where its files go in the KB (`skills/<name>/SKILL.md`, shown as text; for MCP
-servers with the reminder that a descriptor is listed only when the server's
-`mcp_allowlist` for the KB allows it, so a file that was written and still shows
-0 is explained), the clients that receive it or "Stays in the KB: no client receives it" for a
+where its files go in the KB (`skills/<name>/SKILL.md`, shown as text), the clients that receive it or "Stays in the KB: no client receives it" for a
 template, and a *Docs* link to the page that explains it on GitHub (the
 repository's `main`, in a new tab). The kinds, their order, paths and docs come
 from the server (`kinds` in `GET …/artifacts`, from `provisioning.Kinds`); the

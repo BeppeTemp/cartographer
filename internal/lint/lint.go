@@ -175,13 +175,10 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 // runOptions is the injected, non-KB input of a lint run, read the same way for
 // every caller.
 func runOptions(k *kb.KB) Options {
-	staleDays := k.Policy().UsageStaleDays
-	opts := Options{CrossKBRoots: k.SiblingRoots, UsageStaleDays: staleDays}
-	if staleDays > 0 {
-		// A store that cannot be read is no data, not a lint failure.
-		if entries, err := k.LoadUsage(); err == nil && len(entries) > 0 {
-			opts.Usage = kb.SummarizeUsage(entries)
-		}
+	opts := Options{CrossKBRoots: k.SiblingRoots, UsageStaleDays: k.Policy().UsageStale()}
+	// A store that cannot be read is no data, not a lint failure.
+	if entries, err := k.LoadUsage(); err == nil && len(entries) > 0 {
+		opts.Usage = kb.SummarizeUsage(entries)
 	}
 	return opts
 }

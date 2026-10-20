@@ -69,8 +69,8 @@ type Server struct {
 	// an adapter then treats the KB as absent rather than assuming one.
 	kbRef *kb.KB
 	// kbArtifacts is what the UI API's artifact routes need beside kbRef to
-	// list the KB's artifacts as artifact_list and sync do (D238): the MCP
-	// allowlist and the artifact signer. Set with kbRef.
+	// list the KB's artifacts as artifact_list and sync do (D238): the
+	// artifact signer. Set with kbRef.
 	kbArtifacts artifactSource
 	// conformance is the KB's lint and review cache, shared by kb_status and
 	// the doctor nudge (D299); nudgedAt is when the nudge last went out to

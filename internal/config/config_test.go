@@ -634,31 +634,24 @@ func TestAuditLogPath(t *testing.T) {
 	}
 }
 
-func TestLoadWriteGate(t *testing.T) {
-	load := func(v string) (*Config, error) {
-		path := filepath.Join(t.TempDir(), "config.yaml")
-		body := "kbs:\n  - remote: https://git.example.com/user/kb-a.git\n"
-		if v != "" {
-			body += "    write_gate: " + v + "\n"
-		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return Load(path)
-	}
+func TestResolveWriteGate(t *testing.T) {
 	for in, want := range map[string]string{"": "off", "off": "off", "error": "error", "warning": "warning"} {
-		cfg, err := load(in)
-		if err != nil {
-			t.Fatalf("write_gate %q: %v", in, err)
+		body := ""
+		if in != "" {
+			body = "write_gate: " + in + "\n"
 		}
-		if got := cfg.KBs[0].WriteGateMode(); got != want {
+		eff, findings := resolveFile(t, body)
+		if len(findings) != 0 {
+			t.Fatalf("write_gate %q: %v", in, findings)
+		}
+		if got := eff.WriteGateMode(); got != want {
 			t.Errorf("write_gate %q resolves to %q, want %q", in, got, want)
 		}
 	}
 	for _, bad := range []string{"Error", "strict"} {
-		_, err := load(bad)
-		if err == nil || !strings.Contains(err.Error(), "write_gate: "+bad+": must be off, error or warning") {
-			t.Errorf("write_gate %q: err = %v", bad, err)
+		_, findings := resolveFile(t, "write_gate: "+bad+"\n")
+		if len(findings) != 1 || !strings.Contains(findings[0], "write_gate") {
+			t.Errorf("write_gate %q: findings = %v", bad, findings)
 		}
 	}
 }

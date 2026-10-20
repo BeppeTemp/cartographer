@@ -67,8 +67,7 @@ type Artifact struct {
 // BuildOptions controls manifest construction. Signers is keyed by mounted KB
 // name; a missing signer leaves that KB's artifacts unsigned.
 type BuildOptions struct {
-	Signers       map[string]ed25519.PrivateKey
-	MCPAllowlists map[string][]MCPAllowlistEntry
+	Signers map[string]ed25519.PrivateKey
 	// RoutedMount reports that this server serves its KBs through a single
 	// routed endpoint (D187): the tools are advertised once, unprefixed, and
 	// every call carries the KB as a `kb` argument. The generated instructions
@@ -76,9 +75,6 @@ type BuildOptions struct {
 	// the agent will see them and say which `kb` value to pass — a wrong name
 	// there is worse than the duplication routing removes.
 	RoutedMount bool
-	// MCPDiagnostic receives non-fatal denied/stale allow-list diagnostics.
-	// It never contains descriptor headers or environment references.
-	MCPDiagnostic func(string)
 	// SkillDiagnostic receives one message per skill excluded from the
 	// manifest because it failed validation (D191). Excluding it is what keeps
 	// the rest of the KB syncing; saying so is what keeps the exclusion from
@@ -595,7 +591,6 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 
 	for _, kbName := range kbNames {
 		kbRoot := kbRoots[kbName]
-		matchedMCPAllowlist := make(map[string]bool)
 
 		// 2. Skill (skills/<name>/SKILL.md, several files per artifact). A KB with
 		// no skills/ folder or an unreadable directory: kbSkills is empty,
@@ -715,17 +710,10 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				if readErr != nil {
 					return Manifest{}, fmt.Errorf("provisioning: read kb:%s/mcp/%s: %w", kbName, name, readErr)
 				}
-				spec, specErr := parseMCPServerSpec(name, data)
+				_, specErr := parseMCPServerSpec(name, data)
 				if specErr != nil {
 					return Manifest{}, fmt.Errorf("provisioning: %w", specErr)
 				}
-				if !MCPAllowed(opts.MCPAllowlists[kbName], name, spec) {
-					if opts.MCPDiagnostic != nil {
-						opts.MCPDiagnostic(fmt.Sprintf("KB %q omits MCP artifact %q: add mcp_allowlist entry with transport http and target %q", kbName, name, normalizedMCPURL(spec.URL)))
-					}
-					continue
-				}
-				matchedMCPAllowlist[name] = true
 				hash, hashErr := contentHashFile(mcpPath)
 				if hashErr != nil {
 					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/mcp/%s: %w", kbName, name, hashErr)
@@ -739,12 +727,6 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				})
 			}
 		}
-		for _, entry := range opts.MCPAllowlists[kbName] {
-			if !matchedMCPAllowlist[entry.Name] && opts.MCPDiagnostic != nil {
-				opts.MCPDiagnostic(fmt.Sprintf("KB %q MCP allow-list entry %q has no matching descriptor", kbName, entry.Name))
-			}
-		}
-
 		// 6. Instructions (kind "instructions", D56): an "imprinting" artifact
 		// per KB, always present (unlike skill/agent/hook it doesn't depend on
 		// an optional folder) — tells the LLM agent that this KB exists and how
@@ -2774,14 +2756,6 @@ func PreflightStdioMCP(m Manifest, opts ApplyOptions) error {
 		}
 	}
 	return nil
-}
-
-func normalizedMCPURL(raw string) string {
-	normalized, err := NormalizeMCPHTTPURL(raw)
-	if err != nil {
-		return "<invalid>"
-	}
-	return normalized
 }
 
 // writeInstructionsBlock creates or rewrites the managed block delimited by

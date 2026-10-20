@@ -4,6 +4,8 @@ topic: sync-provisioning
 
 # D115 — MCP allow-list and hash-bound local approval
 
+> **Partly superseded by [D906](D906-settings-cleanup.md)**: the server allow-list is removed, a KB's MCP descriptors are always distributable. The hash-bound client approval stays (its removal is a later work package of the same plan).
+
 **Decision.** A KB-provided HTTP MCP descriptor is exposed only when an exact
 per-KB operator allow-list entry matches its name, transport and normalized
 absolute target URL. Empty policy denies all. A client then materializes an

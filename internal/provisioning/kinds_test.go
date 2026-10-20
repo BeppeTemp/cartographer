@@ -42,9 +42,6 @@ func TestKinds_PathsAreWhatTheScannerFinds(t *testing.T) {
 				writeFile(t, filepath.Join(filepath.Dir(path), "run.sh"), "#!/bin/sh\necho ok\n")
 			case "mcp":
 				writeFile(t, path, `{"type":"http","url":"https://tools.example.com/mcp"}`)
-				opts.MCPAllowlists = map[string][]provisioning.MCPAllowlistEntry{
-					name: {{Name: name, Transport: "http", Target: "https://tools.example.com/mcp"}},
-				}
 			case "instructions":
 				// The artifact is generated for every KB, named after it; the
 				// file at KBPath is what the generated text carries.

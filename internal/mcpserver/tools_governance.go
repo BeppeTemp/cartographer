@@ -12,6 +12,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/sops"
 )
 
 // toolReindex reconciles the derived search indexes with out-of-band KB
@@ -621,25 +622,16 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		autoInterval = fmt.Sprintf("%d days", pol.DoctorAutoIntervalDays)
 	}
 	_, ignoredAuto := splitAutoRepair(pol.AutoRepair)
-	info := k.SettingsInfo()
-	// cap builds one capability whose controlling key can be carried by the KB
-	// (D746): Setting names settings.yaml when the KB sets it, and
-	// IgnoredServerValue says a different server value lost to it.
-	cap := func(key, state, serverSetting string) KBCapability {
-		c := KBCapability{State: state, Setting: serverSetting}
-		if info.FromKBHas(key) {
-			c.Setting = kb.SettingsFile + " " + key
-		}
-		if g, ok := info.IgnoredFor(key); ok {
-			c.IgnoredServerValue = g.ServerValue
-		}
-		return c
+	// cap builds one capability whose controlling key is carried by the KB's
+	// settings.yaml and nowhere else (D906).
+	cap := func(key, state string) KBCapability {
+		return KBCapability{State: state, Setting: kb.SettingsFile + " " + key}
 	}
 	with := func(c KBCapability, f func(*KBCapability)) KBCapability { f(&c); return c }
 	secretsState := onOff(k.SopsAgeKeyFile != "")
 	secretsSetting := "credentials_dir"
-	if info.SecretsDeclared {
-		secretsSetting = kb.SettingsFile + " secrets, " + secretsSetting
+	// A KB declares secrets when a sops file sits under secrets/ (D906).
+	if sops.Declared(k.Root) {
 		if k.SopsAgeKeyFile == "" {
 			secretsState = "missing key"
 		}
@@ -651,21 +643,21 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		"mount": {State: mount, Setting: "kbs[]"},
 		// D299: what `cartographer kb repair --apply` may apply unattended,
 		// and when the server proposes the next kb-doctor session.
-		"auto_repair": with(cap("auto_repair", onOff(len(pol.AutoRepair) > 0), "kbs[].auto_repair"), func(c *KBCapability) {
+		"auto_repair": with(cap("auto_repair", onOff(len(pol.AutoRepair) > 0)), func(c *KBCapability) {
 			c.Checks, c.Default, c.Ignored = pol.AutoRepair, pol.AutoRepairDefault, ignoredAuto
 		}),
 		// No repair_on_write nor write_gate: a write always applies the safe
 		// fixes and the gate always judges it (D907), so there is no state to
 		// report.
-		"doctor_interval": cap("doctor_interval", interval, "kbs[].doctor_interval"),
+		"doctor_interval": cap("doctor_interval", interval),
 		// D704: always assisted. Still reported because a kb-doctor skill
 		// synced before 0.24 reads a missing doctor_mode as unattended and would
 		// start a session by itself.
-		"doctor_mode": {State: "assisted", Setting: "kbs[].doctor_mode (ignored)"},
+		"doctor_mode": {State: "assisted", Setting: kb.SettingsFile + " doctor_mode (ignored)"},
 		// D358: how many review items a kb-doctor session decides.
-		"doctor_budget": cap("doctor_budget", fmt.Sprintf("%d review items", doctorBudget(pol)), "kbs[].doctor_budget"),
+		"doctor_budget": cap("doctor_budget", fmt.Sprintf("%d review items", doctorBudget(pol))),
 		// D323: the server applies auto_repair by itself on this interval.
-		"doctor_auto_interval": cap("doctor_auto_interval", autoInterval, "kbs[].doctor_auto_interval"),
+		"doctor_auto_interval": cap("doctor_auto_interval", autoInterval),
 	}
 }
 
@@ -805,16 +797,10 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				// an answer, hence the setting alongside it.
 				"capabilities": kbCapabilities(k),
 			}
-			// D746: the KB's settings.yaml is authoritative. A server value it
-			// beat, and an entry of the file that was left out, are the two
-			// things an operator who edited kbs[] in vain needs to be told.
-			if info := k.SettingsInfo(); len(info.Ignored) > 0 || len(info.Findings) > 0 {
-				if len(info.Ignored) > 0 {
-					result["ignored_server_settings"] = info.Ignored
-				}
-				if len(info.Findings) > 0 {
-					result["settings_findings"] = info.Findings
-				}
+			// D746: an entry of the KB's settings.yaml that was left out is
+			// something its owner needs to be told.
+			if info := k.SettingsInfo(); len(info.Findings) > 0 {
+				result["settings_findings"] = info.Findings
 			}
 			if len(gaps) > 0 {
 				// Newest first by frontmatter timestamp, then ID descending.
@@ -1242,10 +1228,7 @@ func usageSummary(k *kb.KB, now time.Time) map[string]interface{} {
 	usage := kb.SummarizeUsage(entries)
 	counts := map[string]int{}
 	pol := k.Policy()
-	staleDays := pol.UsageStaleDays
-	if staleDays <= 0 { // threshold disabled: nothing is stale, only never or active
-		staleDays = 1 << 30
-	}
+	staleDays := pol.UsageStale()
 	for _, a := range lint.UsageArtifacts(k) {
 		u, seen := usage[kb.UsageKey(a.Kind, a.Name)]
 		counts[lint.UsageState(u, seen, staleDays, now)]++
@@ -1260,6 +1243,6 @@ func usageSummary(k *kb.KB, now time.Time) map[string]interface{} {
 		"artifacts_never_used": counts[lint.UsageNever] + counts[lint.UsageCatalog],
 		"artifacts_stale":      counts[lint.UsageStale],
 		"artifacts_active":     counts[lint.UsageActive],
-		"stale_threshold_days": pol.UsageStaleDays,
+		"stale_threshold_days": staleDays,
 	}
 }

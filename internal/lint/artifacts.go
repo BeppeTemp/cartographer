@@ -37,7 +37,8 @@ type Options struct {
 	// the absence of a signal is not evidence of disuse.
 	Usage map[string]kb.UsageSummary
 	// UsageStaleDays is the age past which a used artifact is reported as
-	// unused; 0 disables the check. Run fills both from the KB.
+	// unused (kb.Policy.UsageStale: never under 7, D906). Run fills both from
+	// the KB.
 	UsageStaleDays int
 }
 
@@ -818,7 +819,7 @@ func usageArtifacts(k *kb.KB, skills []skill.Skill) []UsageArtifact {
 // readable transcript contributes nothing, and a Codex catalogue load proves
 // availability, not use — so it never blocks a gate.
 func checkArtifactUnused(k *kb.KB, skills []skill.Skill, opts Options, now time.Time) []Finding {
-	if opts.Usage == nil || opts.UsageStaleDays <= 0 {
+	if opts.Usage == nil {
 		return nil
 	}
 	recent := recentlyAdded(k.Root, now.AddDate(0, 0, -opts.UsageStaleDays))

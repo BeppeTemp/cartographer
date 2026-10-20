@@ -140,7 +140,7 @@ func (m *MultiKBServer) uiPlaceholders(w http.ResponseWriter, r *http.Request, s
 		}
 	}
 	if whole {
-		catalog, err := listKBArtifacts(k, srv.kbArtifacts.allowlist, srv.kbArtifacts.signer)
+		catalog, err := listKBArtifacts(k, srv.kbArtifacts.signer)
 		if err != nil {
 			writeUIInternal(w, "placeholders: artifacts", err)
 			return

@@ -284,7 +284,7 @@ func printKBRepairReport(w io.Writer, rep kbRepairReport) {
 	fmt.Fprintf(w, "KB %s — repair (%s)\n", displayKBName(rep.KB), mode)
 	switch {
 	case len(rep.AutoRepair) == 0:
-		fmt.Fprintln(w, "auto_repair is explicitly empty for this KB: nothing is applied unattended (set kbs[].auto_repair in the server config, or remove the key for the default).")
+		fmt.Fprintln(w, "auto_repair is explicitly empty for this KB: nothing is applied unattended (set auto_repair in the KB's settings.yaml, or remove the key for the default).")
 	case rep.AutoRepairDefault:
 		// Before D323 an unset auto_repair applied nothing: an operator who
 		// upgrades and runs --apply is told what is about to change.

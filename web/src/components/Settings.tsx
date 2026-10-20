@@ -68,7 +68,7 @@ const KB_GROUPS: [Group, (key: string) => boolean][] = [
   ],
   [
     { title: "Writes & tools", intro: "What agents may write here, and which tools they see." },
-    (k) => /^(allow_|write_gate|mcp_allowlist)/.test(k),
+    (k) => /^write_gate/.test(k),
   ],
   [
     { title: "Maintenance", intro: "What the server repairs on its own, and when it proposes a doctor session." },

@@ -118,7 +118,7 @@ which runs no Cartographer code — the next plain `cartographer sync` does
 it instead (D199): before syncing it replaces a
 native service still running the previous binary, under the client-state lock so concurrent
 session-start syncs replace it once. It runs the very same in-process sync as plain `cartographer sync` — same
-authorization, same persisted trust, pinned keys, point approvals and allow-lists. Automatic
+authorization, same persisted trust, pinned keys and point approvals. Automatic
 repair never implies `--auto-trust`, never invents an approval and never broadens trust; it also
 never disconnects or reconnects a provider. It only runs when the client is configured against
 that same native service over loopback HTTP; any other endpoint is skipped rather than contacted.
@@ -694,7 +694,7 @@ A KB can distribute third-party MCP servers (endpoints that connected agents mus
 - **Emission (`internal/configurator.EmitServer`)**: a refactor that extracts from `Emit`/`ServerConfig` (Cartographer's own entry) a provider-neutral core `EmitServer(name, spec ServerSpec, provider)`, reused both by `connect` (for the `cartographer` entry) and by `Apply` for KB servers. Translation of the `${VAR}` reference: claude/kiro/codex leave it verbatim (native syntax); OpenCode translates it to `{env:VAR}`. Codex only exposes `bearer_token_env_var` for auth: an `Authorization: Bearer ${VAR}` header is translated there, any other header is not representable and is dropped with a warning (`EmitResult.Warnings`) instead of failing. Kiro has never had a header field for MCP servers (a pre-existing limitation, not introduced by D69): a KB server with headers generates a warning in `AppliedResult.Warnings`, not an error.
 - **Apply**: unlike skills/agents/hooks, an MCP server does not materialize its own file/folder — it **merges into the provider's native config** (`internal/provisioning/mcpsettings.go`, `registerMCPServer`/`removeMCPServer`), with per-name ownership so multiple MCP servers (and Cartographer's own entry) coexist in the same file: claude/opencode/kiro do a JSON merge on the `mcpServers`/`mcp` key; codex uses a marker-delimited block `# cartographer:mcp:<name>:begin/end` (distinct from the unnamed block `cartographer connect` writes for itself) via `internal/blocktext`. `destDir("mcp", ...)` resolves to the same shared file for all servers of that provider (like `instructions`), but — unlike `instructions` (a GROUP block) — each server is an independent `ManagedFile`.
 - **Prune/disconnect**: `PruneManaged` strips only that name's entry/block (never the whole file), with the same empty-shell cleanup as `configurator.Remove` (D63): `.kiro/settings/mcp.json`/`opencode.json`/`.gemini/config/mcp_config.json` are deleted if the removal leaves only `$schema`/nothing; `.claude.json` is never deleted; `.codex/config.toml` only loses the marker-delimited block.
-- **Server policy and client consent**: an MCP server receives the agent's data, so two independent grants apply. The server omits it unless the KB's exact `mcp_allowlist` entry matches name, transport and target — the normalized URL for `http`, the exact command for `stdio`; absent/empty policy denies every descriptor. On the client an unsigned descriptor requires `cartographer approve mcp <name> --kb <kb>`, binding consent to source, name and full content hash. `trust`/`--auto-trust` never authorize MCP. A cryptographically verified descriptor is eligible without a point approval, but is still subject to the server allow-list. Any hash change returns it to `needs_approval`; revoke then sync prunes managed provider config.
+- **Client consent** (D906): the server distributes every valid descriptor of a KB (the former per-KB `mcp_allowlist` is gone), but an MCP server receives the agent's data, so the client decides. An unsigned descriptor requires `cartographer approve mcp <name> --kb <kb>`, binding consent to source, name and full content hash. `trust`/`--auto-trust` never authorize MCP. A cryptographically verified descriptor is eligible without a point approval. Any hash change returns it to `needs_approval`; revoke then sync prunes managed provider config.
 - **Remote sync**: no per-kind filtering in `sync_pull`/`tools_sync.go` nor in the HTTP client — an `mcp` artifact travels as a single `ArtifactFile` (the `mcp/<name>.json` file), same schema as an agent.
 
 **Stdio descriptors (D116).** A descriptor may use `{"type":"stdio","command","args"?,"env"?}`,
@@ -707,8 +707,8 @@ refused; parentheses are the one exception and only for an **absolute** command,
 `C:\Program Files (x86)\srv\srv.exe` is expressible — an absolute command is handed to `exec.Command`
 with a separate argv and never reaches a shell, while a bare name has no reason to carry one
 ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md)). Arguments keep their order and `env` values are `${VAR}` references only, so
-no secret value ever reaches the server or a provider file. The allow-list binds the exact command,
-while the artifact content hash binds every argument and reference: changing any field invalidates a
+no secret value ever reaches the server or a provider file. The artifact content hash binds the exact command,
+every argument and every reference: changing any field invalidates a
 D115 approval. Before any provider config or lockfile is written, `PreflightStdioMCP` resolves the
 command locally for **every** target provider (PATH lookup for bare names, executable regular-file
 check for absolute paths — on Windows the extension is what makes a file executable, so `PATHEXT`

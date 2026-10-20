@@ -237,7 +237,7 @@ func (m *MultiKBServer) uiArtifacts(w http.ResponseWriter, r *http.Request, srv 
 		writeUINotFound(w)
 		return
 	}
-	catalog, err := listKBArtifacts(srv.kbRef, srv.kbArtifacts.allowlist, srv.kbArtifacts.signer)
+	catalog, err := listKBArtifacts(srv.kbRef, srv.kbArtifacts.signer)
 	if err != nil {
 		writeUIInternal(w, "artifacts", err)
 		return
@@ -298,7 +298,7 @@ func (m *MultiKBServer) uiArtifact(w http.ResponseWriter, r *http.Request, srv *
 		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, "name is required", "name")
 		return
 	}
-	catalog, err := listKBArtifacts(srv.kbRef, srv.kbArtifacts.allowlist, srv.kbArtifacts.signer)
+	catalog, err := listKBArtifacts(srv.kbRef, srv.kbArtifacts.signer)
 	if err != nil {
 		writeUIInternal(w, "artifact", err)
 		return
