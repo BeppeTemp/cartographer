@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // The write gate (D350), fixed behaviour since D907: no setting turns it off
@@ -124,7 +126,7 @@ func judgeWrite(k *kb.KB, toolName string, visible func(id string) bool, whole b
 	if len(written) == 0 && len(gone) == 0 {
 		return nil
 	}
-	pairUnmatchedMoves(changes, renamedFrom)
+	pairUnmatchedMoves(changes, renamedFrom, func(o, n string) bool { return samePage(k, o, n) })
 	post := avoidableFindings(writeLintFindings(k, written, gone))
 	if len(post) == 0 {
 		return nil
@@ -238,9 +240,13 @@ func redactWholeGraph(f lint.Finding, visible func(id string) bool) lint.Finding
 // heuristic reported as a delete plus an add: a small page whose frontmatter or
 // links a move rewrote falls under the rename threshold, and its findings would
 // then look new under the new id. A deleted and an added concept page that are
-// the only ones with that file name are the same page moved.
-func pairUnmatchedMoves(changes []gitx.FileChange, renamedFrom map[string]string) {
-	deleted, added := map[string][]string{}, map[string][]string{}
+// the only ones with that file name, and for which same(deletedPath, addedPath)
+// holds (the judge passes: same title and type), are the same page moved. An
+// unrelated delete plus create that happens to share a file name (every expanded
+// concept is an index.md) is not paired, so it is judged as the new page it is.
+func pairUnmatchedMoves(changes []gitx.FileChange, renamedFrom map[string]string, same func(oldPath, newPath string) bool) {
+	type page struct{ id, path string }
+	deleted, added := map[string][]page{}, map[string][]page{}
 	for _, c := range changes {
 		id, ok := kb.ConceptIDOfPath(c.Path)
 		if !ok {
@@ -249,16 +255,49 @@ func pairUnmatchedMoves(changes []gitx.FileChange, renamedFrom map[string]string
 		base := path.Base(c.Path)
 		switch c.Status {
 		case "D":
-			deleted[base] = append(deleted[base], string(id))
+			deleted[base] = append(deleted[base], page{string(id), c.Path})
 		case "A":
-			added[base] = append(added[base], string(id))
+			added[base] = append(added[base], page{string(id), c.Path})
 		}
 	}
 	for base, olds := range deleted {
-		if news := added[base]; len(olds) == 1 && len(news) == 1 {
-			renamedFrom[news[0]] = olds[0]
+		if news := added[base]; len(olds) == 1 && len(news) == 1 && same(olds[0].path, news[0].path) {
+			renamedFrom[news[0].id] = olds[0].id
 		}
 	}
+}
+
+// samePage says whether the page deleted from oldPath (read at HEAD) and the
+// one added at newPath (read from the working tree) have the same frontmatter
+// title and type: the identity a move keeps.
+func samePage(k *kb.KB, oldPath, newPath string) bool {
+	oldRaw, err := gitx.ShowFile(k.Root, "HEAD", filepath.ToSlash(oldPath))
+	if err != nil {
+		return false
+	}
+	newRaw, err := os.ReadFile(filepath.Join(k.Root, filepath.FromSlash(newPath)))
+	if err != nil {
+		return false
+	}
+	ot, oty, ok1 := titleAndType(oldRaw)
+	nt, nty, ok2 := titleAndType(string(newRaw))
+	return ok1 && ok2 && ot == nt && oty == nty
+}
+
+func titleAndType(content string) (title, typ string, ok bool) {
+	raw, _, has := okf.SplitFrontmatter(content)
+	if !has {
+		return "", "", false
+	}
+	fm, err := okf.ParseFrontmatter(raw)
+	if err != nil {
+		return "", "", false
+	}
+	t, _ := fm.Get("title")
+	ty, _ := fm.Get("type")
+	title, _ = t.(string)
+	typ, _ = ty.(string)
+	return title, typ, title != ""
 }
 
 // discard returns the tree to HEAD; a failure is logged, the refusal still goes

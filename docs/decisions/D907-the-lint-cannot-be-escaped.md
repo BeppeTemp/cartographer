@@ -90,6 +90,7 @@ change the rule, in the open, rather than step around it.
 - A future knob that would turn a check off, raise its threshold per KB or hide a finding contradicts this
   decision; a threshold that is wrong is changed as a constant, for every KB.
 - The gate's refusal for a caller who cannot see the whole KB is judged as for anyone, but reports a whole-graph or artifact finding with the check and the visible page only, and fix targets cut to visible pages: the refusal names no page the caller cannot read.
+- A delete plus an add that git does not report as a rename is treated as a move only when the two pages share frontmatter `title` and `type` (and the file name is unique among the call's deletions and additions); otherwise the added page is judged as new.
 - `write_gate` and `repair_on_write` are still read but act on nothing; they leave the settings files, with
   `auto_repair` and the doctor intervals, in the second half of this change, after the settings registry of
   #906 (#890).
