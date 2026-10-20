@@ -996,3 +996,39 @@ func TestSingleWriterLock(t *testing.T) {
 	}
 	again.Close()
 }
+
+// TestVerifyAuditRefusesAnUnsignedEntryAfterTheFirstSignature: a log that never
+// rotated has no checkpoint, yet an unsigned entry after a signed one is still
+// a downgrade. The unsigned prefix before the first signature stays accepted.
+func TestVerifyAuditRefusesAnUnsignedEntryAfterTheFirstSignature(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, key := range []*KeyPair{nil, &kp} {
+		l, err := open(path, key, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		appendCall(t, l, fmt.Sprintf("run-%d", i))
+		if err := l.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := VerifyAudit(path, "", kp.Public); err != nil {
+		t.Fatalf("unsigned prefix then signed = %v, want accepted", err)
+	}
+	l, err := open(path, nil, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendCall(t, l, "run-2")
+	if err := l.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyAudit(path, "", kp.Public); err == nil || !strings.Contains(err.Error(), "unsigned event") {
+		t.Errorf("VerifyAudit = %v, want the unsigned entry reported", err)
+	}
+}
