@@ -14,6 +14,22 @@ This file is the single copy for every client. `.claude/skills/plan-issue`,
 `.kiro/skills/plan-issue` and `.opencode/skills/plan-issue` are symlinks to it — see §Per-client mechanics for
 the two places where the clients genuinely differ.
 
+## Role
+
+Before anything else, find your role (D955; `CONTRIBUTING.md` §Working with an agent client):
+
+```bash
+gh repo view "$(git remote get-url "$(git remote | grep -qx upstream && echo upstream || echo origin)" | sed -E 's#^.*[:/]([^/:]+/[^/]+)$#\1#; s#\.git$##')" --json viewerPermission --jq .viewerPermission
+```
+
+`ADMIN`, `MAINTAIN` or `WRITE` is **maintainer mode**; `TRIAGE`, `READ`, or any
+failure to read it, is **contributor mode**. State the mode to the user in one line.
+
+A plan is a **proposal**: the skill ends by telling the user it waits for a
+maintainer's `approved` label, and never adds that label itself (a maintainer may
+tell you to, in the session). In contributor mode the label edits below are out of
+reach (they need triage rights): you create a Plan issue, nothing else.
+
 ## Writing a plan
 
 1. Survey the open plans before designing, not just the code:
@@ -33,7 +49,7 @@ the two places where the clients genuinely differ.
    pointers, not paraphrases.
 4. Write the body (in English) to a scratch file following the template
    structure, then:
-   `gh issue create --title "Plan: <title>" --label plan --body-file <file>`.
+   `gh issue create --title "Plan: <title>" --label plan --body-file <file>` (a contributor cannot set labels: the template sets `plan`).
    Delete the scratch file afterwards — it is not a repository artifact.
 5. Apply the self-sufficiency test from `CONTRIBUTING.md` before submitting, and
    replace every real KB name, host, username, employer or client with a
@@ -47,15 +63,19 @@ the two places where the clients genuinely differ.
    body to reference siblings as `#<issue>` — the numbers exist only after
    creation. A pointer into a sibling's not-yet-implemented artifact cites the
    plan (`#<issue> WP<m>`), never an invented `file:line`.
-8. A plan written from an `idea` or `bug` issue is **promoted in place**, not
-   filed anew: rewrite that issue's body from the template (keep a one-line
-   summary of the original request at the top), retitle it `Plan: <title>`, and
-   `gh issue edit <m> --add-label plan --remove-label idea`. One issue, one
-   history, nothing to close by hand. Only an analysis that splits one request
+8. A plan written from a `bug` issue is **promoted in place**, not filed anew
+   (maintainer mode): rewrite that issue's body from the template (keep a
+   one-line summary of the original request at the top), retitle it
+   `Plan: <title>`, and `gh issue edit <m> --add-label plan`. One issue, one
+   history, nothing to close by hand. In contributor mode, open a new Plan issue
+   that links the original instead. An idea lives in Discussions: a maintainer
+   asks for a plan there, or writes it. Only an analysis that splits one request
    into several plans files new issues; it then closes the request with
    `-c "Split into #<a>, #<b>"`.
 
 ## Consuming a plan (implementing session)
+
+0. Only a plan labelled `approved` is implemented, whoever the caller is: check `gh issue view <n> --json labels` first and stop if it is missing.
 
 1. `gh issue view <n> --json body,comments --jq '.body, (.comments[].body)'` (body, then the comments where later amendments live).
 2. Execute the WPs in order, `make gate` after each.

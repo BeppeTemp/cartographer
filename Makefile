@@ -136,10 +136,10 @@ test-install: ## Run the network-free install.sh/Cask upgrade-repair suite and t
 # filesystem with its own subagents, so isolation is not free anywhere: these
 # two targets are the single client-neutral way to get it, and they are why the
 # implement-issue skill no longer carries four copies of the same git commands.
-worktree-add: ## Isolated worktree for a plan branch: make worktree-add SLUG=my-change
+worktree-add: ## Isolated worktree for a plan branch (from upstream/main when that remote exists, else origin/main): make worktree-add SLUG=my-change
 	@test -n "$(SLUG)" || (echo "worktree-add: SLUG is required" && exit 1)
-	@git fetch origin
-	@git worktree add -b "feat/$(SLUG)" ".worktrees/$(SLUG)" origin/main
+	@base=origin; git remote get-url upstream >/dev/null 2>&1 && base=upstream; \
+	git fetch $$base && git worktree add -b "feat/$(SLUG)" ".worktrees/$(SLUG)" $$base/main
 	@echo "worktree: $(CURDIR)/.worktrees/$(SLUG) on feat/$(SLUG)"
 
 worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree-rm SLUG=my-change

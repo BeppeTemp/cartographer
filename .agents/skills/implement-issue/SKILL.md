@@ -1,6 +1,6 @@
 ---
 name: implement-issue
-description: Orchestrate implementation of one or more approved plan issues (label `plan`) into merged PRs — wave planning from cross-plan execution order, delegation to coding subagents in isolated worktrees, coordinator review, and ordered squash-merge. Use when the user asks to implement, ship or land open plan issues (one or many). Sibling of the `plan-issue` skill — `plan-issue` writes issues (design → handoff), `implement-issue` consumes them (issue → merged PR).
+description: Orchestrate implementation of one or more approved plan issues (labels `plan` and `approved`) into merged PRs — wave planning from cross-plan execution order, delegation to coding subagents in isolated worktrees, coordinator review, and ordered squash-merge. Use when the user asks to implement, ship or land open plan issues (one or many). Sibling of the `plan-issue` skill — `plan-issue` writes issues (design → handoff), `implement-issue` consumes them (issue → merged PR).
 ---
 
 # implement-issue — plan issues → merged PRs
@@ -16,6 +16,28 @@ This file is the single copy for every client. `.claude/skills/implement-issue`,
 genuinely differ per client are in §Per-client mechanics; everything else in
 this file is client-neutral **because the git work lives in `make` targets**,
 not in prose.
+
+## Role
+
+Before anything else, find your role (D955; `CONTRIBUTING.md` §Working with an agent client):
+
+```bash
+gh repo view "$(git remote get-url "$(git remote | grep -qx upstream && echo upstream || echo origin)" | sed -E 's#^.*[:/]([^/:]+/[^/]+)$#\1#; s#\.git$##')" --json viewerPermission --jq .viewerPermission
+```
+
+`ADMIN`, `MAINTAIN` or `WRITE` is **maintainer mode**; `TRIAGE`, `READ`, or any
+failure to read it, is **contributor mode**. State the mode to the user in one line.
+
+- **Only an approved plan is implemented**, in either mode, the maintainer's own
+  plans included: select with `--label plan --label approved`. A plan the user
+  names that lacks `approved` is not implemented: say it awaits a maintainer's
+  approval. Never add the label on your own initiative, only when the maintainer
+  tells you to in this session.
+- **Contributor mode**: exactly one plan, no waves (§1 is skipped); the branch
+  is pushed to `origin`, your fork. No `gh pr merge`, no armed auto-merge (§4
+  step 4 is skipped), no force-push you were not asked for. The skill ends with
+  the PR open and its `## Self-review` section filled.
+- **Maintainer mode**: unchanged from here on.
 
 ## Preconditions
 
@@ -49,11 +71,11 @@ state; the plans are read by the subagents that implement them.
 
 ## 1 — Wave planning (coordinator)
 
-1. Collect the target issues: `gh issue list --label plan` (or the subset the user named). A plan's decision number, when it has one, is its issue number (D672).
+1. Collect the target issues: `gh issue list --label plan --label approved` (or the subset the user named, if it carries both labels). A plan's decision number, when it has one, is its issue number (D672).
 2. Extract, per plan, only the **execution order** paragraph and the **file-set**, from one bulk fetch:
 
    ```bash
-   gh issue list --label plan --state open --limit 100 --json number,body > plans.json
+   gh issue list --label plan --label approved --state open --limit 100 --json number,body > plans.json
    for n in $(jq -r '.[].number' plans.json | sort -n); do
      b=$(jq -r ".[]|select(.number==$n).body" plans.json); echo "=== #$n"
      echo "$b" | grep -iA5 -m2 'execution order\|cross-plan'
@@ -79,12 +101,12 @@ coordinator creates the worktree first and puts its absolute path in the
 mandate.
 
 ```bash
-make worktree-add SLUG=<slug>     # fetches origin, branches feat/<slug> from origin/main
+make worktree-add SLUG=<slug>     # fetches upstream (origin when there is no upstream remote), branches feat/<slug> from its main
 ```
 
 `.worktrees/` is git-ignored, so a worktree never shows up as untracked noise.
 Never run two subagents in the same working copy. Worktrees branch from fresh
-`origin/main`, so each subagent sees the merged predecessors — start a chain's
+`upstream/main` (`origin/main` without an `upstream` remote), so each subagent sees the merged predecessors — start a chain's
 next plan only after the previous PR is merged.
 
 Spawn the `plan-implementer` subagent (D327: `.claude/agents/`, `.kiro/agents/`,
@@ -95,6 +117,7 @@ worktree path. Where the client has no such agent, pass the mandate inline.
 Canonical mandate (self-contained — the subagent never sees this conversation):
 
 - Work **only** inside `<absolute-worktree-path>`; every command runs there. The tools inherit no working directory from this conversation, so pass it explicitly: `git -C <path>`, `make -C <path>`. Sibling subagents are active on other worktrees: never revert or touch their files.
+- First check the plan carries `approved` (`gh issue view <n> --json labels`); without it stop, nothing is implemented.
 - Read the plan: `gh issue view <n> --json body,comments --jq '.body, (.comments[].body)'` — later amendments live in the comments. Not `--comments`: without a TTY (every subagent) it prints the comments only and drops the body.
 - Implement **all** WPs exactly, starting from the `file:line` pointers in the plan; do not re-explore from scratch.
 - Write the tests in the plan's "Tests" section.
@@ -137,11 +160,13 @@ subagent's report — report text can be garbled or compressed.
 
 ## 4 — Ordered merge
 
+Maintainer mode only: in contributor mode the skill ended at the open PR (§3).
+
 Merge in dependency order. Sibling PRs only conflict when their actual
 file-sets overlap:
 
-1. `git fetch origin`, then rebase **in the plan's own worktree**:
-   `git -C .worktrees/<slug> rebase origin/main`.
+1. `git fetch <upstream>` (the `upstream` remote when it exists, else `origin`), then rebase **in the plan's own worktree**:
+   `git -C .worktrees/<slug> rebase <upstream>/main`.
 2. A conflict inside the **generated block** of `docs/decisions.md` (an older
    PR that still regenerated it) is never resolved by hand: take `origin/main`'s
    side — the release PR regenerates it (D328). The same for

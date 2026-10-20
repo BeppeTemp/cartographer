@@ -18,6 +18,22 @@ can be written down completely before it is built, write a plan instead.
 This file is the single copy for every client; `.claude/skills/live-dev` and
 `.kiro/skills/live-dev` and `.opencode/skills/live-dev` are symlinks to it.
 
+## Role
+
+Before anything else, find your role (D955; `CONTRIBUTING.md` §Working with an agent client):
+
+```bash
+gh repo view "$(git remote get-url "$(git remote | grep -qx upstream && echo upstream || echo origin)" | sed -E 's#^.*[:/]([^/:]+/[^/]+)$#\1#; s#\.git$##')" --json viewerPermission --jq .viewerPermission
+```
+
+`ADMIN`, `MAINTAIN` or `WRITE` is **maintainer mode**; `TRIAGE`, `READ`, or any
+failure to read it, is **contributor mode**. State the mode to the user in one line.
+
+In **contributor mode** the session stops at an open PR (§3 step 5 up to `gh pr ready`):
+no `gh pr merge`, no force-push you were not asked for; the branch is pushed to
+`origin`, your fork, and worktrees branch from `upstream/main` (`make worktree-add`).
+In maintainer mode nothing changes.
+
 ## Roles
 
 - **Coordinator** — the session talking with the user. It owns the conversation,
@@ -87,7 +103,7 @@ first (D703).
 
 ## 3 — Close
 
-1. Agree the scope with the user: what is in this PR, what becomes an `idea` issue.
+1. Agree the scope with the user: what is in this PR, what becomes a Discussion (idea) or a bug issue.
 2. Closing mandate to one `live-implementer` (or yourself): the docs named in
    `docs/index.md` §Documentation maintenance rules for what changed, the tests
    still missing, `make web` if `web/` changed (the bundle is committed), then
@@ -99,11 +115,11 @@ first (D703).
    is the independent read. The user tried the behaviour; nobody else has read
    the code. A review that returns no findings after no work has not happened: check that
    it read the diff before you count it.
-4. Before the merge, as in `implement-issue` §4: `git fetch origin`, rebase on
-   `origin/main` in the worktree (a conflict in `internal/webui/dist/` → take
+4. Before the merge, as in `implement-issue` §4: `git fetch <upstream>` (the `upstream` remote when it exists, else `origin`), rebase on
+   `<upstream>/main` in the worktree (a conflict in `internal/webui/dist/` → take
    `main`'s side, then `make web`; any other non-append conflict → stop and ask),
    the full `make gate` on the rebased tree, `git push --force-with-lease`.
-5. Write the record (below), then `gh pr ready`. Merge only on the user's
+5. Write the record (below), then `gh pr ready`. Contributor mode stops here: the maintainer merges. Maintainer mode merges only on the user's
    decision: `gh pr merge --squash --delete-branch --auto` merges once the
    required checks are green; confirm with `gh pr view <pr> --json state`. A
    required check that fails: spawn `reader` with the PR number and fix from its
@@ -131,7 +147,7 @@ release-please reads both.
   `feat:`/`fix:` by accident.
 - **Body**: what changed and why, step by step as it was accepted; what the user
   verified on the instance; what was tried and dropped, when a reader would
-  re-propose it; the decision file; the follow-ups opened as `idea` issues.
+  re-propose it; the decision file; the follow-ups opened as Discussions or bug issues.
   The `wip:` commits are squashed away: the body is what remains.
 
 ## Traps
