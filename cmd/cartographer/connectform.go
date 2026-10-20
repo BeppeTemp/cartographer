@@ -427,9 +427,8 @@ func formProviderLine(provider string, selected bool, focused bool) string {
 // the currently focused field f (empty for fieldSubmit, which needs none).
 // authEnabled changes the Token env hint: the variable is read from the
 // environment only when Auth is on (see resolveToken/probeServer), so when
-// it's off the hint says so instead of repeating the "never written to disk"
-// promise that would otherwise read as misleading reassurance about a field
-// that isn't even consulted.
+// it's off the hint says so instead of describing a field that isn't even
+// consulted.
 func fieldHint(f connectField, authEnabled bool) string {
 	switch f {
 	case fieldServerURL:
@@ -440,7 +439,7 @@ func fieldHint(f connectField, authEnabled bool) string {
 		if !authEnabled {
 			return "name of the environment variable with the token — ignored while Auth is disabled"
 		}
-		return "name of the environment variable that holds the bearer token — the token itself is never written to disk"
+		return "name of the environment variable that holds the bearer token — this form saves only the name (a literal token is set in .cartographer.yaml, not here)"
 	case fieldAuth:
 		return "when enabled, every call to the server carries the bearer token read from Token env var"
 	default:

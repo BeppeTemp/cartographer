@@ -177,8 +177,8 @@ func TestConnectFormModel_HintFollowsFocus(t *testing.T) {
 	if !strings.Contains(out, "environment variable that holds the bearer token") {
 		t.Errorf("hint for Token env var missing with focus on it (auth on):\n%s", out)
 	}
-	if !strings.Contains(out, "never written to disk") {
-		t.Errorf("token-env hint must clarify the token is never written to disk:\n%s", out)
+	if !strings.Contains(out, "saves only the name") || strings.Contains(out, "never written to disk") {
+		t.Errorf("token-env hint must say the form saves only the name:\n%s", out)
 	}
 
 	m.setFormFocus(fieldSubmit)

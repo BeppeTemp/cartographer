@@ -249,6 +249,9 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			return syncResult{}, err
 		}
 		warnings = append(warnings, authorWarnings...)
+		if w := literalTokenWarning(cfg.Auth, cfg.Token); w != "" {
+			warnings = append(warnings, w)
+		}
 		if slices.Contains(targets, string(configurator.ProviderClaudeCode)) {
 			warnings = append(warnings, claudeDirWarnings...)
 		}

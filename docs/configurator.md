@@ -193,7 +193,9 @@ others is refused (`chmod 600` fixes it). `disconnect` removes it with the last 
 The file is what an unattended run reads when the variable is absent. A **literal** `token: <value>` needs
 no copy and no variable: `.cartographer.yaml` is then written with mode `0600` and `connect` writes no
 token file; the agents' MCP entries can only name a variable, so they reference `$CARTOGRAPHER_TOKENS`
-and never carry the literal. A token is never put on a command line (`--token-env` takes a variable name,
+and never carry the literal (nor does any provider file). A literal token therefore reaches the agents only if
+`$CARTOGRAPHER_TOKENS` is exported in the environment that starts them, and `connect` and `sync` print a warning
+saying so; for agents that should work without it, use a `${NAME}` reference. A token is never put on a command line (`--token-env` takes a variable name,
 no flag takes a value) and never printed.
 
 **Multi-KB servers (D92).** `connect` reads `GET /health` before emitting MCP
@@ -316,7 +318,7 @@ If no provider is detected and no explicit name is passed, the command exits wit
 **Interactive form (TTY, D49+D64+D86).** With no form flags and in a TTY, the form shared with the
 TUI opens (`connectform.go`): each field shows a contextual hint below it when focused
 ("Token env var" is the **name** of the environment variable holding the bearer token — the token
-itself is never written to disk; with Auth off the field is rendered secondary and the hint says it is
+itself is not entered here, the form saves only the name; with Auth off the field is rendered secondary and the hint says it is
 ignored). In the standalone `connect` form, the four provider checkboxes are pre-selected from the
 installed-agent set; select one or more with Space or Enter. The Server URL prefill follows the precedence existing `.cartographer.yaml` >
 `CARTOGRAPHER_SERVER_URL` (client env) > `http://127.0.0.1:39273/mcp` — the loopback literal the local service listens on, never `localhost`, which Windows resolves to `::1` first, where nothing listens (D231). A `.cartographer.yaml` still carrying the old default `http://localhost:39273/...` is read back on `127.0.0.1` (path kept), so the next `connect` or `sync` rewrites every client's MCP entry; any other URL is left as written. On submit a **probe** runs

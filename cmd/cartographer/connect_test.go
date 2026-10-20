@@ -342,3 +342,17 @@ func TestDoConnect_MigratesLegacyDefaultURL(t *testing.T) {
 		t.Errorf("the client's MCP entry still points at localhost:\n%s", data)
 	}
 }
+
+func TestLiteralTokenWarning(t *testing.T) {
+	if w := literalTokenWarning(true, "s3cr3t"); !strings.Contains(w, "$CARTOGRAPHER_TOKENS") || strings.Contains(w, "s3cr3t") {
+		t.Errorf("literal token warning = %q", w)
+	}
+	for _, c := range []struct {
+		auth bool
+		tok  string
+	}{{false, "s3cr3t"}, {true, "${MY_TOKEN}"}, {true, ""}} {
+		if w := literalTokenWarning(c.auth, c.tok); w != "" {
+			t.Errorf("auth=%v token=%q warned: %q", c.auth, c.tok, w)
+		}
+	}
+}

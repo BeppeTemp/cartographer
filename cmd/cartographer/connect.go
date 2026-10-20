@@ -881,6 +881,9 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if slices.Contains(opts.Providers, string(configurator.ProviderClaudeCode)) {
 		configWarnings = append(configWarnings, claudeDirWarnings...)
 	}
+	if w := literalTokenWarning(opts.Auth, opts.Token); w != "" {
+		configWarnings = append(configWarnings, w)
+	}
 
 	// 1b. Ensure the bootstrap hook (D60): purely local, independent of the
 	// server manifest fetched in step 2 below — must be in place even when that
@@ -984,6 +987,17 @@ func syncTokenFile(opts connectOptions) error {
 		return clientconfig.WriteToken(opts.Dir, tok)
 	}
 	return nil
+}
+
+// literalTokenWarning tells the person that a literal token does not reach the
+// agents: their MCP entries can only name an environment variable, and nothing
+// exports it for a literal. "" when auth is off or the token is a reference.
+func literalTokenWarning(auth bool, token string) string {
+	c := &clientconfig.Config{Token: token}
+	if !auth || c.LiteralToken() == "" {
+		return ""
+	}
+	return fmt.Sprintf("the token in %s is a literal: it reaches cartographer's own sync, but the agents' MCP entries read $%s, which nothing sets for them. Export $%[2]s in the environment that starts your agents, or use token: ${NAME} (the literal is never written into an agent's config)", clientconfig.FileName, c.TokenEnv())
 }
 
 // tokenEnvName is the environment variable the agents' MCP entries reference
