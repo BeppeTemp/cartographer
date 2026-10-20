@@ -795,3 +795,49 @@ func TestLogNameStatusAndFileHistory_Agent(t *testing.T) {
 		}
 	}
 }
+
+// The Cartographer-Token trailer (D904) is read back by both log readers, the
+// last one winning, and does not displace the Reason that follows it in the
+// format.
+func TestLogNameStatusAndFileHistory_Token(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	base := time.Now().UTC().Truncate(time.Second).Add(time.Minute)
+	msgs := []string{
+		"concept_write: one\n\nReason: why\nAgent: client-a\nCartographer-Token: tok-a",
+		"concept_write: two\n\nCartographer-Token: tok-b\nCartographer-Token: tok-c",
+		"concept_write: none",
+	}
+	for i, msg := range msgs {
+		if err := os.WriteFile(filepath.Join(dir, "f.md"), []byte(fmt.Sprintf("v%d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		at := base.Add(time.Duration(i) * time.Minute).Format(time.RFC3339)
+		if err := Commit(dir, msg, "Author", "a@example.test", "GIT_AUTHOR_DATE="+at, "GIT_COMMITTER_DATE="+at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []struct{ token, reason string }{{"", ""}, {"tok-c", ""}, {"tok-a", "why"}}
+
+	commits, err := LogNameStatus(dir, base.Add(-time.Second))
+	if err != nil || len(commits) != 3 {
+		t.Fatalf("LogNameStatus = %d commits, err %v", len(commits), err)
+	}
+	revs, err := FileHistory(dir, "f.md", 0)
+	if err != nil || len(revs) != 3 {
+		t.Fatalf("FileHistory = %d revisions, err %v", len(revs), err)
+	}
+	for i, w := range want {
+		if c := commits[i]; c.Token != w.token || c.Reason != w.reason || len(c.Files) != 1 {
+			t.Errorf("commit %d = token %q reason %q files %d, want %q / %q", i, c.Token, c.Reason, len(c.Files), w.token, w.reason)
+		}
+		if r := revs[i]; r.Token != w.token || r.Reason != w.reason {
+			t.Errorf("revision %d = token %q reason %q, want %q / %q", i, r.Token, r.Reason, w.token, w.reason)
+		}
+	}
+}

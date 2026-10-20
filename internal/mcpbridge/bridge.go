@@ -47,6 +47,12 @@ type Bridge struct {
 	rootsAware bool
 	protocol   string
 	sessionID  string
+
+	authorMu       sync.Mutex // guards the fields below
+	gitAuthors     map[string]gitAuthor
+	warnedIdentity map[string]bool
+	// workTreeIdent replaces gitx.WorkTreeIdent in tests.
+	workTreeIdent func(dir string) string
 }
 
 // line is one message read from stdin.
@@ -398,6 +404,11 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 		req.Header.Set("Mcp-Method", m.Method)
 		if name := mirroredName(m); name != "" {
 			req.Header.Set("Mcp-Name", name)
+		}
+	}
+	if m.Method == "tools/call" {
+		if a := b.author(scope, m.Params); a != "" {
+			req.Header.Set(client.AuthorHeader, client.EncodeAuthor(a))
 		}
 	}
 

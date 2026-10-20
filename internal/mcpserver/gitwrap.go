@@ -12,7 +12,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
@@ -113,15 +112,17 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				if res.CommitSubject != "" {
 					msg = res.CommitSubject
 				}
-				// One trailer paragraph, in order: Reason, Agent, then the
-				// write gate's Accepted-Finding lines (git only parses the
-				// last contiguous block).
+				// One trailer paragraph, in order: Reason, Agent, the write
+				// gate's Accepted-Finding lines, then Cartographer-Token (git
+				// only parses the last contiguous block). The subject comes
+				// from tool arguments: no copy of the token trailer survives it.
+				msg = stripTokenTrailers(msg)
 				if block := commitTrailerBlock(ctx, args, trailers...); block != "" {
 					msg += "\n\n" + block
 				}
 				commitStart := time.Now()
-				p := auth.PrincipalFromContext(ctx)
-				sha, commitErr := k.CommitOpAs(msg, p.AuthorName, p.AuthorEmail)
+				authorName, authorEmail := writerAuthor(ctx)
+				sha, commitErr := k.CommitOpAs(msg, authorName, authorEmail)
 				commitDur = time.Since(commitStart)
 				if commitErr == nil {
 					res.CommitSHA = sha
@@ -141,6 +142,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				// sync or async — is non-fatal; Step 3 surfaces rebase
 				// conflicts as degraded concepts.
 				pushDur, pushAsync = pushAfterCommit(k, orig.Name, &res)
+				appendAuthorWarning(ctx, &res)
 			}
 			return nil
 		})
@@ -168,9 +170,11 @@ func syncInForWrite(k *kb.KB) (ToolResult, bool) {
 }
 
 // commitTrailerBlock builds the one trailer paragraph of a write's commit, in
-// order: Reason, Agent, then extra (the write gate's Accepted-Finding lines,
-// or the transfer's Moved-* lines). Git only parses the last contiguous block.
-// Empty when there is nothing to say.
+// order: Reason, Agent, extra (the write gate's Accepted-Finding lines, or the
+// transfer's Moved-* lines), then Cartographer-Token (D904). Git only parses
+// the last contiguous block. The token trailer is last and any copy in extra is
+// dropped, so the one gitx reads is the server's. Empty when there is nothing
+// to say.
 func commitTrailerBlock(ctx context.Context, args json.RawMessage, extra ...string) string {
 	var block []string
 	if reason := commitReason(args); reason != "" {
@@ -179,7 +183,14 @@ func commitTrailerBlock(ctx context.Context, args json.RawMessage, extra ...stri
 	if agent := commitAgent(ctx); agent != "" {
 		block = append(block, commitAgentKey+": "+agent)
 	}
-	block = append(block, extra...)
+	for _, line := range extra {
+		if line = stripTokenTrailers(line); line != "" {
+			block = append(block, line)
+		}
+	}
+	if token := commitToken(ctx); token != "" {
+		block = append(block, commitTokenKey+": "+token)
+	}
 	return strings.Join(block, "\n")
 }
 
@@ -223,7 +234,7 @@ const externalChangesSubject = "external changes"
 // everything (git add -A), so without this a call that changed nothing, or one
 // file, would commit an editor's unrelated work under its own name, and history
 // would credit a tool (or the unattended doctor) with changes it did not make.
-// The commit is authored by the KB's default git identity, never the caller's,
+// The commit is authored by the server identity, never the caller's,
 // and says why in the Reason trailer. It runs under the git lock before the
 // handler, after the pull; a KB with open conflicts is left alone (the write
 // is refused as before, and a conflict marker must not be committed). A

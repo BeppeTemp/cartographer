@@ -50,9 +50,32 @@ func TestInitWithIdentity_NoGitIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git log: %v: %s", err, out)
 	}
-	want := "Author Person <author@example.com> Author Person <author@example.com>"
+	name, email := ServerIdentity()
+	want := "Author Person <author@example.com> " + name + " <" + email + ">"
 	if got := strings.TrimSpace(string(out)); got != want {
 		t.Fatalf("identity = %q, want %q", got, want)
+	}
+}
+
+// Init with no identity supplied commits as the server, on a machine with no
+// git identity at all (D904).
+func TestInit_ServerIdentity(t *testing.T) {
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	isolateGitIdentity(t)
+	root := filepath.Join(t.TempDir(), "kb-a")
+	if _, err := Init(root); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	out, err := exec.Command("git", "-C", root, "log", "-1", "--format=%an <%ae> %cn <%ce>").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git log: %v: %s", err, out)
+	}
+	name, email := ServerIdentity()
+	server := name + " <" + email + ">"
+	if got := strings.TrimSpace(string(out)); got != server+" "+server {
+		t.Fatalf("identity = %q, want the server for both", got)
 	}
 }
 

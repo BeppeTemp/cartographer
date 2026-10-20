@@ -583,6 +583,9 @@ func toolConceptHistory(k *kb.KB) Tool {
 				if r.MovedFrom != "" {
 					e["moved_from"] = r.MovedFrom
 				}
+				if r.Token != "" {
+					e["token"] = r.Token
+				}
 				if r.Reason != "" {
 					e["reason"] = r.Reason
 				}

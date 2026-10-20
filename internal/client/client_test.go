@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -615,5 +616,74 @@ func TestHealth_BootstrappingIsAnError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "bootstrapping") {
 		t.Errorf("error = %v", err)
+	}
+}
+
+// The author names a person, so it goes on tools/call only, and only when the
+// caller set one (D904).
+func TestAuthorGoesOnToolCallsOnly(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		got = append(got, r.Header.Get("Mcp-Method")+" "+strings.Join(r.Header.Values(client.AuthorHeader), "|"))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{}"}]}}`))
+	}))
+	defer srv.Close()
+
+	const who = "Zoë Pérez <zoe@example.test>"
+	c := client.New(srv.URL, "").WithAuthor(who)
+	if err := c.Ping(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Call("ok_tool", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.New(srv.URL, "").Call("ok_tool", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"server/discover ", "tools/call " + client.EncodeAuthor(who), "tools/call "}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("author headers:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// Whatever the author, what goes on the wire is visible ASCII that no client
+// config reads as a template, and the server reads back the same text. A
+// plain name stays readable.
+func TestEncodeAuthorKeepsTheWireASCII(t *testing.T) {
+	for _, author := range []string{
+		"Ada Lovelace <ada@example.com>",
+		"Zoë Pérez <zoe@example.test>",
+		"李雷 <li@example.cn>",
+		"Ada ${HOME} <ada@example.com>",
+		"Ada {env:HOME} <ada@example.com>",
+		"Ada $(id) <ada@example.com>",
+		"Ada `id` %USERNAME% <ada@example.com>",
+		" Ada <ada@example.com>",
+		"=?base64?QWRh?=",
+	} {
+		wire := client.EncodeAuthor(author)
+		for i := 0; i < len(wire); i++ {
+			if c := wire[i]; c < 0x20 || c > 0x7E || strings.IndexByte("${}`%\\\"", c) >= 0 {
+				t.Errorf("EncodeAuthor(%q) = %q: byte %q on the wire", author, wire, c)
+				break
+			}
+		}
+		if got, ok := client.DecodeAuthor(wire); !ok || got != author {
+			t.Errorf("DecodeAuthor(%q) = %q, %v, want %q", wire, got, ok, author)
+		}
+	}
+	for _, plain := range []string{"Ada Lovelace <ada@example.com>", "O'Brien-Smith, Jr. (ops) <ob+kb@example.com>"} {
+		if got := client.EncodeAuthor(plain); got != plain {
+			t.Errorf("a plain name was encoded: %q", got)
+		}
+	}
+	if _, ok := client.DecodeAuthor("=?base64?not base64!?="); ok {
+		t.Error("invalid base64 decoded")
 	}
 }

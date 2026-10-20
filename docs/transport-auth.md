@@ -213,6 +213,11 @@ In the handshake era every JSON-RPC error is still carried inside HTTP **200**.
 
 `Mcp-Session-Id` and `Last-Event-ID` are ignored if sent, and never issued.
 
+`Cartographer-Author` is not an MCP header and is not checked against the body:
+it names the git author of the writes the request makes (D904), it decides
+nothing about access, and a missing or invalid one falls back to the token
+(§Identity and audit boundaries).
+
 ### Origin
 
 The MCP endpoint validates the `Origin` header. A request without one — every
@@ -402,32 +407,24 @@ resolver — pre-D118 deployments are unaffected.
 
 ## Identity and audit boundaries
 
-Bearer tokens authorize requests. Git author/committer and SSH settings are
-configured globally or per KB as described in [deployment](deployment.md).
+Bearer tokens authorize requests. SSH settings are configured globally or per
+KB as described in [deployment](deployment.md).
 
-A token may also declare the git **author** of the commits its writes produce,
-so the history of a KB shared by several agents says which one wrote what
-(D341):
+The git **author** of a write is the writer, not a setting (D904). A client that
+knows who it acts for sends `Cartographer-Author: Name <email>` with the
+request; without a valid one the author is `<token id> <cartographer@<host>>`.
+The committer is always the server, `Cartographer <cartographer@<host>>`, and
+every write carries a `Cartographer-Token: <token id>` trailer that the server
+appends itself. The author line is therefore a claim by the caller, and the
+trailer is what the server knows: attribution, not a signature, since whoever
+holds the token can write under any name. Format, validation and the warning on
+a rejected header → [control plane](control-plane.md). A token's `author_name`
+and `author_email` are removed settings: a file that still has them loads with
+a warning, and they never refuse the start.
 
-```yaml
-auth:
-  tokens:
-    - token: ${CARTOGRAPHER_TOKEN_OPERATOR}
-      id: operator                  # no identity: commits as the KB
-    - token: ${CARTOGRAPHER_TOKEN_BOT}
-      id: bot
-      author_name: bot
-      author_email: bot@example.com
-```
-
-`author_name` and `author_email` go together: one without the other refuses
-startup. The committer stays the KB's identity (`kbs[].committer_*`, then
-`git.*`), so the history still shows which server recorded the write. A token
-without an identity commits as the KB, exactly as before. The identity is
-attribution, not a signature: whoever holds the token can write under that
-name. The flat `CARTOGRAPHER_TOKENS` form cannot carry one; declare such
-tokens in the YAML `auth.tokens` list. A `token:` written as exactly
-`${NAME}` is read from the environment, so the file never holds the secret; an
+Tokens are declared in the YAML `auth.tokens` list; the flat
+`CARTOGRAPHER_TOKENS` form cannot carry the fields of a
+mapping. A `token:` written as exactly `${NAME}` is read from the environment, so the file never holds the secret; an
 unset or empty variable refuses startup (#680). `CARTOGRAPHER_TOKENS`, when
 set, replaces the whole YAML list, so a deployment moving to YAML tokens drops
 that variable.

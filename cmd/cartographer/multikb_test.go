@@ -899,3 +899,67 @@ func TestClaudeConfigDirs_Warnings(t *testing.T) {
 		t.Error("an undeclared env dir must stay untouched")
 	}
 }
+
+// An entry names a writer only when every KB it can write to agrees on one
+// (D904): each KB's identities entry decides, else the global git identity,
+// and an entry open to KBs mounted later answers for every KB identities names.
+func TestSetEntryAuthorsNeedsEveryReachedKBToAgree(t *testing.T) {
+	const (
+		git  = "Git Person <git@example.test>"
+		work = "Work Person <work@example.test>"
+		def  = "Default Person <default@example.test>"
+	)
+	for _, tc := range []struct {
+		name              string
+		identities        map[string]string
+		mounted, bound    []string
+		routed            string
+		explicit          bool
+		global            string
+		perFolder, askGit bool
+		want              []string
+		warning           string
+	}{
+		{name: "git for every KB", mounted: []string{"a", "b"}, routed: "/mcp/routed", global: git, askGit: true, want: []string{git}},
+		{name: "default before git", identities: map[string]string{"default": def}, mounted: []string{"a"}, routed: "/mcp/routed", global: git, want: []string{def}},
+		{name: "a KB mounted later splits an open entry", identities: map[string]string{"work": work}, mounted: []string{"personal"}, routed: "/mcp/routed", global: git, askGit: true, want: []string{""}, warning: "(personal, work, any other KB)"},
+		{name: "a KB outside the binding does not", identities: map[string]string{"work": work}, mounted: []string{"personal", "work"}, bound: []string{"personal"}, routed: "/mcp/routed", explicit: true, global: git, askGit: true, want: []string{git}},
+		{name: "one entry per KB, one writer each", identities: map[string]string{"work": work}, mounted: []string{"personal", "work"}, bound: []string{"personal", "work"}, global: git, askGit: true, want: []string{git, work}},
+		{name: "a KB kept authorless", identities: map[string]string{"work": ""}, mounted: []string{"work"}, global: git, want: []string{""}},
+		{name: "a server naming no KB", identities: map[string]string{"work": work}, global: git, askGit: true, want: []string{""}, warning: "(work, any other KB)"},
+		{name: "git by folder", mounted: []string{"a"}, bound: []string{"a"}, routed: "/mcp/routed", explicit: true, perFolder: true, askGit: true, want: []string{""}, warning: "includeIf"},
+		{name: "git by folder, none on purpose", identities: map[string]string{"default": ""}, mounted: []string{"a"}, routed: "/mcp/routed", perFolder: true, want: []string{""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bound := tc.bound
+			if bound == nil {
+				bound = tc.mounted
+			}
+			entries, err := entriesForKBs("cartographer", "https://example.test/mcp", tc.mounted, bound, tc.routed, tc.explicit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			byProvider := map[string][]mcpEntry{"claude": entries, "codex": append([]mcpEntry(nil), entries...)}
+			asked := 0
+			warnings := setEntryAuthors(&clientconfig.Config{Identities: tc.identities}, byProvider, func() (string, bool) {
+				asked++
+				return tc.global, tc.perFolder
+			})
+			if want := map[bool]int{true: 1, false: 0}[tc.askGit]; asked != want {
+				t.Errorf("git asked %d times, want %d", asked, want)
+			}
+			for _, p := range []string{"claude", "codex"} {
+				var got []string
+				for _, e := range byProvider[p] {
+					got = append(got, e.Author)
+				}
+				if strings.Join(got, "|") != strings.Join(tc.want, "|") {
+					t.Errorf("%s authors = %q, want %q", p, got, tc.want)
+				}
+			}
+			if tc.warning == "" && len(warnings) != 0 || tc.warning != "" && (len(warnings) != 1 || !strings.Contains(warnings[0], tc.warning)) {
+				t.Errorf("warnings = %q, want one holding %q", warnings, tc.warning)
+			}
+		})
+	}
+}

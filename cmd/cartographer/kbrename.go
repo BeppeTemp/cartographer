@@ -32,12 +32,11 @@ type renamePlan struct {
 	ConfigPath string
 	EntryIndex int
 
-	// Scopes/SigningKey/Approvals are references to the old name this
-	// command deliberately does NOT migrate: rewriting an operator's auth
+	// Scopes and ClientKeys are references to the old name this command
+	// deliberately does NOT migrate: rewriting an operator's auth
 	// configuration silently would be worse than telling them what to change.
 	Scopes     []string
-	SigningKey bool
-	Approvals  bool
+	ClientKeys []string
 
 	// Bindings are this machine's client bindings that select the KB by its
 	// old name (clients.<p>.kbs, workspaces.<p>[].kbs). They are rewritten
@@ -163,7 +162,7 @@ func planKBRename(old, newName, dataDir, configPath string) (*renamePlan, error)
 		return nil, err
 	}
 	p.Scopes = scopeRefs(cfg, old)
-	p.SigningKey, p.Approvals = clientRefs(old)
+	p.ClientKeys = clientRefs(old)
 	p.Bindings = bindingRefs(old)
 	return p, nil
 }
@@ -241,21 +240,31 @@ func scopeRefs(cfg *config.Config, old string) []string {
 	return refs
 }
 
-// clientRefs reports whether this machine's client config pins a signing key
-// or an MCP approval under the old KB name. Both are keyed by source KB and
-// neither is migrated by a later sync.
-func clientRefs(old string) (signingKey, approvals bool) {
+// clientRefs lists the keys of this machine's client config held under the old
+// KB name: a signing key pin, an MCP approval, the writer's identity (D904).
+// Each is configured out of band and none is migrated by a later sync; a stale
+// identities entry would silently hand the KB to the default identity. The
+// identities default entry applies to every KB, so it is never listed.
+func clientRefs(old string) []string {
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
-		return false, false
+		return nil
 	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
-		return false, false
+		return nil
 	}
-	_, signingKey = cfg.SigningKeys[old]
-	_, approvals = cfg.MCPApprovals[old]
-	return signingKey, approvals
+	var refs []string
+	if _, ok := cfg.SigningKeys[old]; ok {
+		refs = append(refs, fmt.Sprintf("signing_keys[%q]", old))
+	}
+	if _, ok := cfg.MCPApprovals[old]; ok {
+		refs = append(refs, fmt.Sprintf("mcp_approvals[%q]", old))
+	}
+	if _, ok := cfg.Identities[old]; ok && old != clientconfig.IdentityDefault {
+		refs = append(refs, fmt.Sprintf("identities[%q]", old))
+	}
+	return refs
 }
 
 // bindingRefs lists this machine's client bindings that name the old KB, as
@@ -350,18 +359,15 @@ func printRenamePreflight(w io.Writer, p *renamePlan) {
 	for _, b := range p.Bindings {
 		fmt.Fprintf(w, "this machine's .cartographer.yaml: rewriting the %s binding\n", b)
 	}
-	if len(p.Scopes) == 0 && !p.SigningKey && !p.Approvals {
+	if len(p.Scopes) == 0 && len(p.ClientKeys) == 0 {
 		return
 	}
 	fmt.Fprintf(w, "\nNOT migrated by this command or by a later sync — update them yourself:\n")
 	for _, s := range p.Scopes {
 		fmt.Fprintf(w, "  auth scope in %s → %s\n", p.ConfigPath, s)
 	}
-	if p.SigningKey {
-		fmt.Fprintf(w, "  signing_keys[%q] in this machine's .cartographer.yaml\n", p.Old)
-	}
-	if p.Approvals {
-		fmt.Fprintf(w, "  mcp_approvals[%q] in this machine's .cartographer.yaml\n", p.Old)
+	for _, k := range p.ClientKeys {
+		fmt.Fprintf(w, "  %s in this machine's .cartographer.yaml\n", k)
 	}
 }
 

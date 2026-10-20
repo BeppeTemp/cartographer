@@ -4,6 +4,8 @@ topic: concurrency-git
 
 # D265 — The author is the committer when git has none
 
+> **Amended by [D904](D904-the-writer-is-the-author.md)**: the server is the committer of every KB commit, so the fallback to the author no longer applies to one; `kb.Init` still returns the initial commit's error.
+
 **Decision.** When Cartographer passes `--author` to a commit and git cannot
 resolve a committer (`git var GIT_COMMITTER_IDENT` fails and the per-KB env names
 none), `gitx` sets `GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL` to that author.

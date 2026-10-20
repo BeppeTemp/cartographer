@@ -115,7 +115,7 @@ func (s *Server) buildSDKServer() *sdk.Server {
 // sees for an ordinary denial or a failing tool.
 func (s *Server) sdkToolHandler(name string) sdk.ToolHandler {
 	return func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
-		ctx = withCallerSession(withCallerClient(ctx, req), req)
+		ctx = withCallerAuthor(withCallerSession(withCallerClient(ctx, req), req), req)
 		return sdkResult(s.callTool(ctx, name, json.RawMessage(req.Params.Arguments))), nil
 	}
 }

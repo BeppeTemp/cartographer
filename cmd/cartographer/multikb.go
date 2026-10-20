@@ -7,14 +7,17 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 )
 
@@ -29,6 +32,15 @@ type mcpEntry struct {
 	// Bridge marks the entry as the local stdio bridge (D737): no URL, the
 	// command is `cartographer mcp --provider <p>`.
 	Bridge bool
+	// Reach is every KB the entry writes to today, and Open marks one that
+	// also reaches the KBs the server mounts later (no ?kbs= on a routed
+	// server, or a server that names none yet). For a bridge, the HTTP entry
+	// it falls back to. The author the entry names must hold for all (D904).
+	Reach []string
+	Open  bool
+	// Author is the writer identity the entry sends as Cartographer-Author,
+	// "" for none; set by setEntryAuthors.
+	Author string
 }
 
 // kbTarget is one resolved remote-KB target for a top-level administrative
@@ -346,6 +358,7 @@ func entriesForKBs(baseName, serverURL string, mounted, bound []string, routedPa
 		}
 		u.Path = routedPath
 		u.RawQuery = ""
+		reach, open := mounted, true
 		if explicit {
 			names := routedBinding(mounted, bound)
 			if len(names) > 0 {
@@ -354,14 +367,15 @@ func entriesForKBs(baseName, serverURL string, mounted, bound []string, routedPa
 					escaped[i] = url.QueryEscape(n)
 				}
 				u.RawQuery = "kbs=" + strings.Join(escaped, ",")
+				reach, open = names, false
 			}
 		}
-		return []mcpEntry{{Name: baseName, URL: u.String()}}, nil
+		return []mcpEntry{{Name: baseName, URL: u.String(), Reach: reach, Open: open}}, nil
 	}
 	if len(mounted) <= 1 {
 		// Nothing to select against: the server routes the bare endpoint, and
 		// no binding can name a KB the server does not identify.
-		return []mcpEntry{{Name: baseName, URL: serverURL}}, nil
+		return []mcpEntry{{Name: baseName, URL: serverURL, Reach: mounted, Open: len(mounted) == 0}}, nil
 	}
 	u, err := url.Parse(serverURL)
 	if err != nil {
@@ -373,7 +387,7 @@ func entriesForKBs(baseName, serverURL string, mounted, bound []string, routedPa
 		q := entryURL.Query()
 		q.Set("kb", kb)
 		entryURL.RawQuery = q.Encode()
-		entries = append(entries, mcpEntry{Name: baseName + "-" + kb, URL: entryURL.String(), KBName: kb})
+		entries = append(entries, mcpEntry{Name: baseName + "-" + kb, URL: entryURL.String(), KBName: kb, Reach: []string{kb}})
 	}
 	return entries, nil
 }
@@ -429,7 +443,7 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 					return nil, err
 				}
 				if len(fallback) == 1 {
-					e.URL = fallback[0].URL
+					e.URL, e.Reach, e.Open = fallback[0].URL, fallback[0].Reach, fallback[0].Open
 				}
 			}
 			out[p] = []mcpEntry{e}
@@ -460,6 +474,100 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 		out[p] = entries
 	}
 	return out, nil
+}
+
+// globalIdentFn reads the global git identity for setEntryAuthors; tests stub
+// it so no run depends on the developer's git config.
+var globalIdentFn = gitx.GlobalIdent
+
+// setEntryAuthors gives each entry the writer identity it sends as
+// Cartographer-Author (D904). An entry is written once into a file every
+// folder shares, so its author comes from what no folder changes: each reached
+// KB's identities entry, else the global git identity, asked at most once. It
+// names one only when every KB it reaches agrees, so a value chosen for one KB
+// never authors another KB's commits; an open entry also reaches every KB
+// identities names and any other. A bridge entry names none while the bridge
+// can start, since the bridge names the writer per call; it gets one only for
+// the HTTP entry it falls back to. Returns why entries name none where a writer
+// was at hand.
+func setEntryAuthors(cfg *clientconfig.Config, byProvider map[string][]mcpEntry, global func() (string, bool)) []string {
+	var asked, perFolder, fellToGit bool
+	var gitIdent string
+	bridgeStarts := sync.OnceValue(func() bool {
+		_, err := bridgeCommand()
+		return err == nil
+	})
+	authorOf := func(kb string) string {
+		if v, found, _ := cfg.Identity(kb); found {
+			return v
+		}
+		if !asked {
+			gitIdent, perFolder = global()
+			asked = true
+		}
+		fellToGit = true
+		return gitIdent
+	}
+	var named []string
+	for kb := range cfg.Identities {
+		if kb != clientconfig.IdentityDefault {
+			named = append(named, kb)
+		}
+	}
+	sort.Strings(named)
+
+	var warnings []string
+	seen := map[string]bool{}
+	providers := make([]string, 0, len(byProvider))
+	for p := range byProvider {
+		providers = append(providers, p)
+	}
+	sort.Strings(providers)
+	for _, p := range providers {
+		entries := byProvider[p]
+		for i := range entries {
+			e := &entries[i]
+			e.Author = ""
+			if e.Bridge && bridgeStarts() {
+				continue
+			}
+			kbs := e.Reach
+			if e.Open {
+				kbs = append(append(append([]string{}, kbs...), named...), "")
+			}
+			authors := map[string]bool{}
+			for _, kb := range kbs {
+				authors[authorOf(kb)] = true
+			}
+			if len(authors) == 1 {
+				for a := range authors {
+					e.Author = a
+				}
+				continue
+			}
+			if len(authors) > 1 {
+				var listed []string
+				for _, kb := range kbs {
+					if kb != "" && !slices.Contains(listed, kb) {
+						listed = append(listed, kb)
+					}
+				}
+				sort.Strings(listed)
+				if e.Open {
+					listed = append(listed, "any other KB")
+				}
+				w := fmt.Sprintf("MCP entry %q reaches KBs with different writers (%s), so it names none and their writes are authored by the token: bind a workspace so the bridge names the writer per call, or bind the client to KBs that share one", e.Name, strings.Join(listed, ", "))
+				if !seen[w] {
+					seen[w] = true
+					warnings = append(warnings, w)
+				}
+			}
+		}
+	}
+	if fellToGit && perFolder {
+		warnings = append(warnings, fmt.Sprintf("the global git config picks the identity by folder (includeIf), which an MCP entry written once cannot follow, so writes through it are authored by the token: set identities.default in %s (empty to keep sending none), or bind a workspace so the bridge reads each folder's identity", clientconfig.FileName))
+	}
+	return warnings
 }
 
 // allEntryNames is the union of every provider's entry names, deduplicated and
@@ -516,10 +624,10 @@ func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string
 					if entry.URL == "" {
 						continue
 					}
-					r, err = configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider))
+					r, err = configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv, Author: entry.Author}, configurator.Provider(provider))
 				}
 			} else {
-				r, err = configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider))
+				r, err = configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv, Author: entry.Author}, configurator.Provider(provider))
 			}
 			if err != nil {
 				return nil, nil, fmt.Errorf("emit %s: %w", provider, err)

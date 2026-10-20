@@ -43,10 +43,6 @@ type Policy struct {
 type Principal struct {
 	ID     string
 	Policy Policy
-	// AuthorName/AuthorEmail are the git author for commits made on this
-	// principal's behalf; empty means the KB's own identity.
-	AuthorName  string
-	AuthorEmail string
 }
 
 // LocalAdminPrincipal is used for auth-disabled HTTP and trusted stdio. It is
@@ -150,9 +146,6 @@ type ScopedToken struct {
 	Scopes    []KBScope
 	Principal string
 	Policy    Policy
-	// AuthorName/AuthorEmail are carried onto the Principal (see there).
-	AuthorName  string
-	AuthorEmail string
 }
 
 // NewTokenStore creates a token store from plain token strings, each granted
@@ -201,7 +194,7 @@ func NewScopedTokenStore(tokens []ScopedToken) *TokenStore {
 			if id == "" {
 				id = "token-" + h[:16]
 			}
-			ts.hashes[h] = Principal{ID: id, Policy: clonePolicy(policy), AuthorName: st.AuthorName, AuthorEmail: st.AuthorEmail}
+			ts.hashes[h] = Principal{ID: id, Policy: clonePolicy(policy)}
 		}
 	}
 	return ts

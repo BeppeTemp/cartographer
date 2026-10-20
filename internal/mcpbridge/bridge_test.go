@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
@@ -29,6 +30,9 @@ type routedServer struct {
 	mu    sync.Mutex
 	urls  []string
 	count atomic.Int32
+	// authors are the Cartographer-Author values of each request, by JSON-RPC
+	// method and id ("tools/call 3").
+	authors map[string][]string
 }
 
 func newRoutedServer(t *testing.T, names ...string) *routedServer {
@@ -51,8 +55,16 @@ func newRoutedServer(t *testing.T, names ...string) *routedServer {
 	rs := &routedServer{}
 	rs.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rs.count.Add(1)
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		var m message
+		_ = json.Unmarshal(body, &m)
 		rs.mu.Lock()
 		rs.urls = append(rs.urls, r.URL.RequestURI())
+		if rs.authors == nil {
+			rs.authors = map[string][]string{}
+		}
+		rs.authors[m.Method+" "+string(m.ID)] = r.Header.Values(client.AuthorHeader)
 		rs.mu.Unlock()
 		h.ServeHTTP(w, r)
 	}))

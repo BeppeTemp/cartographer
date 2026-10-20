@@ -39,6 +39,8 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Placeholder ids known to be absent on this machine, for example repo:work-tools; sync stops reporting them. Edit it with `cartographer paths ignore`."},
 	{Path: "signing_keys", Scope: settingschema.ScopeClient, Type: "map", Default: "{}",
 		Description: "Ed25519 public keys pinned per source KB, to verify the signed artifacts it serves. Pins are configured out of band, never learned from a sync."},
+	{Path: "identities", Scope: settingschema.ScopeClient, Type: "map", Values: "<kb> | default: Name <email>", Default: "{}",
+		Description: "The git author of this machine's writes, per KB name, with default for every other KB; without an entry, the identity git resolves in the session's repository. An empty value sends no author, and the server then names the token."},
 	{Path: "mcp_approvals", Scope: settingschema.ScopeClient, Type: "map", Default: "{}",
 		Description: "Local approvals of third-party MCP descriptors, bound to the exact content hash. Written by the approval commands; do not edit by hand."},
 	{Path: "update.check", Scope: settingschema.ScopeClient, Type: "bool", Default: "true",

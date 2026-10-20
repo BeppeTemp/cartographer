@@ -868,10 +868,12 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.TokenEnv, opts.DryRun); err != nil {
 		return connectResult{}, err
 	}
+	authorWarnings := setEntryAuthors(existing, entriesByProvider, globalIdentFn)
 	configsWritten, configWarnings, err := applyMCPEntries(entriesByProvider, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.TokenEnv, opts.DryRun)
 	if err != nil {
 		return connectResult{}, err
 	}
+	configWarnings = append(configWarnings, authorWarnings...)
 	// A routed server writes one entry per provider, and one entry cannot
 	// collide with itself: the flat-namespace warning (D102) has nothing to
 	// warn about and firing it would be noise.

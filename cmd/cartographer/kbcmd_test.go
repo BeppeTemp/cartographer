@@ -280,8 +280,8 @@ func TestCmdKBCreateAdoptsForgeInitialCommit(t *testing.T) {
 			tmp := t.TempDir()
 			bare := seedForgeRemote(t, tmp, branch, []string{"README.md", "LICENSE"}, 1)
 			forgeSHA := gitOut(t, bare, "rev-parse", branch)
-			// A committer different from the author must not leak into the
-			// rebased commit (D265).
+			// A committer of the process environment must not leak into the
+			// rebased commit: the committer is the server (D904, D265).
 			t.Setenv("GIT_AUTHOR_NAME", "Kb User")
 			t.Setenv("GIT_AUTHOR_EMAIL", "user@example.com")
 			t.Setenv("GIT_COMMITTER_NAME", "Someone Else")
@@ -316,10 +316,10 @@ func TestCmdKBCreateAdoptsForgeInitialCommit(t *testing.T) {
 					t.Errorf("remote tree lacks %s:\n%s", f, tree)
 				}
 			}
-			au := gitOut(t, bare, "log", "-1", "--format=%an <%ae>", branch)
 			cm := gitOut(t, bare, "log", "-1", "--format=%cn <%ce>", branch)
-			if au != cm {
-				t.Errorf("author %q != committer %q: committer must be the resolved identity", au, cm)
+			name, email := kb.ServerIdentity()
+			if cm != name+" <"+email+">" {
+				t.Errorf("committer %q, want the server", cm)
 			}
 			if branch == "master" && strings.Contains(gitOut(t, bare, "branch", "--list"), "main") {
 				t.Error("a main branch was pushed beside the forge's master (D264)")

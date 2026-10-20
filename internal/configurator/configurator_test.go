@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 )
@@ -598,4 +600,79 @@ func TestShadowedInstructions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The writer identity rides in every entry whose client takes a header, next to
+// the token reference and in the form no client config expands (D904); an
+// entry without one sends no author at all.
+func TestEmit_AuthorHeader(t *testing.T) {
+	const author = "Zoë $(id) <zoe@example.test>"
+	want := client.EncodeAuthor(author)
+	jsonProviders := []configurator.Provider{
+		configurator.ProviderClaudeCode,
+		configurator.ProviderCopilot,
+		configurator.ProviderOpenCode,
+		configurator.ProviderAntigravity,
+		configurator.ProviderCrush,
+	}
+	for _, withAuthor := range []bool{true, false} {
+		cfg := &configurator.ServerConfig{
+			Name:        "wiki",
+			URL:         "https://mcp.example.test/mcp",
+			AuthEnabled: true,
+			TokenEnv:    "CARTOGRAPHER_TOKENS",
+		}
+		if withAuthor {
+			cfg.Author = author
+		}
+		for _, p := range jsonProviders {
+			r, err := configurator.Emit(cfg, p)
+			if err != nil {
+				t.Fatalf("%s: %v", p, err)
+			}
+			headers, _ := serverEntry(t, r.Content, "wiki")["headers"].(map[string]any)
+			got, sent := headers[client.AuthorHeader]
+			if withAuthor && got != want || !withAuthor && sent {
+				t.Errorf("%s (author %v): %s = %v, %v", p, withAuthor, client.AuthorHeader, got, sent)
+			}
+			if _, ok := headers["Authorization"]; !ok {
+				t.Errorf("%s: no Authorization header next to the author", p)
+			}
+			if len(r.Warnings) != 0 {
+				t.Errorf("%s: unexpected warnings %v", p, r.Warnings)
+			}
+		}
+
+		r, err := configurator.Emit(cfg, configurator.ProviderCodex)
+		if err != nil {
+			t.Fatalf("codex: %v", err)
+		}
+		content := string(r.Content)
+		line := `http_headers = { "` + client.AuthorHeader + `" = "` + want + `" }`
+		if strings.Contains(content, line) != withAuthor || !withAuthor && strings.Contains(content, "http_headers") {
+			t.Errorf("codex (author %v): want %q present = %v in:\n%s", withAuthor, line, withAuthor, content)
+		}
+		if !strings.Contains(content, `bearer_token_env_var = "CARTOGRAPHER_TOKENS"`) || len(r.Warnings) != 0 {
+			t.Errorf("codex: token or warnings changed: %v\n%s", r.Warnings, content)
+		}
+	}
+}
+
+// serverEntry returns the entry named name under whichever root key the
+// provider keeps its servers in ("mcpServers", "mcp", ...).
+func serverEntry(t *testing.T, content []byte, name string) map[string]any {
+	t.Helper()
+	var root map[string]any
+	if err := json.Unmarshal(content, &root); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	for _, v := range root {
+		if servers, ok := v.(map[string]any); ok {
+			if entry, ok := servers[name].(map[string]any); ok {
+				return entry
+			}
+		}
+	}
+	t.Fatalf("no entry %q in %s", name, content)
+	return nil
 }

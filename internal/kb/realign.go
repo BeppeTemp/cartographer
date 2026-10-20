@@ -56,7 +56,7 @@ func (k *KB) RealignSettings(realign func([]byte) ([]byte, settingschema.Report,
 			return err
 		}
 		msg := "settings: realign settings.yaml\n\nReason: " + reason
-		if err := k.commitPathsLocked([]string{SettingsFile}, msg); err != nil {
+		if err := k.commitPathsLocked([]string{SettingsFile}, msg, "", ""); err != nil {
 			_ = writeFileAtomic(path, data) // the commit failed: the file is as it was
 			return err
 		}

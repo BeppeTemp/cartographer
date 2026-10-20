@@ -125,6 +125,11 @@ func TestResolveRootsFallback(t *testing.T) {
 	if !ok || !reflect.DeepEqual(s.KBs, []string{"kb-a", "kb-b"}) {
 		t.Fatalf("union = %+v ok=%v", s, ok)
 	}
+	// Each KB remembers the root that bound it: its writes take that
+	// repository's git identity (D904).
+	if want := map[string][]string{"kb-a": {a}, "kb-b": {b}}; !reflect.DeepEqual(s.Dirs, want) {
+		t.Errorf("dirs = %v, want %v", s.Dirs, want)
+	}
 	if _, ok := ResolveRoots(cfg, "claude", []string{fileURI(plain)}); ok {
 		t.Fatal("an unbound root must leave the provider scope alone")
 	}

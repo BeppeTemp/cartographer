@@ -11,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
@@ -102,11 +103,36 @@ func cmdKBRepair(args []string) int {
 		fmt.Fprintln(os.Stderr, "kb repair:", err)
 		return kbRepairExitError
 	}
-	c := targetCaller{c: client.New(cfg.ServerURL, token).WithKB(targets[0].Name), target: targets[0]}
+	dir, _ := os.Getwd()
+	c := repairCaller(cfg, token, targets[0], dir, os.Stderr)
 	if *revertFlag != "" {
 		return runKBRepairRevert(c, *revertFlag, *reasonFlag, os.Stdout, os.Stderr)
 	}
 	return runKBRepair(c, *applyFlag, *jsonFlag, os.Stdout, os.Stderr)
+}
+
+// repairCaller is the caller kb repair writes through: scoped to the KB, and
+// naming who the repair and a revert are authored as (D904).
+func repairCaller(cfg *clientconfig.Config, token string, target kbTarget, dir string, errOut io.Writer) targetCaller {
+	c := client.New(cfg.ServerURL, token).WithKB(target.Name).WithAuthor(cliAuthor(cfg, target.Name, dir, errOut))
+	return targetCaller{c: c, target: target}
+}
+
+// cliAuthor is who a command writes to kb as, by the bridge's rule: the KB's
+// identities entry, else the default one, else what git resolves in dir, the
+// folder the command runs in. A present entry always decides: an empty one sends
+// no author, and an invalid one sends none with a warning.
+func cliAuthor(cfg *clientconfig.Config, kb, dir string, errOut io.Writer) string {
+	if v, found, problem := cfg.Identity(kb); found {
+		if problem != "" {
+			fmt.Fprintf(errOut, "warning: the identities entry that applies to %s is not a valid Name <email> (%s): the write is authored as the token\n", kb, problem)
+		}
+		return v
+	}
+	if dir == "" {
+		return ""
+	}
+	return gitx.WorkTreeIdent(dir)
 }
 
 // runKBRepairRevert undoes one repair commit through the repair_revert tool,

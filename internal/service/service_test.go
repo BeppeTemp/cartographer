@@ -67,13 +67,19 @@ func TestDefaultServerYAML(t *testing.T) {
 		"cartographer service install",
 		"config.example.yaml",
 		"git:",
-		"author_name:",
-		"author_email:",
+		"ssh_key:",
+		"token_dir:",
 		"# --- available settings ---",
-		"Default git author name of the commits the server makes",
+		"SSH private key used to reach remote KBs",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("yaml missing %q\n---\n%s", want, out)
+		}
+	}
+	// The author and committer keys are removed (D904): the file must not offer them.
+	for _, gone := range []string{"author_name", "author_email", "committer_name", "committer_email"} {
+		if strings.Contains(out, gone) {
+			t.Errorf("yaml still offers the removed key %q", gone)
 		}
 	}
 	path := filepath.Join(t.TempDir(), "server.yaml")

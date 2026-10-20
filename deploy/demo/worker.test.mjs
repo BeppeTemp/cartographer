@@ -307,7 +307,12 @@ function harness(envOverride = {}, answer = '{"jsonrpc":"2.0","id":7,"result":{"
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (req, init) => {
     const r = req instanceof Request ? req : new Request(req, init);
-    seen.push({ url: r.url, auth: r.headers.get("Authorization"), body: r.method === "POST" ? await r.text() : null });
+    seen.push({
+      url: r.url,
+      auth: r.headers.get("Authorization"),
+      author: r.headers.get("Cartographer-Author"),
+      body: r.method === "POST" ? await r.text() : null,
+    });
     return new Response(answer, { headers: { "content-type": "application/json" } });
   };
   const kv = fakeKV();
@@ -344,6 +349,23 @@ test("handler: an approved message is forwarded with the write token and a serve
     const sent = JSON.parse(h.seen[0].body);
     assert.match(sent.params.arguments.id, /^messages\/\d{4}-\d{2}-\d{2}-[0-9a-z]{6}$/);
     assert.equal("index_entry" in sent.params.arguments, false);
+  } finally {
+    h.restore();
+  }
+});
+
+test("handler: every request is authored as the guestbook, whatever the visitor sends", async () => {
+  const h = harness();
+  try {
+    const forged = (obj) => {
+      const init = post(obj);
+      init.headers["Cartographer-Author"] = "Someone Else <someone@example.com>";
+      return init;
+    };
+    await h.send("/mcp", forged(call("concept_new", "guestbook", { template: "message", vars: ok })));
+    await h.send("/mcp", forged(call("search", "guestbook", { query: "x" })));
+    assert.equal(h.seen.length, 2);
+    for (const s of h.seen) assert.equal(s.author, "Cartographer guestbook <noreply@example.com>");
   } finally {
     h.restore();
   }

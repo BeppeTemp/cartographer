@@ -627,6 +627,13 @@ leaves `kb_repair`'s own entry).
 auto-repair commit (its SHA is in the KB's `git log`, reason "auto-repair (background)") as a new commit through the server's
 ordinary write path, and refuses any other commit.
 
+The commits of `--apply` and `--revert` are authored as whoever runs the command (D904), by the
+bridge's rule: the KB's `identities` entry, else `identities.default`, else what git resolves in the
+folder the command runs in, and only inside a work tree. An empty entry sends no author, an invalid
+one sends none with a warning; without an author the server authors the commit as the token. A
+scheduled run outside any repository is therefore authored as its token unless `identities` names
+someone.
+
 Exit codes: `0` nothing left to do, `3` only judgement work or checks outside `auto_repair` remain,
 `2` error. `--json` prints the report as an object (`checks`, `review_total`, `review_by_kind`,
 `remaining`). Not to be confused with `cartographer doctor`, which checks the client's provisioning.
@@ -731,7 +738,7 @@ cartographer import --source ./docs --kb ./kb-clone \
 | `--default-map` | `""` | Default map for source directories with no `--map` (D77: used to be `--archive`) |
 | `--map` | *(repeatable)* | Per-directory mapping `<srcdir>=<map>` (`srcdir` relative to `--source`, `.` for the root) |
 | `--dry-run` | `false` | Prints the mapping plan (source → concept id) without writing |
-| `--commit` | `false` | Makes one final commit containing only import-written paths; pre-existing dirty work is untouched |
+| `--commit` | `false` | Makes one final commit containing only import-written paths; pre-existing dirty work is untouched. Its author is the operator, the identity git resolves for the KB's folder, else the server; the committer is the server (D904) |
 | `--message` | `import: <source> -> <kb>` | Commit message; implies `--commit` |
 | `--dir-as-concept` | `false` | Promotes a source directory with `index.md` (or `README.md`) into an expanded concept and keeps its satellites together |
 
@@ -1144,6 +1151,9 @@ search_roots: ["~/Documents"]   # where repoindex.Scan looks for git clones for 
 search_depth: 4                 # how many levels repoindex descends from each root (D162); omitted when 0 = the default
 paths: {}                       # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}, D75); edit with `cartographer paths set`
 ignored_paths: []               # placeholder ids known to be absent on this machine, e.g. repo:work-tools (D282); edit with `cartographer paths ignore`
+identities:                     # D904; the git author of this machine's writes, by KB name or default; without an entry, the identity git resolves in the session's repository (an HTTP entry: the global one)
+  default: Ada Lovelace <ada@example.com>
+  work-kb: Ada Lovelace <ada@corp.example>   # an entry decides: "" sends no author (the server names the token), an invalid one sends none and `sync` warns
 update:                         # D254; omitted entirely when both are the default
   check: true                   # false: no update lookup at all
   policy: notify                # notify | auto-patch (patch releases via homebrew/install.sh/install.ps1 install themselves)

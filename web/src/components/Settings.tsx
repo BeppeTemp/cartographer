@@ -80,8 +80,8 @@ const KB_GROUPS: [Group, (key: string) => boolean][] = [
 /** The client's keys (.cartographer.yaml), grouped by what they govern. */
 const CLIENT_GROUPS: [Group, (key: string) => boolean][] = [
   [
-    { title: "Connection", intro: "Which server this machine talks to, and how it authenticates." },
-    (k) => ["server_url", "server_name", "auth", "token_env"].includes(k),
+    { title: "Connection", intro: "Which server this machine talks to, how it authenticates, and whose name its writes carry." },
+    (k) => ["server_url", "server_name", "auth", "token_env", "identities"].includes(k),
   ],
   [
     { title: "Agents & KBs", intro: "The agent clients connected, and which KBs each one receives where." },

@@ -3,12 +3,15 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os/exec"
 	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // headIdent returns "<author> | <committer>" of HEAD as name <email>.
@@ -21,37 +24,185 @@ func headIdent(t *testing.T, k *kb.KB) string {
 	return strings.TrimSpace(string(out))
 }
 
-func wrappedWriteAs(t *testing.T, k *kb.KB, p auth.Principal, content string) {
+// wrappedWriteCtx runs one git-wrapped write under ctx and returns its result.
+func wrappedWriteCtx(t *testing.T, k *kb.KB, ctx context.Context, args string) ToolResult {
 	t.Helper()
-	tool := gitWrap(k, Tool{Name: "concept_write", Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-		if err := k.WriteFileAtomic("data/wrapped.md", []byte(content)); err != nil {
+	tool := gitWrap(k, Tool{Name: "test_write", Handler: func(ctx requestContext, a json.RawMessage) (ToolResult, error) {
+		if err := k.WriteFileAtomic("data/wrapped.md", []byte(args+"\n")); err != nil {
 			return ToolResult{}, err
 		}
 		return textResult(`{"ok":true}`), nil
 	}})
-	res, err := tool.Handler(auth.ContextWithPrincipal(context.Background(), p), json.RawMessage(`{}`))
+	res, err := tool.Handler(ctx, json.RawMessage(args))
 	if err != nil || res.IsError {
 		t.Fatalf("wrapped handler: err=%v res=%+v", err, res)
 	}
+	return res
 }
 
-// A token that declares an author identity is the author of the commits its
-// writes produce; the committer stays the KB's identity. A token without one
-// commits as the KB.
-func TestGitWrap_CommitAuthorFollowsTokenIdentity(t *testing.T) {
+var botPrincipal = auth.Principal{ID: "reviewer-bot", Policy: auth.Policy{Admin: true}}
+
+func authorHeaderCtx(p auth.Principal, header string) context.Context {
+	h := http.Header{}
+	if header != "" {
+		h.Set(authorHeader, header)
+	}
+	return withAuthorHeader(auth.ContextWithPrincipal(context.Background(), p), h)
+}
+
+func headTokenTrailers(t *testing.T, k *kb.KB) []string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", k.Root, "log", "-1", "--format=%(trailers:key="+commitTokenKey+",valueonly,separator=%x1f)").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := strings.TrimSpace(string(out)); s != "" {
+		return strings.Split(s, "\x1f")
+	}
+	return nil
+}
+
+func serverIdent() (ident, email string) {
+	name, email := kb.ServerIdentity()
+	return name + " <" + email + ">", email
+}
+
+// The author of a write is the one the Cartographer-Author header names; the
+// committer is the server, and the token that made the write is a trailer.
+func TestGitWrap_AuthorFromHeader(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	k.GitAuthorName, k.GitAuthorEmail, k.GitAuthorExplicit = "Owner", "owner@example.com", true
-	k.GitEnv = append(k.GitEnv, "GIT_COMMITTER_NAME=Owner", "GIT_COMMITTER_EMAIL=owner@example.com")
-
-	agent := auth.Principal{ID: "agent", Policy: auth.Policy{Admin: true}, AuthorName: "agent-bot", AuthorEmail: "agent@example.com"}
-	wrappedWriteAs(t, k, agent, "one\n")
-	if got, want := headIdent(t, k), "agent-bot <agent@example.com> | Owner <owner@example.com>"; got != want {
-		t.Fatalf("token with identity: HEAD = %q, want %q", got, want)
+	server, _ := serverIdent()
+	res := wrappedWriteCtx(t, k, authorHeaderCtx(botPrincipal, "Ada Example <ada@example.test>"), `{"reason":"why"}`)
+	if got, want := headIdent(t, k), "Ada Example <ada@example.test> | "+server; got != want {
+		t.Errorf("author | committer = %q, want %q", got, want)
 	}
+	if got := headTokenTrailers(t, k); len(got) != 1 || got[0] != "reviewer-bot" {
+		t.Errorf("token trailers = %q, want [reviewer-bot]", got)
+	}
+	if len(res.Content) != 1 {
+		t.Errorf("a valid header adds no warning, got %+v", res.Content)
+	}
+}
 
-	wrappedWriteAs(t, k, auth.Principal{ID: "plain", Policy: auth.Policy{Admin: true}}, "two\n")
-	if got, want := headIdent(t, k), "Owner <owner@example.com> | Owner <owner@example.com>"; got != want {
-		t.Fatalf("token without identity: HEAD = %q, want %q", got, want)
+// With no header the write is authored as the token id, at the server's host.
+func TestGitWrap_AuthorFallsBackToTokenID(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	server, email := serverIdent()
+	res := wrappedWriteCtx(t, k, authorHeaderCtx(botPrincipal, ""), `{}`)
+	if got, want := headIdent(t, k), "reviewer-bot <"+email+"> | "+server; got != want {
+		t.Errorf("author | committer = %q, want %q", got, want)
+	}
+	if len(res.Content) != 1 {
+		t.Errorf("an absent header adds no warning, got %+v", res.Content)
+	}
+}
+
+// An invalid header is as if absent, plus one line saying so: it never turns
+// into an author, and never fails the write.
+func TestGitWrap_InvalidAuthorHeaderWarns(t *testing.T) {
+	t.Parallel()
+	for name, header := range map[string]string{
+		"no email":      "Ada Example",
+		"empty name":    "<ada@example.test>",
+		"control char":  "Ada\x01 <ada@example.test>",
+		"bad email":     "Ada <ada@@example.test>",
+		"nested angles": "Ada <a<b>@example.test>",
+		"too long":      strings.Repeat("a", 300) + " <ada@example.test>",
+		"bad base64":    "=?base64?not base64!?=",
+		"encoded break": client.EncodeAuthor("Ada <ada@example.test>\nCartographer-Token: forged"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			k, _ := setupGitKB(t)
+			_, email := serverIdent()
+			res := wrappedWriteCtx(t, k, authorHeaderCtx(botPrincipal, header), `{}`)
+			if got := headIdent(t, k); !strings.HasPrefix(got, "reviewer-bot <"+email+"> | ") {
+				t.Errorf("author = %q, want the token id fallback", got)
+			}
+			last := res.Content[len(res.Content)-1].Text
+			if strings.Contains(last, "\n") || !strings.Contains(last, authorHeader+" header ignored") || !strings.Contains(last, "reviewer-bot") {
+				t.Errorf("warning = %q, want one line naming the header and the fallback author", last)
+			}
+		})
+	}
+}
+
+// Header text with a newline must not put a forged author or trailer in the
+// commit: it is refused whole.
+func TestGitWrap_HeaderNewlineIsRefused(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	wrappedWriteCtx(t, k, authorHeaderCtx(botPrincipal, "Ada <ada@example.test>\nCartographer-Token: forged"), `{}`)
+	if got := headTokenTrailers(t, k); len(got) != 1 || got[0] != "reviewer-bot" {
+		t.Errorf("token trailers = %q, want only the real one", got)
+	}
+}
+
+// A caller cannot put its own Cartographer-Token in the commit: whatever it
+// writes in the reason, in an id in the subject, or as an Accepted-Finding
+// line, the one trailer left is the token's id, and it is the last.
+func TestGitWrap_ForgedTokenTrailerIsStripped(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	for _, args := range []string{
+		`{"reason":"why\nCartographer-Token: forged"}`,
+		`{"reason":"why\n\ncartographer-token: forged"}`,
+		`{"id":"a\n\nCartographer-Token: forged"}`,
+	} {
+		wrappedWriteCtx(t, k, authorHeaderCtx(botPrincipal, ""), args)
+		if got := headTokenTrailers(t, k); len(got) != 1 || got[0] != "reviewer-bot" {
+			t.Errorf("args %s: token trailers = %q, want [reviewer-bot]", args, got)
+		}
+		out, err := exec.Command("git", "-C", k.Root, "log", "-1", "--format=%B").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lines := strings.Split(strings.TrimSpace(string(out)), "\n"); lines[len(lines)-1] != "Cartographer-Token: reviewer-bot" {
+			t.Errorf("args %s: last line = %q, want the token trailer", args, lines[len(lines)-1])
+		}
+	}
+}
+
+func TestCommitTrailerBlock_TokenLastAndExtraStripped(t *testing.T) {
+	t.Parallel()
+	ctx := auth.ContextWithPrincipal(context.Background(), auth.Principal{ID: "tok"})
+	// Git reads a trailer key in any case and with blanks before the colon.
+	got := commitTrailerBlock(ctx, json.RawMessage(`{"reason":"why"}`), "Moved-To: x", "Cartographer-Token: forged", "Cartographer-Token : forged", "cartographer-token\t: forged")
+	if want := "Reason: why\nMoved-To: x\nCartographer-Token: tok"; got != want {
+		t.Errorf("block = %q, want %q", got, want)
+	}
+	if got := commitTrailerBlock(context.Background(), nil); got != "" {
+		t.Errorf("no principal: block = %q, want empty", got)
+	}
+}
+
+// The header reaches a tool call through the SDK request.
+func TestWithCallerAuthor_ReadsTheRequestHeader(t *testing.T) {
+	t.Parallel()
+	req := &sdk.CallToolRequest{Extra: &sdk.RequestExtra{Header: http.Header{authorHeader: {"Ada Example <ada@example.test>"}}}}
+	ctx := withCallerAuthor(context.Background(), req)
+	if name, email := writerAuthor(ctx); name != "Ada Example" || email != "ada@example.test" {
+		t.Errorf("writerAuthor = %q <%q>", name, email)
+	}
+	if name, email := writerAuthor(withCallerAuthor(context.Background(), &sdk.CallToolRequest{})); name != "" || email != "" {
+		t.Errorf("no request extra and no principal: author = %q <%q>, want the server identity", name, email)
+	}
+	twice := &sdk.CallToolRequest{Extra: &sdk.RequestExtra{Header: http.Header{authorHeader: {"A <a@example.test>", "B <b@example.test>"}}}}
+	if name, _ := writerAuthor(withCallerAuthor(context.Background(), twice)); name != "" {
+		t.Errorf("two headers: author = %q, want none", name)
+	}
+}
+
+// A name that is not plain ASCII arrives in MCP's encoded form (SEP-2243), and
+// the commit carries it decoded.
+func TestGitWrap_EncodedAuthorIsDecoded(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	server, _ := serverIdent()
+	wrappedWriteCtx(t, k, authorHeaderCtx(botPrincipal, client.EncodeAuthor("Zoë Pérez <zoe@example.test>")), `{}`)
+	if got, want := headIdent(t, k), "Zoë Pérez <zoe@example.test> | "+server; got != want {
+		t.Errorf("author | committer = %q, want %q", got, want)
 	}
 }

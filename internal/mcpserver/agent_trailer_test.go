@@ -61,7 +61,7 @@ func TestGitWrap_AgentTrailer(t *testing.T) {
 
 	// (c) no client: the message is exactly what it was before this trailer.
 	writeAs(t, s, authLocalContext(), "test/none", nil)
-	if got, want := headMessage(t, k.Root), "concept_write: test/none"; got != want {
+	if got, want := headMessage(t, k.Root), "concept_write: test/none\n\n"+tokenTrailer; got != want {
 		t.Errorf("no client: message = %q, want %q", got, want)
 	}
 	writeAs(t, s, asClient(authLocalContext(), " \n\t "), "test/blank", nil)
@@ -105,7 +105,7 @@ func TestGitWrap_AgentTrailerOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "Reason: why\nAgent: client-a\nAccepted-Finding: invalid_field_value: legacy\n"
+	want := "Reason: why\nAgent: client-a\nAccepted-Finding: invalid_field_value: legacy\n" + tokenTrailer + "\n"
 	if string(parsed) != want {
 		t.Errorf("trailers = %q, want %q", parsed, want)
 	}

@@ -95,8 +95,7 @@ func (k *KB) ensureGitAttributes() {
 	k.gitattrsChecked = true
 	changed, err := writeGitAttributes(k.Root)
 	if err == nil && changed {
-		name, email := k.commitIdentity()
-		err = gitx.CommitPaths(k.Root, []string{gitAttributesFile}, "chore: set merge=union for data/log.md", name, email, k.GitEnv...)
+		err = gitx.CommitPaths(k.Root, []string{gitAttributesFile}, "chore: set merge=union for data/log.md", "", "", k.GitCommandEnv()...)
 		if errors.Is(err, gitx.ErrNothingToCommit) {
 			err = nil
 		}
@@ -109,18 +108,6 @@ func (k *KB) ensureGitAttributes() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: %s: %v\n", gitAttributesFile, err)
 	}
-}
-
-// commitIdentity is the author CommitOp uses: the configured one when
-// explicit, otherwise git's own, otherwise the product default.
-func (k *KB) commitIdentity() (string, string) {
-	if k.GitAuthorExplicit {
-		return k.gitAuthor()
-	}
-	if _, _, err := gitx.AuthorIdent(k.Root, k.GitEnv...); err != nil {
-		return defaultGitAuthorName, defaultGitAuthorEmail
-	}
-	return "", ""
 }
 
 // reservedResolution is the content a reserved file takes when localSHA and
@@ -158,7 +145,7 @@ func (k *KB) unionContent(p, localSHA, remoteSHA string) (string, error) {
 // concept, or one the auto-resolution could not settle, comes back as the
 // original *gitx.RebaseConflictError for the registry.
 func (k *KB) pullRebase(remote, branch string) error {
-	err := gitx.PullRebaseAutostash(k.Root, remote, branch, k.GitEnv...)
+	err := gitx.PullRebaseAutostash(k.Root, remote, branch, k.GitCommandEnv()...)
 	var rce *gitx.RebaseConflictError
 	if !errors.As(err, &rce) || !allReserved(rce.Files) {
 		return err
@@ -229,9 +216,8 @@ func (k *KB) autoResolveReserved(rce *gitx.RebaseConflictError) error {
 	if len(unmerged) > 0 {
 		return fail(fmt.Errorf("merge left unexpected conflicting file(s): %s", strings.Join(unmerged, ", ")))
 	}
-	name, email := k.commitIdentity()
 	msg := "auto-resolve reserved file conflict: " + strings.Join(rce.Files, ", ")
-	if err := gitx.Commit(k.Root, msg, name, email, k.GitEnv...); err != nil && !errors.Is(err, gitx.ErrNothingToCommit) {
+	if err := gitx.Commit(k.Root, msg, "", "", k.GitCommandEnv()...); err != nil && !errors.Is(err, gitx.ErrNothingToCommit) {
 		return fail(err)
 	}
 	return nil

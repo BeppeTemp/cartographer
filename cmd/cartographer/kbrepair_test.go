@@ -13,6 +13,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
@@ -194,5 +195,59 @@ func TestKBRepairReportsTheDefaultList(t *testing.T) {
 	printKBRepairReport(&out, kbRepairReport{KB: "kb-a", AutoRepair: config.DefaultAutoRepair, AutoRepairDefault: true})
 	if !strings.Contains(out.String(), fmt.Sprintf("auto_repair uses the default (%d checks", len(config.DefaultAutoRepair))) {
 		t.Fatalf("report:\n%s", out.String())
+	}
+}
+
+// A repair is a write, so its commit is authored as whoever runs it (D904),
+// not as the token.
+func TestKBRepairCommitIsAuthoredAsTheWriter(t *testing.T) {
+	c, concept := repairTestKB(t, []string{"nonstandard_field"})
+	cfg := clientconfig.Default()
+	cfg.ServerURL = c.(targetCaller).c.ServerURL
+	cfg.Identities = map[string]string{clientconfig.IdentityDefault: "Ada Lovelace <ada@example.com>"}
+	var errOut bytes.Buffer
+	if _, code := runRepairJSON(t, repairCaller(cfg, "", kbTarget{}, "", &errOut), true); code != kbRepairExitClean {
+		t.Fatalf("exit = %d; stderr %s", code, errOut.String())
+	}
+	if got := gitOut(t, filepath.Dir(concept), "log", "-1", "--format=%an <%ae>"); got != "Ada Lovelace <ada@example.com>" {
+		t.Fatalf("repair commit author = %q", got)
+	}
+}
+
+// The CLI follows the bridge's rule: an identities entry decides, even an
+// empty or invalid one, and only without one is git asked, in the folder the
+// command runs in.
+func TestCLIAuthorIdentitiesDecideBeforeGit(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	repo := t.TempDir()
+	gitOut(t, repo, "init", "-q")
+	gitOut(t, repo, "config", "user.name", "Repo Writer")
+	gitOut(t, repo, "config", "user.email", "repo@example.com")
+	for _, tc := range []struct {
+		name, dir  string
+		identities map[string]string
+		want       string
+		warns      bool
+	}{
+		{name: "git in the folder", dir: repo, want: "Repo Writer <repo@example.com>"},
+		{name: "no work tree", dir: t.TempDir()},
+		{name: "the KB's entry", dir: repo, identities: map[string]string{"kb-a": "Ada <ada@example.com>"}, want: "Ada <ada@example.com>"},
+		{name: "another KB's entry", dir: repo, identities: map[string]string{"kb-b": "Ada <ada@example.com>"}, want: "Repo Writer <repo@example.com>"},
+		{name: "an empty entry opts out", dir: repo, identities: map[string]string{"kb-a": ""}},
+		{name: "an invalid entry", dir: repo, identities: map[string]string{clientconfig.IdentityDefault: "Ada"}, warns: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := clientconfig.Default()
+			cfg.Identities = tc.identities
+			var errOut bytes.Buffer
+			if got := cliAuthor(cfg, "kb-a", tc.dir, &errOut); got != tc.want {
+				t.Fatalf("author = %q, want %q", got, tc.want)
+			}
+			if warned := strings.Contains(errOut.String(), "identities entry"); warned != tc.warns {
+				t.Fatalf("warning = %q", errOut.String())
+			}
+		})
 	}
 }
