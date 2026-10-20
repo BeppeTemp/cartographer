@@ -95,8 +95,12 @@ func TestConceptNewStampsShapeAndStripsSchema(t *testing.T) {
 	if _, err := k.CreateMapWithContract("infra", "Infra", "map", nil, kb.MapContract{Templates: []string{"server"}}), error(nil); err != nil {
 		t.Fatal(err)
 	}
+	forwardLinks(t, k, "infra/box")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
+	if res := callTool(t, s, "map_update", `{"map":"infra","index":"generated"}`); res.IsError {
+		t.Fatalf("map_update: %+v", res.Content)
+	}
 	res := callTool(t, s, "concept_new", `{"template":"server","id":"infra/box","vars":{"title":"Box"}}`)
 	if res.IsError {
 		t.Fatalf("concept_new: %+v", res.Content)
@@ -116,13 +120,16 @@ func TestConceptNewStampsShapeAndStripsSchema(t *testing.T) {
 			t.Errorf("a page made from its template has a template finding: %s %s", f.Check, f.Message)
 		}
 	}
-	// A template the map does not list is not refused; the response says so.
+	// A template the map does not list is refused, with the finding (D907).
 	if err := os.WriteFile(filepath.Join(k.Root, "templates", "appliance.md"), []byte("---\ntype: Host\ntitle: \"{{title}}\"\n---\n# {{title}}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	res = callTool(t, s, "concept_new", `{"template":"appliance","id":"infra/other","vars":{"title":"Other"}}`)
-	if res.IsError || !strings.Contains(res.Content[0].Text, "template_not_allowed") {
-		t.Fatalf("a template outside the map's list is reported, not refused: %+v", res)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "template_not_allowed") {
+		t.Fatalf("a template outside the map's list is refused with its finding: %+v", res)
+	}
+	if _, err := k.ReadConcept("infra/other"); err == nil {
+		t.Fatal("the refused page was written")
 	}
 }
 

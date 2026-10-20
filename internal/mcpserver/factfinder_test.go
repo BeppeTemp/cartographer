@@ -52,6 +52,7 @@ func factServer(t *testing.T) (*Server, string) {
 	k := setupTestKB(t)
 	writeKBFile(t, k, "ops/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\n"+repeatedLine+"\n")
 	writeKBFile(t, k, "ops/b.md", "---\ntype: Note\ntitle: B\n---\n# B\n\n"+repeatedLine+"\n")
+	forwardLinks(t, k, "ops/c", "ops/d")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	return s, k.Root
@@ -108,6 +109,7 @@ func TestConceptNewTemplateLinesAreNotRepeatedFacts(t *testing.T) {
 	}
 	writeKBFile(t, k, "ops/a.md", "---\ntype: Note\ntitle: A\n---\n"+boiler+"\n")
 	writeKBFile(t, k, "ops/b.md", "---\ntype: Note\ntitle: B\n---\n"+boiler+"\n")
+	forwardLinks(t, k, "ops/c")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	res := callTool(t, s, "concept_new", `{"template":"note","id":"ops/c","vars":{"title":"C"}}`)
@@ -171,7 +173,10 @@ func TestRepeatedFactHidesInvisibleOwners(t *testing.T) {
 	for _, m := range []string{"visible", "hidden"} {
 		writeKBFile(t, k, m+"/_map.md", "---\ntype: Map\ntitle: "+m+"\n---\n")
 	}
-	writeKBFile(t, k, "visible/a.md", "---\ntype: Note\ntitle: A\n---\n"+repeatedLine+"\n")
+	// visible/a already links the page the test creates, and the curated index
+	// lists it (D907: the write must not leave it unreached).
+	writeKBFile(t, k, "visible/index.md", "---\ntype: Index\ntitle: visible\n---\n# visible\n\n- [A](a.md)\n- [B](b.md)\n- [C](c.md)\n")
+	writeKBFile(t, k, "visible/a.md", "---\ntype: Note\ntitle: A\n---\n"+repeatedLine+"\n\n[[visible/c]]\n")
 	writeKBFile(t, k, "visible/b.md", "---\ntype: Note\ntitle: B\n---\n"+repeatedLine+"\n")
 	writeKBFile(t, k, "hidden/b.md", "---\ntype: Note\ntitle: B\n---\n"+repeatedLine+"\n")
 	s := New("test")
