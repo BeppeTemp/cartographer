@@ -188,6 +188,7 @@ func TestConceptNewSimilarOnCreation(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
 	writeKBFile(t, k, "manutenzione/restore-backup.md", "---\ntype: Runbook\ntitle: Restore backup procedure\n---\n# R\n")
+	forwardLinks(t, k, "manutenzione/backup-restore")
 	tpl := filepath.Join(k.Root, "templates", "runbook.md")
 	if err := os.MkdirAll(filepath.Dir(tpl), 0o755); err != nil {
 		t.Fatal(err)

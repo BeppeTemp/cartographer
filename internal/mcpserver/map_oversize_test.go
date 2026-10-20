@@ -25,8 +25,13 @@ func oversizeServer(t *testing.T, existing int) (*Server, *kb.KB) {
 	for i := 0; i < existing; i++ {
 		writeKBFile(t, k, fmt.Sprintf("m/old-%d.md", i), "---\ntype: Note\ntitle: Old\n---\nBody.\n")
 	}
+	forwardLinks(t, k, "m/n1", "m/n2", "m/fresh", "m/a", "m/b", "m/c")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
+	// A generated index lists the new page itself (D907).
+	if res := callTool(t, s, "map_update", `{"map":"m","index":"generated"}`); res.IsError {
+		t.Fatalf("map_update: %+v", res.Content)
+	}
 	return s, k
 }
 
