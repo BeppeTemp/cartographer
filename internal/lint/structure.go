@@ -305,8 +305,14 @@ func (s *structure) brokenRelation(id okf.ConceptID, relPath string, facets kb.N
 // is never one.
 func (s *structure) retiredLinkers(i int, facets kb.NodeFacets) []string {
 	var linkers []string
+	self := string(s.lg.IDs[i]) + "/"
 	for _, u := range s.lg.Graph.In[i] { // ascending, so sorted by id
 		uid := s.lg.IDs[u]
+		// A satellite of an expanded concept is part of it: it links its own
+		// parent, and retiring the concept retires them together.
+		if strings.HasPrefix(string(uid), self) {
+			continue
+		}
 		if u == i || retired(s.lg.Facets[u].Status) || s.kindOf(uid) != "map" || string(uid) == facets.SupersededBy {
 			continue
 		}

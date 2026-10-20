@@ -44,6 +44,19 @@ func TestLinkToRetired_Archived(t *testing.T) {
 	}
 }
 
+// The satellites of a retired expanded concept are part of it: one linking its
+// own parent is not a live page relying on a retired one.
+func TestLinkToRetired_OwnSatelliteIsNotALinker(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nkind: map\n---\n")
+	writeFile(t, k.DataRoot(), "ops/old/index.md", "---\ntype: Note\ntitle: Old\nstatus: archived\n---\nSee [part](part.md).\n")
+	writeFile(t, k.DataRoot(), "ops/old/part.md", "---\ntype: Note\ntitle: Part\n---\nBack to [old](../old.md).\n")
+	if got := ScopedCheck(k, ids("ops/old")); hasCheck(got, "ops/old.md", "link_to_retired") {
+		t.Fatalf("a satellite of the retired concept raised link_to_retired: %v", got)
+	}
+}
+
 // A digest records what it archived, and a journal's own index lists its
 // entries: neither is a live page relying on a retired one.
 func TestLinkToRetired_DigestAndJournalIndexExempt(t *testing.T) {
