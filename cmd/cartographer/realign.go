@@ -65,14 +65,15 @@ func announceConfig(cfg *config.Config, configPath string) {
 	// The old names of renamed KBs move to the server state file before the key
 	// that held them is dropped (D906); a file whose list is not in place keeps it.
 	moved, err := config.MigrateKBAliases(configPath, cfg.Data)
+	keep := []string(nil)
 	if err != nil {
-		log.Printf("warning: config %s is not realigned until its kb_aliases are moved to the server state file: %v", configPath, err)
-		return
-	}
-	if moved > 0 {
+		// Only kb_aliases waits: every other removed key is still realigned.
+		log.Printf("warning: config %s keeps its kb_aliases until they can be moved to the server state file: %v", configPath, err)
+		keep = []string{"kb_aliases"}
+	} else if moved > 0 {
 		log.Printf("kb_aliases of %s moved to %s (%d item(s), D906)", configPath, config.ServerStatePath(cfg.Data), moved)
 	}
-	rep, backup, err := config.RealignServerFile(configPath, version)
+	rep, backup, err := config.RealignServerFileKeeping(configPath, version, keep...)
 	if err != nil {
 		// A file only lacking comments is not worth a warning on every start
 		// when it cannot be written (a read-only mount); one that holds removed
