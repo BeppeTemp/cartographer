@@ -7,7 +7,19 @@ import type {
   LintFinding,
   LintReport,
 } from "../api/types";
-import { checkFix, checkHelp, checkLabel, groupFindings, type CheckGroup } from "../lib/health";
+import {
+  categoryHue,
+  categoryOrder,
+  checkFix,
+  checkHelp,
+  checkLabel,
+  groupByCategory,
+  groupFindings,
+  OTHER,
+  pageCategories,
+  rowSize,
+  type CheckGroup,
+} from "../lib/health";
 import { Count, Page, PageHeader, PageSection, Quiet, Segmented, SkeletonRows } from "./Page";
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
@@ -17,8 +29,9 @@ import { ErrorState } from "./States";
  * Health (D338, D365, D704, D947): what Cartographer found, and on a second tab
  * what it checks. A lint finding is a problem, and Health shows only those.
  * *Issues* counts the kinds of problem and their occurrences, shows a page
- * field (one square per page, clustered by Map) and lists one row per lint
- * check, the largest first; an open row says what it is and how to fix it. The
+ * field (one square per page, clustered by Map, painted with the colours of
+ * the categories of its problems) and lists one row per lint check under its
+ * category, the largest first; an open row says what it is and how to fix it. The
  * doctor's other proposals (the kb_review items, observations included) are
  * decisions, not problems: they are Work's (D948). *What it checks* explains
  * the rules by category, with the result on this KB.
@@ -75,34 +88,37 @@ export function Health({
 }) {
   // The agenda is the page; what the checks look for is a tab beside it (D365).
   const [tab, setTab] = useState<"agenda" | "checks">("agenda");
-  // The pages of the agenda row under the pointer: the field lights only those.
-  const [focus, setFocusRaw] = useState<Set<string> | null>(null);
+  // The pages of the agenda row under the pointer, and its category: the field
+  // lights only those pages, in that category's colour.
+  const [focus, setFocusRaw] = useState<Focus | null>(null);
   // A row about no page (a map's index, a KB file) lights nothing: dimming the
   // whole field for it would read as "every page is clean".
-  const setFocus = (pages: Set<string> | null) => setFocusRaw(pages && pages.size > 0 ? pages : null);
+  const setFocus = (f: Focus | null) => setFocusRaw(f && f.pages.size > 0 ? f : null);
 
   // The headline waits until the lint and the checks have answered or failed,
   // so the numbers never change under the reader.
   const settled = !!report && !pending;
 
   const groups = useMemo(() => groupFindings(report?.findings ?? []), [report]);
+  // One heading per category that has findings, in the catalog's order; the
+  // rows under it are the largest first.
+  const sections = useMemo(() => groupByCategory(groups, checks), [groups, checks]);
 
   // The page field: every page of every Map, marked when it has a problem.
   // Over the unfiltered findings, so choosing a Map never empties the others.
   const field = useMemo(
-    () => pageField(collections, allFindings ?? report?.findings ?? []),
-    [collections, allFindings, report],
+    () => pageField(collections, allFindings ?? report?.findings ?? [], checks),
+    [collections, allFindings, report, checks],
   );
 
   if (error && !report) return <ErrorState error={error} onRetry={onRetry} />;
 
   const where = scopeTitle ? ` in ${scopeTitle}` : "";
-  // One row per cause, the heaviest first: the bar's order is the reading order.
-  const problems = [...groups].sort((a, b) => rowSize(b) - rowSize(a));
-  const issues = problems.length;
+  // One row per cause: the headline counts them, the bars weigh them against the heaviest.
+  const issues = groups.length;
   const touched = field.reduce((n, m) => n + m.marks.length, 0);
   // Every single finding: the kinds are what to read, this is how much there is.
-  const occurrences = problems.reduce((n, g) => n + g.count, 0);
+  const occurrences = groups.reduce((n, g) => n + g.count, 0);
   const pages = field.reduce((n, m) => n + m.total, 0);
   // Nothing found anywhere in the KB: the goal state. It keeps the page of the
   // issues state (headline, field, a list, the sections below) and says what
@@ -112,7 +128,7 @@ export function Health({
   // Rules that could run here (D371): an idle rule's silence is no pass.
   const rules = checks ? checks.checks.filter((c) => c.active !== false).length : 0;
   // Bars are relative to the heaviest row: what matters is which issue weighs most.
-  const heaviest = Math.max(1, ...problems.map(rowSize));
+  const heaviest = Math.max(1, ...groups.map(rowSize));
 
   return (
     <Page label="Health" busy={loading} className="health">
@@ -186,8 +202,19 @@ export function Health({
                   </>
                 ) : (
                   <>
-                    <span className="pfield__key" data-problem /> has problems
-                    <span className="pfield__key" /> fine
+                    {fieldCategories(field, checks).map((c) => (
+                      <span key={c} className="pfield__item">
+                        <span
+                          className="pfield__key"
+                          data-category={c}
+                          style={{ "--tone": categoryHue(c) } as React.CSSProperties}
+                        />
+                        {categoryTitle(c)}
+                      </span>
+                    ))}
+                    <span className="pfield__item">
+                      <span className="pfield__key" /> fine
+                    </span>
                   </>
                 )}
                 <span className="pfield__hint">· one square per page · click a map to see only its pages</span>
@@ -209,11 +236,20 @@ export function Health({
             )
           ) : (
             <div className="agenda-list" aria-label="Issues">
-              <AgendaGroup title="Problems" count={problems.length}>
-                {problems.map((g) => (
-                  <CheckRow key={g.check} group={g} heaviest={heaviest} onFocus={setFocus} onReveal={onReveal} />
-                ))}
-              </AgendaGroup>
+              {sections.map((s) => (
+                <AgendaGroup key={s.category} category={s.category} count={s.rows.length}>
+                  {s.rows.map((g) => (
+                    <CheckRow
+                      key={g.check}
+                      group={g}
+                      category={s.category}
+                      heaviest={heaviest}
+                      onFocus={setFocus}
+                      onReveal={onReveal}
+                    />
+                  ))}
+                </AgendaGroup>
+              ))}
             </div>
           )}
 
@@ -278,24 +314,52 @@ function AllClear({ catalog, onOpen }: { catalog: CheckCatalog; onOpen(): void }
   );
 }
 
-/** The agenda's band: its mark, its name, how many rows. */
-function AgendaGroup({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+/** The agenda row under the pointer: its pages, and the category whose colour they take. */
+interface Focus {
+  pages: Set<string>;
+  category: string;
+}
+
+/** A category's name for a reader: its title, "Other" for the checks the catalog does not list. */
+function categoryTitle(category: string): string {
+  return category === OTHER ? "Other" : (CATEGORY[category]?.[0] ?? category);
+}
+
+/** The colour mark of a category: the one the field's squares, the legend and the row bars share. */
+function CategoryMark({ category }: { category: string }) {
   return (
-    // Open on arrival; the reader can fold it.
-    <details className="agenda" aria-label={title} open>
-      <summary className="agenda__head">
-        <span className="agenda__mark" aria-hidden="true" />
-        <h2 className="agenda__title">{title}</h2>
-        <span className="agenda__n">{count}</span>
-      </summary>
-      <ul className="agenda__rows">{children}</ul>
-    </details>
+    <span className="catmark" aria-hidden="true" style={{ "--tone": categoryHue(category) } as React.CSSProperties} />
   );
 }
 
-/** One page of the field with a problem, by id. */
+/** One category of the agenda: its colour, its name, how many kinds of issue, then those rows. */
+function AgendaGroup({ category, count, children }: { category: string; count: number; children: React.ReactNode }) {
+  const title = categoryTitle(category);
+  const id = `agenda-${category}`;
+  return (
+    // The rows below take the category's colour for their bars.
+    <div
+      className="agenda"
+      role="group"
+      aria-labelledby={id}
+      style={{ "--tone": categoryHue(category) } as React.CSSProperties}
+    >
+      <div className="agenda__head">
+        <CategoryMark category={category} />
+        <h2 className="agenda__title" id={id}>
+          {title}
+        </h2>
+        <span className="agenda__n">{count}</span>
+      </div>
+      <ul className="agenda__rows">{children}</ul>
+    </div>
+  );
+}
+
+/** One page of the field with a problem, by id, and the categories of its problems in catalog order. */
 interface FieldMark {
   id: string;
+  cats: string[];
 }
 
 /** One Map of the page field: its pages, and the marked ones by id. */
@@ -311,15 +375,18 @@ interface FieldMap {
  * and the list count the same things, so a Map with problems in the list never
  * looks clean here.
  */
-function pageField(collections: CollectionSummary[], findings: LintFinding[]): FieldMap[] {
-  const marked = new Set<string>();
-  for (const f of findings) if (f.concept) marked.add(f.concept);
+function pageField(
+  collections: CollectionSummary[],
+  findings: LintFinding[],
+  catalog: CheckCatalog | null | undefined,
+): FieldMap[] {
+  const marked = pageCategories(findings, catalog);
   return collections
     .map((c) => {
-      const mine: FieldMark[] = [...marked]
+      const mine: FieldMark[] = [...marked.keys()]
         .filter((id) => id === c.name || id.startsWith(`${c.name}/`))
         .sort((a, b) => a.localeCompare(b))
-        .map((id) => ({ id }));
+        .map((id) => ({ id, cats: marked.get(id)! }));
       return {
         name: c.name,
         title: c.title || c.name,
@@ -331,10 +398,28 @@ function pageField(collections: CollectionSummary[], findings: LintFinding[]): F
     .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
 }
 
+/** A square holds at most four colours: its first four categories, in catalog order. */
+const MAX_COLOURS = 4;
+
+/** The categories the field's squares show, in catalog order ("other" last): what the legend names. */
+function fieldCategories(field: FieldMap[], catalog: CheckCatalog | null | undefined): string[] {
+  const shown = new Set(field.flatMap((m) => m.marks.flatMap((d) => d.cats.slice(0, MAX_COLOURS))));
+  return categoryOrder(catalog).filter((c) => shown.has(c));
+}
+
+/** The colours of a square as the custom properties the stylesheet's gradients read: --c1..--c4. */
+function squareColours(cats: string[]): React.CSSProperties {
+  return Object.fromEntries(
+    cats.slice(0, MAX_COLOURS).map((c, i) => [`--c${i + 1}`, categoryHue(c)]),
+  ) as React.CSSProperties;
+}
+
 /**
  * The KB at a glance: a square per page, one cluster per Map in the Map's hue,
- * coloured when the page has a problem. A cluster is the Map filter; a coloured
- * square opens its page.
+ * coloured when the page has a problem: the colours of the categories of its
+ * problems (one solid, two halves, three stripes, four quadrants -- the
+ * gradients are in the stylesheet, fed by --c1..--c4). A cluster is the Map
+ * filter; a coloured square opens its page.
  */
 function PageField({
   field,
@@ -345,8 +430,8 @@ function PageField({
   onReveal,
 }: {
   field: FieldMap[];
-  /** Pages to light, the rest dimmed; null shows every mark. */
-  focus: Set<string> | null;
+  /** Pages to light in one category's colour, the rest dimmed; null shows every mark. */
+  focus: Focus | null;
   /** Nothing found in the KB: every square is "fine", shown in its green. */
   clear?: boolean;
   hmap: string | null;
@@ -384,18 +469,25 @@ function PageField({
               {/* A mouse shortcut, not a control: a 9px square fails the WCAG
                 target size, and every page it opens is also a button in the
                 list below (the 2.5.8 equivalent-control exception). */}
-              {m.marks.map((d) => (
-                <span
-                  key={d.id}
-                  className="pfield__dot"
-                  data-page
-                  data-problem
-                  data-lit={focus?.has(d.id) || undefined}
-                  title={d.id}
-                  aria-hidden="true"
-                  onClick={() => onReveal(d.id, "")}
-                />
-              ))}
+              {m.marks.map((d) => {
+                const lit = !!focus?.pages.has(d.id);
+                // A lit square shows only the colour of the row that lit it.
+                const cats = lit ? [focus!.category] : d.cats;
+                return (
+                  <span
+                    key={d.id}
+                    className="pfield__dot"
+                    data-page
+                    data-problem
+                    data-n={Math.min(cats.length, MAX_COLOURS)}
+                    data-lit={lit || undefined}
+                    style={squareColours(cats)}
+                    title={d.id}
+                    aria-hidden="true"
+                    onClick={() => onReveal(d.id, "")}
+                  />
+                );
+              })}
               {Array.from({ length: clean }, (_, i) => (
                 <span key={i} className="pfield__dot" aria-hidden="true" />
               ))}
@@ -406,13 +498,6 @@ function PageField({
     </div>
   );
 }
-
-/** The pages (or maps, or files) a check row touches. */
-function rowSize(g: CheckGroup): number {
-  return new Set(g.messages.flatMap((m) => m.findings.map((f) => f.concept ?? f.path ?? ""))).size;
-}
-
-/** Whether there is anything to list below the Knowledge facet's counts. */
 
 /**
  * The line every agenda row shares: what it is, a bar for how much of the KB
@@ -557,13 +642,16 @@ function CaseRow({ item, onReveal }: { item: Case; onReveal(concept: string | nu
 /** One cause: its check's findings folded into one row, opened to what it is, how to fix it, and where. */
 function CheckRow({
   group,
+  category,
   heaviest,
   onFocus,
   onReveal,
 }: {
   group: CheckGroup;
+  /** Its category: the pages the row lights take this colour. */
+  category: string;
   heaviest: number;
-  onFocus(pages: Set<string> | null): void;
+  onFocus(focus: Focus | null): void;
   onReveal(concept: string | null, message: string): void;
 }) {
   const all = group.messages.flatMap((m) => m.findings);
@@ -583,7 +671,7 @@ function CheckRow({
     <li
       className="arow-item"
       id={`check-${group.check}`}
-      onMouseEnter={() => onFocus(new Set(all.flatMap((f) => (f.concept ? [f.concept] : []))))}
+      onMouseEnter={() => onFocus({ pages: new Set(all.flatMap((f) => (f.concept ? [f.concept] : []))), category })}
       onMouseLeave={() => onFocus(null)}
     >
       <details>
@@ -649,8 +737,8 @@ function Coverage({ catalog, report }: { catalog: CheckCatalog; report: LintRepo
   const auto = catalog.checks.filter((c) => c.auto).length;
   const found = catalog.checks.filter((c) => count(c.name) > 0).length;
   const skipped = catalog.checks.filter(idle).length;
-  const groups: [string, string, Rule[]][] = catalog.categories
-    .map((category): [string, string, Rule[]] => {
+  const groups: [string, string, string, Rule[]][] = catalog.categories
+    .map((category): [string, string, string, Rule[]] => {
       const [title, about] = CATEGORY[category] ?? [category, ""];
       const rules = catalog.checks
         .filter((c) => c.category === category)
@@ -662,9 +750,9 @@ function Coverage({ catalog, report }: { catalog: CheckCatalog; report: LintRepo
           n: idle(c) ? null : count(c.name),
           title: idle(c) ? c.reason : c.name,
         }));
-      return [title, about, rules];
+      return [category, title, about, rules];
     })
-    .filter(([, , rules]) => rules.length > 0);
+    .filter(([, , , rules]) => rules.length > 0);
   return (
     <section className="health__coverage" id="health-coverage" aria-label="Checks">
       <ol className="howto" aria-label="How checking works">
@@ -697,7 +785,7 @@ function Coverage({ catalog, report }: { catalog: CheckCatalog; report: LintRepo
       </p>
 
       <div className="rules">
-        {groups.map(([title, about, rules]) => {
+        {groups.map(([category, title, about, rules]) => {
           const hits = rules.filter((r) => (r.n ?? 0) > 0).length;
           const sorted = [...rules].sort(
             (a, b) =>
@@ -706,7 +794,10 @@ function Coverage({ catalog, report }: { catalog: CheckCatalog; report: LintRepo
           return (
             <details key={title} className="rules__group">
               <summary className="rules__head">
-                <span className="rules__title">{title}</span>
+                <span className="rules__title">
+                  <CategoryMark category={category} />
+                  {title}
+                </span>
                 <span className="rules__about">{about}</span>
                 <span className="rules__tally" data-hits={hits > 0 || undefined}>
                   {hits > 0 ? `${hits} of ${rules.length} found something` : `${rules.length} rules, all clear`}

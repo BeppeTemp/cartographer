@@ -3649,7 +3649,7 @@ code.mapcontract__label {
   margin-top: var(--space-4);
 }
 /* The YAML view, as an editor shows a file: a title bar, line numbers, the
-   keys in force bright, the documented defaults dimmed under a divider. */
+   the code in colour, every comment in one grey, a band on each divider. */
 .settings__file {
   margin: var(--space-4) 0 0;
   background: var(--surface-1);
@@ -3696,7 +3696,6 @@ code.mapcontract__label {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: 1.7;
-  /* One tone for the whole file: keys, values and comments alike. */
   color: var(--text-secondary);
   tab-size: 2;
   counter-reset: yaml-line;
@@ -3718,6 +3717,21 @@ code.mapcontract__label {
   color: var(--text-muted);
   opacity: 0.5;
   user-select: none;
+}
+/* The code in a clear scheme -- keys, strings and literals each their own
+   hue -- and every comment in one muted grey, so what is set stands out from
+   what is documented. */
+.yaml__key {
+  color: var(--hue-8);
+}
+.yaml__value {
+  color: var(--hue-1);
+}
+.yaml__lit {
+  color: var(--hue-2);
+}
+.yaml__comment {
+  color: var(--text-muted);
 }
 .yaml__divider {
   margin-block: var(--space-3);
@@ -3771,32 +3785,11 @@ code.mapcontract__label {
   margin-inline-start: auto;
 }
 
-/* Settings → Client: one card per KB, saying which agents of this machine
-   receive it and where, and where its placeholders resolve. */
-.client-kbs {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.client-kb {
-  display: grid;
-  align-content: start;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-block-start: 2px solid color-mix(in srgb, var(--hue-10) 70%, transparent);
-  border-radius: var(--radius-card);
-}
-.client-kb[data-active] {
-  border-color: color-mix(in srgb, var(--primary) 45%, var(--border-subtle));
-  border-block-start-color: var(--primary);
-}
+/* Settings → Client → Knowledge bases: one row per KB that opens to its
+   client settings, drawn as the rows of a settings group, indented. */
 .client-kb__head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-2);
   cursor: pointer;
   list-style: none;
@@ -3814,90 +3807,16 @@ code.mapcontract__label {
 .client-kb[open] > .client-kb__head::before {
   transform: rotate(90deg);
 }
-.client-kb__head .client-kb__sum {
+.client-kb__sum {
   margin-inline-start: auto;
-}
-.client-kb:not([open]) {
-  gap: 0;
-}
-.client-kb__name {
-  margin: 0;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-.client-kb__sum,
-.client-kb__none {
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
-.client-kb__none {
-  margin: 0;
-  line-height: var(--leading-normal);
-}
-.client-kb__agents {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
+.client-kb__rows {
+  margin: 0 0 var(--space-2) calc(1ch + var(--space-2));
   padding: 0;
   list-style: none;
-}
-.client-kb__agent {
-  display: grid;
-  grid-template-columns: 8ch 1fr auto;
-  align-items: baseline;
-  gap: var(--space-2);
-  font-size: var(--text-xs);
-}
-.client-kb__agent[data-off] {
-  opacity: 0.55;
-}
-.client-kb__provider {
-  font-family: var(--font-mono);
-  color: var(--text-primary);
-}
-.client-kb__where {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  color: var(--text-muted);
-}
-.client-kb__folder {
-  padding: 0 var(--space-2);
-  font-family: var(--font-mono);
-  color: var(--text-secondary);
-  background: var(--surface-2);
-  border-radius: var(--radius-pill);
-  overflow-wrap: anywhere;
-}
-.client-kb__paths {
-  display: grid;
-  gap: var(--space-1);
-  margin: 0;
-  padding-block-start: var(--space-2);
-  font-size: var(--text-xs);
-  border-block-start: 1px solid var(--border-subtle);
-}
-.client-kb__paths > div {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: var(--space-1) var(--space-3);
-}
-.client-kb__paths dt {
-  color: var(--text-secondary);
-}
-.client-kb__paths dd {
-  margin: 0;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  overflow-wrap: anywhere;
-}
-.client-kb__paths dd[data-empty] {
-  font-style: italic;
-}
-.client-kb__paths--others {
-  margin-block-start: var(--space-3);
+  border-inline-start: 1px solid var(--border-subtle);
 }
 
 /* Secrets in the catalog's language: the key field sits where Artifacts has

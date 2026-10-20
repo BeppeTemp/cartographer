@@ -147,12 +147,11 @@ describe("the Settings panel", () => {
     expect(screen.getByText(/laptop · client v-client · reported/)).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Client Connection settings" })).toHaveTextContent("server_url");
     expect(screen.getByRole("list", { name: "Client Updates & sync settings" })).toHaveTextContent("update_check");
-    // Below the settings, one section per KB: which agents receive it, in which folders, and its paths here.
-    const agents = screen.getByRole("list", { name: "Agents receiving kb-a" });
-    expect(agents).toHaveTextContent("claude");
-    expect(agents).toHaveTextContent("$HOME/work");
-    expect(agents).toHaveTextContent("bridge");
-    expect(screen.getByLabelText("Paths of kb-a on this machine")).toHaveTextContent("$HOME/src/infra");
+    // Below the settings, one section per KB with its own client settings, named by their YAML key.
+    const kbA = screen.getByRole("list", { name: "Client settings of kb-a" });
+    expect(within(kbA).getByLabelText("Value of clients.<agent>.kbs")).toHaveTextContent("claude");
+    expect(within(kbA).getByLabelText("Value of workspaces")).toHaveTextContent("claude: $HOME/work");
+    expect(within(kbA).getByLabelText("Value of paths")).toHaveTextContent("repo:infra → $HOME/src/infra");
     await user.click(screen.getByRole("button", { name: "YAML" }));
     expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("server_url: http://example.com/mcp");
   });
@@ -167,11 +166,12 @@ describe("the Settings panel", () => {
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     await user.click(within(tabs).getByRole("tab", { name: "Client" }));
-    expect(screen.getByText(/has reported to this server yet/)).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Client Agents & KBs settings" })).toHaveTextContent("workspaces");
-    expect(screen.getByRole("list", { name: "Knowledge bases on this machine" })).toHaveTextContent(
-      "cartographer workspace bind <agent> <folder> --kb kb-a",
-    );
+    expect(screen.getByText(/No client of yours has reported yet/)).toBeInTheDocument();
+    // workspaces is set per KB: it reads in each KB's section, under its YAML key.
+    expect(screen.queryByRole("list", { name: "Client Agents settings" })).toBeNull();
+    expect(
+      within(screen.getByRole("list", { name: "Client settings of kb-a" })).getByLabelText("Value of workspaces"),
+    ).toHaveTextContent("everywhere");
     await user.click(screen.getByRole("button", { name: "YAML" }));
     expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("# workspaces:");
   });

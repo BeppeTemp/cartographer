@@ -180,16 +180,15 @@ describe("health issues", () => {
     expect(screen.getByText(/^5 occurrences in all/)).toBeInTheDocument();
   });
 
-  // A lint finding is a problem (D947): one band, the heaviest row first, and no
-  // row ranks above another for being "broken" or "a suggestion".
-  it("lists every finding as a problem, the heaviest first, in one band", () => {
+  // A lint finding is a problem (D947): the rows are grouped by the check's
+  // category, in the catalog's order, and none ranks above another for being
+  // "broken" or "a suggestion" (D948). A check the catalog does not list is "Other".
+  it("groups every finding by its category, in the catalog's order", () => {
     render(health());
-    expect(rowLabels("Problems").map((l) => l?.replace(/\s+/g, " ").trim())).toEqual([
-      "Non-standard field names fixes itself",
-      "Broken links",
-      "Indexes missing pages",
-      "Titles to tighten",
-    ]);
+    const clean = (g: string) => rowLabels(g).map((l) => l?.replace(/\s+/g, " ").trim());
+    expect(clean("Pages")).toEqual(["Non-standard field names fixes itself"]);
+    expect(clean("Links")).toEqual(["Broken links"]);
+    expect(clean("Other")).toEqual(expect.arrayContaining(["Indexes missing pages", "Titles to tighten"]));
     expect(screen.queryByRole("group", { name: "Suggestions" })).not.toBeInTheDocument();
     expect(screen.queryByText("broken")).not.toBeInTheDocument();
   });
@@ -233,7 +232,7 @@ describe("health issues", () => {
   it("leaves out what a narrowed principal cannot read, and keeps the issues", () => {
     render(health());
     expect(screen.queryByRole("heading", { name: /^What the KB doesn.t know/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Problems" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /^Links/ })).toBeInTheDocument();
   });
 });
 
@@ -255,9 +254,9 @@ describe("health page field", () => {
     expect(container.querySelectorAll(".pfield__dot:not([data-page])")).toHaveLength(1);
   });
 
-  it("names its two states: has problems, fine", () => {
+  it("names the categories its colours stand for, and fine", () => {
     const { container } = render(health({ report: both, collections }));
-    expect(container.querySelector(".pfield__legend")).toHaveTextContent("has problems");
+    expect(container.querySelector(".pfield__legend")).toHaveTextContent("Links");
     expect(container.querySelector(".pfield__legend")).toHaveTextContent("fine");
     expect(container.querySelector(".pfield__legend")).not.toHaveTextContent(/suggestion|both/);
   });

@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "./Icon";
 import { fetchPlaceholders, fetchSettings, fetchWhoami } from "../api/client";
 import type {
-  ClientProvider,
   PlaceholderList,
   SettingEntry,
   SettingOrigin,
@@ -73,27 +72,14 @@ const KB_GROUPS: [Group, (key: string) => boolean][] = [
 ];
 
 /** The client's keys (.cartographer.yaml), grouped by what they govern. */
+/** The client keys that are set per KB: shown in each KB's section, not in the groups. */
+const PER_KB = ["identities", "clients", "workspaces", "signing_keys", "mcp_approvals"];
+
 const CLIENT_GROUPS: [Group, (key: string) => boolean][] = [
-  [
-    {
-      title: "Connection",
-      intro: "Which server this machine talks to, how it authenticates, and whose name its writes carry.",
-    },
-    (k) => ["server_url", "server_name", "auth", "token", "identities"].includes(k),
-  ],
-  [
-    { title: "Agents & KBs", intro: "The agent clients connected, and which KBs each one receives where." },
-    (k) => ["clients", "scopes", "workspaces"].includes(k),
-  ],
-  [
-    { title: "Local paths", intro: "How {{repo:…}} and {{path:…}} placeholders resolve on this machine." },
-    (k) => ["search_roots", "paths", "ignored_paths"].includes(k),
-  ],
-  [
-    { title: "Trust", intro: "The signing keys pinned and the MCP descriptors approved on this machine." },
-    (k) => ["signing_keys", "mcp_approvals"].includes(k),
-  ],
-  [{ title: "Updates & sync", intro: "Release checks and usage reports." }, () => true],
+  [{ title: "Connection", intro: "" }, (k) => ["server_url", "server_name", "auth", "token"].includes(k)],
+  [{ title: "Agents", intro: "" }, (k) => k === "scopes"],
+  [{ title: "Local paths", intro: "" }, (k) => ["search_roots", "paths", "ignored_paths"].includes(k)],
+  [{ title: "Updates & sync", intro: "" }, () => true],
 ];
 
 type Mode = "readable" | "yaml";
@@ -388,15 +374,11 @@ function ClientPanel({
 }) {
   if (!client) {
     const note = (
-      <p className="page-note settings__reported">
-        No client of yours has reported to this server yet: these are the keys of <code>.cartographer.yaml</code> at
-        their defaults. Yours arrive with the next <code>cartographer sync</code>, which the sync timer runs every half
-        hour.
-      </p>
+      <p className="page-note settings__reported">No client of yours has reported yet: every key at its default.</p>
     );
     if (!template) return note;
     const groups = CLIENT_GROUPS.map(([group]) => ({ group, rows: [] as SettingEntry[] }));
-    for (const e of template.entries.filter((e) => matches(e, query))) {
+    for (const e of template.entries.filter((e) => !PER_KB.includes(e.key) && matches(e, query))) {
       groups[CLIENT_GROUPS.findIndex(([, match]) => match(e.key))]!.rows.push(e);
     }
     return (
@@ -411,14 +393,14 @@ function ClientPanel({
               .map(({ group, rows }) => (
                 <Rows key={group.title} group={group} entries={rows} label={`Client ${group.title} settings`} />
               ))}
-            <ClientKBs kbs={kbs} client={null} activeKB={activeKB} query={query} />
+            <ClientKBs kbs={kbs} client={null} entries={template.entries} activeKB={activeKB} query={query} />
           </>
         )}
       </>
     );
   }
   const groups = CLIENT_GROUPS.map(([group]) => ({ group, rows: [] as SettingEntry[] }));
-  for (const e of client.entries.filter((e) => matches(e, query))) {
+  for (const e of client.entries.filter((e) => !PER_KB.includes(e.key) && matches(e, query))) {
     groups[CLIENT_GROUPS.findIndex(([, match]) => match(e.key))]!.rows.push(e);
   }
   return (
@@ -439,158 +421,174 @@ function ClientPanel({
             .map(({ group, rows }) => (
               <Rows key={group.title} group={group} entries={rows} label={`Client ${group.title} settings`} />
             ))}
-          <ClientKBs kbs={kbs} client={client} activeKB={activeKB} query={query} />
+          <ClientKBs kbs={kbs} client={client} entries={client.entries} activeKB={activeKB} query={query} />
         </>
       )}
     </>
   );
 }
 
-/** The KBs a provider receives: its `clients` entry's kbs, or every KB when it names none. */
-function receivedKBs(client: SettingsClient, provider: string): string[] | null {
-  const map = client.entries.find((e) => e.key === "clients")?.value;
-  const entry = map && typeof map === "object" ? (map as Record<string, { kbs?: string[] }>)[provider] : undefined;
-  return entry?.kbs?.length ? entry.kbs : null;
+/** A client key's map value, or an empty map. */
+function mapOf(entries: SettingEntry[], key: string): Record<string, unknown> {
+  const v = entries.find((e) => e.key === key)?.value;
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 }
 
-/** Where one provider gives one KB to its sessions on this machine. */
-function whereFor(client: SettingsClient, p: ClientProvider, kb: string): string[] | "everywhere" | null {
-  const kbs = receivedKBs(client, p.name);
-  if (p.scope === "workspace") {
-    const folders = (p.workspaces ?? []).filter((w) => w.kbs.includes(kb)).map((w) => w.path);
-    return folders.length ? folders : null;
-  }
-  return kbs === null || kbs.includes(kb) ? "everywhere" : null;
+/** One client setting of one KB: the YAML key it lives under, what it does, its value. */
+function KBSetting({ yamlKey, about, value }: { yamlKey: string; about: string; value: string[] | string | null }) {
+  const empty = value === null || (Array.isArray(value) && value.length === 0);
+  return (
+    <li className="settings__row">
+      <div className="settings__row-head settings__row-head--static">
+        <span className="settings__what">
+          <code className="settings__key">{yamlKey}</code>
+          <span className="settings__desc">{about}</span>
+        </span>
+        <span className="settings__val">
+          {empty ? (
+            <span className="settings__value" data-empty aria-label={`Value of ${yamlKey}`}>
+              (none)
+            </span>
+          ) : Array.isArray(value) ? (
+            <span className="settings__value settings__value--list" aria-label={`Value of ${yamlKey}`}>
+              {value.map((v) => (
+                <span key={v} className="settings__item">
+                  {v}
+                </span>
+              ))}
+            </span>
+          ) : (
+            <span className="settings__value" aria-label={`Value of ${yamlKey}`}>
+              {value}
+            </span>
+          )}
+        </span>
+      </div>
+    </li>
+  );
 }
 
 /**
- * The client side of every KB (D948): the page is the machine's, common to
- * all KBs, so it has one card per KB, each saying which of the machine's agent
- * clients receive that KB and where -- everywhere, or in the folders bound to
- * it -- and where its placeholders resolve here. A scope filter, not a
- * security boundary (D737).
+ * The client side of every KB (D948). In .cartographer.yaml the settings that
+ * concern one KB sit under the setting first and the KB second (identities,
+ * clients, workspaces, signing_keys, mcp_approvals); here each KB gathers its
+ * own, each named by the YAML key it lives under, so the section explains the
+ * file without its comments.
  */
 function ClientKBs({
   kbs,
   client,
+  entries,
   activeKB,
   query,
 }: {
   kbs: string[];
   client: SettingsClient | null;
+  entries: SettingEntry[];
   activeKB?: string;
   query: string;
 }) {
+  const identities = mapOf(entries, "identities");
+  const clientsMap = mapOf(entries, "clients") as Record<string, { kbs?: string[] }>;
+  const workspaces = mapOf(entries, "workspaces") as Record<string, { path: string; kbs?: string[] }[]>;
+  const signing = mapOf(entries, "signing_keys");
+  const approvals = mapOf(entries, "mcp_approvals");
+  const providers = client?.providers ?? [];
   const names = [...kbs];
-  for (const p of client?.providers ?? []) {
-    for (const w of p.workspaces ?? []) for (const k of w.kbs) if (!names.includes(k)) names.push(k);
-  }
+  for (const list of Object.values(workspaces))
+    for (const w of list ?? []) for (const k of w.kbs ?? []) if (!names.includes(k)) names.push(k);
   const q = query.trim().toLowerCase();
-  const cards = names.map((kb) => {
-    const agents = (client?.providers ?? []).map((p) => ({ p, where: client ? whereFor(client, p, kb) : null }));
-    const paths = (client?.placeholders ?? []).filter((ph) => ph.kbs?.includes(kb));
-    const text = [kb, ...agents.flatMap((a) => (Array.isArray(a.where) ? a.where : [])), ...paths.map((ph) => ph.key)];
-    return { kb, agents, paths, hit: !q || text.some((t) => t.toLowerCase().includes(q)) };
-  });
-  const shown = cards.filter((c) => c.hit);
+  const shown = names.filter((kb) => !q || kb.toLowerCase().includes(q));
   if (q && shown.length === 0) return null;
-  const others = (client?.placeholders ?? []).filter((ph) => !ph.kbs?.length);
+
+  const settingsOf = (kb: string) => {
+    const own = identities[kb];
+    const identity =
+      typeof own === "string" && own
+        ? own
+        : typeof identities.default === "string" && identities.default
+          ? `${identities.default} (default)`
+          : null;
+    // An agent with no clients entry, or one without kbs, receives every KB.
+    const agentNames = providers.length ? providers.map((p) => p.name) : Object.keys(clientsMap);
+    const agents = agentNames.filter((a) => {
+      const ks = clientsMap[a]?.kbs;
+      return !ks?.length || ks.includes(kb);
+    });
+    const where: string[] = [];
+    for (const p of providers.filter((p) => agents.includes(p.name))) {
+      if (p.scope === "workspace") {
+        for (const w of p.workspaces ?? []) if (w.kbs.includes(kb)) where.push(`${p.name}: ${w.path}`);
+      } else where.push(`${p.name}: everywhere`);
+    }
+    if (!providers.length) {
+      for (const [agent, list] of Object.entries(workspaces))
+        for (const w of list ?? []) if (w.kbs?.includes(kb)) where.push(`${agent}: ${w.path}`);
+    }
+    const keys = signing[kb];
+    const approved = approvals[kb];
+    const paths = (client?.placeholders ?? [])
+      .filter((ph) => ph.kbs?.includes(kb))
+      .map((ph) => `${ph.key} → ${ph.path ?? (ph.ignored ? "ignored" : "unresolved")}`);
+    return {
+      identity,
+      agents,
+      where,
+      keys: Array.isArray(keys) ? keys.length : 0,
+      approved: approved && typeof approved === "object" ? Object.keys(approved) : [],
+      paths,
+    };
+  };
+
   return (
-    <Folded
-      title="Knowledge bases"
-      intro="For each KB, which of this machine's agents receive it and where: everywhere, or only in the folders bound to it. Open one to see it."
-      count={`${names.length} KB${names.length === 1 ? "" : "s"}`}
-    >
-      <ul className="client-kbs" aria-label="Knowledge bases on this machine">
-        {shown.map(({ kb, agents, paths }) => {
-          const reaching = agents.filter((a) => a.where !== null);
+    <Folded title="Knowledge bases" count={`${names.length} KB${names.length === 1 ? "" : "s"}`}>
+      <ul className="settings__rows client-kbs" aria-label="Knowledge bases on this machine">
+        {shown.map((kb) => {
+          const k = settingsOf(kb);
           return (
-            <li key={kb}>
-              <details className="client-kb" data-active={kb === activeKB || undefined} open={kb === activeKB || !!q}>
-                <summary className="client-kb__head">
-                  <h3 className="client-kb__name">{kb}</h3>
+            <li key={kb} className="settings__row">
+              <details className="client-kb" open={kb === activeKB || !!q}>
+                <summary className="settings__row-head client-kb__head">
+                  <code className="settings__key">{kb}</code>
                   {client && (
-                    <span className="client-kb__sum">
-                      {reaching.length === 0
-                        ? "no agent receives it"
-                        : `${reaching.length} agent${reaching.length === 1 ? "" : "s"}`}
-                    </span>
+                    <span className="client-kb__sum">{`${k.agents.length} agent${k.agents.length === 1 ? "" : "s"}${k.where.some((w) => !w.endsWith(": everywhere")) ? " · bound folders" : ""}`}</span>
                   )}
                 </summary>
-                {!client ? (
-                  <p className="client-kb__none">
-                    Bind it to a folder with{" "}
-                    <code>cartographer workspace bind &lt;agent&gt; &lt;folder&gt; --kb {kb}</code>: its agents then
-                    receive it only there.
-                  </p>
-                ) : (
-                  <ul className="client-kb__agents" aria-label={`Agents receiving ${kb}`}>
-                    {agents.map(({ p, where }) => (
-                      <li key={p.name} className="client-kb__agent" data-off={where === null || undefined}>
-                        <code className="client-kb__provider">{p.name}</code>
-                        <span className="client-kb__where">
-                          {where === "everywhere"
-                            ? "everywhere on this machine"
-                            : where === null
-                              ? p.scope === "workspace"
-                                ? "no folder bound to it"
-                                : "not received"
-                              : where.map((path) => (
-                                  <code key={path} className="client-kb__folder">
-                                    {path}
-                                  </code>
-                                ))}
-                        </span>
-                        {p.isolation === "workspace" ? (
-                          <span
-                            className="pill pill--ok"
-                            title="This agent starts the Cartographer bridge: a session sees only the KBs bound to its folder."
-                          >
-                            bridge
-                          </span>
-                        ) : p.isolation === "none" ? (
-                          <span
-                            className="pill"
-                            title="This agent uses the server URL: a session reaches every KB the agent receives."
-                          >
-                            http
-                          </span>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {paths.length > 0 && (
-                  <dl className="client-kb__paths" aria-label={`Paths of ${kb} on this machine`}>
-                    {paths.map((ph) => (
-                      <div key={ph.key}>
-                        <dt>
-                          <code>{`{{${ph.key}}}`}</code>
-                        </dt>
-                        <dd data-empty={!ph.path || undefined} title={!ph.path ? ph.reason : ph.description}>
-                          {ph.path ?? (ph.ignored ? "ignored" : "unresolved")}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                )}
+                <ul className="client-kb__rows" aria-label={`Client settings of ${kb}`}>
+                  <KBSetting
+                    yamlKey={`identities.${kb}`}
+                    about="The git author of your writes to this KB."
+                    value={k.identity ?? "the repository's git identity"}
+                  />
+                  <KBSetting
+                    yamlKey="clients.<agent>.kbs"
+                    about="The agents that receive it: all of them unless their list names other KBs."
+                    value={client ? k.agents : "every connected agent"}
+                  />
+                  <KBSetting
+                    yamlKey="workspaces"
+                    about="Where each agent gives it to a session: everywhere, or only in the folders bound to it."
+                    value={k.where.length ? k.where : client ? null : "everywhere"}
+                  />
+                  {(client?.placeholders ?? []).length > 0 && (
+                    <KBSetting
+                      yamlKey="paths"
+                      about="Where its {{repo:…}} and {{path:…}} placeholders resolve here."
+                      value={k.paths}
+                    />
+                  )}
+                  <KBSetting
+                    yamlKey={`signing_keys.${kb}`}
+                    about="Public keys pinned to verify the artifacts it signs."
+                    value={k.keys ? `${k.keys} pinned` : null}
+                  />
+                  <KBSetting yamlKey={`mcp_approvals.${kb}`} about="Its MCP servers you approved." value={k.approved} />
+                </ul>
               </details>
             </li>
           );
         })}
       </ul>
-      {others.length > 0 && (
-        <dl className="client-kb__paths client-kb__paths--others" aria-label="Other paths on this machine">
-          {others.map((ph) => (
-            <div key={ph.key}>
-              <dt>
-                <code>{`{{${ph.key}}}`}</code>
-              </dt>
-              <dd data-empty={!ph.path || undefined}>{ph.path ?? (ph.ignored ? "ignored" : "unresolved")}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
     </Folded>
   );
 }
@@ -613,11 +611,7 @@ function Placeholders({ kb, query }: { kb: string; query: string }) {
   );
   if (q && keys.length === 0) return null;
   return (
-    <Folded
-      title="Placeholders"
-      intro="The {{repo:…}} and {{path:…}} keys this KB declares in paths.yaml or cites; each machine resolves them on its own."
-      count={`${list.keys.length}`}
-    >
+    <Folded title="Placeholders" count={`${list.keys.length}`}>
       <ul className="settings__rows" aria-label={`Placeholders of ${kb}`}>
         {keys.map((k) => {
           const uses = k.concepts.length + k.artifacts.length;
@@ -660,24 +654,14 @@ const GROUP_MARK: Record<string, [string, string]> = {
   Placeholders: ["{}", "var(--hue-9)"],
   "Knowledge bases": ["▣", "var(--hue-10)"],
   Connection: ["⇄", "var(--hue-3)"],
-  "Agents & KBs": ["◉", "var(--hue-1)"],
+  Agents: ["◉", "var(--hue-1)"],
   "Local paths": ["↳", "var(--hue-9)"],
   Trust: ["✓", "var(--hue-5)"],
   "Updates & sync": ["↻", "var(--hue-7)"],
 };
 
 /** A group, always open: its mark and title, what it governs, how many keys it holds. */
-function Folded({
-  title,
-  intro,
-  count,
-  children,
-}: {
-  title: string;
-  intro: string;
-  count: string;
-  children: React.ReactNode;
-}) {
+function Folded({ title, count, children }: { title: string; count: string; children: React.ReactNode }) {
   const [glyph, hue] = GROUP_MARK[title] ?? ["•", "var(--text-muted)"];
   return (
     <section className="settings__group" aria-label={title}>
@@ -689,7 +673,6 @@ function Folded({
           {title}
         </h2>
         <span className="settings__group-count">{count}</span>
-        {intro && <p className="settings__intro">{intro}</p>}
       </header>
       {children}
     </section>
@@ -714,7 +697,7 @@ function NoMatch({ query }: { query: string }) {
 /** One group of keys. */
 function Rows({ group, entries, label }: { group: Group; entries: SettingEntry[]; label: string }) {
   return (
-    <Folded title={group.title} intro={group.intro} count={`${entries.length} key${entries.length === 1 ? "" : "s"}`}>
+    <Folded title={group.title} count={`${entries.length} key${entries.length === 1 ? "" : "s"}`}>
       <ul className="settings__rows" aria-label={label}>
         {entries.map((e) => (
           <Row key={e.key} entry={e} />
@@ -888,7 +871,6 @@ function Yaml({ name, text }: { name: string; text?: string }) {
         <span className="settings__file-name">{name}</span>
         <span className="settings__file-note">
           {inForce} key{inForce === 1 ? "" : "s"} set
-          {cut >= 0 && " · the rest documented below, at their default"}
         </span>
         <button
           type="button"
@@ -916,7 +898,7 @@ function Yaml({ name, text }: { name: string; text?: string }) {
                 {"\n"}
               </span>
             ) : (
-              <YamlLine key={i} line={line} available={cut >= 0 && i > cut} />
+              <YamlLine key={i} line={line} />
             ),
           )}
         </code>
@@ -932,24 +914,14 @@ function scalarClass(v: string): string {
   return "yaml__value";
 }
 
-function YamlLine({ line, available }: { line: string; available?: boolean }) {
+function YamlLine({ line }: { line: string }) {
   const cls = "yaml__line";
   const trimmed = line.trimStart();
+  // A comment is a comment, a commented-out key included: one colour for all of them.
   if (trimmed.startsWith("#")) {
-    // Under the divider, "# key: value" is a key at its default: still a key.
-    // Keys are lowercase; "# Default: …" and "# Values: …" are documentation.
-    const k = available ? /^(\s*#\s?)([a-z_][\w.[\]-]*:)(\s.*)?$/.exec(line) : null;
     return (
       <span className={cls}>
-        {k ? (
-          <>
-            <span className="yaml__comment">{k[1]}</span>
-            <span className="yaml__key">{k[2]}</span>
-            {k[3] && <span className={scalarClass(k[3])}>{k[3]}</span>}
-          </>
-        ) : (
-          <span className="yaml__comment">{line}</span>
-        )}
+        <span className="yaml__comment">{line}</span>
         {"\n"}
       </span>
     );
