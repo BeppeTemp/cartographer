@@ -23,7 +23,7 @@ func archiveFixture(t *testing.T, srcContract, srcIndex string) (*kb.KB, *Server
 		"src/_map.md":      "---\ntype: Map\nkind: map\ntitle: Src\n" + srcContract + "---\n# Src\n",
 		"src/index.md":     "---\ntype: Index\ntitle: Src\n---\n" + srcIndex,
 		"src/friend.md":    "---\ntype: Note\ntitle: Friend\n---\nSee [mover](mover.md).\n",
-		"src/mover.md":     "---\ntype: Note\ntitle: Mover\nstatus: active\n---\nBody [friend](friend.md).\n",
+		"src/mover.md":     "---\ntype: Note\ntitle: Mover\nstatus: active\nsuperseded_by: src/friend\n---\nBody [friend](friend.md).\n",
 		"archive/_map.md":  "---\ntype: Map\nkind: map\ntitle: Archive\n---\n# Archive\n",
 		"archive/index.md": "---\ntype: Index\ntitle: Archive\n---\n# Archive\n",
 	} {
