@@ -263,7 +263,7 @@ func TestRepairOnWriteConvergesTheChainInOneWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := decodeJSON(t, mustText(t, s, "concept_write",
-		`{"id":"ops/chain","frontmatter":{"type":"Note","title":"Chain page","stato":"attivo — gira bene da marzo"},"body":"# Chain\n"}`))
+		`{"id":"ops/chain","frontmatter":{"type":"Note","title":"Chain page","stato":"attivo — gira bene da marzo"},"body":"# Chain\n\n[[anchor]]\n"}`))
 	got := repairedMap(out)
 	for _, c := range chainChecks {
 		if got[c] == 0 {
