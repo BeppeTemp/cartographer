@@ -64,12 +64,20 @@ func announceConfig(cfg *config.Config, configPath string) {
 	}
 	// The old names of renamed KBs move to the server state file before the key
 	// that held them is dropped (D906); a file whose list is not in place keeps it.
-	moved, err := config.MigrateKBAliases(configPath, cfg.Data)
 	keep := []string(nil)
+	// The retired git.author_name and git.author_email become git.identity
+	// before the keys that held them are dropped (D950).
+	if wrote, gerr := config.MigrateGitIdentity(configPath); gerr != nil {
+		log.Printf("warning: config %s keeps its git.author_name and git.author_email until they can be moved to git.identity: %v", configPath, gerr)
+		keep = append(keep, "git.author_name", "git.author_email")
+	} else if wrote {
+		log.Printf("git.author_name and git.author_email of %s moved to git.identity (D950)", configPath)
+	}
+	moved, err := config.MigrateKBAliases(configPath, cfg.Data)
 	if err != nil {
 		// Only kb_aliases waits: every other removed key is still realigned.
 		log.Printf("warning: config %s keeps its kb_aliases until they can be moved to the server state file: %v", configPath, err)
-		keep = []string{"kb_aliases"}
+		keep = append(keep, "kb_aliases")
 	} else if moved > 0 {
 		log.Printf("kb_aliases of %s moved to %s (%d item(s), D906)", configPath, config.ServerStatePath(cfg.Data), moved)
 	}

@@ -70,6 +70,27 @@ kbs:
     # Default: none
     name: kb-a
 
+git:
+  # The git identity, Name <email>, the server commits as in every KB without
+  # its own entry in git.identities: the author and the committer of the commits
+  # it makes with no writer of their own (the unattended repair, merges,
+  # conflict resolution) and of a write whose client sends no valid
+  # Cartographer-Author. Set it when the remote's forge rejects commits whose
+  # author or committer is not one of its accounts. Empty keeps the server
+  # identity, Cartographer <cartographer@host>.
+  # Default: none · needs a restart
+  identity: "Ada Example <ada@example.com>"
+
+  # --- available settings: uncomment a key to set it ---
+
+  # The identity of git.identity, per KB name; the key default stands for every
+  # KB without an entry. A present empty entry means that KB has none and
+  # commits as the server identity.
+  # Needs a restart
+  # identities:
+  #   kb-a: Ada Example <ada@work.example.com>
+  #   default: Ada Example <ada@example.com>
+
 web:
   # Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode.
   # false removes both routes.

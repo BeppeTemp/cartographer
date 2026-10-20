@@ -67,11 +67,11 @@ func TestCommitOp_NotARepository_NoOp(t *testing.T) {
 	}
 }
 
-// Every commit has the server as committer (D904). A commit with no declared
-// author is authored by the server too, whatever git would have resolved from
-// the repository, the user config or the process environment; a declared author
-// authors it, and only it.
-func TestCommitOp_ServerIsCommitterAndDefaultAuthor(t *testing.T) {
+// A commit with a declared author has it as author and committer (D950); one
+// with none is by the KB's default identity — the server's when none is
+// configured, the configured one otherwise — whatever git would have
+// resolved from the repository, the user config or the process environment.
+func TestCommitOp_WriterIsAuthorAndCommitter(t *testing.T) {
 	t.Parallel()
 	k, _ := initGitKB(t)
 	gitHere(t, k.Root, "config", "user.name", "Repository User")
@@ -97,8 +97,13 @@ func TestCommitOp_ServerIsCommitterAndDefaultAuthor(t *testing.T) {
 		_, err := k.CommitOpAs("test: with author", "Writer Person", "writer@example.test")
 		return err
 	})
-	if got, err := gitLogFormat(t, k.Root, "%an <%ae> | %cn <%ce>"); err != nil || got != "Writer Person <writer@example.test> | "+server {
+	if got, err := gitLogFormat(t, k.Root, "%an <%ae> | %cn <%ce>"); err != nil || got != "Writer Person <writer@example.test> | Writer Person <writer@example.test>" {
 		t.Fatalf("with author: %q, %v", got, err)
+	}
+	k.SetDefaultIdentity("Configured One", "conf@example.test")
+	commit("data/configured.md", func() error { _, err := k.CommitOp("test: configured"); return err })
+	if got, err := gitLogFormat(t, k.Root, "%an <%ae> | %cn <%ce>"); err != nil || got != "Configured One <conf@example.test> | Configured One <conf@example.test>" {
+		t.Fatalf("configured identity: %q, %v", got, err)
 	}
 }
 

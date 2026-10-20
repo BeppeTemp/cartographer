@@ -33,6 +33,12 @@ type Config struct {
 	// YAML `update_check`, env CARTOGRAPHER_UPDATE_CHECK, flag --update-check.
 	// A dev build never checks, whatever this says.
 	UpdateCheck bool
+	// GitIdentity is the git identity ("Name <email>") the server commits as in
+	// every KB without an entry of its own in GitIdentities, and GitIdentities
+	// one per KB name, "default" included (D950). Read them through IdentityFor.
+	// Empty means the server identity.
+	GitIdentity   string
+	GitIdentities map[string]string
 	// legacyAliases are the kb_aliases the server YAML still carries (D906):
 	// the list moved to the server state file, and the realignment moves
 	// what the file holds. Until it has, they still resolve (KBAliases).
@@ -253,10 +259,18 @@ type rawConfig struct {
 	CredentialsDir string   `yaml:"credentials_dir"`
 	KBs            []rawKB  `yaml:"kbs"`
 	Audit          rawAudit `yaml:"audit"`
+	Git            rawGit   `yaml:"git"`
 	Web            rawWeb   `yaml:"web"`
 	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
 	// default is true.
 	UpdateCheck *bool `yaml:"update_check"`
+}
+
+// rawGit mirrors the `git:` block: the identity the server commits as (D950).
+// Every other key it once held is retired.
+type rawGit struct {
+	Identity   string            `yaml:"identity"`
+	Identities map[string]string `yaml:"identities"`
 }
 
 // rawKB is a kbs[] entry of the server file: the machine's side of a KB, its
@@ -316,6 +330,7 @@ func Load(path string) (*Config, error) {
 			cfg.legacyAliases = legacy.KBAliases
 		}
 	}
+	cfg.loadGitIdentities(data, raw.Git)
 	cfg.Audit.Log = raw.Audit.Log
 	cfg.Audit.Mode = raw.Audit.Mode
 	if raw.Audit.MaxSegmentBytes > 0 {

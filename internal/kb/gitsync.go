@@ -441,6 +441,11 @@ func (k *KB) SyncOut() error {
 			k.setGitStatus("failed", err, attempt)
 			return err
 		}
+		// A commit made before its writer was known (a 0.25.0 commit by the
+		// server, D950) is re-committed by its writer before it leaves.
+		if attempt == 1 && gitx.RemoteBranchExists(k.Root, remote, branch) {
+			k.realignCommitters(remote, branch)
+		}
 
 		pushErr, diverged := k.pushLocal(remote, branch)
 		if diverged != nil {
@@ -682,10 +687,10 @@ func (k *KB) CommitOp(message string) (sha string, err error) {
 	return k.CommitOpAs(message, "", "")
 }
 
-// CommitOpAs is CommitOp with an explicit author: a non-empty authorName and
-// authorEmail author this one commit. Empty values mean the server identity
-// (ServerIdentity): the commit is not a write, or the writer did not declare
-// who it is. The committer is always the server's (D904).
+// CommitOpAs is CommitOp with an explicit writer: a non-empty authorName and
+// authorEmail are the author and the committer of this one commit (D950).
+// Empty values mean the KB's default identity (DefaultIdentity): the commit is
+// not a write, or the writer did not declare who it is.
 func (k *KB) CommitOpAs(message, authorName, authorEmail string) (sha string, err error) {
 	if !gitx.IsRepo(k.Root) {
 		return "", nil
@@ -698,7 +703,7 @@ func (k *KB) CommitOpAs(message, authorName, authorEmail string) (sha string, er
 	if authorName == "" || authorEmail == "" {
 		authorName, authorEmail = "", ""
 	}
-	if err := gitx.Commit(k.Root, message, authorName, authorEmail, k.GitCommandEnv()...); err != nil {
+	if err := gitx.Commit(k.Root, message, authorName, authorEmail, k.gitCommandEnvAs(authorName, authorEmail)...); err != nil {
 		if errors.Is(err, gitx.ErrNothingToCommit) {
 			return "", nil
 		}
@@ -713,9 +718,9 @@ func (k *KB) CommitOpAs(message, authorName, authorEmail string) (sha string, er
 	return sha, nil
 }
 
-// CommitPaths creates one commit containing changes to paths only, authored
-// as authorName/authorEmail, or as the server identity when either is empty;
-// the committer is always the server (D904). The per-KB lock serialises its
+// CommitPaths creates one commit containing changes to paths only, by
+// authorName/authorEmail as author and committer, or by the KB's default
+// identity when either is empty (D950). The per-KB lock serialises its
 // staging and commit with other git operations; gitx uses a temporary index so
 // unrelated dirty work remains untouched.
 func (k *KB) CommitPaths(paths []string, message, authorName, authorEmail string) error {
@@ -727,7 +732,7 @@ func (k *KB) commitPathsLocked(paths []string, message, authorName, authorEmail 
 	if !gitx.IsRepo(k.Root) {
 		return fmt.Errorf("CommitPaths: KB root is not a git repository")
 	}
-	if err := gitx.CommitPaths(k.Root, paths, message, authorName, authorEmail, k.GitCommandEnv()...); err != nil {
+	if err := gitx.CommitPaths(k.Root, paths, message, authorName, authorEmail, k.gitCommandEnvAs(authorName, authorEmail)...); err != nil {
 		if errors.Is(err, gitx.ErrNothingToCommit) {
 			return nil
 		}

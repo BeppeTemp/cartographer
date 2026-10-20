@@ -108,7 +108,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 					msg += "\n\n" + block
 				}
 				commitStart := time.Now()
-				authorName, authorEmail := writerAuthor(ctx)
+				authorName, authorEmail := writerAuthor(ctx, k)
 				sha, commitErr := k.CommitOpAs(msg, authorName, authorEmail)
 				commitDur = time.Since(commitStart)
 				if commitErr == nil {
@@ -129,7 +129,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				// sync or async — is non-fatal; Step 3 surfaces rebase
 				// conflicts as degraded concepts.
 				pushDur, pushAsync = pushAfterCommit(k, orig.Name, &res)
-				appendAuthorWarning(ctx, &res)
+				appendAuthorWarning(ctx, k, &res)
 			}
 			return nil
 		})
@@ -158,9 +158,10 @@ func syncInForWrite(k *kb.KB) (ToolResult, bool) {
 
 // commitTrailerBlock builds the one trailer paragraph of a write's commit, in
 // order: Reason, Agent, extra (the transfer's Moved-* lines), then
-// Cartographer-Token (D904). Git only parses the last contiguous block. The
-// token trailer is last and any copy in extra is dropped, so the one gitx
-// reads is the server's. Empty when there is nothing to say.
+// Cartographer-Host (D950) and Cartographer-Token (D904). Git only parses the
+// last contiguous block. The host and token trailers are last and any copy in
+// extra is dropped, so the ones gitx reads are the server's. Empty when there
+// is nothing to say.
 func commitTrailerBlock(ctx context.Context, args json.RawMessage, extra ...string) string {
 	var block []string
 	if reason := commitReason(args); reason != "" {
@@ -175,6 +176,9 @@ func commitTrailerBlock(ctx context.Context, args json.RawMessage, extra ...stri
 		}
 	}
 	if token := commitToken(ctx); token != "" {
+		if host := kb.ServerHost(); host != "" {
+			block = append(block, commitHostKey+": "+host)
+		}
 		block = append(block, commitTokenKey+": "+token)
 	}
 	return strings.Join(block, "\n")

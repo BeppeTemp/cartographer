@@ -109,7 +109,7 @@ func gitTokenCredentialEnv(tokenPath string) []string {
 // default.token exists — a credential.helper (D905,
 // gitTokenCredentialEnv). name is the resolved KB name (resolveKBName). Only
 // entries that resolve to a non-empty value are included. It carries no
-// identity: the committer is the server's, added by kb.KB.GitCommandEnv (D904). The result is
+// identity: the KB's default identity is added by kb.KB.GitCommandEnv (D950). The result is
 // passed to gitx as env: it takes precedence over the process environment
 // (runGitEnv).
 func gitEnvForKB(name, credDir string) []string {

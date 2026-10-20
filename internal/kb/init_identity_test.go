@@ -50,8 +50,9 @@ func TestInitWithIdentity_NoGitIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("git log: %v: %s", err, out)
 	}
-	name, email := ServerIdentity()
-	want := "Author Person <author@example.com> " + name + " <" + email + ">"
+	// The init author is its committer too (D950): a forge with a membership
+	// rule checks both.
+	want := "Author Person <author@example.com> Author Person <author@example.com>"
 	if got := strings.TrimSpace(string(out)); got != want {
 		t.Fatalf("identity = %q, want %q", got, want)
 	}

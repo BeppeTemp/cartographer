@@ -67,14 +67,14 @@ func serverIdent() (ident, email string) {
 	return name + " <" + email + ">", email
 }
 
-// The author of a write is the one the Cartographer-Author header names; the
-// committer is the server, and the token that made the write is a trailer.
+// The author and the committer of a write are the one the Cartographer-Author
+// header names (D950: a forge with a membership rule checks the committer too);
+// the token that made the write and the host that recorded it are trailers.
 func TestGitWrap_AuthorFromHeader(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	server, _ := serverIdent()
 	res := wrappedWriteCtx(t, k, authorHeaderCtx(botPrincipal, "Ada Example <ada@example.test>"), `{"reason":"why"}`)
-	if got, want := headIdent(t, k), "Ada Example <ada@example.test> | "+server; got != want {
+	if got, want := headIdent(t, k), "Ada Example <ada@example.test> | Ada Example <ada@example.test>"; got != want {
 		t.Errorf("author | committer = %q, want %q", got, want)
 	}
 	if got := headTokenTrailers(t, k); len(got) != 1 || got[0] != "reviewer-bot" {
@@ -85,13 +85,14 @@ func TestGitWrap_AuthorFromHeader(t *testing.T) {
 	}
 }
 
-// With no header the write is authored as the token id, at the server's host.
+// With no header and no registered writer the write is by the token id, at
+// the server's host.
 func TestGitWrap_AuthorFallsBackToTokenID(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	server, email := serverIdent()
+	_, email := serverIdent()
 	res := wrappedWriteCtx(t, k, authorHeaderCtx(botPrincipal, ""), `{}`)
-	if got, want := headIdent(t, k), "reviewer-bot <"+email+"> | "+server; got != want {
+	if got, want := headIdent(t, k), "reviewer-bot <"+email+"> | reviewer-bot <"+email+">"; got != want {
 		t.Errorf("author | committer = %q, want %q", got, want)
 	}
 	if len(res.Content) != 1 {
@@ -169,8 +170,8 @@ func TestCommitTrailerBlock_TokenLastAndExtraStripped(t *testing.T) {
 	t.Parallel()
 	ctx := auth.ContextWithPrincipal(context.Background(), auth.Principal{ID: "tok"})
 	// Git reads a trailer key in any case and with blanks before the colon.
-	got := commitTrailerBlock(ctx, json.RawMessage(`{"reason":"why"}`), "Moved-To: x", "Cartographer-Token: forged", "Cartographer-Token : forged", "cartographer-token\t: forged")
-	if want := "Reason: why\nMoved-To: x\nCartographer-Token: tok"; got != want {
+	got := commitTrailerBlock(ctx, json.RawMessage(`{"reason":"why"}`), "Moved-To: x", "Cartographer-Token: forged", "Cartographer-Token : forged", "cartographer-token\t: forged", "Cartographer-Host: forged", "cartographer-host : forged")
+	if want := "Reason: why\nMoved-To: x\n" + commitHostKey + ": " + kb.ServerHost() + "\nCartographer-Token: tok"; got != want {
 		t.Errorf("block = %q, want %q", got, want)
 	}
 	if got := commitTrailerBlock(context.Background(), nil); got != "" {
@@ -183,14 +184,15 @@ func TestWithCallerAuthor_ReadsTheRequestHeader(t *testing.T) {
 	t.Parallel()
 	req := &sdk.CallToolRequest{Extra: &sdk.RequestExtra{Header: http.Header{authorHeader: {"Ada Example <ada@example.test>"}}}}
 	ctx := withCallerAuthor(context.Background(), req)
-	if name, email := writerAuthor(ctx); name != "Ada Example" || email != "ada@example.test" {
+	k, _ := setupGitKB(t)
+	if name, email := writerAuthor(ctx, k); name != "Ada Example" || email != "ada@example.test" {
 		t.Errorf("writerAuthor = %q <%q>", name, email)
 	}
-	if name, email := writerAuthor(withCallerAuthor(context.Background(), &sdk.CallToolRequest{})); name != "" || email != "" {
+	if name, email := writerAuthor(withCallerAuthor(context.Background(), &sdk.CallToolRequest{}), k); name != "" || email != "" {
 		t.Errorf("no request extra and no principal: author = %q <%q>, want the server identity", name, email)
 	}
 	twice := &sdk.CallToolRequest{Extra: &sdk.RequestExtra{Header: http.Header{authorHeader: {"A <a@example.test>", "B <b@example.test>"}}}}
-	if name, _ := writerAuthor(withCallerAuthor(context.Background(), twice)); name != "" {
+	if name, _ := writerAuthor(withCallerAuthor(context.Background(), twice), k); name != "" {
 		t.Errorf("two headers: author = %q, want none", name)
 	}
 }
@@ -200,9 +202,8 @@ func TestWithCallerAuthor_ReadsTheRequestHeader(t *testing.T) {
 func TestGitWrap_EncodedAuthorIsDecoded(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	server, _ := serverIdent()
 	wrappedWriteCtx(t, k, authorHeaderCtx(botPrincipal, client.EncodeAuthor("Zoë Pérez <zoe@example.test>")), `{}`)
-	if got, want := headIdent(t, k), "Zoë Pérez <zoe@example.test> | "+server; got != want {
+	if got, want := headIdent(t, k), "Zoë Pérez <zoe@example.test> | Zoë Pérez <zoe@example.test>"; got != want {
 		t.Errorf("author | committer = %q, want %q", got, want)
 	}
 }

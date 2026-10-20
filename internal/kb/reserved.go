@@ -14,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 )
@@ -147,6 +148,10 @@ func (k *KB) unionContent(p, localSHA, remoteSHA string) (string, error) {
 func (k *KB) pullRebase(remote, branch string) error {
 	err := gitx.PullRebaseAutostash(k.Root, remote, branch, k.GitCommandEnv()...)
 	var rce *gitx.RebaseConflictError
+	if err == nil {
+		k.realignCommitters(remote, branch)
+		return nil
+	}
 	if !errors.As(err, &rce) || !allReserved(rce.Files) {
 		return err
 	}
@@ -155,7 +160,34 @@ func (k *KB) pullRebase(remote, branch string) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "cartographer: auto-resolved reserved file conflict: %s\n", strings.Join(rce.Files, ", "))
+	k.realignCommitters(remote, branch)
 	return nil
+}
+
+// realignNotLinear records the KBs whose "not a linear range" notice was
+// printed, so a sync that finds the same merge again stays quiet.
+var realignNotLinear sync.Map
+
+// realignCommitters gives the local commits the pull just replayed their
+// author back as committer, and a commit no writer was known for the KB's
+// configured identity (gitx.RealignCommitters, D950). Best-effort: a failure is
+// logged and leaves the pulled state, which the next push reports if the
+// forge refuses it.
+func (k *KB) realignCommitters(remote, branch string) {
+	if remote == "" {
+		remote = "origin"
+	}
+	defName, defEmail, _ := k.ConfiguredIdentity()
+	serverName, serverEmail := ServerIdentity()
+	if n, err := gitx.RealignCommitters(k.Root, remote+"/"+branch, serverName, serverEmail, defName, defEmail, k.GitEnv...); err != nil {
+		// A range with a merge stays so until it is published: say it once.
+		if _, again := realignNotLinear.LoadOrStore(k.Root, true); errors.Is(err, gitx.ErrNotLinear) && again {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "cartographer: realign committers: %v\n", err)
+	} else if n > 0 {
+		fmt.Fprintf(os.Stderr, "cartographer: %d local commit(s) re-committed by their writer (D950)\n", n)
+	}
 }
 
 // allReserved reports whether files is non-empty and none of them maps to a
