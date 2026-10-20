@@ -145,30 +145,35 @@ func lastAutoRepairRun(k *kb.KB) (autoRepairRun, bool) {
 // only a check whose registered fix is safe to run with no person (D354) runs
 // unattended; the operator's own kb_repair is unchanged.
 func autoRepairSplit(k *kb.KB) (safe, ignored []string) {
-	return splitAutoRepair(withRealignment(k.Policy().AutoRepair))
+	return splitAutoRepair(k.Policy().AutoRepair)
 }
 
-// realignmentChecks are the repairs the heartbeat runs whatever auto_repair
-// says (D907): the removal of keys the standard no longer has. A contract key
-// or a lint_ignore field left in place is a finding no write can fix around
-// (the gate refuses the page that carries it), and a KB whose list was
-// customised before D907 would otherwise never be realigned. The list keeps
-// governing every other check until the key itself goes.
-var realignmentChecks = []string{"contract_legacy_key", "nonstandard_field"}
-
-// withRealignment appends the realignment checks the list does not name.
-func withRealignment(checks []string) []string {
-	out := append([]string(nil), checks...)
-	for _, r := range realignmentChecks {
-		found := false
-		for _, c := range out {
-			found = found || c == r
-		}
-		if !found {
-			out = append(out, r)
-		}
+// heartbeatChecks is what the heartbeat runs for an auto_repair list (D907):
+// the list's runnable checks plus the two realignments it cannot skip, however
+// the KB configured it, an explicit empty list included. contract_legacy_key
+// runs whole. Of nonstandard_field only the drop of a lint_ignore field is
+// always on (lintIgnoreOnly says the list did not name the check): every other
+// rename runs only when the KB lists nonstandard_field, so `auto_repair: []`
+// still means no other unattended page rewrite.
+func heartbeatChecks(list []string) (safe, ignored []string, lintIgnoreOnly bool) {
+	safe, ignored = splitAutoRepair(list)
+	has := map[string]bool{}
+	for _, c := range safe {
+		has[c] = true
 	}
-	return out
+	if !has["contract_legacy_key"] {
+		safe = append(safe, "contract_legacy_key")
+	}
+	if !has["nonstandard_field"] {
+		safe = append(safe, "nonstandard_field")
+		lintIgnoreOnly = true
+	}
+	return safe, ignored, lintIgnoreOnly
+}
+
+// isLintIgnoreDrop says whether a finding is the drop of a lint_ignore field.
+func isLintIgnoreDrop(f lint.Finding) bool {
+	return f.Check == "nonstandard_field" && f.Fix != nil && f.Fix.Kind == lint.FixDropField && f.Fix.Field == "lint_ignore"
 }
 
 // splitAutoRepair is autoRepairSplit over a list the caller already holds.
@@ -185,7 +190,7 @@ func splitAutoRepair(checks []string) (safe, ignored []string) {
 
 // StartAutoRepair starts the heartbeat for the KB this server serves and
 // returns at once. It does nothing when doctor_auto_interval is 0 (Part B of D907
-// removes that off switch); the realignment checks run whatever auto_repair lists. Cancelling ctx stops it: the goroutine
+// removes that off switch); the realignments run whatever auto_repair lists. Cancelling ctx stops it: the goroutine
 // ends at the next wait, and no run starts after cancellation.
 func (s *Server) StartAutoRepair(ctx context.Context) {
 	k := s.kbRef
@@ -196,7 +201,7 @@ func (s *Server) StartAutoRepair(ctx context.Context) {
 	if pol.DoctorAutoIntervalDays <= 0 {
 		return
 	}
-	safe, ignored := splitAutoRepair(withRealignment(pol.AutoRepair))
+	safe, ignored, _ := heartbeatChecks(pol.AutoRepair)
 	if len(ignored) > 0 {
 		fmt.Fprintf(os.Stderr, "cartographer: auto_repair for %s ignores %s: not safe to run unattended (kb_repair still applies them on request)\n", kbName(k), strings.Join(ignored, ", "))
 	}
@@ -284,6 +289,8 @@ type stagedRepair struct {
 	skipped map[string]int
 	errs    []string
 	renames []repairTarget // concepts whose renames the map contracts must follow
+	// lintIgnoreOnly limits nonstandard_field to dropping lint_ignore (D907).
+	lintIgnoreOnly bool
 }
 
 func newStagedRepair() *stagedRepair {
@@ -302,7 +309,11 @@ func (r *stagedRepair) total() int {
 // seeded names the checks the concept was selected for, charged with the skip
 // when the concept is left alone.
 func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed []lint.Finding, seeded []string) bool {
-	out, skip := repairConceptFixpoint(k, id, local, seed)
+	var keep func(lint.Finding) bool
+	if r.lintIgnoreOnly {
+		keep = func(f lint.Finding) bool { return f.Check != "nonstandard_field" || isLintIgnoreDrop(f) }
+	}
+	out, skip := repairConceptFixpointOnly(k, id, local, seed, keep)
 	if skip != nil {
 		for _, c := range seeded {
 			r.skipped[c]++
@@ -335,7 +346,14 @@ func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed
 // Artifact checks run last, and only where the KB allows artifact writes. The
 // caller holds the KB lock.
 func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int) *stagedRepair {
+	return stagedAutoRepairLimited(ctx, k, checks, quota, false)
+}
+
+// stagedAutoRepairLimited is stagedAutoRepair with nonstandard_field limited to
+// dropping lint_ignore when lintIgnoreOnly (the heartbeat's unlisted case).
+func stagedAutoRepairLimited(ctx context.Context, k *kb.KB, checks []string, quota int, lintIgnoreOnly bool) *stagedRepair {
 	r := newStagedRepair()
+	r.lintIgnoreOnly = lintIgnoreOnly
 	var local, cross, artifact, folders []string
 	for _, c := range checks {
 		s, _ := lint.Spec(c)
@@ -363,7 +381,7 @@ func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int)
 		}
 		by := map[string][]lint.Finding{}
 		for _, f := range findings {
-			if f.Fix == nil || f.Artifact || !isLocal[f.Check] {
+			if f.Fix == nil || f.Artifact || !isLocal[f.Check] || (lintIgnoreOnly && f.Check == "nonstandard_field" && !isLintIgnoreDrop(f)) {
 				continue
 			}
 			if id := uiFindingConcept(f.Path); id != "" {
@@ -516,17 +534,14 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 		_ = appendAutoRepairRun(k, run)
 		return run
 	}
-	checks, _ := autoRepairSplit(k)
-	if len(checks) == 0 {
-		return run
-	}
+	checks, _, lintIgnoreOnly := heartbeatChecks(k.Policy().AutoRepair)
 	var stats *stagedRepair
 	// Named kb_repair so the commit, audit and authorization treat it as the
 	// repair it is; it is not registered, so tools/list does not change.
 	tool := gitWrap(k, Tool{
 		Name: "kb_repair",
 		Handler: func(requestContext, json.RawMessage) (ToolResult, error) {
-			stats = stagedAutoRepair(ctx, k, checks, autoRepairLimit)
+			stats = stagedAutoRepairLimited(ctx, k, checks, autoRepairLimit, lintIgnoreOnly)
 			res := ToolResult{Content: textResult("{}").Content}
 			if len(stats.renames) > 0 {
 				if _, err := renameInContracts(k, stats.renames); err != nil {

@@ -1195,6 +1195,13 @@ func conceptContent(fm *okf.Frontmatter, body string) string {
 // Both write nothing and return a skip naming the checks. The caller holds the
 // KB lock (gitWrap).
 func repairConceptFixpoint(k *kb.KB, id okf.ConceptID, allowed []string, seed []lint.Finding) (fixpointOutcome, *repairSkip) {
+	return repairConceptFixpointOnly(k, id, allowed, seed, nil)
+}
+
+// repairConceptFixpointOnly is repairConceptFixpoint limited to the findings
+// keep accepts (nil keeps all): the heartbeat uses it to drop a lint_ignore
+// field without applying the other nonstandard_field renames.
+func repairConceptFixpointOnly(k *kb.KB, id okf.ConceptID, allowed []string, seed []lint.Finding, keep func(lint.Finding) bool) (fixpointOutcome, *repairSkip) {
 	out := fixpointOutcome{Changed: map[string]int{}}
 	path := okf.IDToPath(id)
 	skip := func(reason string) (fixpointOutcome, *repairSkip) {
@@ -1233,7 +1240,7 @@ func repairConceptFixpoint(k *kb.KB, id okf.ConceptID, allowed []string, seed []
 		}
 		byCheck := map[string][]*lint.Fix{}
 		for _, f := range found {
-			if f.Fix == nil || f.Artifact || !allow[f.Check] || stuck[f.Check] {
+			if f.Fix == nil || f.Artifact || !allow[f.Check] || stuck[f.Check] || (keep != nil && !keep(f)) {
 				continue
 			}
 			if s, ok := lint.Spec(f.Check); !ok || s.CrossConcept {
