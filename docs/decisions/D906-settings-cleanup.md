@@ -20,7 +20,10 @@ is realigned. What each part removes, and what replaces it:
 - **MCP descriptors are always distributable.** `mcp_allowlist` is removed, from a KB's `settings.yaml` and from
   `kbs[]`. Every valid `mcp/<name>.json` goes into the manifest, `artifact_list` and `artifact_read`; the
   startup scan still reports a malformed one, and the "denied" and "stale entry" diagnostics are gone with
-  the list. The client's hash-bound approval (D115) is not touched here.
+  the list. The client's hash-bound approval (D115) now covers every KB descriptor, a signed one too: the
+  allow-list was what let a verified descriptor skip it, and with artifact writes always allowed any `rw`
+  token can write a descriptor the server then signs. A signature proves which server a descriptor came
+  from, not that anyone chose to run it.
 - **Secrets are derived.** `secrets` is removed, from the KB file and from `kbs[]`. A KB declares secrets when
   at least one YAML file directly under `secrets/` carries sops metadata (`sops.Declared`: read, never
   decrypted, so neither the sops binary nor a key is needed). The "missing key" report of `kb_status` and the
@@ -68,7 +71,9 @@ now write what that KB provisions to its clients (skills, agents, hooks, MCP des
 operator who wants a token that only reads gives it `kb:<name>:r`. Every descriptor a KB ships reaches the
 clients that sync it, each of which still approves it before installing (security note for the release
 notes). A `kbs[]` setting that was the only place a KB's policy lived is dropped by the realignment: copy it
-into the KB's `settings.yaml` first.
+into the KB's `settings.yaml` first. A server that set `allow_artifact_write: false` (or
+`allow_template_write: false`) gets a warning, not a refusal: its KBs become writable by `rw` tokens on
+upgrade (release note).
 
 Supersedes the server allow-list of D115, amends D746 and D352.
 

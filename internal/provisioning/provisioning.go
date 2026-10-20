@@ -2706,11 +2706,17 @@ func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 }
 
 func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
-	if a.Signed || a.BuiltIn {
+	if a.BuiltIn {
 		return true
 	}
+	// An MCP server receives the agent's data, so a KB descriptor always needs
+	// the client's hash-bound approval: a signature proves only which server it
+	// came from, and since D906 any rw token on the KB can write one.
 	if a.Kind == "mcp" {
 		return opts.ApprovedMCP[a.Source+"\x00"+a.Name] == a.ContentHash
+	}
+	if a.Signed {
+		return true
 	}
 	// MCP descriptors retain their pre-existing stricter explicit approval
 	// boundary; generic trust only preserves compatibility for ordinary KB

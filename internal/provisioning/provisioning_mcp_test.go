@@ -195,9 +195,10 @@ func TestBuildManifest_MCP_LiteralSecretFailsBuild(t *testing.T) {
 }
 
 // signedMCPManifest builds a manifest from kbRoot and flips the named mcp
-// artifact's Signed field to true — simulating an explicit operator approval
-// (D69 WP5: BuildManifest itself never signs kind "mcp", see
-// TestBuildManifest_MCP_ScansAndAlwaysUnsigned).
+// artifact's Signed field to true, as a verified manifest does (D69 WP5:
+// BuildManifest without a signer never signs, see
+// TestBuildManifest_MCP_ScansAndAlwaysUnsigned). Installing it still needs
+// approveMCP (D906).
 func signedMCPManifest(t *testing.T, kbRoot, name string) provisioning.Manifest {
 	t.Helper()
 	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
@@ -317,7 +318,7 @@ func TestApply_MCP_AllProviders(t *testing.T) {
 		t.Run(string(tc.provider), func(t *testing.T) {
 			m := signedMCPManifest(t, kbRoot, "wiki-tools")
 			dir := t.TempDir()
-			res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+			res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveMCP(m),
 				KBRoots:  map[string]string{"kb": kbRoot},
 				Provider: tc.provider,
 				BaseDir:  dir,
@@ -422,7 +423,7 @@ func TestApply_MCP_Stdio_AllProviders(t *testing.T) {
 		t.Run(string(tc.provider), func(t *testing.T) {
 			m := signedMCPManifestStdio(t, kbRoot, "local-tools", script)
 			dir := t.TempDir()
-			res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+			res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveMCP(m),
 				KBRoots:  map[string]string{"kb": kbRoot},
 				Provider: tc.provider,
 				BaseDir:  dir,
@@ -475,7 +476,7 @@ func TestApply_MCP_StdioPreflight_CommandResolution(t *testing.T) {
 		writeMCPFixture(t, kbRoot, "local-tools", fmt.Sprintf(`{"type":"stdio","command":%q}`, fakeExecName))
 		m := signedMCPManifestStdio(t, kbRoot, "local-tools", fakeExecName)
 		dir := t.TempDir()
-		if _, err := provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir}); err != nil {
+		if _, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveMCP(m), KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir}); err != nil {
 			t.Fatalf("Apply: %v", err)
 		}
 		data, err := os.ReadFile(filepath.Join(dir, ".claude.json"))
@@ -500,7 +501,7 @@ func TestApply_MCP_StdioPreflight_CommandResolution(t *testing.T) {
 		writeMCPFixture(t, kbRoot, "local-tools", fmt.Sprintf(`{"type":"stdio","command":%q}`, script))
 		m := signedMCPManifestStdio(t, kbRoot, "local-tools", script)
 		dir := t.TempDir()
-		if _, err := provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir}); err != nil {
+		if _, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveMCP(m), KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir}); err != nil {
 			t.Fatalf("Apply: %v", err)
 		}
 	})
@@ -511,7 +512,7 @@ func TestApply_MCP_StdioPreflight_CommandResolution(t *testing.T) {
 		writeMCPFixture(t, kbRoot, "local-tools", fmt.Sprintf(`{"type":"stdio","command":%q}`, missing))
 		m := signedMCPManifestStdio(t, kbRoot, "local-tools", missing)
 		dir := t.TempDir()
-		_, err := provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir})
+		_, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveMCP(m), KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir})
 		if err == nil || !strings.Contains(err.Error(), "unavailable") {
 			t.Fatalf("Apply error = %v, want an unavailable-command error", err)
 		}
@@ -532,7 +533,7 @@ func TestApply_MCP_StdioPreflight_CommandResolution(t *testing.T) {
 		writeMCPFixture(t, kbRoot, "local-tools", fmt.Sprintf(`{"type":"stdio","command":%q}`, notExec))
 		m := signedMCPManifestStdio(t, kbRoot, "local-tools", notExec)
 		dir := t.TempDir()
-		_, err := provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir})
+		_, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveMCP(m), KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: dir})
 		if err == nil || !strings.Contains(err.Error(), "not an executable regular file") {
 			t.Fatalf("Apply error = %v, want a not-executable error", err)
 		}
@@ -553,7 +554,7 @@ func TestApply_MCP_StdioDryRun(t *testing.T) {
 	m := signedMCPManifestStdio(t, kbRoot, "local-tools", script)
 
 	dir := t.TempDir()
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveMCP(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  dir,
@@ -650,7 +651,7 @@ func TestApply_MCP_PreservesOtherEntriesInSharedFile(t *testing.T) {
 	}
 
 	m := signedMCPManifest(t, kbRoot, "wiki-tools")
-	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveMCP(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  dir,
@@ -685,7 +686,7 @@ func TestApply_MCP_PruneRestoresSharedFile(t *testing.T) {
 	dir := t.TempDir()
 
 	m := signedMCPManifest(t, kbRoot, "wiki-tools")
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveMCP(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  dir,
@@ -726,7 +727,7 @@ func TestApply_MCP_PruneCodexPreservesUserContent(t *testing.T) {
 	}
 
 	m := signedMCPManifest(t, kbRoot, "wiki-tools")
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveMCP(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderCodex,
 		BaseDir:  dir,
@@ -747,5 +748,41 @@ func TestApply_MCP_PruneCodexPreservesUserContent(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "# la mia config") || !strings.Contains(string(data), `model = "gpt-5.3-codex"`) {
 		t.Errorf("user content not preserved: %s", data)
+	}
+}
+
+// approveMCP is the client's hash-bound approval of every MCP descriptor in m:
+// a signature alone never installs one (D906).
+func approveMCP(m provisioning.Manifest) map[string]string {
+	approved := map[string]string{}
+	for _, a := range m.Artifacts {
+		if a.Kind == "mcp" {
+			approved[a.Source+"\x00"+a.Name] = a.ContentHash
+		}
+	}
+	return approved
+}
+
+// A signed descriptor still needs the client's approval: since D906 any rw
+// token on a KB can write one, and the server signs what it distributes.
+func TestApply_MCP_SignedStillNeedsApproval(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeMCPFixture(t, kbRoot, "wiki-tools", `{"type":"http","url":"https://tools.example.com/mcp"}`)
+	m := signedMCPManifest(t, kbRoot, "wiki-tools")
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	for _, w := range res.Written {
+		if w.Kind == "mcp" {
+			t.Fatalf("a signed, unapproved descriptor was installed: %+v", w)
+		}
+	}
+	if len(res.NeedsApproval) == 0 {
+		t.Fatal("the signed descriptor is not reported as needing approval")
 	}
 }
