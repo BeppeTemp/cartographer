@@ -94,3 +94,31 @@ func TestRunDispatchesConfig(t *testing.T) {
 		t.Error("config was not dispatched")
 	}
 }
+
+// A literal token is never printed (table or --json); a ${NAME} reference is.
+func TestConfigRedactsLiteralClientToken(t *testing.T) {
+	dir := t.TempDir()
+	write := func(tok string) {
+		body := "server_url: http://127.0.0.1:1/mcp\ntoken: " + tok + "\n"
+		if err := os.WriteFile(clientconfig.Path(dir), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("s3cr3t-literal-value")
+	for _, asJSON := range []bool{false, true} {
+		var out bytes.Buffer
+		runConfig(&out, dir, asJSON, false)
+		if strings.Contains(out.String(), "s3cr3t-literal-value") {
+			t.Fatalf("json=%v: literal token printed:\n%s", asJSON, out.String())
+		}
+		if !strings.Contains(out.String(), "(set)") {
+			t.Errorf("json=%v: no (set) marker:\n%s", asJSON, out.String())
+		}
+	}
+	write("${MY_TOKEN}")
+	var out bytes.Buffer
+	runConfig(&out, dir, false, false)
+	if !strings.Contains(out.String(), "${MY_TOKEN}") {
+		t.Errorf("env reference should be shown:\n%s", out.String())
+	}
+}

@@ -305,6 +305,9 @@ var tokenEnvRef = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
 // EnvRefToken is the token value that reads the environment variable name.
 func EnvRefToken(name string) string { return "${" + name + "}" }
 
+// IsEnvRef reports whether v is a `${NAME}` reference rather than a literal.
+func IsEnvRef(v string) bool { return tokenEnvRef.MatchString(strings.TrimSpace(v)) }
+
 // TokenEnv is the name of the environment variable the clients read the token
 // from: the NAME of a `${NAME}` token, DefaultTokenEnv for a literal token
 // (the agents' MCP entries can only reference a variable, never carry the

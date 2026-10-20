@@ -481,6 +481,13 @@ func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest
 		a.Signed = false
 		a.BuiltIn = a.Source == "bundle"
 		if a.Signature == nil {
+			// A pinned KB signs every artifact it ships (BuildManifest signs each
+			// kb: artifact, instructions and mcp included), so an unsigned one
+			// under a pin is a stripped signature, not a legacy artifact: fail
+			// closed (D906).
+			if strings.HasPrefix(a.Source, "kb:") && len(pins[strings.TrimPrefix(a.Source, "kb:")]) > 0 {
+				return Manifest{}, fmt.Errorf("provisioning: KB %q has a pinned signing key but %s/%s carries no signature", strings.TrimPrefix(a.Source, "kb:"), a.Kind, a.Name)
+			}
 			continue
 		}
 		kbName := strings.TrimPrefix(a.Source, "kb:")

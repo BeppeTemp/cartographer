@@ -17,7 +17,7 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Name under which the server is registered in each agent's MCP configuration."},
 	{Path: "auth", Scope: settingschema.ScopeClient, Type: "bool", Default: "false",
 		Description: "The server requires a bearer token; the clients then send the token."},
-	{Path: "token", Scope: settingschema.ScopeClient, Type: "string", Default: "${CARTOGRAPHER_TOKENS}",
+	{Path: "token", Scope: settingschema.ScopeClient, Type: "string", Default: "${CARTOGRAPHER_TOKENS}", Secret: true,
 		Description: "The bearer token: ${NAME} reads it from the environment variable NAME (an unattended run falls back to the private token file `connect` wrote), anything else is the token itself, and the file is then kept private (mode 0600). The agents' MCP entries can only name a variable, so a literal token has them read $CARTOGRAPHER_TOKENS."},
 	{Path: "clients", Scope: settingschema.ScopeClient, Type: "map", Default: "{}",
 		Description: "Which KBs each connected provider receives, as <provider>: {kbs: [...]}. A provider with no entry, or an entry without kbs, receives every known KB. clients.claude.config_dirs lists extra Claude Code config directories (CLAUDE_CONFIG_DIR) whose .claude.json also receives the MCP entry. Edit it with `cartographer client`."},

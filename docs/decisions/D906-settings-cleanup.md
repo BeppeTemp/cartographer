@@ -154,11 +154,11 @@ realignment `sync` runs, which first carries over the values that have a new hom
   for a literal and never carry it. The realignment rewrites `token_env: X` as `token: ${X}` in place, comment
   included; until then `Load` honours `token_env`, so a read-only file does not lose its credentials.
 - **`trust` and `--auto-trust` are removed; the safety checks are not.** An unsigned artifact of a KB that is not an
-  MCP descriptor is **installed**: with `trust` defaulting to true, and the connect form pre-ticking it, that
+  MCP descriptor is **installed** (for a KB with no pin; see below): with `trust` defaulting to true, and the connect form pre-ticking it, that
   already was what every default machine did, and the setting only let a person leave a KB's skills waiting for a
   flag the session-start hook then passed. What stays, and is not a setting: a path that escapes its directory is
   refused (D40), an artifact whose signature does not verify against a pinned `signing_keys` entry fails the whole
-  sync (D114), and a symlinked destination is refused (D148). `Signed` stays verification output only, and `status`
+  sync (D114), a KB with a `signing_keys` pin accepts only signed artifacts (an artifact with no signature under a pin fails the sync: `trust: false` plus a pin used to hold it back, and a response that strips signatures must not downgrade it), and a symlinked destination is refused (D148). `Signed` stays verification output only, and `status`
   reports an unsigned installed artifact as `trusted`. `sync_apply` loses its `auto_trust` argument for the same
   reason. `--auto-trust` is still **accepted and ignored with a warning** by `sync` and `connect`: the
   `cartographer-bootstrap` hook an older version wrote runs `cartographer sync --auto-trust`, and a flag error there
