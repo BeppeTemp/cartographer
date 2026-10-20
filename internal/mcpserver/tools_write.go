@@ -1620,7 +1620,7 @@ type rewrittenConcept struct {
 func toolConceptMove(k *kb.KB) Tool {
 	return Tool{
 		Name:        "concept_move",
-		Description: "Moves concepts to new IDs in one commit: one source_id/target_id pair or a moves array (exclusive). All entries are validated first (source exists, target free, no traversal or duplicate source); an invalid one aborts the batch. Unless rewrite_links=false, inbound links KB-wide are rewritten. Works across maps and services/. An expanded concept moves with assets and satellites. A mid-batch filesystem failure names both IDs, no rollback. Returns findings on moved concepts and their linkers.",
+		Description: "Moves concepts to new IDs in one commit: one source_id/target_id pair or a moves array (exclusive). All entries are validated first (source exists, target free, no traversal or duplicate source); an invalid one aborts the batch. Unless rewrite_links=false, inbound links KB-wide are rewritten; in a git KB rewrite_links=false is refused by the write gate when the page has linkers. Works across maps and services/. An expanded concept moves with assets and satellites. A mid-batch filesystem failure names both IDs, no rollback. Returns findings on moved concepts and their linkers.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -1643,7 +1643,8 @@ func toolConceptMove(k *kb.KB) Tool {
 					}
 				},
 				"rewrite_links": {
-					"type": "boolean"
+					"type": "boolean",
+					"description": "Default true. false leaves linkers untouched; in a git KB a move with any linker is then refused by the write gate"
 				}
 			}
 		}`),
