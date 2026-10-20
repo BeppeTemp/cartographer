@@ -742,6 +742,11 @@ func TestWriteConcept_StubDossierIndexSuDossierImplicito(t *testing.T) {
 	if !strings.Contains(content, "title: Smart Home") {
 		t.Errorf("stub index.md title not derived from kebab name: %q", content)
 	}
+	// D907: the stub lists the page that created the dossier, so neither is an
+	// orphan and the write that creates a dossier introduces no finding.
+	if !strings.Contains(content, "- [foo](foo.md)") {
+		t.Errorf("stub index.md does not list the page that created it: %q", content)
+	}
 }
 
 func TestWriteConcept_NonSovrascriveIndexDossierEsistente(t *testing.T) {

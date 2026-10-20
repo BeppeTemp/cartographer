@@ -1316,14 +1316,21 @@ func titleFromKebab(name string) string {
 
 // stubExpandedIndex writes an index.md for an implicitly created
 // expanded-concept directory (D72 WP4): type Index, title derived from the
-// kebab-case directory name. Called from WriteConcept only when the
+// kebab-case directory name, listing the page whose write created the
+// directory (child, a file name). The entry is what keeps both pages out of
+// the orphan check — a stub that links nothing is a node connected to nothing,
+// and its first page has no incoming link — so the write that creates a
+// dossier never introduces a finding it could not avoid (D907). Called from WriteConcept only when the
 // directory itself did not exist before the triggering write, so it can
 // never overwrite an existing index.md. Writes via writeFileAtomic directly
 // (not WriteConcept) to avoid recursing into the depth guard / stub logic
 // above.
-func stubExpandedIndex(dirAbs string) error {
+func stubExpandedIndex(dirAbs, child string) error {
 	title := titleFromKebab(filepath.Base(dirAbs))
 	content := "---\ntype: Index\ntitle: " + title + "\n---\n# " + title + "\n"
+	if child != "" && child != "index.md" {
+		content += "\n- [" + strings.TrimSuffix(child, ".md") + "](" + child + ")\n"
+	}
 	return writeFileAtomic(filepath.Join(dirAbs, "index.md"), []byte(content))
 }
 
@@ -1529,7 +1536,7 @@ func (kb *KB) commitWriteConceptPlan(plan *writeConceptPlan) (string, error) {
 	}
 
 	if plan.newExpandedDir != "" {
-		if err := stubExpandedIndex(plan.newExpandedDir); err != nil {
+		if err := stubExpandedIndex(plan.newExpandedDir, filepath.Base(plan.absPath)); err != nil {
 			return "", fmt.Errorf("WriteConcept: stub expanded index.md: %w", err)
 		}
 	}
