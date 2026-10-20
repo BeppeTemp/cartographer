@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a budgeted session that applies mechanical repairs and works through the server's ranked review list, always started by the operator, who decides each item or delegates the session. Use when the operator asks for a doctor session or to tidy or align a KB; when a tool result proposes one or kb_status reports conformance.doctor_suggested, propose it to the operator and wait.
-version: "3.1"
+version: "3.2"
 ---
 # KB Doctor - Skill
 
@@ -83,10 +83,10 @@ Token economy (a doctor session reads a KB, not a page):
   call): `counts_by_check` is the full census, and `truncated` with `next_offset` says where to
   continue;
 - `kb_review` per `kind` with `limit`/`offset`, never the mixed list;
-- when the KB clone is on this machine and a POSIX shell is available, two aggregate questions
-  belong to the bundled scripts, which only read: `sh <skill-dir>/scripts/suppression_inventory.sh
-  <clone>` (what is silenced, where) and `sh <skill-dir>/scripts/section_freq.sh <clone> <map>`
-  (the headings the map's pages really use). Never write files in the clone, never run git there.
+- when the KB clone is on this machine and a POSIX shell is available, one aggregate question
+  belongs to the bundled script, which only reads: `sh <skill-dir>/scripts/section_freq.sh <clone>
+  <map>` (the headings the map's pages really use). Never write files in the clone, never run git
+  there.
 
 ## Procedure
 
@@ -136,7 +136,7 @@ Token economy (a doctor session reads a KB, not a page):
    `sh <skill-dir>/scripts/section_freq.sh <clone> <map>` lists the headings the map's pages really use, so the
    schema describes the house style instead of fighting it: adopt what recurs, leave one-off
    descriptive headings as findings and say so, never stuff a template with every singleton.
-   Under a strict map (`require_template`), the checks that remain are yours: a
+   In a map that declares templates every page binds to one (D371), and the checks that remain are yours: a
    `template_extra_section` page needs its text merged into a template section or moved to another
    page, never deleted; a `template_section_missing` section is filled from the sources or, when no
    source exists, recorded as a `missing_context` gap naming it. Never add an empty heading to
@@ -162,11 +162,20 @@ Token economy (a doctor session reads a KB, not a page):
      {status: "<proposed>"}`, reason "reclassify active to <proposed> (D321)"; when the proposal
      is `unknown`, set `waiting_on: "operator decision"` and `review_after` 14 days from now and
      move on (assisted: ask the operator first);
-   - **dismiss** with a reason: `concept_patch` adding the kind to `lint_ignore` on a concept the
-     item names, `reason` saying why, so the history keeps it (a `map_naming` item names maps as
-     `<map>/_map`: ask the operator to add `lint_ignore: [map_naming]` to that map's `_map.md`; a
-     `zombie_work` item whose first concept is retired is a shared origin — when it is where the
-     others came from, dismiss it once on that retired concept);
+   - **settle as it is**: nothing dismisses an item (D907); it closes when its pages are in the
+     state it asks for, so an item that is right as it stands is settled by writing the state that
+     says so: `duplicate_candidate`, each page links the other saying how they differ;
+     `zombie_work`, the open page is closed, its origin link points at the successor, or a
+     precedent cited as history leaves the origin section (a group whose first concept is retired
+     is a shared origin: retarget or close the openers); `promotion_candidate`, the entry links the
+     procedure's page in `promote_to`; `scattered_work`, the page links into `work_map` or its
+     items are checked; `status_reclassify`, the status changes, or the journal lists that status
+     in `open_statuses` when it does mean open work; `repeated_fact`, one owner keeps the line
+     and the copies link it, or the line moves into the template; `read_hotspot`, the body
+     shrinks into satellites (`concept_expand`); `map_naming`, the titles share one scheme;
+     `glossary_gap`, the glossary defines the term; `harvest_candidate`, the entry is archived;
+     `template_proposal`, the map declares a template its pages follow; `lint_judgement`, the
+     page no longer has the finding. Never add a field or a heading only to close an item;
    - **defer**: nothing is written and it comes back next session — unless the finding is on open
      work only the operator or a third party can unblock: then `concept_patch` `waiting_on` (who or
      what) and `review_after` (a date), which suspends `stale_open` until then and makes the wait
@@ -181,7 +190,7 @@ Token economy (a doctor session reads a KB, not a page):
    KB does not hold, duplicates neither of which contains the other, a choice between sources that
    disagree). Assisted: ask the operator now, and write the answer. Record a gap only when they
    cannot answer in the session ("I have to check", "ask X"); delegated: record it without asking.
-   A gap is not left to come back every session: record it, then dismiss the signal:
+   A gap makes the wait visible; the item stays listed until the answer is written:
    - `search` first for an open gap on the same concept and question; if one exists, `concept_patch`
      it with the new evidence instead of opening a second;
    - otherwise `concept_new` a `Contradiction` (map: the KB's contradiction map) with
@@ -189,8 +198,8 @@ Token economy (a doctor session reads a KB, not a page):
      information it should have), `resolution_status: open`, `involves` the concepts, `title` the
      question in one sentence, the body the evidence and the options. Gaps never block a gate
      (D273); `kb_status` `open_gaps` is the queue of what people have to answer;
-   - `concept_patch` the item's concept adding the kind to `lint_ignore`, `reason` citing the gap's
-     ID, so the history ties the dismissal to the question. Count the item against the budget.
+   - the next session meets the item again, finds the open gap in step 1 and does not ask twice.
+     Count the item against the budget.
    Closing a gap later (the answer arrives) is `conflict_resolve`; step 1 reads the open ones back.
 
 5b. **Harvest and archive.** `kb_review` `kind: "harvest_candidate"`: a journal entry that is closed
@@ -216,28 +225,24 @@ Token economy (a doctor session reads a KB, not a page):
    entries leave default `search`, `read_cost` and the atlas structure; `search` with
    `include_archived: true` still finds them.
 6. **Advice.** `lint` with `severity_min: info`: an `info` finding is advice the KB has not
-   answered yet, and the session is done only when nothing is left — fixed, or accepted where the
-   KB says so. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
+   answered yet, and the session is done only when nothing is left: nothing accepts a finding
+   (D907), so each one is fixed on the page. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
    one reason per link; `link_to_retired` in a live page: update the sentence or point at the
-   successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive`, not patch + move + `index_patch`). Accept what is a choice only when no
-   repair fits the fact, and never silently: first see what the KB already silences
-   (`sh <skill-dir>/scripts/suppression_inventory.sh <clone>` when the clone is local), so a new
-   acceptance is an informed addition rather than another layer nobody will read; then
-   `lint_ignore` with a `reason` naming the finding's substance: on the concept for a one-off, map-wide with `map_update` `lint_ignore` (the list replaces the map's: extend the
-   `lint_ignore` that `map_list` shows) when the whole map follows that style. An artifact finding
-   (a skill, an agent: `acceptability` says `artifact`) is accepted in `instructions.md`
-   `lint_accept`, keyed by the path the finding names, with `artifact_write`. Each accepted check
-   counts against the budget once per map, not once per concept. Many per-concept writes go in
-   one `concept_batch` (up to 50 operations, one commit), not one call each.
+   successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive`, not patch + move + `index_patch`). A finding
+   that is wrong for a page that is right as written is a defect of the check, not of the page:
+   leave the page, and list the check, the page and why in the closing report so the operator
+   can raise it upstream; never add a field, a heading or an empty section to silence it. A
+   leftover `lint_ignore` on a page or `lint_accept` in `instructions.md` silences nothing any
+   more: `kb_repair` drops them. Many per-concept writes go in one `concept_batch` (up to 50
+   operations, one commit), not one call each.
    - **Page names** (D315): `title_h1_mismatch` is mechanical (`kb_repair`, the heading follows the
      title); `title_quality` is an info finding with no fix, because the wording is a judgement:
-     propose a shorter label (assisted: show the operator), or accept it with `lint_ignore` when the
-     title is deliberate.
+     propose a shorter label (assisted: show the operator); a title that is right as written is a
+     check defect for the closing report.
    - **Drift** (D357): `stray_file` (a non-Markdown file in `data/`) and an `unknown_type` with no unique
      case match are judgement: delegated, decide from the KB and the palette the message
      lists (assisted: show the operator the file or the type); then move the file (`asset_write` under an expanded concept if it belongs to
-     one), `concept_patch` the type, or accept with `lint_ignore` when it is deliberate; a file you
-     cannot place is a gap (5c), never a deletion. A tie in `value_case_variant`: the spelling most
+     one) or `concept_patch` the type; a file you cannot place is a gap (5c), never a deletion. A tie in `value_case_variant`: the spelling most
      pages use wins (assisted: ask), then patch the minority.
    - **Boilerplate** (D314, D317): a `repeated_fact` whose evidence line comes from a template is
      structural. The fix is in the template (`artifact_read` `templates/`), not in each concept:

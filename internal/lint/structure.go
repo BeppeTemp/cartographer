@@ -226,7 +226,7 @@ func (s *structure) admitsType(mapName, conceptType string) bool {
 }
 
 // conceptChecks returns the per-concept structural findings for id, to be
-// passed through the caller's emit (so lint_ignore applies).
+// passed through the caller's emit.
 func (s *structure) conceptChecks(id okf.ConceptID, relPath string) []Finding {
 	i, ok := s.lg.Index[id]
 	if !ok {
@@ -305,8 +305,14 @@ func (s *structure) brokenRelation(id okf.ConceptID, relPath string, facets kb.N
 // is never one.
 func (s *structure) retiredLinkers(i int, facets kb.NodeFacets) []string {
 	var linkers []string
+	self := string(s.lg.IDs[i]) + "/"
 	for _, u := range s.lg.Graph.In[i] { // ascending, so sorted by id
 		uid := s.lg.IDs[u]
+		// A satellite of an expanded concept is part of it: it links its own
+		// parent, and retiring the concept retires them together.
+		if strings.HasPrefix(string(uid), self) {
+			continue
+		}
 		if u == i || retired(s.lg.Facets[u].Status) || s.kindOf(uid) != "map" || string(uid) == facets.SupersededBy {
 			continue
 		}
@@ -325,9 +331,8 @@ func (s *structure) retiredLinkers(i int, facets kb.NodeFacets) []string {
 // concept itself (D313).
 //
 // One finding per retired concept, on the retired concept: retiring a
-// component is one decision, so it yields one finding, and accepting it
-// (lint_ignore: [link_to_retired] here) means the remaining mentions are
-// historical. Linkers are live concepts in a map only (an incident in a
+// component is one decision, so it yields one finding, and it closes when the
+// remaining mentions are plain text, not links (D907). Linkers are live concepts in a map only (an incident in a
 // journal legitimately cites a component that is gone today), and the
 // declared successor is never counted.
 func (s *structure) linkToRetired(i int, relPath string, facets kb.NodeFacets) []Finding {
@@ -344,7 +349,7 @@ func (s *structure) linkToRetired(i int, relPath string, facets kb.NodeFacets) [
 		shown, more = shown[:5], ", …"
 	}
 	f := newFinding("link_to_retired", Finding{Path: relPath,
-		Message: fmt.Sprintf("retired (status: %s) but still linked by %d live concepts: %s%s — update the ones that rely on it; accept with lint_ignore: [link_to_retired] on this concept if the remaining mentions are historical",
+		Message: fmt.Sprintf("retired (status: %s) but still linked by %d live concepts: %s%s — update the ones that rely on it; write a mention that is only history as plain text, not a link",
 			facets.Status, len(linkers), strings.Join(shown, ", "), more)})
 	// D366: pointing the links at the declared successor is mechanical when
 	// that is a live concept, one hop away. Without one (none, unresolvable,

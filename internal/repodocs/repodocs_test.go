@@ -767,7 +767,7 @@ func renderLintCatalogue() string {
 		return "-"
 	}
 	var b strings.Builder
-	b.WriteString("| Check | Severity | Level | Accept | Fix | Auto-repair safe | On write |\n")
+	b.WriteString("| Check | Severity | Level | Avoidable at write | Fix | Auto-repair safe | On write |\n")
 	b.WriteString("|---|---|---|---|---|---|---|\n")
 	for _, c := range lint.Checks() {
 		fix := "-"
@@ -775,7 +775,7 @@ func renderLintCatalogue() string {
 			fix = "`" + strings.Join(c.FixKinds, "`, `") + "`"
 		}
 		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %s | %s |\n",
-			c.Name, c.Severity, c.Level, c.Accept, fix, yes(c.AutoRepairSafe), yes(c.OnWrite))
+			c.Name, c.Severity, c.Level, yes(c.AvoidableAtWrite), fix, yes(c.AutoRepairSafe), yes(c.OnWrite))
 	}
 	return b.String()
 }
@@ -808,5 +808,49 @@ func TestLintCatalogueIsUpToDate(t *testing.T) {
 	}
 	for name := range documented {
 		t.Errorf("docs/data-plane.md catalogue lists %q, which is not registered", name)
+	}
+}
+
+// unavoidableTableLead opens the docs/data-plane.md table of the checks no
+// write can avoid, one row per reason.
+const unavoidableTableLead = "these are the checks it is false for, grouped by why no write can avoid them:"
+
+// AvoidableAtWrite defaults to false, which the write gate reads as "no write
+// could avoid this". A check is only false on purpose when the table says why
+// (D907), so a new check left unclassified fails here until it is classified:
+// true in the registry, or a row with its reason.
+func TestUnavoidableChecksSayWhy(t *testing.T) {
+	doc := readFile(t, repoRoot(t), "docs/data-plane.md")
+	i := strings.Index(doc, unavoidableTableLead)
+	if i < 0 {
+		t.Fatalf("docs/data-plane.md: the table of unavoidable checks (%q) is missing", unavoidableTableLead)
+	}
+	documented := map[string]bool{}
+	for _, line := range strings.Split(doc[i+len(unavoidableTableLead):], "\n")[1:] {
+		if !strings.HasPrefix(line, "|") {
+			if len(documented) > 0 || strings.TrimSpace(line) != "" {
+				break
+			}
+			continue
+		}
+		if cells := strings.Split(line, "|"); len(cells) > 3 {
+			for _, m := range regexp.MustCompile("`([a-z_]+)`").FindAllStringSubmatch(cells[2], -1) {
+				documented[m[1]] = true
+			}
+		}
+	}
+	for _, c := range lint.Checks() {
+		if !c.AvoidableAtWrite && !documented[c.Name] {
+			t.Errorf("check %q is not AvoidableAtWrite and the docs/data-plane.md table does not say why no write can avoid it", c.Name)
+		}
+	}
+	for name := range documented {
+		c, ok := lint.Spec(name)
+		switch {
+		case !ok:
+			t.Errorf("the docs/data-plane.md table of unavoidable checks lists %q, which is not registered", name)
+		case c.AvoidableAtWrite:
+			t.Errorf("the docs/data-plane.md table lists %q as unavoidable, but the registry marks it AvoidableAtWrite", name)
+		}
 	}
 }

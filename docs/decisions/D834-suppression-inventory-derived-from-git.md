@@ -4,6 +4,8 @@ topic: data-plane
 
 # D834 — The suppression inventory counts in lint and reads its dates from git
 
+> **Superseded by [D907](D907-the-lint-cannot-be-escaped.md)**: with `lint_ignore` and `lint_accept` gone there is nothing to inventory; `lint.RunWithSuppressions`, `kb_status.suppressions` and `lint_ignore_invalid` are removed.
+
 **Decision.** A whole-KB lint run counts, per `lint_ignore` / `lint_accept`
 entry, the findings it dropped (`lint.RunWithSuppressions`). A `lint_ignore`
 entry that hid nothing is reported as `lint_ignore_invalid`, as a stale

@@ -67,6 +67,10 @@ const (
 	// index line whose only link is Field; the path is the index's, not a
 	// concept's.
 	FixDropIndexEntry = "drop_index_entry"
+	// FixRewriteContract: a removed key of a map's contract (D907). Field = the
+	// key found (for a `_map.md`), or "lint_accept" on instructions.md; the
+	// repair rewrites the descriptor to the current shape, or drops the key.
+	FixRewriteContract = "rewrite_contract"
 	// FixRenameHeading and FixReorderSections (D352) are declared with the
 	// template checks, in template.go.
 )
@@ -150,7 +154,6 @@ type conceptInput struct {
 	Body           string
 	FrontmatterRaw string           // raw frontmatter block (between ---), for malformed detection
 	Parsed         *okf.Frontmatter // nil when the concept has no readable frontmatter
-	AllowPrefixes  []string
 	Registry       registryLint
 	MapName        string          // "" outside a map
 	Contract       *kb.MapContract // nil outside a map
@@ -162,8 +165,7 @@ type conceptInput struct {
 // frontmatterFindings computes the checks that depend only on one concept's
 // own frontmatter, body and map contract: stale_claim, machine_path,
 // missing_title, the map field contract and the two conformance checks. Run and
-// CheckConcept both call it, so there is one implementation. It applies no
-// lint_ignore: the caller does.
+// CheckConcept both call it, so there is one implementation.
 func frontmatterFindings(in conceptInput) []Finding {
 	var out []Finding
 	parsed := in.Parsed
@@ -204,7 +206,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 	}
 
 	// --- machine_path (warning, D75 WP6 / D124) ---
-	if all := disallowedMachinePaths(in.Body, in.AllowPrefixes); len(all) > 0 {
+	if all := disallowedMachinePaths(in.Body); len(all) > 0 {
 		disallowed := all[0]
 		msg := fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<nome>}} instead (D75); operational paths on containers/remote hosts are not client-local (D124)", disallowed)
 		// One finding per concept, but naming every path: fixing the first
@@ -311,14 +313,42 @@ func frontmatterFindings(in conceptInput) []Finding {
 	return out
 }
 
+// contractNamesField says whether the contract requires the field or lists
+// allowed values for it, for the concept type or for every type.
+func contractNamesField(c kb.MapContract, conceptType, field string) bool {
+	for _, f := range c.RequiredFor(conceptType) {
+		if strings.EqualFold(f, field) {
+			return true
+		}
+	}
+	_, ok := c.AllowedValues(conceptType, field)
+	return ok
+}
+
 // nonstandardFieldFindings reports each frontmatter key that is a known
 // synonym of a standard field (nonstandard_field, warning).
 func nonstandardFieldFindings(in conceptInput) []Finding {
 	var out []Finding
 	conceptType := in.Parsed.Type()
 	for _, key := range in.Parsed.Keys() {
+		// lint_ignore was a field (D159) until D907 removed every way to
+		// silence a finding: the key does nothing now, and the repair drops it.
+		if key == "lint_ignore" {
+			out = append(out, newFinding("nonstandard_field", Finding{
+				Path:    in.RelPath,
+				Message: `frontmatter key "lint_ignore" was removed (D907): nothing silences a finding, so fix the page instead — the repair drops the key`,
+				Fix:     &Fix{Kind: FixDropField, Field: key},
+			}))
+			continue
+		}
 		std, ok := synonymOf[strings.ToLower(key)]
 		if !ok {
+			continue
+		}
+		// A field the page's own map contract names (required_fields or
+		// field_values, for the page's type or "*") is the name the map asks
+		// for: the page keeps it, the contract being explicit.
+		if in.Contract != nil && contractNamesField(*in.Contract, conceptType, key) {
 			continue
 		}
 		// A timestamp synonym such as "data" or "date" is an ordinary English
@@ -335,21 +365,13 @@ func nonstandardFieldFindings(in conceptInput) []Finding {
 			f.Message = fmt.Sprintf("uses %q for the standard field %q — rename it, so the tools that read %q see it", key, std, std)
 			f.Fix = &Fix{Kind: FixRenameField, Field: key, To: std}
 		}
-		if in.Contract != nil {
-			for _, req := range in.Contract.RequiredFor(conceptType) {
-				if req == key {
-					f.Message += fmt.Sprintf("; map %q requires %q in its contract too", in.MapName, key)
-					break
-				}
-			}
-		}
 		out = append(out, f)
 	}
 	return out
 }
 
 // toolParamFieldFindings reports each frontmatter key named like a concept-write
-// tool parameter (tool_param_field, warning, drop_field). Not suppressible.
+// tool parameter (tool_param_field, warning, drop_field).
 func toolParamFieldFindings(relPath string, parsed *okf.Frontmatter) []Finding {
 	var out []Finding
 	for _, key := range parsed.Keys() {
@@ -367,9 +389,8 @@ func toolParamFieldFindings(relPath string, parsed *okf.Frontmatter) []Finding {
 
 // CheckConcept computes the page-level checks for one concept without walking
 // the KB (D289): conceptFindings restricted to the OnWrite checks (D354), the
-// ones a write response can return. lint_ignore is applied, the concept's and
-// its map's (as lint does, D306); errors are never suppressed. Graph checks are
-// out of scope, they need the whole KB.
+// ones a write response can return. Nothing silences a finding (D907). Graph
+// checks are out of scope, they need the whole KB.
 func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(content)
 	var parsed *okf.Frontmatter
@@ -381,27 +402,15 @@ func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 	if parts := strings.Split(string(id), "/"); len(parts) > 1 {
 		if contract, err := k.ReadMapContract(parts[0]); err == nil {
 			in.MapName, in.Contract = parts[0], &contract
-			in.AllowPrefixes = contract.MachinePathAllowPrefixes
 			if contract.HasTemplateKeys() {
 				in.Catalog = k.TemplateCatalog()
 			}
 		}
 	}
-	ignores := lintIgnoreSet(parsed)
-	var mapIgnores map[string]bool
-	if m := owningMap(string(id)); m != "" {
-		if meta, err := k.ReadArchiveMeta(m); err == nil {
-			mapIgnores = lintIgnoreSet(meta)
-		}
-	}
-	var out []Finding
-	for _, f := range conceptFindings(conceptCtx{ID: id, In: in, Write: true}) {
-		if suppressed(f, ignores) || mapSuppresses(mapIgnores, f) {
-			continue
-		}
-		out = append(out, f)
-	}
-	return out
+	return conceptFindings(conceptCtx{
+		ID: id, In: in, Write: true,
+		KBRoot: k.Root, HasSecretsDir: secretsDirExists(k), LegacyPaths: readInstructions(k).legacyPaths,
+	})
 }
 
 // valueContractFindings reports, per map, the scalar fields that look like a
@@ -430,7 +439,7 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 	}
 	skip := map[string]bool{
 		"title": true, "type": true, "description": true, "timestamp": true,
-		"review_after": true, "superseded_by": true, "lint_ignore": true,
+		"review_after": true, "superseded_by": true,
 		"waiting_on": true, // free text (D321)
 		// D295 WP3: free-form, source-like and list-valued fields are never
 		// vocabulary candidates.
@@ -561,10 +570,6 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 	return out
 }
 
-// suppressed reports whether a concept's lint_ignore silences f. Errors never
-// are, and neither is tool_param_field: a concept cannot declare a tool
-// argument a legitimate field.
-
 // detectMalformedFrontmatter checks for a scalar value followed by indented
 // block-list-like lines that the OKF parser (D8) silently ignores, truncating
 // the value. The shape: `key: "- a"` then `  - b` (indented, unquoted).
@@ -609,14 +614,6 @@ func detectMalformedFrontmatter(relPath, fmRaw string) []Finding {
 		}
 	}
 	return out
-}
-
-func suppressed(f Finding, ignores map[string]bool) bool {
-	if f.Severity == SevError || !ignores[f.Check] {
-		return false
-	}
-	spec, _ := Spec(f.Check)
-	return !spec.NeverSuppress
 }
 
 // identifierMinCarriers is the fewest carriers for "every value distinct" to
@@ -669,12 +666,12 @@ func dateShaped(v interface{}) bool {
 // string stored under one of them is the shape stringified_list reports.
 var listFields = map[string]bool{
 	"provenance": true, "tags": true, "related": true,
-	"lint_ignore": true, "open": true, "secrets_source": true,
+	"open": true, "secrets_source": true,
 }
 
 // listFieldOrder fixes the order findings are emitted in (map iteration is
 // random, and lint output is compared by tests and diffed by people).
-var listFieldOrder = []string{"provenance", "tags", "related", "lint_ignore", "open", "secrets_source"}
+var listFieldOrder = []string{"provenance", "tags", "related", "open", "secrets_source"}
 
 // listLike reports whether a string value is written as a list: a bracketed
 // flow list, several of them joined by "; " ("[a]; [b]"), or a block-list item
@@ -700,7 +697,7 @@ func looksStringified(v string) bool { return strings.TrimSpace(v) != "" }
 // splitFields are the list fields whose items are identifiers, so a bare
 // "x, y" is two items. provenance and secrets_source hold citations, which may
 // contain commas ("Talk, 2024"): a bare string there is one item (D357).
-var splitFields = map[string]bool{"tags": true, "related": true, "lint_ignore": true, "open": true}
+var splitFields = map[string]bool{"tags": true, "related": true, "open": true}
 
 // ListItems extracts the items of a string stored under the list field
 // `field`. A written list ("[a, b]", "[a]; [b]", "- a") gives its elements,
@@ -812,17 +809,8 @@ func titleOf(fm *okf.Frontmatter) string {
 }
 
 // defaultTitleMaxLength is the length above which a title is a sentence, not
-// a label (title_quality). A map overrides it with title_max_length.
+// a label (title_quality). No key changes it (D907).
 const defaultTitleMaxLength = 100
-
-// EffectiveTitleMaxLength is the title length limit of a map: its
-// title_max_length, else the default. 0 or less means no limit.
-func EffectiveTitleMaxLength(contract *kb.MapContract) int {
-	if contract != nil && contract.TitleMaxLength != nil {
-		return *contract.TitleMaxLength
-	}
-	return defaultTitleMaxLength
-}
 
 // titleStatusWords are lifecycle words that decay when embedded in a title.
 var titleStatusWords = []string{"attivo", "active", "dismesso", "deprecated", "draft", "superseded", "preparazione", "archiviato", "archived", "declassato"}
@@ -882,9 +870,8 @@ func titleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []s
 	if len(deco) > 0 {
 		out = append(out, fmt.Sprintf(decorativeTitleMsg+" (%s); titles are labels shown in listings and the Atlas: prefer plain text", strings.Join(deco, " ")))
 	}
-	limit := EffectiveTitleMaxLength(contract)
-	if n := len([]rune(title)); limit > 0 && n > limit {
-		out = append(out, fmt.Sprintf("title is %d characters (limit %d for this map); a title is a label, not a sentence", n, limit))
+	if n := len([]rune(title)); n > defaultTitleMaxLength {
+		out = append(out, fmt.Sprintf("title is %d characters (limit %d); a title is a label, not a sentence", n, defaultTitleMaxLength))
 	}
 	lower := strings.ToLower(title)
 	if hasStatus {
@@ -980,10 +967,4 @@ func containsWord(s, word string) bool {
 // contract, one message each. hasStatus: the concept carries a status field.
 func TitleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []string {
 	return titleTextIssues(contract, hasStatus, title)
-}
-
-// MapIgnoresCheck reports whether a map descriptor's lint_ignore (D306)
-// silences check for the whole map.
-func MapIgnoresCheck(meta *okf.Frontmatter, check string) bool {
-	return lintIgnoreSet(meta)[check]
 }

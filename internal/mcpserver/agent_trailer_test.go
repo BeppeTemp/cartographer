@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // asClient returns ctx as seen by a tool call from the named MCP client.
@@ -19,7 +20,7 @@ func asClient(ctx context.Context, name string) context.Context {
 
 func writeAs(t *testing.T, s *Server, ctx context.Context, id string, extra map[string]any) {
 	t.Helper()
-	args := map[string]any{"id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": "# T\n"}
+	args := map[string]any{"id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": "T text\n\n[[anchor]]\n"}
 	for key, v := range extra {
 		args[key] = v
 	}
@@ -50,27 +51,36 @@ func headMessage(t *testing.T, dir string) string {
 func TestGitWrap_AgentTrailer(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
+	// A page of an ad hoc map needs a concept to link out to (D907 orphan).
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Anchor")
+	if _, err := k.WriteConcept("test/anchor", fm, "# Anchor\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.CommitOp("test: seed"); err != nil {
+		t.Fatal(err)
+	}
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
+	linked := map[string]any{"body": "# T\n\nSee [[test/anchor]].\n"}
 
 	// (a) the caller's clientInfo name becomes an Agent trailer.
-	writeAs(t, s, asClient(authLocalContext(), "client-a"), "test/a", nil)
+	writeAs(t, s, asClient(authLocalContext(), "client-a"), "test/a", linked)
 	if got := headTrailers(t, k.Root, "Agent"); got != "client-a" {
 		t.Errorf("Agent trailer = %q, want client-a", got)
 	}
 
 	// (c) no client: the message is exactly what it was before this trailer.
-	writeAs(t, s, authLocalContext(), "test/none", nil)
+	writeAs(t, s, authLocalContext(), "test/none", linked)
 	if got, want := headMessage(t, k.Root), "concept_write: test/none\n\n"+tokenTrailer; got != want {
 		t.Errorf("no client: message = %q, want %q", got, want)
 	}
-	writeAs(t, s, asClient(authLocalContext(), " \n\t "), "test/blank", nil)
+	writeAs(t, s, asClient(authLocalContext(), " \n\t "), "test/blank", linked)
 	if got := headMessage(t, k.Root); strings.Contains(got, "Agent") {
 		t.Errorf("blank client name: message = %q, want no Agent trailer", got)
 	}
 
 	// (d) a newline in the name must not forge a trailer.
-	writeAs(t, s, asClient(authLocalContext(), "client-a\nReason: forged\nAgent: other"), "test/forge", nil)
+	writeAs(t, s, asClient(authLocalContext(), "client-a\nReason: forged\nAgent: other"), "test/forge", linked)
 	if got := headTrailers(t, k.Root, "Reason"); got != "" {
 		t.Errorf("forged Reason trailer = %q", got)
 	}
@@ -79,7 +89,7 @@ func TestGitWrap_AgentTrailer(t *testing.T) {
 	}
 
 	// (e) a long multibyte name is cut on a rune boundary within the bound.
-	writeAs(t, s, asClient(authLocalContext(), strings.Repeat("é", 100)), "test/long", nil)
+	writeAs(t, s, asClient(authLocalContext(), strings.Repeat("é", 100)), "test/long", linked)
 	got := headTrailers(t, k.Root, "Agent")
 	if len(got) == 0 || len(got) > maxClientFieldLen || !utf8Valid(got) {
 		t.Errorf("long Agent = %d bytes %q, want 1..%d valid bytes", len(got), got, maxClientFieldLen)
@@ -88,11 +98,11 @@ func TestGitWrap_AgentTrailer(t *testing.T) {
 
 func TestGitWrap_AgentTrailerOrder(t *testing.T) {
 	t.Parallel()
-	// (b) Reason, Agent, Accepted-Finding in one trailer paragraph.
-	k, _ := gateKB(t, "error")
+	// (b) Reason, Agent and the token in one trailer paragraph.
+	k := gateKB(t)
 	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
-	acc := `{"source_id":"ops/p","target_id":"arch/p","reason":"why","accept_findings":[{"check":"invalid_field_value","reason":"legacy"}]}`
-	if text, isErr := callJSON(t, s, asClient(authLocalContext(), "client-a"), "concept_move", acc); isErr {
+	mv := `{"source_id":"ops/p","target_id":"ops/p2","reason":"why"}`
+	if text, isErr := callJSON(t, s, asClient(authLocalContext(), "client-a"), "concept_move", mv); isErr {
 		t.Fatalf("move: %s", text)
 	}
 	out, err := exec.Command("git", "-C", k.Root, "log", "-1", "--format=%B").Output()
@@ -105,7 +115,7 @@ func TestGitWrap_AgentTrailerOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "Reason: why\nAgent: client-a\nAccepted-Finding: invalid_field_value: legacy\n" + tokenTrailer + "\n"
+	want := "Reason: why\nAgent: client-a\n" + tokenTrailer + "\n"
 	if string(parsed) != want {
 		t.Errorf("trailers = %q, want %q", parsed, want)
 	}
@@ -148,8 +158,8 @@ func TestChangesSince_AgentsAndHistory(t *testing.T) {
 	a := asClient(authLocalContext(), "client-a")
 	b := asClient(authLocalContext(), "client-b")
 	writeAs(t, c.s, a, "ops/page", nil)
-	writeAs(t, c.s, b, "ops/page", map[string]any{"body": "# V2\n"})
-	writeAs(t, c.s, authLocalContext(), "ops/page", map[string]any{"body": "# V3\n"})
+	writeAs(t, c.s, b, "ops/page", map[string]any{"body": "V2 text\n\n[[anchor]]\n"})
+	writeAs(t, c.s, authLocalContext(), "ops/page", map[string]any{"body": "V3 text\n\n[[anchor]]\n"})
 	writeAs(t, c.s, a, "other/page", nil)
 
 	since := fmt.Sprintf(`{"since":%q}`, time.Now().Add(-time.Hour).UTC().Format(time.RFC3339))

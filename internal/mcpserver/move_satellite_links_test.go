@@ -102,7 +102,7 @@ func TestConceptMove_RebasesEveryPageOfAnExpandedConcept(t *testing.T) {
 			files[from+"/other.md"] = satPage("other\n")
 			files[to+"/peer.md"] = satPage("peer\n")
 			files[from+"/topic/index.md"] = satPage("[detail](detail.md) [other](../other.md) [peer](../../" + to + "/peer.md) ![fig](img/fig.png)\n")
-			files[from+"/topic/detail.md"] = satPage("[index](index.md) [more](more.md) [other](../other.md) [peer](../../" + to + "/peer.md) ![fig](img/fig.png) [dir](../topic/more.md)\n")
+			files[from+"/topic/detail.md"] = satPage("[index](index.md) [other](../other.md) [peer](../../" + to + "/peer.md) ![fig](img/fig.png) [dir](../topic/more.md)\n")
 			files[from+"/topic/more.md"] = satPage("[detail](detail.md) [up](index.md#top) [other](../other.md#x)\n")
 			files[from+"/topic/img/fig.png"] = "png"
 			satWriteFiles(t, k, files)
@@ -120,7 +120,7 @@ func TestConceptMove_RebasesEveryPageOfAnExpandedConcept(t *testing.T) {
 			satWantBody(t, k, to+"/topic",
 				"[detail](detail.md) [other](../../"+from+"/other.md) [peer](../peer.md) ![fig](img/fig.png)\n")
 			satWantBody(t, k, to+"/topic/detail",
-				"[index](index.md) [more](more.md) [other](../../"+from+"/other.md) [peer](../peer.md) ![fig](img/fig.png) [dir](more.md)\n")
+				"[index](index.md) [other](../../"+from+"/other.md) [peer](../peer.md) ![fig](img/fig.png) [dir](more.md)\n")
 			satWantBody(t, k, to+"/topic/more",
 				"[detail](detail.md) [up](index.md#top) [other](../../"+from+"/other.md#x)\n")
 			if broken := satBrokenLinks(t, k); len(broken) != 0 {
@@ -152,7 +152,7 @@ func TestConceptMove_ExpandedConceptKeepsItsDepth(t *testing.T) {
 }
 
 // A rename inside the same map keeps the directory but changes the name a link
-// such as "../topic/x.md" spells: the page still has to find its own sibling.
+// such as "../topic.md" spells: the page still has to find its own parent.
 func TestConceptMove_RenameKeepsLinksBetweenThePagesOfTheConcept(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
@@ -161,12 +161,12 @@ func TestConceptMove_RenameKeepsLinksBetweenThePagesOfTheConcept(t *testing.T) {
 	files := satMapFiles("notes")
 	files["notes/other.md"] = satPage("other\n")
 	files["notes/topic/index.md"] = satPage("[detail](detail.md)\n")
-	files["notes/topic/detail.md"] = satPage("[index](index.md) [self](../topic/index.md) [other](../other.md)\n")
+	files["notes/topic/detail.md"] = satPage("[self](../topic.md) [other](../other.md)\n")
 	satWriteFiles(t, k, files)
 
 	satMove(t, s, `{"source_id":"notes/topic","target_id":"notes/renamed"}`)
 
-	satWantBody(t, k, "notes/renamed/detail", "[index](index.md) [self](index.md) [other](../other.md)\n")
+	satWantBody(t, k, "notes/renamed/detail", "[self](../renamed.md) [other](../other.md)\n")
 	if broken := satBrokenLinks(t, k); len(broken) != 0 {
 		t.Errorf("broken_link after the rename: %v", broken)
 	}

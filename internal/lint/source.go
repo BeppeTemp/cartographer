@@ -9,7 +9,7 @@ import (
 
 // FirstMachinePath returns the first client-local path in s as the machine_path
 // check sees it (URLs excluded, no allow-prefixes), or "".
-func FirstMachinePath(s string) string { return firstDisallowedMachinePath(s, nil) }
+func FirstMachinePath(s string) string { return firstDisallowedMachinePath(s) }
 
 // uncitedSourceFinding implements source_uncited (D278): a Source marked
 // ingested that no concept cites through provenance was marked done while its

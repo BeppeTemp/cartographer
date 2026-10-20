@@ -55,7 +55,7 @@ func TestGeneratedIndex_FollowsWritesInTheSameCommit(t *testing.T) {
 	k, s := generatedKB(t)
 	curBefore := readIndex(t, k, "cur")
 
-	if res := callTool(t, s, "concept_write", `{"id":"ga/one","frontmatter":{"type":"Note","title":"One"},"body":"x\n"}`); res.IsError {
+	if res := callTool(t, s, "concept_write", `{"id":"ga/one","frontmatter":{"type":"Note","title":"One"},"body":"x\n\n[[anchor]]\n"}`); res.IsError {
 		t.Fatalf("concept_write: %v", res.Content)
 	}
 	files := strings.Join(headFiles(t, k.Root), " ")
@@ -87,7 +87,9 @@ func TestGeneratedIndex_FollowsWritesInTheSameCommit(t *testing.T) {
 func TestGeneratedIndex_IndexPatchAndStaleLint(t *testing.T) {
 	t.Parallel()
 	k, s := generatedKB(t)
-	callTool(t, s, "concept_write", `{"id":"ga/one","frontmatter":{"type":"Note","title":"One"},"body":"x\n"}`)
+	if res := callTool(t, s, "concept_write", `{"id":"ga/one","frontmatter":{"type":"Note","title":"One"},"body":"x\n\n[[anchor]]\n"}`); res.IsError {
+		t.Fatalf("concept_write: %v", res.Content)
+	}
 
 	_, hash, err := k.IndexHash("ga")
 	if err != nil {
@@ -123,7 +125,9 @@ func TestGeneratedIndex_IndexPatchAndStaleLint(t *testing.T) {
 	if !stale() {
 		t.Fatal("index_stale not reported after an out-of-band edit")
 	}
-	callTool(t, s, "concept_write", `{"id":"cur/x","frontmatter":{"type":"Note","title":"X"},"body":"x\n"}`)
+	if res := callTool(t, s, "concept_batch", `{"operations":[{"op":"write","id":"cur/x","frontmatter":{"type":"Note","title":"X"},"body":"x\n\n[[anchor]]\n","index_entry":true}]}`); res.IsError {
+		t.Fatalf("concept_batch: %v", res.Content)
+	}
 	if stale() {
 		t.Fatal("index_stale still reported after the next write")
 	}

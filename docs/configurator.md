@@ -40,7 +40,7 @@ Not in the usage text. The logic of the client-generated `cartographer-write-fin
 array, or JSON in a `text` block, or a string of several JSON values as OpenCode joins them; `supersede` appends `findings:` as plain text) for a `findings`
 array or `results[].findings` (`concept_batch`). With at least one finding it writes a fixed English
 message (a header with the count, up to 10 `<check> <path>: <message>` lines, `+N more`, and the
-instruction to fix or `lint_ignore`). `--channel stderr` (default, Claude Code) writes it to stderr
+instruction to fix them: nothing accepts a finding, D907). `--channel stderr` (default, Claude Code) writes it to stderr
 and exits 2; `--channel context` (Codex, [D361](decisions/D361-codex-write-findings-context.md))
 prints `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"<message>"}}` on
 stdout and exits 0, never 2. Anything else (no findings, an unknown shape, a parse error, a panic,
@@ -617,7 +617,7 @@ report); a check outside it is never applied. A KB that never wrote `auto_repair
 the report says so, and says that earlier releases applied none, so an upgrade followed by `--apply` is not
 a surprise; an explicit `auto_repair: []` is reported as such. The server applies the same list by
 itself every `doctor_auto_interval`, and each write already repairs the concepts it wrote
-(`repair_on_write`, D349), so `--apply` usually finds little. It ends with the judgement
+(D349, always since D907), so `--apply` usually finds little. It ends with the judgement
 work left — the `kb_review` counts by kind — which only a `kb-doctor` session with the operator handles.
 It writes no `kb-doctor` log entry: a mechanical pass is not a doctor session, and the entry would
 silence the server's doctor proposal while the judgement work is undone (each applied check still

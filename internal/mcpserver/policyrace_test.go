@@ -62,7 +62,7 @@ func TestPolicyRefreshDoesNotRaceReaders(t *testing.T) {
 			t.Errorf("lint: %v", err)
 		}
 	})
-	reader(func() { _ = repairOnWriteChecks(k); _ = writeGateState(k) })
+	reader(func() { _, _ = autoRepairSplit(k) })
 
 	path := filepath.Join(k.Root, kb.SettingsFile)
 	for i := 0; i < 60; i++ {

@@ -24,7 +24,7 @@ func chainKB(t *testing.T, n int) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
 	contract := kb.MapContract{FieldValues: map[string][]string{"status": {"active", "draft", "deprecated"}}}
-	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, "", contract); err != nil {
+	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, contract); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < n; i++ {
@@ -238,10 +238,12 @@ func TestAutoRepairIgnoresChecksThatAreNotSafe(t *testing.T) {
 	if len(run.Checks) != 1 || run.Checks[0].Check != "nonstandard_field" {
 		t.Fatalf("run = %+v", run)
 	}
-	// Repair-on-write follows the same rule.
-	setPolicy(k, func(p *kb.Policy) { p.RepairOnWrite = true })
-	if got := repairOnWriteChecks(k); len(got) != 1 || got[0] != "nonstandard_field" {
-		t.Fatalf("repair-on-write checks = %v", got)
+	// Repair-on-write leaves the link-dropping checks to kb_repair too,
+	// whatever the list says (D907: it does not read it).
+	for _, c := range repairOnWriteChecks() {
+		if c == "broken_link" || c == "reciprocal_link_item" {
+			t.Fatalf("repair-on-write applies %s", c)
+		}
 	}
 }
 
@@ -257,12 +259,11 @@ func TestDefaultAutoRepairRunsEveryUnattendedCheck(t *testing.T) {
 func TestRepairOnWriteConvergesTheChainInOneWrite(t *testing.T) {
 	t.Parallel()
 	k, s := rowKB(t, chainChecks...)
-	contract := kb.MapContract{FieldValues: map[string][]string{"status": {"active", "draft", "deprecated"}}}
-	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: contract.FieldValues}); err != nil {
+	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string]map[string][]string{kb.AllTypes: {"status": {"active", "draft", "deprecated"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	out := decodeJSON(t, mustText(t, s, "concept_write",
-		`{"id":"ops/chain","frontmatter":{"type":"Note","title":"Chain page","stato":"attivo — gira bene da marzo"},"body":"# Chain\n"}`))
+		`{"id":"ops/chain","frontmatter":{"type":"Note","title":"Chain page","stato":"attivo — gira bene da marzo"},"body":"# Chain\n\n[[anchor]]\n"}`))
 	got := repairedMap(out)
 	for _, c := range chainChecks {
 		if got[c] == 0 {

@@ -23,7 +23,7 @@ func sourceFixture(t *testing.T, withMap bool) (*kb.KB, *Server) {
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	if withMap {
-		if err := k.CreateMap("sources", "Sources", "journal", nil, ""); err != nil {
+		if err := k.CreateMap("sources", "Sources", "journal", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -246,10 +246,10 @@ func TestConceptDeleteSourceForce(t *testing.T) {
 func TestSourceRegisterWarnsOverTitleLimit(t *testing.T) {
 	t.Parallel()
 	_, s := sourceFixture(t, true)
-	callOK(t, s, "map_update", `{"map":"sources","title_max_length":10}`)
-	out := registerSource(t, s, `{"title":"A title well over ten characters","source_kind":"document"}`)
+	long := strings.TrimSpace(strings.Repeat("word ", 21))
+	out := registerSource(t, s, `{"title":"`+long+`","source_kind":"document"}`)
 	w, _ := out["warnings"].([]interface{})
-	if len(w) != 1 || !strings.Contains(w[0].(string), "title_max_length") || !strings.Contains(w[0].(string), "10") {
+	if len(w) != 1 || !strings.Contains(w[0].(string), "title_quality") || !strings.Contains(w[0].(string), "limit 100") {
 		t.Fatalf("warnings = %v", out["warnings"])
 	}
 	if out := registerSource(t, s, `{"title":"Short","source_kind":"document"}`); out["warnings"] != nil {

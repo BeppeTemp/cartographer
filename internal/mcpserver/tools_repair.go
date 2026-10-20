@@ -488,18 +488,31 @@ type mapRepairTarget struct {
 	// Entry, when set, makes the target a curated index (Folder is its map):
 	// the entry of that concept is dropped (index_lists_retired, D366).
 	Entry string
+	// Realign, when set, makes the target the map's descriptor (Folder is the
+	// map): it is rewritten to the current contract shape (contract_legacy_key,
+	// D907).
+	Realign bool
+	// Artifact and DropKey, when set, make the target a KB-root artifact
+	// whose frontmatter loses that key (lint_accept in instructions.md, D907).
+	Artifact, DropKey string
 }
 
 // key is what the target's finding path is, for the limit filter.
 func (t mapRepairTarget) key() string {
-	if t.Entry != "" {
+	switch {
+	case t.Artifact != "":
+		return t.Artifact
+	case t.Realign:
+		return t.Folder + "/_map.md"
+	case t.Entry != "":
 		return t.Folder + "/index.md"
 	}
 	return t.Folder
 }
 
 // planMapRepair is planRepair for a check whose findings name a data/ folder
-// (unmapped_folder, D357). It reads, never writes.
+// (unmapped_folder, D357), a map's index or descriptor, or a removed key of
+// instructions.md. It reads, never writes.
 func planMapRepair(k *kb.KB, check, scope string) ([]mapRepairTarget, []repairItem, error) {
 	findings, err := lint.Run(k, scope, false)
 	if err != nil {
@@ -517,14 +530,20 @@ func planMapRepair(k *kb.KB, check, scope string) ([]mapRepairTarget, []repairIt
 		case lint.FixDropIndexEntry:
 			mapName, _, _ := strings.Cut(f.Path, "/")
 			targets = append(targets, mapRepairTarget{Folder: mapName, Entry: f.Fix.Field})
+		case lint.FixRewriteContract:
+			if mapName, ok := strings.CutSuffix(f.Path, "/_map.md"); ok {
+				targets = append(targets, mapRepairTarget{Folder: mapName, Realign: true})
+			} else {
+				targets = append(targets, mapRepairTarget{Artifact: f.Path, DropKey: f.Fix.Field})
+			}
 		default:
 			continue
 		}
 		items = append(items, repairItem{Path: f.Path, Fix: f.Fix})
 	}
 	sort.Slice(targets, func(i, j int) bool {
-		if targets[i].Folder != targets[j].Folder {
-			return targets[i].Folder < targets[j].Folder
+		if targets[i].key() != targets[j].key() {
+			return targets[i].key() < targets[j].key()
 		}
 		return targets[i].Entry < targets[j].Entry
 	})
@@ -533,10 +552,32 @@ func planMapRepair(k *kb.KB, check, scope string) ([]mapRepairTarget, []repairIt
 }
 
 // applyMapRepair writes the descriptor of each folder through the code map_create
-// uses (kb.ScaffoldMap). A folder that gained a descriptor since the plan, or
-// vanished, is skipped. The caller holds the KB lock (gitWrap).
+// uses (kb.ScaffoldMap), drops a curated index entry, realigns a descriptor
+// (kb.RealignContract) or drops a removed key from an artifact. A folder that
+// gained a descriptor since the plan, or vanished, is skipped, and so is a
+// target the plan no longer applies to. The caller holds the KB lock (gitWrap).
 func applyMapRepair(k *kb.KB, targets []mapRepairTarget) (applied []mapRepairTarget, skipped []repairSkip) {
 	for _, t := range targets {
+		if t.Artifact != "" {
+			if err := dropArtifactFrontmatterKey(k, t.Artifact, t.DropKey); err != nil {
+				skipped = append(skipped, repairSkip{t.key(), err.Error()})
+				continue
+			}
+			applied = append(applied, t)
+			continue
+		}
+		if t.Realign {
+			changed, err := k.RealignContract(t.Folder)
+			switch {
+			case err != nil:
+				skipped = append(skipped, repairSkip{t.key(), err.Error()})
+			case !changed:
+				skipped = append(skipped, repairSkip{t.key(), "the descriptor carries no removed key any more"})
+			default:
+				applied = append(applied, t)
+			}
+			continue
+		}
 		if t.Entry != "" {
 			removed, _, err := removeCuratedEntry(k, t.Folder, okf.ConceptID(t.Entry))
 			switch {
@@ -556,6 +597,53 @@ func applyMapRepair(k *kb.KB, targets []mapRepairTarget) (applied []mapRepairTar
 		applied = append(applied, t)
 	}
 	return applied, skipped
+}
+
+// dropArtifactFrontmatterKey removes one frontmatter key of a KB-root artifact
+// under the rules artifact_write and the artifact repair follow: the KB must
+// allow artifact writes, no symlink on the path, the rewritten file must
+// validate, the file mode is kept. Every other key, its comments and the body
+// are left as they are.
+func dropArtifactFrontmatterKey(k *kb.KB, rel, key string) error {
+	if !k.Policy().AllowArtifactWrite {
+		return fmt.Errorf("rewriting %s needs kbs[].allow_artifact_write for this KB", rel)
+	}
+	info, err := classifyArtifactPath(rel)
+	if err != nil {
+		return err
+	}
+	if err := rejectArtifactSymlinks(k.Root, rel); err != nil {
+		return err
+	}
+	abs, err := k.ResolveRootPath(rel)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return err
+	}
+	fmRaw, body, ok := okf.SplitFrontmatter(string(data))
+	if !ok {
+		return fmt.Errorf("%s has no frontmatter any more", rel)
+	}
+	fm, err := okf.ParseFrontmatter(fmRaw)
+	if err != nil {
+		return fmt.Errorf("%s: %w", rel, err)
+	}
+	if _, has := fm.Get(key); !has {
+		return fmt.Errorf("%s carries no %s any more", rel, key)
+	}
+	fm.Delete(key)
+	text := "---\n" + fm.Serialize() + "\n---\n" + body
+	if err := validateArtifactContent(info, rel, []byte(text)); err != nil {
+		return fmt.Errorf("the rewritten file would not validate: %w", err)
+	}
+	st, err := os.Lstat(abs)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(abs, []byte(text), st.Mode().Perm())
 }
 
 // kbRepairMaps is kb_repair for a map check: the same response shape, counted
@@ -911,31 +999,33 @@ func contractRenameUpdate(c kb.MapContract, ren map[string]string) (kb.MapContra
 		}
 		return out, hit
 	}
-	if l, hit := renameList(c.RequiredFields); hit {
-		upd.RequiredFields, changed = &l, true
+	// The update replaces the whole shape keyed by type ("*" for every type,
+	// D907), so a rename in one part writes every part back.
+	req := map[string][]string{}
+	hitReq := false
+	if l, hit := renameList(c.RequiredFields); len(c.RequiredFields) > 0 {
+		req[kb.AllTypes], hitReq = l, hit
 	}
-	byType := map[string][]string{}
-	hitType := false
 	for typ, l := range c.RequiredFieldsByType {
 		nl, hit := renameList(l)
-		byType[typ] = nl
-		hitType = hitType || hit
+		req[typ] = nl
+		hitReq = hitReq || hit
 	}
-	if hitType {
-		upd.RequiredFieldsByType, changed = byType, true
+	if hitReq {
+		upd.RequiredFields, changed = req, true
 	}
-	if v, hit := renameValues(c.FieldValues); hit {
-		upd.FieldValues, changed = v, true
-	}
-	fvt := map[string]map[string][]string{}
+	fv := map[string]map[string][]string{}
 	hitFV := false
+	if v, hit := renameValues(c.FieldValues); len(c.FieldValues) > 0 {
+		fv[kb.AllTypes], hitFV = v, hit
+	}
 	for typ, m := range c.FieldValuesByType {
 		nm, hit := renameValues(m)
-		fvt[typ] = nm
+		fv[typ] = nm
 		hitFV = hitFV || hit
 	}
 	if hitFV {
-		upd.FieldValuesByType, changed = fvt, true
+		upd.FieldValues, changed = fv, true
 	}
 	return upd, changed
 }
@@ -1105,6 +1195,13 @@ func conceptContent(fm *okf.Frontmatter, body string) string {
 // Both write nothing and return a skip naming the checks. The caller holds the
 // KB lock (gitWrap).
 func repairConceptFixpoint(k *kb.KB, id okf.ConceptID, allowed []string, seed []lint.Finding) (fixpointOutcome, *repairSkip) {
+	return repairConceptFixpointOnly(k, id, allowed, seed, nil)
+}
+
+// repairConceptFixpointOnly is repairConceptFixpoint limited to the findings
+// keep accepts (nil keeps all): the heartbeat uses it to drop a lint_ignore
+// field without applying the other nonstandard_field renames.
+func repairConceptFixpointOnly(k *kb.KB, id okf.ConceptID, allowed []string, seed []lint.Finding, keep func(lint.Finding) bool) (fixpointOutcome, *repairSkip) {
 	out := fixpointOutcome{Changed: map[string]int{}}
 	path := okf.IDToPath(id)
 	skip := func(reason string) (fixpointOutcome, *repairSkip) {
@@ -1143,7 +1240,7 @@ func repairConceptFixpoint(k *kb.KB, id okf.ConceptID, allowed []string, seed []
 		}
 		byCheck := map[string][]*lint.Fix{}
 		for _, f := range found {
-			if f.Fix == nil || f.Artifact || !allow[f.Check] || stuck[f.Check] {
+			if f.Fix == nil || f.Artifact || !allow[f.Check] || stuck[f.Check] || (keep != nil && !keep(f)) {
 				continue
 			}
 			if s, ok := lint.Spec(f.Check); !ok || s.CrossConcept {

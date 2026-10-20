@@ -20,10 +20,10 @@ func uiFixtureKB(t *testing.T, authName string) *kb.KB {
 	t.Helper()
 	k := setupTestKB(t)
 	k.AuthName = authName
-	if err := k.CreateMap("visible", "Visible", "map", nil, ""); err != nil {
+	if err := k.CreateMap("visible", "Visible", "map", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CreateMap("hidden", "Hidden", "map", nil, ""); err != nil {
+	if err := k.CreateMap("hidden", "Hidden", "map", nil); err != nil {
 		t.Fatal(err)
 	}
 	write := func(rel, content string) {

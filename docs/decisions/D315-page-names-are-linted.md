@@ -4,6 +4,8 @@ topic: data-plane
 
 # D315 — Page names are linted: title and heading agree, titles are labels, map titles are short
 
+> **Amended by [D907](D907-the-lint-cannot-be-escaped.md)**: a map title its folder does not echo is only the `map_create`/`map_update` warning; `kb_review` `map_naming` lists the length and subtitle reasons, which a retitle can always clear.
+
 **Decision.** `title_h1_mismatch` (warning, fix `sync_h1`) fires when a concept's
 frontmatter `title` and its first `# ` heading both exist and differ; the repair
 overwrites the heading with the title. `title_quality` (info, no fix) fires on a

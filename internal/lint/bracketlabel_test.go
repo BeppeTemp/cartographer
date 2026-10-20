@@ -5,7 +5,7 @@ import "testing"
 func TestRun_IndexEntryWithBracketedLabel(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
 	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\n---\n- [Issue #100 — [RFC] foo](alpha.md)\n")
 	writeFile(t, k.DataRoot(), "ops/alpha.md", "---\ntype: Note\n---\n")
 	findings, err := Run(k, "", false)

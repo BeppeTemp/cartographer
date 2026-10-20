@@ -23,7 +23,7 @@ import (
 func repairKB(t *testing.T, n int) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
-	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, "", kb.MapContract{RequiredFields: []string{"updated"}}); err != nil {
+	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < n; i++ {
@@ -85,7 +85,7 @@ func TestKBRepairDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-func TestKBRepairRenamesInOneCommitAndRewritesContract(t *testing.T) {
+func TestKBRepairRenamesInOneCommit(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 3)
 	before := commitCount(t, k)
@@ -118,7 +118,7 @@ func TestKBRepairRenamesInOneCommitAndRewritesContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.RequiredFields) != 1 || c.RequiredFields[0] != "timestamp" {
+	if len(c.RequiredFields) != 0 {
 		t.Fatalf("contract required_fields = %v", c.RequiredFields)
 	}
 	if got := lastDoctorDate(k); got != "" {
@@ -219,7 +219,7 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 	if _, err := k.WriteConcept("ops/stringified", sf, "# S\n", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string][]string{"status": {"done"}}}); err != nil {
+	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string]map[string][]string{kb.AllTypes: {"status": {"done"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	for id, st := range map[string]string{"ops/v1": "Completato", "ops/v2": "done — with prose"} {
@@ -232,7 +232,8 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	seedDriftFixes(t, k) // D357
+	seedDriftFixes(t, k)                          // D357
+	driftWrite(t, k, "legacy/_map.md", legacyMap) // D907: a pre-D907 descriptor
 	findings, err := lint.Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)
@@ -260,7 +261,13 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 		}
 	}
 	if len(seen) != len(listed) {
-		t.Errorf("fixture did not exercise every fixable check: saw %v", seen)
+		var missing []string
+		for c := range listed {
+			if !seen[c] {
+				missing = append(missing, c)
+			}
+		}
+		t.Errorf("fixture did not exercise every fixable check: missing %v, saw %v", missing, seen)
 	}
 }
 
@@ -310,7 +317,7 @@ func seedTemplateFixes(t *testing.T, write func(rel, content string)) {
 	t.Helper()
 	write("templates/server.md", "---\ntype: Host\ntitle: \"{{title}}\"\nx-template.field_values.state: [up, down]\nx-template.section_aliases.Purpose: [Objective]\n---\n# {{title}}\n\n## Purpose\n\n## Operations\n")
 	write("templates/runbook.md", "---\ntype: Runbook\ntitle: \"{{title}}\"\n---\n# {{title}}\n\n## Steps\n")
-	write("data/strict/_map.md", "---\ntype: Map\nkind: map\ntitle: Strict\ntemplates: [server, runbook]\nrequire_template: true\n---\n# Strict\n")
+	write("data/strict/_map.md", "---\ntype: Map\nkind: map\ntitle: Strict\ntemplates: [server, runbook]\n---\n# Strict\n")
 	write("data/strict/unbound.md", "---\ntype: Host\ntitle: U\n---\n# U\n\n## Purpose\n\n## Operations\n")
 	write("data/strict/wrongtype.md", "---\ntype: Runbook\ntitle: W\nshape: server\n---\n# W\n\n## Purpose\n\n## Operations\n")
 	write("data/strict/alias.md", "---\ntype: Host\ntitle: A\nshape: server\n---\n# A\n\n## Objective\n\n## Operations\n")
@@ -389,15 +396,6 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 		f("link_to_retired", lint.SevInfo, false), f("orphan", lint.SevWarning, false),
 		f("stringified_list", lint.SevInfo, true), f("stringified_list", lint.SevInfo, true),
 	}, 0, "2026-09-20", 14, now)
-	// D313: the accept level of every counted check, none for an error-only or
-	// unlisted one.
-	acc := got["acceptability"].(map[string]string)
-	if acc["nonstandard_field"] != "concept" || acc["link_to_retired"] != "concept" || len(acc) != 2 {
-		t.Fatalf("acceptability = %v", acc)
-	}
-	if m := summarizeConformance([]lint.Finding{f("missing_value_contract", lint.SevInfo, false)}, 0, "", 14, now)["acceptability"].(map[string]string); m["missing_value_contract"] != "map" {
-		t.Fatalf("map-only check: %v", m)
-	}
 	sev := got["findings"].(map[string]int)
 	if sev[lint.SevWarning] != 2 || sev[lint.SevInfo] != 1 || got["fixable"] != 1 || got["last_doctor"] != "2026-09-20" {
 		t.Fatalf("summary = %v", got)
@@ -453,7 +451,7 @@ func BenchmarkKBStatusConformance1000(b *testing.B) {
 	}
 	for m := 0; m < 10; m++ {
 		name := fmt.Sprintf("m%d", m)
-		if err := k.CreateMapWithContract(name, name, "map", nil, "", kb.MapContract{}); err != nil {
+		if err := k.CreateMapWithContract(name, name, "map", nil, kb.MapContract{}); err != nil {
 			b.Fatal(err)
 		}
 		for i := 0; i < 100; i++ {
@@ -606,7 +604,7 @@ func TestKBRepairBodyFixes(t *testing.T) {
 func TestKBRepairValueFixes(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 0)
-	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string][]string{"status": {"done", "in-progress"}}}); err != nil {
+	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string]map[string][]string{kb.AllTypes: {"status": {"done", "in-progress"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	for id, st := range map[string]string{"ops/a": "Completato", "ops/b": "done — after the second pass"} {
@@ -678,24 +676,6 @@ func TestKBRepairSynonymGroups(t *testing.T) {
 	skipped, _ := json.Marshal(out["skipped"])
 	if !strings.Contains(string(skipped), `all mean \"timestamp\" and hold different values`) {
 		t.Fatalf("skip reason: %s", skipped)
-	}
-}
-
-// TestMapUpdateLintIgnore (D306): map_update writes the map-wide lint_ignore,
-// map_list shows it, and an empty list removes it.
-func TestMapUpdateLintIgnore(t *testing.T) {
-	t.Parallel()
-	_, s := repairKB(t, 0)
-	res := callTool(t, s, "map_update", `{"map":"ops","lint_ignore":["duplicate_link","map_misfit"]}`)
-	if res.IsError || !strings.Contains(res.Content[0].Text, `"duplicate_link"`) {
-		t.Fatalf("map_update lint_ignore: %+v", res)
-	}
-	if list := callTool(t, s, "map_list", `{}`); !strings.Contains(list.Content[0].Text, `"lint_ignore"`) {
-		t.Fatalf("map_list does not show it: %s", list.Content[0].Text)
-	}
-	res = callTool(t, s, "map_update", `{"map":"ops","lint_ignore":[]}`)
-	if res.IsError || !strings.Contains(res.Content[0].Text, `"lint_ignore": []`) {
-		t.Fatalf("removing lint_ignore: %+v", res)
 	}
 }
 

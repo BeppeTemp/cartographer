@@ -10,8 +10,8 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
-// Thresholds of the D301 cost kinds, overridable per map in the contract
-// (repeated_fact_min, hotspot_in_degree, hotspot_bytes).
+// Thresholds of the D301 cost kinds. They are constants (D907): no map
+// overrides them.
 const (
 	// repeatedFactMinBytes is the shortest normalised line that counts as a
 	// fact: below it a repeated line is a label, not something to keep in sync.
@@ -116,9 +116,8 @@ func templateBoilerplate(templates []string) map[string]bool {
 }
 
 // repeatedFactItems emits one repeated_fact per fact line found in at least
-// the threshold number of concepts. The threshold is the lowest one among
-// the owners' maps: a map that asked for a stricter check sees its own pages.
-func repeatedFactItems(concepts []*reviewConcept, contracts map[string]kb.MapContract, templates []string) []ReviewItem {
+// the threshold number of concepts.
+func repeatedFactItems(concepts []*reviewConcept, templates []string) []ReviewItem {
 	boilerplate := templateBoilerplate(templates)
 	owners := map[string][]string{}
 	originals := map[string]string{} // first unmasked form seen of each key
@@ -130,22 +129,9 @@ func repeatedFactItems(concepts []*reviewConcept, contracts map[string]kb.MapCon
 			}
 		}
 	}
-	threshold := func(mapName string) int {
-		if n := contracts[mapName].RepeatedFactMin; n > 0 {
-			return n
-		}
-		return repeatedFactMinConcepts
-	}
 	var out []ReviewItem
 	for line, ids := range owners {
-		min := repeatedFactMinConcepts
-		for _, id := range ids {
-			mapName, _, _ := strings.Cut(id, "/")
-			if n := threshold(mapName); n < min {
-				min = n
-			}
-		}
-		if len(ids) < min || len(ids) < 2 {
+		if len(ids) < repeatedFactMinConcepts {
 			continue
 		}
 		sort.Strings(ids)
@@ -174,18 +160,10 @@ func cutBytes(s string, n int) string {
 // readHotspotItems emits one read_hotspot per concept with many inbound links
 // and a large body. In-degree is a whole-graph number, so the item is hidden
 // from a caller who cannot see the whole KB.
-func readHotspotItems(concepts []*reviewConcept, contracts map[string]kb.MapContract, links kb.Links) []ReviewItem {
+func readHotspotItems(concepts []*reviewConcept, links kb.Links) []ReviewItem {
 	var out []ReviewItem
 	for _, c := range concepts {
 		minIn, minBytes := hotspotMinInDegree, hotspotMinBytes
-		if ct := contracts[c.mapName]; ct.HotspotInDegree > 0 || ct.HotspotBytes > 0 {
-			if ct.HotspotInDegree > 0 {
-				minIn = ct.HotspotInDegree
-			}
-			if ct.HotspotBytes > 0 {
-				minBytes = ct.HotspotBytes
-			}
-		}
 		in := 0
 		for src := range links.In[c.id] {
 			if src != c.id {

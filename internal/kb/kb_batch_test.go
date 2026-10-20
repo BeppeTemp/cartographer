@@ -185,7 +185,7 @@ func TestWriteConceptBatch_NewExpandedStubRolledBackAndPruned(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
-	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+	if err := kb.CreateMap("entities", "Entities", "map", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 
@@ -213,7 +213,7 @@ func TestWriteConceptBatch_ExpandedOwnerUpdate(t *testing.T) {
 	dir := tempKB(t)
 	kb, _ := Init(dir)
 
-	if err := kb.CreateMap("entities", "Entities", "map", nil, ""); err != nil {
+	if err := kb.CreateMap("entities", "Entities", "map", nil); err != nil {
 		t.Fatalf("CreateMap: %v", err)
 	}
 	fm, _ := okf.ParseFrontmatter("type: Entity\ntitle: Owner")

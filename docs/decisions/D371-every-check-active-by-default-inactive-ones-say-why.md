@@ -4,6 +4,8 @@ topic: data-plane
 
 # D371 — Every check is active by default; one that cannot run says why
 
+> **Amended by [D907](D907-the-lint-cannot-be-escaped.md)**: `require_template: false` is removed; a map that declares templates is strict. A check that cannot run still says why.
+
 **Decision.** A lint check runs unless it has nothing to compare against on this KB or every map able to run it opted out. The one opt-in that flips is the template family (D352): a map that declares `templates` or a `default_template` is strict without `require_template: true`, and `require_template: false` is its opt-out. `lint.Inactive` computes, per KB, the checks that cannot run and why; `GET /api/ui/v1/kbs/<kb>/checks` returns `active` and `reason` for each, and the Atlas Health coverage greys an inactive check out instead of showing a zero that would read as clean.
 
 **Why.** The Health coverage (D365) lists every check with its count, so a reader takes a zero for "checked and clean". For the template checks, `unknown_type` and a handful of others that zero meant "not checked". Inventory of the gates on emission, each classified:

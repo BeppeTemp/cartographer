@@ -24,7 +24,7 @@ func retiredHandler(t *testing.T) (http.Handler, *kb.KB) {
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	for _, m := range []struct{ name, kind string }{{"notes", "map"}, {"archive", "map"}, {"hidden", "map"}, {"runs", "journal"}} {
-		if err := k.CreateMap(m.name, strings.ToUpper(m.name[:1])+m.name[1:], m.kind, nil, ""); err != nil {
+		if err := k.CreateMap(m.name, strings.ToUpper(m.name[:1])+m.name[1:], m.kind, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -148,7 +148,7 @@ func TestUIAPI_RetiredTellsEachStory(t *testing.T) {
 		t.Fatalf("journals = %v", journals)
 	}
 	j := journals[0].(map[string]interface{})
-	if j["name"] != "runs" || j["waiting"].(float64) != 1 || j["archived"].(float64) != 1 || j["harvest_after"].(float64) != 45 || j["harvest_off"] != nil {
+	if j["name"] != "runs" || j["waiting"].(float64) != 1 || j["archived"].(float64) != 1 || j["harvest_after"].(float64) != 45 {
 		t.Errorf("journal = %v", j)
 	}
 }
@@ -248,7 +248,7 @@ func retiredServer(t *testing.T) (http.Handler, *Server, *kb.KB) {
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	for _, name := range []string{"notes", "archive"} {
-		if err := k.CreateMap(name, strings.ToUpper(name[:1])+name[1:], "map", nil, ""); err != nil {
+		if err := k.CreateMap(name, strings.ToUpper(name[:1])+name[1:], "map", nil); err != nil {
 			t.Fatal(err)
 		}
 	}

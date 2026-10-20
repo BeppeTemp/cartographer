@@ -41,10 +41,6 @@ type Options struct {
 	UsageStaleDays int
 }
 
-// artifactChecks are the KB-level checks of this file: no concept's
-// lint_ignore can reach them, so naming one there is reported as invalid.
-var artifactChecks = checkSet(func(s CheckSpec) bool { return s.Level == LevelArtifact })
-
 // missingInstructionsThreshold is the concept count above which a KB with no
 // instructions.md is reported: below it sit the demo and freshly-created KBs,
 // for which the generated routing sentence is enough. Not configurable.
@@ -103,9 +99,9 @@ type kbInstructions struct {
 	exists      bool
 	perimeter   string
 	legacyPaths []legacyPath // longest prefix first
-	// accept is lint_accept (D332): artifact path (or a directory prefix
-	// ending in "/") → the checks accepted on it.
-	accept map[string]map[string]bool
+	// legacyAccept: the frontmatter still carries lint_accept (D332), which
+	// D907 removed; contract_legacy_key reports it and the repair drops it.
+	legacyAccept bool
 }
 
 // legacyPath is one declared prefix rewrite (WP13).
@@ -137,117 +133,8 @@ func readInstructions(k *kb.KB) kbInstructions {
 			out.legacyPaths = parseLegacyPaths(string(b))
 		}
 	}
-	if v, ok := fm.Get("lint_accept"); ok {
-		if b, ok := v.(okf.Block); ok {
-			out.accept = parseLintAccept(string(b))
-		}
-	}
+	_, out.legacyAccept = fm.Get("lint_accept")
 	return out
-}
-
-// parseLintAccept reads the indented `"path": [check, …]` lines of the
-// lint_accept mapping. A bare value is a one-element list, as in lint_ignore.
-func parseLintAccept(block string) map[string]map[string]bool {
-	out := map[string]map[string]bool{}
-	for _, line := range strings.Split(block, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		key, rest, ok := splitYAMLKey(line)
-		if !ok || key == "" {
-			continue
-		}
-		if i := strings.Index(rest, " #"); i >= 0 {
-			rest = rest[:i]
-		}
-		rest = strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(rest), "["), "]")
-		for _, name := range strings.Split(rest, ",") {
-			if name = unquote(strings.TrimSpace(name)); name != "" {
-				if out[key] == nil {
-					out[key] = map[string]bool{}
-				}
-				out[key][name] = true
-			}
-		}
-	}
-	return out
-}
-
-// artifactAcceptable are the checks lint_accept may name: the artifact
-// checks reported on a file, plus the per-concept checks checkArtifacts also
-// runs on skills. A junk file is deleted, never accepted, and
-// missing_instructions has no file to key on.
-func artifactAcceptable(check string) bool {
-	s, ok := Spec(check)
-	return ok && (s.Accept == AcceptArtifact || s.AlsoArtifact)
-}
-
-// applyLintAccept drops the artifact findings instructions.md accepts with
-// lint_accept (D332): an artifact has no frontmatter lint can own — a skill's
-// is read by every client — so the KB's own instructions file holds the
-// operator's judgement, keyed by path. A key ending in "/" covers every file
-// under it. Errors never go. A name that cannot be accepted, or a key that
-// matches no finding, is itself reported on instructions.md.
-func applyLintAccept(findings []Finding, accept map[string]map[string]bool) ([]Finding, []Suppression) {
-	if len(accept) == 0 {
-		return findings, nil
-	}
-	used := map[string]map[string]int{} // key → check → findings dropped (D834)
-	matches := func(key, path string) bool {
-		return path == key || (strings.HasSuffix(key, "/") && strings.HasPrefix(path, key))
-	}
-	out := findings[:0]
-	for _, f := range findings {
-		dropped := false
-		if f.Severity != SevError && f.Path != "" && artifactAcceptable(f.Check) {
-			for key, checks := range accept {
-				if checks[f.Check] && matches(key, f.Path) {
-					if used[key] == nil {
-						used[key] = map[string]int{}
-					}
-					used[key][f.Check]++
-					dropped = true
-				}
-			}
-		}
-		if !dropped {
-			out = append(out, f)
-		}
-	}
-	keys := make([]string, 0, len(accept))
-	for key := range accept {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	var sups []Suppression
-	for _, key := range keys {
-		names := make([]string, 0, len(accept[key]))
-		for name := range accept[key] {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			sp := Suppression{Source: SourceAccept, Path: key, Check: name, Hidden: used[key][name]}
-			reason := ""
-			switch {
-			case !artifactAcceptable(name):
-				reason = "a check lint_accept cannot accept (unknown, a junk file to delete, or not reported on artifacts)"
-			case used[key][name] == 0:
-				reason = "no such finding on that path, so the entry is stale"
-				sp.Stale = true // already reported below: reportStale adds no second finding
-			default:
-				sups = append(sups, sp)
-				continue
-			}
-			sups = append(sups, sp)
-			out = append(out, newFinding("lint_ignore_invalid", Finding{
-				Path:    "instructions.md",
-				Message: fmt.Sprintf("lint_accept names %q on %q: %s", name, key, reason),
-			}))
-		}
-	}
-	return out, sups
 }
 
 // parseLegacyPaths reads the indented `"old/": "new/"` lines of the
@@ -313,7 +200,7 @@ type artifactText struct {
 // checkArtifacts runs every artifact check of an unscoped lint. The skills are
 // loaded once and handed to each check that needs them: LoadAllSkills walks
 // the filesystem.
-func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount int, hasSecretsDir bool) ([]Finding, []Suppression) {
+func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount int, hasSecretsDir bool) []Finding {
 	skills, missing := loadSkills(k)
 	files := artifactTextFiles(k)
 
@@ -329,7 +216,9 @@ func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount i
 	findings = append(findings, checkCrossKBPaths(files, opts.CrossKBRoots)...)
 	findings = append(findings, checkSkillMissingPerimeter(skills, instr.perimeter)...)
 	findings = append(findings, checkArtifactUnused(k, skills, opts, time.Now())...)
-	findings, sups := applyLintAccept(findings, instr.accept)
+	if instr.legacyAccept {
+		findings = append(findings, legacyAcceptFinding())
+	}
 	for i := range findings {
 		if findings[i].Path != "" {
 			findings[i].Artifact = true
@@ -341,7 +230,17 @@ func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount i
 		}
 		return findings[i].Check < findings[j].Check
 	})
-	return findings, sups
+	return findings
+}
+
+// legacyAcceptFinding reports the lint_accept key of instructions.md, removed
+// in D907 with every other way to switch a check off: the repair drops it.
+func legacyAcceptFinding() Finding {
+	return newFinding("contract_legacy_key", Finding{
+		Path:    "instructions.md",
+		Message: "lint_accept was removed (D907): no setting switches a check off, so the key does nothing — the repair drops it; fix the artifact each entry named instead",
+		Fix:     &Fix{Kind: FixRewriteContract, Field: "lint_accept"},
+	})
 }
 
 func skillFile(s skill.Skill) string { return s.DirPath + "/SKILL.md" }
@@ -618,7 +517,8 @@ func checkInstructions(instr kbInstructions, conceptCount int) []Finding {
 // checkSkillGitCommands reports a skill whose code runs a git mutation (WP6):
 // the KB is written only through MCP tools, and an agent's own git in the
 // clone is how a KB forks on its remote (D264). Info: the command may target
-// another repository, which only the author can tell.
+// another repository, which only the author can tell; `git -C <repo> <verb>`
+// names it, and is not matched (nothing accepts the finding, D907).
 func checkSkillGitCommands(skills []skill.Skill) []Finding {
 	var findings []Finding
 	for _, s := range skills {
@@ -631,7 +531,7 @@ func checkSkillGitCommands(skills []skill.Skill) []Finding {
 				seen[m[1]] = true
 				findings = append(findings, newFinding("skill_git_command", Finding{
 					Path:    skillFile(s),
-					Message: fmt.Sprintf("skill instructs git %s — if it targets the KB clone, write through the MCP tools instead; if it targets another repository, accept it in instructions.md lint_accept", m[1]),
+					Message: fmt.Sprintf("skill instructs git %s — if it targets the KB clone, write through the MCP tools instead; if it targets another repository, write it as `git -C <that repository> %s` so the step names it", m[1], m[1]),
 				}))
 			}
 		}

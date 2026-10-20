@@ -705,7 +705,7 @@ const CATEGORY: Record<string, [string, string]> = {
   values: ["Types and values", "The types and values pages use, across the KB."],
   maps: ["Maps", "Maps, their indexes, their folders and their files."],
   artifacts: ["Agent files", "The skills, agents and instructions the KB hands to agents."],
-  kb: ["KB settings", "KB-wide files: placeholders, hooks, exemptions."],
+  kb: ["KB settings", "KB-wide files: placeholders, hooks."],
 };
 
 /** One rule as the reference lists it: its name, what it looks for, who fixes it, what it found here. */

@@ -30,6 +30,97 @@ type findingOut struct {
 	Proposal *lint.Proposal `json:"proposal,omitempty"`
 }
 
+// callerView is what a caller may be told of a lint finding, one rule for the
+// write gate's refusal and for a write's own response (D907): a finding on a
+// page the caller cannot see is dropped; an artifact (path-less) finding is
+// kept only for a caller that sees the whole KB; a whole-graph finding
+// (lint.WholeGraphChecks) reaches a caller without whole-KB visibility with
+// the check and the visible page only, no other page's id or count, and no
+// fix (its fields come from the whole KB's vocabulary and pages). A nil view
+// shows everything (the callers that serve the operator).
+type callerView struct {
+	visible func(id string) bool
+	whole   bool
+}
+
+// newCallerView is the view of the principal of ctx on k. Whole-KB visibility
+// is the read one, as for the read tools.
+func newCallerView(ctx requestContext, k *kb.KB) *callerView {
+	return &callerView{
+		visible: func(id string) bool { return Visible(ctx, k, id) },
+		whole:   WholeVisible(ctx, k, false),
+	}
+}
+
+// sees says whether the caller may be told of f at all.
+func (v *callerView) sees(f lint.Finding) bool {
+	if v == nil || v.whole {
+		return true
+	}
+	if f.Artifact {
+		return false
+	}
+	return v.visible(strings.TrimSuffix(f.Path, ".md"))
+}
+
+// redact is f as the caller may read it: unchanged for a whole-KB caller or a
+// finding that reads one page, cut down for a whole-graph one.
+func (v *callerView) redact(f lint.Finding) lint.Finding {
+	if v == nil || v.whole || !lint.WholeGraphChecks[f.Check] {
+		return f
+	}
+	f.Message = fmt.Sprintf("%s: %s fails a check that reads the whole KB; the other pages involved are outside what this caller can see", f.Check, f.Path)
+	f.Fix, f.Proposal = nil, nil
+	return f
+}
+
+// filterRewritten keeps the rewritten concepts the caller can see.
+func (v *callerView) filterRewritten(in []rewrittenConcept) []rewrittenConcept {
+	if v == nil || v.whole {
+		return in
+	}
+	out := make([]rewrittenConcept, 0, len(in))
+	for _, r := range in {
+		if v.visible(r.ID) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// filterPaths keeps the index paths the caller may be told of: an index is a
+// whole-KB resource (index_get needs whole-KB access), so a caller without
+// whole-KB visibility is told of none.
+func (v *callerView) filterPaths(in []string) []string {
+	if v == nil || v.whole {
+		return in
+	}
+	return []string{}
+}
+
+// oversize keeps the map-size crossings (D716) for a caller that sees the
+// whole KB only: the count is of every page of the map, hidden ones included.
+func (v *callerView) oversize(in []lint.Finding) []lint.Finding {
+	if v == nil || v.whole {
+		return in
+	}
+	return nil
+}
+
+// filter keeps the findings the caller may see, each redacted.
+func (v *callerView) filter(findings []lint.Finding) []lint.Finding {
+	if v == nil || v.whole {
+		return findings
+	}
+	out := make([]lint.Finding, 0, len(findings))
+	for _, f := range findings {
+		if v.sees(f) {
+			out = append(out, v.redact(f))
+		}
+	}
+	return out
+}
+
 func findingsOut(findings []lint.Finding) []findingOut {
 	out := make([]findingOut, 0, len(findings))
 	for _, f := range findings {
@@ -70,7 +161,7 @@ func findingsOrEmpty(f []findingOut) []findingOut {
 // that changed no concept's own content (an index_patch, D312), keeping only
 // the findings of the check named: what the patch did, not what was already
 // there.
-func scopedFindings(k *kb.KB, ids []string, check string) []findingOut {
+func scopedFindings(k *kb.KB, ids []string, check string, view *callerView) []findingOut {
 	scoped := make([]okf.ConceptID, len(ids))
 	for i, id := range ids {
 		scoped[i] = okf.ConceptID(id)
@@ -81,6 +172,7 @@ func scopedFindings(k *kb.KB, ids []string, check string) []findingOut {
 			kept = append(kept, f)
 		}
 	}
+	kept = view.filter(kept)
 	if len(kept) == 0 {
 		return nil
 	}
@@ -96,7 +188,7 @@ func findingsOrNil(f []lint.Finding) []findingOut {
 }
 
 // writeLintFindings returns the lint findings of the concepts a write left on
-// disk (written) or removed (gone), lint_ignore applied (D289, D312); gate_check's
+// disk (written) or removed (gone) (D289, D312); gate_check's
 // changed_ids path (D312) decides pass on the severities.
 func writeLintFindings(k *kb.KB, written, gone []string) []lint.Finding {
 	var found []lint.Finding
@@ -204,7 +296,6 @@ func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {
 // from a doctor session planning its mechanical pass.
 func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor string, intervalDays int, now time.Time) map[string]interface{} {
 	bySev := map[string]int{}
-	acceptability := map[string]string{}
 	fixable := 0
 	repairable := map[string]int{}
 	actionable := 0
@@ -218,7 +309,6 @@ func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor s
 		if !conformanceChecks[f.Check] {
 			continue
 		}
-		acceptability[f.Check] = lint.CheckAcceptability(f.Check)
 		bySev[f.Severity]++
 		if f.Fix != nil {
 			fixable++
@@ -228,7 +318,6 @@ func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor s
 		"findings":         bySev,
 		"fixable":          fixable,
 		"repairable":       repairable,
-		"acceptability":    acceptability,
 		"lint_findings":    len(findings),
 		"doctor_suggested": (actionable+reviewTotal) > 0 && doctorDue(lastDoctor, intervalDays, now),
 	}
@@ -257,9 +346,6 @@ type conformanceCache struct {
 	stamp    string
 	cached   bool // true once findings has been set (findings may be nil = no issues)
 	findings []lint.Finding
-	// sups is the suppression inventory of the same run (D834), cached and
-	// invalidated with findings.
-	sups []lint.Suppression
 
 	// lastDoctorDate, cached on the root log file's mtime+size.
 	doctorDate string
@@ -410,45 +496,32 @@ func (cc *conformanceCache) computeReview(k *kb.KB, gen uint64, stamp string) ([
 // serve stale findings. The result is never nil, so callers can tell "cached,
 // no findings" from "not computed".
 func (cc *conformanceCache) lintFindings(k *kb.KB) ([]lint.Finding, error) {
-	findings, _, err := cc.lintResult(k)
-	return findings, err
-}
-
-// lintResult is lintFindings that also returns the suppression inventory of
-// the same run (D834): one cache entry, one key.
-func (cc *conformanceCache) lintResult(k *kb.KB) ([]lint.Finding, []lint.Suppression, error) {
 	gen, err := k.GraphGeneration()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	stamp := lintInputsStamp(k)
 	cc.mu.Lock()
 	if cc.cached && gen == cc.gen && stamp == cc.stamp {
-		out, sups := cc.findings, cc.sups
+		out := cc.findings
 		cc.mu.Unlock()
-		return out, sups, nil
+		return out, nil
 	}
 	cc.mu.Unlock()
 	v, err, _ := cc.flight.Do(fmt.Sprintf("lint|%d|%s", gen, stamp), func() (interface{}, error) {
 		return cc.computeLint(k, gen, stamp)
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	r := v.(lintResult)
-	return r.findings, r.sups, nil
-}
-
-type lintResult struct {
-	findings []lint.Finding
-	sups     []lint.Suppression
+	return v.([]lint.Finding), nil
 }
 
 // computeLint is lintFindings' cache miss, run once per key (flight).
-func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) (lintResult, error) {
-	findings, sups, err := lint.RunWithSuppressions(k, "", false, lint.DefaultOptions(k))
+func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) ([]lint.Finding, error) {
+	findings, err := lint.Run(k, "", false)
 	if err != nil {
-		return lintResult{}, err
+		return nil, err
 	}
 	if findings == nil {
 		findings = []lint.Finding{}
@@ -459,7 +532,7 @@ func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) (lin
 	genAfter, gerr := k.GraphGeneration()
 	if gerr == nil && genAfter == gen && lintInputsStamp(k) == stamp {
 		cc.mu.Lock()
-		cc.gen, cc.stamp, cc.findings, cc.sups, cc.cached = gen, stamp, findings, sups, true
+		cc.gen, cc.stamp, cc.findings, cc.cached = gen, stamp, findings, true
 		cc.lintCalls++
 		cc.mu.Unlock()
 		// D370: one sample a day of the unfiltered totals, taken where the
@@ -474,7 +547,7 @@ func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) (lin
 		cc.lintCalls++
 		cc.mu.Unlock()
 	}
-	return lintResult{findings, sups}, nil
+	return findings, nil
 }
 
 // lintInputsStamp fingerprints (path, size, mtime) of every regular file in

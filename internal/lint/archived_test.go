@@ -44,6 +44,19 @@ func TestLinkToRetired_Archived(t *testing.T) {
 	}
 }
 
+// The satellites of a retired expanded concept are part of it: one linking its
+// own parent is not a live page relying on a retired one.
+func TestLinkToRetired_OwnSatelliteIsNotALinker(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nkind: map\n---\n")
+	writeFile(t, k.DataRoot(), "ops/old/index.md", "---\ntype: Note\ntitle: Old\nstatus: archived\n---\nSee [part](part.md).\n")
+	writeFile(t, k.DataRoot(), "ops/old/part.md", "---\ntype: Note\ntitle: Part\n---\nBack to [old](../old.md).\n")
+	if got := ScopedCheck(k, ids("ops/old")); hasCheck(got, "ops/old.md", "link_to_retired") {
+		t.Fatalf("a satellite of the retired concept raised link_to_retired: %v", got)
+	}
+}
+
 // A digest records what it archived, and a journal's own index lists its
 // entries: neither is a live page relying on a retired one.
 func TestLinkToRetired_DigestAndJournalIndexExempt(t *testing.T) {
@@ -103,7 +116,6 @@ func TestHarvestCandidate(t *testing.T) {
 		{"only 30 days old", "", "---\ntype: Note\ntitle: E\nstatus: done\ntimestamp: 2026-09-01\n---\n# E\n", false},
 		{"contract harvest_after 90", "harvest_after: 90\n", old, false},
 		{"open entry", "", "---\ntype: Note\ntitle: E\nstatus: open\ntimestamp: 2026-08-02\n---\n# E\n", false},
-		{"harvest_after 0 is off", "harvest_after: 0\n", old, false},
 		{"resolved outcome", "open_field: outcome\nopen_statuses: [open]\n", "---\ntype: Note\ntitle: E\nstatus: active\noutcome: resolved\ntimestamp: 2026-08-02\n---\n# E\n", true},
 		{"open outcome, active status", "open_field: outcome\nopen_statuses: [open]\n", "---\ntype: Note\ntitle: E\nstatus: active\noutcome: open\ntimestamp: 2026-08-02\n---\n# E\n", false},
 	}
@@ -135,7 +147,7 @@ func TestHarvestCandidate_EvidenceNamesDurableSections(t *testing.T) {
 }
 
 // D344: a curated index of a live map that links a retired concept is a
-// finding per retired concept listed (D366), with or without require_index_entry.
+// finding per retired concept listed (D366).
 func TestIndexListsRetired(t *testing.T) {
 	t.Parallel()
 	setup := func(t *testing.T, mapFM, idx string, extra map[string]string) []Finding {
@@ -171,12 +183,6 @@ func TestIndexListsRetired(t *testing.T) {
 	}
 	if n := count(setup(t, "", idx, live3)); n != 2 {
 		t.Errorf("one finding per retired concept, got %d", n)
-	}
-	if n := count(setup(t, "require_index_entry: true\n", idx, live3)); n != 2 {
-		t.Errorf("with require_index_entry, got %d", n)
-	}
-	if n := count(setup(t, "lint_ignore: [index_lists_retired]\n", idx, live3)); n != 0 {
-		t.Errorf("lint_ignore in _map.md must silence it, got %d", n)
 	}
 	if n := count(setup(t, "index: generated\n", idx, live3)); n != 0 {
 		t.Errorf("generated index is skipped, got %d", n)

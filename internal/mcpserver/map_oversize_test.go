@@ -15,15 +15,23 @@ import (
 // carries one map_oversize finding; later writes into the oversize map and
 // updates do not.
 
+// oversizeThreshold mirrors lint's fixed per-map concept limit (mapOversizeThreshold).
+const oversizeThreshold = 50
+
 func oversizeServer(t *testing.T, existing int) (*Server, *kb.KB) {
 	t.Helper()
 	k := setupTestKB(t)
-	writeKBFile(t, k, "m/_map.md", "---\ntype: Map\ntitle: M\nkind: map\noversize_concepts: 3\n---\n")
+	writeKBFile(t, k, "m/_map.md", "---\ntype: Map\ntitle: M\nkind: map\n---\n")
 	for i := 0; i < existing; i++ {
 		writeKBFile(t, k, fmt.Sprintf("m/old-%d.md", i), "---\ntype: Note\ntitle: Old\n---\nBody.\n")
 	}
+	forwardLinks(t, k, "m/n1", "m/n2", "m/fresh", "m/a", "m/b", "m/c")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
+	// A generated index lists the new page itself (D907).
+	if res := callTool(t, s, "map_update", `{"map":"m","index":"generated"}`); res.IsError {
+		t.Fatalf("map_update: %+v", res.Content)
+	}
 	return s, k
 }
 
@@ -34,7 +42,7 @@ func oversizeCount(t *testing.T, raw string) int {
 
 func TestConceptWrite_MapOversizeOnCrossingOnly(t *testing.T) {
 	t.Parallel()
-	s, _ := oversizeServer(t, 3)
+	s, _ := oversizeServer(t, oversizeThreshold)
 	create := func(id string) string {
 		return callTool(t, s, "concept_write", fmt.Sprintf(`{"id":%q,"frontmatter":{"type":"Note","title":"T"},"body":"Body.\n"}`, id)).Content[0].Text
 	}
@@ -52,7 +60,7 @@ func TestConceptWrite_MapOversizeOnCrossingOnly(t *testing.T) {
 
 func TestConceptNew_MapOversizeOnCrossing(t *testing.T) {
 	t.Parallel()
-	s, k := oversizeServer(t, 3)
+	s, k := oversizeServer(t, oversizeThreshold)
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +78,7 @@ func TestConceptNew_MapOversizeOnCrossing(t *testing.T) {
 
 func TestConceptBatch_MapOversizeOnceOnLastCreated(t *testing.T) {
 	t.Parallel()
-	s, k := oversizeServer(t, 2)
+	s, k := oversizeServer(t, oversizeThreshold-1)
 	ops := []map[string]any{
 		{"op": "write", "id": "m/a", "frontmatter": map[string]any{"type": "Note", "title": "A"}, "body": "A\n"},
 		{"op": "write", "id": "m/b", "frontmatter": map[string]any{"type": "Note", "title": "B"}, "body": "B\n"},

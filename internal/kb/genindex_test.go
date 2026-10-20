@@ -10,39 +10,39 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
-// TestUpdateMapContract_CostKeys covers the D301 keys: set, read back,
-// removed, a bad index value refused on update and reported when hand-written.
-func TestUpdateMapContract_CostKeys(t *testing.T) {
+// TestUpdateMapContract_IndexKey covers the D301 index key: set, read back,
+// removed, a bad value refused on update and reported when hand-written.
+func TestUpdateMapContract_IndexKey(t *testing.T) {
 	t.Parallel()
 	k, _ := Init(tempKB(t))
-	if err := k.CreateMap("m", "M", "map", nil, ""); err != nil {
+	if err := k.CreateMap("m", "M", "map", nil); err != nil {
 		t.Fatal(err)
 	}
-	gen, n := IndexGenerated, 5
-	c, err := k.UpdateMapContract("m", MapContractUpdate{Index: &gen, RepeatedFactMin: &n, HotspotInDegree: &n, HotspotBytes: &n, OversizeBytes: &n, OversizeConcepts: &n})
+	gen := IndexGenerated
+	c, err := k.UpdateMapContract("m", MapContractUpdate{Index: &gen})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Index != IndexGenerated || c.RepeatedFactMin != 5 || c.HotspotInDegree != 5 || c.HotspotBytes != 5 || c.OversizeBytes != 5 || c.OversizeConcepts != 5 || len(c.Malformed) != 0 {
+	if c.Index != IndexGenerated || len(c.Malformed) != 0 {
 		t.Fatalf("after set: %+v", c)
 	}
-	cur, zero := "curated", 0
-	c, err = k.UpdateMapContract("m", MapContractUpdate{Index: &cur, RepeatedFactMin: &zero, HotspotInDegree: &zero, HotspotBytes: &zero, OversizeBytes: &zero, OversizeConcepts: &zero})
+	cur := "curated"
+	c, err = k.UpdateMapContract("m", MapContractUpdate{Index: &cur})
 	if err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := k.ReadRaw("m/_map.md")
-	if c.Index != "" || c.OversizeBytes != 0 || c.OversizeConcepts != 0 || strings.Contains(raw, "oversize_concepts") || strings.Contains(raw, "index:") || strings.Contains(raw, "oversize_bytes") {
+	if c.Index != "" || strings.Contains(raw, "index:") {
 		t.Fatalf("after remove: %+v\n%s", c, raw)
 	}
 	bad := "auto"
 	if _, err := k.UpdateMapContract("m", MapContractUpdate{Index: &bad}); err == nil {
 		t.Fatal("index auto accepted")
 	}
-	if err := os.WriteFile(filepath.Join(k.DataRoot(), "m", "_map.md"), []byte(strings.Replace(raw, "---\n", "---\nindex: auto\nhotspot_bytes: -1\n", 1)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "m", "_map.md"), []byte(strings.Replace(raw, "---\n", "---\nindex: auto\n", 1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if c, err = k.ReadMapContract("m"); err != nil || c.Index != "" || len(c.Malformed) != 2 {
+	if c, err = k.ReadMapContract("m"); err != nil || c.Index != "" || len(c.Malformed) != 1 {
 		t.Fatalf("malformed keys: %+v %v", c, err)
 	}
 }
@@ -92,7 +92,7 @@ func TestRegenerateIndexes(t *testing.T) {
 	t.Parallel()
 	k, _ := Init(tempKB(t))
 	for _, m := range []string{"gen", "cur"} {
-		if err := k.CreateMap(m, m, "map", nil, ""); err != nil {
+		if err := k.CreateMap(m, m, "map", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -151,7 +151,7 @@ func TestUpdateMapContract_WorkMap(t *testing.T) {
 	t.Parallel()
 	k, _ := Init(tempKB(t))
 	for _, m := range []string{"ref", "backlog"} {
-		if err := k.CreateMap(m, m, "map", nil, ""); err != nil {
+		if err := k.CreateMap(m, m, "map", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -172,7 +172,7 @@ func TestUpdateMapContract_WorkMap(t *testing.T) {
 func TestUpdateMapContract_Title(t *testing.T) {
 	t.Parallel()
 	k, _ := Init(tempKB(t))
-	if err := k.CreateMap("ref", "Reference notes", "map", nil, ""); err != nil {
+	if err := k.CreateMap("ref", "Reference notes", "map", nil); err != nil {
 		t.Fatal(err)
 	}
 	title := "Reference"

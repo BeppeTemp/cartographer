@@ -125,7 +125,7 @@ func cacheTestKB(t *testing.T) *kb.KB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CreateMapWithContract("arch", "Arch", "map", nil, "", kb.MapContract{}); err != nil {
+	if err := k.CreateMapWithContract("arch", "Arch", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 5; i++ {

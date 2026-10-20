@@ -18,7 +18,7 @@ func placeholderKB(t *testing.T) (*Server, *kb.KB, string) {
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	for _, m := range []string{"ops", "hidden"} {
-		if err := k.CreateMap(m, m, "map", nil, ""); err != nil {
+		if err := k.CreateMap(m, m, "map", nil); err != nil {
 			t.Fatal(err)
 		}
 	}

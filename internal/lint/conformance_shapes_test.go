@@ -44,39 +44,6 @@ func TestStringifiedList_NonListFieldIgnored(t *testing.T) {
 	}
 }
 
-func TestStringifiedList_NotSuppressible(t *testing.T) {
-	t.Parallel()
-	got := shapeFindings(t, "provenance: \"[a, b]\"\nlint_ignore: [stringified_list]\n", "x")
-	if len(findingsOf(got, "stringified_list")) != 1 {
-		t.Errorf("suppressed: %+v", got)
-	}
-}
-
-// A map's lint_ignore cannot silence a NeverSuppress check either: the name is
-// reported invalid on the _map.md and the finding stays on the page.
-func TestStringifiedList_NotSuppressibleByMap(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "arch/_map.md", "---\ntype: Map\nkind: map\ntitle: Arch\nlint_ignore: [stringified_list, malformed_frontmatter]\n---\n# Arch\n")
-	writeFile(t, k.DataRoot(), "arch/a.md", "---\ntype: Note\ntitle: A\nprovenance: \"[a, b]\"\n---\nx\n")
-	got, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(findingsOf(got, "stringified_list")) != 1 {
-		t.Errorf("map lint_ignore suppressed stringified_list: %+v", got)
-	}
-	invalid := 0
-	for _, f := range findingsOf(got, "lint_ignore_invalid") {
-		if f.Path == "arch/_map.md" {
-			invalid++
-		}
-	}
-	if invalid != 2 {
-		t.Errorf("want 2 lint_ignore_invalid on arch/_map.md, got %d: %+v", invalid, got)
-	}
-}
-
 func TestListItems(t *testing.T) {
 	t.Parallel()
 	for _, c := range []struct{ field, in, want string }{
@@ -133,14 +100,6 @@ func TestMangledPlaceholder_NotFlagged(t *testing.T) {
 		if got := findingsOf(shapeFindings(t, "", body), "mangled_placeholder"); len(got) != 0 {
 			t.Errorf("%s flagged: %+v", name, got)
 		}
-	}
-}
-
-func TestMangledPlaceholder_Suppressible(t *testing.T) {
-	t.Parallel()
-	got := shapeFindings(t, "lint_ignore: [mangled_placeholder]\n", "cd `repo:my-tools` fra doppie graffe")
-	if len(findingsOf(got, "mangled_placeholder")) != 0 {
-		t.Errorf("not suppressed: %+v", got)
 	}
 }
 

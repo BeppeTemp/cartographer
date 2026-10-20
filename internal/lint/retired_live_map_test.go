@@ -11,7 +11,7 @@ import (
 
 var retiredStatuses = []string{"deprecated", "superseded", "archived"}
 
-const retiredMapContract = "---\ntype: Map\ntitle: Ops\nkind: map\nrequire_index_entry: true\n---\n"
+const retiredMapContract = "---\ntype: Map\ntitle: Ops\nkind: map\n---\n"
 
 func TestRetiredConcept_NoIndexIncomplete(t *testing.T) {
 	t.Parallel()

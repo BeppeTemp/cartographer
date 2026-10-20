@@ -31,7 +31,7 @@ func repairTestKB(t *testing.T, autoRepair []string) (toolCaller, string) {
 	}
 	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = autoRepair })
 	setPolicy(k, func(p *kb.Policy) { p.DoctorIntervalDays = 14 })
-	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, "", kb.MapContract{}); err != nil {
+	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 	fm, _ := okf.ParseFrontmatter("")

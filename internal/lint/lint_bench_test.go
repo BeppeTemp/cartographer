@@ -20,7 +20,7 @@ func TestRun_OracleRelPathOfMatchesResolveConceptRelPath(t *testing.T) {
 	root := k.DataRoot()
 
 	// Create a map.
-	if err := k.CreateMapWithContract("arch", "Arch", "map", nil, "", kb.MapContract{}); err != nil {
+	if err := k.CreateMapWithContract("arch", "Arch", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -170,7 +170,7 @@ func benchKB(b *testing.B) *kb.KB {
 	const conceptsPerMap = 100
 	for m := 0; m < maps; m++ {
 		name := fmt.Sprintf("m%d", m)
-		if err := k.CreateMapWithContract(name, name, "map", nil, "", kb.MapContract{}); err != nil {
+		if err := k.CreateMapWithContract(name, name, "map", nil, kb.MapContract{}); err != nil {
 			b.Fatal(err)
 		}
 		for i := 0; i < conceptsPerMap; i++ {

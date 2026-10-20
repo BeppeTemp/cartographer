@@ -14,24 +14,13 @@ import (
 )
 
 // The legacy tables, as they were hard-coded before the registry (D354), kept
-// as the regression: the derived tables must hold exactly these names.
+// as the regression: the derived tables must hold exactly these names. The
+// suppression tables went with lint_ignore and lint_accept (D907);
+// contract_legacy_key is the one fix added since.
 var legacyTables = map[string]string{
-	"perConcept":         `bare_link_list broken_link broken_relation closed_with_open_items concept_oversize cut_concept duplicate_candidate duplicate_link empty_concept forbidden_term glossary_gap harvest_candidate imported_draft island legacy_path link_to_retired lint_judgement machine_path malformed_frontmatter mangled_placeholder map_misfit map_naming missing_title nonslug_file_name nonstandard_field open_marker orphan promotion_candidate prose_value read_hotspot reciprocal_link_item repeated_fact repeated_link scattered_work secrets_on_non_service sops_format_mismatch sops_missing_file source_uncited stale_claim stale_open status_reclassify status_semantics stray_file stringified_list template_extra_section template_field_missing template_field_value template_missing template_not_allowed template_proposal template_section_alias template_section_missing template_section_order template_type_mismatch template_unknown title_h1_mismatch title_quality unknown_placeholder unknown_type value_case_variant zombie_work`,
-	"mapOnly":            `facet_sprawl index_lists_retired map_oversize map_without_templates missing_value_contract`,
-	"wholeGraph":         `cut_concept index_lists_retired island link_to_retired map_misfit unknown_type value_case_variant`,
-	"lintJudgement":      `bare_link_list broken_link closed_with_open_items concept_oversize concept_too_deep empty_concept map_misfit missing_frontmatter missing_type stale_open stray_file template_extra_section template_field_missing template_field_value template_missing template_not_allowed template_section_alias template_section_missing template_unknown unknown_type unparseable_frontmatter`,
-	"artifactChecks":     `artifact_unused cross_kb_path junk_asset junk_file legacy_tool_name missing_instructions skill_broken_ref skill_git_command skill_invalid skill_missing_perimeter skill_warning`,
-	"artifactAcceptable": `artifact_unused cross_kb_path legacy_path legacy_tool_name skill_broken_ref skill_git_command skill_invalid skill_missing_perimeter skill_warning sops_format_mismatch sops_missing_file`,
-	"fixable":            `broken_link duplicate_link index_link_form index_lists_retired invalid_field_value legacy_path legacy_tool_name link_to_retired missing_frontmatter missing_title missing_type nonslug_file_name nonstandard_field prose_value reciprocal_link_item repeated_link stringified_list template_field_value template_missing template_section_alias template_section_order template_type_mismatch title_h1_mismatch title_quality tool_param_field unknown_type unmapped_folder unparseable_frontmatter value_case_variant`,
-}
-
-// legacyAcceptability is CheckAcceptability for every check name known before
-// the registry (no_such_check is unknown, hence none).
-var legacyAcceptability = map[string]string{
-	"concept":  `bare_link_list broken_link broken_relation closed_with_open_items concept_oversize cut_concept duplicate_candidate duplicate_link empty_concept forbidden_term glossary_gap harvest_candidate imported_draft island legacy_path link_to_retired lint_judgement machine_path malformed_frontmatter mangled_placeholder map_misfit map_naming missing_title nonslug_file_name nonstandard_field open_marker orphan promotion_candidate prose_value read_hotspot reciprocal_link_item repeated_fact repeated_link scattered_work secrets_on_non_service sops_format_mismatch sops_missing_file source_uncited stale_claim stale_open status_reclassify status_semantics stray_file stringified_list template_extra_section template_field_missing template_field_value template_missing template_not_allowed template_proposal template_section_alias template_section_missing template_section_order template_type_mismatch template_unknown title_h1_mismatch title_quality unknown_placeholder unknown_type value_case_variant zombie_work`,
-	"map":      `facet_sprawl index_lists_retired map_oversize map_without_templates missing_value_contract`,
-	"artifact": `artifact_unused cross_kb_path legacy_tool_name skill_broken_ref skill_git_command skill_invalid skill_missing_perimeter skill_warning`,
-	"none":     `concept_too_deep contract_malformed expanded_ambiguous expanded_as_category expanded_missing_index forbidden_field hook_invalid index_incomplete index_link_form index_stale invalid_field_value junk_asset junk_file legacy_archive_descriptor lint_ignore_invalid missing_frontmatter missing_instructions missing_registry missing_required_field missing_type no_such orphan_asset oversized_asset tool_param_field unlistable_assets unmapped_folder unparseable_frontmatter unused_placeholder`,
+	"wholeGraph":    `cut_concept index_lists_retired island link_to_retired map_misfit unknown_type value_case_variant`,
+	"lintJudgement": `bare_link_list broken_link closed_with_open_items concept_oversize concept_too_deep empty_concept map_misfit missing_frontmatter missing_type stale_open stray_file template_extra_section template_field_missing template_field_value template_missing template_not_allowed template_section_alias template_section_missing template_unknown unknown_type unparseable_frontmatter`,
+	"fixable":       `broken_link contract_legacy_key duplicate_link index_link_form index_lists_retired invalid_field_value legacy_path legacy_tool_name link_to_retired missing_frontmatter missing_title missing_type nonslug_file_name nonstandard_field prose_value reciprocal_link_item repeated_link stringified_list template_field_value template_missing template_section_alias template_section_order template_type_mismatch title_h1_mismatch title_quality tool_param_field unknown_type unmapped_folder unparseable_frontmatter value_case_variant`,
 }
 
 func sortedKeys(m map[string]bool) []string {
@@ -47,40 +36,21 @@ func sortedKeys(m map[string]bool) []string {
 
 func TestRegistry_DerivedTablesMatchLegacy(t *testing.T) {
 	t.Parallel()
-	artifactAcceptableNow := map[string]bool{}
-	for _, s := range Checks() {
-		artifactAcceptableNow[s.Name] = artifactAcceptable(s.Name)
-	}
 	got := map[string][]string{
-		"perConcept":         sortedKeys(perConceptChecks),
-		"mapOnly":            sortedKeys(mapOnlyIgnorable),
-		"wholeGraph":         sortedKeys(WholeGraphChecks),
-		"lintJudgement":      sortedKeys(lintJudgementChecks),
-		"artifactChecks":     sortedKeys(artifactChecks),
-		"artifactAcceptable": sortedKeys(artifactAcceptableNow),
-		"fixable":            append([]string(nil), FixableChecks...),
+		"wholeGraph":    sortedKeys(WholeGraphChecks),
+		"lintJudgement": sortedKeys(lintJudgementChecks),
+		"fixable":       append([]string(nil), FixableChecks...),
 	}
 	for table, want := range legacyTables {
 		if !reflect.DeepEqual(got[table], strings.Fields(want)) {
 			t.Errorf("%s drifted from the legacy table:\n got  %v\n want %v", table, got[table], strings.Fields(want))
 		}
 	}
-	for want, names := range legacyAcceptability {
-		for _, name := range strings.Fields(names) {
-			if got := CheckAcceptability(name); got != want {
-				t.Errorf("CheckAcceptability(%q) = %q, want %q", name, got, want)
-			}
-		}
-	}
-	if CheckAcceptability("no_such_check") != AcceptNone {
-		t.Error("an unregistered check must not be acceptable")
-	}
 }
 
 func TestRegistry_Invariants(t *testing.T) {
 	t.Parallel()
 	levels := map[string]bool{LevelConcept: true, LevelMap: true, LevelGraph: true, LevelArtifact: true, LevelKB: true}
-	accepts := map[string]bool{AcceptConcept: true, AcceptMap: true, AcceptArtifact: true, AcceptNone: true}
 	seen := map[string]bool{}
 	for _, s := range Checks() {
 		if seen[s.Name] {
@@ -90,20 +60,8 @@ func TestRegistry_Invariants(t *testing.T) {
 		if !ValidSeverity(s.Severity) {
 			t.Errorf("%s: severity %q", s.Name, s.Severity)
 		}
-		if !levels[s.Level] || !accepts[s.Accept] {
-			t.Errorf("%s: level %q / accept %q", s.Name, s.Level, s.Accept)
-		}
-		// D306: an error is never suppressible, and so never acceptable.
-		if s.Severity == SevError {
-			if s.Accept != AcceptNone {
-				t.Errorf("%s: an error cannot be accepted (D306)", s.Name)
-			}
-			if suppressed(Finding{Check: s.Name, Severity: SevError}, map[string]bool{s.Name: true}) {
-				t.Errorf("%s: an error was suppressed", s.Name)
-			}
-		}
-		if s.NeverSuppress && suppressed(Finding{Check: s.Name, Severity: s.Severity}, map[string]bool{s.Name: true}) {
-			t.Errorf("%s: NeverSuppress was suppressed", s.Name)
+		if !levels[s.Level] {
+			t.Errorf("%s: level %q", s.Name, s.Level)
 		}
 		if (s.AutoRepairSafe || s.CrossConcept) && len(s.FixKinds) == 0 {
 			t.Errorf("%s: auto-repair / cross-concept without a fix", s.Name)
@@ -215,14 +173,7 @@ func TestCheckConceptAgreesWithRun(t *testing.T) {
 	root := k.DataRoot()
 	writeFile(t, root, "ops/_map.md", "---\ntype: Map\nkind: map\ntitle: Ops\nrequired_fields: [owner]\nforbidden_fields: [secret_note]\nfield_values.status: [open, done]\n---\n# Ops\n")
 	writeFile(t, root, "plain/_map.md", "---\ntype: Map\nkind: map\ntitle: Plain\n---\n# Plain\n")
-	// A map-level lint_ignore (D306): the write path must drop what lint drops.
-	// missing_required_field is an error a map cannot accept: it stays, and the
-	// name is reported by lint on the _map.md, never by a write.
-	writeFile(t, root, "quiet/_map.md", "---\ntype: Map\nkind: map\ntitle: Quiet\nrequired_fields: [owner]\nlint_ignore: [stale_claim, machine_path, nonstandard_field, missing_required_field]\n---\n# Quiet\n")
 	pages := map[string]string{
-		"quiet/stale":   "---\ntype: Note\ntitle: Qs\nowner: me\nreview_after: 2001-01-01\nupdated: 2026-01-01\n---\n# Qs\n\nSee /Users/someone/work/notes for details.\n",
-		"quiet/noowner": "---\ntype: Note\ntitle: Qn\n---\n# Qn\n",
-		"quiet/notitle": "---\ntype: Note\nowner: me\nreview_after: 2001-01-01\n---\n# Heading\n",
 		"ops/clean":     "---\ntype: Note\ntitle: Clean\nowner: me\nstatus: open\ntimestamp: 2026-01-01\n---\n# Clean\n\nNothing wrong.\n",
 		"ops/untitled":  "---\ntype: Note\nowner: me\n---\n# Heading\n\nbody\n",
 		"ops/mismatch":  "---\ntype: Note\ntitle: One\nowner: me\n---\n# Another\n",
@@ -237,7 +188,6 @@ func TestCheckConceptAgreesWithRun(t *testing.T) {
 		"ops/big":       "---\ntype: Note\ntitle: Big\nowner: me\n---\n# Big\n\n" + strings.Repeat("padding line\n", 6000),
 		"plain/imp":     "---\ntype: Note\ntitle: Imp\nstatus: imported\nsecrets_source: [x]\n---\n# Imp\n",
 		"plain/noparse": "no frontmatter at all\n",
-		"plain/ignored": "---\ntype: Note\ntitle: Ig\nupdated: 2026-01-01\nlint_ignore: [nonstandard_field]\n---\n# Ig\n",
 	}
 	for id, content := range pages {
 		writeFile(t, root, id+".md", content)
@@ -252,7 +202,8 @@ func TestCheckConceptAgreesWithRun(t *testing.T) {
 		path := okf.IDToPath(okf.ConceptID(id))
 		var want []string
 		for _, f := range findings {
-			if s, ok := Spec(f.Check); f.Path == path && ok && s.Level == LevelConcept && s.OnWrite {
+			// concept_oversize names the page by its ID, the rest by its file (D78).
+			if s, ok := Spec(f.Check); (f.Path == path || f.Path == id) && ok && s.Level == LevelConcept && s.OnWrite {
 				want = append(want, key(f))
 			}
 		}
@@ -272,28 +223,6 @@ func TestCheckConceptAgreesWithRun(t *testing.T) {
 		if !seen[check] {
 			t.Errorf("fixture never produced %s on the write path", check)
 		}
-	}
-	// The map's lint_ignore reaches the write path, errors and the checks the
-	// map did not name still do.
-	for id, content := range pages {
-		if !strings.HasPrefix(id, "quiet/") {
-			continue
-		}
-		got := map[string]bool{}
-		for _, f := range CheckConcept(k, okf.ConceptID(id), content) {
-			got[f.Check] = true
-		}
-		for _, check := range []string{"stale_claim", "machine_path", "nonstandard_field"} {
-			if got[check] {
-				t.Errorf("%s: CheckConcept returned %s, which its map accepts", id, check)
-			}
-		}
-	}
-	if got := CheckConcept(k, "quiet/noowner", pages["quiet/noowner"]); !hasCheck(got, "quiet/noowner.md", "missing_required_field") {
-		t.Errorf("a map's lint_ignore suppressed an error: %+v", got)
-	}
-	if got := CheckConcept(k, "quiet/notitle", pages["quiet/notitle"]); !hasCheck(got, "quiet/notitle.md", "missing_title") || hasCheck(got, "quiet/notitle.md", "stale_claim") {
-		t.Errorf("quiet/notitle: want missing_title kept and stale_claim dropped, got %+v", got)
 	}
 	// What the write path leaves out stays out (no wire change).
 	for id, content := range pages {

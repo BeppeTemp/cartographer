@@ -204,8 +204,6 @@ func TestRun_MissingTitle(t *testing.T) {
 		"---\ntype: Note\ntitle: \"  \"\n---\nNo heading at all.\n")
 	writeFile(t, k.DataRoot(), "arch/titled.md",
 		"---\ntype: Note\ntitle: Titled\n---\n# Titled\n")
-	writeFile(t, k.DataRoot(), "arch/ignored.md",
-		"---\ntype: Note\nlint_ignore: [missing_title]\n---\nDeliberately untitled.\n")
 
 	findings, err := Run(k, "", false)
 	if err != nil {
@@ -226,13 +224,8 @@ func TestRun_MissingTitle(t *testing.T) {
 	if !hasCheck(findings, "arch/blank-title.md", "missing_title") {
 		t.Errorf("a blank title is a missing title: %v", findings)
 	}
-	for _, path := range []string{"arch/titled.md", "arch/ignored.md"} {
-		if hasCheck(findings, path, "missing_title") {
-			t.Errorf("unexpected missing_title for %s: %v", path, findings)
-		}
-	}
-	if hasCheck(findings, "arch/ignored.md", "lint_ignore_invalid") {
-		t.Errorf("missing_title must be suppressible with lint_ignore: %v", findings)
+	if hasCheck(findings, "arch/titled.md", "missing_title") {
+		t.Errorf("unexpected missing_title for arch/titled.md: %v", findings)
 	}
 }
 
@@ -353,58 +346,7 @@ func TestRun_MachinePath_Placeholder_Clean(t *testing.T) {
 	}
 }
 
-// --- machine_path allowlist (D124) ---
-
-func mapWithAllowPrefixes(t *testing.T, k *kb.KB, name string, prefixes []string) {
-	t.Helper()
-	contract := kb.MapContract{MachinePathAllowPrefixes: prefixes}
-	if err := k.CreateMapWithContract(name, name, "map", nil, "", contract); err != nil {
-		t.Fatalf("CreateMapWithContract(%s): %v", name, err)
-	}
-}
-
-func TestRun_MachinePath_OperationalPathUnderAllowlist_Clean(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	mapWithAllowPrefixes(t, k, "infra", []string{
-		"/home/nonroot", "/home/ubuntu/.cache/huggingface", "/home/agent/agent-runs",
-	})
-
-	cases := map[string]string{
-		"infra/image.md":  "---\ntype: Note\n---\nThe image config lives at /home/nonroot/.headroom.\n",
-		"infra/model.md":  "---\ntype: Note\n---\nCache is at /home/ubuntu/.cache/huggingface/hub.\n",
-		"infra/remote.md": "---\ntype: Note\n---\nRuns land in /home/agent/agent-runs/latest.\n",
-	}
-	for path, content := range cases {
-		writeFile(t, k.DataRoot(), path, content)
-	}
-
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	for path := range cases {
-		if hasCheck(findings, path, "machine_path") {
-			t.Errorf("unexpected machine_path for allowed operational path in %s: %v", path, findings)
-		}
-	}
-}
-
-func TestRun_MachinePath_TruePositiveStillFlagged_UnderAllowlist(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	mapWithAllowPrefixes(t, k, "infra", []string{"/home/nonroot"})
-	writeFile(t, k.DataRoot(), "infra/laptop.md",
-		"---\ntype: Note\n---\nRepo checked out at /Users/beppetemp/repos/cartographer.\n")
-
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if !hasCheck(findings, "infra/laptop.md", "machine_path") {
-		t.Errorf("expected machine_path for a genuine client-local path despite an unrelated allowlist: %v", findings)
-	}
-}
+// --- machine_path conventional prefixes (D313) ---
 
 func TestRun_MachinePath_InsideURL_Clean(t *testing.T) {
 	t.Parallel()
@@ -424,9 +366,8 @@ func TestRun_MachinePath_InsideURL_Clean(t *testing.T) {
 func TestRun_MachinePath_AllowedFirst_DisallowedLater_Flagged(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
-	mapWithAllowPrefixes(t, k, "infra", []string{"/home/nonroot"})
 	writeFile(t, k.DataRoot(), "infra/mixed.md",
-		"---\ntype: Note\n---\nImage path /home/nonroot/.headroom is fine, but the author's own /home/carol/notes.md is not.\n")
+		"---\ntype: Note\n---\nThe ssh config ~/.ssh/config is fine, but the author's own /home/carol/notes.md is not.\n")
 
 	findings, err := Run(k, "", false)
 	if err != nil {
@@ -449,32 +390,15 @@ func TestRun_MachinePath_AllowedFirst_DisallowedLater_Flagged(t *testing.T) {
 func TestRun_MachinePath_PrefixBoundaryCollision_Flagged(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
-	mapWithAllowPrefixes(t, k, "infra", []string{"/home/nonroot"})
 	writeFile(t, k.DataRoot(), "infra/collision.md",
-		"---\ntype: Note\n---\nUnrelated user home at /home/nonroot2/data is not covered by the allowlist.\n")
+		"---\ntype: Note\n---\nUnrelated ~/.sshx/data is not covered by the conventional ~/.ssh/ prefix.\n")
 
 	findings, err := Run(k, "", false)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if !hasCheck(findings, "infra/collision.md", "machine_path") {
-		t.Errorf("expected machine_path: /home/nonroot2 must not match the /home/nonroot allow prefix (segment boundary): %v", findings)
-	}
-}
-
-func TestRun_MachinePath_EmptyContract_BehavesLikeNoAllowlist(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	mapWithAllowPrefixes(t, k, "infra", nil)
-	writeFile(t, k.DataRoot(), "infra/plain.md",
-		"---\ntype: Note\n---\nRepo is at /home/bob/repos/cartographer.\n")
-
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if !hasCheck(findings, "infra/plain.md", "machine_path") {
-		t.Errorf("expected machine_path with an empty allowlist to preserve current matching: %v", findings)
+		t.Errorf("expected machine_path: ~/.sshx must not match the ~/.ssh/ conventional prefix (segment boundary): %v", findings)
 	}
 }
 
@@ -489,7 +413,7 @@ func TestRun_Orphan_Detected(t *testing.T) {
 		"---\ntype: Note\n---\nNo one links here.\n")
 	// Also write _archive.md so arch appears as an archive.
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
-		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
+		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\n---\n")
 
 	findings, err := Run(k, "", false)
 	if err != nil {
@@ -504,7 +428,7 @@ func TestRun_Orphan_LinkedConcept_Clean(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
-		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
+		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\n---\n")
 	writeFile(t, k.DataRoot(), "arch/concept-a.md",
 		"---\ntype: Note\n---\nSee [concept-b](concept-b.md).\n")
 	writeFile(t, k.DataRoot(), "arch/concept-b.md",
@@ -542,7 +466,7 @@ func TestRun_Orphan_ArchiveTopLevel_Skipped(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
-		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
+		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\n---\n")
 	// concept-a is directly under archive arch/ (depth=1) and leads somewhere
 	// — an entry point, not an orphan.
 	writeFile(t, k.DataRoot(), "arch/concept-a.md",
@@ -592,7 +516,7 @@ func TestRun_ExpandedMissingIndex_Detected(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
-		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
+		"---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
 	// Expanded directory created by hand (not via WriteConcept/ExpandConcept): no index.md.
 	writeFile(t, k.DataRoot(), "arch/sub-concept/concept-a.md",
 		"---\ntype: Note\n---\nContent.\n")
@@ -610,7 +534,7 @@ func TestRun_ExpandedMissingIndex_WithIndex_Clean(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
-		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
+		"---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
 	writeFile(t, k.DataRoot(), "arch/sub-concept/index.md",
 		"---\ntype: Index\ntitle: Sub Concept\n---\n")
 	writeFile(t, k.DataRoot(), "arch/sub-concept/concept-a.md",
@@ -694,7 +618,7 @@ func TestRun_MissingRequiredFieldsWithoutFrontmatter(t *testing.T) {
 func TestRun_ContractMalformedAndServicesSkipped(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequired_fields: [timestamp, timestamp, ]\nrequire_index_entry: maybe\n---\n")
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequired_fields: [timestamp, timestamp, ]\n---\n")
 	writeFile(t, k.Root, "services/demo.md", "---\ntype: Service\n---\n")
 	findings, err := Run(k, "", false)
 	if err != nil {
@@ -709,7 +633,7 @@ func TestRun_ContractMalformedAndServicesSkipped(t *testing.T) {
 			t.Fatalf("service matched a map contract: %#v", f)
 		}
 	}
-	if malformed != 2 {
+	if malformed != 1 {
 		t.Fatalf("contract_malformed = %d, findings=%#v", malformed, findings)
 	}
 }
@@ -730,7 +654,7 @@ func TestRun_EmptyPerTypeContractSuffixMalformedOnce(t *testing.T) {
 func TestRun_IndexContract_MapAndExpanded(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
 	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\n---\n[alpha](alpha.md)\n[[ops/owner]]\n[missing](missing.md)\n")
 	writeFile(t, k.DataRoot(), "ops/alpha.md", "---\ntype: Note\n---\n")
 	writeFile(t, k.DataRoot(), "ops/owner/index.md", "---\ntype: Note\n---\n")
@@ -750,7 +674,7 @@ func TestRun_IndexContract_MapAndExpanded(t *testing.T) {
 func TestRun_IndexContract_ScopedOnlyOwnMembership(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
 	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\n---\n[[ops/a]]\n")
 	writeFile(t, k.DataRoot(), "ops/a.md", "---\ntype: Note\n---\n")
 	writeFile(t, k.DataRoot(), "ops/b.md", "---\ntype: Note\n---\n")
@@ -781,7 +705,7 @@ func TestRun_IndexContract_EmptyMapStillValidatesMapIndex(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			k := tempKB(t)
-			writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
+			writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
 			if tc.index != "" {
 				writeFile(t, k.DataRoot(), "ops/index.md", tc.index)
 			}
@@ -803,7 +727,7 @@ func TestRun_IndexContract_EmptyMapStillValidatesMapIndex(t *testing.T) {
 func TestRun_IndexContract_ExpandedIndexBrokenLinkOnceAndScopedMapIsolation(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
 	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\n---\n[[ops/missing-map-target]]\n")
 	writeFile(t, k.DataRoot(), "ops/owner/index.md", "---\ntype: Note\n---\n[[ops/missing-owner-target]]\n[[ops/owner/child]]\n")
 	writeFile(t, k.DataRoot(), "ops/owner/child.md", "---\ntype: Note\n---\n")
@@ -823,20 +747,18 @@ func TestRun_IndexContract_ExpandedIndexBrokenLinkOnceAndScopedMapIsolation(t *t
 	}
 }
 
-func TestRun_IndexContractFalseDoesNothingAndMissingIndexIsOneFinding(t *testing.T) {
+func TestRun_MissingIndexIsOneFinding(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "off/_map.md", "---\ntype: Map\nrequire_index_entry: false\n---\n")
-	writeFile(t, k.DataRoot(), "off/a.md", "---\ntype: Note\n---\n")
-	writeFile(t, k.DataRoot(), "on/_map.md", "---\ntype: Map\nrequire_index_entry: true\n---\n")
+	writeFile(t, k.DataRoot(), "on/_map.md", "---\ntype: Map\n---\n")
 	writeFile(t, k.DataRoot(), "on/a.md", "---\ntype: Note\n---\n")
 	writeFile(t, k.DataRoot(), "on/b.md", "---\ntype: Note\n---\n")
 	findings, err := Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hasCheck(findings, "off/index.md", "index_incomplete") || countCheck(findings, "on/index.md", "index_incomplete") != 1 {
-		t.Fatalf("index contract enablement findings = %#v", findings)
+	if countCheck(findings, "on/index.md", "index_incomplete") != 1 {
+		t.Fatalf("a missing index must be one finding = %#v", findings)
 	}
 }
 
@@ -846,7 +768,7 @@ func TestRun_ExpandedAmbiguous_Detected(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
-		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
+		"---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
 	writeFile(t, k.DataRoot(), "arch/dup.md",
 		"---\ntype: Note\n---\nDirect form.\n")
 	writeFile(t, k.DataRoot(), "arch/dup/index.md",
@@ -867,7 +789,7 @@ func TestRun_ExpandedAsCategory_Detected(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
-		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
+		"---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
 	// Index that links none of its many children: a taxonomy bucket.
 	writeFile(t, k.DataRoot(), "arch/bucket/index.md",
 		"---\ntype: Index\ntitle: Bucket\n---\nNothing linked here.\n")
@@ -889,7 +811,7 @@ func TestRun_ExpandedAsCategory_LinkedChildren_Clean(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
-		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
+		"---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
 	n := expandedAsCategoryMinChildren + 1
 	var links strings.Builder
 	for i := 0; i < n; i++ {
@@ -970,38 +892,6 @@ func TestRun_MapOversize_JournalExempt(t *testing.T) {
 	}
 }
 
-func TestRun_MapOversize_CustomThreshold(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	oversizeMap(t, k, "kind: map\noversize_concepts: 200\n", 150, 0)
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if hasCheck(findings, "arch/_map.md", "map_oversize") {
-		t.Errorf("oversize_concepts: 200 must raise the threshold: %v", findings)
-	}
-	oversizeMap(t, k, "kind: map\noversize_concepts: 10\n", 11, 0)
-	findings, _ = Run(k, "", false)
-	if !hasCheck(findings, "arch/_map.md", "map_oversize") {
-		t.Errorf("oversize_concepts: 10 must lower the threshold: %v", findings)
-	}
-}
-
-// The map accepts map_oversize in _map.md without lint_ignore_invalid (D313).
-func TestRun_MapOversize_AcceptedByMap(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	oversizeMap(t, k, "kind: map\nlint_ignore: [map_oversize]\n", mapOversizeThreshold+1, 0)
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if hasCheck(findings, "arch/_map.md", "map_oversize") || hasCheck(findings, "arch/_map.md", "lint_ignore_invalid") {
-		t.Errorf("map_oversize must be accepted by the map: %v", findings)
-	}
-}
-
 // --- concept_oversize (D78) ---
 
 func TestRun_ConceptOversize_Detected(t *testing.T) {
@@ -1041,7 +931,7 @@ func TestRun_LegacyArchiveDescriptor_Detected(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
-		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
+		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\n---\n")
 	writeFile(t, k.DataRoot(), "arch/concept-a.md",
 		"---\ntype: Note\n---\nContent.\n")
 
@@ -1058,7 +948,7 @@ func TestRun_LegacyArchiveDescriptor_MapDescriptor_Clean(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_map.md",
-		"---\ntype: Map\ntitle: Arch\nkind: map\nontology_mode: flexible\n---\n")
+		"---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
 	writeFile(t, k.DataRoot(), "arch/concept-a.md",
 		"---\ntype: Note\n---\nContent.\n")
 
@@ -1076,13 +966,13 @@ func TestRun_LegacyArchiveDescriptor_MapDescriptor_Clean(t *testing.T) {
 func TestRun_ScopeFiltering(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "alpha/_archive.md",
-		"---\ntype: Archive\ntitle: Alpha\narchive_type: ops\nontology_mode: flexible\n---\n")
+		"---\ntype: Archive\ntitle: Alpha\narchive_type: ops\n---\n")
 	writeFile(t, k.DataRoot(), "alpha/dossier/index.md",
 		"---\ntype: Index\ntitle: Dossier\n---\n")
 	writeFile(t, k.DataRoot(), "alpha/dossier/concept-a.md",
 		"---\ntype: Note\nreview_after: 2020-01-01\n---\n")
 	writeFile(t, k.DataRoot(), "beta/_archive.md",
-		"---\ntype: Archive\ntitle: Beta\narchive_type: ops\nontology_mode: flexible\n---\n")
+		"---\ntype: Archive\ntitle: Beta\narchive_type: ops\n---\n")
 	writeFile(t, k.DataRoot(), "beta/dossier/index.md",
 		"---\ntype: Index\ntitle: Dossier\n---\n")
 	writeFile(t, k.DataRoot(), "beta/dossier/concept-b.md",
@@ -1109,7 +999,7 @@ func TestRun_ScopeNeighbors(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
-		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
+		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\n---\n")
 	// concept-a (in scope) links to concept-b (neighbor).
 	// concept-b has a broken link.
 	writeFile(t, k.DataRoot(), "arch/concept-a.md",
@@ -1142,7 +1032,7 @@ func TestRun_ScopeNeighborsValidatesTheGraphOnce(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
-		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
+		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\n---\n")
 	for i := 0; i < 50; i++ {
 		writeFile(t, k.DataRoot(), fmt.Sprintf("arch/c%02d.md", i),
 			fmt.Sprintf("---\ntype: Note\n---\nSee [next](c%02d.md) and [out](../ext/e%02d.md).\n", (i+1)%50, i))
@@ -1263,7 +1153,7 @@ func TestLint_CuratedIndexAcceptsBothExpandedForms(t *testing.T) {
 	t.Parallel()
 	for _, link := range []string{"- [c](c.md)\n", "- [c](c/index.md)\n"} {
 		k := tempKB(t)
-		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\nrequire_index_entry: true\n---\n# M\n")
+		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
 		writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n"+link)
 		writeFile(t, k.DataRoot(), "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
 
@@ -1371,150 +1261,6 @@ func TestLint_DocumentingCodeExamplesRaisesNoBrokenLink(t *testing.T) {
 	}
 }
 
-// --- D159 ---
-
-// A concept documenting a false positive could not be written without generating
-// the findings it describes: a KB's own "known false positives" page was
-// impossible.
-func TestLint_LintIgnoreSuppressesNamedChecks(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
-	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [fp](fp.md)\n")
-	writeFile(t, k.DataRoot(), "m/fp.md",
-		"---\ntype: Note\ntitle: FP\nlint_ignore: [machine_path]\n---\nThe path ~/.ssh/config is conventional.\n- [missing](missing.md)\n")
-
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var machinePath, brokenLink bool
-	for _, f := range findings {
-		switch f.Check {
-		case "machine_path":
-			machinePath = true
-		case "broken_link":
-			brokenLink = true
-		}
-	}
-	if machinePath {
-		t.Error("lint_ignore did not suppress machine_path")
-	}
-	// Only the named check is silenced: the others still fire.
-	if !brokenLink {
-		t.Error("lint_ignore silenced a check it does not name")
-	}
-}
-
-func TestLint_LintIgnoreAcceptsABareString(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
-	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [fp](fp.md)\n")
-	writeFile(t, k.DataRoot(), "m/fp.md", "---\ntype: Note\ntitle: FP\nlint_ignore: machine_path\n---\n~/.ssh/config\n")
-
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, f := range findings {
-		if f.Check == "machine_path" {
-			t.Error("a bare-string lint_ignore was not honoured")
-		}
-	}
-}
-
-// An error is a contract violation, not a judgement: letting a concept declare
-// its own contract void would be a hole, not an escape hatch.
-func TestLint_LintIgnoreCannotSilenceAnError(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\nrequired_fields: [status]\n---\n# M\n")
-	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
-	writeFile(t, k.DataRoot(), "m/c.md", "---\ntype: Note\ntitle: C\nlint_ignore: [missing_required_field]\n---\n# C\n")
-
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var stillErrors, invalid bool
-	for _, f := range findings {
-		if f.Check == "missing_required_field" {
-			stillErrors = true
-		}
-		if f.Check == "lint_ignore_invalid" {
-			invalid = true
-		}
-	}
-	if !stillErrors {
-		t.Error("lint_ignore silenced an error-severity contract violation")
-	}
-	if !invalid {
-		t.Error("naming an unsuppressible check must be reported, not ignored")
-	}
-}
-
-// A typo that silently suppresses nothing is worse than no opt-out at all.
-func TestLint_LintIgnoreUnknownCheckIsReported(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
-	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n")
-	writeFile(t, k.DataRoot(), "m/c.md", "---\ntype: Note\ntitle: C\nlint_ignore: [nonsense]\n---\n# C\n")
-
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found bool
-	for _, f := range findings {
-		if f.Check == "lint_ignore_invalid" && strings.Contains(f.Message, "nonsense") {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("want a lint_ignore_invalid naming the unknown check, got %+v", findings)
-	}
-}
-
-// ~/.ssh/config means "your ssh config" on every machine, exactly as /etc/... does,
-// and there was no way to declare it legitimate.
-func TestLint_MachinePathAllowsTildePrefixes(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\nmachine_path_allow_prefixes: [~/.ssh]\n---\n# M\n")
-	writeFile(t, k.DataRoot(), "m/index.md", "---\ntype: Index\ntitle: M\n---\n- [c](c.md)\n- [d](d.md)\n")
-	writeFile(t, k.DataRoot(), "m/c.md", "---\ntype: Note\ntitle: C\n---\nSee ~/.ssh/config for the host list.\n")
-	writeFile(t, k.DataRoot(), "m/d.md", "---\ntype: Note\ntitle: D\n---\nSee ~/.sshx/other for something else.\n")
-
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var covered, boundary, malformed bool
-	for _, f := range findings {
-		if f.Check == "machine_path" && strings.Contains(f.Path, "m/c.md") {
-			covered = true
-		}
-		if f.Check == "machine_path" && strings.Contains(f.Path, "m/d.md") {
-			boundary = true
-		}
-		if f.Check == "contract_malformed" {
-			malformed = true
-		}
-	}
-	if malformed {
-		t.Error("a ~/-anchored allow prefix was rejected as malformed")
-	}
-	if covered {
-		t.Error("~/.ssh did not cover ~/.ssh/config")
-	}
-	// Segment-boundary matching: ~/.ssh must not cover ~/.sshx.
-	if !boundary {
-		t.Error("~/.ssh wrongly covered ~/.sshx/other")
-	}
-}
-
 // concept_expand requires two segments, so for a satellite the old advice named
 // an operation the product refuses.
 func TestLint_OversizeRemedyIsDepthAware(t *testing.T) {
@@ -1570,10 +1316,9 @@ func TestOversizeThresholdIsDerivedFromTheReadGuard(t *testing.T) {
 	}
 }
 
-// TestLint_MapIndexBrokenLinkWithoutContract: a dead link in a map's index.md
-// is reported even when the map never opted in to require_index_entry, while
-// completeness stays opt-in and a missing index is not a finding (#320).
-func TestLint_MapIndexBrokenLinkWithoutContract(t *testing.T) {
+// TestLint_MapIndexBrokenLink: a dead link in a map's index.md is reported,
+// and so is the entry the index lacks: completeness is always on (D907).
+func TestLint_MapIndexBrokenLink(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
@@ -1594,9 +1339,12 @@ func TestLint_MapIndexBrokenLinkWithoutContract(t *testing.T) {
 			if f.Check == "broken_link" && f.Path == "m/index.md" && !strings.Contains(f.Message, "m/moved-away") {
 				t.Errorf("scope %q: broken_link names the wrong target: %s", scope, f.Message)
 			}
-			if f.Check == "index_incomplete" {
-				t.Errorf("scope %q: completeness is opt-in, got index_incomplete: %s — %s", scope, f.Path, f.Message)
+			if f.Check == "index_incomplete" && f.Path == "m/index.md" && !strings.Contains(f.Message, "m/unlisted") {
+				t.Errorf("scope %q: index_incomplete names the wrong entry: %s", scope, f.Message)
 			}
+		}
+		if !hasCheck(findings, "m/index.md", "index_incomplete") {
+			t.Errorf("scope %q: expected index_incomplete for m/unlisted, got %v", scope, findings)
 		}
 	}
 	findings, err := Run(k, "m/live", false)
@@ -1713,22 +1461,6 @@ func TestRun_ForbiddenFieldContract(t *testing.T) {
 	}
 }
 
-func TestRun_FieldContractNotSuppressible(t *testing.T) {
-	t.Parallel()
-	k := fieldContractKB(t)
-	writeFile(t, k.DataRoot(), "infra/c.md", "---\ntype: Note\ntitle: C\nstatus: bogus\nstate: x\nlint_ignore: [invalid_field_value, forbidden_field]\n---\n")
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if countCheck(findings, "infra/c.md", "invalid_field_value") != 1 || countCheck(findings, "infra/c.md", "forbidden_field") != 1 {
-		t.Errorf("lint_ignore silenced a contract violation: %#v", findings)
-	}
-	if countCheck(findings, "infra/c.md", "lint_ignore_invalid") != 2 {
-		t.Errorf("lint_ignore_invalid should be reported for both: %#v", findings)
-	}
-}
-
 func TestLint_ExpandRebasesLinks_NoBrokenLink(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
@@ -1819,7 +1551,7 @@ func TestLint_DuplicateLinkFix_LinkOnlyItem(t *testing.T) {
 	}
 }
 
-// D313: conventional tool paths never need a per-concept lint_ignore.
+// D313: conventional tool paths are never a machine_path finding.
 func TestRun_MachinePath_BuiltinConventionalPaths_Clean(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
@@ -1840,23 +1572,6 @@ func TestRun_MachinePath_BuiltinConventionalPaths_Clean(t *testing.T) {
 	for _, f := range CheckConcept(k, "m/ok", "---\ntype: Note\ntitle: OK\n---\nSee ~/.ssh/config.\n") {
 		if f.Check == "machine_path" {
 			t.Errorf("CheckConcept flagged a conventional path: %+v", f)
-		}
-	}
-}
-
-func TestCheckAcceptability(t *testing.T) {
-	t.Parallel()
-	for check, want := range map[string]string{
-		"machine_path":           AcceptConcept,
-		"map_oversize":           AcceptMap,
-		"missing_value_contract": AcceptMap,
-		"skill_git_command":      AcceptArtifact,
-		"junk_file":              AcceptNone, // deleted, never accepted
-		"missing_required_field": AcceptNone, // an error: fix it
-		"no_such_check":          AcceptNone,
-	} {
-		if got := CheckAcceptability(check); got != want {
-			t.Errorf("CheckAcceptability(%q) = %q, want %q", check, got, want)
 		}
 	}
 }
@@ -1970,7 +1685,7 @@ func TestRun_Orphan_ProvenanceCited_Clean(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "arch/_archive.md",
-		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\nontology_mode: flexible\n---\n")
+		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\n---\n")
 	writeFile(t, k.DataRoot(), "arch/dossier/index.md", "---\ntype: Index\ntitle: Dossier\n---\n")
 	writeFile(t, k.DataRoot(), "arch/dossier/src.md", "---\ntype: Note\n---\nA source.\n")
 	writeFile(t, k.DataRoot(), "arch/dossier/user.md",

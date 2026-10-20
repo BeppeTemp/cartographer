@@ -63,12 +63,7 @@ func TestAddedRepeatedFactsThreshold(t *testing.T) {
 	putConcept(t, k, "m/a", addedFactLine)
 	putConcept(t, k, "m/c", addedFactLine)
 	if got, _ := AddedRepeatedFacts(k, "m/c", "", addedFactLine, 20, allLookup(t, k, nil)); len(got) != 0 {
-		t.Fatalf("two owners under the default threshold of 3: %+v", got)
-	}
-	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\nrepeated_fact_min: 2\n---\n")
-	got, _ := AddedRepeatedFacts(k, "m/c", "", addedFactLine, 20, allLookup(t, k, nil))
-	if len(got) != 1 || !strings.Contains(got[0].Message, "m/a") {
-		t.Fatalf("repeated_fact_min: 2: %+v", got)
+		t.Fatalf("two owners under the threshold of 3: %+v", got)
 	}
 }
 
@@ -126,21 +121,5 @@ func TestAddedRepeatedFactsCaps(t *testing.T) {
 	none := func(string) []okf.ConceptID { calls++; return nil }
 	if _, used := AddedRepeatedFacts(k, "m/c", "", text, 7, none); used != 7 || calls != 7 {
 		t.Fatalf("budget 7: used=%d calls=%d", used, calls)
-	}
-}
-
-func TestAddedRepeatedFactsLintIgnore(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	putConcept(t, k, "m/a", addedFactLine)
-	putConcept(t, k, "m/b", addedFactLine)
-	writeFile(t, k.DataRoot(), "m/c.md", "---\ntype: Note\ntitle: C\nlint_ignore: [repeated_fact]\n---\n"+addedFactLine+"\n")
-	if got, _ := AddedRepeatedFacts(k, "m/c", "", addedFactLine, 20, allLookup(t, k, nil)); len(got) != 0 {
-		t.Fatalf("concept lint_ignore: %+v", got)
-	}
-	putConcept(t, k, "m/c", addedFactLine)
-	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\nlint_ignore: [repeated_fact]\n---\n")
-	if got, _ := AddedRepeatedFacts(k, "m/c", "", addedFactLine, 20, allLookup(t, k, nil)); len(got) != 0 {
-		t.Fatalf("map lint_ignore: %+v", got)
 	}
 }

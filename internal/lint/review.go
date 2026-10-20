@@ -14,8 +14,9 @@ import (
 
 // Review kinds (D298): the candidate classes kb_review ranks for the doctor.
 // The server never decides any of them (D14): it builds the list, the agent
-// judges, the operator confirms. Each kind is also a lint_ignore name, so a
-// concept dismisses an item that names it without new state (D159).
+// judges, the operator confirms. An item is never dismissed (D907): each kind
+// closes when the pages it names are in the state it asks for, and the
+// generator stops listing it (docs/data-plane.md §Review keys (D298)).
 const (
 	ReviewDuplicate     = "duplicate_candidate"
 	ReviewZombie        = "zombie_work"
@@ -194,10 +195,6 @@ type ReviewItem struct {
 	// graph (WholeGraphChecks): a caller who cannot see the whole KB must not
 	// receive it.
 	wholeGraph bool
-	// dismissOnFirst: only the first concept's lint_ignore dismisses the
-	// item. A group item (a shared retired origin) must not vanish because
-	// one member dismissed its own, separate item.
-	dismissOnFirst bool
 }
 
 type reviewConcept struct {
@@ -215,15 +212,11 @@ type reviewConcept struct {
 	timestamp string
 	resource  string
 	body      string
-	// ignores is the lint_ignore set in force for the concept: its own, plus
-	// its map's once Review has folded them in.
-	ignores map[string]bool
 }
 
 // Review builds the ranked work list from the KB, its contracts and the
 // whole-KB lint findings (D298). Read-only and deterministic: the same KB
-// gives the same list in the same order. Items dismissed with lint_ignore, on
-// a concept they name or in its map's _map.md, are already dropped;
+// gives the same list in the same order. Nothing dismisses an item (D907):
 // visibility is FilterReview's.
 func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	var concepts []*reviewConcept
@@ -245,7 +238,6 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 			c.timestamp, _ = frontmatterValue(parsed, "timestamp").(string)
 			c.resource, _ = frontmatterValue(parsed, "resource").(string)
 			c.resource = strings.TrimSpace(c.resource)
-			c.ignores = lintIgnoreSet(parsed)
 		}
 		concepts = append(concepts, c)
 		byID[id] = c
@@ -261,33 +253,13 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 		return nil, fmt.Errorf("lint.Review: list archives: %w", err)
 	}
 	var titles []mapTitle
-	mapIgnores := map[string]map[string]bool{}
 	for _, a := range archives {
 		if c, cerr := k.ReadMapContract(a); cerr == nil {
 			contracts[a] = c
 		}
-		// A map is dismissed from map_naming by lint_ignore in its _map.md,
-		// under the pseudo-ID the item names it by.
 		if meta, merr := k.ReadArchiveMeta(a); merr == nil {
 			t, _ := frontmatterValue(meta, "title").(string)
 			titles = append(titles, mapTitle{name: a, title: strings.TrimSpace(t)})
-			mapIgnores[a] = lintIgnoreSet(meta)
-			byID[okf.ConceptID(a+mapDescriptorSuffix)] = &reviewConcept{id: okf.ConceptID(a + mapDescriptorSuffix), ignores: mapIgnores[a]}
-		}
-	}
-	// A map's lint_ignore speaks for every concept of it (D306), as if each
-	// carried the name: dismissed reads a concept's own set, and so does the
-	// glossary_gap count, which then stops counting the map's concepts.
-	for _, c := range concepts {
-		if inherited := mapIgnores[c.mapName]; c.mapName != "" && len(inherited) > 0 {
-			merged := make(map[string]bool, len(c.ignores)+len(inherited))
-			for name := range inherited {
-				merged[name] = true
-			}
-			for name := range c.ignores {
-				merged[name] = true
-			}
-			c.ignores = merged
 		}
 	}
 	links, err := k.Links()
@@ -317,37 +289,16 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	items = append(items, zombieItems...)
 	items = append(items, harvestCandidateItems(concepts, contracts)...)
 	items = append(items, statusReclassifyItems(concepts, contracts)...)
-	items = append(items, repeatedFactItems(concepts, contracts, k.TemplateTexts())...)
-	items = append(items, readHotspotItems(concepts, contracts, links)...)
+	items = append(items, repeatedFactItems(concepts, k.TemplateTexts())...)
+	items = append(items, readHotspotItems(concepts, links)...)
 	items = append(items, promotionItems(concepts, contracts, links)...)
 	items = append(items, scatteredWorkItems(concepts, contracts, links)...)
 	items = append(items, mapNamingItems(titles)...)
 	items = append(items, glossaryItems(concepts, contracts, glossary)...)
 	items = append(items, lintJudgementItems(findings, zombies)...)
 
-	// Dismissal (D159): lint_ignore: [kind] on a concept the item names, or in
-	// the _map.md of one.
-	kept := items[:0]
-	for _, it := range items {
-		if !dismissed(it, byID) {
-			kept = append(kept, it)
-		}
-	}
-	SortReview(kept)
-	return kept, nil
-}
-
-func dismissed(it ReviewItem, byID map[okf.ConceptID]*reviewConcept) bool {
-	names := it.Concepts
-	if it.dismissOnFirst && len(names) > 0 {
-		names = names[:1]
-	}
-	for _, id := range names {
-		if c := byID[okf.ConceptID(id)]; c != nil && c.ignores[it.Kind] {
-			return true
-		}
-	}
-	return false
+	SortReview(items)
+	return items, nil
 }
 
 // SortReview orders items by kind priority, then weight (heavier first), then
@@ -635,8 +586,8 @@ func idStrings(ids []okf.ConceptID) []string {
 // originHeadings are the headings (any level) whose section carries what an
 // open concept came from or waits on (D345). English and Italian, matched as
 // folded prefixes like the procedure headings; "prerequisit" covers the
-// Italian plural. Another language, or a page that differs on purpose, uses
-// lint_ignore: [zombie_work].
+// Italian plural. A page in another language closes the item as any other
+// does: closed, retargeted or moved (nothing dismisses it, D907).
 var originHeadings = []string{"origin", "origine", "depends on", "dipende da", "blocked by", "bloccato da", "derived from", "derivato da", "prerequisite", "prerequisit"}
 
 var atxHeading = regexp.MustCompile(`^(#{1,6})\s+(.*?)\s*#*\s*$`)
@@ -682,8 +633,8 @@ func zombieWorkItems(k *kb.KB, byID map[okf.ConceptID]*reviewConcept, concepts [
 		var o opener
 		staleOpen := false
 		// Read from the link graph, not from link_to_retired findings: those sit
-		// on the retired concept (D313) and a lint_ignore there must not hide
-		// open work that still points at it.
+		// on the retired concept (D313) and must not hide open work that still
+		// points at it.
 		if kind := contracts[c.mapName].Kind; c.mapName != "" && (kind == "" || kind == "map") && !retired(c.status) {
 			var targets []okf.ConceptID
 			// Only a link in an origin/dependency section is a dependency (D345):
@@ -738,7 +689,7 @@ func zombieWorkItems(k *kb.KB, byID map[okf.ConceptID]*reviewConcept, concepts [
 	var out []ReviewItem
 	// A retired concept many open ones link is where they came from (an old
 	// backlog, a migrated page), not what each is about: one item for the
-	// group, dismissed once on the retired concept, instead of one per opener
+	// group, settled once on the retired concept, instead of one per opener
 	// burying the zombies that are real.
 	shared := map[string]bool{}
 	var sharedTargets []string
@@ -758,10 +709,9 @@ func zombieWorkItems(k *kb.KB, byID map[okf.ConceptID]*reviewConcept, concepts [
 			Kind:            ReviewZombie,
 			Concepts:        append([]string{t}, ids...),
 			Evidence:        fmt.Sprintf("%d open concepts link the retired %s: more likely the place they came from than what each is about", len(ids), t),
-			SuggestedAction: fmt.Sprintf("if %s is their origin, dismiss once with lint_ignore: [zombie_work] on it; otherwise close or retarget each", t),
+			SuggestedAction: fmt.Sprintf("close each, or retarget its link to the page that replaced %s (or move the mention out of the origin section if it is only where the work came from): the item closes when none of them links it there", t),
 			Weight:          len(ids),
 			wholeGraph:      true,
-			dismissOnFirst:  true,
 		})
 	}
 	for _, o := range open {
@@ -987,7 +937,7 @@ func scatteredWorkItems(concepts []*reviewConcept, contracts map[string]kb.MapCo
 // --- map_naming (D304) ---
 
 // mapDescriptorSuffix makes a map's pseudo-ID in a map_naming item: the map
-// is not a concept, and its _map.md is where lint_ignore dismisses it.
+// is not a concept; the item names it by its descriptor.
 const mapDescriptorSuffix = "/_map"
 
 // mapNamingMin is how many titled maps make a set worth comparing.
@@ -1084,27 +1034,40 @@ func mapNamingItems(titles []mapTitle) []ReviewItem {
 type poorTitle struct{ name, title, reason string }
 
 // poorMapTitles lists the map titles that are individually off, each with
-// every reason (D315). The folder mismatch is a signal, not a rule: a title
-// in another language than its folder is the agent's to judge.
+// every reason a retitle can always clear (D315). The folder mismatch is not
+// one of them: it is a signal, not a rule (a title in another language than
+// its folder is the agent's to judge), and no page state could say the title
+// is fine as it is, which a review item must close on (D907). The write that
+// names the map hears it instead (MapTitleIssues).
 func poorMapTitles(named []mapTitle) []poorTitle {
 	var out []poorTitle
 	for _, m := range named {
-		if reasons := MapTitleIssues(m.name, m.title); len(reasons) > 0 {
+		if reasons, _ := mapTitleShapeIssues(m.title); len(reasons) > 0 {
 			out = append(out, poorTitle{m.name, m.title, strings.Join(reasons, ", ")})
 		}
 	}
 	return out
 }
 
-// MapTitleIssues is the single-title predicate behind poorMapTitles: every
-// reason a map's title is off for the map folder name, empty when it is fine.
-// map_create and map_update use it to warn at write time.
+// MapTitleIssues is every reason a map's title is off for the map folder
+// name, empty when it is fine: map_create and map_update warn with it at
+// write time. kb_review reports the shape reasons only (poorMapTitles).
 func MapTitleIssues(name, title string) []string {
-	var reasons []string
+	reasons, head := mapTitleShapeIssues(title)
+	if slug, folder := slugOf(head), slugOf(name); slug != "" && !strings.HasPrefix(slug, folder) && !strings.HasPrefix(folder, slug) {
+		reasons = append(reasons, fmt.Sprintf("does not match folder %q", name))
+	}
+	return reasons
+}
+
+// mapTitleShapeIssues are the reasons a map title is off whatever its folder
+// (too long, a subtitle that is a description), and head is the title without
+// its subtitle or parenthetical, the part a folder should echo.
+func mapTitleShapeIssues(title string) (reasons []string, head string) {
 	if n := len([]rune(title)); n > mapTitleMaxRunes {
 		reasons = append(reasons, fmt.Sprintf("%d characters; map titles are 1-3 words", n))
 	}
-	head := title
+	head = title
 	if loc := subtitleSep.FindStringIndex(title); loc != nil {
 		head = title[:loc[0]]
 		if rest := strings.TrimSpace(title[loc[1]:]); len([]rune(rest)) > mapSubtitleMaxRunes {
@@ -1114,10 +1077,7 @@ func MapTitleIssues(name, title string) []string {
 	if i := strings.Index(head, " ("); i >= 0 {
 		head = head[:i]
 	}
-	if slug, folder := slugOf(head), slugOf(name); slug != "" && !strings.HasPrefix(slug, folder) && !strings.HasPrefix(folder, slug) {
-		reasons = append(reasons, fmt.Sprintf("does not match folder %q", name))
-	}
-	return reasons
+	return reasons, head
 }
 
 // slugOf lowercases s, turns spaces into hyphens and drops what is neither a
@@ -1228,9 +1188,6 @@ func glossaryItems(concepts []*reviewConcept, contracts map[string]kb.MapContrac
 				defined[t] = true
 				continue
 			}
-			if c.ignores[ReviewGlossary] {
-				continue // the concept opts out of the count (D298)
-			}
 			users[t] = append(users[t], string(c.id))
 		}
 	}
@@ -1307,12 +1264,10 @@ func isMixedCase(w string) bool {
 // --- lint_judgement ---
 
 // suggestedLintAction is what the doctor is told to do with a judgement
-// finding: an error cannot be accepted (D306), so it is fixed.
+// finding: nothing accepts one (D907), so it is fixed on the page and the item
+// closes when the check no longer reports it.
 func suggestedLintAction(check string) string {
-	if CheckAcceptability(check) == AcceptNone {
-		return "fix it by hand: an error cannot be accepted with lint_ignore"
-	}
-	return "judge the finding: act on it, or add the check to lint_ignore, with the why in the write's reason"
+	return "fix it on the page: the item closes when the check no longer reports it"
 }
 
 func lintJudgementItems(findings []Finding, zombies map[okf.ConceptID]bool) []ReviewItem {

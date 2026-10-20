@@ -4,6 +4,8 @@ topic: data-plane
 
 # D313 — Every finding can be accepted; structural checks stop flagging structure
 
+> **Superseded by [D907](D907-the-lint-cannot-be-escaped.md)** for acceptance: no finding can be accepted, and `CheckAcceptability` and `oversize_concepts` are gone (50 is a constant). The structural changes to the checks stay.
+
 **Decision.** `map_oversize` is accepted in a map's `_map.md`, counts top-level concepts only against `oversize_concepts` (default 50) and never fires on a journal. `link_to_retired` is one finding per retired concept, on the retired concept, never counting its `superseded_by` successor. `cut_concept` ignores an expanded concept's own satellites and journal entries. `missing_value_contract` skips date-valued fields; `closed_with_open_items` skips procedure sections; `open_marker` skips headings and, in an open concept, table rows. `secrets_on_non_service` is `info`. A resource match is a `duplicate_candidate` only with title similarity of 0.3. A built-in list of conventional tool paths is always allowed by `machine_path`. `kb_status.conformance.acceptability` and `/api/lint` say where each reported check can be accepted, and the Observatory shows it.
 
 **Why.** D306 promised every finding is fixed or accepted, yet `map_oversize` could not be accepted at all, and on a real KB a cleaned state lasted a day: the checks that came back flagged how the KB is shaped (a service page with journal notes hanging off it, an archive move that leaves historical mentions, a runbook checklist) rather than a defect an agent could fix.

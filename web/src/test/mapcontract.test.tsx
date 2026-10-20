@@ -22,15 +22,11 @@ const contract: MapContract = {
   ontology_mode: "strict",
   concept_types: ["Service", "Host"],
   expanded_concepts: 3,
-  required_fields: ["timestamp"],
-  required_fields_by_type: { Host: ["provenance"] },
+  required_fields: { "*": ["timestamp"], Host: ["provenance"] },
   forbidden_fields: ["state"],
   templates: ["host", "service"],
   default_template: "service",
-  require_template: true,
-  template_sections: true,
-  field_values: { status: ["active", "draft"] },
-  field_values_by_type: { Host: { role: ["edge", "core"] } },
+  field_values: { "*": { status: ["active", "draft"] }, Host: { role: ["edge", "core"] } },
   value_synonyms: { active: ["live", "in use"] },
   open_field: "phase",
   open_statuses: ["open", "blocked"],
@@ -42,10 +38,7 @@ const contract: MapContract = {
   glossary: true,
   work_map: "tasks",
   index: "generated",
-  require_index_entry: true,
-  lint_ignore: ["orphan"],
-  thresholds: { repeated_fact_min: 4, title_max_length: 0, forbidden_title_terms: ["draft"] },
-  machine_path_allow_prefixes: ["/home/app"],
+  forbidden_title_terms: ["wip"],
 };
 
 const bare: MapContract = { name: "infra", title: "Infrastructure", expanded_concepts: 0 };
@@ -193,7 +186,7 @@ describe("what the panel says", () => {
       "Lifecycle",
       "Review & work",
       "Index",
-      "Lint",
+      "Titles",
     ]);
 
     const concepts = within(section(p, "Types & fields"));
@@ -203,12 +196,17 @@ describe("what the panel says", () => {
     // Each section says once what it governs; each row names the key as written in _map.md.
     expect(concepts.getByText(/What a page in this Map may be/)).toBeVisible();
     expect(concepts.getByText("Ontology")).toBeInTheDocument();
-    expect(concepts.getByText("ontology_mode")).toBeInTheDocument();
-    expect(concepts.getByText("required_fields.Host")).toBeInTheDocument();
+    // The ontology mode is derived from the types (D907): no _map.md key to name.
+    expect(concepts.queryByText("ontology_mode")).toBeNull();
+    // One shape keyed by type, `*` first (D907).
+    expect(concepts.getAllByText(/^required_fields\./).map((e) => e.textContent)).toEqual([
+      "required_fields.*",
+      "required_fields.Host",
+    ]);
     // The longer explanation is the row's tooltip.
     expect(concepts.getByText("Ontology").closest(".mapcontract__row")).toHaveAttribute(
       "title",
-      expect.stringContaining("How strictly"),
+      expect.stringContaining("Derived from the types"),
     );
     expect(concepts.getByText("timestamp")).toBeInTheDocument();
     expect(concepts.getByText("provenance")).toBeInTheDocument();
@@ -218,13 +216,14 @@ describe("what the panel says", () => {
     const templates = within(section(p, "Templates"));
     expect(templates.getByText("host")).toBeInTheDocument();
     expect(templates.getByText("service", { selector: "code" })).toBeInTheDocument();
-    expect(templates.getAllByText("required")).toHaveLength(2);
+    // Declared templates bind every page (D371, D907): no switch to show.
+    expect(templates.getByText("every page follows one, with its required sections")).toBeVisible();
 
     // Allowed values are chips beside their field; the key says map-wide or by type.
     const values = within(section(p, "Allowed values"));
     expect(values.getByText("status")).toBeInTheDocument();
     expect(values.getByText("draft")).toBeInTheDocument();
-    expect(values.getByText("field_values.status")).toBeInTheDocument();
+    expect(values.getByText("field_values.*.status")).toBeInTheDocument();
     expect(values.getByText("field_values.Host.role")).toBeInTheDocument();
     expect(values.getByText("on Host pages only")).toBeInTheDocument();
     expect(values.getByText("edge")).toBeInTheDocument();
@@ -247,15 +246,9 @@ describe("what the panel says", () => {
     expect(index.getByText("generated")).toBeInTheDocument();
     expect(index.getByText("the server rewrites it on every write")).toBeInTheDocument();
 
-    const lint = within(section(p, "Lint"));
-    expect(lint.getByText("orphan")).toBeInTheDocument();
-    expect(lint.getByText("4 pages")).toBeInTheDocument();
-    // title_max_length: 0 is the length rule switched off, not "0 characters".
-    expect(lint.getByText("off")).toBeInTheDocument();
-    expect(lint.getByText("draft")).toBeInTheDocument();
-    expect(lint.getByText("/home/app")).toBeInTheDocument();
-    // The note is documentation, in the page and not only on hover.
-    expect(lint.getByText("raise no findings in this Map")).toBeVisible();
+    const titles = within(section(p, "Titles"));
+    expect(titles.getByText("wip")).toBeInTheDocument();
+    expect(titles.getByText("forbidden_title_terms")).toBeInTheDocument();
   });
 
   it("leaves out what the Map does not declare: no empty section, no invented value", () => {
@@ -270,12 +263,12 @@ describe("what the panel says", () => {
   });
 
   it("shows only the sections that have something", () => {
-    const p = panel({ ...bare, lint_ignore: ["orphan"], index: "generated" });
-    expect(within(p).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["About", "Index", "Lint"]);
+    const p = panel({ ...bare, forbidden_title_terms: ["wip"], index: "generated" });
+    expect(within(p).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)).toEqual(["About", "Index", "Titles"]);
   });
 
-  it("marks a journal, and a harvest that is defaulted or off", () => {
-    const { unmount } = render(
+  it("marks a journal, and a harvest that is defaulted", () => {
+    render(
       <MapContractPanel
         map={{ ...bare, name: "notes", title: "Notes", kind: "journal", harvest_after: 45, harvest_after_defaulted: true }}
         concepts={9}
@@ -285,13 +278,14 @@ describe("what the panel says", () => {
     expect(within(p).getByText("journal")).toBeInTheDocument();
     expect(within(p).getByText("45 days")).toBeInTheDocument();
     expect(within(p).getByText("(default)")).toBeInTheDocument();
-    unmount();
+  });
 
-    render(<MapContractPanel map={{ ...bare, kind: "journal", harvest_off: true }} concepts={0} />);
-    const off = screen.getByRole("region", { name: "Contract of Infrastructure" });
-    expect(within(off).getByText("off")).toBeInTheDocument();
-    expect(within(off).queryByText("(default)")).toBeNull();
-    expect(within(off).getByText("0")).toBeInTheDocument();
+  it("warns when _map.md still carries keys D907 removed, and says the repair drops them", () => {
+    const p = panel({ ...bare, legacy_keys: ["lint_ignore", "require_template"] });
+    const alert = within(p).getByRole("alert");
+    expect(within(alert).getByText("lint_ignore")).toBeInTheDocument();
+    expect(within(alert).getByText("require_template")).toBeInTheDocument();
+    expect(within(alert).getByText(/kb_repair rewrites the descriptor without them/)).toBeInTheDocument();
   });
 
   it("opens with a warning when entries of _map.md could not be read", () => {

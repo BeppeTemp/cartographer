@@ -94,9 +94,9 @@ func TestInvalidPagesAreLintChecks(t *testing.T) {
 	if fx := findingsFor(t, k, "empty_concept")["ops/empty.md"].Fix; fx != nil {
 		t.Errorf("an empty page must carry no fix: %+v", fx)
 	}
-	// Errors, not acceptable.
+	// Errors.
 	for _, c := range []string{"missing_frontmatter", "unparseable_frontmatter", "missing_type", "concept_too_deep"} {
-		if s, _ := lint.Spec(c); s.Severity != lint.SevError || s.Accept != lint.AcceptNone {
+		if s, _ := lint.Spec(c); s.Severity != lint.SevError {
 			t.Errorf("%s: %+v", c, s)
 		}
 	}
@@ -255,7 +255,7 @@ func TestHeartbeatRepairsInvalidPagesAndLeavesUnresolvedTypes(t *testing.T) {
 	k, s := repairKB(t, 2)
 	seedInvalidPages(t, k)
 	// A map whose pages disagree on the type: nothing resolves there.
-	if err := k.CreateMapWithContract("mix", "Mix", "map", nil, "", kb.MapContract{}); err != nil {
+	if err := k.CreateMapWithContract("mix", "Mix", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 	writeRaw(t, k, "mix/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nBody.\n")

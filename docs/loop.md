@@ -97,9 +97,10 @@ The server finds the problems; an agent works on them only when the operator ask
 is deterministic (`lint`, `kb_review`) and never runs a model on the server (D14). Four layers,
 cheapest first:
 
-1. **Write-time repair** (D349, D355): a write applies the mechanical
-   `auto_repair` fixes to the concepts it just wrote, to a fixpoint, and the
-   write gate (D350) refuses what introduces findings.
+1. **Write-time repair** (D349, D355): a write applies the safe mechanical
+   fixes to the concepts it just wrote, to a fixpoint, and the write gate
+   (D350) refuses what introduces a finding the write could have avoided;
+   both are fixed behaviour, with no setting to turn them off (D907).
 2. **Background repair** (D323): the server applies `auto_repair` over the KB, in one commit, with
    no agent: at every start (an upgrade or a config change can make untouched pages fixable), after
    a pull that moved HEAD, and once per `doctor_auto_interval`.
@@ -112,8 +113,9 @@ cheapest first:
    `log_append` listing every decision.
 4. **What the KB does not know**: a fact nobody in the session can supply yet becomes a
    `Contradiction` of kind `missing_context` or `open_question` naming the concept and the
-   question, and the review item is dismissed with `lint_ignore` citing the gap. Ingest and any
-   other session record gaps the same way. Gaps never block a gate (D273); `kb_status.open_gaps`
+   question; the review item stays listed until the answer is written (nothing dismisses an item,
+   D907), and the next session finds the gap instead of asking again. Ingest and any other session
+   record gaps the same way. Gaps never block a gate (D273); `kb_status.open_gaps`
    and the Atlas Health panel list them.
 
 The Atlas Health panel lists what layer 3 has to decide, by kind (lint findings and `kb_review`

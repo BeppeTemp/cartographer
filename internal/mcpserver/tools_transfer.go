@@ -215,7 +215,7 @@ func runTransfer(ctx context.Context, args json.RawMessage, src *kb.KB, srcName 
 		TargetFiles: func() []string { return plan.targetFiles(dst) },
 		ApplyTarget: func() error {
 			var err error
-			tgt, err = applyTransferTarget(src, dst, plan)
+			tgt, err = applyTransferTarget(src, dst, plan, newCallerView(ctx, dst))
 			if err == nil {
 				err = dst.AppendLog(fmt.Sprintf("concept_transfer (%d concept(s) from %s):\n%s", len(plan.items), srcName, strings.Join(plan.logLines(srcName, dstName, false), "\n")), time.Now())
 			}
@@ -652,7 +652,9 @@ type transferTargetOut struct {
 
 // applyTransferTarget writes the moved concepts into dst. Any error leaves a
 // half-written tree for the caller to discard.
-func applyTransferTarget(src, dst *kb.KB, pl *transferPlan) (transferTargetOut, error) {
+// view is the caller's on dst: the source needs whole-KB write, the target
+// only write on the destination slots, so its findings are filtered (D907).
+func applyTransferTarget(src, dst *kb.KB, pl *transferPlan, view *callerView) (transferTargetOut, error) {
 	var out transferTargetOut
 	for _, it := range pl.items {
 		if err := os.MkdirAll(filepath.Dir(it.dstLoc.Dir), 0o755); err != nil {
@@ -707,13 +709,13 @@ func applyTransferTarget(src, dst *kb.KB, pl *transferPlan) (transferTargetOut, 
 		}
 	}
 
-	// Curated index of each destination map that asked for one.
+	// Curated index of each destination map (every non-generated one, D907).
 	for _, it := range pl.items {
 		mapName, ok := conceptMapName(it.toID)
 		if !ok {
 			continue
 		}
-		if contract, err := dst.ReadMapContract(mapName); err == nil && contract.Index != kb.IndexGenerated && contract.RequireIndexEntry {
+		if contract, err := dst.ReadMapContract(mapName); err == nil && contract.Index != kb.IndexGenerated {
 			if err := appendCuratedEntry(dst, mapName, okf.ConceptID(it.toID)); err != nil {
 				out.notes = append(out.notes, fmt.Sprintf("curated index %s/index.md: %v", mapName, err))
 			} else {
@@ -727,7 +729,7 @@ func applyTransferTarget(src, dst *kb.KB, pl *transferPlan) (transferTargetOut, 
 		written = append(written, nw)
 	}
 	sort.Strings(written)
-	out.findings, _, _ = repairWritten(dst, written, nil)
+	out.findings, _, _ = repairWritten(dst, written, nil, view)
 	return out, nil
 }
 
@@ -919,6 +921,6 @@ func applyTransferSource(src *kb.KB, pl *transferPlan) (transferSourceOut, error
 	}
 	sort.Strings(goneList)
 	sort.Strings(touched)
-	out.findings, _, _ = repairWritten(src, touched, goneList)
+	out.findings, _, _ = repairWritten(src, touched, goneList, nil)
 	return out, nil
 }

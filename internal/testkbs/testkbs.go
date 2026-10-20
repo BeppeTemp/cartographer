@@ -327,42 +327,39 @@ func (g *kbgen) scaffold(c, nMaps int) {
 		// The malformed contract comes second, so even the smallest KB has it.
 		switch []int{0, 4, 1, 2, 3, 5}[i%6] {
 		case 0:
-			f = append(f, "concept_types", list("Topic", "Entity", "Note"), "ontology_mode", "strict",
-				"required_fields", list("description"), "field_values.status", list("active", "draft", "deprecated", "superseded", "archived"),
-				"templates", list("topic"), "default_template", "topic", "require_template", "false", "template_sections", "true",
-				"title_max_length", "60", "forbidden_title_terms", list("misc", "untitled"))
+			f = append(f, "concept_types", list("Topic", "Entity", "Note"),
+				"required_fields.*", list("description"), "field_values.*.status", list("active", "draft", "deprecated", "superseded", "archived"),
+				"templates", list("topic"), "default_template", "topic",
+				"forbidden_title_terms", list("misc", "untitled"))
 		case 1:
-			f = append(f, "ontology_mode", "flexible", "open_statuses", list("open", "draft"), "open_markers", list("TODO", "FIXME"),
-				"stale_after", "45", "work_map", "work", "lint_ignore", list("map_without_templates"))
+			f = append(f, "open_statuses", list("open", "draft"), "open_markers", list("TODO", "FIXME"),
+				"stale_after", "45", "work_map", "work")
 		case 2:
-			f = append(f, "ontology_mode", "flexible", "hotspot_in_degree", "40", "oversize_bytes", "60000", "repeated_fact_min", "4",
-				"value_synonyms.active", list("live", "current"), "machine_path_allow_prefixes", list("/srv/shared"), "index", "generated")
+			f = append(f, "value_synonyms.active", list("live", "current"), "index", "generated")
 		case 3:
-			f = append(f, "ontology_mode", "flexible", "forbidden_fields", list("owner_email"), "required_fields.Entity", list("description"),
-				"field_values.Entity.status", list("active", "deprecated"), "require_index_entry", "true", "procedure_headings", list("Steps", "Rollback"))
+			f = append(f, "forbidden_fields", list("owner_email"), "required_fields.Entity", list("description"),
+				"field_values.Entity.status", list("active", "deprecated"), "procedure_headings", list("Steps", "Rollback"))
 		case 4:
 			// One malformed key: the panel's malformed row and contract_malformed.
-			f = append(f, "ontology_mode", "flexible", "stale_after", "soon", "oversize_concepts", "400", "hotspot_bytes", "20000")
-		default:
-			f = append(f, "ontology_mode", "flexible")
+			f = append(f, "stale_after", "soon")
 		}
 		f = append(f, "timestamp", g.date(180))
 		g.add("data/"+m.slug+"/_map.md", fm(f...)+"\n# "+m.title+"\n", c)
 	}
 	g.add("data/work/_map.md", fm("type", "Map", "title", "Work", "description", "Tasks and decisions, with their status.", "kind", "map",
-		"concept_types", list("Task", "Decision"), "ontology_mode", "strict",
-		"field_values.status", list(taskStates[0], "in-progress", "blocked", "decision-needed", "proposed", "done"),
+		"concept_types", list("Task", "Decision"),
+		"field_values.*.status", list(taskStates[0], "in-progress", "blocked", "decision-needed", "proposed", "done"),
 		"open_statuses", list("open", "in-progress", "blocked", "decision-needed", "proposed"),
-		"templates", list("task"), "default_template", "task", "require_template", "true", "stale_after", "30", "timestamp", g.date(180))+"\n# Work\n", c)
+		"templates", list("task"), "default_template", "task", "stale_after", "30", "timestamp", g.date(180))+"\n# Work\n", c)
 	g.add("data/journal/_map.md", fm("type", "Map", "title", "Journal", "description", "Dated notes from working sessions.", "kind", "journal",
 		"concept_types", list("Note"), "promote_to", g.maps[0].slug, "harvest_after", "30", "open_markers", list("TODO"),
 		"templates", list("note"), "timestamp", g.date(180))+"\n# Journal\n", c)
 	g.add("data/sources/_map.md", fm("type", "Map", "title", "Sources", "description", "The source ledger.", "kind", "journal",
-		"concept_types", list("Source"), "ontology_mode", "strict",
-		"field_values.ingest_status", list("pending", "ingested", "skipped"), "field_values.source_kind", list(sourceKinds...),
-		"lint_ignore", list("map_without_templates"), "timestamp", g.date(180))+"\n# Sources\n", c)
+		"concept_types", list("Source"),
+		"field_values.*.ingest_status", list("pending", "ingested", "skipped"), "field_values.*.source_kind", list(sourceKinds...),
+		"timestamp", g.date(180))+"\n# Sources\n", c)
 	g.add("data/questions/_map.md", fm("type", "Map", "title", "Open Questions", "description", "Where the sources disagree, and what is not known yet.", "kind", "map",
-		"concept_types", list("Contradiction"), "lint_ignore", list("map_without_templates"), "timestamp", g.date(180))+"\n# Open Questions\n", c)
+		"concept_types", list("Contradiction"), "timestamp", g.date(180))+"\n# Open Questions\n", c)
 	_ = nMaps
 }
 

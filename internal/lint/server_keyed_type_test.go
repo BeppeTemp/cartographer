@@ -75,7 +75,7 @@ func TestKeyedTypeStillReportsTemplateMissing(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/runbook.md", "---\ntype: Runbook\ntitle: Runbook\n---\n# {{title}}\n")
-	writeFile(t, k.DataRoot(), "sources/_map.md", "---\ntype: Map\nkind: map\ntitle: S\nrequire_template: true\n---\n# S\n")
+	writeFile(t, k.DataRoot(), "sources/_map.md", "---\ntype: Map\nkind: map\ntitle: S\ntemplates: [runbook]\n---\n# S\n")
 	writeFile(t, k.DataRoot(), "sources/s.md", keyedPage("Source"))
 	f, err := Run(k, "", false)
 	if err != nil {
@@ -92,7 +92,7 @@ func TestKeyedTypeStillReportsTemplateMissing(t *testing.T) {
 func TestKeyedTypeInAStrictMapKeepsTheWarning(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "strict/_map.md", "---\ntype: Map\nkind: map\ntitle: S\nontology_mode: strict\nconcept_types: [Alpha]\n---\n# S\n")
+	writeFile(t, k.DataRoot(), "strict/_map.md", "---\ntype: Map\nkind: map\ntitle: S\nconcept_types: [Alpha]\n---\n# S\n")
 	writeFile(t, k.DataRoot(), "strict/s.md", keyedPage("Source"))
 	f, err := Run(k, "", false)
 	if err != nil {
