@@ -115,26 +115,27 @@ func prepareRealign(dir string, data []byte) ([]byte, []settingschema.Change, er
 			name := v.Value
 			root.Content[i].Value = "token"
 			v.Value, v.Tag, v.Style = EnvRefToken(name), "!!str", 0
-			changes = append(changes, settingschema.Change{Kind: settingschema.ChangeMoved, Path: "token_env", Detail: "now token: " + v.Value})
+			changes = append(changes, settingschema.Change{Kind: settingschema.ChangeMoved, Path: "token_env", Detail: "now token: ${…}, the variable token_env named"})
 			edited = true
 		case valid && tokenEmpty:
 			tv := root.Content[j+1]
 			ref := EnvRefToken(v.Value)
 			tv.Kind, tv.Value, tv.Tag, tv.Style = yaml.ScalarNode, ref, "!!str", 0
 			removePair(&doc, root, i)
-			changes = append(changes, settingschema.Change{Kind: settingschema.ChangeMoved, Path: "token_env", Detail: "now token: " + ref + " (token was empty)"})
+			changes = append(changes, settingschema.Change{Kind: settingschema.ChangeMoved, Path: "token_env", Detail: "now token: ${…}, the variable token_env named (token was empty)"})
 			edited = true
 		case valid && root.Content[j+1].Value == EnvRefToken(v.Value):
 			removePair(&doc, root, i)
 			changes = append(changes, settingschema.Change{Kind: settingschema.ChangeRemoved, Path: "token_env", Detail: "token already is " + EnvRefToken(v.Value)})
 			edited = true
 		default:
-			name := strings.TrimSpace(v.Value)
+			// The value is never echoed: someone may have pasted the token itself
+			// into token_env, and an alphanumeric token passes as a name.
 			var detail string
 			if valid {
-				detail = fmt.Sprintf("token_env %s was dropped because token is already set (%s); to read %s instead, set token: %s", name, tokenLabel(root.Content[j+1].Value), name, EnvRefToken(name))
+				detail = fmt.Sprintf("token_env was dropped because token is already set (%s); to read that variable instead, set token: ${NAME}", tokenLabel(root.Content[j+1].Value))
 			} else {
-				detail = fmt.Sprintf("token_env %q is not an environment variable name and cannot become token: ${NAME}; set token to the reference you want", name)
+				detail = "token_env is not an environment variable name and cannot become token: ${NAME}; set token to the reference you want"
 				if !tokenEmpty {
 					detail += fmt.Sprintf(" (token stays %s)", tokenLabel(root.Content[j+1].Value))
 				}

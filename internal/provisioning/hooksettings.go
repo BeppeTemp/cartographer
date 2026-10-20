@@ -633,14 +633,17 @@ func removeAntigravityHook(baseDir, hookName, hookRel string) error {
 		return nil
 	}
 	delete(settings, key)
-	if len(settings) == 0 {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		if rel, relErr := filepath.Rel(baseDir, path); relErr == nil {
+	// Only a regular file reached through real directories is deleted: a
+	// hooks.json that is, or sits under, a symlink (a dotfiles checkout) is
+	// someone else's, so it keeps its link and gets the emptied object instead.
+	if rel, relErr := filepath.Rel(baseDir, path); len(settings) == 0 && relErr == nil && ensureSafeDir(baseDir, filepath.Dir(rel)) == nil {
+		if fi, statErr := os.Lstat(path); statErr == nil && fi.Mode().IsRegular() {
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
 			pruneEmptyDirs(baseDir, rel)
+			return nil
 		}
-		return nil
 	}
 	return saveJSONObject(path, settings)
 }

@@ -73,7 +73,7 @@ func TestRealignTokenEnvIsNeverDroppedSilently(t *testing.T) {
 		name, yaml, wantToken, wantInReport string
 	}{
 		{"empty token", "token: \"\"\ntoken_env: MY_VAR\n", "token: ${MY_VAR}", "token_env"},
-		{"literal token wins", "token: s3cr3t-literal\ntoken_env: MY_VAR\n", "token: s3cr3t-literal", "MY_VAR"},
+		{"literal token wins", "token: s3cr3t-literal\ntoken_env: MY_VAR\n", "token: s3cr3t-literal", "a literal token"},
 		{"ref token wins", "token: ${OTHER}\ntoken_env: MY_VAR\n", "token: ${OTHER}", "${OTHER}"},
 		{"invalid name", "token_env: not a name\n", "", "not an environment variable name"},
 	}
@@ -91,8 +91,9 @@ func TestRealignTokenEnvIsNeverDroppedSilently(t *testing.T) {
 			if !strings.Contains(lines, "token_env") || !strings.Contains(lines, c.wantInReport) {
 				t.Errorf("report does not name token_env / %q:\n%s", c.wantInReport, lines)
 			}
-			if strings.Contains(lines, "s3cr3t-literal") {
-				t.Errorf("report leaks the literal token:\n%s", lines)
+			// Neither value is echoed: token_env may hold a pasted token.
+			if strings.Contains(lines, "s3cr3t-literal") || strings.Contains(lines, "MY_VAR") {
+				t.Errorf("report echoes a value:\n%s", lines)
 			}
 			raw := readFile(t, clientconfig.Path(dir))
 			if c.wantToken != "" && !strings.Contains(raw, c.wantToken) {
@@ -112,7 +113,7 @@ func TestRealignTokenEnvIsNeverDroppedSilently(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(strings.Join(cfg.Warnings, "\n"), "MY_VAR") {
+	if w := strings.Join(cfg.Warnings, "\n"); !strings.Contains(w, "token_env is ignored") || strings.Contains(w, "MY_VAR") {
 		t.Errorf("Load warnings = %v", cfg.Warnings)
 	}
 }

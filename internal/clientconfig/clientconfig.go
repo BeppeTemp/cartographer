@@ -429,7 +429,7 @@ func Load(dir string) (*Config, error) {
 		cfg.Token = EnvRefToken(legacy.TokenEnv)
 	} else if legacy.TokenEnv != "" && cfg.Token != EnvRefToken(legacy.TokenEnv) {
 		// Never lost in silence: token wins, or the name cannot be a variable.
-		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("token_env %q is ignored: token is already %s (or the name is not an environment variable); set token: ${NAME} to read a variable", legacy.TokenEnv, tokenLabel(cfg.Token)))
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("token_env is ignored: token is already %s (or its value is not an environment variable name); set token: ${NAME} to read a variable", tokenLabel(cfg.Token)))
 	}
 	if cfg.LiteralToken() != "" && !fileIsPrivate(Path(dir)) {
 		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s holds a literal token and is readable by other users: run `chmod 600 %s`", Path(dir), Path(dir)))

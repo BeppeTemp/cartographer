@@ -2899,6 +2899,11 @@ func pruneEmptyDirs(baseDir, relPath string) {
 		if provisioningRootDirs[dir] {
 			return
 		}
+		// A symlinked directory is someone else's: os.Remove would unlink it
+		// even when its target is not empty.
+		if fi, err := os.Lstat(filepath.Join(baseDir, dir)); err == nil && !fi.IsDir() {
+			return
+		}
 		err := os.Remove(filepath.Join(baseDir, dir))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return
