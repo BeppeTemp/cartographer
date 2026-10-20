@@ -131,6 +131,9 @@ try {
     # native-service case, where the Scheduled Task runs this very file.
     Copy-Fixture $OldBin $dest
     $kb = Join-Path $root 'kb'
+    # serve no longer creates a missing KB (D906): create it first.
+    & $dest kb create kb --no-remote --local --data $root *> $null
+    Check ($LASTEXITCODE -eq 0) 'kb create made the KB the old binary serves'
     $running = Start-Process -PassThru -WindowStyle Hidden -FilePath $dest -ArgumentList @('serve', '--kb', $kb, '--http', "127.0.0.1:$($port + 1)")
     Start-Sleep -Seconds 2
     Check (-not $running.HasExited) 'the old binary is running and holds its file'
