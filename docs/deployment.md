@@ -234,6 +234,10 @@ remote). On Kubernetes it is one mounted Secret (§Example: K8s pod).
 | `<kb>.signing`, no default | artifact signing seed, 64 hex characters (§Provisioning artifact signing) | unsigned artifacts |
 | `audit.key` | audit log signing seed, 64 hex characters | generated at the first start |
 
+`default.token`, `default.ssh` and `default.age` are offered to every KB that has no file of its own,
+whatever its remote host: a KB whose remote is on another host than the others should get its own
+`<kb>.token` (or `.ssh`), or the default credential is sent to that host.
+
 The lookup applies to every mounted KB, discovered or configured. A file counts when it is a regular file
 or a symlink to one, which is how a Kubernetes Secret mounts its keys; a missing file means the credential is
 not configured. A KB name that would point outside the directory has no file of its own.

@@ -47,6 +47,9 @@ The choices the plan left to the implementation:
   as KBs.
   The same check covers the directory of the audit log and `audit.archive_dir`, so a KB named `audit` cannot
   hold the log; the error names the setting to move.
+- **The defaults are not tied to a host.** `default.token`, `default.ssh` and `default.age` are offered to every
+  KB without its own file, whatever its remote host. A KB whose remote is on another host should get its own
+  `<kb>.token` (or `.ssh`), so the default credential is not presented to a host it was not made for.
 - **The upgrade copies, never moves.** The first start copies each removed setting's file, or writes its inline
   value (a `${NAME}` resolved), to its name in the directory, `0600`, never over an existing file; every
   `known_hosts` goes into the one file. The report names settings and files, never a value. What cannot be
