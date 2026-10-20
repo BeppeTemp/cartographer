@@ -12,7 +12,7 @@ import (
 
 // realignSchema stands in for config.KBSettingsSchema, which kb cannot import.
 var realignSchema = settingschema.Schema{Keys: []settingschema.Key{
-	{Path: "write_gate", Scope: settingschema.ScopeKB, Type: "string", Default: "off", Description: "Gate."},
+	{Path: "usage_stale_days", Scope: settingschema.ScopeKB, Type: "int", Default: "42", Description: "Days."},
 	{Path: "branch", Scope: settingschema.ScopeKB, Type: "string", Default: `""`, Description: "Branch."},
 }}
 
@@ -35,7 +35,7 @@ func writeSettings(t *testing.T, k *KB, body string) {
 func TestRealignSettingsIsOneRevertibleCommit(t *testing.T) {
 	t.Parallel()
 	k, _ := initGitKB(t)
-	old := "write_gate: error\ngit_profile: local\ngit_branch: team/kb-data\n"
+	old := "usage_stale_days: 30\ngit_profile: local\ngit_branch: team/kb-data\n"
 	writeSettings(t, k, old)
 	before := gitHere(t, k.Root, "rev-list", "--count", "HEAD")
 	headBefore := gitHere(t, k.Root, "rev-parse", "HEAD")
@@ -55,7 +55,7 @@ func TestRealignSettingsIsOneRevertibleCommit(t *testing.T) {
 	}
 	data, _ := os.ReadFile(filepath.Join(k.Root, SettingsFile))
 	text := string(data)
-	if strings.Contains(text, "git_profile:") || strings.Contains(text, "git_branch:") || !strings.Contains(text, "write_gate: error") {
+	if strings.Contains(text, "git_profile:") || strings.Contains(text, "git_branch:") || !strings.Contains(text, "usage_stale_days: 30") {
 		t.Errorf("settings.yaml after the realignment:\n%s", text)
 	}
 	if st := gitHere(t, k.Root, "status", "--short"); st != "" {
@@ -123,8 +123,8 @@ func TestRealignSettingsLeavesWhatItCannotVouchFor(t *testing.T) {
 func TestRealignSettingsSkipsAFileWithLocalEdits(t *testing.T) {
 	t.Parallel()
 	k, _ := initGitKB(t)
-	writeSettings(t, k, "write_gate: error\n")
-	edited := "write_gate: warning\ngit_profile: local\n"
+	writeSettings(t, k, "usage_stale_days: 30\n")
+	edited := "usage_stale_days: 31\ngit_profile: local\n"
 	if err := os.WriteFile(filepath.Join(k.Root, SettingsFile), []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}

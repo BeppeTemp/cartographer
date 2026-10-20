@@ -101,15 +101,15 @@ cheapest first:
    fixes to the concepts it just wrote, to a fixpoint, and the write gate
    (D350) refuses what introduces a finding the write could have avoided;
    both are fixed behaviour, with no setting to turn them off (D907).
-2. **Background repair** (D323): the server applies `auto_repair` over the KB, in one commit, with
+2. **Background repair** (D323): the server applies every safe fix over the KB, in one commit, with
    no agent: at every start (an upgrade or a config change can make untouched pages fixable), after
-   a pull that moved HEAD, and once per `doctor_auto_interval`.
+   a pull that moved HEAD, and once a day. No setting changes the list or the period (D907).
 3. **Doctor session**: what needs judgement. The server proposes one: the first tool result of an
    MCP session that starts while debt exists and the last `kb-doctor` log entry is older than
-   `doctor_interval` (14 days) carries a notice asking the agent to propose a `kb-doctor` session
+   14 days (a constant since D907) carries a notice asking the agent to propose a `kb-doctor` session
    to the operator. The agent never starts it without their agreement. In the session the
    operator decides each item (assisted) or hands it over ("do it yourself", delegated), up to
-   `doctor_budget` review items (10) plus every mechanical repair; the session closes with a
+   10 review items (or the number the operator names when asking for the session) plus every mechanical repair; the session closes with a
    `log_append` listing every decision.
 4. **What the KB does not know**: a fact nobody in the session can supply yet becomes a
    `Contradiction` of kind `missing_context` or `open_question` naming the concept and the

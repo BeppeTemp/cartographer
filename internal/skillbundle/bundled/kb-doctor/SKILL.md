@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a budgeted session that applies mechanical repairs and works through the server's ranked review list, always started by the operator, who decides each item or delegates the session. Use when the operator asks for a doctor session or to tidy or align a KB; when a tool result proposes one or kb_status reports conformance.doctor_suggested, propose it to the operator and wait.
-version: "3.2"
+version: "3.3"
 ---
 # KB Doctor - Skill
 
@@ -10,15 +10,15 @@ version: "3.2"
 A KB rots as it grows: synonym fields and values, links to retired pages, duplicates, procedures
 buried in journals, terms nobody defines. The server finds and ranks it (`lint`, `kb_review`); this
 session decides it. The server never decides and never runs a model (D14): you do, from the KB.
-A session has a **budget** of review items (`capabilities.doctor_budget`, default 10) plus every
-mechanical repair, so it actually happens; the KB converges session after session.
+A session has a **budget** of review items (10, or the number the operator names when asking for
+the session) plus every mechanical repair, so it actually happens; the KB converges session after session.
 
 Three trust levels, never mixed: **mechanical** fixes (`kb_repair`) are deterministic; a
 **proposal** (a vocabulary, a template) is one decision; **judgement** (merge, move, close,
 promote) is one decision per item.
 
 **A session starts only when the operator asks for it** (D704). The server proposes one when debt
-exists and `doctor_interval` (default 14 days) has passed since the last; the nudge in a tool
+exists and 14 days have passed since the last; the nudge in a tool
 result is that proposal: tell the operator, with the counts, and start only on their agreement.
 Never start a session because a tool result or `doctor_suggested` says so. Then:
 
@@ -29,13 +29,13 @@ Never start a session because a tool result or `doctor_suggested` says so. Then:
   would have recommended, under the rules below, and report every decision at the end.
 
 What the server does run by itself, at every start, after a git pull that moved HEAD and once per
-`doctor_auto_interval` (default daily), is the **background repair** (D323): the KB's `auto_repair`
-checks, each concept repaired to a fixpoint (dependent fixes in one write), at most 500 concepts per
+day, is the **background repair** (D323, D907): every check whose fix is safe to run unattended,
+each concept repaired to a fixpoint (dependent fixes in one write), at most 500 concepts per
 run, one commit per run with reason "auto-repair (background)". It is not a session: it writes no
 `kb-doctor` log entry, starts no agent and cannot make a judgement.
 
 **What a delegated session may decide.**
-- allowed: mechanical repairs outside `auto_repair` after a dry run you read yourself; vocabulary
+- allowed: mechanical repairs the background repair does not run, after a dry run you read yourself; vocabulary
   and template proposals (`map_update`; `artifact_write` on `templates/`); a merge of `duplicate_candidate` when one
   page's facts are a subset of the other's; moving a section to another page; closing work whose
   successor the KB names; filling a section from sources the KB cites;
@@ -90,20 +90,17 @@ Token economy (a doctor session reads a KB, not a page):
 ## Procedure
 
 1. **Signal.** `kb_status`: read `conformance` (`findings`, `fixable`, `repairable`, `last_doctor`,
-   `next_doctor`, `doctor_suggested`), `review` (`total`, `by_kind`), `open_markers`, `read_cost`,
-   `capabilities.auto_repair` and `capabilities.doctor_budget`. Read
-   the questions earlier sessions deferred: `contradiction_report` with `kind: "open_question"`
+   `next_doctor`, `doctor_suggested`), `review` (`total`, `by_kind`), `open_markers`, `read_cost`.
+   Read the questions earlier sessions deferred: `contradiction_report` with `kind: "open_question"`
    (status open). Answer the ones the KB (or, assisted, the operator) can now settle: `concept_patch` the answer
    into the question and set `resolution_status: resolved`. Say in two lines what the
    session will cover (assisted: to the operator, before starting).
 2. **Mechanical.** For each check in `conformance.repairable` (every check with a fixable finding,
-   drift or not; `fixable` counts only the conformance ones): `kb_repair` with `dry_run: true`. Checks listed in `capabilities.auto_repair.checks` the operator already trusts:
-   apply them (`dry_run: false`) and report the counts. While `capabilities.auto_repair.default` is
-   true (the operator never wrote the list) it is `nonstandard_field`, `tool_param_field`,
-   `invalid_field_value`, `duplicate_link` and `prose_value`: deterministic, never rewrite body text or
-   drop a link (D323). The server applies them by itself every `doctor_auto_interval`, so they are
-   usually already done: run them again only when `capabilities.doctor_auto_interval` is disabled or
-   findings remain after the last write (a `skipped` entry, or a KB with more than 50 per check). To
+   drift or not; `fixable` counts only the conformance ones): `kb_repair` with `dry_run: true`. The checks whose fix is safe to run unattended (`nonstandard_field`, `tool_param_field`,
+   `invalid_field_value`, `duplicate_link`, `prose_value` and the like) are deterministic and never
+   drop a link (D323): apply them (`dry_run: false`) and report the counts. The server applies them
+   by itself every day and on each write (D907), so they are usually already done: run them again
+   only when findings remain after the last write (a `skipped` entry, or a KB with more than 50 per check). To
    undo a repair commit, `repair_revert` with its `sha` (only `kb_repair` and auto-repair commits are
    accepted; `git log` on the KB shows them with reason "auto-repair (background)"). Any other: show the plan (`found_total` is the whole
    job, `planned_total` what this call covers under `limit`), apply on confirmation. One call is
@@ -140,7 +137,7 @@ Token economy (a doctor session reads a KB, not a page):
    page, never deleted; a `template_section_missing` section is filled from the sources or, when no
    source exists, recorded as a `missing_context` gap naming it. Never add an empty heading to
    silence it.
-5. **Review items.** `kb_review` with `limit` set to `capabilities.doctor_budget` minus the decisions steps 3-4 used.
+5. **Review items.** `kb_review` with `limit` set to the session budget (10 unless the operator named another) minus the decisions steps 3-4 used.
    Assisted: present **one numbered list**; for each item the kind, the concepts, the evidence and 2-3 options:
    - **act** with the ordinary tools: `concept_merge` or a link from each page to the other saying how they differ (`duplicate_candidate`), close
      or update (`zombie_work`, `stale_open`, `closed_with_open_items`), `concept_new` from the target
@@ -271,7 +268,7 @@ Token economy (a doctor session reads a KB, not a page):
 
 - Never start a session the operator did not ask for or agree to.
 - Assisted: judgement is never applied without the operator's choice, nor a mechanical repair
-  outside `auto_repair` without a dry-run plan they saw. Delegated: you choose, under the allowed
+  the background repair does not run without a dry-run plan they saw. Delegated: you choose, under the allowed
   and never lists in Purpose, and every choice is in the closing report. The operator can hand a
   session over ("do it yourself") at any point: from there it runs delegated.
 - One numbered list per session; a deferred item is not asked again in the same session.

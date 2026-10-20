@@ -15,7 +15,7 @@ func revertCall(t *testing.T, s *Server, sha string) ToolResult {
 
 func TestRepairRevertUndoesARepairAsANewCommit(t *testing.T) {
 	t.Parallel()
-	k, s := autoRepairKB(t, "nonstandard_field")
+	k, s := autoRepairKB(t)
 	run := s.runAutoRepairQuota(t.Context())
 	sha := run.Checks[0].Commit
 	before := commitCount(t, k)
@@ -48,7 +48,7 @@ func TestRepairRevertUndoesARepairAsANewCommit(t *testing.T) {
 // roll back history it could not have repaired.
 func TestRepairRevertRefusesAnythingButARepairCommit(t *testing.T) {
 	t.Parallel()
-	k, s := autoRepairKB(t, "nonstandard_field")
+	k, s := autoRepairKB(t)
 	seed := gitOut(t, k, "rev-parse", "HEAD") // "test: seed"
 	for name, sha := range map[string]string{
 		"an agent write": seed,
@@ -68,7 +68,7 @@ func TestRepairRevertRefusesAnythingButARepairCommit(t *testing.T) {
 
 func TestRepairRevertRefusesWhenALaterChangeTouchedTheSameFiles(t *testing.T) {
 	t.Parallel()
-	k, s := autoRepairKB(t, "nonstandard_field")
+	k, s := autoRepairKB(t)
 	sha := s.runAutoRepairQuota(t.Context()).Checks[0].Commit
 	cd, _ := k.ReadConcept("ops/n0")
 	fm, _ := okf.ParseFrontmatter(cd.FrontmatterRaw)

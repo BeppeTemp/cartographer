@@ -32,7 +32,7 @@ func repairKB(t *testing.T, n int) (*kb.KB, *Server) {
 		fm.Set("title", fmt.Sprintf("N%d", i))
 		fm.Set("updated", "2026-01-02")
 		fm.Set("tags", []string{"a"})
-		if _, err := k.WriteConcept(okf.ConceptID(fmt.Sprintf("ops/n%d", i)), fm, "# T\n", ""); err != nil {
+		if _, err := k.WriteConcept(okf.ConceptID(fmt.Sprintf("ops/n%d", i)), fm, fmt.Sprintf("# N%d\n", i), ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -409,7 +409,6 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 func TestKBStatusConformance(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 2)
-	setPolicy(k, func(p *kb.Policy) { p.DoctorIntervalDays = 14 })
 	status := func() map[string]any {
 		res := callTool(t, s, "kb_status", `{}`)
 		var out map[string]any

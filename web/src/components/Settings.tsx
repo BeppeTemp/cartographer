@@ -65,12 +65,8 @@ const KB_GROUPS: [Group, (key: string) => boolean][] = [
     (k) => /^(ssh_key|known_hosts|author_|committer_|git_|github_)/.test(k),
   ],
   [
-    { title: "Writes & tools", intro: "What agents may write here, and which tools they see." },
-    (k) => /^write_gate/.test(k),
-  ],
-  [
-    { title: "Maintenance", intro: "What the server repairs on its own, and when it proposes a doctor session." },
-    (k) => /^(auto_repair|repair_on_write|doctor_|usage_stale_days)/.test(k),
+    { title: "Maintenance", intro: "When an unused skill or agent is reported." },
+    (k) => /^usage_stale_days/.test(k),
   ],
   [{ title: "Secrets & signing", intro: "How this KB's secrets are decrypted and its artifacts signed." }, () => true],
 ];

@@ -3,7 +3,6 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
-	"github.com/BeppeTemp/cartographer/internal/kb"
 	"strings"
 	"sync"
 	"testing"
@@ -11,15 +10,14 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/client"
-	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 // nudgeKB is a KB with debt (two nonstandard_field warnings), no kb-doctor
 // session ever, and the default interval, on a server whose clock tests move.
 func nudgeKB(t *testing.T) (*Server, *time.Time) {
 	t.Helper()
-	k, s := repairKB(t, 2)
-	setPolicy(k, func(p *kb.Policy) { p.DoctorIntervalDays = 14 })
+	_, s := repairKB(t, 2)
 	now := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
 	s.now = func() time.Time { return now }
 	return s, &now
@@ -91,10 +89,9 @@ func TestDoctorNudgeNotDueOrDisabled(t *testing.T) {
 	if nudged(s.callTool(authLocalContext(), "search", json.RawMessage(`{"query":"N0"}`))) {
 		t.Fatal("nudged two days after a kb-doctor session")
 	}
-	s2, _ := nudgeKB(t)
-	setPolicy(s2.kbRef, func(p *kb.Policy) { p.DoctorIntervalDays = 0 })
-	if nudged(s2.callTool(authLocalContext(), "search", json.RawMessage(`{"query":"N0"}`))) {
-		t.Fatal("nudged with doctor_interval 0")
+	// D907: the interval is the constant, 14 days after the last session.
+	if kb.DoctorSuggestionDays != 14 {
+		t.Fatalf("DoctorSuggestionDays = %d, want 14", kb.DoctorSuggestionDays)
 	}
 }
 
@@ -160,12 +157,5 @@ func TestDoctorNudgeOnlyProposes(t *testing.T) {
 	text := res.Content[len(res.Content)-1].Text
 	if !strings.Contains(text, "Propose a kb-doctor session to the operator") || !strings.Contains(text, "do not start it") {
 		t.Fatalf("nudge text = %q", text)
-	}
-}
-
-func TestDoctorBudgetDefaultsMatchConfig(t *testing.T) {
-	t.Parallel()
-	if defaultDoctorBudget != config.DefaultDoctorBudget {
-		t.Fatal("mcpserver budget default drifted from config")
 	}
 }

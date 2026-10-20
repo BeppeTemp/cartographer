@@ -53,18 +53,18 @@ func parse(t *testing.T, yml string) kb.SettingsState {
 }
 
 func TestResolveKBOnly(t *testing.T) {
-	eff, info := ResolveKBSettings(KBSpec{Name: "kb-a", Remote: "https://git.example.com/user/kb-a.git"}, parse(t, "write_gate: error\n"))
-	if eff.WriteGateMode() != "error" || eff.Name != "kb-a" || eff.Remote == "" {
+	eff, info := ResolveKBSettings(KBSpec{Name: "kb-a", Remote: "https://git.example.com/user/kb-a.git"}, parse(t, "usage_stale_days: 30\n"))
+	if eff.UsageStale() != 30 || eff.Name != "kb-a" || eff.Remote == "" {
 		t.Fatalf("eff = %+v", eff)
 	}
-	if !info.FromKBHas("write_gate") {
+	if !info.FromKBHas("usage_stale_days") {
 		t.Errorf("info = %+v", info)
 	}
 }
 
 func TestResolveWithoutAFileIsTheDefaults(t *testing.T) {
 	eff, info := ResolveKBSettings(KBSpec{Name: "kb-a"}, kb.SettingsState{})
-	if eff.Name != "kb-a" || eff.WriteGateMode() != "off" || eff.UsageStale() != DefaultUsageStaleDays || info.Present || len(info.FromKB) != 0 {
+	if eff.Name != "kb-a" || eff.UsageStale() != DefaultUsageStaleDays || info.Present || len(info.FromKB) != 0 {
 		t.Fatalf("a KB without settings.yaml runs on the defaults: %+v %+v", eff, info)
 	}
 }
@@ -84,11 +84,11 @@ func TestResolveBranchIsKBOnly(t *testing.T) {
 // secrets and mcp_allowlist are gone from the KB file (D906): the file keeps
 // reading, the keys are named in a finding and change nothing.
 func TestResolveRetiredKBKeysAreFindings(t *testing.T) {
-	_, info := ResolveKBSettings(KBSpec{}, parse(t, "secrets: true\nmcp_allowlist: [{name: a, transport: http, target: \"https://example.com/\"}]\nwrite_gate: error\n"))
+	_, info := ResolveKBSettings(KBSpec{}, parse(t, "secrets: true\nmcp_allowlist: [{name: a, transport: http, target: \"https://example.com/\"}]\nusage_stale_days: 30\n"))
 	if len(info.Findings) != 2 || !strings.Contains(info.Findings[0], "secrets") || !strings.Contains(info.Findings[1], "mcp_allowlist") {
 		t.Errorf("findings = %v", info.Findings)
 	}
-	if !info.FromKBHas("write_gate") || info.FromKBHas("secrets") || info.FromKBHas("mcp_allowlist") {
+	if !info.FromKBHas("usage_stale_days") || info.FromKBHas("secrets") || info.FromKBHas("mcp_allowlist") {
 		t.Errorf("from kb = %v", info.FromKB)
 	}
 }
@@ -113,28 +113,10 @@ func TestResolveUsageStaleDays(t *testing.T) {
 	}
 }
 
-func TestResolveEmptyAutoRepairMeansNone(t *testing.T) {
-	eff, _ := ResolveKBSettings(KBSpec{}, parse(t, "auto_repair: []\n"))
-	checks, isDefault := eff.AutoRepairChecks()
-	if len(checks) != 0 || isDefault {
-		t.Errorf("checks=%v default=%v, want an explicit none", checks, isDefault)
-	}
-}
-
-func TestResolveLeavesOutValuesOnlyConfigCanCheck(t *testing.T) {
-	eff, info := ResolveKBSettings(KBSpec{}, parse(t, "auto_repair: [no_such_check]\n"))
-	if eff.AutoRepair != nil {
-		t.Errorf("an invalid entry was applied: %+v", eff)
-	}
-	if len(info.Findings) != 1 {
-		t.Errorf("findings = %v", info.Findings)
-	}
-}
-
 func TestResolveUnparseableFileIsIgnoredWithAFinding(t *testing.T) {
 	eff, info := ResolveKBSettings(KBSpec{Name: "kb-a"}, kb.SettingsState{Present: true, Unparseable: true,
 		Malformed: []kb.SettingsMalformed{{Reason: "settings.yaml: not valid YAML"}}})
-	if eff.Name != "kb-a" || eff.WriteGateMode() != "off" || len(info.Findings) != 1 {
+	if eff.Name != "kb-a" || len(info.Findings) != 1 {
 		t.Errorf("eff=%+v info=%+v", eff, info)
 	}
 }
@@ -142,7 +124,7 @@ func TestResolveUnparseableFileIsIgnoredWithAFinding(t *testing.T) {
 func TestSettingsViewShowsOriginKB(t *testing.T) {
 	cfg := Default()
 	cfg.KBs = []KBSpec{{Name: "kb-a", Path: "/data/kb-a"}}
-	eff, info := ResolveKBSettings(cfg.KBs[0], parse(t, "write_gate: error\ndoctor_budget: 4\n"))
+	eff, info := ResolveKBSettings(cfg.KBs[0], parse(t, "usage_stale_days: 30\n"))
 	cfg.RecordKBSettings("kb-a", eff, info.FromKB)
 	cfg.RecordKBSettings("kb-discovered", KBSpec{UsageStaleDays: intp(7)}, []string{"usage_stale_days"})
 
@@ -160,21 +142,15 @@ func TestSettingsViewShowsOriginKB(t *testing.T) {
 		t.Fatalf("no %s/%s in the view", name, key)
 		return Entry{}
 	}
-	if e := find("kb-a", "kbs[].write_gate"); e.Origin != OriginKB || e.Value != "error" {
-		t.Errorf("write_gate = %+v, want origin kb, value error", e)
-	}
-	if e := find("kb-a", "kbs[].doctor_budget"); e.Origin != OriginKB {
-		t.Errorf("doctor_budget origin = %s", e.Origin)
+	if e := find("kb-a", "kbs[].usage_stale_days"); e.Origin != OriginKB {
+		t.Errorf("usage_stale_days = %+v, want origin kb", e)
 	}
 	if e := find("kb-discovered", "kbs[].usage_stale_days"); e.Origin != OriginKB {
 		t.Errorf("a discovered KB's settings.yaml must show origin kb: %+v", e)
 	}
-	if e := find("kb-a", "kbs[].repair_on_write"); e.Origin != OriginDefault {
-		t.Errorf("untouched key origin = %s", e.Origin)
-	}
 	// A refresh that drops a key takes its origin back.
 	cfg.RecordKBSettings("kb-a", cfg.KBs[0], nil)
-	if e := find("kb-a", "kbs[].write_gate"); e.Origin != OriginDefault {
+	if e := find("kb-a", "kbs[].usage_stale_days"); e.Origin != OriginDefault {
 		t.Errorf("after the KB dropped the key: origin = %s, want default", e.Origin)
 	}
 }
@@ -194,7 +170,7 @@ func TestKBSettingsSchemaIsTheKBKeys(t *testing.T) {
 	if len(st.Settings.Keys()) != 0 || len(st.Malformed) != 0 {
 		t.Errorf("the rendered file must set nothing: %v %v", st.Settings.Keys(), st.Malformed)
 	}
-	if !strings.Contains(string(out), "# write_gate:") || strings.Contains(string(out), "ssh_key") {
+	if !strings.Contains(string(out), "# usage_stale_days:") || strings.Contains(string(out), "ssh_key") {
 		t.Errorf("rendered file:\n%s", out)
 	}
 }

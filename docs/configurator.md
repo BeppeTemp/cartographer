@@ -613,12 +613,9 @@ the bootstrap script silent and deterministic.
 The unattended half of KB upkeep (D299), schedulable by the operator (cron, launchd, a CI job); nothing
 installs a schedule. It calls `kb_status`, then `kb_repair` with `dry_run: true` for every check with a
 mechanical fix, and prints per check the planned count and up to 5 examples. With `--apply` it re-runs
-**only** the checks listed in the KB's `auto_repair` (its `settings.yaml`) with `dry_run: false` (`[auto]` in the
-report); a check outside it is never applied. A KB that never wrote `auto_repair` has the default list
-(every check whose fix is safe to run unattended, D323, D355):
-the report says so, and says that earlier releases applied none, so an upgrade followed by `--apply` is not
-a surprise; an explicit `auto_repair: []` is reported as such. The server applies the same list by
-itself every `doctor_auto_interval`, and each write already repairs the concepts it wrote
+**only** the checks whose fix is safe to run unattended (D323, D355, D907: `lint.AutoRepairChecks`, `[auto]` in the
+report) with `dry_run: false`; any other check is never applied by `--apply`. No setting narrows the list. The server applies the same checks by
+itself every day, and each write already repairs the concepts it wrote
 (D349, always since D907), so `--apply` usually finds little. It ends with the judgement
 work left — the `kb_review` counts by kind — which only a `kb-doctor` session with the operator handles.
 It writes no `kb-doctor` log entry: a mechanical pass is not a doctor session, and the entry would
@@ -636,7 +633,7 @@ one sends none with a warning; without an author the server authors the commit a
 scheduled run outside any repository is therefore authored as its token unless `identities` names
 someone.
 
-Exit codes: `0` nothing left to do, `3` only judgement work or checks outside `auto_repair` remain,
+Exit codes: `0` nothing left to do, `3` only judgement work or checks that are not safe to run unattended remain,
 `2` error. `--json` prints the report as an object (`checks`, `review_total`, `review_by_kind`,
 `remaining`). Not to be confused with `cartographer doctor`, which checks the client's provisioning.
 

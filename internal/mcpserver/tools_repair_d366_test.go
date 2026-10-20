@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
 // D366: the mechanical part of index_lists_retired, link_to_retired and
@@ -71,7 +71,7 @@ func retireKB(t *testing.T) (k *kb.KB, run func() *stagedRepair) {
 	page("a3", "", "Third.")
 	page("l4", "", "Uses [a1](a1.md).")
 	return kk, func() *stagedRepair {
-		return stagedAutoRepair(context.Background(), kk, config.DefaultAutoRepair, 50)
+		return stagedAutoRepair(context.Background(), kk, lint.AutoRepairChecks(), 50)
 	}
 }
 
@@ -120,7 +120,7 @@ func TestStagedAutoRepair_StripsDecorativeTitleAndSyncsHeading(t *testing.T) {
 	k, _ := repairKB(t, 0)
 	driftWrite(t, k, "ops/deco.md", "---\ntype: Note\ntitle: \"🚀 Deploy notes ✨\"\nupdated: 2026-01-02\n---\n# 🚀 Deploy notes ✨\n")
 	driftWrite(t, k, "ops/only.md", "---\ntype: Note\ntitle: \"🚀\"\nupdated: 2026-01-02\n---\n# 🚀\n")
-	r := stagedAutoRepair(context.Background(), k, config.DefaultAutoRepair, 50)
+	r := stagedAutoRepair(context.Background(), k, lint.AutoRepairChecks(), 50)
 	if r.applied["title_quality"] != 1 {
 		t.Fatalf("applied = %v, skipped = %v, errs = %v", r.applied, r.skipped, r.errs)
 	}
@@ -132,7 +132,7 @@ func TestStagedAutoRepair_StripsDecorativeTitleAndSyncsHeading(t *testing.T) {
 	if only := readRaw(t, k, "ops/only"); !strings.Contains(only, "🚀") {
 		t.Fatalf("a title with nothing left was rewritten:\n%s", only)
 	}
-	again := stagedAutoRepair(context.Background(), k, config.DefaultAutoRepair, 50)
+	again := stagedAutoRepair(context.Background(), k, lint.AutoRepairChecks(), 50)
 	if again.applied["title_quality"] != 0 {
 		t.Fatalf("not idempotent: %v", again.applied)
 	}

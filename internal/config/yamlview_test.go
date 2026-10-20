@@ -20,11 +20,11 @@ func yamlView() View {
 		KBs: []KBEntries{
 			{Name: "kb-a", Entries: []Entry{
 				{Key: "kbs[].remote", Value: "https://git.example.com/user/kb-a.git", Origin: OriginFile},
-				{Key: "kbs[].doctor_mode", Value: "auto", Origin: OriginKB},
-				{Key: "kbs[].auto_repair", Value: []string{"x"}, Origin: OriginDefault},
+				{Key: "kbs[].usage_stale_days", Value: 30, Origin: OriginKB},
+				{Key: "kbs[].branch", Value: "x", Origin: OriginDefault},
 			}},
 			{Name: "work-kb", Entries: []Entry{
-				{Key: "kbs[].auto_repair", Value: []string{"x"}, Origin: OriginDefault},
+				{Key: "kbs[].branch", Value: "x", Origin: OriginDefault},
 			}},
 		},
 	}
@@ -50,7 +50,7 @@ func TestServerYAMLIsTheEffectiveFileDocumented(t *testing.T) {
 			t.Errorf("server YAML lacks %q:\n%s", want, text)
 		}
 	}
-	for _, unwanted := range []string{"doctor_mode: auto", "work-kb"} {
+	for _, unwanted := range []string{"usage_stale_days: 30", "work-kb"} {
 		if strings.Contains(text, unwanted) {
 			t.Errorf("server YAML carries %q:\n%s", unwanted, text)
 		}
@@ -68,7 +68,7 @@ func TestKBYAMLIsTheKBsSettingsFile(t *testing.T) {
 	}
 	text := string(out)
 	for _, want := range []string{
-		"doctor_mode: auto",
+		"usage_stale_days: 30",
 		"remote: https://git.example.com/user/kb-a.git # from the server's kbs[] entry",
 	} {
 		if !strings.Contains(text, want) {

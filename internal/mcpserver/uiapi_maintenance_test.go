@@ -17,8 +17,7 @@ import (
 // them repaired by the heartbeat, and an open_question concept.
 func maintenanceHandler(t *testing.T, ts *auth.TokenStore) http.Handler {
 	t.Helper()
-	k, s := autoRepairKB(t, "nonstandard_field")
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepairDefault = true })
+	k, s := autoRepairKB(t)
 	k.AuthName = "docs"
 	s.runAutoRepairQuota(t.Context())
 	fm := newFM()
@@ -126,39 +125,25 @@ func TestUIAPI_MaintenanceSummaryNeedsAWholeKBView(t *testing.T) {
 // D365: every finding says who acts on it, the summary says who runs the doctor.
 func TestUIAPI_FindingHandler(t *testing.T) {
 	t.Parallel()
-	k := &kb.KB{}
-	k.SetPolicy(kb.Policy{AutoRepair: []string{"nonstandard_field", "broken_link"}, DoctorAutoIntervalDays: 1})
-	auto := uiAutoChecks(k)
+	auto := uiAutoChecks(&kb.KB{})
 	fix := &lint.Fix{}
 	for _, tc := range []struct {
 		f    lint.Finding
 		want string
 	}{
 		{lint.Finding{Check: "nonstandard_field", Fix: fix}, findingHandlerAuto},
-		// Listed but not safe unattended (D355): the heartbeat skips it.
+		// Not safe unattended (D355): the heartbeat skips it.
 		{lint.Finding{Check: "broken_link", Fix: fix}, findingHandlerDoctor},
 		// A runnable check whose finding has no fix needs judgement.
 		{lint.Finding{Check: "nonstandard_field"}, findingHandlerDoctor},
 		{lint.Finding{Check: "orphan"}, findingHandlerDoctor},
-		// Not listed, but the heartbeat always realigns a pre-D907 contract.
+		// The heartbeat always realigns a pre-D907 contract.
 		{lint.Finding{Check: "contract_legacy_key", Fix: fix}, findingHandlerAuto},
 	} {
 		if got := findingHandler(tc.f, auto); got != tc.want {
 			t.Errorf("%s fix=%v: handler %q, want %q", tc.f.Check, tc.f.Fix != nil, got, tc.want)
 		}
 	}
-	// An unlisted nonstandard_field stays the doctor's: the heartbeat only
-	// drops lint_ignore from it (D907).
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{} })
-	if got := findingHandler(lint.Finding{Check: "nonstandard_field", Fix: fix}, uiAutoChecks(k)); got != findingHandlerDoctor {
-		t.Errorf("unlisted nonstandard_field: handler %q", got)
-	}
-	// A heartbeat that never runs fixes nothing by itself.
-	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 0 })
-	if got := findingHandler(lint.Finding{Check: "nonstandard_field", Fix: fix}, uiAutoChecks(k)); got != findingHandlerDoctor {
-		t.Errorf("heartbeat off: handler %q", got)
-	}
-
 	handler := maintenanceHandler(t, auth.NewTokenStore(nil))
 	for _, raw := range decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint", ""))["findings"].([]any) {
 		if h := raw.(map[string]any)["handler"]; h != findingHandlerAuto && h != findingHandlerDoctor {
@@ -251,7 +236,7 @@ func TestUIAPI_ChecksAndRuns(t *testing.T) {
 // without a template proposal's payload, which is the agent's.
 func TestUIAPI_MaintenanceReview(t *testing.T) {
 	t.Parallel()
-	k, _ := autoRepairKB(t, "nonstandard_field")
+	k, _ := autoRepairKB(t)
 	k.AuthName = "docs"
 	for id, title := range map[string]string{"infra/k3s-worker-gpu-node": "K3s Worker GPU Node", "infra/k3s-worker-vpn-node": "K3s Worker VPN Node"} {
 		fm := newFM()

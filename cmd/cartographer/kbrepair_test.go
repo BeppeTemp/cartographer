@@ -14,23 +14,21 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // repairTestKB serves a KB with one nonstandard_field finding (`updated` for
 // `timestamp`) through an in-process server, and returns a caller for it.
-func repairTestKB(t *testing.T, autoRepair []string) (toolCaller, string) {
+func repairTestKB(t *testing.T) (toolCaller, string) {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "kb-a")
 	k, err := kb.Init(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = autoRepair })
-	setPolicy(k, func(p *kb.Policy) { p.DoctorIntervalDays = 14 })
 	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +72,7 @@ func checkLine(rep kbRepairReport, check string) kbRepairCheck {
 }
 
 func TestKBRepairDryRunWritesNothing(t *testing.T) {
-	c, concept := repairTestKB(t, []string{"nonstandard_field"})
+	c, concept := repairTestKB(t)
 	before, err := os.ReadFile(concept)
 	if err != nil || !bytes.Contains(before, []byte("updated:")) {
 		t.Fatalf("fixture: %v %q", err, before)
@@ -91,33 +89,15 @@ func TestKBRepairDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-func TestKBRepairApplyRefusesChecksOutsideTheCapability(t *testing.T) {
-	// At the kb.KB level an empty list is "none": the default is resolved
-	// from the config before the KB is built (config.KBSpec.AutoRepairChecks).
-	c, concept := repairTestKB(t, []string{})
-	before, _ := os.ReadFile(concept)
-	var out, errOut bytes.Buffer
-	code := runKBRepair(c, true, false, &out, &errOut)
-	if code != kbRepairExitJudgement {
-		t.Fatalf("exit = %d, want %d; stderr %s", code, kbRepairExitJudgement, errOut.String())
-	}
-	if after, _ := os.ReadFile(concept); !bytes.Equal(before, after) {
-		t.Fatal("--apply with an empty auto_repair changed the concept")
-	}
-	if !strings.Contains(out.String(), "auto_repair is explicitly empty") {
-		t.Fatalf("report does not say why nothing was applied:\n%s", out.String())
-	}
-}
-
-func TestKBRepairApplyRunsOnlyTheListedChecks(t *testing.T) {
-	c, concept := repairTestKB(t, []string{"nonstandard_field"})
+func TestKBRepairApplyRunsOnlyTheSafeChecks(t *testing.T) {
+	c, concept := repairTestKB(t)
 	rep, code := runRepairJSON(t, c, true)
 	if dc := checkLine(rep, "nonstandard_field"); dc.Applied != 1 {
 		t.Fatalf("nonstandard_field = %+v, want 1 applied", dc)
 	}
 	for _, dc := range rep.Checks {
-		if dc.Check != "nonstandard_field" && dc.Applied != 0 {
-			t.Fatalf("%s applied outside the capability: %+v", dc.Check, dc)
+		if !lint.AutoRepairSafe(dc.Check) && dc.Applied != 0 {
+			t.Fatalf("%s applied but is not safe to run unattended: %+v", dc.Check, dc)
 		}
 	}
 	after, _ := os.ReadFile(concept)
@@ -138,7 +118,7 @@ func TestKBRepairApplyRunsOnlyTheListedChecks(t *testing.T) {
 // The server nudges a writer once a day toward a kb-doctor session (D299),
 // but never the CLI: client.Call would hand every command a JSON array.
 func TestKBRepairCLIIsNeverNudged(t *testing.T) {
-	c, _ := repairTestKB(t, nil)
+	c, _ := repairTestKB(t)
 	for i := 0; i < 2; i++ {
 		raw, err := c.Invoke("search", map[string]any{"query": "First"})
 		if err != nil {
@@ -163,26 +143,24 @@ type fakeCaller string
 
 func (f fakeCaller) Invoke(string, any) (json.RawMessage, error) { return json.RawMessage(f), nil }
 
-// The product default (D323) is what --apply runs when the operator never
-// wrote an auto_repair: every safe check (D355), and the report says it is the
-// default so an upgrading operator is not surprised.
-func TestKBRepairApplyRunsDefaultChecks(t *testing.T) {
-	c, concept := repairTestKB(t, config.DefaultAutoRepair)
+// --apply runs every safe check (D355, D907): no setting narrows the list.
+func TestKBRepairApplyRunsEverySafeCheck(t *testing.T) {
+	c, concept := repairTestKB(t)
 	rep, code := runRepairJSON(t, c, true)
 	if dc := checkLine(rep, "nonstandard_field"); dc.Applied != 1 {
-		t.Fatalf("nonstandard_field = %+v, want 1 applied by the default list", dc)
+		t.Fatalf("nonstandard_field = %+v, want 1 applied", dc)
 	}
 	if code != kbRepairExitClean {
 		t.Fatalf("exit = %d, want a clean KB", code)
 	}
-	for _, check := range config.DefaultAutoRepair {
+	for _, check := range lint.AutoRepairChecks() {
 		if !checkLine(rep, check).Auto {
-			t.Errorf("%s is in the default list but not marked auto", check)
+			t.Errorf("%s is safe to run unattended but not marked auto", check)
 		}
 	}
 	for _, check := range []string{"broken_link", "reciprocal_link_item"} {
 		if checkLine(rep, check).Auto {
-			t.Errorf("%s drops or rewrites links and must not be a default", check)
+			t.Errorf("%s drops or rewrites links and must not be safe to run unattended", check)
 		}
 	}
 	if after, _ := os.ReadFile(concept); strings.Contains(string(after), "updated:") {
@@ -190,10 +168,10 @@ func TestKBRepairApplyRunsDefaultChecks(t *testing.T) {
 	}
 }
 
-func TestKBRepairReportsTheDefaultList(t *testing.T) {
+func TestKBRepairReportsTheSafeList(t *testing.T) {
 	var out bytes.Buffer
-	printKBRepairReport(&out, kbRepairReport{KB: "kb-a", AutoRepair: config.DefaultAutoRepair, AutoRepairDefault: true})
-	if !strings.Contains(out.String(), fmt.Sprintf("auto_repair uses the default (%d checks", len(config.DefaultAutoRepair))) {
+	printKBRepairReport(&out, kbRepairReport{KB: "kb-a", AutoRepair: lint.AutoRepairChecks()})
+	if !strings.Contains(out.String(), fmt.Sprintf("--apply applies the %d checks that are safe to run unattended", len(lint.AutoRepairChecks()))) {
 		t.Fatalf("report:\n%s", out.String())
 	}
 }
@@ -201,7 +179,7 @@ func TestKBRepairReportsTheDefaultList(t *testing.T) {
 // A repair is a write, so its commit is authored as whoever runs it (D904),
 // not as the token.
 func TestKBRepairCommitIsAuthoredAsTheWriter(t *testing.T) {
-	c, concept := repairTestKB(t, []string{"nonstandard_field"})
+	c, concept := repairTestKB(t)
 	cfg := clientconfig.Default()
 	cfg.ServerURL = c.(targetCaller).c.ServerURL
 	cfg.Identities = map[string]string{clientconfig.IdentityDefault: "Ada Lovelace <ada@example.com>"}

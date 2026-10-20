@@ -32,7 +32,7 @@ func TestConfigShowsClientOriginsAndServerSection(t *testing.T) {
 			`{"key":"git.sync","value":false,"origin":"env","restart":true},` +
 			`{"key":"git.autocommit","value":true,"origin":"default"},` +
 			`{"key":"auth.tokens","value":"(set)","origin":"file","secret":true}],` +
-			`"kbs":[{"name":"kb-a","entries":[{"key":"kbs[].write_gate","value":"error","origin":"file"}]}]}`))
+			`"kbs":[{"name":"kb-a","entries":[{"key":"kbs[].usage_stale_days","value":"30","origin":"file"}]}]}`))
 	}))
 	defer srv.Close()
 	dir := configDir(t, srv.URL)
@@ -42,7 +42,7 @@ func TestConfigShowsClientOriginsAndServerSection(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	got := out.String()
-	for _, want := range []string{"server_url", "(file)", "usage_scan", "false", "git.sync", "(env, restart required)", "auth.tokens", "(set)", "KB kb-a", "kbs[].write_gate"} {
+	for _, want := range []string{"server_url", "(file)", "usage_scan", "false", "git.sync", "(env, restart required)", "auth.tokens", "(set)", "KB kb-a", "kbs[].usage_stale_days"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output lacks %q:\n%s", want, got)
 		}

@@ -239,15 +239,6 @@ type KBInfo struct {
 type KBCapability struct {
 	State   string `json:"state"`
 	Setting string `json:"setting"`
-	// Checks lists the checks an auto_repair capability covers (D299).
-	Checks []string `json:"checks,omitempty"`
-	// Default is true when the setting is the product default and not a value
-	// the operator wrote (D323), so a client can tell a customised KB.
-	Default bool `json:"default,omitempty"`
-	// Ignored lists the auto_repair checks the background repair and
-	// repair-on-write skip because their fix is not safe to run unattended
-	// (D355); kb_repair still applies them on request.
-	Ignored []string `json:"ignored,omitempty"`
 }
 
 // MultiKBServer wraps multiple KB instances served by a single HTTP server.

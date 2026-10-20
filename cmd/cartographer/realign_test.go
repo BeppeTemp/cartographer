@@ -322,25 +322,25 @@ func TestDropRemovedFlags(t *testing.T) {
 // server's; a KB that still asks for the server profile does not mount.
 func TestRealignKBSettingsCommitsAndRefuses(t *testing.T) {
 	buf := captureLog(t)
-	k := policyKB(t, "write_gate: error\ngit_profile: local\ngit_branch: team/kb-data\n")
+	k := policyKB(t, "usage_stale_days: 30\nwrite_gate: error\nauto_repair: []\ngit_profile: local\ngit_branch: team/kb-data\n")
 	gitCommitAll(t, k)
 
 	if refusal := realignKBSettings(k, "kb-a"); refusal != "" {
 		t.Fatalf("refused: %s", refusal)
 	}
 	data, _ := os.ReadFile(filepath.Join(k.Root, kb.SettingsFile))
-	if strings.Contains(string(data), "git_profile") || strings.Contains(string(data), "git_branch") || !strings.Contains(string(data), "write_gate: error") {
+	if strings.Contains(string(data), "git_profile") || strings.Contains(string(data), "git_branch") || strings.Contains(string(data), "write_gate") || strings.Contains(string(data), "auto_repair") || !strings.Contains(string(data), "usage_stale_days: 30") {
 		t.Errorf("settings.yaml:\n%s", data)
 	}
 	if !strings.Contains(buf.String(), "realigned for cartographer") || !strings.Contains(buf.String(), "committed as ") {
 		t.Errorf("the log does not say what happened:\n%s", buf.String())
 	}
 	st, err := k.ReadSettings()
-	if err != nil || len(st.Malformed) != 0 || !st.Settings.Has("write_gate") {
+	if err != nil || len(st.Malformed) != 0 || !st.Settings.Has("usage_stale_days") {
 		t.Errorf("after the realignment: %+v %v", st, err)
 	}
 
-	r := policyKB(t, "git_profile: server\nwrite_gate: error\n")
+	r := policyKB(t, "git_profile: server\nusage_stale_days: 30\n")
 	gitCommitAll(t, r)
 	before, _ := os.ReadFile(filepath.Join(r.Root, kb.SettingsFile))
 	refusal := realignKBSettings(r, "kb-b")
@@ -366,7 +366,7 @@ func gitCommitAll(t *testing.T, k *kb.KB) {
 func TestBootstrapRefusesTheProfileKBAndSetsTheConstants(t *testing.T) {
 	buf := captureLog(t)
 	data := t.TempDir()
-	for name, settings := range map[string]string{"kb-ok": "write_gate: error\n", "kb-profile": "git_profile: server\n"} {
+	for name, settings := range map[string]string{"kb-ok": "usage_stale_days: 30\n", "kb-profile": "git_profile: server\n"} {
 		k, err := kb.Init(filepath.Join(data, name))
 		if err != nil {
 			t.Fatal(err)

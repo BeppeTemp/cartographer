@@ -137,13 +137,12 @@ func TestWriteGate_MissingIndexEntryRefusedEntryInBatchPasses(t *testing.T) {
 }
 
 // Acceptance: an info finding a write could have avoided refuses too, and no
-// setting or argument lets it through: write_gate off and an accept_findings
-// argument (removed, D907) change nothing.
-func TestWriteGate_AvoidableInfoRefusesWhateverTheSettings(t *testing.T) {
+// setting or argument lets it through: an accept_findings argument (removed,
+// D907) changes nothing.
+func TestWriteGate_AvoidableInfoRefusesWhateverTheArguments(t *testing.T) {
 	t.Parallel()
 	k := gateKB(t)
 	s := gateSeed(t, k, nil)
-	setPolicy(k, func(p *kb.Policy) { p.WriteGate = "off" })
 	head := gitOut(t, k, "rev-parse", "HEAD")
 	batch := gateBatch(
 		gateWrite("ops/one", "Active Runbook", "# Active Runbook\n\nSee [Two](two.md).\n", true, `,"status":"active"`),

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
 func TestDefault(t *testing.T) {
@@ -605,45 +604,5 @@ func TestAuditLogPath(t *testing.T) {
 	c.Audit.Log = "/var/log/carto.jsonl"
 	if c.AuditLogPath() != "/var/log/carto.jsonl" {
 		t.Errorf("AuditLogPath() = %q, want audit.log", c.AuditLogPath())
-	}
-}
-
-func TestResolveWriteGate(t *testing.T) {
-	for in, want := range map[string]string{"": "off", "off": "off", "error": "error", "warning": "warning"} {
-		body := ""
-		if in != "" {
-			body = "write_gate: " + in + "\n"
-		}
-		eff, findings := resolveFile(t, body)
-		if len(findings) != 0 {
-			t.Fatalf("write_gate %q: %v", in, findings)
-		}
-		if got := eff.WriteGateMode(); got != want {
-			t.Errorf("write_gate %q resolves to %q, want %q", in, got, want)
-		}
-	}
-	for _, bad := range []string{"Error", "strict"} {
-		_, findings := resolveFile(t, "write_gate: "+bad+"\n")
-		if len(findings) != 1 || !strings.Contains(findings[0], "write_gate") {
-			t.Errorf("write_gate %q: findings = %v", bad, findings)
-		}
-	}
-}
-
-// DefaultAutoRepair stays a literal here (D323), but each entry must be a
-// check whose registered fix may run with no person (D354).
-func TestDefaultAutoRepairIsAutoRepairSafe(t *testing.T) {
-	in := map[string]bool{}
-	for _, check := range DefaultAutoRepair {
-		in[check] = true
-		if !lint.AutoRepairSafe(check) {
-			t.Errorf("%s is in DefaultAutoRepair but its lint spec is not AutoRepairSafe", check)
-		}
-	}
-	// D355: the default is every safe check, not a subset that drifts.
-	for _, s := range lint.Checks() {
-		if s.AutoRepairSafe && !in[s.Name] {
-			t.Errorf("%s is AutoRepairSafe but missing from DefaultAutoRepair", s.Name)
-		}
 	}
 }

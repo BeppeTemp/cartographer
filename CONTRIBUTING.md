@@ -141,7 +141,7 @@ make worktree-rm  SLUG=my-change    # after the PR is merged; --force, so check 
 ## Adding a lint check
 
 A check is declared once, in `internal/lint/registry.go` (D354); every table that used to list
-checks by hand (who may accept it, whether `kb_repair` can fix it, whether `auto_repair` may run it,
+checks by hand (who may accept it, whether `kb_repair` can fix it, whether the unattended repairs run it,
 the Artifacts panel, what a write response evaluates) is derived from that entry. Three edits, nothing else:
 
 1. **Register the spec**: a `CheckSpec` with its `Name`, default `Severity`, `Level`, `Accept`, its

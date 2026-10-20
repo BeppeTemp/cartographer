@@ -91,8 +91,27 @@ change the rule, in the open, rather than step around it.
   decision; a threshold that is wrong is changed as a constant, for every KB.
 - The gate's refusal for a caller who cannot see the whole KB is judged as for anyone, but reports a whole-graph finding with the check and the visible page only and no fix, and an artifact finding not at all: the refusal names no page the caller cannot read. A successful write's response follows the same rule through the same helper (`callerView`), including `concept_move`'s lists of rewritten pages.
 - A delete plus an add that git does not report as a rename is treated as a move only when the two pages share frontmatter `title` and `type` (and the file name is unique among the call's deletions and additions); otherwise the added page is judged as new.
-- The heartbeat always runs `contract_legacy_key` and the drop of a `lint_ignore` field from pages whatever `auto_repair` lists, so a KB with a customised or empty list is realigned too. Every other `nonstandard_field` rename (state to status, and the like) runs only when the KB lists that check: `auto_repair: []` still means no other unattended page rewrite. The list keeps governing the other checks until Part B removes the key. Stated deviation: `doctor_auto_interval: 0` still turns the heartbeat off, and with it the realignment, until Part B removes that off switch.
+- (Part A, superseded by Part B below) The heartbeat always ran `contract_legacy_key` and the drop of a `lint_ignore` field whatever `auto_repair` listed, while the list still governed the other checks and `doctor_auto_interval: 0` still turned the heartbeat off. Part B removes both keys: every safe repair runs daily on every KB.
 - A page keeps a field its map's contract names: `nonstandard_field` does not report, and the safe repair does not rename, a synonym that the page's map requires or lists in `field_values`. A contract requiring `updated` therefore never conflicts with the repair, and a page write never edits `_map.md`.
-- `write_gate` and `repair_on_write` are still read but act on nothing; they leave the settings files, with
-  `auto_repair` and the doctor intervals, in the second half of this change, after the settings registry of
-  #906 (#890).
+- **Part B: the keys are gone (#907).** `write_gate`, `auto_repair`, `repair_on_write`, `doctor_auto_interval`,
+  `doctor_interval`, `doctor_mode` and `doctor_budget` leave the KB's `settings.yaml` (the schema, `kb.Policy`,
+  `config.KBSpec`, the capabilities of `kb_status`) and are registered as removed in `kb.SettingsRetired` and
+  `config.Retired` (`kbs[].…`): a file that still carries one is realigned by a server commit and reports what
+  replaced it. What each drove is now fixed, at the value it had by default:
+  - the unattended repairs run **every** `AutoRepairSafe` check (`lint.AutoRepairChecks`, the list that was
+    `config.DefaultAutoRepair`, moved to `lint.AutoRepairOrder` with its dependency order), on write, in the
+    background and under `kb repair --apply`; the heartbeat no longer limits `nonstandard_field` to dropping
+    `lint_ignore`, because the list is never narrower than the full set;
+  - the heartbeat runs at a constant interval, `kb.AutoRepairIntervalDays = 1` (the old `doctor_auto_interval`
+    default), at every start and after a pull as before; `doctor_auto_interval: 0` no longer turns it off, which
+    closes the stated deviation of Part A;
+  - the doctor suggestion (`conformance.doctor_suggested`, `next_doctor`, the nudge, the Atlas Health panel) is
+    due `kb.DoctorSuggestionDays = 14` days after the last session (the old `doctor_interval` default); it cannot
+    be disabled, and `doctor_mode`, which already did nothing, goes without a replacement;
+  - `doctor_budget` is a parameter of the kb-doctor session, not of the KB: nothing on the server read it except
+    the `kb_status` capability the skill quoted, so no tool argument is added. The skill (3.3) says "10, or the
+    number the operator names when asking for the session" and passes it as `kb_review`'s `limit`.
+  `kb_status` capabilities keep only `secrets` and `mount`. The background log (`auto-repair-log.jsonl`) lists only
+  the checks that changed or skipped something, since every safe check now runs and the rest would be noise. The
+  refusal text still starts with `write_gate:`: it names the gate, not a key. The test fixtures of the package that
+  relied on a KB with `doctor_interval` 0 (no nudge) get the nudge now, as every real server did.

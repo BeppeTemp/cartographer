@@ -18,8 +18,9 @@ import (
 )
 
 // The background repair (D323): a KB that is never visited by a kb-doctor
-// session still drifts, so the server applies the KB's auto_repair checks
-// itself, once per doctor_auto_interval. It is a heartbeat, not a doctor
+// session still drifts, so the server applies every safe fix (lint.AutoRepairChecks)
+// itself, once per autoRepairInterval (D907: no setting turns it off or moves
+// it). It is a heartbeat, not a doctor
 // session: it never writes the kb-doctor log marker (D290), so it does not
 // move last_doctor and does not silence the doctor proposal for the
 // judgement work it cannot do.
@@ -41,6 +42,9 @@ const (
 	// autoRepairPullGap is the least time between a run and the next one
 	// that a git pull asks for (D355).
 	autoRepairPullGap = 10 * time.Minute
+	// autoRepairInterval is the heartbeat's period: the default of the removed
+	// doctor_auto_interval (D323), now fixed (D907).
+	autoRepairInterval = kb.AutoRepairIntervalDays * 24 * time.Hour
 	// autoRepairStartupDelay keeps the first run off the boot path.
 	autoRepairStartupDelay = time.Minute
 )
@@ -140,75 +144,15 @@ func lastAutoRepairRun(k *kb.KB) (autoRepairRun, bool) {
 	return last, found
 }
 
-// autoRepairSplit divides the KB's auto_repair list into the checks the
-// background repair and repair-on-write run, and the ones they ignore (D355):
-// only a check whose registered fix is safe to run with no person (D354) runs
-// unattended; the operator's own kb_repair is unchanged.
-func autoRepairSplit(k *kb.KB) (safe, ignored []string) {
-	return splitAutoRepair(k.Policy().AutoRepair)
-}
-
-// heartbeatChecks is what the heartbeat runs for an auto_repair list (D907):
-// the list's runnable checks plus the two realignments it cannot skip, however
-// the KB configured it, an explicit empty list included. contract_legacy_key
-// runs whole. Of nonstandard_field only the drop of a lint_ignore field is
-// always on (lintIgnoreOnly says the list did not name the check): every other
-// rename runs only when the KB lists nonstandard_field, so `auto_repair: []`
-// still means no other unattended page rewrite.
-func heartbeatChecks(list []string) (safe, ignored []string, lintIgnoreOnly bool) {
-	safe, ignored = splitAutoRepair(list)
-	has := map[string]bool{}
-	for _, c := range safe {
-		has[c] = true
-	}
-	if !has["contract_legacy_key"] {
-		safe = append(safe, "contract_legacy_key")
-	}
-	if !has["nonstandard_field"] {
-		safe = append(safe, "nonstandard_field")
-		lintIgnoreOnly = true
-	}
-	return safe, ignored, lintIgnoreOnly
-}
-
-// isLintIgnoreDrop says whether a finding is the drop of a lint_ignore field.
-func isLintIgnoreDrop(f lint.Finding) bool {
-	return f.Check == "nonstandard_field" && f.Fix != nil && f.Fix.Kind == lint.FixDropField && f.Fix.Field == "lint_ignore"
-}
-
-// splitAutoRepair is autoRepairSplit over a list the caller already holds.
-func splitAutoRepair(checks []string) (safe, ignored []string) {
-	for _, c := range checks {
-		if lint.AutoRepairSafe(c) {
-			safe = append(safe, c)
-		} else {
-			ignored = append(ignored, c)
-		}
-	}
-	return safe, ignored
-}
-
 // StartAutoRepair starts the heartbeat for the KB this server serves and
-// returns at once. It does nothing when doctor_auto_interval is 0 (Part B of D907
-// removes that off switch); the realignments run whatever auto_repair lists. Cancelling ctx stops it: the goroutine
-// ends at the next wait, and no run starts after cancellation.
+// returns at once. Cancelling ctx stops it: the goroutine ends at the next
+// wait, and no run starts after cancellation.
 func (s *Server) StartAutoRepair(ctx context.Context) {
 	k := s.kbRef
 	if k == nil {
 		return
 	}
-	pol := k.Policy()
-	if pol.DoctorAutoIntervalDays <= 0 {
-		return
-	}
-	safe, ignored, _ := heartbeatChecks(pol.AutoRepair)
-	if len(ignored) > 0 {
-		fmt.Fprintf(os.Stderr, "cartographer: auto_repair for %s ignores %s: not safe to run unattended (kb_repair still applies them on request)\n", kbName(k), strings.Join(ignored, ", "))
-	}
-	if len(safe) == 0 {
-		return
-	}
-	interval := time.Duration(pol.DoctorAutoIntervalDays) * 24 * time.Hour
+	interval := autoRepairInterval
 	// Every start runs once, shortly after boot (D704): a start is an
 	// upgrade, a config change or a fresh clone, each of which can make pages
 	// nobody wrote fixable, and a fix waiting a day is a queue the Atlas would
@@ -289,8 +233,6 @@ type stagedRepair struct {
 	skipped map[string]int
 	errs    []string
 	renames []repairTarget // concepts whose renames the map contracts must follow
-	// lintIgnoreOnly limits nonstandard_field to dropping lint_ignore (D907).
-	lintIgnoreOnly bool
 }
 
 func newStagedRepair() *stagedRepair {
@@ -309,11 +251,7 @@ func (r *stagedRepair) total() int {
 // seeded names the checks the concept was selected for, charged with the skip
 // when the concept is left alone.
 func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed []lint.Finding, seeded []string) bool {
-	var keep func(lint.Finding) bool
-	if r.lintIgnoreOnly {
-		keep = func(f lint.Finding) bool { return f.Check != "nonstandard_field" || isLintIgnoreDrop(f) }
-	}
-	out, skip := repairConceptFixpointOnly(k, id, local, seed, keep)
+	out, skip := repairConceptFixpointOnly(k, id, local, seed, nil)
 	if skip != nil {
 		for _, c := range seeded {
 			r.skipped[c]++
@@ -345,14 +283,7 @@ func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed
 //
 // Artifact checks run last. The caller holds the KB lock.
 func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int) *stagedRepair {
-	return stagedAutoRepairLimited(ctx, k, checks, quota, false)
-}
-
-// stagedAutoRepairLimited is stagedAutoRepair with nonstandard_field limited to
-// dropping lint_ignore when lintIgnoreOnly (the heartbeat's unlisted case).
-func stagedAutoRepairLimited(ctx context.Context, k *kb.KB, checks []string, quota int, lintIgnoreOnly bool) *stagedRepair {
 	r := newStagedRepair()
-	r.lintIgnoreOnly = lintIgnoreOnly
 	var local, cross, artifact, folders []string
 	for _, c := range checks {
 		s, _ := lint.Spec(c)
@@ -380,7 +311,7 @@ func stagedAutoRepairLimited(ctx context.Context, k *kb.KB, checks []string, quo
 		}
 		by := map[string][]lint.Finding{}
 		for _, f := range findings {
-			if f.Fix == nil || f.Artifact || !isLocal[f.Check] || (lintIgnoreOnly && f.Check == "nonstandard_field" && !isLintIgnoreDrop(f)) {
+			if f.Fix == nil || f.Artifact || !isLocal[f.Check] {
 				continue
 			}
 			if id := uiFindingConcept(f.Path); id != "" {
@@ -531,14 +462,14 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 		_ = appendAutoRepairRun(k, run)
 		return run
 	}
-	checks, _, lintIgnoreOnly := heartbeatChecks(k.Policy().AutoRepair)
+	checks := lint.AutoRepairChecks()
 	var stats *stagedRepair
 	// Named kb_repair so the commit, audit and authorization treat it as the
 	// repair it is; it is not registered, so tools/list does not change.
 	tool := gitWrap(k, Tool{
 		Name: "kb_repair",
 		Handler: func(requestContext, json.RawMessage) (ToolResult, error) {
-			stats = stagedAutoRepairLimited(ctx, k, checks, autoRepairLimit, lintIgnoreOnly)
+			stats = stagedAutoRepair(ctx, k, checks, autoRepairLimit)
 			res := ToolResult{Content: textResult("{}").Content}
 			if len(stats.renames) > 0 {
 				if _, err := renameInContracts(k, stats.renames); err != nil {
@@ -569,10 +500,6 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 	case res.IsError:
 		failure = firstText(res)
 	}
-	listed := map[string]bool{}
-	for _, c := range k.Policy().AutoRepair {
-		listed[c] = true
-	}
 	for _, check := range checks {
 		entry := autoRepairCheck{Check: check, Error: failure}
 		if stats != nil {
@@ -581,8 +508,8 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 		if entry.Applied > 0 {
 			entry.Commit = res.CommitSHA
 		}
-		// A realignment the KB did not list is reported only when it acted.
-		if !listed[check] && entry.Applied == 0 && entry.Skipped == 0 && entry.Error == "" {
+		// A check that found nothing is not reported.
+		if entry.Applied == 0 && entry.Skipped == 0 && entry.Error == "" {
 			continue
 		}
 		run.Checks = append(run.Checks, entry)

@@ -18,7 +18,7 @@ func writeCfg(t *testing.T, body string) string {
 
 func TestOriginDefaultLayer(t *testing.T) {
 	c := Default()
-	for _, p := range []string{"credentials_dir", "http", "kbs[a].write_gate"} {
+	for _, p := range []string{"credentials_dir", "http", "kbs[a].path"} {
 		if got := c.OriginOf(p); got != OriginDefault {
 			t.Errorf("%s origin = %s, want default", p, got)
 		}
@@ -26,11 +26,11 @@ func TestOriginDefaultLayer(t *testing.T) {
 }
 
 func TestOriginFileLayer(t *testing.T) {
-	c, err := Load(writeCfg(t, "http: \":1\"\nauth:\n  mode: on\nkbs:\n  - remote: https://example.com/u/kb-a.git\n    write_gate: error\n  - remote: https://example.com/u/kb-b.git\n    name: renamed\n"))
+	c, err := Load(writeCfg(t, "http: \":1\"\nauth:\n  mode: on\nkbs:\n  - remote: https://example.com/u/kb-a.git\n    path: /data/kb-a\n  - remote: https://example.com/u/kb-b.git\n    name: renamed\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{"http", "auth.mode", "kbs", "kbs[kb-a].remote", "kbs[kb-a].write_gate", "kbs[renamed].remote", "kbs[renamed].name"} {
+	for _, p := range []string{"http", "auth.mode", "kbs", "kbs[kb-a].remote", "kbs[kb-a].path", "kbs[renamed].remote", "kbs[renamed].name"} {
 		if got := c.OriginOf(p); got != OriginFile {
 			t.Errorf("%s origin = %s, want file", p, got)
 		}
@@ -38,7 +38,7 @@ func TestOriginFileLayer(t *testing.T) {
 	if got := c.OriginOf("credentials_dir"); got != OriginDefault {
 		t.Errorf("credentials_dir origin = %s, want default", got)
 	}
-	if got := c.OriginOf("kbs[kb-a].doctor_budget"); got != OriginDefault {
+	if got := c.OriginOf("kbs[kb-a].usage_stale_days"); got != OriginDefault {
 		t.Errorf("unset per-KB key origin = %s, want default", got)
 	}
 }
@@ -91,10 +91,10 @@ func TestOriginFlagOverridesEnv(t *testing.T) {
 }
 
 func TestOriginSurvivesReordering(t *testing.T) {
-	a, _ := Load(writeCfg(t, "kbs:\n  - remote: https://example.com/u/kb-a.git\n    write_gate: error\n  - remote: https://example.com/u/kb-b.git\n"))
-	b, _ := Load(writeCfg(t, "kbs:\n  - remote: https://example.com/u/kb-b.git\n  - remote: https://example.com/u/kb-a.git\n    write_gate: error\n"))
+	a, _ := Load(writeCfg(t, "kbs:\n  - remote: https://example.com/u/kb-a.git\n    path: /data/kb-a\n  - remote: https://example.com/u/kb-b.git\n"))
+	b, _ := Load(writeCfg(t, "kbs:\n  - remote: https://example.com/u/kb-b.git\n  - remote: https://example.com/u/kb-a.git\n    path: /data/kb-a\n"))
 	for _, c := range []*Config{a, b} {
-		if c.OriginOf("kbs[kb-a].write_gate") != OriginFile || c.OriginOf("kbs[kb-b].write_gate") != OriginDefault {
+		if c.OriginOf("kbs[kb-a].path") != OriginFile || c.OriginOf("kbs[kb-b].path") != OriginDefault {
 			t.Errorf("origins by name wrong: %v", c.Origins)
 		}
 	}

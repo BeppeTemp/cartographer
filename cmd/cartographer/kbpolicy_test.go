@@ -30,19 +30,19 @@ func policyKB(t *testing.T, settings string) *kb.KB {
 }
 
 func TestApplyKBPolicy_KBFileOnly(t *testing.T) {
-	k := policyKB(t, "repair_on_write: false\nwrite_gate: error\n")
+	k := policyKB(t, "usage_stale_days: 30\n")
 	cfg := config.Default()
 	// A discovered KB has no kbs[] entry: the zero spec.
 	eff := applyKBPolicy(k, cfg, config.KBSpec{}, "kb-a", false)
-	if k.Policy().RepairOnWrite || k.Policy().WriteGate != "error" || eff.RepairOnWriteEnabled() {
-		t.Fatalf("policy not applied: repair_on_write=%v gate=%q", k.Policy().RepairOnWrite, k.Policy().WriteGate)
+	if k.Policy().UsageStaleDays != 30 || eff.UsageStale() != 30 {
+		t.Fatalf("policy not applied: usage_stale_days=%d", k.Policy().UsageStaleDays)
 	}
 }
 
 func TestApplyKBPolicy_NoFileIsTheDefaults(t *testing.T) {
 	k := policyKB(t, "")
 	applyKBPolicy(k, config.Default(), config.KBSpec{Name: "kb-a"}, "kb-a", false)
-	if !k.Policy().RepairOnWrite || k.Policy().WriteGate != "off" || k.Policy().UsageStaleDays != config.DefaultUsageStaleDays {
+	if k.Policy().UsageStaleDays != config.DefaultUsageStaleDays {
 		t.Fatalf("a KB without settings.yaml runs on the defaults: %+v", k.Policy())
 	}
 }
@@ -50,7 +50,7 @@ func TestApplyKBPolicy_NoFileIsTheDefaults(t *testing.T) {
 // Two servers mounting the same KB resolve the same policy: the KB's own file
 // is the only place it is set (D906).
 func TestApplyKBPolicy_TwoServersAgree(t *testing.T) {
-	k1 := policyKB(t, "repair_on_write: false\nwrite_gate: error\n")
+	k1 := policyKB(t, "usage_stale_days: 30\n")
 	k2, err := kb.Open(k1.Root)
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestApplyKBPolicy_TwoServersAgree(t *testing.T) {
 	if fmt.Sprint(k1.Policy()) != fmt.Sprint(k2.Policy()) {
 		t.Errorf("policies differ: %+v vs %+v", k1.Policy(), k2.Policy())
 	}
-	if k2.Policy().WriteGate != "error" || k2.Policy().RepairOnWrite {
+	if k2.Policy().UsageStaleDays != 30 {
 		t.Errorf("policy = %+v", k2.Policy())
 	}
 }
@@ -108,10 +108,10 @@ func TestApplyKBPolicy_SecretsAreDerivedFromSopsFiles(t *testing.T) {
 }
 
 func TestApplyKBPolicy_BadFileCostsOnlyItsEntries(t *testing.T) {
-	k := policyKB(t, "write_gate: loud\nrepair_on_write: false\n")
+	k := policyKB(t, "write_gate: error\nusage_stale_days: 30\n")
 	applyKBPolicy(k, config.Default(), config.KBSpec{}, "kb-a", false)
-	if k.Policy().WriteGate != "off" || k.Policy().RepairOnWrite {
-		t.Errorf("gate=%q repair_on_write=%v", k.Policy().WriteGate, k.Policy().RepairOnWrite)
+	if k.Policy().UsageStaleDays != 30 {
+		t.Errorf("usage_stale_days=%d", k.Policy().UsageStaleDays)
 	}
 	if len(k.SettingsInfo().Findings) != 1 {
 		t.Errorf("findings = %v", k.SettingsInfo().Findings)
@@ -120,25 +120,25 @@ func TestApplyKBPolicy_BadFileCostsOnlyItsEntries(t *testing.T) {
 
 // A pull (or an edit) that changes settings.yaml is picked up without restart.
 func TestApplyKBPolicy_RefreshPicksUpAChangedFile(t *testing.T) {
-	k := policyKB(t, "write_gate: error\n")
+	k := policyKB(t, "usage_stale_days: 30\n")
 	cfg := config.Default()
 	server := config.KBSpec{}
 	applyKBPolicy(k, cfg, server, "kb-a", false)
 	k.SettingsReload = func(k *kb.KB) { applyKBPolicy(k, cfg, server, "kb-a", true) }
-	if k.Policy().WriteGate != "error" {
+	if k.Policy().UsageStaleDays != 30 {
 		t.Fatal("not applied")
 	}
 	path := filepath.Join(k.Root, kb.SettingsFile)
-	os.WriteFile(path, []byte("write_gate: warning\nrepair_on_write: false\n"), 0o644)
+	os.WriteFile(path, []byte("usage_stale_days: 60\n"), 0o644)
 	os.Chtimes(path, time.Now().Add(time.Minute), time.Now().Add(time.Minute))
 	k.RefreshSettings()
-	if k.Policy().WriteGate != "warning" || k.Policy().RepairOnWrite {
-		t.Fatalf("after change: gate=%q repair_on_write=%v", k.Policy().WriteGate, k.Policy().RepairOnWrite)
+	if k.Policy().UsageStaleDays != 60 {
+		t.Fatalf("after change: usage_stale_days=%d", k.Policy().UsageStaleDays)
 	}
 	os.Remove(path)
 	k.RefreshSettings()
-	if k.Policy().WriteGate != "off" || !k.Policy().RepairOnWrite {
-		t.Fatalf("after removal the server defaults return: gate=%q repair_on_write=%v", k.Policy().WriteGate, k.Policy().RepairOnWrite)
+	if k.Policy().UsageStaleDays != config.DefaultUsageStaleDays {
+		t.Fatalf("after removal the server defaults return: usage_stale_days=%d", k.Policy().UsageStaleDays)
 	}
 }
 
@@ -149,8 +149,8 @@ func TestNewKBSettingsFileIsCommentsOnly(t *testing.T) {
 		t.Fatalf("keys=%v bad=%v err=%v\n%s", s.Keys(), bad, err, data)
 	}
 	// A key typed under the comments must still parse: no "{}" in the file.
-	s, bad, err = kb.ParseSettings(append(data, []byte("write_gate: error\n")...))
-	if err != nil || len(bad) != 0 || !s.Has("write_gate") {
+	s, bad, err = kb.ParseSettings(append(data, []byte("usage_stale_days: 30\n")...))
+	if err != nil || len(bad) != 0 || !s.Has("usage_stale_days") {
 		t.Fatalf("typing a key under the comments broke the file: %v %v %v", s.Keys(), bad, err)
 	}
 }

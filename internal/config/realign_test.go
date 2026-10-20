@@ -64,7 +64,7 @@ func TestRealignServerFile(t *testing.T) {
 		"removed kbs[0].git_branch: replaced by branch in the KB's settings.yaml",
 		"removed kbs[0].allow_artifact_write: artifact writes are always allowed",
 		"removed kbs[0].allow_template_write: artifact writes are always allowed",
-		"removed kbs[0].write_gate: replaced by write_gate in the KB's settings.yaml",
+		"removed kbs[0].write_gate: the write gate is always on (D907)",
 		"removed kbs[0].usage_stale_days: replaced by usage_stale_days in the KB's settings.yaml",
 		"removed kbs[0].mcp_allowlist:",
 		"removed kbs[0].secrets:",
@@ -252,24 +252,24 @@ func TestRemovedKeyAddedBackByHandWarns(t *testing.T) {
 // The same machinery over a KB's settings.yaml, in bytes: the server commits
 // the result itself.
 func TestRealignKBSettings(t *testing.T) {
-	in := "# policy\nwrite_gate: error\ngit_profile: local\ngit_branch: team/kb-data\ngithub_owner: acme\nbranch: kb-data\nallow_artifact_write: true\nallow_template_write: false\nusage_stale_days: 0\nsecrets: true\nmcp_allowlist: [{name: a, transport: stdio, target: tool}]\n"
+	in := "# policy\nwrite_gate: error\nauto_repair: []\nrepair_on_write: false\ndoctor_auto_interval: 0\ndoctor_interval: 7d\ndoctor_mode: assisted\ndoctor_budget: 4\ngit_profile: local\ngit_branch: team/kb-data\ngithub_owner: acme\nbranch: kb-data\nallow_artifact_write: true\nallow_template_write: false\nusage_stale_days: 0\nsecrets: true\nmcp_allowlist: [{name: a, transport: stdio, target: tool}]\n"
 	out, rep, err := RealignKBSettings([]byte(in))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(out)
-	for _, gone := range []string{"git_profile: local", "git_branch:", "github_owner: acme", "allow_artifact_write", "allow_template_write", "usage_stale_days: 0", "\nsecrets:", "\nmcp_allowlist:"} {
+	for _, gone := range []string{"git_profile: local", "git_branch:", "github_owner: acme", "allow_artifact_write", "allow_template_write", "usage_stale_days: 0", "\nsecrets:", "\nmcp_allowlist:", "write_gate", "auto_repair", "repair_on_write", "doctor_"} {
 		if strings.Contains(text, gone) {
 			t.Errorf("%q survived:\n%s", gone, text)
 		}
 	}
-	for _, kept := range []string{"# policy", "write_gate: error", "branch: kb-data"} {
+	for _, kept := range []string{"# policy", "branch: kb-data"} {
 		if !strings.Contains(text, kept) {
 			t.Errorf("%q was lost:\n%s", kept, text)
 		}
 	}
 	got := strings.Join(rep.Lines(), "\n")
-	for _, want := range []string{"removed git_profile:", "removed git_branch: replaced by branch", "removed github_owner:", "removed allow_artifact_write: artifact writes are always allowed", "removed allow_template_write:", "reset usage_stale_days: 0 switched a feature off", "removed secrets:", "removed mcp_allowlist:"} {
+	for _, want := range []string{"removed git_profile:", "removed git_branch: replaced by branch", "removed github_owner:", "removed allow_artifact_write: artifact writes are always allowed", "removed allow_template_write:", "reset usage_stale_days: 0 switched a feature off", "removed secrets:", "removed mcp_allowlist:", "removed write_gate: the write gate is always on", "removed auto_repair:", "removed repair_on_write:", "removed doctor_auto_interval:", "removed doctor_interval:", "removed doctor_mode:", "removed doctor_budget:"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("report lacks %q:\n%s", want, got)
 		}
