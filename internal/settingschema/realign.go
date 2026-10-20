@@ -377,6 +377,10 @@ func (s Schema) Realign(data []byte, reg Registry) (out []byte, rep Report, err 
 		return data, Report{}, fmt.Errorf("the top level must be a mapping of setting names to values")
 	}
 
+	// The blocks go home first: a removal below, and the filter of the retired
+	// keys, read them where the mapping they list holds them.
+	s.homeBlocks(&doc)
+
 	hits := reg.Find(&doc)
 	var touched []*yaml.Node
 	for _, h := range hits {

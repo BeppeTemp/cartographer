@@ -322,3 +322,50 @@ func TestDocumentLeavesOutStructuredExamples(t *testing.T) {
 		t.Errorf("document:\n%s", got)
 	}
 }
+
+// Text a person wrote in the available-settings block is theirs: the key below it
+// is listed again as the schema generates it, and the person's lines stay where
+// they were. Only generated text is rewritten.
+func TestAPersonsLinesInTheBlockSurviveARealign(t *testing.T) {
+	head := "name: a\n\n" + Marker + "\n\n"
+	for name, tc := range map[string]struct{ in, want string }{
+		"a note above a key in the current wording": {
+			in:   head + "# my reminder: never enable this\n# The port.\n# Default: none\n# port: \":8080\"\n",
+			want: head + "# my reminder: never enable this\n# The port.\n# Default: none\n# port: \":8080\"\n",
+		},
+		"a note above a key in the old wording": {
+			in:   head + "# my reminder: never enable this\n# The port.\n# Default: \"\".\n# port: \":8080\"\n",
+			want: head + "# my reminder: never enable this\n# The port.\n# Default: none\n# port: \":8080\"\n",
+		},
+		"a note between the description and the assignment": {
+			in:   head + "# The port.\n# Default: none\n# keep it above 1024\n# port: \":8080\"\n",
+			want: head + "# The port.\n# Default: none\n# keep it above 1024\n# port: \":8080\"\n",
+		},
+		"a note above a key with no description of the schema's": {
+			in:   head + "# my reminder: never enable this\n# port: \":8080\"\n",
+			want: head + "# my reminder: never enable this\n# port: \":8080\"\n",
+		},
+		"an edited description": {
+			in:   head + "# The port the thing listens on.\n# Default: none\n# port: \":8080\"\n",
+			want: head + "# The port the thing listens on.\n# Default: none\n# port: \":8080\"\n",
+		},
+		"a note and a key of the old layout, both kept, only the wording moves": {
+			in:   head + "# my reminder\n# The bearer token.\n# Default: \"\". Needs a restart. Secret: keep it out of version control.\n# token: \"\"\n",
+			want: head + "# my reminder\n# The bearer token.\n# Needs a restart · secret: keep it out of version control\n# token: \"\"\n",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Each case holds the key it names; the rest of the block is the schema's.
+			out, _, err := layoutSchema.Realign([]byte(tc.in), Registry{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(out), strings.TrimPrefix(tc.want, head)) {
+				t.Errorf("lost or changed a person's line:\n%s\nwant it to hold:\n%s", out, strings.TrimPrefix(tc.want, head))
+			}
+			if again, rep, _ := layoutSchema.Realign(out, Registry{}); string(again) != string(out) || !rep.Empty() {
+				t.Errorf("not idempotent: %v\n%s\n---\n%s", rep.Lines(), out, again)
+			}
+		})
+	}
+}

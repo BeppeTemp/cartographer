@@ -310,6 +310,7 @@ func (s Schema) Render(doc *yaml.Node) {
 	if root == nil {
 		return
 	}
+	s.homeBlocks(doc)
 	s.walk(doc, root, s.tree(), true)
 }
 
@@ -452,6 +453,261 @@ func splitBlock(foot string) (user string, block []string, found bool) {
 	return foot, nil, false
 }
 
+// blockSeg is one available-settings block as a foot comment holds it: its
+// divider line as written, and the lines after it up to the next divider.
+type blockSeg struct {
+	divider string
+	lines   []string
+}
+
+// splitSegments cuts a foot comment at every divider: what precedes the first is
+// the text of a person, each divider opens a block.
+func splitSegments(foot string) (user string, segs []blockSeg) {
+	var userLines []string
+	for _, l := range strings.Split(foot, "\n") {
+		switch {
+		case isMarker(l):
+			segs = append(segs, blockSeg{divider: l})
+		case len(segs) == 0:
+			userLines = append(userLines, l)
+		default:
+			segs[len(segs)-1].lines = append(segs[len(segs)-1].lines, l)
+		}
+	}
+	return strings.Trim(strings.Join(userLines, "\n"), "\n"), segs
+}
+
+func joinSegs(user string, segs []blockSeg) string {
+	var parts []string
+	if user != "" {
+		parts = append(parts, user)
+	}
+	for _, sg := range segs {
+		parts = append(parts, strings.TrimRight(strings.Join(append([]string{sg.divider}, sg.lines...), "\n"), "\n"))
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// blockOwner is a mapping that carries an available-settings block: the root,
+// and every mapping of a known key that has keys of its own.
+type blockOwner struct {
+	t       *node
+	root    bool
+	home    *yaml.Node   // where applyBlock reads its block
+	holders []*yaml.Node // where the parser may have left it
+	claimed []blockSeg
+	notes   []string // text that came with the blocks from another node
+}
+
+// homeBlocks moves every available-settings block to where applyBlock reads it:
+// the foot of the last key of the mapping the block lists, the foot of the
+// document for the root. The parser does not hand a comment back where the
+// emitter wrote it. A block written under a key whose value is a block list or
+// mapping comes back as the foot of the last node of that value (the last key of
+// the last list entry), or of the document when nothing follows; read from the
+// keys of the mapping alone, it was taken for the block of an outer mapping, or
+// moved into the list entry on every render.
+//
+// Each block is given to one mapping: the innermost, among those whose end it
+// can be the foot of, that lists its keys. A block that lists keys the inner
+// mapping does not have, but another mapping does, is left for that one; the
+// root takes whatever is left.
+func (s Schema) homeBlocks(doc *yaml.Node) {
+	root := docMapping(doc)
+	if root == nil {
+		return
+	}
+	t := s.tree()
+	names := map[string]bool{}
+	var collect func(n *node)
+	collect = func(n *node) {
+		for _, c := range n.kids {
+			names[c.name] = true
+			collect(c)
+		}
+	}
+	collect(t)
+
+	// The owners, inner ones first.
+	tail := tailNodes(root)
+	var owners []*blockOwner
+	var walk func(m *yaml.Node, t *node, owner bool)
+	walk = func(m *yaml.Node, t *node, owner bool) {
+		for i := 0; i+1 < len(m.Content); i += 2 {
+			c := t.byName[m.Content[i].Value]
+			if c == nil {
+				continue
+			}
+			switch v := m.Content[i+1]; {
+			case v.Kind == yaml.MappingNode && len(c.kids) > 0 && !c.list:
+				walk(v, c, true)
+			case v.Kind == yaml.SequenceNode && c.list:
+				for _, e := range v.Content {
+					if e.Kind == yaml.MappingNode {
+						walk(e, c, false)
+					}
+				}
+			}
+		}
+		if !owner {
+			return
+		}
+		o := &blockOwner{t: t, root: m == root, home: doc}
+		if !o.root {
+			if len(m.Content) < 2 {
+				return
+			}
+			o.home = m.Content[len(m.Content)-2]
+		}
+		o.holders = blockHolders(doc, m, o.root || slices.Contains(tail, m))
+		owners = append(owners, o)
+	}
+	walk(root, t, true)
+
+	// Every block found at a holder is given to the first owner that takes it.
+	type slot struct {
+		user string
+		segs []blockSeg
+		to   []int // owner of each block, -1 while nobody has taken it
+	}
+	slots := map[*yaml.Node]*slot{}
+	for oi, o := range owners {
+		for _, h := range o.holders {
+			sl := slots[h]
+			if sl == nil {
+				sl = &slot{}
+				sl.user, sl.segs = splitSegments(h.FootComment)
+				sl.to = make([]int, len(sl.segs))
+				for i := range sl.to {
+					sl.to[i] = -1
+				}
+				slots[h] = sl
+			}
+			for i, sg := range sl.segs {
+				if sl.to[i] < 0 && (o.root || o.t.claims(sg, names)) {
+					sl.to[i] = oi
+				}
+			}
+		}
+	}
+	for oi, o := range owners {
+		for _, h := range o.holders {
+			sl := slots[h]
+			for i, sg := range sl.segs {
+				if sl.to[i] != oi {
+					continue
+				}
+				o.claimed = append(o.claimed, sg)
+				if i == 0 && sl.user != "" && h != o.home {
+					// The text written above the block is the mapping's too: the two
+					// were one comment, and move together.
+					o.notes = append(o.notes, sl.user)
+					sl.user = ""
+				}
+			}
+		}
+	}
+
+	// What is not taken stays where it is. A holder is only rewritten when it
+	// held a block that was taken.
+	for h, sl := range slots {
+		var keep []blockSeg
+		taken := false
+		for i, sg := range sl.segs {
+			if sl.to[i] < 0 {
+				keep = append(keep, sg)
+			} else {
+				taken = true
+			}
+		}
+		if taken {
+			h.FootComment = joinSegs(sl.user, keep)
+		}
+	}
+	for _, o := range owners {
+		if len(o.claimed) == 0 {
+			continue
+		}
+		merged := blockSeg{divider: o.claimed[0].divider}
+		for i, sg := range o.claimed {
+			if i > 0 {
+				merged.lines = append(merged.lines, "")
+			}
+			merged.lines = append(merged.lines, trimBlank(sg.lines)...)
+		}
+		foot := o.home.FootComment
+		for _, n := range append(o.notes, joinSegs("", []blockSeg{merged})) {
+			foot = joinComments(foot, n)
+		}
+		o.home.FootComment = foot
+	}
+}
+
+// claims reports whether the block sg lists the keys of the mapping t: it names
+// at least one of them, or names no key at all, or names only keys that no
+// mapping of the schema has (a key the schema dropped).
+func (t *node) claims(sg blockSeg, names map[string]bool) bool {
+	listed, known := false, false
+	for _, l := range sg.lines {
+		m := entryRe.FindStringSubmatch(l)
+		if m == nil || m[1][0] >= 'A' && m[1][0] <= 'Z' {
+			// "# Values: ..." and the like are description lines, not keys.
+			continue
+		}
+		if t.byName[m[1]] != nil {
+			return true
+		}
+		known = known || names[m[1]]
+		listed = true
+	}
+	return !listed || !known
+}
+
+// blockHolders lists, in the order they are written in the file, the nodes that
+// can carry a block of the mapping m: its keys, the nodes along the end of the
+// value of its last key, and the document when nothing follows m.
+func blockHolders(doc, m *yaml.Node, withDoc bool) []*yaml.Node {
+	var hs []*yaml.Node
+	if n := len(m.Content); n >= 2 {
+		for i := 0; i < n-2; i += 2 {
+			hs = append(hs, m.Content[i])
+		}
+		tail := tailNodes(m.Content[n-1])
+		for i := len(tail) - 1; i >= 0; i-- {
+			hs = append(hs, tail[i])
+		}
+		hs = append(hs, m.Content[n-2])
+	}
+	if withDoc {
+		hs = append(hs, doc)
+	}
+	return hs
+}
+
+// tailNodes lists, from the outside in, the nodes at the end of the value n: n,
+// and for a block mapping its last key and its last value, for a block list its
+// last entry, and so on down. A comment written after n is read back as the foot
+// of one of them.
+func tailNodes(n *yaml.Node) []*yaml.Node {
+	var out []*yaml.Node
+	for n != nil && n.Kind != yaml.AliasNode {
+		out = append(out, n)
+		if n.Style&yaml.FlowStyle != 0 {
+			break
+		}
+		switch {
+		case n.Kind == yaml.MappingNode && len(n.Content) >= 2:
+			out = append(out, n.Content[len(n.Content)-2])
+			n = n.Content[len(n.Content)-1]
+		case n.Kind == yaml.SequenceNode && len(n.Content) > 0:
+			n = n.Content[len(n.Content)-1]
+		default:
+			n = nil
+		}
+	}
+	return out
+}
+
 // group is one key of an available-settings block as a file holds it: the
 // description lines above its assignment, and the assignment (the line "# key:"
 // and the indented lines that continue it).
@@ -576,7 +832,7 @@ func settle(c *node, g group) []string {
 	}
 	if leaf(c) {
 		if sameLines(g.body, assignLines(c, "")) || sameLines(g.body, legacyAssignLines(c, "")) {
-			return unsetLines(c, 0)
+			return append(settleDesc(c, g.desc), assignLines(c, "")...)
 		}
 		return user
 	}
@@ -585,6 +841,43 @@ func settle(c *node, g group) []string {
 	}
 	return user
 }
+
+// settleDesc is the text above an unedited assignment, listed again. The
+// description the schema generated, in this wording or an older one, is written
+// as the schema generates it now; every other line is a person's and stays where
+// it is, above, below or inside it. When no generated description is found as it
+// was written, the lines are a person's own (an edited description, a note on a
+// key they left bare) and are kept whole.
+func settleDesc(c *node, desc []string) []string {
+	if c.key == nil {
+		return desc
+	}
+	if len(trimBlank(desc)) == 0 {
+		return prefixed(blockComment(*c.key))
+	}
+	for n := len(desc); n > 0; n-- {
+		for i := 0; i+n <= len(desc); i++ {
+			if isGeneratedBlock(strings.Join(desc[i:i+n], "\n"), *c.key) {
+				out := append([]string(nil), desc[:i]...)
+				out = append(out, prefixed(blockComment(*c.key))...)
+				return append(out, desc[i+n:]...)
+			}
+		}
+	}
+	return desc
+}
+
+// isGeneratedBlock reports whether c, comment lines with their "# ", is what the
+// schema writes above k in the available-settings block, or anywhere else
+// (isGenerated).
+func isGeneratedBlock(c string, k Key) bool {
+	return isGenerated(c, k) || c == strings.Join(prefixed(blockComment(k)), "\n")
+}
+
+// IsGenerated reports whether comment, the head comment of a key as the parser
+// hands it over, is one the schema wrote for k, in the current wording or in the
+// one of an earlier version. A comment a person wrote, or edited, is not.
+func IsGenerated(comment string, k Key) bool { return isGenerated(comment, k) }
 
 // leaf reports whether c is listed as one assignment: a key with nothing under
 // it, or a list (whose entries the block never lists).
