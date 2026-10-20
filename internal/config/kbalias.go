@@ -9,8 +9,8 @@ import (
 // after `kb rename`, and the server resolves it to the KB mounted as To (D772).
 // It selects which KB a URL names and never widens what a token may do.
 type KBAlias struct {
-	From string `yaml:"from"`
-	To   string `yaml:"to"`
+	From string `yaml:"from" json:"from"`
+	To   string `yaml:"to" json:"to"`
 }
 
 // kbNameRe validates a KB name as directory-safe: letters, digits, '-', '_'

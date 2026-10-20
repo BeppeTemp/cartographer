@@ -167,3 +167,20 @@ func TestMigrateKBAliasesMovesTheListToTheStateFile(t *testing.T) {
 		t.Errorf("the key must go and the rest stay:\n%s", out)
 	}
 }
+
+// The state file is documented as {from, to}: the bytes written pin the case.
+func TestServerStateFileKeysAreLowercase(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteServerState(dir, ServerState{KBAliases: []KBAlias{{From: "kb-old", To: "kb-a"}}}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(ServerStatePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"from": "kb-old"`, `"to": "kb-a"`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("state file lacks %s:\n%s", want, b)
+		}
+	}
+}
