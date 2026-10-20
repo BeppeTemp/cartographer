@@ -13,8 +13,7 @@ import (
 // (D907): it drops every removed key (LegacyContractKeys), moves a flat
 // required_fields into required_fields.* and a flat field_values.<field> into
 // field_values.*.<field>, and leaves every other key, its comments and the
-// body untouched, and renames to its standard name a field the contract names
-// under a synonym (ContractFieldCanonical). It reports whether it changed the file. A legacy
+// body untouched. It reports whether it changed the file. A legacy
 // _archive.md descriptor is refused, as UpdateMapContract refuses it.
 func (kb *KB) RealignContract(name string) (bool, error) {
 	if _, err := okf.PathToID(name + ".md"); err != nil {
@@ -40,7 +39,7 @@ func (kb *KB) RealignContract(name string) (bool, error) {
 		return false, fmt.Errorf("RealignContract %s: %w", name, err)
 	}
 	legacy := LegacyContractKeys(fm)
-	if len(legacy) == 0 && len(ContractSynonymKeys(fm)) == 0 {
+	if len(legacy) == 0 {
 		return false, nil
 	}
 	for _, key := range legacy {
@@ -67,10 +66,6 @@ func (kb *KB) RealignContract(name string) (bool, error) {
 			fm.Delete(key)
 		}
 	}
-	// A required or forbidden field, or a field_values key, that the page
-	// repair renames follows the rename (updated → timestamp), so a contract
-	// never demands the name the repair removes.
-	canonicalizeContractFields(fm)
 	abs, err := kb.ResolvePath(relPath, false)
 	if err != nil {
 		return false, fmt.Errorf("RealignContract %s: %w", name, err)

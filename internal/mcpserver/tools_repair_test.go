@@ -23,7 +23,7 @@ import (
 func repairKB(t *testing.T, n int) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
-	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, kb.MapContract{RequiredFields: []string{"updated"}}); err != nil {
+	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < n; i++ {
@@ -85,7 +85,7 @@ func TestKBRepairDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-func TestKBRepairRenamesInOneCommitAndRewritesContract(t *testing.T) {
+func TestKBRepairRenamesInOneCommit(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 3)
 	before := commitCount(t, k)
@@ -118,7 +118,7 @@ func TestKBRepairRenamesInOneCommitAndRewritesContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.RequiredFields) != 1 || c.RequiredFields[0] != "timestamp" {
+	if len(c.RequiredFields) != 0 {
 		t.Fatalf("contract required_fields = %v", c.RequiredFields)
 	}
 	if got := lastDoctorDate(k); got != "" {

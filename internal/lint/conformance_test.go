@@ -39,15 +39,25 @@ func TestNonstandardField(t *testing.T) {
 	}
 }
 
-func TestNonstandardField_RequiredByMap(t *testing.T) {
+// A field the page's own map contract names is the name the map asks for: the
+// page keeps it, and a synonym the contract does not name is still reported.
+func TestNonstandardField_KeptWhenItsMapNamesIt(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "kb-a/_map.md", "---\ntype: Map\nkind: map\ntitle: A\nrequired_fields: [aggiornato]\n---\n# A\n")
-	writeFile(t, k.DataRoot(), "kb-a/x.md", "---\ntype: Note\ntitle: X\naggiornato: 2026-01-01\n---\nx\n")
+	writeFile(t, k.DataRoot(), "kb-a/_map.md", "---\ntype: Map\nkind: map\ntitle: A\nrequired_fields.*: [aggiornato]\nfield_values.Note.stato: [open]\n---\n# A\n")
+	writeFile(t, k.DataRoot(), "kb-a/x.md", "---\ntype: Note\ntitle: X\naggiornato: 2026-01-01\nstato: open\nsummary: s\n---\nx\n")
 	findings, _ := Run(k, "", false)
-	f := findingFor(findings, "kb-a/x.md", "nonstandard_field")
-	if f == nil || !strings.Contains(f.Message, "requires") || f.Fix == nil {
-		t.Fatalf("%+v", f)
+	if f := findingFor(findings, "kb-a/x.md", "nonstandard_field"); f == nil || !strings.Contains(f.Message, `"summary"`) {
+		t.Fatalf("want only the unnamed synonym reported: %+v", f)
+	}
+	n := 0
+	for _, f := range findings {
+		if f.Path == "kb-a/x.md" && f.Check == "nonstandard_field" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("nonstandard_field findings = %d, want 1: %+v", n, findings)
 	}
 }
 

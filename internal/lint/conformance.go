@@ -90,13 +90,31 @@ type Fix struct {
 // is the repair tool's contract, and a test pins it to what the checks emit.
 var FixableChecks = checkNames(func(s CheckSpec) bool { return len(s.FixKinds) > 0 })
 
-// StandardFieldSynonyms is kb.StandardFieldSynonyms, the one table behind
-// nonstandard_field and behind the contract realignment (D907): the synonyms of
-// each standard frontmatter field. docs/data-plane.md lists every entry.
-var StandardFieldSynonyms = kb.StandardFieldSynonyms
+// StandardFieldSynonyms maps each standard frontmatter field to the synonyms
+// KBs are known to use for it (nonstandard_field). Keys are matched
+// case-insensitively. docs/data-plane.md lists every entry: the table is the
+// documentation, so a new entry needs its line there. No synonym may appear
+// under two standard fields.
+var StandardFieldSynonyms = map[string][]string{
+	"timestamp":     {"updated", "updated_at", "last_updated", "modified", "date", "aggiornato", "data"},
+	"provenance":    {"sources", "source", "refs", "fonti", "fonte"},
+	"status":        {"state", "stato"},
+	"description":   {"summary", "sommario"},
+	"tags":          {"keywords", "parole_chiave"},
+	"review_after":  {"review_by"},
+	"superseded_by": {"replaced_by"},
+}
 
 // synonymOf is StandardFieldSynonyms inverted: synonym → standard field.
-var synonymOf = kb.SynonymOf
+var synonymOf = func() map[string]string {
+	m := map[string]string{}
+	for std, syns := range StandardFieldSynonyms {
+		for _, s := range syns {
+			m[s] = std
+		}
+	}
+	return m
+}()
 
 // ToolParamFields are the parameter names of the concept-write tools
 // (concept_write, concept_new, concept_patch, concept_batch and its operation
@@ -295,6 +313,18 @@ func frontmatterFindings(in conceptInput) []Finding {
 	return out
 }
 
+// contractNamesField says whether the contract requires the field or lists
+// allowed values for it, for the concept type or for every type.
+func contractNamesField(c kb.MapContract, conceptType, field string) bool {
+	for _, f := range c.RequiredFor(conceptType) {
+		if strings.EqualFold(f, field) {
+			return true
+		}
+	}
+	_, ok := c.AllowedValues(conceptType, field)
+	return ok
+}
+
 // nonstandardFieldFindings reports each frontmatter key that is a known
 // synonym of a standard field (nonstandard_field, warning).
 func nonstandardFieldFindings(in conceptInput) []Finding {
@@ -315,6 +345,12 @@ func nonstandardFieldFindings(in conceptInput) []Finding {
 		if !ok {
 			continue
 		}
+		// A field the page's own map contract names (required_fields or
+		// field_values, for the page's type or "*") is the name the map asks
+		// for: the page keeps it, the contract being explicit.
+		if in.Contract != nil && contractNamesField(*in.Contract, conceptType, key) {
+			continue
+		}
 		// A timestamp synonym such as "data" or "date" is an ordinary English
 		// word: only a date-shaped value makes it a stand-in for the timestamp.
 		if std == "timestamp" {
@@ -328,14 +364,6 @@ func nonstandardFieldFindings(in conceptInput) []Finding {
 		} else {
 			f.Message = fmt.Sprintf("uses %q for the standard field %q — rename it, so the tools that read %q see it", key, std, std)
 			f.Fix = &Fix{Kind: FixRenameField, Field: key, To: std}
-		}
-		if in.Contract != nil {
-			for _, req := range in.Contract.RequiredFor(conceptType) {
-				if req == key {
-					f.Message += fmt.Sprintf("; map %q requires %q in its contract too", in.MapName, key)
-					break
-				}
-			}
 		}
 		out = append(out, f)
 	}
