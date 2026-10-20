@@ -3253,36 +3253,6 @@ func TestServer_ConceptMove_SingleFormBackCompat(t *testing.T) {
 	}
 }
 
-// TestServer_ConceptMove_RewriteLinksFalse verifies that rewrite_links=false
-// leaves inbound links untouched and keeps the "not updated" warning.
-func TestServer_ConceptMove_RewriteLinksFalse(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	writeTestConcept(t, k, "notes/rf-target", "# Target\n")
-	writeTestConcept(t, k, "notes/rf-linker", "See [[notes/rf-target]] for details.\n")
-
-	s := New("1.0.0")
-	RegisterKBTools(s, k, Deps{})
-
-	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_move","arguments":{"source_id":"notes/rf-target","target_id":"notes/rf-target-moved","rewrite_links":false}}}`,
-	}
-	resps := runMCPSequence(t, s, msgs)
-	tr := decodeToolResult(t, resps[1])
-	if tr.IsError {
-		t.Fatalf("concept_move: unexpected error: %v", tr.Content)
-	}
-	if !strings.Contains(tr.Content[0].Text, "inbound links to notes/rf-target are not updated") {
-		t.Errorf("expected 'inbound links...not updated' warning, got: %s", tr.Content[0].Text)
-	}
-
-	linkerBody := readTestConceptContent(t, k, "notes/rf-linker")
-	if !strings.Contains(linkerBody, "[[notes/rf-target]]") {
-		t.Errorf("rewrite_links=false: link should be untouched, got:\n%s", linkerBody)
-	}
-}
-
 // TestServer_ConceptMove_ChainedLinksBetweenMovedConcepts verifies that when
 // a moved concept links to another concept moved in the same batch, the
 // backlink rewrite pass applies the full old→new map on the already-

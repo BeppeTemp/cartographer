@@ -239,7 +239,9 @@ func TestWriteGate_MoveAndBatchRolledBack(t *testing.T) {
 	if _, err := k.ReadConcept("arch/one"); err == nil {
 		t.Fatal("the clean half of a refused batch survived")
 	}
-	good := strings.Replace(bad, `"status":"draft"`, `"status":"deprecated"`, 1)
+	// "deprecated" would be valid too, but a retired page that a live one links
+	// is its own finding (link_to_retired): fix the value with a live status.
+	good := strings.Replace(bad, `"status":"draft"`, `"status":"active"`, 1)
 	if text, isErr = callJSON(t, s, adminCtx, "concept_batch", good); isErr {
 		t.Fatalf("fixed batch refused: %s", text)
 	}

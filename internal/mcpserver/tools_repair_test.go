@@ -232,7 +232,7 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	seedDriftFixes(t, k) // D357
+	seedDriftFixes(t, k)                          // D357
 	driftWrite(t, k, "legacy/_map.md", legacyMap) // D907: a pre-D907 descriptor
 	findings, err := lint.Run(k, "", false)
 	if err != nil {
