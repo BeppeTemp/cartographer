@@ -73,11 +73,13 @@ const KB_GROUPS: [Group, (key: string) => boolean][] = [
 
 /** The client's keys (.cartographer.yaml), grouped by what they govern. */
 /** The client keys that are set per KB: shown in each KB's section, not in the groups. */
-const PER_KB = ["identities", "clients", "workspaces", "signing_keys", "mcp_approvals"];
+// The keys read per KB in the client's Knowledge bases section. `clients` stays
+// in Agents as well: besides the KBs it holds each agent's config_dirs.
+const PER_KB = ["identities", "workspaces", "signing_keys", "mcp_approvals"];
 
 const CLIENT_GROUPS: [Group, (key: string) => boolean][] = [
   [{ title: "Connection", intro: "" }, (k) => ["server_url", "server_name", "auth", "token"].includes(k)],
-  [{ title: "Agents", intro: "" }, (k) => k === "scopes"],
+  [{ title: "Agents", intro: "" }, (k) => k === "scopes" || k === "clients"],
   [{ title: "Local paths", intro: "" }, (k) => ["search_roots", "paths", "ignored_paths"].includes(k)],
   [{ title: "Updates & sync", intro: "" }, () => true],
 ];
@@ -372,6 +374,7 @@ function ClientPanel({
                 <Rows key={group.title} group={group} entries={rows} label={`Client ${group.title} settings`} />
               ))}
             <ClientKBs kbs={kbs} client={null} entries={template.entries} activeKB={activeKB} query={query} />
+            {nothingMatches(groups, kbs, query) && <NoMatch query={query} />}
           </>
         )}
       </>
@@ -400,10 +403,17 @@ function ClientPanel({
               <Rows key={group.title} group={group} entries={rows} label={`Client ${group.title} settings`} />
             ))}
           <ClientKBs kbs={kbs} client={client} entries={client.entries} activeKB={activeKB} query={query} />
+          {nothingMatches(groups, kbs, query) && <NoMatch query={query} />}
         </>
       )}
     </>
   );
+}
+
+/** A search that matches no client key and no KB name. */
+function nothingMatches(groups: { rows: SettingEntry[] }[], kbs: string[], query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return !!q && groups.every((g) => g.rows.length === 0) && !kbs.some((kb) => kb.toLowerCase().includes(q));
 }
 
 /** A client key's map value, or an empty map. */

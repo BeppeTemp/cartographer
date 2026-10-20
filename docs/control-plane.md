@@ -403,7 +403,7 @@ The server prepares a report **once, on receipt**, before it keeps it (`scrubCli
 - **Secrets.** The `token` key is a secret in the client schema (`Secret: true`). Its entry's `value` is `"(set)"` (the file sets
   a non-empty one) or `"(unset)"`, and its value in `yaml` is `<redacted>`, as in the server's own `server_yaml`: a literal
   token and a `${NAME}` reference alike, whichever way the file writes it (quoted, flow, block, anchored, repeated), and the same
-  for a commented-out `# token: …` line. The client masks them too (`clientconfig.Report`); the server does it again for a
+  for a commented-out `# token: …` line. A file where a secret escapes that mask (a YAML merge key `<<:`, a second document) is not shown: `yaml` holds one line saying so. The client masks them too (`clientconfig.Report`); the server does it again for a
   client that predates this. A file that is not YAML cannot be checked for a secret and is not kept (`yaml` is `""`).
 - **Rendering.** `yaml` is rendered against the client schema (`settingschema.Schema.Format`) once, here, not on every
   `GET /settings`. A file that repeats a key is documented once per occurrence, so its rendering can be tens of times the file:
