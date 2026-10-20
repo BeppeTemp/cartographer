@@ -1689,7 +1689,7 @@ func toolConceptMove(k *kb.KB) Tool {
 				rewriteLinks = *params.RewriteLinks
 			}
 
-			result, errRes := applyConceptMoves(k, moves, rewriteLinks, moveOptions{View: newCallerView(ctx, k)})
+			result, errRes := applyConceptMoves(k, moves, rewriteLinks, moveOptions{View: newCallerView(ctx, k), RefuseStrictType: true})
 			if errRes != nil {
 				return *errRes, nil
 			}
@@ -1707,6 +1707,9 @@ type moveOptions struct {
 	// View is what the caller may be told: the rewritten concepts and the
 	// findings of the response keep to pages it can see. nil shows everything.
 	View *callerView
+	// RefuseStrictType refuses a move into another map whose strict concept_types
+	// do not admit the concept's type, before anything is written (#921).
+	RefuseStrictType bool
 }
 
 // applyConceptMoves validates every move, applies them, rebases the moved
@@ -1778,6 +1781,12 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 		fm, err := okf.ParseFrontmatter(data.FrontmatterRaw)
 		if err != nil {
 			return nil, errRes(errorResult(fmt.Sprintf("concept_move: parse frontmatter %q: %v", m.SourceID, err)))
+		}
+
+		if opts.RefuseStrictType {
+			if err := moveTypeViolation(k, m, fm); err != nil {
+				return nil, errRes(errorResult(err.Error()))
+			}
 		}
 
 		vm := validMove{sourceID: m.SourceID, targetID: m.TargetID, fm: fm, body: data.Body, source: sourceLoc, target: targetLoc, mappings: map[string]string{m.SourceID: m.TargetID}}
@@ -1977,6 +1986,31 @@ func targetOccupied(k *kb.KB, targetID string, loc kb.ConceptLocation) string {
 		return fmt.Sprintf("concept_move: check target directory %q: %v", targetID, err)
 	}
 	return ""
+}
+
+// moveTypeViolation refuses a move that re-homes a concept into a strict map
+// whose concept_types do not admit its type: the page would only fail the next
+// validate, so the move is refused before the filesystem is touched (#921). A
+// move inside one map is a rename and a typeless page is a different problem;
+// neither is judged here.
+func moveTypeViolation(k *kb.KB, m conceptMoveEntry, fm *okf.Frontmatter) error {
+	srcMap, _ := conceptMapName(m.SourceID)
+	dstMap, ok := conceptMapName(m.TargetID)
+	conceptType := fm.Type()
+	if !ok || dstMap == srcMap || conceptType == "" {
+		return nil
+	}
+	meta, err := k.ReadArchiveMeta(dstMap)
+	if err != nil {
+		return nil
+	}
+	if strictTypeViolation(meta, dstMap, conceptType) == nil {
+		return nil
+	}
+	admitted, _ := meta.Get("concept_types")
+	return fmt.Errorf("concept_move: %q has type %q, which map %s (strict) does not admit; admitted types: %s. "+
+		"Nothing was moved — extend the map's concept_types with map_update, or pick a map that admits the type",
+		m.SourceID, conceptType, dstMap, strings.Join(admitted.([]string), ", "))
 }
 
 func errRes(r ToolResult) *ToolResult { return &r }
@@ -2999,6 +3033,19 @@ func batchLogLines(ops []kb.BatchWriteOp, indexed map[string]bool) []string {
 	return lines
 }
 
+// strictTypeViolation is the strict-ontology rule alone: the map's
+// descriptor lists concept_types and conceptType is not among them. The mode
+// is derived (D907): a non-empty list makes the map strict, whatever a
+// leftover ontology_mode key says.
+func strictTypeViolation(meta *okf.Frontmatter, archiveName, conceptType string) error {
+	ctVal, _ := meta.Get("concept_types")
+	ctList, ok := ctVal.([]string)
+	if !ok || len(ctList) == 0 || slices.Contains(ctList, conceptType) {
+		return nil
+	}
+	return fmt.Errorf("type %q not allowed in map %s (strict)", conceptType, archiveName)
+}
+
 // mapContractViolation checks a proposed concept id/frontmatter against its
 // Map's strict-ontology palette and required-field contract — the same
 // checks kb.Validate's inline ontology pass and lint's missing_required_field
@@ -3017,17 +3064,8 @@ func mapContractViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
 		return nil
 	}
 	conceptType := fm.Type()
-	// The mode is derived (D907): a non-empty concept_types makes the map
-	// strict, whatever a leftover ontology_mode key says.
-	ctVal, _ := meta.Get("concept_types")
-	if ctList, ok := ctVal.([]string); ok && len(ctList) > 0 {
-		allowed := make(map[string]bool, len(ctList))
-		for _, ct := range ctList {
-			allowed[ct] = true
-		}
-		if !allowed[conceptType] {
-			return fmt.Errorf("type %q not allowed in map %s (strict)", conceptType, archiveName)
-		}
+	if err := strictTypeViolation(meta, archiveName, conceptType); err != nil {
+		return err
 	}
 	contract, err := k.ReadMapContract(archiveName)
 	if err != nil {
