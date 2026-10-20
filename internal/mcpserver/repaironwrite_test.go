@@ -14,9 +14,8 @@ import (
 // rowKB is a git KB whose writes repair what they wrote (D349, always since
 // D907): ops/a holds a bare links-section item for ops/b, ops/c is a plain
 // page. ops generates its index, so a new page needs no index entry to pass
-// the write gate. checks is the auto_repair list the timer reads; a write
-// does not read it.
-func rowKB(t *testing.T, checks ...string) (*kb.KB, *Server) {
+// the write gate.
+func rowKB(t *testing.T) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
 	if err := k.CreateMap("ops", "Ops", "map", nil); err != nil {
@@ -40,7 +39,6 @@ func rowKB(t *testing.T, checks ...string) (*kb.KB, *Server) {
 	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = checks })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	return k, s
@@ -81,7 +79,7 @@ func patchDup(t *testing.T, k *kb.KB) string {
 
 func TestRepairOnWrite_PatchDropsDuplicateInOneCommit(t *testing.T) {
 	t.Parallel()
-	k, s := rowKB(t, "duplicate_link", "nonstandard_field")
+	k, s := rowKB(t)
 	before := commitCount(t, k)
 	out := decodeJSON(t, mustText(t, s, "concept_patch", patchDup(t, k)))
 	if got := repairedMap(out); got["duplicate_link"] != 1 || len(got) != 1 {
@@ -107,7 +105,7 @@ func TestRepairOnWrite_PatchDropsDuplicateInOneCommit(t *testing.T) {
 
 func TestRepairOnWrite_ConceptWriteRenamesNonstandardField(t *testing.T) {
 	t.Parallel()
-	k, s := rowKB(t, "nonstandard_field")
+	k, s := rowKB(t)
 	out := decodeJSON(t, mustText(t, s, "concept_write",
 		`{"id":"ops/n","frontmatter":{"type":"Note","title":"N","keywords":["x"]},"body":"# N\n\nSee [A](a.md).\n"}`))
 	if got := repairedMap(out); got["nonstandard_field"] != 1 {
@@ -122,24 +120,17 @@ func TestRepairOnWrite_ConceptWriteRenamesNonstandardField(t *testing.T) {
 	}
 }
 
-// No setting turns repair on write off or shortens its list (D907): the
-// repair_on_write opt-out and an auto_repair list without the check change
-// nothing.
-func TestRepairOnWrite_NoSettingTurnsItOff(t *testing.T) {
+// Repair on write has no setting (D907): a write always applies the safe fixes
+// to what it wrote, in its own commit.
+func TestRepairOnWrite_IsAlwaysOn(t *testing.T) {
 	t.Parallel()
-	for name, set := range map[string]func(k *kb.KB){
-		"opt-out":    func(k *kb.KB) { setPolicy(k, func(p *kb.Policy) { p.RepairOnWrite = false }) },
-		"empty-list": func(k *kb.KB) { setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{} }) },
-	} {
-		k, s := rowKB(t)
-		set(k)
-		out := decodeJSON(t, mustText(t, s, "concept_patch", patchDup(t, k)))
-		if got := repairedMap(out); got["duplicate_link"] != 1 {
-			t.Errorf("%s: repaired = %v", name, out["repaired"])
-		}
-		if strings.Contains(readBody(t, k, "ops/a"), "- [B](b.md)") {
-			t.Errorf("%s: the duplicate survived", name)
-		}
+	k, s := rowKB(t)
+	out := decodeJSON(t, mustText(t, s, "concept_patch", patchDup(t, k)))
+	if got := repairedMap(out); got["duplicate_link"] != 1 {
+		t.Errorf("repaired = %v", out["repaired"])
+	}
+	if strings.Contains(readBody(t, k, "ops/a"), "- [B](b.md)") {
+		t.Errorf("the duplicate survived")
 	}
 }
 
@@ -177,7 +168,7 @@ func TestRepairOnWrite_NeighboursAndLinkDroppingChecksUntouched(t *testing.T) {
 
 func TestRepairOnWrite_BatchMoveSupersede(t *testing.T) {
 	t.Parallel()
-	k, s := rowKB(t, "duplicate_link")
+	k, s := rowKB(t)
 	out := decodeJSON(t, mustText(t, s, "concept_batch",
 		`{"operations":[{"op":"patch",`+patchDup(t, k)[1:]+`,{"op":"patch",`+patchJSON(t, k, "ops/c", "# C\n", "# C\n\nMore.\n")[1:]+`]}`))
 	res := out["results"].([]interface{})
@@ -220,7 +211,7 @@ func TestRepairOnWrite_BatchMoveSupersede(t *testing.T) {
 // written and the finding stays in the report.
 func TestRepairOnWrite_WriteErrorKeepsOriginal(t *testing.T) {
 	t.Parallel()
-	k, _ := rowKB(t, "duplicate_link")
+	k, _ := rowKB(t)
 	p := filepath.Join(k.DataRoot(), "ops", "a.md")
 	data, _ := os.ReadFile(p)
 	dup := strings.Replace(string(data), "# A\n", "# A\n\nSee [B](b.md).\n", 1)

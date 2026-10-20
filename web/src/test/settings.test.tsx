@@ -25,8 +25,8 @@ const SETTINGS = {
   kbs: [
     {
       name: "kb-a",
-      entries: [{ key: "kbs[].write_gate", value: "error", origin: "file", description: "Refuse a write.", default: "off" }],
-      yaml: "write_gate: error # from the server's kbs[] entry\n\n# --- available settings ---\n",
+      entries: [{ key: "kbs[].usage_stale_days", value: 30, origin: "file", description: "Days before an unused skill is reported.", default: "42" }],
+      yaml: "usage_stale_days: 30 # from the server's kbs[] entry\n\n# --- available settings ---\n",
       git: { has_remote: true, sync: true, push_state: "idle" },
     },
   ],
@@ -90,12 +90,12 @@ describe("the Settings panel", () => {
     // Each tab says how many keys it holds.
     expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Client", "Server3", "Knowledge Base1"]);
     await user.click(within(tabs).getByRole("tab", { name: /Knowledge Base/ }));
-    const writes = screen.getByRole("list", { name: "KB kb-a Writes & tools settings" });
-    expect(within(writes).getByText("write_gate")).toBeInTheDocument();
+    const writes = screen.getByRole("list", { name: "KB kb-a Maintenance settings" });
+    expect(within(writes).getByText("usage_stale_days")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "YAML" }));
     const file = screen.getByLabelText("kb-a/settings.yaml");
-    expect(file).toHaveTextContent("write_gate: error # from the server's kbs[] entry");
+    expect(file).toHaveTextContent("usage_stale_days: 30 # from the server's kbs[] entry");
     await user.click(within(tabs).getByRole("tab", { name: /^Server/ }));
     const server = screen.getByLabelText("config.yaml");
     expect(server).toHaveTextContent("sync: false # from CARTOGRAPHER_GIT_SYNC");

@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -160,8 +159,6 @@ func TestFixpointLeavesCrossConceptFindingsAlone(t *testing.T) {
 func TestAutoRepairRunConvergesAChainInOneCommit(t *testing.T) {
 	t.Parallel()
 	k, s := chainKB(t, 3)
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = chainChecks })
-	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
 	before := commitCount(t, k)
 	run := s.runAutoRepairQuota(context.Background())
 	if commitCount(t, k) != before+1 {
@@ -208,8 +205,6 @@ func TestAutoRepairRunLeavesNothingOnTheProcessedConcepts(t *testing.T) {
 	t.Parallel()
 	const drifted = autoRepairLimit + 100
 	k, s := chainKB(t, drifted)
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = chainChecks })
-	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
 	s.runAutoRepairQuota(context.Background())
 	left := map[string]bool{}
 	for _, f := range fixableOf(mustLint(t, k), chainChecks) {
@@ -220,26 +215,19 @@ func TestAutoRepairRunLeavesNothingOnTheProcessedConcepts(t *testing.T) {
 	}
 }
 
-func TestAutoRepairIgnoresChecksThatAreNotSafe(t *testing.T) {
+func TestAutoRepairNeverRunsAChecksThatIsNotSafe(t *testing.T) {
 	t.Parallel()
-	k, s := chainKB(t, 1)
-	setPolicy(k, func(p *kb.Policy) {
-		p.AutoRepair = []string{"broken_link", "nonstandard_field", "reciprocal_link_item"}
-	})
-	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
-	safe, ignored := autoRepairSplit(k)
-	if len(safe) != 1 || safe[0] != "nonstandard_field" || len(ignored) != 2 {
-		t.Fatalf("safe = %v, ignored = %v", safe, ignored)
-	}
-	if got := kbCapabilities(k)["auto_repair"].Ignored; len(got) != 2 || got[0] != "broken_link" {
-		t.Fatalf("capabilities.auto_repair.ignored = %v", got)
-	}
+	_, s := chainKB(t, 1)
 	run := s.runAutoRepairQuota(context.Background())
-	if len(run.Checks) != 1 || run.Checks[0].Check != "nonstandard_field" {
+	if len(run.Checks) == 0 {
 		t.Fatalf("run = %+v", run)
 	}
-	// Repair-on-write leaves the link-dropping checks to kb_repair too,
-	// whatever the list says (D907: it does not read it).
+	for _, e := range run.Checks {
+		if !lint.AutoRepairSafe(e.Check) {
+			t.Fatalf("the heartbeat ran %s, which is not safe to run unattended", e.Check)
+		}
+	}
+	// Repair-on-write leaves the link-dropping checks to kb_repair too.
 	for _, c := range repairOnWriteChecks() {
 		if c == "broken_link" || c == "reciprocal_link_item" {
 			t.Fatalf("repair-on-write applies %s", c)
@@ -247,18 +235,9 @@ func TestAutoRepairIgnoresChecksThatAreNotSafe(t *testing.T) {
 	}
 }
 
-func TestDefaultAutoRepairRunsEveryUnattendedCheck(t *testing.T) {
-	t.Parallel()
-	k, _ := chainKB(t, 1)
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = config.DefaultAutoRepair })
-	if _, ignored := autoRepairSplit(k); len(ignored) != 0 {
-		t.Fatalf("the default list has checks the heartbeat ignores: %v", ignored)
-	}
-}
-
 func TestRepairOnWriteConvergesTheChainInOneWrite(t *testing.T) {
 	t.Parallel()
-	k, s := rowKB(t, chainChecks...)
+	k, s := rowKB(t)
 	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string]map[string][]string{kb.AllTypes: {"status": {"active", "draft", "deprecated"}}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -309,8 +288,6 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 func TestAutoRepairPullTriggersOneDebouncedRun(t *testing.T) {
 	t.Parallel()
 	k, s := chainKB(t, 1)
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = chainChecks })
-	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
 	s.autoRepairTrigger = make(chan struct{}, 1)
 	s.autoRepairPullGap = 400 * time.Millisecond
 	ctx, cancel := context.WithCancel(context.Background())
@@ -340,8 +317,6 @@ func TestAutoRepairPullTriggersOneDebouncedRun(t *testing.T) {
 func TestStartAutoRepairChainsTheSyncInCallback(t *testing.T) {
 	t.Parallel()
 	k, s := chainKB(t, 1)
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = chainChecks })
-	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
 	calls := 0
 	k.OnSyncIn = func() { calls++ }
 	ctx, cancel := context.WithCancel(context.Background())

@@ -16,12 +16,12 @@ func TestRun_SettingsFile(t *testing.T) {
 		t.Fatalf("a KB without settings.yaml has findings: %+v", got)
 	}
 
-	writeFile(t, k.Root, "settings.yaml", "write_gate: error\nauto_repair: [duplicate_link]\n")
+	writeFile(t, k.Root, "settings.yaml", "usage_stale_days: 30\nbranch: kb-data\n")
 	if got := findingsOf(mustRun(t, k), "contract_malformed"); len(got) != 0 {
 		t.Fatalf("a valid file has findings: %+v", got)
 	}
 
-	writeFile(t, k.Root, "settings.yaml", "write_gate: loud\nfrobnicate: 1\nremote: x\nauto_repair: [no_such_check]\n")
+	writeFile(t, k.Root, "settings.yaml", "usage_stale_days: soon\nfrobnicate: 1\nremote: x\nwrite_gate: error\n")
 	got := findingsOf(mustRun(t, k), "contract_malformed")
 	if len(got) != 4 {
 		t.Fatalf("contract_malformed = %+v, want one per bad entry", got)
@@ -35,7 +35,7 @@ func TestRun_SettingsFile(t *testing.T) {
 	for _, f := range got {
 		all += f.Message + "\n"
 	}
-	for _, frag := range []string{"write_gate", "unknown setting", "server-only", "no_such_check"} {
+	for _, frag := range []string{"usage_stale_days", "unknown setting", "server-only", "write_gate: removed setting"} {
 		if !strings.Contains(all, frag) {
 			t.Errorf("findings do not mention %q:\n%s", frag, all)
 		}

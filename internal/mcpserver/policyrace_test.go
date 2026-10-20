@@ -28,9 +28,6 @@ func TestPolicyRefreshDoesNotRaceReaders(t *testing.T) {
 		i := n
 		mu.Unlock()
 		k.SetPolicy(kb.Policy{
-			RepairOnWrite:  i%2 == 0,
-			AutoRepair:     []string{"nonstandard_field", "missing_title"},
-			WriteGate:      []string{"off", "error", "warning"}[i%3],
 			UsageStaleDays: i % 5,
 		})
 	}
@@ -62,11 +59,11 @@ func TestPolicyRefreshDoesNotRaceReaders(t *testing.T) {
 			t.Errorf("lint: %v", err)
 		}
 	})
-	reader(func() { _, _ = autoRepairSplit(k) })
+	reader(func() { _ = uiAutoChecks(k) })
 
 	path := filepath.Join(k.Root, kb.SettingsFile)
 	for i := 0; i < 60; i++ {
-		if err := os.WriteFile(path, []byte(fmt.Sprintf("write_gate: error\n# %d\n", i)), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(fmt.Sprintf("usage_stale_days: 30\n# %d\n", i)), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		at := time.Now().Add(time.Duration(i+1) * time.Minute)

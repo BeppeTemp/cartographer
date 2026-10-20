@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 )
@@ -228,7 +227,7 @@ func TestFixpointRepairsTemplateShape(t *testing.T) {
 	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
-	out, skip := repairConceptFixpoint(k, "infra/box", config.DefaultAutoRepair, nil)
+	out, skip := repairConceptFixpoint(k, "infra/box", lint.AutoRepairChecks(), nil)
 	if skip != nil {
 		t.Fatalf("skip = %+v", skip)
 	}

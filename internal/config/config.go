@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/lint"
 	"gopkg.in/yaml.v3"
 )
 
@@ -184,51 +183,6 @@ type KBSpec struct {
 	// and the names of its files in the credentials directory (<name>.ssh,
 	// <name>.token, <name>.age, <name>.signing) (D905).
 	Name string `yaml:"name,omitempty"`
-
-	// AutoRepair lists the lint checks whose mechanical fix
-	// `cartographer kb repair --apply` may apply without a human reviewing
-	// the plan (D299). Each name must be in lint.FixableChecks. There is
-	// deliberately no "all": a fixable check added by a later release must be
-	// seen as a dry-run plan before it runs unattended. Absent means
-	// DefaultAutoRepair; an explicit empty list ("auto_repair: []") means
-	// none, so nil and empty are different values here (D323). Read it
-	// through AutoRepairChecks.
-	AutoRepair []string `yaml:"auto_repair,omitempty"`
-
-	// RepairOnWrite makes a write tool apply the mechanical auto_repair fixes
-	// to the concepts it just wrote, in the same commit (D349). Absent follows
-	// auto_repair (on when it resolves non-empty); false = timer-only. A
-	// pointer so absent and false differ. Read it through RepairOnWriteEnabled.
-	RepairOnWrite *bool `yaml:"repair_on_write,omitempty"`
-
-	// WriteGate makes a content write refuse, and roll back, when it
-	// introduces a finding at or above the floor (D350): "off" (default,
-	// also empty), "error" (findings of severity error) or "warning" (error
-	// and warning). Read it through WriteGateMode.
-	WriteGate string `yaml:"write_gate,omitempty"`
-
-	// DoctorAutoInterval is how often the server runs the auto_repair checks
-	// by itself, with no agent session (D323): "<n>d" or "<n>" days, "0"
-	// turns the heartbeat off, empty means DefaultDoctorAutoIntervalDays.
-	// Read it through DoctorAutoIntervalDays.
-	DoctorAutoInterval string `yaml:"doctor_auto_interval,omitempty"`
-
-	// DoctorInterval is how long after the last kb-doctor session the server
-	// starts proposing the next one (D299): "<n>d" or "<n>" days, "0"
-	// disables it, empty means DefaultDoctorIntervalDays. Read it through
-	// DoctorIntervalDays.
-	DoctorInterval string `yaml:"doctor_interval,omitempty"`
-
-	// DoctorMode is accepted and ignored (D704): a kb-doctor session starts
-	// only when the operator asks for one, so the old "unattended" mode (D358),
-	// in which the nudge told the agent to start it by itself, is gone. Still
-	// validated, so a typo in a config that sets it keeps failing loudly.
-	DoctorMode string `yaml:"doctor_mode,omitempty"`
-
-	// DoctorBudget is how many review items one kb-doctor session decides
-	// before it closes (D358): nil means DefaultDoctorBudget. Read it through
-	// DoctorBudgetItems.
-	DoctorBudget *int `yaml:"doctor_budget,omitempty"`
 
 	// UsageStaleDays is how many days without a client activating a skill or
 	// agent before the artifact_unused lint reports it (D326): nil means
@@ -645,48 +599,6 @@ func validateRule(role string, i int, rule RuleSpec) error {
 	return nil
 }
 
-// DefaultDoctorIntervalDays is how long after the last kb-doctor session the
-// server proposes the next one when doctor_interval is not set (D299).
-const DefaultDoctorIntervalDays = 14
-
-// DefaultDoctorBudget is the review items one kb-doctor session decides before
-// it closes (D358): the operator's attention is the limit, not the backlog.
-const DefaultDoctorBudget = 10
-
-// ValidateDoctorMode rejects a doctor_mode other than the two values 0.23
-// accepted; either is then ignored (D704).
-func ValidateDoctorMode(v string) error {
-	switch v {
-	case "", "unattended", "assisted":
-		return nil
-	}
-	return fmt.Errorf("config: doctor_mode: %s: must be unattended or assisted (ignored since D704)", v)
-}
-
-// DoctorBudgetItems resolves DoctorBudget.
-func (s KBSpec) DoctorBudgetItems() int {
-	if s.DoctorBudget != nil {
-		return *s.DoctorBudget
-	}
-	return DefaultDoctorBudget
-}
-
-// DoctorIntervalDays resolves DoctorInterval: DefaultDoctorIntervalDays when
-// empty, 0 when disabled.
-func (s KBSpec) DoctorIntervalDays() (int, error) {
-	return parseDays(s.DoctorInterval, DefaultDoctorIntervalDays)
-}
-
-// DefaultDoctorAutoIntervalDays is how often the server runs a KB's
-// auto_repair checks when doctor_auto_interval is not set: daily (D323).
-const DefaultDoctorAutoIntervalDays = 1
-
-// DoctorAutoIntervalDays resolves DoctorAutoInterval: the default when empty,
-// 0 when the heartbeat is off.
-func (s KBSpec) DoctorAutoIntervalDays() (int, error) {
-	return parseDays(s.DoctorAutoInterval, DefaultDoctorAutoIntervalDays)
-}
-
 // parseDays reads "<n>d" or "<n>" as a number of days, def when empty.
 func parseDays(v string, def int) (int, error) {
 	raw := v
@@ -701,71 +613,6 @@ func parseDays(v string, def int) (int, error) {
 	return n, nil
 }
 
-// DefaultAutoRepair is the auto_repair of a KB that does not set one (D323,
-// D355): every check whose registered fix may run with no person
-// (AutoRepairSafe, D354). Each is mechanical and already guarded; leaving one
-// off by default is what keeps imported KBs drifting. broken_link and
-// reciprocal_link_item are deliberately absent: they rewrite or drop links,
-// and D309 showed a mutual-pair drop can lose hundreds of edges in one commit.
-// The list is a literal, pinned equal to the AutoRepairSafe set by a test, so
-// a check added to the registry as safe fails that test until someone decides
-// it belongs here. Do not mutate the returned slice: use AutoRepairChecks.
-var DefaultAutoRepair = []string{
-	"nonstandard_field", "tool_param_field", "prose_value", "invalid_field_value",
-	"stringified_list", "title_h1_mismatch", "legacy_path", "duplicate_link",
-	"index_link_form", "legacy_tool_name", "missing_frontmatter", "unparseable_frontmatter",
-	"missing_type", "nonslug_file_name", "missing_title", "repeated_link",
-	"value_case_variant", "unmapped_folder",
-	// D366: the unambiguous part of three doctor-only checks.
-	"index_lists_retired", "link_to_retired", "title_quality",
-	// D907: a removed contract key is realigned by one unattended commit.
-	"contract_legacy_key",
-	// D352, in the order a page needs them: bind it, set its type, its values,
-	// reorder its sections, then rename the aliases (a reorder lists headings
-	// as written, so it runs before the rename changes them).
-	"template_missing", "template_type_mismatch", "template_field_value",
-	"template_section_order", "template_section_alias",
-}
-
-// AutoRepairChecks resolves AutoRepair: DefaultAutoRepair when the key is
-// absent (nil), the operator's list when set, none when it is an explicit
-// empty list. isDefault says which, so a status line can tell a customised
-// KB from one that never chose.
-func (s KBSpec) AutoRepairChecks() (checks []string, isDefault bool) {
-	if s.AutoRepair == nil {
-		return append([]string{}, DefaultAutoRepair...), true
-	}
-	return s.AutoRepair, false
-}
-
-// RepairOnWriteEnabled resolves RepairOnWrite (D349): the explicit value when
-// set, otherwise on exactly when auto_repair resolves to a non-empty list.
-func (s KBSpec) RepairOnWriteEnabled() bool {
-	if s.RepairOnWrite != nil {
-		return *s.RepairOnWrite
-	}
-	checks, _ := s.AutoRepairChecks()
-	return len(checks) > 0
-}
-
-// ValidateWriteGate rejects a write_gate value other than off, error or
-// warning (empty is off) (D350).
-func ValidateWriteGate(v string) error {
-	switch v {
-	case "", "off", "error", "warning":
-		return nil
-	}
-	return fmt.Errorf("config: write_gate: %s: must be off, error or warning", v)
-}
-
-// WriteGateMode resolves WriteGate: "off" when unset.
-func (s KBSpec) WriteGateMode() string {
-	if s.WriteGate == "" {
-		return "off"
-	}
-	return s.WriteGate
-}
-
 // DefaultUsageStaleDays is the artifact_unused threshold of a KB that does not
 // set usage_stale_days: six weeks (D326).
 const DefaultUsageStaleDays = kb.DefaultUsageStaleDays
@@ -778,20 +625,4 @@ func (s KBSpec) UsageStale() int {
 		return DefaultUsageStaleDays
 	}
 	return max(*s.UsageStaleDays, kb.MinUsageStaleDays)
-}
-
-// ValidateAutoRepair rejects a auto_repair entry that is not a
-// check with a mechanical fix, naming it.
-func ValidateAutoRepair(checks []string) error {
-	for _, c := range checks {
-		known := false
-		for _, f := range lint.FixableChecks {
-			known = known || c == f
-		}
-		if !known {
-			return fmt.Errorf("%q is not a check with a mechanical fix (one of: %s; list them by name, there is no \"all\")",
-				c, strings.Join(lint.FixableChecks, ", "))
-		}
-	}
-	return nil
 }

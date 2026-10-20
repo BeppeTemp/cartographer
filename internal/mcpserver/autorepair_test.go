@@ -21,18 +21,15 @@ func gitOut(t *testing.T, k *kb.KB, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// autoRepairKB is repairKB with the heartbeat's settings on.
-func autoRepairKB(t *testing.T, checks ...string) (*kb.KB, *Server) {
+// autoRepairKB is repairKB with three pages the heartbeat has to repair.
+func autoRepairKB(t *testing.T) (*kb.KB, *Server) {
 	t.Helper()
-	k, s := repairKB(t, 3)
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = checks })
-	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
-	return k, s
+	return repairKB(t, 3)
 }
 
-func TestAutoRepairQuotaAppliesOnlyTheListedChecks(t *testing.T) {
+func TestAutoRepairQuotaAppliesEverySafeCheck(t *testing.T) {
 	t.Parallel()
-	k, s := autoRepairKB(t, "nonstandard_field")
+	k, s := autoRepairKB(t)
 	before := commitCount(t, k)
 	run := s.runAutoRepairQuota(context.Background())
 	if len(run.Checks) != 1 || run.Checks[0].Applied != 3 || run.Checks[0].Commit == "" {
@@ -65,15 +62,14 @@ func TestAutoRepairQuotaAppliesOnlyTheListedChecks(t *testing.T) {
 	}
 	// A second run finds nothing and commits nothing.
 	n := commitCount(t, k)
-	if run := s.runAutoRepairQuota(context.Background()); run.Checks[0].Applied != 0 || commitCount(t, k) != n {
+	if run := s.runAutoRepairQuota(context.Background()); len(run.Checks) != 0 || commitCount(t, k) != n {
 		t.Fatalf("second run = %+v, commits +%d", run, commitCount(t, k)-n)
 	}
 }
 
 func TestAutoRepairQuotaIsBoundedPerRun(t *testing.T) {
 	t.Parallel()
-	k, s := repairKB(t, autoRepairLimit+7)
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{"nonstandard_field"} })
+	_, s := repairKB(t, autoRepairLimit+7)
 	run := s.runAutoRepairQuota(context.Background())
 	if run.Checks[0].Applied != autoRepairLimit {
 		t.Fatalf("applied = %d, want the limit %d", run.Checks[0].Applied, autoRepairLimit)
@@ -85,7 +81,7 @@ func TestAutoRepairQuotaIsBoundedPerRun(t *testing.T) {
 
 func TestAutoRepairQuotaSkipsADegradedKB(t *testing.T) {
 	t.Parallel()
-	k, s := autoRepairKB(t, "nonstandard_field")
+	k, s := autoRepairKB(t)
 	if err := os.MkdirAll(k.Root+"/.cartographer", 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +104,7 @@ func TestAutoRepairQuotaSkipsADegradedKB(t *testing.T) {
 
 func TestAutoRepairHeartbeatFiresAndStops(t *testing.T) {
 	t.Parallel()
-	k, s := autoRepairKB(t, "nonstandard_field")
+	k, s := autoRepairKB(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { s.autoRepairLoop(ctx, 20*time.Millisecond, 5*time.Millisecond); close(done) }()
@@ -137,46 +133,35 @@ func TestAutoRepairHeartbeatFiresAndStops(t *testing.T) {
 	}
 }
 
-func TestStartAutoRepairIsOffUnlessConfigured(t *testing.T) {
+// D907: no setting turns the heartbeat off or moves it. The period is the
+// constant, and starting it needs nothing from the KB's policy.
+func TestStartAutoRepairNeedsNoSetting(t *testing.T) {
 	t.Parallel()
-	for name, set := range map[string]func(k *kb.KB){
-		"interval zero": func(k *kb.KB) { setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 0 }) },
-		"no checks":     func(k *kb.KB) { setPolicy(k, func(p *kb.Policy) { p.AutoRepair = nil }) },
-	} {
-		k, s := autoRepairKB(t, "nonstandard_field")
-		set(k)
-		ctx, cancel := context.WithCancel(context.Background())
-		s.StartAutoRepair(ctx)
-		cancel()
-		time.Sleep(30 * time.Millisecond)
-		if _, ok := lastAutoRepairRun(k); ok {
-			t.Errorf("%s: the heartbeat ran", name)
-		}
+	if autoRepairInterval != 24*time.Hour || kb.AutoRepairIntervalDays != 1 {
+		t.Fatalf("the heartbeat period is %v (%d days), want the daily default of the removed doctor_auto_interval", autoRepairInterval, kb.AutoRepairIntervalDays)
+	}
+	_, s := autoRepairKB(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.StartAutoRepair(ctx)
+	if s.autoRepairTrigger == nil {
+		t.Fatal("StartAutoRepair did not start the heartbeat on a KB with the zero policy")
 	}
 }
 
-func TestCapabilitiesReportAutoRepairDefaultAndInterval(t *testing.T) {
+// D907: the removed doctor and repair keys are not capabilities any more; the
+// gate and the safe repairs are not something a KB can report as off.
+func TestCapabilitiesNoLongerListTheDoctorKeys(t *testing.T) {
 	t.Parallel()
-	k, _ := autoRepairKB(t, "nonstandard_field", "duplicate_link")
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepairDefault = true })
+	k, _ := autoRepairKB(t)
 	caps := kbCapabilities(k)
-	if c := caps["auto_repair"]; c.State != "enabled" || !c.Default || len(c.Checks) != 2 {
-		t.Fatalf("auto_repair = %+v", c)
+	for _, gone := range []string{"auto_repair", "repair_on_write", "write_gate", "doctor_interval", "doctor_mode", "doctor_budget", "doctor_auto_interval"} {
+		if _, has := caps[gone]; has {
+			t.Errorf("kb_status still reports the %s capability", gone)
+		}
 	}
-	if c := caps["doctor_auto_interval"]; c.State != "1 days" {
-		t.Fatalf("doctor_auto_interval = %+v", c)
-	}
-	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 0 })
-	if c := kbCapabilities(k)["doctor_auto_interval"]; c.State != "disabled" {
-		t.Fatalf("doctor_auto_interval = %+v", c)
-	}
-	// A kb-doctor skill synced before 0.24 reads a missing doctor_mode as
-	// unattended (D704).
-	if c := caps["doctor_mode"]; c.State != "assisted" {
-		t.Fatalf("doctor_mode = %+v", c)
-	}
-	raw, _ := json.Marshal(caps["auto_repair"])
-	if !strings.Contains(string(raw), `"default":true`) {
-		t.Fatalf("default is not on the wire: %s", raw)
+	raw, _ := json.Marshal(caps)
+	if strings.Contains(string(raw), "settings.yaml auto_repair") || strings.Contains(string(raw), "doctor_") {
+		t.Errorf("capabilities still name a removed key: %s", raw)
 	}
 }

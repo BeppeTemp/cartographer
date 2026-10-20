@@ -81,9 +81,7 @@ func (c *Config) originFromKB(originKey string) bool {
 // place that carries it (D906): the server file names a KB, it does not
 // configure it. server supplies the machine's side of the KB (its name, remote
 // and path), which the result keeps; every policy field starts at its default.
-// A key the file sets that fails a value check the parser cannot make (an
-// unknown auto_repair check) is left out with a finding; a usage_stale_days
-// under kb.MinUsageStaleDays is raised to it, with a finding.
+// A usage_stale_days under kb.MinUsageStaleDays is raised to it, with a finding.
 func ResolveKBSettings(server KBSpec, st kb.SettingsState) (KBSpec, kb.SettingsInfo) {
 	info := kb.SettingsInfo{Present: st.Present}
 	for _, m := range st.Malformed {
@@ -101,10 +99,6 @@ func ResolveKBSettings(server KBSpec, st kb.SettingsState) (KBSpec, kb.SettingsI
 	// branch has no kbs[] counterpart, so no yaml tag to decode it through.
 	part.Branch, _ = st.Settings.String("branch")
 	for _, key := range st.Settings.Keys() {
-		if reason := checkKBValue(key, part); reason != "" {
-			info.Findings = append(info.Findings, key+": "+reason)
-			continue
-		}
 		if !setKBField(&eff, part, key) {
 			info.Findings = append(info.Findings, key+": not applied (no such field)")
 			continue
@@ -118,57 +112,12 @@ func ResolveKBSettings(server KBSpec, st kb.SettingsState) (KBSpec, kb.SettingsI
 	return eff, info
 }
 
-// checkKBValue is the validation that needs config, lint or provisioning,
-// which the kb package cannot import.
-func checkKBValue(key string, part KBSpec) string {
-	switch key {
-	case "auto_repair":
-		if err := ValidateAutoRepair(part.AutoRepair); err != nil {
-			return err.Error()
-		}
-	case "write_gate":
-		if err := ValidateWriteGate(part.WriteGate); err != nil {
-			return err.Error()
-		}
-	case "doctor_mode":
-		if err := ValidateDoctorMode(part.DoctorMode); err != nil {
-			return err.Error()
-		}
-	case "doctor_interval":
-		if _, err := part.DoctorIntervalDays(); err != nil {
-			return err.Error()
-		}
-	case "doctor_auto_interval":
-		if _, err := part.DoctorAutoIntervalDays(); err != nil {
-			return err.Error()
-		}
-	}
-	return ""
-}
-
 // setKBField copies one KB-scope field from part onto dst. Copying field by
 // field, and not decoding over dst, keeps dst's pointers from being written
 // through (yaml decodes into a non-nil pointer in place). The default case
 // returns false; TestKBSettingsKeysMatchSchema fails when a key has no case.
 func setKBField(dst *KBSpec, part KBSpec, key string) bool {
 	switch key {
-	case "write_gate":
-		dst.WriteGate = part.WriteGate
-	case "auto_repair":
-		dst.AutoRepair = part.AutoRepair
-		if dst.AutoRepair == nil {
-			dst.AutoRepair = []string{} // an explicit empty list means none
-		}
-	case "repair_on_write":
-		dst.RepairOnWrite = part.RepairOnWrite
-	case "doctor_mode":
-		dst.DoctorMode = part.DoctorMode
-	case "doctor_interval":
-		dst.DoctorInterval = part.DoctorInterval
-	case "doctor_auto_interval":
-		dst.DoctorAutoInterval = part.DoctorAutoInterval
-	case "doctor_budget":
-		dst.DoctorBudget = part.DoctorBudget
 	case "usage_stale_days":
 		dst.UsageStaleDays = part.UsageStaleDays
 	case "branch":

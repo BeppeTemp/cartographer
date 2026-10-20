@@ -25,31 +25,6 @@ import (
 // that takes one never sees a settings refresh half applied (D775). The zero
 // value is every capability off.
 type Policy struct {
-	// AutoRepair and DoctorIntervalDays are the per-KB doctor settings
-	// (D299, config.KBSpec): the checks `kb repair --apply` may apply
-	// unattended, and the days after the last kb-doctor session before the
-	// next is proposed (0 = never proposed).
-	AutoRepair         []string
-	DoctorIntervalDays int
-
-	// DoctorBudget is how many review items a kb-doctor session decides
-	// (D358, config.KBSpec); zero reads as the default.
-	DoctorBudget int
-
-	// AutoRepairDefault says AutoRepair is the product default rather than a
-	// list the operator wrote (D323); DoctorAutoIntervalDays is how often the
-	// server applies AutoRepair by itself (0 = never). A KB opened any other
-	// way leaves both at zero, which is off.
-	AutoRepairDefault bool
-
-	// RepairOnWrite and WriteGate carry kbs[].repair_on_write and
-	// kbs[].write_gate (D349, D350) and nothing acts on them: a write always
-	// applies the safe fixes and always goes through the gate (D907). They
-	// leave with the keys.
-	RepairOnWrite          bool
-	WriteGate              string
-	DoctorAutoIntervalDays int
-
 	// UsageStaleDays is the per-KB threshold (D326, config.KBSpec) past which
 	// an artifact no client has used is reported by the artifact_unused lint.
 	// Set by serve; read it through UsageStale, which never answers less than
@@ -84,7 +59,6 @@ func (k *KB) SetPolicy(p Policy) {
 }
 
 func (p Policy) clone() Policy {
-	p.AutoRepair = append([]string(nil), p.AutoRepair...)
 	return p
 }
 

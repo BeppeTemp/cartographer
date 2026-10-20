@@ -11,13 +11,12 @@ import (
 func TestKBStatus_ReportsKBSettingsAndFindings(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.RepairOnWrite, p.AutoRepair = true, []string{"missing_title"} })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	k.SetSettingsInfo(kb.SettingsInfo{
 		Present:  true,
-		FromKB:   []string{"repair_on_write"},
-		Findings: []string{"write_gate: must be one of off, error, warning"},
+		FromKB:   []string{"usage_stale_days"},
+		Findings: []string{"write_gate: removed setting, ignored"},
 	})
 	res, err := s.Tools()["kb_status"].Handler(authLocalContext(), json.RawMessage(`{}`))
 	if err != nil || res.IsError {
@@ -30,9 +29,8 @@ func TestKBStatus_ReportsKBSettingsAndFindings(t *testing.T) {
 	if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil {
 		t.Fatal(err)
 	}
-	c := out.Capabilities["auto_repair"]
-	if c.State != "enabled" || c.Setting != "settings.yaml auto_repair" {
-		t.Errorf("auto_repair = %+v", c)
+	if c := out.Capabilities["mount"]; c.State == "" {
+		t.Errorf("mount = %+v", c)
 	}
 	if len(out.Findings) != 1 {
 		t.Errorf("findings=%v", out.Findings)

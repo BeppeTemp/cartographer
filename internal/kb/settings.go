@@ -42,17 +42,9 @@ type settingSpec struct {
 	values []string // kindEnum
 }
 
-// settingsKeys are the keys a KB carries. auto_repair names are checked by
-// whoever applies them (they need lint.FixableChecks).
+// settingsKeys are the keys a KB carries.
 var settingsKeys = map[string]settingSpec{
-	"write_gate":           {kind: kindEnum, values: []string{"off", "error", "warning"}},
-	"auto_repair":          {kind: kindStringSeq},
-	"repair_on_write":      {kind: kindBool},
-	"doctor_mode":          {kind: kindEnum, values: []string{"unattended", "assisted"}},
-	"doctor_interval":      {kind: kindDays},
-	"doctor_auto_interval": {kind: kindDays},
-	"doctor_budget":        {kind: kindInt1},
-	"usage_stale_days":     {kind: kindStaleDays},
+	"usage_stale_days": {kind: kindStaleDays},
 	// branch is read from the remote's default branch only (D903): see
 	// KB.branchSettingAt. The working copy's value is parsed and shown, and
 	// changes nothing until it reaches the default branch.
@@ -73,7 +65,9 @@ var settingsServerOnly = map[string]bool{
 // the server's credentials directory now (D905); and allow_artifact_write and
 // allow_template_write, because artifact writes are always allowed, mcp_allowlist,
 // because a KB's MCP descriptors are always distributable, and secrets, which
-// is derived from the sops files under secrets/ (D906).
+// is derived from the sops files under secrets/ (D906); and write_gate, auto_repair,
+// repair_on_write and the doctor_* keys, because the gate and the safe repairs
+// are fixed behaviour (D907).
 // Parsing a file that still has one leaves it out with a finding that names what
 // to use; realigning the file drops it.
 var SettingsRetired = settingschema.Registry{Removed: []settingschema.Removed{
@@ -98,6 +92,13 @@ var SettingsRetired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "allow_template_write", Plan: 906, Note: ArtifactWriteAlwaysOn},
 	{Path: "mcp_allowlist", Plan: 906, Note: MCPAllowlistRemoved},
 	{Path: "secrets", Plan: 906, Note: SecretsDerived},
+	{Path: "write_gate", Plan: 907, Note: WriteGateRemoved},
+	{Path: "auto_repair", Plan: 907, Note: DoctorKeysRemoved},
+	{Path: "repair_on_write", Plan: 907, Note: DoctorKeysRemoved},
+	{Path: "doctor_auto_interval", Plan: 907, Note: DoctorKeysRemoved},
+	{Path: "doctor_interval", Plan: 907, Note: DoctorKeysRemoved},
+	{Path: "doctor_mode", Plan: 907, Note: DoctorKeysRemoved},
+	{Path: "doctor_budget", Plan: 907, Note: DoctorKeysRemoved},
 }, Off: []settingschema.Off{
 	// usage_stale_days: 0 switched artifact_unused off (D906).
 	{Path: "usage_stale_days", Value: "0", Plan: 906},
@@ -122,6 +123,23 @@ const DefaultUsageStaleDays = 42
 // MCPAllowlistRemoved is the reason given wherever mcp_allowlist (removed by
 // D906) is met again.
 const MCPAllowlistRemoved = "a KB's MCP descriptors (mcp/<name>.json) are always distributed to its clients (D906); each client still approves a descriptor before installing it"
+
+// WriteGateRemoved is the reason given wherever write_gate (removed by D907) is
+// met again.
+const WriteGateRemoved = "the write gate is always on (D907): a write that introduces a finding it could have avoided is refused and rolled back, whatever the KB sets"
+
+// DoctorKeysRemoved is the reason given wherever auto_repair, repair_on_write or
+// a doctor_* key (removed by D907) is met again.
+const DoctorKeysRemoved = "every safe fix is always applied (D907): in the write's own commit, by the server's background repair every day, and by `kb repair --apply`; a kb-doctor session is proposed 14 days after the last one, and its budget is a parameter of the session (default 10)"
+
+// AutoRepairIntervalDays is how often the server runs the safe repairs by
+// itself (D907): the default the removed doctor_auto_interval had.
+const AutoRepairIntervalDays = 1
+
+// DoctorSuggestionDays is how long after the last kb-doctor session kb_status
+// and the nudge propose the next one (D907): the default the removed
+// doctor_interval had. A session never starts by itself.
+const DoctorSuggestionDays = 14
 
 // SecretsDerived is the reason given wherever the secrets key (removed by D906)
 // is met again.

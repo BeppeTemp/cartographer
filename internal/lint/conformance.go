@@ -968,3 +968,36 @@ func containsWord(s, word string) bool {
 func TitleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []string {
 	return titleTextIssues(contract, hasStatus, title)
 }
+
+// AutoRepairOrder is the checks the server repairs by itself (D323,
+// D355, D907): every check whose registered fix may run with no person
+// (AutoRepairSafe, D354). Each is mechanical and already guarded; leaving one
+// off is what keeps imported KBs drifting. broken_link and
+// reciprocal_link_item are deliberately absent: they rewrite or drop links,
+// and D309 showed a mutual-pair drop can lose hundreds of edges in one commit.
+// The list is a literal, pinned equal to the AutoRepairSafe set by a test, so
+// a check added to the registry as safe fails that test until someone decides
+// it belongs here. Read it through AutoRepairChecks.
+var AutoRepairOrder = []string{
+	"nonstandard_field", "tool_param_field", "prose_value", "invalid_field_value",
+	"stringified_list", "title_h1_mismatch", "legacy_path", "duplicate_link",
+	"index_link_form", "legacy_tool_name", "missing_frontmatter", "unparseable_frontmatter",
+	"missing_type", "nonslug_file_name", "missing_title", "repeated_link",
+	"value_case_variant", "unmapped_folder",
+	// D366: the unambiguous part of three doctor-only checks.
+	"index_lists_retired", "link_to_retired", "title_quality",
+	// D907: a removed contract key is realigned by one unattended commit.
+	"contract_legacy_key",
+	// D352, in the order a page needs them: bind it, set its type, its values,
+	// reorder its sections, then rename the aliases (a reorder lists headings
+	// as written, so it runs before the rename changes them).
+	"template_missing", "template_type_mismatch", "template_field_value",
+	"template_section_order", "template_section_alias",
+}
+
+// AutoRepairChecks returns the checks whose safe fix the server always applies:
+// in the write's own commit, by the background repair and by `kb repair
+// --apply`. No setting narrows the list (D907). The slice is a copy.
+func AutoRepairChecks() []string {
+	return append([]string(nil), AutoRepairOrder...)
+}

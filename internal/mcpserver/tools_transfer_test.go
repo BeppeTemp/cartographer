@@ -61,12 +61,13 @@ func xferHead(t *testing.T, k *kb.KB) string {
 	return sha
 }
 
+// xferText is the tool's answer: its first block. A later one is the doctor's
+// nudge, which a KB with debt gets since the interval is fixed (D907).
 func xferText(res ToolResult) string {
-	var b strings.Builder
-	for _, c := range res.Content {
-		b.WriteString(c.Text)
+	if len(res.Content) == 0 {
+		return ""
 	}
-	return b.String()
+	return res.Content[0].Text
 }
 
 func xferClean(t *testing.T, k *kb.KB) {

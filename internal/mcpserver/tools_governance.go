@@ -612,22 +612,6 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	if k.Discovered {
 		mount = "discovered"
 	}
-	pol := k.Policy() // one snapshot: the map never mixes two policies (D775)
-	interval := "disabled"
-	if pol.DoctorIntervalDays > 0 {
-		interval = fmt.Sprintf("%d days", pol.DoctorIntervalDays)
-	}
-	autoInterval := "disabled"
-	if pol.DoctorAutoIntervalDays > 0 && len(pol.AutoRepair) > 0 {
-		autoInterval = fmt.Sprintf("%d days", pol.DoctorAutoIntervalDays)
-	}
-	_, ignoredAuto := splitAutoRepair(pol.AutoRepair)
-	// cap builds one capability whose controlling key is carried by the KB's
-	// settings.yaml and nowhere else (D906).
-	cap := func(key, state string) KBCapability {
-		return KBCapability{State: state, Setting: kb.SettingsFile + " " + key}
-	}
-	with := func(c KBCapability, f func(*KBCapability)) KBCapability { f(&c); return c }
 	secretsState := onOff(k.SopsAgeKeyFile != "")
 	secretsSetting := "credentials_dir"
 	// A KB declares secrets when a sops file sits under secrets/ (D906).
@@ -641,38 +625,8 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 		// A discovered KB has no kbs[] entry: its policy comes from its own
 		// settings.yaml, which is the one place left that can carry it (D746).
 		"mount": {State: mount, Setting: "kbs[]"},
-		// D299: what `cartographer kb repair --apply` may apply unattended,
-		// and when the server proposes the next kb-doctor session.
-		"auto_repair": with(cap("auto_repair", onOff(len(pol.AutoRepair) > 0)), func(c *KBCapability) {
-			c.Checks, c.Default, c.Ignored = pol.AutoRepair, pol.AutoRepairDefault, ignoredAuto
-		}),
-		// No repair_on_write nor write_gate: a write always applies the safe
-		// fixes and the gate always judges it (D907), so there is no state to
-		// report.
-		"doctor_interval": cap("doctor_interval", interval),
-		// D704: always assisted. Still reported because a kb-doctor skill
-		// synced before 0.24 reads a missing doctor_mode as unattended and would
-		// start a session by itself.
-		"doctor_mode": {State: "assisted", Setting: kb.SettingsFile + " doctor_mode (ignored)"},
-		// D358: how many review items a kb-doctor session decides.
-		"doctor_budget": cap("doctor_budget", fmt.Sprintf("%d review items", doctorBudget(pol))),
-		// D323: the server applies auto_repair by itself on this interval.
-		"doctor_auto_interval": cap("doctor_auto_interval", autoInterval),
 	}
 }
-
-// doctorBudget is the review items a kb-doctor session decides (D358); a KB
-// opened without a spec gets the default.
-func doctorBudget(p kb.Policy) int {
-	if p.DoctorBudget > 0 {
-		return p.DoctorBudget
-	}
-	return defaultDoctorBudget
-}
-
-// config.DefaultDoctorBudget, repeated because this package does not import
-// config; TestDoctorBudgetDefaultsMatchConfig pins them equal.
-const defaultDoctorBudget = 10
 
 func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {
 	return Tool{
@@ -840,7 +794,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 			// a hidden concept's findings from a warm cache.
 			if allFindings, lerr := cc.lintFindings(k); lerr == nil {
 				vis, _ := uiVisibleFindingsFrom(ctx, k, "", allFindings)
-				result["conformance"] = summarizeConformance(vis, reviewTotal, cc.cachedDoctorDate(k), k.Policy().DoctorIntervalDays, time.Now().UTC())
+				result["conformance"] = summarizeConformance(vis, reviewTotal, cc.cachedDoctorDate(k), kb.DoctorSuggestionDays, time.Now().UTC())
 				// D370: the trend of the whole-KB totals, whole-KB callers only.
 				if WholeVisible(ctx, k, false) {
 					if tr := lintTrend(readLintHistory(k), time.Now().UTC()); tr != nil {

@@ -325,9 +325,9 @@ The legacy keys are reported and dropped, never honoured:
 | `lint_accept` in `instructions.md` | `contract_legacy_key` on `instructions.md` | `rewrite_contract`: the repair drops the key |
 | `lint_ignore` in a concept's frontmatter | `nonstandard_field` (§Conformance checks) | `drop_field` |
 
-`kb_repair` applies each, and `auto_repair` may (the checks are auto-repair safe).
+`kb_repair` applies each, and so do the unattended repairs (the checks are auto-repair safe).
 
-`index_lists_retired` (D344, info) is one finding per retired concept that a curated index of a live map still lists (D366; one per index before); journals, generated indexes and maps where at least half of the top-level concepts are retired (an archive) are exempt. That rule is `kb.IsArchiveMap`, the one function the lint exemption and the overview's `archive` flag both ask, which the Atlas's rail shows as an "Archive" badge (D820); no contract field marks an archive. `concept_archive` removes the entry; the finding catches a hand-made retirement. It carries `drop_index_entry` (D366, `field` = the concept; auto-repair safe, in `config.DefaultAutoRepair`) when a line of the index lists that concept and nothing else, and the repair drops that line (the code `concept_archive` uses); a concept cited only on lines with other links keeps no fix and stays with the doctor. The finding's path is the index, so the repair is a map repair (`lint.MapRepairCheck`), not a concept write. A retired concept left in a live map is never asked back in: `index_incomplete` skips it (D826), so the entry the repair drops does not come back as a finding on the next run.
+`index_lists_retired` (D344, info) is one finding per retired concept that a curated index of a live map still lists (D366; one per index before); journals, generated indexes and maps where at least half of the top-level concepts are retired (an archive) are exempt. That rule is `kb.IsArchiveMap`, the one function the lint exemption and the overview's `archive` flag both ask, which the Atlas's rail shows as an "Archive" badge (D820); no contract field marks an archive. `concept_archive` removes the entry; the finding catches a hand-made retirement. It carries `drop_index_entry` (D366, `field` = the concept; auto-repair safe, in `lint.AutoRepairOrder`) when a line of the index lists that concept and nothing else, and the repair drops that line (the code `concept_archive` uses); a concept cited only on lines with other links keeps no fix and stays with the doctor. The finding's path is the index, so the repair is a map repair (`lint.MapRepairCheck`), not a concept write. A retired concept left in a live map is never asked back in: `index_incomplete` skips it (D826), so the entry the repair drops does not come back as a finding on the next run.
 
 Structural checks flag defects, not structure (D313): `link_to_retired` is **one finding per retired
 concept**, on the retired concept ("retired, still linked by N live concepts: …"; the declared
@@ -358,7 +358,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
   it within the same call. `-` marks a check no write can avoid; the reason is in §Which checks a
   write could have avoided below.
 - **Fix**: the fix kinds `kb_repair` applies. **Auto-repair safe**: the fix needs no person, so the
-  check may be listed in `auto_repair`. **On write**: a write response evaluates it
+  unattended repairs run it (`lint.AutoRepairChecks`: write, heartbeat and `kb repair --apply`; no setting narrows them, D907). **On write**: a write response evaluates it
   (`CheckConcept` for `concept`, `ScopedCheck` for `graph` and `map`).
 - Severity is the registry's default; every finding is built through one constructor that reads it.
 - **Auto-repair runs to a fixpoint (D355).** Repairs depend on each other (a field rename exposes a
@@ -369,8 +369,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
   written and is reported as `did not converge: <checks>` (stderr and the run log). Stage 2 runs the
   `CrossConcept` checks one by one through the per-check applier (it keeps the mutual-pair guard); if it
   changed anything, stage 1 runs once more on the concepts it touched. Only `Auto-repair safe` checks run
-  unattended; one named in `auto_repair` that is not safe is ignored and listed in
-  `kb_status.capabilities.auto_repair.ignored`. The operator's `kb_repair` tool is unchanged (any
+  unattended. The operator's `kb_repair` tool is unchanged (any
   fixable check, one at a time, dry run by default).
 
 <!-- lint:catalogue:begin — generated from internal/lint/registry.go; run `go test ./internal/repodocs -run TestLintCatalogueIsUpToDate -args -update` -->
@@ -768,10 +767,8 @@ punctuation that follows a path, so fixing the first is not how the author learn
 How a KB behaves lives in the KB, not in the server that mounts it (D746): five people
 mounting the same KB get the same behaviour. `settings.yaml` at the KB root, beside
 `paths.yaml`, is the **only** place a KB's policy is set (D906): the server's `kbs[]` keeps just
-`name` and `remote`. It carries:
+`name` and `remote`. It carries two keys, and the write gate, the safe repairs and the doctor's cadence are not among them (D907):
 
-- writes and governance: `write_gate`, `auto_repair`, `repair_on_write`;
-- doctor: `doctor_mode`, `doctor_interval`, `doctor_auto_interval`, `doctor_budget`;
 - `usage_stale_days`: days a skill or agent may go unused by every client before `artifact_unused`
   reports it. Default 42, minimum 7, and no value turns the finding off: a value under 7 is raised
   to 7 with a finding (`kb_status` `settings_findings`, a startup warning), and `0` or a negative
@@ -798,15 +795,14 @@ writes (`cartographer config --all` lists them). The keys bound to one machine (
 committer (D904); `ssh_key`, `known_hosts`, `sops_age_key_file` and `artifact_signing_seed`, whose
 files are in the server's credentials directory, since a secret never belongs in the KB (D905);
 `allow_artifact_write` and `allow_template_write`, since artifact writes are always allowed, and
-`mcp_allowlist` and `secrets`, derived as above (D906). Each is ignored with a finding that names what to use, and
+`mcp_allowlist` and `secrets`, derived as above (D906); `write_gate`, `auto_repair`, `repair_on_write` and the `doctor_*` keys (D907), since the gate refuses what a write could have avoided in every git KB, every safe fix is applied on write, by the background repair every day and by `kb repair --apply`, a doctor session is proposed 14 days after the last one and its review budget (10) is a parameter of the session. Each is ignored with a finding that names what to use, and
 dropped when the server realigns the file; `git_profile: server`, which cannot be honoured, makes
 the KB refuse to mount. The realignment is one commit by the server, through the normal write
 path, so it is revertible (`docs/deployment.md` §Upgrading: realignment); a KB created by
 `kb create` starts with no key set.
 
 **One home (D906).** The effective value is the KB's `settings.yaml` if it sets the key, else the
-default. A key of the server's `kbs[]` that is a KB's setting (`write_gate`, `auto_repair`,
-`usage_stale_days`, …) is a removed key there: it is ignored with a warning that names the KB file,
+default. A key of the server's `kbs[]` that is a KB's setting (`usage_stale_days`, …) is a removed key there: it is ignored with a warning that names the KB file,
 and dropped when the server realigns its file (`docs/deployment.md` §Upgrading: realignment). The
 origin of a value that comes from the file is `kb` in `cartographer config` and the Atlas settings
 page. There is no local override: an operator who disagrees with a KB's policy changes the KB or

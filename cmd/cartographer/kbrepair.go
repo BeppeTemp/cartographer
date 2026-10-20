@@ -54,29 +54,26 @@ type kbRepairCheck struct {
 }
 
 type kbRepairReport struct {
-	KB         string   `json:"kb"`
-	Applied    bool     `json:"apply"`
-	AutoRepair []string `json:"auto_repair"`
-	// AutoRepairDefault is true when auto_repair is the product default and
-	// not a list the operator wrote (D323).
-	AutoRepairDefault bool            `json:"auto_repair_default,omitempty"`
-	Checks            []kbRepairCheck `json:"checks"`
-	ReviewTotal       int             `json:"review_total"`
-	ReviewByKind      map[string]int  `json:"review_by_kind,omitempty"`
-	Remaining         int             `json:"remaining"`
+	KB           string          `json:"kb"`
+	Applied      bool            `json:"apply"`
+	AutoRepair   []string        `json:"auto_repair"`
+	Checks       []kbRepairCheck `json:"checks"`
+	ReviewTotal  int             `json:"review_total"`
+	ReviewByKind map[string]int  `json:"review_by_kind,omitempty"`
+	Remaining    int             `json:"remaining"`
 }
 
 // cmdKBRepair implements `cartographer kb repair <kb> [--apply] [--json]`:
 // the unattended half of the doctor loop (D299). It plans every mechanical
-// repair, applies only the checks the operator listed in the KB's
-// auto_repair, and reports the judgement work left for a kb-doctor
+// repair, applies only the checks whose fix is safe to run unattended
+// (lint.AutoRepairChecks, D907), and reports the judgement work left for a kb-doctor
 // session. It never writes the kb-doctor log marker: a mechanical pass is not
 // a doctor session (D290), and writing it would silence the doctor proposal
 // for a whole interval while the judgement work is still undone.
 func cmdKBRepair(args []string) int {
 	name, rest := splitPositional(args, "")
 	fs := flag.NewFlagSet("kb repair", flag.ExitOnError)
-	applyFlag := fs.Bool("apply", false, "Apply the checks listed in the KB's auto_repair (default: plan only)")
+	applyFlag := fs.Bool("apply", false, "Apply the checks that are safe to run unattended (default: plan only)")
 	jsonFlag := fs.Bool("json", false, "Print the report as JSON")
 	revertFlag := fs.String("revert", "", "Revert one auto-repair or kb_repair commit by SHA (as a new commit) instead of repairing")
 	reasonFlag := fs.String("reason", "", "With --revert: why (recorded in the commit)")
@@ -158,13 +155,7 @@ func runKBRepairRevert(c toolCaller, sha, reason string, out, errOut io.Writer) 
 // runKBRepair is cmdKBRepair once a caller for the KB exists.
 func runKBRepair(c toolCaller, apply, asJSON bool, out, errOut io.Writer) int {
 	var status struct {
-		KB           string `json:"kb"`
-		Capabilities struct {
-			AutoRepair struct {
-				Checks  []string `json:"checks"`
-				Default bool     `json:"default"`
-			} `json:"auto_repair"`
-		} `json:"capabilities"`
+		KB     string `json:"kb"`
 		Review struct {
 			Total  int            `json:"total"`
 			ByKind map[string]int `json:"by_kind"`
@@ -175,18 +166,17 @@ func runKBRepair(c toolCaller, apply, asJSON bool, out, errOut io.Writer) int {
 		return kbRepairExitError
 	}
 	auto := map[string]bool{}
-	for _, check := range status.Capabilities.AutoRepair.Checks {
+	for _, check := range lint.AutoRepairChecks() {
 		auto[check] = true
 	}
 
 	rep := kbRepairReport{
-		KB:                status.KB,
-		Applied:           apply,
-		AutoRepair:        append([]string{}, status.Capabilities.AutoRepair.Checks...),
-		AutoRepairDefault: status.Capabilities.AutoRepair.Default,
-		ReviewTotal:       status.Review.Total,
-		ReviewByKind:      status.Review.ByKind,
-		Remaining:         status.Review.Total,
+		KB:           status.KB,
+		Applied:      apply,
+		AutoRepair:   lint.AutoRepairChecks(),
+		ReviewTotal:  status.Review.Total,
+		ReviewByKind: status.Review.ByKind,
+		Remaining:    status.Review.Total,
 	}
 	for _, check := range lint.FixableChecks {
 		dc, err := kbRepairRun(c, check, true)
@@ -282,15 +272,7 @@ func printKBRepairReport(w io.Writer, rep kbRepairReport) {
 		mode = "apply"
 	}
 	fmt.Fprintf(w, "KB %s — repair (%s)\n", displayKBName(rep.KB), mode)
-	switch {
-	case len(rep.AutoRepair) == 0:
-		fmt.Fprintln(w, "auto_repair is explicitly empty for this KB: nothing is applied unattended (set auto_repair in the KB's settings.yaml, or remove the key for the default).")
-	case rep.AutoRepairDefault:
-		// Before D323 an unset auto_repair applied nothing: an operator who
-		// upgrades and runs --apply is told what is about to change.
-		fmt.Fprintf(w, "auto_repair uses the default (%d checks: %s): --apply applies them. Releases before D323 applied none by default: read the plan below first.\n",
-			len(rep.AutoRepair), strings.Join(rep.AutoRepair, ", "))
-	}
+	fmt.Fprintf(w, "--apply applies the %d checks that are safe to run unattended: %s.\n", len(rep.AutoRepair), strings.Join(rep.AutoRepair, ", "))
 	fmt.Fprintln(w, "\nMechanical repairs:")
 	for _, dc := range rep.Checks {
 		tag := ""

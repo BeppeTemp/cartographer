@@ -313,7 +313,7 @@ func (g *kbgen) scaffold(c, nMaps int) {
 	g.add("data/log.md", log.String(), c)
 	if !g.spec.Bare {
 		g.add("instructions.md", "# House rules\n\nFile every finding under the Map that owns its subject, and cite its source.\n", c)
-		g.add("settings.yaml", "write_gate: warning\ndoctor_interval: 7d\nusage_stale_days: 21\n", c)
+		g.add("settings.yaml", "usage_stale_days: 21\n", c)
 		g.add("glossary.yaml", "terms:\n  - canonical: knowledge base\n    aliases: [KB]\n  - canonical: field survey\n    aliases: [survey trip]\n    forbidden: [site walk]\n", c)
 		g.add("templates/task.md", fm("type", "Task", "title", `"{{title}}"`, "status", "open", "x-template.description", "A piece of work with an owner and a definition of done", "x-template.required_fields", list("status"))+"\n# {{title}}\n\n## Context\n\n## Definition of done\n", c)
 		g.add("templates/note.md", fm("type", "Note", "title", `"{{title}}"`, "x-template.description", "A dated journal note")+"\n# {{title}}\n\n## What happened\n\n## Follow-ups\n", c)

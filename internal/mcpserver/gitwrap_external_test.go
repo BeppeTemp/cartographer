@@ -15,7 +15,6 @@ import (
 func externalKB(t *testing.T) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{"nonstandard_field"} })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	return k, s

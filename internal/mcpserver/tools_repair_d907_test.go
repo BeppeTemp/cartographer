@@ -175,31 +175,23 @@ func TestMapUpdate_LooseningNeedsAReason(t *testing.T) {
 	}
 }
 
-// The heartbeat realigns a pre-D907 contract and drops a lint_ignore field
-// whatever the KB's auto_repair lists, an explicit empty list included.
+// The heartbeat realigns a pre-D907 contract and drops a lint_ignore field, and
+// since no setting narrows its list (D907) it also renames a nonstandard field.
 func TestAutoRepairAlwaysRealignsAPreD907Contract(t *testing.T) {
 	t.Parallel()
-	for name, list := range map[string][]string{"empty": {}, "other-checks": {"title_h1_mismatch"}} {
-		list := list
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			k, s := repairKB(t, 0)
-			driftWrite(t, k, "ops/_map.md", legacyMap)
-			driftWrite(t, k, "ops/ig.md", "---\ntype: Note\ntitle: Ig\nupdated: 2026-01-02\nlint_ignore: [orphan]\nstate: open\n---\n# Ig\n")
-			setPolicy(k, func(p *kb.Policy) { p.AutoRepair = list; p.AutoRepairDefault = false })
-			s.runAutoRepairQuota(context.Background())
-			if n := countFindings(t, k, "contract_legacy_key"); n != 0 {
-				t.Fatalf("contract_legacy_key still reported: %d", n)
-			}
-			raw, err := os.ReadFile(filepath.Join(k.DataRoot(), "ops", "ig.md"))
-			if err != nil || strings.Contains(string(raw), "lint_ignore") {
-				t.Fatalf("lint_ignore not dropped (%v): %s", err, raw)
-			}
-			// No other unattended page rewrite: the renames stay with the list.
-			if !strings.Contains(string(raw), "state: open") || strings.Contains(string(raw), "status:") {
-				t.Fatalf("a rename ran unlisted: %s", raw)
-			}
-		})
+	k, s := repairKB(t, 0)
+	driftWrite(t, k, "ops/_map.md", legacyMap)
+	driftWrite(t, k, "ops/ig.md", "---\ntype: Note\ntitle: Ig\nupdated: 2026-01-02\nlint_ignore: [orphan]\nstate: open\n---\n# Ig\n")
+	s.runAutoRepairQuota(context.Background())
+	if n := countFindings(t, k, "contract_legacy_key"); n != 0 {
+		t.Fatalf("contract_legacy_key still reported: %d", n)
+	}
+	raw, err := os.ReadFile(filepath.Join(k.DataRoot(), "ops", "ig.md"))
+	if err != nil || strings.Contains(string(raw), "lint_ignore") {
+		t.Fatalf("lint_ignore not dropped (%v): %s", err, raw)
+	}
+	if !strings.Contains(string(raw), "status: open") || strings.Contains(string(raw), "state:") {
+		t.Fatalf("the rename did not run: %s", raw)
 	}
 }
 

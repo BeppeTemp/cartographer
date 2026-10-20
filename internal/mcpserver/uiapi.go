@@ -575,20 +575,11 @@ const (
 )
 
 // uiAutoChecks is the set of checks the background repair runs on this KB:
-// none when the heartbeat is off.
-func uiAutoChecks(k *kb.KB) map[string]bool {
+// every check whose fix is safe to run unattended (D907).
+func uiAutoChecks(_ *kb.KB) map[string]bool {
 	out := map[string]bool{}
-	if k.Policy().DoctorAutoIntervalDays <= 0 {
-		return out
-	}
-	safe, _, lintIgnoreOnly := heartbeatChecks(k.Policy().AutoRepair)
-	for _, c := range safe {
+	for _, c := range lint.AutoRepairChecks() {
 		out[c] = true
-	}
-	if lintIgnoreOnly {
-		// Of nonstandard_field the heartbeat only drops lint_ignore: the
-		// other renames stay the doctor's.
-		delete(out, "nonstandard_field")
 	}
 	return out
 }

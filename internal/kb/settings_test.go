@@ -19,24 +19,19 @@ func keysOf(t *testing.T, yml string) (Settings, []SettingsMalformed) {
 func TestParseSettingsValid(t *testing.T) {
 	t.Parallel()
 	s, bad := keysOf(t, `
-repair_on_write: true
-write_gate: error
-auto_repair: [duplicate_link]
-doctor_interval: 7d
-doctor_budget: 5
 usage_stale_days: 3
 branch: kb-data
 `)
 	if len(bad) != 0 {
 		t.Fatalf("malformed = %v", bad)
 	}
-	if got := len(s.Keys()); got != 7 {
-		t.Errorf("accepted %d keys, want 7: %v", got, s.Keys())
+	if got := len(s.Keys()); got != 2 {
+		t.Errorf("accepted %d keys, want 2: %v", got, s.Keys())
 	}
 	if v, ok := s.String("branch"); !ok || v != "kb-data" {
 		t.Errorf("String(branch) = %q, %v", v, ok)
 	}
-	if !s.Has("usage_stale_days") || s.Has("doctor_mode") {
+	if !s.Has("usage_stale_days") || s.Has("write_gate") {
 		t.Errorf("Has is wrong: %v", s.Keys())
 	}
 }
@@ -63,39 +58,42 @@ func TestParseSettingsWholeFileIgnored(t *testing.T) {
 func TestParseSettingsKeyErrorsLeaveTheRestAlone(t *testing.T) {
 	t.Parallel()
 	s, bad := keysOf(t, `
-write_gate: warning
+branch: kb-data
 frobnicate: 1
 ssh_key: /home/user/.ssh/id
 remote: git@example.com:user/kb-a.git
-write_gate: loud
-doctor_interval: soon
-doctor_budget: 0
 usage_stale_days: -1
-auto_repair: not-a-list
 mcp_allowlist: [{name: a, transport: http, target: "https://example.com/mcp"}]
 secrets: true
-repair_on_write: maybe
 git_forge: github
 git_branch: kb-data
-write_gate: off
+write_gate: error
+auto_repair: [duplicate_link]
+repair_on_write: false
+doctor_auto_interval: 0
+doctor_interval: 7d
+doctor_mode: assisted
+doctor_budget: 4
 `)
-	if !s.Has("write_gate") || len(s.Keys()) != 1 {
-		t.Errorf("accepted keys = %v, want only write_gate", s.Keys())
+	if !s.Has("branch") || len(s.Keys()) != 1 {
+		t.Errorf("accepted keys = %v, want only branch", s.Keys())
 	}
 	want := map[string]string{
-		"frobnicate":       "unknown setting",
-		"ssh_key":          "<kb>.ssh",
-		"remote":           "server-only",
-		"write_gate":       "", // first one invalid; the second is a duplicate
-		"doctor_interval":  "number of days",
-		"doctor_budget":    "1 or more",
-		"usage_stale_days": "7 or more",
-		"auto_repair":      "list of names",
-		"mcp_allowlist":    "always distributed",
-		"secrets":          "under secrets/",
-		"repair_on_write":  "true or false",
-		"git_forge":        "removed setting",
-		"git_branch":       "use branch",
+		"frobnicate":           "unknown setting",
+		"ssh_key":              "<kb>.ssh",
+		"remote":               "server-only",
+		"usage_stale_days":     "7 or more",
+		"mcp_allowlist":        "always distributed",
+		"secrets":              "under secrets/",
+		"git_forge":            "removed setting",
+		"git_branch":           "use branch",
+		"write_gate":           "always on",
+		"auto_repair":          "every safe fix is always applied",
+		"repair_on_write":      "every safe fix is always applied",
+		"doctor_auto_interval": "every safe fix is always applied",
+		"doctor_interval":      "14 days",
+		"doctor_mode":          "every safe fix is always applied",
+		"doctor_budget":        "budget is a parameter of the session",
 	}
 	got := map[string]string{}
 	for _, m := range bad {
@@ -119,9 +117,9 @@ func TestReadSettings(t *testing.T) {
 		t.Fatalf("absent: %+v %v", st, err)
 	}
 	path := filepath.Join(k.Root, SettingsFile)
-	os.WriteFile(path, []byte("write_gate: warning\nbogus: 1\n"), 0o644)
+	os.WriteFile(path, []byte("usage_stale_days: 30\nbogus: 1\n"), 0o644)
 	st, err = k.ReadSettings()
-	if err != nil || !st.Present || !st.Settings.Has("write_gate") || len(st.Malformed) != 1 {
+	if err != nil || !st.Present || !st.Settings.Has("usage_stale_days") || len(st.Malformed) != 1 {
 		t.Fatalf("present: %+v %v", st, err)
 	}
 	os.WriteFile(path, []byte("[x"), 0o644)
@@ -146,7 +144,7 @@ func TestRefreshSettingsReloadsOnlyOnChange(t *testing.T) {
 	if calls != 0 {
 		t.Fatalf("unchanged file reloaded %d times", calls)
 	}
-	os.WriteFile(filepath.Join(k.Root, SettingsFile), []byte("write_gate: error\n"), 0o644)
+	os.WriteFile(filepath.Join(k.Root, SettingsFile), []byte("usage_stale_days: 30\n"), 0o644)
 	k.RefreshSettings()
 	k.RefreshSettings()
 	if calls != 1 {
@@ -169,12 +167,12 @@ func TestInitWithSettingsWritesTheFileOnlyForANewKB(t *testing.T) {
 		t.Fatalf("settings.yaml = %q, %v", b, err)
 	}
 	// An existing KB gets nothing written, and its own file is not replaced.
-	os.WriteFile(filepath.Join(root, SettingsFile), []byte("write_gate: error\n"), 0o644)
+	os.WriteFile(filepath.Join(root, SettingsFile), []byte("usage_stale_days: 30\n"), 0o644)
 	if _, err := InitWithSettings(root, "user", "user@example.com", []byte("# other\n")); err != nil {
 		t.Fatal(err)
 	}
 	b, _ = os.ReadFile(filepath.Join(root, SettingsFile))
-	if string(b) != "write_gate: error\n" {
+	if string(b) != "usage_stale_days: 30\n" {
 		t.Errorf("an existing settings.yaml was rewritten: %q", b)
 	}
 	other := filepath.Join(t.TempDir(), "kb-b")
@@ -196,10 +194,10 @@ git_profile: server
 git_base_branch: main
 github_owner: user
 git_branch: kb-data
-write_gate: error
+usage_stale_days: 30
 `)
-	if len(s.Keys()) != 1 || !s.Has("write_gate") {
-		t.Errorf("accepted keys = %v, want only write_gate", s.Keys())
+	if len(s.Keys()) != 1 || !s.Has("usage_stale_days") {
+		t.Errorf("accepted keys = %v, want only usage_stale_days", s.Keys())
 	}
 	refused := map[string]bool{}
 	reasons := map[string]string{}

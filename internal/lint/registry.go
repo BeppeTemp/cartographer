@@ -39,7 +39,7 @@ type CheckSpec struct {
 	// FixKinds are the Fix kinds the check's findings may carry; non-empty means
 	// kb_repair accepts the check (FixableChecks).
 	FixKinds []string
-	// AutoRepairSafe: the fix may run with no person (eligible for auto_repair).
+	// AutoRepairSafe: the fix may run with no person (run on write, by the background repair and by `kb repair --apply`, D907).
 	AutoRepairSafe bool
 	// CrossConcept: the fix touches another file than the finding's own.
 	CrossConcept bool

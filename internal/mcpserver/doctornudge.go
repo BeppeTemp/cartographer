@@ -7,6 +7,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -63,7 +64,7 @@ func callerClient(ctx context.Context) string {
 // withDoctorNudge appends one text block proposing a kb-doctor session to a
 // successful tool result, at most once per doctorNudgeWindow per MCP session
 // (D358: the natural moment is a session start), when the
-// KB has debt and its doctor interval has passed (D299). The server only
+// KB has debt and kb.DoctorSuggestionDays have passed since the last session (D299, D907). The server only
 // proposes: it never starts the session and never writes.
 //
 // The cheap gates come first and the window is claimed before the lint is
@@ -75,10 +76,7 @@ func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResul
 	if res.IsError || tool == "kb_status" || k == nil || cc == nil {
 		return res
 	}
-	intervalDays := k.Policy().DoctorIntervalDays
-	if intervalDays <= 0 {
-		return res
-	}
+	intervalDays := kb.DoctorSuggestionDays
 	if callerClient(ctx) == client.ClientName {
 		return res
 	}

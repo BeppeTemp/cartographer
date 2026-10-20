@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -196,7 +196,7 @@ func TestStagedAutoRepair_ScaffoldsFoldersAndFixesTheirPages(t *testing.T) {
 	t.Parallel()
 	k, _ := repairKB(t, 0)
 	driftWrite(t, k, "loose/untitled.md", "---\ntype: Note\n---\n# Untitled one\n")
-	r := stagedAutoRepair(context.Background(), k, config.DefaultAutoRepair, 50)
+	r := stagedAutoRepair(context.Background(), k, lint.AutoRepairChecks(), 50)
 	if r.applied["unmapped_folder"] != 1 || r.applied["missing_title"] != 1 {
 		t.Fatalf("applied = %v, skipped = %v, errs = %v", r.applied, r.skipped, r.errs)
 	}
