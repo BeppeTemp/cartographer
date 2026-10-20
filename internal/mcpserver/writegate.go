@@ -81,7 +81,7 @@ type gateKey struct{ path, check, message string }
 // A finding on a page the caller cannot see is neither judged nor named: a
 // caller scoped to some maps is not blocked by, and learns nothing of, what
 // its write does to the rest (the same rule the read tools follow).
-func judgeWrite(k *kb.KB, toolName string, visible func(id string) bool) *ToolResult {
+func judgeWrite(k *kb.KB, toolName string, visible func(id string) bool, whole bool) *ToolResult {
 	changes, err := gitx.StagedChanges(k.Root)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: write_gate skipped (%s): %v\n", toolName, err)
@@ -157,7 +157,13 @@ func judgeWrite(k *kb.KB, toolName string, visible func(id string) bool) *ToolRe
 
 	var introduced []lint.Finding
 	for _, f := range post {
-		if !visible(strings.TrimSuffix(f.Path, ".md")) {
+		// An artifact finding names a file, never a concept: like the read
+		// side, only a caller that sees the whole KB gets it.
+		if f.Artifact {
+			if !whole {
+				continue
+			}
+		} else if !visible(strings.TrimSuffix(f.Path, ".md")) {
 			continue
 		}
 		p := f.Path
@@ -186,11 +192,46 @@ func judgeWrite(k *kb.KB, toolName string, visible func(id string) bool) *ToolRe
 		return nil
 	}
 	discard(k, toolName)
+	if !whole {
+		for i, f := range introduced {
+			introduced[i] = redactWholeGraph(f, visible)
+		}
+	}
 	body, _ := json.Marshal(findingsOut(introduced))
 	res := errorResult(fmt.Sprintf("write_gate: refused, nothing was written. This call introduced %d finding(s) a write can avoid (D907):\n%s\n"+
 		"Fix each one as its message and fix say, then retry; concept_batch is atomic, so a page and the link, index entry or target it needs can land in one call. A new page in a map with a curated index needs index_entry: true on its concept_new or creating concept_batch write.",
 		len(introduced), body))
 	return &res
+}
+
+// redactWholeGraph is what a caller who cannot see the whole KB is told of a
+// finding that reads the whole graph: the check and the visible page it is
+// reported on, never the ids or counts of other pages (a link_to_retired lists
+// its linkers). The gate's judgement is unchanged; only the report is cut. Fix
+// target lists keep the visible pages.
+func redactWholeGraph(f lint.Finding, visible func(id string) bool) lint.Finding {
+	if !lint.WholeGraphChecks[f.Check] {
+		return f
+	}
+	f.Message = fmt.Sprintf("%s: this write leaves %s failing a check that reads the whole KB; the other pages involved are outside what this caller can see", f.Check, f.Path)
+	f.Proposal = nil
+	if f.Fix != nil {
+		fx := *f.Fix
+		var vis []string
+		for _, t := range fx.Targets {
+			if visible(t) {
+				vis = append(vis, t)
+			}
+		}
+		had := len(fx.Targets) > 0
+		fx.Targets = vis
+		if (had && len(vis) == 0) || (fx.To != "" && fx.Kind == lint.FixRetargetLinks && !visible(fx.To)) {
+			f.Fix = nil
+		} else {
+			f.Fix = &fx
+		}
+	}
+	return f
 }
 
 // pairUnmatchedMoves completes renamedFrom for the pages git's similarity

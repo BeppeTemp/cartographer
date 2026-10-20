@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -354,5 +355,32 @@ func TestWriteGate_HistorySurfacesAcceptedFindings(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("changes_since lacks ops/p: %v", ch)
+	}
+}
+
+// A refusal for a caller scoped to some maps judges the write the same but
+// names no page it cannot see: a retired page that hidden pages link reports
+// neither their ids nor how many they are.
+func TestWriteGate_RefusalNamesOnlyVisiblePages(t *testing.T) {
+	t.Parallel()
+	k := gateKB(t)
+	k.AuthName = "docs"
+	hidden := "---\ntype: Note\ntitle: %s\n---\n# H\n\nSee [R](../arch/r.md).\n"
+	s := gateSeed(t, k, map[string]string{
+		"arch/r":           "---\ntype: Note\ntitle: R\nstatus: deprecated\n---\n# R\n",
+		"ops/hidden-one":   strings.Replace(hidden, "%s", "H1", 1),
+		"ops/hidden-two":   strings.Replace(hidden, "%s", "H2", 1),
+		"ops/hidden-three": strings.Replace(hidden, "%s", "H3", 1),
+	})
+	head := gitOut(t, k, "rev-parse", "HEAD")
+	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"arch"}}}})
+	text, isErr := callJSON(t, s, ctx, "concept_batch",
+		gateBatch(gateWrite("arch/new", "New", "# New\n\nSee [R](r.md).\n", false, "")))
+	refusedCleanly(t, k, head, text, isErr, "link_to_retired")
+	if strings.Contains(text, "ops/") || strings.Contains(text, "hidden") || strings.Contains(text, "linked by") {
+		t.Fatalf("the refusal names what the caller cannot see: %s", text)
+	}
+	if !strings.Contains(text, "arch/r") {
+		t.Fatalf("the refusal does not name the visible page: %s", text)
 	}
 }
