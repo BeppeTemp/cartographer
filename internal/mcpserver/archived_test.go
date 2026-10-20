@@ -143,13 +143,13 @@ func strictMapServer(t *testing.T) (*Server, *kb.KB) {
 func TestMapUpdate_ExtendsConceptTypes(t *testing.T) {
 	t.Parallel()
 	s, k := strictMapServer(t)
-	digest := `{"operations":[{"op":"write","id":"jr/d","frontmatter":{"type":"Digest","title":"D"},"body":"# D"}]}`
+	digest := `{"operations":[{"op":"write","id":"jr/d","frontmatter":{"type":"Digest","title":"D"},"body":"# D\n\n[[anchor]]\n","index_entry":true}]}`
 	if res := callTool(t, s, "concept_batch", digest); !res.IsError || !strings.Contains(res.Content[0].Text, "not allowed in map") {
 		t.Fatal("strict map must refuse an unknown type")
 	}
-	callOK(t, s, "map_update", `{"map":"jr","concept_types":["Note","Digest","Digest"]}`)
+	callOK(t, s, "map_update", `{"map":"jr","concept_types":["Note","Digest","Digest"],"reason":"digests belong in this journal"}`)
 	callOK(t, s, "concept_batch", digest)
-	callOK(t, s, "map_update", `{"map":"jr","concept_types":[]}`)
+	callOK(t, s, "map_update", `{"map":"jr","concept_types":[],"reason":"the journal takes any type again"}`)
 	meta, err := k.ReadArchiveMeta("jr")
 	if err != nil {
 		t.Fatal(err)

@@ -82,7 +82,7 @@ func TestRepairContractLegacyKey_RealignsTheDescriptorInOneCommit(t *testing.T) 
 		t.Fatalf("contract_legacy_key still reported after the repair: %d", n)
 	}
 
-	res := callTool(t, s, "concept_write", `{"id":"ops/d","frontmatter":{"type":"Digest","title":"D","updated":"2026-01-02"},"body":"# D\n"}`)
+	res := callTool(t, s, "concept_batch", `{"operations":[{"op":"write","id":"ops/d","frontmatter":{"type":"Digest","title":"D","updated":"2026-01-02"},"body":"# D\n"}]}`)
 	if !res.IsError || !strings.Contains(res.Content[0].Text, "not allowed in map") {
 		t.Fatalf("the map stays strict without ontology_mode: %+v", res.Content)
 	}

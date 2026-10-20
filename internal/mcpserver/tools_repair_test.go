@@ -233,6 +233,7 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 		}
 	}
 	seedDriftFixes(t, k) // D357
+	driftWrite(t, k, "legacy/_map.md", legacyMap) // D907: a pre-D907 descriptor
 	findings, err := lint.Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)
@@ -260,7 +261,13 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 		}
 	}
 	if len(seen) != len(listed) {
-		t.Errorf("fixture did not exercise every fixable check: saw %v", seen)
+		var missing []string
+		for c := range listed {
+			if !seen[c] {
+				missing = append(missing, c)
+			}
+		}
+		t.Errorf("fixture did not exercise every fixable check: missing %v, saw %v", missing, seen)
 	}
 }
 
