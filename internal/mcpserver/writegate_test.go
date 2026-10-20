@@ -386,4 +386,8 @@ func TestWriteGate_RefusalNamesOnlyVisiblePages(t *testing.T) {
 	if !strings.Contains(text, "arch/r") {
 		t.Fatalf("the refusal does not name the visible page: %s", text)
 	}
+	// The fix of a whole-graph finding comes from the whole KB: it is dropped.
+	if strings.Contains(text, `"fix"`) || strings.Contains(text, "retarget_links") {
+		t.Fatalf("the refusal carries a whole-graph fix: %s", text)
+	}
 }

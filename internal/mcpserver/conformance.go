@@ -30,6 +30,50 @@ type findingOut struct {
 	Proposal *lint.Proposal `json:"proposal,omitempty"`
 }
 
+// callerView is what a caller may be told of a lint finding, one rule for the
+// write gate's refusal and for a write's own response (D907): a finding on a
+// page the caller cannot see is dropped; an artifact (path-less) finding is
+// kept only for a caller that sees the whole KB; a whole-graph finding
+// (lint.WholeGraphChecks) reaches a caller without whole-KB visibility with
+// the check and the visible page only, no other page's id or count, and no
+// fix (its fields come from the whole KB's vocabulary and pages). A nil view
+// shows everything (the callers that serve the operator).
+type callerView struct {
+	visible func(id string) bool
+	whole   bool
+}
+
+// newCallerView is the view of the principal of ctx on k. Whole-KB visibility
+// is the read one, as for the read tools.
+func newCallerView(ctx requestContext, k *kb.KB) *callerView {
+	return &callerView{
+		visible: func(id string) bool { return Visible(ctx, k, id) },
+		whole:   WholeVisible(ctx, k, false),
+	}
+}
+
+// sees says whether the caller may be told of f at all.
+func (v *callerView) sees(f lint.Finding) bool {
+	if v == nil || v.whole {
+		return true
+	}
+	if f.Artifact {
+		return false
+	}
+	return v.visible(strings.TrimSuffix(f.Path, ".md"))
+}
+
+// redact is f as the caller may read it: unchanged for a whole-KB caller or a
+// finding that reads one page, cut down for a whole-graph one.
+func (v *callerView) redact(f lint.Finding) lint.Finding {
+	if v == nil || v.whole || !lint.WholeGraphChecks[f.Check] {
+		return f
+	}
+	f.Message = fmt.Sprintf("%s: %s fails a check that reads the whole KB; the other pages involved are outside what this caller can see", f.Check, f.Path)
+	f.Fix, f.Proposal = nil, nil
+	return f
+}
+
 func findingsOut(findings []lint.Finding) []findingOut {
 	out := make([]findingOut, 0, len(findings))
 	for _, f := range findings {

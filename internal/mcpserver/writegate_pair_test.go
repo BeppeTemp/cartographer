@@ -69,7 +69,6 @@ func TestWriteGate_UnrelatedSameNameCreateIsJudgedAsNew(t *testing.T) {
 	old := "---\ntype: Note\ntitle: Old\n---\n# Old\n\n" + strings.Repeat("Old has its own words here. ", 8) + "\n\nSee [gone](../gone.md).\n"
 	gateSeed(t, k, map[string]string{"arch/a/page": old})
 	root := k.DataRoot()
-	all := func(string) bool { return true }
 	swap := func(title string) {
 		if err := os.Remove(filepath.Join(root, "arch", "a", "page.md")); err != nil {
 			t.Fatal(err)
@@ -85,7 +84,7 @@ func TestWriteGate_UnrelatedSameNameCreateIsJudgedAsNew(t *testing.T) {
 	}
 	// The same page moved keeps the finding it had.
 	swap("Old")
-	if res := judgeWrite(k, "concept_batch", all, true); res != nil {
+	if res := judgeWrite(k, "concept_batch", nil); res != nil {
 		t.Fatalf("a moved page was refused: %+v", res.Content)
 	}
 	if _, err := k.CommitOp("test: moved"); err != nil {
@@ -104,7 +103,7 @@ func TestWriteGate_UnrelatedSameNameCreateIsJudgedAsNew(t *testing.T) {
 		t.Fatal(err)
 	}
 	swap("Unrelated")
-	res := judgeWrite(k, "concept_batch", all, true)
+	res := judgeWrite(k, "concept_batch", nil)
 	if res == nil || !strings.Contains(res.Content[0].Text, "broken_link") {
 		t.Fatalf("an unrelated same-name page was forgiven: %+v", res)
 	}
