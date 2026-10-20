@@ -8,7 +8,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/lint"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -119,18 +118,22 @@ func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResul
 	if summary["doctor_suggested"] != true {
 		return res
 	}
-	res.Content = append(res.Content, ContentBlock{Type: "text", Text: doctorNudgeText(kbName(k), lastDoctor, summary["findings"].(map[string]int), summary["fixable"].(int), review)})
+	fixable := 0
+	for _, n := range summary["repairable"].(map[string]int) {
+		fixable += n
+	}
+	res.Content = append(res.Content, ContentBlock{Type: "text", Text: doctorNudgeText(kbName(k), lastDoctor, summary["lint_findings"].(int), fixable, review)})
 	return res
 }
 
 // doctorNudgeText is the notice: counts only, never KB content. It asks the
 // agent to propose a session, never to start one (D704): an agent works on a
 // KB only when the operator asked for it.
-func doctorNudgeText(kbName, lastDoctor string, bySev map[string]int, fixable, review int) string {
+func doctorNudgeText(kbName, lastDoctor string, findings, fixable, review int) string {
 	if lastDoctor == "" {
 		lastDoctor = "never"
 	}
-	return fmt.Sprintf("cartographer: KB %s - last kb-doctor session %s; %d warnings, %d fixable, %d review items. "+
+	return fmt.Sprintf("cartographer: KB %s - last kb-doctor session %s; %d lint findings, %d fixable, %d review items. "+
 		"Propose a kb-doctor session to the operator (skill kb-doctor); do not start it without their agreement.",
-		kbName, lastDoctor, bySev[lint.SevWarning], fixable, review)
+		kbName, lastDoctor, findings, fixable, review)
 }

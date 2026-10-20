@@ -351,15 +351,15 @@ func TestFrontmatterRenameKeepsPosition(t *testing.T) {
 func TestSummarizeConformanceTruthTable(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	f := func(check, sev string, fix bool) lint.Finding {
-		x := lint.Finding{Check: check, Severity: sev}
+	f := func(check string, fix bool) lint.Finding {
+		x := lint.Finding{Check: check}
 		if fix {
 			x.Fix = &lint.Fix{Kind: lint.FixDropField}
 		}
 		return x
 	}
-	warn := []lint.Finding{f("broken_link", lint.SevWarning, false)}
-	info := []lint.Finding{f("map_misfit", lint.SevInfo, false)}
+	// A finding is a problem (D947): any of them is debt, whatever the check.
+	debt := []lint.Finding{f("broken_link", false)}
 	cases := []struct {
 		name     string
 		findings []lint.Finding
@@ -369,18 +369,17 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 		want     bool
 	}{
 		{"clean, never run", nil, 0, "", 14, false},
-		{"content finding counts too (D336)", []lint.Finding{f("orphan", lint.SevWarning, false)}, 0, "", 14, true},
-		{"content finding, run recently", []lint.Finding{f("artifact_unused", lint.SevInfo, false)}, 0, "2026-09-30", 14, false},
-		{"warning, never run", warn, 0, "", 14, true},
-		{"warning, run recently", warn, 0, "2026-09-30", 14, false},
-		{"fixable, run long ago", []lint.Finding{f("tool_param_field", lint.SevInfo, true)}, 0, "2026-09-01", 14, true},
-		{"info, interval just passed", info, 0, "2026-09-17", 14, true},
-		{"info, a day short", info, 0, "2026-09-18", 14, false},
-		{"info only, never run (fresh KB)", info, 0, "", 14, false},
-		{"info only, old session (established KB)", info, 0, "2026-09-01", 14, true},
-		{"info plus review item, never run", info, 1, "", 14, true},
+		{"content finding counts too (D336)", []lint.Finding{f("orphan", false)}, 0, "", 14, true},
+		{"content finding, run recently", []lint.Finding{f("orphan", false)}, 0, "2026-09-30", 14, false},
+		{"finding, never run", debt, 0, "", 14, true},
+		{"finding, run recently", debt, 0, "2026-09-30", 14, false},
+		{"fixable, run long ago", []lint.Finding{f("tool_param_field", true)}, 0, "2026-09-01", 14, true},
+		{"finding, interval just passed", debt, 0, "2026-09-17", 14, true},
+		{"finding, a day short", debt, 0, "2026-09-18", 14, false},
+		{"finding plus review item, never run", debt, 1, "", 14, true},
 		{"review only, due", nil, 3, "2026-08-01", 14, true},
-		{"debt, interval off", warn, 5, "", 0, false},
+		{"review only, never run", nil, 1, "", 14, true},
+		{"debt, interval off", debt, 5, "", 0, false},
 	}
 	for _, c := range cases {
 		got := summarizeConformance(c.findings, c.review, c.last, c.interval, now)
@@ -388,16 +387,17 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 			t.Errorf("%s: doctor_suggested = %v, want %v", c.name, got["doctor_suggested"], c.want)
 		}
 	}
-	if got := summarizeConformance(warn, 0, "2026-09-20", 14, now); got["next_doctor"] != "2026-10-04" {
+	if got := summarizeConformance(debt, 0, "2026-09-20", 14, now); got["next_doctor"] != "2026-10-04" {
 		t.Errorf("next_doctor = %v, want 2026-10-04", got["next_doctor"])
 	}
 	got := summarizeConformance([]lint.Finding{
-		f("nonstandard_field", lint.SevWarning, true), f("nonstandard_field", lint.SevWarning, false),
-		f("link_to_retired", lint.SevInfo, false), f("orphan", lint.SevWarning, false),
-		f("stringified_list", lint.SevInfo, true), f("stringified_list", lint.SevInfo, true),
+		f("nonstandard_field", true), f("nonstandard_field", false),
+		f("link_to_retired", false), f("orphan", false),
+		f("stringified_list", true), f("stringified_list", true),
 	}, 0, "2026-09-20", 14, now)
-	sev := got["findings"].(map[string]int)
-	if sev[lint.SevWarning] != 2 || sev[lint.SevInfo] != 1 || got["fixable"] != 1 || got["last_doctor"] != "2026-09-20" {
+	// findings counts the conformance checks only (nonstandard_field x2,
+	// link_to_retired); lint_findings counts every one.
+	if got["findings"] != 3 || got["lint_findings"] != 6 || got["fixable"] != 1 || got["last_doctor"] != "2026-09-20" {
 		t.Fatalf("summary = %v", got)
 	}
 	// D331: repairable counts every fixable finding, conformance check or not.

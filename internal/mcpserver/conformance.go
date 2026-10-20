@@ -24,7 +24,6 @@ import (
 type findingOut struct {
 	Path     string         `json:"path"`
 	Check    string         `json:"check"`
-	Severity string         `json:"severity"`
 	Message  string         `json:"message"`
 	Fix      *lint.Fix      `json:"fix,omitempty"`
 	Proposal *lint.Proposal `json:"proposal,omitempty"`
@@ -98,15 +97,6 @@ func (v *callerView) filterPaths(in []string) []string {
 	return []string{}
 }
 
-// oversize keeps the map-size crossings (D716) for a caller that sees the
-// whole KB only: the count is of every page of the map, hidden ones included.
-func (v *callerView) oversize(in []lint.Finding) []lint.Finding {
-	if v == nil || v.whole {
-		return in
-	}
-	return nil
-}
-
 // filter keeps the findings the caller may see, each redacted.
 func (v *callerView) filter(findings []lint.Finding) []lint.Finding {
 	if v == nil || v.whole {
@@ -124,7 +114,7 @@ func (v *callerView) filter(findings []lint.Finding) []lint.Finding {
 func findingsOut(findings []lint.Finding) []findingOut {
 	out := make([]findingOut, 0, len(findings))
 	for _, f := range findings {
-		out = append(out, findingOut{Path: f.Path, Check: f.Check, Severity: f.Severity, Message: f.Message, Fix: f.Fix, Proposal: f.Proposal})
+		out = append(out, findingOut{Path: f.Path, Check: f.Check, Message: f.Message, Fix: f.Fix, Proposal: f.Proposal})
 	}
 	return out
 }
@@ -189,7 +179,7 @@ func findingsOrNil(f []lint.Finding) []findingOut {
 
 // writeLintFindings returns the lint findings of the concepts a write left on
 // disk (written) or removed (gone) (D289, D312); gate_check's
-// changed_ids path (D312) decides pass on the severities.
+// changed_ids path (D312) decides pass on their absence.
 func writeLintFindings(k *kb.KB, written, gone []string) []lint.Finding {
 	var found []lint.Finding
 	scoped := make([]okf.ConceptID, 0, len(written)+len(gone))
@@ -224,12 +214,10 @@ func writeLintFindings(k *kb.KB, written, gone []string) []lint.Finding {
 var conformanceChecks = map[string]bool{
 	"nonstandard_field":         true,
 	"tool_param_field":          true,
-	"missing_value_contract":    true,
 	"broken_link":               true,
 	"broken_relation":           true,
 	"link_to_retired":           true,
 	"index_lists_retired":       true,
-	"map_misfit":                true,
 	"prose_value":               true,
 	"invalid_field_value":       true,
 	"stale_open":                true,
@@ -282,44 +270,35 @@ func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {
 // doctor_suggested is debt && due (D299): any lint finding the caller can
 // see or any review item, once the KB's doctor interval has passed. Time, not
 // the first warning, decides, so the flag does not stay on for good on a real
-// KB. Every warning or error finding counts, not only the conformance checks
-// (D336): the Health panel shows them all, every one has a way out, and a
-// doctor session is done only at zero — a debt that never calls the doctor
-// never gets there. info findings count only once a doctor session
-// has run: on a brand-new KB they are the whole list and no session ever ran,
-// so the flag would be on at once and a small model takes the nudge literally;
-// an established KB with only repairable info debt is still nudged. Review
-// items always count.
+// KB. Every finding counts, not only the conformance checks (D336, D947): a
+// finding is a problem, the Health panel shows them all, every one has a way
+// out, and a doctor session is done only at zero — a debt that never calls the
+// doctor never gets there. Review items count too.
 //
 // repairable counts, per check, every finding kb_repair can fix — conformance
 // check or not (D331): fixable alone hid stringified_list or title_h1_mismatch
 // from a doctor session planning its mechanical pass.
 func summarizeConformance(findings []lint.Finding, reviewTotal int, lastDoctor string, intervalDays int, now time.Time) map[string]interface{} {
-	bySev := map[string]int{}
-	fixable := 0
+	conformance, fixable := 0, 0
 	repairable := map[string]int{}
-	actionable := 0
 	for _, f := range findings {
-		if f.Severity != "info" || lastDoctor != "" {
-			actionable++
-		}
 		if f.Fix != nil {
 			repairable[f.Check]++
 		}
 		if !conformanceChecks[f.Check] {
 			continue
 		}
-		bySev[f.Severity]++
+		conformance++
 		if f.Fix != nil {
 			fixable++
 		}
 	}
 	out := map[string]interface{}{
-		"findings":         bySev,
+		"findings":         conformance,
 		"fixable":          fixable,
 		"repairable":       repairable,
 		"lint_findings":    len(findings),
-		"doctor_suggested": (actionable+reviewTotal) > 0 && doctorDue(lastDoctor, intervalDays, now),
+		"doctor_suggested": (len(findings)+reviewTotal) > 0 && doctorDue(lastDoctor, intervalDays, now),
 	}
 	if lastDoctor != "" {
 		out["last_doctor"] = lastDoctor
@@ -571,10 +550,10 @@ func lintInputsStamp(k *kb.KB) string {
 		name := d.Name()
 		// .cartographer holds local state the server rewrites as it serves:
 		// the search index, the read and search-miss telemetry, the lint
-		// history (D370) and the repair log. Counting them made every
-		// concept_read or search invalidate the whole-KB lint (D736). The one
-		// file lint reads there is usage.json, which feeds artifact_unused.
-		if strings.HasPrefix(filepath.ToSlash(rel), ".cartographer/") && name != "usage.json" {
+		// history (D370), the usage reports and the repair log. Counting them
+		// made every concept_read or search invalidate the whole-KB lint (D736);
+		// lint reads none of them (usage.json fed artifact_unused until D947).
+		if strings.HasPrefix(filepath.ToSlash(rel), ".cartographer/") {
 			return nil
 		}
 		if strings.HasSuffix(name, ".md") && name != "index.md" && name != "_map.md" && name != "_archive.md" && strings.HasPrefix(filepath.ToSlash(rel), "data/") {

@@ -1,10 +1,8 @@
-import type { LintFinding, LintReport, ReviewItem } from "../api/types";
+import type { LintFinding, LintReport } from "../api/types";
 
 /** One cause on the Health page: a check's findings, folded by message. */
 export interface CheckGroup {
   check: string;
-  /** The worst severity among its findings. */
-  severity: string;
   count: number;
   /** Who acts on it (D365): all automatic, none, or some of each. */
   handler: "auto" | "doctor" | "mixed";
@@ -13,9 +11,7 @@ export interface CheckGroup {
   messages: { message: string; findings: LintFinding[] }[];
 }
 
-const RANK: Record<string, number> = { error: 0, warning: 1, info: 2 };
-
-/** Findings grouped by check, worst severity first, then the largest. */
+/** Findings grouped by check, the largest first (a finding is a problem, D947: no group outranks another). */
 export function groupFindings(findings: LintFinding[]): CheckGroup[] {
   const byCheck = new Map<string, LintFinding[]>();
   for (const f of findings) (byCheck.get(f.check) ?? byCheck.set(f.check, []).get(f.check)!).push(f);
@@ -26,7 +22,6 @@ export function groupFindings(findings: LintFinding[]): CheckGroup[] {
     const autos = list.filter((f) => f.handler === "auto").length;
     groups.push({
       check,
-      severity: list.reduce((worst, f) => (rank(f.severity) < rank(worst) ? f.severity : worst), "info"),
       count: list.length,
       handler: autos === list.length ? "auto" : autos === 0 ? "doctor" : "mixed",
       messages: [...byMessage]
@@ -34,13 +29,7 @@ export function groupFindings(findings: LintFinding[]): CheckGroup[] {
         .sort((a, b) => b.findings.length - a.findings.length || a.message.localeCompare(b.message)),
     });
   }
-  return groups.sort(
-    (a, b) => rank(a.severity) - rank(b.severity) || b.count - a.count || a.check.localeCompare(b.check),
-  );
-}
-
-function rank(severity: string): number {
-  return RANK[severity] ?? 3;
+  return groups.sort((a, b) => b.count - a.count || a.check.localeCompare(b.check));
 }
 
 /** What a check finds, in words; the check's own name for the rest. */
@@ -49,7 +38,6 @@ const LABELS: Record<string, string> = {
   broken_link: "Broken links",
   broken_relation: "Fields pointing to a missing page",
   orphan: "Pages nothing links to",
-  island: "Groups of pages cut off from the rest",
   junk_file: "Junk files",
   machine_path: "Paths of one machine in the text",
   nonstandard_field: "Non-standard field names",
@@ -64,12 +52,7 @@ const LABELS: Record<string, string> = {
   link_to_retired: "Links to retired pages",
   index_lists_retired: "Indexes listing retired pages",
   index_incomplete: "Indexes missing pages",
-  map_without_templates: "Maps without templates",
-  map_misfit: "Pages that fit another map better",
   title_quality: "Titles to tighten",
-  missing_value_contract: "Fields without a vocabulary",
-  facet_sprawl: "Too many spellings of one facet",
-  concept_oversize: "Oversized pages",
   missing_registry: "No placeholder registry",
   skill_git_command: "Skills that run git commands",
   stale_claim: "Claims past their date",
@@ -110,9 +93,7 @@ const LABELS: Record<string, string> = {
   unknown_placeholder: "Placeholders nobody declared",
   forbidden_term: "Terms the map forbids",
   source_uncited: "Sources nothing cites",
-  cut_concept: "Pages the graph hangs on",
   contract_malformed: "Glossary that does not parse",
-  map_oversize: "Oversized maps",
   legacy_archive_descriptor: "Archives in the old format",
   index_stale: "Generated indexes out of date",
   expanded_missing_index: "Expanded pages without an index",
@@ -128,7 +109,6 @@ const LABELS: Record<string, string> = {
   skill_broken_ref: "Skills pointing at nothing",
   skill_missing_perimeter: "Instructions without a perimeter",
   cross_kb_path: "Artifacts reaching into another KB",
-  artifact_unused: "Artifacts no agent uses",
   junk_asset: "Junk assets",
   missing_instructions: "No instructions for agents",
   hook_invalid: "Invalid hooks",
@@ -167,7 +147,6 @@ const HELP: Record<string, string> = {
   concept_too_deep: "A page nested deeper than three folders.",
   nonslug_file_name: "A file name with spaces, capitals or accents: links to it break easily.",
   empty_concept: "A page with nothing in it: write it or retire it.",
-  concept_oversize: "A page too long to read in one go: split it.",
   imported_draft: "A page brought in by an import and never reviewed.",
   secrets_on_non_service: "Secrets attached to a page that is not a service.",
   sops_format_mismatch: "An encrypted secret file whose format does not match its extension.",
@@ -196,18 +175,11 @@ const HELP: Record<string, string> = {
   unknown_placeholder: "A {{repo:…}} or {{path:…}} placeholder not declared in paths.yaml.",
   forbidden_term: "A term the map's glossary says not to use.",
   source_uncited: "A registered source no page cites.",
-  cut_concept: "A page the graph hangs on: remove it and part of the KB is cut off.",
-  island: "A group of pages linked to each other but to nothing else.",
-  map_misfit: "A page whose links point mostly into another map: it may belong there.",
   // Vocabularies
   unknown_type: "A type the KB does not declare.",
   value_case_variant: "One value spelled in different cases (Active, active).",
   contract_malformed: "A map's _map.md contract that does not parse.",
-  facet_sprawl: "A field such as tags with so many one-off values nobody can filter on it.",
-  missing_value_contract: "A field used with a few recurring values but no declared vocabulary.",
   // Maps and indexes
-  map_without_templates: "A map whose pages share a shape but declare no template.",
-  map_oversize: "A map with too many pages at the top level: split it by theme.",
   legacy_archive_descriptor: "An archive described in the old format.",
   index_incomplete: "A page missing from its map's index.",
   index_lists_retired: "An index still listing a retired page.",
@@ -228,7 +200,6 @@ const HELP: Record<string, string> = {
   skill_git_command: "A skill telling the agent to run git on the KB: writes go through the tools.",
   skill_missing_perimeter: "Instructions that do not say which part of the KB they govern.",
   cross_kb_path: "An artifact hard-coding another KB's location.",
-  artifact_unused: "A skill or agent no client has used for a long time.",
   hook_invalid: "A hook definition that does not parse.",
   // KB files
   junk_file: "A system or editor file tracked in git (.DS_Store, backups).",
@@ -246,7 +217,6 @@ const HELP: Record<string, string> = {
 const DECIDE: Record<string, string> = {
   unknown_type: "Declare the type in the KB, or give the pages one it already has.",
   orphan: "Link each page to what it relates to, or retire it.",
-  island: "Link the group to the rest of the KB, or accept it as separate.",
   broken_link: "Point the link at the right page, or remove it.",
   broken_relation: "Point the field at the right page, or clear it.",
   index_incomplete: "Add the page to its map's index, or let the server keep the index.",
@@ -254,11 +224,7 @@ const DECIDE: Record<string, string> = {
   link_to_retired: "Point the sentence at what replaced the page, or keep it where the mention is history.",
   bare_link_list: "Say in a few words why each link matters, or accept the list as it is.",
   reciprocal_link_item: "Drop the entry and rely on the back-link, or keep both in sync.",
-  map_misfit: "Move the page to the map it links to, or keep it where it is.",
-  missing_value_contract: "Declare the field's vocabulary, or leave it free.",
-  facet_sprawl: "Agree a short vocabulary for the field, or stop using it.",
   title_quality: "Shorten the title or drop the status word, or keep it as it is.",
-  concept_oversize: "Split the page, or accept its length.",
   machine_path: "Replace the path with a placeholder, or accept it if it is not on this machine.",
   junk_file: "Remove the file from git.",
   junk_asset: "Remove the file.",
@@ -274,15 +240,12 @@ const DECIDE: Record<string, string> = {
   value_case_variant: "Pick one spelling for the value.",
   stray_file: "Attach the file to the page it belongs to, or remove it.",
   unmapped_folder: "Make the folder a map, or move its pages into one.",
-  map_oversize: "Split the map by theme.",
   expanded_as_category: "Link the children from the page's index, or move them to a map.",
-  cut_concept: "Add a second path to the pages that hang on it.",
   source_uncited: "Cite the source where it is used, or drop it.",
   forbidden_term: "Use the term the glossary prefers.",
   template_missing: "Bind the page to its map's template, or keep it free-form.",
   template_section_missing: "Fill the section from the sources, or record what is missing.",
   template_extra_section: "Move the section's text into a template section or another page.",
-  artifact_unused: "Remove the skill or agent, or keep it for later.",
 };
 
 /** How a check's findings get fixed, as the options a doctor session weighs; empty when unknown. */
@@ -337,119 +300,7 @@ export function inMap(f: { path: string }, map: string): boolean {
 export function filterReportByMap(report: LintReport | null, map: string | null): LintReport | null {
   if (!report || !map) return report;
   const findings = report.findings.filter((f) => inMap(f, map));
-  const by_severity: Record<string, number> = {};
   const by_check: Record<string, number> = {};
-  for (const f of findings) {
-    by_severity[f.severity] = (by_severity[f.severity] ?? 0) + 1;
-    by_check[f.check] = (by_check[f.check] ?? 0) + 1;
-  }
-  return { ...report, findings, count: findings.length, total: findings.length, by_severity, by_check };
-}
-
-/** One kind of kb_review proposal on the Health agenda (D704). */
-export interface ReviewGroup {
-  kind: string;
-  items: ReviewItem[];
-}
-
-/**
- * The review items by kind, heaviest kind first; a Map keeps the items that
- * touch one of its pages. lint_judgement items never arrive: the agenda lists
- * them by check.
- */
-export function groupReview(items: ReviewItem[], map: string | null): ReviewGroup[] {
-  const byKind = new Map<string, ReviewItem[]>();
-  for (const it of items) {
-    if (map && !it.concepts.some((c) => inMap({ path: c }, map))) continue;
-    (byKind.get(it.kind) ?? byKind.set(it.kind, []).get(it.kind)!).push(it);
-  }
-  return [...byKind]
-    .map(([kind, list]) => ({ kind, items: list.sort((a, b) => b.weight - a.weight) }))
-    .sort((a, b) => b.items.length - a.items.length || a.kind.localeCompare(b.kind));
-}
-
-/** A proposal kind in words: what it is, how to act on it, and what one item is called. */
-const REVIEW: Record<string, { label: string; help: string; fix: string; unit: [string, string] }> = {
-  template_proposal: {
-    label: "Templates to adopt",
-    help: "Pages in a map already share a structure that no template declares.",
-    fix: "Adopt it as the map's template, so new pages follow it, or keep the map free-form.",
-    unit: ["template", "templates"],
-  },
-  glossary_gap: {
-    label: "Terms nobody defines",
-    help: "A word many pages use and none explains.",
-    fix: "Define it once in the glossary, or accept it as common knowledge.",
-    unit: ["term", "terms"],
-  },
-  repeated_fact: {
-    label: "Facts copied into many pages",
-    help: "The same line, word for word, in several pages.",
-    fix: "Keep it in the page it is about and link to it from the others.",
-    unit: ["fact", "facts"],
-  },
-  zombie_work: {
-    label: "Open work tied to retired pages",
-    help: "Work still open that depends on something already retired.",
-    fix: "Close it, or point it at what replaced the retired page.",
-    unit: ["item", "items"],
-  },
-  duplicate_candidate: {
-    label: "Possible duplicates",
-    help: "Two pages of one map with nearly the same title.",
-    fix: "Merge them, or link each to the other saying how they differ.",
-    unit: ["pair", "pairs"],
-  },
-  map_naming: {
-    label: "Map names to align",
-    help: "Map titles mix languages, shapes or capitals.",
-    fix: "Agree one naming scheme and rename the maps' titles to it.",
-    unit: ["scheme", "schemes"],
-  },
-  harvest_candidate: {
-    label: "Old journal entries to archive",
-    help: "Closed entries past the age their journal keeps them live.",
-    fix: "Move their lasting lessons to the live pages, then archive them.",
-    unit: ["entry", "entries"],
-  },
-  status_reclassify: {
-    label: "Statuses to correct",
-    help: "Pages marked active that read as something else.",
-    fix: "Set the status the page really has.",
-    unit: ["page", "pages"],
-  },
-  read_hotspot: {
-    label: "Pages read too often whole",
-    help: "Long pages agents keep reading end to end.",
-    fix: "Split them, or turn them into an index of shorter pages.",
-    unit: ["page", "pages"],
-  },
-  promotion_candidate: {
-    label: "Procedures hidden in journals",
-    help: "A journal entry that holds a step-by-step procedure.",
-    fix: "Give the procedure a page of its own and link it from the entry.",
-    unit: ["entry", "entries"],
-  },
-  scattered_work: {
-    label: "Work scattered in checklists",
-    help: "Open checkboxes spread across pages.",
-    fix: "Turn them into work items in the map that tracks work.",
-    unit: ["page", "pages"],
-  },
-};
-
-/** Every proposal kind the Atlas can name, in reading order. */
-export function reviewKinds(): string[] {
-  return Object.keys(REVIEW);
-}
-
-export function reviewInfo(kind: string): { label: string; help: string; fix: string; unit: [string, string] } {
-  return (
-    REVIEW[kind] ?? {
-      label: checkLabel(kind),
-      help: "",
-      fix: "Your agent proposes what to do.",
-      unit: ["item", "items"],
-    }
-  );
+  for (const f of findings) by_check[f.check] = (by_check[f.check] ?? 0) + 1;
+  return { ...report, findings, count: findings.length, by_check };
 }

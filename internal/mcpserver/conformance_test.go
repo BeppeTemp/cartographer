@@ -168,8 +168,8 @@ func TestLintOutputFixShape(t *testing.T) {
 }
 
 // The server's own local state under .cartographer — telemetry rewritten by
-// every read and search, the search index — does not invalidate the lint
-// cache; usage.json, which lint reads, does (D736).
+// every read and search, the search index, the usage reports — does not
+// invalidate the lint cache (D736, D947).
 func TestLintInputsStampIgnoresServerState(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
@@ -178,18 +178,13 @@ func TestLintInputsStampIgnoresServerState(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := lintInputsStamp(k)
-	for _, name := range []string{"read-access.json", "search-misses.jsonl", "index.db", "auto-repair-log.jsonl"} {
+	// usage.json included: lint reads no usage since artifact_unused went (D947).
+	for _, name := range []string{"read-access.json", "search-misses.jsonl", "index.db", "auto-repair-log.jsonl", "usage.json"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if got := lintInputsStamp(k); got != before {
 		t.Fatal("server state under .cartographer changed the lint stamp")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "usage.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := lintInputsStamp(k); got == before {
-		t.Fatal("usage.json did not change the lint stamp")
 	}
 }

@@ -104,7 +104,7 @@ func TestMissingValueContractProposesFoldedStatus(t *testing.T) {
 	for i, s := range statuses {
 		writeFile(t, k.DataRoot(), "m/c"+string(rune('a'+i))+".md", "---\ntype: Task\ntitle: T\nstatus: "+s+"\n---\n# T\n")
 	}
-	findings, _ := Run(k, "", false)
+	findings := observed(t, k)
 	var p *Proposal
 	for _, f := range findings {
 		if f.Check == "missing_value_contract" && f.Proposal != nil && f.Proposal.Field == "status" {

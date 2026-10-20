@@ -32,9 +32,10 @@ const (
 // WholeGraphChecks are the checks computed on the whole-KB graph whose very
 // presence, let alone their message, depends on concepts other than the one
 // they are reported on. A caller that cannot see the whole KB must not receive
-// them: a cut_concept on a visible page counts, and names, the hidden ones it
-// cuts off. broken_relation is not among them — it reads only the concept's
-// own frontmatter.
+// them: a link_to_retired on a visible page counts, and names, the hidden
+// pages that link it. broken_relation is not among them — it reads only the
+// concept's own frontmatter. The graph-shape observations are not findings
+// (D947); their own flag is ObservationSpec.WholeGraph.
 var WholeGraphChecks = checkSet(func(s CheckSpec) bool { return s.WholeGraph })
 
 // retired is the status vocabulary's "no longer current" (docs/data-plane.md):
@@ -48,7 +49,7 @@ func retired(status string) bool { return kb.IsRetired(status) }
 // only for concepts in scope.
 type structure struct {
 	lg *kb.LinkGraph
-	// cut is the message of each cut_concept finding, by concept.
+	// cut is the message of each cut_concept observation, by concept.
 	cut map[okf.ConceptID]string
 	// islands are the non-main components worth reporting, with their anchor.
 	islands []island
@@ -225,61 +226,82 @@ func (s *structure) admitsType(mapName, conceptType string) bool {
 	return false
 }
 
-// conceptChecks returns the per-concept structural findings for id, to be
-// passed through the caller's emit.
+// conceptChecks returns the per-concept structural problems for id, to be
+// passed through the caller's emit: broken_relation and link_to_retired. The
+// graph-shape observations (cut_concept, island, map_misfit) are not problems
+// and are not here (D947): observations() builds them for kb_review.
 func (s *structure) conceptChecks(id okf.ConceptID, relPath string) []Finding {
 	i, ok := s.lg.Index[id]
 	if !ok {
 		return nil
 	}
-	var out []Finding
 	facets := s.lg.Facets[i]
-
-	// --- cut_concept (info) ---
-	if msg, ok := s.cut[id]; ok {
-		out = append(out, newFinding("cut_concept", Finding{Path: relPath, Message: msg}))
-	}
-
+	var out []Finding
 	out = append(out, s.brokenRelation(id, relPath, facets)...)
 	out = append(out, s.linkToRetired(i, relPath, facets)...)
+	return out
+}
 
-	// --- map_misfit (info) ---
-	// A direct neighbour-majority rule, not community detection: communities
-	// shift with unrelated edits, and the finding would flicker.
-	// A retired concept is not misfiled: an archive holds retired things of
-	// every domain, so its neighbours are always elsewhere (D307).
-	if home := strings.Split(string(id), "/")[0]; s.kindOf(id) == "map" && !retired(facets.Status) {
-		conceptType := facets.Type
-		counts := map[string]int{}
-		n := 0
-		for _, v := range s.lg.Graph.Undirected()[i] {
-			vid := s.lg.IDs[v]
-			if s.kindOf(vid) != "map" || retired(s.lg.Facets[v].Status) {
-				continue // journals, root, services and retired concepts do not vote
-			}
-			n++
-			counts[strings.Split(string(vid), "/")[0]]++
+// mapMisfit is the map_misfit observation for the concept at node i, if any.
+//
+// A direct neighbour-majority rule, not community detection: communities shift
+// with unrelated edits, and the item would flicker. A retired concept is not
+// misfiled: an archive holds retired things of every domain, so its neighbours
+// are always elsewhere (D307).
+func (s *structure) mapMisfit(i int, relPath string) []Finding {
+	id := s.lg.IDs[i]
+	facets := s.lg.Facets[i]
+	home := strings.Split(string(id), "/")[0]
+	if s.kindOf(id) != "map" || retired(facets.Status) {
+		return nil
+	}
+	conceptType := facets.Type
+	counts := map[string]int{}
+	n := 0
+	for _, v := range s.lg.Graph.Undirected()[i] {
+		vid := s.lg.IDs[v]
+		if s.kindOf(vid) != "map" || retired(s.lg.Facets[v].Status) {
+			continue // journals, root, services and retired concepts do not vote
 		}
-		if n >= mapMisfitMinNeighbours {
-			maps := make([]string, 0, len(counts))
-			for m := range counts {
-				maps = append(maps, m)
+		n++
+		counts[strings.Split(string(vid), "/")[0]]++
+	}
+	if n < mapMisfitMinNeighbours {
+		return nil
+	}
+	maps := make([]string, 0, len(counts))
+	for m := range counts {
+		maps = append(maps, m)
+	}
+	sort.Strings(maps)
+	for _, m := range maps {
+		if m != home && counts[m]*mapMisfitMajorityDen >= n*mapMisfitMajorityNum {
+			// A candidate map must admit the concept's type (D295 WP3): a
+			// strict map that refuses the type is not advice.
+			if !s.admitsType(m, conceptType) {
+				continue
 			}
-			sort.Strings(maps)
-			for _, m := range maps {
-				if m != home && counts[m]*mapMisfitMajorityDen >= n*mapMisfitMajorityNum {
-					// A candidate map must admit the concept's type (D295
-					// WP3): a strict map that refuses the type is not advice.
-					if !s.admitsType(m, conceptType) {
-						continue
-					}
-					out = append(out, newFinding("map_misfit", Finding{Path: relPath,
-						Message: fmt.Sprintf("%d of %d linked concepts are in map %s: consider concept_move", counts[m], n, m)}))
-					break
-				}
-			}
+			return []Finding{newObservation("map_misfit", Finding{Path: relPath,
+				Message: fmt.Sprintf("%d of %d linked concepts are in map %s: consider concept_move", counts[m], n, m)})}
 		}
 	}
+	return nil
+}
+
+// observations are the graph-shape observations of the whole KB (D947):
+// cut_concept, map_misfit per concept in graph order, then one island per
+// component. They are shapes a reasonable maintainer may leave as they are, so
+// they are kb_review items and never lint findings.
+func (s *structure) observations() []Finding {
+	var out []Finding
+	for i, id := range s.lg.IDs {
+		relPath := okf.IDToPath(id)
+		if msg, ok := s.cut[id]; ok {
+			out = append(out, newObservation("cut_concept", Finding{Path: relPath, Message: msg}))
+		}
+		out = append(out, s.mapMisfit(i, relPath)...)
+	}
+	out = append(out, s.islandFindings()...)
 	return out
 }
 
@@ -362,15 +384,10 @@ func (s *structure) linkToRetired(i int, relPath string, facets kb.NodeFacets) [
 	return []Finding{f}
 }
 
-// islandFindings are emitted once per island, on its anchor, when the anchor
-// is in scope. An island belongs to the component, so any member (or its map)
-// accepts it, through applyMapIgnores rather than the anchor's own emit.
-func (s *structure) islandFindings(inScope func(okf.ConceptID) bool) []Finding {
+// islandFindings are emitted once per island, on its anchor.
+func (s *structure) islandFindings() []Finding {
 	var out []Finding
 	for _, isl := range s.islands {
-		if !inScope(isl.anchor) {
-			continue
-		}
 		names := make([]string, 0, 5)
 		for _, m := range isl.members {
 			if len(names) == 5 {
@@ -379,7 +396,7 @@ func (s *structure) islandFindings(inScope func(okf.ConceptID) bool) []Finding {
 			}
 			names = append(names, string(m))
 		}
-		out = append(out, newFinding("island", Finding{
+		out = append(out, newObservation("island", Finding{
 			Path:    okf.IDToPath(isl.anchor),
 			Message: fmt.Sprintf("%d concepts form an island disconnected from the main graph: %s", len(isl.members), strings.Join(names, ", ")),
 			members: isl.members,

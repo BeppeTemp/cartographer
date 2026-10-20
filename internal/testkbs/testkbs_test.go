@@ -47,6 +47,16 @@ func TestGeneratedKBShowsEveryPlantedState(t *testing.T) {
 	for _, f := range findings {
 		fired[f.Check] = true
 	}
+	// An island is an observation (D947): kb_review lists it, lint does not.
+	items, err := lint.Review(k, findings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range items {
+		if it.Kind == lint.ReviewObservation {
+			fired[it.Check] = true
+		}
+	}
 	for _, check := range []string{"broken_link", "island", "invalid_field_value", "missing_required_field", "forbidden_term",
 		"closed_with_open_items", "contract_malformed", "unmapped_folder", "hook_invalid", "link_to_retired"} {
 		if !fired[check] {

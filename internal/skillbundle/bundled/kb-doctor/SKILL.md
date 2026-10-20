@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a budgeted session that applies mechanical repairs and works through the server's ranked review list, always started by the operator, who decides each item or delegates the session. Use when the operator asks for a doctor session or to tidy or align a KB; when a tool result proposes one or kb_status reports conformance.doctor_suggested, propose it to the operator and wait.
-version: "3.3"
+version: "3.4"
 ---
 # KB Doctor - Skill
 
@@ -118,9 +118,10 @@ Token economy (a doctor session reads a KB, not a page):
    findings, or a long `index.md` rewritten in many sessions) propose `map_update` with
    `index: generated`: the server then keeps the concept list in a marked block, curated text
    outside it stays theirs. One decision per map; skip maps already generated.
-4. **Vocabulary proposals.** A `missing_value_contract` finding carries a `proposal` (values and the
-   synonyms it maps). One numbered decision per map; after approval `map_update` with those
-   `field_values`, then `kb_repair invalid_field_value` and `kb_repair prose_value`.
+4. **Vocabulary proposals.** A `kb_review` item of kind `observation` whose `check` is
+   `missing_value_contract` carries a `proposal` (values and the synonyms it maps). One numbered
+   decision per map; after approval `map_update` with those `field_values`, then
+   `kb_repair invalid_field_value` and `kb_repair prose_value`.
 4b. **Template proposals.** A `template_proposal` review item names the maps (`<map>/_map`) whose
    pages already share a structure no template declares, one item per template slug, and carries
    the ready `template` text, its `template_slug` and the `map_update` arguments — `map_updates`,
@@ -142,9 +143,12 @@ Token economy (a doctor session reads a KB, not a page):
    - **act** with the ordinary tools: `concept_merge` or a link from each page to the other saying how they differ (`duplicate_candidate`), close
      or update (`zombie_work`, `stale_open`, `closed_with_open_items`), `concept_new` from the target
      map's template and links both ways (`promotion_candidate`), a glossary entry
-     (`glossary_gap`), `concept_move` (`map_misfit`), `concept_expand` or a split
-     (`concept_oversize`); a `lint_judgement` item is a `lint` finding of that check, so decide it
-     from `lint` (the check is the actionable unit) and do not count it twice; `concept_too_deep` (error): decide where the page belongs and `concept_move` it; `empty_concept`: write the page or retire it (`concept_archive`), never delete it blindly; `missing_type` / `missing_frontmatter` with no fix: the map's pages disagree on a type, so delegated, pick the type most of the map's pages carry and `concept_patch` it; assisted, ask which one; for `repeated_fact` choose the owner concept with the operator, keep the
+     (`glossary_gap`); an `observation` item is a state with no single right answer, never a lint
+     finding: `concept_move` (`map_misfit`), `concept_expand` or a split (`concept_oversize`), a split
+     of the map (`map_oversize`), a link from outside into the group (`island`), a second path around
+     the page (`cut_concept`), a short tag vocabulary (`facet_sprawl`); leaving it as it is is a
+     legitimate decision, and the report says so; a `lint_judgement` item is a `lint` finding of that check, so decide it
+     from `lint` (the check is the actionable unit) and do not count it twice; `concept_too_deep`: decide where the page belongs and `concept_move` it; `empty_concept`: write the page or retire it (`concept_archive`), never delete it blindly; `missing_type` / `missing_frontmatter` with no fix: the map's pages disagree on a type, so delegated, pick the type most of the map's pages carry and `concept_patch` it; assisted, ask which one; for `repeated_fact` choose the owner concept with the operator, keep the
      fact there and replace each copy with a link (never rewrite the fact); for `read_hotspot`
      `concept_expand` into satellites with a short summary page, or turn it into an index page;
      for `scattered_work` create a concept in the contract's `work_map` from its template (one per
@@ -220,9 +224,8 @@ Token economy (a doctor session reads a KB, not a page):
    assisted: show the candidate and the proposed lessons for the operator to confirm. Archived
    entries leave default `search`, `read_cost` and the atlas structure; `search` with
    `include_archived: true` still finds them.
-6. **Advice.** `lint` with `severity_min: info`: an `info` finding is advice the KB has not
-   answered yet, and the session is done only when nothing is left: nothing accepts a finding
-   (D907), so each one is fixed on the page. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
+6. **Findings.** `lint`: every finding is a problem, none is advice (D947), and the session is done only when
+   nothing is left: nothing accepts a finding (D907), so each one is fixed on the page. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
    one reason per link; `link_to_retired` in a live page: update the sentence or point at the
    successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive`, not patch + move + `index_patch`). A finding
    that is wrong for a page that is right as written is a defect of the check, not of the page:
@@ -232,7 +235,7 @@ Token economy (a doctor session reads a KB, not a page):
    more: `kb_repair` drops them. Many per-concept writes go in one `concept_batch` (up to 50
    operations, one commit), not one call each.
    - **Page names** (D315): `title_h1_mismatch` is mechanical (`kb_repair`, the heading follows the
-     title); `title_quality` is an info finding with no fix, because the wording is a judgement:
+     title); `title_quality` has a fix only for decorative characters, because the wording is a judgement:
      propose a shorter label (assisted: show the operator); a title that is right as written is a
      check defect for the closing report.
    - **Drift** (D357): `stray_file` (a non-Markdown file in `data/`) and an `unknown_type` with no unique
@@ -250,7 +253,7 @@ Token economy (a doctor session reads a KB, not a page):
    template this session made obsolete (a field renamed, a workaround a repair removed, a rule to add
    pages to a now-generated index or to add reverse links).
 8. **Close.** `log_append` whose text contains `kb-doctor` and the before/after counts per bucket,
-   for example `kb-doctor: warnings 205 -> 0, fixable 40 -> 0, review 34 -> 25, open_markers 161 ->
+   for example `kb-doctor: findings 205 -> 0, fixable 40 -> 0, review 34 -> 25, open_markers 161 ->
    158`. `kb_status` reads `last_doctor` from it, which also stops the proposal for one interval.
    Delegated, the entry is the transparency report the operator reads instead of being asked: list
    **every decision** (what was merged, moved, closed, written and why), **every gap opened** with

@@ -347,9 +347,8 @@ toolchain (D227). What they hold:
 - the live refresh bumps only when the KB revision changes, stops for good on a
   `404` (a narrowed principal has no revision) and never polls while disabled
   (D337);
-- Health (D338, D365): findings grouped by check with who acts on each,
-  info findings counted as the doctor's improvements, the verdict for a doctor that never ran and one
-  that keeps up, revealing a concept or saying there is none, scoped by its own Map chips so a
+- Health (D338, D365, D947): lint problems grouped by check with who acts on each (one list, no
+  suggestions band, the doctor's review items left out), revealing a concept or saying there is none, scoped by its own Map chips so a
   clean Map never reads as a clean KB; the lint trend (shown from two samples, absent with one), the upkeep, questions and repairs, each
   copy action a clipboard write and every request a `GET`; a whole-KB `404`
   left out silently while another failure is reported; the old
@@ -530,7 +529,7 @@ What it holds, beyond the component tests:
 
 - the flows — local mode with no prompt; the bearer prompt, and "remember for
   this tab" surviving a reload but not a new tab; KB switching; Map drill-in;
-  type/status filters and Health's severity floor; the command
+  type/status filters; the command
   palette; URL state with Back/Forward and deep links; backlink chips;
   Health findings revealing their concept or saying there is no node;
   Health's findings scoped by its Map chips (`hmap`), the rail's Maps opening the Atlas, and the node filters stepping aside;

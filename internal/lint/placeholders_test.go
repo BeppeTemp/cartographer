@@ -40,7 +40,7 @@ func TestRun_UnknownPlaceholder(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := findingsOf(findings, "unknown_placeholder")
-	if len(got) != 1 || got[0].Path != "arch/a.md" || got[0].Severity != SevWarning {
+	if len(got) != 1 || got[0].Path != "arch/a.md" {
 		t.Fatalf("unknown_placeholder = %+v", got)
 	}
 	// A key declared under the other kind is still undeclared.
@@ -68,7 +68,7 @@ func TestRun_UnusedPlaceholder(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := findingsOf(findings, "unused_placeholder")
-	if len(got) != 1 || got[0].Path != "paths.yaml" || got[0].Severity != SevInfo || !strings.Contains(got[0].Message, "path:unused-one") {
+	if len(got) != 1 || got[0].Path != "paths.yaml" || !strings.Contains(got[0].Message, "path:unused-one") {
 		t.Fatalf("unused_placeholder = %+v", got)
 	}
 	// KB-level: a scoped lint does not report it.

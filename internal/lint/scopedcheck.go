@@ -30,10 +30,9 @@ const scopedNeighbourCap = 200
 // concept), and link_to_retired on a retired concept the given ID links. A
 // neighbour's own pre-existing findings are never returned.
 //
-// The whole-KB structural analysis stays out: cut_concept, island,
-// map_misfit, facet_sprawl and missing_value_contract need the whole graph and
-// are left to lint and gate_check. map_oversize needs a "before" state and the
-// whole created set, so it reaches writes through MapOversizeCrossings (D716).
+// The whole-KB structural analysis stays out: the whole-graph checks are left
+// to lint and gate_check. The graph-shape and map-size observations (D947) are
+// not findings and reach no write: only kb_review lists them.
 // Nothing silences a finding (D907). The cost is one cached graph read, the written
 // concepts' own files and at most scopedNeighbourCap neighbours per direction.
 // Nil when there is nothing to report.

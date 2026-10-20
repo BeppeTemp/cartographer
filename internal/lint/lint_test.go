@@ -218,7 +218,7 @@ func TestRun_MissingTitle(t *testing.T) {
 	if untitled == nil {
 		t.Fatalf("expected missing_title for arch/untitled.md, got: %v", findings)
 	}
-	if untitled.Severity != SevWarning || !strings.Contains(untitled.Message, `title: "Backup of the laptop"`) {
+	if !strings.Contains(untitled.Message, `title: "Backup of the laptop"`) {
 		t.Errorf("missing_title should be a warning suggesting the first H1, got %+v", *untitled)
 	}
 	if !hasCheck(findings, "arch/blank-title.md", "missing_title") {
@@ -573,7 +573,7 @@ func TestRun_AssetsOnlyProduceOrphanAsset(t *testing.T) {
 			orphans = append(orphans, finding)
 		}
 	}
-	if len(orphans) != 1 || orphans[0].Path != "arch/owner/evidence/screen.png" || orphans[0].Severity != SevInfo {
+	if len(orphans) != 1 || orphans[0].Path != "arch/owner/evidence/screen.png" {
 		t.Fatalf("orphan assets: %v", orphans)
 	}
 }
@@ -596,7 +596,7 @@ func TestRun_MissingRequiredFieldContract(t *testing.T) {
 			missing = append(missing, f)
 		}
 	}
-	if len(missing) != 2 || missing[0].Severity != SevError {
+	if len(missing) != 2 {
 		t.Fatalf("required-field findings = %#v", missing)
 	}
 }
@@ -853,10 +853,7 @@ func TestRun_MapOversize_Detected(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	oversizeMap(t, k, "kind: map\n", mapOversizeThreshold+1, 0)
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
+	findings := observed(t, k)
 	if !hasCheck(findings, "arch/_map.md", "map_oversize") {
 		t.Errorf("expected map_oversize for arch, got: %v", findings)
 	}
@@ -869,10 +866,7 @@ func TestRun_MapOversize_SatellitesNotCounted(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	oversizeMap(t, k, "kind: map\n", 7, mapOversizeThreshold*3)
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
+	findings := observed(t, k)
 	if hasCheck(findings, "arch/_map.md", "map_oversize") {
 		t.Errorf("satellites must not inflate map_oversize: %v", findings)
 	}
@@ -883,10 +877,7 @@ func TestRun_MapOversize_JournalExempt(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	oversizeMap(t, k, "kind: journal\n", mapOversizeThreshold+10, 0)
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
+	findings := observed(t, k)
 	if hasCheck(findings, "arch/_map.md", "map_oversize") {
 		t.Errorf("a journal never fires map_oversize: %v", findings)
 	}
@@ -901,10 +892,7 @@ func TestRun_ConceptOversize_Detected(t *testing.T) {
 	writeFile(t, k.DataRoot(), "arch/big-concept.md",
 		"---\ntype: Note\n---\n"+body+"\n")
 
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
+	findings := observed(t, k)
 	if !hasCheck(findings, "arch/big-concept", "concept_oversize") {
 		t.Errorf("expected concept_oversize for arch/big-concept, got: %v", findings)
 	}
@@ -916,10 +904,7 @@ func TestRun_ConceptOversize_UnderThreshold_Clean(t *testing.T) {
 	writeFile(t, k.DataRoot(), "arch/small-concept.md",
 		"---\ntype: Note\n---\nContenuto breve.\n")
 
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
+	findings := observed(t, k)
 	if hasCheck(findings, "arch/small-concept", "concept_oversize") {
 		t.Errorf("did not expect concept_oversize for a small concept, got: %v", findings)
 	}
@@ -1201,7 +1186,7 @@ func TestLint_SecretsOnNonServiceConcept(t *testing.T) {
 				}
 			}
 			for _, f := range findings {
-				if f.Check == "secrets_on_non_service" && (f.Severity != SevInfo || !strings.Contains(f.Message, "secret_resolve")) {
+				if f.Check == "secrets_on_non_service" && (!strings.Contains(f.Message, "secret_resolve")) {
 					t.Errorf("secrets_on_non_service must be info and name secret_resolve: %+v", f)
 				}
 			}
@@ -1272,10 +1257,7 @@ func TestLint_OversizeRemedyIsDepthAware(t *testing.T) {
 	writeFile(t, k.DataRoot(), "m/c/index.md", "---\ntype: Note\ntitle: C\n---\n"+big+"\n- [s](s.md)\n")
 	writeFile(t, k.DataRoot(), "m/c/s.md", "---\ntype: Note\ntitle: S\n---\n"+big+"\n")
 
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	findings := observed(t, k)
 	var forConcept, forSatellite string
 	for _, f := range findings {
 		if f.Check != "concept_oversize" {
@@ -1435,7 +1417,7 @@ func TestRun_FieldValuesContract(t *testing.T) {
 	}
 	for _, f := range findings {
 		if f.Path == "infra/bad.md" && f.Check == "invalid_field_value" {
-			if f.Severity != SevError || !strings.Contains(f.Message, `field "status" has value "deprecate", allowed by map "infra": active, deprecated, draft, superseded`) {
+			if !strings.Contains(f.Message, `field "status" has value "deprecate", allowed by map "infra": active, deprecated, draft, superseded`) {
 				t.Errorf("finding = %#v", f)
 			}
 		}
@@ -1453,11 +1435,6 @@ func TestRun_ForbiddenFieldContract(t *testing.T) {
 	}
 	if countCheck(findings, "infra/legacy.md", "forbidden_field") != 1 || countCheck(findings, "infra/clean.md", "forbidden_field") != 0 {
 		t.Fatalf("findings = %#v", findings)
-	}
-	for _, f := range findings {
-		if f.Check == "forbidden_field" && f.Severity != SevError {
-			t.Errorf("severity = %s", f.Severity)
-		}
 	}
 }
 
@@ -1576,29 +1553,43 @@ func TestRun_MachinePath_BuiltinConventionalPaths_Clean(t *testing.T) {
 	}
 }
 
-func TestFilter_DeterministicOrder(t *testing.T) {
+func TestOrder_DeterministicOrder(t *testing.T) {
 	t.Parallel()
+	// Registry category order first (pages, templates, validity, links, ...),
+	// then check, path and message; a name the registry does not know is last.
 	in := []Finding{
-		{Path: "b.md", Check: "orphan", Severity: SevInfo, Message: "m"},
-		{Path: "b.md", Check: "broken_link", Severity: SevWarning, Message: "z"},
-		{Path: "a.md", Check: "broken_link", Severity: SevWarning, Message: "z"},
-		{Path: "a.md", Check: "broken_link", Severity: SevWarning, Message: "a"},
-		{Path: "z.md", Check: "validate", Severity: SevError, Message: "m"},
-		{Path: "a.md", Check: "a_check", Severity: SevInfo, Message: "m"},
+		{Path: "b.md", Check: "orphan", Message: "m"},
+		{Path: "b.md", Check: "broken_link", Message: "z"},
+		{Path: "a.md", Check: "broken_link", Message: "z"},
+		{Path: "a.md", Check: "broken_link", Message: "a"},
+		{Path: "z.md", Check: "malformed_frontmatter", Message: "m"},
+		{Path: "a.md", Check: "template_missing", Message: "m"},
+		{Path: "a.md", Check: "unknown_check", Message: "m"},
 	}
-	want := []string{"z.md/validate/m", "a.md/broken_link/a", "a.md/broken_link/z", "b.md/broken_link/z", "a.md/a_check/m", "b.md/orphan/m"}
+	want := []string{
+		"z.md/malformed_frontmatter/m",
+		"a.md/template_missing/m",
+		"a.md/broken_link/a", "a.md/broken_link/z", "b.md/broken_link/z", "b.md/orphan/m",
+		"a.md/unknown_check/m",
+	}
 	for round := 0; round < 3; round++ {
 		shuffled := append([]Finding(nil), in...)
 		for i := range shuffled { // a fixed permutation per round
 			j := (i*7 + round*3) % len(shuffled)
 			shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
 		}
-		kept, _, _ := Filter(shuffled, SevInfo)
+		kept := Order(shuffled)
+		if len(kept) != len(in) {
+			t.Fatalf("round %d: %d findings, want %d", round, len(kept), len(in))
+		}
 		for i, f := range kept {
 			if got := f.Path + "/" + f.Check + "/" + f.Message; got != want[i] {
 				t.Fatalf("round %d pos %d: got %s want %s", round, i, got, want[i])
 			}
 		}
+	}
+	if got := CountsByCheck(in); got["broken_link"] != 3 || got["orphan"] != 1 || len(got) != 5 {
+		t.Errorf("CountsByCheck = %v", got)
 	}
 }
 
@@ -1647,7 +1638,7 @@ func TestLint_IndexLinkForm(t *testing.T) {
 				t.Fatalf("findings = %+v", got)
 			}
 			f := got[0]
-			if f.Severity != SevInfo || f.Fix == nil || f.Fix.Kind != c.kind || f.Fix.Field != c.field || f.Fix.To != c.to {
+			if f.Fix == nil || f.Fix.Kind != c.kind || f.Fix.Field != c.field || f.Fix.To != c.to {
 				t.Errorf("finding = %+v fix = %+v", f, f.Fix)
 			}
 		})

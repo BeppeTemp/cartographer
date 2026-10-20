@@ -126,7 +126,7 @@ func toolLint(k *kb.KB) Tool {
 	return Tool{
 		Name:        "lint",
 		ReadOnly:    true,
-		Description: "Deterministic checks. check, severity_min, limit (max 200), offset filter and page. Counts ignore them.",
+		Description: "Deterministic checks; every finding is a problem to fix. check, limit (max 200), offset filter and page. Counts ignore them.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -136,11 +136,6 @@ func toolLint(k *kb.KB) Tool {
 				"scope_neighbors": {
 					"type": "boolean",
 					"description": "Also lint 1-hop neighbors"
-				},
-				"severity_min": {
-					"type": "string",
-					"enum": ["info", "warning", "error"],
-					"description": "info (default), warning or error"
 				},
 				"check": {
 					"oneOf": [
@@ -156,7 +151,6 @@ func toolLint(k *kb.KB) Tool {
 			var params struct {
 				Scope          string          `json:"scope"`
 				ScopeNeighbors bool            `json:"scope_neighbors"`
-				SeverityMin    string          `json:"severity_min"`
 				Check          json.RawMessage `json:"check"`
 				Limit          int             `json:"limit"`
 				Offset         int             `json:"offset"`
@@ -175,14 +169,6 @@ func toolLint(k *kb.KB) Tool {
 				}
 			}
 
-			if params.SeverityMin == "" {
-				params.SeverityMin = lint.SevInfo
-			}
-			if !lint.ValidSeverity(params.SeverityMin) {
-				return errorResult(fmt.Sprintf("lint: 'severity_min' must be one of %s, got %q",
-					strings.Join(lint.Severities, ", "), params.SeverityMin)), nil
-			}
-
 			findings, err := lint.Run(k, params.Scope, params.ScopeNeighbors)
 			if err != nil {
 				return errorResult(fmt.Sprintf("lint: %v", err)), nil
@@ -192,11 +178,8 @@ func toolLint(k *kb.KB) Tool {
 			// of a non-empty one, so a caller that parses JSON never meets a
 			// bare string (D318).
 			total := len(findings)
-			findings, countsByCheck, countsBySeverity := lint.Filter(findings, params.SeverityMin)
-
-			// findings_omitted is what severity_min hid, taken before the check
-			// filter so it keeps its old meaning.
-			omitted := total - len(findings)
+			countsByCheck := lint.CountsByCheck(findings)
+			findings = lint.Order(findings)
 
 			if len(checks) > 0 {
 				want := make(map[string]bool, len(checks))
@@ -224,17 +207,15 @@ func toolLint(k *kb.KB) Tool {
 				page = findings[offset:min(offset+limit, afterFilter)]
 			}
 
-			// 'count' keeps meaning the unfiltered total, which is what it has
-			// always meant; findings_omitted says how much severity_min hid.
+			// 'count' is the unfiltered total: the view (check, paging) never
+			// changes it, so a caller knows the shape of what it is not shown.
 			result := map[string]interface{}{
 				"count":                 total,
 				"findings":              findingsOut(page),
 				"findings_in_page":      len(page),
 				"findings_after_filter": afterFilter,
-				"findings_omitted":      omitted,
 				"offset":                offset,
 				"counts_by_check":       countsByCheck,
-				"counts_by_severity":    countsBySeverity,
 			}
 			if next := offset + len(page); next < afterFilter {
 				result["next_offset"] = next
@@ -344,7 +325,7 @@ func toolGateCheck(k *kb.KB) Tool {
 	return Tool{
 		Name:        "gate_check",
 		ReadOnly:    true,
-		Description: "Local gate: validate + lint + commit_gate. Use at session end over the IDs you wrote, or before fast-forwarding to main. changed_ids alone lints just those (no whole-KB structure checks); empty changed_ids: whole KB, no commit gate; scope: a path prefix. severity_min sets the lint floor (default warning); pass ignores it.",
+		Description: "Local gate: validate + lint + commit_gate. Use at session end over the IDs you wrote, or before fast-forwarding to main. changed_ids alone lints just those (no whole-KB structure checks); empty changed_ids: whole KB, no commit gate; scope: a path prefix. pass needs zero lint findings in the scope, no validation error and a passing commit gate: a finding is a problem to fix.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["changed_ids"],
@@ -352,11 +333,6 @@ func toolGateCheck(k *kb.KB) Tool {
 				"changed_ids": {
 					"type": "array",
 					"items": {"type": "string"}
-				},
-				"severity_min": {
-					"type": "string",
-					"enum": ["info", "warning", "error"],
-					"description": "info, warning (default) or error"
 				},
 				"scope": {
 					"type": "string"
@@ -370,21 +346,12 @@ func toolGateCheck(k *kb.KB) Tool {
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				ChangedIDs     []string `json:"changed_ids"`
-				SeverityMin    string   `json:"severity_min"`
 				Scope          string   `json:"scope"`
 				ScopeNeighbors bool     `json:"scope_neighbors"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
-			if params.SeverityMin == "" {
-				params.SeverityMin = lint.SevWarning
-			}
-			if !lint.ValidSeverity(params.SeverityMin) {
-				return errorResult(fmt.Sprintf("gate_check: 'severity_min' must be one of %s, got %q",
-					strings.Join(lint.Severities, ", "), params.SeverityMin)), nil
-			}
-
 			ids := make([]okf.ConceptID, len(params.ChangedIDs))
 			for i, s := range params.ChangedIDs {
 				ids[i] = okf.ConceptID(s)
@@ -445,17 +412,15 @@ func toolGateCheck(k *kb.KB) Tool {
 			// finding that mirrors a validation error on the same path is the
 			// same fact, listed once, under validation_errors.
 			lintFindings = dropMirroredValidation(lintFindings, valErrs)
-			// pass is decided on the unfiltered findings, before severity_min is
-			// applied below: a response budget must never be able to change a
-			// verdict.
-			for _, f := range lintFindings {
-				if f.Severity == lint.SevError {
-					pass = false
-					break
-				}
+			// A finding is a problem (D947): the gate passes only with none in the
+			// scope it checks, so a KB with old debt fails the whole-KB gate until
+			// it is repaired.
+			if len(lintFindings) > 0 {
+				pass = false
 			}
 			lintTotal := len(lintFindings)
-			lintFindings, countsByCheck, countsBySeverity := lint.Filter(lintFindings, params.SeverityMin)
+			countsByCheck := lint.CountsByCheck(lintFindings)
+			lintFindings = lint.Order(lintFindings)
 
 			// 3. Commit gate. It checks the contradictions that involve the
 			// changed concepts, so with none there is nothing to check: an empty
@@ -495,18 +460,14 @@ func toolGateCheck(k *kb.KB) Tool {
 				})
 			}
 
-			// validation_errors and gate_blockers are never filtered: they are
-			// already error-level and small.
 			result := map[string]interface{}{
-				"pass":               pass,
-				"lint_scope":         lintScope,
-				"validation_errors":  valErrsJSON,
-				"lint_findings":      lintJSON2,
-				"gate_blockers":      blockers,
-				"lint_count":         lintTotal,
-				"findings_omitted":   lintTotal - len(lintJSON2),
-				"counts_by_check":    countsByCheck,
-				"counts_by_severity": countsBySeverity,
+				"pass":              pass,
+				"lint_scope":        lintScope,
+				"validation_errors": valErrsJSON,
+				"lint_findings":     lintJSON2,
+				"gate_blockers":     blockers,
+				"lint_count":        lintTotal,
+				"counts_by_check":   countsByCheck,
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
@@ -631,7 +592,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {
 	return Tool{
 		Name:        "kb_status",
-		Description: "KB health in one call: concept counts, stale concepts, contradictions and gaps, git replication, capabilities (gate, state, key), source and search-miss counts, versions, conformance {findings by severity, fixable, last_doctor, doctor_suggested} (when doctor_suggested is true, follow the kb-doctor skill), usage of skills and agents. Read-only.",
+		Description: "KB health in one call: concept counts, stale concepts, contradictions and gaps, git replication, capabilities (gate, state, key), source and search-miss counts, versions, conformance {findings, fixable, last_doctor, doctor_suggested} (when doctor_suggested is true, follow the kb-doctor skill), usage of skills and agents. Read-only.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {

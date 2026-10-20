@@ -40,7 +40,7 @@ func TestAddedRepeatedFacts(t *testing.T) {
 		t.Fatalf("want one finding in one lookup: %+v used=%d", got, used)
 	}
 	f := got[0]
-	if f.Check != "repeated_fact" || f.Severity != SevInfo || f.Path != "m/c.md" || f.Fix != nil {
+	if f.Check != "repeated_fact" || f.Path != "m/c.md" || f.Fix != nil {
 		t.Fatalf("shape: %+v", f)
 	}
 	if !strings.Contains(f.Message, "m/a, m/b") || !strings.Contains(f.Message, "nightly job") {

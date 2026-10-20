@@ -25,7 +25,7 @@ func TestRun_ForbiddenTerm(t *testing.T) {
 		t.Fatalf("forbidden_term = %+v, want two findings on arch/prose.md", got)
 	}
 	for _, f := range got {
-		if f.Path != "arch/prose.md" || f.Severity != SevWarning {
+		if f.Path != "arch/prose.md" {
 			t.Errorf("finding %+v", f)
 		}
 	}

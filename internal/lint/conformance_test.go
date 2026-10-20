@@ -27,7 +27,7 @@ func TestNonstandardField(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := findingFor(findings, "kb-a/alone.md", "nonstandard_field")
-	if f == nil || f.Severity != SevWarning || f.Fix == nil || !reflect.DeepEqual(*f.Fix, Fix{Kind: FixRenameField, Field: "aggiornato", To: "timestamp"}) {
+	if f == nil || f.Fix == nil || !reflect.DeepEqual(*f.Fix, Fix{Kind: FixRenameField, Field: "aggiornato", To: "timestamp"}) {
 		t.Fatalf("alone: %+v", f)
 	}
 	f = findingFor(findings, "kb-a/both.md", "nonstandard_field")
@@ -86,7 +86,7 @@ func TestToolParamField(t *testing.T) {
 	writeFile(t, k.DataRoot(), "kb-a/bad.md", "---\ntype: Note\ntitle: B\nif_match: abc\n---\nx\n")
 	findings, _ := Run(k, "", false)
 	f := findingFor(findings, "kb-a/bad.md", "tool_param_field")
-	if f == nil || f.Severity != SevWarning || f.Fix == nil || !reflect.DeepEqual(*f.Fix, Fix{Kind: FixDropField, Field: "if_match"}) {
+	if f == nil || f.Fix == nil || !reflect.DeepEqual(*f.Fix, Fix{Kind: FixDropField, Field: "if_match"}) {
 		t.Fatalf("%+v", f)
 	}
 }
@@ -102,13 +102,10 @@ func valueContractKBField(t *testing.T, mapFM string, values []string, field str
 	for i, v := range values {
 		writeFile(t, k.DataRoot(), fmt.Sprintf("kb-a/t%d.md", i), fmt.Sprintf("---\ntype: Task\ntitle: T%d\n%s: %s\n---\nx\n", i, field, v))
 	}
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	findings := observed(t, k)
 	if f := findingFor(findings, "kb-a/_map.md", "missing_value_contract"); f != nil {
-		if f.Severity != SevInfo || f.Fix != nil {
-			t.Errorf("bad severity/fix: %+v", f)
+		if f.Fix != nil {
+			t.Errorf("an observation carries no fix: %+v", f)
 		}
 		return f.Message
 	}
@@ -156,7 +153,7 @@ func TestMissingValueContract_MapWideWhenTypesMixed(t *testing.T) {
 		}
 		writeFile(t, k.DataRoot(), fmt.Sprintf("kb-a/c%d.md", i), fmt.Sprintf("---\ntype: %s\ntitle: C%d\nphase: p%d\n---\nx\n", typ, i, i%2))
 	}
-	findings, _ := Run(k, "", false)
+	findings := observed(t, k)
 	f := findingFor(findings, "kb-a/_map.md", "missing_value_contract")
 	if f == nil || !strings.Contains(f.Message, "field_values.phase: [p0, p1]") {
 		t.Fatalf("%+v", f)
@@ -170,7 +167,7 @@ func TestMissingValueContract_SkipsStandardAndSynonyms(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		writeFile(t, k.DataRoot(), fmt.Sprintf("kb-a/c%d.md", i), "---\ntype: Note\ntitle: same\nstato: open\ndescription: same\n---\nx\n")
 	}
-	findings, _ := Run(k, "", false)
+	findings := observed(t, k)
 	if hasCheck(findings, "kb-a/_map.md", "missing_value_contract") {
 		t.Fatalf("title/description/synonym must not be suggested: %+v", findings)
 	}
@@ -232,8 +229,6 @@ func TestMalformedFrontmatter_Detected(t *testing.T) {
 	findings, _ := Run(k, "", false)
 	if f := findingFor(findings, "kb-a/bad.md", "malformed_frontmatter"); f == nil {
 		t.Fatal("malformed_frontmatter not detected")
-	} else if f.Severity != SevWarning {
-		t.Errorf("wrong severity: %s", f.Severity)
 	}
 	if hasCheck(findings, "kb-a/good.md", "malformed_frontmatter") {
 		t.Error("false positive on well-formed block list")
@@ -247,7 +242,7 @@ func TestMissingValueContract_ProvenanceExcluded(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		writeFile(t, k.DataRoot(), fmt.Sprintf("kb-a/c%d.md", i), "---\ntype: Note\ntitle: same\nprovenance: same\ntags: same\nresource: same\nsecrets_source: same\n---\nx\n")
 	}
-	findings, _ := Run(k, "", false)
+	findings := observed(t, k)
 	if hasCheck(findings, "kb-a/_map.md", "missing_value_contract") {
 		t.Errorf("provenance/tags/resource/secrets_source should be excluded: %+v", findings)
 	}

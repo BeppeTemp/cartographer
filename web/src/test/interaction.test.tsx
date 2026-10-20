@@ -6,7 +6,7 @@ import { NodeList } from "../components/NodeList";
 import { LeftRail } from "../components/LeftRail";
 import { Health } from "../components/Health";
 import { json, stubApi } from "./fixtures";
-import type { GraphNode, KBStatus, LintReport, MaintenanceReview, MaintenanceSummary, Overview } from "../api/types";
+import type { GraphNode, KBStatus, LintReport, MaintenanceSummary, Overview } from "../api/types";
 
 const nodes: GraphNode[] = [
   { id: "infra/gateway", collection: "infra", type: "Service", in_degree: 4, out_degree: 1 },
@@ -121,17 +121,14 @@ describe("node list", () => {
 
 const report: LintReport = {
   findings: [
-    { path: "infra/gateway.md", concept: "infra/gateway", check: "broken_link", severity: "error", message: "target missing", handler: "doctor" },
-    { path: "maps/infra", check: "index_incomplete", severity: "warning", message: "index is stale", handler: "doctor" },
-    { path: "infra/a.md", concept: "infra/a", check: "nonstandard_field", severity: "warning", message: "field aggiornato", handler: "auto" },
-    { path: "infra/b.md", concept: "infra/b", check: "nonstandard_field", severity: "warning", message: "field aggiornato", handler: "auto" },
-    { path: "infra/c.md", concept: "infra/c", check: "title_quality", severity: "info", message: "title is long", handler: "doctor" },
+    { path: "infra/gateway.md", concept: "infra/gateway", check: "broken_link", message: "target missing", handler: "doctor" },
+    { path: "maps/infra", check: "index_incomplete", message: "index is stale", handler: "doctor" },
+    { path: "infra/a.md", concept: "infra/a", check: "nonstandard_field", message: "field aggiornato", handler: "auto" },
+    { path: "infra/b.md", concept: "infra/b", check: "nonstandard_field", message: "field aggiornato", handler: "auto" },
+    { path: "infra/c.md", concept: "infra/c", check: "title_quality", message: "title is long", handler: "doctor" },
   ],
   count: 5,
-  total: 5,
-  by_severity: { error: 1, warning: 3, info: 1 },
   by_check: { broken_link: 1, index_incomplete: 1, nonstandard_field: 2, title_quality: 1 },
-  severity_min: "info",
 };
 
 const upkeep: MaintenanceSummary = {
@@ -144,10 +141,10 @@ const upkeep: MaintenanceSummary = {
 const catalog = {
   categories: ["pages", "links"],
   checks: [
-    { name: "nonstandard_field", category: "pages", severity: "warning", fixable: true, auto: true },
-    { name: "machine_path", category: "pages", severity: "warning", fixable: false, auto: false },
-    { name: "broken_link", category: "links", severity: "warning", fixable: true, auto: false },
-    { name: "orphan", category: "links", severity: "warning", fixable: false, auto: false },
+    { name: "nonstandard_field", category: "pages", fixable: true, auto: true },
+    { name: "machine_path", category: "pages", fixable: false, auto: false },
+    { name: "broken_link", category: "links", fixable: true, auto: false },
+    { name: "orphan", category: "links", fixable: false, auto: false },
   ],
 };
 
@@ -159,7 +156,6 @@ function health(
     status: KBStatus | null;
     summary: MaintenanceSummary | null;
     checks: typeof catalog | null;
-    review: MaintenanceReview | null;
     collections: { name: string; title: string; kind: string; concepts: number; expanded_concepts: number }[];
     onReveal: (concept: string | null, message: string) => void;
   }> = {},
@@ -170,7 +166,6 @@ function health(
       status={props.status ?? null}
       summary={props.summary ?? null}
       checks={"checks" in props ? props.checks : catalog}
-      review={"review" in props ? props.review : { items: [] }}
       collections={props.collections}
       allFindings={(props.report ?? report).findings}
       scopeTitle={props.scopeTitle ?? null}
@@ -196,14 +191,18 @@ describe("health issues", () => {
     expect(screen.getByText(/^5 occurrences in all/)).toBeInTheDocument();
   });
 
-  it("lists problems broken-first then heaviest, and the notes as suggestions", () => {
+  // A lint finding is a problem (D947): one band, the heaviest row first, and no
+  // row ranks above another for being "broken" or "a suggestion".
+  it("lists every finding as a problem, the heaviest first, in one band", () => {
     render(health());
     expect(rowLabels("Problems").map((l) => l?.replace(/\s+/g, " ").trim())).toEqual([
-      "brokenBroken links",
       "Non-standard field names fixes itself",
+      "Broken links",
       "Indexes missing pages",
+      "Titles to tighten",
     ]);
-    expect(rowLabels("Suggestions")).toEqual(["Titles to tighten"]);
+    expect(screen.queryByRole("group", { name: "Suggestions" })).not.toBeInTheDocument();
+    expect(screen.queryByText("broken")).not.toBeInTheDocument();
   });
 
   it("opens a row to what it is, how to fix it, and the page", async () => {
@@ -233,25 +232,13 @@ describe("health issues", () => {
     expect(screen.getByText(/Nothing to do: Cartographer fixes it by itself/)).toBeInTheDocument();
   });
 
-  it("lists the review's proposals as suggestions, a map's contract not as a page", async () => {
-    const user = userEvent.setup();
-    render(
-      health({
-        review: {
-          items: [
-            { kind: "glossary_gap", term: "LXC", concepts: ["infra/a", "infra/b"], evidence: "", suggested_action: "", weight: 2 },
-            { kind: "template_proposal", concepts: ["infra/_map"], evidence: "4 pages share a shape", suggested_action: "", weight: 1 },
-          ],
-        },
-      }),
-    );
-    expect(rowLabels("Suggestions")).toEqual(expect.arrayContaining(["Terms nobody defines", "Templates to adopt"]));
-    await user.click(screen.getByText("Terms nobody defines"));
-    const terms = document.getElementById("review-glossary_gap")!;
-    await user.click(within(terms).getByRole("button", { name: /2 pages/ }));
-    expect(within(terms).getByRole("button", { name: "a" })).toHaveAttribute("title", "infra/a");
-    await user.click(screen.getByText("Templates to adopt"));
-    expect(screen.queryByRole("button", { name: "_map" })).not.toBeInTheDocument();
+  // The doctor's proposals (kb_review) and the observations are decisions, not
+  // problems: Health shows lint findings only (D947).
+  it("shows only lint problems: nothing of the doctor's list", () => {
+    render(health());
+    expect(screen.queryByRole("group", { name: "Suggestions" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Templates to adopt")).not.toBeInTheDocument();
+    expect(screen.queryByText("Terms nobody defines")).not.toBeInTheDocument();
   });
 
   it("leaves out what a narrowed principal cannot read, and keeps the issues", () => {
@@ -267,18 +254,26 @@ describe("health page field", () => {
     ...report,
     findings: [
       ...report.findings,
-      { path: "infra/gateway.md", concept: "infra/gateway", check: "title_quality", severity: "info", message: "long", handler: "doctor" },
+      { path: "infra/gateway.md", concept: "infra/gateway", check: "title_quality", message: "long", handler: "doctor" },
     ],
   };
 
-  it("splits a page with a problem and a suggestion, and leaves the clean ones plain", () => {
+  it("marks a page that has a problem in one colour, and leaves the clean ones plain", () => {
     const { container } = render(health({ report: both, collections }));
-    expect(container.querySelector('.pfield__dot[title="infra/gateway"]')).toHaveAttribute("data-both");
-    expect(container.querySelector('.pfield__dot[title="infra/c"]')).toHaveAttribute("data-tone", "info");
+    expect(container.querySelector('.pfield__dot[title="infra/gateway"]')).toHaveAttribute("data-problem");
+    expect(container.querySelector('.pfield__dot[title="infra/c"]')).toHaveAttribute("data-problem");
+    expect(container.querySelector("[data-both]")).toBeNull();
     expect(container.querySelectorAll(".pfield__dot:not([data-page])")).toHaveLength(1);
   });
 
-  it("lights the pages of the row under the pointer, in that row's colour", async () => {
+  it("names its two states: has problems, fine", () => {
+    const { container } = render(health({ report: both, collections }));
+    expect(container.querySelector(".pfield__legend")).toHaveTextContent("has problems");
+    expect(container.querySelector(".pfield__legend")).toHaveTextContent("fine");
+    expect(container.querySelector(".pfield__legend")).not.toHaveTextContent(/suggestion|both/);
+  });
+
+  it("lights the pages of the row under the pointer", async () => {
     const user = userEvent.setup();
     const { container } = render(health({ report: both, collections }));
     await user.hover(screen.getByText("Broken links"));
@@ -286,7 +281,8 @@ describe("health page field", () => {
     expect(container.querySelector('.pfield__dot[title="infra/gateway"]')).toHaveAttribute("data-lit");
     expect(container.querySelector('.pfield__dot[title="infra/c"]')).not.toHaveAttribute("data-lit");
     await user.hover(screen.getByText("Titles to tighten"));
-    expect(container.querySelector(".pfield")).toHaveAttribute("data-focus", "suggestion");
+    expect(container.querySelector('.pfield__dot[title="infra/c"]')).toHaveAttribute("data-lit");
+    expect(container.querySelector('.pfield__dot[title="infra/gateway"]')).toHaveAttribute("data-lit");
   });
 });
 
@@ -294,7 +290,6 @@ describe("health: what it checks", () => {
   const day = (daysAgo: number, total: number) => ({
     at: new Date(Date.now() - daysAgo * 86_400_000).toISOString(),
     total,
-    by_severity: {},
     by_handler: {},
   });
 
@@ -322,7 +317,7 @@ describe("health: what it checks", () => {
         checks: {
           categories: ["links"],
           checks: [
-            { name: "forbidden_term", category: "links", severity: "warning", fixable: false, auto: false, active: false, reason: "glossary.yaml declares no forbidden term" } as (typeof catalog)["checks"][number],
+            { name: "forbidden_term", category: "links", fixable: false, auto: false, active: false, reason: "glossary.yaml declares no forbidden term" } as (typeof catalog)["checks"][number],
           ],
         },
       }),
@@ -394,7 +389,7 @@ describe("health scope", () => {
   });
 
   it("does not let a clean Map read as a clean KB", () => {
-    const clean: LintReport = { ...report, findings: [], count: 0, total: 0, by_severity: {}, by_check: {} };
+    const clean: LintReport = { ...report, findings: [], count: 0, by_check: {} };
     render(health({ report: clean, scopeTitle: "Infrastructure" }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("No issues found in Infrastructure");
     expect(screen.queryByText(/This KB passes/)).not.toBeInTheDocument();

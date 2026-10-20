@@ -206,17 +206,9 @@ export function fetchConcept(kb: string, id: string, signal?: AbortSignal): Prom
   return get<Concept>(`/kbs/${encodeURIComponent(kb)}/concept?id=${encodeURIComponent(id)}`, signal);
 }
 
-export function fetchLint(
-  kb: string,
-  severityMin: string,
-  scope: string | null,
-  signal?: AbortSignal,
-): Promise<LintReport> {
-  const scoped = scope ? `&scope=${encodeURIComponent(scope)}` : "";
-  return get<LintReport>(
-    `/kbs/${encodeURIComponent(kb)}/lint?severity_min=${encodeURIComponent(severityMin)}${scoped}`,
-    signal,
-  );
+export function fetchLint(kb: string, scope: string | null, signal?: AbortSignal): Promise<LintReport> {
+  const scoped = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+  return get<LintReport>(`/kbs/${encodeURIComponent(kb)}/lint${scoped}`, signal);
 }
 
 /** includeArchived asks for archived pages too; a search leaves them out by default (D820). */

@@ -71,7 +71,7 @@ for (const node of graph.nodes) {
 }
 save("search-index", index);
 
-await api(`${k}/lint?severity_min=info`);
+await api(`${k}/lint`);
 // Activity's windows (web/src/components/Activity.tsx, SINCE).
 for (const since of ["1d", "7d", "30d", "90d", "365d", "36500d"]) {
   await api(`${k}/changes?since=${q(since)}&limit=500`);

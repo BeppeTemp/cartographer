@@ -19,9 +19,8 @@ import (
 
 // Artifact checks (D316): lint covers what a KB ships next to its concepts —
 // skills, agents, instructions.md — and the junk files committed with them,
-// not only the concepts and hooks. Every check here is deterministic and
-// warning or info: the artifact is already in the KB, and the fix is its
-// author's.
+// not only the concepts and hooks. Every check here is deterministic: the
+// artifact is already in the KB, and the fix is its author's.
 
 // Options carries the inputs lint cannot read from the KB itself.
 type Options struct {
@@ -30,16 +29,6 @@ type Options struct {
 	// for a single-KB server. checkCrossKBPaths uses it to detect hard-coded
 	// cross-KB references in artifacts.
 	CrossKBRoots map[string]string
-
-	// Usage is the per-artifact usage the clients reported (D326), keyed by
-	// kb.UsageKey. Nil means no client ever reported — a fresh KB, the scan
-	// switched off, no supported client — and artifact_unused stays silent:
-	// the absence of a signal is not evidence of disuse.
-	Usage map[string]kb.UsageSummary
-	// UsageStaleDays is the age past which a used artifact is reported as
-	// unused (kb.Policy.UsageStale: never under 7, D906). Run fills both from
-	// the KB.
-	UsageStaleDays int
 }
 
 // missingInstructionsThreshold is the concept count above which a KB with no
@@ -216,7 +205,6 @@ func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount i
 	}
 	findings = append(findings, checkCrossKBPaths(files, opts.CrossKBRoots)...)
 	findings = append(findings, checkSkillMissingPerimeter(skills, instr.perimeter)...)
-	findings = append(findings, checkArtifactUnused(k, skills, opts, time.Now())...)
 	if instr.legacyAccept {
 		findings = append(findings, legacyAcceptFinding())
 	}
@@ -750,7 +738,7 @@ const (
 
 // UsageState classifies one artifact against the usage reports. seen is false
 // for an artifact absent from them. kb_status counts by it and
-// artifact_unused reports by it, so the two cannot disagree.
+// the Artifacts panel reports by it, so the two cannot disagree.
 func UsageState(u kb.UsageSummary, seen bool, staleDays int, now time.Time) string {
 	switch {
 	case !seen || u.LastUsed.IsZero():
@@ -761,26 +749,6 @@ func UsageState(u kb.UsageSummary, seen bool, staleDays int, now time.Time) stri
 		return UsageStale
 	}
 	return UsageActive
-}
-
-// recentlyAdded returns the KB-root-relative paths added (or renamed into
-// place) since the given instant, from one git log over that window. A KB
-// that is not a git repository, or whose history cannot be read, has none:
-// the check then reports as before rather than going silent.
-func recentlyAdded(root string, since time.Time) map[string]bool {
-	commits, err := gitx.LogNameStatus(root, since)
-	if err != nil {
-		return nil
-	}
-	out := map[string]bool{}
-	for _, c := range commits {
-		for _, f := range c.Files {
-			if f.Status == "A" || f.Status == "R" {
-				out[f.Path] = true
-			}
-		}
-	}
-	return out
 }
 
 // UsageArtifact is a skill or agent the KB ships, as usage tracking sees it.
@@ -810,42 +778,4 @@ func usageArtifacts(k *kb.KB, skills []skill.Skill) []UsageArtifact {
 		}
 	}
 	return items
-}
-
-// checkArtifactUnused reports the skills and agents no client has activated
-// for opts.UsageStaleDays (D326): a candidate for retirement, or a sign it is
-// broken (twelve skills of fifty had never been read when this was measured).
-// Info, because the signal is partial by construction — a provider with no
-// readable transcript contributes nothing, and a Codex catalogue load proves
-// availability, not use — so it never blocks a gate.
-func checkArtifactUnused(k *kb.KB, skills []skill.Skill, opts Options, now time.Time) []Finding {
-	if opts.Usage == nil {
-		return nil
-	}
-	recent := recentlyAdded(k.Root, now.AddDate(0, 0, -opts.UsageStaleDays))
-	var findings []Finding
-	for _, it := range usageArtifacts(k, skills) {
-		u, seen := opts.Usage[kb.UsageKey(it.Kind, it.Name)]
-		days := int(now.Sub(u.LastUsed).Hours() / 24)
-		f := newFinding("artifact_unused", Finding{Path: it.Path})
-		state := UsageState(u, seen, opts.UsageStaleDays, now)
-		// D336: an artifact added inside the threshold has not had the time
-		// to be used — "never" says nothing yet, as "stale" would not.
-		if (state == UsageNever || state == UsageCatalog) && recent[it.Path] {
-			continue
-		}
-		switch state {
-		case UsageNever:
-			f.Message = fmt.Sprintf("%s %q has never been activated by any client (no signal in session transcripts)", it.Kind, it.Name)
-		case UsageCatalog:
-			// Only a catalogue load: the client listed it, nothing shows it was used.
-			f.Message = fmt.Sprintf("%s %q has never been seen activated; a client last loaded its catalogue %d days ago (%s)", it.Kind, it.Name, days, u.Provider)
-		case UsageStale:
-			f.Message = fmt.Sprintf("%s %q was last activated %d days ago (by %s) — consider retiring or updating it", it.Kind, it.Name, days, u.Provider)
-		default:
-			continue
-		}
-		findings = append(findings, f)
-	}
-	return findings
 }

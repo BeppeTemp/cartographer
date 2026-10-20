@@ -142,15 +142,25 @@ make worktree-rm  SLUG=my-change    # after the PR is merged; --force, so check 
 
 A check is declared once, in `internal/lint/registry.go` (D354); every table that used to list
 checks by hand (who may accept it, whether `kb_repair` can fix it, whether the unattended repairs run it,
-the Artifacts panel, what a write response evaluates) is derived from that entry. Three edits, nothing else:
+the Artifacts panel, what a write response evaluates) is derived from that entry.
 
-1. **Register the spec**: a `CheckSpec` with its `Name`, default `Severity`, `Level`, `Accept`, its
+**First decide it is a check** (D947). A lint finding is a problem: it has no severity, and the gate
+passes only at zero. A check stays in the lint only if it has a definite fix, a state of the KB
+that makes it disappear and is always better than the current one. If a reasonable maintainer could
+look at the finding and decide "this is fine as it is", it is not a check but an *observation*
+(`ObservationSpec` in `internal/lint/observations.go`): `kb_review` lists it as an item of kind
+`observation`, with a fixture and a closing page state in `observations_test.go`, and no lint entry
+point, write response or gate ever returns it. If it is not worth even that, do not add it.
+
+Then three edits, nothing else:
+
+1. **Register the spec**: a `CheckSpec` with its `Name`, `Level`, its
    reader's `Category` (D365: the Atlas Health panel lists every check by it; give the check a
    plain-words label in `web/src/lib/health.ts` too), and the flags that apply (`FixKinds`, `AutoRepairSafe`, `OnWrite`, `Judgement`…). A `LevelConcept` check
    is computed in `conceptFindings` (`internal/lint/conceptcheck.go`), which `lint` and the write path
    share; graph, map and artifact checks keep their dedicated pass and only register here.
-2. **Emit through the constructor**: `newFinding("<name>", Finding{Path: …, Message: …})`. It fills the
-   severity from the spec (an unregistered name panics under test); a `Finding{…}` literal that sets
+2. **Emit through the constructor**: `newFinding("<name>", Finding{Path: …, Message: …})`. An
+   unregistered name panics under test; a `Finding{…}` literal that sets
    `Check` fails `TestNoFindingLiteralOutsideRegistry`.
 3. **Regenerate the catalogue** in `docs/data-plane.md`:
    `go test ./internal/repodocs -run TestLintCatalogueIsUpToDate -args -update`, then add the prose

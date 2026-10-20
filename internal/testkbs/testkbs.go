@@ -907,8 +907,7 @@ func (g *kbgen) localState(root string) error {
 	for d := 89; d >= 1; d-- {
 		total := base + d/3 + g.r.n(6)
 		enc(&hist, map[string]any{"at": g.day.AddDate(0, 0, -d).Add(6 * time.Hour).Format(time.RFC3339), "total": total,
-			"by_severity": map[string]int{"error": total / 10, "warning": total / 3, "info": total - total/10 - total/3},
-			"by_handler":  map[string]int{"auto": total / 4, "agent": total / 2, "human": total - total/4 - total/2}})
+			"by_handler": map[string]int{"auto": total / 4, "agent": total / 2, "human": total - total/4 - total/2}})
 	}
 	for i, q := range []string{"glacier retreat", "kiln temperature", "how to file a source", "budget 2026", "onboarding", "glacier retreat"} {
 		enc(&misses, map[string]string{"at": g.day.AddDate(0, 0, -i*3-1).Format(time.RFC3339), "query": q})

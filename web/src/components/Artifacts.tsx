@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { fetchArtifact } from "../api/client";
-import type { Artifact, ArtifactFile, ArtifactFinding, ArtifactKindInfo, ArtifactList } from "../api/types";
+import type { Artifact, ArtifactFile, ArtifactKindInfo, ArtifactList } from "../api/types";
 import { DocsLink } from "./DocsLink";
 import { Markdown } from "./Markdown";
 import { Count, FilterChip, FilterChips, Hero, HeroRow, Page, PageHeader } from "./Page";
-import { SeverityBadge } from "./SeverityBadge";
+import { FindingBadge } from "./FindingBadge";
 import { EmptyState, ErrorState, Skeleton } from "./States";
 
 /** What each kind is, said once where the overview introduces it. */
@@ -52,8 +52,6 @@ type Slice = "used" | "idle" | "flagged" | null;
 
 export const artifactId = (a: Pick<Artifact, "kind" | "name">) => `${a.kind}/${a.name}`;
 
-const SEVERITIES = ["error", "warning", "info"];
-
 /** Past this many days without a use, an artifact is flagged (the server's default, D326). */
 const STALE_DAYS = 42;
 const ACTIVE_DAYS = 7;
@@ -73,11 +71,6 @@ export function lastUsed(a: Artifact): { text: string; tone: "active" | "normal"
   if (a.last_used_catalog_only) return { text: `catalogue loaded ${when}${provider}, no use seen`, tone: "stale" };
   const tone = days <= ACTIVE_DAYS ? "active" : days > STALE_DAYS ? "stale" : "normal";
   return { text: `${when}${provider}`, tone };
-}
-
-/** The most severe level among an artifact's findings. */
-function worstSeverity(findings: ArtifactFinding[]): string {
-  return SEVERITIES.find((s) => findings.some((f) => f.severity === s)) ?? "info";
 }
 
 function formatBytes(n: number): string {
@@ -308,9 +301,7 @@ export function Artifacts({
                       >
                         <span className="catalog__tile-head">
                           <span className="catalog__tile-name">{a.name}</span>
-                          {!!a.findings?.length && (
-                            <SeverityBadge severity={worstSeverity(a.findings)} count={a.findings.length} />
-                          )}
+                          {!!a.findings?.length && <FindingBadge count={a.findings.length} />}
                         </span>
                         {a.description && (
                           <span className="catalog__tile-desc" title={a.description}>
@@ -579,7 +570,7 @@ function ArtifactDetail({
           <ul aria-label="Artifact findings">
             {artifact.findings.map((f, i) => (
               <li key={`${f.check}-${i}`}>
-                <SeverityBadge severity={f.severity} /> <code>{f.check}</code> {f.message}
+                <code>{f.check}</code> {f.message}
               </li>
             ))}
           </ul>
@@ -714,23 +705,13 @@ function FileContent({ file, known = {} }: { file: ArtifactFile; known?: Record<
   );
 }
 
-/** The panel's health line (D316): every artifact finding, by severity. */
+/** The panel's health line (D316): every artifact finding, counted. */
 function FindingSummary({ list }: { list: ArtifactList }) {
-  const bySeverity = list.finding_severities ?? {};
-  const total = Object.values(bySeverity).reduce((a, b) => a + b, 0);
+  const total = Object.values(list.finding_counts ?? {}).reduce((a, b) => a + b, 0);
   if (total === 0) return <span className="artifacts__health">No artifact findings</span>;
   return (
     <span className="artifacts__health">
-      {SEVERITIES.filter((s) => (bySeverity[s] ?? 0) > 0).map((s, i) => (
-        <span key={s}>
-          {i > 0 && <span aria-hidden="true"> · </span>}
-          <SeverityBadge severity={s} count={bySeverity[s]} />
-        </span>
-      ))}
-      <span>
-        {" "}
-        — {total} finding{total === 1 ? "" : "s"} across artifacts
-      </span>
+      {total} finding{total === 1 ? "" : "s"} across artifacts
     </span>
   );
 }

@@ -11,7 +11,6 @@ import {
   fetchArtifacts,
   fetchLint,
   fetchMaps,
-  fetchMaintenanceReview,
   fetchMaintenanceSummary,
   fetchOverview,
   fetchStatus,
@@ -32,7 +31,6 @@ import type {
   KBSummary,
   LintReport,
   MapContract,
-  MaintenanceReview,
   MaintenanceSummary,
   Overview,
 } from "./api/types";
@@ -137,11 +135,9 @@ export function App() {
   const [kbStatus, setKbStatus] = useState<KBStatus | null>(null);
   const [maintenance, setMaintenance] = useState<MaintenanceSummary | null>(null);
   const [checks, setChecks] = useState<CheckCatalog | null>(null);
-  // The doctor's agenda beyond lint (D704); null leaves it out of Health.
-  const [review, setReview] = useState<MaintenanceReview | null>(null);
   const [contradictions, setContradictions] = useState<Contradiction[] | null>(null);
   const [conflicts, setConflicts] = useState<GitConflict[] | null>(null);
-  // Health's review and checks have answered (or failed) for the current read.
+  // Health's checks have answered (or failed) for the current read.
   const [healthSettled, setHealthSettled] = useState(false);
   // The KB Health's reads above belong to (D704).
   const healthKB = useRef<string | null>(null);
@@ -516,9 +512,9 @@ export function App() {
     if (!activeKB || phase !== "ready") return;
     const controller = new AbortController();
     setLintLoading(true);
-    // The whole KB, every severity: Health groups them itself, suggestions
-    // folded away, and its Map chips filter this report in the page.
-    fetchLint(activeKB, "info", null, controller.signal)
+    // The whole KB, every finding (a finding is a problem, D947): Health groups
+    // them itself, and its Map chips filter this report in the page.
+    fetchLint(activeKB, null, controller.signal)
       .then((data) => {
         setLintAll(data);
         setLintError(null);
@@ -554,14 +550,12 @@ export function App() {
 
   // Health's whole-KB reads (D338): kb_status and the maintenance summary
   // answer 404 to a principal that cannot see the whole KB, which is not an
-  // error to show — the page leaves those parts out. The review items are
-  // filtered per principal and always answer.
+  // error to show — the page leaves those parts out.
   useEffect(() => {
     if (view.panel !== "health" || !activeKB || phase !== "ready") {
       setKbStatus(null);
       setMaintenance(null);
       setChecks(null);
-      setReview(null);
       setContradictions(null);
       setConflicts(null);
       setHealthSettled(false);
@@ -574,7 +568,6 @@ export function App() {
       setKbStatus(null);
       setMaintenance(null);
       setChecks(null);
-      setReview(null);
       setContradictions(null);
       setConflicts(null);
       setHealthSettled(false);
@@ -597,11 +590,7 @@ export function App() {
         if (!controller.signal.aborted) handleFailure(err);
       });
     // The coverage list: without it Health simply leaves the section out.
-    const sources = [
-      fetchChecks(activeKB, controller.signal).then(setChecks),
-      fetchMaintenanceReview(activeKB, controller.signal).then(setReview),
-    ];
-    void Promise.allSettled(sources).then(() => {
+    void Promise.allSettled([fetchChecks(activeKB, controller.signal).then(setChecks)]).then(() => {
       if (!controller.signal.aborted) setHealthSettled(true);
     });
     return () => controller.abort();
@@ -894,7 +883,6 @@ export function App() {
               status={kbStatus}
               summary={maintenance}
               checks={checks}
-              review={review}
               contradictions={contradictions}
               conflicts={conflicts}
               pending={!healthSettled}

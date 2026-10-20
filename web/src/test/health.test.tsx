@@ -46,7 +46,9 @@ describe("the Health panel", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("lists the review's proposals beside the lint issues", async () => {
+  // Health shows lint problems only (D947): the doctor's proposals and the
+  // observations are decisions, listed elsewhere, and Health does not even ask.
+  it("does not list the review's proposals beside the lint problems", async () => {
     stubApi({
       "/maintenance/summary": () => json(summary),
       "/maintenance/review": () =>
@@ -56,7 +58,10 @@ describe("the Health panel", () => {
     });
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Health" });
-    expect(await within(panel).findByText("Possible duplicates")).toBeInTheDocument();
+    expect(await within(panel).findByText(/No open contradictions/)).toBeInTheDocument();
+    expect(within(panel).queryByText("Possible duplicates")).not.toBeInTheDocument();
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock.mock.calls.map((c) => String(c[0])).filter((u) => u.includes("/maintenance/review"))).toEqual([]);
   });
 
   it("lands the old Maintenance and Observatory links on Health", async () => {

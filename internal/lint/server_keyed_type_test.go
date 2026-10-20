@@ -10,11 +10,14 @@ import (
 
 func keyedPage(typ string) string { return "---\ntype: " + typ + "\ntitle: P\n---\n# P\n" }
 
-// paletteKB is a KB whose only declared type is Runbook.
+// paletteKB is a KB whose only declared type is Runbook, in a map that adopted
+// it (templates: [runbook]): outside such a map an undeclared type is no finding
+// at all (D947).
 func paletteKB(t *testing.T, files map[string]string) []Finding {
 	t.Helper()
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/runbook.md", "---\ntype: Runbook\ntitle: Runbook\n---\n# {{title}}\n")
+	writeFile(t, k.DataRoot(), "arch/_map.md", "---\ntype: Map\nkind: map\ntitle: Arch\ntemplates: [runbook]\n---\n# Arch\n")
 	for rel, content := range files {
 		writeFile(t, k.DataRoot(), rel, content)
 	}
@@ -40,7 +43,7 @@ func TestKeyedTypesAreKnownWithAPalette(t *testing.T) {
 	}
 }
 
-func TestKeyedTypeMisspellingStaysInfo(t *testing.T) {
+func TestKeyedTypeMisspellingHasNoFix(t *testing.T) {
 	t.Parallel()
 	got := findingsOf(paletteKB(t, map[string]string{
 		"arch/s.md": keyedPage("source"),
@@ -50,8 +53,8 @@ func TestKeyedTypeMisspellingStaysInfo(t *testing.T) {
 		t.Fatalf("findings: %+v", got)
 	}
 	for _, f := range got {
-		if f.Severity != SevInfo || f.Fix != nil {
-			t.Errorf("misspelling must stay info with no fix: %+v", f)
+		if f.Fix != nil {
+			t.Errorf("a misspelling has no fix: %+v", f)
 		}
 	}
 }
@@ -99,7 +102,7 @@ func TestKeyedTypeInAStrictMapKeepsTheWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := findingsOf(f, "unknown_type")
-	if len(got) != 1 || got[0].Severity != SevWarning || got[0].Fix != nil {
+	if len(got) != 1 || got[0].Fix != nil {
 		t.Fatalf("findings: %+v", got)
 	}
 	if !strings.Contains(got[0].Message, "map_update") || strings.Contains(got[0].Message, "set type to a declared one") {

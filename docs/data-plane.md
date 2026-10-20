@@ -101,7 +101,7 @@ An **asset** is a regular, non-Markdown file inside an expanded concept director
 
 **Searchable text (D277).** `search` indexes the text of an owner's assets into the owner's own document, so a value that lives only in an inventory CSV, a config or a script finds the owner; the file is then found with `asset_list` and `asset_read`. An asset is indexed only if all hold: its extension is one of `.txt .csv .tsv .json .yaml .yml .toml .ini .conf .cfg .sh .ps1 .py .go .sql .xml .log`; it is not `oversized`; it is valid UTF-8 without NUL bytes, of which the first 256 KiB count (the rest is ignored). Binary formats (PDF, DOCX, images) are not extracted — that needs a dependency; write their content into the concept instead. The indexed text is the assets in path order, each as `<path>\n<text>`, so a path is searchable too. Changes are detected by stat signature (path, size, mtime), not by content, so an asset edited in place on disk is picked up by the next `search`.
 
-An asset is **not** a concept: it has no frontmatter or ConceptID, is never emitted by `WalkConcepts`, validated as OKF, or made a graph node. Its text is searchable through its owner (D277, below); the asset itself is never a search hit. A dossier document can link to it with a relative Markdown file link. Lint reports a junk asset (`__pycache__/…`, `*.pyc`, see `data/.gitignore` above) as `junk_asset` (warning, delete it with `asset_delete`) and never as `orphan_asset`, an uncited asset as `orphan_asset` (info), one above the cap as `oversized_asset` (warning), and an owner whose assets cannot be listed (a symlink or special file inside it) as `unlistable_assets` (warning) rather than aborting the run. Moving an expanded concept moves its assets with it; inbound links from outside that directory to an asset are not rewritten. Deleting one requires explicit `force: true` when assets remain.
+An asset is **not** a concept: it has no frontmatter or ConceptID, is never emitted by `WalkConcepts`, validated as OKF, or made a graph node. Its text is searchable through its owner (D277, below); the asset itself is never a search hit. A dossier document can link to it with a relative Markdown file link. Lint reports a junk asset (`__pycache__/…`, `*.pyc`, see `data/.gitignore` above) as `junk_asset` (delete it with `asset_delete`) and never as `orphan_asset`, an uncited asset as `orphan_asset`, one above the cap as `oversized_asset`, and an owner whose assets cannot be listed (a symlink or special file inside it) as `unlistable_assets` rather than aborting the run. Moving an expanded concept moves its assets with it; inbound links from outside that directory to an asset are not rewritten. Deleting one requires explicit `force: true` when assets remain.
 
 ## Maps and Journals
 
@@ -128,7 +128,7 @@ A **map** groups by theme, with mixed types (an Entity and a Topic from the same
 
 A `map_update` that **loosens** a rule (D907) — drops a required or forbidden field, a field's allowed values, the type list or the templates, or widens one — needs the write's `reason`, and `log.md` records it as `loosened: … (reason: …)`; a rule is changed because the pages should differ, not to make a finding go away. A change that only adds or tightens a rule needs none.
 
-**Removed keys (D907).** A `_map.md` that still carries one of `lint_ignore`, `require_template`, `template_sections`, `require_index_entry`, `machine_path_allow_prefixes`, `repeated_fact_min`, `hotspot_in_degree`, `hotspot_bytes`, `oversize_bytes`, `oversize_concepts`, `title_max_length` or `ontology_mode`, the flat `required_fields: [..]` list, a flat `field_values.<field>`, or `stale_after: 0` / `harvest_after: 0`, is reported as `contract_legacy_key` (warning) on the `_map.md`; `map_list` shows them as `legacy_keys`. They take no part in the contract (a flat `required_fields` or `field_values.<field>` is still read as its `*` entry until it is moved). `kb_repair` (fix `rewrite_contract`, `kb.RealignContract`) drops the removed keys, moves the flat `required_fields` into `required_fields.*` and each flat `field_values.<field>` into `field_values.*.<field>`, and leaves every other key, the comments and the body as they are. `contract_legacy_key` is `AutoRepairSafe`, so the server's daily unattended repair realigns a KB in one commit after the upgrade; a second run finds nothing to do. Why each is gone: §No check can be switched off.
+**Removed keys (D907).** A `_map.md` that still carries one of `lint_ignore`, `require_template`, `template_sections`, `require_index_entry`, `machine_path_allow_prefixes`, `repeated_fact_min`, `hotspot_in_degree`, `hotspot_bytes`, `oversize_bytes`, `oversize_concepts`, `title_max_length` or `ontology_mode`, the flat `required_fields: [..]` list, a flat `field_values.<field>`, or `stale_after: 0` / `harvest_after: 0`, is reported as `contract_legacy_key` on the `_map.md`; `map_list` shows them as `legacy_keys`. They take no part in the contract (a flat `required_fields` or `field_values.<field>` is still read as its `*` entry until it is moved). `kb_repair` (fix `rewrite_contract`, `kb.RealignContract`) drops the removed keys, moves the flat `required_fields` into `required_fields.*` and each flat `field_values.<field>` into `field_values.*.<field>`, and leaves every other key, the comments and the body as they are. `contract_legacy_key` is `AutoRepairSafe`, so the server's daily unattended repair realigns a KB in one commit after the upgrade; a second run finds nothing to do. Why each is gone: §No check can be switched off.
 
 Read-compat (D77): the legacy `_archive.md` descriptor (`type: Archive`, `archive_type`) remains readable and is treated as a Map with `kind: map`; it is never written again, and lint flags it (`legacy_archive_descriptor`) as a migration backlog item; the repair does not rewrite it.
 
@@ -180,7 +180,7 @@ The graph retrieval tools (`graph_context`, `link_suggest`, `graph_path`, D242) 
 Concept ID = path relative to the bundle without `.md`. File names are `kebab-case`. In journals, concepts are dated (`YYYY-MM-DD-slug`); in maps they have durable thematic names. A ConceptID never changes with expansion: `map/name` resolves to `map/name.md` or, once expanded, to `map/name/index.md`.
 
 **Links between concepts** (both syntaxes are seen by the graph, lint, and `concept_move`'s backlink-rewrite, D72 WP0): wiki-links `[[id]]` / `[[id#section]]` with **root-relative** IDs (path from the KB root without `.md`, e.g. `[[smart-home/otbr]]`); markdown links `[text](rel/path.md)` **relative to the file** containing them; the label may hold one level of square brackets (`[Issue [RFC] x](x.md)`), and the graph, `index_incomplete` and lint all parse it with the same pattern (D720). The alias form `[[id|text]]` **is** supported (D150) and is what keeps a readable label on the one form that is base-independent; the label is preserved verbatim by `concept_move`. **Fenced code blocks and inline code spans are not scanned** (D150): a Mermaid subroutine node (`N1[["a label"]]`), a POSIX character class (`grep -E "x[[:alpha:]]"`) or a documented example link inside a fence is not a link. `concept_move` does not rewrite one either (D248): it rewrites exactly what the graph extracts. Indented four-space blocks are deliberately still scanned, being indistinguishable from a list continuation. An **extensionless** href that resolves to an existing asset of the citing concept (a `Dockerfile`, a `Makefile`, a `LICENSE`) is treated as an asset citation rather than a ConceptID shorthand, so such an asset can be cited and stops being reported `orphan_asset`.
-**One base, and it is the file** (D149). A relative markdown link resolves against the file that contains it, exactly as a markdown viewer resolves it — so from an expanded concept's `index.md` a satellite is `[s](s.md)`, not `[s](c/s.md)`. The graph and lint use that same base; lint's existence check goes through the same resolver `concept_read` uses, so a link to the canonical ID of an expanded concept (`[c](c.md)` where `map/c/index.md` holds it) is valid rather than broken. A link spelled `c/index.md` or `[[map/c/index]]` is the same concept, not a node of its own (D310): the link graph (`buildGraphView`) stores the edge under `map/c`, so backlinks, orphan, `cut_concept`, communities and `link_suggest` count it; `ExtractLinks` and `RewriteLinks` still report the literal ID. Lint's `index_link_form` (info, `kb_repair`-fixable) flags the spelling. A wiki-link `[[id]]` is root-relative and therefore base-independent, which is why it is the safe choice when in doubt.
+**One base, and it is the file** (D149). A relative markdown link resolves against the file that contains it, exactly as a markdown viewer resolves it — so from an expanded concept's `index.md` a satellite is `[s](s.md)`, not `[s](c/s.md)`. The graph and lint use that same base; lint's existence check goes through the same resolver `concept_read` uses, so a link to the canonical ID of an expanded concept (`[c](c.md)` where `map/c/index.md` holds it) is valid rather than broken. A link spelled `c/index.md` or `[[map/c/index]]` is the same concept, not a node of its own (D310): the link graph (`buildGraphView`) stores the edge under `map/c`, so backlinks, orphan, `cut_concept`, communities and `link_suggest` count it; `ExtractLinks` and `RewriteLinks` still report the literal ID. Lint's `index_link_form` (`kb_repair`-fixable) flags the spelling. A wiki-link `[[id]]` is root-relative and therefore base-independent, which is why it is the safe choice when in doubt.
 
 **In a curated index, both forms are accepted** for an expanded concept: `[c](c.md)` and `[c](c/index.md)` both count as the entry `index_incomplete` looks for. The two used to be inverses of each other — one valid between concepts, the other in an index — with nothing to tell them apart.
 
@@ -282,7 +282,7 @@ under `Undated`). The same concept set always renders the same bytes. The block 
 the curated text the first time and replaced in place afterwards; every byte outside it is the
 operator's. `index_patch` refuses an edit that changes the block (`generated_index`), `concept_move`
 leaves a generated index to the server instead of editing it, and `lint` reports `index_stale`
-(info, directory-level) when the block differs from what the next write would put there — in place
+(directory-level) when the block differs from what the next write would put there — in place
 of `index_incomplete`, which a generated map never gets. A KB's `instructions.md` that tells agents
 to add new pages to the index is the `kb-doctor` skill's to update, not the server's.
 
@@ -294,11 +294,11 @@ to add new pages to the index is the `kb-doctor` skill's to update, not the serv
 |---|---|---|
 | `repeated_fact` (review item, and the write-time finding of the written concept's map, D351) | a normalised line of at least 40 bytes is carried by at least 3 concepts | `repeatedFactMinBytes = 40`, `repeatedFactMinConcepts = 3` (`internal/lint/review_cost.go`) |
 | `read_hotspot` | a concept has at least 50 inbound links and a body of at least 16 KiB | `hotspotMinInDegree = 50`, `hotspotMinBytes = 16 KiB` |
-| `concept_oversize` | a concept's body is over half the 60 KB read guard (30000 bytes) | `conceptOversizeThreshold` (`internal/lint/lint.go`) |
-| `map_oversize` (D313); also reported on the creating write that crosses it (D716) | a map has more than 50 top-level concepts | `mapOversizeThreshold = 50` |
+| `concept_oversize` (observation, D947) | a concept's body is over half the 60 KB read guard (30000 bytes) | `conceptOversizeThreshold` (`internal/lint/lint.go`) |
+| `map_oversize` (observation, D313, D947) | a map has more than 50 top-level concepts | `mapOversizeThreshold = 50` |
 | `title_quality`, length rule (D315) | a title is longer than 100 characters | `defaultTitleMaxLength = 100` (`internal/lint/conformance.go`) |
 
-The reply to a finding is the page: keep the fact in one concept and link to it, split a hotspot or an oversized concept into satellites (`concept_expand`), split an oversized map, shorten the title.
+The reply is the page: keep the fact in one concept and link to it, split a hotspot or an oversized concept into satellites (`concept_expand`), split an oversized map, shorten the title. `concept_oversize` and `map_oversize` are observations, not lint findings (§Observations, D947): `kb_review` lists them, no write is refused or told of them.
 
 Page-name key (D315), read by `title_quality`:
 
@@ -321,28 +321,28 @@ The legacy keys are reported and dropped, never honoured:
 
 | Where it is found | Finding | Fix |
 |---|---|---|
-| `lint_ignore` or any other removed key in a `_map.md` | `contract_legacy_key` (warning) on the `_map.md` | `rewrite_contract` (`kb.RealignContract`) |
+| `lint_ignore` or any other removed key in a `_map.md` | `contract_legacy_key` on the `_map.md` | `rewrite_contract` (`kb.RealignContract`) |
 | `lint_accept` in `instructions.md` | `contract_legacy_key` on `instructions.md` | `rewrite_contract`: the repair drops the key |
 | `lint_ignore` in a concept's frontmatter | `nonstandard_field` (§Conformance checks) | `drop_field` |
 
 `kb_repair` applies each, and so do the unattended repairs (the checks are auto-repair safe).
 
-`index_lists_retired` (D344, info) is one finding per retired concept that a curated index of a live map still lists (D366; one per index before); journals, generated indexes and maps where at least half of the top-level concepts are retired (an archive) are exempt. That rule is `kb.IsArchiveMap`, the one function the lint exemption and the overview's `archive` flag both ask, which the Atlas's rail shows as an "Archive" badge (D820); no contract field marks an archive. `concept_archive` removes the entry; the finding catches a hand-made retirement. It carries `drop_index_entry` (D366, `field` = the concept; auto-repair safe, in `lint.AutoRepairOrder`) when a line of the index lists that concept and nothing else, and the repair drops that line (the code `concept_archive` uses); a concept cited only on lines with other links keeps no fix and stays with the doctor. The finding's path is the index, so the repair is a map repair (`lint.MapRepairCheck`), not a concept write. A retired concept left in a live map is never asked back in: `index_incomplete` skips it (D826), so the entry the repair drops does not come back as a finding on the next run.
+`index_lists_retired` (D344) is one finding per retired concept that a curated index of a live map still lists (D366; one per index before); journals, generated indexes and maps where at least half of the top-level concepts are retired (an archive) are exempt. That rule is `kb.IsArchiveMap`, the one function the lint exemption and the overview's `archive` flag both ask, which the Atlas's rail shows as an "Archive" badge (D820); no contract field marks an archive. `concept_archive` removes the entry; the finding catches a hand-made retirement. It carries `drop_index_entry` (D366, `field` = the concept; auto-repair safe, in `lint.AutoRepairOrder`) when a line of the index lists that concept and nothing else, and the repair drops that line (the code `concept_archive` uses); a concept cited only on lines with other links keeps no fix and stays with the doctor. The finding's path is the index, so the repair is a map repair (`lint.MapRepairCheck`), not a concept write. A retired concept left in a live map is never asked back in: `index_incomplete` skips it (D826), so the entry the repair drops does not come back as a finding on the next run.
 
 Structural checks flag defects, not structure (D313): `link_to_retired` is **one finding per retired
 concept**, on the retired concept ("retired, still linked by N live concepts: …"; the declared
 `superseded_by` successor and linkers in a journal are not counted), so retiring a component is one
 decision; when the retired concept declares a `superseded_by` that resolves to a **live** concept (one hop: a retired successor, an unresolvable one or none keeps the finding as judgement) the finding carries `retarget_links` (D366: `field` = the retired concept, `to` = the successor, `targets` = the linkers it counts; cross-concept, auto-repair safe), and the repair points every markdown link and wiki-link of those linkers at the successor, keeping label, anchor and alias; a linker that already linked the successor ends up with a repeat the existing `repeated_link` / `duplicate_link` fixes remove on the same run;
-`cut_concept` does not count an expanded concept's own satellites or a journal's entries among the
-nodes a vertex separates; `secrets_on_non_service` is `info` and points at `secret_resolve`; and
+The `cut_concept` observation does not count an expanded concept's own satellites or a journal's entries among the
+nodes a vertex separates; `secrets_on_non_service` points at `secret_resolve`; and
 `machine_path` never fires for the conventional tool paths `~/.ssh/`, `~/.kube/`, `~/.m2/`,
-`~/.config/`, `~/.cache/`, `~/.local/`, `~/.gnupg/` (a fixed list; no map adds to it, D907). `missing_value_contract` skips a field whose every value is a date, and a field whose values are identifiers: every value URL-shaped, or each of at least three carrying concepts holding its own value (D720).
+`~/.config/`, `~/.cache/`, `~/.local/`, `~/.gnupg/` (a fixed list; no map adds to it, D907). The `missing_value_contract` observation skips a field whose every value is a date, and a field whose values are identifiers: every value URL-shaped, or each of at least three carrying concepts holding its own value (D720).
 
-`orphan` (warning) is a concept no other concept links to. A page cited in another page's frontmatter `provenance` is not an orphan: being cited is a way in (D720). A retired concept (`deprecated`, `superseded`, `archived`) is never an orphan: `link_to_retired` and `index_lists_retired` push links away from it, so asking for one would contradict them (D826). The same rule runs the other way in `link_to_retired`: a linker that is itself retired does not count as a live one, so a retired parent of an expanded concept is not a live linker of its satellites.
+`orphan` is a concept no other concept links to. A page cited in another page's frontmatter `provenance` is not an orphan: being cited is a way in (D720). A retired concept (`deprecated`, `superseded`, `archived`) is never an orphan: `link_to_retired` and `index_lists_retired` push links away from it, so asking for one would contradict them (D826). The same rule runs the other way in `link_to_retired`: a linker that is itself retired does not count as a live one, so a retired parent of an expanded concept is not a live linker of its satellites.
 
 ### Active checks (D371)
 
-Every check runs by default, and no map or page can turn one off (D907). A check is **inactive** on a KB only when it has nothing to compare against: the template checks when no map declares `templates` or `default_template` (`template_section_missing` included), `unknown_type` without a type palette, `stale_open` when no map ages its open pages (a journal, or a map with `open_statuses` or `stale_after`), `missing_required_field` / `invalid_field_value` / `forbidden_field` when no map declares the matching key, `index_incomplete` when every map has `index: generated` (which replaces it by construction), `index_stale` without a generated index, `forbidden_term` without a forbidden term in `glossary.yaml`, `unknown_placeholder` / `unused_placeholder` without `paths.yaml`, `sops_missing_file` without `secrets/`, `legacy_path` without `legacy_paths` in `instructions.md`, and `source_uncited` without a `Source` concept. `lint.Inactive` computes this and `GET /api/ui/v1/kbs/<kb>/checks` reports it (`active: false` and a `reason`); an inactive check's zero in the Atlas Health coverage is greyed out, not counted clean. There is no opt-out to name: the check becomes active the moment the KB declares what it compares against. A check that fires once per page on a map that never chose it is not made default; the per-map form (`map_without_templates`) says it once.
+Every check runs by default, and no map or page can turn one off (D907). A check is **inactive** on a KB only when it has nothing to compare against: the template checks when no map declares `templates` or `default_template` (`template_section_missing` included), `unknown_type` without a type palette, `stale_open` when no map ages its open pages (a journal, or a map with `open_statuses` or `stale_after`), `missing_required_field` / `invalid_field_value` / `forbidden_field` when no map declares the matching key, `index_incomplete` when every map has `index: generated` (which replaces it by construction), `index_stale` without a generated index, `forbidden_term` without a forbidden term in `glossary.yaml`, `unknown_placeholder` / `unused_placeholder` without `paths.yaml`, `sops_missing_file` without `secrets/`, `legacy_path` without `legacy_paths` in `instructions.md`, and `source_uncited` without a `Source` concept. `lint.Inactive` computes this and `GET /api/ui/v1/kbs/<kb>/checks` reports it (`active: false` and a `reason`); an inactive check's zero in the Atlas Health coverage is greyed out, not counted clean. There is no opt-out to name: the check becomes active the moment the KB declares what it compares against. A check that would fire once per page on a map that never chose it is not made default: a map with no templates is not a finding at all, and `kb_review`'s `template_proposal` proposes the ones its pages already follow (D947).
 
 ### Check catalogue (D354)
 
@@ -360,7 +360,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 - **Fix**: the fix kinds `kb_repair` applies. **Auto-repair safe**: the fix needs no person, so the
   unattended repairs run it (`lint.AutoRepairChecks`: write, heartbeat and `kb repair --apply`; no setting narrows them, D907). **On write**: a write response evaluates it
   (`CheckConcept` for `concept`, `ScopedCheck` for `graph` and `map`).
-- Severity is the registry's default; every finding is built through one constructor that reads it.
+- A finding has no severity (D947): every finding of a registered check is a problem, built through one constructor that reads the registry. Findings are listed in the registry's category order (`lint.Categories`), then by check, then by path: an order to start from, not a judgement of gravity.
 - **Auto-repair runs to a fixpoint (D355).** Repairs depend on each other (a field rename exposes a
   prose value, a split exposes an invalid value), so the unattended paths never apply one check per
   pass. Stage 1 repairs each concept to a fixpoint: re-evaluate the in-memory content with
@@ -373,121 +373,111 @@ projections of it. This catalogue is generated from it (a test fails when it dri
   fixable check, one at a time, dry run by default).
 
 <!-- lint:catalogue:begin — generated from internal/lint/registry.go; run `go test ./internal/repodocs -run TestLintCatalogueIsUpToDate -args -update` -->
-| Check | Severity | Level | Avoidable at write | Fix | Auto-repair safe | On write |
-|---|---|---|---|---|---|---|
-| `malformed_frontmatter` | warning | concept | yes | - | - | yes |
-| `stringified_list` | warning | concept | yes | `listify_field` | yes | yes |
-| `stale_claim` | warning | concept | - | - | - | yes |
-| `status_semantics` | warning | concept | yes | - | - | yes |
-| `machine_path` | warning | concept | yes | - | - | yes |
-| `mangled_placeholder` | warning | concept | yes | - | - | yes |
-| `missing_title` | warning | concept | yes | `set_value` | yes | yes |
-| `title_h1_mismatch` | warning | concept | yes | `sync_h1`, `set_value` | yes | yes |
-| `title_quality` | info | concept | yes | `set_value` | yes | yes |
-| `missing_required_field` | error | concept | yes | - | - | yes |
-| `invalid_field_value` | error | concept | yes | `set_value` | yes | yes |
-| `forbidden_field` | error | concept | yes | - | - | yes |
-| `nonstandard_field` | warning | concept | yes | `rename_field`, `drop_field` | yes | yes |
-| `tool_param_field` | warning | concept | yes | `drop_field` | yes | yes |
-| `prose_value` | warning | concept | yes | `split_value` | yes | yes |
-| `stale_open` | info | concept | - | - | - | yes |
-| `closed_with_open_items` | info | concept | yes | - | - | yes |
-| `template_section_missing` | warning | concept | yes | - | - | yes |
-| `template_missing` | warning | concept | yes | `set_value` | yes | yes |
-| `template_unknown` | warning | concept | yes | - | - | yes |
-| `template_not_allowed` | warning | concept | yes | - | - | yes |
-| `template_type_mismatch` | warning | concept | yes | `set_value` | yes | yes |
-| `template_field_missing` | warning | concept | yes | - | - | yes |
-| `template_field_value` | warning | concept | yes | `set_value` | yes | yes |
-| `template_extra_section` | warning | concept | yes | - | - | yes |
-| `template_section_alias` | warning | concept | yes | `rename_heading` | yes | yes |
-| `template_section_order` | info | concept | yes | `reorder_sections` | yes | yes |
-| `open_marker` | info | concept | yes | - | - | yes |
-| `repeated_link` | info | concept | yes | `unlink_repeat` | yes | yes |
-| `missing_frontmatter` | error | concept | - | `add_frontmatter` | yes | - |
-| `unparseable_frontmatter` | error | concept | - | `quote_value` | yes | - |
-| `missing_type` | error | concept | - | `set_value` | yes | - |
-| `concept_too_deep` | error | concept | - | - | - | - |
-| `nonslug_file_name` | warning | concept | yes | `move` | yes | - |
-| `empty_concept` | warning | concept | yes | - | - | - |
-| `concept_oversize` | info | concept | yes | - | - | yes |
-| `imported_draft` | warning | concept | - | - | - | - |
-| `secrets_on_non_service` | info | concept | yes | - | - | yes |
-| `sops_format_mismatch` | warning | concept | yes | - | - | yes |
-| `sops_missing_file` | warning | concept | yes | - | - | yes |
-| `legacy_path` | warning | concept | yes | `replace_prefix` | yes | yes |
-| `broken_link` | warning | graph | yes | `rebase_link` | - | yes |
-| `duplicate_link` | info | graph | yes | `drop_link_item`, `rewrite_link_item` | yes | yes |
-| `reciprocal_link_item` | info | graph | yes | `drop_link_item` | - | yes |
-| `bare_link_list` | info | graph | yes | - | - | yes |
-| `index_link_form` | info | graph | yes | `rebase_link`, `rewrite_wiki_link` | yes | yes |
-| `orphan` | warning | graph | yes | - | - | yes |
-| `broken_relation` | warning | graph | yes | - | - | yes |
-| `link_to_retired` | info | graph | yes | `retarget_links` | yes | yes |
-| `unknown_placeholder` | warning | graph | yes | - | - | yes |
-| `forbidden_term` | warning | graph | yes | - | - | yes |
-| `source_uncited` | warning | graph | - | - | - | - |
-| `cut_concept` | info | graph | - | - | - | - |
-| `island` | info | graph | - | - | - | - |
-| `map_misfit` | info | graph | - | - | - | - |
-| `unknown_type` | warning | graph | yes | `set_value` | - | - |
-| `value_case_variant` | warning | graph | yes | `set_value` | yes | - |
-| `contract_malformed` | info | map | yes | - | - | - |
-| `facet_sprawl` | info | map | - | - | - | - |
-| `missing_value_contract` | info | map | - | - | - | - |
-| `map_without_templates` | info | map | - | - | - | - |
-| `map_oversize` | info | map | - | - | - | - |
-| `legacy_archive_descriptor` | warning | map | - | - | - | - |
-| `contract_legacy_key` | warning | map | - | `rewrite_contract` | yes | - |
-| `index_incomplete` | warning | map | yes | - | - | yes |
-| `index_lists_retired` | info | map | yes | `drop_index_entry` | yes | - |
-| `index_stale` | info | map | - | - | - | - |
-| `expanded_missing_index` | warning | map | yes | - | - | - |
-| `expanded_ambiguous` | error | map | yes | - | - | - |
-| `expanded_as_category` | warning | map | yes | - | - | - |
-| `unlistable_assets` | warning | map | yes | - | - | - |
-| `oversized_asset` | warning | map | yes | - | - | - |
-| `orphan_asset` | info | map | - | - | - | - |
-| `unmapped_folder` | warning | map | yes | `scaffold_map` | yes | - |
-| `stray_file` | warning | map | yes | - | - | - |
-| `skill_invalid` | warning | artifact | yes | - | - | - |
-| `skill_warning` | info | artifact | yes | - | - | - |
-| `legacy_tool_name` | warning | artifact | yes | `strip_tool_prefix` | yes | - |
-| `skill_broken_ref` | warning | artifact | yes | - | - | - |
-| `skill_git_command` | info | artifact | yes | - | - | - |
-| `skill_missing_perimeter` | info | artifact | yes | - | - | - |
-| `cross_kb_path` | warning | artifact | yes | - | - | - |
-| `artifact_unused` | info | artifact | - | - | - | - |
-| `junk_file` | warning | artifact | yes | - | - | - |
-| `junk_asset` | warning | artifact | yes | - | - | - |
-| `missing_instructions` | warning | artifact | - | - | - | - |
-| `hook_invalid` | warning | kb | yes | - | - | - |
-| `missing_registry` | info | kb | - | - | - | - |
-| `unused_placeholder` | info | kb | - | - | - | - |
-| `duplicate_candidate` | info | kb | - | - | - | - |
-| `zombie_work` | info | kb | - | - | - | - |
-| `promotion_candidate` | info | kb | - | - | - | - |
-| `glossary_gap` | info | kb | - | - | - | - |
-| `lint_judgement` | info | kb | - | - | - | - |
-| `repeated_fact` | info | kb | - | - | - | - |
-| `read_hotspot` | info | kb | - | - | - | - |
-| `scattered_work` | info | kb | - | - | - | - |
-| `status_reclassify` | info | kb | - | - | - | - |
-| `harvest_candidate` | info | kb | - | - | - | - |
-| `template_proposal` | info | kb | - | - | - | - |
-| `map_naming` | info | kb | - | - | - | - |
+| Check | Level | Avoidable at write | Fix | Auto-repair safe | On write |
+|---|---|---|---|---|---|
+| `malformed_frontmatter` | concept | yes | - | - | yes |
+| `stringified_list` | concept | yes | `listify_field` | yes | yes |
+| `stale_claim` | concept | - | - | - | yes |
+| `status_semantics` | concept | yes | - | - | yes |
+| `machine_path` | concept | yes | - | - | yes |
+| `mangled_placeholder` | concept | yes | - | - | yes |
+| `missing_title` | concept | yes | `set_value` | yes | yes |
+| `title_h1_mismatch` | concept | yes | `sync_h1`, `set_value` | yes | yes |
+| `title_quality` | concept | yes | `set_value` | yes | yes |
+| `missing_required_field` | concept | yes | - | - | yes |
+| `invalid_field_value` | concept | yes | `set_value` | yes | yes |
+| `forbidden_field` | concept | yes | - | - | yes |
+| `nonstandard_field` | concept | yes | `rename_field`, `drop_field` | yes | yes |
+| `tool_param_field` | concept | yes | `drop_field` | yes | yes |
+| `prose_value` | concept | yes | `split_value` | yes | yes |
+| `stale_open` | concept | - | - | - | yes |
+| `closed_with_open_items` | concept | yes | - | - | yes |
+| `template_section_missing` | concept | yes | - | - | yes |
+| `template_missing` | concept | yes | `set_value` | yes | yes |
+| `template_unknown` | concept | yes | - | - | yes |
+| `template_not_allowed` | concept | yes | - | - | yes |
+| `template_type_mismatch` | concept | yes | `set_value` | yes | yes |
+| `template_field_missing` | concept | yes | - | - | yes |
+| `template_field_value` | concept | yes | `set_value` | yes | yes |
+| `template_extra_section` | concept | yes | - | - | yes |
+| `template_section_alias` | concept | yes | `rename_heading` | yes | yes |
+| `template_section_order` | concept | yes | `reorder_sections` | yes | yes |
+| `open_marker` | concept | yes | - | - | yes |
+| `repeated_link` | concept | yes | `unlink_repeat` | yes | yes |
+| `missing_frontmatter` | concept | - | `add_frontmatter` | yes | - |
+| `unparseable_frontmatter` | concept | - | `quote_value` | yes | - |
+| `missing_type` | concept | - | `set_value` | yes | - |
+| `concept_too_deep` | concept | - | - | - | - |
+| `nonslug_file_name` | concept | yes | `move` | yes | - |
+| `empty_concept` | concept | yes | - | - | - |
+| `imported_draft` | concept | - | - | - | - |
+| `secrets_on_non_service` | concept | yes | - | - | yes |
+| `sops_format_mismatch` | concept | yes | - | - | yes |
+| `sops_missing_file` | concept | yes | - | - | yes |
+| `legacy_path` | concept | yes | `replace_prefix` | yes | yes |
+| `broken_link` | graph | yes | `rebase_link` | - | yes |
+| `duplicate_link` | graph | yes | `drop_link_item`, `rewrite_link_item` | yes | yes |
+| `reciprocal_link_item` | graph | yes | `drop_link_item` | - | yes |
+| `bare_link_list` | graph | yes | - | - | yes |
+| `index_link_form` | graph | yes | `rebase_link`, `rewrite_wiki_link` | yes | yes |
+| `orphan` | graph | yes | - | - | yes |
+| `broken_relation` | graph | yes | - | - | yes |
+| `link_to_retired` | graph | yes | `retarget_links` | yes | yes |
+| `unknown_placeholder` | graph | yes | - | - | yes |
+| `forbidden_term` | graph | yes | - | - | yes |
+| `source_uncited` | graph | - | - | - | - |
+| `unknown_type` | graph | yes | `set_value` | - | - |
+| `value_case_variant` | graph | yes | `set_value` | yes | - |
+| `contract_malformed` | map | yes | - | - | - |
+| `legacy_archive_descriptor` | map | - | - | - | - |
+| `contract_legacy_key` | map | - | `rewrite_contract` | yes | - |
+| `index_incomplete` | map | yes | - | - | yes |
+| `index_lists_retired` | map | yes | `drop_index_entry` | yes | - |
+| `index_stale` | map | - | - | - | - |
+| `expanded_missing_index` | map | yes | - | - | - |
+| `expanded_ambiguous` | map | yes | - | - | - |
+| `expanded_as_category` | map | yes | - | - | - |
+| `unlistable_assets` | map | yes | - | - | - |
+| `oversized_asset` | map | yes | - | - | - |
+| `orphan_asset` | map | - | - | - | - |
+| `unmapped_folder` | map | yes | `scaffold_map` | yes | - |
+| `stray_file` | map | yes | - | - | - |
+| `skill_invalid` | artifact | yes | - | - | - |
+| `skill_warning` | artifact | yes | - | - | - |
+| `legacy_tool_name` | artifact | yes | `strip_tool_prefix` | yes | - |
+| `skill_broken_ref` | artifact | yes | - | - | - |
+| `skill_git_command` | artifact | yes | - | - | - |
+| `skill_missing_perimeter` | artifact | yes | - | - | - |
+| `cross_kb_path` | artifact | yes | - | - | - |
+| `junk_file` | artifact | yes | - | - | - |
+| `junk_asset` | artifact | yes | - | - | - |
+| `missing_instructions` | artifact | - | - | - | - |
+| `hook_invalid` | kb | yes | - | - | - |
+| `missing_registry` | kb | - | - | - | - |
+| `unused_placeholder` | kb | - | - | - | - |
+| `duplicate_candidate` | kb | - | - | - | - |
+| `zombie_work` | kb | - | - | - | - |
+| `promotion_candidate` | kb | - | - | - | - |
+| `glossary_gap` | kb | - | - | - | - |
+| `lint_judgement` | kb | - | - | - | - |
+| `repeated_fact` | kb | - | - | - | - |
+| `read_hotspot` | kb | - | - | - | - |
+| `scattered_work` | kb | - | - | - | - |
+| `status_reclassify` | kb | - | - | - | - |
+| `harvest_candidate` | kb | - | - | - | - |
+| `template_proposal` | kb | - | - | - | - |
+| `map_naming` | kb | - | - | - | - |
+| `observation` | kb | - | - | - | - |
 <!-- lint:catalogue:end -->
 
 #### Which checks a write could have avoided (D907)
 
-Every other check is avoidable at write, and the write gate refuses a write that introduces one at any severity (D907). The registry field is `AvoidableAtWrite`; these are the checks it is false for, grouped by why no write can avoid them:
+Every other check is avoidable at write, and the write gate refuses a write that introduces one (D907). The registry field is `AvoidableAtWrite`; these are the checks it is false for, grouped by why no write can avoid them:
 
 | Why | Checks | Reason |
 |---|---|---|
 | Time | `stale_claim` | a `review_after` date that has passed: the page was fine when written |
 | Time | `stale_open` | an open page older than the map's effective `stale_after`: it ages without a write |
-| Time | `artifact_unused` | no client activated the skill or agent for `usage_stale_days`: a usage signal read from session transcripts, not from a write |
-| Growth | `map_oversize` | the map crossed 50 top-level concepts: each write adds one, none is the one that is wrong |
 | Legacy state | `legacy_archive_descriptor` | a `_archive.md` descriptor from before D77; no write creates one |
 | Legacy state | `contract_legacy_key` | a `_map.md` or `instructions.md` that still carries a key D907 removed; `kb_repair` drops it |
 | The KB's initial state | `missing_instructions` | the KB has no `instructions.md` yet, and the finding has no file to name |
@@ -497,20 +487,36 @@ Every other check is avoidable at write, and the write gate refuses a write that
 | Work another tool does | `index_stale` | the generated index block differs from the graph: the server rewrites it after the write, in the same commit (§Generated indexes) |
 | Work another tool does | `orphan_asset` | an asset no page of its dossier cites: `asset_write` and the page that cites it are different calls |
 | Refused by the write path before lint | `missing_frontmatter`, `unparseable_frontmatter`, `missing_type`, `concept_too_deep` | the write is refused before it is linted, so the refusal is already the gate; `lint` reports a page that reached disk another way |
-| Whole graph, map or KB, not evaluated by the write path | `cut_concept`, `island`, `map_misfit` | they depend on concepts other than the one written (the registry's `WholeGraph`) |
-| Whole graph, map or KB, not evaluated by the write path | `facet_sprawl`, `missing_value_contract`, `map_without_templates` | a property of the whole map (its tags, a field's values, its page count), closed by the pages or the map's contract, not by the write that happens to land on it |
 | Whole graph, map or KB, not evaluated by the write path | `unused_placeholder` | a `paths.yaml` key no page or artifact cites: it depends on every page |
-| Not a lint finding | the twelve review kinds: `duplicate_candidate`, `zombie_work`, `promotion_candidate`, `glossary_gap`, `lint_judgement`, `repeated_fact`, `read_hotspot`, `scattered_work`, `status_reclassify`, `harvest_candidate`, `template_proposal`, `map_naming` | a `kb_review` item of the doctor's list, not gated: each closes when the pages it names are in the state it asks for (§Review keys) |
+| Not a lint finding | the thirteen review kinds: `duplicate_candidate`, `zombie_work`, `promotion_candidate`, `glossary_gap`, `lint_judgement`, `repeated_fact`, `read_hotspot`, `scattered_work`, `status_reclassify`, `harvest_candidate`, `template_proposal`, `map_naming`, `observation` | a `kb_review` item of the doctor's list, not gated: each closes when the pages it names are in the state it asks for (§Review keys) |
+
+### Observations (D947)
+
+A lint finding is a problem: there is no severity, `gate_check` passes only with none, and a write that introduces an avoidable one is refused. A check therefore stays in the lint only if it has a **definite fix**: a state of the KB that makes the finding disappear and is always better than the current one. A state a reasonable maintainer could look at and decide "this is fine as it is" is an **observation**. It is not a finding: `lint`, `gate_check`, a write's response, the safe repairs and the Atlas Health problems never carry one. `kb_review` lists it, as an item of kind `observation` whose `check` names it, so the doctor session, where a person decides, is the only place it appears. Like every review item it closes on page state, never on a dismissal (D907): the generated table says which state, and a test writes it for each observation.
+
+An observation that no page state could close, or that another tool already reports, is not an observation but deleted: `map_without_templates` (the `template_proposal` kind proposes the templates a map's pages already follow), `artifact_unused` (the Artifacts panel and `kb_status.usage` already show when an artifact was last used), and the `unknown_type` finding in a map that has not adopted types (`template_proposal` again).
+
+<!-- lint:observations:begin — generated from internal/lint/observations.go; run `go test ./internal/repodocs -run TestLintObservationsAreUpToDate -args -update` -->
+| Observation | Category | Whole KB only | Why it is not a problem | The item closes when |
+|---|---|---|---|---|
+| `cut_concept` | links | yes | a hub that holds pages together is often the right shape of a wiki | removing or unlinking the concept disconnects fewer than 3 concepts |
+| `island` | links | yes | two pages that belong only to each other are a legitimate pair | a page outside the group links into it, or one of its pages links out |
+| `map_misfit` | links | yes | where a page belongs is a matter of taste once its links point elsewhere | the concept moves to the map its links point to, or its links no longer mostly point to another map |
+| `concept_oversize` | pages | - | a reference table or a long procedure may be one thing at any length | the body is at most 30000 bytes |
+| `map_oversize` | maps | yes | a map grows by construction and none of its pages is the one that is wrong | the map has at most 50 top-level concepts |
+| `facet_sprawl` | maps | yes | tags are a free vocabulary, and which values to merge is an editorial call | fewer than 30 distinct tag values, or fewer than half of them used once |
+| `missing_value_contract` | maps | yes | whether a field is a closed vocabulary is the map's choice, not a defect | the map declares field_values for the field |
+<!-- lint:observations:end -->
 
 ### Conformance checks (D289)
 
-Findings report on every write. In a git KB a write that introduces a finding it could have avoided is refused, at any severity, and nothing switches that off or accepts the finding (D350, D907, `control-plane.md` §Commit per logical operation; the checks no write can avoid are listed above).
+Findings report on every write. In a git KB a write that introduces a finding it could have avoided is refused, and nothing switches that off or accepts the finding (D350, D907, `control-plane.md` §Commit per logical operation; the checks no write can avoid are listed above).
 
 A write response carries these checks for the concept it wrote, plus the body, link and light graph checks `lint.ScopedCheck` runs without walking the KB (D312, `control-plane.md` §`concept_write`); the whole-KB structural checks stay with `lint` and `gate_check`.
 
-Lint also compares a KB with the standard fields the server reads, not only with the contracts the KB declared. All are warning or info, so `gate_check` never fails on them, and a check fires only on a field the KB actually has.
+Lint also compares a KB with the standard fields the server reads, not only with the contracts the KB declared. Like every finding they are problems (D947), and a check fires only on a field the KB actually has.
 
-- `nonstandard_field` (warning): a frontmatter key that is a known synonym of a standard field. Standard field absent: the finding carries the fix `rename_field <synonym> → <standard>`. Standard field also present: the finding says so and has no fix, since merging values is a judgement. A field the page's own map contract names (`required_fields` or `field_values`, for the page's type or `*`) is not reported: the contract is explicit, so the page keeps that name and the repair never renames it. Keys match case-insensitively. A `lint_ignore` key on a concept is reported here too, with the fix `drop_field`: D907 removed every way to silence a finding, so the key does nothing and the repair drops it. The synonym table (`StandardFieldSynonyms` in `internal/lint/conformance.go`):
+- `nonstandard_field`: a frontmatter key that is a known synonym of a standard field. Standard field absent: the finding carries the fix `rename_field <synonym> → <standard>`. Standard field also present: the finding says so and has no fix, since merging values is a judgement. A field the page's own map contract names (`required_fields` or `field_values`, for the page's type or `*`) is not reported: the contract is explicit, so the page keeps that name and the repair never renames it. Keys match case-insensitively. A `lint_ignore` key on a concept is reported here too, with the fix `drop_field`: D907 removed every way to silence a finding, so the key does nothing and the repair drops it. The synonym table (`StandardFieldSynonyms` in `internal/lint/conformance.go`):
 
   | Standard field | Known synonyms |
   |---|---|
@@ -524,22 +530,22 @@ Lint also compares a KB with the standard fields the server reads, not only with
 
   The `timestamp` synonyms are English words that are legitimate fields in their own right, so they are flagged only when the value is a scalar string that parses as `YYYY-MM-DD` or RFC 3339; `data: some payload` or a list value gets no finding and no fix. The other standard fields flag every synonym.
 
-- `tool_param_field` (warning): a key named like a parameter of a concept-write tool (`lint.ToolParamFields`: `id`, `frontmatter`, `body`, `if_match`, `template`, `vars`, `old_string`, `new_string`, `replace_all`, `edits`, `unset`, `frontmatter_append`, `frontmatter_remove`, `operations`, `op`), fix `drop_field`. The same write is rejected, see `docs/control-plane.md`.
-- `missing_value_contract` (info, on the map's `_map.md`): a scalar string field present in at least 5 concepts of the map, with at most 8 distinct values (no cap for `status`, the vocabulary every reader assumes) and no `field_values` for it (map-wide or for the dominant type). The message lists the observed values with their counts and the line to add, typed (`field_values.<Type>.<field>`) when at least 90 % of the carrying concepts share one type. `title`, `type`, `description`, `timestamp`, `review_after`, `superseded_by`, the free-form or list-shaped `provenance`, `tags`, `resource`, `secrets_source`, and the synonyms above are never suggested (D295). No fix: declaring a vocabulary is a judgement.
+- `tool_param_field`: a key named like a parameter of a concept-write tool (`lint.ToolParamFields`: `id`, `frontmatter`, `body`, `if_match`, `template`, `vars`, `old_string`, `new_string`, `replace_all`, `edits`, `unset`, `frontmatter_append`, `frontmatter_remove`, `operations`, `op`), fix `drop_field`. The same write is rejected, see `docs/control-plane.md`.
+- `missing_value_contract` (an observation, D947, on the map's `_map.md`): a scalar string field present in at least 5 concepts of the map, with at most 8 distinct values (no cap for `status`, the vocabulary every reader assumes) and no `field_values` for it (map-wide or for the dominant type). The message lists the observed values with their counts and the line to add, typed (`field_values.<Type>.<field>`) when at least 90 % of the carrying concepts share one type. `title`, `type`, `description`, `timestamp`, `review_after`, `superseded_by`, the free-form or list-shaped `provenance`, `tags`, `resource`, `secrets_source`, and the synonyms above are never suggested (D295). No fix: declaring a vocabulary is a judgement, so `kb_review` lists it (kind `observation`, the proposal in its `proposal` field) and `lint` does not.
 
-- `malformed_frontmatter` (warning, no fix, D295): a top-level key with a scalar value followed by indented `- ` lines. The stdlib-only parser (D8) keeps the scalar and drops the lines, so the value is silently truncated; the message names the key and the line.
-- `stringified_list` (warning, fix `listify_field`, D314, D357): a list field (`provenance`, `tags`, `related`, `open`, `secrets_source`) whose parsed value is a string, whatever it looks like: `"[a, b]"`, `"[a]; [b]"`, `"- a"`, but also the commonest shape, a bare `tags: "x, y"` or `tags: backup`. The parser reads a quoted flow list as a scalar, so nothing else sees it. `kb_repair` rewrites it as a real list: a written list splits as written; a bare string splits on commas only for the identifier fields (`tags`, `related`, `open`), while `provenance` and `secrets_source` become a one-element list with no split, since a source citation may contain commas (`"Talk, 2024"`).
-- `title_h1_mismatch` (warning, fix `sync_h1` or `set_value`, D315, D357): the frontmatter `title` and the body's first `# ` heading both exist and differ. The title is the label `concept_list`, search and the Atlas show, so the heading is normally the wrong one: `kb_repair title_h1_mismatch` overwrites it with `# <title>` (plain text: formatting in the old heading goes; only the first heading, never one in a code fence). When the title is the one `title_quality` rejects (decorative characters, over-long, a status word, a forbidden term) and the heading is not, the heading is the good side: the fix is `set_value title` with the heading's text. When both fail the predicate there is no fix (judgement). `title_quality` and this check share one predicate (`titleTextIssues`).
-- `missing_title` (warning, fix `set_value title`, D357): no title. The fix is the first heading when it passes the `title_quality` predicate, else, for a file name that is a slug, the name with `-` and `_` turned into spaces and the first letter upper-cased; a heading that fails the predicate and a non-slug name give no fix.
-- `repeated_link` (info, fix `unlink_repeat`, D357): the same target linked more than once in one paragraph (a list item or heading is its own paragraph; code and images are skipped; `duplicate_link` covers text against "See also"). One finding per target; the fix keeps the first link in each paragraph and turns the later ones into their label text.
-- `unknown_type` (warning, fix `set_value type` when one known type matches case-insensitively, else judgement, D357): a `type` outside the KB's palette, the union of the types its `templates/*.md` declare and the `concept_types` of its strict maps. A KB with an empty palette (no template with a literal type, no strict map) is not checked. A type with no case-insensitive match is reported as `info` when the page's map has not adopted types (no `concept_types`, so not strict, and no `templates`), and its message names the fix: declare the template that `kb_review kind=template_proposal` proposes (D688). The types the server keys on (`kb.IsKeyedType`, D853) are exempt when no declared type matches them in any case and the page's map is not strict; in a strict map that does not list one the warning stays, with the fix "add it to the map's `concept_types` (`map_update`), or move the page". A strict map checks against its own `concept_types`, not the palette: a type another strict map declares is still reported there, with the same fix (#896).
-- `value_case_variant` (warning, fix `set_value status` to the majority spelling, D357): a `status`, in a map whose contract does not constrain it (`invalid_field_value` owns a constrained one), that equals case-folded a different spelling used by more concepts KB-wide. A tie reports both sides and fixes neither.
-- `unmapped_folder` (warning, on the folder, fix `scaffold_map`, D357): a top-level `data/` folder that holds concepts and has no `_map.md` (nor legacy `_archive.md`): `map_list` shows it with no title or kind and no contract applies. The fix writes the descriptor `map_create` writes for `kind: map` (`type: Map`, `title` from the folder name, no contract; `index.md` and `log.md` only when missing), through the same KB function (`ScaffoldMap`). It repairs folders, not concepts: the response of `kb_repair` says `found_folders`, and repair-on-write never runs it.
-- `stray_file` (warning, no fix, D357): a non-Markdown regular file in `data/` outside any expanded concept (at the top of `data/` or directly in a map), neither junk (`junk_file`) nor hidden. Moving or deleting it is judgement, so it is a `lint_judgement` review item.
-- `title_quality` (info, fix `set_value title` for the decorative-characters case only, D315, D366): the title carries a decorative character (Unicode symbol or modifier, emoji included), is longer than 100 characters (`defaultTitleMaxLength`, a constant: no map changes it, D907), holds a lifecycle word (`attivo`, `active`, `dismesso`, `deprecated`, `draft`, `superseded`, `preparazione`, `archiviato`, `archived`, `declassato`, whole words) while the concept has a `status` field, holds one of the map's `forbidden_title_terms`, or the concept's own slug starts `YYYY-MM` in a map that is not `kind: journal`. One finding per rule that fires; a KB that wants it stricter promotes nothing here, it fixes the titles. Only the decorative case has a fix (auto-repair safe, D366): the title without those characters and with the whitespace collapsed, when something is left; the heading follows through `title_h1_mismatch` in the same fixpoint. Length, status word, forbidden term and date slug are wording judgements and keep none.
-- `mangled_placeholder` (warning, no fix, D314): the body holds a `` `repo:key` `` or `` `path:key` `` code span followed within 40 characters by "between double braces" (or its Italian/French forms): a `{{…}}` placeholder an import unwrapped into prose. Fenced blocks and lines containing `{{` are skipped.
+- `malformed_frontmatter` (no fix, D295): a top-level key with a scalar value followed by indented `- ` lines. The stdlib-only parser (D8) keeps the scalar and drops the lines, so the value is silently truncated; the message names the key and the line.
+- `stringified_list` (fix `listify_field`, D314, D357): a list field (`provenance`, `tags`, `related`, `open`, `secrets_source`) whose parsed value is a string, whatever it looks like: `"[a, b]"`, `"[a]; [b]"`, `"- a"`, but also the commonest shape, a bare `tags: "x, y"` or `tags: backup`. The parser reads a quoted flow list as a scalar, so nothing else sees it. `kb_repair` rewrites it as a real list: a written list splits as written; a bare string splits on commas only for the identifier fields (`tags`, `related`, `open`), while `provenance` and `secrets_source` become a one-element list with no split, since a source citation may contain commas (`"Talk, 2024"`).
+- `title_h1_mismatch` (fix `sync_h1` or `set_value`, D315, D357): the frontmatter `title` and the body's first `# ` heading both exist and differ. The title is the label `concept_list`, search and the Atlas show, so the heading is normally the wrong one: `kb_repair title_h1_mismatch` overwrites it with `# <title>` (plain text: formatting in the old heading goes; only the first heading, never one in a code fence). When the title is the one `title_quality` rejects (decorative characters, over-long, a status word, a forbidden term) and the heading is not, the heading is the good side: the fix is `set_value title` with the heading's text. When both fail the predicate there is no fix (judgement). `title_quality` and this check share one predicate (`titleTextIssues`).
+- `missing_title` (fix `set_value title`, D357): no title. The fix is the first heading when it passes the `title_quality` predicate, else, for a file name that is a slug, the name with `-` and `_` turned into spaces and the first letter upper-cased; a heading that fails the predicate and a non-slug name give no fix.
+- `repeated_link` (fix `unlink_repeat`, D357): the same target linked more than once in one paragraph (a list item or heading is its own paragraph; code and images are skipped; `duplicate_link` covers text against "See also"). One finding per target; the fix keeps the first link in each paragraph and turns the later ones into their label text.
+- `unknown_type` (fix `set_value type` when one known type matches case-insensitively, else judgement, D357): a `type` outside the KB's palette, the union of the types its `templates/*.md` declare and the `concept_types` of its strict maps. A KB with an empty palette (no template with a literal type, no strict map) is not checked. A type with no case-insensitive match is reported only where the page's map has adopted types (`concept_types`, so strict, or `templates`), and its message names the fix: declare the template that `kb_review kind=template_proposal` proposes. In a map that has adopted neither, an undeclared type is the KB's declaration to make and not a finding (D947, superseding D688): `template_proposal` proposes the template. The types the server keys on (`kb.IsKeyedType`, D853) are exempt when no declared type matches them in any case and the page's map is not strict; in a strict map that does not list one the finding stays, with the fix "add it to the map's `concept_types` (`map_update`), or move the page". A strict map checks against its own `concept_types`, not the palette: a type another strict map declares is still reported there, with the same fix (#896).
+- `value_case_variant` (fix `set_value status` to the majority spelling, D357): a `status`, in a map whose contract does not constrain it (`invalid_field_value` owns a constrained one), that equals case-folded a different spelling used by more concepts KB-wide. A tie reports both sides and fixes neither.
+- `unmapped_folder` (on the folder, fix `scaffold_map`, D357): a top-level `data/` folder that holds concepts and has no `_map.md` (nor legacy `_archive.md`): `map_list` shows it with no title or kind and no contract applies. The fix writes the descriptor `map_create` writes for `kind: map` (`type: Map`, `title` from the folder name, no contract; `index.md` and `log.md` only when missing), through the same KB function (`ScaffoldMap`). It repairs folders, not concepts: the response of `kb_repair` says `found_folders`, and repair-on-write never runs it.
+- `stray_file` (no fix, D357): a non-Markdown regular file in `data/` outside any expanded concept (at the top of `data/` or directly in a map), neither junk (`junk_file`) nor hidden. Moving or deleting it is judgement, so it is a `lint_judgement` review item.
+- `title_quality` (fix `set_value title` for the decorative-characters case only, D315, D366): the title carries a decorative character (Unicode symbol or modifier, emoji included), is longer than 100 characters (`defaultTitleMaxLength`, a constant: no map changes it, D907), holds a lifecycle word (`attivo`, `active`, `dismesso`, `deprecated`, `draft`, `superseded`, `preparazione`, `archiviato`, `archived`, `declassato`, whole words) while the concept has a `status` field, holds one of the map's `forbidden_title_terms`, or the concept's own slug starts `YYYY-MM` in a map that is not `kind: journal`. One finding per rule that fires; a KB that wants it stricter promotes nothing here, it fixes the titles. Only the decorative case has a fix (auto-repair safe, D366): the title without those characters and with the whitespace collapsed, when something is left; the heading follows through `title_h1_mismatch` in the same fixpoint. Length, status word, forbidden term and date slug are wording judgements and keep none.
+- `mangled_placeholder` (no fix, D314): the body holds a `` `repo:key` `` or `` `path:key` `` code span followed within 40 characters by "between double braces" (or its Italian/French forms): a `{{…}}` placeholder an import unwrapped into prose. Fenced blocks and lines containing `{{` are skipped.
 
-Two finding kinds gained a mechanical fix in D295. `broken_link` in the `index.md` of an expanded concept carries `rebase_link` (`field` the href, `to` the rewritten href) when the link resolves against the pre-expansion file `<id>.md`: that is the damage an expansion did before `concept_expand` rebased links. `duplicate_link` is one finding per repeated target, and carries `drop_link_item` (`field` the exact list line) when that item is a single link and nothing else: the link stays in the text, the item goes, and a section left with no item loses its heading — unless the page's template requires that H2 (by name or alias, and not among its optional sections) or a deeper heading follows it, in which case the empty heading stays (D827); a line of prose under a links heading is enough to keep the section, and the `duplicate_link` and `template_section_missing` messages say so. The links section ends at the first following heading of any level, so a `###` under it is text: its links are not the section's, and the repair never edits it (D827). An item with any other word keeps no fix — the word may be the reason. A `rebase_link` with an empty `to` (D310) is a link that resolves to the concept itself: the repair keeps the label and drops the link syntax. `index_link_form` (D310, info) flags a link spelled `<concept>/index` where the concept exists: a markdown href gets `rebase_link` to the relative `<concept>.md`, a wiki-link `rewrite_wiki_link` (`field` the old ID, `to` the new; alias and anchor are kept). `reciprocal_link_item` (D301, info) carries the same fix for a link-only item whose target links back to the concept from its text — a back-link only in the target's own links section does not count, so a mutual pair listed only in the two links sections is never flagged and repairing it can never drop the edge (D309): backlinks keep the edge navigable both ways, so the item is a second write for an edge the server already exposes. It is an efficiency choice the operator makes with `kb_repair reciprocal_link_item` (the heartbeat never runs it), not conformance debt, and refines D287 without reverting it: only reciprocated items go, the section stays. `map_misfit` names only a map whose contract admits the concept's type (a strict map's `concept_types`); with no admitting majority there is no finding.
+Two finding kinds gained a mechanical fix in D295. `broken_link` in the `index.md` of an expanded concept carries `rebase_link` (`field` the href, `to` the rewritten href) when the link resolves against the pre-expansion file `<id>.md`: that is the damage an expansion did before `concept_expand` rebased links. `duplicate_link` is one finding per repeated target, and carries `drop_link_item` (`field` the exact list line) when that item is a single link and nothing else: the link stays in the text, the item goes, and a section left with no item loses its heading — unless the page's template requires that H2 (by name or alias, and not among its optional sections) or a deeper heading follows it, in which case the empty heading stays (D827); a line of prose under a links heading is enough to keep the section, and the `duplicate_link` and `template_section_missing` messages say so. The links section ends at the first following heading of any level, so a `###` under it is text: its links are not the section's, and the repair never edits it (D827). An item with any other word keeps no fix — the word may be the reason. A `rebase_link` with an empty `to` (D310) is a link that resolves to the concept itself: the repair keeps the label and drops the link syntax. `index_link_form` (D310) flags a link spelled `<concept>/index` where the concept exists: a markdown href gets `rebase_link` to the relative `<concept>.md`, a wiki-link `rewrite_wiki_link` (`field` the old ID, `to` the new; alias and anchor are kept). `reciprocal_link_item` (D301) carries the same fix for a link-only item whose target links back to the concept from its text — a back-link only in the target's own links section does not count, so a mutual pair listed only in the two links sections is never flagged and repairing it can never drop the edge (D309): backlinks keep the edge navigable both ways, so the item is a second write for an edge the server already exposes. It is an efficiency choice the operator makes with `kb_repair reciprocal_link_item` (the heartbeat never runs it), not conformance debt, and refines D287 without reverting it: only reciprocated items go, the section stays. `map_misfit` names only a map whose contract admits the concept's type (a strict map's `concept_types`); with no admitting majority there is no finding.
 
 ### Value vocabularies (D296)
 
@@ -559,20 +565,20 @@ D289 converges field names; D296 converges **values**, starting with `status`. T
 
 `open`, `decision-needed`, `reference`, `accepted`, `rejected`, `superseded`, `mitigated`, `monitoring` are deliberately in no family: they are distinct states, or KB-specific.
 
-- `missing_value_contract` on `status` folds each family onto its majority member and each prose value onto its leading token, and carries a structured `proposal: {key, field, type?, values, mapping}` next to the message. Declaring it is the operator's judgement (`map_update`); after that the per-concept findings are mechanical.
+- The `missing_value_contract` observation on `status` folds each family onto its majority member and each prose value onto its leading token, and carries a structured `proposal: {key, field, type?, values, mapping}` next to the message. Declaring it is the operator's judgement (`map_update`); after that the per-concept findings are mechanical.
 - `invalid_field_value` carries `set_value` when the value is, up to folding or by family, exactly one allowed value. Two candidates, or none, give no fix.
-- `prose_value` (warning): `status`, or a field the contract constrains, holds a sentence (a separator such as ` — `, `;`, `: `, or more than three words). It carries `split_value` when the leading token is a contract value or, with no contract, a family member: the field keeps the token and `kb_repair` writes the rest as `> <field>: <rest>` after the first heading, so nothing is lost.
+- `prose_value`: `status`, or a field the contract constrains, holds a sentence (a separator such as ` — `, `;`, `: `, or more than three words). It carries `split_value` when the leading token is a contract value or, with no contract, a family member: the field keeps the token and `kb_repair` writes the rest as `> <field>: <rest>` after the first heading, so nothing is lost.
 
 ### Invalid pages are lint checks (D356)
 
 `validate` reports what the write path would refuse about a page; lint reports the same facts so the repair, the heartbeat, `kb_review` and the doctor see them. `validate` itself is unchanged.
 
-- `missing_frontmatter` (error): no frontmatter block (an empty file included). Fix `add_frontmatter`: `type` is the resolved type, `title` the first H1, else the file stem with `-`/`_` turned into spaces. No fix when the type does not resolve.
-- `missing_type` (error): a block with no `type` (delimiters and zero keys are this, not `missing_frontmatter`). Fix `set_value type` with the resolved type.
-- `unparseable_frontmatter` (error): the block does not parse. Fix `quote_value`: only when exactly one line fails, the lines after it are plain top-level entries, and double-quoting that line's value (escaping `"` and `\`) makes the block parse with the same key set.
-- `concept_too_deep` (error): more than three ID segments outside `services/`. No fix (where a page belongs is judgement): a `lint_judgement` item.
-- `nonslug_file_name` (warning): the file stem (the directory name of an expanded concept) is not `^[a-z0-9]+(-{1,2}[a-z0-9]+)*$`. Fix `move` to the slugified ID (lowercase, accents folded, runs of other characters → `-`), applied through `concept_move`'s code path so inbound links are rewritten; `CrossConcept`, stage 2 of the heartbeat. No fix, and a message naming it, when the target exists.
-- `empty_concept` (warning): no non-whitespace body. No fix: nothing is ever deleted automatically; a `lint_judgement` item.
+- `missing_frontmatter`: no frontmatter block (an empty file included). Fix `add_frontmatter`: `type` is the resolved type, `title` the first H1, else the file stem with `-`/`_` turned into spaces. No fix when the type does not resolve.
+- `missing_type`: a block with no `type` (delimiters and zero keys are this, not `missing_frontmatter`). Fix `set_value type` with the resolved type.
+- `unparseable_frontmatter`: the block does not parse. Fix `quote_value`: only when exactly one line fails, the lines after it are plain top-level entries, and double-quoting that line's value (escaping `"` and `\`) makes the block parse with the same key set.
+- `concept_too_deep`: more than three ID segments outside `services/`. No fix (where a page belongs is judgement): a `lint_judgement` item.
+- `nonslug_file_name`: the file stem (the directory name of an expanded concept) is not `^[a-z0-9]+(-{1,2}[a-z0-9]+)*$`. Fix `move` to the slugified ID (lowercase, accents folded, runs of other characters → `-`), applied through `concept_move`'s code path so inbound links are rewritten; `CrossConcept`, stage 2 of the heartbeat. No fix, and a message naming it, when the target exists.
+- `empty_concept`: no non-whitespace body. No fix: nothing is ever deleted automatically; a `lint_judgement` item.
 
 The four errors are evaluated by `Run` only (a write that would produce one is refused before it lints). **Type resolution**, shared by both type fixes: the type used by every typed page of the map, when there are at least two and they all agree; otherwise none (the map's `default_template` type comes first once a map declares one). A majority is not enough: a wrong `type` silently changes contracts. Pages without a type are neither votes nor disagreement.
 
@@ -580,7 +586,7 @@ The four errors are evaluated by `Run` only (a write that would produce one is r
 
 ### Decay checks (D297)
 
-Lint also sees a KB **decaying**: work never closed, closed work not finished, pages without the shape their template promises, open questions nobody counts, facets that stopped being facets. All are `info` except `template_section_missing` (warning) and judgement (no fix): they feed the doctor. A map contract tunes them with these keys, also settable through `map_update`:
+Lint also sees a KB **decaying**: work never closed, closed work not finished, pages without the shape their template promises, open questions nobody counts, facets that stopped being facets. The checks below are problems like any other (D947), except `facet_sprawl`, an observation. A map contract tunes them with these keys, also settable through `map_update`:
 
 | Key | Meaning | Default |
 |---|---|---|
@@ -593,11 +599,11 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 Ageing cannot be switched off (D907): `map_update` with `stale_after` or `harvest_after` set to `-1` removes the key (back to the default above), and `0` is refused ("staleness cannot be switched off", "harvesting cannot be switched off"). A `0` already in a `_map.md` is a removed key (`contract_legacy_key`, §Maps and Journals) and reads as the default. A map that should not age its pages declares no `open_statuses` and is a reference map.
 
 - `stale_open`: open status and `timestamp` older than the effective `stale_after` (`map_update` resets an explicit value with `-1`; `kb_status.stale_count` is a different signal, past `review_after`), unless the concept declares a `review_after` today or later: that suspends the timer (D321); a `review_after` before today does not, it makes the wait overdue (and `stale_claim` fires: both judge the date by UTC day, so neither treats the review day itself as past). `waiting_on` is a free-text field naming who or what blocks the work, with no vocabulary; the doctor sets both on a finding only the operator can resolve.
-- `status_semantics` (warning, D321): `status` in the `active` family on a concept of a journal whose `open_statuses` does not list it, which is checked on write too; never raised in a map with `open_field`, where `status` is the lifecycle (D347). The review kind `status_reclassify` proposes the replacement.
+- `status_semantics` (D321): `status` in the `active` family on a concept of a journal whose `open_statuses` does not list it, which is checked on write too; never raised in a map with `open_field`, where `status` is the lifecycle (D347). The review kind `status_reclassify` proposes the replacement.
 - `closed_with_open_items`: a status of the `done` or `resolved` family with unchecked `- [ ]` items outside code and outside a section whose H2 matches the map's `procedure_headings` (default `procedure`, `steps`, `how to`: a procedure's checklist is a reusable template, D313).
-- `template_section_missing` (warning, D352): required sections of the page's template (optional ones subtracted, an alias counts as the section) the page lacks, compared folding case and accents; headings inside fenced code are ignored. Evaluated on every template-bound page of a map that declares templates (below); closed pages are exempt. No fix: an empty heading is a hollow promise.
+- `template_section_missing` (D352): required sections of the page's template (optional ones subtracted, an alias counts as the section) the page lacks, compared folding case and accents; headings inside fenced code are ignored. Evaluated on every template-bound page of a map that declares templates (below); closed pages are exempt. No fix: an empty heading is a hollow promise.
 - `open_marker`: marker occurrences outside code, outside heading lines, outside table rows of a concept in an open phase (D313), and outside struck-through `~~text~~` (closed or cancelled, D307), whole words, case- and accent-folded; `kb_status.open_markers` totals them as `{concepts, markers}`.
-- `facet_sprawl` (on `_map.md`, directory-level): `tags` with at least 30 distinct values, half or more used once; the message lists the ten most used as the likely vocabulary.
+- `facet_sprawl` (an observation, D947, on `_map.md`, directory-level): `tags` with at least 30 distinct values, half or more used once; the message lists the ten most used as the likely vocabulary.
 
 ### Templates are page schemas (D352)
 
@@ -627,7 +633,7 @@ A template's sections are its H2 headings outside fenced code or, when it has no
 | `x-template.section_aliases.<Canonical H2>` | accepted alternative names |
 | `x-template.open_sections` | `true`: H2 headings the template does not name are allowed (default `false`) |
 
-On a map that declares `templates` or a `default_template`, all `AcceptConcept`, warning unless noted, none an error (D289), all evaluated on the write path: `template_missing` (no `shape`, nothing resolves; fix `set_value shape` when exactly one template of the map has the page's type, or the `default_template` when the page has no type), `template_unknown` (`shape` not a slug, not a string, or no such file), `template_not_allowed` (the resolved template is not in `templates`), `template_type_mismatch` (a bound page's `type` differs from its template's: `shape` is the specific choice, `type` follows it; fix `set_value type`), `template_field_missing`, `template_field_value` (fix `set_value` when one allowed value matches after folding), `template_extra_section` (an H2 that is no section, optional section or alias; merge its text into a section or move it, never delete it), `template_section_alias` (fix `rename_heading` to the canonical name, none when the page has both), `template_section_order` (info; fix `reorder_sections`), and `template_section_missing` (above). Closed pages are exempt from `template_section_missing`, `template_field_missing` and `template_extra_section`; the binding checks still run. `map_without_templates` (info, on `_map.md`) marks a map of at least three pages with no `templates`.
+On a map that declares `templates` or a `default_template`, all evaluated on the write path: `template_missing` (no `shape`, nothing resolves; fix `set_value shape` when exactly one template of the map has the page's type, or the `default_template` when the page has no type), `template_unknown` (`shape` not a slug, not a string, or no such file), `template_not_allowed` (the resolved template is not in `templates`), `template_type_mismatch` (a bound page's `type` differs from its template's: `shape` is the specific choice, `type` follows it; fix `set_value type`), `template_field_missing`, `template_field_value` (fix `set_value` when one allowed value matches after folding), `template_extra_section` (an H2 that is no section, optional section or alias; merge its text into a section or move it, never delete it), `template_section_alias` (fix `rename_heading` to the canonical name, none when the page has both), `template_section_order` (fix `reorder_sections`), and `template_section_missing` (above). Closed pages are exempt from `template_section_missing`, `template_field_missing` and `template_extra_section`; the binding checks still run. A map with no `templates` is not a finding (D947): `kb_review`'s `template_proposal` proposes the ones its pages already follow.
 
 `reorder_sections` moves whole H2 blocks into template order, keeps extra sections after the last template section in their relative order, keeps the text before the first H2 first, never treats a heading inside fenced code as a section, and normalises the blank lines between blocks; `rename_heading` rewrites one heading line. Neither writes section text. `template_missing`, `template_type_mismatch`, `template_field_value`, `template_section_order` and `template_section_alias` are among the safe repairs the heartbeat applies (`lint.AutoRepairOrder`), in that order (a reorder lists the headings as written, so it runs before the rename).
 
@@ -652,61 +658,53 @@ On a map that declares `templates` or a `default_template`, all `AcceptConcept`,
 
 **Work items (D302).** A work item is a concept in an open phase for its map (`open_statuses`, else the defaults; never `active`, D321; the `draft` family only where `open_statuses` lists it, since it marks a page still being written), of any type, or an unchecked `- [ ]` item outside code in any concept, whatever its status. With `open_field` the state is that field's value, falling back to `status` for a concept without it; `archived` still closes, and any other non-open value is closed (D347); `work_list` entries then carry `state`. `work_list` returns them read-only; staleness is `stale_open`'s threshold, extended to a concept whose unchecked items are that old.
 
-**Nothing dismisses a review item (D907).** There is no `lint_ignore`, no state kept outside the KB: `kb_review` lists what the pages are, and an item goes when the page state it asks for is written, in the same commit that explains why. `zombie_work`: close the page or retarget the link to the retired concept. `duplicate_candidate`: merge the pair, or link each page to the other (D854). `harvest_candidate`: harvest the entry, then archive it (D322). `lint_judgement`: fix the page until the check no longer reports it. `repeated_fact`: keep the fact in one concept and link to it. `read_hotspot`: split the page. `glossary_gap`: define the term in `glossary.yaml` or in a `glossary: true` map. `map_naming`: give the maps' titles one shape, or a poor title a better one. `status_reclassify`: set the status the item proposes. `scattered_work`: create the concept in the `work_map` and link the page to it. `promotion_candidate`: create the procedure in `promote_to` and link it. `template_proposal`: declare the templates in the map.
+**Nothing dismisses a review item (D907).** There is no `lint_ignore`, no state kept outside the KB: `kb_review` lists what the pages are, and an item goes when the page state it asks for is written, in the same commit that explains why. `zombie_work`: close the page or retarget the link to the retired concept. `duplicate_candidate`: merge the pair, or link each page to the other (D854). `harvest_candidate`: harvest the entry, then archive it (D322). `lint_judgement`: fix the page until the check no longer reports it. `repeated_fact`: keep the fact in one concept and link to it. `read_hotspot`: split the page. `glossary_gap`: define the term in `glossary.yaml` or in a `glossary: true` map. `map_naming`: give the maps' titles one shape, or a poor title a better one. `status_reclassify`: set the status the item proposes. `scattered_work`: create the concept in the `work_map` and link the page to it. `promotion_candidate`: create the procedure in `promote_to` and link it. `template_proposal`: declare the templates in the map. `observation` (D947): the page state the generated table in §Observations names for its `check`: split the page, link the group in, move the page, declare the vocabulary.
 
 A finding whose remedy is mechanical carries `fix: {kind, field, to?}` (`rename_field`, `drop_field`, `rebase_link`, `drop_link_item`, `rewrite_wiki_link`, `set_value`, `split_value`, `sync_h1`, `unlink_repeat`, `scaffold_map`, `retarget_links`, `drop_index_entry`, `add_frontmatter`, `quote_value`, `move`); the rest carry none. `lint.CheckConcept` computes the frontmatter-driven checks of one concept without walking the KB (`missing_required_field`, `invalid_field_value`, `forbidden_field`, `nonstandard_field`, `tool_param_field`, `missing_title`, `title_h1_mismatch`, `title_quality`, `machine_path`, `stale_claim`); `Run` calls the same function, and the write tools return its result.
 
 `machine_path` has no allow-list a map can extend (D907): a client-local path (`/Users/…`, `/home/…`, `~/…`, `C:\Users\…`) outside a URL is a finding, apart from the fixed tool paths above, and the page is fixed by writing `{{repo:<key>}}` or `{{path:<name>}}` (declared in `paths.yaml`, §The path placeholder registry) or `$HOME` where the path is the reader's own. The finding names every path it found and has no auto-fix: which placeholder a path stands for is the author's call.
 
-The two "too big" numbers are related, and both are constants (§Cost thresholds): `concept_oversize` fires at **half** the size (30,000 bytes) at which `concept_read` degrades to an outline (60,000), so an author gets warning before reads change shape, and the
+The two "too big" numbers are related, and both are constants (§Cost thresholds): the `concept_oversize` observation fires at **half** the size (30,000 bytes) at which `concept_read` degrades to an outline (60,000), so an author gets warning before reads change shape, and the
 message names both bounds. For a satellite the message does not advise `concept_expand` — the write
 path caps depth at three segments, so that remedy is structurally unavailable — and names splitting
 into sibling satellites instead.
 
 ### Artifact checks (D316)
 
-Lint also covers what a KB ships beside its concepts. All are warning or info; the KB-level ones run
+Lint also covers what a KB ships beside its concepts. The KB-level ones run
 only in a whole-KB lint, and their findings name the artifact file (`skills/<name>/SKILL.md`,
 `agents/<name>.md`, `instructions.md`), never a concept.
 
-- `skill_invalid` (warning): `skill.Validate` would refuse the skill (unreadable frontmatter, name
+- `skill_invalid`: `skill.Validate` would refuse the skill (unreadable frontmatter, name
   rules, name ≠ directory, no description), or a `skills/<dir>` has no `SKILL.md`.
-- `skill_warning` (info): `skill.Validate`'s warnings (description over 1024 characters, body over
+- `skill_warning`: `skill.Validate`'s warnings (description over 1024 characters, body over
   500 lines).
-- `legacy_tool_name` (warning, fix `strip_tool_prefix`): a pre-D288 prefixed tool name
+- `legacy_tool_name` (fix `strip_tool_prefix`): a pre-D288 prefixed tool name
   (`<kb>__search`, e.g. kb_a__search) in a skill, agent or `instructions.md` (Markdown, text, scripts and config
   files; stylesheets are skipped, a BEM class has the same shape). A client's own MCP tool name,
   `mcp__<server>__<tool>` (Claude Code, Codex), is never flagged: it is current, not a prefix. The message names the mounted KB
   the prefix most likely meant, so the agent adds `kb: "<name>"`; the fix only strips the prefix.
-- `skill_broken_ref` (warning): a `tools/`, `scripts/` or `skills/` path in a skill's code (fenced
+- `skill_broken_ref`: a `tools/`, `scripts/` or `skills/` path in a skill's code (fenced
   block or inline code — prose is not scanned) that exists neither under the KB root nor in the
   skill's directory. The MCP methods `tools/list` and `tools/call` are protocol, not paths.
-- `skill_git_command` (info): a skill's code runs `git add|commit|push|pull|merge|rebase|reset|checkout|stash`;
+- `skill_git_command`: a skill's code runs `git add|commit|push|pull|merge|rebase|reset|checkout|stash`;
   the KB is written only through MCP tools. `git clone`, `status`, `log` are reads. A step that
   targets another repository names it, `git -C <repo> pull`, which is not matched: that is how the
   finding closes, since nothing accepts it (D907).
-- `missing_instructions` (warning, KB-level, no path): more than 10 concepts and no `instructions.md`.
-- `junk_file` (warning): a junk file git tracks, or would add at the next commit (`git ls-files
+- `missing_instructions` (KB-level, no path): more than 10 concepts and no `instructions.md`.
+- `junk_file`: a junk file git tracks, or would add at the next commit (`git ls-files
   --cached --others --exclude-standard`), outside an expanded concept's assets; remove it with `git
   rm`. `junk_asset` covers the assets (§Assets).
-- `sops_format_mismatch` (warning, also per concept): a `sops decrypt` (or `-d`)
+- `sops_format_mismatch` (also per concept): a `sops decrypt` (or `-d`)
   piped to `jq` or `python3 … json.load` without `--output-type json` in code — sops prints YAML by
-  default. `sops_missing_file` (warning, same scope): with a `secrets/` directory in the KB, a
+  default. `sops_missing_file` (same scope): with a `secrets/` directory in the KB, a
   `sops decrypt secrets/…` naming a file that does not exist. Nothing is decrypted or read.
-- `cross_kb_path` (warning): an artifact hard-codes a sibling KB's root (or
+- `cross_kb_path`: an artifact hard-codes a sibling KB's root (or
   `~/cartographer-data/<name>`). The server injects the siblings' roots when it mounts more than
   one KB (`kb.KB.SiblingRoots`); a single-KB server has none and pays nothing.
-- `skill_missing_perimeter` (info): `instructions.md` declares `perimeter` and a skill's
+- `skill_missing_perimeter`: `instructions.md` declares `perimeter` and a skill's
   description does not contain it (case-insensitive substring, so `ops` matches `DevOps`).
-- `artifact_unused` (info): a skill or agent no client has activated for `usage_stale_days`
-  (default 42, per KB in the server config, `0` disables; D326). Three messages: *never
-  activated* (absent from the usage reports), *never seen activated, catalogue loaded N days
-  ago* (the only signal is a Codex catalogue load, which proves availability, not use), and
-  *last activated N days ago*. With no usage report at all the check is silent — the absence
-  of a signal is not evidence of disuse. The usage is local state, below.
-  An artifact added (or renamed into place) inside the threshold, by the KB's git history, is
-  never reported as *never activated*: it has not had the time to be used (D336).
-- `legacy_path` (warning, per concept, fix `replace_prefix`): a concept body contains
+- `legacy_path` (per concept, fix `replace_prefix`): a concept body contains
   a prefix declared in `instructions.md` `legacy_paths`. One finding per prefix found; the repair
   rewrites every occurrence, all prefixes in one pass, longest first.
 
@@ -721,8 +719,8 @@ and not replicated between servers: "is this skill used?" is a question about on
 machines. Losing it loses nothing durable; the next `sync` of each client rebuilds it. On a data
 dir that does not survive a restart, `kb_status.usage` reports `no_data` with `no_report_since`
 (the server's start) until then (D333, `docs/deployment.md` §State and volumes). It feeds
-`artifact_unused`, the `usage` section of `kb_status` and the Atlas Artifacts panel's "Last used"
-column. Written only by `POST /api/usage` (`docs/control-plane.md` §Usage reports).
+the `usage` section of `kb_status` and the Atlas Artifacts panel's "Last used"
+column (there is no `artifact_unused` finding: a usage signal ages with no page to fix, D947). Written only by `POST /api/usage` (`docs/control-plane.md` §Usage reports).
 
 ## The path placeholder registry (`paths.yaml`)
 
@@ -747,14 +745,14 @@ client: `sync_pull` serves it as data, and the client uses it to resolve keys
 When the file exists, `lint` adds three checks — none when it does not, so an existing KB is not
 flooded on upgrade:
 
-- `unknown_placeholder` (warning, per concept): the concept cites a key not declared
+- `unknown_placeholder` (per concept): the concept cites a key not declared
   under the matching kind. One finding per concept, naming every undeclared key; the keys come from
   the graph cache's placeholder facet.
-- `missing_registry` (info, KB level, D314): placeholders are cited but `paths.yaml` does not exist. One finding on `paths.yaml` with the count; creating the file closes it. A `paths.yaml` that exists but is unreadable gives `contract_malformed`, not this.
-- `unused_placeholder` (info, on `paths.yaml`, whole-KB lint only): a declared key no concept and no
+- `missing_registry` (KB level, D314): placeholders are cited but `paths.yaml` does not exist. One finding on `paths.yaml` with the count; creating the file closes it. A `paths.yaml` that exists but is unreadable gives `contract_malformed`, not this.
+- `unused_placeholder` (on `paths.yaml`, whole-KB lint only): a declared key no concept and no
   artifact (`skills/`, `agents/`, `hooks/`, `mcp/`, `instructions.md`) cites.
-- `hook_invalid` (warning, on `hooks/<name>/hook.json`, whole-KB lint only): a hook whose `hook.json` `artifact_write` would now refuse (invalid JSON, missing `event`/`command`, a command outside the hook's directory) or warn about (an event outside the declared vocabulary, which never fires if misspelled), so hooks written before that validation surface. Independent of `paths.yaml`: it applies to every KB with a `hooks/` directory ([D284](decisions/D284-hook-json-is-validated-against-one-declared-event-vocabulary.md)).
-- `contract_malformed` (info, on `paths.yaml`): a malformed entry, or a file that is not a YAML
+- `hook_invalid` (on `hooks/<name>/hook.json`, whole-KB lint only): a hook whose `hook.json` `artifact_write` would now refuse (invalid JSON, missing `event`/`command`, a command outside the hook's directory) or warn about (an event outside the declared vocabulary, which never fires if misspelled), so hooks written before that validation surface. Independent of `paths.yaml`: it applies to every KB with a `hooks/` directory ([D284](decisions/D284-hook-json-is-validated-against-one-declared-event-vocabulary.md)).
+- `contract_malformed` (on `paths.yaml`): a malformed entry, or a file that is not a YAML
   mapping at all — in which case no key is reported undeclared.
 
 `machine_path` also names the declared key whose `default` is a prefix of the flagged path, e.g.
@@ -769,8 +767,8 @@ mounting the same KB get the same behaviour. `settings.yaml` at the KB root, bes
 `paths.yaml`, is the **only** place a KB's policy is set (D906): the server's `kbs[]` keeps just
 `name` and `remote`. It carries two keys, and the write gate, the safe repairs and the doctor's cadence are not among them (D907):
 
-- `usage_stale_days`: days a skill or agent may go unused by every client before `artifact_unused`
-  reports it. Default 42, minimum 7, and no value turns the finding off: a value under 7 is raised
+- `usage_stale_days`: days a skill or agent may go unused by every client before `kb_status.usage` counts it as stale
+  (and the Artifacts panel flags it). Default 42, minimum 7, and no value turns the signal off: a value under 7 is raised
   to 7 with a finding (`kb_status` `settings_findings`, a startup warning), and `0` or a negative
   number is read as the default (the realignment resets a `0` by dropping the key);
 - how changes land: `branch`, the branch Cartographer commits and pushes to, in place of the
@@ -846,9 +844,9 @@ a client.
   8 queries run, the original first, and a variant is never re-expanded; hits are merged by id keeping
   the best score. The response names the variants in `expanded_to`, and a miss is recorded only when
   every variant came back empty. A KB without the file searches exactly as before.
-- **Lint.** `forbidden_term` (warning, per concept): the body uses a forbidden term as a whole word outside fenced and
+- **Lint.** `forbidden_term` (per concept): the body uses a forbidden term as a whole word outside fenced and
   inline code (the masking the link graph uses, D150): a migration note quotes an old name in inline code. One finding per distinct term, naming the
-  canonical. A malformed entry is `contract_malformed` (info, on `glossary.yaml`, whole-KB lint only).
+  canonical. A malformed entry is `contract_malformed` (on `glossary.yaml`, whole-KB lint only).
 
 ## Extended concept types
 
@@ -891,7 +889,7 @@ validate a nested per-type grammar.
   **Dedup** (`source_register`): `sha256` decides when both sides have one,
   otherwise an exact `locator` match; a title match is not a duplicate. Marking a
   source ingested is a plain `concept_patch` of its frontmatter. `lint` reports an
-  `ingested` Source nobody cites as `source_uncited` (warning);
+  `ingested` Source nobody cites as `source_uncited`;
   `concept_delete` of a cited Source needs `force: true`; `kb_status` counts
   sources by status (`sources`).
 

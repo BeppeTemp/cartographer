@@ -13,7 +13,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
-// nudgeKB is a KB with debt (two nonstandard_field warnings), no kb-doctor
+// nudgeKB is a KB with debt (two nonstandard_field findings), no kb-doctor
 // session ever, and the default interval, on a server whose clock tests move.
 func nudgeKB(t *testing.T) (*Server, *time.Time) {
 	t.Helper()
@@ -44,7 +44,7 @@ func TestDoctorNudgeOncePerWindow(t *testing.T) {
 		t.Fatalf("no nudge on the first call: %+v", first.Content)
 	}
 	text := first.Content[len(first.Content)-1].Text
-	if len(text) > 380 || !strings.Contains(text, "never") || !strings.Contains(text, "2 warnings") {
+	if len(text) > 380 || !strings.Contains(text, "never") || !strings.Contains(text, " lint findings, ") || strings.Contains(text, "warning") {
 		t.Fatalf("notice = %q (%d bytes)", text, len(text))
 	}
 	if nudged(s.callTool(authLocalContext(), "search", json.RawMessage(`{"query":"N0"}`))) {

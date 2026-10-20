@@ -182,7 +182,7 @@ func TestFacetSprawl(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: C\ntags: [common, t%d]\n---\n# C\n", i))
 	}
-	f, _ := Run(k, "", false)
+	f := observed(t, k)
 	if !hasCheck(f, "m/_map.md", "facet_sprawl") {
 		t.Fatal("facet_sprawl not reported")
 	}

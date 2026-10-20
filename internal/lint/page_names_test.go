@@ -25,7 +25,7 @@ func nameFindings(t *testing.T, mapFM, file, fm, body string) []Finding {
 func TestTitleH1Mismatch(t *testing.T) {
 	t.Parallel()
 	got := findingsOf(nameFindings(t, "", "a", "title: Alpha\n", "# Beta\ntext"), "title_h1_mismatch")
-	if len(got) != 1 || got[0].Severity != SevWarning || got[0].Fix == nil || got[0].Fix.Kind != FixSyncH1 || got[0].Fix.To != "Alpha" {
+	if len(got) != 1 || got[0].Fix == nil || got[0].Fix.Kind != FixSyncH1 || got[0].Fix.To != "Alpha" {
 		t.Fatalf("mismatch: %+v", got)
 	}
 	if got := findingsOf(nameFindings(t, "", "a", "title: Alpha\n", "# Alpha\ntext"), "title_h1_mismatch"); len(got) != 0 {
@@ -65,7 +65,7 @@ func TestTitleQuality(t *testing.T) {
 				}
 				return
 			}
-			if len(got) != 1 || got[0].Severity != SevInfo || !strings.Contains(got[0].Message, tc.want) {
+			if len(got) != 1 || !strings.Contains(got[0].Message, tc.want) {
 				t.Fatalf("finding: %+v", got)
 			}
 			if fixTo[name] == "" && got[0].Fix != nil {

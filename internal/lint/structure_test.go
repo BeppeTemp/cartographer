@@ -2,7 +2,6 @@ package lint
 
 import (
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -85,10 +84,10 @@ func TestIslandAndCutConcept(t *testing.T) {
 	s.concept("notes/b", "", "notes/c")
 	s.concept("notes/c", "")
 	s.concept("notes/lone", "")
-	findings := s.run("")
+	findings := observed(t, s.k)
 
 	islands := findingsOf(findings, "island")
-	if len(islands) != 1 || islands[0].Path != "notes/b.md" || islands[0].Severity != SevInfo {
+	if len(islands) != 1 || islands[0].Path != "notes/b.md" {
 		t.Fatalf("islands = %+v", islands)
 	}
 	if want := "3 concepts form an island disconnected from the main graph: notes/a, notes/b, notes/c"; islands[0].Message != want {
@@ -109,31 +108,27 @@ func TestIslandAndCutConcept(t *testing.T) {
 	}
 }
 
-func TestStructuralScope(t *testing.T) {
+// The graph-shape observations are not findings (D947): a whole-KB or scoped
+// lint never returns one, and kb_review computes them on the whole graph.
+func TestStructuralObservationsAreNotFindings(t *testing.T) {
 	t.Parallel()
 	s := newStructKB(t, map[string]string{"ops": "map", "notes": "map"})
 	s.mainGraph(nil)
 	s.concept("notes/a", "", "notes/b")
 	s.concept("notes/b", "")
-	findings := s.run("")
-	if !hasCheck(findings, "ops/h.md", "cut_concept") {
+	obs := observed(t, s.k)
+	if !hasCheck(obs, "ops/h.md", "cut_concept") {
 		t.Fatal("cut_concept missing on the hub")
 	}
-	if len(findingsOf(findings, "island")) != 1 {
+	if len(findingsOf(obs, "island")) != 1 {
 		t.Fatal("island missing")
 	}
-
-	// Scoped lint: computed on the whole graph, emitted only in scope.
-	whole := s.run("")
-	scoped := s.run("notes")
-	if got, want := findingsOf(scoped, "island"), findingsOf(whole, "island"); !reflect.DeepEqual(got, want) {
-		t.Fatalf("scoped island %+v, whole %+v", got, want)
-	}
-	if len(findingsOf(scoped, "cut_concept")) != 0 {
-		t.Fatal("an out-of-scope cut concept was reported")
-	}
-	if got, want := findingsOf(s.run("ops"), "cut_concept"), findingsOf(whole, "cut_concept"); !reflect.DeepEqual(got, want) {
-		t.Fatalf("scoped cut_concept %+v, whole %+v", got, want)
+	for _, scope := range []string{"", "notes", "ops"} {
+		for _, f := range s.run(scope) {
+			if _, isObservation := ObservationSpecOf(f.Check); isObservation {
+				t.Fatalf("scope %q: lint returned the observation %s: %+v", scope, f.Check, f)
+			}
+		}
 	}
 }
 
@@ -165,7 +160,7 @@ func TestLinkToRetiredAndBrokenRelation(t *testing.T) {
 	}
 
 	broken := findingsOf(findings, "broken_relation")
-	if len(broken) != 2 || broken[0].Path != "ops/dangling.md" || broken[1].Path != "ops/selfish.md" || broken[0].Severity != SevWarning {
+	if len(broken) != 2 || broken[0].Path != "ops/dangling.md" || broken[1].Path != "ops/selfish.md" {
 		t.Fatalf("broken_relation = %+v", broken)
 	}
 	if hasCheck(findings, "ops/old-dns.md", "broken_relation") {
@@ -188,7 +183,7 @@ func TestMapMisfit(t *testing.T) {
 		s.concept(id, "")
 	}
 	writeFile(t, s.k.DataRoot(), "rootpage.md", "---\ntype: Note\n---\nRoot.\n")
-	findings := s.run("")
+	findings := observed(t, s.k)
 	misfits := findingsOf(findings, "map_misfit")
 	if len(misfits) != 1 || misfits[0].Path != "ops/router.md" {
 		t.Fatalf("map_misfit = %+v", misfits)
@@ -210,7 +205,7 @@ func TestMapMisfit_StrictMapRefusingType_NoFinding(t *testing.T) {
 	for _, id := range []string{"net/a", "net/b", "net/c", "ops/x"} {
 		s.concept(id, "")
 	}
-	findings := s.run("")
+	findings := observed(t, s.k)
 	misfits := findingsOf(findings, "map_misfit")
 	if len(misfits) != 0 {
 		t.Fatalf("strict map refusing the type should not produce map_misfit: %+v", misfits)
@@ -225,7 +220,7 @@ func TestMapMisfit_FlexibleMapAdmitsAnyType(t *testing.T) {
 	for _, id := range []string{"net/a", "net/b", "net/c", "ops/x"} {
 		s.concept(id, "")
 	}
-	findings := s.run("")
+	findings := observed(t, s.k)
 	misfits := findingsOf(findings, "map_misfit")
 	if len(misfits) != 1 || misfits[0].Path != "ops/router.md" {
 		t.Fatalf("flexible map should produce map_misfit: %+v", misfits)
@@ -271,7 +266,7 @@ func TestCutConcept_ExpandedIndexExempt(t *testing.T) {
 	for _, sat := range []string{"api", "db", "ui"} {
 		s.concept("ops/svc/"+sat, "")
 	}
-	if got := findingsOf(s.run(""), "cut_concept"); hasCheck(got, "ops/svc/index.md", "cut_concept") {
+	if got := findingsOf(observed(t, s.k), "cut_concept"); hasCheck(got, "ops/svc/index.md", "cut_concept") {
 		t.Fatalf("an expanded index cutting off its own satellites is not fragility: %+v", got)
 	}
 }
@@ -284,7 +279,7 @@ func TestCutConcept_JournalLeavesExempt(t *testing.T) {
 	for _, n := range []string{"a", "b", "c"} {
 		s.concept("incidents/"+n, "", "ops/svc")
 	}
-	if got := findingsOf(s.run(""), "cut_concept"); hasCheck(got, "ops/svc.md", "cut_concept") {
+	if got := findingsOf(observed(t, s.k), "cut_concept"); hasCheck(got, "ops/svc.md", "cut_concept") {
 		t.Fatalf("journal notes linked only to their subject are not fragility: %+v", got)
 	}
 }
@@ -298,7 +293,7 @@ func TestCutConcept_MixedStillFires(t *testing.T) {
 		s.concept("ops/"+n, "")
 	}
 	s.concept("incidents/a", "", "ops/svc")
-	got := findingsOf(s.run(""), "cut_concept")
+	got := findingsOf(observed(t, s.k), "cut_concept")
 	var msg string
 	for _, f := range got {
 		if f.Path == "ops/svc.md" {

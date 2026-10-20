@@ -22,8 +22,8 @@ func runTemplateMap(t *testing.T, mapFM string) (*testing.T, []Finding, map[stri
 func TestTemplatesActiveByDefault(t *testing.T) {
 	t.Parallel()
 	_, f, inactive := runTemplateMap(t, "")
-	if m := tplFinding(f, "infra/n1.md", "template_section_missing"); m == nil || m.Severity != SevWarning {
-		t.Errorf("a map with templates is strict by default (section_missing is a warning): %+v", f)
+	if m := tplFinding(f, "infra/n1.md", "template_section_missing"); m == nil {
+		t.Errorf("a map with templates is strict by default (section_missing is reported): %+v", f)
 	}
 	if r, ok := inactive["template_missing"]; ok {
 		t.Errorf("template_missing inactive on a strict map: %s", r)

@@ -49,8 +49,8 @@ func Inactive(k *kb.KB) map[string]string {
 
 	// Templates (D352): per map, strict by default once it declares templates.
 	if !any(func(c kb.MapContract) bool { return c.StrictTemplates() }) {
-		set("no map declares templates (map_without_templates lists the maps that could)", templateStrictChecks...)
-		set("no map declares templates (map_without_templates lists the maps that could)", "template_section_missing")
+		set("no map declares templates (kb_review template_proposal lists the maps that could)", templateStrictChecks...)
+		set("no map declares templates (kb_review template_proposal lists the maps that could)", "template_section_missing")
 	}
 
 	if len(newDriftData(k, nil, contracts).palette) == 0 {

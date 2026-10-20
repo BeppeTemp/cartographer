@@ -28,9 +28,8 @@ const (
 
 // lintSample is one line of the file: the unfiltered whole-KB totals.
 type lintSample struct {
-	At         string         `json:"at"`
-	Total      int            `json:"total"`
-	BySeverity map[string]int `json:"by_severity"`
+	At    string `json:"at"`
+	Total int    `json:"total"`
 	// ByHandler splits the total by who acts on a finding (D365).
 	ByHandler map[string]int `json:"by_handler"`
 }
@@ -39,15 +38,14 @@ func lintHistoryPath(k *kb.KB) string {
 	return filepath.Join(k.Root, ".cartographer", lintHistoryName)
 }
 
-// newLintSample counts the findings by severity and by handler.
+// newLintSample counts the findings in total and by handler.
 func newLintSample(k *kb.KB, findings []lint.Finding, now time.Time) lintSample {
 	s := lintSample{
 		At: now.UTC().Format(time.RFC3339), Total: len(findings),
-		BySeverity: map[string]int{}, ByHandler: map[string]int{},
+		ByHandler: map[string]int{},
 	}
 	auto := uiAutoChecks(k)
 	for _, f := range findings {
-		s.BySeverity[f.Severity]++
 		s.ByHandler[findingHandler(f, auto)]++
 	}
 	return s

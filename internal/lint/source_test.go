@@ -18,7 +18,7 @@ func sourceKB(t *testing.T, status, citer string) []Finding {
 func TestRun_SourceUncited(t *testing.T) {
 	t.Parallel()
 	got := sourceKB(t, "ingested", "")
-	if len(got) != 1 || got[0].Path != "sources/2026-01-01-a.md" || got[0].Severity != SevWarning {
+	if len(got) != 1 || got[0].Path != "sources/2026-01-01-a.md" {
 		t.Fatalf("ingested and uncited: %+v", got)
 	}
 	if got := sourceKB(t, "ingested", "provenance: [https://example.com/x, sources/2026-01-01-a]\n"); len(got) != 0 {

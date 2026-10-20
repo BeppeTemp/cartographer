@@ -100,7 +100,7 @@ var SettingsRetired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "doctor_mode", Plan: 907, Note: DoctorKeysRemoved},
 	{Path: "doctor_budget", Plan: 907, Note: DoctorKeysRemoved},
 }, Off: []settingschema.Off{
-	// usage_stale_days: 0 switched artifact_unused off (D906).
+	// usage_stale_days: 0 switched the stale-artifact signal off (D906).
 	{Path: "usage_stale_days", Value: "0", Plan: 906},
 }}
 

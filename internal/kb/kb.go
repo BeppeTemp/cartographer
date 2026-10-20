@@ -26,13 +26,14 @@ import (
 // value is every capability off.
 type Policy struct {
 	// UsageStaleDays is the per-KB threshold (D326, config.KBSpec) past which
-	// an artifact no client has used is reported by the artifact_unused lint.
-	// Set by serve; read it through UsageStale, which never answers less than
-	// MinUsageStaleDays: there is no value that turns the finding off (D906).
+	// an artifact no client has used counts as stale in kb_status.usage and the
+	// Artifacts panel. Set by serve; read it through UsageStale, which never
+	// answers less than MinUsageStaleDays: there is no value that turns the
+	// signal off (D906).
 	UsageStaleDays int
 }
 
-// UsageStale is the artifact_unused threshold in days: the default when the
+// UsageStale is the stale-artifact threshold in days: the default when the
 // policy carries none (a KB opened without serve), and never under
 // MinUsageStaleDays.
 func (p Policy) UsageStale() int {

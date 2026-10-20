@@ -39,8 +39,8 @@ const RepeatedFactLookupCap = repeatedFactLookupCap
 // re-read and kept only when factLines of its body holds the same key.
 //
 // budget is the number of lookups this call may still spend (shared across a
-// batch); the second result is the number it used. Advice only: severity info,
-// no Fix (judgement, D14), nothing on any error. It needs the previous body
+// batch); the second result is the number it used. Advice only: no Fix
+// (judgement, D14), nothing on any error. It needs the previous body
 // and an index, so it is not part of ScopedCheck and not of gate_check.
 func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, budget int, lookup func(line string) []okf.ConceptID) ([]Finding, int) {
 	if lookup == nil || budget <= 0 {

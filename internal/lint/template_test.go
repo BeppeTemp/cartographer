@@ -112,11 +112,11 @@ func TestTemplateChecks(t *testing.T) {
 	if tplFinding(f, "infra/open.md", "template_not_allowed") != nil {
 		t.Error("appliance is in the map's templates")
 	}
-	// Severities and fixes.
-	if m := tplFinding(f, "infra/lack.md", "template_section_missing"); m == nil || m.Severity != SevWarning {
-		t.Errorf("section_missing is a warning: %+v", m)
+	// Fixes.
+	if m := tplFinding(f, "infra/lack.md", "template_section_missing"); m == nil {
+		t.Errorf("section_missing not reported: %+v", m)
 	}
-	if m := tplFinding(f, "infra/order.md", "template_section_order"); m == nil || m.Severity != SevInfo || m.Fix == nil || m.Fix.Kind != FixReorderSections {
+	if m := tplFinding(f, "infra/order.md", "template_section_order"); m == nil || m.Fix == nil || m.Fix.Kind != FixReorderSections {
 		t.Errorf("order: %+v", m)
 	} else if want := "Purpose\nOperations\nRandom"; m.Fix.To != want {
 		t.Errorf("order fix lists %q, want %q (extras after the last template section)", m.Fix.To, want)
@@ -132,11 +132,6 @@ func TestTemplateChecks(t *testing.T) {
 	}
 	if m := tplFinding(f, "infra/missing.md", "template_missing"); m == nil || m.Fix != nil {
 		t.Errorf("two candidates must not be fixed: %+v", m)
-	}
-	for _, x := range f {
-		if strings.HasPrefix(x.Check, "template_") && x.Severity == SevError {
-			t.Errorf("%s is an error: template checks never turn a gate red (D289)", x.Check)
-		}
 	}
 }
 
@@ -185,7 +180,7 @@ func TestNoTemplateKeysNoTemplateFindings(t *testing.T) {
 	}
 }
 
-func TestMapWithoutTemplatesAndSubsetCheck(t *testing.T) {
+func TestMapTemplateSubsetCheck(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "bare/_map.md", "---\ntype: Map\nkind: map\ntitle: Bare\n---\n")
@@ -198,11 +193,14 @@ func TestMapWithoutTemplatesAndSubsetCheck(t *testing.T) {
 	writeFile(t, k.Root, "templates/server.md", tplServer)
 	writeFile(t, k.DataRoot(), "infra/_map.md", "---\ntype: Map\nkind: map\ntitle: Infra\ntemplates: [server]\nfield_values.state: [up]\n---\n")
 	f, _ := Run(k, "", false)
-	if tplFinding(f, "bare/_map.md", "map_without_templates") == nil {
-		t.Error("a map of 3 pages with no templates is reported")
-	}
-	if tplFinding(f, "small/_map.md", "map_without_templates") != nil {
-		t.Error("a map of 1 page is not")
+	// A map with no templates is not a finding (D947): template_proposal, a
+	// kb_review kind, proposes the templates its pages already follow.
+	for _, m := range []string{"bare/_map.md", "small/_map.md"} {
+		for _, x := range f {
+			if x.Path == m && x.Check != "index_incomplete" {
+				t.Errorf("%s: unexpected %s: a map without templates is no problem", m, x.Check)
+			}
+		}
 	}
 	if tplFinding(f, "infra/_map.md", "contract_malformed") == nil {
 		t.Error("a template allowing a value the map does not is contract_malformed")

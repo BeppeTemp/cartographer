@@ -72,7 +72,7 @@ func TestRepeatedLink(t *testing.T) {
 		"arch/b.md": "---\ntype: Note\ntitle: B\n---\n# B\n",
 	}
 	f := findingsOf(driftRun(t, files), "repeated_link")
-	if len(f) != 1 || f[0].Severity != SevInfo || f[0].Path != "arch/a.md" || f[0].Fix == nil || f[0].Fix.Kind != FixUnlinkRepeat || f[0].Fix.Field != "b.md" {
+	if len(f) != 1 || f[0].Path != "arch/a.md" || f[0].Fix == nil || f[0].Fix.Kind != FixUnlinkRepeat || f[0].Fix.Field != "b.md" {
 		t.Fatalf("findings: %+v", f)
 	}
 	// Different targets, or one per paragraph or list item: silent.
@@ -107,9 +107,14 @@ func TestUnknownType(t *testing.T) {
 	}
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/service.md", tmpl)
+	writeFile(t, k.DataRoot(), "arch/_map.md", "---\ntype: Map\nkind: map\ntitle: Arch\ntemplates: [service]\n---\n# Arch\n")
 	writeFile(t, k.DataRoot(), "arch/a.md", page("service"))
 	writeFile(t, k.DataRoot(), "arch/b.md", page("Gizmo"))
 	writeFile(t, k.DataRoot(), "arch/c.md", page("Service"))
+	// A map that has not adopted types: its undeclared type is the KB's to
+	// declare, and kb_review's template_proposal proposes it (D947).
+	writeFile(t, k.DataRoot(), "free/_map.md", "---\ntype: Map\nkind: map\ntitle: Free\n---\n# Free\n")
+	writeFile(t, k.DataRoot(), "free/d.md", page("Gizmo"))
 	f, err := Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)
@@ -118,12 +123,12 @@ func TestUnknownType(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("findings: %+v", got)
 	}
-	if got[0].Path != "arch/a.md" || got[0].Fix == nil || got[0].Fix.Field != "type" || got[0].Fix.To != "Service" || got[0].Severity != SevWarning {
+	if got[0].Path != "arch/a.md" || got[0].Fix == nil || got[0].Fix.Field != "type" || got[0].Fix.To != "Service" {
 		t.Errorf("case variant: %+v", got[0])
 	}
-	// An undeclared type in a map that has not adopted types: info, and the
-	// message names the fix (#688).
-	if got[1].Path != "arch/b.md" || got[1].Fix != nil || got[1].Severity != SevInfo || !strings.Contains(got[1].Message, "template_proposal") {
+	// An undeclared type in a map that adopted types: the message names the
+	// fix (#688).
+	if got[1].Path != "arch/b.md" || got[1].Fix != nil || !strings.Contains(got[1].Message, "template_proposal") {
 		t.Errorf("unknown: %+v", got[1])
 	}
 }
@@ -135,7 +140,8 @@ func TestUnknownType_StrictMapPalette(t *testing.T) {
 		"strict/y.md":    "---\ntype: Gamma\ntitle: Y\n---\n# Y\n",
 		"other/x.md":     "---\ntype: Gamma\ntitle: X\n---\n# X\n",
 	}), "unknown_type")
-	if len(f) != 2 || f[0].Path != "other/x.md" || f[0].Severity != SevInfo || f[1].Path != "strict/y.md" || f[1].Severity != SevWarning {
+	// other/x.md sits in a folder that adopted no types: not a finding (D947).
+	if len(f) != 1 || f[0].Path != "strict/y.md" {
 		t.Fatalf("findings: %+v", f)
 	}
 }
@@ -149,7 +155,7 @@ func TestUnknownType_OtherStrictMapsType(t *testing.T) {
 		"a/ok.md":   "---\ntype: Source\ntitle: OK\n---\n# OK\n",
 		"b/x.md":    "---\ntype: Source\ntitle: X\n---\n# X\n",
 	}), "unknown_type")
-	if len(f) != 1 || f[0].Path != "b/x.md" || f[0].Severity != SevWarning || !strings.Contains(f[0].Message, "map's concept_types") {
+	if len(f) != 1 || f[0].Path != "b/x.md" || !strings.Contains(f[0].Message, "map's concept_types") {
 		t.Fatalf("findings: %+v", f)
 	}
 }
@@ -210,11 +216,34 @@ func TestStrayFile(t *testing.T) {
 	var paths []string
 	for _, x := range f {
 		paths = append(paths, x.Path)
-		if x.Fix != nil || x.Severity != SevWarning {
+		if x.Fix != nil {
 			t.Errorf("%+v", x)
 		}
 	}
 	if strings.Join(paths, ",") != "arch/notes.txt,top.txt" {
 		t.Fatalf("paths: %v", paths)
+	}
+}
+
+// A page in a map that has not adopted types is no unknown_type finding (D947),
+// and that silence must not skip the checks that come after it on the same
+// page: value_case_variant still reports its status.
+func TestUnknownTypeSkipsNothingElse(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.Root, "templates/service.md", "---\ntype: Service\ntitle: Service\n---\n# {{title}}\n")
+	writeFile(t, k.DataRoot(), "free/_map.md", "---\ntype: Map\nkind: map\ntitle: Free\n---\n# Free\n")
+	writeFile(t, k.DataRoot(), "free/a.md", "---\ntype: Gizmo\ntitle: A\nstatus: Active\n---\n# A\n")
+	writeFile(t, k.DataRoot(), "free/b.md", "---\ntype: Note\ntitle: B\nstatus: active\n---\n# B\n")
+	writeFile(t, k.DataRoot(), "free/c.md", "---\ntype: Note\ntitle: C\nstatus: active\n---\n# C\n")
+	f, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(f, "unknown_type"); len(got) != 0 {
+		t.Fatalf("an undeclared type in a map that adopted none is no finding: %+v", got)
+	}
+	if got := findingsOf(f, "value_case_variant"); len(got) != 1 || got[0].Path != "free/a.md" {
+		t.Fatalf("value_case_variant must still run on the page: %+v", got)
 	}
 }

@@ -12,8 +12,7 @@ import (
 // Template checks (D352). Every page of a map that declares templates binds
 // to one template ("shape") its map accepts, and a template is a closed page
 // schema: required fields and values, required and optional H2 sections, their
-// order, and the alternative names a heading may carry. All findings are
-// warning or info (D289): adopting templates never turns a gate red.
+// order, and the alternative names a heading may carry.
 //
 // No template is read, and nothing is reported, for a map that sets neither
 // templates nor default_template; a map that sets one binds every page (D907).
@@ -290,7 +289,7 @@ func (x templateCtx) optionalSet() map[string]bool {
 	return optional
 }
 
-// missingSections: template_section_missing (warning). An alias counts as the
+// missingSections: template_section_missing. An alias counts as the
 // section; no fix, an empty heading is a hollow promise.
 func (x templateCtx) missingSections() []Finding {
 	names := namesOf(x.tpl)
@@ -515,21 +514,12 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// mapTemplateMinConcepts is the page count from which a map with no templates
-// is worth a template proposal (map_without_templates, kb_review).
-const mapTemplateMinConcepts = 3
-
-// mapTemplateFindings are the checks on a map's descriptor: a map of at least
-// mapTemplateMinConcepts pages that declares no templates (map_without_templates)
-// and a template whose allowed values leave the map's own (contract_malformed).
-func mapTemplateFindings(descriptor, mapName string, contract kb.MapContract, concepts int, catalog kb.TemplateCatalog) []Finding {
+// mapTemplateFindings are the checks on a map's descriptor: a template whose
+// allowed values leave the map's own (contract_malformed). A map that declares
+// no templates is not a finding (D947): kb_review's template_proposal proposes
+// the ones its pages already follow.
+func mapTemplateFindings(descriptor, mapName string, contract kb.MapContract, catalog kb.TemplateCatalog) []Finding {
 	var out []Finding
-	if len(contract.Templates) == 0 && concepts >= mapTemplateMinConcepts {
-		out = append(out, newFinding("map_without_templates", Finding{
-			Path:    descriptor,
-			Message: fmt.Sprintf("map %q holds %d pages and declares no templates: kb_review proposes the ones its pages already follow", mapName, concepts),
-		}))
-	}
 	slugs := append([]string(nil), contract.Templates...)
 	sort.Strings(slugs)
 	for _, slug := range slugs {

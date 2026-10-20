@@ -22,7 +22,7 @@ func TestStringifiedList_Detected(t *testing.T) {
 	t.Parallel()
 	for _, v := range []string{`"[a, b]"`, `"[a]; [b]"`, `"- a"`} {
 		got := findingsOf(shapeFindings(t, "provenance: "+v+"\n", "x"), "stringified_list")
-		if len(got) != 1 || got[0].Severity != SevWarning || got[0].Fix == nil || got[0].Fix.Field != "provenance" {
+		if len(got) != 1 || got[0].Fix == nil || got[0].Fix.Field != "provenance" {
 			t.Errorf("provenance: %s -> %+v", v, got)
 		}
 	}
@@ -84,7 +84,7 @@ func TestMangledPlaceholder_Detected(t *testing.T) {
 		"open `path:kubeconfig` between double braces",
 	} {
 		got := findingsOf(shapeFindings(t, "", body), "mangled_placeholder")
-		if len(got) != 1 || got[0].Severity != SevWarning {
+		if len(got) != 1 {
 			t.Errorf("%q -> %+v", body, got)
 		}
 	}
@@ -113,7 +113,7 @@ func TestRun_MissingRegistry_WithPlaceholders(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := findingsOf(findings, "missing_registry")
-	if len(got) != 1 || got[0].Severity != SevInfo || got[0].Path != "paths.yaml" {
+	if len(got) != 1 || got[0].Path != "paths.yaml" {
 		t.Fatalf("missing_registry = %+v", got)
 	}
 }

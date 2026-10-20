@@ -8,21 +8,9 @@ import type {
   LintFinding,
   LintReport,
   LintSample,
-  MaintenanceReview,
   MaintenanceSummary,
-  ReviewItem,
 } from "../api/types";
-import {
-  checkFix,
-  checkHelp,
-  checkLabel,
-  groupFindings,
-  groupReview,
-  reviewInfo,
-  reviewKinds,
-  type CheckGroup,
-  type ReviewGroup,
-} from "../lib/health";
+import { checkFix, checkHelp, checkLabel, groupFindings, type CheckGroup } from "../lib/health";
 import { Count, Page, PageHeader, PageSection, Quiet, Segmented, SkeletonRows } from "./Page";
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
@@ -30,12 +18,14 @@ import { LintTrend } from "./LintTrend";
 import { ErrorState } from "./States";
 
 /**
- * Health (D338, D365, D704): what Cartographer found, and on a second tab what
- * it checks. *Issues* counts the kinds of issue and their occurrences, shows a
- * page field (one square per page, clustered by Map) and lists one row per
- * kind -- a lint check or a kind of kb_review proposal -- problems first, then
- * suggestions; an open row says what it is and how to fix it. *What it checks*
- * explains the rules by category, with the result on this KB and the trend.
+ * Health (D338, D365, D704, D947): what Cartographer found, and on a second tab
+ * what it checks. A lint finding is a problem, and Health shows only those.
+ * *Issues* counts the kinds of problem and their occurrences, shows a page
+ * field (one square per page, clustered by Map) and lists one row per lint
+ * check, the largest first; an open row says what it is and how to fix it. The
+ * doctor's other proposals (the kb_review items, observations included) are
+ * decisions, not problems, and are not here. *What it checks* explains the
+ * rules by category, with the result on this KB and the trend.
  *
  * Like the rest of the Atlas it reads and never writes: a fix happens in a
  * kb-doctor session the operator starts from an agent.
@@ -50,7 +40,6 @@ export function Health({
   status,
   summary,
   checks,
-  review = null,
   contradictions = null,
   conflicts = null,
   pending = false,
@@ -71,15 +60,13 @@ export function Health({
   summary: MaintenanceSummary | null;
   /** Every check the server runs (D365); null leaves the reference out. */
   checks?: CheckCatalog | null;
-  /** The doctor's proposals beyond lint (D704); null leaves them out. */
-  review?: MaintenanceReview | null;
   /** The open Contradiction concepts; null when not visible or not arrived. */
   contradictions?: Contradiction[] | null;
   /** Open git rebase conflicts; null when not visible or not arrived, and the
    *  section is shown only when there are some. */
   conflicts?: GitConflict[] | null;
-  /** The review and the checks are still being read: the headline, which
-   *  counts the review and sits beside the checks' switch, waits for them. */
+  /** The checks are still being read: the headline, which sits beside the
+   *  checks' switch, waits for them. */
   pending?: boolean;
   /** Title of the Map the agenda is scoped to; null = whole KB. */
   scopeTitle: string | null;
@@ -99,47 +86,33 @@ export function Health({
   const [focus, setFocusRaw] = useState<Set<string> | null>(null);
   // A row about no page (a map's index, a KB file) lights nothing: dimming the
   // whole field for it would read as "every page is clean".
-  // Which half of a two-colour square the row lights: its own colour only.
-  const [focusTone, setFocusTone] = useState<Tone>("problem");
-  const setFocus = (pages: Set<string> | null, tone: Tone = "problem") => {
-    setFocusRaw(pages && pages.size > 0 ? pages : null);
-    setFocusTone(tone);
-  };
+  const setFocus = (pages: Set<string> | null) => setFocusRaw(pages && pages.size > 0 ? pages : null);
 
-  // The headline counts lint and the doctor's proposals, which arrive in
-  // separate requests: it waits until both have answered or failed, so the
-  // numbers never change under the reader.
+  // The headline waits until the lint and the checks have answered or failed,
+  // so the numbers never change under the reader.
   const settled = !!report && !pending;
 
   const groups = useMemo(() => groupFindings(report?.findings ?? []), [report]);
-  const proposals = useMemo(() => groupReview(review?.items ?? [], hmap), [review, hmap]);
 
-  // The page field: every page of every Map, marked by its worst finding.
+  // The page field: every page of every Map, marked when it has a problem.
   // Over the unfiltered findings, so choosing a Map never empties the others.
   const field = useMemo(
-    () => pageField(collections, allFindings ?? report?.findings ?? [], review?.items ?? []),
-    [collections, allFindings, report, review],
+    () => pageField(collections, allFindings ?? report?.findings ?? []),
+    [collections, allFindings, report],
   );
 
   if (error && !report) return <ErrorState error={error} onRetry={onRetry} />;
 
   const where = scopeTitle ? ` in ${scopeTitle}` : "";
-  // One row per cause. map_without_templates is the lint face of a
-  // template_proposal: while the review carries the proposal, it is listed once.
-  const proposing = proposals.some((p) => p.kind === "template_proposal");
-  const causes = groups.filter((g) => !(proposing && g.check === "map_without_templates"));
-  // Broken first, then the heaviest: the bar's order is the reading order.
-  const bySize = (a: CheckGroup, b: CheckGroup) =>
-    Number(b.severity === "error") - Number(a.severity === "error") || rowSize(b) - rowSize(a);
-  const problems = causes.filter((g) => g.severity !== "info").sort(bySize);
-  const improvements = causes.filter((g) => g.severity === "info").sort(bySize);
-  const issues = causes.length + proposals.length;
+  // One row per cause, the heaviest first: the bar's order is the reading order.
+  const problems = [...groups].sort((a, b) => rowSize(b) - rowSize(a));
+  const issues = problems.length;
   const touched = field.reduce((n, m) => n + m.marks.length, 0);
-  // Every single finding and proposal: the kinds are what to read, this is how much there is.
-  const occurrences = causes.reduce((n, g) => n + g.count, 0) + proposals.reduce((n, p) => n + p.items.length, 0);
+  // Every single finding: the kinds are what to read, this is how much there is.
+  const occurrences = problems.reduce((n, g) => n + g.count, 0);
   const pages = field.reduce((n, m) => n + m.total, 0);
   // Bars are relative to the heaviest row: what matters is which issue weighs most.
-  const heaviest = Math.max(1, ...causes.map(rowSize), ...proposals.map((p) => p.items.length));
+  const heaviest = Math.max(1, ...problems.map(rowSize));
 
   return (
     <Page label="Health" busy={loading} className="health">
@@ -192,25 +165,16 @@ export function Health({
       )}
 
       {tab === "checks" && checks && settled ? (
-        <Coverage catalog={checks} report={report} review={review?.items ?? []} trend={summary?.lint_history} />
+        <Coverage catalog={checks} report={report} trend={summary?.lint_history} />
       ) : (
         <>
           {/* Over the whole KB, not the chosen Map: a clean Map must not take
             away the field, which is also the way back to every Map. */}
           {report && touched > 0 && (
             <div className="hfield">
-              <PageField
-                field={field}
-                focus={focus}
-                focusTone={focusTone}
-                hmap={hmap}
-                onMap={onMap}
-                onReveal={onReveal}
-              />
+              <PageField field={field} focus={focus} hmap={hmap} onMap={onMap} onReveal={onReveal} />
               <p className="pfield__legend">
-                <span className="pfield__key" data-tone="warning" /> a problem
-                <span className="pfield__key" data-tone="info" /> a suggestion
-                <span className="pfield__key" data-both /> both
+                <span className="pfield__key" data-problem /> has problems
                 <span className="pfield__key" /> fine
                 <span className="pfield__hint">· one square per page · click a map to see only its pages</span>
               </p>
@@ -227,37 +191,11 @@ export function Health({
             <Quiet>{scopeTitle ? `${scopeTitle} passes every check.` : "This KB passes every check."}</Quiet>
           ) : (
             <div className="agenda-list" aria-label="Issues">
-              {problems.length > 0 && (
-                <AgendaGroup tone="problem" title="Problems" count={problems.length}>
-                  {problems.map((g) => (
-                    <CheckRow
-                      key={g.check}
-                      group={g}
-                      tone="problem"
-                      heaviest={heaviest}
-                      onFocus={setFocus}
-                      onReveal={onReveal}
-                    />
-                  ))}
-                </AgendaGroup>
-              )}
-              {proposals.length + improvements.length > 0 && (
-                <AgendaGroup tone="suggestion" title="Suggestions" count={proposals.length + improvements.length}>
-                  {proposals.map((p) => (
-                    <ProposalRow key={p.kind} group={p} heaviest={heaviest} onFocus={setFocus} onReveal={onReveal} />
-                  ))}
-                  {improvements.map((g) => (
-                    <CheckRow
-                      key={g.check}
-                      group={g}
-                      tone="suggestion"
-                      heaviest={heaviest}
-                      onFocus={setFocus}
-                      onReveal={onReveal}
-                    />
-                  ))}
-                </AgendaGroup>
-              )}
+              <AgendaGroup title="Problems" count={problems.length}>
+                {problems.map((g) => (
+                  <CheckRow key={g.check} group={g} heaviest={heaviest} onFocus={setFocus} onReveal={onReveal} />
+                ))}
+              </AgendaGroup>
             </div>
           )}
 
@@ -272,23 +210,19 @@ export function Health({
   );
 }
 
-type Tone = "problem" | "suggestion";
-
-/** One band of the agenda: its mark, its name, how many rows. */
+/** The agenda's band: its mark, its name, how many rows. */
 function AgendaGroup({
-  tone,
   title,
   count,
   children,
 }: {
-  tone: Tone;
   title: string;
   count: number;
   children: React.ReactNode;
 }) {
   return (
-    // Open on arrival; the reader folds a band to read the other.
-    <details className="agenda" data-tone={tone} aria-label={title} open>
+    // Open on arrival; the reader can fold it.
+    <details className="agenda" aria-label={title} open>
       <summary className="agenda__head">
         <span className="agenda__mark" aria-hidden="true" />
         <h2 className="agenda__title">{title}</h2>
@@ -299,11 +233,9 @@ function AgendaGroup({
   );
 }
 
-/** One page of the field: the most serious problem it has, if any, and whether it also has a suggestion. */
+/** One page of the field with a problem, by id. */
 interface FieldMark {
   id: string;
-  problem: "error" | "warning" | null;
-  suggestion: boolean;
 }
 
 /** One Map of the page field: its pages, and the marked ones by id. */
@@ -314,37 +246,20 @@ interface FieldMap {
   marks: FieldMark[];
 }
 
-const markRank = (m: FieldMark) =>
-  (m.problem === "error" ? 0 : m.problem === "warning" ? 1 : 2) + (m.suggestion ? 0 : 0.5);
-
 /**
- * Every page of every Map with what the list shows for it: its most serious
- * problem and whether it also has a suggestion (a note, or a proposal naming
- * the page). The field and the list count the same things, so a Map with
- * suggestions in the list never looks clean here.
+ * Every page of every Map, marked when the list has a problem for it. The field
+ * and the list count the same things, so a Map with problems in the list never
+ * looks clean here.
  */
-function pageField(collections: CollectionSummary[], findings: LintFinding[], review: ReviewItem[]): FieldMap[] {
-  const marks = new Map<string, FieldMark>();
-  const at = (id: string) => marks.get(id) ?? marks.set(id, { id, problem: null, suggestion: false }).get(id)!;
-  for (const f of findings) {
-    if (!f.concept) continue;
-    const m = at(f.concept);
-    if (f.severity === "error") m.problem = "error";
-    else if (f.severity === "warning") m.problem = m.problem ?? "warning";
-    else m.suggestion = true;
-  }
-  for (const it of review) {
-    for (const c of it.concepts) {
-      // A suggestion about a whole Map (`<map>/_map`: a template to adopt) is no
-      // page's: its row lights the whole cluster on hover instead.
-      if (!c.endsWith("/_map")) at(c).suggestion = true;
-    }
-  }
+function pageField(collections: CollectionSummary[], findings: LintFinding[]): FieldMap[] {
+  const marked = new Set<string>();
+  for (const f of findings) if (f.concept) marked.add(f.concept);
   return collections
     .map((c) => {
-      const mine = [...marks.values()]
-        .filter((m) => m.id === c.name || m.id.startsWith(`${c.name}/`))
-        .sort((a, b) => markRank(a) - markRank(b) || a.id.localeCompare(b.id));
+      const mine: FieldMark[] = [...marked]
+        .filter((id) => id === c.name || id.startsWith(`${c.name}/`))
+        .sort((a, b) => a.localeCompare(b))
+        .map((id) => ({ id }));
       return {
         name: c.name,
         title: c.title || c.name,
@@ -358,13 +273,12 @@ function pageField(collections: CollectionSummary[], findings: LintFinding[], re
 
 /**
  * The KB at a glance: a square per page, one cluster per Map in the Map's hue,
- * coloured by what the page has -- a problem, a suggestion, or both, split on
- * the diagonal. A cluster is the Map filter; a coloured square opens its page.
+ * coloured when the page has a problem. A cluster is the Map filter; a coloured
+ * square opens its page.
  */
 function PageField({
   field,
   focus,
-  focusTone,
   hmap,
   onMap,
   onReveal,
@@ -372,17 +286,13 @@ function PageField({
   field: FieldMap[];
   /** Pages to light, the rest dimmed; null shows every mark. */
   focus: Set<string> | null;
-  /** The colour the lit pages show: a problem row lights the problem half of a two-colour square. */
-  focusTone: Tone;
   hmap: string | null;
   onMap?(map: string | null): void;
   onReveal(concept: string | null, message: string): void;
 }) {
   return (
-    <div className="pfield" role="group" aria-label="Pages by Map" data-focus={focus ? focusTone : undefined}>
+    <div className="pfield" role="group" aria-label="Pages by Map" data-focus={focus ? "problem" : undefined}>
       {field.map((m) => {
-        // A row about the whole Map (a template to adopt) lights the whole cluster.
-        const whole = focus?.has(`map:${m.name}`) || undefined;
         const clean = Math.max(0, m.total - m.marks.length);
         return (
           <div
@@ -410,16 +320,15 @@ function PageField({
                   key={d.id}
                   className="pfield__dot"
                   data-page
-                  data-tone={d.problem ?? "info"}
-                  data-both={(d.problem && d.suggestion) || undefined}
-                  data-lit={whole || focus?.has(d.id) || undefined}
+                  data-problem
+                  data-lit={focus?.has(d.id) || undefined}
                   title={d.id}
                   aria-hidden="true"
                   onClick={() => onReveal(d.id, "")}
                 />
               ))}
               {Array.from({ length: clean }, (_, i) => (
-                <span key={i} className="pfield__dot" data-lit={whole} aria-hidden="true" />
+                <span key={i} className="pfield__dot" aria-hidden="true" />
               ))}
             </span>
           </div>
@@ -449,21 +358,18 @@ function AgendaLine({
   size,
   unit,
   heaviest,
-  broken,
   auto,
 }: {
   label: string;
   size: number;
   unit: readonly [string, string];
   heaviest: number;
-  broken?: boolean;
   /** Cartographer fixes it by itself: shown, so the list is everything found, but nobody's to do. */
   auto?: boolean;
 }) {
   return (
     <summary className="arow">
       <span className="arow__label">
-        {broken && <span className="agenda__broken">broken</span>}
         {label}
         {auto && (
           <span className="arow__auto" title="Cartographer fixes it by itself at its next run">
@@ -585,15 +491,13 @@ function CaseRow({ item, onReveal }: { item: Case; onReveal(concept: string | nu
 /** One cause: its check's findings folded into one row, opened to what it is, how to fix it, and where. */
 function CheckRow({
   group,
-  tone,
   heaviest,
   onFocus,
   onReveal,
 }: {
   group: CheckGroup;
-  tone: Tone;
   heaviest: number;
-  onFocus(pages: Set<string> | null, tone?: Tone): void;
+  onFocus(pages: Set<string> | null): void;
   onReveal(concept: string | null, message: string): void;
 }) {
   const all = group.messages.flatMap((m) => m.findings);
@@ -613,8 +517,7 @@ function CheckRow({
     <li
       className="arow-item"
       id={`check-${group.check}`}
-      data-tone={tone}
-      onMouseEnter={() => onFocus(new Set(all.flatMap((f) => (f.concept ? [f.concept] : []))), tone)}
+      onMouseEnter={() => onFocus(new Set(all.flatMap((f) => (f.concept ? [f.concept] : []))))}
       onMouseLeave={() => onFocus(null)}
     >
       <details>
@@ -623,7 +526,6 @@ function CheckRow({
           size={rowSize(group)}
           unit={unit}
           heaviest={heaviest}
-          broken={group.severity === "error"}
           auto={group.handler === "auto"}
         />
         <IssueDetail
@@ -635,57 +537,6 @@ function CheckRow({
             what: m.message,
             pages: [...new Set(m.findings.flatMap((f) => (f.concept ? [f.concept] : [])))],
             files: [...new Set(m.findings.flatMap((f) => (f.concept ? [] : [f.path])))],
-          }))}
-          onReveal={onReveal}
-        />
-      </details>
-    </li>
-  );
-}
-
-/** The pages an item names: a map's contract (`<map>/_map`) is no page to open, and its evidence names the map. */
-function pagesOf(it: ReviewItem): string[] {
-  return it.concepts.filter((c) => !c.endsWith("/_map"));
-}
-
-/** One kind of kb_review proposal, folded into one row, opened to what it is, how to act, and where. */
-function ProposalRow({
-  group,
-  heaviest,
-  onFocus,
-  onReveal,
-}: {
-  group: ReviewGroup;
-  heaviest: number;
-  onFocus(pages: Set<string> | null, tone?: Tone): void;
-  onReveal(concept: string | null, message: string): void;
-}) {
-  const info = reviewInfo(group.kind);
-  return (
-    <li
-      className="arow-item"
-      id={`review-${group.kind}`}
-      data-tone="suggestion"
-      onMouseEnter={() =>
-        onFocus(
-          new Set(
-            group.items.flatMap((it) => it.concepts.map((c) => (c.endsWith("/_map") ? `map:${c.slice(0, -5)}` : c))),
-          ),
-          "suggestion",
-        )
-      }
-      onMouseLeave={() => onFocus(null)}
-    >
-      <details>
-        <AgendaLine label={info.label} size={group.items.length} unit={info.unit} heaviest={heaviest} />
-        <IssueDetail
-          what={info.help}
-          fix={info.fix}
-          cases={group.items.map((it, i) => ({
-            key: `${it.term ?? ""}${it.concepts.join(",")}${i}`,
-            // A glossary gap is its term; the rest say it in their evidence.
-            what: it.term ?? it.evidence,
-            pages: pagesOf(it),
           }))}
           onReveal={onReveal}
         />
@@ -725,25 +576,13 @@ interface Rule {
  * what they found here -- folded until the reader opens it. Rules that found something
  * come first; the ones with nothing to read here wait at the end.
  */
-function Coverage({
-  catalog,
-  report,
-  review,
-  trend,
-}: {
-  catalog: CheckCatalog;
-  report: LintReport;
-  review: ReviewItem[];
-  trend?: LintSample[];
-}) {
+function Coverage({ catalog, report, trend }: { catalog: CheckCatalog; report: LintReport; trend?: LintSample[] }) {
   const count = (name: string) => report.by_check[name] ?? 0;
   // A check that cannot run here (D371) is neither clean nor dirty: its zero would lie.
   const idle = (c: CheckCatalog["checks"][number]) => c.active === false;
   const auto = catalog.checks.filter((c) => c.auto).length;
   const found = catalog.checks.filter((c) => count(c.name) > 0).length;
   const skipped = catalog.checks.filter(idle).length;
-  const suggested = new Map<string, number>();
-  for (const it of review) suggested.set(it.kind, (suggested.get(it.kind) ?? 0) + 1);
   const groups: [string, string, Rule[]][] = catalog.categories
     .map((category): [string, string, Rule[]] => {
       const [title, about] = CATEGORY[category] ?? [category, ""];
@@ -760,17 +599,6 @@ function Coverage({
       return [title, about, rules];
     })
     .filter(([, , rules]) => rules.length > 0);
-  groups.push([
-    "Suggestions",
-    "Patterns across many pages: never wrong, but worth a decision.",
-    reviewKinds().map((kind) => ({
-      key: kind,
-      name: reviewInfo(kind).label,
-      help: reviewInfo(kind).help,
-      n: suggested.get(kind) ?? 0,
-      title: kind,
-    })),
-  ]);
   return (
     <section className="health__coverage" id="health-coverage" aria-label="Checks">
       <ol className="howto" aria-label="How checking works">

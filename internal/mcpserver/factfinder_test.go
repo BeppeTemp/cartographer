@@ -19,10 +19,9 @@ const repeatedLine = "The nightly job runs at 02:00 and copies the data to the b
 
 type findingsOutT struct {
 	Findings []struct {
-		Path     string `json:"path"`
-		Check    string `json:"check"`
-		Severity string `json:"severity"`
-		Message  string `json:"message"`
+		Path    string `json:"path"`
+		Check   string `json:"check"`
+		Message string `json:"message"`
 	} `json:"findings"`
 }
 
@@ -38,9 +37,6 @@ func repeatedFindings(t *testing.T, res ToolResult) []string {
 	var msgs []string
 	for _, f := range out.Findings {
 		if f.Check == "repeated_fact" {
-			if f.Severity != "info" {
-				t.Errorf("severity = %q, want info", f.Severity)
-			}
 			msgs = append(msgs, f.Message)
 		}
 	}

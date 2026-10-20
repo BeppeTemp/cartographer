@@ -52,7 +52,8 @@ var docsNonTools = map[string]bool{
 	"template_section_missing": true, // lint check (D297), not a tool
 	// artifact lint checks (D316), not tools
 	"skill_invalid": true, "skill_warning": true, "skill_broken_ref": true,
-	"skill_git_command": true, "skill_missing_perimeter": true, "artifact_unused": true,
+	"skill_git_command": true, "skill_missing_perimeter": true,
+	"artifact_unused": true, // removed check (D947), still named in data-plane.md
 	"missing_context": true, // reserved contradiction_kind (D273)
 	"sync_h1":         true, // kb_repair fix kind (D315), not a tool
 	"index_link_form": true, // lint check (D310), not a tool

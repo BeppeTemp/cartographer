@@ -87,11 +87,6 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			view := newCallerView(ctx, k)
 			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil, view)
 			findings = withFacts(findings, facts, ctx, params.ID, prev, newFactBudget())
-			if isNew {
-				// Advisory crossing report (D716), outside writeLintFindings: it
-				// needs the created set, and an info finding must not feed the gate.
-				findings = append(findings, findingsOut(view.oversize(lint.MapOversizeCrossings(k, []okf.ConceptID{okf.ConceptID(params.ID)})))...)
-			}
 			result["findings"] = findingsOrEmpty(findings)
 			applyRepairResult(result, params.ID, repaired, hashes)
 			if isNew {
@@ -281,7 +276,6 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			view := newCallerView(ctx, k)
 			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil, view)
 			findings = withFacts(findings, facts, ctx, params.ID, "", newFactBudget())
-			findings = append(findings, findingsOut(view.oversize(lint.MapOversizeCrossings(k, []okf.ConceptID{okf.ConceptID(params.ID)})))...) // D716
 			result["findings"] = findingsOrEmpty(findings)
 			applyRepairResult(result, params.ID, repaired, hashes)
 			if similar := sim.find(ctx, params.ID, frontmatterTitle(k, params.ID)); len(similar) > 0 {
@@ -2954,26 +2948,6 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 					hash = h
 				}
 				entries[i] = batchResultEntry{ID: r.ID, ContentHash: hash, Findings: findings, Repaired: repaired}
-			}
-			// map_oversize crossing (D716), computed once for the whole batch: the
-			// per-op repairWritten above sees one ID at a time, so it cannot tell a
-			// 30-page batch that takes a map from 40 to 70. The finding lands on the
-			// last created op of its map, so the per-op findings shape is unchanged.
-			var created []okf.ConceptID
-			lastCreated := map[string]int{} // map name → index of its last created entry
-			for i, r := range results {
-				if _, existed := prevByID[r.ID]; existed {
-					continue
-				}
-				created = append(created, okf.ConceptID(r.ID))
-				m, _, _ := strings.Cut(r.ID, "/")
-				lastCreated[m] = i
-			}
-			for _, f := range newCallerView(ctx, k).oversize(lint.MapOversizeCrossings(k, created)) {
-				m, _, _ := strings.Cut(f.Path, "/")
-				if i, ok := lastCreated[m]; ok {
-					entries[i].Findings = append(entries[i].Findings, findingsOut([]lint.Finding{f})...)
-				}
 			}
 			response := map[string]interface{}{"results": entries}
 			if notes := indexEntryNotes(indexPending); len(notes) > 0 {

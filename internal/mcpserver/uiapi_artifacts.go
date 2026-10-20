@@ -123,10 +123,9 @@ type uiArtifact struct {
 }
 
 type uiArtifactFinding struct {
-	Path     string `json:"path"`
-	Check    string `json:"check"`
-	Severity string `json:"severity"`
-	Message  string `json:"message"`
+	Path    string `json:"path"`
+	Check   string `json:"check"`
+	Message string `json:"message"`
 }
 
 // artifactFindings returns the KB's artifact findings (the registry's Panel
@@ -189,7 +188,7 @@ func attachFindings(a *uiArtifact, findings []lint.Finding) {
 		}
 		for _, file := range a.Files {
 			if f.Path == file.Path || strings.HasPrefix(file.Path, f.Path+"/") {
-				a.Findings = append(a.Findings, uiArtifactFinding{Path: f.Path, Check: f.Check, Severity: f.Severity, Message: f.Message})
+				a.Findings = append(a.Findings, uiArtifactFinding{Path: f.Path, Check: f.Check, Message: f.Message})
 				break
 			}
 		}
@@ -268,14 +267,10 @@ func (m *MultiKBServer) uiArtifacts(w http.ResponseWriter, r *http.Request, srv 
 	}
 	// Every artifact finding is counted, including the ones no listed
 	// artifact owns (a skill left out, a junk file, no instructions.md).
-	findingCounts, severityCounts := map[string]int{}, map[string]int{}
-	for _, f := range findings {
-		findingCounts[f.Check]++
-		severityCounts[f.Severity]++
-	}
+	findingCounts := lint.CountsByCheck(findings)
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{
 		"artifacts": list, "counts": counts, "kinds": uiArtifactKindRows(counts), "issues": issues,
-		"finding_counts": findingCounts, "finding_severities": severityCounts,
+		"finding_counts": findingCounts,
 	})
 }
 

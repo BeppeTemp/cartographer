@@ -14,8 +14,7 @@ import (
 )
 
 // Conformance checks (D289): lint compares a KB with the standard fields the
-// server reads, not only with the contracts the KB declared for itself. They
-// are all warning or info, so no gate turns red on a KB that predates them.
+// server reads, not only with the contracts the KB declared for itself.
 
 // Fix kinds a Finding may carry. A fix is mechanical: applying it needs no
 // judgement, so a repair tool never parses the message.
@@ -170,19 +169,19 @@ func frontmatterFindings(in conceptInput) []Finding {
 	var out []Finding
 	parsed := in.Parsed
 
-	// --- malformed_frontmatter (warning, D295 WP5) ---
+	// --- malformed_frontmatter (D295 WP5) ---
 	// A scalar value followed by indented lines that look like block-list
 	// continuations: the stdlib-only parser (D8) silently truncates the value.
 	if in.FrontmatterRaw != "" {
 		out = append(out, detectMalformedFrontmatter(in.RelPath, in.FrontmatterRaw)...)
 	}
 
-	// --- stringified_list (warning, D314) ---
+	// --- stringified_list (D314) ---
 	if parsed != nil {
 		out = append(out, detectStringifiedLists(in.RelPath, parsed)...)
 	}
 
-	// --- stale_claim (warning) ---
+	// --- stale_claim ---
 	if parsed != nil {
 		if raVal, ok := parsed.Get("review_after"); ok {
 			if dateStr, ok := raVal.(string); ok {
@@ -197,7 +196,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 		}
 	}
 
-	// --- status_semantics (warning, D321) ---
+	// --- status_semantics (D321) ---
 	if parsed != nil {
 		if status, _ := frontmatterValue(parsed, "status").(string); activeNotOpen(parsed, in.Contract) {
 			out = append(out, newFinding("status_semantics", Finding{Path: in.RelPath,
@@ -205,7 +204,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 		}
 	}
 
-	// --- machine_path (warning, D75 WP6 / D124) ---
+	// --- machine_path (D75 WP6 / D124) ---
 	if all := disallowedMachinePaths(in.Body); len(all) > 0 {
 		disallowed := all[0]
 		msg := fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<nome>}} instead (D75); operational paths on containers/remote hosts are not client-local (D124)", disallowed)
@@ -226,12 +225,12 @@ func frontmatterFindings(in conceptInput) []Finding {
 		out = append(out, newFinding("machine_path", Finding{Path: in.RelPath, Message: msg}))
 	}
 
-	// --- mangled_placeholder (warning, D314) ---
+	// --- mangled_placeholder (D314) ---
 	if f, ok := detectMangledPlaceholders(in.RelPath, in.Body); ok {
 		out = append(out, f)
 	}
 
-	// --- missing_title (warning) ---
+	// --- missing_title ---
 	// validate only requires a type, yet the title is the label concept_list,
 	// search results and curated indexes show: an untitled concept is listed
 	// with an empty one. The first H1 is the value an author almost always
@@ -249,7 +248,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 		out = append(out, newFinding("missing_title", f))
 	}
 
-	// --- title_h1_mismatch (warning, D315, D357) ---
+	// --- title_h1_mismatch (D315, D357) ---
 	// Both exist and differ. The title is what listings, search and the Atlas
 	// show, so the heading is normally the one that is wrong; but when the
 	// title is the one title_quality rejects and the heading is not, the
@@ -278,7 +277,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 		out = append(out, titleQualityFindings(in, parsed, title)...)
 	}
 
-	// --- repeated_link (info, D357) ---
+	// --- repeated_link (D357) ---
 	out = append(out, repeatedLinkFindings(in.RelPath, in.Body)...)
 
 	// --- missing_required_field / invalid_field_value / forbidden_field ---
@@ -414,7 +413,7 @@ func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 }
 
 // valueContractFindings reports, per map, the scalar fields that look like a
-// vocabulary and have no field_values contract (missing_value_contract, info).
+// vocabulary and have no field_values contract (the missing_value_contract observation, D947).
 func valueContractFindings(mapName string, contract kb.MapContract, concepts map[okf.ConceptID]string) []Finding {
 	type carrier struct{ typ, value string }
 	byField := map[string][]carrier{}
@@ -561,7 +560,7 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 		if typed {
 			p.Type = dominant
 		}
-		out = append(out, newFinding("missing_value_contract", Finding{
+		out = append(out, newObservation("missing_value_contract", Finding{
 			Path:     mapName + "/_map.md",
 			Message:  msg,
 			Proposal: p,
@@ -817,7 +816,7 @@ var titleStatusWords = []string{"attivo", "active", "dismesso", "deprecated", "d
 
 var datePrefixedSlug = regexp.MustCompile(`^\d{4}-\d{2}`)
 
-// titleQualityFindings implements title_quality (info, D315): decorative
+// titleQualityFindings implements title_quality (D315): decorative
 // characters, over-long titles, a status word where the status field already
 // says it, a term the map forbids, and a date-prefixed slug outside a
 // journal. Only the decorative-characters case has a fix (D366): stripping

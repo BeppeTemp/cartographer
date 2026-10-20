@@ -95,8 +95,8 @@ describe("the Artifacts panel", () => {
     const panel = await screen.findByRole("region", { name: "Artifacts" });
     expect(within(panel).getByText(/2 findings across artifacts/)).toBeInTheDocument();
     const item = within(panel).getByRole("button", { name: /review/ });
-    expect(within(item).getByText("warning")).toBeInTheDocument();
-    expect(within(panel).getByRole("button", { name: /triage/ }).querySelector(".severity")).toBeNull();
+    expect(within(item).getByText("problem")).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: /triage/ }).querySelector(".finding-badge")).toBeNull();
     const detail = await screen.findByRole("article", { name: "Artifact skill/review" });
     const list = within(detail).getByRole("list", { name: "Artifact findings" });
     expect(within(list).getByText("legacy_tool_name")).toBeInTheDocument();
@@ -149,7 +149,6 @@ describe("the Artifacts panel", () => {
     counts: {},
     kinds: artifactList.kinds!.map((k) => ({ ...k, count: 0 })),
     finding_counts: {},
-    finding_severities: {},
   };
 
   it("lists every kind of an empty KB with its path, clients and docs, and no page-level empty state (D864)", async () => {

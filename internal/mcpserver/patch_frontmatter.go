@@ -271,5 +271,5 @@ func droppedFinding(id, msg string) []findingOut {
 	if msg == "" {
 		return nil
 	}
-	return []findingOut{{Path: okf.IDToPath(okf.ConceptID(id)), Check: "list_items_dropped", Severity: "warning", Message: msg}}
+	return []findingOut{{Path: okf.IDToPath(okf.ConceptID(id)), Check: "list_items_dropped", Message: msg}}
 }

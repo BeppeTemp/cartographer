@@ -54,13 +54,11 @@ end-to-end (D123, → `control-plane.md` §MCP API).
 - `lint(scope, scope_neighbors)` runs deterministic checks over a scope and,
   optionally, its graph neighbors, including any declarative map contract for
   required frontmatter and curated-index membership.
-- `gate_check(changed_ids, [severity_min], [scope])` combines the repository's
-  deterministic validation checks; lint errors (including missing required
-  fields) make it fail. By default it reports lint findings from `warning` up:
-  the `info` checks cannot fail a gate, so they are not in the way of reading
-  the ones that can (D186). Pass `severity_min: "info"` to see them, and `scope`
-  to gate one prefix instead of the whole archive — the verdict is computed on
-  the unfiltered results either way. `changed_ids` may be empty: the gate then
+- `gate_check(changed_ids, [scope])` combines the repository's
+  deterministic validation checks; any lint finding (including missing required
+  fields) makes it fail, because a finding is a problem and has no severity
+  (D947). Pass `scope` to gate one prefix instead of the whole archive.
+  `changed_ids` may be empty: the gate then
   runs validate and lint over the scope and skips the commit gate, which is the
   session-end check of the whole KB (D318).
 
