@@ -1,6 +1,7 @@
 package clientconfig
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -122,7 +123,12 @@ func IsSecret(key string) bool {
 // SecretValue is the value a report shows for a secret key given its origin and
 // value: SecretSet when the file sets a non-empty value, SecretUnset otherwise
 // (a key at its default holds the schema's default, not a value of the file).
+// A value already masked keeps its mask: the server masks a client's report
+// again, and an unset token must not come out set.
 func SecretValue(origin string, value any) string {
+	if value == SecretSet || value == SecretUnset {
+		return value.(string)
+	}
 	if origin == "file" && value != nil && value != "" {
 		return SecretSet
 	}
@@ -149,6 +155,9 @@ func RedactYAML(data []byte) ([]byte, error) {
 // redactDoc masks the secrets of an already parsed document; data is the
 // file's bytes, returned when none is set.
 func redactDoc(doc *yaml.Node, data []byte) ([]byte, error) {
+	if opaque(doc, data) {
+		return []byte(OpaqueYAML), nil
+	}
 	changed := false
 	for _, k := range Schema.Keys {
 		if !k.Secret {
@@ -171,6 +180,45 @@ func redactDoc(doc *yaml.Node, data []byte) ([]byte, error) {
 		return data, nil
 	}
 	return settingschema.Encode(doc)
+}
+
+// OpaqueYAML stands for a settings file the mask cannot vouch for (opaque).
+const OpaqueYAML = "# not shown: this file uses a YAML merge key or holds several documents, where a secret escapes the mask\n"
+
+// opaque reports whether a settings file can carry a secret where the mask
+// does not look: through a YAML merge key (`<<:`), which the client's decoder
+// resolves, or in a second document. Such a file is replaced by OpaqueYAML.
+func opaque(doc *yaml.Node, data []byte) bool {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	for docs := 0; ; docs++ {
+		var n yaml.Node
+		if err := dec.Decode(&n); err != nil {
+			if docs > 1 {
+				return true
+			}
+			break
+		}
+	}
+	var merges func(n *yaml.Node) bool
+	merges = func(n *yaml.Node) bool {
+		if n == nil {
+			return false
+		}
+		if n.Kind == yaml.MappingNode {
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				if k := n.Content[i]; k.Tag == "!!merge" || k.Value == "<<" {
+					return true
+				}
+			}
+		}
+		for _, c := range n.Content {
+			if merges(c) {
+				return true
+			}
+		}
+		return false
+	}
+	return merges(doc)
 }
 
 // commentedSecret matches a commented-out assignment of one secret key

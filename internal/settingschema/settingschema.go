@@ -855,16 +855,63 @@ func settleDesc(c *node, desc []string) []string {
 	if len(trimBlank(desc)) == 0 {
 		return prefixed(blockComment(*c.key))
 	}
-	for n := len(desc); n > 0; n-- {
-		for i := 0; i+n <= len(desc); i++ {
-			if isGeneratedBlock(strings.Join(desc[i:i+n], "\n"), *c.key) {
-				out := append([]string(nil), desc[:i]...)
-				out = append(out, prefixed(blockComment(*c.key))...)
-				return append(out, desc[i+n:]...)
-			}
-		}
+	if b, e, ok := generatedRun(desc, *c.key); ok {
+		out := append([]string(nil), desc[:b]...)
+		out = append(out, prefixed(blockComment(*c.key))...)
+		return append(out, desc[e:]...)
 	}
 	return desc
+}
+
+// generatedRun finds the longest run desc[b:e] that isGeneratedBlock accepts,
+// the earliest of equal length. It tries only the runs a generated description
+// can form, from each line it can start at, never every run: settleDesc formats
+// a posted client report and a KB's settings file at mount, and the search over
+// every run was cubic in the length of the comment.
+func generatedRun(desc []string, k Key) (b, e int, ok bool) {
+	d := prefixed(wrap(k.Description, wrapWidth))
+	meta := prefixed(legacyMeta(k))
+	forms := [][]string{Comment(k), legacyComment(k), prefixed(blockComment(k))}
+	consider := func(from, to int) {
+		if to <= from || (ok && (to-from < e-b || (to-from == e-b && from >= b))) {
+			return
+		}
+		if isGeneratedBlock(strings.Join(desc[from:to], "\n"), k) {
+			b, e, ok = from, to, true
+		}
+	}
+	for s := range desc {
+		// isGenerated ignores the blank lines above a description, so the run
+		// that also takes them in is the longer match.
+		above := s
+		for above > 0 && desc[above-1] == "" {
+			above--
+		}
+		for _, f := range forms {
+			if len(f) > 0 && s+len(f) <= len(desc) && slices.Equal(desc[s:s+len(f)], f) {
+				consider(above, s+len(f))
+				consider(s, s+len(f))
+			}
+		}
+		// The older layout: the description, "# Values: " and its lines, then
+		// the meta lines from the first "# Default: " on.
+		v := s + len(d)
+		if v >= len(desc) || !slices.Equal(desc[s:v], d) || !strings.HasPrefix(desc[v], "# Values: ") {
+			continue
+		}
+		end := v + 1
+		for end < len(desc) && !strings.HasPrefix(desc[end], "# Default: ") {
+			end++
+		}
+		if len(meta) > 0 {
+			end += len(meta)
+		}
+		if end <= len(desc) {
+			consider(above, end)
+			consider(s, end)
+		}
+	}
+	return b, e, ok
 }
 
 // isGeneratedBlock reports whether c, comment lines with their "# ", is what the

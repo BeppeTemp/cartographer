@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReportMarksFileKeysAndDefaults(t *testing.T) {
@@ -121,5 +122,61 @@ func TestRedactYAMLMasksEveryWayOfWritingTheToken(t *testing.T) {
 	}
 	if _, err := RedactYAML([]byte("token: s3cret\n  - : [\n")); err == nil {
 		t.Error("a file that is not YAML cannot be checked, and says so")
+	}
+}
+
+func TestSecretValueKeepsAMask(t *testing.T) {
+	// The server masks a posted report again: what the client masked stays as it said.
+	for _, v := range []string{SecretSet, SecretUnset} {
+		if got := SecretValue("file", v); got != v {
+			t.Fatalf("SecretValue(file, %q) = %q", v, got)
+		}
+	}
+	if got := SecretValue("file", "sk-123"); got != SecretSet {
+		t.Fatalf("a token in the file = %q, want %q", got, SecretSet)
+	}
+}
+
+func TestFormatIsLinearInALongComment(t *testing.T) {
+	// A comment of thousands of lines above a listed key in the available block
+	// once cost minutes to format (the search for the generated description tried
+	// every run of its lines); a posted report and a KB's settings file are
+	// formatted with it.
+	var b strings.Builder
+	b.WriteString("update_check: false\n\n" + "# --- available settings: uncomment a key to set it ---\n")
+	for i := 0; i < 3000; i++ {
+		b.WriteString("# a note\n")
+	}
+	b.WriteString("# usage_scan: true\n")
+	done := make(chan error, 1)
+	go func() {
+		_, err := Schema.Format([]byte(b.String()))
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("formatting a 3000-line comment took over 10s")
+	}
+}
+
+func TestRedactYAMLRefusesWhatTheMaskCannotSee(t *testing.T) {
+	// A token reached through a merge key, or in a second document, is where the
+	// key-path mask does not look: the file is not shown at all.
+	for _, in := range []string{
+		"base: &b\n  token: s3cret\n<<: *b\n",
+		"<<: {token: s3cret}\n",
+		"server_url: http://example.com/mcp\n---\ntoken: s3cret\n",
+	} {
+		out, err := RedactYAML([]byte(in))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(out), "s3cret") || string(out) != OpaqueYAML {
+			t.Fatalf("RedactYAML(%q) = %q", in, out)
+		}
 	}
 }
