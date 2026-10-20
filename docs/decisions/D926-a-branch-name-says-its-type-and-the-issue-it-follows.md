@@ -8,8 +8,8 @@ topic: project-governance
 `fix` and `hot-fix`, and its worktree is `.worktrees/<issue>-<slug>`.
 `make worktree-add ISSUE=<n> SLUG=<slug> [TYPE=…]` creates both and refuses any
 other type or an issue that is not a number; `make worktree-rm` deletes the
-branch its worktree is on. Only a live session leaves the issue out: it has none
-until its draft PR.
+branch its worktree is on when it is one of those types. Only a live session
+leaves the issue out: it has none until its draft PR.
 
 **Why.** Every branch used to be `feat/<slug>`: a bug fix lived on a `feat/`
 branch, and nothing tied a branch or a worktree to the issue it implements, so
@@ -35,9 +35,12 @@ the conventional-commit type of the PR title.
   ones.
 
 **Consequences.** The skills and the `plan-implementer` agents push `HEAD`
-instead of rebuilding a branch name from the slug, so a new type changes only
-the `Makefile`. `worktree-rm` reads the branch from the worktree and deletes it
-only when its type is one `worktree-add` creates; a branch checked out there by
-hand stays. The branch type does not choose the PR title: a `hot-fix/` branch
+instead of rebuilding a branch name from the slug. The types are one list,
+`BRANCH_TYPES` in the `Makefile`, which both targets check: a new type is a word
+there, in the `worktree-add` help line and in the pages that list the types
+(`CONTRIBUTING.md`, `AGENTS.md`, `implement-issue`). `worktree-rm` reads the
+branch from the worktree — from the rebase's `head-name` when a rebase was left
+halfway — and deletes it only when its type is in that list; a branch checked
+out there by hand, or a detached HEAD, is named in its output and stays. The branch type does not choose the PR title: a `hot-fix/` branch
 lands a `fix:` PR, a documentation change rides a `feat/` branch with a `docs:`
 title.

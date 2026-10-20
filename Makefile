@@ -137,27 +137,39 @@ test-install: ## Run the network-free install.sh/Cask upgrade-repair suite and t
 # it carries and which issue it follows, so `git branch` and `git worktree list`
 # map onto the backlog. Only a live session leaves ISSUE out: it has no issue
 # until its draft PR (live-dev skill).
+#
+# BRANCH_TYPES is the one list both targets check; the worktree-add help line
+# repeats it for `make help`.
+BRANCH_TYPES = feat fix hot-fix
 TYPE ?= feat
 WORKTREE = $(if $(ISSUE),$(ISSUE)-$(SLUG),$(SLUG))
 
 worktree-add: ## Isolated worktree on <type>/<issue>-<slug>: make worktree-add ISSUE=123 SLUG=my-change [TYPE=feat|fix|hot-fix]
 	@test -n "$(SLUG)" || (echo "worktree-add: SLUG is required" && exit 1)
-	@case "$(TYPE)" in feat|fix|hot-fix) ;; *) echo "worktree-add: TYPE is feat, fix or hot-fix, not '$(TYPE)'"; exit 1;; esac
+	@for t in $(BRANCH_TYPES); do test "$$t" = "$(TYPE)" && exit 0; done; \
+		echo "worktree-add: TYPE is one of $(BRANCH_TYPES), not '$(TYPE)'"; exit 1
 	@case "$(ISSUE)" in *[!0-9]*) echo "worktree-add: ISSUE is an issue number, not '$(ISSUE)'"; exit 1;; esac
 	@git fetch origin
 	@git worktree add -b "$(TYPE)/$(WORKTREE)" ".worktrees/$(WORKTREE)" origin/main
 	@echo "worktree: $(CURDIR)/.worktrees/$(WORKTREE) on $(TYPE)/$(WORKTREE)"
 
 # The branch is read from the worktree, not rebuilt from TYPE: a worktree made
-# with another TYPE, or before TYPE existed, loses its branch too. Only a branch
-# of a type worktree-add creates is deleted, never one checked out there by hand.
+# with another TYPE, or before TYPE existed, loses its branch too. A rebase left
+# halfway detaches HEAD, so the branch is then read from the rebase's head-name.
+# Only a branch of a type worktree-add creates is deleted, never one checked out
+# there by hand; a branch left behind is named, never dropped in silence.
 worktree-rm: ## Remove a worktree and the branch it is on: make worktree-rm ISSUE=123 SLUG=my-change
 	@test -n "$(SLUG)" || (echo "worktree-rm: SLUG is required" && exit 1)
 	@test -d ".worktrees/$(WORKTREE)" || (echo "worktree-rm: no worktree at .worktrees/$(WORKTREE)" && exit 1)
-	@branch=$$(git -C ".worktrees/$(WORKTREE)" symbolic-ref --quiet --short HEAD 2>/dev/null); \
+	@branch=$$(cd ".worktrees/$(WORKTREE)" && { git symbolic-ref --quiet --short HEAD || \
+			for d in rebase-merge rebase-apply; do f=$$(git rev-parse --git-path "$$d/head-name"); \
+				test -f "$$f" && sed 's|^refs/heads/||' "$$f" && break; done; } 2>/dev/null); \
 		git worktree remove --force ".worktrees/$(WORKTREE)" || exit 1; \
-		case "$$branch" in feat/*|fix/*|hot-fix/*) git branch -D "$$branch" >/dev/null 2>&1 || true;; esac
-	@echo "worktree removed: .worktrees/$(WORKTREE)"
+		echo "worktree removed: .worktrees/$(WORKTREE)"; \
+		test -n "$$branch" || { echo "worktree-rm: HEAD was detached, no branch deleted"; exit 0; }; \
+		for t in $(BRANCH_TYPES); do case "$$branch" in "$$t"/*) git branch -D "$$branch" >/dev/null && \
+			echo "branch deleted: $$branch"; exit 0;; esac; done; \
+		echo "worktree-rm: kept $$branch, not a branch worktree-add creates"
 
 # The live session's instance (the live-dev skill): Go rebuilt and restarted on
 # change, the UI hot-reloaded by Vite. DATA is copied, never served in place.
