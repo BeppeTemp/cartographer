@@ -201,7 +201,9 @@ never contacts anything. The freshness window of the pull (30s) and the debounce
 are constants. There is no pull-request boundary and no forge: the server git profile (D117) and its keys
 (`git.profile`, `git.base_branch`, `git.working_branch`, `git.forge`, `git.github_*` and their `kbs[]` forms)
 are gone with the `pr_status` and `pr_finalize` tools, and so are `git.autocommit`, `git.sync`, `git.in_window`,
-`git.out_debounce` and `kbs[].path`. Cartographer pushes to the KB's branch itself; if the remote refuses
+`git.out_debounce` and `kbs[].path`. A KB that has a remote and was kept from pushing with `git.sync: false`
+starts pushing to it after the upgrade (the start only warns): remove the remote from the clone to keep it local.
+Cartographer pushes to the KB's branch itself; if the remote refuses
 because the branch is protected, the push is reported as that (`sync_status` `failed`, `last_error` naming the
 way out: unprotect the branch, or set `branch` in the KB's `settings.yaml`), the change stays committed in the
 clone, and the push is not retried.

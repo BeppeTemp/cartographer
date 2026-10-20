@@ -9,7 +9,7 @@ topic: concurrency-git
 pull request, and names no provider. `git.autocommit` and `git.sync` are removed (every write is a commit; a KB
 syncs exactly when it has a remote), `git.in_window` and `git.out_debounce` become constants (30s and 3s), and
 `kbs[].path` is removed (`kbs[]` entries name a remote; a folder under `data` is discovered; `--kb` and
-`CARTOGRAPHER_KB` mount one folder from the command line, with no remote and so no sync). `kbs[].git_branch`
+`CARTOGRAPHER_KB` mount one folder from the command line, which syncs only if it has a remote). `kbs[].git_branch`
 becomes `branch`, a key that exists only in the KB's `settings.yaml` and is read only from the file committed on
 the remote's default branch. A `branch` that is not a valid branch name is not read as "no setting", which would
 send writes to the default branch: the sync and the push are refused with an error naming the setting until it is
@@ -76,6 +76,9 @@ a file that cannot be written (a read-only mount) keeps working. `kb create --no
 `allow_artifact_write: true` into the new KB's `settings.yaml` (an entry in `kbs[]` needs a remote), and with a
 remote or in `kb clone` the entry names the remote. A branch-protected remote makes every write `failed` in
 `sync_status` until the branch is unprotected or `branch` is set; the write itself stays committed locally.
+A KB that has a remote and was kept from pushing with `git.sync: false` (or `CARTOGRAPHER_GIT_SYNC`,
+`--git-sync=false`) starts pushing to that remote after the upgrade, with only a warning at start: the release
+notes say so, and an operator who does not want it removes the remote from the clone.
 A future change to this area must keep the realignment idempotent, never drop a value it was not told to, and
 leave a refused configuration untouched. A plan that removes a key adds it to the registry of its file
 (`config.Retired`, `kb.SettingsRetired`, `clientconfig.Retired`) in the same change, and an "off" value to
