@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "./Icon";
 import { fetchPlaceholders, fetchSettings, fetchWhoami } from "../api/client";
 import type {
-  ClientPlaceholder,
   ClientProvider,
   PlaceholderList,
   SettingEntry,
@@ -128,7 +127,7 @@ export function Settings({
   const [view, setView] = useState<SettingsView | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("server");
+  const [tab, setTab] = useState("client");
   const [mode, setMode] = useState<Mode>("readable");
   const [query, setQuery] = useState("");
 
@@ -170,8 +169,11 @@ export function Settings({
   const selected = view.kbs.find((k) => k.name === activeKB) ?? view.kbs[0];
   const kb = tab === "kb" ? selected : undefined;
   const clients = view.clients ?? [];
-  const client = tab.startsWith("client") ? (clients.find((c) => `client:${c.machine}` === tab) ?? null) : undefined;
-  const current = client !== undefined ? tab : kb ? "kb" : "server";
+  // The page opens on the viewer's own client: the first machine that reported, else the template.
+  const client = tab.startsWith("client")
+    ? (clients.find((c) => `client:${c.machine}` === tab) ?? clients[0] ?? null)
+    : undefined;
+  const current = client !== undefined ? (client ? `client:${client.machine}` : "client") : kb ? "kb" : "server";
 
   return (
     <Page label="Settings" className="settings">
@@ -231,7 +233,7 @@ export function Settings({
       <div className="settings__bar">
         <div className="inspector__tabs settings__tabs" role="tablist" aria-label="Settings of">
           {clients.length === 0 ? (
-            <Tab id="client" current={current === "client"} onSelect={setTab} entries={[]}>
+            <Tab id="client" current={current === "client"} onSelect={setTab}>
               Client
             </Tab>
           ) : (
@@ -241,17 +243,16 @@ export function Settings({
                 id={`client:${c.machine}`}
                 current={current === `client:${c.machine}`}
                 onSelect={setTab}
-                entries={c.entries}
               >
                 {clients.length === 1 ? "Client" : `Client · ${c.machine}`}
               </Tab>
             ))
           )}
-          <Tab id="server" current={current === "server"} onSelect={setTab} entries={view.server}>
+          <Tab id="server" current={current === "server"} onSelect={setTab}>
             Server
           </Tab>
           {selected && (
-            <Tab id="kb" current={current === "kb"} onSelect={setTab} entries={selected.entries}>
+            <Tab id="kb" current={current === "kb"} onSelect={setTab}>
               Knowledge Base
             </Tab>
           )}
@@ -263,6 +264,7 @@ export function Settings({
           <ClientPanel
             client={client}
             template={view.client_template}
+            kbs={view.kbs.map((k) => k.name)}
             mode={mode}
             query={query}
             activeKB={selected?.name}
@@ -282,13 +284,11 @@ function Tab({
   id,
   current,
   onSelect,
-  entries,
   children,
 }: {
   id: string;
   current: boolean;
   onSelect(id: string): void;
-  entries: SettingEntry[];
   children: React.ReactNode;
 }) {
   return (
@@ -301,7 +301,6 @@ function Tab({
       onClick={() => onSelect(id)}
     >
       {children}
-      {entries.length > 0 && <span className="settings__tab-count">{entries.length}</span>}
     </button>
   );
 }
@@ -375,12 +374,14 @@ function KBPanel({ kb, mode, query }: { kb: SettingsKB; mode: Mode; query: strin
 function ClientPanel({
   client,
   template,
+  kbs,
   mode,
   query,
   activeKB,
 }: {
   client: SettingsClient | null;
   template?: { entries: SettingEntry[]; yaml?: string };
+  kbs: string[];
   mode: Mode;
   query: string;
   activeKB?: string;
@@ -403,14 +404,15 @@ function ClientPanel({
         {note}
         {mode === "yaml" ? (
           <Yaml name=".cartographer.yaml" text={template.yaml} />
-        ) : groups.every((g) => g.rows.length === 0) ? (
-          <NoMatch query={query} />
         ) : (
-          groups
-            .filter((g) => g.rows.length > 0)
-            .map(({ group, rows }) => (
-              <Rows key={group.title} group={group} entries={rows} label={`Client ${group.title} settings`} />
-            ))
+          <>
+            {groups
+              .filter((g) => g.rows.length > 0)
+              .map(({ group, rows }) => (
+                <Rows key={group.title} group={group} entries={rows} label={`Client ${group.title} settings`} />
+              ))}
+            <ClientKBs kbs={kbs} client={null} activeKB={activeKB} query={query} />
+          </>
         )}
       </>
     );
@@ -432,145 +434,162 @@ function ClientPanel({
         )
       ) : (
         <>
-          {client.providers && <Workspaces providers={client.providers} activeKB={activeKB} />}
-          {client.placeholders && <MachinePaths placeholders={client.placeholders} activeKB={activeKB} query={query} />}
-          {groups.every((g) => g.rows.length === 0) ? (
-            <NoMatch query={query} />
-          ) : (
-            groups
-              .filter((g) => g.rows.length > 0)
-              .map(({ group, rows }) => (
-                <Rows key={group.title} group={group} entries={rows} label={`Client ${group.title} settings`} />
-              ))
-          )}
+          {groups
+            .filter((g) => g.rows.length > 0)
+            .map(({ group, rows }) => (
+              <Rows key={group.title} group={group} entries={rows} label={`Client ${group.title} settings`} />
+            ))}
+          <ClientKBs kbs={kbs} client={client} activeKB={activeKB} query={query} />
         </>
       )}
     </>
   );
 }
 
-/** A KB name, set apart when it is the one picked in the top bar. */
-function KBName({ name, activeKB }: { name: string; activeKB?: string }) {
-  return <span className={name === activeKB ? "settings__kb settings__kb--active" : "settings__kb"}>{name}</span>;
+/** The KBs a provider receives: its `clients` entry's kbs, or every KB when it names none. */
+function receivedKBs(client: SettingsClient, provider: string): string[] | null {
+  const map = client.entries.find((e) => e.key === "clients")?.value;
+  const entry = map && typeof map === "object" ? (map as Record<string, { kbs?: string[] }>)[provider] : undefined;
+  return entry?.kbs?.length ? entry.kbs : null;
+}
+
+/** Where one provider gives one KB to its sessions on this machine. */
+function whereFor(client: SettingsClient, p: ClientProvider, kb: string): string[] | "everywhere" | null {
+  const kbs = receivedKBs(client, p.name);
+  if (p.scope === "workspace") {
+    const folders = (p.workspaces ?? []).filter((w) => w.kbs.includes(kb)).map((w) => w.path);
+    return folders.length ? folders : null;
+  }
+  return kbs === null || kbs.includes(kb) ? "everywhere" : null;
 }
 
 /**
- * Where each agent client receives its KBs: everywhere (provider scope) or per
- * bound folder (workspace scope), and which global MCP entry the client has:
- * the local bridge that narrows a session to its folder's KBs, or the plain
- * HTTP URL (D737). A scope filter, not a security boundary.
+ * The client side of every KB (D948): the page is the machine's, common to
+ * all KBs, so it has one card per KB, each saying which of the machine's agent
+ * clients receive that KB and where -- everywhere, or in the folders bound to
+ * it -- and where its placeholders resolve here. A scope filter, not a
+ * security boundary (D737).
  */
-function Workspaces({ providers, activeKB }: { providers: ClientProvider[]; activeKB?: string }) {
-  return (
-    <Folded
-      title="Workspaces"
-      intro="Which KBs each agent client receives, and in which folders."
-      count={`${providers.length} client${providers.length === 1 ? "" : "s"}`}
-    >
-      <ul className="settings__rows" aria-label="Workspaces">
-        {providers.map((p) => (
-          <li key={p.name} className="settings__row settings__ws">
-            <div className="settings__row-head settings__row-head--static">
-              <span className="settings__what">
-                <code className="settings__key">{p.name}</code>
-                {(p.scope === "workspace" || !!p.workspaces?.length) &&
-                  (p.workspaces?.length ? (
-                    <ul className="settings__ws-list">
-                      {p.workspaces.map((w) => (
-                        <li key={w.path}>
-                          <code className="settings__ws-path" title={w.remote}>
-                            {w.path}
-                          </code>
-                          <span className="settings__ws-kbs">
-                            {w.kbs.length ? w.kbs.map((k) => <KBName key={k} name={k} activeKB={activeKB} />) : "no KB"}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <span className="settings__desc">
-                      No folder is bound yet: a session receives only the transversal bundle.
-                    </span>
-                  ))}
-              </span>
-              <span className="settings__val settings__chip-row">
-                <span className="pill">{p.scope === "workspace" ? "per workspace" : "every KB, everywhere"}</span>
-                {p.isolation === "workspace" && (
-                  <span
-                    className="pill pill--ok"
-                    title="This client starts the Cartographer bridge: a session sees only the KBs bound to its folder."
-                  >
-                    bridge
-                  </span>
-                )}
-                {p.isolation === "none" && (
-                  <span
-                    className="pill"
-                    title="This client uses the server URL: a session reaches every KB the client is bound to."
-                  >
-                    http
-                  </span>
-                )}
-              </span>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </Folded>
-  );
-}
-
-/** Where each placeholder the connected KBs cite resolves on this machine. */
-function MachinePaths({
-  placeholders,
+function ClientKBs({
+  kbs,
+  client,
   activeKB,
   query,
 }: {
-  placeholders: ClientPlaceholder[];
+  kbs: string[];
+  client: SettingsClient | null;
   activeKB?: string;
   query: string;
 }) {
+  const names = [...kbs];
+  for (const p of client?.providers ?? []) {
+    for (const w of p.workspaces ?? []) for (const k of w.kbs) if (!names.includes(k)) names.push(k);
+  }
   const q = query.trim().toLowerCase();
-  const shown = placeholders.filter(
-    (p) => !q || [p.key, p.path, p.description].some((t) => t?.toLowerCase().includes(q)),
-  );
+  const cards = names.map((kb) => {
+    const agents = (client?.providers ?? []).map((p) => ({ p, where: client ? whereFor(client, p, kb) : null }));
+    const paths = (client?.placeholders ?? []).filter((ph) => ph.kbs?.includes(kb));
+    const text = [kb, ...agents.flatMap((a) => (Array.isArray(a.where) ? a.where : [])), ...paths.map((ph) => ph.key)];
+    return { kb, agents, paths, hit: !q || text.some((t) => t.toLowerCase().includes(q)) };
+  });
+  const shown = cards.filter((c) => c.hit);
   if (q && shown.length === 0) return null;
-  const unresolved = placeholders.filter((p) => !p.path && !p.ignored).length;
+  const others = (client?.placeholders ?? []).filter((ph) => !ph.kbs?.length);
   return (
     <Folded
-      title="Paths on this machine"
-      intro="Where the {{repo:…}} and {{path:…}} placeholders of the connected KBs resolve here."
-      count={unresolved ? `${unresolved} unresolved · ${placeholders.length}` : `${placeholders.length}`}
+      title="Knowledge bases"
+      intro="For each KB, which of this machine's agents receive it and where: everywhere, or only in the folders bound to it. Open one to see it."
+      count={`${names.length} KB${names.length === 1 ? "" : "s"}`}
     >
-      {shown.length === 0 ? (
-        <p className="page-note">No placeholder recorded: the connected KBs cite none, or no sync ran yet.</p>
-      ) : (
-        <ul className="settings__rows" aria-label="Paths on this machine">
-          {shown.map((p) => (
-            <li key={p.key} className="settings__row">
-              <div className="settings__row-head settings__row-head--static">
-                <span className="settings__what">
-                  <code className="settings__key">{`{{${p.key}}}`}</code>
-                  {(p.description || (!p.path && p.reason)) && (
-                    <span className="settings__desc">{!p.path && p.reason ? p.reason : p.description}</span>
-                  )}
-                  {!!p.kbs?.length && (
-                    <span className="settings__note">
-                      {p.kbs.map((k) => (
-                        <KBName key={k} name={k} activeKB={activeKB} />
-                      ))}
+      <ul className="client-kbs" aria-label="Knowledge bases on this machine">
+        {shown.map(({ kb, agents, paths }) => {
+          const reaching = agents.filter((a) => a.where !== null);
+          return (
+            <li key={kb}>
+              <details className="client-kb" data-active={kb === activeKB || undefined} open={kb === activeKB || !!q}>
+                <summary className="client-kb__head">
+                  <h3 className="client-kb__name">{kb}</h3>
+                  {client && (
+                    <span className="client-kb__sum">
+                      {reaching.length === 0
+                        ? "no agent receives it"
+                        : `${reaching.length} agent${reaching.length === 1 ? "" : "s"}`}
                     </span>
                   )}
-                </span>
-                <span className="settings__val">
-                  <span className="settings__value" data-empty={!p.path || undefined}>
-                    {p.path ?? (p.ignored ? "ignored" : "unresolved")}
-                  </span>
-                </span>
-              </div>
+                </summary>
+                {!client ? (
+                  <p className="client-kb__none">
+                    Bind it to a folder with{" "}
+                    <code>cartographer workspace bind &lt;agent&gt; &lt;folder&gt; --kb {kb}</code>: its agents then
+                    receive it only there.
+                  </p>
+                ) : (
+                  <ul className="client-kb__agents" aria-label={`Agents receiving ${kb}`}>
+                    {agents.map(({ p, where }) => (
+                      <li key={p.name} className="client-kb__agent" data-off={where === null || undefined}>
+                        <code className="client-kb__provider">{p.name}</code>
+                        <span className="client-kb__where">
+                          {where === "everywhere"
+                            ? "everywhere on this machine"
+                            : where === null
+                              ? p.scope === "workspace"
+                                ? "no folder bound to it"
+                                : "not received"
+                              : where.map((path) => (
+                                  <code key={path} className="client-kb__folder">
+                                    {path}
+                                  </code>
+                                ))}
+                        </span>
+                        {p.isolation === "workspace" ? (
+                          <span
+                            className="pill pill--ok"
+                            title="This agent starts the Cartographer bridge: a session sees only the KBs bound to its folder."
+                          >
+                            bridge
+                          </span>
+                        ) : p.isolation === "none" ? (
+                          <span
+                            className="pill"
+                            title="This agent uses the server URL: a session reaches every KB the agent receives."
+                          >
+                            http
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {paths.length > 0 && (
+                  <dl className="client-kb__paths" aria-label={`Paths of ${kb} on this machine`}>
+                    {paths.map((ph) => (
+                      <div key={ph.key}>
+                        <dt>
+                          <code>{`{{${ph.key}}}`}</code>
+                        </dt>
+                        <dd data-empty={!ph.path || undefined} title={!ph.path ? ph.reason : ph.description}>
+                          {ph.path ?? (ph.ignored ? "ignored" : "unresolved")}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+              </details>
             </li>
+          );
+        })}
+      </ul>
+      {others.length > 0 && (
+        <dl className="client-kb__paths client-kb__paths--others" aria-label="Other paths on this machine">
+          {others.map((ph) => (
+            <div key={ph.key}>
+              <dt>
+                <code>{`{{${ph.key}}}`}</code>
+              </dt>
+              <dd data-empty={!ph.path || undefined}>{ph.path ?? (ph.ignored ? "ignored" : "unresolved")}</dd>
+            </div>
           ))}
-        </ul>
+        </dl>
       )}
     </Folded>
   );
@@ -639,8 +658,7 @@ const GROUP_MARK: Record<string, [string, string]> = {
   Mount: ["⌂", "var(--hue-4)"],
   Maintenance: ["↻", "var(--hue-7)"],
   Placeholders: ["{}", "var(--hue-9)"],
-  Workspaces: ["▣", "var(--hue-10)"],
-  "Paths on this machine": ["↳", "var(--hue-9)"],
+  "Knowledge bases": ["▣", "var(--hue-10)"],
   Connection: ["⇄", "var(--hue-3)"],
   "Agents & KBs": ["◉", "var(--hue-1)"],
   "Local paths": ["↳", "var(--hue-9)"],

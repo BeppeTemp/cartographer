@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 )
 
@@ -104,6 +105,54 @@ func (m *MultiKBServer) handleClientSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	rep.ReceivedAt = time.Now().UTC()
+	rep.Entries, rep.YAML = scrubClientReport(rep.Entries, rep.YAML)
 	m.clientReports.put(auth.PrincipalFromContext(r.Context()).ID, rep)
 	writeUIJSON(w, http.StatusOK, map[string]bool{"received": true})
+}
+
+// clientFormatOverhead is what rendering a settings file adds whatever its
+// size: the documentation of the keys it does not set, listed commented out.
+var clientFormatOverhead = sync.OnceValue(func() int {
+	out, err := clientconfig.Schema.Format(nil)
+	if err != nil {
+		return 8 << 10
+	}
+	return len(out)
+})
+
+// scrubClientReport makes a report fit to keep and show: it masks the secrets,
+// since a client that predates the masking sends the token itself, and renders
+// the file once, here, instead of on every read.
+//
+// A secret key's value is "(set)" or "(unset)", as the server's own settings
+// entries (docs/control-plane.md), and its value in the file is
+// "<redacted>", as in the server's YAML view. This runs before anything is
+// stored, so the secret never stays in memory.
+//
+// The rendering of a file that repeats a key documents it once per
+// occurrence: 216 KB of `token: a` renders to 12 MB, times the eight reports
+// kept, on every read. A file whose rendering is larger than twice itself (plus
+// the fixed documentation of the unset keys) is kept as it is. A file that is
+// not YAML cannot be checked for a secret and is not kept.
+func scrubClientReport(entries []config.Entry, yamlText string) ([]config.Entry, string) {
+	for i := range entries {
+		e := &entries[i]
+		if !clientconfig.IsSecret(e.Key) {
+			continue
+		}
+		e.Value = clientconfig.SecretValue(string(e.Origin), e.Value)
+		e.Secret = true
+		// The default is the schema's, not the sender's.
+		if k, ok := clientconfig.Schema.Lookup(e.Key); ok {
+			e.Default = k.Default
+		}
+	}
+	masked, err := clientconfig.RedactYAML([]byte(yamlText))
+	if err != nil {
+		return entries, ""
+	}
+	if out, err := clientconfig.Schema.Format(masked); err == nil && len(out) <= 2*len(masked)+clientFormatOverhead() {
+		return entries, string(out)
+	}
+	return entries, string(masked)
 }

@@ -92,15 +92,12 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 		kbs = append(kbs, row)
 	}
 
-	// The caller's own clients, never anybody else's (D818). Each file is shown
-	// rendered by this server's schema, as the server's and the KBs' are: the
-	// keys it sets documented, the others listed ready to uncomment.
+	// The caller's own clients, never anybody else's (D818). Each file was
+	// rendered by this server's schema and its secrets masked when it arrived
+	// (scrubClientReport): the keys it sets documented, the others listed ready
+	// to uncomment. Rendering here would cost every read the size of what any
+	// token can post.
 	clients := m.clientReports.of(auth.PrincipalFromContext(ctx).ID)
-	for i := range clients {
-		if out, err := clientconfig.Schema.Format([]byte(clients[i].YAML)); err == nil {
-			clients[i].YAML = string(out)
-		}
-	}
 	payload := map[string]any{
 		"version": m.version,
 		"server":  view.Server,

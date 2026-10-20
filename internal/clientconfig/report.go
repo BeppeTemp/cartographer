@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/settingschema"
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,7 +22,8 @@ type SettingsReport struct {
 	ServerURL string        `json:"server_url"`
 	Entries   []ReportEntry `json:"entries"`
 	// YAML is the .cartographer.yaml as it is on disk, commented by the schema
-	// when Save wrote it; "" when the machine has no file yet.
+	// when Save wrote it, with the value of every secret key replaced by
+	// SecretRedacted; "" when the machine has no file yet.
 	YAML string `json:"yaml"`
 	// Providers are the connected agent clients: where each receives its KBs
 	// and whether a workspace binding really narrows what a session sees.
@@ -68,7 +71,8 @@ type ReportPlaceholder struct {
 }
 
 // ReportEntry is one client key with its effective value and origin: "file"
-// when .cartographer.yaml sets it, "default" otherwise.
+// when .cartographer.yaml sets it, "default" otherwise. The value of a secret
+// key is SecretSet or SecretUnset, never the secret (D818).
 type ReportEntry struct {
 	Key         string `json:"key"`
 	Value       any    `json:"value"`
@@ -99,7 +103,125 @@ func Template() *SettingsReport {
 	return r
 }
 
-// report builds the report of one settings file's bytes; nil is no file.
+// What a report shows in place of a secret, the words the server's own settings
+// view uses for its secrets: SecretSet or SecretUnset in an entry,
+// SecretRedacted in the YAML (config.SecretSet, config.SecretUnset,
+// config.Redacted).
+const (
+	SecretSet      = "(set)"
+	SecretUnset    = "(unset)"
+	SecretRedacted = "<redacted>"
+)
+
+// IsSecret reports whether key is a secret of the client schema (the token).
+func IsSecret(key string) bool {
+	k, ok := Schema.Lookup(key)
+	return ok && k.Secret
+}
+
+// SecretValue is the value a report shows for a secret key given its origin and
+// value: SecretSet when the file sets a non-empty value, SecretUnset otherwise
+// (a key at its default holds the schema's default, not a value of the file).
+func SecretValue(origin string, value any) string {
+	if origin == "file" && value != nil && value != "" {
+		return SecretSet
+	}
+	return SecretUnset
+}
+
+// RedactYAML replaces the value of every secret key of a settings file with
+// SecretRedacted (a `${NAME}` reference too: the server's own YAML view writes
+// every secret that way), keeping the rest of the file, its comments included.
+// A key with no value stays as it is: there is nothing to hide. The bytes are
+// returned unchanged when no secret is set. A comment on a secret's own line
+// goes with it, and a commented-out assignment (`# token: …`, an old token kept
+// for later) has its value masked too, unless it is the schema's default, which
+// is what the file lists for a key it does not set. The error is the file not
+// being YAML, which cannot be checked for a secret.
+func RedactYAML(data []byte) ([]byte, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, fmt.Errorf("clientconfig: parse settings: %w", err)
+	}
+	return redactDoc(&doc, data)
+}
+
+// redactDoc masks the secrets of an already parsed document; data is the
+// file's bytes, returned when none is set.
+func redactDoc(doc *yaml.Node, data []byte) ([]byte, error) {
+	changed := false
+	for _, k := range Schema.Keys {
+		if !k.Secret {
+			continue
+		}
+		for _, n := range lookupAll(doc, strings.Split(k.Path, ".")) {
+			if n.Kind == yaml.ScalarNode && (n.Tag == "!!null" || n.Value == "") {
+				continue
+			}
+			// The anchor stays, so an alias to the value still resolves; the
+			// comments on the value go, a trailing one is likely to quote it.
+			*n = yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: SecretRedacted, Anchor: n.Anchor}
+			changed = true
+		}
+	}
+	if redactComments(doc) {
+		changed = true
+	}
+	if !changed {
+		return data, nil
+	}
+	return settingschema.Encode(doc)
+}
+
+// commentedSecret matches a commented-out assignment of one secret key
+// ("# token: abc", indented or not): group 1 is what stays, group 2 the value;
+// def is the schema's default, which a file lists commented out and is no secret.
+type commentedSecret struct {
+	re  *regexp.Regexp
+	def string
+}
+
+var secretComments = func() []commentedSecret {
+	var out []commentedSecret
+	for _, k := range Schema.Keys {
+		if k.Secret {
+			leaf := k.Path[strings.LastIndex(k.Path, ".")+1:]
+			out = append(out, commentedSecret{regexp.MustCompile(`^(\s*#\s*` + regexp.QuoteMeta(leaf) + `\s*:\s*)(\S.*)$`), k.Default})
+		}
+	}
+	return out
+}()
+
+// redactComments masks the value of a commented-out assignment of a secret key
+// in the comments of every node, and reports whether it changed any.
+func redactComments(n *yaml.Node) bool {
+	changed := false
+	for _, c := range []*string{&n.HeadComment, &n.LineComment, &n.FootComment} {
+		if *c == "" {
+			continue
+		}
+		lines := strings.Split(*c, "\n")
+		for i, l := range lines {
+			for _, sc := range secretComments {
+				if m := sc.re.FindStringSubmatch(l); m != nil && strings.TrimSpace(m[2]) != sc.def {
+					lines[i] = m[1] + SecretRedacted
+					changed = true
+				}
+			}
+		}
+		*c = strings.Join(lines, "\n")
+	}
+	for _, child := range n.Content {
+		if redactComments(child) {
+			changed = true
+		}
+	}
+	return changed
+}
+
+// report builds the report of one settings file's bytes; nil is no file. The
+// secrets are masked here, on the client, so the token never leaves the machine
+// (D818); the server masks them again for a client that predates this.
 func report(data []byte, machine, version string) (*SettingsReport, error) {
 	var doc yaml.Node
 	if len(data) > 0 {
@@ -107,7 +229,7 @@ func report(data []byte, machine, version string) (*SettingsReport, error) {
 			return nil, fmt.Errorf("clientconfig: parse settings: %w", err)
 		}
 	}
-	r := &SettingsReport{Machine: machine, Version: version, YAML: string(data), Entries: []ReportEntry{}}
+	r := &SettingsReport{Machine: machine, Version: version, Entries: []ReportEntry{}}
 	for _, k := range Schema.Keys {
 		e := ReportEntry{Key: k.Path, Origin: "default", Description: k.Description, Default: k.Default, Type: k.Type, Values: k.Values}
 		if n := lookup(&doc, k.Path); n != nil {
@@ -119,8 +241,16 @@ func report(data []byte, machine, version string) (*SettingsReport, error) {
 		if k.Path == "server_url" {
 			r.ServerURL, _ = e.Value.(string)
 		}
+		if k.Secret {
+			e.Value = SecretValue(e.Origin, e.Value)
+		}
 		r.Entries = append(r.Entries, e)
 	}
+	masked, err := redactDoc(&doc, data)
+	if err != nil {
+		return nil, fmt.Errorf("clientconfig: mask settings: %w", err)
+	}
+	r.YAML = string(masked)
 	return r, nil
 }
 
@@ -144,4 +274,33 @@ func lookup(doc *yaml.Node, path string) *yaml.Node {
 		n = next
 	}
 	return n
+}
+
+// lookupAll returns every value node at a dotted path: a mapping that repeats
+// a key has them all, where lookup stops at the first (a parse keeps the
+// duplicates, and a secret hidden in the second must be masked too).
+func lookupAll(doc *yaml.Node, segs []string) []*yaml.Node {
+	n := doc
+	if n.Kind == yaml.DocumentNode {
+		if len(n.Content) == 0 {
+			return nil
+		}
+		n = n.Content[0]
+	}
+	if n.Kind == yaml.AliasNode && n.Alias != nil {
+		n = n.Alias
+	}
+	if len(segs) == 0 {
+		return []*yaml.Node{n}
+	}
+	if n.Kind != yaml.MappingNode {
+		return nil
+	}
+	var out []*yaml.Node
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		if n.Content[i].Value == segs[0] {
+			out = append(out, lookupAll(n.Content[i+1], segs[1:])...)
+		}
+	}
+	return out
 }
