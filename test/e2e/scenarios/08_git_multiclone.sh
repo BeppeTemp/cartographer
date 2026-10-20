@@ -95,9 +95,9 @@ wait_health "$PORT_B" || { echo "[ERROR] server B not responding"; exit 1; }
 # --- A writes a concept (autocommit + push to the bare repo) ---
 echo "[08] write on instance A"
 mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"shared","title":"Shared"}}}'
-mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"shared/notes","frontmatter":{"type":"Index","title":"Notes"},"body":"# Notes\n"}}}'
+# One concept_batch: the write gate (D907) refuses an orphan page or one missing from its map index.
+mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"shared/notes","index_entry":true,"frontmatter":{"type":"Index","title":"Notes"},"body":"# Notes\n\nSee [[shared/notes/from-a]].\n"},{"op":"write","id":"shared/notes/from-a","index_entry":true,"frontmatter":{"type":"note","title":"From A"},"body":"Concept created on instance A."}]}}}'
 mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"shared/notes"}}}'
-mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"shared/notes/from-a","frontmatter":{"type":"note","title":"From A"},"body":"Concept created on instance A."}}}'
 
 # --- B performs an operation: SyncIn (fetch+pull) must bring in A's concept ---
 echo "[08] operation on instance B (triggers SyncIn)"

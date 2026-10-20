@@ -112,9 +112,9 @@ wait_health "$PORT_B" || { echo "[ERROR] server B not responding"; cat "${DIR}/s
 # --- A writes shared/notes/c with body1 (commit + push) ---
 echo "[09] A: creates shared/notes/c with body1"
 mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"shared","title":"Shared"}}}'
-mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"shared/notes","frontmatter":{"type":"Index","title":"Notes"},"body":"# Notes\n"}}}'
+# One concept_batch: the write gate (D907) refuses an orphan page or one missing from its map index.
+mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"shared/notes","index_entry":true,"frontmatter":{"type":"Index","title":"Notes"},"body":"# Notes\n\nSee [[shared/notes/c]].\n"},{"op":"write","id":"shared/notes/c","index_entry":true,"frontmatter":{"type":"note","title":"Shared Note C"},"body":"body1: written by A.\n"}]}}}'
 mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"shared/notes"}}}'
-mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"shared/notes/c","frontmatter":{"type":"note","title":"Shared Note C"},"body":"body1: written by A.\n"}}}'
 
 # --- B syncs (SyncIn pulls in A's commits) and rewrites the same concept with body2 ---
 echo "[09] B: syncs + rewrites shared/notes/c with body2"

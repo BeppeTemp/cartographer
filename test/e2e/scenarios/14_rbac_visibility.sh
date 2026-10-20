@@ -76,6 +76,11 @@ BASE="http://127.0.0.1:${E2E_HTTP_PORT}/mcp"
 concept_write_body() {
     printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"%s","frontmatter":{"type":"Note","title":"%s"},"body":"# %s\\nbody text"}}}' "$1" "$2" "$2"
 }
+# seed_body ID TITLE PEER: the concept plus a peer page linking each other in one
+# concept_batch, because the write gate (D907) refuses an orphan page.
+seed_body() {
+    printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"%s","frontmatter":{"type":"Note","title":"%s"},"body":"# %s\\nbody text\\n\\nSee [[%s]]."},{"op":"write","id":"%s","frontmatter":{"type":"Note","title":"Peer"},"body":"# Peer\\n\\nSee [[%s]]."}]}}}' "$1" "$2" "$2" "$3" "$3" "$1"
+}
 concept_read_body() {
     printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"%s"}}}' "$1"
 }
@@ -87,8 +92,8 @@ ATLAS_OVERVIEW_BODY='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"na
 
 echo ""
 echo "--- Fixtures: one concept per KB, written by the admin token ---"
-assert_mcp_ok "admin: seed notes/hello-a on kbA" "$(mcp_call "$BASE" "$KB_A_NAME" "$ADMIN_TOKEN" "$(concept_write_body notes/hello-a "Hello A")")"
-assert_mcp_ok "admin: seed notes/hello-b on kbB" "$(mcp_call "$BASE" "$KB_B_NAME" "$ADMIN_TOKEN" "$(concept_write_body notes/hello-b "Hello B")")"
+assert_mcp_ok "admin: seed notes/hello-a on kbA" "$(mcp_call "$BASE" "$KB_A_NAME" "$ADMIN_TOKEN" "$(seed_body notes/hello-a "Hello A" notes/peer-a)")"
+assert_mcp_ok "admin: seed notes/hello-b on kbB" "$(mcp_call "$BASE" "$KB_B_NAME" "$ADMIN_TOKEN" "$(seed_body notes/hello-b "Hello B" notes/peer-b)")"
 
 echo ""
 echo "--- 1. Scoped token: full visibility inside its own KB ---"
