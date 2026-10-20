@@ -33,13 +33,14 @@ const (
 	// D321: an `active` page in a journal that does not declare it open.
 	ReviewStatusReclassify = "status_reclassify"
 	// ReviewHarvestCandidate (D322) is declared in harvest.go.
+	// ReviewObservation (D947) is declared in observations.go.
 )
 
 // ReviewKinds lists the kinds in ranking priority: an item of an earlier kind
 // always comes before one of a later kind.
 // Repeated facts and hotspots rank before promotion (D301): a duplicated fact
 // is cheaper to fix than to keep updating in every copy.
-var ReviewKinds = []string{ReviewDuplicate, ReviewTemplateProposal, ReviewZombie, ReviewHarvestCandidate, ReviewStatusReclassify, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement}
+var ReviewKinds = []string{ReviewDuplicate, ReviewTemplateProposal, ReviewZombie, ReviewHarvestCandidate, ReviewStatusReclassify, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement, ReviewObservation}
 
 // Thresholds of the review generators.
 const (
@@ -59,6 +60,13 @@ const (
 // contract declares none. English only: a KB in another language declares
 // its own with procedure_headings.
 var defaultProcedureHeadings = []string{"procedure", "steps", "how to"}
+
+// categoryOf is the reader's category of a lint check, "" for a name the
+// registry does not know.
+func categoryOf(check string) string {
+	s, _ := Spec(check)
+	return s.Category
+}
 
 // lintJudgementChecks are the lint findings that need judgement and that the
 // doctor works from the same list (lint_judgement). A finding counts only
@@ -174,8 +182,12 @@ type ReviewItem struct {
 	Concepts        []string `json:"concepts"`
 	Evidence        string   `json:"evidence"`
 	SuggestedAction string   `json:"suggested_action"`
-	// Check is the source lint check of a lint_judgement item.
+	// Check is the source lint check of a lint_judgement item, or the observation
+	// of an observation item (D947).
 	Check string `json:"check,omitempty"`
+	// Proposal is the vocabulary a missing_value_contract observation suggests
+	// (D296): the field_values to declare and the values that converge on them.
+	Proposal *Proposal `json:"proposal,omitempty"`
 	// Term is the undefined term of a glossary_gap item.
 	Term string `json:"term,omitempty"`
 	// Weight orders items of one kind, heavier first.
@@ -212,6 +224,9 @@ type reviewConcept struct {
 	timestamp string
 	resource  string
 	body      string
+	// content is the whole file, frontmatter included, for the observation
+	// detectors that read other pages' frontmatter.
+	content string
 }
 
 // Review builds the ranked work list from the KB, its contracts and the
@@ -226,7 +241,7 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 			return nil // direct form wins, as in Run
 		}
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
-		c := &reviewConcept{id: id, body: body, path: physicalPath}
+		c := &reviewConcept{id: id, body: body, path: physicalPath, content: content}
 		if parts := strings.Split(string(id), "/"); len(parts) > 1 {
 			c.mapName = parts[0]
 		}
@@ -296,6 +311,11 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	items = append(items, mapNamingItems(titles)...)
 	items = append(items, glossaryItems(concepts, contracts, glossary)...)
 	items = append(items, lintJudgementItems(findings, zombies)...)
+	obs, err := observationItems(k, concepts, contracts, archives)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, obs...)
 
 	SortReview(items)
 	return items, nil
@@ -1292,7 +1312,7 @@ func lintJudgementItems(findings []Finding, zombies map[okf.ConceptID]bool) []Re
 			Check:           f.Check,
 			Evidence:        f.Check + ": " + f.Message,
 			SuggestedAction: suggestedLintAction(f.Check),
-			Weight:          severityRank(f.Severity),
+			Weight:          categoryWeight(categoryOf(f.Check)),
 			wholeGraph:      WholeGraphChecks[f.Check],
 		})
 	}

@@ -35,13 +35,12 @@ type uiError struct {
 }
 
 const (
-	uiCodeInvalidRequest  = "invalid_request"
-	uiCodeNotFound        = "not_found"
-	uiCodeMethodNotAllow  = "method_not_allowed"
-	uiCodeInternal        = "internal"
-	uiNotFoundMessage     = "not found"
-	uiInternalMessage     = "internal error"
-	uiDefaultLintSeverity = lint.SevInfo
+	uiCodeInvalidRequest = "invalid_request"
+	uiCodeNotFound       = "not_found"
+	uiCodeMethodNotAllow = "method_not_allowed"
+	uiCodeInternal       = "internal"
+	uiNotFoundMessage    = "not found"
+	uiInternalMessage    = "internal error"
 )
 
 // writeUIHeaders sets the headers shared by every UI API response, success or
@@ -339,7 +338,7 @@ func (m *MultiKBServer) uiOverview(w http.ResponseWriter, r *http.Request, srv *
 		writeUIInternal(w, "overview: lint", err)
 		return
 	}
-	_, byCheck, bySeverity := lint.Filter(findings, uiDefaultLintSeverity)
+	byCheck := lint.CountsByCheck(findings)
 
 	payload := map[string]interface{}{
 		"collections": collections,
@@ -349,9 +348,8 @@ func (m *MultiKBServer) uiOverview(w http.ResponseWriter, r *http.Request, srv *
 			"by_status": byStatus,
 		},
 		"lint": map[string]interface{}{
-			"total":       len(findings),
-			"by_severity": bySeverity,
-			"by_check":    byCheck,
+			"total":    len(findings),
+			"by_check": byCheck,
 		},
 	}
 	// Replication facts describe the KB as a whole, so they are for a caller
@@ -506,15 +504,6 @@ func uiVisibleNeighbors(ctx requestContext, k *kb.KB, graph kb.Links, links map[
 func uiLint(w http.ResponseWriter, r *http.Request, srv *Server) {
 	k := srv.kbRef
 	ctx := r.Context()
-	severityMin := r.URL.Query().Get("severity_min")
-	if severityMin == "" {
-		severityMin = uiDefaultLintSeverity
-	}
-	if !lint.ValidSeverity(severityMin) {
-		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest,
-			"severity_min must be one of "+strings.Join(lint.Severities, ", "), "severity_min")
-		return
-	}
 	scope := strings.TrimSuffix(strings.ReplaceAll(r.URL.Query().Get("scope"), "\\", "/"), "/")
 
 	var findings []lint.Finding
@@ -528,40 +517,32 @@ func uiLint(w http.ResponseWriter, r *http.Request, srv *Server) {
 		writeUIInternal(w, "lint: run", err)
 		return
 	}
-	// lint.Filter computes the counts on the *input*, so the totals describe
-	// everything the caller may see, not only what cleared the floor: a panel
-	// showing three errors still gets to say there are forty infos below it.
-	kept, byCheck, bySeverity := lint.Filter(findings, severityMin)
-	if kept == nil {
-		kept = []lint.Finding{}
-	}
+	// Every finding is a problem (D947): the response lists them all, in the
+	// registry's category order, with the totals by check.
+	byCheck := lint.CountsByCheck(findings)
+	kept := lint.Order(findings)
 	type findingRow struct {
-		Path     string `json:"path"`
-		Concept  string `json:"concept,omitempty"`
-		Check    string `json:"check"`
-		Severity string `json:"severity"`
-		Message  string `json:"message"`
-		Handler  string `json:"handler"`
+		Path    string `json:"path"`
+		Concept string `json:"concept,omitempty"`
+		Check   string `json:"check"`
+		Message string `json:"message"`
+		Handler string `json:"handler"`
 	}
 	auto := uiAutoChecks(k)
 	rows := make([]findingRow, 0, len(kept))
 	for _, f := range kept {
 		rows = append(rows, findingRow{
-			Path:     f.Path,
-			Concept:  findingConcept(f),
-			Check:    f.Check,
-			Severity: f.Severity,
-			Message:  f.Message,
-			Handler:  findingHandler(f, auto),
+			Path:    f.Path,
+			Concept: findingConcept(f),
+			Check:   f.Check,
+			Message: f.Message,
+			Handler: findingHandler(f, auto),
 		})
 	}
 	writeUIJSON(w, http.StatusOK, map[string]interface{}{
-		"findings":     rows,
-		"count":        len(rows),
-		"total":        len(findings),
-		"by_severity":  bySeverity,
-		"by_check":     byCheck,
-		"severity_min": severityMin,
+		"findings": rows,
+		"count":    len(rows),
+		"by_check": byCheck,
 	})
 }
 
@@ -594,7 +575,6 @@ func uiChecks(w http.ResponseWriter, k *kb.KB) {
 	type checkRow struct {
 		Name     string `json:"name"`
 		Category string `json:"category"`
-		Severity string `json:"severity"`
 		Fixable  bool   `json:"fixable"`
 		Auto     bool   `json:"auto"`
 		// Active is false when the check cannot run on this KB (D371): Reason
@@ -610,7 +590,7 @@ func uiChecks(w http.ResponseWriter, k *kb.KB) {
 			continue // a kb_review kind, not a lint check
 		}
 		rows = append(rows, checkRow{
-			Name: s.Name, Category: s.Category, Severity: s.Severity,
+			Name: s.Name, Category: s.Category,
 			Fixable: len(s.FixKinds) > 0, Auto: auto[s.Name],
 			Active: inactive[s.Name] == "", Reason: inactive[s.Name],
 		})

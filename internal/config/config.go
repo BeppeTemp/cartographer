@@ -185,7 +185,7 @@ type KBSpec struct {
 	Name string `yaml:"name,omitempty"`
 
 	// UsageStaleDays is how many days without a client activating a skill or
-	// agent before the artifact_unused lint reports it (D326): nil means
+	// agent before kb_status.usage counts it as stale (D326): nil means
 	// DefaultUsageStaleDays, and a value under kb.MinUsageStaleDays is read as
 	// that minimum (D906). Read it through UsageStale.
 	UsageStaleDays *int `yaml:"usage_stale_days,omitempty"`
@@ -613,7 +613,7 @@ func parseDays(v string, def int) (int, error) {
 	return n, nil
 }
 
-// DefaultUsageStaleDays is the artifact_unused threshold of a KB that does not
+// DefaultUsageStaleDays is the stale-artifact threshold of a KB that does not
 // set usage_stale_days: six weeks (D326).
 const DefaultUsageStaleDays = kb.DefaultUsageStaleDays
 

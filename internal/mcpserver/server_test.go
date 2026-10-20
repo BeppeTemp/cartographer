@@ -702,8 +702,7 @@ func TestServer_ConceptRead_SizeGuard_OutlineThenFull(t *testing.T) {
 	RegisterKBTools(s, k, Deps{})
 
 	big := "# Grande\n\n" + strings.Repeat("a", conceptReadSizeGuard+1) + "\n"
-	// Written on disk: concept_oversize refuses a write over the threshold
-	// (D907) and this test is about what concept_read does with a big one.
+	// Written on disk: this test is about what concept_read does with a big one.
 	writeTestConcept(t, k, "note/big", big)
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
@@ -2143,9 +2142,32 @@ func TestServer_KBStatus_KBName(t *testing.T) {
 	}
 }
 
+// makeCleanKB turns the test KB into one the lint has nothing to say about: the
+// runbook's title matches its heading, a described map with a curated index
+// lists both pages, and the two pages link each other (a finding is a problem,
+// D947, so a gate that is meant to pass needs a KB with none).
+func makeCleanKB(t testing.TB, k *kb.KB) {
+	t.Helper()
+	d := filepath.Join(k.DataRoot(), "manutenzione")
+	for name, content := range map[string]string{
+		"_map.md":         "---\ntype: Map\nkind: map\ntitle: Manutenzione\n---\n# Manutenzione\n",
+		"index.md":        "---\ntype: Index\ntitle: Manutenzione\n---\n# Manutenzione\n\n- [Test Runbook](test-runbook.md): the test runbook\n- [Related](related.md): the related page\n",
+		"test-runbook.md": "---\ntype: Runbook\ntitle: Test Runbook\n---\n# Test Runbook\n\nIl runbook di test, vedi [Related](related.md).\n",
+		"related.md":      "---\ntype: Note\ntitle: Related\n---\n# Related\n\nTorna a [Test Runbook](test-runbook.md).\n",
+	} {
+		if err := os.WriteFile(filepath.Join(d, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f, err := lint.Run(k, "", false); err != nil || len(f) != 0 {
+		t.Fatalf("the fixture KB must be clean: %v %+v", err, f)
+	}
+}
+
 func TestServer_GateCheck_Pass(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
+	makeCleanKB(t, k)
 	s := New("0.5.0-m5")
 	RegisterKBTools(s, k, Deps{})
 
@@ -2164,17 +2186,17 @@ func TestServer_GateCheck_Pass(t *testing.T) {
 	}
 }
 
-// --- gate_check / lint: severity floor, counts, scope (D186) ---
+// --- gate_check / lint: a finding is a problem, counts, scope (D186, D947) ---
 
-// setupThreeSeverityKB adds one finding of each severity to the test KB:
-// concept_oversize (info), broken_link (warning) and expanded_ambiguous
-// (error, from a concept that exists both as a file and as a directory).
-func setupThreeSeverityKB(t *testing.T, k *kb.KB) {
+// setupProblemsKB adds three findings of different kinds to the test KB:
+// open_marker (a TODO), broken_link and expanded_ambiguous (from a concept that
+// exists both as a file and as a directory).
+func setupProblemsKB(t *testing.T, k *kb.KB) {
 	t.Helper()
 	root := k.DataRoot()
-	big := "---\ntype: Note\ntitle: Big\n---\n# Grande\n\n" + strings.Repeat("a", 40000) + "\n"
-	if err := os.WriteFile(filepath.Join(root, "manutenzione", "big.md"), []byte(big), 0o644); err != nil {
-		t.Fatalf("write big: %v", err)
+	todo := "---\ntype: Note\ntitle: Todo\n---\n# Todo\n\nTODO: write this up.\n"
+	if err := os.WriteFile(filepath.Join(root, "manutenzione", "todo.md"), []byte(todo), 0o644); err != nil {
+		t.Fatalf("write todo: %v", err)
 	}
 	broken := "---\ntype: Note\ntitle: Broken\n---\nSee [missing](nonexistent.md).\n"
 	if err := os.WriteFile(filepath.Join(root, "manutenzione", "broken.md"), []byte(broken), 0o644); err != nil {
@@ -2196,14 +2218,11 @@ func setupThreeSeverityKB(t *testing.T, k *kb.KB) {
 type gateResponse struct {
 	Pass         bool `json:"pass"`
 	LintFindings []struct {
-		Path     string `json:"path"`
-		Check    string `json:"check"`
-		Severity string `json:"severity"`
+		Path  string `json:"path"`
+		Check string `json:"check"`
 	} `json:"lint_findings"`
-	LintCount        int            `json:"lint_count"`
-	FindingsOmitted  int            `json:"findings_omitted"`
-	CountsByCheck    map[string]int `json:"counts_by_check"`
-	CountsBySeverity map[string]int `json:"counts_by_severity"`
+	LintCount     int            `json:"lint_count"`
+	CountsByCheck map[string]int `json:"counts_by_check"`
 }
 
 func decodeGate(t *testing.T, tr ToolResult) gateResponse {
@@ -2218,89 +2237,63 @@ func decodeGate(t *testing.T, tr ToolResult) gateResponse {
 	return g
 }
 
-func TestServer_GateCheck_SeverityFloor_DefaultDropsInfo(t *testing.T) {
+// D947: every finding is a problem. The whole-KB gate lists them all, in the
+// registry's category order, counts them by check, and fails on any of them.
+func TestServer_GateCheck_EveryFindingFailsTheGate(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
 
-	// An empty changed_ids is the whole-KB gate (D318): the fixture's three
-	// severities live on different concepts, and a changed_ids-scoped gate
-	// (D312) would see only one.
+	// An empty changed_ids is the whole-KB gate (D318): the fixture's findings
+	// live on different concepts, and a changed_ids-scoped gate (D312) would
+	// see only one.
 	resps := runMCPSequence(t, s, []string{
 		initMsg,
 		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{}}),
-		artifactCallMsg(t, 3, "gate_check", map[string]any{"changed_ids": []string{}, "severity_min": "info"}),
-		artifactCallMsg(t, 4, "gate_check", map[string]any{"changed_ids": []string{}, "severity_min": "error"}),
 	})
-
-	byDefault := decodeGate(t, decodeToolResult(t, resps[1]))
-	withInfo := decodeGate(t, decodeToolResult(t, resps[2]))
-	withError := decodeGate(t, decodeToolResult(t, resps[3]))
-
-	// The fixture must actually exercise all three levels, or the rest proves
-	// nothing.
-	for _, sev := range []string{"info", "warning", "error"} {
-		if withInfo.CountsBySeverity[sev] == 0 {
-			t.Fatalf("fixture produced no %s finding: %v", sev, withInfo.CountsBySeverity)
+	tr := decodeToolResult(t, resps[1])
+	g := decodeGate(t, tr)
+	if g.Pass {
+		t.Error("a KB with findings must not pass the whole-KB gate")
+	}
+	for _, want := range []string{"open_marker", "broken_link", "expanded_ambiguous"} {
+		if g.CountsByCheck[want] == 0 {
+			t.Fatalf("fixture produced no %s finding: %v", want, g.CountsByCheck)
 		}
 	}
-
-	for _, f := range byDefault.LintFindings {
-		if f.Severity == "info" {
-			t.Errorf("default gate_check must not carry info findings, got %s on %s", f.Check, f.Path)
-		}
-	}
-	if len(byDefault.LintFindings) >= len(withInfo.LintFindings) {
-		t.Errorf("default floor should return fewer findings than severity_min=info: %d vs %d",
-			len(byDefault.LintFindings), len(withInfo.LintFindings))
-	}
-
-	// The counts are computed before filtering, so they are identical whatever
-	// the floor, and they total the unfiltered count.
+	// Nothing is hidden: the findings listed are the findings counted.
 	total := 0
-	for _, n := range byDefault.CountsByCheck {
+	for _, n := range g.CountsByCheck {
 		total += n
 	}
-	if total != byDefault.LintCount {
-		t.Errorf("counts_by_check totals %d, lint_count says %d", total, byDefault.LintCount)
+	if total != g.LintCount || len(g.LintFindings) != g.LintCount {
+		t.Errorf("counts_by_check totals %d, lint_count %d, %d findings listed", total, g.LintCount, len(g.LintFindings))
 	}
-	if byDefault.FindingsOmitted != byDefault.LintCount-len(byDefault.LintFindings) {
-		t.Errorf("findings_omitted=%d does not match %d-%d", byDefault.FindingsOmitted,
-			byDefault.LintCount, len(byDefault.LintFindings))
+	// No severity anywhere in the answer, and no floor that hid findings.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &raw); err != nil {
+		t.Fatal(err)
 	}
-	if withInfo.FindingsOmitted != 0 {
-		t.Errorf("severity_min=info omits nothing, got findings_omitted=%d", withInfo.FindingsOmitted)
+	for _, gone := range []string{"counts_by_severity", "findings_omitted"} {
+		if _, ok := raw[gone]; ok {
+			t.Errorf("gate_check still answers %s", gone)
+		}
 	}
-
-	// A response budget must never change a verdict.
-	if withInfo.Pass != withError.Pass || byDefault.Pass != withInfo.Pass {
-		t.Errorf("pass must not depend on severity_min: default=%v info=%v error=%v",
-			byDefault.Pass, withInfo.Pass, withError.Pass)
-	}
-	if withError.Pass {
-		t.Error("fixture has an error-severity finding: pass must be false")
+	if strings.Contains(tr.Content[0].Text, "severity") {
+		t.Errorf("gate_check answer names a severity: %s", tr.Content[0].Text)
 	}
 }
 
-func TestServer_GateCheck_InvalidSeverityMin(t *testing.T) {
+// D947: the lint and gate_check tools take no severity: neither the schema nor
+// the description names one.
+func TestServer_LintAndGateCheckHaveNoSeverity(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	s := New("1.0.0")
-	RegisterKBTools(s, k, Deps{})
-
-	resps := runMCPSequence(t, s, []string{
-		initMsg,
-		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "severity_min": "critical"}),
-	})
-	tr := decodeToolResult(t, resps[1])
-	if !tr.IsError {
-		t.Fatal("gate_check: an invalid severity_min must be an error, not a silent fallback")
-	}
-	for _, want := range []string{"info", "warning", "error"} {
-		if !strings.Contains(tr.Content[0].Text, want) {
-			t.Errorf("error must name the accepted value %q: %s", want, tr.Content[0].Text)
+	for _, tool := range []Tool{toolLint(k), toolGateCheck(k)} {
+		if strings.Contains(strings.ToLower(string(tool.InputSchema)+tool.Description), "severity") {
+			t.Errorf("%s still names a severity: %s %s", tool.Name, tool.Description, tool.InputSchema)
 		}
 	}
 }
@@ -2308,7 +2301,7 @@ func TestServer_GateCheck_InvalidSeverityMin(t *testing.T) {
 func TestServer_GateCheck_Scope(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "altrove"), 0o755); err != nil {
 		t.Fatalf("mkdir altrove: %v", err)
 	}
@@ -2335,8 +2328,8 @@ func TestServer_GateCheck_Scope(t *testing.T) {
 
 	resps := runMCPSequence(t, s, []string{
 		initMsg,
-		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "scope": "manutenzione", "severity_min": "info"}),
-		artifactCallMsg(t, 3, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "scope": "altrove", "severity_min": "info"}),
+		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "scope": "manutenzione"}),
+		artifactCallMsg(t, 3, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "scope": "altrove"}),
 	})
 
 	inScope := decodeGate(t, decodeToolResult(t, resps[1]))
@@ -2355,77 +2348,32 @@ func TestServer_GateCheck_Scope(t *testing.T) {
 	}
 }
 
-func TestServer_Lint_SeverityFloor_CountsSurvive(t *testing.T) {
+// D947: one finding of any kind fails the gate, a broken link as much as a
+// page without a title; a KB without findings passes it.
+func TestServer_GateCheck_OneBrokenLinkFails(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	makeCleanKB(t, k)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
-
-	resps := runMCPSequence(t, s, []string{
-		initMsg,
-		artifactCallMsg(t, 2, "lint", map[string]any{}),
-		artifactCallMsg(t, 3, "lint", map[string]any{"severity_min": "error"}),
-	})
-
-	decode := func(tr ToolResult) gateResponse {
-		t.Helper()
-		if tr.IsError {
-			t.Fatalf("lint: isError=true: %v", tr.Content)
-		}
-		var r struct {
-			Count            int            `json:"count"`
-			FindingsOmitted  int            `json:"findings_omitted"`
-			Offset           *int           `json:"offset"`
-			NextOffset       *int           `json:"next_offset"`
-			Truncated        bool           `json:"truncated"`
-			CountsByCheck    map[string]int `json:"counts_by_check"`
-			CountsBySeverity map[string]int `json:"counts_by_severity"`
-			Findings         []struct {
-				Path     string `json:"path"`
-				Check    string `json:"check"`
-				Severity string `json:"severity"`
-			} `json:"findings"`
-		}
-		if err := json.Unmarshal([]byte(tr.Content[0].Text), &r); err != nil {
-			t.Fatalf("decode lint: %v", err)
-		}
-		// Pagination fields (D324): offset is always present; with no limit
-		// the page is the whole list, so there is no next_offset.
-		if r.Offset == nil || *r.Offset != 0 || r.NextOffset != nil || r.Truncated {
-			t.Errorf("lint without limit: want offset 0, no next_offset, not truncated; got %+v", r)
-		}
-		return gateResponse{
-			LintFindings:     r.Findings,
-			LintCount:        r.Count,
-			FindingsOmitted:  r.FindingsOmitted,
-			CountsByCheck:    r.CountsByCheck,
-			CountsBySeverity: r.CountsBySeverity,
-		}
+	gate := func(ids ...string) gateResponse {
+		args, _ := json.Marshal(map[string]any{"changed_ids": append([]string{}, ids...)})
+		return decodeGate(t, callTool(t, s, "gate_check", string(args)))
 	}
-
-	// lint's default stays exhaustive: it is the tool you call to see findings.
-	byDefault := decode(decodeToolResult(t, resps[1]))
-	if byDefault.FindingsOmitted != 0 {
-		t.Errorf("lint default must omit nothing, got findings_omitted=%d", byDefault.FindingsOmitted)
+	if g := gate("manutenzione/test-runbook"); !g.Pass || g.LintCount != 0 {
+		t.Fatalf("clean KB, changed concept: %+v", g)
 	}
-	if byDefault.CountsBySeverity["info"] == 0 {
-		t.Errorf("lint default must still carry info findings: %v", byDefault.CountsBySeverity)
+	if g := gate(); !g.Pass {
+		t.Fatalf("clean KB, whole-KB gate: %+v", g)
 	}
-
-	onlyErrors := decode(decodeToolResult(t, resps[2]))
-	for _, f := range onlyErrors.LintFindings {
-		if f.Severity != "error" {
-			t.Errorf("severity_min=error returned a %s finding: %s", f.Severity, f.Check)
+	broken := "---\ntype: Runbook\ntitle: Test Runbook\n---\n# Test Runbook\n\nVedi [Related](related.md) e [gone](gone.md).\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "test-runbook.md"), []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, g := range map[string]gateResponse{"changed concept": gate("manutenzione/test-runbook"), "whole KB": gate()} {
+		if g.Pass || g.CountsByCheck["broken_link"] != 1 {
+			t.Errorf("%s: one broken link must fail the gate: %+v", name, g)
 		}
-	}
-	// count keeps meaning the unfiltered total, and the counts still describe
-	// everything that was found.
-	if onlyErrors.LintCount != byDefault.LintCount {
-		t.Errorf("count must stay the unfiltered total: %d vs %d", onlyErrors.LintCount, byDefault.LintCount)
-	}
-	if onlyErrors.CountsBySeverity["warning"] == 0 {
-		t.Errorf("counts must survive the filter: %v", onlyErrors.CountsBySeverity)
 	}
 }
 
@@ -5892,15 +5840,16 @@ func TestServer_Lint_ZeroFindingsIsJSON(t *testing.T) {
 	var out struct {
 		Count    int              `json:"count"`
 		Findings []map[string]any `json:"findings"`
-		Omitted  *int             `json:"findings_omitted"`
 		ByCheck  map[string]int   `json:"counts_by_check"`
-		BySev    map[string]int   `json:"counts_by_severity"`
 	}
 	if err := json.Unmarshal([]byte(tr.Content[0].Text), &out); err != nil {
 		t.Fatalf("zero-finding lint is not JSON: %v: %q", err, tr.Content[0].Text)
 	}
-	if out.Count != 0 || out.Findings == nil || len(out.Findings) != 0 || out.Omitted == nil || out.ByCheck == nil || out.BySev == nil {
+	if out.Count != 0 || out.Findings == nil || len(out.Findings) != 0 || out.ByCheck == nil {
 		t.Fatalf("zero-finding shape = %+v (%s)", out, tr.Content[0].Text)
+	}
+	if strings.Contains(tr.Content[0].Text, "severity") || strings.Contains(tr.Content[0].Text, "findings_omitted") {
+		t.Fatalf("lint answers a severity or a hidden count: %s", tr.Content[0].Text)
 	}
 }
 
@@ -5909,6 +5858,7 @@ func TestServer_Lint_ZeroFindingsIsJSON(t *testing.T) {
 func TestServer_GateCheck_EmptyChangedIDsIsWholeKBGate(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
+	makeCleanKB(t, k)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	g := decodeGate(t, callTool(t, s, "gate_check", `{"changed_ids":[]}`))
@@ -5924,11 +5874,11 @@ func TestServer_GateCheck_EmptyChangedIDsIsWholeKBGate(t *testing.T) {
 		t.Fatalf("gate_blockers = %s", raw["gate_blockers"])
 	}
 
-	// A lint error still fails the whole-KB gate.
-	setupThreeSeverityKB(t, k)
+	// A lint finding fails the whole-KB gate, whatever the check (D947).
+	setupProblemsKB(t, k)
 	g = decodeGate(t, callTool(t, s, "gate_check", `{"changed_ids":[]}`))
-	if g.Pass || g.CountsBySeverity["error"] == 0 {
-		t.Fatalf("whole-KB gate must fail on an error finding: %+v", g)
+	if g.Pass || g.LintCount == 0 {
+		t.Fatalf("whole-KB gate must fail on a finding: %+v", g)
 	}
 }
 
@@ -5938,7 +5888,6 @@ type lintPage struct {
 	Findings            []lintFinding  `json:"findings"`
 	FindingsInPage      int            `json:"findings_in_page"`
 	FindingsAfterFilter int            `json:"findings_after_filter"`
-	FindingsOmitted     int            `json:"findings_omitted"`
 	Offset              int            `json:"offset"`
 	NextOffset          *int           `json:"next_offset"`
 	Truncated           bool           `json:"truncated"`
@@ -5946,10 +5895,9 @@ type lintPage struct {
 }
 
 type lintFinding struct {
-	Path     string `json:"path"`
-	Check    string `json:"check"`
-	Severity string `json:"severity"`
-	Message  string `json:"message"`
+	Path    string `json:"path"`
+	Check   string `json:"check"`
+	Message string `json:"message"`
 }
 
 func callLintPages(t *testing.T, k *kb.KB, calls ...map[string]any) []lintPage {
@@ -5979,7 +5927,7 @@ func callLintPages(t *testing.T, k *kb.KB, calls ...map[string]any) []lintPage {
 func TestServer_Lint_CheckFilter(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	pages := callLintPages(t, k, map[string]any{}, map[string]any{"check": "broken_link"})
 	all, only := pages[0], pages[1]
 	if len(only.Findings) == 0 {
@@ -5995,24 +5943,24 @@ func TestServer_Lint_CheckFilter(t *testing.T) {
 		t.Errorf("counts must be computed before the check filter: %d/%v vs %d/%v",
 			only.Count, only.CountsByCheck, all.Count, all.CountsByCheck)
 	}
-	if only.FindingsAfterFilter != len(only.Findings) || only.FindingsOmitted != 0 {
-		t.Errorf("after_filter=%d omitted=%d", only.FindingsAfterFilter, only.FindingsOmitted)
+	if only.FindingsAfterFilter != len(only.Findings) {
+		t.Errorf("after_filter=%d, %d findings listed", only.FindingsAfterFilter, len(only.Findings))
 	}
 }
 
 func TestServer_Lint_CheckFilterArray(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	pages := callLintPages(t, k,
-		map[string]any{"check": []string{"broken_link", "concept_oversize"}},
+		map[string]any{"check": []string{"broken_link", "open_marker"}},
 		map[string]any{"check": "no_such_check"})
 	seen := map[string]bool{}
 	for _, f := range pages[0].Findings {
 		seen[f.Check] = true
 	}
-	if len(seen) != 2 || !seen["broken_link"] || !seen["concept_oversize"] {
-		t.Errorf("want exactly broken_link and concept_oversize, got %v", seen)
+	if len(seen) != 2 || !seen["broken_link"] || !seen["open_marker"] {
+		t.Errorf("want exactly broken_link and open_marker, got %v", seen)
 	}
 	if len(pages[1].Findings) != 0 || pages[1].Count == 0 {
 		t.Errorf("an unknown check is an empty page with the real count: %+v", pages[1])
@@ -6022,7 +5970,7 @@ func TestServer_Lint_CheckFilterArray(t *testing.T) {
 func TestServer_Lint_Pagination(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	pages := callLintPages(t, k, map[string]any{},
 		map[string]any{"limit": 2, "offset": 0},
 		map[string]any{"limit": 2, "offset": 2},
@@ -6063,7 +6011,7 @@ func TestServer_Lint_Pagination(t *testing.T) {
 func TestServer_Lint_DeterministicOrder(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	pages := callLintPages(t, k, map[string]any{}, map[string]any{}, map[string]any{})
 	for i := 1; i < len(pages); i++ {
 		if len(pages[i].Findings) != len(pages[0].Findings) {
@@ -6080,11 +6028,11 @@ func TestServer_Lint_DeterministicOrder(t *testing.T) {
 func TestServer_Lint_CheckAndPagination(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	// every check has at most a couple of findings here, so page by 1.
 	pages := callLintPages(t, k,
-		map[string]any{"check": []string{"broken_link", "concept_oversize"}},
-		map[string]any{"check": []string{"broken_link", "concept_oversize"}, "limit": 1, "offset": 1})
+		map[string]any{"check": []string{"broken_link", "open_marker"}},
+		map[string]any{"check": []string{"broken_link", "open_marker"}, "limit": 1, "offset": 1})
 	full, p := pages[0], pages[1]
 	if len(full.Findings) < 2 {
 		t.Fatalf("fixture too small: %d", len(full.Findings))

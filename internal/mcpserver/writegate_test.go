@@ -10,7 +10,6 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
 // gateKB is a git KB: map "arch" generates its index and carries
@@ -136,10 +135,10 @@ func TestWriteGate_MissingIndexEntryRefusedEntryInBatchPasses(t *testing.T) {
 	}
 }
 
-// Acceptance: an info finding a write could have avoided refuses too, and no
-// setting or argument lets it through: an accept_findings argument (removed,
-// D907) changes nothing.
-func TestWriteGate_AvoidableInfoRefusesWhateverTheArguments(t *testing.T) {
+// Acceptance: a finding a write could have avoided refuses, a title_quality one
+// as much as any other, and no setting or argument lets it through: an
+// accept_findings argument (removed, D907) changes nothing.
+func TestWriteGate_AvoidableRefusesWhateverTheArguments(t *testing.T) {
 	t.Parallel()
 	k := gateKB(t)
 	s := gateSeed(t, k, nil)
@@ -149,8 +148,8 @@ func TestWriteGate_AvoidableInfoRefusesWhateverTheArguments(t *testing.T) {
 		gateWrite("ops/two", "Two", "# Two\n\nSee [One](one.md).\n", true, ""))
 	text, isErr := callJSON(t, s, adminCtx, "concept_batch", batch)
 	refusedCleanly(t, k, head, text, isErr, "title_quality")
-	if !strings.Contains(text, `"severity":"info"`) {
-		t.Fatalf("the refused finding is not the info one: %s", text)
+	if strings.Contains(text, "severity") {
+		t.Fatalf("the refusal names a severity: %s", text)
 	}
 	accepted := strings.TrimSuffix(batch, "}") + `,"accept_findings":[{"check":"title_quality","reason":"kept"}]}`
 	text, isErr = callJSON(t, s, adminCtx, "concept_batch", accepted)
@@ -417,22 +416,15 @@ func TestWriteResponse_ScopedCallerSeesNoHiddenPage(t *testing.T) {
 }
 
 // A caller without whole-KB visibility is told of no index path (an index is
-// a whole-KB resource) and of no map-size crossing (it counts hidden pages).
-func TestCallerView_IndexPathsAndOversizeAreWholeKBOnly(t *testing.T) {
+// a whole-KB resource).
+func TestCallerView_IndexPathsAreWholeKBOnly(t *testing.T) {
 	t.Parallel()
-	over := []lint.Finding{{Check: "map_oversize", Path: "arch/_map.md", Message: "31 top-level concepts"}}
 	paths := []string{"arch/index.md", "index.md"}
 	scoped := &callerView{visible: func(string) bool { return true }}
-	if got := scoped.oversize(over); len(got) != 0 {
-		t.Errorf("scoped oversize = %v, want none", got)
-	}
 	if got := scoped.filterPaths(paths); len(got) != 0 {
 		t.Errorf("scoped index paths = %v, want none", got)
 	}
 	for _, v := range []*callerView{nil, {whole: true}} {
-		if got := v.oversize(over); len(got) != 1 {
-			t.Errorf("whole oversize = %v", got)
-		}
 		if got := v.filterPaths(paths); len(got) != 2 {
 			t.Errorf("whole index paths = %v", got)
 		}

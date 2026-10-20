@@ -1,21 +1,22 @@
 import { checkLabel, filterReportByMap, groupFindings, trendOf } from "./health";
 
 describe("groupFindings", () => {
-  it("folds one cause on many pages into one group, worst and largest first", () => {
+  it("folds one cause on many pages into one group, the largest first", () => {
     const groups = groupFindings([
-      { path: "a.md", check: "unknown_type", severity: "warning", message: 'type "Entity"', handler: "doctor" },
-      { path: "b.md", check: "unknown_type", severity: "warning", message: 'type "Entity"', handler: "doctor" },
-      { path: "c.md", check: "unknown_type", severity: "warning", message: 'type "Topic"', handler: "doctor" },
-      { path: "d.md", check: "missing_type", severity: "error", message: "no type", handler: "auto" },
-      { path: "e.md", check: "nonstandard_field", severity: "warning", message: "x", handler: "auto" },
-      { path: "f.md", check: "nonstandard_field", severity: "warning", message: "y", handler: "doctor" },
+      { path: "a.md", check: "unknown_type", message: 'type "Entity"', handler: "doctor" },
+      { path: "b.md", check: "unknown_type", message: 'type "Entity"', handler: "doctor" },
+      { path: "c.md", check: "unknown_type", message: 'type "Topic"', handler: "doctor" },
+      { path: "d.md", check: "missing_type", message: "no type", handler: "auto" },
+      { path: "e.md", check: "nonstandard_field", message: "x", handler: "auto" },
+      { path: "f.md", check: "nonstandard_field", message: "y", handler: "doctor" },
     ]);
-    expect(groups.map((g) => g.check)).toEqual(["missing_type", "unknown_type", "nonstandard_field"]);
-    expect(groups[1]!.messages.map((m) => [m.message, m.findings.length])).toEqual([
+    // No group outranks another (D947): the count orders them, then the name.
+    expect(groups.map((g) => g.check)).toEqual(["unknown_type", "nonstandard_field", "missing_type"]);
+    expect(groups[0]!.messages.map((m) => [m.message, m.findings.length])).toEqual([
       ['type "Entity"', 2],
       ['type "Topic"', 1],
     ]);
-    expect(groups.map((g) => g.handler)).toEqual(["auto", "doctor", "mixed"]);
+    expect(groups.map((g) => g.handler)).toEqual(["doctor", "mixed", "auto"]);
   });
 });
 
@@ -48,20 +49,17 @@ describe("trendOf", () => {
 describe("filterReportByMap", () => {
   const report = {
     findings: [
-      { path: "infra/a.md", check: "broken_link", severity: "error", message: "m" },
-      { path: "infra-old/b.md", check: "orphan", severity: "warning", message: "m" },
+      { path: "infra/a.md", check: "broken_link", message: "m" },
+      { path: "infra-old/b.md", check: "orphan", message: "m" },
     ],
     count: 2,
-    total: 2,
-    by_severity: { error: 1, warning: 1 },
     by_check: { broken_link: 1, orphan: 1 },
-    severity_min: "info",
   };
   it("keeps the Map's folder and beneath, not a sibling sharing the prefix, and recounts", () => {
     const out = filterReportByMap(report, "infra")!;
     expect(out.findings.map((f) => f.path)).toEqual(["infra/a.md"]);
-    expect(out.total).toBe(1);
-    expect(out.by_severity).toEqual({ error: 1 });
+    expect(out.count).toBe(1);
+    expect(out.by_check).toEqual({ broken_link: 1 });
     expect(filterReportByMap(report, null)).toBe(report);
   });
 });

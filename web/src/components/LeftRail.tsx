@@ -48,9 +48,9 @@ export function LeftRail({
   onClearFilters,
 }: Props) {
   // Health's mark is "something is wrong", not a count: the page counts in
-  // decisions, the overview only knows findings, and two numbers for one
-  // thing read as a contradiction (D704). Notes alone are no reason to look.
-  const problems = (overview?.lint.by_severity?.error ?? 0) + (overview?.lint.by_severity?.warning ?? 0);
+  // kinds of issue, the overview only knows findings, and two numbers for one
+  // thing read as a contradiction (D704). A finding is a problem (D947).
+  const problems = overview?.lint.total ?? 0;
   const activeCount = typeFilter.size + statusFilter.size;
   const filtersActive = activeCount > 0;
   // Type and Status filter the graph's nodes, so they exist only on the Atlas:

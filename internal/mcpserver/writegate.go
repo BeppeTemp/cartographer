@@ -19,10 +19,10 @@ import (
 // gitWrap, not per tool: every tool that writes concepts goes through it, and
 // the working-tree diff says what changed whatever the tool. After the safe
 // fixes a write applies to what it wrote (D349), a write that introduces a
-// finding it could have avoided (lint.CheckSpec.AvoidableAtWrite), at any
-// severity, is rolled back to HEAD and refused with each finding and its fix.
+// finding it could have avoided (lint.CheckSpec.AvoidableAtWrite) is rolled
+// back to HEAD and refused with each finding and its fix.
 // Findings the concepts already had never block a repair, and a check no
-// write can avoid (time, growth) is left to the doctor.
+// write can avoid (time, a legacy state) is left to the doctor.
 
 // gateStashPop is the stash restore of the baseline step, a variable only so a
 // test can make it fail.
@@ -45,11 +45,10 @@ func gatedTool(name string) bool {
 func writeGateActive(k *kb.KB) bool { return gitx.IsRepo(k.Root) }
 
 // avoidableFindings keeps the findings a write could have avoided (D907), in
-// lint's deterministic order, whatever their severity.
+// lint's deterministic order.
 func avoidableFindings(findings []lint.Finding) []lint.Finding {
-	all, _, _ := lint.Filter(findings, lint.SevInfo)
 	var out []lint.Finding
-	for _, f := range all {
+	for _, f := range lint.Order(findings) {
 		if s, ok := lint.Spec(f.Check); ok && s.AvoidableAtWrite {
 			out = append(out, f)
 		}

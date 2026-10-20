@@ -170,7 +170,7 @@ describe("colour legend", () => {
     expect(within(legend).getByText("infra")).toBeInTheDocument();
     expect(localStorage.getItem("cartographer.colorBy")).toBe("map");
 
-    // Lint severity is not a colour mode (D307): the Health panel reads it.
+    // Lint problems are not a colour mode (D307): the Health panel reads them.
     expect(within(legend).queryByRole("button", { name: "Health" })).not.toBeInTheDocument();
   });
 

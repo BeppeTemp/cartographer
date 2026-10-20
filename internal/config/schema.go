@@ -70,7 +70,7 @@ Every key is optional. Precedence, highest first: flag, environment variable, th
 // tables together).
 var KBKeys = []settingschema.Key{
 	{Path: "usage_stale_days", Scope: settingschema.ScopeKB, Type: "int", Values: "7 or more", Default: "42",
-		Description: "Days a skill or agent may go unused by every client before artifact_unused reports it. A value under 7 is raised to 7 with a warning; there is no value that turns the finding off."},
+		Description: "Days a skill or agent may go unused by every client before kb_status.usage counts it as stale. A value under 7 is raised to 7 with a warning; there is no value that turns the signal off."},
 	{Path: "branch", Scope: settingschema.ScopeKB, Type: "string", Default: `""`,
 		Description: "Branch Cartographer commits and pushes to, in place of the remote's default one; the first push creates it. Empty or absent: the remote's default branch. Only the settings.yaml committed on the remote's default branch counts: a change made on any other branch has no effect until it reaches the default one."},
 }

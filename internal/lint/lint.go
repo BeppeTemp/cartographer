@@ -38,60 +38,39 @@ var machinePathRe = regexp.MustCompile(`(?:/Users/|/home/|~/|C:\\Users\\)[^\s` +
 // component, not a filesystem path on the machine that wrote it (D124).
 var urlRe = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s` + "`" + `'"()]*`)
 
-// Severity levels.
-const (
-	SevInfo    = "info"
-	SevWarning = "warning"
-	SevError   = "error"
-)
-
-// Severities lists the accepted severity names, ordered from least to most
-// severe. Exposed so a caller rejecting an invalid input can name the valid
-// ones instead of hardcoding a list that drifts from this one.
-var Severities = []string{SevInfo, SevWarning, SevError}
-
-// severityRank orders the three levels. -1 marks a string that is not a
-// severity at all, which is how callers tell "below the floor" from "not a
-// severity" without a second lookup.
-func severityRank(severity string) int {
-	switch severity {
-	case SevInfo:
-		return 0
-	case SevWarning:
-		return 1
-	case SevError:
-		return 2
+// categoryRank is the position of a check's category in Categories, the order
+// findings are listed in. A name the registry does not know comes last.
+func categoryRank(check string) int {
+	s, ok := Spec(check)
+	if !ok {
+		return len(Categories)
 	}
-	return -1
-}
-
-// ValidSeverity reports whether severity names one of the three levels.
-func ValidSeverity(severity string) bool { return severityRank(severity) >= 0 }
-
-// Filter returns the findings at or above floor, together with the counts by
-// check and by severity computed on the **input** slice — deliberately before
-// filtering. Omitting findings silently would make a response lie about the
-// state of the KB: a caller always gets to know the shape of what it is not
-// being shown. A finding whose severity is unrecognized is kept, since dropping
-// it would hide a check whose severity was mistyped.
-func Filter(findings []Finding, floor string) (kept []Finding, byCheck, bySeverity map[string]int) {
-	byCheck, bySeverity = map[string]int{}, map[string]int{}
-	min := severityRank(floor)
-	for _, f := range findings {
-		byCheck[f.Check]++
-		bySeverity[f.Severity]++
-		if rank := severityRank(f.Severity); rank < 0 || rank >= min {
-			kept = append(kept, f)
+	for i, c := range Categories {
+		if c == s.Category {
+			return i
 		}
 	}
-	// Deterministic order (D324): lint.Run walks a map, so without this two
-	// calls on the same KB disagree and offset pagination is meaningless. The
-	// sort lives here, not in Run, so the Run cache (D294) stays untouched.
-	// Errors first, then grouped by check, then by path.
-	sort.SliceStable(kept, func(i, j int) bool {
-		a, b := kept[i], kept[j]
-		if ra, rb := severityRank(a.Severity), severityRank(b.Severity); ra != rb {
-			return ra > rb
+	return len(Categories)
+}
+
+// Order returns the findings sorted into the order every reader lists them in
+// (D324): the registry's category order, then check, then path, then message.
+// lint.Run walks a map, so without this two calls on the same KB disagree and
+// offset pagination is meaningless. The sort lives here, not in Run, so the Run
+// cache (D294) stays untouched. The order is where a reader starts, never a
+// judgement of gravity: every finding is a problem (D947).
+func Order(findings []Finding) []Finding {
+	out := append([]Finding(nil), findings...)
+	rank := map[string]int{}
+	for _, f := range out {
+		if _, ok := rank[f.Check]; !ok {
+			rank[f.Check] = categoryRank(f.Check)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if ra, rb := rank[a.Check], rank[b.Check]; ra != rb {
+			return ra < rb
 		}
 		if a.Check != b.Check {
 			return a.Check < b.Check
@@ -101,7 +80,18 @@ func Filter(findings []Finding, floor string) (kept []Finding, byCheck, bySeveri
 		}
 		return a.Message < b.Message
 	})
-	return kept, byCheck, bySeverity
+	return out
+}
+
+// CountsByCheck counts the findings per check. Callers compute it on the full
+// set before narrowing a view, so a response never hides the shape of what it is
+// not showing.
+func CountsByCheck(findings []Finding) map[string]int {
+	out := map[string]int{}
+	for _, f := range findings {
+		out[f.Check]++
+	}
+	return out
 }
 
 // Thresholds for the D77 WP4 structural guardrails. Deterministic by design
@@ -129,11 +119,10 @@ const (
 
 // Finding represents a single lint finding.
 type Finding struct {
-	Path     string // concept path relative to KB (e.g. "arch/runbook.md")
-	Check    string // check name (e.g. "broken_link", "stale_claim")
-	Severity string // "warning" or "error"
-	Message  string
-	Fix      *Fix // optional mechanical remedy (D289)
+	Path    string // concept path relative to KB (e.g. "arch/runbook.md")
+	Check   string // check name (e.g. "broken_link", "stale_claim")
+	Message string
+	Fix     *Fix // optional mechanical remedy (D289)
 	// Proposal is the structured vocabulary a missing_value_contract
 	// finding suggests (D296).
 	Proposal *Proposal
@@ -166,8 +155,7 @@ func pastDay(day time.Time) bool {
 //
 // The sibling KB roots for cross_kb_path come from k.SiblingRoots (D316), so
 // every caller — the lint tool, the cached kb_status/Atlas findings, the gate
-// — reports the same findings for the same KB. The same holds for the usage
-// store (D326) behind artifact_unused, read here from the KB's local state.
+// — reports the same findings for the same KB.
 func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 	return RunWithOptions(k, scope, scopeNeighbors, runOptions(k))
 }
@@ -175,12 +163,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 // runOptions is the injected, non-KB input of a lint run, read the same way for
 // every caller.
 func runOptions(k *kb.KB) Options {
-	opts := Options{CrossKBRoots: k.SiblingRoots, UsageStaleDays: k.Policy().UsageStale()}
-	// A store that cannot be read is no data, not a lint failure.
-	if entries, err := k.LoadUsage(); err == nil && len(entries) > 0 {
-		opts.Usage = kb.SummarizeUsage(entries)
-	}
-	return opts
+	return Options{CrossKBRoots: k.SiblingRoots}
 }
 
 // ArtifactFindings runs the artifact checks of an unscoped Run (D316: skills,
@@ -417,13 +400,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// junk_asset, so the whole-tree junk_file pass does not report them twice.
 	junkAssets := map[string]bool{}
 
-	// The structural analysis runs on the whole graph whatever the scope, so
-	// a scoped lint gives a concept the verdict a whole-KB lint gives it;
-	// scope only decides which findings are emitted (D243).
-	st, err := analyseStructure(k, lg, archives, contracts)
-	if err != nil {
-		return nil, fmt.Errorf("lint.Run: structure: %w", err)
-	}
+	// The graph-shape observations (cut_concept, island, map_misfit) are not
+	// findings (D947): only kb_review computes them, so the cheap structure
+	// (collection kinds and the successor resolver) is all a lint needs.
+	st := newStructure(k, lg, archives, contracts)
 
 	// readTargetBody serves reciprocal_link_item the body of a link target
 	// (D309): the target's text, not its links section, must link back. The
@@ -460,7 +440,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 
 		linkFindings(k, id, relPath, linkBase, body, exists, graph.Out, readTargetBody, emit)
 
-		// --- unknown_placeholder (warning, D263) ---
+		// --- unknown_placeholder (D263) ---
 		// The keys come from the graph cache's facet (D262), the same parse
 		// sync_pull lists them from — not a second regex here.
 		if i, ok := lg.Index[id]; ok {
@@ -469,12 +449,12 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			}
 		}
 
-		// --- forbidden_term (warning, D276) ---
+		// --- forbidden_term (D276) ---
 		for _, f := range forbiddenTermFindings(relPath, body, glossary) {
 			emit(f)
 		}
 
-		// --- source_uncited (warning, D278) ---
+		// --- source_uncited (D278) ---
 		if f, ok := uncitedSourceFinding(relPath, id, content, sourceCited); ok {
 			emit(f)
 		}
@@ -508,12 +488,12 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			emit(f)
 		}
 
-		// --- orphan (warning) ---
+		// --- orphan ---
 		if f, ok := orphanFinding(id, relPath, isRetired(id), incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }, func(t okf.ConceptID) bool { return len(sourceCited[string(t)]) > 0 }); ok {
 			emit(f)
 		}
 
-		// --- cut_concept, broken_relation, link_to_retired, map_misfit ---
+		// --- broken_relation, link_to_retired ---
 		for _, f := range st.conceptChecks(id, relPath) {
 			emit(f)
 		}
@@ -551,16 +531,12 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	for _, f := range perConcept {
 		findings = append(findings, f...)
 	}
-	findings = append(findings, st.islandFindings(func(id okf.ConceptID) bool {
-		_, ok := toCheck[id]
-		return ok
-	})...)
 
 	// --- structural checks on maps and expanded concepts (D77 WP4) ---
 	// Directory-based (unlike the checks above, not driven by toCheck).
 	for _, archiveName := range archives {
 		if scopeMatchesDir(scopeNorm, archiveName) {
-			// --- legacy_archive_descriptor (warning) ---
+			// --- legacy_archive_descriptor ---
 			// A map still described by the pre-D77 _archive.md shape. Read-compat
 			// keeps it working; the finding is the migration backlog.
 			if _, mapErr := k.ReadRaw(archiveName + "/_map.md"); errors.Is(mapErr, okf.ErrNotFound) {
@@ -572,7 +548,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}
 			}
 
-			// --- contract_legacy_key (warning, D907) ---
+			// --- contract_legacy_key (D907) ---
 			// A key the contract no longer has (it switched a check off or
 			// loosened it): the repair rewrites the descriptor.
 			if c, ok := contracts[archiveName]; ok && len(c.LegacyKeys) > 0 {
@@ -583,37 +559,12 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}))
 			}
 
-			// --- missing_value_contract (info, D289) ---
+			// --- templates against the map's values (D352) ---
 			if c, ok := contracts[archiveName]; ok {
-				findings = append(findings, valueContractFindings(archiveName, c, allConcepts)...)
-			}
-			// --- facet_sprawl (info, D297) ---
-			if _, ok := contracts[archiveName]; ok {
-				findings = append(findings, facetSprawlFindings(archiveName, allConcepts)...)
-			}
-
-			// --- map_without_templates, and templates against the map's values (D352) ---
-			if c, ok := contracts[archiveName]; ok {
-				topLevel := 0
-				for id := range allConcepts {
-					if rest, ok := strings.CutPrefix(string(id), archiveName+"/"); ok && !strings.Contains(rest, "/") {
-						if i, ok := st.lg.Index[id]; ok && st.lg.Facets[i].Status == kb.StatusArchived {
-							continue
-						}
-						topLevel++
-					}
-				}
 				if len(c.Templates) > 0 {
 					catalogOnce.Do(func() { catalog = k.TemplateCatalog() })
 				}
-				findings = append(findings, mapTemplateFindings(archiveName+"/_map.md", archiveName, c, topLevel, catalog)...)
-			}
-
-			// --- map_oversize (info, D313) ---
-			// The count, the journal exemption and the threshold live in
-			// mapOversizeFinding, shared with the write path (D716).
-			if f, ok := mapOversizeFinding(archiveName, contracts[archiveName], mapOversizeCount(st.lg, archiveName)); ok {
-				findings = append(findings, f)
+				findings = append(findings, mapTemplateFindings(archiveName+"/_map.md", archiveName, c, catalog)...)
 			}
 		}
 
@@ -622,7 +573,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		// actionable instead of reporting unrelated map siblings.
 		contract, hasContract := contracts[archiveName]
 		if hasContract && contract.Index == kb.IndexGenerated {
-			// --- index_stale (info, D301) ---
+			// --- index_stale (D301) ---
 			// The server owns the concept list of a generated index, so
 			// completeness is not the agent's to check: only whether the
 			// block still matches what the next write would put there.
@@ -695,7 +646,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}
 			}
 
-			// --- expanded_missing_index (warning) ---
+			// --- expanded_missing_index ---
 			// WriteConcept (D72 WP4) stubs index.md on every implicitly created
 			// directory and ExpandConcept always produces one, so this only
 			// fires for directories predating those fixes.
@@ -707,7 +658,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}))
 			}
 
-			// --- expanded_ambiguous (error) ---
+			// --- expanded_ambiguous ---
 			// Both "<id>.md" and "<id>/index.md" exist: reads silently prefer
 			// the direct form and writes are rejected (resolveConceptRelPath),
 			// so this is the place that surfaces the conflict.
@@ -720,7 +671,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}
 			}
 
-			// --- expanded_as_category (warning) ---
+			// --- expanded_as_category ---
 			// Many children, mostly not linked from (or to) the concept's own
 			// index: the directory is being used as a taxonomy bucket.
 			var children []okf.ConceptID
@@ -759,7 +710,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}
 			}
 
-			// --- orphan_asset (info) ---
+			// --- orphan_asset ---
 			// Assets are intentionally outside WalkConcepts and the graph. They
 			// still need a lightweight provenance signal: an asset should be
 			// cited by its owner's index or one of that expanded concept's
@@ -843,7 +794,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 // response and a whole-KB lint report the same finding for the same body.
 // out is the link graph's out-edges (reciprocal_link_item reads it).
 func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, exists func(okf.ConceptID) bool, out map[okf.ConceptID]map[okf.ConceptID]struct{}, readTargetBody func(okf.ConceptID) (string, string), emit func(Finding)) {
-	// --- broken_link (warning) ---
+	// --- broken_link ---
 	// For expanded concepts, detect links broken by past expansions:
 	// if the same href resolves from the pre-expansion base "<id>.md",
 	// the fix is a rebase (D295 WP2).
@@ -871,13 +822,13 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 		}
 	}
 
-	// --- index_link_form (info, D310) ---
+	// --- index_link_form (D310) ---
 	for _, f := range indexLinkForms(body, linkBase, exists) {
 		f.Path = relPath
 		emit(f)
 	}
 
-	// --- duplicate_link / bare_link_list (info): the trailing links
+	// --- duplicate_link / bare_link_list: the trailing links
 	// section (linksection.go) ---
 	if heading, dups, fixableDups, bare, n := linksSectionIssues(body, linkBase, k.AssetExists); heading != "" {
 		if len(dups) > 0 {
@@ -892,7 +843,7 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 				emit(f)
 			}
 		}
-		// --- reciprocal_link_item (info, D301): an opt-in efficiency
+		// --- reciprocal_link_item (D301): an opt-in efficiency
 		// fix, never conformance debt; the target's own link keeps the
 		// edge navigable both ways through backlinks. ---
 		recips := reciprocalLinkItems(body, linkBase, id, out, dups, k.AssetExists, readTargetBody)
@@ -1282,8 +1233,8 @@ func scopeMatchesDir(scopeNorm, dir string) bool {
 }
 
 // mapFieldContractFindings applies the value and forbidden-field parts of a
-// map contract (D275) to one concept's frontmatter. Both checks are error
-// severity, and nothing silences them (D907). An absent field is never an
+// map contract (D275) to one concept's frontmatter. Nothing silences either
+// check (D907). An absent field is never an
 // invalid value: presence is required_fields' job.
 func mapFieldContractFindings(relPath, mapName string, contract kb.MapContract, parsed *okf.Frontmatter) []Finding {
 	if parsed == nil {

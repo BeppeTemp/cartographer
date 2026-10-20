@@ -17,7 +17,7 @@ import (
 //   - bare_link_list: a section of links with not one word on why each one
 //     matters — the reader, human or agent, cannot tell a dependency from a
 //     loose association.
-// Both are info: advice, never a gate.
+// Both are problems like any other finding (D947).
 
 var linksSectionHeading = regexp.MustCompile(`(?im)^(#{2,6})\s+(collegamenti|links|related|see also|vedi anche)\s*#*\s*$`)
 

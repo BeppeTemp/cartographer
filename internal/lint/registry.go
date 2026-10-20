@@ -29,13 +29,13 @@ const (
 
 // CheckSpec describes one check (D354). Every table that used to list checks
 // by hand (repairability, the write gate, the artifacts panel…) is a projection
-// of this struct, so a new check is one entry here.
+// of this struct, so a new check is one entry here. A check has no severity: a
+// finding of any registered check is a problem (D947). A state of a KB that a
+// reasonable maintainer may leave as it is is not a check but an observation
+// (ObservationSpec), and only kb_review lists it.
 type CheckSpec struct {
-	Name string
-	// Severity is the default severity every finding of the check carries. An
-	// emission site may pass an explicit override through newFinding.
-	Severity string
-	Level    string
+	Name  string
+	Level string
 	// FixKinds are the Fix kinds the check's findings may carry; non-empty means
 	// kb_repair accepts the check (FixableChecks).
 	FixKinds []string
@@ -50,16 +50,15 @@ type CheckSpec struct {
 	Judgement bool
 
 	// AvoidableAtWrite (D907): a write that introduces a finding of this check
-	// could have avoided it within the same call, so the write gate refuses it
-	// at any severity. A check that no write can avoid is false and says why in
-	// the classification table of docs/data-plane.md: time (stale_claim),
-	// growth (map_oversize), a legacy state (legacy_archive_descriptor), a
-	// KB's initial state (missing_instructions), or work another tool does
-	// (source_uncited). A check the write path refuses before lint
-	// (missing_frontmatter, unparseable_frontmatter, missing_type,
-	// concept_too_deep) is false too: refusal is already its gate. Only the
-	// OnWrite checks are judged by the gate: it can refuse what the write path
-	// evaluates.
+	// could have avoided it within the same call, so the write gate refuses it.
+	// A check that no write can avoid is false and says why in the
+	// classification table of docs/data-plane.md: time (stale_claim), a legacy
+	// state (legacy_archive_descriptor), a KB's initial state
+	// (missing_instructions), or work another tool does (source_uncited). A
+	// check the write path refuses before lint (missing_frontmatter,
+	// unparseable_frontmatter, missing_type, concept_too_deep) is false too:
+	// refusal is already its gate. Only the OnWrite checks are judged by the
+	// gate: it can refuse what the write path evaluates.
 	AvoidableAtWrite bool
 	// WholeGraph: its presence depends on concepts other than the one it is
 	// reported on (see WholeGraphChecks).
@@ -93,133 +92,125 @@ var Categories = []string{CategoryPages, CategoryTemplates, CategoryValidity, Ca
 // check).
 var registry = []CheckSpec{
 	// Frontmatter and body of one page (conceptFindings, on the write path).
-	{Name: "malformed_frontmatter", Severity: SevWarning, Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "stringified_list", Severity: SevWarning, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixListifyField}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "stale_claim", Severity: SevWarning, Level: LevelConcept, OnWrite: true, Category: CategoryPages},
-	{Name: "status_semantics", Severity: SevWarning, Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "machine_path", Severity: SevWarning, Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "mangled_placeholder", Severity: SevWarning, Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "missing_title", Severity: SevWarning, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "title_h1_mismatch", Severity: SevWarning, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSyncH1, FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "title_quality", Severity: SevInfo, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "missing_required_field", Severity: SevError, Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "invalid_field_value", Severity: SevError, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "forbidden_field", Severity: SevError, Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "nonstandard_field", Severity: SevWarning, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixRenameField, FixDropField}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "tool_param_field", Severity: SevWarning, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixDropField}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "prose_value", Severity: SevWarning, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSplitValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "stale_open", Severity: SevInfo, Level: LevelConcept, OnWrite: true, Judgement: true, Category: CategoryPages},
-	{Name: "closed_with_open_items", Severity: SevInfo, Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "template_section_missing", Severity: SevWarning, Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
+	{Name: "malformed_frontmatter", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "stringified_list", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixListifyField}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "stale_claim", Level: LevelConcept, OnWrite: true, Category: CategoryPages},
+	{Name: "status_semantics", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "machine_path", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "mangled_placeholder", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "missing_title", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "title_h1_mismatch", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSyncH1, FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "title_quality", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "missing_required_field", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "invalid_field_value", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "forbidden_field", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "nonstandard_field", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixRenameField, FixDropField}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "tool_param_field", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixDropField}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "prose_value", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSplitValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "stale_open", Level: LevelConcept, OnWrite: true, Judgement: true, Category: CategoryPages},
+	{Name: "closed_with_open_items", Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "template_section_missing", Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
 	// Templates are closed page schemas a map's pages bind to (D352). Evaluated
 	// on a map that declares templates or a default template, which binds every
 	// page (D907: no key makes them optional).
-	{Name: "template_missing", Severity: SevWarning, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
-	{Name: "template_unknown", Severity: SevWarning, Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
-	{Name: "template_not_allowed", Severity: SevWarning, Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
-	{Name: "template_type_mismatch", Severity: SevWarning, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryTemplates},
-	{Name: "template_field_missing", Severity: SevWarning, Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
-	{Name: "template_field_value", Severity: SevWarning, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
-	{Name: "template_extra_section", Severity: SevWarning, Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
-	{Name: "template_section_alias", Severity: SevWarning, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixRenameHeading}, AutoRepairSafe: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
-	{Name: "template_section_order", Severity: SevInfo, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixReorderSections}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryTemplates},
-	{Name: "open_marker", Severity: SevInfo, Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "repeated_link", Severity: SevInfo, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixUnlinkRepeat}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "template_missing", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
+	{Name: "template_unknown", Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
+	{Name: "template_not_allowed", Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
+	{Name: "template_type_mismatch", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryTemplates},
+	{Name: "template_field_missing", Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
+	{Name: "template_field_value", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
+	{Name: "template_extra_section", Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
+	{Name: "template_section_alias", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixRenameHeading}, AutoRepairSafe: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
+	{Name: "template_section_order", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixReorderSections}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryTemplates},
+	{Name: "open_marker", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "repeated_link", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixUnlinkRepeat}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
 	// What the write path refuses about a page, as lint (D356): the repair and
 	// the doctor act on it. Not OnWrite: a write that would produce one of them
 	// is refused before it lints.
-	{Name: "missing_frontmatter", Severity: SevError, Level: LevelConcept, FixKinds: []string{FixAddFrontmatter}, AutoRepairSafe: true, Judgement: true, Category: CategoryValidity},
-	{Name: "unparseable_frontmatter", Severity: SevError, Level: LevelConcept, FixKinds: []string{FixQuoteValue}, AutoRepairSafe: true, Judgement: true, Category: CategoryValidity},
-	{Name: "missing_type", Severity: SevError, Level: LevelConcept, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true, Category: CategoryValidity},
-	{Name: "concept_too_deep", Severity: SevError, Level: LevelConcept, Judgement: true, Category: CategoryValidity},
-	{Name: "nonslug_file_name", Severity: SevWarning, Level: LevelConcept, FixKinds: []string{FixMove}, AutoRepairSafe: true, CrossConcept: true, AvoidableAtWrite: true, Category: CategoryValidity},
-	{Name: "empty_concept", Severity: SevWarning, Level: LevelConcept, Judgement: true, AvoidableAtWrite: true, Category: CategoryValidity},
-	// One page, but only a whole-KB run has the inputs.
-	{Name: "concept_oversize", Severity: SevInfo, Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "imported_draft", Severity: SevWarning, Level: LevelConcept, Category: CategoryPages},
-	{Name: "secrets_on_non_service", Severity: SevInfo, Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "sops_format_mismatch", Severity: SevWarning, Level: LevelConcept, OnWrite: true, Panel: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "sops_missing_file", Severity: SevWarning, Level: LevelConcept, OnWrite: true, Panel: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "legacy_path", Severity: SevWarning, Level: LevelConcept, OnWrite: true, FixKinds: []string{FixReplacePrefix}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "missing_frontmatter", Level: LevelConcept, FixKinds: []string{FixAddFrontmatter}, AutoRepairSafe: true, Judgement: true, Category: CategoryValidity},
+	{Name: "unparseable_frontmatter", Level: LevelConcept, FixKinds: []string{FixQuoteValue}, AutoRepairSafe: true, Judgement: true, Category: CategoryValidity},
+	{Name: "missing_type", Level: LevelConcept, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, Judgement: true, Category: CategoryValidity},
+	{Name: "concept_too_deep", Level: LevelConcept, Judgement: true, Category: CategoryValidity},
+	{Name: "nonslug_file_name", Level: LevelConcept, FixKinds: []string{FixMove}, AutoRepairSafe: true, CrossConcept: true, AvoidableAtWrite: true, Category: CategoryValidity},
+	{Name: "empty_concept", Level: LevelConcept, Judgement: true, AvoidableAtWrite: true, Category: CategoryValidity},
+	// One page, but only a whole-KB run has the inputs (a curation backlog).
+	{Name: "imported_draft", Level: LevelConcept, Category: CategoryPages},
+	{Name: "secrets_on_non_service", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "sops_format_mismatch", Level: LevelConcept, OnWrite: true, Panel: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "sops_missing_file", Level: LevelConcept, OnWrite: true, Panel: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "legacy_path", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixReplacePrefix}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
 
 	// Links and the graph (ScopedCheck on the write path).
-	{Name: "broken_link", Severity: SevWarning, Level: LevelGraph, OnWrite: true, FixKinds: []string{FixRebaseLink}, CrossConcept: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryLinks},
-	{Name: "duplicate_link", Severity: SevInfo, Level: LevelGraph, OnWrite: true, FixKinds: []string{FixDropLinkItem, FixRewriteLinkItem}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryLinks},
-	{Name: "reciprocal_link_item", Severity: SevInfo, Level: LevelGraph, OnWrite: true, FixKinds: []string{FixDropLinkItem}, CrossConcept: true, AvoidableAtWrite: true, Category: CategoryLinks},
-	{Name: "bare_link_list", Severity: SevInfo, Level: LevelGraph, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryLinks},
-	{Name: "index_link_form", Severity: SevInfo, Level: LevelGraph, OnWrite: true, FixKinds: []string{FixRebaseLink, FixRewriteWikiLink}, AutoRepairSafe: true, CrossConcept: true, AvoidableAtWrite: true, Category: CategoryLinks},
-	{Name: "orphan", Severity: SevWarning, Level: LevelGraph, OnWrite: true, AvoidableAtWrite: true, Category: CategoryLinks},
-	{Name: "broken_relation", Severity: SevWarning, Level: LevelGraph, OnWrite: true, AvoidableAtWrite: true, Category: CategoryLinks},
-	{Name: "link_to_retired", Severity: SevInfo, Level: LevelGraph, OnWrite: true, WholeGraph: true, FixKinds: []string{FixRetargetLinks}, AutoRepairSafe: true, CrossConcept: true, AvoidableAtWrite: true, Category: CategoryLinks},
-	{Name: "unknown_placeholder", Severity: SevWarning, Level: LevelGraph, OnWrite: true, AvoidableAtWrite: true, Category: CategoryLinks},
-	{Name: "forbidden_term", Severity: SevWarning, Level: LevelGraph, OnWrite: true, AvoidableAtWrite: true, Category: CategoryLinks},
-	{Name: "source_uncited", Severity: SevWarning, Level: LevelGraph, Category: CategoryLinks},
-	{Name: "cut_concept", Severity: SevInfo, Level: LevelGraph, WholeGraph: true, Category: CategoryLinks},
-	{Name: "island", Severity: SevInfo, Level: LevelGraph, WholeGraph: true, Category: CategoryLinks},
-	{Name: "map_misfit", Severity: SevInfo, Level: LevelGraph, WholeGraph: true, Judgement: true, Category: CategoryLinks},
+	{Name: "broken_link", Level: LevelGraph, OnWrite: true, FixKinds: []string{FixRebaseLink}, CrossConcept: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryLinks},
+	{Name: "duplicate_link", Level: LevelGraph, OnWrite: true, FixKinds: []string{FixDropLinkItem, FixRewriteLinkItem}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryLinks},
+	{Name: "reciprocal_link_item", Level: LevelGraph, OnWrite: true, FixKinds: []string{FixDropLinkItem}, CrossConcept: true, AvoidableAtWrite: true, Category: CategoryLinks},
+	{Name: "bare_link_list", Level: LevelGraph, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryLinks},
+	{Name: "index_link_form", Level: LevelGraph, OnWrite: true, FixKinds: []string{FixRebaseLink, FixRewriteWikiLink}, AutoRepairSafe: true, CrossConcept: true, AvoidableAtWrite: true, Category: CategoryLinks},
+	{Name: "orphan", Level: LevelGraph, OnWrite: true, AvoidableAtWrite: true, Category: CategoryLinks},
+	{Name: "broken_relation", Level: LevelGraph, OnWrite: true, AvoidableAtWrite: true, Category: CategoryLinks},
+	{Name: "link_to_retired", Level: LevelGraph, OnWrite: true, WholeGraph: true, FixKinds: []string{FixRetargetLinks}, AutoRepairSafe: true, CrossConcept: true, AvoidableAtWrite: true, Category: CategoryLinks},
+	{Name: "unknown_placeholder", Level: LevelGraph, OnWrite: true, AvoidableAtWrite: true, Category: CategoryLinks},
+	{Name: "forbidden_term", Level: LevelGraph, OnWrite: true, AvoidableAtWrite: true, Category: CategoryLinks},
+	{Name: "source_uncited", Level: LevelGraph, Category: CategoryLinks},
 	// KB-wide values (D357): the type palette and the spellings in use. Their
 	// messages name the KB's types and values, hidden pages' included, so a
 	// caller that cannot see the whole KB does not get them (WholeGraph).
-	{Name: "unknown_type", Severity: SevWarning, Level: LevelGraph, FixKinds: []string{FixSetValue}, Judgement: true, WholeGraph: true, AvoidableAtWrite: true, Category: CategoryValues},
-	{Name: "value_case_variant", Severity: SevWarning, Level: LevelGraph, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, WholeGraph: true, AvoidableAtWrite: true, Category: CategoryValues},
+	{Name: "unknown_type", Level: LevelGraph, FixKinds: []string{FixSetValue}, Judgement: true, WholeGraph: true, AvoidableAtWrite: true, Category: CategoryValues},
+	{Name: "value_case_variant", Level: LevelGraph, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, WholeGraph: true, AvoidableAtWrite: true, Category: CategoryValues},
 
 	// Maps and expanded concepts.
-	{Name: "contract_malformed", Severity: SevInfo, Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
-	{Name: "facet_sprawl", Severity: SevInfo, Level: LevelMap, Category: CategoryMaps},
-	{Name: "missing_value_contract", Severity: SevInfo, Level: LevelMap, Category: CategoryMaps},
-	{Name: "map_without_templates", Severity: SevInfo, Level: LevelMap, Category: CategoryMaps},
-	{Name: "map_oversize", Severity: SevInfo, Level: LevelMap, Category: CategoryMaps},
-	{Name: "legacy_archive_descriptor", Severity: SevWarning, Level: LevelMap, Category: CategoryMaps},
+	{Name: "contract_malformed", Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
+	{Name: "legacy_archive_descriptor", Level: LevelMap, Category: CategoryMaps},
 	// A removed key of a map's contract (D907): the repair rewrites _map.md.
-	{Name: "contract_legacy_key", Severity: SevWarning, Level: LevelMap, FixKinds: []string{FixRewriteContract}, AutoRepairSafe: true, Category: CategoryMaps},
-	{Name: "index_incomplete", Severity: SevWarning, Level: LevelMap, OnWrite: true, AvoidableAtWrite: true, Category: CategoryMaps},
-	{Name: "index_lists_retired", Severity: SevInfo, Level: LevelMap, WholeGraph: true, FixKinds: []string{FixDropIndexEntry}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryMaps},
-	{Name: "index_stale", Severity: SevInfo, Level: LevelMap, Category: CategoryMaps},
-	{Name: "expanded_missing_index", Severity: SevWarning, Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
-	{Name: "expanded_ambiguous", Severity: SevError, Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
-	{Name: "expanded_as_category", Severity: SevWarning, Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
-	{Name: "unlistable_assets", Severity: SevWarning, Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
-	{Name: "oversized_asset", Severity: SevWarning, Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
-	{Name: "orphan_asset", Severity: SevInfo, Level: LevelMap, Category: CategoryMaps},
+	{Name: "contract_legacy_key", Level: LevelMap, FixKinds: []string{FixRewriteContract}, AutoRepairSafe: true, Category: CategoryMaps},
+	{Name: "index_incomplete", Level: LevelMap, OnWrite: true, AvoidableAtWrite: true, Category: CategoryMaps},
+	{Name: "index_lists_retired", Level: LevelMap, WholeGraph: true, FixKinds: []string{FixDropIndexEntry}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryMaps},
+	{Name: "index_stale", Level: LevelMap, Category: CategoryMaps},
+	{Name: "expanded_missing_index", Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
+	{Name: "expanded_ambiguous", Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
+	{Name: "expanded_as_category", Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
+	{Name: "unlistable_assets", Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
+	{Name: "oversized_asset", Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
+	{Name: "orphan_asset", Level: LevelMap, Category: CategoryMaps},
 	// The data/ tree (D357). unmapped_folder is on a folder, not a page.
-	{Name: "unmapped_folder", Severity: SevWarning, Level: LevelMap, FixKinds: []string{FixScaffoldMap}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryMaps},
-	{Name: "stray_file", Severity: SevWarning, Level: LevelMap, Judgement: true, AvoidableAtWrite: true, Category: CategoryMaps},
+	{Name: "unmapped_folder", Level: LevelMap, FixKinds: []string{FixScaffoldMap}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryMaps},
+	{Name: "stray_file", Level: LevelMap, Judgement: true, AvoidableAtWrite: true, Category: CategoryMaps},
 
 	// KB-root artifacts (D316).
-	{Name: "skill_invalid", Severity: SevWarning, Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
-	{Name: "skill_warning", Severity: SevInfo, Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
-	{Name: "legacy_tool_name", Severity: SevWarning, Level: LevelArtifact, Panel: true, FixKinds: []string{FixStripToolPrefix}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
-	{Name: "skill_broken_ref", Severity: SevWarning, Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
-	{Name: "skill_git_command", Severity: SevInfo, Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
-	{Name: "skill_missing_perimeter", Severity: SevInfo, Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
-	{Name: "cross_kb_path", Severity: SevWarning, Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
-	{Name: "artifact_unused", Severity: SevInfo, Level: LevelArtifact, Panel: true, Category: CategoryArtifacts},
+	{Name: "skill_invalid", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	{Name: "skill_warning", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	{Name: "legacy_tool_name", Level: LevelArtifact, Panel: true, FixKinds: []string{FixStripToolPrefix}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	{Name: "skill_broken_ref", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	{Name: "skill_git_command", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	{Name: "skill_missing_perimeter", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	{Name: "cross_kb_path", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	// A junk file is deleted; missing_instructions has no file to key on.
-	{Name: "junk_file", Severity: SevWarning, Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
-	{Name: "junk_asset", Severity: SevWarning, Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
-	{Name: "missing_instructions", Severity: SevWarning, Level: LevelArtifact, Panel: true, Category: CategoryArtifacts},
+	{Name: "junk_file", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	{Name: "junk_asset", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	{Name: "missing_instructions", Level: LevelArtifact, Panel: true, Category: CategoryArtifacts},
 
 	// KB-level files.
-	{Name: "hook_invalid", Severity: SevWarning, Level: LevelKB, Panel: true, AvoidableAtWrite: true, Category: CategoryKB},
-	{Name: "missing_registry", Severity: SevInfo, Level: LevelKB, Category: CategoryKB},
-	{Name: "unused_placeholder", Severity: SevInfo, Level: LevelKB, Category: CategoryKB},
+	{Name: "hook_invalid", Level: LevelKB, Panel: true, AvoidableAtWrite: true, Category: CategoryKB},
+	{Name: "missing_registry", Level: LevelKB, Category: CategoryKB},
+	{Name: "unused_placeholder", Level: LevelKB, Category: CategoryKB},
 
 	// kb_review kinds (D298): registered so the registry is the one list of
 	// names. They are not lint findings, except repeated_fact which a write
 	// response also reports (D351), and none is gated (D907): each closes on
 	// page state (docs/data-plane.md §Review keys (D298)).
-	{Name: ReviewDuplicate, Severity: SevInfo, Level: LevelKB},
-	{Name: ReviewZombie, Severity: SevInfo, Level: LevelKB},
-	{Name: ReviewPromotion, Severity: SevInfo, Level: LevelKB},
-	{Name: ReviewGlossary, Severity: SevInfo, Level: LevelKB},
-	{Name: ReviewLintJudgement, Severity: SevInfo, Level: LevelKB},
-	{Name: ReviewRepeatedFact, Severity: SevInfo, Level: LevelKB},
-	{Name: ReviewReadHotspot, Severity: SevInfo, Level: LevelKB},
-	{Name: ReviewScatteredWork, Severity: SevInfo, Level: LevelKB},
-	{Name: ReviewStatusReclassify, Severity: SevInfo, Level: LevelKB},
-	{Name: ReviewHarvestCandidate, Severity: SevInfo, Level: LevelKB},
-	{Name: ReviewTemplateProposal, Severity: SevInfo, Level: LevelKB},
-	{Name: ReviewMapNaming, Severity: SevInfo, Level: LevelKB},
+	{Name: ReviewDuplicate, Level: LevelKB},
+	{Name: ReviewZombie, Level: LevelKB},
+	{Name: ReviewPromotion, Level: LevelKB},
+	{Name: ReviewGlossary, Level: LevelKB},
+	{Name: ReviewLintJudgement, Level: LevelKB},
+	{Name: ReviewRepeatedFact, Level: LevelKB},
+	{Name: ReviewReadHotspot, Level: LevelKB},
+	{Name: ReviewScatteredWork, Level: LevelKB},
+	{Name: ReviewStatusReclassify, Level: LevelKB},
+	{Name: ReviewHarvestCandidate, Level: LevelKB},
+	{Name: ReviewTemplateProposal, Level: LevelKB},
+	{Name: ReviewMapNaming, Level: LevelKB},
+	{Name: ReviewObservation, Level: LevelKB},
 }
 
 var registryIndex = func() map[string]CheckSpec {
@@ -303,29 +294,24 @@ func ArtifactRepairCheck(check string) bool {
 
 var unknownCheckOnce sync.Map
 
-// newFinding builds a finding of a registered check: Check is the name and
-// Severity the spec's default unless f already sets one (an explicit override
-// for a check whose severity legitimately varies). Every finding of a check is
-// built here, so severity is declared in one place (D354). A name with no spec
-// panics under test; in production the finding is info and one stderr line says
-// the registry is missing it.
+// newFinding builds a finding of a registered check: Check is the name. Every
+// finding of a check is built here, so the check is declared in one place
+// (D354). A name with no spec panics under test, and so does an observation's:
+// an observation is never a finding (newObservation builds it for kb_review,
+// D947). In production an unknown name is reported as it came and one stderr
+// line says the registry is missing it.
 func newFinding(check string, f Finding) Finding {
 	f.Check = check
-	s, ok := Spec(check)
-	if !ok {
+	if _, ok := Spec(check); !ok {
+		if _, obs := ObservationSpecOf(check); obs && testing.Testing() {
+			panic("lint: " + check + " is an observation, not a check: use newObservation")
+		}
 		if testing.Testing() {
 			panic("lint: finding of unregistered check " + check)
 		}
 		if _, seen := unknownCheckOnce.LoadOrStore(check, true); !seen {
-			fmt.Fprintf(os.Stderr, "lint: check %q is not in the registry; reported as info\n", check)
+			fmt.Fprintf(os.Stderr, "lint: check %q is not in the registry\n", check)
 		}
-		if f.Severity == "" {
-			f.Severity = SevInfo
-		}
-		return f
-	}
-	if f.Severity == "" {
-		f.Severity = s.Severity
 	}
 	return f
 }

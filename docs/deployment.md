@@ -45,14 +45,14 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   An entry ages out after 30 days; one whose search finds something now is
   reported `resolved` by `kb_status` before that (D319). Deleting the file is
   the only manual reset. `lint-history.jsonl` (D370) holds one sample a day of
-  the whole-KB lint totals (`{at, total, by_severity, by_handler}`, the latest
+  the whole-KB lint totals (`{at, total, by_handler}`, the latest
   of the UTC day, 90 days kept, pruned on write): derived state for the Health
   trend and `kb_status.lint_trend`, rewritten whole, never in the KB's git
   history, and lost harmlessly with the volume (the trend restarts from the
   next lint). `usage.json` (D326) holds the artifact usage clients
   report on `sync`: on an `emptyDir` it is lost at every restart, and until each
   client syncs again `kb_status.usage` is `no_data` (with `no_report_since`, the
-  start time, D333) and `artifact_unused` is silent. Keep `.cartographer/` on
+  start time, D333) and no artifact reads as stale. Keep `.cartographer/` on
   the KB's persistent volume when that signal matters.
 
 The audit log is always on (D905): MCP tool execution appends an attempt+completion event
@@ -703,7 +703,7 @@ while it stays centred in the strip the panels leave visible, and everything
 outside its neighbourhood recedes. The skills, agents and hooks that reference
 concepts are drawn as diamonds linked to them; clicking one opens it on the
 Artifacts panel (D286). The legend colours nodes by community or by Map, never by
-lint severity: on a real KB a severity colour painted most of the graph one
+lint findings: on a real KB a finding colour painted most of the graph one
 colour, and a KB's health is read on the Health panel (D307). The legend folds to its
 switch and counts, remembered per browser (`cartographer.panel.legend`). Ctrl/Cmd+K searches titles and ids at once and, after a
 pause in typing, the full text through the `search` tool, showing the excerpt
@@ -758,28 +758,29 @@ shows its Map, title, type and age (stale ones flagged), expands to its items,
 and opens the concept on the atlas. It is read-only: work changes through the
 agents' write tools.
 
-The **Health** panel (D338, D365, D704) shows what Cartographer found, and on a
+The **Health** panel (D338, D365, D704, D947) shows the lint problems Cartographer found, and on a
 second tab what it checks. Two buttons in the header switch them, *Issues* and
 *What it checks*.
 
 *Issues*: the title counts the kinds of issue found ("Cartographer found 25 kinds
 of issues"), the line under it every occurrence and how many pages carry one.
 The **page field** draws one square per page, clustered by Map under the Map's
-hue: amber for a problem (red when broken), blue for a suggestion, both split on
-the diagonal when a page has both, dark when fine; a lit square opens its page,
+hue: amber for a page with a problem, dark when fine (the legend says *has
+problems* and *fine*); a lit square opens its page,
 a Map's name filters the page to it (`hmap=` in the URL, one whole-KB
 `GET /api/ui/v1/kbs/<kb>/lint` filtered by path, counts over the unfiltered
-findings) and pressing it again returns to the KB. Under it two open, foldable
-bands: *Problems* (errors and warnings) and *Suggestions* (notes, and the
-proposals of `kb_review` from `GET /api/ui/v1/kbs/<kb>/maintenance/review`).
-One row per kind: its name, a bar for its weight against the heaviest row, and
+findings) and pressing it again returns to the KB. Under it one open, foldable
+band, *Problems*: a lint finding is a problem and has no severity (D947), so
+there is no *Suggestions* band. The doctor's `kb_review` items and the
+observations (`GET /api/ui/v1/kbs/<kb>/maintenance/review`) are decisions, not
+problems, and are not on this page.
+One row per kind, the heaviest first: its name, a bar for its weight against the heaviest row, and
 its count in its own unit (pages, maps, files, terms, templates…); a kind
 Cartographer fixes by itself says *fixes itself*. Hovering a row lights its pages
-in the field, in the row's colour only. An open row says *What it is* and *To
+in the field. An open row says *What it is* and *To
 fix*, then one line per case with its page count; the pages unfold on click,
 named by their last segment, and a file that is no page is named without a link.
-A `map_without_templates` finding is not listed while a `template_proposal`
-carries the same decision. *What the KB doesn't know* follows when there is
+*What the KB doesn't know* follows when there is
 any: open questions and gaps, searches that found nothing (ticked once they find
 something, D319), and the pages past their review date
 (`GET /api/ui/v1/kbs/<kb>/status`). The rail does not filter here: a Map click
@@ -793,20 +794,20 @@ two samples), then one folded line per category with what its rules read and
 what they found. Open, each rule is one line — its name, what it looks for, a
 mark when Cartographer fixes it by itself, its count — those that found
 something first; a rule that cannot run on this KB is greyed out with its reason
-(D371) instead of a zero. The last category lists the `kb_review` suggestion kinds.
+(D371) instead of a zero.
 
 Like the rest of the UI the panel writes nothing. The status and the summary are
 whole-KB: a caller that cannot see the whole KB gets the issues it can see, and
 the rest is left out rather than reported as an error. The rail marks Health with
-a dot while there are problems (errors or warnings). The former Observatory and
+a dot while there are problems. The former Observatory and
 Maintenance links (`panel=observatory`, `panel=maintenance`) open Health.
 
 The **Artifacts** panel, last in the rail, shows what the KB ships to agent
 clients: skills, subagents, hooks, MCP descriptors, the
 curated `instructions.md` and templates. It is a catalog page built like the
 others (D339): its title counts the artifacts, the line under it gives the
-artifact findings ("No artifact findings" when clean, `finding_counts`/
-`finding_severities` in `GET …/artifacts`, counting those no listed artifact
+artifact findings ("No artifact findings" when clean, `finding_counts`
+in `GET …/artifacts`, counting those no listed artifact
 owns) and says when no client has reported a use yet, and a search box filters
 names and descriptions. The hero filters by kind (each with its own mark and
 colour) and, when there is something to show, to the recently used, the idle

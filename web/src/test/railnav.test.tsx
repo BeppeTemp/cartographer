@@ -10,9 +10,9 @@ import { json, lint, stubApi } from "./fixtures";
 const two: LintReport = {
   ...lint,
   findings: [
-    { path: "infra/a.md", concept: "infra/a", check: "broken_link", severity: "error", message: "missing target" },
-    { path: "infra/b.md", concept: "infra/b", check: "broken_link", severity: "error", message: "missing target" },
-    { path: "notes/c.md", concept: "notes/c", check: "orphan", severity: "warning", message: "no links" },
+    { path: "infra/a.md", concept: "infra/a", check: "broken_link", message: "missing target" },
+    { path: "infra/b.md", concept: "infra/b", check: "broken_link", message: "missing target" },
+    { path: "notes/c.md", concept: "notes/c", check: "orphan", message: "no links" },
   ],
   count: 3,
 };

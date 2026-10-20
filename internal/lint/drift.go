@@ -88,7 +88,7 @@ func (d driftData) conceptFindings(relPath string, fm *okf.Frontmatter, contract
 	}
 	var out []Finding
 
-	// --- unknown_type (warning, D357) ---
+	// --- unknown_type (D357) ---
 	// A type the server keys on (D853) is known without a template: skipped
 	// unless a declared spelling matches it (that spelling's case fix still
 	// applies) or the page's map is strict, where validate refuses the page
@@ -114,6 +114,7 @@ func (d driftData) conceptFindings(relPath string, fm *okf.Frontmatter, contract
 		}
 		sort.Strings(known)
 		f.Message = fmt.Sprintf("type %q is not one the KB declares (templates and strict maps: %s)", typ, strings.Join(known, ", "))
+		report := true
 		switch {
 		case len(match) == 1:
 			f.Fix = &Fix{Kind: FixSetValue, Field: "type", To: match[0]}
@@ -121,19 +122,21 @@ func (d driftData) conceptFindings(relPath string, fm *okf.Frontmatter, contract
 		case kb.IsKeyedType(typ) && strict:
 			f.Message += " — fix: add it to the map's concept_types (map_update), or move the page"
 		default:
-			f.Message += fmt.Sprintf(" — fix: declare a %s template (kb_review kind=template_proposal proposes one), or set type to a declared one", typ)
 			// A page in a map that has not adopted types (not strict, no
 			// templates required) is a type the KB has not declared yet, not
-			// drift: info, so a KB written before templates does not light a
-			// warning per page on upgrade (#688).
-			if contract == nil || (contract.OntologyMode != "strict" && !contract.StrictTemplates()) {
-				f.Severity = SevInfo
-			}
+			// drift, and a KB written before templates would light one problem
+			// per page on upgrade (#688). The declaration is the KB's to make,
+			// so it is not a finding (D947): kb_review's template_proposal
+			// proposes the template its pages already follow.
+			report = contract != nil && (contract.OntologyMode == "strict" || contract.StrictTemplates())
+			f.Message += fmt.Sprintf(" — fix: declare a %s template (kb_review kind=template_proposal proposes one), or set type to a declared one", typ)
 		}
-		out = append(out, newFinding("unknown_type", f))
+		if report {
+			out = append(out, newFinding("unknown_type", f))
+		}
 	}
 
-	// --- value_case_variant (warning, D357) ---
+	// --- value_case_variant (D357) ---
 	// status in a map whose contract does not constrain it: a constrained
 	// field belongs to invalid_field_value.
 	if s := statusSpelling(fm); s != "" {

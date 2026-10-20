@@ -87,10 +87,7 @@ func TestMapOversize_ArchivedNotCounted(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		writeFile(t, k.DataRoot(), fmt.Sprintf("arch/old-%d.md", i), "---\ntype: Note\nstatus: archived\n---\nOld.\n")
 	}
-	got, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := observed(t, k)
 	if hasCheck(got, "arch/_map.md", "map_oversize") {
 		t.Fatalf("archived concepts must not count toward map_oversize: %v", got)
 	}

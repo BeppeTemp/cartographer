@@ -84,7 +84,7 @@ func TestWriteFindingsHook_Fixtures(t *testing.T) {
 func TestWriteFindingsHook_CapsAt10(t *testing.T) {
 	var fs []string
 	for i := 0; i < 25; i++ {
-		fs = append(fs, fmt.Sprintf(`{"path":"kb-a/p%d","check":"orphan","severity":"info","message":"m"}`, i))
+		fs = append(fs, fmt.Sprintf(`{"path":"kb-a/p%d","check":"orphan","message":"m"}`, i))
 	}
 	in := `{"tool_name":"mcp__s__concept_batch","tool_response":{"findings":[` + strings.Join(fs, ",") + `]}}`
 	code, _, stderr := runHook(t, in)

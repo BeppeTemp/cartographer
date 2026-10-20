@@ -767,17 +767,53 @@ func renderLintCatalogue() string {
 		return "-"
 	}
 	var b strings.Builder
-	b.WriteString("| Check | Severity | Level | Avoidable at write | Fix | Auto-repair safe | On write |\n")
-	b.WriteString("|---|---|---|---|---|---|---|\n")
+	b.WriteString("| Check | Level | Avoidable at write | Fix | Auto-repair safe | On write |\n")
+	b.WriteString("|---|---|---|---|---|---|\n")
 	for _, c := range lint.Checks() {
 		fix := "-"
 		if len(c.FixKinds) > 0 {
 			fix = "`" + strings.Join(c.FixKinds, "`, `") + "`"
 		}
-		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %s | %s |\n",
-			c.Name, c.Severity, c.Level, yes(c.AvoidableAtWrite), fix, yes(c.AutoRepairSafe), yes(c.OnWrite))
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %s |\n",
+			c.Name, c.Level, yes(c.AvoidableAtWrite), fix, yes(c.AutoRepairSafe), yes(c.OnWrite))
 	}
 	return b.String()
+}
+
+const (
+	lintObservationsBegin = "<!-- lint:observations:begin — generated from internal/lint/observations.go; run `go test ./internal/repodocs -run TestLintObservationsAreUpToDate -args -update` -->"
+	lintObservationsEnd   = "<!-- lint:observations:end -->"
+)
+
+// renderLintObservations is the table of every observation (D947): the states
+// of a KB that only kb_review lists. Generated, like the catalogue.
+func renderLintObservations() string {
+	var b strings.Builder
+	b.WriteString("| Observation | Category | Whole KB only | Why it is not a problem | The item closes when |\n")
+	b.WriteString("|---|---|---|---|---|\n")
+	for _, o := range lint.Observations() {
+		whole := "-"
+		if o.WholeGraph {
+			whole = "yes"
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s |\n", o.Name, o.Category, whole, o.Why, o.Closes)
+	}
+	return b.String()
+}
+
+// The observation table in docs/data-plane.md is generated from the list in
+// internal/lint/observations.go, and no name in it is also a lint check (D947):
+// a state is a problem to fix or an observation to decide, never both.
+func TestLintObservationsAreUpToDate(t *testing.T) {
+	root := repoRoot(t)
+	checkGeneratedBlock(t, root, "docs/data-plane.md",
+		lintObservationsBegin, lintObservationsEnd, renderLintObservations(),
+		"go test ./internal/repodocs -run TestLintObservationsAreUpToDate -args -update")
+	for _, o := range lint.Observations() {
+		if _, ok := lint.Spec(o.Name); ok {
+			t.Errorf("%q is an observation and a lint check", o.Name)
+		}
+	}
 }
 
 // The check catalogue in docs/data-plane.md is generated from the registry, so

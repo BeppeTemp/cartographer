@@ -2,11 +2,9 @@ package lint
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // mapOversizeCount counts a map's top-level concepts (D313): exactly one "/"
@@ -28,10 +26,9 @@ func mapOversizeCount(lg *kb.LinkGraph, mapName string) int {
 	return n
 }
 
-// mapOversizeFinding is the one place that decides and words map_oversize,
-// for the whole-KB pass and for the write path alike. A journal grows by
-// construction and needs harvest, not a split: the check is on contract.Kind,
-// never on the map's name.
+// mapOversizeFinding is the one place that decides and words the map_oversize
+// observation (D947). A journal grows by construction and needs harvest, not a
+// split: the test is on contract.Kind, never on the map's name.
 func mapOversizeFinding(mapName string, c kb.MapContract, count int) (Finding, bool) {
 	if c.Kind == "journal" {
 		return Finding{}, false
@@ -40,60 +37,8 @@ func mapOversizeFinding(mapName string, c kb.MapContract, count int) (Finding, b
 	if count <= threshold {
 		return Finding{}, false
 	}
-	return newFinding("map_oversize", Finding{
+	return newObservation("map_oversize", Finding{
 		Path:    mapName + "/_map.md",
 		Message: fmt.Sprintf("%d top-level concepts in one map (threshold %d) — split it thematically into a new map", count, threshold),
 	}), true
-}
-
-// MapOversizeCrossings reports map_oversize for the maps that the given newly
-// created concepts took from at most the threshold to above it (D716). It is
-// the write-time half of the check: ScopedCheck has no "before" state and sees
-// one ID at a time, so the creating handlers pass the whole created set here
-// once. Only top-level creations count; updates and satellites never do, and a
-// map already over the threshold stays silent (D312). Advisory: nil on any error.
-func MapOversizeCrossings(k *kb.KB, created []okf.ConceptID) []Finding {
-	perMap := map[string]int{}
-	for _, id := range created {
-		m, rest, ok := strings.Cut(string(id), "/")
-		if !ok || rest == "" || strings.Contains(rest, "/") {
-			continue
-		}
-		perMap[m]++
-	}
-	if len(perMap) == 0 {
-		return nil
-	}
-	lg, err := k.LinkGraph(nil)
-	if err != nil {
-		return nil
-	}
-	maps := make([]string, 0, len(perMap))
-	for m := range perMap {
-		maps = append(maps, m)
-	}
-	sort.Strings(maps)
-	var findings []Finding
-	for _, m := range maps {
-		c, err := k.ReadMapContract(m)
-		if err != nil {
-			continue
-		}
-		after := mapOversizeCount(lg, m)
-		before := after - perMap[m]
-		if before > mapOversizeThreshold {
-			continue
-		}
-		if f, ok := mapOversizeFinding(m, c, after); ok {
-			findings = append(findings, f)
-		}
-	}
-	if len(findings) == 0 {
-		return nil
-	}
-	out := findings
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }

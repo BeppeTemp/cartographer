@@ -18,8 +18,8 @@ import (
 // suppression tables went with lint_ignore and lint_accept (D907);
 // contract_legacy_key is the one fix added since.
 var legacyTables = map[string]string{
-	"wholeGraph":    `cut_concept index_lists_retired island link_to_retired map_misfit unknown_type value_case_variant`,
-	"lintJudgement": `bare_link_list broken_link closed_with_open_items concept_oversize concept_too_deep empty_concept map_misfit missing_frontmatter missing_type stale_open stray_file template_extra_section template_field_missing template_field_value template_missing template_not_allowed template_section_alias template_section_missing template_unknown unknown_type unparseable_frontmatter`,
+	"wholeGraph":    `index_lists_retired link_to_retired unknown_type value_case_variant`,
+	"lintJudgement": `bare_link_list broken_link closed_with_open_items concept_too_deep empty_concept missing_frontmatter missing_type stale_open stray_file template_extra_section template_field_missing template_field_value template_missing template_not_allowed template_section_alias template_section_missing template_unknown unknown_type unparseable_frontmatter`,
 	"fixable":       `broken_link contract_legacy_key duplicate_link index_link_form index_lists_retired invalid_field_value legacy_path legacy_tool_name link_to_retired missing_frontmatter missing_title missing_type nonslug_file_name nonstandard_field prose_value reciprocal_link_item repeated_link stringified_list template_field_value template_missing template_section_alias template_section_order template_type_mismatch title_h1_mismatch title_quality tool_param_field unknown_type unmapped_folder unparseable_frontmatter value_case_variant`,
 }
 
@@ -57,9 +57,6 @@ func TestRegistry_Invariants(t *testing.T) {
 			t.Errorf("%s registered twice", s.Name)
 		}
 		seen[s.Name] = true
-		if !ValidSeverity(s.Severity) {
-			t.Errorf("%s: severity %q", s.Name, s.Severity)
-		}
 		if !levels[s.Level] {
 			t.Errorf("%s: level %q", s.Name, s.Level)
 		}
@@ -91,24 +88,89 @@ func TestRegistry_Invariants(t *testing.T) {
 	}
 }
 
-func TestNewFinding_SeverityFromSpec(t *testing.T) {
+func TestNewFinding_RegisteredChecksOnly(t *testing.T) {
 	t.Parallel()
-	if f := newFinding("broken_link", Finding{Path: "a.md"}); f.Check != "broken_link" || f.Severity != SevWarning {
-		t.Errorf("default severity: %+v", f)
+	if f := newFinding("broken_link", Finding{Path: "a.md"}); f.Check != "broken_link" {
+		t.Errorf("check name: %+v", f)
 	}
-	if f := newFinding("broken_link", Finding{Path: "a.md", Severity: SevInfo}); f.Severity != SevInfo {
-		t.Errorf("explicit override must win: %+v", f)
+	for _, name := range []string{"no_such_check", "cut_concept"} {
+		func() {
+			defer func() {
+				if recover() == nil {
+					t.Errorf("a finding of %q must panic under test: it is not a registered check", name)
+				}
+			}()
+			newFinding(name, Finding{})
+		}()
 	}
 	defer func() {
 		if recover() == nil {
-			t.Error("a finding of an unregistered check must panic under test")
+			t.Error("an observation of a registered check must panic under test")
 		}
 	}()
-	newFinding("no_such_check", Finding{})
+	newObservation("broken_link", Finding{})
+}
+
+// TestNoSeverityAnywhere pins D947: a lint finding is a problem, so nothing a
+// reader receives carries a severity, however it is named.
+func TestNoSeverityAnywhere(t *testing.T) {
+	t.Parallel()
+	for _, v := range []any{Finding{}, CheckSpec{}, ObservationSpec{}, ReviewItem{}} {
+		rt := reflect.TypeOf(v)
+		for i := 0; i < rt.NumField(); i++ {
+			f := rt.Field(i)
+			if strings.Contains(strings.ToLower(f.Name), "severity") || strings.Contains(strings.ToLower(f.Tag.Get("json")), "severity") {
+				t.Errorf("%s has a severity field: %s", rt.Name(), f.Name)
+			}
+		}
+	}
+}
+
+// TestEveryCheckIsLintOrObservation pins the D947 classification: a name is a
+// lint check (a definite fix: a state of the KB that makes the finding go and is
+// always better), an observation (no single right answer: only kb_review lists
+// it, and it names the page state that closes its item), or a kb_review kind. It
+// is never two of them.
+func TestEveryCheckIsLintOrObservation(t *testing.T) {
+	t.Parallel()
+	review := map[string]bool{}
+	for _, k := range ReviewKinds {
+		review[k] = true
+	}
+	names := map[string]string{}
+	for _, c := range Checks() {
+		kind := "lint check"
+		if review[c.Name] {
+			kind = "review kind"
+		}
+		names[c.Name] = kind
+	}
+	for _, o := range Observations() {
+		if prev, dup := names[o.Name]; dup {
+			t.Errorf("%s is an observation and a %s", o.Name, prev)
+		}
+		names[o.Name] = "observation"
+		if o.Why == "" || o.Closes == "" || o.Advice == "" {
+			t.Errorf("observation %s must say why it is not a problem, what closes its item and what to do: %+v", o.Name, o)
+		}
+		if categoryOrder(o.Category) == len(Categories) {
+			t.Errorf("observation %s has category %q, not one of %v", o.Name, o.Category, Categories)
+		}
+		if _, ok := Spec(o.Name); ok {
+			t.Errorf("observation %s is also a registered check", o.Name)
+		}
+	}
+	// What D947 moved out of the lint, by reason: an observation, or covered
+	// by a kb_review kind that already existed. None is a check any more.
+	for _, gone := range []string{"cut_concept", "island", "map_misfit", "concept_oversize", "map_oversize", "facet_sprawl", "missing_value_contract", "map_without_templates", "artifact_unused"} {
+		if _, ok := Spec(gone); ok {
+			t.Errorf("%s left the lint in D947 but is registered as a check", gone)
+		}
+	}
 }
 
 // TestNoFindingLiteralOutsideRegistry pins decision 3 of D354: a finding of a
-// check is built by newFinding, so its severity comes from the spec. A literal
+// check is built by newFinding, so the registry knows its check. A literal
 // that sets Check bypasses the registry.
 func TestNoFindingLiteralOutsideRegistry(t *testing.T) {
 	t.Parallel()
@@ -196,14 +258,13 @@ func TestCheckConceptAgreesWithRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := func(f Finding) string { return f.Check + "|" + f.Severity + "|" + f.Message }
+	key := func(f Finding) string { return f.Check + "|" + f.Message }
 	seen := map[string]bool{}
 	for id, content := range pages {
 		path := okf.IDToPath(okf.ConceptID(id))
 		var want []string
 		for _, f := range findings {
-			// concept_oversize names the page by its ID, the rest by its file (D78).
-			if s, ok := Spec(f.Check); (f.Path == path || f.Path == id) && ok && s.Level == LevelConcept && s.OnWrite {
+			if s, ok := Spec(f.Check); f.Path == path && ok && s.Level == LevelConcept && s.OnWrite {
 				want = append(want, key(f))
 			}
 		}

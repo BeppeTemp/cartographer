@@ -1,19 +1,16 @@
 package mcpserver
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
-// D716: a write that takes a map from at most its threshold to above it
-// carries one map_oversize finding; later writes into the oversize map and
-// updates do not.
+// D947: map_oversize is an observation, not a finding. A write that takes a map
+// past its threshold is neither refused nor told of it; kb_review, where a
+// person decides, lists the map.
 
 // oversizeThreshold mirrors lint's fixed per-map concept limit (mapOversizeThreshold).
 const oversizeThreshold = 50
@@ -35,90 +32,23 @@ func oversizeServer(t *testing.T, existing int) (*Server, *kb.KB) {
 	return s, k
 }
 
-func oversizeCount(t *testing.T, raw string) int {
-	t.Helper()
-	return strings.Count(raw, `"map_oversize"`)
-}
-
-func TestConceptWrite_MapOversizeOnCrossingOnly(t *testing.T) {
+func TestMapOversizeIsAnObservationNotAWriteFinding(t *testing.T) {
 	t.Parallel()
 	s, _ := oversizeServer(t, oversizeThreshold)
-	create := func(id string) string {
-		return callTool(t, s, "concept_write", fmt.Sprintf(`{"id":%q,"frontmatter":{"type":"Note","title":"T"},"body":"Body.\n"}`, id)).Content[0].Text
-	}
-	if got := oversizeCount(t, create("m/n1")); got != 1 {
-		t.Fatalf("crossing write: %d map_oversize findings, want 1", got)
-	}
-	if got := oversizeCount(t, create("m/n2")); got != 0 {
-		t.Fatalf("write into an already-oversize map: %d findings, want 0", got)
-	}
-	upd := callTool(t, s, "concept_write", `{"id":"m/n1","frontmatter":{"type":"Note","title":"T2"},"body":"Body 2.\n"}`).Content[0].Text
-	if oversizeCount(t, upd) != 0 {
-		t.Fatalf("update reported map_oversize: %s", upd)
-	}
-}
-
-func TestConceptNew_MapOversizeOnCrossing(t *testing.T) {
-	t.Parallel()
-	s, k := oversizeServer(t, oversizeThreshold)
-	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeTpl := func(content string) {
-		if err := os.WriteFile(filepath.Join(k.Root, "templates", "note.md"), []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	writeTpl("---\ntype: Note\ntitle: \"{{title}}\"\n---\n# {{title}}\n")
-	res := callTool(t, s, "concept_new", `{"template":"note","id":"m/fresh","vars":{"title":"Fresh"}}`)
-	if res.IsError || oversizeCount(t, res.Content[0].Text) != 1 {
-		t.Fatalf("concept_new crossing: %+v", res)
-	}
-}
-
-func TestConceptBatch_MapOversizeOnceOnLastCreated(t *testing.T) {
-	t.Parallel()
-	s, k := oversizeServer(t, oversizeThreshold-1)
-	ops := []map[string]any{
-		{"op": "write", "id": "m/a", "frontmatter": map[string]any{"type": "Note", "title": "A"}, "body": "A\n"},
-		{"op": "write", "id": "m/b", "frontmatter": map[string]any{"type": "Note", "title": "B"}, "body": "B\n"},
-		{"op": "patch", "id": "m/old-0", "old_string": "Body.", "new_string": "Patched."},
-		{"op": "write", "id": "m/c", "frontmatter": map[string]any{"type": "Note", "title": "C"}, "body": "C\n"},
-	}
-	for i := range ops {
-		if ops[i]["op"] == "patch" {
-			ops[i]["if_match"] = readHash(t, k, "m/old-0")
-		}
-	}
-	raw, _ := json.Marshal(map[string]any{"operations": ops})
-	res := callTool(t, s, "concept_batch", string(raw))
+	res := callTool(t, s, "concept_write", `{"id":"m/n1","frontmatter":{"type":"Note","title":"T"},"body":"Body.\n"}`)
 	if res.IsError {
-		t.Fatalf("%+v", res.Content)
+		t.Fatalf("a write crossing the map threshold was refused: %s", res.Content[0].Text)
 	}
-	var out struct {
-		Results []struct {
-			ID       string `json:"id"`
-			Findings []struct {
-				Check string `json:"check"`
-			} `json:"findings"`
-		} `json:"results"`
+	if strings.Contains(res.Content[0].Text, "map_oversize") {
+		t.Fatalf("the write reported map_oversize: %s", res.Content[0].Text)
 	}
-	if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil {
-		t.Fatal(err)
+	// The doctor's list holds it.
+	out := callTool(t, s, "kb_review", `{"kind":"observation"}`).Content[0].Text
+	if !strings.Contains(out, `"check": "map_oversize"`) || !strings.Contains(out, "m/_map") {
+		t.Fatalf("kb_review lists no map_oversize observation for m: %s", out)
 	}
-	for _, r := range out.Results {
-		n := 0
-		for _, f := range r.Findings {
-			if f.Check == "map_oversize" {
-				n++
-			}
-		}
-		want := 0
-		if r.ID == "m/c" { // last created op of the map; the patch is not a creation
-			want = 1
-		}
-		if n != want {
-			t.Errorf("%s: %d map_oversize findings, want %d", r.ID, n, want)
-		}
+	// And a lint over the same KB does not.
+	if lintOut := callTool(t, s, "lint", `{"check":"map_oversize"}`).Content[0].Text; strings.Contains(lintOut, `"check": "map_oversize"`) {
+		t.Fatalf("lint returned the map_oversize observation: %s", lintOut)
 	}
 }

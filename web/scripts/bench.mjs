@@ -105,7 +105,7 @@ async function apiTimes(kb) {
   const routes = [
     "overview",
     "graph",
-    "lint?severity_min=info",
+    "lint",
     "search?q=topic&limit=20",
     "changes?since=2000-01-01T00:00:00Z&limit=500",
     "work?limit=200",

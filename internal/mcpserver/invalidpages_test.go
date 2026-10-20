@@ -93,10 +93,9 @@ func TestInvalidPagesAreLintChecks(t *testing.T) {
 	if fx := findingsFor(t, k, "empty_concept")["ops/empty.md"].Fix; fx != nil {
 		t.Errorf("an empty page must carry no fix: %+v", fx)
 	}
-	// Errors.
 	for _, c := range []string{"missing_frontmatter", "unparseable_frontmatter", "missing_type", "concept_too_deep"} {
-		if s, _ := lint.Spec(c); s.Severity != lint.SevError {
-			t.Errorf("%s: %+v", c, s)
+		if _, ok := lint.Spec(c); !ok {
+			t.Errorf("%s is not a registered check", c)
 		}
 	}
 }

@@ -140,6 +140,9 @@ var reviewFixtures = map[string]func(t *testing.T) (*kb.KB, string){
 		writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nSee [gone](gone.md).\n")
 		return k, "m/a"
 	},
+	// One page over the size threshold; the other observations have their own
+	// fixtures and closers in observations_test.go.
+	ReviewObservation: func(t *testing.T) (*kb.KB, string) { return obsFixtures["concept_oversize"](t) },
 }
 
 // TestReviewKindsHaveFixture is the D298 trap: every review kind has a
@@ -219,6 +222,8 @@ var reviewClosers = map[string]func(t *testing.T, k *kb.KB){
 	ReviewLintJudgement: func(t *testing.T, k *kb.KB) {
 		writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nThe link was dropped.\n")
 	},
+	// Split the page (the others: observations_test.go).
+	ReviewObservation: func(t *testing.T, k *kb.KB) { obsClosers["concept_oversize"](t, k) },
 }
 
 // TestReviewKindsCloseOnPageState is the D907 trap: every review kind's

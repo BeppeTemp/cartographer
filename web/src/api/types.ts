@@ -64,7 +64,6 @@ export interface Artifact {
 export interface ArtifactFinding {
   path: string;
   check: string;
-  severity: string;
   message: string;
 }
 
@@ -100,8 +99,6 @@ export interface ArtifactList {
   issues: string[];
   /** Every artifact finding by check, including those no listed artifact owns (D316). */
   finding_counts?: Record<string, number>;
-  /** The same findings by severity. */
-  finding_severities?: Record<string, number>;
 }
 
 export interface CollectionSummary {
@@ -123,7 +120,6 @@ export interface Overview {
   };
   lint: {
     total: number;
-    by_severity: Record<string, number>;
     by_check: Record<string, number>;
   };
   git?: { has_remote: boolean; remote_url?: string };
@@ -210,13 +206,11 @@ export interface Concept {
   superseded_by?: string;
 }
 
-export type Severity = "info" | "warning" | "error";
-
+/** A lint finding is a problem (D947): there is no severity to carry. */
 export interface LintFinding {
   path: string;
   concept?: string;
   check: string;
-  severity: string;
   message: string;
   /** Who acts on it (D365): the background repair, or the doctor session. */
   handler?: "auto" | "doctor";
@@ -225,10 +219,7 @@ export interface LintFinding {
 export interface LintReport {
   findings: LintFinding[];
   count: number;
-  total: number;
-  by_severity: Record<string, number>;
   by_check: Record<string, number>;
-  severity_min: string;
 }
 
 /** GET /kbs/{kb}/search: the search tool's own response. */
@@ -369,7 +360,6 @@ export interface MaintenanceRun {
 export interface LintSample {
   at: string;
   total: number;
-  by_severity: Record<string, number>;
   by_handler: Record<string, number>;
 }
 export interface MaintenanceSummary {
@@ -405,7 +395,6 @@ export interface CheckCatalog {
   checks: {
     name: string;
     category: string;
-    severity: string;
     fixable: boolean;
     auto: boolean;
     /** False when the check cannot run on this KB (D371): `reason` says why, and a zero would not mean clean. */

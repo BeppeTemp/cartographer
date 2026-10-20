@@ -14,7 +14,7 @@ import (
 
 func sampleAt(at time.Time, total int) lintSample {
 	return lintSample{At: at.UTC().Format(time.RFC3339), Total: total,
-		BySeverity: map[string]int{"warning": total}, ByHandler: map[string]int{"doctor": total}}
+		ByHandler: map[string]int{"doctor": total}}
 }
 
 // One sample per UTC day, the latest of the day wins; older than 90 days goes.
@@ -64,15 +64,12 @@ func TestConformanceCacheRecordsLintSample(t *testing.T) {
 	if len(h) != 1 || h[0].Total != len(findings) {
 		t.Fatalf("history = %+v for %d findings", h, len(findings))
 	}
-	sev, hand := 0, 0
-	for _, n := range h[0].BySeverity {
-		sev += n
-	}
+	hand := 0
 	for _, n := range h[0].ByHandler {
 		hand += n
 	}
-	if sev != h[0].Total || hand != h[0].Total {
-		t.Fatalf("splits do not add up: %+v", h[0])
+	if hand != h[0].Total {
+		t.Fatalf("the split does not add up: %+v", h[0])
 	}
 	// The next day's recompute adds a sample.
 	now = now.Add(24 * time.Hour)
@@ -93,9 +90,9 @@ func TestConformanceCacheRecordsLintSample(t *testing.T) {
 func TestNewLintSampleHandlers(t *testing.T) {
 	t.Parallel()
 	k := cacheTestKB(t)
-	fs := []lint.Finding{{Check: "x", Severity: "warning"}, {Check: "y", Severity: "info"}}
+	fs := []lint.Finding{{Check: "x"}, {Check: "y"}}
 	s := newLintSample(k, fs, time.Now())
-	if s.Total != 2 || s.BySeverity["warning"] != 1 || s.BySeverity["info"] != 1 || s.ByHandler["doctor"] != 2 {
+	if s.Total != 2 || s.ByHandler["doctor"] != 2 {
 		t.Fatalf("sample = %+v", s)
 	}
 }
@@ -164,9 +161,10 @@ func TestUIAPI_MaintenanceSummaryLintHistory(t *testing.T) {
 	}
 }
 
-// The history never invalidates the lint cache it is written from, but the
-// rest of .cartographer does: usage.json is an input of artifact_unused.
-func TestLintHistoryOutsideTheStampUsageInside(t *testing.T) {
+// Nothing in .cartographer invalidates the lint cache: the history is written
+// from it, and the usage reports are no input of the lint since artifact_unused
+// went (D947).
+func TestLocalStateIsOutsideTheLintStamp(t *testing.T) {
 	t.Parallel()
 	k := cacheTestKB(t)
 	before := lintInputsStamp(k)
@@ -181,7 +179,7 @@ func TestLintHistoryOutsideTheStampUsageInside(t *testing.T) {
 	if err := os.WriteFile(usage, []byte("[]"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := lintInputsStamp(k); got == before {
-		t.Fatal("writing usage.json left the lint inputs stamp unchanged")
+	if got := lintInputsStamp(k); got != before {
+		t.Fatal("writing usage.json changed the lint inputs stamp: lint reads no usage")
 	}
 }

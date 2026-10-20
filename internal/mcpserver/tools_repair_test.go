@@ -351,15 +351,15 @@ func TestFrontmatterRenameKeepsPosition(t *testing.T) {
 func TestSummarizeConformanceTruthTable(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	f := func(check, sev string, fix bool) lint.Finding {
-		x := lint.Finding{Check: check, Severity: sev}
+	f := func(check string, fix bool) lint.Finding {
+		x := lint.Finding{Check: check}
 		if fix {
 			x.Fix = &lint.Fix{Kind: lint.FixDropField}
 		}
 		return x
 	}
-	warn := []lint.Finding{f("broken_link", lint.SevWarning, false)}
-	info := []lint.Finding{f("map_misfit", lint.SevInfo, false)}
+	// A finding is a problem (D947): any of them is debt, whatever the check.
+	debt := []lint.Finding{f("broken_link", false)}
 	cases := []struct {
 		name     string
 		findings []lint.Finding
@@ -369,18 +369,17 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 		want     bool
 	}{
 		{"clean, never run", nil, 0, "", 14, false},
-		{"content finding counts too (D336)", []lint.Finding{f("orphan", lint.SevWarning, false)}, 0, "", 14, true},
-		{"content finding, run recently", []lint.Finding{f("artifact_unused", lint.SevInfo, false)}, 0, "2026-09-30", 14, false},
-		{"warning, never run", warn, 0, "", 14, true},
-		{"warning, run recently", warn, 0, "2026-09-30", 14, false},
-		{"fixable, run long ago", []lint.Finding{f("tool_param_field", lint.SevInfo, true)}, 0, "2026-09-01", 14, true},
-		{"info, interval just passed", info, 0, "2026-09-17", 14, true},
-		{"info, a day short", info, 0, "2026-09-18", 14, false},
-		{"info only, never run (fresh KB)", info, 0, "", 14, false},
-		{"info only, old session (established KB)", info, 0, "2026-09-01", 14, true},
-		{"info plus review item, never run", info, 1, "", 14, true},
+		{"content finding counts too (D336)", []lint.Finding{f("orphan", false)}, 0, "", 14, true},
+		{"content finding, run recently", []lint.Finding{f("orphan", false)}, 0, "2026-09-30", 14, false},
+		{"finding, never run", debt, 0, "", 14, true},
+		{"finding, run recently", debt, 0, "2026-09-30", 14, false},
+		{"fixable, run long ago", []lint.Finding{f("tool_param_field", true)}, 0, "2026-09-01", 14, true},
+		{"finding, interval just passed", debt, 0, "2026-09-17", 14, true},
+		{"finding, a day short", debt, 0, "2026-09-18", 14, false},
+		{"finding plus review item, never run", debt, 1, "", 14, true},
 		{"review only, due", nil, 3, "2026-08-01", 14, true},
-		{"debt, interval off", warn, 5, "", 0, false},
+		{"review only, never run", nil, 1, "", 14, true},
+		{"debt, interval off", debt, 5, "", 0, false},
 	}
 	for _, c := range cases {
 		got := summarizeConformance(c.findings, c.review, c.last, c.interval, now)
@@ -388,21 +387,87 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 			t.Errorf("%s: doctor_suggested = %v, want %v", c.name, got["doctor_suggested"], c.want)
 		}
 	}
-	if got := summarizeConformance(warn, 0, "2026-09-20", 14, now); got["next_doctor"] != "2026-10-04" {
+	if got := summarizeConformance(debt, 0, "2026-09-20", 14, now); got["next_doctor"] != "2026-10-04" {
 		t.Errorf("next_doctor = %v, want 2026-10-04", got["next_doctor"])
 	}
 	got := summarizeConformance([]lint.Finding{
-		f("nonstandard_field", lint.SevWarning, true), f("nonstandard_field", lint.SevWarning, false),
-		f("link_to_retired", lint.SevInfo, false), f("orphan", lint.SevWarning, false),
-		f("stringified_list", lint.SevInfo, true), f("stringified_list", lint.SevInfo, true),
+		f("nonstandard_field", true), f("nonstandard_field", false),
+		f("link_to_retired", false), f("orphan", false),
+		f("stringified_list", true), f("stringified_list", true),
 	}, 0, "2026-09-20", 14, now)
-	sev := got["findings"].(map[string]int)
-	if sev[lint.SevWarning] != 2 || sev[lint.SevInfo] != 1 || got["fixable"] != 1 || got["last_doctor"] != "2026-09-20" {
+	// findings counts the conformance checks only (nonstandard_field x2,
+	// link_to_retired); lint_findings counts every one.
+	if got["findings"] != 3 || got["lint_findings"] != 6 || got["fixable"] != 1 || got["last_doctor"] != "2026-09-20" {
 		t.Fatalf("summary = %v", got)
 	}
 	// D331: repairable counts every fixable finding, conformance check or not.
 	if rep := got["repairable"].(map[string]int); rep["nonstandard_field"] != 1 || rep["stringified_list"] != 2 || len(rep) != 2 {
 		t.Fatalf("repairable = %v", rep)
+	}
+}
+
+// An observation is a state a maintainer may leave as it is (D947), so it is
+// not debt: a KB whose only item is an oversize concept lists it in kb_review
+// but does not suggest a doctor session, in kb_status and in the write nudge.
+// The same KB with a lint finding added does, so the test is not vacuous.
+func TestObservationsDoNotSuggestTheDoctor(t *testing.T) {
+	t.Parallel()
+	build := func(t *testing.T, withFinding bool) *Server {
+		t.Helper()
+		k, s := repairKB(t, 0)
+		// Listed in the map's curated index and linked to the fixture's
+		// anchor, so that it is neither incomplete nor an orphan: the oversize
+		// concept is the only thing wrong with this KB.
+		fm := newFM()
+		fm.Set("type", "Note")
+		fm.Set("title", "Big")
+		if _, err := k.WriteConcept("ops/big", fm, "# Big\n\nSee [[anchor]].\n\n"+strings.Repeat("a", okf.ConceptReadSizeGuard/2+1)+"\n", ""); err != nil {
+			t.Fatal(err)
+		}
+		writeKBFile(t, k, "ops/index.md", "---\ntype: Index\ntitle: ops\n---\n# ops\n\n- [Big](big.md)\n")
+		if _, err := k.CommitOp("test: an oversize concept"); err != nil {
+			t.Fatal(err)
+		}
+		if withFinding {
+			writeKBFile(t, k, "ops/broken.md", "---\ntype: Note\ntitle: Broken\n---\n# Broken\n\n[x](gone.md)\n")
+		}
+		now := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
+		s.now = func() time.Time { return now }
+		return s
+	}
+	conformance := func(t *testing.T, s *Server) map[string]any {
+		t.Helper()
+		var out map[string]any
+		if err := json.Unmarshal([]byte(callTool(t, s, "kb_status", `{}`).Content[0].Text), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out["conformance"].(map[string]any)
+	}
+
+	s := build(t, false)
+	rev := decodeReview(t, callTool(t, s, "kb_review", `{"kind":"observation"}`))
+	if rev.Total != 1 || rev.Items[0].Check != "concept_oversize" {
+		t.Fatalf("kb_review no longer lists the observation: %+v", rev)
+	}
+	c := conformance(t, s)
+	if c["lint_findings"].(float64) != 0 {
+		t.Fatalf("the fixture has a lint finding: %v", c)
+	}
+	if c["doctor_suggested"] != false {
+		t.Fatalf("an observation alone suggests a doctor session: %v", c)
+	}
+	// The nudge is probed in a session of its own: the calls above may have
+	// claimed the window of the shared one, which would hide a nudge.
+	if nudged(s.callTool(inSession("probe"), "search", json.RawMessage(`{"query":"Big"}`))) {
+		t.Fatal("an observation alone nudged toward a doctor session")
+	}
+
+	s = build(t, true)
+	if c := conformance(t, s); c["doctor_suggested"] != true {
+		t.Fatalf("a lint finding next to the observation does not suggest the doctor: %v", c)
+	}
+	if !nudged(s.callTool(inSession("probe"), "search", json.RawMessage(`{"query":"Big"}`))) {
+		t.Fatal("a lint finding next to the observation did not nudge")
 	}
 }
 
