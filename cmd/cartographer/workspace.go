@@ -164,6 +164,10 @@ func cmdWorkspace(args []string) int {
 		fmt.Fprintln(os.Stderr, workspaceUsage)
 		return 2
 	}
+	if len(args) == 1 && isHelpArg(args[0]) {
+		fmt.Fprintln(os.Stdout, workspaceUsage)
+		return 0
+	}
 	sub, rest := args[0], args[1:]
 	switch sub {
 	case "bind":

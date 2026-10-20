@@ -50,6 +50,10 @@ var printPostCreateGuidanceFn = printPostCreateGuidance
 
 // cmdKB dispatches `cartographer kb <subcommand>`.
 func cmdKB(args []string) int {
+	if len(args) == 1 && isHelpArg(args[0]) {
+		printKBUsage(os.Stdout)
+		return 0
+	}
 	target, rest := splitPositional(args, "")
 	switch target {
 	case "create":
@@ -65,9 +69,14 @@ func cmdKB(args []string) int {
 	case "unmount":
 		return cmdKBUnmount(rest)
 	default:
-		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
+		fmt.Fprint(os.Stderr, "Error: ")
+		printKBUsage(os.Stderr)
 		return 2
 	}
+}
+
+func printKBUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
 }
 
 // validateKBName returns an error describing why name is not a usable KB

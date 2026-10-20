@@ -279,3 +279,50 @@ func TestCmdClientBindUnreachableServerKeepsWarning(t *testing.T) {
 		t.Errorf("expected the cached-list warning, got:\n%s", errOut)
 	}
 }
+
+// TestHelpPrintsUsageToStdout: `kb`, `client` and `workspace` answered help
+// with a usage error on stderr and exit 2, and `client`/`workspace` could not
+// be asked at all on a machine with no client config (#793). HOME is empty
+// here on purpose.
+func TestHelpPrintsUsageToStdout(t *testing.T) {
+	setHome(t, t.TempDir())
+	cmds := []struct {
+		name string
+		run  func([]string) int
+		want string
+	}{
+		{"kb", cmdKB, "cartographer kb create"},
+		{"client", cmdClient, "cartographer client bind"},
+		{"workspace", cmdWorkspace, "cartographer workspace bind"},
+	}
+	for _, c := range cmds {
+		for _, arg := range []string{"help", "-h", "--help"} {
+			t.Run(c.name+" "+arg, func(t *testing.T) {
+				var code int
+				var errOut string
+				out := withStdout(t, func() {
+					errOut = withStderr(t, func() { code = c.run([]string{arg}) })
+				})
+				if code != 0 {
+					t.Errorf("exit = %d, want 0", code)
+				}
+				if !strings.Contains(out, c.want) {
+					t.Errorf("stdout lacks %q:\n%s", c.want, out)
+				}
+				if errOut != "" {
+					t.Errorf("stderr = %q, want empty", errOut)
+				}
+			})
+		}
+		t.Run(c.name+" no argument and unknown subcommand keep exit 2", func(t *testing.T) {
+			withStderr(t, func() {
+				if code := c.run(nil); code != 2 {
+					t.Errorf("no argument = %d, want 2", code)
+				}
+				if code := c.run([]string{"frobnicate"}); code != 2 {
+					t.Errorf("unknown subcommand = %d, want 2", code)
+				}
+			})
+		})
+	}
+}

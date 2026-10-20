@@ -20,8 +20,11 @@ materialization logic (`internal/provisioning`) are the same used server-side by
 
 Root help groups commands into Get started, Client, Server, Knowledge base and
 Diagnostics. `cartographer version` and `cartographer --version` are aliases;
-root and `service` help write to stdout and exit 0. Unknown commands only offer
-a correction for one command within edit distance two.
+root, `service`, `paths`, `kb`, `client` and `workspace` help (`help`, `-h` or
+`--help` as the only argument) write to stdout and exit 0, with no client config
+needed; no argument or an unknown subcommand still fails on stderr with exit 2.
+Unknown commands only offer a correction for one command within edit distance
+two.
 
 `agents`, `status`, and `service status` accept `--output table|json` (table is
 the default). JSON is written only to stdout and uses schema

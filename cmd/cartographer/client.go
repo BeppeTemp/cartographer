@@ -23,6 +23,11 @@ func cmdClient(args []string) int {
 		printClientUsage(os.Stderr)
 		return 2
 	}
+	// Before the config load: help must work on a machine with no client config.
+	if len(args) == 1 && isHelpArg(args[0]) {
+		printClientUsage(os.Stdout)
+		return 0
+	}
 
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
