@@ -90,31 +90,13 @@ type Fix struct {
 // is the repair tool's contract, and a test pins it to what the checks emit.
 var FixableChecks = checkNames(func(s CheckSpec) bool { return len(s.FixKinds) > 0 })
 
-// StandardFieldSynonyms maps each standard frontmatter field to the synonyms
-// KBs are known to use for it (nonstandard_field). Keys are matched
-// case-insensitively. docs/data-plane.md lists every entry: the table is the
-// documentation, so a new entry needs its line there. No synonym may appear
-// under two standard fields.
-var StandardFieldSynonyms = map[string][]string{
-	"timestamp":     {"updated", "updated_at", "last_updated", "modified", "date", "aggiornato", "data"},
-	"provenance":    {"sources", "source", "refs", "fonti", "fonte"},
-	"status":        {"state", "stato"},
-	"description":   {"summary", "sommario"},
-	"tags":          {"keywords", "parole_chiave"},
-	"review_after":  {"review_by"},
-	"superseded_by": {"replaced_by"},
-}
+// StandardFieldSynonyms is kb.StandardFieldSynonyms, the one table behind
+// nonstandard_field and behind the contract realignment (D907): the synonyms of
+// each standard frontmatter field. docs/data-plane.md lists every entry.
+var StandardFieldSynonyms = kb.StandardFieldSynonyms
 
 // synonymOf is StandardFieldSynonyms inverted: synonym → standard field.
-var synonymOf = func() map[string]string {
-	m := map[string]string{}
-	for std, syns := range StandardFieldSynonyms {
-		for _, s := range syns {
-			m[s] = std
-		}
-	}
-	return m
-}()
+var synonymOf = kb.SynonymOf
 
 // ToolParamFields are the parameter names of the concept-write tools
 // (concept_write, concept_new, concept_patch, concept_batch and its operation

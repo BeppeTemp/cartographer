@@ -126,6 +126,7 @@ func judgeWrite(k *kb.KB, toolName string, visible func(id string) bool, whole b
 	if len(written) == 0 && len(gone) == 0 {
 		return nil
 	}
+	realignWrittenContracts(k, written)
 	pairUnmatchedMoves(changes, renamedFrom, func(o, n string) bool { return samePage(k, o, n) })
 	post := avoidableFindings(writeLintFindings(k, written, gone))
 	if len(post) == 0 {
@@ -204,6 +205,31 @@ func judgeWrite(k *kb.KB, toolName string, visible func(id string) bool, whole b
 		"Fix each one as its message and fix say, then retry; concept_batch is atomic, so a page and the link, index entry or target it needs can land in one call. A new page in a map with a curated index needs index_entry: true on its concept_new or creating concept_batch write (concept_write has no index_entry: create the page with concept_new, or list it in the map's index in the same concept_batch).",
 		len(introduced), body))
 	return &res
+}
+
+// realignWrittenContracts rewrites, before the write is judged, the contract of
+// each map the call wrote into when it still names a field under a synonym the
+// page repair renames (required_fields: [updated] while the repair turns every
+// "updated" into "timestamp"): otherwise the page the repair left satisfies the
+// standard and fails the contract, and no write can pass. The heartbeat and
+// kb_repair realign every map the same way (contract_legacy_key, D907); this is
+// the same rewrite, for the maps the call touched, in the call's own commit.
+func realignWrittenContracts(k *kb.KB, written []string) {
+	done := map[string]bool{}
+	for _, id := range written {
+		name, _, ok := strings.Cut(id, "/")
+		if !ok || done[name] {
+			continue
+		}
+		done[name] = true
+		meta, err := k.ReadArchiveMeta(name)
+		if err != nil || len(kb.ContractSynonymKeys(meta)) == 0 {
+			continue
+		}
+		if _, err := k.RealignContract(name); err != nil {
+			fmt.Fprintf(os.Stderr, "cartographer: write_gate: contract of %s not realigned: %v\n", name, err)
+		}
+	}
 }
 
 // redactWholeGraph is what a caller who cannot see the whole KB is told of a

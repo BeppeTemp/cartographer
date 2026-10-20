@@ -74,7 +74,7 @@ func TestRepairContractLegacyKey_RealignsTheDescriptorInOneCommit(t *testing.T) 
 			t.Errorf("realigned descriptor still carries %q:\n%s", gone, got)
 		}
 	}
-	for _, kept := range []string{"required_fields.*: [updated]", "field_values.*.status: [open, closed]", "# the types this map holds", "concept_types: [Note]", "# Ops\n"} {
+	for _, kept := range []string{"required_fields.*: [timestamp]", "field_values.*.status: [open, closed]", "# the types this map holds", "concept_types: [Note]", "# Ops\n"} {
 		if !strings.Contains(got, kept) {
 			t.Errorf("realigned descriptor lost %q:\n%s", kept, got)
 		}
@@ -86,6 +86,12 @@ func TestRepairContractLegacyKey_RealignsTheDescriptorInOneCommit(t *testing.T) 
 	res := callTool(t, s, "concept_batch", `{"operations":[{"op":"write","id":"ops/d","frontmatter":{"type":"Digest","title":"D","updated":"2026-01-02"},"body":"# D\n"}]}`)
 	if !res.IsError || !strings.Contains(res.Content[0].Text, "not allowed in map") {
 		t.Fatalf("the map stays strict without ontology_mode: %+v", res.Content)
+	}
+	// A page carrying the standard name meets the
+	// realigned contract, which now requires it.
+	res = callTool(t, s, "concept_batch", `{"operations":[{"op":"write","id":"ops/n","frontmatter":{"type":"Note","title":"N","timestamp":"2026-01-02"},"body":"# N\n\nSee [self](n.md).\n","index_entry":true}]}`)
+	if res.IsError {
+		t.Fatalf("a page in the realigned map was refused: %+v", res.Content)
 	}
 
 	before = commitCount(t, k)
@@ -207,5 +213,25 @@ func TestAutoRepairAlwaysRealignsAPreD907Contract(t *testing.T) {
 				t.Fatalf("lint_ignore not dropped (%v): %s", err, raw)
 			}
 		})
+	}
+}
+
+// A contract that still requires "updated" does not deadlock a write: the page
+// repair turns the field into "timestamp", and the write realigns the contract
+// of the map it touched in the same commit.
+func TestWriteGate_ContractRequiringARenamedFieldFollowsTheRename(t *testing.T) {
+	t.Parallel()
+	k, s := repairKB(t, 0)
+	driftWrite(t, k, "ops/_map.md", "---\ntype: Map\ntitle: Ops\nkind: map\nrequired_fields.*: [updated]\nfield_values.*.state: [open]\n---\n# Ops\n")
+	res := callTool(t, s, "concept_batch", `{"operations":[{"op":"write","id":"ops/d","frontmatter":{"type":"Note","title":"D","updated":"2026-01-02"},"body":"# D\n\nSee [self](d.md).\n","index_entry":true}]}`)
+	if res.IsError {
+		t.Fatalf("a write into a map requiring the renamed field was refused: %+v", res.Content)
+	}
+	raw, err := os.ReadFile(filepath.Join(k.DataRoot(), "ops", "_map.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "required_fields.*: [timestamp]") || strings.Contains(string(raw), "updated") || !strings.Contains(string(raw), "field_values.*.status: [open]") {
+		t.Fatalf("contract not realigned:\n%s", raw)
 	}
 }
