@@ -231,10 +231,16 @@ response header echoes the accepted origin rather than a wildcard. There is no l
 of other origins to allow (`mcp.allowed_origins` was removed): a page of another
 site has no business scripting this server.
 
-The same-origin rule is not by itself a rebinding defence: a rebound DNS name
-arrives with `Origin` and `Host` both naming the attacker, so it matches.
-Authentication is what stops that, and a server that listens beyond this machine
-with authentication off refuses to start (§Enabling bearer authentication).
+The same-origin rule alone does not tell a page served from a rebound DNS name
+from the real one: `Origin` and `Host` then both name that name. A server that
+listens on a loopback address with authentication off (the local service, D268)
+therefore hardens the rule: every request on every route (`/mcp`, `/ui/`,
+`/api/ui/v1`, the health routes) must carry a `Host` naming this machine
+(`localhost`, an address in `127.0.0.0/8`, or `[::1]`, with any port), whether or
+not it carries an `Origin`; any other `Host` gets HTTP 403. It is installed only
+under that condition: with authentication on, the token is the access control,
+and a listen address beyond loopback with authentication off refuses to start
+(§Enabling bearer authentication). An `Origin` that carries userinfo is refused.
 
 ## Enabling bearer authentication
 

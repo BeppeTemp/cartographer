@@ -132,3 +132,9 @@ A future change here must preserve all of these:
 - an advanced tool stays callable by name whatever `tools/list` shows;
 - the server never leaves a valid descriptor out of what it distributes, and a KB's policy is read from its own
   `settings.yaml` alone.
+
+**Host rule on loopback (hardening of the same-origin rule).** A server that listens on a loopback address with
+authentication off requires, on every route, a `Host` naming this machine (`localhost`, `127.0.0.0/8`, `[::1]`,
+any port), and answers 403 otherwise (`mcpserver.LoopbackHostGuard`, installed outermost by `serve`). It is not
+installed with authentication on or off-loopback. An `Origin` with userinfo is refused. The documented SSO-proxy
+setup keeps `/mcp` on bearer auth, so it is unaffected.

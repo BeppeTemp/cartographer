@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -26,9 +27,11 @@ import (
 //
 // There is no list of other origins to allow: a page on another site has no
 // business scripting this server, and the setting that widened the rule was a
-// way to turn the protection off. The same-origin rule is not by itself a
-// rebinding defence: a rebound name arrives with Origin and Host both naming
-// the attacker, so they match; authentication is what stops that.
+// way to turn the protection off. The same-origin rule alone does not tell a
+// page served from a rebound DNS name from the real one, since Origin and Host
+// then both name that name: the server that has neither authentication nor a
+// listen address beyond this machine adds LoopbackHostGuard, which hardens the
+// rule by requiring a loopback Host on every route.
 //
 // The guard runs before authentication: a caller who cannot pass this check
 // should not get as far as having its token read.
@@ -65,7 +68,7 @@ func originAllowed(origin, host string) bool {
 		return false
 	}
 	u, err := url.Parse(normalizeOrigin(origin))
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || u.User != nil {
 		return false
 	}
 	return strings.EqualFold(u.Host, host)
@@ -82,4 +85,43 @@ func writeOriginRejected(w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
 	_ = json.NewEncoder(w).Encode(errorResponse(nil, ErrCodeInvalidRequest, "origin not allowed"))
+}
+
+// LoopbackHostGuard hardens the same-origin rule of OriginGuard for a server
+// that listens on a loopback address with authentication off: every request, on
+// every route, must carry a Host naming this machine (localhost, an address in
+// 127.0.0.0/8, or ::1), with any port. A page served from a DNS name that was
+// re-pointed at the loopback address sends that name as Host, so it is refused
+// whatever Origin it carries; a request with no Origin and a foreign Host is
+// refused too. The refusal is a 403, a JSON-RPC error on the MCP routes and
+// plain text elsewhere. The caller installs it, outermost, only under that
+// condition: with authentication on, or a listen address beyond loopback, the
+// Host is not the access control.
+func LoopbackHostGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !loopbackHost(r.Host) {
+			if isMCPPath(r.URL.Path) {
+				writeOriginRejected(w)
+			} else {
+				http.Error(w, "host not allowed", http.StatusForbidden)
+			}
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// loopbackHost reports whether a Host header (authority, optional port) names
+// the loopback interface.
+func loopbackHost(hostport string) bool {
+	host := hostport
+	if h, _, err := net.SplitHostPort(hostport); err == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	if strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

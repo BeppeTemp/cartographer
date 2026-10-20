@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,8 +146,8 @@ func TestAnnounceConfigMovesAliasesAndDropsTheRemovedKeys(t *testing.T) {
 	}
 }
 
-// With no data directory the list has nowhere to go: the file keeps it, is not
-// realigned, and the aliases still resolve.
+// With no data directory the list has nowhere to go: the file keeps it, the other
+// removed keys are realigned, and the aliases still resolve.
 func TestAnnounceConfigKeepsAliasesWithoutDataDir(t *testing.T) {
 	buf := captureLog(t)
 	clearLegacyEnv(t)
@@ -161,10 +163,61 @@ func TestAnnounceConfigKeepsAliasesWithoutDataDir(t *testing.T) {
 	if kept, _ := os.ReadFile(path); !strings.Contains(string(kept), "kb_aliases") {
 		t.Errorf("the list was dropped with nowhere to go:\n%s", kept)
 	}
-	if !strings.Contains(buf.String(), "not realigned") {
+	if !strings.Contains(buf.String(), "keeps its kb_aliases") {
 		t.Errorf("no word on why:\n%s", buf.String())
 	}
 	if got, _ := cfg.KBAliases(); len(got) != 1 {
 		t.Errorf("KBAliases = %v, want the legacy item", got)
+	}
+}
+
+// Hardening of the same-origin rule (D906): the Host guard is installed only on
+// a loopback listener with authentication off.
+func TestWithLoopbackHostGuard(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	code := func(addr string, authOn bool) int {
+		req := httptest.NewRequest("GET", "/health", nil)
+		req.Host = "rebound.example.com"
+		rr := httptest.NewRecorder()
+		withLoopbackHostGuard(inner, addr, authOn).ServeHTTP(rr, req)
+		return rr.Code
+	}
+	if got := code("127.0.0.1:39273", false); got != http.StatusForbidden {
+		t.Errorf("loopback, auth off: foreign Host got %d, want 403", got)
+	}
+	if got := code("127.0.0.1:39273", true); got != http.StatusOK {
+		t.Errorf("loopback, auth on: guard installed (%d)", got)
+	}
+	if got := code("0.0.0.0:39273", true); got != http.StatusOK {
+		t.Errorf("off-loopback: guard installed (%d)", got)
+	}
+}
+
+// A kb_aliases list that cannot be moved (no data directory) keeps only itself
+// in the file: every other removed key is still realigned.
+func TestAnnounceConfigRealignsOthersWhenAliasesCannotMove(t *testing.T) {
+	buf := captureLog(t)
+	clearLegacyEnv(t)
+	t.Setenv("CARTOGRAPHER_TOOLS_PROFILE", "")
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	old := "http: \"127.0.0.1:9090\"\ninit: true\nkb_aliases:\n  - from: kb-old\n    to: kb-a\n"
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadServeConfig(serveFlagSet(), config.FlagOverrides{}, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Data = ""
+	announceConfig(cfg, path)
+	got, _ := os.ReadFile(path)
+	if strings.Contains(string(got), "init:") {
+		t.Errorf("init was not realigned:\n%s", got)
+	}
+	if !strings.Contains(string(got), "kb_aliases") || !strings.Contains(string(got), "kb-old") {
+		t.Errorf("kb_aliases was dropped without being moved:\n%s", got)
+	}
+	if !strings.Contains(buf.String(), "keeps its kb_aliases") {
+		t.Errorf("no warning:\n%s", buf.String())
 	}
 }

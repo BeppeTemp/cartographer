@@ -477,9 +477,13 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	// There is deliberately no WriteTimeout: it would also cap the duration of
 	// a legitimately slow tool call (a large reindex, a git sync), and those
 	// are already bounded per-operation.
+	// A loopback listener with authentication off also requires a loopback Host
+	// on every route (hardening of the same-origin rule, D906): outermost, so
+	// the boot gate's own routes are covered too.
+	rootHandler := withLoopbackHostGuard(gate.Handler(), addr, authOn)
 	httpSrv := &http.Server{
 		Addr:              addr,
-		Handler:           gate.Handler(),
+		Handler:           rootHandler,
 		ReadHeaderTimeout: 15 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -734,6 +738,16 @@ func checkListenSafety(addr string, authOn bool) error {
 	}
 	return fmt.Errorf("refusing to listen on %q with authentication off: that address is reachable beyond this machine and would serve every KB, writes included, to anyone who can connect. "+
 		"Configure a token (auth.tokens, CARTOGRAPHER_TOKENS or --tokens), or listen on a loopback address such as 127.0.0.1:39273", addr)
+}
+
+// withLoopbackHostGuard installs mcpserver.LoopbackHostGuard around h when the
+// server listens on a loopback address with authentication off, and returns h
+// unchanged otherwise.
+func withLoopbackHostGuard(h http.Handler, addr string, authOn bool) http.Handler {
+	if authOn || !service.IsLoopbackListenAddr(addr) {
+		return h
+	}
+	return mcpserver.LoopbackHostGuard(h)
 }
 
 // resolveAuth determines whether auth should be enforced.

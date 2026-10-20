@@ -110,3 +110,43 @@ func TestOriginGuard_CaseIgnored(t *testing.T) {
 		t.Fatalf("status = %d, want the origin matched case-insensitively without its trailing slash", rr.Code)
 	}
 }
+
+// Hardening of the same-origin rule (D906): on a loopback server with
+// authentication off, every route needs a loopback Host.
+func TestLoopbackHostGuard(t *testing.T) {
+	for _, tc := range []struct {
+		host, path string
+		origin     string
+		ok         bool
+	}{
+		{"localhost:39273", "/mcp", "", true},
+		{"127.0.0.1:39273", "/mcp", "http://127.0.0.1:39273", true},
+		{"[::1]:39273", "/ui/", "", true},
+		{"127.0.0.1", "/health", "", true},
+		{"rebound.example.com:39273", "/mcp", "http://rebound.example.com:39273", false},
+		{"rebound.example.com:39273", "/mcp/kb-a", "", false},
+		{"rebound.example.com", "/api/ui/v1/kbs", "http://rebound.example.com", false},
+		{"rebound.example.com", "/health", "", false},
+		{"10.0.0.5:39273", "/ui/", "", false},
+		{"", "/mcp", "", false},
+	} {
+		var reached bool
+		req := httptest.NewRequest("POST", tc.path, strings.NewReader("{}"))
+		req.Host = tc.host
+		if tc.origin != "" {
+			req.Header.Set("Origin", tc.origin)
+		}
+		rr := httptest.NewRecorder()
+		LoopbackHostGuard(okHandler(&reached)).ServeHTTP(rr, req)
+		if reached != tc.ok || (!tc.ok && rr.Code != http.StatusForbidden) {
+			t.Errorf("Host %q on %s: reached=%v code=%d, want allowed=%v", tc.host, tc.path, reached, rr.Code, tc.ok)
+		}
+	}
+}
+
+// An Origin carrying userinfo is refused even when its host matches.
+func TestOriginWithUserinfoRejected(t *testing.T) {
+	if originAllowed("http://user@kb.example.com", "kb.example.com") {
+		t.Error("an origin with userinfo was accepted")
+	}
+}
