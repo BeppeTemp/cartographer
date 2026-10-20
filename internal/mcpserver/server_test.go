@@ -50,6 +50,28 @@ func setupTestKB(t testing.TB) *kb.KB {
 	return k
 }
 
+// forwardLinks writes, on disk, a page of the fixture's own map that already
+// links the ids a test is about to create. The write gate (D907) refuses a new
+// page nothing links to, and a test whose subject is not the gate gets its
+// page reached this way instead of through a body that the test asserts on:
+// the links are broken until the page exists, a finding the fixture had
+// before the write and the write resolves.
+func forwardLinks(t testing.TB, k *kb.KB, ids ...string) {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("---\ntype: Note\ntitle: Forward links\n---\n# Forward links\n\n")
+	for _, id := range ids {
+		b.WriteString("- [[" + id + "]]\n")
+	}
+	abs := filepath.Join(k.DataRoot(), "manutenzione", "forward-links.md")
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 const initializedNotification = `{"jsonrpc":"2.0","method":"notifications/initialized"}`
 
 // asMCPSession turns a bare message list into a valid MCP session: the SDK
