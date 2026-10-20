@@ -74,7 +74,7 @@ func TestTemplateRequiresHeading(t *testing.T) {
 	writeFile(t, k.Root, "templates/loose.md", tpl("x-template.optional_sections: [Links]\n"))
 	writeFile(t, k.DataRoot(), "strict/_map.md", "---\ntype: Map\nkind: map\ntitle: S\ntemplates: [topic]\n---\n")
 	writeFile(t, k.DataRoot(), "opt/_map.md", "---\ntype: Map\nkind: map\ntitle: O\ntemplates: [loose]\n---\n")
-	writeFile(t, k.DataRoot(), "sections/_map.md", "---\ntype: Map\nkind: map\ntitle: T\ndefault_template: topic\n---\n")
+	writeFile(t, k.DataRoot(), "sections/_map.md", "---\ntype: Map\nkind: map\ntitle: T\ntemplates: [topic]\n---\n")
 	writeFile(t, k.DataRoot(), "free/_map.md", "---\ntype: Map\nkind: map\ntitle: F\n---\n")
 
 	page := func(shape, typ string) *okf.Frontmatter {
@@ -95,7 +95,7 @@ func TestTemplateRequiresHeading(t *testing.T) {
 		{"required section", "strict/p", page("shape: topic\n", "Topic"), 2, "Links", true},
 		{"folded name", "strict/p", page("shape: topic\n", "Topic"), 2, "  links ", true},
 		{"alias of a required section", "strict/p", page("shape: topic\n", "Topic"), 2, "Related", true},
-		{"template resolved by the type under a default template", "sections/p", page("", "Topic"), 2, "Links", true},
+		{"template resolved by the type under the map's templates", "sections/p", page("", "Topic"), 2, "Links", true},
 		{"a heading the template does not name", "strict/p", page("shape: topic\n", "Topic"), 2, "See also", false},
 		{"deeper than the H2 a template names", "strict/p", page("shape: topic\n", "Topic"), 3, "Links", false},
 		{"optional section", "opt/p", page("shape: loose\n", "Topic"), 2, "Links", false},
