@@ -22,7 +22,7 @@ not in prose.
 Before anything else, find your role (D955; `CONTRIBUTING.md` §Working with an agent client):
 
 ```bash
-gh repo view "$(git remote get-url "$(git remote | grep -qx upstream && echo upstream || echo origin)" | sed -E 's#^.*[:/]([^/:]+/[^/]+)$#\1#; s#\.git$##')" --json viewerPermission --jq .viewerPermission
+gh repo view "$(scripts/upstream-repo.sh)" --json viewerPermission --jq .viewerPermission
 ```
 
 `ADMIN`, `MAINTAIN` or `WRITE` is **maintainer mode**; `TRIAGE`, `READ`, or any
@@ -31,7 +31,9 @@ failure to read it, is **contributor mode**. State the mode to the user in one l
 - **Only an approved plan is implemented**, in either mode, the maintainer's own
   plans included: select with `--label plan --label approved`. A plan the user
   names that lacks `approved` is not implemented: say it awaits a maintainer's
-  approval. Never add the label on your own initiative, only when the maintainer
+  approval. In contributor mode the plan must also be assigned to you (comment
+  on it to claim it; the maintainer assigns it): `plan-gate` rejects the PR
+  otherwise. Never add the label on your own initiative, only when the maintainer
   tells you to in this session.
 - **Contributor mode**: exactly one plan, no waves (§1 is skipped); the branch
   is pushed to `origin`, your fork. No `gh pr merge`, no armed auto-merge (§4

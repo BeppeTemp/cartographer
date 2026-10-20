@@ -138,6 +138,7 @@ test-install: ## Run the network-free install.sh/Cask upgrade-repair suite and t
 # implement-issue skill no longer carries four copies of the same git commands.
 worktree-add: ## Isolated worktree for a plan branch (from upstream/main when that remote exists, else origin/main): make worktree-add SLUG=my-change
 	@test -n "$(SLUG)" || (echo "worktree-add: SLUG is required" && exit 1)
+	@./scripts/upstream-repo.sh --require-remote >/dev/null
 	@base=origin; git remote get-url upstream >/dev/null 2>&1 && base=upstream; \
 	git fetch $$base && git worktree add -b "feat/$(SLUG)" ".worktrees/$(SLUG)" $$base/main
 	@echo "worktree: $(CURDIR)/.worktrees/$(SLUG) on feat/$(SLUG)"

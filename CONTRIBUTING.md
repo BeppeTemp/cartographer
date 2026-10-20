@@ -205,11 +205,15 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   - a contributor's change over **150 production lines** (tests, docs and
     generated files excluded), or one that changes a public contract (MCP tool
     schema, CLI flag, config key, on-disk format), closes a **plan issue the
-    maintainer approved** — labelled `plan` and `approved`. The design is
+    maintainer approved** — labelled `plan` and `approved` — **and assigned to
+    you** (comment on the plan to claim it; the maintainer assigns it, so nobody
+    ships against a plan someone else holds). The design is
     reviewed there, before any code exists; a trivial fix needs only `Closes #<n>`;
   - at most **500 production lines added** per PR: a larger change is split by
-    work package into PRs that land in order, or the PR body has a line starting
-    `Size exception:` that says why it cannot be;
+    work package into PRs that land in order. The exception is a maintainer's
+    decision: the label `size-exception` on the PR (only triage rights set it;
+    a maintainer's own PR may instead have a body line starting `Size exception:`
+    that says why). A contributor's body line does not count;
   - the body follows `.github/pull_request_template.md`: its `Self-review`
     section reports an independent review run before opening — the
     `pr-reviewer` subagent of the `review-pr` skill, or your client's equivalent,
@@ -273,7 +277,9 @@ it gets the `plan` label, so the discussion and the plan stay in one issue. A
 trivial fix needs no plan: a PR that says `Closes #<n>` is enough. A plan is a
 **proposal** until a maintainer adds the `approved` label, which only someone
 with triage rights can set; no agent implements a plan without it, and none adds
-it on its own initiative.
+it on its own initiative. A contributor claims an approved plan by commenting on
+it; the maintainer assigns it to them, and `plan-gate` accepts only a plan
+assigned to the PR author.
 
 ## Plan issues (design → implementation handoff)
 

@@ -53,7 +53,7 @@ git remote get-url upstream >/dev/null 2>&1 && remote=upstream
 role=contributor
 if [ $# -ge 1 ]; then
   PR=$1
-  meta=$(gh pr view "$PR" --json title,author,files,closingIssuesReferences,statusCheckRollup,body,headRefName)
+  meta=$(gh pr view "$PR" --json title,author,files,closingIssuesReferences,statusCheckRollup,body,headRefName,labels)
   files=$(jq -r '.files[] | "\(.additions)\t\(.deletions)\t\(.path)"' <<<"$meta")
   author=$(jq -r .author.login <<<"$meta")
   prinfo=$(gh api "repos/{owner}/{repo}/pulls/$PR" --jq '[.author_association, .user.type] | @tsv')
@@ -61,6 +61,7 @@ if [ $# -ge 1 ]; then
   case "$assoc" in OWNER|MEMBER|COLLABORATOR) role=maintainer ;; esac
   [ "${prinfo##*$'\t'}" = Bot ] && role=bot
   echo "PR #$PR $(jq -r .title <<<"$meta") — by $author, branch $(jq -r .headRefName <<<"$meta")"
+  sizelabel=$(jq -r '[.labels[].name] | index("size-exception") // empty' <<<"$meta")
   ci=$(jq -r '[.statusCheckRollup[] | (.conclusion // .state // "PENDING")] |
     if length == 0 then "none"
     elif any(. == "FAILURE" or . == "CANCELLED" or . == "TIMED_OUT" or . == "ERROR") then "FAILURE"
@@ -72,7 +73,9 @@ else
   git fetch -q "$remote" main
   files=$(git diff --numstat "$remote"/main...HEAD | awk -F'\t' '$1 != "-"')
   ci=local
-  slug=$(git remote get-url "$remote" | sed -E 's#^.*[:/]([^/:]+/[^/]+)$#\1#; s#\.git$##')
+  slug=$("$(dirname "$0")/../../../../scripts/upstream-repo.sh")
+  author=$(gh api user --jq .login 2>/dev/null || echo me)
+  sizelabel=""
   perm=$(gh repo view "$slug" --json viewerPermission --jq .viewerPermission 2>/dev/null || echo UNKNOWN)
   case "$perm" in ADMIN|MAINTAIN|WRITE) role=maintainer ;; esac
   echo "Branch $(git rev-parse --abbrev-ref HEAD) vs $remote/main (before opening a PR)"
@@ -106,13 +109,21 @@ fi
 echo "Tier: $tier${invariant:+ — invariant areas: $(tr '\n' ' ' <<<"$invariant")}${supply:+ — supply chain: $(tr '\n' ' ' <<<"$supply")}"
 [ -n "$supply" ] && echo "WARN: supply-chain files changed — the user reads those hunks and decides the merge; no standing approval covers it"
 
-plan=""; plan_ok=""
+plan=""; plan_ok=""; unassigned=""
 for n in $issues; do
   labels=$(gh issue view "$n" --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "?")
   echo "Closes #$n [$labels]"
   if [[ ",$labels," == *",plan,"* ]]; then
     plan=$n
-    [[ ",$labels," == *",approved,"* ]] && plan_ok=$n
+    if [[ ",$labels," == *",approved,"* ]]; then
+      # A contributor claims an approved plan by commenting on it; the maintainer assigns it (D955).
+      assignees=$(gh issue view "$n" --json assignees --jq '[.assignees[].login] | join(",")' 2>/dev/null || echo "")
+      if [ "$role" != contributor ] || [[ ",$assignees," == *",$author,"* ]]; then
+        plan_ok=$n
+      else
+        unassigned=$n
+      fi
+    fi
   fi
 done
 [ -n "$issues" ] || echo "Closes: nothing"
@@ -123,11 +134,17 @@ blocked=0
 [ "$ci" = FAILURE ] && echo "BLOCK: CI is red — nothing to review until it is green"
 if [ "$role" = contributor ] && [ "$prod" -gt "$PLAN_FLOOR" ] && [ -z "$plan_ok" ]; then
   blocked=1
-  echo "BLOCK: $prod production lines from a contributor without an approved plan (an issue labelled plan + approved): the design is reviewed there first"
+  if [ -n "$unassigned" ]; then
+    echo "BLOCK: plan #$unassigned is approved but not assigned to $author: comment on it to claim it, and ask the maintainer to assign the plan to you"
+  else
+    echo "BLOCK: $prod production lines from a contributor without an approved plan (an issue labelled plan + approved): the design is reviewed there first"
+  fi
 fi
 if [ "$prod" -gt "$SIZE_CAP" ]; then
-  if grep -qi '^size exception:' <<<"$body"; then
-    echo "WARN: over the size cap, with a stated exception: $(grep -i -m1 '^size exception:' <<<"$body")"
+  # A contributor's own body line would let any PR through the required check: for a
+  # contributor the exception is the maintainer-set `size-exception` label (D955).
+  if [ -n "$sizelabel" ] || { [ "$role" != contributor ] && grep -qi '^size exception:' <<<"$body"; }; then
+    echo "WARN: over the size cap, with an accepted exception ($([ -n "$sizelabel" ] && echo "label size-exception" || grep -i -m1 '^size exception:' <<<"$body"))"
   else
     blocked=1
     echo "BLOCK: over the size cap ($prod > $SIZE_CAP production lines) — split it by work package"

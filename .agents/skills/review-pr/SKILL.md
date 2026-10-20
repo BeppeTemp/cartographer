@@ -15,7 +15,7 @@ this skill is only the procedure. `.claude/skills/review-pr`,
 Before anything else, find your role (D955; `CONTRIBUTING.md` §Working with an agent client):
 
 ```bash
-gh repo view "$(git remote get-url "$(git remote | grep -qx upstream && echo upstream || echo origin)" | sed -E 's#^.*[:/]([^/:]+/[^/]+)$#\1#; s#\.git$##')" --json viewerPermission --jq .viewerPermission
+gh repo view "$(scripts/upstream-repo.sh)" --json viewerPermission --jq .viewerPermission
 ```
 
 `ADMIN`, `MAINTAIN` or `WRITE` is **maintainer mode**; `TRIAGE`, `READ`, or any

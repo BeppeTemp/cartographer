@@ -11,6 +11,8 @@ name: plan-gate
 #     possibly edited, copy of both.
 #   - It checks out the base SHA only, never the PR head, and executes nothing
 #     from the PR. A fork PR's code never runs with this token.
+#   - Every `uses:` is pinned to a full commit SHA: this is the only workflow that holds
+#     the base repository token on fork-triggered events, so a moved tag must not reach it.
 #   - Read-only permissions and no secrets; only the re-run job gets actions: write.
 #
 # TRAP: a `pull_request_target` workflow added or changed by a PR does not run
@@ -21,7 +23,7 @@ name: plan-gate
 # the required checks of `main-protection`.
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, edited] # edited: `Closes #n` is often added later
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled] # edited: `Closes #n` is often added later; labeled: the `size-exception` label
   issues:
     types: [labeled]
 
@@ -40,7 +42,7 @@ jobs:
       cancel-in-progress: true
     steps:
       # The base SHA, nothing else: see INVARIANTS.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false

@@ -44,8 +44,20 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 	}
 	body := strings.Join(code, "\n")
 
-	if regexp.MustCompile(`github\.event\.pull_request\.head|github\.head_ref|refs/pull/`).MatchString(body) {
-		t.Error("plan-gate.yml: references the PR head: only the base SHA may be checked out")
+	if regexp.MustCompile(`pull_request\.head|pull_request\[\s*['"]head|github\.head_ref|refs/pull/|merge_commit_sha`).MatchString(body) {
+		t.Error("plan-gate.yml: references the PR head or its merge commit: only the base SHA may be checked out")
+	}
+	// Every `ref:` (a checkout's) is exactly the base SHA, and every action is pinned to a commit.
+	for _, m := range regexp.MustCompile(`(?m)^\s*ref:\s*(.*)$`).FindAllStringSubmatch(body, -1) {
+		if strings.TrimSpace(m[1]) != "${{ github.event.pull_request.base.sha }}" {
+			t.Errorf("plan-gate.yml: `ref: %s`, want exactly the base SHA", m[1])
+		}
+	}
+	pinned := regexp.MustCompile(`^[^@\s]+@[0-9a-f]{40}(\s|$)`)
+	for _, m := range regexp.MustCompile(`(?m)^\s*-?\s*uses:\s*(.*)$`).FindAllStringSubmatch(body, -1) {
+		if !pinned.MatchString(strings.TrimSpace(m[1])) {
+			t.Errorf("plan-gate.yml: `uses: %s` is not pinned to a 40-hex commit SHA", m[1])
+		}
 	}
 	if regexp.MustCompile(`secrets\.`).MatchString(body) {
 		t.Error("plan-gate.yml: uses secrets.*: the job runs with the default read-only token only")

@@ -19,7 +19,7 @@ the two places where the clients genuinely differ.
 Before anything else, find your role (D955; `CONTRIBUTING.md` §Working with an agent client):
 
 ```bash
-gh repo view "$(git remote get-url "$(git remote | grep -qx upstream && echo upstream || echo origin)" | sed -E 's#^.*[:/]([^/:]+/[^/]+)$#\1#; s#\.git$##')" --json viewerPermission --jq .viewerPermission
+gh repo view "$(scripts/upstream-repo.sh)" --json viewerPermission --jq .viewerPermission
 ```
 
 `ADMIN`, `MAINTAIN` or `WRITE` is **maintainer mode**; `TRIAGE`, `READ`, or any
@@ -28,7 +28,9 @@ failure to read it, is **contributor mode**. State the mode to the user in one l
 A plan is a **proposal**: the skill ends by telling the user it waits for a
 maintainer's `approved` label, and never adds that label itself (a maintainer may
 tell you to, in the session). In contributor mode the label edits below are out of
-reach (they need triage rights): you create a Plan issue, nothing else.
+reach (they need triage rights): you create a Plan issue, nothing else. To
+implement an approved plan, a contributor comments on it to claim it; the
+maintainer assigns it to them.
 
 ## Writing a plan
 
