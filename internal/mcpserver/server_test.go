@@ -5770,8 +5770,8 @@ func TestConceptDeleteRefusesInboundLinksWithoutForce(t *testing.T) {
 	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target"}`)
 	if !res.IsError || !strings.HasPrefix(res.Content[0].Text, "inbound_links:") ||
 		!strings.Contains(res.Content[0].Text, "manutenzione/linker") ||
-		!strings.Contains(res.Content[0].Text, "force") {
-		t.Fatalf("want inbound_links refusal naming the linker, got %+v", res)
+		!strings.Contains(res.Content[0].Text, "concept_batch") || strings.Contains(res.Content[0].Text, "leave these links broken") {
+		t.Fatalf("want inbound_links refusal naming the linker and the batch route, got %+v", res)
 	}
 	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "target.md")); err != nil {
 		t.Fatalf("refused delete removed the file: %v", err)

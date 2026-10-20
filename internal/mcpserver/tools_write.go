@@ -3040,7 +3040,7 @@ func mapContractViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
 func toolConceptDelete(k *kb.KB) Tool {
 	return Tool{
 		Name:        "concept_delete",
-		Description: "Permanently removes a concept (git commit). Refuses with inbound_links (listing the linkers) unless force=true; links are never rewritten. To keep the page use supersede; to rename, concept_move. An expanded concept that owns assets also needs force=true.",
+		Description: "Permanently removes a concept (git commit). Refuses with inbound_links (listing the linkers) while other concepts link to it: relink them in the same concept_batch, or use supersede to retire the page; to rename, concept_move. Links are never rewritten. In a git KB force does not lift this: the write gate refuses a delete that leaves a broken link; force only matters in a KB without git, and for an expanded concept that owns assets (it also needs force=true).",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
@@ -3054,7 +3054,7 @@ func toolConceptDelete(k *kb.KB) Tool {
 				},
 				"force": {
 					"type": "boolean",
-					"description": "Accept broken inbound links and deletion of an expanded concept's assets"
+					"description": "Skip the inbound_links check (only a KB without git then accepts the broken links; a git KB's write gate still refuses them) and allow deletion of an expanded concept's assets"
 				}
 			}
 		}`),
@@ -3095,8 +3095,8 @@ func toolConceptDelete(k *kb.KB) Tool {
 					return errorResult(fmt.Sprintf("concept_delete %q: not found", params.ID)), nil
 				}
 				return errorResult(fmt.Sprintf("inbound_links: %d concept(s) still link to %s: %s. "+
-					"Relink them, use supersede (retire the page but keep it) or concept_move (rename with backlink rewrite), "+
-					"or pass force: true to delete anyway and leave these links broken",
+					"Relink them in the same concept_batch, use supersede (retire the page but keep it) or concept_move (rename with backlink rewrite); "+
+					"in a git KB force: true does not lift this, the write gate refuses a delete that leaves broken links",
 					len(linkers), params.ID, formatIDList(linkers))), nil
 			}
 
