@@ -47,7 +47,7 @@ func TestSyncOut_MemberCheckRemoteAcceptsTheConfiguredIdentity(t *testing.T) {
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("SyncOut with the identity configured: %v", err)
 	}
-	out, err := exec.Command("git", "-C", bare, "log", "-2", "--format=%an <%ae> | %cn <%ce>").CombinedOutput()
+	out, err := exec.Command("git", "-C", bare, "log", "-2", "--format=%an <%ae> | %cn <%ce>", "main").CombinedOutput()
 	if err != nil {
 		t.Fatal(err)
 	}
