@@ -21,7 +21,8 @@ read nor generated (a read-only directory without it), `best_effort` starts with
 naming the file to add, and `required` does not start. A log that cannot be opened does the same. A log kept
 unsigned before the upgrade is signed from then on: `audit verify` accepts its unsigned entries before the
 first signature and the first checkpoint written with the key, which the hash chain authenticates, and still
-refuses an unsigned entry after either.
+refuses an unsigned entry after either, so a `best_effort` start without the key after the log was signed
+makes it fail verification from that entry on.
 
 The choices the plan left to the implementation:
 - **A session on `--kb` folders without data keeps neither.** When `data` is not configured (YAML or

@@ -1024,7 +1024,9 @@ Rollout notes:
   signed from the upgrade on. `audit verify` accepts its unsigned entries up to
   the first signature, which covers them through the hash chain, and up to the
   first checkpoint written with the key; an unsigned entry after either is
-  reported.
+  reported. So a `best_effort` start without the key, once the log has been
+  signed, leaves a log that `audit verify` refuses from that entry on: restore
+  `audit.key` before restarting, or rotate the log and keep the old one aside.
 - Verify from the operator machine, not the server: both commands read files
   and never contact a running instance, so they work during an outage.
 
