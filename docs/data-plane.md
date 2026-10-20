@@ -789,8 +789,8 @@ Names, values and defaults are in `config.example.yaml`'s KB sections and in the
 writes (`cartographer config --all` lists them). The keys bound to one machine (`remote`, `name`) stay in the server's `kbs[]`; naming one in
 `settings.yaml` is a finding. So is a removed key: the server git profile's `git_profile`,
 `git_base_branch`, `git_forge`, `github_*`, `git_working_branch`, and `git_branch`, which became
-`branch` (D903); `author_*` and `committer_*`, since the writer is the author and the server the
-committer (D904); `ssh_key`, `known_hosts`, `sops_age_key_file` and `artifact_signing_seed`, whose
+`branch` (D903); `author_*` and `committer_*`, since the writer is the author and the committer, and the
+server file names the identity of what has no writer (D904, D950); `ssh_key`, `known_hosts`, `sops_age_key_file` and `artifact_signing_seed`, whose
 files are in the server's credentials directory, since a secret never belongs in the KB (D905);
 `allow_artifact_write` and `allow_template_write`, since artifact writes are always allowed, and
 `mcp_allowlist` and `secrets`, derived as above (D906); `write_gate`, `auto_repair`, `repair_on_write` and the `doctor_*` keys (D907), since the gate refuses what a write could have avoided in every git KB, every safe fix is applied on write, by the background repair every day and by `kb repair --apply`, a doctor session is proposed 14 days after the last one and its review budget (10) is a parameter of the session. Each is ignored with a finding that names what to use, and

@@ -186,7 +186,7 @@ func cmdKBCreate(args []string) int {
 // local KB at path (a new KB's initial commit, import --commit): the operator
 // running it is its writer, so git's own resolution for that path (the
 // per-folder identity included), then the server identity on a machine with
-// none (D904, D156).
+// none (D904, D156). It is the committer of those commits too (D950).
 func operatorIdentity(path string) (name, email string) {
 	if n, e, err := gitx.AuthorIdent(path); err == nil && n != "" && e != "" {
 		return n, e
@@ -348,8 +348,9 @@ func adoptForgeCommit(path, remote, branch string, refs gitx.RemoteRefs, authorN
 	}
 
 	// The rebased commit is created by this git, so its committer must be the
-	// server identity (D904, D265), not whatever git would guess.
-	if err := gitx.RebaseOntoAutostash(path, "origin", target, kb.ServerGitEnv()...); err != nil {
+	// operator who authors it (D950, D265), not whatever git would guess: a
+	// forge with a membership rule checks the committer too.
+	if err := gitx.RebaseOntoAutostash(path, "origin", target, kb.IdentityGitEnv(authorName, authorEmail)...); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return refuse()
 	}

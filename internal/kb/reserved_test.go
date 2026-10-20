@@ -276,10 +276,11 @@ func TestFinalizeConflictsReservedUnion(t *testing.T) {
 	assertServerAuthoredHead(t, k)
 }
 
-// TestSyncIn_RebaseKeepsTheWriterAndCommitsAsTheServer: a sync that replays a
-// local write on top of the remote keeps the writer as its author and records
-// the server as the committer of the replayed commit (D904).
-func TestSyncIn_RebaseKeepsTheWriterAndCommitsAsTheServer(t *testing.T) {
+// TestSyncIn_RebaseKeepsTheWriterAsAuthorAndCommitter: a sync that replays a
+// local write on top of the remote keeps the writer as its author and as the
+// committer of the replayed commit (D950): a forge with a membership push rule
+// checks the committer too.
+func TestSyncIn_RebaseKeepsTheWriterAsAuthorAndCommitter(t *testing.T) {
 	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
@@ -296,8 +297,7 @@ func TestSyncIn_RebaseKeepsTheWriterAndCommitsAsTheServer(t *testing.T) {
 	if parent := tgit(t, k.Root, "log", "-1", "--format=%s", "HEAD~1"); parent != "colleague" {
 		t.Fatalf("HEAD~1 = %q, want the colleague's commit under the replayed write", parent)
 	}
-	name, email := ServerIdentity()
-	want := "Writer <writer@example.com> | " + name + " <" + email + ">"
+	want := "Writer <writer@example.com> | Writer <writer@example.com>"
 	if got := tgit(t, k.Root, "log", "-1", "--format=%an <%ae> | %cn <%ce>"); got != want {
 		t.Errorf("replayed write author | committer = %q, want %q", got, want)
 	}
@@ -373,5 +373,36 @@ func TestSyncIn_FetchFailureWithoutTrackingRefFails(t *testing.T) {
 	}
 	if _, err := k.SyncIn(); err == nil || !strings.Contains(err.Error(), "SyncIn fetch") {
 		t.Fatalf("SyncIn err = %v, want the fetch error", err)
+	}
+}
+
+// TestSyncIn_RebaseReCommitsAServerCommitAsTheConfiguredIdentity: a commit made
+// while no identity was configured (authored and committed by the server, as
+// 0.25.0 did) is re-authored and re-committed as the identity configured since,
+// so the forge accepts it (D950).
+func TestSyncIn_RebaseReCommitsAServerCommitAsTheConfiguredIdentity(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, other, branch := reservedSyncKB(t, true, nil)
+	colleaguePush(t, other, branch, map[string]string{"data/remote.md": "remote\n"})
+	writeRel(t, k.Root, "data/local.md", "local\n")
+	if _, err := k.CommitOp("local by the server"); err != nil {
+		t.Fatal(err)
+	}
+	k.SetDefaultIdentity("Ada Example", "ada@example.test")
+	if _, err := k.SyncIn(); err != nil {
+		t.Fatalf("SyncIn: %v", err)
+	}
+	want := "Ada Example <ada@example.test> | Ada Example <ada@example.test>"
+	if got := tgit(t, k.Root, "log", "-1", "--format=%an <%ae> | %cn <%ce>"); got != want {
+		t.Errorf("replayed server commit author | committer = %q, want %q", got, want)
+	}
+	if got := tgit(t, k.Root, "log", "-1", "--format=%s"); got != "local by the server" {
+		t.Errorf("subject = %q, the message must survive the rewrite", got)
+	}
+	if parent := tgit(t, k.Root, "log", "-1", "--format=%s", "HEAD~1"); parent != "colleague" {
+		t.Errorf("HEAD~1 = %q, want the colleague's commit under the rewritten one", parent)
 	}
 }

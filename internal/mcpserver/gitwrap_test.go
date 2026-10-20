@@ -1278,8 +1278,9 @@ func writeWithArgs(t *testing.T, k *kb.KB, id string, extra map[string]any) {
 	}
 }
 
-// tokenTrailer is the trailer the local admin's writes carry (D904).
-const tokenTrailer = "Cartographer-Token: local-admin"
+// tokenTrailer is the trailers the local admin's writes end with: the host
+// that recorded them (D950), then the token (D904).
+var tokenTrailer = commitHostKey + ": " + kb.ServerHost() + "\nCartographer-Token: local-admin"
 
 func TestGitWrap_ReasonBecomesTrailer(t *testing.T) {
 	t.Parallel()

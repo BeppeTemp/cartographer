@@ -305,8 +305,9 @@ func TestLoadRetiredAuthorKeysWarn(t *testing.T) {
 	for _, key := range []string{"git.author_name", "git.author_email", "git.committer_name", "git.committer_email",
 		"kbs[0].author_name", "kbs[0].author_email", "kbs[0].committer_name", "kbs[0].committer_email",
 		"auth.tokens[1].author_name"} {
-		if want := key + ": removed setting, ignored: " + kb.AuthorSettingRemoved; !strings.Contains(got, want) {
-			t.Errorf("warnings lack %q:\n%s", want, got)
+		want := key + ": removed setting, ignored"
+		if !strings.Contains(got, want) || !strings.Contains(got, kb.AuthorSettingRemoved) {
+			t.Errorf("warnings lack %q with the replacement note:\n%s", want, got)
 		}
 	}
 	if err := cfg.RefusalError(); err != nil {

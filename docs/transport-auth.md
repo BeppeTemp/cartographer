@@ -429,12 +429,13 @@ Bearer tokens authorize requests. SSH keys and git tokens are files of the
 credentials directory, a KB's own or a default one, as described in
 [deployment](deployment.md) §Credentials directory (D905).
 
-The git **author** of a write is the writer, not a setting (D904). A client that
-knows who it acts for sends `Cartographer-Author: Name <email>` with the
-request; without a valid one the author is `<token id> <cartographer@<host>>`.
-The committer is always the server, `Cartographer <cartographer@<host>>`, and
-every write carries a `Cartographer-Token: <token id>` trailer that the server
-appends itself. The author line is therefore a claim by the caller, and the
+The git **author and committer** of a write are the writer, not a setting (D904,
+D950). A client that knows who it acts for sends `Cartographer-Author: Name <email>`
+with the request; without a valid one the writer is the identity the operator
+configured for the KB in the server file (`git.identity`, `git.identities`),
+else `<token id> <cartographer@<host>>`. Every write carries `Cartographer-Host`
+and `Cartographer-Token: <token id>` trailers that the server appends itself.
+The configured identity is attribution, never authorization. The author line is therefore a claim by the caller, and the
 trailer is what the server knows: attribution, not a signature, since whoever
 holds the token can write under any name. Format, validation and the warning on
 a rejected header → [control plane](control-plane.md). A token's `author_name`

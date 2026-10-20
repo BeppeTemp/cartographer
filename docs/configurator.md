@@ -736,7 +736,7 @@ cartographer import --source ./docs --kb ./kb-clone \
 | `--default-map` | `""` | Default map for source directories with no `--map` (D77: used to be `--archive`) |
 | `--map` | *(repeatable)* | Per-directory mapping `<srcdir>=<map>` (`srcdir` relative to `--source`, `.` for the root) |
 | `--dry-run` | `false` | Prints the mapping plan (source → concept id) without writing |
-| `--commit` | `false` | Makes one final commit containing only import-written paths; pre-existing dirty work is untouched. Its author is the operator, the identity git resolves for the KB's folder, else the server; the committer is the server (D904) |
+| `--commit` | `false` | Makes one final commit containing only import-written paths; pre-existing dirty work is untouched. Its author and committer are the operator, the identity git resolves for the KB's folder, else the server (D904, D950) |
 | `--message` | `import: <source> -> <kb>` | Commit message; implies `--commit` |
 | `--dir-as-concept` | `false` | Promotes a source directory with `index.md` (or `README.md`) into an expanded concept and keeps its satellites together |
 

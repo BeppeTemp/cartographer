@@ -247,6 +247,9 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		k.SyncInWindow = kb.DefaultSyncInWindow
 		k.SyncOutDebounce = kb.SyncOutDebounceFor(os.Getenv)
 		k.GitEnv = gitEnvForKB(m.Name, credDir)
+		if n, e, ok := cfg.IdentityFor(m.Name); ok {
+			k.SetDefaultIdentity(n, e)
+		}
 		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(credDir, m.Name)
 		// The KB's settings.yaml is brought up to date first (D903): a retired
 		// key is dropped, in one commit of its own, and a KB that still asks for

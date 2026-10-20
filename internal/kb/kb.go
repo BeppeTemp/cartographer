@@ -81,8 +81,12 @@ type KB struct {
 	// GitEnv is the per-KB environment (GIT_SSH_COMMAND, the credential
 	// helper) layered onto git subprocesses — see gitx.runGitEnv. Nil means
 	// "run with the process environment". It carries no identity: GitCommandEnv
-	// adds the server's (D904).
+	// adds the KB's default one (D950).
 	GitEnv []string
+
+	// defaultName and defaultEmail are the identity the operator configured for
+	// this KB (SetDefaultIdentity, D950); empty means the server identity.
+	defaultName, defaultEmail string
 
 	// SopsAgeKeyFile is the path to the SOPS age key file used to decrypt
 	// this KB's secrets (e.g. via service_get resolve_secrets). Empty means
@@ -409,8 +413,8 @@ var (
 // `cartographer kb create` uses it: the initial commit is the one a forge with
 // an author-membership push rule rejects, and by then the scaffold already
 // exists, so the identity has to be right the first time (D156).
-// An empty name or email falls back to the server identity. The committer is
-// always the server's (D904).
+// An empty name or email falls back to the server identity. The author is the
+// committer of that commit too (D950).
 func InitWithIdentity(root, authorName, authorEmail string) (*KB, error) {
 	initAuthorName, initAuthorEmail = authorName, authorEmail
 	defer func() { initAuthorName, initAuthorEmail = "", "" }()
@@ -526,7 +530,9 @@ func Init(root string) (*KB, error) {
 			if name == "" || email == "" {
 				name, email = ServerIdentity()
 			}
-			if err := gitx.Commit(abs, "init: KB initialized", name, email, ServerGitEnv()...); err != nil && !errors.Is(err, gitx.ErrNothingToCommit) {
+			// The init author is its committer too (D950): a forge with a
+			// membership rule checks both.
+			if err := gitx.Commit(abs, "init: KB initialized", name, email, IdentityGitEnv(name, email)...); err != nil && !errors.Is(err, gitx.ErrNothingToCommit) {
 				return nil, fmt.Errorf("Init: initial commit: %w", err)
 			}
 		}

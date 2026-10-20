@@ -105,14 +105,16 @@ audit trail, with every write a revertible commit. Repository review policy belo
 hosting workflow, and a remote that protects the branch Cartographer writes to is answered in
 §Remote synchronization.
 
-Each commit names two parties (D904). The author of a write is the writer: the request's
-`Cartographer-Author` header, else the token (`<token id> <cartographer@<host>>`). The committer
-is always the server, `Cartographer <cartographer@<host>>`, and a write's message ends with a
-`Cartographer-Token: <token id>` trailer the server appends itself. A call that commits to two KBs
-(`concept_transfer`, `artifact_move`) gives both commits the same author. A commit that is not a
-write (the `external changes` commit, a sync merge, conflict resolution) is authored by the server.
-A sync that rebases local writes onto the remote keeps their authors and makes the server their
-committer. Format and validation: [control plane](control-plane.md).
+Each commit names the writer as author and committer (D904, D950): the request's
+`Cartographer-Author` header, else the identity configured for the KB in the server file
+(`git.identity`, `git.identities`), else the token (`<token id> <cartographer@<host>>`). A forge with a membership push rule checks the
+committer too, so it is the writer, not the server; the instance that recorded the commit is in a
+`Cartographer-Host` trailer, and a write's message ends with a `Cartographer-Token: <token id>`
+trailer, both appended by the server. A call that commits to two KBs (`concept_transfer`,
+`artifact_move`) gives both commits the writer of its header; without one each KB's own configured identity applies. A commit that is not a write (the `external
+changes` commit, a sync merge, conflict resolution) is by the KB's configured identity, else the
+server. A sync that rebases local commits onto the remote gives each its author back as committer
+(`gitx.RealignCommitters`). Format and validation: [control plane](control-plane.md).
 
 A KB syncs exactly when it has a remote, and that branch must be the KB's **canonical branch**:
 the `branch` of the `settings.yaml` committed on the remote's default branch when it sets one
