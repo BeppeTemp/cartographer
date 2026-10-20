@@ -114,8 +114,10 @@ jobs:
       # Defender scans every file the git-backed tests create: turning it off
       # took about a fifth off the tests (internal/mcpserver 190s -> 155s).
       # The rest of the gap with ubuntu is git process creation. The runner is
-      # throwaway.
+      # throwaway. Only a speed-up: a runner whose Defender service is down
+      # fails the cmdlet with 0x800106ba (#936), and that must not fail the leg.
       - name: Disable Defender real-time scanning
+        continue-on-error: true
         shell: pwsh
         run: Set-MpPreference -DisableRealtimeMonitoring $true
       - uses: actions/checkout@v7
@@ -141,6 +143,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Disable Defender real-time scanning
+        continue-on-error: true
         run: Set-MpPreference -DisableRealtimeMonitoring $true
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
