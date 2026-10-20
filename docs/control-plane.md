@@ -294,7 +294,7 @@ Parameter details not repeated in the schema:
   registered fix is safe to run unattended run here and on write; others named in `auto_repair` are
   ignored (one stderr line at startup, `capabilities.auto_repair.ignored`), while `kb_repair` still
   applies them on request. `auto_repair` absent means every such check (`config.DefaultAutoRepair`);
-  `auto_repair: []` means none; either way `doctor_auto_interval: "0"` turns the heartbeat off.
+  `auto_repair: []` means none of those; the heartbeat always adds the two realignments of D907, `contract_legacy_key` and `nonstandard_field` (which drops a `lint_ignore` field), whatever the list says. `doctor_auto_interval: "0"` still turns the heartbeat off, realignments included (a stated deviation, left to Part B of D907, which removes the key).
 - **Repair on write** (D349, D355, always on since D907): `concept_write`, `concept_new`, `concept_patch`, `supersede`,
   `concept_move` and `concept_batch` apply the safe fixes to the concepts the call left on
   disk, inside the write handler and so in the same commit, in both stdio and HTTP, each concept

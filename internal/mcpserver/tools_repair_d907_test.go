@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,5 +183,29 @@ func TestMapUpdate_LooseningNeedsAReason(t *testing.T) {
 	}
 	if got := headTrailers(t, k.Root, "Reason"); got != "owner moved to the team page" {
 		t.Fatalf("Reason trailer = %q", got)
+	}
+}
+
+// The heartbeat realigns a pre-D907 contract and drops a lint_ignore field
+// whatever the KB's auto_repair lists, an explicit empty list included.
+func TestAutoRepairAlwaysRealignsAPreD907Contract(t *testing.T) {
+	t.Parallel()
+	for name, list := range map[string][]string{"empty": {}, "other-checks": {"title_h1_mismatch"}} {
+		list := list
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			k, s := repairKB(t, 0)
+			driftWrite(t, k, "ops/_map.md", legacyMap)
+			driftWrite(t, k, "ops/ig.md", "---\ntype: Note\ntitle: Ig\nlint_ignore: [orphan]\n---\n# Ig\n")
+			setPolicy(k, func(p *kb.Policy) { p.AutoRepair = list; p.AutoRepairDefault = false })
+			s.runAutoRepairQuota(context.Background())
+			if n := countFindings(t, k, "contract_legacy_key"); n != 0 {
+				t.Fatalf("contract_legacy_key still reported: %d", n)
+			}
+			raw, err := os.ReadFile(filepath.Join(k.DataRoot(), "ops", "ig.md"))
+			if err != nil || strings.Contains(string(raw), "lint_ignore") {
+				t.Fatalf("lint_ignore not dropped (%v): %s", err, raw)
+			}
+		})
 	}
 }

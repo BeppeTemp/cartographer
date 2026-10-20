@@ -228,7 +228,7 @@ func TestAutoRepairIgnoresChecksThatAreNotSafe(t *testing.T) {
 	})
 	setPolicy(k, func(p *kb.Policy) { p.DoctorAutoIntervalDays = 1 })
 	safe, ignored := autoRepairSplit(k)
-	if len(safe) != 1 || safe[0] != "nonstandard_field" || len(ignored) != 2 {
+	if len(safe) != 2 || safe[0] != "nonstandard_field" || safe[1] != "contract_legacy_key" || len(ignored) != 2 {
 		t.Fatalf("safe = %v, ignored = %v", safe, ignored)
 	}
 	if got := kbCapabilities(k)["auto_repair"].Ignored; len(got) != 2 || got[0] != "broken_link" {

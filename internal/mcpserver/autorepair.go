@@ -145,7 +145,30 @@ func lastAutoRepairRun(k *kb.KB) (autoRepairRun, bool) {
 // only a check whose registered fix is safe to run with no person (D354) runs
 // unattended; the operator's own kb_repair is unchanged.
 func autoRepairSplit(k *kb.KB) (safe, ignored []string) {
-	return splitAutoRepair(k.Policy().AutoRepair)
+	return splitAutoRepair(withRealignment(k.Policy().AutoRepair))
+}
+
+// realignmentChecks are the repairs the heartbeat runs whatever auto_repair
+// says (D907): the removal of keys the standard no longer has. A contract key
+// or a lint_ignore field left in place is a finding no write can fix around
+// (the gate refuses the page that carries it), and a KB whose list was
+// customised before D907 would otherwise never be realigned. The list keeps
+// governing every other check until the key itself goes.
+var realignmentChecks = []string{"contract_legacy_key", "nonstandard_field"}
+
+// withRealignment appends the realignment checks the list does not name.
+func withRealignment(checks []string) []string {
+	out := append([]string(nil), checks...)
+	for _, r := range realignmentChecks {
+		found := false
+		for _, c := range out {
+			found = found || c == r
+		}
+		if !found {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // splitAutoRepair is autoRepairSplit over a list the caller already holds.
@@ -161,8 +184,8 @@ func splitAutoRepair(checks []string) (safe, ignored []string) {
 }
 
 // StartAutoRepair starts the heartbeat for the KB this server serves and
-// returns at once. It does nothing when the KB has no runnable auto_repair
-// checks or doctor_auto_interval is 0. Cancelling ctx stops it: the goroutine
+// returns at once. It does nothing when doctor_auto_interval is 0 (Part B of D907
+// removes that off switch); the realignment checks run whatever auto_repair lists. Cancelling ctx stops it: the goroutine
 // ends at the next wait, and no run starts after cancellation.
 func (s *Server) StartAutoRepair(ctx context.Context) {
 	k := s.kbRef
@@ -170,10 +193,10 @@ func (s *Server) StartAutoRepair(ctx context.Context) {
 		return
 	}
 	pol := k.Policy()
-	if pol.DoctorAutoIntervalDays <= 0 || len(pol.AutoRepair) == 0 {
+	if pol.DoctorAutoIntervalDays <= 0 {
 		return
 	}
-	safe, ignored := splitAutoRepair(pol.AutoRepair)
+	safe, ignored := splitAutoRepair(withRealignment(pol.AutoRepair))
 	if len(ignored) > 0 {
 		fmt.Fprintf(os.Stderr, "cartographer: auto_repair for %s ignores %s: not safe to run unattended (kb_repair still applies them on request)\n", kbName(k), strings.Join(ignored, ", "))
 	}
@@ -534,6 +557,10 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 	case res.IsError:
 		failure = firstText(res)
 	}
+	listed := map[string]bool{}
+	for _, c := range k.Policy().AutoRepair {
+		listed[c] = true
+	}
 	for _, check := range checks {
 		entry := autoRepairCheck{Check: check, Error: failure}
 		if stats != nil {
@@ -541,6 +568,10 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 		}
 		if entry.Applied > 0 {
 			entry.Commit = res.CommitSHA
+		}
+		// A realignment the KB did not list is reported only when it acted.
+		if !listed[check] && entry.Applied == 0 && entry.Skipped == 0 && entry.Error == "" {
+			continue
 		}
 		run.Checks = append(run.Checks, entry)
 		if entry.Applied > 0 {
