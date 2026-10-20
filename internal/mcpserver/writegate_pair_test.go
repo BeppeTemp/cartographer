@@ -25,3 +25,23 @@ func TestPairUnmatchedMoves(t *testing.T) {
 		t.Fatalf("renamed = %v", renamed)
 	}
 }
+
+// A finding's fix hint names the page by file name, so a page that was only
+// renamed keeps the finding it had: the gate does not call it new.
+func TestWriteGate_RenamedExpandedConceptKeepsItsFindings(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	seedIndexMaps(t, k, map[string]string{
+		"notes/_map.md":         "---\ntype: Map\nkind: map\ntitle: Notes\nindex: generated\n---\n# Notes\n",
+		"notes/topic/index.md":  "---\ntype: Note\ntitle: Topic\n---\n[detail](detail.md)\n\n[[anchor]]\n",
+		"notes/topic/detail.md": "---\ntype: Note\ntitle: Detail\n---\n[index](index.md)\n",
+	})
+	if _, err := k.CommitOp("test: seed"); err != nil {
+		t.Fatal(err)
+	}
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	if res := callTool(t, s, "concept_move", `{"source_id":"notes/topic","target_id":"notes/renamed"}`); res.IsError {
+		t.Fatalf("a rename was refused for a finding the page already had: %+v", res.Content)
+	}
+}

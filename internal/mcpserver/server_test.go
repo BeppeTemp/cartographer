@@ -5472,6 +5472,7 @@ func TestConceptMove_RewritesOtherIndexes(t *testing.T) {
 		"src/_map.md":    "---\ntype: Map\nkind: map\ntitle: Src\n---\n# Src\n",
 		"src/mover.md":   "---\ntype: Note\ntitle: Mover\n---\n# Mover\n",
 		"dst/_map.md":    "---\ntype: Map\nkind: map\ntitle: Dst\n---\n# Dst\n",
+		"dst/index.md":   "---\ntype: Index\ntitle: Dst\n---\n# Dst\n",
 		"third/_map.md":  "---\ntype: Map\nkind: map\ntitle: Third\n---\n# Third\n",
 		"third/index.md": "---\ntype: Index\ntitle: Third\n---\n# Third\n\nThe old page [[src/mover]] is history now.\n",
 		"index.md":       "---\ntype: Index\ntitle: Root\n---\n# Root\n\n- [Mover](src/mover.md)\n",

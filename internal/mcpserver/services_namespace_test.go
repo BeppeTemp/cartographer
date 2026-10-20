@@ -200,7 +200,8 @@ func TestMapCreate_NonCollidingMapLifecycle(t *testing.T) {
 		t.Fatalf("map_delete left the directory: %v", err)
 	}
 
-	callOK(t, s, "concept_write", `{"id":"services/lower","frontmatter":{"type":"service","title":"Lower"},"body":"lowercase-type\n"}`)
+	// A page in services/ is reached by a link: it comes with the page that links it.
+	callOK(t, s, "concept_batch", `{"operations":[{"op":"write","id":"services/lower","frontmatter":{"type":"service","title":"Lower"},"body":"lowercase-type\n\n[[manutenzione/test-runbook]]\n"},{"op":"write","id":"manutenzione/lower-ref","frontmatter":{"type":"Note","title":"Lower ref"},"body":"Runs [[services/lower]].\n\n[[manutenzione/test-runbook]]\n"}]}`)
 	if out := callOK(t, s, "service_get", `{"service_id":"services/lower"}`); !strings.Contains(out, "lowercase-type") {
 		t.Fatalf("service_get lowercase type: %s", out)
 	}
@@ -223,15 +224,15 @@ func TestConceptMove_FlatAcrossServicesNamespace(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			k, s := namespaceServer(t)
 			writeService(t, k, tc.src, "flat-body\n")
+			// A page that links the moved one: the move rewrites it, and the
+			// page is never left without an incoming link (D907).
+			forwardLinks(t, k, tc.src)
 			before, err := k.ReadConcept(okf.ConceptID(tc.src))
 			if err != nil {
 				t.Fatal(err)
 			}
-			args, _ := json.Marshal(map[string]any{"source_id": tc.src, "target_id": tc.dst, "rewrite_links": false})
-			out := callOK(t, s, "concept_move", string(args))
-			if !strings.Contains(out, "are not updated") {
-				t.Fatalf("rewrite_links:false lost its warning: %s", out)
-			}
+			args, _ := json.Marshal(map[string]any{"source_id": tc.src, "target_id": tc.dst})
+			callOK(t, s, "concept_move", string(args))
 			after, err := k.ReadConcept(okf.ConceptID(tc.dst))
 			if err != nil {
 				t.Fatalf("destination unreadable: %v", err)
@@ -254,6 +255,7 @@ func TestConceptMove_FlatBatchAcrossServicesNamespace(t *testing.T) {
 	writeService(t, k, "services/one", "one\n")
 	writeService(t, k, "services/two", "two\n")
 	writeNote(t, k, "application-services/three", "three\n")
+	forwardLinks(t, k, "services/one", "services/two", "application-services/three")
 	callOK(t, s, "concept_move", `{"moves":[
 		{"source_id":"services/one","target_id":"application-services/one"},
 		{"source_id":"services/two","target_id":"services/two-renamed"},
@@ -283,6 +285,13 @@ func TestConceptMove_ExpandedAcrossServicesNamespace(t *testing.T) {
 				t.Fatal(err)
 			}
 			writeNote(t, k, tc.src+"/sat", "quokkasatellite\n")
+			// The dossier lists its satellite and something links the dossier
+			// (D907: neither page may be left unreached by the move).
+			ownerFM, _ := okf.ParseFrontmatter("type: Service\ntitle: owner")
+			if _, err := k.WriteConcept(okf.ConceptID(tc.src), ownerFM, "owner-body\n\n- [sat](sat.md)\n", ""); err != nil {
+				t.Fatal(err)
+			}
+			forwardLinks(t, k, tc.src)
 			// The asset API only serves data/ concepts, so under services/
 			// the asset is placed by hand: a move must carry it either way.
 			if strings.HasPrefix(tc.src, "services/") {
@@ -450,14 +459,11 @@ func TestConceptMove_ServicesLinkMaintenance(t *testing.T) {
 	}
 	assertGone(t, k, "services/sample")
 
-	// And back, without rewriting: links are left alone and the warning says so.
-	out = callOK(t, s, "concept_move", `{"source_id":"application-services/sample","target_id":"services/sample","rewrite_links":false}`)
-	if !strings.Contains(out, "inbound links to application-services/sample are not updated") {
-		t.Fatalf("rewrite_links:false warning: %s", out)
-	}
+	// And back: the links follow again, the curated entry leaves.
+	callOK(t, s, "concept_move", `{"source_id":"application-services/sample","target_id":"services/sample"}`)
 	ref, _ = k.ReadConcept("manutenzione/ref")
-	if !strings.Contains(ref.Body, "[[application-services/sample]]") {
-		t.Fatalf("rewrite_links:false rewrote links: %s", ref.Body)
+	if !strings.Contains(ref.Body, "[[services/sample]]") || strings.Contains(ref.Body, "application-services") {
+		t.Fatalf("links not rewritten back: %s", ref.Body)
 	}
 	assertGone(t, k, "application-services/sample")
 	assertNoShadow(t, k)

@@ -152,7 +152,7 @@ func TestConceptMove_ExpandedConceptKeepsItsDepth(t *testing.T) {
 }
 
 // A rename inside the same map keeps the directory but changes the name a link
-// such as "../topic/x.md" spells: the page still has to find its own sibling.
+// such as "../topic.md" spells: the page still has to find its own parent.
 func TestConceptMove_RenameKeepsLinksBetweenThePagesOfTheConcept(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
@@ -161,12 +161,12 @@ func TestConceptMove_RenameKeepsLinksBetweenThePagesOfTheConcept(t *testing.T) {
 	files := satMapFiles("notes")
 	files["notes/other.md"] = satPage("other\n")
 	files["notes/topic/index.md"] = satPage("[detail](detail.md)\n")
-	files["notes/topic/detail.md"] = satPage("[index](index.md) [self](../topic/index.md) [other](../other.md)\n")
+	files["notes/topic/detail.md"] = satPage("[self](../topic.md) [other](../other.md)\n")
 	satWriteFiles(t, k, files)
 
 	satMove(t, s, `{"source_id":"notes/topic","target_id":"notes/renamed"}`)
 
-	satWantBody(t, k, "notes/renamed/detail", "[index](index.md) [self](index.md) [other](../other.md)\n")
+	satWantBody(t, k, "notes/renamed/detail", "[self](../renamed.md) [other](../other.md)\n")
 	if broken := satBrokenLinks(t, k); len(broken) != 0 {
 		t.Errorf("broken_link after the rename: %v", broken)
 	}

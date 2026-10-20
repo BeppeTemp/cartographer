@@ -165,6 +165,11 @@ func judgeWrite(k *kb.KB, toolName string) *ToolResult {
 		msg := f.Message
 		for newID, oldID := range renamedFrom {
 			msg = strings.ReplaceAll(msg, newID, oldID)
+			// A fix hint spells the page by file name ("write ../topic.md"):
+			// a rename changes that too.
+			if nb, ob := path.Base(newID)+".md", path.Base(oldID)+".md"; nb != ob {
+				msg = strings.ReplaceAll(msg, nb, ob)
+			}
 		}
 		if !pre[gateKey{p, f.Check, msg}] {
 			introduced = append(introduced, f)
