@@ -578,7 +578,7 @@ func TestServer_ConceptWrite_Creazione(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/nuovo-concept","frontmatter":{"type":"Note","title":"Nuovo Concept"},"body":"# Titolo\n\nContenuto di prova.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/nuovo-concept","frontmatter":{"type":"Note","title":"Nuovo Concept"},"body":"# Titolo\n\nContenuto di prova.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/nuovo-concept"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -614,10 +614,10 @@ func TestServer_ConceptRead_Outline(t *testing.T) {
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
 
-	body := "# Uno\n\nContenuto uno.\n\n## Sotto\n\nDettaglio.\n\n# Due\n\nContenuto due.\n"
+	body := "# Uno\n\nContenuto uno.\n\n## Sotto\n\nDettaglio.\n\n# Due\n\nContenuto due.\n\n\n[[manutenzione/test-runbook]]\n"
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/outline-test","frontmatter":{"type":"Note","title":"Outline"},"body":%q}}}`, body),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/outline-test","frontmatter":{"type":"Note","title":"Uno"},"body":%q}}}`, body),
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/outline-test","outline":true}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -649,10 +649,10 @@ func TestServer_ConceptRead_SectionNotFound_ListsHeadings(t *testing.T) {
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
 
-	body := "# Uno\n\nContenuto uno.\n\n# Due\n\nContenuto due.\n"
+	body := "# Uno\n\nContenuto uno.\n\n# Due\n\nContenuto due.\n\n\n[[manutenzione/test-runbook]]\n"
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/section-test","frontmatter":{"type":"Note","title":"Section"},"body":%q}}}`, body),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/section-test","frontmatter":{"type":"Note","title":"Uno"},"body":%q}}}`, body),
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/section-test","section":"# NonEsiste"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -680,21 +680,19 @@ func TestServer_ConceptRead_SizeGuard_OutlineThenFull(t *testing.T) {
 	RegisterKBTools(s, k, Deps{})
 
 	big := "# Grande\n\n" + strings.Repeat("a", conceptReadSizeGuard+1) + "\n"
+	// Written on disk: concept_oversize refuses a write over the threshold
+	// (D907) and this test is about what concept_read does with a big one.
+	writeTestConcept(t, k, "note/big", big)
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/big","frontmatter":{"type":"Note","title":"Big"},"body":%q}}}`, big),
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/big"}}}`,
-		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/big","full":true}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/big"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/big","full":true}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
-	if len(resps) != 4 {
-		t.Fatalf("expected 4 responses, received %d", len(resps))
+	if len(resps) != 3 {
+		t.Fatalf("expected 3 responses, received %d", len(resps))
 	}
-	if tr := decodeToolResult(t, resps[1]); tr.IsError {
-		t.Fatalf("concept_write: isError=true: %v", tr.Content)
-	}
-
-	trGuarded := decodeToolResult(t, resps[2])
+	trGuarded := decodeToolResult(t, resps[1])
 	if trGuarded.IsError {
 		t.Fatalf("concept_read (guarded): isError=true: %v", trGuarded.Content)
 	}
@@ -706,7 +704,7 @@ func TestServer_ConceptRead_SizeGuard_OutlineThenFull(t *testing.T) {
 		t.Errorf("concept_read over size guard: must not include the full body")
 	}
 
-	trFull := decodeToolResult(t, resps[3])
+	trFull := decodeToolResult(t, resps[2])
 	if trFull.IsError {
 		t.Fatalf("concept_read full=true: isError=true: %v", trFull.Content)
 	}
@@ -723,7 +721,7 @@ func TestServer_ConceptRead_FullResponse_ContentIsOptIn(t *testing.T) {
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
 
-	body := "# Uno\n\nContenuto uno.\n"
+	body := "# Uno\n\nContenuto uno.\n\n\n[[manutenzione/test-runbook]]\n"
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/once","frontmatter":{"type":"Note","title":"Once"},"body":%q}}}`, body),
@@ -790,10 +788,10 @@ func TestServer_ConceptRead_WithContent_IgnoredByOtherBranches(t *testing.T) {
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
 
-	body := "# Uno\n\nContenuto uno.\n"
+	body := "# Uno\n\nContenuto uno.\n\n\n[[manutenzione/test-runbook]]\n"
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/branches","frontmatter":{"type":"Note","title":"Branches"},"body":%q}}}`, body),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/branches","frontmatter":{"type":"Note","title":"Uno"},"body":%q}}}`, body),
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/branches","outline":true,"with_content":true}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/branches","section":"# Uno","with_content":true}}}`,
 	}
@@ -841,9 +839,9 @@ func TestServer_ConceptWrite_StaleWrite(t *testing.T) {
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		// First write without if_match.
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/concept-stale","frontmatter":{"type":"Note"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/concept-stale","frontmatter":{"type":"Note"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		// Second write with wrong if_match.
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/concept-stale","frontmatter":{"type":"Note"},"body":"# Aggiornato\n","if_match":"hash-sbagliato-xyz"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/concept-stale","frontmatter":{"type":"Note"},"body":"# Aggiornato\n\n[[manutenzione/test-runbook]]\n","if_match":"hash-sbagliato-xyz"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 
@@ -875,7 +873,7 @@ func TestServer_ConceptDelete(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/da-cancellare","frontmatter":{"type":"Note","title":"Da Cancellare"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/da-cancellare","frontmatter":{"type":"Note","title":"Da Cancellare"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_delete","arguments":{"id":"note/da-cancellare"}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/da-cancellare"}}}`,
 	}
@@ -918,7 +916,7 @@ func TestServer_ConceptDelete_StaleWrite(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/stale-delete","frontmatter":{"type":"Note"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/stale-delete","frontmatter":{"type":"Note"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_delete","arguments":{"id":"note/stale-delete","if_match":"hash-sbagliato-xyz"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -1056,7 +1054,7 @@ func TestServer_MapCreateUpdate_FieldValues(t *testing.T) {
 	resps := runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"fv-map","title":"FV","field_values":{"*":{"status":["active","draft"]},"Incident":{"outcome":["open","resolved"]}},"forbidden_fields":["state"]}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values":{"*":{"status":["active"]},"Incident":{"outcome":["open","resolved"]}},"forbidden_fields":[]}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values":{"*":{"status":["active"]},"Incident":{"outcome":["open","resolved"]}},"forbidden_fields":[],"reason":"the state field is allowed again"}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"fv-bad","title":"Bad","field_values":{"*":{"status":[]}}}}}`,
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values":{"T":{"a.b":["x"]}}}}}`,
 	})
@@ -1106,7 +1104,7 @@ func TestServer_MapDelete_NonEmpty(t *testing.T) {
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"test-map-nonempty","title":"Test Map","kind":"map"}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"test-map-nonempty/keeper","frontmatter":{"type":"Note","title":"Keeper"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"test-map-nonempty/keeper","frontmatter":{"type":"Note","title":"Keeper"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n","index_entry":true}]}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"map_delete","arguments":{"map":"test-map-nonempty"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -1139,7 +1137,7 @@ func TestServer_ConceptExpand(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"manutenzione/rotazione-cert","frontmatter":{"type":"note","title":"Rotazione Cert"},"body":"Body.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"manutenzione/rotazione-cert","frontmatter":{"type":"note","title":"Rotazione Cert"},"body":"Body.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"manutenzione/rotazione-cert"}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"manutenzione/rotazione-cert"}}}`,
 	}
@@ -1178,7 +1176,7 @@ func TestServer_ConceptExpand_AlreadyExpanded(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"manutenzione/rotazione-cert","frontmatter":{"type":"note","title":"Rotazione Cert"},"body":"Body.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"manutenzione/rotazione-cert","frontmatter":{"type":"note","title":"Rotazione Cert"},"body":"Body.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"manutenzione/rotazione-cert"}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"manutenzione/rotazione-cert"}}}`,
 	}
@@ -2301,6 +2299,10 @@ func TestServer_GateCheck_Scope(t *testing.T) {
 		[]byte("---\ntype: Map\nkind: map\ntitle: Altrove\n---\n# Altrove\n"), 0o644); err != nil {
 		t.Fatalf("write altrove map: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "altrove", "index.md"),
+		[]byte("---\ntype: Index\ntitle: Altrove\n---\n# Altrove\n\n- [Pulito](pulito.md)\n- [Vicino](vicino.md)\n"), 0o644); err != nil {
+		t.Fatalf("write altrove index: %v", err)
+	}
 	// A clean page is linked: an isolated one is an orphan wherever it sits.
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "altrove", "vicino.md"),
 		[]byte("---\ntype: Note\ntitle: Vicino\n---\nTorna a [[altrove/pulito]].\n"), 0o644); err != nil {
@@ -2470,25 +2472,28 @@ func TestServer_E2E_WriteQueryLint(t *testing.T) {
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		// 2. Create map
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"docs","title":"Documentation"}}}`,
+		// 2b. The map lists its pages itself: a satellite of an expanded concept
+		// has no index_entry, and a curated dossier index would need an edit.
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"docs","index":"generated"}}}`,
 		// 3. Write the "architecture" concept...
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"docs/architecture","frontmatter":{"type":"Index","title":"Architecture"},"body":"# Architecture\n"}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"docs/architecture","frontmatter":{"type":"Note","title":"Architecture"},"body":"# Architecture\n\n[[manutenzione/test-runbook]]\n","index_entry":true}]}}}`,
 		// 4. ...and expand it into a directory so it can grow satellite concepts.
-		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"docs/architecture"}}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"docs/architecture"}}}`,
 		// 5. Write a satellite concept under the expanded "docs/architecture"
-		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"docs/architecture/stack","frontmatter":{"type":"Reference","title":"Tech Stack","status":"active"},"body":"# Tech Stack\n\nPostgreSQL for persistence, Redis for caching.\n"}}}`,
+		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"docs/architecture/stack","frontmatter":{"type":"Reference","title":"Tech Stack","status":"active"},"body":"# Tech Stack\n\nPostgreSQL for persistence, Redis for caching.\n","index_entry":true},{"op":"write","id":"docs/overview","frontmatter":{"type":"Note","title":"Overview"},"body":"# Overview\n\nThe [[docs/architecture/stack]] and the [[manutenzione/test-runbook]].\n","index_entry":true}]}}}`,
 		// 6. Rebuild index to include new concept
-		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"reindex","arguments":{"full":true}}}`,
+		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"reindex","arguments":{"full":true}}}`,
 		// 7. Search for the concept
-		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"search","arguments":{"query":"postgresql redis"}}}`,
+		`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"search","arguments":{"query":"postgresql redis"}}}`,
 		// 8. Lint scoped to changed concept + neighbors
-		`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"lint","arguments":{"scope":"docs","scope_neighbors":true}}}`,
+		`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"lint","arguments":{"scope":"docs","scope_neighbors":true}}}`,
 		// 9. Gate check
-		`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"gate_check","arguments":{"changed_ids":["docs/architecture/stack"]}}}`,
+		`{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"gate_check","arguments":{"changed_ids":["docs/architecture/stack"]}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 
-	if len(resps) != 9 {
-		t.Fatalf("expected 9 responses, received %d", len(resps))
+	if len(resps) != 10 {
+		t.Fatalf("expected 10 responses, received %d", len(resps))
 	}
 
 	// Verify map_create OK
@@ -2497,20 +2502,24 @@ func TestServer_E2E_WriteQueryLint(t *testing.T) {
 		t.Fatalf("map_create: %v", tr2.Content)
 	}
 
+	if tr3 := decodeToolResult(t, resps[3]); tr3.IsError {
+		t.Fatalf("concept_batch (architecture): %v", tr3.Content)
+	}
+
 	// Verify concept_expand OK
-	tr4 := decodeToolResult(t, resps[3])
+	tr4 := decodeToolResult(t, resps[4])
 	if tr4.IsError {
 		t.Fatalf("concept_expand: %v", tr4.Content)
 	}
 
 	// Verify concept_write (satellite) OK
-	tr5 := decodeToolResult(t, resps[4])
+	tr5 := decodeToolResult(t, resps[5])
 	if tr5.IsError {
-		t.Fatalf("concept_write: %v", tr5.Content)
+		t.Fatalf("concept_batch (satellite): %v", tr5.Content)
 	}
 
 	// Verify search finds the concept
-	tr7 := decodeToolResult(t, resps[6])
+	tr7 := decodeToolResult(t, resps[7])
 	if tr7.IsError {
 		t.Fatalf("search: %v", tr7.Content)
 	}
@@ -2519,13 +2528,13 @@ func TestServer_E2E_WriteQueryLint(t *testing.T) {
 	}
 
 	// Verify lint clean
-	tr8 := decodeToolResult(t, resps[7])
+	tr8 := decodeToolResult(t, resps[8])
 	if tr8.IsError {
 		t.Fatalf("lint: %v", tr8.Content)
 	}
 
 	// Verify gate_check passes
-	tr9 := decodeToolResult(t, resps[8])
+	tr9 := decodeToolResult(t, resps[9])
 	if tr9.IsError {
 		t.Fatalf("gate_check: %v", tr9.Content)
 	}
@@ -2659,7 +2668,7 @@ func TestServer_ConceptWrite_UpdatesIndex(t *testing.T) {
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		// Write a new concept containing the unique keyword.
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/kw-test","frontmatter":{"type":"Note","title":"KW Test"},"body":"# Body\n\n` + uniqueKW + `\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/kw-test","frontmatter":{"type":"Note","title":"KW Test"},"body":"# Body\n\n` + uniqueKW + `\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		// Search immediately — must find the concept without reindex.
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"` + uniqueKW + `"}}}`,
 	}
@@ -2838,7 +2847,7 @@ func TestServer_ConceptWrite_UpdatesSQLIndex(t *testing.T) {
 		t.Helper()
 		msgs := []string{
 			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/sql-kw-test","frontmatter":{"type":"Note","title":"SQL KW Test"},"body":"# Body\n\n` + uniqueKW + `\n"}}}`,
+			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/sql-kw-test","frontmatter":{"type":"Note","title":"SQL KW Test"},"body":"# Body\n\n` + uniqueKW + `\n\n[[manutenzione/test-runbook]]\n"}}}`,
 			`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"` + uniqueKW + `"}}}`,
 		}
 		resps := runMCPSequence(t, s, msgs)
@@ -2911,7 +2920,7 @@ func TestServer_ConceptMove_UpdatesIndexes(t *testing.T) {
 		t.Helper()
 		msgs := []string{
 			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/move-src","frontmatter":{"type":"Note","title":"Move Src"},"body":"# Body\n\n` + uniqueKW + `\n"}}}`,
+			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/move-src","frontmatter":{"type":"Note","title":"Move Src"},"body":"# Body\n\n` + uniqueKW + `\n\n[[manutenzione/test-runbook]]\n"}}}`,
 			`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_move","arguments":{"source_id":"notes/move-src","target_id":"notes/move-dst"}}}`,
 			`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"search","arguments":{"query":"` + uniqueKW + `"}}}`,
 		}
@@ -3003,7 +3012,7 @@ func TestServer_ConceptMove_StubsImplicitDossierIndex(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/move-src","frontmatter":{"type":"Note","title":"Move Src"},"body":"# Body\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/move-src","frontmatter":{"type":"Note","title":"Move Src"},"body":"# Body\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_move","arguments":{"source_id":"notes/move-src","target_id":"notes/sub-topic/moved"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -4009,7 +4018,7 @@ func TestServer_ConceptPatch_HappyPath(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-happy","frontmatter":{"type":"Note","title":"Patch Happy"},"body":"# Titolo\n\nRiga uno.\nRiga due.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-happy","frontmatter":{"type":"Note","title":"Patch Happy"},"body":"# Titolo\n\nRiga uno.\nRiga due.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4056,7 +4065,7 @@ func TestServer_ConceptPatch_StaleWrite(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-stale","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto originale.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-stale","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto originale.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_patch","arguments":{"id":"note/patch-stale","old_string":"Testo originale.","new_string":"Testo nuovo.","if_match":"hash-sbagliato-xyz"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -4081,7 +4090,7 @@ func TestServer_ConceptPatch_OldStringNotFound(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-notfound","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto presente.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-notfound","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto presente.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4112,7 +4121,7 @@ func TestServer_ConceptPatch_OldStringAmbiguous(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-ambiguous","frontmatter":{"type":"Note"},"body":"# Corpo\n\nripetuto qui, ripetuto ancora, e ripetuto di nuovo.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-ambiguous","frontmatter":{"type":"Note"},"body":"# Corpo\n\nripetuto qui, ripetuto ancora, e ripetuto di nuovo.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4144,7 +4153,7 @@ func TestServer_ConceptPatch_ReplaceAll(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-replaceall","frontmatter":{"type":"Note"},"body":"# Corpo\n\nripetuto qui, ripetuto ancora, e ripetuto di nuovo.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-replaceall","frontmatter":{"type":"Note"},"body":"# Corpo\n\nripetuto qui, ripetuto ancora, e ripetuto di nuovo.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4192,7 +4201,7 @@ func TestServer_ConceptPatch_BatchEdits(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-batch","frontmatter":{"type":"Note"},"body":"# Titolo\n\nRiga uno.\nRiga due.\nRiga tre.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-batch","frontmatter":{"type":"Note"},"body":"# Titolo\n\nRiga uno.\nRiga due.\nRiga tre.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4247,7 +4256,7 @@ func TestServer_ConceptPatch_BatchEdits_FailsMidway(t *testing.T) {
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
 
-	body := "# Titolo\n\nRiga uno.\nRiga due.\n"
+	body := "# Titolo\n\nRiga uno.\nRiga due.\n\n[[manutenzione/test-runbook]]\n"
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-batch-fail","frontmatter":{"type":"Note"},"body":"` + strings.ReplaceAll(body, "\n", `\n`) + `"}}}`,
@@ -4299,7 +4308,7 @@ func TestServer_ConceptPatch_EditsAndTopLevelMutuallyExclusive(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-mutex","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-mutex","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4330,7 +4339,7 @@ func TestServer_ConceptPatch_EmptyEditsArray(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-empty-edits","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-empty-edits","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4361,7 +4370,7 @@ func TestServer_ConceptPatch_BatchEditsWithFrontmatter(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-batch-fm","frontmatter":{"type":"Note","status":"draft"},"body":"# Corpo\n\nRiga uno.\nRiga due.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-batch-fm","frontmatter":{"type":"Note","status":"draft"},"body":"# Corpo\n\nRiga uno.\nRiga due.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4408,7 +4417,7 @@ func TestServer_ConceptPatch_UnsetKey(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-unset","frontmatter":{"type":"Note","status":"imported"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-unset","frontmatter":{"type":"Note","status":"imported"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4449,7 +4458,7 @@ func TestServer_ConceptPatch_UnsetProtectedKey(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-unset-protected","frontmatter":{"type":"Note"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-unset-protected","frontmatter":{"type":"Note"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4478,7 +4487,7 @@ func TestServer_ConceptPatch_UnsetProtectedKey(t *testing.T) {
 // unsetSeed writes id with a status and returns its content hash.
 func unsetSeed(t *testing.T, s *Server, id string) string {
 	t.Helper()
-	tr := callTool(t, s, "concept_write", `{"id":"`+id+`","frontmatter":{"type":"Note","status":"imported"},"body":"# Corpo\n"}`)
+	tr := callTool(t, s, "concept_write", `{"id":"`+id+`","frontmatter":{"type":"Note","status":"imported"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n"}`)
 	if tr.IsError {
 		t.Fatalf("concept_write: %v", tr.Content)
 	}
@@ -4529,7 +4538,7 @@ func TestServer_ConceptRead_ReturnsParsedFrontmatter(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
-	if tr := callTool(t, s, "concept_write", `{"id":"note/parsed","frontmatter":{"type":"Note","title":"L'operatore","tags":["a","b"]},"body":"# P\n"}`); tr.IsError {
+	if tr := callTool(t, s, "concept_write", `{"id":"note/parsed","frontmatter":{"type":"Note","title":"L'operatore","tags":["a","b"]},"body":"# P\n\n[[manutenzione/test-runbook]]\n"}`); tr.IsError {
 		t.Fatalf("concept_write: %v", tr.Content)
 	}
 	tr := callTool(t, s, "concept_read", `{"id":"note/parsed"}`)
@@ -4571,7 +4580,7 @@ func TestServer_Search_TitleAndSnippet(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/snippet-test","frontmatter":{"type":"Note","title":"Snippet Test Title"},"body":"` + body + `"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/snippet-test","frontmatter":{"type":"Note","title":"Snippet Test Title"},"body":"` + body + `\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"` + uniqueKW + `"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
