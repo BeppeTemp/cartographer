@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -46,7 +48,6 @@ func (c *changesLinksKB) read(args string) (map[string]interface{}, ToolResult) 
 func TestConceptHistoryAndReadAtRev(t *testing.T) {
 	t.Parallel()
 	c := newChangesLinksKB(t)
-	c.k.AutoCommit = true
 	c.write("ops/page", "version one\n")
 	c.commit(true)
 	c.write("ops/page", "version two\n")
@@ -98,7 +99,6 @@ func TestConceptHistoryAndReadAtRev(t *testing.T) {
 func TestConceptReadAtRevAcrossRename(t *testing.T) {
 	t.Parallel()
 	c := newChangesLinksKB(t)
-	c.k.AutoCommit = true
 	c.write("ops/before", "original text\n")
 	c.commit(true)
 	c.rename("ops/before", "ops/after")
@@ -122,7 +122,6 @@ func TestConceptReadAtRevAcrossRename(t *testing.T) {
 func TestConceptReadAtRevBeforeCreation(t *testing.T) {
 	t.Parallel()
 	c := newChangesLinksKB(t)
-	c.k.AutoCommit = true
 	c.write("ops/early", "alpha bravo charlie delta echo foxtrot golf hotel india\n")
 	c.commit(true)
 	early, _ := c.history(`{"id":"ops/early"}`)
@@ -151,16 +150,17 @@ func TestConceptReadInvalidRev(t *testing.T) {
 func TestConceptHistoryNotFoundAndNoGit(t *testing.T) {
 	t.Parallel()
 	c := newChangesLinksKB(t)
-	c.k.AutoCommit = true
 	c.write("ops/page", "x\n")
 	c.commit(true)
 	_, res := c.history(`{"id":"ops/nope"}`)
 	if !res.IsError || !strings.Contains(res.Content[0].Text, `concept_history "ops/nope": not found`) {
 		t.Fatalf("missing concept = %+v", res)
 	}
-	c.k.AutoCommit = false
+	if err := os.RemoveAll(filepath.Join(c.k.Root, ".git")); err != nil {
+		t.Fatal(err)
+	}
 	h, res := c.history(`{"id":"ops/page"}`)
 	if res.IsError || h.Note != "no git history" || len(h.Revisions) != 0 {
-		t.Fatalf("auto-commit off = %+v %+v, want empty revisions and a note", h, res)
+		t.Fatalf("no repository = %+v %+v, want empty revisions and a note", h, res)
 	}
 }

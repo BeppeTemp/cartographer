@@ -11,7 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
-// gateKB is a git KB with AutoCommit and the write gate at mode: map "arch"
+// gateKB is a git KB with the write gate at mode: map "arch"
 // carries field_values.status [active, deprecated], map "ops" is free.
 func gateKB(t *testing.T, mode string) (*kb.KB, *Server) {
 	t.Helper()
@@ -25,7 +25,6 @@ func gateKB(t *testing.T, mode string) (*kb.KB, *Server) {
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "arch", "_map.md"), []byte(mapMD), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	k.AutoCommit = true
 	setPolicy(k, func(p *kb.Policy) { p.WriteGate = mode })
 	return k, nil
 }
@@ -265,10 +264,12 @@ func TestWriteGate_StashPopFailureRollsBack(t *testing.T) {
 	}
 }
 
-func TestWriteGate_InactiveWithoutAutoCommit(t *testing.T) {
+func TestWriteGate_InactiveOutsideAGitRepository(t *testing.T) {
 	t.Parallel()
 	k, _ := gateKB(t, "error")
-	k.AutoCommit = false
+	if err := os.RemoveAll(filepath.Join(k.Root, ".git")); err != nil {
+		t.Fatal(err)
+	}
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	if st := writeGateState(k); st != "inactive" {

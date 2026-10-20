@@ -100,7 +100,7 @@ func cmdKBCreate(args []string) int {
 	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository, or one holding only a forge's initial commit (README/LICENSE/.gitignore), which is kept: attached as origin and pushed to")
 	noRemoteFlag := fs.Bool("no-remote", false, "Create a local-only KB with no origin (not durable, never synced)")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after creating the KB")
-	artifactWriteFlag := fs.Bool("artifact-write", false, "Record a kbs[] entry with allow_artifact_write: true in the server config, so the KB mounts configured with artifact writes on (artifacts reach client machines via sync)")
+	artifactWriteFlag := fs.Bool("artifact-write", false, "Turn artifact writes on for the KB (artifacts reach client machines via sync): a kbs[] entry with allow_artifact_write: true in the server config, or, with --no-remote, in the new KB's settings.yaml")
 	fs.Parse(rest)
 
 	if name == "" || fs.NArg() != 0 {
@@ -134,10 +134,17 @@ func cmdKBCreate(args []string) int {
 	}
 
 	var entryPlan *kbEntryPlan
+	settingsFile := newKBSettingsFile()
 	if *artifactWriteFlag {
-		var code int
-		if entryPlan, code = preflightArtifactWrite(name, path, *configFlag); code != 0 {
-			return code
+		if remote == "" {
+			// A kbs[] entry names a remote (D903): a KB without one carries
+			// the setting in its own settings.yaml, in its first commit.
+			settingsFile = newKBSettingsFileWith("allow_artifact_write: true\n")
+		} else {
+			var code int
+			if entryPlan, code = preflightArtifactWrite(name, path, remote, *configFlag); code != 0 {
+				return code
+			}
 		}
 	}
 
@@ -153,7 +160,7 @@ func cmdKBCreate(args []string) int {
 	// no separate MkdirAll(dataDir) needed.
 	var originBranch string
 	var adopted []string
-	if _, err := kb.InitWithSettings(path, authorName, authorEmail, newKBSettingsFile()); err != nil {
+	if _, err := kb.InitWithSettings(path, authorName, authorEmail, settingsFile); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		// A failed initial commit stops here, before the push: pushing an
 		// unborn branch only yields "src refspec main does not match any",
@@ -390,7 +397,7 @@ func adoptForgeCommit(path, remote, branch string, refs gitx.RemoteRefs, authorN
 
 // printNoRemoteWarning states what --no-remote costs, on stderr: the KB is a
 // purely local git repository, so it has no backup and every sync path is
-// inert for it (kb.hasRemote, CARTOGRAPHER_GIT_SYNC).
+// inert for it (a KB syncs exactly when it has a remote, kb.hasRemote).
 func printNoRemoteWarning(path string) {
 	fmt.Fprintln(os.Stderr, "Warning: this KB has no origin — it is not backed up and will never sync.")
 	fmt.Fprintf(os.Stderr, "  Attach one later with: git -C %s remote add origin <url> && git -C %s push -u origin %s\n",
@@ -444,7 +451,7 @@ func cmdKBClone(args []string) int {
 	var entryPlan *kbEntryPlan
 	if *artifactWriteFlag {
 		var code int
-		if entryPlan, code = preflightArtifactWrite(name, path, *configFlag); code != 0 {
+		if entryPlan, code = preflightArtifactWrite(name, path, remote, *configFlag); code != 0 {
 			return code
 		}
 	}

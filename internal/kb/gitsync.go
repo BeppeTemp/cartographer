@@ -42,14 +42,14 @@ func (e *ErrRebaseStatePresent) Error() string {
 		e.Root, e.Root, e.Root)
 }
 
-// ErrBranchDiverged is the sentinel for a local-profile KB whose checked-out
-// branch is not its canonical branch: the remote's default branch (D264), or
-// kbs[].git_branch when configured (D335). errors.Is matches every
-// *BranchDivergedError.
+// ErrBranchDiverged is the sentinel for a KB whose checked-out branch is not its
+// canonical branch: the remote's default branch (D264), or the `branch` of the
+// settings.yaml committed on it when it sets one (D335, D903). errors.Is matches
+// every *BranchDivergedError.
 var ErrBranchDiverged = errors.New("KB branch diverges from the remote default branch")
 
-// BranchDivergedError refuses a local-profile write that would commit or push
-// on a branch other than the KB's canonical one: the remote's default branch.
+// BranchDivergedError refuses a write that would commit or push on a branch
+// other than the KB's canonical one: the remote's default branch.
 // Pushing it would create or advance a second branch on the remote and fork
 // the KB's history there. Merging two histories is an operator decision, so
 // the error names both branches and the way out rather than repairing
@@ -64,16 +64,17 @@ type BranchDivergedError struct {
 	// RemoteEmpty is true when the remote has no refs at all: the only push
 	// allowed then is the first one of gitx.DefaultBranch.
 	RemoteEmpty bool
-	// Configured is true when Default comes from kbs[].git_branch (D335)
-	// rather than from the remote.
+	// Configured is true when Default comes from the `branch` setting of the
+	// settings.yaml on the remote's default branch (D335, D903) rather than from
+	// the remote's HEAD.
 	Configured bool
 }
 
 func (e *BranchDivergedError) Error() string {
 	switch {
 	case e.Configured:
-		return fmt.Sprintf("%s: %s is checked out on branch %q but the KB's configured branch (kbs[].git_branch) is %q, so writes are refused to keep the KB from forking on the remote. "+
-			"Check out %q in %s (`git -C %s checkout %s`, or `checkout -b %s` if it does not exist locally), or change git_branch, then restart the server",
+		return fmt.Sprintf("%s: %s is checked out on branch %q but the KB's configured branch (`branch` in settings.yaml on the remote's default branch) is %q, so writes are refused to keep the KB from forking on the remote. "+
+			"Check out %q in %s (`git -C %s checkout %s`, or `checkout -b %s` if it does not exist locally), or change `branch` on the default branch, then restart the server",
 			ErrBranchDiverged, e.Root, e.Branch, e.Default, e.Default, e.Root, e.Root, e.Default, e.Default)
 	case e.Default != "":
 		return fmt.Sprintf("%s: %s is checked out on branch %q but the remote's default branch is %q, so writes are refused to keep the KB from forking on the remote. "+
@@ -93,8 +94,8 @@ func (e *BranchDivergedError) Error() string {
 // Is makes errors.Is(err, ErrBranchDiverged) hold.
 func (e *BranchDivergedError) Is(target error) bool { return target == ErrBranchDiverged }
 
-// canonicalBranch is the branch a local-profile KB writes to, given what the
-// remote advertises: its default branch; when the remote's HEAD names no
+// canonicalBranch is the remote's default branch, given what it advertises: its
+// HEAD; when the remote's HEAD names no
 // existing branch (a self-hosted bare repository initialised with "master"
 // and pushed "main"), gitx.DefaultBranch if the remote has it; otherwise ""
 // (unknown: the check is skipped, and SyncOut still refuses to create a
@@ -109,10 +110,70 @@ func canonicalBranch(refs gitx.RemoteRefs) string {
 	return ""
 }
 
-func (k *KB) setRemoteDefault(branch string) {
+// setCanonical records what a sync resolved: the branch writes go to, and
+// whether it comes from the `branch` setting (configured) or is the remote's
+// default.
+func (k *KB) setCanonical(branch string, configured bool) {
 	k.lastSyncInMu.Lock()
 	k.remoteDefault = branch
+	k.branchConfigured = configured
 	k.lastSyncInMu.Unlock()
+}
+
+// ConfiguredBranch is the `branch` of the settings.yaml committed on the
+// remote's default branch, as the last sync resolved it (D903); "" when the
+// setting is absent, or when no sync has run yet.
+func (k *KB) ConfiguredBranch() string {
+	k.lastSyncInMu.RLock()
+	defer k.lastSyncInMu.RUnlock()
+	if k.branchConfigured {
+		return k.remoteDefault
+	}
+	return ""
+}
+
+// branchSettingAt reads the `branch` key of settings.yaml as committed on ref,
+// the remote's default branch. The working copy's file is ignored on purpose:
+// `branch` is a decision of the team, the same for every server that mounts the
+// KB, so a change made on another branch has no effect until it reaches the
+// default one. "" when the file, the key or the ref is absent or unreadable.
+// A `branch` that is present but not a valid branch name is an error, not "":
+// reading it as absent would send writes to the default branch the team meant
+// to keep clear of them.
+func (k *KB) branchSettingAt(ref string) (string, error) {
+	text, err := gitx.ShowFile(k.Root, ref, SettingsFile)
+	if err != nil {
+		return "", nil
+	}
+	s, bad, perr := ParseSettings([]byte(text))
+	if perr != nil {
+		return "", nil
+	}
+	for _, m := range bad {
+		if m.Key == "branch" {
+			return "", fmt.Errorf("%s on %s: `branch` is not usable (%s): writes are refused until it is fixed on the default branch", SettingsFile, ref, m.Reason)
+		}
+	}
+	v, _ := s.String("branch")
+	return v, nil
+}
+
+// resolveCanonical is the branch writes go to, given what the remote advertises
+// (after a fetch): the `branch` setting committed on the default branch, else
+// the default branch itself.
+func (k *KB) resolveCanonical(remote string, refs gitx.RemoteRefs) (branch string, configured bool, err error) {
+	def := canonicalBranch(refs)
+	if def == "" || !gitx.RemoteBranchExists(k.Root, remote, def) {
+		return def, false, nil
+	}
+	b, err := k.branchSettingAt(remote + "/" + def)
+	if err != nil {
+		return def, false, err
+	}
+	if b != "" {
+		return b, true, nil
+	}
+	return def, false, nil
 }
 
 // RemoteDefaultBranch returns the canonical branch last resolved from the
@@ -191,13 +252,14 @@ func (k *KB) hasRemote() (string, bool) {
 	return "origin", true
 }
 
-// SyncInDue reports whether a SyncIn call could run a fetch. It is deliberately
+// SyncInDue reports whether a SyncIn call could run a fetch: only a KB with a
+// remote syncs, one without never contacts anything (D903). It is deliberately
 // safe to call before acquiring the git lock so read-side callers can avoid the
 // lock on the common disabled, no-remote, and fresh-window paths. A concurrent
 // SyncIn may make the answer stale before the caller acquires that lock; SyncIn
 // repeats the check and safely becomes a no-op in that case.
 func (k *KB) SyncInDue() bool {
-	if !k.GitSync || !gitx.IsRepo(k.Root) {
+	if !gitx.IsRepo(k.Root) {
 		return false
 	}
 	if k.syncInWithinWindow() {
@@ -263,7 +325,6 @@ func (k *KB) lastSyncInAt() time.Time {
 
 // SyncIn performs a fetch + pull --rebase --autostash from the "origin" remote
 // before a git-synchronised operation. It is a no-op when:
-//   - k.GitSync is false, or
 //   - the KB root is not a git repository, or
 //   - no "origin" remote is configured, or
 //   - the freshness window has not elapsed: k.SyncInWindow > 0 and the last
@@ -280,9 +341,6 @@ func (k *KB) lastSyncInAt() time.Time {
 // Callers must hold the git lock.
 func (k *KB) SyncIn() (bool, error) {
 	if err := k.checkRebaseState(); err != nil {
-		return false, err
-	}
-	if err := k.ServerWritesBlocked(); err != nil {
 		return false, err
 	}
 	if !k.SyncInDue() {
@@ -306,55 +364,33 @@ func (k *KB) SyncIn() (bool, error) {
 		}
 		return true, fmt.Errorf("SyncIn fetch: %w", err)
 	}
-	if k.ServerGit != nil {
-		if branch != k.ServerGit.WorkingBranch {
-			return true, fmt.Errorf("SyncIn server profile: checked out %q, expected %q", branch, k.ServerGit.WorkingBranch)
-		}
-		if err := gitx.RebaseOntoAutostash(k.Root, remote, k.ServerGit.BaseBranch, k.GitEnv...); err != nil {
-			k.RecordServerRebaseConflict(err)
-			return true, err
-		}
+	// The KB's branch is the remote's default branch (D264), or the `branch`
+	// the settings.yaml committed on it names (D335, D903).
+	refs, err := gitx.LsRemote(k.Root, remote, k.GitEnv...)
+	if err != nil {
+		return true, fmt.Errorf("SyncIn remote default branch: %w", err)
+	}
+	canonical, configured, rerr := k.resolveCanonical(remote, refs)
+	if rerr != nil {
+		return true, rerr
+	}
+	k.setCanonical(canonical, configured)
+	if !refs.HasRefs {
+		// An empty remote has nothing to pull (pulling it fails on the missing
+		// ref); SyncOut makes the first push of main.
+		k.clearDivergedStatus()
 		k.setLastSyncIn(time.Now())
-		if headAfter, err := gitx.HeadSHA(k.Root); err == nil && headAfter != headBefore {
-			k.RefreshSettings() // D746: a pull may have changed settings.yaml
-			if k.OnSyncIn != nil {
-				k.OnSyncIn()
-			}
-		}
 		return true, nil
 	}
-	if k.ConfiguredBranch != "" {
-		// Local profile with kbs[].git_branch (D335): the configured branch is
-		// canonical, whatever the remote's default is.
-		k.setRemoteDefault(k.ConfiguredBranch)
-		if branch != k.ConfiguredBranch {
-			return true, k.divergedError(&BranchDivergedError{Root: k.Root, Branch: branch, Default: k.ConfiguredBranch, Configured: true}, 0)
-		}
-		if !gitx.RemoteBranchExists(k.Root, remote, branch) {
-			// Not on the remote yet (the fetch above refreshed the tracking
-			// refs): nothing to pull; SyncOut's first push creates it.
-			k.clearDivergedStatus()
-			k.setLastSyncIn(time.Now())
-			return true, nil
-		}
-	} else {
-		// Local profile: the KB's branch is the remote's default branch (D264).
-		refs, err := gitx.LsRemote(k.Root, remote, k.GitEnv...)
-		if err != nil {
-			return true, fmt.Errorf("SyncIn remote default branch: %w", err)
-		}
-		canonical := canonicalBranch(refs)
-		k.setRemoteDefault(canonical)
-		if !refs.HasRefs {
-			// An empty remote has nothing to pull (pulling it fails on the missing
-			// ref); SyncOut makes the first push of main.
-			k.clearDivergedStatus()
-			k.setLastSyncIn(time.Now())
-			return true, nil
-		}
-		if canonical != "" && branch != canonical {
-			return true, k.divergedError(&BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical}, 0)
-		}
+	if canonical != "" && branch != canonical {
+		return true, k.divergedError(&BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical, Configured: configured}, 0)
+	}
+	if configured && !gitx.RemoteBranchExists(k.Root, remote, branch) {
+		// Not on the remote yet (the fetch above refreshed the tracking refs):
+		// nothing to pull; SyncOut's first push creates it.
+		k.clearDivergedStatus()
+		k.setLastSyncIn(time.Now())
+		return true, nil
 	}
 	if err := k.pullRebase(remote, branch); err != nil {
 		return true, err
@@ -373,11 +409,11 @@ func (k *KB) SyncIn() (bool, error) {
 
 // SyncOut pushes the current branch to "origin" AFTER a successful commit.
 // It is a no-op when:
-//   - k.GitSync is false, or
 //   - the KB root is not a git repository, or
 //   - no "origin" remote is configured.
 //
-// On a non-fast-forward rejection the loop performs fetch + PullRebaseAutostash
+// A push the remote refuses because the branch is protected is not retried: it
+// comes back as an *ErrProtectedBranch (D903). On a non-fast-forward rejection the loop performs fetch + PullRebaseAutostash
 // and retries the push with exponential backoff, capped at 5 attempts total.
 // If PullRebaseAutostash returns ErrRebaseConflict, SyncOut returns immediately.
 // After 5 failed attempts it returns an error.
@@ -385,7 +421,7 @@ func (k *KB) SyncOut() error {
 	if err := k.checkRebaseState(); err != nil {
 		return err
 	}
-	if !k.GitSync || !gitx.IsRepo(k.Root) {
+	if !gitx.IsRepo(k.Root) {
 		k.setGitStatus("disabled", nil, 0)
 		return nil
 	}
@@ -393,13 +429,6 @@ func (k *KB) SyncOut() error {
 	if !ok {
 		k.setGitStatus("no_remote", nil, 0)
 		return nil
-	}
-	if k.ServerGit != nil {
-		if err := k.ServerWritesBlocked(); err != nil {
-			k.setGitStatus("degraded", err, 0)
-			return err
-		}
-		return k.syncOutServer(remote)
 	}
 
 	maxAttempts := syncOutMaxAttempts
@@ -421,6 +450,14 @@ func (k *KB) SyncOut() error {
 			k.recordPushSuccess()
 			k.setGitStatus("clean", nil, attempt)
 			return nil
+		}
+
+		// A protected branch is the remote's decision, not a transient failure:
+		// retrying only repeats the refusal. The commit stays safe locally.
+		if gitx.IsProtectedBranchRejection(pushErr.Error()) {
+			err := &ErrProtectedBranch{Branch: branch, Git: pushErr.Error()}
+			k.setGitStatus("failed", err, attempt)
+			return err
 		}
 
 		// Determine whether the failure is a non-fast-forward rejection.
@@ -479,36 +516,48 @@ func (k *KB) SyncOut() error {
 	return err
 }
 
-// pushLocal is one local-profile push attempt that never creates a branch on
-// the remote (D264), the defence behind SyncIn's check for anything that
-// bypassed it: a freshness window that skipped SyncIn, a checkout changed
-// between SyncIn and SyncOut. It pushes branch when it is the canonical branch
-// last resolved and the remote has it; the one exception is the first push of
-// a KB, gitx.DefaultBranch to an empty remote, which also sets the upstream.
-// A refusal comes back as diverged, with nothing pushed; the local commit
-// stays. A failure to ask the remote is returned as pushErr, retried like a
-// failed push.
+// pushLocal is one push attempt that never creates a branch on the remote
+// except the configured one (D264), the defence behind SyncIn's check for
+// anything that bypassed it: a freshness window that skipped SyncIn, a checkout
+// changed between SyncIn and SyncOut. It pushes branch when it is the canonical
+// branch last resolved and the remote has it; the one exception is the first
+// push of a KB, gitx.DefaultBranch to an empty remote, which also sets the
+// upstream. A refusal comes back as diverged, with nothing pushed; the local
+// commit stays. A failure to ask the remote is returned as pushErr, retried like
+// a failed push.
 //
-// With kbs[].git_branch configured (D335) the configured branch is the only
-// one pushed, and the first push creates it on the remote when it is missing.
+// With a `branch` setting on the remote's default branch (D335, D903) the
+// configured branch is the only one pushed, and the first push creates it on the
+// remote when it is missing.
 func (k *KB) pushLocal(remote, branch string) (pushErr error, diverged *BranchDivergedError) {
-	if k.ConfiguredBranch != "" {
-		return k.pushConfigured(remote, branch)
+	if configured := k.ConfiguredBranch(); configured != "" {
+		return k.pushConfigured(remote, branch, configured)
 	}
-	if canonical := k.RemoteDefaultBranch(); canonical != "" && branch != canonical {
+	canonical := k.RemoteDefaultBranch()
+	if canonical != "" && branch != canonical {
 		return nil, &BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical}
 	}
-	if gitx.RemoteBranchExists(k.Root, remote, branch) {
+	// A tracking ref alone is no proof the branch is the right one: while the
+	// canonical branch is unresolved (right after a start, before the first
+	// sync) the remote is asked below.
+	if canonical != "" && gitx.RemoteBranchExists(k.Root, remote, branch) {
 		return gitx.Push(k.Root, remote, branch, k.GitEnv...), nil
 	}
-	// No remote-tracking ref: ask the remote itself, since the ref may just be
-	// stale (SyncIn skipped by the freshness window, or never run).
+	// No remote-tracking ref, or nothing resolved yet: ask the remote itself,
+	// since the ref may just be stale (SyncIn skipped by the freshness window,
+	// or never run).
 	refs, err := gitx.LsRemote(k.Root, remote, k.GitEnv...)
 	if err != nil {
 		return err, nil
 	}
-	canonical := canonicalBranch(refs)
-	k.setRemoteDefault(canonical)
+	canonical, configured, rerr := k.resolveCanonical(remote, refs)
+	if rerr != nil {
+		return rerr, nil
+	}
+	k.setCanonical(canonical, configured)
+	if configured {
+		return k.pushConfigured(remote, branch, canonical)
+	}
 	switch {
 	case !refs.HasRefs && branch == gitx.DefaultBranch:
 		return gitx.PushSetUpstream(k.Root, remote, branch, k.GitEnv...), nil
@@ -523,12 +572,11 @@ func (k *KB) pushLocal(remote, branch string) (pushErr error, diverged *BranchDi
 	}
 }
 
-// pushConfigured is pushLocal for a KB with kbs[].git_branch (D335).
-func (k *KB) pushConfigured(remote, branch string) (pushErr error, diverged *BranchDivergedError) {
-	if branch != k.ConfiguredBranch {
-		return nil, &BranchDivergedError{Root: k.Root, Branch: branch, Default: k.ConfiguredBranch, Configured: true}
+// pushConfigured is pushLocal for a KB whose settings.yaml names its branch.
+func (k *KB) pushConfigured(remote, branch, configured string) (pushErr error, diverged *BranchDivergedError) {
+	if branch != configured {
+		return nil, &BranchDivergedError{Root: k.Root, Branch: branch, Default: configured, Configured: true}
 	}
-	k.setRemoteDefault(branch)
 	if gitx.RemoteBranchExists(k.Root, remote, branch) {
 		return gitx.Push(k.Root, remote, branch, k.GitEnv...), nil
 	}
@@ -543,65 +591,35 @@ func (k *KB) pushConfigured(remote, branch string) (pushErr error, diverged *Bra
 	return gitx.PushSetUpstream(k.Root, remote, branch, k.GitEnv...), nil
 }
 
-// syncOutServer pushes only the dedicated working branch (D117): a
-// non-fast-forward rejection fetches and rebases the working branch onto the
-// remote working branch first (never onto itself as base), then re-rebases
-// onto the current base before retrying.
-func (k *KB) syncOutServer(remote string) error {
-	branch, _ := gitx.Branch(k.Root)
-	if branch != k.ServerGit.WorkingBranch {
-		err := fmt.Errorf("SyncOut server profile: checked out %q, expected %q", branch, k.ServerGit.WorkingBranch)
-		k.setGitStatus("failed", err, 1)
-		return err
-	}
-	for attempt := 1; attempt <= syncOutMaxAttempts; attempt++ {
-		pushErr := gitx.Push(k.Root, remote, branch, k.GitEnv...)
-		if pushErr == nil {
-			k.recordPushSuccess() // the push happened even if the forge step fails
-			ctx, cancel := serverGitContext()
-			forgeErr := k.syncServerPR(ctx)
-			cancel()
-			if forgeErr != nil {
-				return forgeErr
-			}
-			k.setGitStatus("clean", nil, attempt)
-			return nil
-		}
-		errMsg := pushErr.Error()
-		isRejected := strings.Contains(errMsg, "non-fast-forward") ||
-			strings.Contains(errMsg, "[rejected]") ||
-			strings.Contains(errMsg, "Updates were rejected")
-		if !isRejected {
-			if attempt == syncOutMaxAttempts {
-				k.setGitStatus("failed", pushErr, attempt)
-				return pushErr
-			}
-		} else {
-			if fetchErr := gitx.Fetch(k.Root, remote, k.GitEnv...); fetchErr != nil {
-				if attempt == syncOutMaxAttempts {
-					k.setGitStatus("failed", fetchErr, attempt)
-					return fetchErr
-				}
-			} else {
-				// First incorporate a concurrent update to the working branch, then
-				// rebase onto base again. The working branch is never used as base.
-				if rebaseErr := gitx.PullRebaseAutostash(k.Root, remote, branch, k.GitEnv...); rebaseErr != nil {
-					k.RecordServerRebaseConflict(rebaseErr)
-					k.setGitStatus("failed", rebaseErr, attempt)
-					return rebaseErr
-				}
-				if rebaseErr := gitx.RebaseOntoAutostash(k.Root, remote, k.ServerGit.BaseBranch, k.GitEnv...); rebaseErr != nil {
-					k.RecordServerRebaseConflict(rebaseErr)
-					k.setGitStatus("failed", rebaseErr, attempt)
-					return rebaseErr
-				}
+// ErrProtectedBranch is the error of a push the remote refused because the
+// branch is protected, or a server-side hook declined it (D903). Cartographer
+// pushes to the branch itself and never opens a pull request, so the way out is
+// on the remote or in `branch`, not in a retry.
+type ErrProtectedBranch struct {
+	Branch string
+	// Git is what git printed, kept for the operator.
+	Git string
+}
+
+func (e *ErrProtectedBranch) Error() string {
+	return fmt.Sprintf("the remote refused the push to branch %q: it is protected, or a server-side hook declined it. "+
+		"Cartographer pushes to the branch directly and never opens a pull request: unprotect the branch, or set `branch` in settings.yaml "+
+		"(committed on the remote's default branch) to write to another one. The change is committed and safe in the local clone. Git said: %s",
+		e.Branch, firstLines(e.Git, 3))
+}
+
+// firstLines keeps the first n non-empty lines of git's output, on one line.
+func firstLines(out string, n int) string {
+	var kept []string
+	for _, l := range strings.Split(out, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			kept = append(kept, l)
+			if len(kept) == n {
+				break
 			}
 		}
-		syncOutSleep(syncOutInitialBackoff * time.Duration(1<<(attempt-1)))
 	}
-	err := fmt.Errorf("SyncOut server profile: push failed after %d attempts", syncOutMaxAttempts)
-	k.setGitStatus("failed", err, syncOutMaxAttempts)
-	return err
+	return strings.Join(kept, " | ")
 }
 
 // HasRemote reports whether the KB has a configured origin remote.
@@ -646,8 +664,9 @@ func RedactRemoteURL(raw string) string {
 	return u.String()
 }
 
-// CommitOp creates a git commit if AutoCommit is enabled, the KB root is a git
-// repository, and the working tree is dirty. It is a no-op in every other case.
+// CommitOp creates a git commit if the KB root is a git repository and the
+// working tree is dirty (every write is a commit, whatever the configuration,
+// D903). It is a no-op in every other case.
 // If git commit itself fails, the error is returned to the caller; the wrapper in
 // mcpserver treats commit errors as non-fatal (logs to stderr, does not surface to
 // the MCP client).
@@ -657,8 +676,8 @@ func RedactRemoteURL(raw string) string {
 // the per-KB git lock (WithGitLock in mcpserver.gitWrap), so this is never a
 // race with a concurrent commit/push on the same KB (D119: the audit log
 // records this SHA on the write's completion event instead of a later,
-// racier HEAD query). sha is empty when no commit was made (autocommit off,
-// not a repo, clean tree, or "nothing to commit").
+// racier HEAD query). sha is empty when no commit was made (not a repo, clean
+// tree, or "nothing to commit").
 func (k *KB) CommitOp(message string) (sha string, err error) {
 	return k.CommitOpAs(message, "", "")
 }
@@ -668,7 +687,7 @@ func (k *KB) CommitOp(message string) (sha string, err error) {
 // committer stays the KB's (GIT_COMMITTER_* in GitEnv). Empty values behave
 // exactly like CommitOp. Used to attribute a write to the token that made it.
 func (k *KB) CommitOpAs(message, overrideName, overrideEmail string) (sha string, err error) {
-	if !k.AutoCommit || !gitx.IsRepo(k.Root) {
+	if !gitx.IsRepo(k.Root) {
 		return "", nil
 	}
 	status, err := gitx.Status(k.Root)
@@ -704,22 +723,29 @@ func (k *KB) CommitOpAs(message, overrideName, overrideEmail string) (sha string
 // per-KB lock serialises its staging and commit with other git operations;
 // gitx uses a temporary index so unrelated dirty work remains untouched.
 func (k *KB) CommitPaths(paths []string, message string) error {
-	return k.WithGitLock(func() error {
-		if !gitx.IsRepo(k.Root) {
-			return fmt.Errorf("CommitPaths: KB root is not a git repository")
+	return k.WithGitLock(func() error { return k.commitPathsLocked(paths, message) })
+}
+
+// commitPathsLocked is CommitPaths for a caller that already holds the git lock.
+func (k *KB) commitPathsLocked(paths []string, message string) error {
+	if !gitx.IsRepo(k.Root) {
+		return fmt.Errorf("CommitPaths: KB root is not a git repository")
+	}
+	authorName, authorEmail := "", ""
+	if k.GitAuthorExplicit {
+		authorName, authorEmail = k.gitAuthor()
+	} else if _, _, err := gitx.AuthorIdent(k.Root, k.GitEnv...); err != nil {
+		authorName, authorEmail = defaultGitAuthorName, defaultGitAuthorEmail
+	}
+	if err := gitx.CommitPaths(k.Root, paths, message, authorName, authorEmail, k.GitEnv...); err != nil {
+		if errors.Is(err, gitx.ErrNothingToCommit) {
+			return nil
 		}
-		authorName, authorEmail := "", ""
-		if k.GitAuthorExplicit {
-			authorName, authorEmail = k.gitAuthor()
-		} else if _, _, err := gitx.AuthorIdent(k.Root, k.GitEnv...); err != nil {
-			authorName, authorEmail = defaultGitAuthorName, defaultGitAuthorEmail
-		}
-		if err := gitx.CommitPaths(k.Root, paths, message, authorName, authorEmail, k.GitEnv...); err != nil {
-			if errors.Is(err, gitx.ErrNothingToCommit) {
-				return nil
-			}
-			return err
-		}
-		return nil
-	})
+		return err
+	}
+	// The commit went through a temporary index: the real one still holds the
+	// old content of these paths and would show them as staged changes against
+	// the new HEAD. Best-effort, the commit itself is made.
+	_ = gitx.ResetPaths(k.Root, paths...)
+	return nil
 }

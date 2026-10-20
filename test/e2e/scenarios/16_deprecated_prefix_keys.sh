@@ -8,7 +8,8 @@
 # fail to start, and nothing warns about them any more.
 #
 # Verifies (operator channel only, curl — no agent/model):
-#   1. A config carrying all three removed keys still starts, and the server log
+#   1. A config carrying the removed server-level keys (mount_mode,
+#      tool_prefix_mode) still starts, and the server log
 #      says nothing about them.
 #   2. Tools are not prefixed: /health advertises no tool_prefix, the per-KB
 #      endpoint answers on the bare tool name and the routed one lists it.
@@ -48,14 +49,6 @@ init: true
 mcp:
   mount_mode: per-kb
   tool_prefix_mode: kb-name
-kbs:
-  - path: ${DIR}/plainkb
-    name: plainkb
-  - path: ${DIR}/prefixedkb
-    name: prefixedkb
-    tool_prefix: "zzarb"
-  - path: ${DIR}/routed
-    name: routed
 YAML
 
 E2E_CONFIG="$CONFIG" server_start "${DIR}/plainkb,${DIR}/prefixedkb,${DIR}/routed"

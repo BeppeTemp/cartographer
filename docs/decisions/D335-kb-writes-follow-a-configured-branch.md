@@ -4,6 +4,8 @@ topic: concurrency-git
 
 # D335 — KB writes follow a configured branch
 
+> **Amended by [D903](D903-one-way-to-write-any-provider.md)**: the key is `branch`, in the KB's `settings.yaml` only, read from the file committed on the remote's default branch; `kbs[].git_branch` is removed.
+
 **Decision.** A local-profile KB may name its branch with `kbs[].git_branch`.
 When it is set, that branch is canonical instead of the remote's default branch:
 it is the only branch pulled and pushed, the first push creates it on the remote

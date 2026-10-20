@@ -13,8 +13,14 @@ import (
 // the config schema. Nothing is set, so the KB behaves as it would without the
 // file until someone uncomments a line. nil on a render failure: the KB is
 // created without the file rather than not at all.
-func newKBSettingsFile() []byte {
-	body, err := config.KBSettingsSchema().Format(nil)
+func newKBSettingsFile() []byte { return newKBSettingsFileWith("") }
+
+// newKBSettingsFileWith is newKBSettingsFile with the YAML in seed set in it:
+// `kb create --no-remote --artifact-write` has no kbs[] entry to put
+// allow_artifact_write in (an entry names a remote, D903), so the new KB
+// carries it itself.
+func newKBSettingsFileWith(seed string) []byte {
+	body, err := config.KBSettingsSchema().Format([]byte(seed))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: settings.yaml not written: %v\n", err)
 		return nil

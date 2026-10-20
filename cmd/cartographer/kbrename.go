@@ -174,7 +174,7 @@ func planKBRename(old, newName, dataDir, configPath string) (*renamePlan, error)
 // `kb create` or found by discovery legitimately has no entry (D151), and
 // renaming its directory is then the whole job.
 func locateKBEntry(p *renamePlan, cfg *config.Config) error {
-	i, err := findKBEntry(p.Old, p.OldPath, p.ConfigPath, cfg)
+	i, err := findKBEntry(p.Old, p.ConfigPath, cfg)
 	if err != nil {
 		return err
 	}
@@ -184,18 +184,19 @@ func locateKBEntry(p *renamePlan, cfg *config.Config) error {
 
 // findKBEntry is the lookup behind locateKBEntry, shared with `kb create
 // --artifact-write`: the index of the one kbs[] entry matching the KB by
-// resolved name or path, -1 for none, an error for several.
-func findKBEntry(name, kbPath, configPath string, cfg *config.Config) (int, error) {
+// resolved name, -1 for none, an error for several. Only an entry with a remote
+// is a mount (D903).
+func findKBEntry(name, configPath string, cfg *config.Config) (int, error) {
 	var matches []int
 	for i, spec := range cfg.KBs {
-		if resolveKBName(spec, spec.Path) == name || (spec.Path != "" && sameDir(spec.Path, kbPath)) {
+		if spec.Remote != "" && resolveKBName(spec, "") == name {
 			matches = append(matches, i)
 		}
 	}
 	if len(matches) > 1 {
 		var found []string
 		for _, i := range matches {
-			found = append(found, fmt.Sprintf("kbs[%d] (name=%q path=%q remote=%q)", i, cfg.KBs[i].Name, cfg.KBs[i].Path, cfg.KBs[i].Remote))
+			found = append(found, fmt.Sprintf("kbs[%d] (name=%q remote=%q)", i, cfg.KBs[i].Name, cfg.KBs[i].Remote))
 		}
 		return -1, fmt.Errorf("KB %q matches %d entries in %s: %s — make the intended one unambiguous first",
 			name, len(matches), configPath, strings.Join(found, ", "))

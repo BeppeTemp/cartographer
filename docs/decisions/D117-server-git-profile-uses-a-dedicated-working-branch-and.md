@@ -4,6 +4,8 @@ topic: concurrency-git
 
 # D117 — Server Git profile uses a dedicated working branch and GitHub PR boundary
 
+> **Superseded by [D903](D903-one-way-to-write-any-provider.md)**: the server git profile, its forge and the `pr_status` and `pr_finalize` tools are removed.
+
 **Decision.** Keep Local Core as the default `git.profile: local`. The opt-in `server`
 profile requires an explicit protected base, a dedicated working branch, GitHub
 repository/API coordinates and a token environment variable. It mounts only a clean,

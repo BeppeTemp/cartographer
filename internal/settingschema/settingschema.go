@@ -32,7 +32,7 @@ const (
 const Marker = "# --- available settings ---"
 
 // Key describes one YAML key. Path is dotted ("git.autocommit"); a segment
-// ending in "[]" is a list of mappings ("kbs[].path"). A list of mappings has
+// ending in "[]" is a list of mappings ("kbs[].remote"). A list of mappings has
 // one Key of its own, with the plain path ("kbs"), for the list itself.
 type Key struct {
 	Path        string

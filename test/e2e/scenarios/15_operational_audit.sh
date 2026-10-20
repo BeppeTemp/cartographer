@@ -45,9 +45,6 @@ kb_make "$KB_DIR"
 cat > "$CONFIG" <<YAML
 http: ":${E2E_HTTP_PORT}"
 init: true
-kbs:
-  - path: ${KB_DIR}
-    name: ${KB_NAME}
 audit:
   log: ${AUDIT_LOG}
   mode: best_effort

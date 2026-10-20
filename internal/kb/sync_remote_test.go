@@ -45,31 +45,12 @@ func setupKBWithRemote(t *testing.T) (k *KB, bare string) {
 	return k, bare
 }
 
-func TestSyncOut_Disabled_NoOp(t *testing.T) {
-	t.Parallel()
-	if !haveGit() {
-		t.Skip("git not in PATH")
-	}
-	k, bare := setupKBWithRemote(t)
-	k.GitSync = false // disabled → no-op
-
-	if err := k.SyncOut(); err != nil {
-		t.Fatalf("SyncOut disabled must be a no-op, err: %v", err)
-	}
-	// The bare remote must not have received any branch.
-	out := gitHere(t, bare, "branch", "--list")
-	if strings.TrimSpace(out) != "" {
-		t.Fatalf("bare should have no branch with GitSync=false, has: %q", out)
-	}
-}
-
 func TestSyncOut_PushesToRemote(t *testing.T) {
 	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("SyncOut: %v", err)
@@ -87,7 +68,6 @@ func TestSyncOut_DetachedHeadRecordsFailure(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, _ := setupKBWithRemote(t)
-	k.GitSync = true
 	gitHere(t, k.Root, "checkout", "--detach")
 	if err := k.SyncOut(); err == nil || !strings.Contains(err.Error(), "detached HEAD") {
 		t.Fatalf("SyncOut detached HEAD error = %v", err)
@@ -103,7 +83,6 @@ func TestGitStatusSnapshot_MissingRemoteTrackingRefHasUnknownAheadCount(t *testi
 		t.Skip("git not in PATH")
 	}
 	k, _ := setupKBWithRemote(t)
-	k.GitSync = true
 	if s := k.GitStatusSnapshot(); s.UnpushedCommits != nil {
 		t.Fatalf("unpushed commits = %v, want nil without origin tracking ref", *s.UnpushedCommits)
 	}
@@ -117,7 +96,6 @@ func TestSyncOut_PushFailureRecordsAllAttemptsWithoutBackoff(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	if err := os.RemoveAll(bare); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +146,6 @@ func TestSyncIn_FreshnessWindow_SkipsRedundantFetch(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	// Seed the remote so a concurrent clone has a branch to work with.
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
@@ -211,7 +188,6 @@ func TestSyncIn_WindowZero_AlwaysFetches(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}
@@ -250,7 +226,6 @@ func TestSyncIn_NoRemote_NoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	k.GitSync = true // enabled but with no remote → still a no-op
 
 	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("SyncIn without a remote must be a no-op, err: %v", err)
@@ -264,7 +239,6 @@ func TestGitStatusSnapshot_BehindAndLastPush(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("SyncOut: %v", err)
 	}
@@ -320,7 +294,6 @@ func TestSyncIn_RecordsLastSyncInAt(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, _ := setupKBWithRemote(t)
-	k.GitSync = true
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("SyncOut: %v", err)
 	}

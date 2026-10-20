@@ -56,7 +56,7 @@ func TestCmdKBUnmount_HappyPath(t *testing.T) {
 	}
 	home := writeClientBindings(t, "http://127.0.0.1:39273")
 	dataDir, origin := seedPushedKB(t, "wiki")
-	cfgPath := writeServerConfig(t, "# operator note\ndata: "+dataDir+"\nkbs:\n  - path: "+filepath.Join(dataDir, "wiki")+" # the wiki\n    name: wiki\n  - path: /srv/other\n    name: other\n")
+	cfgPath := writeServerConfig(t, "# operator note\ndata: "+dataDir+"\nkbs:\n  - remote: https://git.example.com/user/wiki.git # the wiki\n    name: wiki\n  - remote: https://git.example.com/user/other.git\n    name: other\n")
 
 	code, out := runUnmount(t, "wiki", "--data", dataDir, "--config", cfgPath)
 	if code != 0 {

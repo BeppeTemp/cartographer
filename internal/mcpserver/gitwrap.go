@@ -34,8 +34,8 @@ const pushFlushTimeout = 5 * time.Second
 //   - If the commit itself fails, the error is logged to stderr but is NOT
 //     propagated to the MCP client: a commit failure never turns a successful
 //     operation into an error.
-//   - If k.AutoCommit is false (the zero-value default), CommitOp is a no-op,
-//     so existing tests that do not set AutoCommit are unaffected.
+//   - A KB that is a git repository always commits: there is no setting that
+//     turns the commit off (D903). CommitOp is a no-op only outside a repository.
 //
 // Step 3 — agentic conflict handling:
 //   - If SyncIn returns a *gitx.RebaseConflictError, each conflicting file is
@@ -67,7 +67,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 		start := time.Now()
 		k.WithGitLock(func() error { //nolint:errcheck // inner func always returns nil
 			// Step 2: fetch + pull --rebase before every write operation.
-			// If the KB has no remote or GitSync is false, SyncIn is a no-op.
+			// If the KB has no remote, SyncIn is a no-op.
 			syncInStart := time.Now()
 			refused, syncRefused := syncInForWrite(k)
 			syncInDur = time.Since(syncInStart)
@@ -154,7 +154,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 // syncInForWrite is gitWrap's step 2/3: fetch + pull --rebase before a write.
 // It returns a refusal result (and true) when the write must not go on: a
 // rebase conflict is registered and its concepts marked degraded, any other
-// failure is worded by syncFailureMessage. No remote or GitSync off: a no-op.
+// failure is worded by syncFailureMessage. No remote: a no-op.
 func syncInForWrite(k *kb.KB) (ToolResult, bool) {
 	_, syncErr := k.SyncIn()
 	if syncErr == nil {
@@ -227,12 +227,9 @@ const externalChangesSubject = "external changes"
 // and says why in the Reason trailer. It runs under the git lock before the
 // handler, after the pull; a KB with open conflicts is left alone (the write
 // is refused as before, and a conflict marker must not be committed). A
-// failure is logged and never fails the write. A clean tree, an AutoCommit-off
-// KB or a non-repository make it a no-op (CommitOpAs).
+// failure is logged and never fails the write. A clean tree or a
+// non-repository make it a no-op (CommitOpAs).
 func commitExternalChanges(k *kb.KB, tool string) {
-	if !k.AutoCommit {
-		return
-	}
 	if conflicts, err := k.ListConflicts(); err == nil && len(conflicts) > 0 {
 		return
 	}
@@ -501,9 +498,6 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string
 			Files:      rce.Files,
 			DetectedAt: now,
 			Kind:       kind,
-		}
-		if state := k.ServerGitStatus(); state.Profile == "server" {
-			c.BaseBranch, c.WorkingBranch, c.PRNumber, c.PRURL = state.BaseBranch, state.WorkingBranch, state.PRNumber, state.PRURL
 		}
 		if err := k.RegisterConflict(c); err != nil {
 			fmt.Fprintf(os.Stderr, "cartographer: register conflict %q: %v\n", conceptID, err)

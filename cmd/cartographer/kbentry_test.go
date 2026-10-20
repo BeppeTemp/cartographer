@@ -20,16 +20,19 @@ func writeCfg(t *testing.T, body string) string {
 	return p
 }
 
+// remoteOf is the remote the tests clone a KB called name from.
+func remoteOf(name string) string { return "https://git.example.com/user/" + name + ".git" }
+
 func applyFor(t *testing.T, cfgPath, name, kbPath string) error {
 	t.Helper()
-	plan, err := planKBEntry(name, kbPath, cfgPath)
+	plan, err := planKBEntry(name, kbPath, remoteOf(name), cfgPath)
 	if err != nil {
 		return err
 	}
 	return applyKBEntry(plan)
 }
 
-func artifactWriteOf(t *testing.T, cfgPath, kbPath string) (bool, int) {
+func artifactWriteOf(t *testing.T, cfgPath, name string) (bool, int) {
 	t.Helper()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
@@ -38,7 +41,7 @@ func artifactWriteOf(t *testing.T, cfgPath, kbPath string) (bool, int) {
 	n := 0
 	got := false
 	for _, s := range cfg.KBs {
-		if filepath.Clean(s.Path) == filepath.Clean(kbPath) || filepath.Base(s.Path) == filepath.Base(kbPath) {
+		if s.MountName() == name {
 			n++
 			got = s.AllowArtifactWrite
 		}
@@ -48,17 +51,17 @@ func artifactWriteOf(t *testing.T, cfgPath, kbPath string) (bool, int) {
 
 func TestApplyKBEntryAppendKeepsCommentsAndUnknownKeys(t *testing.T) {
 	kbPath := filepath.Join(t.TempDir(), "alpha")
-	cfg := writeCfg(t, "# my server\nunknown_key: keep-me # inline\nkbs:\n  - path: /srv/other # other kb\n")
+	cfg := writeCfg(t, "# my server\nunknown_key: keep-me # inline\nkbs:\n  - remote: https://git.example.com/user/other.git # other kb\n")
 	if err := applyFor(t, cfg, "alpha", kbPath); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(cfg)
-	for _, want := range []string{"# my server", "unknown_key: keep-me # inline", "# other kb", "/srv/other"} {
+	for _, want := range []string{"# my server", "unknown_key: keep-me # inline", "# other kb", "user/other.git"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("lost %q:\n%s", want, b)
 		}
 	}
-	if got, n := artifactWriteOf(t, cfg, kbPath); !got || n != 1 {
+	if got, n := artifactWriteOf(t, cfg, "alpha"); !got || n != 1 {
 		t.Errorf("allow_artifact_write=%v entries=%d, want true/1", got, n)
 	}
 	// Windows has no POSIX permission bits: os.Stat reports 0666 there.
@@ -73,16 +76,16 @@ func TestApplyKBEntryCreatesKBsSequence(t *testing.T) {
 	if err := applyFor(t, cfg, "alpha", kbPath); err != nil {
 		t.Fatal(err)
 	}
-	if got, n := artifactWriteOf(t, cfg, kbPath); !got || n != 1 {
+	if got, n := artifactWriteOf(t, cfg, "alpha"); !got || n != 1 {
 		t.Errorf("allow_artifact_write=%v entries=%d, want true/1", got, n)
 	}
 }
 
-func TestApplyKBEntryUpdatesExistingByPathAndNameIdempotent(t *testing.T) {
+func TestApplyKBEntryUpdatesExistingByRemoteAndNameIdempotent(t *testing.T) {
 	kbPath := filepath.Join(t.TempDir(), "alpha")
 	for name, entry := range map[string]string{
-		"by path": "  - path: " + kbPath + "\n",
-		"by name": "  - name: alpha\n    path: " + kbPath + "-elsewhere\n",
+		"by remote": "  - remote: " + remoteOf("alpha") + "\n",
+		"by name":   "  - name: alpha\n    remote: " + remoteOf("elsewhere") + "\n",
 	} {
 		cfg := writeCfg(t, "kbs:\n"+entry)
 		for i := 0; i < 2; i++ {
@@ -99,16 +102,16 @@ func TestApplyKBEntryUpdatesExistingByPathAndNameIdempotent(t *testing.T) {
 
 func TestPlanKBEntryRefusals(t *testing.T) {
 	kbPath := filepath.Join(t.TempDir(), "alpha")
-	amb := writeCfg(t, "kbs:\n  - path: "+kbPath+"\n  - name: alpha\n    path: /srv/x\n")
-	if _, err := planKBEntry("alpha", kbPath, amb); err == nil || !strings.Contains(err.Error(), "matches 2 entries") {
+	amb := writeCfg(t, "kbs:\n  - remote: "+remoteOf("alpha")+"\n  - name: alpha\n    remote: "+remoteOf("x")+"\n")
+	if _, err := planKBEntry("alpha", kbPath, remoteOf("alpha"), amb); err == nil || !strings.Contains(err.Error(), "matches 2 entries") {
 		t.Errorf("ambiguous: err = %v", err)
 	}
 	missing := filepath.Join(t.TempDir(), "nope.yaml")
-	if _, err := planKBEntry("alpha", kbPath, missing); !errors.Is(err, errNoServerConfig) {
+	if _, err := planKBEntry("alpha", kbPath, remoteOf("alpha"), missing); !errors.Is(err, errNoServerConfig) {
 		t.Errorf("missing: err = %v, want errNoServerConfig", err)
 	}
 	bad := writeCfg(t, "kbs: [\n")
-	if _, err := planKBEntry("alpha", kbPath, bad); err == nil || errors.Is(err, errNoServerConfig) {
+	if _, err := planKBEntry("alpha", kbPath, remoteOf("alpha"), bad); err == nil || errors.Is(err, errNoServerConfig) {
 		t.Errorf("invalid: err = %v", err)
 	}
 	scalar := writeCfg(t, "kbs: nope\n")
@@ -121,7 +124,7 @@ func TestPlanKBEntryRefusals(t *testing.T) {
 // operator wrote is touched (D747).
 func TestApplyKBEntryCommentsTheNewEntryOnly(t *testing.T) {
 	kbPath := filepath.Join(t.TempDir(), "alpha")
-	cfg := writeCfg(t, "kbs:\n  # my other kb\n  - path: /srv/other\n    write_gate: error\n")
+	cfg := writeCfg(t, "kbs:\n  # my other kb\n  - remote: https://git.example.com/user/other.git\n    write_gate: error\n")
 	if err := applyFor(t, cfg, "alpha", kbPath); err != nil {
 		t.Fatal(err)
 	}

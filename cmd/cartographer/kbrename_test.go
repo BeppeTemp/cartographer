@@ -78,8 +78,8 @@ func TestPlanKBRename_AmbiguousConfig(t *testing.T) {
 	}
 	dataDir := seedRenameKB(t, "wiki")
 	cfgPath := writeServerConfig(t, "data: "+dataDir+"\nkbs:\n"+
-		"  - path: "+filepath.Join(dataDir, "wiki")+"\n"+
-		"  - path: /elsewhere/wiki\n    name: wiki\n")
+		"  - remote: https://git.example.com/user/wiki.git\n"+
+		"  - remote: https://git.example.com/user/elsewhere.git\n    name: wiki\n")
 
 	_, err := planKBRename("wiki", "atlas", dataDir, cfgPath)
 	if err == nil || !strings.Contains(err.Error(), "matches 2 entries") {
@@ -101,7 +101,7 @@ func TestCmdKBRename_HappyPath(t *testing.T) {
 		withClientServerURL(t, "")
 		dataDir := seedRenameKB(t, "wiki")
 		cfgPath := writeServerConfig(t, "# operator's own note\nhttp: \"127.0.0.1:39273\"\ndata: "+dataDir+"\n"+
-			"kbs:\n  - path: "+filepath.Join(dataDir, "wiki")+"\n    tool_prefix: wk\n")
+			"kbs:\n  - remote: https://git.example.com/user/wiki.git\n    tool_prefix: wk\n")
 
 		var code int
 		out := withStdout(t, func() {
@@ -123,8 +123,8 @@ func TestCmdKBRename_HappyPath(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := string(body)
-		if !strings.Contains(got, filepath.Join(dataDir, "atlas")) {
-			t.Errorf("the config still points at the old path:\n%s", got)
+		if !strings.Contains(got, "name: atlas") {
+			t.Errorf("the entry does not carry the new name:\n%s", got)
 		}
 		// An explicit tool_prefix is preserved verbatim, and so are the
 		// operator's comments: a rename must not reformat a hand-written file.
@@ -168,7 +168,7 @@ func TestPlanKBRename_ReportsWhatItDoesNotMigrate(t *testing.T) {
 	dataDir := seedRenameKB(t, "wiki")
 	cfgPath := writeServerConfig(t, "data: "+dataDir+"\n"+
 		"auth:\n  mode: \"on\"\n  tokens:\n    - token: s3cret\n      id: ops\n      scopes: [\"kb:wiki:rw\"]\n"+
-		"kbs:\n  - path: "+filepath.Join(dataDir, "wiki")+"\n")
+		"kbs:\n  - remote: https://git.example.com/user/wiki.git\n")
 
 	p, err := planKBRename("wiki", "atlas", dataDir, cfgPath)
 	if err != nil {
@@ -202,7 +202,7 @@ func TestApplyKBRename_RollsBackOnConfigFailure(t *testing.T) {
 	dataDir := seedRenameKB(t, "wiki")
 	cfgDir := t.TempDir()
 	cfgPath := filepath.Join(cfgDir, "server.yaml")
-	if err := os.WriteFile(cfgPath, []byte("kbs:\n  - path: "+filepath.Join(dataDir, "wiki")+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("kbs:\n  - remote: https://git.example.com/user/wiki.git\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if os.Geteuid() == 0 {

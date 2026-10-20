@@ -1165,6 +1165,15 @@ set, and a file written by an older version gains the comments at its next save.
 no setting does not rewrite the file. A file with no comments loads exactly as before: comments are
 additive.
 
+**Realignment on `sync` (D903).** The first `cartographer sync` after an upgrade that removed a key
+brings the file up to date, under the client-state lock: a removed key is dropped, a value that switched
+a feature off is reset to the default, the comments above are written, every other value, comment and key
+order stays, and the original is kept beside it as `.cartographer.yaml.bak-<version>` (a numeric suffix
+when one of that name exists). `sync` prints what it changed; a second run changes nothing and writes no
+backup, and `sync --dry-run` writes nothing. The registry of removed keys is `Retired` in
+`internal/clientconfig/realign.go`, next to the schema. A removed key met later, edited back in by hand,
+is ignored with a warning that names its replacement; it is never an error.
+
 **Server-owned caches live in `.cartographer-state.json`**, next to `.cartographer-client.lock` and
 `.cartographer-sync.lock.json` (D747). `known_kbs` (the KB names `/health` advertised at the last
 `connect`/`sync`), `server_mount_mode` and `server_routed_path` are rewritten wholesale by every

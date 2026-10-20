@@ -36,7 +36,12 @@ server_start() {
 
 	local args=(serve --kb "$kb_paths" --init --http ":${E2E_HTTP_PORT}")
 	if [[ -n "${E2E_CONFIG:-}" ]]; then
+		# The KBs are folders mounted from the command line: a kbs[] entry of the
+		# config names a remote (D903), and the config carries the rest.
 		args=(serve --config "$E2E_CONFIG")
+		if [[ -n "$kb_paths" ]]; then
+			args+=(--kb "$kb_paths")
+		fi
 	fi
 
 	CARTOGRAPHER_AUTH="${auth}" \

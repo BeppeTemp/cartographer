@@ -74,7 +74,7 @@ const api = `${base}/api/ui/v1`;
 const started = Date.now();
 const server = spawn(
   BIN,
-  ["serve", "--data", data, "--http", `127.0.0.1:${port}`, "--git-sync=false", "--update-check=false"],
+  ["serve", "--data", data, "--http", `127.0.0.1:${port}`, "--update-check=false"],
   { env: { ...process.env, CARTOGRAPHER_AUTH: "false", CARTOGRAPHER_TOKENS: "" }, stdio: "ignore" },
 );
 const cleanup = () => {

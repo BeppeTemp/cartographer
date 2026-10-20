@@ -14,13 +14,13 @@ func yamlView() View {
 			{Key: "auth.mode", Value: "on", Origin: OriginEnv, Env: "CARTOGRAPHER_AUTH"},
 			{Key: "auth.tokens", Value: SecretSet, Origin: OriginFile, Secret: true},
 			{Key: "audit.key_seed", Value: SecretUnset, Origin: OriginDefault, Secret: true},
-			{Key: "git.autocommit", Value: true, Origin: OriginDefault},
-			{Key: "git.sync", Value: false, Origin: OriginFile},
+			{Key: "git.ssh_key", Value: "", Origin: OriginDefault},
+			{Key: "git.known_hosts", Value: "/etc/known_hosts", Origin: OriginFile},
 			{Key: "kbs", Value: []string{"kb-a", "work-kb"}, Origin: OriginFile},
 		},
 		KBs: []KBEntries{
 			{Name: "kb-a", Entries: []Entry{
-				{Key: "kbs[].path", Value: "/data/kb-a", Origin: OriginFile},
+				{Key: "kbs[].remote", Value: "https://git.example.com/user/kb-a.git", Origin: OriginFile},
 				{Key: "kbs[].doctor_mode", Value: "auto", Origin: OriginKB},
 				{Key: "kbs[].auto_repair", Value: []string{"x"}, Origin: OriginDefault},
 			}},
@@ -41,11 +41,11 @@ func TestServerYAMLIsTheEffectiveFileDocumented(t *testing.T) {
 		"http: 127.0.0.1:39273 # from --http",
 		"mode: \"on\" # from CARTOGRAPHER_AUTH",
 		"tokens: " + Redacted,
-		"sync: false",
+		"known_hosts: /etc/known_hosts",
 		// A key at its default is documented, commented out, not set.
-		"# autocommit: true",
+		"# ssh_key: \"\"",
 		// The server file's kbs[] entry, not what the KB's own file sets.
-		"path: /data/kb-a",
+		"remote: https://git.example.com/user/kb-a.git",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("server YAML lacks %q:\n%s", want, text)
@@ -70,7 +70,7 @@ func TestKBYAMLIsTheKBsSettingsFile(t *testing.T) {
 	text := string(out)
 	for _, want := range []string{
 		"doctor_mode: auto",
-		"path: /data/kb-a # from the server's kbs[] entry",
+		"remote: https://git.example.com/user/kb-a.git # from the server's kbs[] entry",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("KB YAML lacks %q:\n%s", want, text)

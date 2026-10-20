@@ -803,16 +803,25 @@ mounting the same KB get the same behaviour. `settings.yaml` at the KB root, bes
 - doctor: `doctor_mode`, `doctor_interval`, `doctor_auto_interval`, `doctor_budget`,
   `usage_stale_days`;
 - provisioning: `mcp_allowlist`;
-- how changes land: `git_profile`, `git_base_branch`, `git_forge`, `github_owner`,
-  `github_repository`;
+- how changes land: `branch`, the branch Cartographer commits and pushes to, in place of the
+  remote's default one (D335, D903). It has no `kbs[]` form: it is a decision of the team that
+  owns the KB, the same for every server that mounts it. It is read **only from the
+  `settings.yaml` committed on the remote's default branch** (the working copy's file is parsed
+  and shown, but changes nothing until it reaches the default branch), the first push creates the
+  branch when the remote lacks it, and a name git would not accept is a finding;
 - `secrets: true|false`: the KB uses secrets. A mount of it without an age key reports
   `capabilities.secrets: missing key` and warns at startup, instead of a silent `disabled`.
 
-Names and values are those of the same `kbs[]` keys (`docs/deployment.md`, `config.example.yaml`).
-The keys bound to one machine (`path`, `remote`, `name`, `ssh_key`, `known_hosts`, `author_*`,
-`committer_*`, `sops_age_key_file`, `github_token_env`, `git_working_branch`, `git_branch`,
-`artifact_signing_seed`, and `github_api_url`, where the server sends its own GitHub token)
-stay in the server's `kbs[]`; naming one in `settings.yaml` is a finding.
+Names and values are those of the same `kbs[]` keys (`docs/deployment.md`, `config.example.yaml`),
+and `branch`. The keys bound to one machine (`remote`, `name`, `ssh_key`, `known_hosts`,
+`author_*`, `committer_*`, `sops_age_key_file`, `artifact_signing_seed`) stay in the server's
+`kbs[]`; naming one in `settings.yaml` is a finding. So is a removed key (D903): the server git
+profile's `git_profile`, `git_base_branch`, `git_forge`, `github_*`, `git_working_branch`, and
+`git_branch`, which became `branch`. Each is ignored with a finding that names what to use, and
+dropped when the server realigns the file; `git_profile: server`, which cannot be honoured, makes
+the KB refuse to mount. The realignment is one commit by the server, through the normal write
+path, so it is revertible (`docs/deployment.md` §Upgrading: realignment); a KB created by
+`kb create` starts with no key set.
 
 **Precedence: the KB is authoritative.** Effective value = the KB's `settings.yaml` if it sets
 the key, else the server's `kbs[]`/env/flag value, else the default. When both set a key and
@@ -827,12 +836,14 @@ an unknown key, a server-only key or an invalid value ignores that entry (one fi
 `contract_malformed` on `settings.yaml`, and `kb_status` `settings_findings`).
 
 The server re-reads the file when it changes: after a pull that moves HEAD and before a write
-(`KB.RefreshSettings`). The per-KB policy is one immutable `kb.Policy` snapshot replaced whole (`KB.SetPolicy`) and read through `KB.Policy()`, so a refresh never races a reader and a tool call that takes one snapshot never mixes two policies (D775). `mcp_allowlist` and the git workflow keys are read when the KB is mounted
+(`KB.RefreshSettings`). The per-KB policy is one immutable `kb.Policy` snapshot replaced whole (`KB.SetPolicy`) and read through `KB.Policy()`, so a refresh never races a reader and a tool call that takes one snapshot never mixes two policies (D775). `mcp_allowlist` is read when the KB is mounted
 and apply at the next start.
 
 No MCP tool writes `settings.yaml` (`artifact_write` does not whitelist it): it changes the
 behaviour of every mount, so it goes through git review like a Map contract. `kb create` writes
-it commented out, rendered from the schema; existing KBs get nothing written.
+it commented out, rendered from the schema. The server itself rewrites an existing file only to realign
+it (D903): at mount, when it holds a removed key, in one commit of the server's, and never when the file has
+uncommitted edits.
 
 ## The glossary (`glossary.yaml`)
 

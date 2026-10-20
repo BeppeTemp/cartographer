@@ -90,7 +90,8 @@ var docsNonTools = map[string]bool{
 	"last_indexed_commit": true, "content_hash": true, "applied_revision": true,
 	"allow_artifact_write": true, "sops_age_key_file": true, "token_env": true,
 	"search_roots": true, "search_depth": true, "resolution_strategy": true, "resolution_body": true,
-	// kb_status / sync_status output fields (D145), not tools
+	// kb_status / sync_status output fields and server config keys that D903 removed,
+	// named in the docs that say they are gone: not tools
 	"git_workflow": true, "git_profile": true, "git_sync": true,
 }
 

@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/lint"
 )
@@ -15,15 +14,6 @@ func TestDefault(t *testing.T) {
 	cfg := Default()
 	if cfg.Auth.Mode != "auto" {
 		t.Errorf("Auth.Mode = %q, want %q", cfg.Auth.Mode, "auto")
-	}
-	if !cfg.Git.Autocommit || !cfg.Git.Sync {
-		t.Errorf("Git defaults = %+v, want Autocommit=true Sync=true", cfg.Git)
-	}
-	if cfg.Git.SyncInWindow != 30*time.Second {
-		t.Errorf("Git.SyncInWindow default = %v, want 30s", cfg.Git.SyncInWindow)
-	}
-	if cfg.Git.SyncOutDebounce != 3*time.Second {
-		t.Errorf("Git.SyncOutDebounce default = %v, want 3s", cfg.Git.SyncOutDebounce)
 	}
 	if cfg.Git.AuthorName != "" || cfg.Git.AuthorEmail != "" {
 		t.Errorf("Git author defaults should be unspecified, got %+v", cfg.Git)
@@ -65,7 +55,7 @@ data: /data
 kbs:
   - remote: ssh://git@gitea.example.com:2222/user/wiki-kb.git
     name: wiki
-  - path: /data/kb-locale
+  - remote: ssh://git@gitea.example.com:2222/user/kb-locale.git
     ssh_key: /etc/kb-ssh/kb-locale
     known_hosts: /etc/kb-ssh/kb-locale-known-hosts
     author_name: Kb Locale Bot
@@ -74,8 +64,6 @@ kbs:
     committer_email: kb-locale-committer@localhost
     sops_age_key_file: /etc/kb-ssh/kb-locale-age.key
 git:
-  autocommit: false
-  sync: false
   ssh_key: /etc/kb-ssh/id_ed25519
   known_hosts: /etc/kb-ssh/known_hosts
   author_name: Cartographer Bot
@@ -83,8 +71,6 @@ git:
   committer_name: Cartographer Committer
   committer_email: committer@example.com
   token_dir: /etc/kb-git-tokens
-  in_window: 45s
-  out_debounce: 5s
 # The removed search block (D135) is deliberately kept in this fixture: a
 # config file carrying it after an upgrade must still load, ignored.
 search:
@@ -123,7 +109,7 @@ func TestLoadFullYAML(t *testing.T) {
 		KBs: []KBSpec{
 			{Remote: "ssh://git@gitea.example.com:2222/user/wiki-kb.git", Name: "wiki"},
 			{
-				Path:           "/data/kb-locale",
+				Remote:         "ssh://git@gitea.example.com:2222/user/kb-locale.git",
 				SSHKey:         "/etc/kb-ssh/kb-locale",
 				KnownHosts:     "/etc/kb-ssh/kb-locale-known-hosts",
 				AuthorName:     "Kb Locale Bot",
@@ -134,17 +120,13 @@ func TestLoadFullYAML(t *testing.T) {
 			},
 		},
 		Git: GitConfig{
-			Autocommit:      false,
-			Sync:            false,
-			SSHKey:          "/etc/kb-ssh/id_ed25519",
-			KnownHosts:      "/etc/kb-ssh/known_hosts",
-			AuthorName:      "Cartographer Bot",
-			AuthorEmail:     "bot@example.com",
-			CommitterName:   "Cartographer Committer",
-			CommitterEmail:  "committer@example.com",
-			TokenDir:        "/etc/kb-git-tokens",
-			SyncInWindow:    45 * time.Second,
-			SyncOutDebounce: 5 * time.Second,
+			SSHKey:         "/etc/kb-ssh/id_ed25519",
+			KnownHosts:     "/etc/kb-ssh/known_hosts",
+			AuthorName:     "Cartographer Bot",
+			AuthorEmail:    "bot@example.com",
+			CommitterName:  "Cartographer Committer",
+			CommitterEmail: "committer@example.com",
+			TokenDir:       "/etc/kb-git-tokens",
 		},
 		Audit:        AuditConfig{Log: "/data/audit.log", KeySeed: "deadbeef", RetentionDays: 90},
 		Sops:         SopsConfig{AgeKeyFile: "/etc/cartographer/age.key", AgeKeyDir: "/etc/kb-sops-keys"},
@@ -165,7 +147,7 @@ func TestLoadFullYAML(t *testing.T) {
 func TestLoadPartialYAMLKeepsDefaults(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-	// Only http set; git.autocommit/sync must keep defaults.
+	// Only http set; everything else keeps its default.
 	if err := os.WriteFile(path, []byte(`http: ":9090"`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -177,8 +159,8 @@ func TestLoadPartialYAMLKeepsDefaults(t *testing.T) {
 	if cfg.HTTP != ":9090" {
 		t.Errorf("HTTP = %q, want :9090", cfg.HTTP)
 	}
-	if !cfg.Git.Autocommit || !cfg.Git.Sync {
-		t.Errorf("Git = %+v, want defaults (true, true)", cfg.Git)
+	if cfg.Git != (GitConfig{}) {
+		t.Errorf("Git = %+v, want the zero GitConfig", cfg.Git)
 	}
 	if cfg.Auth.Mode != "auto" {
 		t.Errorf("Auth.Mode = %q, want default auto", cfg.Auth.Mode)
@@ -211,15 +193,11 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("CARTOGRAPHER_HTTP", ":7070")
 	t.Setenv("CARTOGRAPHER_TOKENS", "t1,t2")
 	t.Setenv("CARTOGRAPHER_AUTH", "false")
-	t.Setenv("CARTOGRAPHER_GIT_AUTOCOMMIT", "false")
-	t.Setenv("CARTOGRAPHER_GIT_SYNC", "false")
 	t.Setenv("CARTOGRAPHER_AUDIT_LOG", "/env-audit.log")
 	t.Setenv("CARTOGRAPHER_AUDIT_KEY", "cafef00d")
 	t.Setenv("CARTOGRAPHER_SOPS_AGE_KEY_FILE", "/env-age.key")
 	t.Setenv("CARTOGRAPHER_GIT_TOKEN_DIR", "/env-git-tokens")
 	t.Setenv("CARTOGRAPHER_SOPS_AGE_KEY_DIR", "/env-age-keys")
-	t.Setenv("CARTOGRAPHER_SYNC_IN_WINDOW", "45s")
-	t.Setenv("CARTOGRAPHER_SYNC_OUT_DEBOUNCE", "7s")
 
 	FromEnv(cfg)
 
@@ -246,15 +224,6 @@ func TestFromEnv(t *testing.T) {
 	if cfg.Auth.Mode != "off" {
 		t.Errorf("Auth.Mode = %q, want off", cfg.Auth.Mode)
 	}
-	if cfg.Git.Autocommit || cfg.Git.Sync {
-		t.Errorf("Git = %+v, want both false", cfg.Git)
-	}
-	if cfg.Git.SyncInWindow != 45*time.Second {
-		t.Errorf("Git.SyncInWindow = %v, want 45s", cfg.Git.SyncInWindow)
-	}
-	if cfg.Git.SyncOutDebounce != 7*time.Second {
-		t.Errorf("Git.SyncOutDebounce = %v, want 7s", cfg.Git.SyncOutDebounce)
-	}
 	if cfg.Audit.Log != "/env-audit.log" || cfg.Audit.KeySeed != "cafef00d" {
 		t.Errorf("Audit = %+v", cfg.Audit)
 	}
@@ -267,8 +236,9 @@ func TestFromEnvUnsetLeavesDefaults(t *testing.T) {
 	for _, v := range []string{
 		"CARTOGRAPHER_KB", "CARTOGRAPHER_KB_REMOTES", "CARTOGRAPHER_DATA",
 		"CARTOGRAPHER_HTTP", "CARTOGRAPHER_TOKENS", "CARTOGRAPHER_AUTH",
-		"CARTOGRAPHER_GIT_AUTOCOMMIT", "CARTOGRAPHER_GIT_SYNC",
-		"CARTOGRAPHER_GIT_TOKEN_DIR", "CARTOGRAPHER_SYNC_IN_WINDOW", "CARTOGRAPHER_AUDIT_LOG",
+		"CARTOGRAPHER_GIT_AUTOCOMMIT", "CARTOGRAPHER_GIT_SYNC", "CARTOGRAPHER_GIT_PROFILE",
+		"CARTOGRAPHER_SYNC_IN_WINDOW", "CARTOGRAPHER_SYNC_OUT_DEBOUNCE",
+		"CARTOGRAPHER_GIT_TOKEN_DIR", "CARTOGRAPHER_AUDIT_LOG",
 		"CARTOGRAPHER_AUDIT_KEY", "CARTOGRAPHER_SOPS_AGE_KEY_FILE",
 		"CARTOGRAPHER_SOPS_AGE_KEY_DIR",
 	} {
@@ -316,10 +286,10 @@ func TestApplyFlagsNilLeavesCfgUntouched(t *testing.T) {
 
 func TestApplyFlagsKBAppends(t *testing.T) {
 	cfg := Default()
-	cfg.KBs = []KBSpec{{Path: "/from-yaml"}}
+	cfg.KBs = []KBSpec{{Remote: "https://git.example.com/user/from-yaml.git"}}
 	kbFlag := "/flag1,/flag2"
 	ApplyFlags(cfg, FlagOverrides{KB: &kbFlag})
-	want := []KBSpec{{Path: "/from-yaml"}, {Path: "/flag1"}, {Path: "/flag2"}}
+	want := []KBSpec{{Remote: "https://git.example.com/user/from-yaml.git"}, {Path: "/flag1"}, {Path: "/flag2"}}
 	if !reflect.DeepEqual(cfg.KBs, want) {
 		t.Errorf("KBs = %+v, want %+v", cfg.KBs, want)
 	}
@@ -338,24 +308,100 @@ func TestNormalizeAuthMode(t *testing.T) {
 	}
 }
 
-// TestLoadServerGitProfile pins the YAML surface of the server Git profile
-// (D117): the keys are operator-facing, so a silent rename or a missing
-// mapping would leave a configured profile inert rather than failing.
-func TestLoadServerGitProfile(t *testing.T) {
+// D903: the server git profile and the other git keys that went are ignored with
+// a warning that names what to use. The profile itself, a value that cannot be
+// honoured, is a refusal as well: the server must not start and write straight
+// to a branch the profile protected. So is a kbs[].git_branch: ignoring it would
+// move the KB's writes to the remote's default branch.
+func TestLoadRetiredGitKeysWarnAndTheProfileRefuses(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	data := []byte("git:\n  profile: server\n  base_branch: main\n  working_branch: cartographer/wiki\n  forge: github\n  github_owner: acme\n  github_repository: wiki\n  github_api_url: https://api.github.test\n  github_token_env: CARTOGRAPHER_GITHUB_TOKEN\n")
+	data := []byte("git:\n  autocommit: false\n  sync: false\n  in_window: 5s\n  profile: server\n  base_branch: main\n  github_owner: acme\n  ssh_key: /k\nkbs:\n  - remote: https://git.example.com/user/kb-a.git\n    git_profile: local\n    git_branch: team/kb-data\n  - path: /srv/kb-b\n")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("a retired key is a warning, not a load error: %v", err)
+	}
+	if cfg.Git.SSHKey != "/k" {
+		t.Errorf("a live key next to retired ones was lost: %+v", cfg.Git)
+	}
+	got := strings.Join(cfg.Warnings, "\n")
+	for _, want := range []string{
+		"git.autocommit: removed setting, ignored: every write is one commit",
+		"git.sync: removed setting, ignored: a KB with a remote syncs",
+		"git.in_window: removed setting, ignored: it is a constant, 30s",
+		"git.profile: removed setting, ignored: the server git profile",
+		"git.base_branch: removed setting, ignored",
+		"kbs[0].git_profile: removed setting, ignored",
+		"kbs[0].git_branch: removed setting, ignored; use branch in the KB's settings.yaml",
+		"kbs[1].path: removed setting, ignored: a KB without a remote is a folder under data",
+		"kbs[1]: no remote",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("warnings lack %q:\n%s", want, got)
+		}
+	}
+	err = cfg.RefusalError()
+	if err == nil || !strings.Contains(err.Error(), "git.profile") || !strings.Contains(err.Error(), "unprotect the branch") {
+		t.Fatalf("RefusalError = %v, want the profile named with what to do", err)
+	}
+	if !strings.Contains(err.Error(), "kbs[0].git_branch: team/kb-data is still set") || !strings.Contains(err.Error(), "set branch in the KB's settings.yaml") {
+		t.Errorf("RefusalError = %v, want kbs[0].git_branch named with where its value goes", err)
+	}
+	if strings.Contains(err.Error(), "kbs[0].git_profile") {
+		t.Errorf("git_profile: local was refused: %v", err)
+	}
+}
+
+func TestLoadRetiredKBProfileRefuses(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("kbs:\n  - remote: https://git.example.com/user/kb-a.git\n    git_profile: Server\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Git.Profile != "server" || cfg.Git.BaseBranch != "main" || cfg.Git.WorkingBranch != "cartographer/wiki" || cfg.Git.Forge != "github" || cfg.Git.GitHubOwner != "acme" || cfg.Git.GitHubRepository != "wiki" {
-		t.Fatalf("server git config = %#v", cfg.Git)
+	if err := cfg.RefusalError(); err == nil || !strings.Contains(err.Error(), "kbs[0].git_profile") {
+		t.Fatalf("RefusalError = %v", err)
 	}
-	if cfg.Git.GitHubAPIURL != "https://api.github.test" || cfg.Git.GitHubTokenEnv != "CARTOGRAPHER_GITHUB_TOKEN" {
-		t.Fatalf("server git endpoint/token config = %#v", cfg.Git)
+}
+
+// The environment variables of the removed settings warn the same way, and
+// CARTOGRAPHER_GIT_PROFILE=server refuses; their values change nothing.
+func TestFromEnvRetiredVariablesWarn(t *testing.T) {
+	cfg := Default()
+	t.Setenv("CARTOGRAPHER_GIT_AUTOCOMMIT", "false")
+	t.Setenv("CARTOGRAPHER_GIT_SYNC", "false")
+	t.Setenv("CARTOGRAPHER_SYNC_IN_WINDOW", "45s")
+	t.Setenv("CARTOGRAPHER_SYNC_OUT_DEBOUNCE", "0")
+	t.Setenv("CARTOGRAPHER_GIT_PROFILE", "local")
+	FromEnv(cfg)
+	if len(cfg.Warnings) != 5 {
+		t.Errorf("warnings = %q, want one per variable", cfg.Warnings)
+	}
+	if cfg.RefusalError() != nil {
+		t.Errorf("CARTOGRAPHER_GIT_PROFILE=local was refused: %v", cfg.RefusalError())
+	}
+	if !reflect.DeepEqual(cfg.Git, Default().Git) {
+		t.Errorf("a retired variable changed the config: %+v", cfg.Git)
+	}
+	t.Setenv("CARTOGRAPHER_GIT_PROFILE", "server")
+	cfg = Default()
+	FromEnv(cfg)
+	if err := cfg.RefusalError(); err == nil || !strings.Contains(err.Error(), "CARTOGRAPHER_GIT_PROFILE=server") {
+		t.Fatalf("RefusalError = %v", err)
+	}
+}
+
+// A flag of a removed setting is dropped by serve and named here.
+func TestRemovedFlags(t *testing.T) {
+	flags := RemovedFlags()
+	for _, name := range []string{"git-autocommit", "git-sync"} {
+		if flags[name] == "" {
+			t.Errorf("--%s is not in RemovedFlags", name)
+		}
 	}
 }
 
@@ -418,7 +464,7 @@ func TestParseTokenSpecsIgnoresPureSeparators(t *testing.T) {
 // loads without error and without effect (unknown YAML keys are ignored).
 func TestRemovedD288KeysAreIgnored(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	yml := "mcp:\n  mount_mode: per-kb\n  tool_prefix_mode: kb-name\nkbs:\n  - path: /x/wiki\n    tool_prefix: old\n"
+	yml := "mcp:\n  mount_mode: per-kb\n  tool_prefix_mode: kb-name\nkbs:\n  - remote: https://git.example.com/user/wiki.git\n    tool_prefix: old\n"
 	if err := os.WriteFile(path, []byte(yml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +472,7 @@ func TestRemovedD288KeysAreIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a config with the removed keys must still load: %v", err)
 	}
-	if len(cfg.KBs) != 1 || cfg.KBs[0].Path != "/x/wiki" {
+	if len(cfg.KBs) != 1 || cfg.KBs[0].Remote != "https://git.example.com/user/wiki.git" {
 		t.Errorf("kbs = %+v, want the one entry intact", cfg.KBs)
 	}
 	t.Setenv("CARTOGRAPHER_MCP_MOUNT_MODE", "routed")
@@ -435,8 +481,7 @@ func TestRemovedD288KeysAreIgnored(t *testing.T) {
 }
 
 // web.enabled follows the flag > env > YAML > default precedence, and the
-// raw field is a pointer so an explicit `false` is not mistaken for absence —
-// the same trap git.autocommit already carries.
+// raw field is a pointer so an explicit `false` is not mistaken for absence.
 func TestWebEnabledPrecedence(t *testing.T) {
 	if !Default().Web.Enabled {
 		t.Fatal("the UI is on by default in HTTP mode")
@@ -562,51 +607,10 @@ func TestLoadAuditRetention(t *testing.T) {
 	}
 }
 
-// D335: kbs[].git_branch is loaded, a malformed name fails at load, and the
-// key is refused on a KB whose effective profile is server.
-func TestKBGitBranch(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "c.yaml")
-	if err := os.WriteFile(path, []byte("kbs:\n  - path: /data/kb-a\n    git_branch: team/kb-data\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if got := cfg.KBs[0].GitBranch; got != "team/kb-data" {
-		t.Fatalf("GitBranch = %q", got)
-	}
-	if err := cfg.KBs[0].GitBranchProfileError("local"); err != nil {
-		t.Fatalf("local profile: %v", err)
-	}
-	if err := cfg.KBs[0].GitBranchProfileError("server"); err == nil || !strings.Contains(err.Error(), "git_branch") {
-		t.Fatalf("global server profile: err = %v", err)
-	}
-	spec := KBSpec{Name: "kb-a", GitBranch: "x", GitProfile: "Server"}
-	if err := spec.GitBranchProfileError("local"); err == nil || !strings.Contains(err.Error(), "kb-a") {
-		t.Fatalf("per-KB server profile: err = %v", err)
-	}
-	if err := (KBSpec{GitProfile: "server"}).GitBranchProfileError("server"); err != nil {
-		t.Fatalf("unset key: %v", err)
-	}
-
-	for _, bad := range []string{"HEAD", "-x", "a..b", "a b", "a~1", "x.lock", ".hidden", "a/", "a//b", "a.", "a@{1}", "a:b"} {
-		if ValidateGitBranch(bad) == nil {
-			t.Errorf("ValidateGitBranch(%q) accepted", bad)
-		}
-	}
-	if err := os.WriteFile(path, []byte("kbs:\n  - path: /data/kb-a\n    git_branch: \"a..b\"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "git_branch") {
-		t.Fatalf("Load with a malformed branch: err = %v", err)
-	}
-}
-
 func TestLoadWriteGate(t *testing.T) {
 	load := func(v string) (*Config, error) {
 		path := filepath.Join(t.TempDir(), "config.yaml")
-		body := "kbs:\n  - path: /tmp/kb\n"
+		body := "kbs:\n  - remote: https://git.example.com/user/kb-a.git\n"
 		if v != "" {
 			body += "    write_gate: " + v + "\n"
 		}

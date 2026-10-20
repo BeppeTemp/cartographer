@@ -100,15 +100,13 @@ type KB struct {
 	Root string
 	// AuthName is the mounted logical name used by authorization policy. It is
 	// set by the transport at mount time and never contains a bearer secret.
-	AuthName   string
-	AutoCommit bool // if true, CommitOp creates a git commit after each write
-	GitSync    bool // if true, SyncIn/SyncOut fetch/push with the "origin" remote
+	AuthName string
 
 	// SyncInWindow is the freshness window for SyncIn (D76/WP3): if the last
 	// successful SyncIn happened less than SyncInWindow ago, SyncIn is a
 	// no-op — avoids a redundant fetch+pull on every write during a burst.
-	// Zero disables the window (SyncIn runs on every call, pre-existing
-	// behaviour).
+	// Zero disables the window (SyncIn runs on every call). The server sets it
+	// to DefaultSyncInWindow; it is not a setting (D903).
 	SyncInWindow time.Duration
 
 	// GitAuthorName/GitAuthorEmail set the commit author identity used by
@@ -124,19 +122,6 @@ type KB struct {
 	// gitx.runGitEnv. Nil means "run with the process environment", the
 	// pre-existing behaviour.
 	GitEnv []string
-
-	// ConfiguredBranch is kbs[].git_branch (D335): when set, the local
-	// profile writes to this branch instead of the remote's default, and the
-	// first push creates it on the remote. Empty keeps D264.
-	ConfiguredBranch string
-
-	// ServerGit is non-nil only for the opt-in server profile. Its dedicated
-	// working branch is the only branch this process may push (D117).
-	ServerGit *ServerGitConfig
-	// ServerMergeLint is wired by the MCP layer to run the full lint during a
-	// server-profile PR finalization. Keeping it injectable avoids a kb↔lint
-	// import cycle while preserving an in-lock gate.
-	ServerMergeLint func() error
 
 	// SopsAgeKeyFile is the path to the SOPS age key file used to decrypt
 	// this KB's secrets (e.g. via service_get resolve_secrets). Empty means
@@ -171,9 +156,10 @@ type KB struct {
 	// inline, taking the push off the critical path of a write response.
 	// The worker waits SyncOutDebounce after the last SchedulePush signal
 	// before actually pushing, coalescing a burst of writes into one push.
-	// Zero disables the worker entirely: gitWrap falls back to the
-	// pre-existing synchronous SyncOut call (rollback flag) — see
-	// pushworker.go.
+	// Zero disables the worker entirely: gitWrap calls SyncOut inline — see
+	// pushworker.go. The server sets it to DefaultSyncOutDebounce, or to zero on
+	// a platform that freezes an idle instance (SyncOutDebounceFor); it is not a
+	// setting (D903).
 	SyncOutDebounce time.Duration
 
 	// OnPushConflict, if set, is invoked by the async push worker (see
@@ -215,10 +201,12 @@ type KB struct {
 	// the fetch for ReadFetchBackoff after it, so a remote that is down costs
 	// one bounded fetch, not one per queued call (#348).
 	lastFetchFail time.Time
-	// remoteDefault is the canonical branch last resolved by a local-profile
-	// sync (same lock): ConfiguredBranch when set (D335), otherwise the
-	// remote's default branch, "" when unknown (D264).
-	remoteDefault string
+	// remoteDefault is the canonical branch last resolved by a sync (same
+	// lock): the `branch` setting of the default branch when it sets one
+	// (branchConfigured, D335, D903), otherwise the remote's default branch,
+	// "" when unknown (D264).
+	remoteDefault    string
+	branchConfigured bool
 	// gitattrsChecked records that ensureGitAttributes ran in this process
 	// (D311). Guarded by mu, the git-operation lock.
 	gitattrsChecked bool
@@ -299,8 +287,9 @@ type GitStatus struct {
 	// RemoteDefaultBranch is the KB's canonical branch as last resolved from
 	// the remote ("" when unknown); a Branch that differs blocks writes (D264).
 	RemoteDefaultBranch string `json:"remote_default_branch,omitempty"`
-	// BranchSource says where the canonical branch comes from: "config"
-	// (kbs[].git_branch, D335) or "remote" (the remote's default, D264).
+	// BranchSource says where the canonical branch comes from: "settings"
+	// (the `branch` of settings.yaml on the default branch, D335, D903) or
+	// "remote" (the remote's default, D264).
 	BranchSource string `json:"branch_source,omitempty"`
 }
 
@@ -343,7 +332,7 @@ func (k *KB) setGitStatus(state string, err error, attempts int) {
 		}
 	}
 	_, remote := k.hasRemote()
-	s.IdentityWarning = ShouldWarnGitIdentity(k.GitSync, remote, k.GitAuthorEmail)
+	s.IdentityWarning = ShouldWarnGitIdentity(remote, k.GitAuthorEmail)
 	k.gitStatusMu.Lock()
 	k.gitStatus = s
 	k.gitStatusMu.Unlock()
@@ -362,7 +351,7 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 	s := k.gitStatus
 	k.gitStatusMu.RUnlock()
 	if s.State == "" {
-		if !k.GitSync || !gitx.IsRepo(k.Root) {
+		if !gitx.IsRepo(k.Root) {
 			s.State = "disabled"
 		} else if _, ok := k.hasRemote(); !ok {
 			s.State = "no_remote"
@@ -393,21 +382,19 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 	}
 	s.Branch, _ = gitx.Branch(k.Root)
 	s.RemoteDefaultBranch = k.RemoteDefaultBranch()
-	if k.ServerGit == nil {
-		s.BranchSource = "remote"
-		if k.ConfiguredBranch != "" {
-			s.BranchSource = "config"
-		}
+	s.BranchSource = "remote"
+	if k.ConfiguredBranch() != "" {
+		s.BranchSource = "settings"
 	}
 	_, remote := k.hasRemote()
-	s.IdentityWarning = ShouldWarnGitIdentity(k.GitSync, remote, k.GitAuthorEmail)
+	s.IdentityWarning = ShouldWarnGitIdentity(remote, k.GitAuthorEmail)
 	return s
 }
 
-// ShouldWarnGitIdentity reports whether a synchronised remote KB still uses
+// ShouldWarnGitIdentity reports whether a remote KB, which syncs, still uses
 // Cartographer's placeholder author identity.
-func ShouldWarnGitIdentity(gitSync, hasRemote bool, authorEmail string) bool {
-	return gitSync && hasRemote && authorEmail == defaultGitAuthorEmail
+func ShouldWarnGitIdentity(hasRemote bool, authorEmail string) bool {
+	return hasRemote && authorEmail == defaultGitAuthorEmail
 }
 
 // MarkPushPending keeps an existing failure visible until a push succeeds,
@@ -477,28 +464,15 @@ func Open(root string) (*KB, error) {
 // to the KB's initial commit, for the duration of that call. Init leaves them
 // empty and the package defaults apply, which is the pre-D156 behaviour.
 //
-// These are process-global: a test that calls InitOnBranch, InitWithIdentity or
+// These are process-global: a test that calls InitWithIdentity or
 // InitWithSettings must stay serial (no t.Parallel), or it changes what a
 // concurrent Init commits.
 var (
 	initAuthorName  string
 	initAuthorEmail string
-	// initBranch is the branch InitOnBranch pins an unborn HEAD to, for the
-	// duration of that call; empty means gitx.DefaultBranch.
-	initBranch string
 	// initSettings is the settings.yaml InitWithSettings supplies (D746).
 	initSettings []byte
 )
-
-// InitOnBranch is Init with the initial commit on branch rather than
-// gitx.DefaultBranch, for a KB configured with kbs[].git_branch (D335). It
-// only matters for a repository with no commit yet (a new KB, or the clone of
-// an empty remote); an existing history keeps its branch. Empty branch is Init.
-func InitOnBranch(root, branch string) (*KB, error) {
-	initBranch = branch
-	defer func() { initBranch = "" }()
-	return Init(root)
-}
 
 // InitWithIdentity is Init with an explicit author for the KB's initial commit.
 // `cartographer kb create` uses it: the initial commit is the one a forge with
@@ -602,11 +576,7 @@ func Init(root string) (*KB, error) {
 	// on whatever branch the host's git named, with nothing to push, and the
 	// first sync failing on a missing remote ref (D264).
 	if !gitx.IsRepo(abs) || gitx.HeadUnborn(abs) {
-		branch := initBranch
-		if branch == "" {
-			branch = gitx.DefaultBranch
-		}
-		if initErr := gitx.InitOnBranch(abs, branch); initErr == nil {
+		if initErr := gitx.Init(abs); initErr == nil {
 			// Initial commit. Its error is returned (only ErrNothingToCommit is
 			// benign): swallowing it left `kb create` pushing a branch that does
 			// not exist, and the push error blamed authentication (D265).
@@ -637,7 +607,7 @@ func Init(root string) (*KB, error) {
 	_ = ensureInfoExclude(abs, ".cartographer/")
 	// The advisory process lock is local state too (D155): never versioned, and
 	// excluded here as well as in Open so it can never show up as a dirty working
-	// tree — which is what blocks a server-profile PR reconciliation.
+	// tree — which would be committed by the next write.
 	_ = ensureInfoExclude(abs, LockFileName)
 	excludeAgentStateDirs(abs)
 

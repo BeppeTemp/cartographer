@@ -170,10 +170,10 @@ func ProbeRemote(ctx context.Context, remote string) (hasRefs bool, err error) {
 	return strings.TrimSpace(string(out)) != "", nil
 }
 
-// DefaultBranch is the branch a freshly initialized KB is created on. The
-// server Git profile compares the checked-out branch against a configured base
-// branch, so inheriting the host's init.defaultBranch would make a KB unusable
-// on any machine configured for "master".
+// DefaultBranch is the branch a freshly initialized KB is created on. Sync
+// compares the checked-out branch against the remote's default one (D264), so
+// inheriting the host's init.defaultBranch would make a KB unusable on any
+// machine configured for "master".
 const DefaultBranch = "main"
 
 // Init initializes a git repository in the directory, if one does not already exist.
@@ -188,7 +188,7 @@ func Init(dir string) error {
 }
 
 // InitOnBranch is Init with the unborn HEAD pinned to branch instead of
-// DefaultBranch: a KB configured with kbs[].git_branch (D335) starts there.
+// DefaultBranch.
 func InitOnBranch(dir, branch string) error {
 	if !IsRepo(dir) {
 		if out, err := runGit(dir, "init"); err != nil {
@@ -255,6 +255,20 @@ func CommitPaths(dir string, paths []string, message, authorName, authorEmail st
 		return fmt.Errorf("git add paths: %w: %s", err, out)
 	}
 	return commit(dir, message, authorName, authorEmail, commitEnv...)
+}
+
+// ResetPaths resets the index entries of paths to HEAD ("git reset -q -- paths"),
+// leaving the working tree alone. CommitPaths commits through a temporary index,
+// so the real one still holds what it held before: after the commit, this brings
+// the paths it committed back in line with HEAD, and git status shows them clean.
+func ResetPaths(dir string, paths ...string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	if out, err := runGit(dir, append([]string{"reset", "-q", "--"}, paths...)...); err != nil {
+		return fmt.Errorf("git reset -- paths: %w: %s", err, out)
+	}
+	return nil
 }
 
 func commit(dir, message, authorName, authorEmail string, env ...string) error {
@@ -818,20 +832,8 @@ func HeadSHAAt(dir, ref string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
-// PushForceWithLease updates branch only if the remote still points at
-// expectedSHA. It is intended exclusively for an unprotected working branch.
-func PushForceWithLease(dir, remote, branch, expectedSHA string, env ...string) error {
-	lease := "--force-with-lease=refs/heads/" + branch + ":" + expectedSHA
-	out, err := runGitEnv(dir, env, "push", lease, remote, "HEAD:refs/heads/"+branch)
-	if err != nil {
-		return fmt.Errorf("git push %s %s: %w: %s", lease, branch, err, out)
-	}
-	return nil
-}
-
 // ResetHardTo resets a clean working tree to ref. It is deliberately narrow:
-// server-profile callers check cleanliness before using it for post-merge
-// reconciliation.
+// callers check cleanliness before using it.
 func ResetHardTo(dir, ref string, env ...string) error {
 	out, err := runGitEnv(dir, env, "reset", "--hard", ref)
 	if err != nil {
@@ -1213,6 +1215,15 @@ func Status(dir string) (string, error) {
 	return out, nil
 }
 
+// StatusPaths is Status restricted to paths: empty when none of them has a change.
+func StatusPaths(dir string, paths ...string) (string, error) {
+	out, err := runGit(dir, append([]string{"status", "--short", "--"}, paths...)...)
+	if err != nil {
+		return "", fmt.Errorf("git status --short: %w: %s", err, out)
+	}
+	return out, nil
+}
+
 // RemoteURL returns the URL of the given remote, or error if not configured.
 func RemoteURL(dir, remote string) (string, error) {
 	out, err := runGit(dir, "remote", "get-url", remote)
@@ -1418,4 +1429,18 @@ func splitTrailerValues(raw string) []string {
 		}
 	}
 	return out
+}
+
+// IsProtectedBranchRejection reports whether the output of a failed push says
+// the remote refused it because the branch is protected, or because a
+// server-side hook declined it (D903). Forges word it differently (GitHub:
+// "GH006: Protected branch update failed", GitLab: "You are not allowed to push
+// code to protected branches", and "pre-receive hook declined" for both), so it
+// is matched on those phrases and not tied to one provider. Retrying such a push
+// repeats the refusal: the caller reports it and stops.
+func IsProtectedBranchRejection(output string) bool {
+	l := strings.ToLower(output)
+	return strings.Contains(l, "gh006") ||
+		strings.Contains(l, "protected branch") ||
+		strings.Contains(l, "pre-receive hook declined")
 }

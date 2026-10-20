@@ -23,7 +23,6 @@ func TestSchedulePush_Burst_CoalescesIntoOnePush(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	k.SyncOutDebounce = 200 * time.Millisecond
 
 	const n = 5
@@ -61,7 +60,6 @@ func TestSyncStatus_RealPushClearsPendingAndRecordsAttempt(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, _ := setupKBWithRemote(t)
-	k.GitSync = true
 	k.MarkPushPending()
 	if s := k.GitStatusSnapshot(); s.State != "pending" {
 		t.Fatalf("pending = %+v", s)
@@ -103,7 +101,6 @@ func TestSchedulePush_Conflict_InvokesOnPushConflict(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	k.SyncOutDebounce = 20 * time.Millisecond
 
 	// Seed the remote so there is a common ancestor to diverge from.
@@ -174,7 +171,6 @@ func TestFlushPush_AfterSchedule_WaitsForPush(t *testing.T) {
 		t.Skip("git not in PATH")
 	}
 	k, bare := setupKBWithRemote(t)
-	k.GitSync = true
 	k.SyncOutDebounce = 1 * time.Hour // would never fire on its own within the test
 
 	k.SchedulePush()
@@ -208,7 +204,6 @@ func TestFlushPush_AfterSchedule_WaitsForPush(t *testing.T) {
 func TestFlushPushDuringRunDoesNotLeakForce(t *testing.T) {
 	t.Parallel()
 	k, _ := initGitKB(t)
-	k.GitSync = true
 	k.SyncOutDebounce = time.Millisecond
 
 	// Block the git lock: the worker will enter doAsyncPush and park there.

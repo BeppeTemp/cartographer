@@ -145,8 +145,6 @@ var advancedToolNames = map[string]bool{
 	"secret_resolve":       true,
 	"secret_set":           true,
 	"artifact_list":        true,
-	"pr_status":            true,
-	"pr_finalize":          true,
 	// repair_revert (D323): undoing an automatic repair is an operator
 	// decision, taken from the Atlas's revert command or the CLI, not a step
 	// of the normal agent loop; it stays callable by name.

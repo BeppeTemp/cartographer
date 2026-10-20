@@ -44,7 +44,7 @@ type unmountPlan struct {
 	Bindings   []string
 
 	// ParkPath is where the clone moves without --delete-clone, "" when it
-	// stays where it is (a kbs[].path outside the data dir).
+	// stays where it is (a clone outside the data dir).
 	ParkPath string
 	Delete   bool
 	// Unsafe lists why the clone cannot be proven pushed; --force overrides.
@@ -142,14 +142,11 @@ func planKBUnmount(name, dataDir, configPath string, deleteClone bool) (*unmount
 				return nil, fmt.Errorf("server config %s cannot be read, refusing to edit it: %w", configPath, err)
 			}
 			p.ConfigPath = configPath
-			i, err := findKBEntry(name, p.KBPath, configPath, cfg)
+			i, err := findKBEntry(name, configPath, cfg)
 			if err != nil {
 				return nil, err
 			}
 			p.EntryIndex = i
-			if i >= 0 && cfg.KBs[i].Path != "" {
-				p.KBPath = cfg.KBs[i].Path
-			}
 			p.Scopes = scopeRefs(cfg, name)
 			p.Aliases = aliasesPointingAt(cfg, name)
 		} else if !errors.Is(err, os.ErrNotExist) {

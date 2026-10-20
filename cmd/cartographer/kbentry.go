@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -20,6 +21,7 @@ var errNoServerConfig = errors.New("no server config file")
 type kbEntryPlan struct {
 	Name       string
 	KBPath     string // absolute
+	Remote     string // the remote the entry clones it from (D903: an entry names one)
 	ConfigPath string
 	EntryIndex int // -1: no entry yet
 }
@@ -27,7 +29,7 @@ type kbEntryPlan struct {
 // planKBEntry resolves the server config (--config, else the standard path),
 // loads it and locates the KB's kbs[] entry, writing nothing. A missing file
 // wraps errNoServerConfig; an unreadable one or an ambiguous match is refused.
-func planKBEntry(name, kbPath, configPath string) (*kbEntryPlan, error) {
+func planKBEntry(name, kbPath, remote, configPath string) (*kbEntryPlan, error) {
 	abs, err := filepath.Abs(kbPath)
 	if err != nil {
 		return nil, err
@@ -37,7 +39,7 @@ func planKBEntry(name, kbPath, configPath string) (*kbEntryPlan, error) {
 			configPath = resolved
 		}
 	}
-	p := &kbEntryPlan{Name: name, KBPath: abs, ConfigPath: configPath, EntryIndex: -1}
+	p := &kbEntryPlan{Name: name, KBPath: abs, Remote: remote, ConfigPath: configPath, EntryIndex: -1}
 	if configPath == "" {
 		return p, fmt.Errorf("%w: cannot resolve its path", errNoServerConfig)
 	}
@@ -48,15 +50,25 @@ func planKBEntry(name, kbPath, configPath string) (*kbEntryPlan, error) {
 	if err != nil {
 		return nil, fmt.Errorf("server config %s cannot be read, refusing to rewrite it: %w", configPath, err)
 	}
-	if p.EntryIndex, err = findKBEntry(name, abs, configPath, cfg); err != nil {
+	if p.EntryIndex, err = findKBEntry(name, configPath, cfg); err != nil {
 		return nil, err
 	}
 	return p, nil
 }
 
-// kbEntryYAML is the snippet an operator adds to kbs: by hand.
-func kbEntryYAML(kbPath string) string {
-	return fmt.Sprintf("kbs:\n  - path: %s\n    allow_artifact_write: true\n", kbPath)
+// kbEntryYAML is the snippet an operator adds to kbs: by hand: an entry names
+// the remote the KB is cloned from, and its name when that differs from the one
+// the remote gives it.
+func kbEntryYAML(p *kbEntryPlan) string {
+	var b strings.Builder
+	b.WriteString("kbs:\n")
+	if p.Name != remoteKBName(p.Remote) {
+		fmt.Fprintf(&b, "  - name: %s\n    remote: %s\n", p.Name, p.Remote)
+	} else {
+		fmt.Fprintf(&b, "  - remote: %s\n", p.Remote)
+	}
+	b.WriteString("    allow_artifact_write: true\n")
+	return b.String()
 }
 
 // applyKBEntry upserts allow_artifact_write: true for the KB through a
@@ -103,9 +115,11 @@ func applyKBEntry(p *kbEntryPlan) error {
 			config.Schema.CommentKey(entry, "allow_artifact_write", "kbs[].allow_artifact_write")
 		}
 	} else {
-		entry := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Content: []*yaml.Node{
-			str("path"), str(p.KBPath), str("allow_artifact_write"), yes(),
-		}}
+		entry := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		if p.Name != remoteKBName(p.Remote) {
+			entry.Content = append(entry.Content, str("name"), str(p.Name))
+		}
+		entry.Content = append(entry.Content, str("remote"), str(p.Remote), str("allow_artifact_write"), yes())
 		config.Schema.CommentEntry(entry, "kbs")
 		kbs.Content = append(kbs.Content, entry)
 	}
@@ -130,16 +144,15 @@ func applyKBEntry(p *kbEntryPlan) error {
 // creates anything: a config that cannot take the entry must stop the command
 // while there is still nothing to clean up. It returns a non-zero exit code
 // when the command must stop.
-func preflightArtifactWrite(name, kbPath, configPath string) (*kbEntryPlan, int) {
-	plan, err := planKBEntry(name, kbPath, configPath)
+func preflightArtifactWrite(name, kbPath, remote, configPath string) (*kbEntryPlan, int) {
+	plan, err := planKBEntry(name, kbPath, remote, configPath)
 	if err == nil {
 		return plan, 0
 	}
-	abs, _ := filepath.Abs(kbPath)
 	fmt.Fprintln(os.Stderr, "Error:", err)
 	if errors.Is(err, errNoServerConfig) {
 		fmt.Fprintln(os.Stderr, "Nothing was created. Create the server config, pass --config <path>, or drop --artifact-write; to enable artifact writes by hand add:")
-		fmt.Fprint(os.Stderr, kbEntryYAML(abs))
+		fmt.Fprint(os.Stderr, kbEntryYAML(&kbEntryPlan{Name: name, Remote: remote}))
 	}
 	return nil, 1
 }
@@ -151,7 +164,7 @@ func finishArtifactWrite(plan *kbEntryPlan) int {
 	if err := applyKBEntry(plan); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		fmt.Fprintln(os.Stderr, "The KB was kept and mounts as discovered (artifact writes off). To enable them add to the server config:")
-		fmt.Fprint(os.Stderr, kbEntryYAML(plan.KBPath))
+		fmt.Fprint(os.Stderr, kbEntryYAML(plan))
 		return 1
 	}
 	fmt.Printf("kbs[] entry with allow_artifact_write: true written to %s\n", plan.ConfigPath)

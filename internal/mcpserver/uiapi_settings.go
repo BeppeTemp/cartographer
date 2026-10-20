@@ -75,7 +75,7 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 			st := k.GitStatusSnapshot()
 			git := map[string]any{
 				"has_remote":       hasRemote,
-				"sync":             k.GitSync,
+				"sync":             hasRemote,
 				"push_state":       st.State,
 				"push_last_error":  st.LastError,
 				"unpushed_commits": st.UnpushedCommits,
