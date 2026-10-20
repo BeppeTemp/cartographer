@@ -42,7 +42,7 @@ func acceptsFindings(name string) bool {
 
 // writeGateState is the capability state of the KB's write_gate: off, error or
 // warning; inactive when it is set but the gate cannot roll back (it needs
-// auto-commit on a git repository). An inactive gate behaves as off.
+// a git repository). An inactive gate behaves as off.
 func writeGateState(k *kb.KB) string { return writeGateStateOf(k, k.Policy()) }
 
 // writeGateStateOf is writeGateState over a snapshot the caller already took.

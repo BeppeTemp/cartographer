@@ -197,7 +197,7 @@ func setupGitKB(t *testing.T) (*kb.KB, string) {
 }
 
 // TestGitWrap_ConceptWrite_CreatesCommit verifies that a successful concept_write
-// via the git-wrapped tool creates a new git commit when AutoCommit=true.
+// via the git-wrapped tool creates a new git commit.
 func TestGitWrap_ConceptWrite_CreatesCommit(t *testing.T) {
 	t.Parallel()
 	k, sha1 := setupGitKB(t)
@@ -224,7 +224,7 @@ func TestGitWrap_ConceptWrite_CreatesCommit(t *testing.T) {
 		t.Fatalf("HeadSHA: %v", err)
 	}
 	if sha1 == sha2 {
-		t.Fatal("expected a new commit after concept_write with AutoCommit=true, but HEAD SHA is unchanged")
+		t.Fatal("expected a new commit after concept_write but HEAD SHA is unchanged")
 	}
 }
 
@@ -237,7 +237,7 @@ func TestGitWrap_ConceptNew_CreatesOneCommit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(k.Root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: {{title}}\n---\n# Details\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// AutoCommit on before the seed commit: a template left uncommitted would be
+	// Seed commit: a template left uncommitted would be
 	// committed as "external changes" first (D357), a second commit.
 	if _, err := k.CommitOp("test: add template"); err != nil {
 		t.Fatal(err)
@@ -484,7 +484,7 @@ func TestGitWrap_MapDelete_EmptyMap_CreatesCommit(t *testing.T) {
 		t.Fatalf("HeadSHA: %v", err)
 	}
 	if sha1 == sha2 {
-		t.Fatal("expected a new commit after map_delete with AutoCommit=true, but HEAD SHA is unchanged")
+		t.Fatal("expected a new commit after map_delete but HEAD SHA is unchanged")
 	}
 }
 
@@ -529,7 +529,7 @@ func TestGitWrap_IndexPatch_CreatesOneCommit(t *testing.T) {
 		t.Fatalf("HeadSHA: %v", err)
 	}
 	if sha1 == sha2 {
-		t.Fatal("expected a new commit after index_patch with AutoCommit=true, but HEAD SHA is unchanged")
+		t.Fatal("expected a new commit after index_patch but HEAD SHA is unchanged")
 	}
 }
 

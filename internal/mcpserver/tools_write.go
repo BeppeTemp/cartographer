@@ -1562,7 +1562,7 @@ func toolLogAppend(k *kb.KB) Tool {
 func toolSnapshot(k *kb.KB) Tool {
 	return Tool{
 		Name:        "snapshot",
-		Description: "Logs a KB snapshot entry and, with git auto-commit enabled, a git commit.",
+		Description: "Logs a KB snapshot entry and, on a git KB, a git commit.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {

@@ -45,7 +45,7 @@ const shutdownHTTPTimeout = 10 * time.Second
 // variables, and CLI flags (flag > env > YAML > default).
 func cmdServe(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	kbFlag := fs.String("kb", "", "Folder(s) of KB(s) to mount, comma-separated (or CARTOGRAPHER_KB); a folder mounted this way has no remote, so it never syncs")
+	kbFlag := fs.String("kb", "", "Folder(s) of KB(s) to mount, comma-separated (or CARTOGRAPHER_KB); such a folder syncs only if it has a git remote")
 	dataFlag := fs.String("data", "", "Directory whose direct subdirs are each a separate KB (or CARTOGRAPHER_DATA)")
 	initFlag := fs.Bool("init", false, "Initialize KB(s) if they do not exist")
 	httpFlag := fs.String("http", "", "HTTP listen address, e.g. :39273 (or CARTOGRAPHER_HTTP)")

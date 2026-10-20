@@ -110,12 +110,6 @@ func canonicalBranch(refs gitx.RemoteRefs) string {
 	return ""
 }
 
-func (k *KB) setRemoteDefault(branch string) {
-	k.lastSyncInMu.Lock()
-	k.remoteDefault = branch
-	k.lastSyncInMu.Unlock()
-}
-
 // setCanonical records what a sync resolved: the branch writes go to, and
 // whether it comes from the `branch` setting (configured) or is the remote's
 // default.

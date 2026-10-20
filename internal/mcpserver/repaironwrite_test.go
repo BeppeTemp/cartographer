@@ -11,7 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
-// rowKB is a git KB with AutoCommit and repair on write (D349): ops/a holds a
+// rowKB is a git KB with repair on write (D349): ops/a holds a
 // bare links-section item for ops/b, ops/c is a plain page.
 func rowKB(t *testing.T, checks ...string) (*kb.KB, *Server) {
 	t.Helper()
