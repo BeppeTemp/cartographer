@@ -77,7 +77,11 @@ type gateKey struct{ path, check, message string }
 // index regeneration and the repair-on-write (D349), so what it judges is what
 // would be committed. It fails open (nil) on a git problem that leaves the
 // tree intact, and rolls back on a refusal, which it returns.
-func judgeWrite(k *kb.KB, toolName string) *ToolResult {
+//
+// A finding on a page the caller cannot see is neither judged nor named: a
+// caller scoped to some maps is not blocked by, and learns nothing of, what
+// its write does to the rest (the same rule the read tools follow).
+func judgeWrite(k *kb.KB, toolName string, visible func(id string) bool) *ToolResult {
 	changes, err := gitx.StagedChanges(k.Root)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: write_gate skipped (%s): %v\n", toolName, err)
@@ -153,6 +157,9 @@ func judgeWrite(k *kb.KB, toolName string) *ToolResult {
 
 	var introduced []lint.Finding
 	for _, f := range post {
+		if !visible(strings.TrimSuffix(f.Path, ".md")) {
+			continue
+		}
 		p := f.Path
 		if op, ok := oldPath[p]; ok {
 			p = op

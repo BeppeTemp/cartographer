@@ -90,7 +90,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				// the handler's own repair-on-write (D349), before anything
 				// is committed. A refusal has already rolled the tree back.
 				if gateOn {
-					if refusal := judgeWrite(k, orig.Name); refusal != nil {
+					if refusal := judgeWrite(k, orig.Name, func(id string) bool { return Visible(ctx, k, id) }); refusal != nil {
 						res = *refusal
 						return nil
 					}
