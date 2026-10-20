@@ -229,7 +229,8 @@ func TestSearchFollowsExpandedMove(t *testing.T) {
 	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
 		callOK(t, s, "concept_expand", `{"id":"manutenzione/test-runbook"}`)
-		callOK(t, s, "concept_write", `{"id":"manutenzione/test-runbook/step1","frontmatter":{"type":"Note","title":"Step"},"body":"platypusstep"}`)
+		// The dossier lists its satellite in the same call (D907).
+		callOK(t, s, "concept_batch", `{"operations":[{"op":"write","id":"manutenzione/test-runbook/step1","frontmatter":{"type":"Note","title":"Step"},"body":"platypusstep"},{"op":"patch","id":"manutenzione/test-runbook","if_match":"`+readHash(t, k, "manutenzione/test-runbook")+`","old_string":"Il runbook di test.","new_string":"Il runbook di test. [step](step1.md)"}]}`)
 		if out := searchText(t, s, "platypusstep"); !strings.Contains(out, "manutenzione/test-runbook/step1") {
 			t.Fatalf("satellite not indexed: %s", out)
 		}
@@ -249,9 +250,10 @@ func TestSearchFollowsExpandedMove(t *testing.T) {
 func TestSearchFollowsExpandedMoveAcrossServices(t *testing.T) {
 	t.Parallel()
 	freshnessBackends(t, func(t *testing.T, k *kb.KB, s *Server) {
-		callOK(t, s, "concept_write", `{"id":"services/gateway","frontmatter":{"type":"Service","title":"Gateway"},"body":"wombatowner"}`)
+		// A page in services/ is reached by a link: it comes with the page that links it.
+		callOK(t, s, "concept_batch", `{"operations":[{"op":"write","id":"services/gateway","frontmatter":{"type":"Service","title":"Gateway"},"body":"wombatowner"},{"op":"write","id":"manutenzione/runner","frontmatter":{"type":"Note","title":"Runner"},"body":"Runs [[services/gateway]]."}]}`)
 		callOK(t, s, "concept_expand", `{"id":"services/gateway"}`)
-		callOK(t, s, "concept_write", `{"id":"services/gateway/notes","frontmatter":{"type":"Note","title":"Notes"},"body":"wombatsatellite"}`)
+		callOK(t, s, "concept_batch", `{"operations":[{"op":"write","id":"services/gateway/notes","frontmatter":{"type":"Note","title":"Notes"},"body":"wombatsatellite"},{"op":"patch","id":"services/gateway","if_match":"`+readHash(t, k, "services/gateway")+`","old_string":"wombatowner","new_string":"wombatowner [notes](notes.md)"}]}`)
 		if out := searchText(t, s, "wombatsatellite"); !strings.Contains(out, "services/gateway/notes") {
 			t.Fatalf("satellite not indexed: %s", out)
 		}
