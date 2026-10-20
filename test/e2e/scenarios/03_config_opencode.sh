@@ -77,9 +77,18 @@ assert_file_exists "$SKILL_FILE"
 assert_file_exists "$LOCK_FILE"
 assert_file_contains "$LOCK_FILE" '"opencode"'
 
-# 7. The .cartographer.yaml client config must register the connected provider
+# 7. The connected provider is recorded in the client state file (D906), not in
+# the .cartographer.yaml a person edits, which holds the token reference.
+STATE_FILE="${SANDBOX_DIR}/.cartographer-state.json"
 assert_file_exists "$CLIENT_CONFIG"
-assert_file_contains "$CLIENT_CONFIG" "opencode"
+assert_file_exists "$STATE_FILE"
+assert_file_contains "$STATE_FILE" "opencode"
+assert_file_contains "$CLIENT_CONFIG" 'token: ${CARTOGRAPHER_TOKENS}'
+if grep -qE '^(agents|trust|token_env):' "$CLIENT_CONFIG"; then
+    _assert_fail "$CLIENT_CONFIG still holds agents, trust or token_env"
+else
+    _assert_pass "$CLIENT_CONFIG holds none of agents, trust, token_env"
+fi
 
 # --- Report ---
 echo ""

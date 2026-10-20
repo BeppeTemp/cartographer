@@ -12,7 +12,6 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
-	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 )
 
 // cmdClient manages the per-provider KB binding (D169): which Knowledge Bases
@@ -62,17 +61,15 @@ func printClientUsage(w *os.File) {
 	fmt.Fprintln(w, "       cartographer client bind <provider> <kb>[,<kb>...]")
 	fmt.Fprintln(w, "       cartographer client unbind <provider> <kb>[,<kb>...]")
 	fmt.Fprintln(w, "       cartographer client reset <provider>")
-	fmt.Fprintln(w, "       cartographer client update [--check=true|false] [--policy notify|auto-patch]")
+	fmt.Fprintln(w, "       cartographer client update [--check=true|false]")
 }
 
-// clientUpdate shows or sets the client-wide `update:` block (D254): whether
-// the update check runs, and whether a patch release may install itself.
-// Offline like every other `client` subcommand.
+// clientUpdate shows or sets `update_check` (D254, D906): whether the daily
+// release lookup runs. The client never installs a release by itself. Offline like every other `client` subcommand.
 func clientUpdate(dir string, cfg *clientconfig.Config, args []string) int {
 	fs := flag.NewFlagSet("client update", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	check := fs.String("check", "", "Run the update check: true or false")
-	policy := fs.String("policy", "", "notify (default) or auto-patch (patch releases through homebrew, install.sh or install.ps1 install themselves)")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
 		printClientUsage(os.Stderr)
 		return 2
@@ -84,16 +81,7 @@ func clientUpdate(dir string, cfg *clientconfig.Config, args []string) int {
 			fmt.Fprintf(os.Stderr, "Error: invalid --check %q (want true or false)\n", *check)
 			return 2
 		}
-		cfg.Update.Check = &v
-		changed = true
-	}
-	if *policy != "" {
-		p, err := updatecheck.ParsePolicy(*policy)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error:", err)
-			return 2
-		}
-		cfg.Update.Policy = p
+		cfg.UpdateCheckOff = !v
 		changed = true
 	}
 	if changed {
@@ -101,8 +89,7 @@ func clientUpdate(dir string, cfg *clientconfig.Config, args []string) int {
 			return code
 		}
 	}
-	fmt.Printf("update check   %t\n", cfg.Update.CheckEnabled())
-	fmt.Printf("update policy  %s\n", cfg.Update.EffectivePolicy())
+	fmt.Printf("update check   %t\n", cfg.UpdateCheckEnabled())
 	return 0
 }
 
@@ -236,7 +223,7 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 	}
 	suffix := ""
 	if stale {
-		facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
+		facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token)
 		switch {
 		case err != nil:
 			suffix = fmt.Sprintf(" (could not read the server's KB list: %v; using the cached list)", err)

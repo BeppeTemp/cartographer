@@ -41,8 +41,8 @@ func TestEnsureBootstrapHook_Claude_MaterializzaERegistra(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read %s: %v", provisioning.BootstrapScriptNameForTest, err)
 	}
-	if !strings.Contains(string(scriptData), "cartographer sync --auto-trust") {
-		t.Errorf("%s does not call `cartographer sync --auto-trust`: %s", provisioning.BootstrapScriptNameForTest, scriptData)
+	if !strings.Contains(string(scriptData), "cartographer sync >") || strings.Contains(string(scriptData), "--auto-trust") {
+		t.Errorf("%s must call `cartographer sync` and no removed flag (D906): %s", provisioning.BootstrapScriptNameForTest, scriptData)
 	}
 
 	settingsPath := filepath.Join(baseDir, ".claude", "settings.json")
@@ -500,8 +500,8 @@ func TestBootstrapScriptIsRunnableOnThisPlatform(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(script, "cartographer sync --auto-trust") {
-		t.Error("the script does not run the sync it exists for")
+	if !strings.Contains(script, "cartographer sync >") || strings.Contains(script, "--auto-trust") {
+		t.Error("the script must run the sync it exists for, without the removed --auto-trust (D906)")
 	}
 
 	// D254: the update notice runs after the sync, keeps its stdout (that is

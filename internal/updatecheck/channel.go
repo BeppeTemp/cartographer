@@ -48,21 +48,6 @@ func (c Channel) UpgradeCommand(latest string) string {
 	return ""
 }
 
-// ApplyArgv is the non-interactive argv `update apply` runs for this channel,
-// or nil when the channel is never patched automatically (D254: go-install,
-// container and unknown only ever get the notice).
-func (c Channel) ApplyArgv() []string {
-	switch c {
-	case ChannelHomebrew:
-		return []string{"brew", "upgrade", "--cask", brewCask}
-	case ChannelInstallSh:
-		return []string{"sh", "-c", c.UpgradeCommand("")}
-	case ChannelInstallPS1:
-		return []string{"powershell", "-NoProfile", "-Command", c.UpgradeCommand("")}
-	}
-	return nil
-}
-
 // Env is what channel detection reads from the machine, injectable so a test
 // can describe any platform from any other.
 type Env struct {

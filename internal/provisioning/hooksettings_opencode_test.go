@@ -34,11 +34,10 @@ func TestApply_OpenCode_Hook_GeneraPluginToolBefore(t *testing.T) {
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderOpenCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderOpenCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -108,11 +107,10 @@ func TestApply_OpenCode_Hook_GeneraPluginSessionStart(t *testing.T) {
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderOpenCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderOpenCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -142,11 +140,10 @@ func TestApply_OpenCode_Hook_ReApply_Idempotente(t *testing.T) {
 
 	baseDir := t.TempDir()
 	opts := provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderOpenCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderOpenCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	}
 
 	if _, err := provisioning.Apply(m, opts); err != nil {
@@ -193,11 +190,10 @@ func TestApply_OpenCode_Hook_Removed_RimuovePluginEFile(t *testing.T) {
 
 	baseDir := t.TempDir()
 	opts := provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderOpenCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderOpenCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	}
 
 	res, err := provisioning.Apply(m, opts)
@@ -244,11 +240,10 @@ func TestApply_OpenCode_Hook_EventoNonMappato_NessunPluginNessunErrore(t *testin
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderOpenCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderOpenCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: expected no fatal error, got %v", err)
@@ -293,7 +288,7 @@ func applyOpenCodeHookWarnings(t *testing.T, version, event, matcher string) (st
 	}
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderOpenCode, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
 	if err != nil {

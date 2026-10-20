@@ -79,21 +79,21 @@ const KB_GROUPS: [Group, (key: string) => boolean][] = [
 const CLIENT_GROUPS: [Group, (key: string) => boolean][] = [
   [
     { title: "Connection", intro: "Which server this machine talks to, how it authenticates, and whose name its writes carry." },
-    (k) => ["server_url", "server_name", "auth", "token_env", "identities"].includes(k),
+    (k) => ["server_url", "server_name", "auth", "token", "identities"].includes(k),
   ],
   [
     { title: "Agents & KBs", intro: "The agent clients connected, and which KBs each one receives where." },
-    (k) => ["agents", "trust", "clients", "scopes", "workspaces"].includes(k),
+    (k) => ["clients", "scopes", "workspaces"].includes(k),
   ],
   [
     { title: "Local paths", intro: "How {{repo:…}} and {{path:…}} placeholders resolve on this machine." },
-    (k) => ["search_roots", "search_depth", "paths", "ignored_paths"].includes(k),
+    (k) => ["search_roots", "paths", "ignored_paths"].includes(k),
   ],
   [
     { title: "Trust", intro: "The signing keys pinned and the MCP descriptors approved on this machine." },
     (k) => ["signing_keys", "mcp_approvals"].includes(k),
   ],
-  [{ title: "Updates & sync", intro: "Release checks, usage reports, hooks and the sync timer." }, () => true],
+  [{ title: "Updates & sync", intro: "Release checks and usage reports." }, () => true],
 ];
 
 type Mode = "readable" | "yaml";

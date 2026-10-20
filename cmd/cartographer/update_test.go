@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -38,9 +37,7 @@ func TestMain(m *testing.M) {
 	updateCheckFn = func(_ context.Context, _ updatecheck.Options) (updatecheck.Result, error) {
 		return updatecheck.Result{Current: version}, nil
 	}
-	updateSettingsFn = func() (clientconfig.UpdateSettings, error) { return clientconfig.UpdateSettings{}, nil }
-	updateStartDetachedFn = func([]string) error { return errors.New("no detached process in tests") }
-	updateRunApplyFn = func([]string, io.Writer) error { return errors.New("no package manager in tests") }
+	updateSettingsFn = func() (bool, error) { return true, nil }
 	serverUpdateCheckFn = func(context.Context, string, updatecheck.Options) (updatecheck.Result, error) {
 		return updatecheck.Result{}, nil
 	}
@@ -61,7 +58,7 @@ func TestMain(m *testing.M) {
 
 // stubUpdate installs a check answer, a channel, settings and a private cache
 // dir for one test.
-func stubUpdate(t *testing.T, res updatecheck.Result, ch updatecheck.Channel, settings clientconfig.UpdateSettings) (cacheDir string, calls *[]updatecheck.Options) {
+func stubUpdate(t *testing.T, res updatecheck.Result, ch updatecheck.Channel, enabled bool) (cacheDir string, calls *[]updatecheck.Options) {
 	t.Helper()
 	cacheDir = t.TempDir()
 	var seen []updatecheck.Options
@@ -72,7 +69,7 @@ func stubUpdate(t *testing.T, res updatecheck.Result, ch updatecheck.Channel, se
 		return res, nil
 	}
 	updateChannelFn = func() updatecheck.Channel { return ch }
-	updateSettingsFn = func() (clientconfig.UpdateSettings, error) { return settings, nil }
+	updateSettingsFn = func() (bool, error) { return enabled, nil }
 	t.Cleanup(func() {
 		updateCacheDirFn, updateCheckFn, updateChannelFn, updateSettingsFn = oldDir, oldCheck, oldCh, oldSettings
 	})
@@ -82,7 +79,7 @@ func stubUpdate(t *testing.T, res updatecheck.Result, ch updatecheck.Channel, se
 var available = updatecheck.Result{Current: "v0.16.1", Latest: "v0.17.0", Available: true, Kind: updatecheck.KindMinor}
 
 func TestUpdateNoticeSilentWhenUpToDate(t *testing.T) {
-	stubUpdate(t, updatecheck.Result{Current: "v0.17.0", Latest: "v0.17.0"}, updatecheck.ChannelHomebrew, clientconfig.UpdateSettings{})
+	stubUpdate(t, updatecheck.Result{Current: "v0.17.0", Latest: "v0.17.0"}, updatecheck.ChannelHomebrew, true)
 	out := withStdout(t, func() {
 		if code := cmdUpdate([]string{"notice"}); code != 0 {
 			t.Errorf("exit %d", code)
@@ -94,7 +91,7 @@ func TestUpdateNoticeSilentWhenUpToDate(t *testing.T) {
 }
 
 func TestUpdateNoticeOneParagraphWhenBehind(t *testing.T) {
-	_, calls := stubUpdate(t, available, updatecheck.ChannelHomebrew, clientconfig.UpdateSettings{})
+	_, calls := stubUpdate(t, available, updatecheck.ChannelHomebrew, true)
 	out := withStdout(t, func() {
 		if code := cmdUpdate([]string{"notice"}); code != 0 {
 			t.Errorf("exit %d", code)
@@ -123,7 +120,7 @@ func TestUpdateNoticeWithoutACommand(t *testing.T) {
 		updatecheck.ChannelContainer: "image tag",
 		updatecheck.ChannelUnknown:   updatecheck.ReleasesURL,
 	} {
-		stubUpdate(t, available, ch, clientconfig.UpdateSettings{})
+		stubUpdate(t, available, ch, true)
 		out := withStdout(t, func() { cmdUpdate([]string{"notice"}) })
 		if !strings.Contains(out, want) || strings.Contains(out, "Upgrade with:") {
 			t.Errorf("%s notice: %q", ch, out)
@@ -132,7 +129,7 @@ func TestUpdateNoticeWithoutACommand(t *testing.T) {
 }
 
 func TestUpdateNoticeAlwaysExitsZero(t *testing.T) {
-	stubUpdate(t, available, updatecheck.ChannelHomebrew, clientconfig.UpdateSettings{})
+	stubUpdate(t, available, updatecheck.ChannelHomebrew, true)
 	updateChannelFn = func() updatecheck.Channel { panic("boom") }
 	withStdout(t, func() {
 		if code := cmdUpdate([]string{"notice"}); code != 0 {
@@ -142,7 +139,7 @@ func TestUpdateNoticeAlwaysExitsZero(t *testing.T) {
 }
 
 func TestUpdateCheckJSONShapeAndForcedRefresh(t *testing.T) {
-	_, calls := stubUpdate(t, available, updatecheck.ChannelInstallSh, clientconfig.UpdateSettings{})
+	_, calls := stubUpdate(t, available, updatecheck.ChannelInstallSh, true)
 	out := withStdout(t, func() {
 		if code := cmdUpdate([]string{"check", "--output", "json"}); code != 0 {
 			t.Errorf("exit %d", code)
@@ -175,97 +172,39 @@ func TestUpdateCheckJSONShapeAndForcedRefresh(t *testing.T) {
 }
 
 func TestUpdateCheckHonoursTheOptOut(t *testing.T) {
-	off := false
-	_, calls := stubUpdate(t, available, updatecheck.ChannelHomebrew, clientconfig.UpdateSettings{Check: &off})
+	_, calls := stubUpdate(t, available, updatecheck.ChannelHomebrew, false)
 	withStdout(t, func() { cmdUpdate([]string{"check"}) })
 	if len(*calls) != 1 || !(*calls)[0].Disabled {
-		t.Errorf("update.check: false must reach the check even when forced: %+v", *calls)
+		t.Errorf("update_check: false must reach the check even when forced: %+v", *calls)
 	}
 }
 
-func TestUpdateNoticeAnnouncesAnAppliedPatchOnce(t *testing.T) {
-	oldVersion := version
-	version = "v0.16.2"
-	t.Cleanup(func() { version = oldVersion })
-	dir, _ := stubUpdate(t, updatecheck.Result{Current: "v0.16.2", Latest: "v0.16.2"}, updatecheck.ChannelHomebrew, clientconfig.UpdateSettings{})
-	if err := updatecheck.WriteMarker(dir, true, updatecheck.Marker{Version: "v0.16.2"}); err != nil {
+// D906: an existing `update.policy: auto-patch` is read as update_check and
+// nothing else. The notice for a patch release is the manual one, no process is
+// started, and the internal `update apply` command is gone.
+func TestAutoPatchNeverSelfReplaces(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	if err := os.WriteFile(clientconfig.Path(home), []byte("server_url: http://x/mcp\nupdate:\n  policy: auto-patch\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out := withStdout(t, func() { cmdUpdate([]string{"notice"}) })
-	if !strings.Contains(out, "Cartographer patched itself to v0.16.2; restart your agent sessions to load it.") {
-		t.Fatalf("patched notice: %q", out)
+	enabled, err := updateCheckEnabled()
+	if err != nil || !enabled {
+		t.Fatalf("update_check from a file with only update.policy = %v, %v, want true", enabled, err)
 	}
-	if again := withStdout(t, func() { cmdUpdate([]string{"notice"}) }); again != "" {
-		t.Fatalf("the patched notice is shown once, then %q", again)
-	}
-}
-
-func TestAutoPatchStartsOnceAndStaysSilent(t *testing.T) {
 	patch := updatecheck.Result{Current: "v0.16.1", Latest: "v0.16.2", Available: true, Kind: updatecheck.KindPatch}
-	dir, _ := stubUpdate(t, patch, updatecheck.ChannelHomebrew, clientconfig.UpdateSettings{Policy: updatecheck.PolicyAutoPatch})
-	var starts [][]string
-	old := updateStartDetachedFn
-	updateStartDetachedFn = func(argv []string) error { starts = append(starts, argv); return nil }
-	t.Cleanup(func() { updateStartDetachedFn = old })
-
-	for i := 0; i < 2; i++ {
-		if out := withStdout(t, func() { cmdUpdate([]string{"notice"}) }); out != "" {
-			t.Errorf("run %d: an auto-patch in progress prints nothing, got %q", i, out)
+	dir, _ := stubUpdate(t, patch, updatecheck.ChannelHomebrew, enabled)
+	out := withStdout(t, func() { cmdUpdate([]string{"notice"}) })
+	if !strings.Contains(out, "Upgrade with: brew upgrade --cask beppetemp/tap/cartographer.") {
+		t.Errorf("a patch release gets the plain notice: %q", out)
+	}
+	withStderr(t, func() {
+		if code := cmdUpdate([]string{"apply"}); code != 2 {
+			t.Errorf("update apply must be gone, exit = %d", code)
 		}
-	}
-	maybeAutoPatch() // the scheduled sync's path, while the lock is still held
-	if len(starts) != 1 {
-		t.Fatalf("concurrent starters must start one apply, got %d", len(starts))
-	}
-	if a := starts[0]; len(a) != 3 || a[1] != "update" || a[2] != "apply" {
-		t.Errorf("detached argv = %q", a)
-	}
-
-	// A minor release under the same policy gets the plain notice.
-	updatecheck.ReleaseApplyLock(dir)
-	stubUpdate(t, available, updatecheck.ChannelHomebrew, clientconfig.UpdateSettings{Policy: updatecheck.PolicyAutoPatch})
-	if out := withStdout(t, func() { cmdUpdate([]string{"notice"}) }); !strings.Contains(out, "Upgrade with:") {
-		t.Errorf("minor under auto-patch: %q", out)
-	}
-	if len(starts) != 1 {
-		t.Error("a minor release must never start an apply")
-	}
-}
-
-func TestUpdateApplyRecordsOutcome(t *testing.T) {
-	patch := updatecheck.Result{Current: "v0.16.1", Latest: "v0.16.2", Available: true, Kind: updatecheck.KindPatch}
-	dir, _ := stubUpdate(t, patch, updatecheck.ChannelHomebrew, clientconfig.UpdateSettings{Policy: updatecheck.PolicyAutoPatch})
-	var ran []string
-	old := updateRunApplyFn
-	updateRunApplyFn = func(argv []string, _ io.Writer) error { ran = argv; return errors.New("brew failed") }
-	t.Cleanup(func() { updateRunApplyFn = old })
-
-	if code := cmdUpdate([]string{"apply"}); code != 1 {
-		t.Errorf("failed apply exit = %d", code)
-	}
-	if strings.Join(ran, " ") != "brew upgrade --cask beppetemp/tap/cartographer" {
-		t.Errorf("ran %q", ran)
-	}
-	m, ok := updatecheck.ReadMarker(dir, false)
-	if !ok || m.Version != "v0.16.2" || m.Log != filepath.Join(dir, updatecheck.LogFileName) {
-		t.Fatalf("failure marker: %+v %v", m, ok)
-	}
-	// The notice reverts to the manual form, naming the log, and does not
-	// start another apply.
-	out := withStdout(t, func() { cmdUpdate([]string{"notice"}) })
-	if !strings.Contains(out, "Upgrade with:") || !strings.Contains(out, updatecheck.LogFileName) {
-		t.Errorf("notice after a failed apply: %q", out)
-	}
-
-	updateRunApplyFn = func([]string, io.Writer) error { return nil }
-	if code := cmdUpdate([]string{"apply"}); code != 0 {
-		t.Errorf("successful apply exit = %d", code)
-	}
-	if m, ok := updatecheck.ReadMarker(dir, true); !ok || m.Version != "v0.16.2" {
-		t.Errorf("success marker: %+v %v", m, ok)
-	}
-	if log, _ := os.ReadFile(filepath.Join(dir, updatecheck.LogFileName)); !strings.Contains(string(log), "failed: brew failed") || !strings.Contains(string(log), "done") {
-		t.Errorf("update.log: %s", log)
+	})
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Errorf("nothing may be written to the update cache by a notice: %v", entries)
 	}
 }
 
@@ -293,7 +232,7 @@ func TestStatusSnapshotCarriesUpdateOnlyWhenAvailable(t *testing.T) {
 		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
 	})
 
-	_, calls := stubUpdate(t, updatecheck.Result{Current: "v0.16.1", Latest: "v0.16.1"}, updatecheck.ChannelHomebrew, clientconfig.UpdateSettings{})
+	_, calls := stubUpdate(t, updatecheck.Result{Current: "v0.16.1", Latest: "v0.16.1"}, updatecheck.ChannelHomebrew, true)
 	s := snapshotForConfig(home, cfg, false)
 	if s.Update != nil {
 		t.Fatalf("up to date: update = %+v", s.Update)
@@ -309,7 +248,7 @@ func TestStatusSnapshotCarriesUpdateOnlyWhenAvailable(t *testing.T) {
 		t.Errorf("no update key when none is available: %s", data)
 	}
 
-	stubUpdate(t, available, updatecheck.ChannelHomebrew, clientconfig.UpdateSettings{})
+	stubUpdate(t, available, updatecheck.ChannelHomebrew, true)
 	s = snapshotForConfig(home, cfg, false)
 	want := &updateSnapshot{Latest: "v0.17.0", Kind: "minor", Channel: "homebrew", Command: "brew upgrade --cask beppetemp/tap/cartographer"}
 	if !reflect.DeepEqual(s.Update, want) {
@@ -340,7 +279,7 @@ func TestStatusSnapshotCarriesUpdateOnlyWhenAvailable(t *testing.T) {
 }
 
 func TestDoctorReportsUpdateAsInfo(t *testing.T) {
-	stubUpdate(t, available, updatecheck.ChannelInstallPS1, clientconfig.UpdateSettings{})
+	stubUpdate(t, available, updatecheck.ChannelInstallPS1, true)
 	got := checkUpdateAvailable()
 	if len(got) != 1 || got[0].Check != "update_available" || got[0].Severity != doctorInfo || !strings.Contains(got[0].Fix, "install.ps1))) update") {
 		t.Fatalf("finding = %+v", got)
@@ -348,7 +287,7 @@ func TestDoctorReportsUpdateAsInfo(t *testing.T) {
 	if doctorExitCode(doctorReport{Infos: 1}) != 0 {
 		t.Error("an info finding must not fail doctor")
 	}
-	stubUpdate(t, updatecheck.Result{Current: "v1", Latest: "v1"}, updatecheck.ChannelInstallPS1, clientconfig.UpdateSettings{})
+	stubUpdate(t, updatecheck.Result{Current: "v1", Latest: "v1"}, updatecheck.ChannelInstallPS1, true)
 	if got := checkUpdateAvailable(); len(got) != 0 {
 		t.Errorf("up to date: %+v", got)
 	}
@@ -447,23 +386,22 @@ func TestSyncBootstrapRewritesAnOutdatedScript(t *testing.T) {
 	}
 }
 
-func TestClientUpdateSetsPolicy(t *testing.T) {
+func TestClientUpdateSetsCheck(t *testing.T) {
 	home := writeClientCfg(t, []string{"claude"}, nil, nil)
 	out := withStdout(t, func() {
-		if code := cmdClient([]string{"update", "--policy", "auto-patch", "--check=false"}); code != 0 {
+		if code := cmdClient([]string{"update", "--check=false"}); code != 0 {
 			t.Errorf("exit %d", code)
 		}
 	})
-	if !strings.Contains(out, "update policy  auto-patch") || !strings.Contains(out, "update check   false") {
+	if !strings.Contains(out, "update check   false") || strings.Contains(out, "policy") {
 		t.Errorf("output: %q", out)
 	}
-	cfg := loadClientCfg(t, home)
-	if cfg.Update.EffectivePolicy() != "auto-patch" || cfg.Update.CheckEnabled() {
-		t.Errorf("saved: %+v", cfg.Update)
+	if cfg := loadClientCfg(t, home); cfg.UpdateCheckEnabled() {
+		t.Errorf("saved: update check still on")
 	}
 	withStderr(t, func() {
-		if code := cmdClient([]string{"update", "--policy", "always"}); code != 2 {
-			t.Errorf("invalid policy exit = %d", code)
+		if code := cmdClient([]string{"update", "--policy", "auto-patch"}); code != 2 {
+			t.Errorf("--policy is gone, exit = %d", code)
 		}
 	})
 }
@@ -502,43 +440,32 @@ func TestServerUpdateCheckRetriesSoonAfterAFailure(t *testing.T) {
 	}
 }
 
-// D353: the write-findings hook follows `write_findings_hook` in the client
-// config: installed by default, gone on the next sync once the key is false.
-func TestEnsureBootstrapForProviders_WriteFindingsOptOut(t *testing.T) {
+// D906: the write-findings hook is always installed, and the `write_findings_hook`
+// key of an older file switches nothing off.
+func TestEnsureBootstrapForProviders_WriteFindingsAlwaysInstalled(t *testing.T) {
 	dir := t.TempDir()
 	claude := []string{string(configurator.ProviderClaudeCode)}
 	hookDir := filepath.Join(dir, ".claude", "hooks", provisioning.WriteFindingsHookName)
+	if err := os.WriteFile(clientconfig.Path(dir), []byte("server_url: http://x/mcp\nwrite_findings_hook: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := ensureBootstrapForProviders(claude, dir, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(hookDir); err != nil {
-		t.Fatalf("hook not installed by default: %v", err)
-	}
-
-	cfg := clientconfig.Default()
-	cfg.WriteFindingsHookOff = true
-	if err := clientconfig.Save(dir, cfg); err != nil {
-		t.Fatal(err)
-	}
-	if err := ensureBootstrapForProviders(claude, dir, false); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(hookDir); !os.IsNotExist(err) {
-		t.Fatalf("hook survived the opt-out: %v", err)
+		t.Fatalf("hook not installed: %v", err)
 	}
 	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var boot bool
+	var boot, findings bool
 	for _, mf := range lf.ForProvider(claude[0]).Managed {
-		if mf.Name == provisioning.WriteFindingsHookName {
-			t.Errorf("lock still records it: %+v", mf)
-		}
+		findings = findings || mf.Name == provisioning.WriteFindingsHookName
 		boot = boot || mf.Name == provisioning.BootstrapHookName
 	}
-	if !boot {
-		t.Error("the bootstrap hook must stay")
+	if !boot || !findings {
+		t.Errorf("both client hooks must be recorded: bootstrap %v findings %v", boot, findings)
 	}
 }

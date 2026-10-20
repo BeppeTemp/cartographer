@@ -1,12 +1,7 @@
 package updatecheck
 
 import (
-	"errors"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 )
 
 func TestDetectChannel(t *testing.T) {
@@ -70,7 +65,7 @@ func TestDetectChannel(t *testing.T) {
 	}
 }
 
-func TestUpgradeCommandsAndApplyArgv(t *testing.T) {
+func TestUpgradeCommands(t *testing.T) {
 	if got := ChannelHomebrew.UpgradeCommand("v1"); got != "brew upgrade --cask beppetemp/tap/cartographer" {
 		t.Errorf("homebrew: %q", got)
 	}
@@ -84,107 +79,8 @@ func TestUpgradeCommandsAndApplyArgv(t *testing.T) {
 		t.Errorf("go-install: %q", got)
 	}
 	for _, c := range []Channel{ChannelContainer, ChannelUnknown} {
-		if c.UpgradeCommand("v1") != "" || c.ApplyArgv() != nil {
+		if c.UpgradeCommand("v1") != "" {
 			t.Errorf("%s must name no command", c)
 		}
-	}
-	if ChannelGoInstall.ApplyArgv() != nil {
-		t.Error("go-install is never patched automatically")
-	}
-	if got := strings.Join(ChannelHomebrew.ApplyArgv(), " "); got != "brew upgrade --cask beppetemp/tap/cartographer" {
-		t.Errorf("homebrew argv: %q", got)
-	}
-	sh := ChannelInstallSh.ApplyArgv()
-	if len(sh) != 3 || sh[0] != "sh" || sh[1] != "-c" || !strings.HasSuffix(sh[2], "| sh -s -- update") {
-		t.Errorf("install.sh argv: %q", sh)
-	}
-	ps := ChannelInstallPS1.ApplyArgv()
-	if len(ps) != 4 || ps[0] != "powershell" || ps[1] != "-NoProfile" || ps[2] != "-Command" || !strings.HasSuffix(ps[3], "))) update") {
-		t.Errorf("install.ps1 argv: %q", ps)
-	}
-}
-
-func TestParsePolicy(t *testing.T) {
-	for in, want := range map[string]string{"": PolicyNotify, "notify": PolicyNotify, " Auto-Patch ": PolicyAutoPatch} {
-		if got, err := ParsePolicy(in); err != nil || got != want {
-			t.Errorf("ParsePolicy(%q) = %q, %v", in, got, err)
-		}
-	}
-	_, err := ParsePolicy("auto")
-	if err == nil || !strings.Contains(err.Error(), "notify") || !strings.Contains(err.Error(), "auto-patch") {
-		t.Errorf("unknown policy error must name the valid values: %v", err)
-	}
-}
-
-func TestShouldAutoApply(t *testing.T) {
-	channels := []Channel{ChannelHomebrew, ChannelInstallSh, ChannelInstallPS1, ChannelGoInstall, ChannelContainer, ChannelUnknown}
-	for _, policy := range []string{PolicyNotify, PolicyAutoPatch} {
-		for _, kind := range []string{KindPatch, KindMinor, KindMajor} {
-			for _, ch := range channels {
-				res := Result{Available: true, Kind: kind}
-				want := policy == PolicyAutoPatch && kind == KindPatch &&
-					(ch == ChannelHomebrew || ch == ChannelInstallSh || ch == ChannelInstallPS1)
-				if got := ShouldAutoApply(policy, res, ch); got != want {
-					t.Errorf("ShouldAutoApply(%s, %s, %s) = %v, want %v", policy, kind, ch, got, want)
-				}
-			}
-		}
-	}
-	if ShouldAutoApply(PolicyAutoPatch, Result{Available: false, Kind: KindPatch}, ChannelHomebrew) {
-		t.Error("nothing available, nothing to apply")
-	}
-}
-
-func TestApplyLockSecondStarterIsNoop(t *testing.T) {
-	dir := t.TempDir()
-	now := time.Now()
-	release, err := AcquireApplyLock(dir, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := AcquireApplyLock(dir, now); !errors.Is(err, ErrApplyInProgress) {
-		t.Fatalf("second starter: %v", err)
-	}
-	release()
-	release2, err := AcquireApplyLock(dir, now)
-	if err != nil {
-		t.Fatalf("after release: %v", err)
-	}
-	release2()
-
-	// A lock left by an apply that died is taken over after an hour.
-	if err := os.WriteFile(filepath.Join(dir, applyLockName), []byte("1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	old := now.Add(-2 * time.Hour)
-	os.Chtimes(filepath.Join(dir, applyLockName), old, old)
-	if _, err := AcquireApplyLock(dir, now); err != nil {
-		t.Fatalf("stale lock not taken over: %v", err)
-	}
-}
-
-func TestMarkers(t *testing.T) {
-	dir := t.TempDir()
-	if _, ok := ReadMarker(dir, true); ok {
-		t.Fatal("no marker yet")
-	}
-	if err := WriteMarker(dir, false, Marker{Version: "v0.16.2", Log: "/x/update.log"}); err != nil {
-		t.Fatal(err)
-	}
-	if m, ok := ReadMarker(dir, false); !ok || m.Log != "/x/update.log" {
-		t.Fatalf("failed marker: %+v %v", m, ok)
-	}
-	if err := WriteMarker(dir, true, Marker{Version: "v0.16.2"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := ReadMarker(dir, false); ok {
-		t.Error("a success clears the failure")
-	}
-	if m, ok := ReadMarker(dir, true); !ok || m.Version != "v0.16.2" {
-		t.Fatalf("applied marker: %+v", m)
-	}
-	ClearMarker(dir)
-	if _, ok := ReadMarker(dir, true); ok {
-		t.Error("ClearMarker left it")
 	}
 }

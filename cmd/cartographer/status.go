@@ -142,14 +142,12 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 				fmt.Printf("    %s\n", d.Detail)
 			}
 		}
-		unsigned, mcpPending := false, false
+		mcpPending := false
 		for _, a := range p.Added {
 			trust := statusArtifactTrust(a)
 			fmt.Printf("  + %s/%s [%s] trust=%s\n", a.Kind, a.Name, a.Source, trust)
 			if a.Kind == "mcp" && (trust == "needs_approval" || trust == "approval_stale") {
 				mcpPending = true
-			} else {
-				unsigned = unsigned || trust == "needs_approval"
 			}
 			if a.Kind == "hook" {
 				fmt.Printf("    new hook: after the sync, add the entry to settings.json manually (see hook.json in .claude/hooks/%s/)\n", a.Name)
@@ -160,8 +158,6 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			fmt.Printf("  ~ %s/%s [%s] trust=%s\n", a.Kind, a.Name, a.Source, trust)
 			if a.Kind == "mcp" && (trust == "needs_approval" || trust == "approval_stale") {
 				mcpPending = true
-			} else {
-				unsigned = unsigned || trust == "needs_approval"
 			}
 			if a.Kind == "hook" {
 				fmt.Printf("    hook updated: after the sync, verify the entry in settings.json (see hook.json in .claude/hooks/%s/)\n", a.Name)
@@ -169,9 +165,6 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		}
 		for _, a := range p.Removed {
 			fmt.Printf("  - %s/%s (%s)\n", a.Kind, a.Name, a.Path)
-		}
-		if unsigned {
-			fmt.Printf("  to approve the unsigned artifacts run: %s\n", autoTrustCommand())
 		}
 		if mcpPending {
 			fmt.Println("  MCP requires point approval: cartographer approve mcp <name> --kb <kb>")

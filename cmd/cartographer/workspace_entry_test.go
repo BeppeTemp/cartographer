@@ -54,7 +54,7 @@ func TestWorkspaceSyncPrunesD717Entry(t *testing.T) {
 	if err := provisioning.WriteLockFile(lockFilePath(target), lf); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := materializeForProviders(manifests, projs, target, "", true, false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(manifests, projs, target, "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(cell)

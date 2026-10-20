@@ -32,7 +32,7 @@ func TestCmdServiceSyncTimer_Dispatch(t *testing.T) {
 		if got != 5*time.Minute {
 			t.Errorf("interval = %v, want 5m", got)
 		}
-		if !strings.Contains(out, "without --auto-trust") {
+		if !strings.Contains(out, "still needs `cartographer approve`") || strings.Contains(out, "--auto-trust") {
 			t.Errorf("output must state the authorization boundary: %q", out)
 		}
 	})
@@ -169,7 +169,7 @@ func TestKiroHookLimitWarningPrintedOnce(t *testing.T) {
 
 	// A sync rebuilds the lock: the acknowledgement must survive it.
 	m := provisioning.Manifest{Revision: "r2"}
-	if _, err := materializeForProviders(uniformManifests(m, []string{"kiro"}), globalProjections([]string{"kiro"}, dir), dir, "", true, false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"kiro"}), globalProjections([]string{"kiro"}, dir), dir, "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
@@ -285,9 +285,13 @@ func TestSyncTimerUninstall_SetsOptOutAndInstallClearsIt(t *testing.T) {
 	if err != nil || !cfg.SyncTimerOptOut {
 		t.Fatalf("uninstall must remember the opt-out: cfg=%+v err=%v", cfg, err)
 	}
-	data, _ := os.ReadFile(clientconfig.Path(home))
-	if !strings.Contains(string(data), "sync_timer_opt_out: true") {
-		t.Errorf("opt-out not persisted: %s", data)
+	// A record of a command, not a setting: it lives in the state file (D906).
+	data, _ := os.ReadFile(clientconfig.StatePath(home))
+	if !strings.Contains(string(data), `"sync_timer_opt_out": true`) {
+		t.Errorf("opt-out not persisted in the state file: %s", data)
+	}
+	if yml, _ := os.ReadFile(clientconfig.Path(home)); strings.Contains(string(yml), "sync_timer_opt_out") {
+		t.Errorf("opt-out leaked into .cartographer.yaml: %s", yml)
 	}
 
 	withStdout(t, func() { cmdService([]string{"sync-timer", "install"}) })

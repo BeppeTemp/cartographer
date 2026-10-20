@@ -55,7 +55,7 @@ GitHub release list (`/releases?per_page=10`, which includes the pre-releases ev
 the newest one that is not a draft and has a version tag wins),
 cached for 24 h in `<user cache dir>/cartographer/update-check.json`. A lookup times out after 3 s
 and any failure means "unknown": nothing is printed. A `dev` build never checks.
-`CARTOGRAPHER_NO_UPDATE_CHECK=1` or `update.check: false` (below) turns it off;
+`CARTOGRAPHER_NO_UPDATE_CHECK=1` or `update_check: false` (below) turns it off;
 `CARTOGRAPHER_UPDATE_API_URL` exists for tests only.
 
 | Command | Effect |
@@ -71,13 +71,10 @@ The command depends on the channel the running binary came from: `homebrew` (Cas
 `go install …@<latest>`. `container` (`/.dockerenv`) and `unknown` get no command: the notice
 names the image tag or the releases page.
 
-With `update.policy: auto-patch`, a **patch** release through `homebrew`, `install.sh` or
-`install.ps1` installs itself: `update notice` or the next `sync` (the scheduled one included)
-starts a detached `update apply`, guarded by a lock in the cache directory so concurrent sessions
-start it once, logging to `<cache>/cartographer/update.log`. The next session's notice reads
-`Cartographer patched itself to vX; restart your agent sessions to load it.` once; a failed apply
-leaves the binary as it was and the notice reverts to the manual form, naming the log. Minor and
-major releases, and every other channel, always get the plain notice.
+The client **never installs a release by itself** (D906): there is no auto-patch, only this notice and the
+command above. A file that still says `update.policy: auto-patch` loads with a warning, and the
+realignment turns it into `update_check: true`; `cartographer update apply`, the internal command that
+setting started, is gone.
 
 ### `cartographer setup`
 
@@ -188,11 +185,16 @@ scheduled headless doctor job 0.22 and 0.23 installed, printing one line when th
 Cartographer no longer starts an agent by itself (D704). `sync` matters after a Homebrew upgrade, which
 runs neither of the others; `doctor run|schedule|unschedule|status` now fail as unknown arguments.
 
-**Token file (D699).** With `auth: true` and `$token_env` set, `connect` (so `reconnect` and `setup`) also copies
-the token to a `.cartographer-token` file next to `.cartographer.yaml` (`0600`, atomic, never through a symlink), because the sync
+**Token file (D699).** With `auth: true` and a `token: ${NAME}` reference (the default is `${CARTOGRAPHER_TOKENS}`),
+`connect` (so `reconnect` and `setup`) also copies the token to a `.cartographer-token` file next to `.cartographer.yaml` (`0600`, atomic, never through a symlink), because the sync
 timer runs without a login shell's exports. The environment variable stays the source
 whenever it is set; rotate it and run `cartographer reconnect` to refresh the copy. A file readable by group or
 others is refused (`chmod 600` fixes it). `disconnect` removes it with the last provider; `reconnect` keeps it.
+The file is what an unattended run reads when the variable is absent. A **literal** `token: <value>` needs
+no copy and no variable: `.cartographer.yaml` is then written with mode `0600` and `connect` writes no
+token file; the agents' MCP entries can only name a variable, so they reference `$CARTOGRAPHER_TOKENS`
+and never carry the literal. A token is never put on a command line (`--token-env` takes a variable name,
+no flag takes a value) and never printed.
 
 **Multi-KB servers (D92).** `connect` reads `GET /health` before emitting MCP
 configuration. With one mounted KB (or an older single-KB server that omits
@@ -289,7 +291,7 @@ cartographer connect claude                             # Claude Code only
 cartographer connect --agents claude,codex              # selected subset
 cartographer connect opencode --server-url http://cartographer.example.com/mcp --auth
 cartographer connect claude --pin-key homelab=0123...  # pin a KB Ed25519 public key
-cartographer connect all --auto-trust --dry-run
+cartographer connect all --dry-run
 ```
 
 | Flag | Default | Description |
@@ -299,9 +301,8 @@ cartographer connect all --auto-trust --dry-run
 | `--kb` | *(unset)* | Which KBs this client may receive (repeatable, or comma-separated; `all` for every mounted KB). Required on a **first** connect against a server mounting two or more KBs — see below (D190) |
 | `--server-url` | `http://127.0.0.1:39273/mcp` | Cartographer server URL |
 | `--auth` | `false` | Enables the Bearer header in generated configs |
-| `--token-env` | `CARTOGRAPHER_TOKENS` | Env var holding the Bearer token |
+| `--token-env` | `CARTOGRAPHER_TOKENS` | Name of the env var holding the Bearer token; written as `token: ${NAME}` |
 | `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)) |
-| `--auto-trust` | `false` | Also treats KB skills as trusted (unsigned) |
 | `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
 
 `signing_keys` in `.cartographer.yaml` stores public-key pins per KB. Pins are
@@ -359,8 +360,8 @@ file is left intact; if the `mcpServers`/`mcp` map ends up empty it is not delet
 managed artifacts registered for that provider in the lockfile (`provisioning.PruneManaged` — only
 managed files, never untracked ones), then removes the provider from the lockfile and from
 `.cartographer.yaml`. If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
-on the other hand, is **never deleted** (D64): with zero agents it stays on disk with `agents: []`,
-preserving `server_url`/`server_name`/`auth`/`token_env`/`trust`/`clients` as defaults for the next
+on the other hand, is **never deleted** (D64): with zero agents it stays on disk with an empty agent list in the state file,
+preserving `server_url`/`server_name`/`auth`/`token`/`clients` as defaults for the next
 `connect` (a disconnect→connect restarts from the previous server, not from `http://127.0.0.1:39273/mcp`).
 
 ```bash
@@ -394,9 +395,9 @@ Exit code: `0` all providers in sync, `1` at least one provider in drift, `2` er
 counts (`provisioning.KindCounts`), e.g. `skill 4/5 · agent 2/2 · hook 1/1`. On drift it
 prints the diff (added/updated/removed, with a `trust` state: `built_in`, `verified`, `trusted`,
 `approved`, `approval_stale` or `needs_approval` — see [D115](decisions/D115-mcp-allow-list-and-hash-bound-local-approval.md)
-for the MCP-specific approval states). MCP artifacts in `needs_approval`/`approval_stale` get their own
-`cartographer approve mcp <name> --kb <kb>` hint, separate from the `--auto-trust` suggestion for
-the other kinds. Before the artifact report it prints the
+for the MCP-specific approval states; an unsigned KB artifact that is not an MCP descriptor is `trusted`: it is installed,
+D906). MCP artifacts in `needs_approval`/`approval_stale` get their own
+`cartographer approve mcp <name> --kb <kb>` hint. Before the artifact report it prints the
 client and server versions. A non-`dev` mismatch is a warning only (it does not change the exit
 code); on loopback, an installed local service also gets a `cartographer upgrade-repair` hint
 (D121: it replaces the running service **and** re-syncs the providers in place, where the former
@@ -443,14 +444,13 @@ Re-runs `sync_pull` and reapplies the manifest for every connected provider: mat
 add/update, prunes obsolete artifacts, updates the lockfile. Idempotent.
 
 ```bash
-cartographer sync [--client <provider>]... [--auto-trust] [--dry-run] [--no-heal]
+cartographer sync [--client <provider>]... [--dry-run] [--no-heal]
 ```
 
 | Flag | Default | Effect |
 |---|---|---|
 | `--client` | *(all)* | Syncs only this provider (repeatable). A provider left out is not touched at all: not its MCP entries, not its artifacts, not its lockfile entry |
 | `--dry-run` | `false` | Prints without writing |
-| `--auto-trust` | `false` | Also treats KB skills as trusted (unsigned) |
 | `--no-heal` | `false` | Reports managed artifacts that diverged on disk instead of restoring them from the server (D139) |
 
 For Claude Code the `cartographer` MCP entries are written to `$HOME/.claude.json` and to
@@ -478,7 +478,7 @@ the same code, and reports the provider sync as pending
 
 Before anything else — before the client-state lock and before the first network call, `--dry-run`
 included — `sync` checks the environment it needs: when `.cartographer.yaml` has `auth: true` with a
-`token_env`, that variable **or the token file** (D699). Missing ones are reported in one error naming each, so an
+`token: ${NAME}` reference, that variable **or the token file** (D699); a literal token needs nothing here. Missing ones are reported in one error naming each, so an
 unattended run (session-start hook, sync timer, CI — none of which inherit a login shell's exports)
 diagnoses its misconfiguration before the first network call
 ([D222](decisions/D222-sync-checks-the-environment-once-and-the-401-names.md)). The check is
@@ -530,7 +530,7 @@ set and survives every sync. The connect half writes the current shape from noth
 removes them. For everything else, `sync` is the right tool and stays incremental.
 
 **What it preserves.** Everything in `.cartographer.yaml`: server URL and name, auth mode and token
-env, trust, pinned signing keys, MCP approvals, search roots and paths. It is a rebuild, not a
+env (the `token` reference), pinned signing keys, MCP approvals, search roots and paths. It is a rebuild, not a
 reset — a user who had to re-approve every MCP descriptor after an upgrade would simply stop running
 it. A provider that was not previously connected is rebuilt all the same, stating that it was not.
 
@@ -661,11 +661,10 @@ cartographer service sync-timer status   # exit: 0 active, 3 installed but inact
 installed is a success. The per-user scheduler belongs to the account, not to `$HOME`: when
 `$HOME` is not the account's home directory (a sandboxed run, the e2e suite), the server service,
 the sync timer and the doctor timer write their unit files under `$HOME` and register nothing,
-so a sandbox never replaces the account's own jobs (#683). The timer runs `cartographer sync` **without** `--auto-trust`: an
-unattended job must not grant a trust the user never gave, while the persisted `trust` setting
-still applies. `setup` and `connect` install the timer themselves when a connected provider has no
+so a sandbox never replaces the account's own jobs (#683). The timer runs plain `cartographer sync`: there is no trust flag to give it (D906),
+and an MCP descriptor still needs the local approval an unattended job cannot give. `setup` and `connect` install the timer themselves when a connected provider has no
 session hook, or one limited to some sessions (D325); `setup` lists it in its plan. `uninstall` is
-the explicit opt-out, remembered as `sync_timer_opt_out` in `.cartographer.yaml` (so `connect` does
+the explicit opt-out, remembered as `sync_timer_opt_out` in the client state file (so `connect` does
 not reinstall it, and `doctor`'s `trigger` check is info rather than a warning); `install` clears
 it. `disconnect` removes the timer when no remaining client needs it, without an opt-out. `status`
 only names the command.
@@ -821,7 +820,7 @@ A configured search root that does not exist, is not a directory, or cannot be l
 **warning on stderr naming it and the OS error**, and the remaining roots are still scanned. It is a
 warning, not a failure: a machine-local config may legitimately name a root that only exists on
 another machine. Before this the root was silently skipped and the only message on offer was the
-one below, which talks about directory depth — so a typo in a root looked like a `search_depth`
+one below, which talks about directory depth — so a typo in a root looked like a depth
 problem ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md)). The same warnings
 surface in `AppliedResult.Warnings` when a `{{repo:…}}` placeholder is resolved during `sync`.
 
@@ -1123,8 +1122,10 @@ server, with per-name ownership in the same file (`mcpServers.<name>`/`mcp.<name
 
 ### MCP descriptor approval
 
-Unsigned third-party MCP descriptors need a separate, local approval even when
-`trust` or `--auto-trust` is enabled. Inspect and record the current descriptor
+Every MCP descriptor a KB ships, **signed or not**, needs a separate, local approval: an MCP server
+receives the agent's data, a signature proves only which server a descriptor came from, and since D906 any
+`rw` token on the KB can write a descriptor the server then signs. Nothing else the client installs waits
+for a decision (there is no `trust` setting and no `--auto-trust`). Inspect and record the current descriptor
 with `cartographer approve mcp <name> --kb <kb> --yes` (interactive terminals
 default to no confirmation). Approval records the source KB, artifact name,
 content hash and timestamp in `.cartographer.yaml`; a content change requires
@@ -1141,28 +1142,22 @@ connected in one repo but not another.
 server_url: http://127.0.0.1:39273/mcp
 server_name: cartographer  # name under which the server is registered in the MCP configs (no longer a flag: always "cartographer", override only by editing this file)
 auth: false
-token_env: CARTOGRAPHER_TOKENS
-agents: [claude, opencode]
+token: ${CARTOGRAPHER_TOKENS}   # a literal token or ${ENV}; a literal keeps this file at mode 0600 (D906). Unattended runs fall back to the private token file
 clients:         # per-provider KB binding (D169); absent provider = every known KB
   claude:
     kbs: [homelab]
     config_dirs: [~/.claude/accounts/b]   # extra Claude Code config dirs (CLAUDE_CONFIG_DIR) whose .claude.json also gets the MCP entry (D755); claude only; does not make the binding explicit
-search_roots: ["~/Documents"]   # where repoindex.Scan looks for git clones for {{repo:<key>}} (D75)
-search_depth: 4                 # how many levels repoindex descends from each root (D162); omitted when 0 = the default
+search_roots: ["~/Documents", "~/src", "~/code", "~/projects"]   # where repoindex.Scan looks for git clones for {{repo:<key>}} (D75); the default, 4 levels deep (a constant, D906); a default root that does not exist is skipped silently; consulted only for a key with no `paths` entry
 paths: {}                       # manual name -> path mapping for {{path:<name>}} (and an override for {{repo:<key>}}, D75); edit with `cartographer paths set`
 ignored_paths: []               # placeholder ids known to be absent on this machine, e.g. repo:work-tools (D282); edit with `cartographer paths ignore`
 identities:                     # D904; the git author of this machine's writes, by KB name or default; without an entry, the identity git resolves in the session's repository (an HTTP entry: the global one)
   default: Ada Lovelace <ada@example.com>
   work-kb: Ada Lovelace <ada@corp.example>   # an entry decides: "" sends no author (the server names the token), an invalid one sends none and `sync` warns
-update:                         # D254; omitted entirely when both are the default
-  check: true                   # false: no update lookup at all
-  policy: notify                # notify | auto-patch (patch releases via homebrew/install.sh/install.ps1 install themselves)
-write_findings_hook: true       # D353; written only when false. false: sync removes the write-findings hook (Claude Code, Codex) (docs/sync.md §Layer 1)
+update_check: true              # D254, D906; written only when false. false: no update lookup at all. The client never installs a release by itself
 usage_scan: true                # D326; written only when false. false: sync reads no session transcript and reports no skill usage (docs/sync.md §Usage scan)
 ```
 
-An unknown `update.policy` makes the file fail to load, naming the valid values: it is the one
-setting that lets a machine upgrade itself.
+The write-findings hook (D353) is always installed (Claude Code, Codex, ...); `docs/sync.md` §Layer 1.
 
 **The file documents itself (D747).** Every key it holds carries a comment (what it does, its values,
 its default), and the keys that are not set are listed commented out under
@@ -1184,15 +1179,25 @@ backup, and `sync --dry-run` writes nothing. The registry of removed keys is `Re
 `internal/clientconfig/realign.go`, next to the schema. A removed key met later, edited back in by hand,
 is ignored with a warning that names its replacement; it is never an error.
 
-**Server-owned caches live in `.cartographer-state.json`**, next to `.cartographer-client.lock` and
+D906 added the client keys to that registry: `token_env` (rewritten as `token: ${NAME}`, comments kept),
+`trust`, `write_findings_hook`, `search_depth`, `update.check` and `update.policy` (`update_check`, which an
+`auto-patch` policy turns into `true`), and `agents` and `sync_timer_opt_out`, whose **values move** to the
+client state file before the YAML drops them. A realignment that cannot write the state file stops and
+leaves the keys where they are. Until a file is realigned (a read-only mount), `Load` honours the old
+`token_env`, `update.check`, `agents` and `sync_timer_opt_out`.
+
+**Machine-written records live in `.cartographer-state.json`**, next to `.cartographer-client.lock` and
 `.cartographer-sync.lock.json` (D747). `known_kbs` (the KB names `/health` advertised at the last
 `connect`/`sync`), `server_mount_mode` and `server_routed_path` are rewritten wholesale by every
-sync, which is why they left the file you edit: a sync that only refreshes them writes the state file
+sync, which is why they left the file you edit; since D906 it also holds `agents` (the connected clients,
+maintained by `connect` and `disconnect`) and `sync_timer_opt_out` (a record of `service sync-timer
+uninstall`), for the same reason: they are written by commands, never by a person. Because of them it is
+**no longer disposable**: a deleted state file means no connected client until the next `connect`. a sync that only refreshes them writes the state file
 and leaves `.cartographer.yaml` byte-identical, mtime included. The state file is JSON, never
 hand-edited. An installation from before keeps these keys in `.cartographer.yaml`; `Load` reads them
 from there while the state file is absent, and the next save moves them (the legacy `kbs` key, read
 since D169, goes the same way). An unreadable or corrupt state file is treated as absent, with one
-line on stderr: it is a cache, and the next `sync` rebuilds it. `clients` is user-owned and is never
+line on stderr: the caches in it are rebuilt by the next `sync`, the connected clients by `connect`. `clients` is user-owned and is never
 written by `connect`/`sync` — it is maintained with `cartographer client` (below).
 
 ### `cartographer client`
@@ -1209,7 +1214,7 @@ warning, not a failure.
 | `client bind <provider> <kb>[,<kb>...]` | adds; creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so; before warning that a KB is unknown it asks the server for its KB list once, without rewriting the cached list (`sync` owns it, D721) |
 | `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
 | `client reset <provider>` | deletes the binding, returning the provider to the default |
-| `client update [--check=true\|false] [--policy notify\|auto-patch]` | shows, or sets, the client-wide `update:` block (D254) |
+| `client update [--check=true\|false]` | shows, or sets, `update_check` (D254, D906) |
 
 Three states, resolved only through `clientconfig.Config.BoundKBs` and never by
 testing a list for emptiness: **no entry** means every known KB (today's
@@ -1311,7 +1316,7 @@ Main keys:
 `d` on a connected agent opens a confirmation screen (`y` confirms, any other key,
 including `n`/`Esc`, cancels and returns to the list); on a non-connected agent it's a no-op. The TUI is a
 subset of the CLI: it uses the same `doConnect`/`doDisconnect` logic as `cartographer
-connect`/`disconnect`, but doesn't expose `--dry-run`/`--auto-trust`. Outside a TTY, `cartographer`
+connect`/`disconnect`, but doesn't expose `--dry-run`. Outside a TTY, `cartographer`
 with no arguments prints the usage (like `cartographer help`).
 
 ## Non-destructive merge

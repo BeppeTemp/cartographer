@@ -227,7 +227,7 @@ func TestUpdate_FormTabCyclesAndWraps(t *testing.T) {
 		t.Fatalf("precondition failed: connectForm.focus = %v, want fieldServerURL", m.connectForm.focus)
 	}
 
-	order := []connectField{fieldTokenEnv, fieldAuth, fieldTrust, fieldSubmit, fieldServerURL}
+	order := []connectField{fieldTokenEnv, fieldAuth, fieldSubmit, fieldServerURL}
 	for i, want := range order {
 		next, _ := m.Update(keyMsg("tab"))
 		m = next.(Model)
@@ -416,7 +416,7 @@ func TestUpdate_ProbeDoneMsgSuccessStartsConnect(t *testing.T) {
 	m = m.openConnectForm(m.rows[0])
 	m.probing = true
 
-	next, cmd := m.Update(probeDoneMsg{provider: "claude", opts: connectOptions{ServerURL: "http://ok/mcp", Name: "cartographer", TokenEnv: "TOK"}})
+	next, cmd := m.Update(probeDoneMsg{provider: "claude", opts: connectOptions{ServerURL: "http://ok/mcp", Name: "cartographer", Token: "${TOK}"}})
 	m = next.(Model)
 
 	if m.probing {

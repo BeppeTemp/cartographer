@@ -166,8 +166,8 @@ run_client() {
 }
 
 # opencode is bound to two of the three KBs, claude to one.
-run_client "${DIR}/connect-opencode.log" connect opencode --server-url "$SERVER_URL" --kb alpha,beta --auto-trust || true
-run_client "${DIR}/connect-claude.log" connect claude --server-url "$SERVER_URL" --kb gamma --auto-trust || true
+run_client "${DIR}/connect-opencode.log" connect opencode --server-url "$SERVER_URL" --kb alpha,beta || true
+run_client "${DIR}/connect-claude.log" connect claude --server-url "$SERVER_URL" --kb gamma || true
 
 OPENCODE_CFG="${SANDBOX}/opencode.json"
 if [[ ! -f "$OPENCODE_CFG" ]]; then

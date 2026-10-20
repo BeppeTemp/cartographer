@@ -43,7 +43,7 @@ func applyAgents(t *testing.T, m provisioning.Manifest, kbRoot string, p configu
 	t.Helper()
 	base := t.TempDir()
 	res, err := provisioning.Apply(provisioning.FilterForProvider(m, p), provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb-a": kbRoot}, Provider: p, BaseDir: base, Lock: lock,
+		KBRoots: map[string]string{"kb-a": kbRoot}, Provider: p, BaseDir: base, Lock: lock,
 	})
 	if err != nil {
 		t.Fatalf("Apply %s: %v", p, err)
@@ -79,7 +79,7 @@ func TestApply_WidenedAgentWarnsOnEveryRun(t *testing.T) {
 	m, kbRoot := restrictedAgentManifest(t, map[string]string{"explorer": explorerSrc})
 	res, base := applyAgents(t, m, kbRoot, configurator.ProviderCodex, provisioning.Lock{})
 	res2, err := provisioning.Apply(provisioning.FilterForProvider(m, configurator.ProviderCodex), provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb-a": kbRoot}, Provider: configurator.ProviderCodex, BaseDir: base, Lock: res.NewLock,
+		KBRoots: map[string]string{"kb-a": kbRoot}, Provider: configurator.ProviderCodex, BaseDir: base, Lock: res.NewLock,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func TestApply_StrictAgentIsSkippedNotWidened(t *testing.T) {
 		// itself must still refuse to widen, and report it as unsupported.
 		base2 := t.TempDir()
 		res2, err := provisioning.Apply(m, provisioning.ApplyOptions{
-			AutoTrust: true, KBRoots: map[string]string{"kb-a": kbRoot}, Provider: p, BaseDir: base2,
+			KBRoots: map[string]string{"kb-a": kbRoot}, Provider: p, BaseDir: base2,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -166,7 +166,7 @@ func TestApply_StrictAgentInstalledEarlierIsPruned(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := provisioning.Apply(m2, provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb-a": kbRoot}, Provider: configurator.ProviderCodex, BaseDir: base, Lock: res1.NewLock,
+		KBRoots: map[string]string{"kb-a": kbRoot}, Provider: configurator.ProviderCodex, BaseDir: base, Lock: res1.NewLock,
 	}); err != nil {
 		t.Fatal(err)
 	}

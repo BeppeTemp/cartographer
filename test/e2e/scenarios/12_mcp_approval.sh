@@ -9,7 +9,7 @@ write_config() { printf 'http: "127.0.0.1:%s"\n' "${E2E_HTTP_PORT}" >"${CONFIG}"
 mkdir -p "${E2E_TMP_DIR}/${SCENARIO_NAME}" "${SANDBOX_DIR}"; kb_make "${KB_DIR}"; mkdir -p "${KB_DIR}/mcp"
 printf '%s\n' '{"type":"http","url":"https://tools.example.com/mcp"}' >"${KB_DIR}/mcp/wiki-tools.json"; write_config; export E2E_CONFIG="${CONFIG}"
 server_start "${KB_DIR}"; server_wait_health 20; trap 'server_stop' EXIT
-(cd "${SANDBOX_DIR}" && HOME="${SANDBOX_DIR}" "${BIN}" connect claude --server-url "${SERVER_URL}" --auto-trust) >/dev/null
+(cd "${SANDBOX_DIR}" && HOME="${SANDBOX_DIR}" "${BIN}" connect claude --server-url "${SERVER_URL}") >/dev/null
 CLAUDE="${SANDBOX_DIR}/.claude.json"; LOCK="${SANDBOX_DIR}/.cartographer-sync.lock.json"
 assert_file_absent_contains "${CLAUDE}" 'wiki-tools'
 (cd "${SANDBOX_DIR}" && HOME="${SANDBOX_DIR}" "${BIN}" approve mcp wiki-tools --kb kb --yes) >/dev/null

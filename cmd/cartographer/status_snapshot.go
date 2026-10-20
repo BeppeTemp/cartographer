@@ -386,7 +386,8 @@ func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Conf
 			}
 		} else if a.Signed {
 			trust = "verified"
-		} else if cfg.Trust && strings.HasPrefix(a.Source, "kb:") {
+		} else if strings.HasPrefix(a.Source, "kb:") {
+			// Unsigned but installed (D906): there is no trust switch.
 			trust = "trusted"
 		}
 		out[i] = statusArtifact{Kind: a.Kind, Name: a.Name, Source: a.Source, Signed: a.Signed, Trust: trust}

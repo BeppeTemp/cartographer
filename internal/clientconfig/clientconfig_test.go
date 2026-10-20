@@ -3,6 +3,7 @@ package clientconfig_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -95,57 +96,133 @@ func TestAddAgent_Dedup(t *testing.T) {
 	}
 }
 
-func TestDefault_TrustIsTrue(t *testing.T) {
+// D906: `token` is a literal or "${NAME}"; token_env, the key it replaced, is
+// honoured as the same reference until the file is realigned.
+func TestToken_EnvRefLiteralAndLegacy(t *testing.T) {
+	cases := []struct {
+		name, yaml  string
+		wantEnv     string
+		wantLiteral string
+	}{
+		{"env ref", "token: ${CARTO_TEST_TOK}\n", "CARTO_TEST_TOK", ""},
+		{"literal", "token: s3cr3t-literal\n", clientconfig.DefaultTokenEnv, "s3cr3t-literal"},
+		{"legacy token_env", "token_env: OLD_TOK\n", "OLD_TOK", ""},
+		{"token wins over token_env", "token: ${NEW_TOK}\ntoken_env: OLD_TOK\n", "NEW_TOK", ""},
+		{"absent", "server_url: http://x\n", "", ""},
+	}
+	for _, c := range cases {
+		dir := t.TempDir()
+		writeConfigFile(t, dir, c.yaml)
+		cfg, err := clientconfig.Load(dir)
+		if err != nil {
+			t.Fatalf("%s: Load: %v", c.name, err)
+		}
+		if got := cfg.TokenEnv(); got != c.wantEnv {
+			t.Errorf("%s: TokenEnv() = %q, want %q", c.name, got, c.wantEnv)
+		}
+		if got := cfg.LiteralToken(); got != c.wantLiteral {
+			t.Errorf("%s: LiteralToken() = %q, want %q", c.name, got, c.wantLiteral)
+		}
+	}
+}
+
+func TestDefault_TokenIsTheDefaultEnvRef(t *testing.T) {
 	cfg := clientconfig.Default()
-	if !cfg.Trust {
-		t.Error("Default().Trust should be true")
+	if cfg.Token != "${CARTOGRAPHER_TOKENS}" || cfg.TokenEnv() != "CARTOGRAPHER_TOKENS" || cfg.LiteralToken() != "" {
+		t.Errorf("Default token = %q (env %q, literal %q)", cfg.Token, cfg.TokenEnv(), cfg.LiteralToken())
 	}
 }
 
-func TestLoad_TrustAbsent_DefaultsTrue(t *testing.T) {
-	dir := t.TempDir()
-	// Config file written before the `trust` field existed: no `trust` key at all.
-	data := "server_url: https://saved.example.test/mcp\nserver_name: cartographer\nauth: false\ntoken_env: CARTOGRAPHER_TOKENS\nagents: [claude]\n"
-	if err := os.WriteFile(filepath.Join(dir, clientconfig.FileName), []byte(data), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
+// A literal token is a secret in a file: Save writes it with mode 0600, and an
+// env reference keeps the usual mode.
+func TestSave_LiteralTokenFileIsPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("mode bits mean nothing on Windows")
 	}
-	cfg, err := clientconfig.Load(dir)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if !cfg.Trust {
-		t.Error("Trust should default to true when the `trust` key is absent")
-	}
-}
-
-func TestLoad_TrustExplicitFalse_StaysFalse(t *testing.T) {
-	dir := t.TempDir()
-	data := "server_url: https://saved.example.test/mcp\ntrust: false\n"
-	if err := os.WriteFile(filepath.Join(dir, clientconfig.FileName), []byte(data), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	cfg, err := clientconfig.Load(dir)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.Trust {
-		t.Error("explicit `trust: false` must round-trip as false, not be overridden by the default")
-	}
-}
-
-func TestSaveAndLoad_TrustRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	cfg := clientconfig.Default()
-	cfg.Trust = false
+	cfg.Token = "s3cr3t-literal"
 	if err := clientconfig.Save(dir, cfg); err != nil {
-		t.Fatalf("Save: %v", err)
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(clientconfig.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %v, want 0600 for a file holding a literal token", fi.Mode().Perm())
 	}
 	loaded, err := clientconfig.Load(dir)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
+	if err != nil || loaded.LiteralToken() != "s3cr3t-literal" {
+		t.Errorf("literal token did not round-trip: %v, %v", loaded, err)
 	}
-	if loaded.Trust {
-		t.Error("Trust=false should round-trip as false")
+
+	dir2 := t.TempDir()
+	if err := clientconfig.Save(dir2, clientconfig.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(clientconfig.Path(dir2)); fi.Mode().Perm() == 0o600 {
+		t.Errorf("an env reference does not need 0600, got %v", fi.Mode().Perm())
+	}
+}
+
+// D906: agents and sync_timer_opt_out live in the state file; a pre-D906 file
+// that still holds them in the YAML is read from there until the first save
+// moves them.
+func TestAgentsAndTimerOptOutLiveInTheStateFile(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, "server_url: http://x/mcp\nagents: [claude, codex]\nsync_timer_opt_out: true\n")
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HasAgent("claude") || !cfg.HasAgent("codex") || !cfg.SyncTimerOptOut {
+		t.Fatalf("legacy YAML values not read: %+v", cfg)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	raw := readFile(t, clientconfig.Path(dir))
+	if hasKey(raw, "agents") || hasKey(raw, "sync_timer_opt_out") {
+		t.Errorf("the YAML still holds the machine-written keys:\n%s", raw)
+	}
+	state := readFile(t, clientconfig.StatePath(dir))
+	if !strings.Contains(state, `"claude"`) || !strings.Contains(state, `"sync_timer_opt_out": true`) {
+		t.Errorf("the state file lacks them:\n%s", state)
+	}
+	again, err := clientconfig.Load(dir)
+	if err != nil || len(again.Agents) != 2 || !again.SyncTimerOptOut {
+		t.Fatalf("round trip: %+v, %v", again, err)
+	}
+
+	// Every client disconnected is an empty list, not an absent one: the YAML
+	// of an older version must not resurrect the agents.
+	again.Agents = []string{}
+	if err := clientconfig.Save(dir, again); err != nil {
+		t.Fatal(err)
+	}
+	last, err := clientconfig.Load(dir)
+	if err != nil || len(last.Agents) != 0 {
+		t.Fatalf("empty agents list did not stick: %+v, %v", last, err)
+	}
+}
+
+// The removed keys are dropped by a save instead of surviving as unknown ones.
+func TestSaveDropsTheKeysD906Removed(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, "server_url: http://x/mcp\ntrust: false\nsearch_depth: 6\nwrite_findings_hook: false\nupdate:\n  policy: auto-patch\n")
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	raw := readFile(t, clientconfig.Path(dir))
+	for _, key := range []string{"trust", "search_depth", "write_findings_hook", "update"} {
+		if hasKey(raw, key) {
+			t.Errorf("%s survived a save:\n%s", key, raw)
+		}
 	}
 }
 
@@ -198,14 +275,47 @@ func TestLoad_Existing8080ServerURLIsPreserved(t *testing.T) {
 	}
 }
 
-func TestDefault_SearchRootsDefaultsToDocuments(t *testing.T) {
+var wantDefaultRoots = "~/Documents,~/src,~/code,~/projects"
+
+func TestDefault_SearchRoots(t *testing.T) {
 	cfg := clientconfig.Default()
-	if len(cfg.SearchRoots) != 1 || cfg.SearchRoots[0] != "~/Documents" {
-		t.Errorf("SearchRoots = %v, want [~/Documents]", cfg.SearchRoots)
+	if got := strings.Join(cfg.SearchRoots, ","); got != wantDefaultRoots {
+		t.Errorf("SearchRoots = %v, want %s", cfg.SearchRoots, wantDefaultRoots)
 	}
 }
 
-func TestLoad_SearchRootsAbsent_DefaultsToDocuments(t *testing.T) {
+// The defaults are guesses: a root that does not exist on this machine is left
+// out of the scan silently, one the file names is kept (and reported by the
+// scan when it is missing).
+func TestScanRoots_DefaultsKeepOnlyWhatExists(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if err := os.MkdirAll(filepath.Join(home, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := clientconfig.Default().ScanRoots(); strings.Join(got, ",") != "~/src" {
+		t.Errorf("ScanRoots() = %v, want only ~/src", got)
+	}
+	cfg := clientconfig.Default()
+	cfg.SearchRoots = []string{"~/missing"}
+	if got := cfg.ScanRoots(); strings.Join(got, ",") != "~/missing" {
+		t.Errorf("a configured root is taken as written, got %v", got)
+	}
+}
+
+// A save does not pin the defaults into the file.
+func TestSave_DefaultSearchRootsAreNotWritten(t *testing.T) {
+	dir := t.TempDir()
+	if err := clientconfig.Save(dir, clientconfig.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if raw := readFile(t, clientconfig.Path(dir)); hasKey(raw, "search_roots") {
+		t.Errorf("the defaults were written:\n%s", raw)
+	}
+}
+
+func TestLoad_SearchRootsAbsent_UsesTheDefaults(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, clientconfig.FileName), []byte("server_url: http://x\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -214,8 +324,8 @@ func TestLoad_SearchRootsAbsent_DefaultsToDocuments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(loaded.SearchRoots) != 1 || loaded.SearchRoots[0] != "~/Documents" {
-		t.Errorf("SearchRoots = %v, want [~/Documents]", loaded.SearchRoots)
+	if got := strings.Join(loaded.SearchRoots, ","); got != wantDefaultRoots {
+		t.Errorf("SearchRoots = %v, want %s", loaded.SearchRoots, wantDefaultRoots)
 	}
 }
 
@@ -479,78 +589,6 @@ func TestSyncStyleSaveKeepsBindings(t *testing.T) {
 
 // --- D180: every typed field must survive a write ---
 
-// TestSearchDepthRoundTrips asserts on the BYTES, not on the reloaded struct.
-// SearchDepth was read but omitted from Save's marshalled struct, and the raw
-// value survived through Extra — so a reload looked correct while every
-// programmatic change to the typed field was silently discarded.
-func TestSearchDepthRoundTrips(t *testing.T) {
-	dir := t.TempDir()
-	cfg := clientconfig.Default()
-	cfg.SearchDepth = 6
-	if err := clientconfig.Save(dir, cfg); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	data, err := os.ReadFile(clientconfig.Path(dir))
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	if !strings.Contains(string(data), "search_depth: 6") {
-		t.Errorf("search_depth missing from the written file:\n%s", data)
-	}
-
-	reloaded, err := clientconfig.Load(dir)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if reloaded.SearchDepth != 6 {
-		t.Errorf("SearchDepth = %d, want 6", reloaded.SearchDepth)
-	}
-}
-
-// TestSearchDepthChangeIsPersisted is the case Extra used to mask: the file
-// already carries a value and the typed field is changed.
-func TestSearchDepthChangeIsPersisted(t *testing.T) {
-	dir := t.TempDir()
-	writeConfigFile(t, dir, "server_url: http://localhost:39273/mcp\nsearch_depth: 4\n")
-
-	cfg, err := clientconfig.Load(dir)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.SearchDepth != 4 {
-		t.Fatalf("SearchDepth = %d, want the value from the file", cfg.SearchDepth)
-	}
-	cfg.SearchDepth = 8
-	if err := clientconfig.Save(dir, cfg); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	reloaded, err := clientconfig.Load(dir)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if reloaded.SearchDepth != 8 {
-		t.Errorf("SearchDepth = %d, want 8 — the change was discarded", reloaded.SearchDepth)
-	}
-}
-
-// TestZeroSearchDepthWritesNoKey: zero means "use the default", so an existing
-// file is not churned with a redundant key.
-func TestZeroSearchDepthWritesNoKey(t *testing.T) {
-	dir := t.TempDir()
-	if err := clientconfig.Save(dir, clientconfig.Default()); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	data, err := os.ReadFile(clientconfig.Path(dir))
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	if hasKey(string(data), "search_depth") {
-		t.Errorf("a zero SearchDepth wrote a key:\n%s", data)
-	}
-}
-
 // TestEveryYamlFieldIsWrittenBySave is the guard against the next omission: a
 // field present in the YAML struct but absent from Save's literal round-trips
 // through Extra and looks fine until someone changes it in code.
@@ -558,10 +596,9 @@ func TestEveryYamlFieldIsWrittenBySave(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &clientconfig.Config{
 		ServerURL: "http://example.test/mcp", ServerName: "srv", Auth: true,
-		TokenEnv: "TOK", Agents: []string{"claude"}, KnownKBs: []string{"kb"},
+		Token: "${TOK}", Agents: []string{"claude"}, KnownKBs: []string{"kb"},
 		Clients:     map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"kb"}}},
-		Trust:       true,
-		SearchRoots: []string{"~/x"}, SearchDepth: 5,
+		SearchRoots: []string{"~/x"},
 		Paths:       map[string]string{"n": "/p"},
 		SigningKeys: map[string][]string{"kb": {strings.Repeat("ab", 32)}},
 	}
@@ -577,8 +614,8 @@ func TestEveryYamlFieldIsWrittenBySave(t *testing.T) {
 	}
 	raw := string(data)
 	for _, key := range []string{
-		"server_url", "server_name", "auth", "token_env", "agents",
-		"clients", "trust", "search_roots", "search_depth",
+		"server_url", "server_name", "auth", "token",
+		"clients", "search_roots",
 		"paths", "signing_keys", "mcp_approvals",
 	} {
 		if !hasKey(raw, key) {
@@ -610,45 +647,38 @@ func TestLoad_MigratesLegacyLocalURL(t *testing.T) {
 	}
 }
 
-// D254 WP6: `update:` round-trips, is absent from a default file, and an
-// unknown policy is a load error naming the valid values.
-func TestUpdateSettings(t *testing.T) {
+// D906: `update_check` round-trips, is absent from a default file, and the
+// old `update:` block is read as update_check (its policy is ignored: a client
+// never replaces itself).
+func TestUpdateCheck(t *testing.T) {
 	dir := t.TempDir()
-	cfg := clientconfig.Default()
-	if err := clientconfig.Save(dir, cfg); err != nil {
+	if err := clientconfig.Save(dir, clientconfig.Default()); err != nil {
 		t.Fatal(err)
 	}
-	data, _ := os.ReadFile(clientconfig.Path(dir))
-	if hasKey(string(data), "update") {
-		t.Fatalf("a default config must not carry an update block:\n%s", data)
+	if raw := readFile(t, clientconfig.Path(dir)); hasKey(raw, "update_check") || hasKey(raw, "update") {
+		t.Fatalf("a default config must not carry update settings:\n%s", raw)
 	}
 	loaded, err := clientconfig.Load(dir)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !loaded.UpdateCheckEnabled() {
+		t.Fatalf("defaults: %+v, %v", loaded, err)
 	}
-	if !loaded.Update.CheckEnabled() || loaded.Update.EffectivePolicy() != "notify" {
-		t.Fatalf("defaults: %+v", loaded.Update)
+	if !(&clientconfig.Config{}).UpdateCheckEnabled() {
+		t.Fatal("a zero Config must check")
 	}
 
-	off := false
-	loaded.Update = clientconfig.UpdateSettings{Check: &off, Policy: "auto-patch"}
+	loaded.UpdateCheckOff = true
 	if err := clientconfig.Save(dir, loaded); err != nil {
 		t.Fatal(err)
 	}
 	again, err := clientconfig.Load(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if again.Update.CheckEnabled() || again.Update.EffectivePolicy() != "auto-patch" {
-		t.Fatalf("round trip: %+v", again.Update)
+	if err != nil || again.UpdateCheckEnabled() {
+		t.Fatalf("update_check: false did not round-trip: %+v, %v", again, err)
 	}
 
-	if err := os.WriteFile(clientconfig.Path(dir), []byte("server_url: http://x/mcp\nupdate:\n  policy: always\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, err = clientconfig.Load(dir)
-	if err == nil || !strings.Contains(err.Error(), "notify") || !strings.Contains(err.Error(), "auto-patch") {
-		t.Fatalf("unknown policy: %v", err)
+	writeConfigFile(t, dir, "server_url: http://x/mcp\nupdate:\n  check: false\n  policy: auto-patch\n")
+	legacy, err := clientconfig.Load(dir)
+	if err != nil || legacy.UpdateCheckEnabled() {
+		t.Fatalf("legacy update.check: false not honoured: %+v, %v", legacy, err)
 	}
 }
 
@@ -680,35 +710,6 @@ func TestUsageScan_DefaultsOnAndOnlyOffIsWritten(t *testing.T) {
 	}
 	if _, stray := again.Extra["usage_scan"]; stray {
 		t.Error("usage_scan leaked into Extra")
-	}
-}
-
-func TestWriteFindingsHook_DefaultsOnAndOnlyOffIsWritten(t *testing.T) {
-	dir := t.TempDir()
-	if !clientconfig.Default().WriteFindingsHookEnabled() || !(&clientconfig.Config{}).WriteFindingsHookEnabled() {
-		t.Fatal("the hook must be enabled for a default and for a zero-value Config")
-	}
-	if err := clientconfig.Save(dir, clientconfig.Default()); err != nil {
-		t.Fatal(err)
-	}
-	raw, _ := os.ReadFile(clientconfig.Path(dir))
-	if hasKey(string(raw), "write_findings_hook") {
-		t.Errorf("a default config wrote the key:\n%s", raw)
-	}
-	loaded, err := clientconfig.Load(dir)
-	if err != nil || !loaded.WriteFindingsHookEnabled() {
-		t.Fatalf("absent key must load as on: %+v, %v", loaded, err)
-	}
-	loaded.WriteFindingsHookOff = true
-	if err := clientconfig.Save(dir, loaded); err != nil {
-		t.Fatal(err)
-	}
-	again, err := clientconfig.Load(dir)
-	if err != nil || again.WriteFindingsHookEnabled() {
-		t.Fatalf("write_findings_hook: false did not round-trip: %+v, %v", again, err)
-	}
-	if _, stray := again.Extra["write_findings_hook"]; stray {
-		t.Error("write_findings_hook leaked into Extra")
 	}
 }
 

@@ -27,7 +27,7 @@ func bridgeConfigFor(t *testing.T, providers ...string) *clientconfig.Config {
 	t.Helper()
 	cfg := &clientconfig.Config{
 		ServerName: "cartographer", ServerURL: "https://example.com/mcp", ServerRoutedPath: "/mcp/routed",
-		Auth: true, TokenEnv: "CARTOGRAPHER_TOKEN", KnownKBs: []string{"kb-a", "kb-b"}, Agents: providers,
+		Auth: true, Token: "${CARTOGRAPHER_TOKEN}", KnownKBs: []string{"kb-a", "kb-b"}, Agents: providers,
 	}
 	return cfg
 }

@@ -131,7 +131,7 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 		Name: "sync_apply",
 		Description: "Materializes the provisioning skills into the given base_dir, updates the lockfile and prunes " +
 			"stale artifacts. Intended for local deployment (stdio) where server and client share the FS. " +
-			"Only artifacts with signed=true are written; the others go into needs_approval. " +
+			"Built-in and KB artifacts are written; MCP descriptors need a local approval and go into needs_approval without one. " +
 			"Supports dry_run=true to show the diff without writing.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -144,19 +144,14 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 				"dry_run": {
 					"type": "boolean",
 					"description": "If true, computes the diff but writes nothing (default false)"
-				},
-				"auto_trust": {
-					"type": "boolean",
-					"description": "If true, KB skills are considered trusted too (opt-in workspace policy). Default false."
 				}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			flushPendingPush(k, "sync_apply")
 			var params struct {
-				BaseDir   string `json:"base_dir"`
-				DryRun    bool   `json:"dry_run"`
-				AutoTrust bool   `json:"auto_trust"`
+				BaseDir string `json:"base_dir"`
+				DryRun  bool   `json:"dry_run"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -187,13 +182,12 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 			}
 
 			applyOpts := provisioning.ApplyOptions{
-				BundleFS:  bundleFS,
-				KBRoots:   kbRoots,
-				Provider:  configurator.ProviderClaudeCode,
-				BaseDir:   params.BaseDir,
-				DryRun:    params.DryRun,
-				AutoTrust: params.AutoTrust,
-				Lock:      lock,
+				BundleFS: bundleFS,
+				KBRoots:  kbRoots,
+				Provider: configurator.ProviderClaudeCode,
+				BaseDir:  params.BaseDir,
+				DryRun:   params.DryRun,
+				Lock:     lock,
 			}
 
 			applied, err := provisioning.Apply(m, applyOpts)

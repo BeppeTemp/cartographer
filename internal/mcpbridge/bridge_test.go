@@ -81,7 +81,7 @@ func (rs *routedServer) seen() []string {
 func bridgeConfig(rs *routedServer) *clientconfig.Config {
 	return &clientconfig.Config{
 		ServerName: "cartographer", ServerURL: rs.URL + "/mcp", ServerRoutedPath: mcpserver.RoutedMountPath,
-		Auth: true, TokenEnv: "CARTOGRAPHER_TOKEN",
+		Auth: true, Token: "${CARTOGRAPHER_TOKEN}",
 		KnownKBs: []string{"kb-a", "kb-b", "kb-c"},
 	}
 }

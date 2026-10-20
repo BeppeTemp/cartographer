@@ -121,8 +121,8 @@ const (
 // explicitly present empty kbs list is treated as no KB.
 func probeServer(opts connectOptions) (probeState, error) {
 	token := ""
-	if opts.Auth && opts.TokenEnv != "" {
-		token = os.Getenv(opts.TokenEnv)
+	if opts.Auth {
+		token = tokenSpecValue(opts.Token)
 	}
 	health, err := client.New(opts.ServerURL, token).Health(probeTimeout)
 	if err != nil {
@@ -225,8 +225,8 @@ var isTerminal = func(fd uintptr) bool {
 // connectFormFlagNames are the `connect` flags the interactive form
 // (connectform.go) collects itself: server URL, name, auth, token env. If the
 // user passed any of these explicitly, cmdConnect treats that as an explicit
-// choice and skips the form even in a TTY. Behavior flags (--dry-run,
-// --auto-trust) are orthogonal to the form and don't suppress it.
+// choice and skips the form even in a TTY. Behavior flags (--dry-run) are
+// orthogonal to the form and don't suppress it.
 var connectFormFlagNames = map[string]bool{
 	"server-url": true,
 	"auth":       true,
@@ -260,27 +260,28 @@ func wantsConnectForm(fs *flag.FlagSet, noInput bool) bool {
 type connectSettings struct {
 	ServerURL string
 	Auth      bool
-	TokenEnv  string
-	Name      string
-	Trust     bool
+	// Token is the token spec (`token` in .cartographer.yaml): "${NAME}" or a
+	// literal. Only a literal already in the file reaches here as a literal:
+	// no flag takes one, so a token never lands in argv (D906).
+	Token string
+	Name  string
 }
 
 // resolveConnectSettings applies flag > config > default precedence for the
 // settings persisted in .cartographer.yaml. A form flag NOT passed explicitly
 // (absent from passed) inherits the value already in existing rather than the
 // hard-coded flag default — so a bare `connect <agent>` on a machine already
-// pointed at a remote server never silently rewrites server_url/auth/token_env
+// pointed at a remote server never silently rewrites server_url/auth/token
 // to the local default / auth:false. existing is nil on a first-ever
-// connect, where the flag defaults (and Name "cartographer", Trust from
-// clientconfig.Default) apply as-is. The interactive form, when opened,
-// overrides ServerURL/Auth/TokenEnv/Trust afterwards with the user's input.
+// connect, where the flag defaults (and Name "cartographer") apply as-is. The
+// interactive form, when opened, overrides ServerURL/Auth/Token afterwards with
+// the user's input.
 func resolveConnectSettings(passed map[string]bool, flagURL string, flagAuth bool, flagTokenEnv string, existing *clientconfig.Config) connectSettings {
 	s := connectSettings{
 		ServerURL: flagURL,
 		Auth:      flagAuth,
-		TokenEnv:  flagTokenEnv,
+		Token:     clientconfig.EnvRefToken(flagTokenEnv),
 		Name:      "cartographer",
-		Trust:     clientconfig.Default().Trust,
 	}
 	if existing == nil {
 		return s
@@ -288,15 +289,14 @@ func resolveConnectSettings(passed map[string]bool, flagURL string, flagAuth boo
 	if existing.ServerName != "" {
 		s.Name = existing.ServerName
 	}
-	s.Trust = existing.Trust
 	if !passed["server-url"] && existing.ServerURL != "" {
 		s.ServerURL = existing.ServerURL
 	}
 	if !passed["auth"] {
 		s.Auth = existing.Auth
 	}
-	if !passed["token-env"] && existing.TokenEnv != "" {
-		s.TokenEnv = existing.TokenEnv
+	if !passed["token-env"] && existing.Token != "" {
+		s.Token = existing.Token
 	}
 	return s
 }
@@ -323,7 +323,7 @@ func cmdConnect(args []string) int {
 	auth := fs.Bool("auth", false, "Enable bearer-token auth in generated configs")
 	tokenEnv := fs.String("token-env", "CARTOGRAPHER_TOKENS", "Env var holding the bearer token")
 	dryRun := fs.Bool("dry-run", false, "Print what would be written without writing")
-	autoTrust := fs.Bool("auto-trust", false, "Trust KB-sourced skills without explicit signature")
+	autoTrust := fs.Bool("auto-trust", false, "Removed (D906): accepted and ignored")
 	var pinKeys repeatedString
 	fs.Var(&pinKeys, "pin-key", "Pin a KB Ed25519 public key as KB=PUBLIC_KEY (repeatable)")
 	noInput := fs.Bool("no-input", false, "Never open the interactive form, even in a TTY")
@@ -332,6 +332,7 @@ func cmdConnect(args []string) int {
 	fs.Var(&kbSel, "kb", "KB this client may receive (repeatable, or comma-separated; 'all' for every mounted KB)")
 	workspaceFlag := fs.String("workspace", "", "Project the selected KBs into this repository instead of the global catalogue (D193)")
 	fs.Parse(rest)
+	warnRemovedAutoTrust(*autoTrust)
 
 	interactive := wantsConnectForm(fs, *noInput)
 
@@ -369,10 +370,8 @@ func cmdConnect(args []string) int {
 		ServerURL: settings.ServerURL,
 		Name:      settings.Name,
 		Auth:      settings.Auth,
-		TokenEnv:  settings.TokenEnv,
+		Token:     settings.Token,
 		DryRun:    *dryRun,
-		AutoTrust: *autoTrust,
-		Trust:     settings.Trust,
 		PinKeys:   pinKeys,
 		KBs:       splitCommaList(kbSel),
 		Workspace: *workspaceFlag,
@@ -388,7 +387,7 @@ func cmdConnect(args []string) int {
 			prefill = clientconfig.Default()
 		}
 		title := fmt.Sprintf("Connect %s", strings.Join(providers, ", "))
-		formPrefill := connectOptions{Providers: providers, ServerURL: prefill.ServerURL, Name: prefill.ServerName, Auth: prefill.Auth, TokenEnv: prefill.TokenEnv, Trust: prefill.Trust}
+		formPrefill := connectOptions{Providers: providers, ServerURL: prefill.ServerURL, Name: prefill.ServerName, Auth: prefill.Auth, Token: prefill.Token}
 		errMsg := ""
 
 		// Loop: form → probe (with a y/N override) → doConnect. A failure at
@@ -445,15 +444,15 @@ func cmdConnect(args []string) int {
 			}
 
 			providers = formOpts.Providers
-			opts.Providers, opts.ServerURL, opts.Name, opts.Auth, opts.TokenEnv, opts.Trust =
-				providers, formOpts.ServerURL, formOpts.Name, formOpts.Auth, formOpts.TokenEnv, formOpts.Trust
+			opts.Providers, opts.ServerURL, opts.Name, opts.Auth, opts.Token =
+				providers, formOpts.ServerURL, formOpts.Name, formOpts.Auth, formOpts.Token
 
 			// The KB choice (D190) comes after the probe, because that is when
 			// the names exist, and before doConnect, because that is when the
 			// first artifact would be written. Only asked when there is a
 			// choice to make and the operator has not already made it.
 			if len(opts.KBs) == 0 {
-				facts, ferr := enumerateKBs(opts.ServerURL, opts.Auth, opts.TokenEnv)
+				facts, ferr := enumerateKBs(opts.ServerURL, opts.Auth, opts.Token)
 				if ferr == nil && facts.Listed && len(facts.Names) > 1 && !allProvidersBound(existingOrDefault(dir), providers) {
 					selection, ok, err := runKBSelectForm(facts.Names)
 					if err != nil {
@@ -703,15 +702,9 @@ type connectOptions struct {
 	ServerURL string
 	Name      string
 	Auth      bool
-	TokenEnv  string
-	DryRun    bool
-	AutoTrust bool
-	// Trust is the persistent per-server trust decision (D54), collected by
-	// the connect form's toggle (or carried through from the flag path's
-	// existing/default config, see cmdConnect) and persisted to
-	// .cartographer.yaml by doConnect. Unlike AutoTrust (a one-time flag),
-	// Trust applies to every future sync until changed again.
-	Trust   bool
+	// Token is the token spec persisted as `token` (see connectSettings.Token).
+	Token   string
+	DryRun  bool
 	PinKeys []string
 	// KBs is the operator's explicit KB selection for this connect (D190),
 	// from --kb or the form. Empty means "not chosen": with two or more KBs
@@ -787,7 +780,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 			return connectResult{}, fmt.Errorf("invalid --pin-key %q: %w", pin, err)
 		}
 	}
-	facts, healthErr := enumerateKBs(opts.ServerURL, opts.Auth, opts.TokenEnv)
+	facts, healthErr := enumerateKBs(opts.ServerURL, opts.Auth, opts.Token)
 	kbs := facts.Names
 
 	// 1a. Resolve and persist the KB selection BEFORE the first MCP entry or
@@ -865,11 +858,11 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		return connectResult{}, err
 	}
 	claudeDirs, claudeDirWarnings := claudeConfigDirs(opts.Dir, existing)
-	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.TokenEnv, opts.DryRun); err != nil {
+	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun); err != nil {
 		return connectResult{}, err
 	}
 	authorWarnings := setEntryAuthors(existing, entriesByProvider, globalIdentFn)
-	configsWritten, configWarnings, err := applyMCPEntries(entriesByProvider, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.TokenEnv, opts.DryRun)
+	configsWritten, configWarnings, err := applyMCPEntries(entriesByProvider, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun)
 	if err != nil {
 		return connectResult{}, err
 	}
@@ -904,7 +897,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	}
 	// Clients travels with it: connecting a provider must not pull or
 	// materialize a KB it is not bound to (D170).
-	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, TokenEnv: opts.TokenEnv, KnownKBs: pullKBs, Clients: existing.Clients, SigningKeys: existing.SigningKeys}
+	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, Token: opts.Token, KnownKBs: pullKBs, Clients: existing.Clients, SigningKeys: existing.SigningKeys}
 
 	mcpEntries := allEntryNames(entriesByProvider)
 	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: mcpEntries, Warnings: configWarnings}
@@ -917,7 +910,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		res.DeferredErr = err
 	} else {
 		materialize := func() (map[string]provisioning.AppliedResult, error) {
-			return materializeForProviders(manifests, projections, opts.Dir, facts.Version, opts.Trust || opts.AutoTrust, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.SearchRoots, SearchDepth: existing.SearchDepth, Paths: existing.Paths}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes())
+			return materializeForProviders(manifests, projections, opts.Dir, facts.Version, opts.DryRun, false /* noHeal */, portabilityOptions{SearchRoots: existing.ScanRoots(), Paths: existing.Paths}, kbOrderForProviders(pullCfg, opts.Providers), existing.ApprovedMCPHashes())
 		}
 		applied, err := materialize()
 		if err != nil {
@@ -955,7 +948,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	}
 
 	// 3. Persist .cartographer.yaml.
-	existing.ServerURL, existing.ServerName, existing.Auth, existing.TokenEnv, existing.Trust = opts.ServerURL, opts.Name, opts.Auth, opts.TokenEnv, opts.Trust
+	existing.ServerURL, existing.ServerName, existing.Auth, existing.Token = opts.ServerURL, opts.Name, opts.Auth, opts.Token
 	if healthErr == nil {
 		existing.KnownKBs = kbs
 	}
@@ -979,13 +972,25 @@ func doConnect(opts connectOptions) (connectResult, error) {
 // auth off, a stale copy goes away. With auth on and the variable unset (a
 // reconnect from a bare shell) the existing file is left alone.
 func syncTokenFile(opts connectOptions) error {
-	if !opts.Auth || opts.TokenEnv == "" {
+	if !opts.Auth || strings.TrimSpace(opts.Token) == "" {
 		return clientconfig.RemoveToken(opts.Dir)
 	}
-	if tok := os.Getenv(opts.TokenEnv); tok != "" {
+	// A literal token is in .cartographer.yaml (mode 0600) and wins over the
+	// file: nothing to copy, and an old copy is left as it is (D906).
+	if (&clientconfig.Config{Token: opts.Token}).LiteralToken() != "" {
+		return nil
+	}
+	if tok := tokenSpecValue(opts.Token); tok != "" {
 		return clientconfig.WriteToken(opts.Dir, tok)
 	}
 	return nil
+}
+
+// tokenEnvName is the environment variable the agents' MCP entries reference
+// for this connect: the NAME of a `${NAME}` token, the default name for a
+// literal one, which an entry cannot carry (D906).
+func (o connectOptions) tokenEnvName() string {
+	return (&clientconfig.Config{Token: o.Token}).TokenEnv()
 }
 
 // printMCPEntryLines reports the MCP entries emitted for providers, in the

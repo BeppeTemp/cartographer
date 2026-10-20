@@ -15,7 +15,7 @@ import (
 func configDir(t *testing.T, serverURL string) string {
 	t.Helper()
 	dir := t.TempDir()
-	body := "server_url: " + serverURL + "/mcp\ntrust: false\n"
+	body := "server_url: " + serverURL + "/mcp\nusage_scan: false\n"
 	if err := os.WriteFile(clientconfig.Path(dir), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -42,18 +42,18 @@ func TestConfigShowsClientOriginsAndServerSection(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	got := out.String()
-	for _, want := range []string{"server_url", "(file)", "trust", "false", "git.sync", "(env, restart required)", "auth.tokens", "(set)", "KB kb-a", "kbs[].write_gate"} {
+	for _, want := range []string{"server_url", "(file)", "usage_scan", "false", "git.sync", "(env, restart required)", "auth.tokens", "(set)", "KB kb-a", "kbs[].write_gate"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("output lacks %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "git.autocommit") || strings.Contains(got, "token_env") {
+	if strings.Contains(got, "git.autocommit") || strings.Contains(got, "update_check") {
 		t.Errorf("a default key is listed without --all:\n%s", got)
 	}
 
 	out.Reset()
 	runConfig(&out, dir, false, true)
-	if !strings.Contains(out.String(), "git.autocommit") || !strings.Contains(out.String(), "token_env") {
+	if !strings.Contains(out.String(), "git.autocommit") || !strings.Contains(out.String(), "update_check") {
 		t.Errorf("--all lacks the default keys:\n%s", out.String())
 	}
 }

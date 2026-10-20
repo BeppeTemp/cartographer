@@ -65,7 +65,7 @@ func (t *expansionTracker) resolve(kind, key string, opts ApplyOptions) (string,
 	switch kind {
 	case "repo":
 		if t.resolver == nil {
-			t.resolver = repoindex.NewResolver(opts.Paths, opts.SearchRoots, opts.SearchDepth)
+			t.resolver = repoindex.NewResolver(opts.Paths, opts.SearchRoots, repoindex.DefaultDepth)
 		}
 		var warnings []string
 		resolved, warnings, err = t.resolver.ResolveDeclared(key, decl.Remote)

@@ -265,7 +265,7 @@ Send a token only in `Authorization: Bearer <token>`, never in a URL.
 ### What a 401 tells the client
 
 The client reads its token from the variable `.cartographer.yaml` names in
-`token_env`, so it names that variable back when the server answers 401, and
+`token: ${NAME}` (D906), so it names that variable back when the server answers 401, and
 distinguishes the two cases that need different fixes
 ([D222](decisions/D222-sync-checks-the-environment-once-and-the-401-names.md)):
 

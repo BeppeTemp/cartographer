@@ -138,3 +138,79 @@ authentication off requires, on every route, a `Host` naming this machine (`loca
 any port), and answers 403 otherwise (`mcpserver.LoopbackHostGuard`, installed outermost by `serve`). It is not
 installed with authentication on or off-loopback. An `Origin` with userinfo is refused. The documented SSO-proxy
 setup keeps `/mcp` on bearer auth, so it is unaffected.
+
+## The client (WP3)
+
+**Decision.** The same cleanup for `.cartographer.yaml`, in the same terms: every removed key is in `Retired`
+(`internal/clientconfig/realign.go`), loads with a warning that names what replaces it, and is dropped by the
+realignment `sync` runs, which first carries over the values that have a new home.
+
+- **`token_env` becomes `token`.** `token` is a literal or `${NAME}`, read from the environment variable `NAME`.
+  The private token file (D699) is unchanged and is still what an unattended run reads when `token` is `${NAME}`
+  and the variable is absent; a literal needs neither. A file that holds a literal is written with mode `0600`
+  (`Save`, and the connect form keeps a literal while its variable-name field is untouched). A token is never put
+  in argv or a log: `--token-env` takes a name, no flag takes a value, and the agents' MCP entries (which can only
+  reference a variable, and are written into project directories in workspace scope) name `$CARTOGRAPHER_TOKENS`
+  for a literal and never carry it. The realignment rewrites `token_env: X` as `token: ${X}` in place, comment
+  included; until then `Load` honours `token_env`, so a read-only file does not lose its credentials.
+- **`trust` and `--auto-trust` are removed; the safety checks are not.** An unsigned artifact of a KB that is not an
+  MCP descriptor is **installed**: with `trust` defaulting to true, and the connect form pre-ticking it, that
+  already was what every default machine did, and the setting only let a person leave a KB's skills waiting for a
+  flag the session-start hook then passed. What stays, and is not a setting: a path that escapes its directory is
+  refused (D40), an artifact whose signature does not verify against a pinned `signing_keys` entry fails the whole
+  sync (D114), and a symlinked destination is refused (D148). `Signed` stays verification output only, and `status`
+  reports an unsigned installed artifact as `trusted`. `sync_apply` loses its `auto_trust` argument for the same
+  reason. `--auto-trust` is still **accepted and ignored with a warning** by `sync` and `connect`: the
+  `cartographer-bootstrap` hook an older version wrote runs `cartographer sync --auto-trust`, and a flag error there
+  would stop the sync that rewrites the hook. New hooks, the sync timer and every doc call plain `sync`.
+- **The MCP approval stays** (maintainer amendment on #906). WP3 as first planned removed `mcp_approvals`,
+  `cartographer approve`, `ApprovedMCP` and the gate in `artifactAuthorized`; it no longer does, so D906 no longer
+  supersedes the approval part of D115 (only the server's allow-list, above). Since WP1 any `rw` token on a KB can
+  write a descriptor the server then signs, so the signature proves where a descriptor came from and not that anyone
+  chose to run it; the client's hash-bound approval is the one point where someone does, for a signed descriptor as
+  for an unsigned one. `TestMaterializeForProviders_MCPDescriptorStillNeedsApproval` and e2e scenario 12 pin it.
+- **`write_findings_hook` is always on, `search_depth` is the constant 4.** The hook returns a write's findings to the
+  agent (D353, D907), and an agent that does not receive them repeats the mistake. A scan deeper than 4 is served by a
+  closer `search_roots` entry or a `paths` entry, so the not-found message points there.
+- **No auto-patch.** `update.check` and `update.policy` become `update_check: true|false`. The code that started a
+  detached `update apply` (the notice, the scheduled sync, the lock, the markers, `update apply` itself) is deleted,
+  so the client never replaces its own binary; an existing `update.policy: auto-patch` loads with a warning, is
+  rewritten as `update_check: true` and does nothing else. Amends D254.
+- **`search_roots` defaults to `~/Documents`, `~/src`, `~/code`, `~/projects`**, consulted only for a key with no
+  `paths` entry (as `Resolve` always did). A default that does not exist on the machine is left out of the scan
+  without a warning (`Config.ScanRoots`), where a root the file names and that is missing still warns (D216); `Save`
+  does not write the defaults, so a file that never set the key follows them.
+- **`agents` and `sync_timer_opt_out` move to `.cartographer-state.json`** (D747). They are records of the
+  `connect`, `disconnect` and `service sync-timer` commands, not choices. The realignment writes them to the state
+  file before the YAML drops them and stops, leaving them in place, when the state file cannot be written; `Load`
+  reads the YAML's values while the state file lacks them, so nothing is lost on a read-only mount.
+
+**Why.** `trust` and `write_findings_hook` were switches that turned a safeguard or a feature off; `search_depth`
+tuned a constant for one directory layout; `update.policy` let a machine replace its own binary on a decision taken
+once and forgotten, which is the one setting that made the client write outside its own files without anyone asking
+that day; `token_env` could only name a variable, so a literal token had no home but a flag or a wrapper; `agents`
+was a list a command maintained inside a file a person edits, which a dotfiles tool then fought over.
+
+**Alternatives rejected.**
+- Removing the MCP approval together with `trust` (the first WP3 plan): see above, the consent it records is the one
+  that matters once artifact writes are always allowed.
+- Keeping `--auto-trust` as an error: it would break the session-start hook of every machine that has not synced yet.
+- Writing a literal token into the agents' MCP entries: those files include project-local ones that get committed.
+- Keeping `agents` in the YAML and only changing who writes it: the same file-fought-over problem as `kb_aliases`.
+
+**Consequences.** Breaking: `trust`, `--auto-trust` (accepted, ignored), `write_findings_hook`, `search_depth`,
+`update.policy`, `client update --policy`, `update apply` and `sync_apply`'s `auto_trust`. A machine that had
+`trust: false` now installs what its KBs ship (release note). The state file is no longer disposable: deleting it
+forgets which clients are connected until the next `connect`. A machine that relied on auto-patch now sees the
+notice and upgrades with the command it names.
+
+A future change here must preserve all of these:
+- a client artifact install never waits on a setting, and an MCP descriptor never installs without the approval
+  bound to its exact content hash, signed or not;
+- a token never reaches argv, a log or an agent's MCP entry as a literal, and a file that holds one is not
+  world-readable;
+- the client never replaces its own binary;
+- a removed client key is never an error: it is ignored with a warning, its value carried over when it has a new
+  home, and dropped by the realignment.
+
+Supersedes D51 (the auto-trust hint) and D54 (the persisted trust), and the auto-patch part of D254.

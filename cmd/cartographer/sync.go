@@ -24,10 +24,11 @@ func cmdSync(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "Print what would change without writing")
 	var clients repeatedString
 	fs.Var(&clients, "client", "Sync only this provider (repeatable); other providers are left untouched")
-	autoTrust := fs.Bool("auto-trust", false, "Trust KB-sourced skills without explicit signature (one-time override; see the persisted `trust` setting in .cartographer.yaml)")
+	autoTrust := fs.Bool("auto-trust", false, "Removed (D906): accepted and ignored, because session-start hooks written by older versions still pass it")
 	noHeal := fs.Bool("no-heal", false, "Report locally modified managed artifacts instead of restoring them from the server")
 	logFile := fs.String("log-file", "", "Append this run's output to this file instead of stdout/stderr (created if absent; never rotated)")
 	fs.Parse(args)
+	warnRemovedAutoTrust(*autoTrust)
 
 	// A scheduled sync has no console to report to: on Windows the task's own
 	// history records exit codes only, and is disabled by default on many
@@ -74,29 +75,23 @@ func cmdSync(args []string) int {
 		return 0
 	}
 
-	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, AutoTrust: *autoTrust, NoHeal: *noHeal, Clients: clients, RepairService: true}); err != nil {
+	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, NoHeal: *noHeal, Clients: clients, RepairService: true}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
-	// update.policy: auto-patch (D254). After runSync, so the client-state
-	// lock is released before the detached apply's own upgrade-repair needs
-	// it; the scheduled sync timer reaches this without any change of its own.
 	if !*dryRun {
 		// A brew upgrade runs neither connect nor upgrade-repair: the scheduled
 		// sync is what reaches those clients (D704).
 		removeLegacyDoctorTimer()
-		maybeAutoPatch()
 	}
 	return 0
 }
 
 // syncOptions carries runSync's policy knobs. Both cmdSync and
 // cartographer upgrade-repair (D121) construct this from an already loaded
-// clientconfig.Config; automatic repair never sets AutoTrust, so it never
-// implies a one-shot trust override beyond the persisted `trust` setting.
+// clientconfig.Config.
 type syncOptions struct {
-	DryRun    bool
-	AutoTrust bool
+	DryRun bool
 	// Clients restricts the run to these providers (--client, repeatable).
 	// Empty means every connected provider. A provider left out is not
 	// touched at all: not its MCP entries, not its artifacts, not its entry in
@@ -174,7 +169,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// .cartographer.yaml first, so a failed sync_pull, an unverifiable
 	// signature or a cross-KB collision (D171) left a machine reconfigured for
 	// a sync that never happened — and the error said nothing about it.
-	facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
+	facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token)
 	kbs := facts.Names
 	var entriesByProvider map[string][]mcpEntry
 	if healthErr != nil {
@@ -244,12 +239,12 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		// targeted providers are touched — a provider skipped by --client keeps
 		// its entries untouched.
 		claudeDirs, claudeDirWarnings := claudeConfigDirs(dir, cfg)
-		removedNames, _, err := removeMCPEntries(cfg.ServerName, previousKnownKBs, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv, opts.DryRun)
+		removedNames, _, err := removeMCPEntries(cfg.ServerName, previousKnownKBs, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
 		if err != nil {
 			return syncResult{}, err
 		}
 		authorWarnings := setEntryAuthors(cfg, entriesByProvider, globalIdentFn)
-		_, warnings, err := applyMCPEntries(entriesByProvider, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv, opts.DryRun)
+		_, warnings, err := applyMCPEntries(entriesByProvider, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
 		if err != nil {
 			return syncResult{}, err
 		}
@@ -285,7 +280,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 
-	results, err := materializeForProviders(manifests, projections, dir, facts.Version, cfg.Trust || opts.AutoTrust, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, kbOrderForProviders(cfg, targets), cfg.ApprovedMCPHashes())
+	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths}, kbOrderForProviders(cfg, targets), cfg.ApprovedMCPHashes())
 	if err != nil {
 		return syncResult{}, err
 	}
@@ -378,14 +373,14 @@ func dropUnbuiltProviders(targets []string, projections []syncProjection, manife
 func preflightEnvironment(cfg *clientconfig.Config) error {
 	var missing []string
 
-	// The same condition resolveToken applies: auth off, or no token_env
-	// declared, means no credential is sent and none is required here. An
+	// The same condition resolveToken applies: auth off, no token, or a literal
+	// one, means nothing is missing from the environment here. An
 	// exported-but-empty variable is a missing one — it sends nothing.
 	// The token file (D699) counts as present: it is how an unattended run
 	// gets the token. An unusable file is named, not reported as plain absent.
-	if cfg.Auth && cfg.TokenEnv != "" {
+	if cfg.Auth && cfg.TokenEnv() != "" && cfg.LiteralToken() == "" {
 		if tok, terr := resolveTokenErr(cfg); tok == "" {
-			line := fmt.Sprintf("  $%s — bearer token for %s (or a private token file: run `cartographer reconnect` with $%[1]s set to write it)", cfg.TokenEnv, cfg.ServerURL)
+			line := fmt.Sprintf("  $%s — bearer token for %s (or a private token file: run `cartographer reconnect` with $%[1]s set to write it)", cfg.TokenEnv(), cfg.ServerURL)
 			if terr != nil {
 				line += "\n    token file unusable: " + terr.Error()
 			}
@@ -463,5 +458,15 @@ func printSyncRevisions(results map[string]provisioning.AppliedResult, providers
 	}
 	for _, p := range providers {
 		fmt.Printf("[%s] %s revision %s\n", p, verb, results[p].NewLock.AppliedRevision)
+	}
+}
+
+// warnRemovedAutoTrust says once that --auto-trust no longer does anything
+// (D906). The flag is still accepted: the session-start hook an older version
+// wrote runs `cartographer sync --auto-trust`, and a flag error there would
+// stop the very sync that rewrites the hook.
+func warnRemovedAutoTrust(passed bool) {
+	if passed {
+		fmt.Fprintln(os.Stderr, "warning: --auto-trust is removed and ignored: everything a KB ships is installed, and an MCP descriptor needs `cartographer approve`")
 	}
 }

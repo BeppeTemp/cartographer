@@ -28,8 +28,7 @@ func TestResolveConnectSettings_InheritsPersisted(t *testing.T) {
 		ServerURL:  "https://remote.example.com/mcp",
 		ServerName: "cartographer",
 		Auth:       true,
-		TokenEnv:   "CARTOGRAPHER_TOKENS",
-		Trust:      true,
+		Token:      "${CARTOGRAPHER_TOKENS}",
 	}
 
 	// No form flag passed → inherit everything from existing, ignoring defaults.
@@ -40,8 +39,15 @@ func TestResolveConnectSettings_InheritsPersisted(t *testing.T) {
 	if !got.Auth {
 		t.Error("Auth = false, want inherited true")
 	}
-	if got.TokenEnv != existing.TokenEnv {
-		t.Errorf("TokenEnv = %q, want inherited %q", got.TokenEnv, existing.TokenEnv)
+	if got.Token != existing.Token {
+		t.Errorf("Token = %q, want inherited %q", got.Token, existing.Token)
+	}
+
+	// A literal token in the file is inherited as it is, never replaced by the
+	// flag's variable name (D906).
+	literal := &clientconfig.Config{ServerURL: "https://remote.example.com/mcp", Auth: true, Token: "s3cr3t-literal"}
+	if got := resolveConnectSettings(map[string]bool{}, defaults.DefaultMCPURL, false, "DEFAULT_ENV", literal); got.Token != "s3cr3t-literal" {
+		t.Errorf("Token = %q, want the literal inherited", got.Token)
 	}
 
 	// An explicitly passed flag wins over the persisted value.
@@ -52,7 +58,7 @@ func TestResolveConnectSettings_InheritsPersisted(t *testing.T) {
 
 	// First-ever connect (existing nil) → flag defaults apply as-is.
 	got = resolveConnectSettings(map[string]bool{}, defaults.DefaultMCPURL, false, "DEFAULT_ENV", nil)
-	if got.ServerURL != defaults.DefaultMCPURL || got.Auth || got.TokenEnv != "DEFAULT_ENV" {
+	if got.ServerURL != defaults.DefaultMCPURL || got.Auth || got.Token != "${DEFAULT_ENV}" {
 		t.Errorf("first connect: got %+v, want flag defaults", got)
 	}
 	if got.Name != "cartographer" {
@@ -169,14 +175,14 @@ func TestProbeServer_TokenOnlyWhenAuthEnabled(t *testing.T) {
 	t.Setenv("PROBE_TOKEN", "sekret")
 
 	// Auth enabled: token read from the env var, probe succeeds.
-	state, err := probeServer(connectOptions{ServerURL: srv.URL, Auth: true, TokenEnv: "PROBE_TOKEN"})
+	state, err := probeServer(connectOptions{ServerURL: srv.URL, Auth: true, Token: "${PROBE_TOKEN}"})
 	if err != nil || state != probeReady {
 		t.Fatalf("probeServer with auth: %v", err)
 	}
 
 	// Auth disabled: no Authorization header is sent even though the env var
 	// is set (same rule as resolveToken in clientsync.go) → the server 401s.
-	_, err = probeServer(connectOptions{ServerURL: srv.URL, Auth: false, TokenEnv: "PROBE_TOKEN"})
+	_, err = probeServer(connectOptions{ServerURL: srv.URL, Auth: false, Token: "${PROBE_TOKEN}"})
 	if !errors.Is(err, client.ErrUnauthorized) {
 		t.Fatalf("expected ErrUnauthorized without auth, got %v", err)
 	}
@@ -318,7 +324,7 @@ func TestDoConnect_MigratesLegacyDefaultURL(t *testing.T) {
 		t.Skip("a local server answers on the default endpoint this test migrates to")
 	}
 	dir := t.TempDir()
-	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: "http://localhost:39273/mcp", Name: "cartographer", Trust: true}); err != nil {
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: "http://localhost:39273/mcp", Name: "cartographer"}); err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
 	cfg, err := clientconfig.Load(dir)

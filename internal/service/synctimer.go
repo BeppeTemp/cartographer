@@ -80,10 +80,9 @@ func SyncWindowsLogPath() (string, error) {
 // RenderWindowsSyncTaskXML renders the Scheduled Task that runs
 // `<binPath> sync --log-file <logPath>` every interval.
 //
-// The command carries no --auto-trust, for the same reason the plist and the
-// timer unit do not: an unattended background job must not grant a trust the
-// user never gave. The persisted `trust` setting in .cartographer.yaml still
-// applies, which is the correct authorization boundary (D54).
+// The command carries no flag besides --log-file: the client has no trust
+// switch to pass (D906), and an MCP descriptor still needs the local approval
+// the unattended job cannot give.
 //
 // StartWhenAvailable is the analogue of systemd's Persistent=true: a run missed
 // because the machine was off happens as soon as it is on again. The
@@ -229,10 +228,8 @@ func parseISO8601Duration(s string) time.Duration {
 // RenderSyncLaunchdPlist renders the launchd agent that runs
 // `<binPath> sync` every interval, logging to logPath.
 //
-// The command carries no --auto-trust: an unattended background job must not
-// grant a trust the user never gave. The persisted `trust` setting in
-// .cartographer.yaml still applies, which is the correct authorization
-// boundary (D54).
+// The command carries no trust flag: the client has none (D906), and an MCP
+// descriptor still needs the local approval the unattended job cannot give.
 func RenderSyncLaunchdPlist(binPath, logPath string, interval time.Duration) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
