@@ -203,7 +203,7 @@ func statusArtifactTrust(a statusArtifact) string {
 	if a.Trust != "" {
 		return a.Trust
 	}
-	if a.Signed {
+	if a.Signed && a.Kind != "mcp" {
 		return "verified"
 	}
 	return "needs_approval"

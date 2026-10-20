@@ -559,12 +559,12 @@ func formatDiffStatus(d provisioning.Diff) string {
 	}
 	needsApproval := 0
 	for _, a := range d.Added {
-		if !a.Signed {
+		if !a.Signed || a.Kind == "mcp" { // a signed MCP descriptor still needs approval (D906)
 			needsApproval++
 		}
 	}
 	for _, a := range d.Updated {
-		if !a.Signed {
+		if !a.Signed || a.Kind == "mcp" { // a signed MCP descriptor still needs approval (D906)
 			needsApproval++
 		}
 	}

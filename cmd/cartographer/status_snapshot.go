@@ -373,9 +373,9 @@ func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Conf
 		trust := "needs_approval"
 		if a.BuiltIn {
 			trust = "built_in"
-		} else if a.Signed {
-			trust = "verified"
 		} else if a.Kind == "mcp" {
+			// A signature never installs an MCP descriptor (D906): only the
+			// hash-bound approval does, so it is checked before Signed.
 			source := strings.TrimPrefix(a.Source, "kb:")
 			if approval, ok := cfg.MCPApprovals[source][a.Name]; ok {
 				if approval.ContentHash == a.ContentHash {
@@ -384,6 +384,8 @@ func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Conf
 					trust = "approval_stale"
 				}
 			}
+		} else if a.Signed {
+			trust = "verified"
 		} else if cfg.Trust && strings.HasPrefix(a.Source, "kb:") {
 			trust = "trusted"
 		}
