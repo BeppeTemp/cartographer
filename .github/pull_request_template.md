@@ -1,7 +1,7 @@
 Closes #
 
 <!--
-Before opening: run `.agents/skills/review-pr/scripts/triage.sh` on your branch
+Before opening: run `.agents/skills/cartographer-review-pr/scripts/triage.sh` on your branch
 and fix every BLOCK line (CONTRIBUTING.md §Pull requests). A change over 150
 production lines closes an issue labelled `plan` + `approved`; over 500, it is
 split by work package, or this body starts a line with `Size exception:` and why.
@@ -45,6 +45,6 @@ decision file if the change makes an architectural or contract choice. -->
 
 ## Self-review
 
-<!-- The independent review you ran before opening (the `pr-reviewer` subagent of
-the review-pr skill, or your client's equivalent) and what you did with each
+<!-- The independent review you ran before opening (the `cartographer-contract-reviewer` subagent of
+the cartographer-review-pr skill, or your client's equivalent) and what you did with each
 finding. `make gate` green: yes/no. -->

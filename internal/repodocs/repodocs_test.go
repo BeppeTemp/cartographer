@@ -424,6 +424,9 @@ func TestEveryCitedDocumentationPathExists(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, p)); err == nil {
 			continue
 		}
+		if citedOnlyByDecisionsOfRenamedSkill(p, cited[p]) {
+			continue
+		}
 		t.Errorf("%q is cited in %s but does not exist.\n"+
 			"If the page moved, point at where it went; if the reference is to a decision, the "+
 			"convention is the bare `D<n>` with no path, which survives the next move.",
@@ -700,7 +703,7 @@ func TestReferenceCorpusIsSane(t *testing.T) {
 		"docs/decisions/D206-d163-was-a-copied-off-by-one-not-a-missing-record.md",
 		"internal/mcpserver/AGENTS.md",
 		"internal/provisioning/provisioning.go",
-		".agents/skills/implement-issue/SKILL.md",
+		".agents/skills/cartographer-implement-plan/SKILL.md",
 		".github/ISSUE_TEMPLATE/plan.md",
 		"test/e2e/scenarios/03_config_opencode.sh",
 		"config.example.yaml",
@@ -721,7 +724,7 @@ func TestReferenceCorpusIsSane(t *testing.T) {
 	}
 }
 
-// docs/harnesses.md is the ledger the harness-watch skill reads as its baseline
+// docs/harnesses.md is the ledger the cartographer-audit-clients skill reads as its baseline
 // (D292). It has one `## <provider-id>` section per client, so adding a client to
 // the registry without a ledger entry — and therefore without anyone ever being
 // told to re-align with it — fails here, and so does a section for a client the
@@ -889,4 +892,31 @@ func TestUnavoidableChecksSayWhy(t *testing.T) {
 			t.Errorf("the docs/data-plane.md table lists %q as unavoidable, but the registry marks it AvoidableAtWrite", name)
 		}
 	}
+}
+
+// renamedSkillDirs are the skill directories that carried another name when the
+// decisions citing them were written (#957). A decision is a historical record
+// and is not rewritten, so its pointer to the old directory stays.
+var renamedSkillDirs = []string{
+	".agents/skills/plan-issue/", ".agents/skills/implement-issue/", ".agents/skills/live-dev/",
+	".agents/skills/review-pr/", ".agents/skills/harness-watch/",
+}
+
+// citedOnlyByDecisionsOfRenamedSkill reports a dangling path that is the old
+// name of a renamed skill and is cited by decision files alone: any other file
+// citing it is a pointer to fix.
+func citedOnlyByDecisionsOfRenamedSkill(path string, citers []string) bool {
+	old := false
+	for _, d := range renamedSkillDirs {
+		old = old || strings.HasPrefix(path, d)
+	}
+	if !old {
+		return false
+	}
+	for _, c := range citers {
+		if !strings.HasPrefix(filepath.ToSlash(c), "docs/decisions/") {
+			return false
+		}
+	}
+	return true
 }

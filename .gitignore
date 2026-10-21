@@ -8,7 +8,6 @@ migrated-kb/
 .claude/*
 !.claude/skills/
 !.claude/agents/
-!.claude/rules/
 .kiro/*
 !.kiro/skills/
 !.kiro/agents/

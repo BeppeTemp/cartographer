@@ -394,17 +394,17 @@ func TestValidate_FrontmatterInvalidYAML(t *testing.T) {
 	}{
 		{
 			"colon-space in an unquoted scalar",
-			"name: my-skill\ndescription: Sibling of the plan-issue skill: it writes issues\n",
+			"name: my-skill\ndescription: Sibling of the cartographer-propose-plan skill: it writes issues\n",
 			"frontmatter_invalid_yaml",
 		},
 		{
 			"the same value, quoted",
-			"name: my-skill\ndescription: \"Sibling of the plan-issue skill: it writes issues\"\n",
+			"name: my-skill\ndescription: \"Sibling of the cartographer-propose-plan skill: it writes issues\"\n",
 			"",
 		},
 		{
 			"the same value, colon replaced",
-			"name: my-skill\ndescription: Sibling of the plan-issue skill — it writes issues\n",
+			"name: my-skill\ndescription: Sibling of the cartographer-propose-plan skill — it writes issues\n",
 			"",
 		},
 		{

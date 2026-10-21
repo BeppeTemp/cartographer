@@ -84,7 +84,7 @@ they are in.
 
 - A **contributor's** agent implements one *approved* plan, opens the PR from the
   fork and stops: it never merges, never arms auto-merge, never sends a review
-  verdict, never edits labels and never files issues for others. `review-pr` is
+  verdict, never edits labels and never files issues for others. `cartographer-review-pr` is
   used only before opening your own PR.
 - A **maintainer's** agent runs the full flow (waves of plans, review rounds,
   ordered merge), but still implements only plans carrying `approved`, its own
@@ -99,7 +99,7 @@ already owns, audited, in `internal/provisioning/workspacescope.go` and
 `TestClientSkillSurfacesMatchTheProviderRegistry` checks this table against the
 matrix, so if you re-audit a client, change both together (D207).
 
-The repo-local skills (`plan-issue`, `implement-issue`, `live-dev`, `review-pr`, `harness-watch`: the directories of `.agents/skills/`) exist **once** in
+The repo-local skills (`cartographer-propose-plan`, `cartographer-implement-plan`, `cartographer-develop-live`, `cartographer-review-pr`, `cartographer-audit-clients`: the directories of `.agents/skills/`) exist **once** in
 `.agents/skills/`; `.claude/skills/<name>`, `.kiro/skills/<name>` and
 `.opencode/skills/<name>` are symlinks into it. Symlinks do work — verified empirically on Kiro CLI 2.21.4
 across 45 runs with negative controls — but **git on Windows is the catch**: with
@@ -114,6 +114,14 @@ loads **nothing at all, silently**. So:
   the check gives the same answer on every platform and a copy committed by
   mistake fails CI.
 
+**Naming** (D957). Every skill and agent of this repository carries the
+`cartographer-` prefix, so it does not collide with another project's in a user's
+catalogue. A skill is verb-object and says what you do (`cartographer-review-pr`);
+an agent is a role noun that pairs with its skill (`cartographer-contract-reviewer`).
+The one word for an agent program is **client**. A description starts with
+"Use when …" and the trigger words, then says what it does, in the imperative,
+with " — " for asides, and lists every skill that spawns the agent.
+
 If you add a skill, write its frontmatter to Kiro's rules — `name` present, equal
 to the directory name, lowercase kebab-case, ≤64 characters; `description` ≤1024
 characters with the use case and the trigger words **first** — and it will be
@@ -123,7 +131,7 @@ fit its listing budget, starting from the end.
 **Keep the frontmatter valid YAML, and mind `": "` in particular.** An unquoted
 value containing a colon followed by a space is a YAML syntax error, and what a
 client does with it is drop the skill and list the others — no message, nothing
-in a log. `implement-issue` shipped that way and was invisible to Kiro until a
+in a log. `cartographer-implement-plan` shipped that way and was invisible to Kiro until a
 gate caught it; `make test` now parses every `SKILL.md` with the same
 spec-compliant parser a client uses (D207).
 
@@ -132,21 +140,26 @@ format and location — project-local for `.mcp.json`, `opencode.json` and
 `.kiro/settings/mcp.json` — all of them machine-local and git-ignored. If you are pointing a client at a
 Cartographer server, use `cartographer connect`, not a hand-written file.
 
-The repository also ships five subagents: `plan-implementer`, the worker the
-`implement-issue` skill spawns per plan, `live-implementer`, the one the
-`live-dev` skill spawns per change, `pr-reviewer`, the read-only reviewer
-the `review-pr`, `implement-issue` and `live-dev` skills spawn per pull request,
-`security-reviewer`, the read-only attacker's-view pass they add on full-tier PRs,
-and `reader`, the read-only reader of one voluminous source (the failed log of a
+The repository also ships five subagents: `cartographer-plan-implementer`, the worker the
+`cartographer-implement-plan` skill spawns per plan, `cartographer-live-implementer`, the one the
+`cartographer-develop-live` skill spawns per change, `cartographer-contract-reviewer`, the read-only reviewer
+the `cartographer-review-pr`, `cartographer-implement-plan` and `cartographer-develop-live` skills spawn per pull request,
+`cartographer-security-reviewer`, the read-only attacker's-view pass they add on full-tier PRs,
+and `cartographer-source-reader`, the read-only reader of one voluminous source (the failed log of a
 red CI run, a client's release notes) that returns a digest instead of the text.
 Each exists in each client's own format — `.claude/agents/<name>.md`,
 `.kiro/agents/<name>.json`, `.opencode/agents/<name>.md` and
 `.github/agents/<name>.agent.md` — and the four formats must say the same thing:
 the same prompt body and description, on a Claude model in the client's own
 spelling (Claude Code `claude-sonnet-5-5`, Kiro and Copilot CLI
-`claude-sonnet-5.5`, OpenCode `anthropic/claude-sonnet-5-5`; `reader` runs on
+`claude-sonnet-5.5`, OpenCode `anthropic/claude-sonnet-5-5`; `cartographer-source-reader` runs on
 Haiku 5.5, the other four on Sonnet 5.5). `TestRepoSubagentsSayTheSameThingOnEveryClient`
-checks all of it, and refuses an agent file in a client directory that has no
+checks all of it, that every Kiro agent lists `tools` (without them it has none),
+and that a read-only agent (`cartographer-contract-reviewer`,
+`cartographer-security-reviewer`, `cartographer-source-reader`) carries its
+restriction where the client can state one: `tools: Read, Grep, Glob, Bash` on Claude
+Code, a read/search/execute `tools` list on Copilot CLI, `permission.edit: deny` on
+OpenCode (Kiro lists `["*"]`: its ledger names no read-only set). It also refuses an agent file in a client directory that has no
 `.claude/agents` counterpart. The procedure itself stays in the skill (D327, D884).
 
 Working on more than one plan at a time? No client isolates its own subagents
@@ -199,7 +212,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   (`origin`) only receives pushes:
   `git remote add upstream https://github.com/beppetemp/cartographer.git`.
 - **Review costs more than writing**, so a PR is shaped to be cheap to review
-  (D856). Three rules, checked by `.agents/skills/review-pr/scripts/triage.sh`
+  (D856). Three rules, checked by `.agents/skills/cartographer-review-pr/scripts/triage.sh`
   — run it on your branch before opening; the first rule is also enforced by
   the required `plan-gate` check, which runs the same script on the PR:
   - a contributor's change over **150 production lines** (tests, docs and
@@ -216,11 +229,11 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     that says why). A contributor's body line does not count;
   - the body follows `.github/pull_request_template.md`: its `Self-review`
     section reports an independent review run before opening — the
-    `pr-reviewer` subagent of the `review-pr` skill, or your client's equivalent,
+    `cartographer-contract-reviewer` subagent of the `cartographer-review-pr` skill, or your client's equivalent,
     at most three rounds — and its `Revert` section says what a revert of the
     released change would not undo. A `fix:` PR that repairs a regression also
     names the PR that introduced it, on a line `Regression-of: #<n>`: the
-    reviewers are scored against such PRs (`review-pr` §When a defect escapes).
+    reviewers are scored against such PRs (`cartographer-review-pr` §When a defect escapes).
 - PRs are **squash-merged** and the PR title becomes the commit message on
   `main`: it must be a valid [conventional commit](https://www.conventionalcommits.org/)
   (`feat: ...`, `fix: ...`, `docs: ...`, ...). CI enforces this. Releases are
@@ -367,12 +380,12 @@ stop and flag it in an issue comment: the plan may be stale relative to `main`.
 When the outcome is found by trying it — the Atlas UI, a UX detail, CLI output to
 tune — design and implementation stay in one session, with the user trying each
 step on a running instance. The procedure, the roles and the subagent mandate are
-in the `live-dev` skill (`.agents/skills/live-dev/SKILL.md`). What is specific
+in the `cartographer-develop-live` skill (`.agents/skills/cartographer-develop-live/SKILL.md`). What is specific
 to it:
 
 ```bash
 make worktree-add SLUG=my-change
-cd .worktrees/my-change && make dev DATA=<data dir>   # or no DATA: the demo KBs in demo/
+cd .worktrees/my-change && make dev DATA=<data dir>   # or no DATA: the generated test KBs (D818)
 ```
 
 `make dev` rebuilds and restarts the server on every Go change and serves the UI

@@ -87,7 +87,7 @@ matching file **in the same session/PR** as the change:
 | The README's launch film (`film/`) or the story it tells | re-render (`film/README.md`) and `film/publish.sh` by hand, the README picks it up from `readme-film` (D807); a camera change in `web/src/lib/graph3d/scene.ts` can break its render: re-render after one |
 | Contributor workflow (PR flow, plan issues, build loop) | `CONTRIBUTING.md` |
 | What an agent client reads (instruction file, skill/agent/hook/MCP paths) | The provider matrix **first** (`destinationMatrix` in `internal/provisioning/provisioning.go`, `projectDestinationMatrix` in `internal/provisioning/workspacescope.go`, provider descriptors in `internal/configurator/registry.go`), then `CONTRIBUTING.md` §Working with an agent client — a test fails if the two disagree |
-| A client re-audit (version bump, new sources, watch items) | `harnesses.md` (via the `harness-watch` skill); the matrix and docs above only if a cell changes |
+| A client re-audit (version bump, new sources, watch items) | `harnesses.md` (via the `cartographer-audit-clients` skill); the matrix and docs above only if a cell changes |
 | User-facing install/onboarding flow | `getting-started.md` (+ README Quick start/Install, kept short: details live in `getting-started.md`) |
 | Agent-driven install/onboarding flow | `agent-install.md` + README |
 | Logo, banner, palette or typography | `brand/` assets + tokens, then `brand/index.md` |

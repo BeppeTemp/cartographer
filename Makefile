@@ -5,7 +5,7 @@ VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 # gofmt takes paths, and `gofmt -l .` walks every hidden directory — including
 # .worktrees/, where a sibling plan's subagent is working. That made `make gate`
 # fail on someone else's unfinished code and `make fmt` rewrite it, which is
-# exactly what the implement-issue mandate forbids. Naming the two directories
+# exactly what the cartographer-implement-plan mandate forbids. Naming the two directories
 # that hold this module's Go code scopes both targets correctly, and unlike
 # `git ls-files` it still sees a file that has been written but not yet staged —
 # a gate that passes locally and fails in CI is worse than no gate (D209).
@@ -135,7 +135,7 @@ test-install: ## Run the network-free install.sh/Cask upgrade-repair suite and t
 # Isolated worktree for one plan branch. Every agent client shares the
 # filesystem with its own subagents, so isolation is not free anywhere: these
 # two targets are the single client-neutral way to get it, and they are why the
-# implement-issue skill no longer carries four copies of the same git commands.
+# cartographer-implement-plan skill no longer carries four copies of the same git commands.
 worktree-add: ## Isolated worktree for a plan branch (from upstream/main when that remote exists, else origin/main): make worktree-add SLUG=my-change
 	@test -n "$(SLUG)" || (echo "worktree-add: SLUG is required" && exit 1)
 	@./scripts/upstream-repo.sh --require-remote >/dev/null
@@ -150,7 +150,7 @@ worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree
 	@git branch -D "feat/$(SLUG)" 2>/dev/null || true
 	@echo "worktree removed: .worktrees/$(SLUG)"
 
-# The live session's instance (the live-dev skill): Go rebuilt and restarted on
+# The live session's instance (the cartographer-develop-live skill): Go rebuilt and restarted on
 # change, the UI hot-reloaded by Vite. DATA is copied, never served in place.
 dev: ## Live instance from this worktree: make dev [DATA=<data dir>] [API_PORT=39280] [UI_PORT=5173]
 	@DATA="$(DATA)" API_PORT="$(API_PORT)" UI_PORT="$(UI_PORT)" ./scripts/dev.sh
