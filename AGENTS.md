@@ -93,7 +93,7 @@ internal/skill          implements loading and validation of SKILL.md files (age
 internal/skillbundle    embeds the skills shipped inside the binary (bundled/) so a fresh install can provision an agent client…
 internal/sops           decrypts sops-encrypted KB secrets and resolves the references a concept declares, turning them into…
 internal/sqlindex       implements a persistent SQLite-backed keyword index
-internal/testkbs        generates the synthetic test Knowledge Bases `make dev` serves (D818)
+internal/testkbs        generates the synthetic test Knowledge Bases `make dev` serves (D818, D1032)
 internal/testkbs/gen    Command gen writes the test KB fleet of package testkbs into a data directory, one subdirectory per KB
 internal/updatecheck    answers whether a newer Cartographer release exists and how this binary is upgraded (D254)
 internal/webui          serves the embedded read-only Atlas UI (D227)
