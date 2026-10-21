@@ -790,7 +790,8 @@ func TestStatus_Windows_ReadsTheTaskState(t *testing.T) {
 	cases := []struct {
 		name        string
 		state       string // the task State the scenario simulates; "" = not registered
-		stateOut    string // overrides the token the state script prints
+		stateOut    string // the token the state script prints, when stateOutSet
+		stateOutSet bool
 		stateFails  bool
 		wantRunning bool
 		wantLife    Lifecycle
@@ -800,8 +801,8 @@ func TestStatus_Windows_ReadsTheTaskState(t *testing.T) {
 		{name: "running", state: "Running", wantRunning: true, wantLife: LifecycleLoaded},
 		{name: "queued", state: "Queued", wantRunning: true, wantLife: LifecycleLoaded},
 		{name: "state query fails: fail open", state: "Disabled", stateFails: true, wantRunning: true, wantLife: LifecycleLoaded},
-		{name: "empty output: fail open", state: "Disabled", stateOut: "", wantRunning: true, wantLife: LifecycleLoaded},
-		{name: "localised word: fail open", state: "Disabled", stateOut: "Disattivato", wantRunning: true, wantLife: LifecycleLoaded},
+		{name: "empty output: fail open", state: "Disabled", stateOutSet: true, wantRunning: true, wantLife: LifecycleLoaded},
+		{name: "localised word: fail open", state: "Disabled", stateOut: "Disattivato", stateOutSet: true, wantRunning: true, wantLife: LifecycleLoaded},
 		{name: "not registered", state: "", wantRunning: false, wantLife: LifecycleNotLoaded},
 	}
 	for _, tc := range cases {
@@ -825,7 +826,7 @@ func TestStatus_Windows_ReadsTheTaskState(t *testing.T) {
 					if tc.stateFails {
 						return "", errNotLoaded
 					}
-					if tc.stateOut != "" || tc.name == "empty output: fail open" {
+					if tc.stateOutSet {
 						return tc.stateOut, nil
 					}
 					if tc.state == "Disabled" || tc.state == "Ready" {
