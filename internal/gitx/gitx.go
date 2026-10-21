@@ -104,7 +104,10 @@ var ErrCloneTimeout = errors.New("git clone timed out")
 // indistinguishable from a hang — while a copy is kept to translate a failure
 // into something actionable.
 func Clone(ctx context.Context, remote, dest string, env ...string) error {
-	cmd := exec.CommandContext(ctx, "git", "clone", "--progress", remote, dest)
+	if err := ValidateRemote(remote); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "git", "clone", "--progress", "--", remote, dest)
 	cmd.Env = cloneEnv(remote, env)
 	var stderr strings.Builder
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
@@ -124,10 +127,49 @@ func Clone(ctx context.Context, remote, dest string, env ...string) error {
 // breaks a working setup to prevent a hypothetical one.
 func cloneEnv(remote string, extra []string) []string {
 	env := gitEnv(extra)
+	// A redirect or a submodule must not reintroduce a transport helper
+	// (ext::, fd::) the allow-list in ValidateRemote refused up front.
+	if !hasEnv(env, "GIT_ALLOW_PROTOCOL") {
+		env = append(env, "GIT_ALLOW_PROTOCOL="+strings.Join(allowedRemoteSchemes, ":"))
+	}
 	if !isSSHRemote(remote) || hasEnv(env, "GIT_SSH_COMMAND") {
 		return env
 	}
 	return append(env, "GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=10")
+}
+
+// allowedRemoteSchemes are the URL schemes a remote may use.
+var allowedRemoteSchemes = []string{"https", "http", "ssh", "git", "file"}
+
+// ValidateRemote refuses an operator-supplied remote that git would read as an
+// option (leading "-") or run as a transport helper ("ext::<command>"). It is
+// an allow-list of forms, not a deny-list: scp-like (git@host:path), a URL
+// with one of allowedRemoteSchemes, or a plain local path.
+func ValidateRemote(remote string) error {
+	if remote == "" {
+		return errors.New("remote must not be empty")
+	}
+	for _, r := range remote {
+		if r < 0x20 || r == 0x7f {
+			return errors.New("remote must not contain control characters")
+		}
+	}
+	if strings.HasPrefix(remote, "-") {
+		return errors.New("remote must not start with '-'")
+	}
+	head, _, _ := strings.Cut(remote, "/")
+	if strings.Contains(head, "::") {
+		return fmt.Errorf("remote %q uses git's <transport>::<address> helper syntax, which is not accepted", remote)
+	}
+	if scheme, _, found := strings.Cut(remote, "://"); found {
+		for _, ok := range allowedRemoteSchemes {
+			if strings.EqualFold(scheme, ok) {
+				return nil
+			}
+		}
+		return fmt.Errorf("remote scheme %q is not accepted: use one of %s", scheme, strings.Join(allowedRemoteSchemes, ", "))
+	}
+	return nil
 }
 
 // hasEnv reports whether key is assigned anywhere in env.
@@ -200,7 +242,10 @@ var ErrProbeTimeout = errors.New("git ls-remote timed out")
 // empty answer is what distinguishes a repository to create a KB in from one
 // that already holds something to clone.
 func ProbeRemote(ctx context.Context, remote string) (hasRefs bool, err error) {
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", remote)
+	if err := ValidateRemote(remote); err != nil {
+		return false, err
+	}
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--", remote)
 	cmd.Env = cloneEnv(remote, nil)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -1311,7 +1356,10 @@ func RemoteURL(dir, remote string) (string, error) {
 
 // AddRemote adds a remote with the given name and URL.
 func AddRemote(dir, name, url string) error {
-	out, err := runGit(dir, "remote", "add", name, url)
+	if err := ValidateRemote(url); err != nil {
+		return err
+	}
+	out, err := runGit(dir, "remote", "add", "--", name, url)
 	if err != nil {
 		return fmt.Errorf("git remote add %s: %w: %s", name, err, out)
 	}
