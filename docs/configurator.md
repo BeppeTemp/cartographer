@@ -1213,7 +1213,7 @@ warning, not a failure.
 |---|---|
 | `client list` | one row per connected provider: resolved KBs and the origin of the answer (`explicit` / `default (all known)`) |
 | `client show <provider>` | that provider's bound KBs, its origin, and the known KBs it is **not** bound to; for `claude` also a `config dirs` line: `$HOME` (default), each declared dir, and an undeclared `CLAUDE_CONFIG_DIR` marked `not declared` |
-| `client bind <provider> <kb>[,<kb>...]` | adds; creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so; before warning that a KB is unknown it asks the server for its KB list once, without rewriting the cached list (`sync` owns it, D721) |
+| `client bind <provider> <kb>[,<kb>...]` | adds to the binding (the output lists the resulting binding and what this call added); creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so; before warning that a KB is unknown it asks the server for its KB list once, without rewriting the cached list (`sync` owns it, D721) |
 | `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
 | `client reset <provider>` | deletes the binding, returning the provider to the default |
 | `client update [--check=true\|false]` | shows, or sets, `update_check` (D254, D906) |
