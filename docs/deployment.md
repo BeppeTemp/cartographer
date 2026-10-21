@@ -995,7 +995,11 @@ Rollout notes:
   It is in the start's log line, and derives from `audit.key`: back the key up
   with the log, since a new one starts signing with a different key.
 - **An unsigned log stays verifiable.** A log kept without a key before D905 is
-  signed from the upgrade on. `audit verify` accepts its unsigned entries up to
+  signed from the upgrade on. With a key, a log in which no entry is signed is
+  refused (`no signed entry`): a log kept unsigned for its whole life is
+  verified without a key, or with `--signed-since` set after its last entry;
+  `--signed-since` earlier than the upgrade makes the legacy entries fail.
+  `audit verify` accepts its unsigned entries up to
   the first signature, which covers them through the hash chain, and up to the
   first checkpoint written with the key; an unsigned entry after either is
   reported. So a `best_effort` start without the key, once the log has been

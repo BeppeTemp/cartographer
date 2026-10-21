@@ -251,7 +251,10 @@ says "tool not found", which the script would otherwise print and count as a
 pass.
 
 `15_operational_audit` closes the loop end-to-end by tampering with a recorded
-entry and requiring `audit verify` and `audit export` to fail on it.
+entry and requiring `audit verify` and `audit export` to fail on it. It also
+strips every signature from a copy of the log (the chain stays valid, the
+signature is not hashed) and requires both commands to fail with
+`--public-key` while `verify` without a key still passes.
 
 **Removed topology keys are exercised as a real upgrade.** `16_deprecated_prefix_keys` starts a
 server whose config still carries `mcp.mount_mode`, `mcp.tool_prefix_mode` and an explicit

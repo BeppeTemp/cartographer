@@ -455,7 +455,7 @@ func TestRotationCheckpointAndCheckpointOnlyVerification(t *testing.T) {
 		t.Fatalf("want 2 archived segments, got %d", jsonlCount)
 	}
 
-	sum, err := VerifyAudit(path, archive, nil)
+	sum, err := VerifyAudit(path, archive, nil, VerifyOptions{})
 	if err != nil {
 		t.Fatalf("VerifyAudit: %v", err)
 	}
@@ -482,7 +482,7 @@ func TestRotationCheckpointAndCheckpointOnlyVerification(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sum2, err := VerifyAudit(path, archive, nil)
+	sum2, err := VerifyAudit(path, archive, nil, VerifyOptions{})
 	if err != nil {
 		t.Fatalf("VerifyAudit after simulated retention: %v", err)
 	}
@@ -512,10 +512,10 @@ func TestVerifyAuditRequiresKeyWhenCheckpointSigned(t *testing.T) {
 		}
 	}
 
-	if _, err := VerifyAudit(path, archive, nil); err == nil {
+	if _, err := VerifyAudit(path, archive, nil, VerifyOptions{}); err == nil {
 		t.Fatal("expected verification without the public key to fail for a signing-required checkpoint")
 	}
-	if _, err := VerifyAudit(path, archive, kp.Public); err != nil {
+	if _, err := VerifyAudit(path, archive, kp.Public, VerifyOptions{}); err != nil {
 		t.Fatalf("VerifyAudit with correct key: %v", err)
 	}
 }
@@ -576,7 +576,7 @@ func TestVerifyAuditAcceptsAnUnsignedPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sum, err := VerifyAudit(path, archive, kp.Public)
+	sum, err := VerifyAudit(path, archive, kp.Public, VerifyOptions{})
 	if err != nil {
 		t.Fatalf("VerifyAudit after the upgrade: %v", err)
 	}
@@ -592,7 +592,7 @@ func TestVerifyAuditAcceptsAnUnsignedPrefix(t *testing.T) {
 	if err := downgraded.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyAudit(path, archive, kp.Public); err == nil || !strings.Contains(err.Error(), "unsigned event") {
+	if _, err := VerifyAudit(path, archive, kp.Public, VerifyOptions{}); err == nil || !strings.Contains(err.Error(), "unsigned event") {
 		t.Errorf("VerifyAudit after an unsigned run = %v, want the unsigned event reported", err)
 	}
 }
@@ -620,7 +620,7 @@ func TestVerifyAuditRequiresSignaturesAfterASigningCheckpoint(t *testing.T) {
 	if err := signed.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if sum, err := VerifyAudit(path, archive, kp.Public); err != nil || sum.Retained != 1 || sum.Unsigned != 4 {
+	if sum, err := VerifyAudit(path, archive, kp.Public, VerifyOptions{}); err != nil || sum.Retained != 1 || sum.Unsigned != 4 {
 		t.Fatalf("VerifyAudit = %+v, %v; want one archived legacy segment and a valid log", sum, err)
 	}
 
@@ -635,7 +635,7 @@ func TestVerifyAuditRequiresSignaturesAfterASigningCheckpoint(t *testing.T) {
 	if err := forged.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyAudit(path, archive, kp.Public); err == nil || !strings.Contains(err.Error(), "unsigned event") {
+	if _, err := VerifyAudit(path, archive, kp.Public, VerifyOptions{}); err == nil || !strings.Contains(err.Error(), "unsigned event") {
 		t.Errorf("VerifyAudit of a forged unsigned tail = %v, want the unsigned event reported", err)
 	}
 }
@@ -670,7 +670,7 @@ func TestVerifyAuditRefusesAnUnsignedRunBetweenSignedOnes(t *testing.T) {
 	if err := l.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyAudit(path, archive, kp.Public); err == nil || !strings.Contains(err.Error(), "unsigned event") {
+	if _, err := VerifyAudit(path, archive, kp.Public, VerifyOptions{}); err == nil || !strings.Contains(err.Error(), "unsigned event") {
 		t.Errorf("VerifyAudit = %v, want the unsigned run reported", err)
 	}
 }
@@ -1018,7 +1018,7 @@ func TestVerifyAuditRefusesAnUnsignedEntryAfterTheFirstSignature(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := VerifyAudit(path, "", kp.Public); err != nil {
+	if _, err := VerifyAudit(path, "", kp.Public, VerifyOptions{}); err != nil {
 		t.Fatalf("unsigned prefix then signed = %v, want accepted", err)
 	}
 	l, err := open(path, nil, Options{})
@@ -1029,7 +1029,7 @@ func TestVerifyAuditRefusesAnUnsignedEntryAfterTheFirstSignature(t *testing.T) {
 	if err := l.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := VerifyAudit(path, "", kp.Public); err == nil || !strings.Contains(err.Error(), "unsigned event") {
+	if _, err := VerifyAudit(path, "", kp.Public, VerifyOptions{}); err == nil || !strings.Contains(err.Error(), "unsigned event") {
 		t.Errorf("VerifyAudit = %v, want the unsigned entry reported", err)
 	}
 }
@@ -1072,5 +1072,103 @@ func TestSingleWriterLockWaitsForTheExitingHolder(t *testing.T) {
 	}
 	if time.Since(start) < 200*time.Millisecond {
 		t.Errorf("gave up after %v, before the wait", time.Since(start))
+	}
+}
+
+// unsignedLog writes a log that never had a key: what a rewrite that
+// recomputed the chain and dropped every signature leaves on disk, since the
+// signature is not part of the hash.
+func unsignedLog(t *testing.T, path, archive string) []Entry {
+	t.Helper()
+	legacyLog(t, path, archive)
+	es, err := readEntries(path)
+	if err != nil || len(es) == 0 {
+		t.Fatalf("readEntries = %v, %v", es, err)
+	}
+	return es
+}
+
+// TestVerifyAuditRefusesALogWithNoSignedEntry: with a key, a log in which
+// nothing is signed and no start is declared cannot be authenticated. Without
+// a key the chain alone is checked, as before.
+func TestVerifyAuditRefusesALogWithNoSignedEntry(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	archive := filepath.Join(dir, "archive")
+	es := unsignedLog(t, path, archive)
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sum, err := VerifyAudit(path, archive, kp.Public, VerifyOptions{})
+	if err == nil || !strings.Contains(err.Error(), "no signed entry") || sum.Corrupt != 1 {
+		t.Errorf("VerifyAudit with a key = %+v, %v; want the no signed entry refusal", sum, err)
+	}
+	if _, err := VerifyAudit(path, archive, nil, VerifyOptions{}); err != nil {
+		t.Errorf("VerifyAudit without a key = %v, want the chain accepted", err)
+	}
+
+	before := VerifyOptions{SignedSince: es[0].Timestamp.Add(-time.Second)}
+	if _, err := VerifyAudit(path, archive, kp.Public, before); err == nil || !strings.Contains(err.Error(), "unsigned event") {
+		t.Errorf("VerifyAudit with SignedSince before the log = %v, want the unsigned event reported", err)
+	}
+	after := VerifyOptions{SignedSince: es[len(es)-1].Timestamp.Add(time.Second)}
+	if _, err := VerifyAudit(path, archive, kp.Public, after); err != nil {
+		t.Errorf("VerifyAudit with SignedSince after the log = %v, want it accepted", err)
+	}
+}
+
+// TestVerifyAuditSignedSinceOnAnUpgradedLog: the legacy prefix is accepted
+// with no declared start, with one at the upgrade, and refused when the
+// operator claims the log was signed before the legacy entries were written.
+func TestVerifyAuditSignedSinceOnAnUpgradedLog(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	archive := filepath.Join(dir, "archive")
+	legacy := unsignedLog(t, path, archive)
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := OpenWithKeyAndOptions(path, kp, Options{ArchiveDir: archive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendCall(t, signed, "new")
+	if err := signed.Close(); err != nil {
+		t.Fatal(err)
+	}
+	all, err := readEntries(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgrade := all[len(legacy)].Timestamp
+
+	if _, err := VerifyAudit(path, archive, kp.Public, VerifyOptions{}); err != nil {
+		t.Errorf("no declared start = %v, want accepted", err)
+	}
+	if _, err := VerifyAudit(path, archive, kp.Public, VerifyOptions{SignedSince: upgrade}); err != nil {
+		t.Errorf("SignedSince at the upgrade = %v, want accepted", err)
+	}
+	early := VerifyOptions{SignedSince: legacy[0].Timestamp.Add(-time.Second)}
+	if _, err := VerifyAudit(path, archive, kp.Public, early); err == nil || !strings.Contains(err.Error(), "unsigned event") {
+		t.Errorf("SignedSince before the legacy entries = %v, want the unsigned event reported", err)
+	}
+}
+
+// TestVerifyAuditAcceptsAnEmptyLogWithAKey: no entry, nothing to authenticate.
+func TestVerifyAuditAcceptsAnEmptyLogWithAKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyAudit(path, filepath.Join(dir, "archive"), kp.Public, VerifyOptions{}); err != nil {
+		t.Errorf("VerifyAudit of an empty log = %v, want accepted", err)
 	}
 }
