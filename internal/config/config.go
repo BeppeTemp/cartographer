@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -303,6 +304,79 @@ type rawAuth struct {
 	Roles  []RoleSpec  `yaml:"roles"`
 }
 
+// checkAuthKeys refuses an unknown key anywhere under `auth:`. The rest of the
+// file stays lenient (retired keys are warned about and dropped, D906), but an
+// auth key that is dropped silently changes who may do what: a token whose
+// `scope:` was misspelled would carry no scopes. The walk is done on the node
+// tree because TokenSpec decodes through a custom unmarshaler, which would
+// lose the decoder's strict mode.
+func checkAuthKeys(data []byte) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+		return nil // the typed decode reports syntax errors
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "auth" {
+			return checkKnownKeys(root.Content[i+1], reflect.TypeOf(rawAuth{}), "auth")
+		}
+	}
+	return nil
+}
+
+func checkKnownKeys(n *yaml.Node, t reflect.Type, at string) error {
+	for n.Kind == yaml.AliasNode && n.Alias != nil {
+		n = n.Alias
+	}
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	switch {
+	case n.Kind == yaml.SequenceNode && t.Kind() == reflect.Slice:
+		for i, c := range n.Content {
+			if err := checkKnownKeys(c, t.Elem(), fmt.Sprintf("%s[%d]", at, i)); err != nil {
+				return err
+			}
+		}
+	case n.Kind == yaml.MappingNode && t.Kind() == reflect.Struct:
+		known := map[string]reflect.Type{}
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+			if name == "-" || !f.IsExported() {
+				continue
+			}
+			if name == "" {
+				name = strings.ToLower(f.Name)
+			}
+			known[name] = f.Type
+		}
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			k, v := n.Content[i], n.Content[i+1]
+			if k.Value == "<<" {
+				if err := checkKnownKeys(v, t, at); err != nil {
+					return err
+				}
+				continue
+			}
+			ft, ok := known[k.Value]
+			if !ok && t == reflect.TypeOf(TokenSpec{}) && (k.Value == "author_name" || k.Value == "author_email") {
+				continue // retired (D904): warned about by the realignment, grants nothing
+			}
+			if !ok {
+				return fmt.Errorf("unknown key %q under %s (line %d, column %d)", k.Value, at, k.Line, k.Column)
+			}
+			if err := checkKnownKeys(v, ft, at+"."+k.Value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // Load parses a YAML config file, layering it on top of Default().
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -311,6 +385,9 @@ func Load(path string) (*Config, error) {
 	}
 	var raw rawConfig
 	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("config: parse %q: %w", path, err)
+	}
+	if err := checkAuthKeys(data); err != nil {
 		return nil, fmt.Errorf("config: parse %q: %w", path, err)
 	}
 
