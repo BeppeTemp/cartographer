@@ -116,3 +116,58 @@ func TestReportUsage_UnreachableServerIsNotAnError(t *testing.T) {
 		t.Fatalf("reported %d, want 0", n)
 	}
 }
+
+func TestReportOnly_SendsToTheGivenURLAndChangesNothing(t *testing.T) {
+	home := usageClientHome(t)
+	setHome(t, home)
+	var mu sync.Mutex
+	paths := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths[r.URL.Path]++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	cfg := clientconfig.Default()
+	cfg.ServerURL = "http://configured.example.com/mcp"
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(clientconfig.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if code := reportOnly(home, srv.URL+"/mcp"); code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	mu.Lock()
+	got := paths["/api/client-settings"]
+	usage := paths["/api/usage"]
+	mu.Unlock()
+	if got != 1 {
+		t.Fatalf("client settings posted %d times, want 1 (%v)", got, paths)
+	}
+	if usage != 1 {
+		t.Fatalf("usage posted %d times, want 1 for kb-a (%v)", usage, paths)
+	}
+	after, err := os.ReadFile(clientconfig.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("client config changed:\n%s\n---\n%s", before, after)
+	}
+}
+
+func TestReportOnly_RefusesPlainHTTPToANonLoopbackHost(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	if err := clientconfig.Save(home, clientconfig.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if code := reportOnly(home, "http://example.com/mcp"); code != 2 {
+		t.Fatalf("exit %d, want 2", code)
+	}
+}
