@@ -165,7 +165,8 @@ below are constants, not settings: a 30s freshness window and a 3s push debounce
    local clone and starts the same refresh in the background, one per KB at a time, under
    the same KB lock; what that refresh pulls is visible from the next call on, and a
    failure there is non-fatal. Every fetch is bounded (15s, the whole git process group
-   killed on expiry), and after a failed one reads skip the fetch for 60s, so a remote
+   killed on expiry; a push likewise, 60s, `gitx.PushTimeout`), and no git command ever
+   prompts for a credential (`GIT_TERMINAL_PROMPT=0`, ssh in batch mode, D1004), and after a failed one reads skip the fetch for 60s, so a remote
    that is down costs one bounded fetch rather than one per call; a write still fetches,
    synchronously (D237). When that fetch fails, the write proceeds only if `HEAD` has no
    commit missing from `origin/<branch>` — the base is as current as the last successful
