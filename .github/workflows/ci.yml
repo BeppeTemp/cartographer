@@ -270,12 +270,6 @@ jobs:
       - if: needs.changes.result != 'success' || needs.changes.outputs.tf == 'true'
         run: make demo-tf-check
 
-  # The PR title and body lint (the required `pr-title` check) is its own
-  # workflow, pr-title.yml: it re-runs on `edited`, which this one must not (D865).
-
-  # A red main is a signal, not something the next PR discovers (D672): the
-  # first failing push opens a `ci-red` issue, later ones comment on it, and the
-  # first green push closes it.
   # The container's own test stage and a start of the image (D995): nothing else
   # builds the Dockerfile before release day. Not a required check, main-status
   # watches it (the required set is the ruleset's, a maintainer's to change).
@@ -311,6 +305,12 @@ jobs:
       # Dockerfile change is checked against it too.
       - run: make demo-smoke DEMO_BASE=cartographer:ci
 
+  # The PR title and body lint (the required `pr-title` check) is its own
+  # workflow, pr-title.yml: it re-runs on `edited`, which this one must not (D865).
+
+  # A red main is a signal, not something the next PR discovers (D672): the
+  # first failing push opens a `ci-red` issue, later ones comment on it, and the
+  # first green push closes it.
   main-status:
     name: main-status
     needs: [test, test-windows, web, demo-edge, docker]
