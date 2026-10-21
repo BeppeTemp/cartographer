@@ -910,6 +910,8 @@ func TestValidateRemote(t *testing.T) {
 		"HTTP://forge.example.com/team/kb.git",
 		"git://forge.example.com/team/kb.git",
 		"file:///srv/kb.git",
+		"git@[::1]:repo.git",
+		"ssh://[::1]/x",
 		"/srv/kb.git",
 		"./relative/kb.git",
 	}
@@ -919,7 +921,7 @@ func TestValidateRemote(t *testing.T) {
 		}
 	}
 	bad := []string{
-		"", "-oProxyCommand=x", "--upload-pack=x", "ext::sh -c id", "fd::3",
+		"", "-oProxyCommand=x", "--upload-pack=x", "ext::sh -c id", "fd::3", "[::1]::x",
 		"http::https://example.com/r", "ftp://h/r", "rsync://h/r", "https://h/r\nx",
 	}
 	for _, r := range bad {

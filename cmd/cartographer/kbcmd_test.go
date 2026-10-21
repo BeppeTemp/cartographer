@@ -944,8 +944,15 @@ func TestKBRemoteHelperRefused(t *testing.T) {
 		if strings.HasPrefix(remote, "-") {
 			continue // the flag parser takes it before gitx sees it
 		}
-		if code := cmdKBClone([]string{remote, "beta", "--data", dataDir}); code == 0 {
+		var cloneCode int
+		stderr := withStderr(t, func() {
+			cloneCode = cmdKBClone([]string{remote, "beta", "--data", dataDir})
+		})
+		if cloneCode == 0 {
 			t.Errorf("kb clone %q = 0, want non-zero", remote)
+		}
+		if !strings.Contains(stderr, "transport>::<address> helper syntax") {
+			t.Errorf("kb clone %q: validation message missing from stderr: %q", remote, stderr)
 		}
 		if _, err := os.Stat(filepath.Join(dataDir, "beta")); err == nil {
 			t.Errorf("kb clone %q left a directory", remote)

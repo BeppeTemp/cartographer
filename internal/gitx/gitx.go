@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -141,6 +142,8 @@ func cloneEnv(remote string, extra []string) []string {
 // allowedRemoteSchemes are the URL schemes a remote may use.
 var allowedRemoteSchemes = []string{"https", "http", "ssh", "git", "file"}
 
+var bracketedRE = regexp.MustCompile(`\[[^\]]*\]`)
+
 // ValidateRemote refuses an operator-supplied remote that git would read as an
 // option (leading "-") or run as a transport helper ("ext::<command>"). It is
 // an allow-list of forms, not a deny-list: scp-like (git@host:path), a URL
@@ -158,7 +161,8 @@ func ValidateRemote(remote string) error {
 		return errors.New("remote must not start with '-'")
 	}
 	head, _, _ := strings.Cut(remote, "/")
-	if strings.Contains(head, "::") {
+	// "::" inside [...] is an IPv6 literal (git@[::1]:repo.git), not a helper.
+	if strings.Contains(bracketedRE.ReplaceAllString(head, "[]"), "::") {
 		return fmt.Errorf("remote %q uses git's <transport>::<address> helper syntax, which is not accepted", remote)
 	}
 	if scheme, _, found := strings.Cut(remote, "://"); found {
