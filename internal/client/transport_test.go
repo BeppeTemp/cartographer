@@ -88,3 +88,35 @@ func TestIsLoopbackHost(t *testing.T) {
 		}
 	}
 }
+
+// An https endpoint that redirects to a cleartext remote must not receive the
+// token on the second hop (Go keeps Authorization on same-host redirects).
+func TestRedirectPolicy_RefusesDowngrade(t *testing.T) {
+	mk := func(target string) *http.Request {
+		r, _ := http.NewRequest(http.MethodGet, target, nil)
+		return r
+	}
+	via := []*http.Request{mk("https://example.com/mcp")}
+	if err := RedirectPolicy(false)(mk("http://example.com/mcp"), via); err == nil {
+		t.Error("https -> remote http redirect was followed")
+	}
+	if err := RedirectPolicy(true)(mk("http://example.com/mcp"), via); err != nil {
+		t.Errorf("opt-in should follow: %v", err)
+	}
+	if err := RedirectPolicy(false)(mk("https://example.com/other"), via); err != nil {
+		t.Errorf("https -> https refused: %v", err)
+	}
+	if err := RedirectPolicy(false)(mk("http://127.0.0.1/x"), via); err != nil {
+		t.Errorf("loopback target refused: %v", err)
+	}
+}
+
+func TestClient_DoesNotFollowRedirectToCleartext(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://10.0.0.5/mcp", http.StatusTemporaryRedirect)
+	}))
+	defer srv.Close()
+	if _, err := New(srv.URL+"/mcp", "tok").Call("x", nil); err == nil || !strings.Contains(err.Error(), "refusing") {
+		t.Errorf("Call error = %v, want the redirect refused", err)
+	}
+}

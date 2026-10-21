@@ -99,3 +99,11 @@ func TestClientConfig_OlderFileLoadsWithKeyFalse(t *testing.T) {
 		t.Error("an older file must load with allow_insecure_http false")
 	}
 }
+
+func TestFetchSettings_RefusesRemotePlainHTTP(t *testing.T) {
+	t.Setenv("CARTOGRAPHER_ALLOW_INSECURE_HTTP", "")
+	reply, note := fetchSettings(&clientconfig.Config{ServerURL: remoteHTTPURL})
+	if reply != nil || !strings.Contains(note, "server settings unavailable") || !strings.Contains(note, "refusing") {
+		t.Errorf("fetchSettings = %v, %q, want the refusal as the unavailable note", reply, note)
+	}
+}

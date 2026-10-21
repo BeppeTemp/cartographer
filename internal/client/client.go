@@ -405,7 +405,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 		httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
-	resp, err := c.HTTP.Do(httpReq)
+	resp, err := HTTPClient(c.HTTP, c.AllowInsecureHTTP).Do(httpReq)
 	if err != nil {
 		return nil, &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
 			Message: unreachableMessage(reqURL, err), Cause: err}
@@ -466,7 +466,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 // unknown method.
 func (c *MCPClient) Ping(timeout time.Duration) error {
 	cp := *c
-	hc := *c.HTTP
+	hc := *HTTPClient(c.HTTP, c.AllowInsecureHTTP)
 	hc.Timeout = timeout
 	cp.HTTP = &hc
 	_, err := cp.do("server/discover", nil)
@@ -491,7 +491,7 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 	u.Fragment = ""
 	u.Path = strings.TrimRight(u.Path, "/") + "/health"
 
-	hc := *c.HTTP
+	hc := *HTTPClient(c.HTTP, c.AllowInsecureHTTP)
 	hc.Timeout = timeout
 	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -597,7 +597,7 @@ func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time
 		}
 		reader = bytes.NewReader(raw)
 	}
-	hc := *c.HTTP
+	hc := *HTTPClient(c.HTTP, c.AllowInsecureHTTP)
 	hc.Timeout = timeout
 	req, err := http.NewRequest(method, u.String(), reader)
 	if err != nil {

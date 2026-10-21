@@ -1,8 +1,10 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
 )
@@ -46,4 +48,24 @@ func CheckServerURL(rawURL string, allowInsecure bool) error {
 	default:
 		return fmt.Errorf("client: unsupported server URL scheme %q in %s (use https://)", u.Scheme, u.Redacted())
 	}
+}
+
+// RedirectPolicy is the http.Client CheckRedirect that keeps the gate in force
+// across redirects: Go keeps Authorization on a same-host redirect, so an
+// https:// endpoint answering 302 to http:// would otherwise leak the token.
+// A redirect whose target fails CheckServerURL is refused.
+func RedirectPolicy(allowInsecure bool) func(req *http.Request, via []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return CheckServerURL(req.URL.String(), allowInsecure)
+	}
+}
+
+// HTTPClient returns a copy of base whose redirects obey RedirectPolicy.
+func HTTPClient(base *http.Client, allowInsecure bool) *http.Client {
+	hc := *base
+	hc.CheckRedirect = RedirectPolicy(allowInsecure)
+	return &hc
 }
