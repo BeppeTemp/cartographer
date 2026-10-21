@@ -643,6 +643,9 @@ function View({
       if (focusedId.current !== null) scene.unfocus(savedPose.current);
       focusedId.current = null;
       savedPose.current = null;
+      // An open concept the graph does not draw (an index page) still has
+      // its panel open: the graph moves beside it rather than under it.
+      if (shown) scene.centreIn(occludedRef.current);
       return;
     }
     if (focusedId.current !== node.id) {
@@ -681,6 +684,7 @@ function View({
       const scene = sceneRef.current;
       const node = scene?.nodeById(shown);
       const last = focusedOcclusion.current;
+      if (scene && !node) scene.centreIn({ left: occludedLeft, right: occludedRight });
       if (!scene || !node) return;
       if (last && last.left === occludedLeft && last.right === occludedRight) return;
       focusedOcclusion.current = { left: occludedLeft, right: occludedRight };

@@ -97,6 +97,10 @@ export interface SceneCallbacks {
  *  the way to its fit it eases each frame. */
 const SETTLE_MS = 3500;
 const SETTLE_EASE = 0.06;
+/** While the panorama turns with nobody at the controls, the camera eases
+ *  this much of the way to the fit every frame: hours of drift and rotation
+ *  never carry the network off screen, and the reader never sees it move. */
+const IDLE_FIT_EASE = 0.01;
 /** How long a new KB or Map takes to open out of its centre. */
 const BLOOM_MS = 1800;
 /** The burst's raggedness: the latest a node sets off, and how much slower
@@ -699,6 +703,17 @@ export class LivingScene {
     this.follow = new Vector3(node.x, node.y, node.z);
   }
 
+  /** Moves the picture, as it is, into the strip the panels leave visible:
+   *  for an open concept the graph does not draw (an index page), so the
+   *  graph is not left under the reading panel. */
+  centreIn(occluded: { left: number; right: number }): void {
+    this.follow = null;
+    const shift = (Math.max(0, occluded.right) - Math.max(0, occluded.left)) / 2;
+    if (Math.abs(shift - this.shift) < 0.5) return;
+    const pose = this.pose();
+    this.animateTo(() => pose, this.cameraMs(CAMERA_MOVE), shift);
+  }
+
   unfocus(pose: Pose | null): void {
     this.follow = null;
     if (!pose) {
@@ -1059,6 +1074,20 @@ export class LivingScene {
       }
     }
     this.controls.autoRotate = !this.tween && this.idle.shouldRotate();
+    if (this.controls.autoRotate && !this.selected && !this.fitFollow) {
+      // Idle: the network breathes and the panorama turns around a pivot
+      // the drift slowly leaves. Keep the whole of it in frame, gently.
+      const pose = this.fitPoseFor(0);
+      if (pose) {
+        const p = this.camera.position;
+        const t = this.controls.target;
+        const e = IDLE_FIT_EASE;
+        p.set(p.x + (pose.position.x - p.x) * e, p.y + (pose.position.y - p.y) * e, p.z + (pose.position.z - p.z) * e);
+        t.set(t.x + (pose.lookAt.x - t.x) * e, t.y + (pose.lookAt.y - t.y) * e, t.z + (pose.lookAt.z - t.z) * e);
+        this.controls.maxDistance = Math.max(this.controls.maxDistance, p.distanceTo(t) * 1.5);
+        moved = true;
+      }
+    }
     // True while the camera moves: the reader's drag, its damping, the panorama.
     if (this.controls.update()) moved = true;
     const animating = !!(this.bloom || this.morph || this.colourFade || this.edgeFade || (this.burst && this.live));

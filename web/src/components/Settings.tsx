@@ -11,8 +11,8 @@ import type {
   Whoami,
   WhoamiRule,
 } from "../api/types";
-import { Page, PageHeader, Segmented } from "./Page";
-import { ErrorState, Skeleton } from "./States";
+import { Page, PageHeader, Segmented, SettingsSkeleton, TitleBone } from "./Page";
+import { ErrorState } from "./States";
 
 /** A value as a person reads it: lists joined, maps as `key: value`, empty said out loud. */
 export function formatValue(value: unknown): string {
@@ -181,7 +181,13 @@ export function Settings({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadKey]);
 
-  if (loading && !view) return <Skeleton lines={6} label="Loading settings" />;
+  if (loading && !view)
+    return (
+      <Page label="Settings" busy className="settings">
+        <PageHeader eyebrow="Settings" title={<TitleBone label="Loading settings" />} />
+        <SettingsSkeleton label="Loading settings" />
+      </Page>
+    );
   if (error) return <ErrorState error={error} onRetry={onRetry} />;
   if (!view) return null;
 

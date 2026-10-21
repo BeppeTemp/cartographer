@@ -16,7 +16,8 @@ import {
   PageHeader,
   Quiet,
   Segmented,
-  SkeletonRows,
+  TitleBone,
+  WorkSkeleton,
 } from "./Page";
 
 type Layout = "status" | "map";
@@ -269,7 +270,7 @@ export function Work({
       {error ? (
         <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
       ) : !data ? (
-        <SkeletonRows label="Reading the work list" />
+        <WorkSkeleton label="Reading the work list" />
       ) : empty ? (
         <Quiet>No open work: no concept in an open status and no unchecked item.</Quiet>
       ) : entries.length === 0 ? (
@@ -549,7 +550,7 @@ function Headline({
   decisions: number;
   failed: boolean;
 }) {
-  if (!data) return <>{failed ? "Work list unavailable" : "Reading the work list…"}</>;
+  if (!data) return <>{failed ? "Work list unavailable" : <TitleBone label="Reading the work list" />}</>;
   if (data.total === 0 && misses + decisions === 0) return <>Nothing is open.</>;
   // One clause per kind of work that exists, so none is named when it is zero.
   const parts: ReactNode[] = [];

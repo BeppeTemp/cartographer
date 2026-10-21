@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
+	"os"
 	"sort"
 	"strings"
 
@@ -76,6 +78,31 @@ func reportClientSettings(cfg *clientconfig.Config, dir string) bool {
 		return false
 	}
 	return true
+}
+
+// reportOnly is `sync --report-to <url>`: the two reports above, sent to
+// another server than the configured one, and nothing else. It is how
+// `make dev DATA=…` shows this machine's real client on a live instance: the
+// config is read, never saved, nothing is provisioned, and the configured
+// server is not contacted.
+func reportOnly(dir, url string) int {
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: no client config found in %s: %v\n", dir, err)
+		return 2
+	}
+	cfg.ServerURL = url
+	if err := client.CheckServerURL(url, cfg.InsecureHTTPAllowed()); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	usage := reportUsage(cfg, dir)
+	settings := reportClientSettings(cfg, dir)
+	fmt.Printf("reported to %s: %d usage entries, client settings %s\n", url, usage, map[bool]string{true: "sent", false: "not sent"}[settings])
+	if !settings {
+		return 1
+	}
+	return 0
 }
 
 // reportProviders describes each connected agent client: its scope, its bound
