@@ -37,6 +37,8 @@ permissions:
   contents: read
   pull-requests: write # comments on the release PR
   actions: write # dispatching preview.yml
+  checks: read # gh pr checks reads the check runs
+  statuses: read # and the commit statuses
 
 concurrency:
   group: release-train
@@ -74,8 +76,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
+          # --head matches only the branch name: a fork can open a PR from a branch of
+          # the same name, so the PR must come from this repository.
           n=$(gh pr list --state open --label "autorelease: pending" \
-            --head release-please--branches--main --json number --jq '.[0].number // empty')
+            --head release-please--branches--main --json number,isCrossRepository \
+            --jq '[.[] | select(.isCrossRepository | not)][0].number // empty')
           if [ -z "$n" ]; then
             echo "no release PR open: nothing to do"
           else
@@ -126,14 +131,19 @@ jobs:
           # fix merged after the Friday build and before the label was never run.
           retry="Run \`release-train\` by hand with \`action: rc\`, try the new candidate, then remove and add \`rc-ok\` again."
           head_sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
-          read -r rc_sha rc_at < <(gh run list --workflow preview.yml --branch main --status success --limit 1 \
-            --json headSha,updatedAt --jq '.[0] | "\(.headSha) \(.updatedAt)"') || true
+          # Only a release candidate counts, not any preview of main: run-name carries the tag.
+          read -r rc_sha rc_at < <(gh run list --workflow preview.yml --branch main --status success --limit 20 \
+            --json headSha,updatedAt,displayTitle \
+            --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}$"))][0] | "\(.headSha) \(.updatedAt)"') || true
           [ -n "${rc_sha:-}" ] && [ "$rc_sha" = "$head_sha" ] \
             || skip "the last candidate built (${rc_sha:-none}) is not the head of \`main\` (${head_sha:0:8}). $retry"
-          ok_at=$(gh api --paginate "repos/$GH_REPO/issues/$PR/timeline" \
-            --jq '.[] | select(.event == "labeled" and .label.name == "rc-ok") | .created_at' | sort | tail -1)
-          [ -n "$ok_at" ] && [ "$ok_at" \> "$rc_at" ] \
-            || skip "\`rc-ok\` (added $ok_at) predates the build of the current candidate ($rc_at). $retry"
+          read -r ok_at ok_by < <(gh api --paginate "repos/$GH_REPO/issues/$PR/timeline" \
+            --jq '.[] | select(.event == "labeled" and .label.name == "rc-ok") | "\(.created_at) \(.actor.login)"' | sort | tail -1) || true
+          [ -n "${ok_at:-}" ] && [ "$ok_at" \> "$rc_at" ] \
+            || skip "\`rc-ok\` (added ${ok_at:-never}) predates the build of the current candidate ($rc_at). $retry"
+          # Triage can add a label; only a maintainer (write or more) vouches for a candidate.
+          perm=$(gh api "repos/$GH_REPO/collaborators/$ok_by/permission" --jq .permission || true)
+          case "$perm" in admin | maintain | write) ;; *) skip "\`rc-ok\` was added by $ok_by, who is not a maintainer. $retry" ;; esac
 
           # Freeze: any feat, perf, refactor or breaking commit since last Friday 00:00 in Rome.
           friday=$(TZ=Europe/Rome date -d 'last friday 00:00' +%s)
@@ -147,7 +157,10 @@ jobs:
           [ -n "$checks" ] && [ "$(echo "$checks" | jq 'length > 0 and all(. == "pass" or . == "skipping")')" = true ] \
             || skip "the required checks of this PR have not all passed."
 
+          # Pin the head that was checked: release-please may push to the branch before the merge.
+          sha=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
           echo "number=$PR" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
       # The only step that merges. RELEASE_PLEASE_TOKEN, never github.token (see TRAPS).
       - name: Merge the release PR
@@ -156,6 +169,7 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ steps.gate.outputs.number }}
+          SHA: ${{ steps.gate.outputs.sha }}
         run: |
-          gh pr merge "$PR" --squash
+          gh pr merge "$PR" --squash --match-head-commit "$SHA"
           gh pr comment "$PR" --body "Release train: merged. release-please cuts the tag next."
