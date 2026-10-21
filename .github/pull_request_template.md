@@ -46,5 +46,5 @@ decision file if the change makes an architectural or contract choice. -->
 ## Self-review
 
 <!-- The independent review you ran before opening (the `cartographer-contract-reviewer` subagent of
-the cartographer-review-pr skill, ) and what you did with each
+the cartographer-review-pr skill) and what you did with each
 finding. `make gate` green: yes/no. -->
