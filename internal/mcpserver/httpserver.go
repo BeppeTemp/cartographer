@@ -203,6 +203,11 @@ func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	by := s.PolicyKB()
+	if by == "" && s.kbRef != nil {
+		// Same fallback as installPolicy: a server without SetPolicyKB is
+		// named by its KB.
+		by = kbName(s.kbRef)
+	}
 	rows := make([]ClientStat, 0)
 	var overflow int64
 	// An invisible KB answers the same 200 with an empty roster, not 403: the

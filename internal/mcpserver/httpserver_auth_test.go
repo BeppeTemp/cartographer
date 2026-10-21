@@ -508,3 +508,27 @@ func TestClients_SingleKBRosterHiddenFromOtherKBToken(t *testing.T) {
 		t.Fatalf("token for another KB: rows = %v, want none; body=%s", got, body)
 	}
 }
+
+// TestClients_SingleKBRosterWithoutPolicyKB pins the empty-PolicyKB fallback:
+// a single-KB server never given SetPolicyKB names its roster by its KB, so a
+// token granted on that KB still sees it.
+func TestClients_SingleKBRosterWithoutPolicyKB(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	name := kbName(k)
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "own", Scopes: []auth.KBScope{{KB: name}}},
+		{Token: "other", Scopes: []auth.KBScope{{KB: name + "-other"}}},
+	})
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	handler := ts.Middleware(s.HTTPHandler())
+	doMCP(handler, name, "own", writeToolCallBody("atlas_overview"))
+
+	if got, body := clientsRoster(t, handler, "own"); len(got) == 0 || got[0] != name {
+		t.Fatalf("token for the served KB: rows = %v, want %s rows; body=%s", got, name, body)
+	}
+	if got, body := clientsRoster(t, handler, "other"); len(got) != 0 {
+		t.Fatalf("token for another KB: rows = %v, want none; body=%s", got, body)
+	}
+}
