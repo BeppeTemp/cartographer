@@ -378,6 +378,20 @@ func launchdPrintStopped(out string) bool {
 	return false
 }
 
+// launchdLabelDisabled reports whether `launchctl print-disabled gui/<uid>`
+// lists the service label as disabled (`"label" => disabled`; older macOS prints
+// `=> true`). Anything else, including an absent label, is not disabled.
+func launchdLabelDisabled(out string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		l := strings.TrimSpace(line)
+		if v, ok := strings.CutPrefix(l, `"`+launchdLabel+`" =>`); ok {
+			v = strings.TrimSpace(v)
+			return v == "disabled" || v == "true"
+		}
+	}
+	return false
+}
+
 // launchdJobLoaded reports whether the job is registered in the user's GUI
 // domain. It branches on launchctl's exit status rather than parsing its prose,
 // which is localized.
@@ -787,6 +801,14 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		}
 		if out, err := m.run("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel)); err == nil {
 			st.Running = !launchdPrintStopped(out)
+			if st.Running {
+				// Stop's own mark: right after it the job can still read
+				// `spawn scheduled` (KeepAlive throttle) though it was stopped on
+				// purpose, so the disabled flag is the authority, not the state.
+				if dis, err := m.run("launchctl", "print-disabled", fmt.Sprintf("gui/%d", os.Getuid())); err == nil && launchdLabelDisabled(dis) {
+					st.Running = false
+				}
+			}
 		}
 	case "linux":
 		unitPath, err := SystemdUnitPath()
