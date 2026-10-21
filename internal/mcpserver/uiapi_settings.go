@@ -64,7 +64,11 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 		view.Server[i].Value = shown
 	}
 	admin := auth.PrincipalFromContext(ctx).Policy.Admin
-	narrowSettingsView(&view, visible, admin)
+	whole := map[string]bool{}
+	for _, n := range names {
+		whole[n] = WholeVisible(ctx, m.servers[n].kbRef, false)
+	}
+	narrowSettingsView(&view, visible, whole, admin)
 
 	kbs := make([]uiSettingsKB, 0, len(view.KBs))
 	for _, section := range view.KBs {
@@ -147,20 +151,28 @@ var settingsCallerKeys = map[string]bool{
 }
 
 // narrowSettingsView applies, in place, what the caller may read of the view.
-// Every remote URL loses its userinfo, for every caller (the same helper as
-// kb_status). A caller that is not an admin gets only the settingsCallerKeys
+// Every remote URL loses its credentials, for every caller (the same helper as
+// kb_status), and is shown only for a KB the caller sees whole. A caller that is not an admin gets only the settingsCallerKeys
 // of the server section, and the per-KB map of identities limited to the KBs
 // it sees; the YAML views are rendered from the narrowed view afterwards.
-func narrowSettingsView(view *config.View, visible map[string]bool, admin bool) {
-	for _, section := range view.KBs {
-		for i, e := range section.Entries {
-			if e.Key != "kbs[].remote" {
-				continue
+func narrowSettingsView(view *config.View, visible, whole map[string]bool, admin bool) {
+	for s := range view.KBs {
+		section := &view.KBs[s]
+		kept := section.Entries[:0:0]
+		for _, e := range section.Entries {
+			if e.Key == "kbs[].remote" {
+				// Where a KB replicates is a replication fact: for a caller
+				// that sees the whole KB, as the git block below.
+				if !whole[section.Name] {
+					continue
+				}
+				if raw, ok := e.Value.(string); ok {
+					e.Value = kb.RedactRemoteURL(raw)
+				}
 			}
-			if raw, ok := e.Value.(string); ok {
-				section.Entries[i].Value = kb.RedactRemoteURL(raw)
-			}
+			kept = append(kept, e)
 		}
+		section.Entries = kept
 	}
 	if admin {
 		return

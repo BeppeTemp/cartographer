@@ -889,10 +889,14 @@ func (k *KB) RemoteInfo() (url string, ok bool) {
 }
 
 // RedactRemoteURL strips credential material from a remote URL. For http(s)
-// the whole userinfo is dropped: a token can sit in either half
-// (https://token@host/... as well as https://user:token@host/...). For other
-// schemes only the password is dropped — an ssh username is not a secret and
-// identifies the remote. Values git cannot parse as a URL (scp-style
+// (and any "+http"/"+https" transport such as git+https) the whole userinfo is
+// dropped: a token can sit in either half (https://token@host/... as well as
+// https://user:token@host/...). For other schemes only the password is dropped
+// — an ssh username is not a secret and identifies the remote. Query
+// parameters whose name contains token, key, secret or password are dropped.
+// A value with "://" that url.Parse rejects (a stray %, #, / or space in a
+// password) is never returned as it came: everything between "://" and the
+// last "@" of its authority is cut. Values without "://" (scp-style
 // git@host:owner/repo.git, local paths) carry no userinfo and are returned
 // unchanged.
 func RedactRemoteURL(raw string) string {
@@ -900,18 +904,75 @@ func RedactRemoteURL(raw string) string {
 		return raw
 	}
 	u, err := neturl.Parse(raw)
-	if err != nil || u.User == nil {
-		return raw
+	if err != nil {
+		return redactUnparsable(raw)
 	}
-	switch strings.ToLower(u.Scheme) {
-	case "http", "https":
-		u.User = nil
-	default:
-		if _, hasPassword := u.User.Password(); hasPassword {
+	scheme := strings.ToLower(u.Scheme)
+	if u.User != nil {
+		if scheme == "http" || scheme == "https" || strings.HasSuffix(scheme, "+http") || strings.HasSuffix(scheme, "+https") {
+			u.User = nil
+		} else if _, hasPassword := u.User.Password(); hasPassword {
 			u.User = neturl.User(u.User.Username())
 		}
 	}
+	if u.RawQuery != "" {
+		var kept []string
+		for _, part := range strings.Split(u.RawQuery, "&") {
+			name, _, _ := strings.Cut(part, "=")
+			if !secretQueryName(name) {
+				kept = append(kept, part)
+			}
+		}
+		u.RawQuery = strings.Join(kept, "&")
+	}
 	return u.String()
+}
+
+// secretQueryName reports whether a query parameter name looks like it carries
+// a credential.
+func secretQueryName(name string) bool {
+	if dec, err := neturl.QueryUnescape(name); err == nil {
+		name = dec
+	}
+	name = strings.ToLower(name)
+	for _, w := range []string{"token", "key", "secret", "password"} {
+		if strings.Contains(name, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// redactUnparsable handles a URL-looking value net/url refuses. It cuts what
+// sits between "://" and the last "@" before the first "/" that follows the
+// authority; when no such boundary exists it uses the last "@" in the string.
+// The credential may itself hold "/", "#" or "?", so the last "@" is what
+// separates userinfo from host. Query parameters that look like credentials
+// are dropped too.
+func redactUnparsable(raw string) string {
+	raw = strings.TrimSpace(raw)
+	i := strings.Index(raw, "://")
+	if i < 0 {
+		return raw
+	}
+	head, rest := raw[:i+3], raw[i+3:]
+	if at := strings.LastIndex(rest, "@"); at >= 0 {
+		rest = rest[at+1:]
+	}
+	if q := strings.Index(rest, "?"); q >= 0 {
+		var kept []string
+		for _, part := range strings.Split(rest[q+1:], "&") {
+			name, _, _ := strings.Cut(part, "=")
+			if !secretQueryName(name) {
+				kept = append(kept, part)
+			}
+		}
+		rest = rest[:q]
+		if len(kept) > 0 {
+			rest += "?" + strings.Join(kept, "&")
+		}
+	}
+	return head + rest
 }
 
 // CommitOp creates a git commit if the KB root is a git repository and the
