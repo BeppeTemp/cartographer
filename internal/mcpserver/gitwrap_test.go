@@ -95,8 +95,8 @@ func TestGitWrap_ProtectedBranchPushIsReportedAsSuch(t *testing.T) {
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}
-	hook := filepath.Join(bare, "hooks", "pre-receive")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho 'remote: error: GH006: Protected branch update failed' >&2\nexit 1\n"), 0o755); err != nil {
+	installForgeHook(t, bare)
+	if err := os.WriteFile(filepath.Join(bare, "hooks", "protected-branch"), []byte("*\nremote: error: GH006: Protected branch update failed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	res := writeWrappedTool(t, k, "test_write", nil)

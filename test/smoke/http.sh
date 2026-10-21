@@ -9,6 +9,15 @@ BIN="$BASE/bin/cartographer"
 [ -x "$BIN" ] || { echo "missing $BIN: run 'make build' first" >&2; exit 1; }
 
 DATA="$(mktemp -d)"
+# No git identity on this host (D996): see test/e2e/run.sh.
+export GIT_CONFIG_GLOBAL="$DATA/gitconfig" GIT_CONFIG_NOSYSTEM=1
+# useConfigOnly: git must not guess an identity from the passwd entry and hostname.
+printf '[init]\n\tdefaultBranch = master\n[user]\n\tuseConfigOnly = true\n' > "$GIT_CONFIG_GLOBAL"
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL EMAIL
+if git var GIT_COMMITTER_IDENT >/dev/null 2>&1; then
+  echo "[ERROR] the isolated git config still yields an identity: the isolation regressed" >&2
+  exit 1
+fi
 PORT=18081
 MCP="http://127.0.0.1:$PORT/mcp"
 
