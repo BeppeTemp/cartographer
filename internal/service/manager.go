@@ -733,10 +733,10 @@ const (
 	// LifecycleNotInstalled: no plist/unit on disk. Nothing else is a fault.
 	LifecycleNotInstalled Lifecycle = "not_installed"
 	// LifecycleNotLoaded: installed, but the init system does not know it, or
-	// (macOS) knows it with no process because it was stopped.
+	// (macOS, Windows) knows it with no process because it was stopped.
 	LifecycleNotLoaded Lifecycle = "not_loaded"
-	// LifecycleLoaded: registered with the init system and, on macOS, not
-	// stopped — see Status.Running for exactly how much that proves.
+	// LifecycleLoaded: registered with the init system and, on macOS and
+	// Windows, not stopped — see Status.Running for exactly how much that proves.
 	LifecycleLoaded Lifecycle = "loaded"
 )
 
@@ -765,9 +765,10 @@ const (
 // stopped: on darwin `launchctl print` on the label succeeded and the job is
 // alive (a `pid`) or neither disabled nor `not running` (Stop leaves it
 // registered, disabled and without a process); on linux `systemctl --user
-// is-active`; on Windows `Get-ScheduledTask` on the task. On darwin and
-// Windows that proves the job is known to the scheduler and not stopped, NOT
-// that the server answers. Callers must not present it as a liveness probe.
+// is-active`; on Windows `Get-ScheduledTask` succeeded and the task's State is
+// neither Disabled (what Stop leaves) nor Ready (no process), and an unreadable
+// State counts as running. On darwin and Windows that proves the job is known
+// to the scheduler and not stopped, NOT that the server answers. Callers must not present it as a liveness probe.
 type Status struct {
 	BinPath          string
 	ConfigPath       string
@@ -847,11 +848,10 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		if _, err := os.Stat(taskPath); err == nil {
 			st.Installed = true
 		}
-		// Registered, not alive — the same thing `launchctl print` proves. A
-		// task's State would even distinguish Ready from Running, which is more
-		// than launchd reports; conflating the two here would make Running mean
-		// something different on this platform than on the other two.
-		st.Running = m.windowsTaskRegistered(windowsServeTaskName)
+		// Registered and not stopped, as on macOS (D1014): Stop leaves the task
+		// registered but Disabled, which must not read as running. The query
+		// fails open, so an unreadable state counts as running.
+		st.Running = m.windowsTaskRegistered(windowsServeTaskName) && !m.windowsTaskStopped(windowsServeTaskName)
 	default:
 		return st, fmt.Errorf("service: unsupported platform %q", goos)
 	}

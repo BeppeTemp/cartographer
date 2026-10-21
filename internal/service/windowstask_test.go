@@ -777,10 +777,79 @@ func TestStatus_Windows_InstalledIsTheFileOnDisk(t *testing.T) {
 		t.Error("Installed should be true once the definition is on disk")
 	}
 	if !st.Running {
-		t.Error("Running should be true when Get-ScheduledTask succeeds")
+		t.Error("Running should be true when the task is registered and the state query gives no stopped verdict")
 	}
 	if st.Lifecycle != LifecycleLoaded {
 		t.Errorf("Lifecycle = %q, want %q", st.Lifecycle, LifecycleLoaded)
+	}
+}
+
+// TestStatus_Windows_ReadsTheTaskState pins D1014: Running is "registered and
+// not stopped", decided inside PowerShell, and fails open.
+func TestStatus_Windows_ReadsTheTaskState(t *testing.T) {
+	cases := []struct {
+		name        string
+		state       string // the task State the scenario simulates; "" = not registered
+		stateOut    string // overrides the token the state script prints
+		stateFails  bool
+		wantRunning bool
+		wantLife    Lifecycle
+	}{
+		{name: "disabled (what Stop leaves)", state: "Disabled", wantRunning: false, wantLife: LifecycleNotLoaded},
+		{name: "ready (no process)", state: "Ready", wantRunning: false, wantLife: LifecycleNotLoaded},
+		{name: "running", state: "Running", wantRunning: true, wantLife: LifecycleLoaded},
+		{name: "queued", state: "Queued", wantRunning: true, wantLife: LifecycleLoaded},
+		{name: "state query fails: fail open", state: "Disabled", stateFails: true, wantRunning: true, wantLife: LifecycleLoaded},
+		{name: "empty output: fail open", state: "Disabled", stateOut: "", wantRunning: true, wantLife: LifecycleLoaded},
+		{name: "localised word: fail open", state: "Disabled", stateOut: "Disattivato", wantRunning: true, wantLife: LifecycleLoaded},
+		{name: "not registered", state: "", wantRunning: false, wantLife: LifecycleNotLoaded},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTestHome(t, "windows")
+			configPath := filepath.Join(home, "server.yaml")
+			if err := os.WriteFile(configPath, []byte("http: \"127.0.0.1:1\"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			taskPath := filepath.Join(home, "AppData", "Local", "cartographer", "tasks", "serve.xml")
+			if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(taskPath, []byte("<Task/>"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			run := func(name string, args ...string) (string, error) {
+				key := strings.Join(append([]string{name}, args...), " ")
+				switch {
+				case strings.Contains(key, "$s = (Get-ScheduledTask"):
+					if tc.stateFails {
+						return "", errNotLoaded
+					}
+					if tc.stateOut != "" || tc.name == "empty output: fail open" {
+						return tc.stateOut, nil
+					}
+					if tc.state == "Disabled" || tc.state == "Ready" {
+						return "stopped\r\n", nil
+					}
+					return "live\r\n", nil
+				case strings.Contains(key, "Get-ScheduledTask"):
+					if tc.state == "" {
+						return "", errNotLoaded
+					}
+				}
+				return "", nil
+			}
+			st, err := (&Manager{run: run}).Status(configPath)
+			if err != nil {
+				t.Fatalf("Status: %v", err)
+			}
+			if st.Running != tc.wantRunning {
+				t.Errorf("Running = %v, want %v", st.Running, tc.wantRunning)
+			}
+			if st.Lifecycle != tc.wantLife {
+				t.Errorf("Lifecycle = %q, want %q", st.Lifecycle, tc.wantLife)
+			}
+		})
 	}
 }
 
