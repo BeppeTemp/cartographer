@@ -118,9 +118,10 @@ start_gitlab() {
     -e GITLAB_ROOT_PASSWORD="$PASSWORD" \
     -e GITLAB_OMNIBUS_CONFIG="external_url '$BASE'; nginx['listen_port']=$PORT; nginx['listen_https']=false; puma['worker_processes']=0; sidekiq['concurrency']=4; prometheus_monitoring['enable']=false; gitlab_rails['gitlab_signup_enabled']=false" \
     "$GITLAB_IMAGE" >/dev/null
-  # Booting takes minutes; readiness answers 200 only once Rails serves.
-  wait_for "GitLab CE" 900 curl -sf "$BASE/-/readiness"
-  wait_for "GitLab sign-in page" 300 curl -sf -o /dev/null "$BASE/users/sign_in"
+  # Booting takes minutes. /-/readiness is 404 for a client outside the
+  # instance's monitoring allowlist (the docker bridge is), so the sign-in page
+  # answering 200 is the sign that Rails serves.
+  wait_for "GitLab CE" 900 curl -sf -o /dev/null "$BASE/users/sign_in"
   # A personal access token with a known value, made in the instance itself:
   # the API cannot mint the first one.
   TOKEN="glpat-ci$(python3 -c 'import secrets; print(secrets.token_hex(8))')"
