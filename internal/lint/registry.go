@@ -186,6 +186,8 @@ var registry = []CheckSpec{
 	{Name: "cross_kb_path", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	// A junk file is deleted; missing_instructions has no file to key on.
 	{Name: "junk_file", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	// No write can create a symlink, so the check is not avoidable at write.
+	{Name: "symlinked_path", Level: LevelArtifact, Panel: true, Category: CategoryArtifacts},
 	{Name: "junk_asset", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	{Name: "missing_instructions", Level: LevelArtifact, Panel: true, Category: CategoryArtifacts},
 

@@ -450,6 +450,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `skill_missing_perimeter` | artifact | yes | - | - | - |
 | `cross_kb_path` | artifact | yes | - | - | - |
 | `junk_file` | artifact | yes | - | - | - |
+| `symlinked_path` | artifact | - | - | - | - |
 | `junk_asset` | artifact | yes | - | - | - |
 | `missing_instructions` | artifact | - | - | - | - |
 | `hook_invalid` | kb | yes | - | - | - |
@@ -486,6 +487,7 @@ Every other check is avoidable at write, and the write gate refuses a write that
 | Work another tool does | `imported_draft` | `status: imported`, set by `cartographer import` until the page is curated |
 | Work another tool does | `index_stale` | the generated index block differs from the graph: the server rewrites it after the write, in the same commit (§Generated indexes) |
 | Work another tool does | `orphan_asset` | an asset no page of its dossier cites: `asset_write` and the page that cites it are different calls |
+| Not created by a write | `symlinked_path` | a symlink arrives with a git checkout or a hand edit; no tool creates one, and concept and asset paths refuse it |
 | Refused by the write path before lint | `missing_frontmatter`, `unparseable_frontmatter`, `missing_type`, `concept_too_deep` | the write is refused before it is linted, so the refusal is already the gate; `lint` reports a page that reached disk another way |
 | Whole graph, map or KB, not evaluated by the write path | `unused_placeholder` | a `paths.yaml` key no page or artifact cites: it depends on every page |
 | Not a lint finding | the thirteen review kinds: `duplicate_candidate`, `zombie_work`, `promotion_candidate`, `glossary_gap`, `lint_judgement`, `repeated_fact`, `read_hotspot`, `scattered_work`, `status_reclassify`, `harvest_candidate`, `template_proposal`, `map_naming`, `observation` | a `kb_review` item of the doctor's list, not gated: each closes when the pages it names are in the state it asks for (§Review keys) |
@@ -695,6 +697,7 @@ only in a whole-KB lint, and their findings name the artifact file (`skills/<nam
 - `junk_file`: a junk file git tracks, or would add at the next commit (`git ls-files
   --cached --others --exclude-standard`), outside an expanded concept's assets; remove it with `git
   rm`. `junk_asset` covers the assets (§Assets).
+- `symlinked_path` (D1025, unscoped runs only): a symlink anywhere under `data/` or `services/`, found by walking the disk. Concept paths never follow a link: `concept_read`, `concept_write`, `concept_delete` and the locate step of move/expand refuse a symlink on the path (a map directory, the file, an expanded `index.md`, a dangling link included) with `invalid_path`, and the graph walk does not list a symlinked `.md`, so the concept is simply absent. Remove the link with `git rm`. No write can create one, so the check is not avoidable at write.
 - `sops_format_mismatch` (also per concept): a `sops decrypt` (or `-d`)
   piped to `jq` or `python3 … json.load` without `--output-type json` in code — sops prints YAML by
   default. `sops_missing_file` (same scope): with a `secrets/` directory in the KB, a

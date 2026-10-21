@@ -779,6 +779,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 
 	if scopeNorm == "" {
 		findings = append(findings, checkJunkFiles(k, junkAssets)...)
+		findings = append(findings, checkSymlinkedPaths(k)...)
 	}
 
 	// --- unmapped_folder, stray_file (D357) ---
