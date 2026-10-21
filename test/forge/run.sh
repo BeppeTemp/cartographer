@@ -29,7 +29,13 @@ FAILURES=0
 # No git identity on this host, as in test/e2e/run.sh: what the server commits
 # as must come from the server, never from the runner's config.
 export GIT_CONFIG_GLOBAL="$WORK/gitconfig" GIT_CONFIG_NOSYSTEM=1 GIT_TERMINAL_PROMPT=0
-printf '[init]\n\tdefaultBranch = main\n' > "$GIT_CONFIG_GLOBAL"
+# useConfigOnly: git must not guess an identity from the passwd entry and hostname.
+printf '[init]\n\tdefaultBranch = main\n[user]\n\tuseConfigOnly = true\n' > "$GIT_CONFIG_GLOBAL"
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL EMAIL
+if git var GIT_COMMITTER_IDENT >/dev/null 2>&1; then
+    echo "[ERROR] the isolated git config still yields an identity: the isolation regressed" >&2
+    exit 1
+fi
 
 pass() { echo "[PASS] $1"; }
 fail() { echo "[FAIL] $1"; FAILURES=$((FAILURES + 1)); }

@@ -13,7 +13,7 @@
 #                       replaces that wording.
 #
 # POSIX sh and LF only (.gitattributes forces LF): git runs hooks with its bundled
-# sh on Windows too, so no bashism and no external tool beyond git.
+# sh on Windows too, so no bashism; beyond git it uses only dirname and sed.
 hooks=$(dirname "$0")
 zero=0000000000000000000000000000000000000000
 

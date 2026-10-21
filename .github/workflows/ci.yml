@@ -320,7 +320,7 @@ jobs:
   forge:
     name: forge (${{ matrix.forge }})
     needs: changes
-    if: "!cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && needs.changes.outputs.forge == 'true'))"
+    if: "!cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (needs.changes.result != 'success' || needs.changes.outputs.forge == 'true')))"
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

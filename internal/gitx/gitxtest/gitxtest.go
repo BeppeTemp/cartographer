@@ -81,5 +81,7 @@ func TokenEnv(tokenFile string) []string {
 // credential helper (a keychain) would answer for a missing token, and store a
 // test token. Not t.Setenv, which a parallel test cannot use.
 func IsolatedEnv() []string {
-	return []string{"GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0"}
+	return []string{"GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0",
+		// no identity guessed from the passwd entry and hostname
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=user.useConfigOnly", "GIT_CONFIG_VALUE_0=true"}
 }

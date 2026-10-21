@@ -105,6 +105,11 @@ echo "--- c. git.identity of the allowed user lets a header-less write publish -
 # The refused commit is by the token that made it (here local-admin), which the
 # server keeps as its author: the operator drops it, as the refusal's hint says
 # the change is only safe locally.
+REFUSED="$(git -C "$KB_DIR" log -1 --format='%an|%cn|%ae|%ce')"
+[[ "$REFUSED" == "local-admin|local-admin|"* && "$REFUSED" != *ada@example.test* ]] \
+    && _assert_pass "the refused commit is by the token identity, author and committer" \
+    || _assert_fail "refused commit identity = ${REFUSED}"
+[[ "$(remote_head %H)" == "$HEAD_A" ]] && _assert_pass "the remote head is still the last member's commit" || _assert_fail "the remote head moved"
 server_stop
 git -C "$KB_DIR" reset -q --hard origin/main
 printf 'http: "127.0.0.1:%s"\ngit:\n  identity: "%s"\n' "$E2E_HTTP_PORT" "$ADA" > "$CONFIG"
