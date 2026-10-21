@@ -150,7 +150,7 @@ The `test-macos` CI job (`macos-latest`) runs three scripts under `test/macos/`
 (shared helpers in `lib.sh`, bash 3.2 as macOS ships it), against two real binaries
 built with `-X main.version=v9.9.8` and `v9.9.9`. `service.sh` installs the service
 under the real launchd (`plutil -lint`, `launchctl print` state, `/health` ready,
-`restart --wait` with a new pid, `stop` then status exit 3, `uninstall` then status
+`restart --wait` with a new pid, `stop` (nothing serves) then `start`, `uninstall` then status
 exit 4, the sync timer plist). `install.sh` runs `install.sh install` and `update`
 (the fake curl of `test/install/lib/`, no network) over a real running service and
 asserts `/health` reports the new version after `upgrade-repair`, that a checksum

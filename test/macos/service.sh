@@ -43,11 +43,18 @@ mac_wait_ready "$port" 30 || mac_fail "/health not ready after restart"
 [ "$(mac_launchd_pid)" != "$pid_before" ] || mac_fail "restart --wait kept pid $pid_before"
 mac_ok "restart --wait: same label serving, new pid"
 
-echo "→ stop"
+echo "→ stop and start"
+# launchd keeps the job registered after a stop, so `status` still reports it
+# loaded (exit 0: "loaded" is not a liveness check); what stop must change is
+# that nothing serves any more.
 "$BIN" service stop >/dev/null || mac_fail "stop failed"
-stopped() { local rc=0; "$BIN" service status --config "$work/server.yaml" >/dev/null 2>&1 || rc=$?; [ "$rc" -eq 3 ]; }
-mac_wait_for 30 stopped || mac_fail "status never reported stopped (exit 3) after stop"
-mac_ok "status reports stopped"
+serving() { $MAC_CURL -fsS --max-time 2 "http://127.0.0.1:$port/health" >/dev/null 2>&1; }
+not_serving() { ! serving; }
+mac_wait_for 30 not_serving || mac_fail "/health still answers 30s after stop"
+mac_ok "stopped: /health no longer answers"
+"$BIN" service start >/dev/null || mac_fail "start failed"
+mac_wait_ready "$port" 30 || mac_fail "/health not ready after start"
+mac_ok "start: serving again"
 
 echo "→ uninstall"
 "$BIN" service uninstall >/dev/null || mac_fail "uninstall failed"
