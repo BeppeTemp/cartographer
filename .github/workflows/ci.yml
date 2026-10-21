@@ -37,6 +37,7 @@ jobs:
       windows: ${{ steps.filter.outputs.windows }}
       demo: ${{ steps.filter.outputs.demo }}
       tf: ${{ steps.filter.outputs.tf }}
+      docker: ${{ steps.filter.outputs.docker }}
     steps:
       # The table lives in scripts/ci-filters.sh, pinned by a test (D994).
       - uses: actions/checkout@v7
@@ -269,6 +270,41 @@ jobs:
       - if: needs.changes.result != 'success' || needs.changes.outputs.tf == 'true'
         run: make demo-tf-check
 
+  # The container's own test stage and a start of the image (D995): nothing else
+  # builds the Dockerfile before release day. Not a required check, main-status
+  # watches it (the required set is the ruleset's, a maintainer's to change).
+  docker:
+    name: docker
+    needs: changes
+    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.docker == 'true')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      # vet + test in a clean alpine; never pushed.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: test
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # The runtime image the smoke starts.
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          push: false
+          tags: cartographer:ci
+          build-args: |
+            VERSION=v0.0.0-ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - run: test/smoke/image.sh cartographer:ci v0.0.0-ci
+      # The demo image is built on this one (deploy/demo/Dockerfile), so a
+      # Dockerfile change is checked against it too.
+      - run: make demo-smoke DEMO_BASE=cartographer:ci
+
   # The PR title and body lint (the required `pr-title` check) is its own
   # workflow, pr-title.yml: it re-runs on `edited`, which this one must not (D865).
 
@@ -277,7 +313,7 @@ jobs:
   # first green push closes it.
   main-status:
     name: main-status
-    needs: [test, test-windows, web, demo-edge]
+    needs: [test, test-windows, web, demo-edge, docker]
     if: github.event_name == 'push' && !cancelled()
     runs-on: ubuntu-latest
     permissions:

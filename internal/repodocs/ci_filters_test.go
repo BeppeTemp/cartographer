@@ -46,25 +46,30 @@ func TestCIFiltersTable(t *testing.T) {
 		paths      []string
 		web, win   bool
 		demo, tf   bool
+		docker     bool
 	}{
-		{"docs-only repodocs change", "feat/x", []string{"internal/repodocs/repodocs.go"}, false, false, false, false},
-		{"kb source", "feat/x", []string{"internal/kb/x.go"}, true, true, false, false},
-		{"kb test", "feat/x", []string{"internal/kb/x_test.go"}, false, true, false, false},
-		{"non-Go embedded file", "feat/x", []string{"internal/skillbundle/bundled/a/SKILL.md"}, true, false, false, false},
-		{"binary entry point", "feat/x", []string{"cmd/cartographer/main.go"}, true, true, false, false},
-		{"frontend", "feat/x", []string{"web/src/a.ts"}, true, false, false, false},
-		{"rebuilt bundle only", "feat/x", []string{"internal/webui/dist/index.html"}, false, false, false, false},
-		{"windows-only file", "feat/x", []string{"internal/lint/a_windows.go"}, true, true, false, false},
-		{"docs", "feat/x", []string{"docs/testing.md"}, false, false, false, false},
-		{"demo worker", "feat/x", []string{"deploy/demo/worker.js"}, false, false, true, false},
-		{"demo terraform", "feat/x", []string{"deploy/demo/main.tf"}, false, false, true, true},
-		{"ci.yml only", "feat/x", []string{".github/workflows/ci.yml"}, true, true, true, false},
-		{"filter script only", "feat/x", []string{"scripts/ci-filters.sh"}, true, true, true, false},
-		{"release PR", "release-please--branches--main", []string{"CHANGELOG.md"}, true, true, true, true},
+		{"docs-only repodocs change", "feat/x", []string{"internal/repodocs/repodocs.go"}, false, false, false, false, false},
+		{"kb source", "feat/x", []string{"internal/kb/x.go"}, true, true, false, false, false},
+		{"kb test", "feat/x", []string{"internal/kb/x_test.go"}, false, true, false, false, false},
+		{"non-Go embedded file", "feat/x", []string{"internal/skillbundle/bundled/a/SKILL.md"}, true, false, false, false, false},
+		{"binary entry point", "feat/x", []string{"cmd/cartographer/main.go"}, true, true, false, false, false},
+		{"frontend", "feat/x", []string{"web/src/a.ts"}, true, false, false, false, false},
+		{"rebuilt bundle only", "feat/x", []string{"internal/webui/dist/index.html"}, false, false, false, false, false},
+		{"windows-only file", "feat/x", []string{"internal/lint/a_windows.go"}, true, true, false, false, false},
+		{"docs", "feat/x", []string{"docs/testing.md"}, false, false, false, false, false},
+		{"demo worker", "feat/x", []string{"deploy/demo/worker.js"}, false, false, true, false, true},
+		{"demo terraform", "feat/x", []string{"deploy/demo/main.tf"}, false, false, true, true, true},
+		{"ci.yml only", "feat/x", []string{".github/workflows/ci.yml"}, true, true, true, false, true},
+		{"filter script only", "feat/x", []string{"scripts/ci-filters.sh"}, true, true, true, false, true},
+		{"dockerfile", "feat/x", []string{"Dockerfile"}, false, false, false, false, true},
+		{"go.mod", "feat/x", []string{"go.mod"}, true, true, false, false, true},
+		{"demo guestbook seed", "feat/x", []string{"demo/guestbook/index.md"}, false, false, false, false, true},
+		{"image smoke script", "feat/x", []string{"test/smoke/image.sh"}, false, false, false, false, true},
+		{"release PR", "release-please--branches--main", []string{"CHANGELOG.md"}, true, true, true, true, true},
 	}
 	for _, c := range cases {
 		got := runFilters(t, c.head, c.paths...)
-		for k, want := range map[string]bool{"web": c.web, "windows": c.win, "demo": c.demo, "tf": c.tf} {
+		for k, want := range map[string]bool{"web": c.web, "windows": c.win, "demo": c.demo, "tf": c.tf, "docker": c.docker} {
 			if got[k] != map[bool]string{true: "true", false: "false"}[want] {
 				t.Errorf("%s: %s=%s, want %v", c.name, k, got[k], want)
 			}
@@ -130,8 +135,9 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		"fmt": true, "hero": true, "web": true, "worktree-add": true, "worktree-rm": true,
 		"decisions-index": true, "decisions-new": true, "changelog-areas": true, "codemap": true,
 		"settings-example": true, "demo-kb": true, "demo-image": true,
-		// Until the release-candidate plan (#995) wires them into a workflow.
-		"docker": true, "demo-smoke": true,
+		// The docker job builds with buildx (layer cache in the GitHub cache) and
+		// runs test/smoke/image.sh itself; these two are the same checks by hand.
+		"docker": true, "docker-smoke": true,
 	}
 	var wf strings.Builder
 	files, _ := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.yml"))

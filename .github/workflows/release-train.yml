@@ -135,8 +135,17 @@ jobs:
           read -r rc_sha rc_at < <(gh run list --workflow preview.yml --branch main --status success --limit 20 \
             --json headSha,updatedAt,displayTitle \
             --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}$"))][0] | "\(.headSha) \(.updatedAt)"') || true
-          [ -n "${rc_sha:-}" ] && [ "$rc_sha" = "$head_sha" ] \
-            || skip "the last candidate built (${rc_sha:-none}) is not the head of \`main\` (${head_sha:0:8}). $retry"
+          if [ -z "${rc_sha:-}" ] || [ "$rc_sha" != "$head_sha" ]; then
+            # Name the cause: a candidate whose build or smoke failed (D995) also
+            # leaves no successful run, and "not the head of main" hid it.
+            failed_url=$(gh run list --workflow preview.yml --branch main --limit 20 \
+              --json conclusion,displayTitle,url \
+              --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}$"))][0] | select(.conclusion == "failure") | .url') || true
+            if [ -n "${failed_url:-}" ]; then
+              skip "the last release candidate build failed (${failed_url}). Fix it, run \`release-train\` by hand with \`action: rc\`, try the new candidate, then remove and add \`rc-ok\` again."
+            fi
+            skip "the last candidate built (${rc_sha:-none}) is not the head of \`main\` (${head_sha:0:8}). $retry"
+          fi
           read -r ok_at ok_by < <(gh api --paginate "repos/$GH_REPO/issues/$PR/timeline" \
             --jq '.[] | select(.event == "labeled" and .label.name == "rc-ok") | "\(.created_at) \(.actor.login)"' | sort | tail -1) || true
           [ -n "${ok_at:-}" ] && [ "$ok_at" \> "$rc_at" ] \

@@ -251,11 +251,14 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
   following Monday; a blocked one waits until after the release. A blocked commit on
   `main` during the freeze skips the train.
 - **The release candidate.** On Saturday at 00:30 the workflow builds a server image
-  `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. A
-  maintainer runs it on a real deployment and adds the `rc-ok` label. Without the
-  label, or if the candidate is not the current head of `main` (a fix landed after the
-  build), the train is skipped with a comment: run the candidate again by hand
-  (`release-train`, `action: rc`), try it and add the label again, or wait a week.
+  `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. The
+  image is started and smoked before it is published (tools, non-root user, a KB served
+  over HTTP with a write that commits), so a candidate that exists starts. A maintainer
+  runs it on a real deployment and adds the `rc-ok` label. Without the label, or if the
+  candidate is not the current head of `main` (a fix landed after the build), the train
+  is skipped with a comment (it says when the candidate build itself failed): run the
+  candidate again by hand (`release-train`, `action: rc`), try it and add the label
+  again, or wait a week.
 - **Only the next train's work merges.** The next train is the open milestone due
   first. Work of a later milestone can be planned, implemented and reviewed at any
   time, but its PR waits, open, until the train before it has left: `plan-gate`

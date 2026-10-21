@@ -55,26 +55,8 @@ done
 kbs=$(curl -sf "http://127.0.0.1:$PORT/health" | python3 -c "import sys,json; d=json.load(sys.stdin); print([k['name'] for k in d['kbs']])")
 echo "→ mounted KBs: $kbs"
 
-# mcp_call fails the script on a tool error. Without this an unresolvable tool
-# name is just a JSON-RPC *result* whose text says so, which curl -sf and the
-# pipeline below both treat as success.
-mcp_call() {
-  local kb=$1 method=$2 args=$3 id=$4
-  curl -sf -X POST "$MCP?kb=$kb" \
-    -H "Content-Type: application/json" \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":$id,\"method\":\"tools/call\",\"params\":{\"name\":\"$method\",\"arguments\":$args}}" \
-    | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-if 'error' in d:
-    sys.exit('MCP error calling $method: %s' % d['error'])
-r = d['result']
-text = r['content'][0]['text']
-print(text)
-if r.get('isError'):
-    sys.exit('tool $method returned an error for KB $kb: %s' % text)
-"
-}
+# mcp_call (test/lib/mcp.sh) fails the script on a tool error.
+. "$BASE/test/lib/mcp.sh"
 
 # seed_index KB ID TITLE N creates an Index page and an overview page that links
 # it, in one concept_batch with their curated index entries: the write gate (D907)

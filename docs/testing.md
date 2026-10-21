@@ -160,6 +160,25 @@ on EOF, so closing it immediately races the response out of existence
 `internal/repodocs` fails when a Makefile target is run by no workflow and is not
 in its list of local-only targets.
 
+### Image smoke
+
+`make docker-smoke` builds the server image and runs
+[`test/smoke/image.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/smoke/image.sh)
+on it (D995): `git`, `sops`, `age` and `ssh` are in the image, `version` prints
+the `VERSION` build-arg, the user is not root, a KB created on a data volume is
+served over HTTP with a token (no token is a 401), and a `map_create` plus a
+`concept_batch` write read back through `concept_read` and leave one more commit in
+the KB's repository. It runs on the runner's architecture only.
+
+CI runs it in the `docker` job of `ci.yml`, after the Dockerfile's `test` stage
+(`docker build --target test .`: vet and test in a clean alpine) and before
+`make demo-smoke DEMO_BASE=cartographer:ci`, on a PR that touches the image's inputs
+and always on the release PR and on `main`. `preview.yml` runs the same script on
+the release candidate before it pushes. `mcp_call` is shared with the HTTP smoke
+through `test/lib/mcp.sh`. Run `docker build --target test .` from a clone, not from
+a git worktree: the worktree's `.git` file is copied into the image and breaks
+`git config`.
+
 ### HTTP smoke
 
 `make smoke-http` runs
@@ -663,7 +682,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 
 ## Before a release
 
-- The Saturday release candidate (`release-train.yml` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D956) has run on a real deployment; only then is the `rc-ok` label added to the release PR.
+- The Saturday release candidate (`release-train.yml` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D956) has passed the image smoke before its push (D995) and has run on a real deployment; only then is the `rc-ok` label added to the release PR.
 - CI is green on the release commit, including `make e2e-web` in the `web` job.
 - `make smoke` succeeds for the packaged/local stdio path.
 - Installation and upgrade are verified on the target platform.
