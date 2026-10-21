@@ -33,7 +33,7 @@ client/server facts, provider states and artifact counts; when relevant it also
 contains native-service facts. State and error `code` fields are stable for
 automation; a wrapped low-level `cause` is retained in JSON only. `status`
 keeps exit 0 for in-sync, 1 for drift and 2 for configuration or operational
-errors. `service status` retains 0 running, 3 stopped and 4 not installed.
+errors. `service status` retains 0 running, 3 stopped (on every platform, a Windows task left `Disabled` or `Ready` by `stop` included) and 4 not installed.
 
 ### `cartographer hook write-findings [--channel stderr|context]` (internal)
 

@@ -195,6 +195,19 @@ func (m *Manager) windowsTaskRunning(name string) bool {
 	return err == nil
 }
 
+// windowsTaskStopped reports whether the registered task is one Stop left (or
+// a crash did): Disabled, or Ready (enabled, no process). The State comparison
+// happens inside PowerShell and only a token we define crosses back, so no
+// localised string is parsed. It fails open: an error or any other output
+// (Running, Queued, an unknown state, a format change) reads as live, so a live
+// service is never hidden from upgrade-repair. The script deliberately does not
+// contain the State -eq 'Running' text windowsTaskRunning uses.
+func (m *Manager) windowsTaskStopped(name string) bool {
+	script := fmt.Sprintf("$s = (Get-ScheduledTask %s).State; if ($s -eq 'Disabled' -or $s -eq 'Ready') { 'stopped' } else { 'live' }", taskSelector(name))
+	out, err := m.powershell(script)
+	return err == nil && strings.TrimSpace(out) == "stopped"
+}
+
 // windowsTaskUser is the account the serve task's logon trigger is scoped to:
 // the user running install ("HOST\\name" or "DOMAIN\\name"). A test seam, and ""
 // when the name cannot be resolved (see RenderWindowsTaskXML).
