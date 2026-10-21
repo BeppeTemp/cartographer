@@ -24,14 +24,15 @@ INVARIANT_AREAS='^internal/(mcpserver|provisioning|auth|gitx|sops|service)/'
 # is a supply-chain change at any size: always a full review, never a standing merge (D857).
 # The files agents execute are the same class (D955): a PR that edits AGENTS.md, a skill,
 # an agent definition, the Makefile or a script steers the review and the sessions that read it.
-SUPPLY_CHAIN='^(\.github/workflows/|install\.(sh|ps1)$|\.goreleaser\.yaml$|Dockerfile$|release-please-config\.json$|internal/skillbundle/bundled/|(.*/)?(AGENTS|CLAUDE)\.md$|SECURITY\.md$|CONTRIBUTING\.md$|\.claude/|\.github/ISSUE_TEMPLATE/|\.github/pull_request_template\.md$|Makefile$|scripts/)'
+# .agents/, .kiro/, .opencode/ and .github/agents/ are no longer tracked (D992), but stay listed: a PR that adds them plants definitions other clients load.
+SUPPLY_CHAIN='^(\.github/workflows/|install\.(sh|ps1)$|\.goreleaser\.yaml$|Dockerfile$|release-please-config\.json$|internal/skillbundle/bundled/|(.*/)?(AGENTS|CLAUDE)\.md$|SECURITY\.md$|CONTRIBUTING\.md$|\.agents/|\.claude/|\.kiro/|\.opencode/|\.github/agents/|\.github/ISSUE_TEMPLATE/|\.github/pull_request_template\.md$|Makefile$|scripts/)'
 
 kind() { # production | test | docs | generated
   case "$1" in
     internal/skillbundle/bundled/*) echo production ;; # shipped prompts, not docs
     # Instructions agents execute: production and supply chain, not docs (D955).
     AGENTS.md|*/AGENTS.md|CLAUDE.md|*/CLAUDE.md|SECURITY.md|CONTRIBUTING.md) echo production ;;
-    .claude/*|.github/ISSUE_TEMPLATE/*|.github/pull_request_template.md|Makefile|scripts/*) echo production ;;
+    .agents/*|.claude/*|.kiro/*|.opencode/*|.github/agents/*|.github/ISSUE_TEMPLATE/*|.github/pull_request_template.md|Makefile|scripts/*) echo production ;;
     internal/webui/dist/*|docs/decisions.md|CHANGELOG.md|go.sum|web/package-lock.json) echo generated ;;
     *_test.go|*/testdata/*|test/*|web/src/test/*|web/e2e/*|*.test.ts|*.test.tsx|*.spec.ts) echo test ;;
     *.md|docs/*) echo docs ;;
