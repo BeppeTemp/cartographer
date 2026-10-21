@@ -9,6 +9,9 @@ BIN="$BASE/bin/cartographer"
 [ -x "$BIN" ] || { echo "missing $BIN: run 'make build' first" >&2; exit 1; }
 
 DATA="$(mktemp -d)"
+# No git identity on this host (D996): see test/e2e/run.sh.
+export GIT_CONFIG_GLOBAL="$DATA/gitconfig" GIT_CONFIG_NOSYSTEM=1
+printf '[init]\n\tdefaultBranch = master\n' > "$GIT_CONFIG_GLOBAL"
 PORT=18081
 MCP="http://127.0.0.1:$PORT/mcp"
 

@@ -104,11 +104,44 @@ tampering rejection before `Apply`.
 Git write coverage (D903) uses local bare remotes: a KB with a remote syncs and one
 without never contacts anything, every write commits, the branch named by `branch` counts
 only when committed on the remote's default branch, and a push the remote refuses
-because the branch is protected (a `pre-receive` hook standing in for the forge) is
-reported as such and not retried. Realignment of the three settings files (server YAML,
+because the branch is protected is reported as such and not retried. The forge's
+push rules are one portable `pre-receive` hook, `test/forge/pre-receive.sh` (D996),
+shared by the Go tests and the e2e scenarios and configured by files next to it in the
+bare repository's `hooks/`: `allowed-identities` (one email glob per line, GitLab's
+member check on the author and the committer of every new commit, a merge or a new
+branch included) and `protected-branch` (a glob, with the GH006 wording). It is POSIX
+sh and LF, so it runs under git's bundled sh on the Windows shards too. The writer
+path is tested against it: a write that names its author (`Cartographer-Author`)
+reaches a remote that checks membership, one that does not is refused with the hook's
+message and stays committed locally, a KB with `git.identity` publishes, and a commit
+made with no writer is re-committed by that identity (`gitwrap_author_test.go`,
+`memberrule_test.go`). Authentication is tested against the real `git http-backend`
+behind basic auth, in process (`internal/gitx/gitxtest`): clone, fetch and push with
+the token helper, a wrong token (the "credentials were rejected" remedy), no token
+(terminal prompts disabled, never a hang), `SyncOut`/`SyncIn` of a KB and a hook's
+rejection reaching the caller through HTTP. `smoke-http` and `e2e` run with **no git
+identity** on the host (`GIT_CONFIG_GLOBAL` points at a file holding only
+`init.defaultBranch`): a scenario that commits by hand passes its identity with `-c`;
+scenario 21 serves a KB whose remote enforces membership. Realignment of the three settings files (server YAML,
 client file, a KB's `settings.yaml`) is tested for what it drops, what it resets, what
 it keeps, its report, its backup (or, for a KB, its commit) and that a second run
-changes nothing. CI never calls a forge.
+changes nothing. An ordinary CI run never calls a forge; the real ones are below.
+
+### Real forges (D996)
+
+`test/forge/run.sh forgejo|gitlab` starts a pinned container (Forgejo, GitLab CE),
+creates a user, a project and an access token through the REST API, then drives the
+binary against it: `kb create` over HTTPS with the token, a write with and one
+without `Cartographer-Author`, a second clone publishing and the next write pulling
+it in, a protected branch (reported as such, the remote unmoved), and on Forgejo SSH
+with the KB's own `<kb>.ssh`. Everything is asserted through the forge's API. GitLab's
+member-check push rule is a Premium feature: where the edition answers that it is
+not there the script says so and the rule stays covered by the hook tests above. It
+runs in the `forge` CI job only on the release PR, on a PR that touches `test/forge/`,
+and on `workflow_dispatch` (`gh workflow run ci.yml --ref <branch>`), never on `main`
+and never as a required check. By hand, from the repository root, with Docker:
+`make build && test/forge/run.sh forgejo` (`FORGE_KEEP=1` leaves the container up;
+`FORGE_PORT`, `FORGE_SSH_PORT` and `FORGE_SERVER_PORT` move the ports).
 
 CLI JSON tests decode stdout as JSON and assert that diagnostics remain on
 stderr. Golden help is limited to 80 columns. Bubble Tea view/update tests use

@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The real-forge job (`forge`) on demand, from the Actions tab or
+  # `gh workflow run ci.yml --ref <branch>`; every other job runs too (D996).
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,6 +41,7 @@ jobs:
       demo: ${{ steps.filter.outputs.demo }}
       tf: ${{ steps.filter.outputs.tf }}
       docker: ${{ steps.filter.outputs.docker }}
+      forge: ${{ steps.filter.outputs.forge }}
     steps:
       # The table lives in scripts/ci-filters.sh, pinned by a test (D994).
       - uses: actions/checkout@v7
@@ -64,9 +68,11 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      # The git-backed tests (gitx, kb, bootstrap) need an identity and the
+      # The git-backed Go tests (gitx, kb, bootstrap) need an identity and the
       # "master" initial branch on a bare environment (same setup as the
-      # Dockerfile test stage).
+      # Dockerfile test stage). smoke-http and e2e below do NOT get this
+      # identity: they isolate their own git config and run with none, so a
+      # host without an identity is exercised there (D996).
       - name: Configure git for tests
         run: |
           git config --global user.name ci
@@ -304,6 +310,30 @@ jobs:
       # The demo image is built on this one (deploy/demo/Dockerfile), so a
       # Dockerfile change is checked against it too.
       - run: make demo-smoke DEMO_BASE=cartographer:ci
+
+  # The sync scenarios against a real Forgejo and a real GitLab CE (D996):
+  # test/forge/run.sh starts the pinned container itself, so the same script is
+  # the by-hand run. GitLab CE boots in minutes, so this is not on every PR: the
+  # release PR, a PR that touches test/forge/ (or this file), and a manual run.
+  # Never on main, and not a required check; the release PR is where its result
+  # is read.
+  forge:
+    name: forge (${{ matrix.forge }})
+    needs: changes
+    if: "!cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && needs.changes.outputs.forge == 'true'))"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        forge: [forgejo, gitlab]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: make build
+      - run: test/forge/run.sh ${{ matrix.forge }}
 
   # The PR title and body lint (the required `pr-title` check) is its own
   # workflow, pr-title.yml: it re-runs on `edited`, which this one must not (D865).
