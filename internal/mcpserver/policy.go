@@ -524,7 +524,7 @@ func WholeVisible(ctx context.Context, k *kb.KB, write bool) bool {
 // destination does not exist yet, so each destination slot inherits the type of
 // the concept it receives.
 func allowedMove(policy auth.Policy, k *kb.KB, name, sourceID, targetID string) bool {
-	if targetID == "" {
+	if okf.ValidateID(sourceID) != nil || okf.ValidateID(targetID) != nil {
 		return false
 	}
 	for _, pair := range movePairs(k, sourceID, targetID) {
@@ -580,7 +580,7 @@ func movePairs(k *kb.KB, sourceID, targetID string) []movePair {
 }
 
 func allowedID(policy auth.Policy, k *kb.KB, name, id string, write bool, proposedType string) bool {
-	if id == "" {
+	if okf.ValidateID(id) != nil {
 		return false
 	}
 	mapName, journalName, oldType := conceptClass(k, id)
