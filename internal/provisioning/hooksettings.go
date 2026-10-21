@@ -588,6 +588,7 @@ func registerAntigravityHook(baseDir, hookName, fullDestDir string) (string, err
 }
 
 var antigravityHookEvents = map[string]bool{
+	"SessionStart":   true,
 	"PreToolUse":     true,
 	"PostToolUse":    true,
 	"PreInvocation":  true,

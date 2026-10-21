@@ -268,7 +268,7 @@ func TestSupportsSessionHook(t *testing.T) {
 		{configurator.ProviderCodex, true},
 		{configurator.ProviderOpenCode, true},
 		{configurator.ProviderKiro, true},
-		{configurator.ProviderAntigravity, false},
+		{configurator.ProviderAntigravity, true},
 		{configurator.ProviderCrush, false},
 		{configurator.ProviderCopilot, true},
 	} {
@@ -295,17 +295,63 @@ func TestSessionHookLimit(t *testing.T) {
 	}
 }
 
-func TestEnsureBootstrapHook_Antigravity_NoOp(t *testing.T) {
+func TestEnsureBootstrapHook_Antigravity_MaterializzaERegistra(t *testing.T) {
 	baseDir := t.TempDir()
 	lock, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderAntigravity, provisioning.Lock{}, false)
 	if err != nil {
 		t.Fatalf("EnsureBootstrapHook: %v", err)
 	}
-	if len(lock.Managed) != 0 {
-		t.Fatalf("antigravity: expected no ManagedFile, got %+v", lock.Managed)
+	hookDir := filepath.Join(baseDir, ".gemini", "config", "hooks", provisioning.BootstrapHookName)
+	for _, f := range []string{"hook.json", provisioning.BootstrapScriptNameForTest} {
+		if _, err := os.Stat(filepath.Join(hookDir, f)); err != nil {
+			t.Errorf("expected file %s: %v", f, err)
+		}
 	}
-	if _, err := os.Stat(filepath.Join(baseDir, ".gemini")); err == nil {
-		t.Errorf("antigravity: no .gemini directory was expected to be created")
+
+	hooksPath := filepath.Join(baseDir, ".gemini", "config", "hooks.json")
+	data, err := os.ReadFile(hooksPath)
+	if err != nil {
+		t.Fatalf("hooks.json not written: %v", err)
+	}
+	var settings map[string]struct {
+		Enabled      bool `json:"enabled"`
+		SessionStart []struct {
+			Type    string `json:"type"`
+			Command string `json:"command"`
+		} `json:"SessionStart"`
+	}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("parse hooks.json: %v", err)
+	}
+	hookEntry, ok := settings["cartographer-"+provisioning.BootstrapHookName]
+	if !ok {
+		t.Fatalf("expected cartographer-%s in hooks.json: %s", provisioning.BootstrapHookName, data)
+	}
+	if !hookEntry.Enabled {
+		t.Errorf("enabled: expected true")
+	}
+	handlers := hookEntry.SessionStart
+	if len(handlers) != 1 {
+		t.Fatalf("expected 1 SessionStart handler, got: %+v", hookEntry)
+	}
+	wantCmd := filepath.Join(hookDir, provisioning.BootstrapScriptNameForTest)
+	if handlers[0].Command != wantCmd {
+		t.Errorf("command: expected %q, got %q", wantCmd, handlers[0].Command)
+	}
+	if handlers[0].Type != "command" {
+		t.Errorf("type: expected command, got %q", handlers[0].Type)
+	}
+
+	if len(lock.Managed) != 2 {
+		t.Fatalf("expected 2 ManagedFile, got %d: %+v", len(lock.Managed), lock.Managed)
+	}
+
+	// Prune removes files and deregisters
+	if _, err := provisioning.PruneManaged(lock.Managed, baseDir, false); err != nil {
+		t.Fatalf("PruneManaged: %v", err)
+	}
+	if _, err := os.Stat(hooksPath); !os.IsNotExist(err) {
+		t.Errorf("hooks.json should have been deleted when empty, err=%v", err)
 	}
 }
 
