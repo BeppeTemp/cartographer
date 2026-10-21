@@ -18,13 +18,16 @@ case $(uname -m) in arm64) arch=arm64 ;; *) arch=amd64 ;; esac
 
 cask_src=$(find "$dist" -name cartographer.rb -path '*Casks*' | head -n 1)
 [ -n "$cask_src" ] || { echo "no rendered Cask under $dist (goreleaser snapshot did not render it)" >&2; exit 1; }
-asset=$(find "$dist" -maxdepth 2 -type f -name "cartographer-darwin-$arch*" ! -name '*.txt' | head -n 1)
-[ -n "$asset" ] || { echo "no cartographer-darwin-$arch binary under $dist" >&2; exit 1; }
+# GoReleaser keeps the raw binary under dist/cartographer_darwin_<arch>_<level>/
+# (the release asset cartographer-darwin-<arch> is that file renamed).
+asset=$(find "$dist" -maxdepth 2 -type f -path "*/cartographer_darwin_${arch}*/cartographer" | head -n 1)
+[ -n "$asset" ] || { echo "no darwin $arch binary under $dist" >&2; exit 1; }
 
 tap=local/cart-test
 cleanup() {
   local rc=$?
   trap - EXIT
+  if [ "$rc" -eq 0 ] && [ "${MAC_DONE:-0}" != 1 ]; then echo "FAIL: the script ended before its last line" >&2; rc=1; fi
   brew uninstall --cask --force "$tap/cartographer" >/dev/null 2>&1 || true
   brew untap "$tap" >/dev/null 2>&1 || true
   exit "$rc"
@@ -70,4 +73,4 @@ brew uninstall --cask "$tap/cartographer" || mac_fail "brew uninstall --cask fai
 [ ! -e "$(brew --caskroom)/cartographer" ] || mac_fail "the Caskroom entry survived the uninstall"
 mac_ok "binary, shim and Caskroom entry removed"
 
-echo "cask.sh: PASS"
+mac_pass cask.sh

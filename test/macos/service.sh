@@ -74,4 +74,4 @@ grep -q 'com.cartographer.sync' "$sync_plist" || mac_fail "sync plist lacks its 
 [ ! -e "$sync_plist" ] || mac_fail "sync plist still present"
 mac_ok "sync timer plist installed and removed"
 
-echo "service.sh: PASS"
+mac_pass service.sh

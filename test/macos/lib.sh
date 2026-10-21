@@ -18,6 +18,8 @@ mac_guard() {
 
 mac_fail() { echo "FAIL: $*" >&2; exit 1; }
 mac_ok() { echo "  ok: $*"; }
+MAC_DONE=0
+mac_pass() { MAC_DONE=1; echo "$1: PASS"; }
 
 # mac_workdir <name>: a fresh directory under RUNNER_TEMP (or TMPDIR).
 mac_workdir() {
@@ -82,6 +84,12 @@ mac_probe_domain() {
 mac_cleanup() {
   local rc=$? bin=${1:-}
   trap - EXIT
+  # A shell that dies on an expansion error can leave $? at 0 in an EXIT trap
+  # (bash 3.2): only a script that reached mac_pass passes.
+  if [ "$rc" -eq 0 ] && [ "${MAC_DONE:-0}" != 1 ]; then
+    echo "FAIL: the script ended before its last line" >&2
+    rc=1
+  fi
   if [ "$rc" -ne 0 ]; then
     echo "--- launchctl print" >&2
     mac_launchd_print >&2 2>&1 || true

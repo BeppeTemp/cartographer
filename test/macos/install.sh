@@ -30,7 +30,7 @@ chmod +x "$work/fakebin/curl"
 # run_installer <subcommand...>: install.sh with the fake curl first on PATH.
 run_installer() {
   PATH="$work/fakebin:$PATH" CARTOGRAPHER_INSTALL_DIR="$install_dir" SCENARIO_TMP="$work" \
-    FAKE_TAG="$FAKE_TAG" FAKE_NEW_BINARY="$FAKE_NEW_BINARY" FAKE_SHA_MODE="${FAKE_SHA_MODE:-absent}" \
+    FAKE_TAG="${FAKE_TAG:-v9.9.9}" FAKE_NEW_BINARY="${FAKE_NEW_BINARY:-$NEW}" FAKE_SHA_MODE="${FAKE_SHA_MODE:-absent}" \
     sh "$repo/install.sh" "$@"
 }
 
@@ -75,4 +75,4 @@ FAKE_TAG=v9.9.9 FAKE_NEW_BINARY=$NEW run_installer uninstall >"$work/out.log" 2>
 [ ! -e "$bin" ] || mac_fail "binary still present after uninstall"
 mac_ok "refused with units installed, succeeded after service uninstall"
 
-echo "install.sh: PASS"
+mac_pass install.sh
