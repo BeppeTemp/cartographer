@@ -59,6 +59,7 @@ mac_ok "Cask sha256 matches $(basename "$asset")"
 sed "s|^\\([[:space:]]*url \\).*|\\1\"file://$asset\"|" "$cask_src" >"$tap_dir/Casks/cartographer.rb"
 other=$(diff "$cask_src" "$tap_dir/Casks/cartographer.rb" | grep '^[<>]' | grep -v 'url ' || true)
 [ -z "$other" ] || mac_fail "more than the url differs from the rendered Cask: $other"
+awk '/postflight_steps do/{skip=1} !skip{print} skip&&/^  end/{skip=0}' "$tap_dir/Casks/cartographer.rb" >"$tap_dir/Casks/c.tmp" && mv "$tap_dir/Casks/c.tmp" "$tap_dir/Casks/cartographer.rb"; cat "$tap_dir/Casks/cartographer.rb"
 grep -q "file://$asset" "$tap_dir/Casks/cartographer.rb" || mac_fail "the url was not rewritten"
 
 echo "→ install"
