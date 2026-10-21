@@ -134,7 +134,7 @@ audit:
   retention_days: 90           # (audit.retention_days) delete checkpointed segments older than N days; default 90; 0 = keep forever
 ```
 
-An unknown key anywhere under `auth` (a token's `scope:` for `scopes:`, `role:` for `roles:`, a rule's `map:` for `maps:`) stops the server at startup, naming the key and its line: a dropped key would otherwise change who may do what.
+An unknown key anywhere under `auth` (a token's `scope:` for `scopes:`, `role:` for `roles:`, a rule's `map:` for `maps:`) stops the server at startup, naming the key and its line, and so does a top-level `Auth:` or a root `tokens:`/`roles:`: a dropped key would otherwise change who may do what. A token that declares a scope list which comes out empty (`scopes: []`, `tok|`) is refused too; the admin token is the one that writes no `scopes` and no `roles` at all.
 
 `kbs[]` (YAML) is additive to `CARTOGRAPHER_KB_REMOTES` (append, not replace) — all listed KBs get
 mounted — and every entry has a `remote`: a KB without one is a folder under `data`, which is discovered
@@ -332,7 +332,7 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_DATA` | `--data` | Directory whose direct subfolders are separate KBs (auto-discovery) |
 | `CARTOGRAPHER_CREDENTIALS_DIR` | — | The credentials directory, default `<data>/credentials`: every secret file, found by KB name (D905, see §Credentials directory). |
 | `CARTOGRAPHER_HTTP` | `--http` | HTTP listen address, e.g. `:39273` |
-| `CARTOGRAPHER_TOKENS` | `--tokens` | Bearer tokens, comma/whitespace-separated. Each entry is either a bare `token` (admin, full access to every KB) or `token\|scope1;scope2` with per-KB scopes `kb:<name>:r\|rw` (scopes separated by `;`, never by spaces/commas, to avoid colliding with the between-entry separator). E.g. `admintok, readtok\|kb:wiki:r, writetok\|kb:wiki:rw;kb:notes:r` (D44). |
+| `CARTOGRAPHER_TOKENS` | `--tokens` | Bearer tokens, comma/whitespace-separated. Each entry is either a bare `token` (admin, full access to every KB) or `token\|scope1;scope2` with per-KB scopes `kb:<name>:r\|rw` (scopes separated by `;`, never by commas; spaces around `|` and `;` are trimmed, to avoid colliding with the between-entry separator). E.g. `admintok, readtok\|kb:wiki:r, writetok\|kb:wiki:rw;kb:notes:r` (D44). |
 | `CARTOGRAPHER_AUTH` | — | Explicit auth toggle (see §Auth) |
 | — | — | Fine-grained roles have no env form: `auth.roles` is YAML-only, because a rule is a structured object (see §Fine-grained roles). |
 | `CARTOGRAPHER_AUDIT_LOG` | — | Path of the audit log's JSONL file, which is always on (D905); empty keeps it at `<data>/audit/audit.log`. Its signing key is `audit.key` in the credentials directory. |
