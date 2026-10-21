@@ -7,6 +7,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 // SetSettings gives the settings view (D743) the configuration the process
@@ -62,6 +63,8 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		view.Server[i].Value = shown
 	}
+	admin := auth.PrincipalFromContext(ctx).Policy.Admin
+	narrowSettingsView(&view, visible, admin)
 
 	kbs := make([]uiSettingsKB, 0, len(view.KBs))
 	for _, section := range view.KBs {
@@ -115,8 +118,11 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	// The server's configuration as the YAML file it amounts to, commented by
 	// the schema, its kbs[] entries limited to the KBs the caller sees (D818).
-	if out, err := view.ServerYAML(); err == nil {
-		payload["server_yaml"] = string(out)
+	// The file also names server paths and roles, so it is for an admin.
+	if admin {
+		if out, err := view.ServerYAML(); err == nil {
+			payload["server_yaml"] = string(out)
+		}
 	}
 	if m.latestVersion != nil {
 		if latest := m.latestVersion(); latest != "" {
@@ -127,4 +133,53 @@ func (m *MultiKBServer) uiSettings(w http.ResponseWriter, r *http.Request) {
 		payload["update_channel"] = m.updateChannel
 	}
 	writeUIJSON(w, http.StatusOK, payload)
+}
+
+// settingsCallerKeys are the server-level keys a caller that is not an admin
+// still receives: none of them is a path, a role, an identity or a secret.
+// "kbs" is already limited to the KBs the caller sees; "git.identities" is
+// narrowed to them below.
+var settingsCallerKeys = map[string]bool{
+	"update_check":   true,
+	"web.enabled":    true,
+	"kbs":            true,
+	"git.identities": true,
+}
+
+// narrowSettingsView applies, in place, what the caller may read of the view.
+// Every remote URL loses its userinfo, for every caller (the same helper as
+// kb_status). A caller that is not an admin gets only the settingsCallerKeys
+// of the server section, and the per-KB map of identities limited to the KBs
+// it sees; the YAML views are rendered from the narrowed view afterwards.
+func narrowSettingsView(view *config.View, visible map[string]bool, admin bool) {
+	for _, section := range view.KBs {
+		for i, e := range section.Entries {
+			if e.Key != "kbs[].remote" {
+				continue
+			}
+			if raw, ok := e.Value.(string); ok {
+				section.Entries[i].Value = kb.RedactRemoteURL(raw)
+			}
+		}
+	}
+	if admin {
+		return
+	}
+	kept := view.Server[:0:0]
+	for _, e := range view.Server {
+		if !settingsCallerKeys[e.Key] {
+			continue
+		}
+		if ids, ok := e.Value.(map[string]string); ok {
+			shown := map[string]string{}
+			for name, id := range ids {
+				if visible[name] {
+					shown[name] = id
+				}
+			}
+			e.Value = shown
+		}
+		kept = append(kept, e)
+	}
+	view.Server = kept
 }
