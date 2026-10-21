@@ -518,11 +518,12 @@ func TestProfiledKBsUseOnlyTheirOwnVocabulary(t *testing.T) {
 			if err != nil || d.IsDir() {
 				return nil
 			}
-			if d.Name() == ".git" || strings.Contains(p, "/.git/") || strings.Contains(p, "/.cartographer/") || isDefect(p) {
-				return nil
-			}
+			// Match on the slash form: on Windows p carries backslashes.
 			rel, _ := filepath.Rel(root, p)
 			rel = filepath.ToSlash(rel)
+			if strings.HasPrefix(rel, ".git/") || strings.HasPrefix(rel, ".cartographer/") || isDefect(p) {
+				return nil
+			}
 			// Every generated text file; binary assets and the sops stand-ins are not text.
 			switch ext := filepath.Ext(p); {
 			case strings.HasSuffix(p, ".sops.yaml") || d.Name() == ".sops.yaml":
