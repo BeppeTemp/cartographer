@@ -1040,7 +1040,7 @@ deployment with no audit sink, or one in `best_effort` mode, is unaffected.
 
 **Connected clients (D129)**: `GET /clients` reports which clients have talked to this process,
 with their self-reported name and version, the protocol version and era, a request count and a
-last-seen timestamp (shape and caveats: `transport-auth.md` §Client roster). Unlike `/health` and
+last-seen timestamp, limited to the KBs the token can read (shape and caveats: `transport-auth.md` §Client roster). Unlike `/health` and
 `/ready` it requires a bearer token when auth is enabled, so it is not a probe target:
 
 ```bash

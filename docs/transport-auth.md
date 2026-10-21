@@ -532,7 +532,11 @@ One row per distinct (KB, client name, client version, protocol version, era)
 combination, with a request count and a last-seen timestamp; rows are sorted by
 KB, then client name, then version, so consecutive polls are diffable. A
 multi-KB server answers with one flat array across every mounted KB, each row
-naming its `kb`. An `overflow` counter appears only when it is non-zero.
+naming its `kb`. Rows are limited to the KBs the token can read (any read grant
+on the KB, whatever its map, journal or type selectors; an admin sees all): a
+token with no grant on a KB gets neither its rows nor its activity, and an empty
+roster is a 200, not a 403, so the answer does not confirm the KB exists. An
+`overflow` counter appears only when it is non-zero and counts visible KBs only.
 
 ```json
 {"clients":[{"kb":"homelab-wiki","client_name":"claude-code","client_version":"2.1.0",

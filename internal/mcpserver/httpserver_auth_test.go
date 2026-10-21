@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -409,5 +410,101 @@ func TestHTTPGuard_KBRepair_RequiresWholeKBWrite(t *testing.T) {
 	}
 	if tr := decodeToolResult(t, unmarshalMCPResponse(t, rr)); tr.IsError && strings.Contains(tr.Content[0].Text, "forbidden") {
 		t.Fatalf("kb_repair with whole-kb rw scope: unexpected forbidden: %v", tr.Content)
+	}
+}
+
+// clientsRoster GETs /clients with the token and returns the KB of every row
+// plus the raw body.
+func clientsRoster(t *testing.T, handler http.Handler, token string) ([]string, string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/clients", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("/clients: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Clients []struct {
+			KB string `json:"kb"`
+		} `json:"clients"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("invalid JSON: %v; body=%s", err, rr.Body.String())
+	}
+	kbs := []string{}
+	for _, c := range body.Clients {
+		kbs = append(kbs, c.KB)
+	}
+	return kbs, rr.Body.String()
+}
+
+// TestClients_RosterFollowsTokenVisibility pins that /clients lists only the
+// KBs the caller can read; an admin sees every KB.
+func TestClients_RosterFollowsTokenVisibility(t *testing.T) {
+	t.Parallel()
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "both", Scopes: []auth.KBScope{{KB: "kbx"}, {KB: "kby"}}},
+		{Token: "x-only", Scopes: []auth.KBScope{{KB: "kbx"}}},
+		{Token: "y-only", Scopes: []auth.KBScope{{KB: "kby"}}},
+		{Token: "x-map", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kbx", Maps: []string{"manutenzione"}}}}},
+		{Token: "other", Scopes: []auth.KBScope{{KB: "kbz"}}},
+		{Token: "admin", Policy: auth.Policy{Admin: true}},
+	})
+	handler := newScopedTestHandler(t, ts)
+
+	// Populate both rosters: the call may be denied, the request is counted.
+	for _, kbn := range []string{"kbx", "kby"} {
+		doMCP(handler, kbn, "both", writeToolCallBody("atlas_overview"))
+	}
+
+	cases := []struct {
+		token string
+		want  []string
+	}{
+		{"both", []string{"kbx", "kby"}},
+		{"x-only", []string{"kbx"}},
+		{"y-only", []string{"kby"}},
+		{"x-map", []string{"kbx"}},
+		{"admin", []string{"kbx", "kby"}},
+		{"other", []string{}},
+	}
+	for _, c := range cases {
+		got, body := clientsRoster(t, handler, c.token)
+		seen := map[string]bool{}
+		for _, k := range got {
+			seen[k] = true
+		}
+		for _, k := range []string{"kbx", "kby"} {
+			if want := slices.Contains(c.want, k); seen[k] != want {
+				t.Errorf("token %s: kb %s listed = %v, want %v; body=%s", c.token, k, seen[k], want, body)
+			}
+		}
+		if c.token == "other" && body != "{\"clients\":[]}\n" {
+			t.Errorf("token other: body = %q, want an empty roster", body)
+		}
+	}
+}
+
+// TestClients_SingleKBRosterHiddenFromOtherKBToken pins the single-KB handler:
+// a token scoped to another KB gets 200 with an empty roster, not 403.
+func TestClients_SingleKBRosterHiddenFromOtherKBToken(t *testing.T) {
+	t.Parallel()
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "x", Scopes: []auth.KBScope{{KB: "kbx"}}},
+		{Token: "y", Scopes: []auth.KBScope{{KB: "kby"}}},
+	})
+	s := New("test")
+	s.SetPolicyKB("kbx")
+	RegisterKBTools(s, setupTestKB(t), Deps{})
+	handler := ts.Middleware(s.HTTPHandler())
+	// Count a request on the roster.
+	doMCP(handler, "kbx", "x", writeToolCallBody("atlas_overview"))
+
+	if got, body := clientsRoster(t, handler, "x"); len(got) == 0 || got[0] != "kbx" {
+		t.Fatalf("token for the served KB: rows = %v, want kbx rows; body=%s", got, body)
+	}
+	if got, body := clientsRoster(t, handler, "y"); len(got) != 0 {
+		t.Fatalf("token for another KB: rows = %v, want none; body=%s", got, body)
 	}
 }
