@@ -549,6 +549,7 @@ func TestStatus_Darwin_StoppedVsRunning(t *testing.T) {
 		{"stopped, state not yet settled", "gui/501/x = {\n\tstate = spawn scheduled\n}\n", launchctlPrintDisabledOn, false},
 		{"not running but enabled", launchctlPrintStopped, launchctlPrintDisabledOff, false},
 		{"spawn scheduled, enabled", "gui/501/x = {\n\tstate = spawn scheduled\n}\n", launchctlPrintDisabledOff, true},
+		{"alive but disabled by hand", launchctlPrintRunning, launchctlPrintDisabledOn, true},
 		{"unparsable output", "something else", "something else", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

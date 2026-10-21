@@ -51,9 +51,10 @@ serving() { $MAC_CURL -fsS --max-time 2 "http://127.0.0.1:$port/health" >/dev/nu
 not_serving() { ! serving; }
 mac_wait_for 30 not_serving || mac_fail "/health still answers 30s after stop"
 mac_ok "stopped: /health no longer answers"
-rc=0
-"$BIN" service status --config "$work/server.yaml" >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 3 ] || mac_fail "status after stop exited $rc, want 3"
+# The process drains for up to the exit timeout after SIGTERM and a live pid reads
+# as running, so status turns 3 when it is gone, not the instant /health refuses.
+status_stopped() { "$BIN" service status --config "$work/server.yaml" >/dev/null 2>&1; [ $? -eq 3 ]; }
+mac_wait_for 30 status_stopped || mac_fail "service status never exited 3 after stop"
 mac_ok "stopped: service status exits 3"
 "$BIN" service start >/dev/null || mac_fail "start failed"
 mac_wait_ready "$port" 30 || mac_fail "/health not ready after start"

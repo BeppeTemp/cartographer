@@ -169,11 +169,12 @@ func isLoopbackURL(rawURL string) bool {
 
 // shouldOfferServiceInstall decides whether cmdConnect should offer to
 // install+start the local cartographer service after a failed probe: the
-// server URL must be loopback, and the service must not already be running
-// (if it were running and still unreachable, installing again wouldn't help
-// — e.g. wrong port, firewalled).
-func shouldOfferServiceInstall(loopback bool, running bool) bool {
-	return loopback && !running
+// server URL must be loopback, and no service may be installed yet: one that is
+// installed and still unreachable is running with a wrong port or firewalled
+// (installing again wouldn't help) or was stopped on purpose, which a reinstall
+// would silently undo.
+func shouldOfferServiceInstall(loopback bool, installed bool) bool {
+	return loopback && !installed
 }
 
 var installService = func(mgr *service.Manager, opts service.InstallOptions) error {
@@ -419,7 +420,7 @@ func cmdConnect(args []string) int {
 				if state == probeUnreachable && !errors.Is(perr, client.ErrUnauthorized) && isLoopbackURL(formOpts.ServerURL) {
 					mgr := service.NewManager()
 					st, statusErr := mgr.Status("")
-					if statusErr == nil && shouldOfferServiceInstall(true, st.Running) {
+					if statusErr == nil && shouldOfferServiceInstall(true, st.Installed) {
 						if promptYesNo("The local server is not responding. Install and start the cartographer service on this machine? [y/N] ") {
 							if instErr := installServiceAndWaitHealthy(mgr, 10*time.Second); instErr != nil {
 								fmt.Fprintln(os.Stderr, "Error:", instErr)

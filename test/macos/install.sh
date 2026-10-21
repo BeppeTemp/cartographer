@@ -69,9 +69,9 @@ echo "→ update with a stopped service leaves it stopped (#1006)"
 # only a changed binary reaches upgrade-repair. Stop leaves the job registered
 # but disabled; repair must not try to signal it (a timeout, exit 2).
 "$bin" service stop >/dev/null || mac_fail "service stop failed"
-rc=0
-"$bin" service status --config "$work/server.yaml" >/dev/null 2>&1 || rc=$?
-[ "$rc" -eq 3 ] || mac_fail "status after stop exited $rc, want 3"
+# The process drains after SIGTERM and a live pid reads as running: wait for exit 3.
+status_stopped() { "$bin" service status --config "$work/server.yaml" >/dev/null 2>&1; [ $? -eq 3 ]; }
+mac_wait_for 30 status_stopped || mac_fail "status never exited 3 after stop"
 FAKE_TAG=v9.9.8 FAKE_NEW_BINARY=$OLD FAKE_SHA_MODE=valid run_installer update >"$work/out.log" 2>&1 || { cat "$work/out.log" >&2; mac_fail "install.sh update failed with the service stopped"; }
 [ "$("$bin" version)" = v9.9.8 ] || mac_fail "binary is $("$bin" version), want v9.9.8"
 rc=0

@@ -378,6 +378,17 @@ func launchdPrintStopped(out string) bool {
 	return false
 }
 
+// launchdPrintHasPID reports whether the job's own properties carry a `pid =`:
+// a process is alive (absent while stopped or between spawns).
+func launchdPrintHasPID(out string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "\tpid = ") {
+			return true
+		}
+	}
+	return false
+}
+
 // launchdLabelDisabled reports whether `launchctl print-disabled gui/<uid>`
 // lists the service label as disabled (`"label" => disabled`; older macOS prints
 // `=> true`). Anything else, including an absent label, is not disabled.
@@ -721,10 +732,11 @@ type Lifecycle string
 const (
 	// LifecycleNotInstalled: no plist/unit on disk. Nothing else is a fault.
 	LifecycleNotInstalled Lifecycle = "not_installed"
-	// LifecycleNotLoaded: installed, but the init system does not know it.
+	// LifecycleNotLoaded: installed, but the init system does not know it, or
+	// (macOS) knows it with no process because it was stopped.
 	LifecycleNotLoaded Lifecycle = "not_loaded"
-	// LifecycleLoaded: registered with launchd/systemd — see Status.Running
-	// for exactly how much that proves.
+	// LifecycleLoaded: registered with the init system and, on macOS, not
+	// stopped — see Status.Running for exactly how much that proves.
 	LifecycleLoaded Lifecycle = "loaded"
 )
 
@@ -749,11 +761,13 @@ const (
 // with "not checked" is how an absent service came to read as an outage
 // (D174).
 //
-// Running reports that the service is registered with the init system: on
-// darwin `launchctl print` on the label succeeded, on linux `systemctl
-// --user is-active`, on Windows `Get-ScheduledTask` on the task. On darwin and
-// on Windows that proves the job is known to the scheduler, NOT that a process
-// is currently alive. Callers must not present it as a liveness probe.
+// Running reports that the service is registered with the init system and not
+// stopped: on darwin `launchctl print` on the label succeeded and the job is
+// alive (a `pid`) or neither disabled nor `not running` (Stop leaves it
+// registered, disabled and without a process); on linux `systemctl --user
+// is-active`; on Windows `Get-ScheduledTask` on the task. On darwin and
+// Windows that proves the job is known to the scheduler and not stopped, NOT
+// that the server answers. Callers must not present it as a liveness probe.
 type Status struct {
 	BinPath          string
 	ConfigPath       string
@@ -800,12 +814,16 @@ func (m *Manager) Status(configPath string) (Status, error) {
 			st.Installed = true
 		}
 		if out, err := m.run("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel)); err == nil {
-			st.Running = !launchdPrintStopped(out)
-			if st.Running {
-				// Stop's own mark: right after it the job can still read
-				// `spawn scheduled` (KeepAlive throttle) though it was stopped on
-				// purpose, so the disabled flag is the authority, not the state.
-				if dis, err := m.run("launchctl", "print-disabled", fmt.Sprintf("gui/%d", os.Getuid())); err == nil && launchdLabelDisabled(dis) {
+			st.Running = true
+			// A live process is running whatever the flags say: a job disabled by
+			// hand still serves a binary upgrade-repair must replace. Without one,
+			// Stop's own mark decides: right after it the job can read `spawn
+			// scheduled` (KeepAlive throttle), so the disabled flag, not the
+			// state, is the authority.
+			if !launchdPrintHasPID(out) {
+				if launchdPrintStopped(out) {
+					st.Running = false
+				} else if dis, err := m.run("launchctl", "print-disabled", fmt.Sprintf("gui/%d", os.Getuid())); err == nil && launchdLabelDisabled(dis) {
 					st.Running = false
 				}
 			}
