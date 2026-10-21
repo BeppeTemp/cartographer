@@ -30,6 +30,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: read
     outputs:
       web: ${{ steps.filter.outputs.web }}
@@ -39,6 +40,8 @@ jobs:
     steps:
       # The table lives in scripts/ci-filters.sh, pinned by a test (D994).
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - id: filter
         env:
           GH_TOKEN: ${{ github.token }}

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -13,6 +14,9 @@ import (
 // runFilters feeds paths to scripts/ci-filters.sh and returns its outputs.
 func runFilters(t *testing.T, headRef string, paths ...string) map[string]string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the script runs on ubuntu only; bash on Windows may be WSL")
+	}
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("bash not on PATH")
@@ -54,6 +58,8 @@ func TestCIFiltersTable(t *testing.T) {
 		{"docs", "feat/x", []string{"docs/testing.md"}, false, false, false, false},
 		{"demo worker", "feat/x", []string{"deploy/demo/worker.js"}, false, false, true, false},
 		{"demo terraform", "feat/x", []string{"deploy/demo/main.tf"}, false, false, true, true},
+		{"ci.yml only", "feat/x", []string{".github/workflows/ci.yml"}, true, true, true, false},
+		{"filter script only", "feat/x", []string{"scripts/ci-filters.sh"}, true, true, true, false},
 		{"release PR", "release-please--branches--main", []string{"CHANGELOG.md"}, true, true, true, true},
 	}
 	for _, c := range cases {
@@ -87,10 +93,17 @@ func TestCIFiltersWebExclusionsMatchTheBinary(t *testing.T) {
 	for _, p := range list("list", "-deps", "./cmd/cartographer") {
 		deps[p] = true
 	}
-	mod := strings.TrimSpace(strings.Join(list("list", "-m"), " "))
 	excluded := map[string]bool{}
-	for _, d := range []string{"changelog", "changelog/gen", "repodocs", "testkbs", "testkbs/gen", "webui/gen"} {
-		excluded[mod+"/internal/"+d] = true
+	// The list is parsed out of the script, so the two cannot drift. Each entry
+	// is a directory: its subpackages (changelog/gen, testkbs/gen) go with it.
+	m := regexp.MustCompile(`(?m)^not_in_binary='\^internal/\(([^)]*)\)/'`).FindStringSubmatch(readFile(t, root, "scripts/ci-filters.sh"))
+	if m == nil {
+		t.Fatal("scripts/ci-filters.sh: cannot find the not_in_binary line")
+	}
+	for _, d := range strings.Split(m[1], "|") {
+		for _, p := range list("list", "./internal/"+d+"/...") {
+			excluded[p] = true
+		}
 	}
 	for p := range excluded {
 		if deps[p] {
@@ -105,15 +118,6 @@ func TestCIFiltersWebExclusionsMatchTheBinary(t *testing.T) {
 	}
 	if len(missing) > 0 {
 		t.Errorf("packages the binary does not import and ci-filters.sh does not exclude (add them to not_in_binary and to this test): %v", missing)
-	}
-}
-
-// A PR branch is scanned on pull_request (BASE..HEAD); a push trigger on every
-// branch scanned it twice (D994).
-func TestPrivacyPushIsMainOnly(t *testing.T) {
-	raw := readFile(t, repoRoot(t), ".github/workflows/privacy.yml")
-	if !regexp.MustCompile(`(?m)^  push:\n    branches: \[main\]\n`).MatchString(raw) {
-		t.Error("privacy.yml: `push:` must be limited to `branches: [main]`; the PR is scanned on pull_request")
 	}
 }
 
@@ -154,7 +158,7 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		}
 	}
 	for _, n := range targets {
-		if regexp.MustCompile(`make [^\n]*\b` + regexp.QuoteMeta(n) + `\b`).MatchString(wf.String()) {
+		if makeInvokes(wf.String(), n) {
 			mark(n)
 		}
 	}
@@ -163,5 +167,24 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		if !run[n] && !local[n] {
 			t.Errorf("Makefile target %q is run by no workflow and is not in the local-only list: wire it into .github/workflows/ or add it to this test's list", n)
 		}
+	}
+}
+
+// makeInvokes reports whether some line runs `make ... <target>` with target as
+// a whole word: `\b` would match before a hyphen, and `make smoke-http` would
+// then count as running `smoke`.
+func makeInvokes(text, target string) bool {
+	return regexp.MustCompile(`(?m)(^|[ \t])make[ \t]+([^\s]+[ \t]+)*` + regexp.QuoteMeta(target) + `([ \t]|$)`).MatchString(text)
+}
+
+func TestMakeInvokesIsATokenMatch(t *testing.T) {
+	if makeInvokes("- run: make smoke-http\n- run: make e2e\n", "smoke") {
+		t.Error("make smoke-http must not count as running smoke")
+	}
+	if !makeInvokes("- run: make smoke-http\n- run: make smoke\n", "smoke") {
+		t.Error("make smoke must count as running smoke")
+	}
+	if !makeInvokes("run: make e2e-web E2E_WEB_ARGS=x\n", "e2e-web") || makeInvokes("run: make e2e-web\n", "e2e") {
+		t.Error("e2e-web and e2e are different targets")
 	}
 }

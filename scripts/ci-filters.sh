@@ -40,11 +40,11 @@ any() { # any <ere> [<ere to drop>]
 # Go packages the binary cannot import (kept equal to `go list` by the test).
 not_in_binary='^internal/(changelog|repodocs|testkbs|webui/gen)/'
 
-web_other=$(any '^(web/|test/lib/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$)')
+web_other=$(any '^(web/|test/lib/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')
 web_go=$(any '^(cmd|internal)/' '_test\.go$|'"$not_in_binary")
 if [ "$web_other" = true ] || [ "$web_go" = true ]; then web=true; else web=false; fi
 
 echo "web=$web"
-echo "windows=$(any '^(cmd/|internal/(service|provisioning|configurator|clientconfig|mcpbridge|agents|execbit|gitx|kb|repoindex|defaults)/|install\.(sh|ps1)$|test/install/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$)|_windows(_test)?\.go$')"
+echo "windows=$(any '^(cmd/|internal/(service|provisioning|configurator|clientconfig|mcpbridge|agents|execbit|gitx|kb|repoindex|defaults)/|install\.(sh|ps1)$|test/install/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)|_windows(_test)?\.go$')"
 echo "tf=$(any '^deploy/demo/.*\.(tf|tfvars)$')"
-echo "demo=$(any '^deploy/demo/(worker\.js|worker\.test\.mjs)$|^deploy/demo/.*\.(tf|tfvars)$|^\.github/workflows/ci\.yml$')"
+echo "demo=$(any '^deploy/demo/(worker\.js|worker\.test\.mjs)$|^deploy/demo/.*\.(tf|tfvars)$|^(\.github/workflows/ci\.yml|scripts/ci-filters\.sh)$')"

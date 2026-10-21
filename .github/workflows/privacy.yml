@@ -9,11 +9,7 @@ name: privacy
 # history still holds the original, so the notification is the signal to delete
 # that revision. Forks get no secrets and are skipped.
 on:
-  # A PR branch is scanned on `pull_request` (BASE..HEAD); `push` on every
-  # branch scanned it a second time. A branch pushed without a PR is scanned
-  # when its PR opens.
   push:
-    branches: [main]
   pull_request:
     types: [opened, edited, synchronize, reopened]
   issues:
