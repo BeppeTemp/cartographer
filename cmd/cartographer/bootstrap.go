@@ -24,7 +24,8 @@ func sshCommand(key, knownHosts string) string {
 	if key == "" {
 		return ""
 	}
-	cmd := "ssh -i " + shellQuote(key)
+	// BatchMode: a passphrase-protected key must fail, not prompt on the tty (#1004).
+	cmd := "ssh -i " + shellQuote(key) + " -o BatchMode=yes -o ConnectTimeout=10"
 	if knownHosts != "" {
 		cmd += " -o " + shellQuote(`UserKnownHostsFile="`+knownHosts+`"`) + " -o StrictHostKeyChecking=yes"
 	}

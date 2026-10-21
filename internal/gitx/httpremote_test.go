@@ -106,8 +106,6 @@ func TestHTTPRemote_NoTokenNeverPromptsAndSaysSo(t *testing.T) {
 	if ctx.Err() != nil {
 		t.Fatal("the clone waited for a credential prompt")
 	}
-	// Fetch and Push carry no prompt guard of their own (only Clone sets
-	// GIT_TERMINAL_PROMPT=0): the caller's env does, as IsolatedEnv's.
 	good := append(gitxtest.IsolatedEnv(), gitxtest.TokenEnv(writeToken(t, httpTestToken))...)
 	dest := filepath.Join(t.TempDir(), "clone")
 	if err := Clone(context.Background(), url, dest, good...); err != nil {
@@ -119,5 +117,38 @@ func TestHTTPRemote_NoTokenNeverPromptsAndSaysSo(t *testing.T) {
 	runIn(t, dest, "commit", "--allow-empty", "-m", "x")
 	if err := Push(dest, "origin", "main", gitxtest.IsolatedEnv()...); err == nil || !strings.Contains(err.Error(), "terminal prompts disabled") {
 		t.Errorf("Push with no token: %v, want terminal prompts disabled", err)
+	}
+}
+
+// Fetch and Push set GIT_TERMINAL_PROMPT=0 themselves: a process env that
+// allows prompts (a server started from a terminal) must not make a 401 wait
+// on /dev/tty (#1004).
+func TestHTTPRemote_PushAndFetchNeverPromptOn401(t *testing.T) {
+	url, _ := seededHTTPRemote(t)
+	good := append(gitxtest.IsolatedEnv(), gitxtest.TokenEnv(writeToken(t, httpTestToken))...)
+	dest := filepath.Join(t.TempDir(), "clone")
+	if err := Clone(context.Background(), url, dest, good...); err != nil {
+		t.Fatal(err)
+	}
+	runIn(t, dest, "commit", "--allow-empty", "-m", "x")
+	t.Setenv("GIT_TERMINAL_PROMPT", "1")
+	t.Setenv("GIT_ASKPASS", "")
+	t.Setenv("SSH_ASKPASS", "")
+	// the machine's git configuration stays out; the token is wrong
+	bad := []string{"GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=credential.helper",
+		"GIT_CONFIG_VALUE_0=!f() { echo username=token; echo password=wrong; }; f"}
+	defer func(d time.Duration) { PushTimeout = d }(PushTimeout)
+	PushTimeout = 30 * time.Second
+	start := time.Now()
+	err := Push(dest, "origin", "main", bad...)
+	if err == nil || !strings.Contains(err.Error(), "the credentials were rejected") {
+		t.Fatalf("Push with a rejected token: %v, want the credentials-were-rejected remedy", err)
+	}
+	if time.Since(start) >= PushTimeout {
+		t.Fatal("the push waited for a credential prompt")
+	}
+	if err := Fetch(dest, "origin", bad...); err == nil {
+		t.Error("Fetch with a rejected token succeeded")
 	}
 }
