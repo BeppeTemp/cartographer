@@ -14,6 +14,15 @@ mac_guard() {
     echo "test/macos: refusing to run outside CI: this registers a real launchd job (com.cartographer.serve) and would replace yours. Set CARTOGRAPHER_MACOS_E2E=1 on a throwaway machine." >&2
     exit 2
   fi
+  # Even in CI: a unit already here belongs to a real service this run would
+  # replace and then delete.
+  local unit
+  for unit in com.cartographer.serve com.cartographer.sync; do
+    if [ -e "$HOME/Library/LaunchAgents/$unit.plist" ]; then
+      echo "test/macos: refusing to run: $HOME/Library/LaunchAgents/$unit.plist already exists, and this test would replace and then delete it." >&2
+      exit 2
+    fi
+  done
 }
 
 mac_fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -57,7 +66,19 @@ MAC_PLIST="$HOME/Library/LaunchAgents/$MAC_LABEL.plist"
 MAC_LOG="$HOME/Library/Logs/cartographer/server.log"
 
 mac_launchd_print() { launchctl print "gui/$(id -u)/$MAC_LABEL"; }
-mac_launchd_pid() { mac_launchd_print 2>/dev/null | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | head -n 1; }
+# The output is captured before it is filtered: a reader that exits early
+# (grep -q, head) would SIGPIPE launchctl and fail the pipeline under pipefail.
+mac_launchd_pid() {
+  local out
+  out=$(mac_launchd_print 2>/dev/null) || return 0
+  printf '%s\n' "$out" | sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\).*/\1/p' | sed -n 1p
+}
+mac_launchd_running() {
+  local out
+  out=$(mac_launchd_print 2>/dev/null) || return 1
+  case $out in *"state = running"*) return 0 ;; esac
+  return 1
+}
 
 # mac_wait_for <seconds> <command...>: poll until the command succeeds.
 mac_wait_for() {

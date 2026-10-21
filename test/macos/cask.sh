@@ -48,6 +48,10 @@ mkdir -p "$tap_dir/Casks"
 stage=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cartographer-cask.XXXXXX")
 cp "$asset" "$stage/cartographer-darwin-$arch"
 asset="$stage/cartographer-darwin-$arch"
+# Positive control: the downloaded file carries the quarantine attribute, as a
+# browser download does, so its absence after install can only be the
+# postflight step's doing.
+xattr -w com.apple.quarantine "0081;00000000;test;" "$asset"
 want=$(shasum -a 256 "$asset" | cut -d' ' -f1)
 grep -q "$want" "$cask_src" || mac_fail "the Cask sha256 is not the snapshot binary's ($want)"
 mac_ok "Cask sha256 matches $(basename "$asset")"
@@ -61,6 +65,7 @@ echo "→ install"
 caveats=$(brew info --cask "$tap/cartographer" 2>&1)
 case $caveats in *"cartographer setup"*) ;; *) mac_fail "caveats do not name 'cartographer setup'" ;; esac
 mac_ok "caveats name cartographer setup"
+if ! xattr -p com.apple.quarantine "$asset" >/dev/null 2>&1; then mac_fail "the control attribute was not set on $asset"; fi
 brew install --cask "$tap/cartographer" || mac_fail "brew install --cask failed"
 shim="$(brew --prefix)/bin/cartographer"
 [ -x "$shim" ] || mac_fail "no $shim after install"
@@ -71,7 +76,7 @@ case $real in /*) ;; *) real="$(dirname "$shim")/$real" ;; esac
 if xattr -p com.apple.quarantine "$real" >/dev/null 2>&1; then
   mac_fail "$real still carries com.apple.quarantine: the postflight step did not run"
 fi
-mac_ok "no quarantine attribute (postflight_steps ran)"
+mac_ok "quarantine set on the download is gone (postflight_steps ran)"
 
 echo "→ uninstall"
 brew uninstall --cask "$tap/cartographer" || mac_fail "brew uninstall --cask failed"

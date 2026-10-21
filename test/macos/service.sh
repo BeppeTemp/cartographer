@@ -26,7 +26,7 @@ mac_probe_domain
 "$BIN" service install --config "$work/server.yaml" --data "$work/data" --http "127.0.0.1:$port" >/dev/null
 plutil -lint "$MAC_PLIST" >/dev/null || mac_fail "plutil rejects $MAC_PLIST"
 mac_ok "plist passes plutil -lint"
-mac_launchd_print | grep -q 'state = running' || mac_fail "launchctl print: job is not running"
+mac_launchd_running || mac_fail "launchctl print: job is not running"
 mac_ok "launchctl print: state = running"
 mac_wait_ready "$port" 30 || mac_fail "/health never became ready"
 mac_ok "/health ready"
@@ -38,7 +38,7 @@ mac_ok "service status exits 0 and names the binary and config"
 echo "→ restart --wait"
 pid_before=$(mac_launchd_pid)
 "$BIN" service restart --wait --config "$work/server.yaml" >/dev/null || mac_fail "restart --wait failed"
-mac_launchd_print | grep -q 'state = running' || mac_fail "not running after restart"
+mac_launchd_running || mac_fail "not running after restart"
 mac_wait_ready "$port" 30 || mac_fail "/health not ready after restart"
 [ "$(mac_launchd_pid)" != "$pid_before" ] || mac_fail "restart --wait kept pid $pid_before"
 mac_ok "restart --wait: same label serving, new pid"
@@ -50,6 +50,7 @@ echo "→ stop and start"
 "$BIN" service stop >/dev/null || mac_fail "stop failed"
 serving() { $MAC_CURL -fsS --max-time 2 "http://127.0.0.1:$port/health" >/dev/null 2>&1; }
 not_serving() { ! serving; }
+# TODO(#1006): assert `service status` exits 3 once darwin Status reports stopped
 mac_wait_for 30 not_serving || mac_fail "/health still answers 30s after stop"
 mac_ok "stopped: /health no longer answers"
 "$BIN" service start >/dev/null || mac_fail "start failed"
