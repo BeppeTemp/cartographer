@@ -28,7 +28,7 @@ on:
   issues:
     types: [labeled, assigned, milestoned, demilestoned] # approved, assigned, or moved to another train: the gate reads all three
   milestone:
-    types: [closed] # a train has left: the next milestone's PRs may now pass
+    types: [created, opened, closed, edited, deleted] # any of them can change which train is next
 
 permissions:
   contents: read

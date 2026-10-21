@@ -295,7 +295,7 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
   first. Work of a later milestone can be planned, implemented and reviewed at any
   time, but its PR waits, open, until the train before it has left: `plan-gate`
   fails a PR that closes an issue of a later milestone, and runs again by itself
-  when the issue moves to another milestone or a milestone is closed (the maintainer
+  when the issue moves to another milestone or the milestones change (the maintainer
   closes the train's milestone after the release, moving what did not make it). A large change
   that spans trains lands as PRs that change nothing a user sees on their own.
 - **Out of train**, only for a regression of the latest release or a security fix: the

@@ -5,9 +5,10 @@ topic: project-governance
 # D987 — Only the next train's work merges, and every accepted issue has a milestone
 
 **Decision.** A milestone is a train (D956), and the open milestone due first is
-the next one. A PR that closes an issue of any other milestone is blocked by the
+the next one. A PR that closes an issue of a later open milestone is blocked by the
 required `plan-gate` check until the train before it has left; the check re-runs
-when an issue changes milestone or a milestone is closed. Every accepted issue has
+when an issue changes milestone or the milestones change. An issue left in a closed
+milestone is not blocked, and a failed API read blocks rather than passes. Every accepted issue has
 a milestone, approved plans included; an open issue without one is untriaged.
 `good first issue` marks the easiest issues of the next milestones and is dropped
 when nobody claims one by the Wednesday of its train week.

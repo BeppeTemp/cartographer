@@ -113,8 +113,12 @@ echo "Tier: $tier${invariant:+ — invariant areas: $(tr '\n' ' ' <<<"$invariant
 
 # The next train is the open milestone due first (CONTRIBUTING.md §Releases): only its
 # work merges, the rest waits in its open PR until the train before it has left.
-next=$(gh api "repos/{owner}/{repo}/milestones?state=open&sort=due_on&direction=asc" --jq '.[0].title // empty' 2>/dev/null || true)
-plan=""; plan_ok=""; unassigned=""; later=""
+# A milestone without a due date is no train. A closed milestone's train has left,
+# so its leftover issues may still merge; only an open, later milestone waits.
+trains=$(gh api "repos/{owner}/{repo}/milestones?state=open&sort=due_on&direction=asc&per_page=100" \
+  --jq '[.[] | select(.due_on) | .title] | join("|")' 2>/dev/null || echo "?")
+next=${trains%%|*}
+plan=""; plan_ok=""; unassigned=""; later=""; unknown=""
 for n in $issues; do
   # Split on "|": a label may hold spaces (`good first issue`), and a tab, being
   # whitespace to read, would swallow an empty label list.
@@ -123,7 +127,9 @@ for n in $issues; do
   echo "Closes #$n [$labels] milestone ${milestone/#-/none}"
   if [ "$milestone" = - ]; then
     echo "WARN: #$n has no milestone — it is not triaged yet: the maintainer puts it in a train or closes it"
-  elif [ -n "$next" ] && [ "$milestone" != "$next" ] && [ "$milestone" != "?" ]; then
+  elif [ "$milestone" = "?" ] || [ "$trains" = "?" ]; then
+    unknown="$unknown #$n"
+  elif [ "$milestone" != "$next" ] && [[ "|$trains|" == *"|$milestone|"* ]]; then
     later="$later #$n ($milestone)"
   fi
   if [[ ",$labels," == *",plan,"* ]]; then
@@ -152,6 +158,11 @@ if [ "$role" = contributor ] && [ "$prod" -gt "$PLAN_FLOOR" ] && [ -z "$plan_ok"
   else
     echo "BLOCK: $prod production lines from a contributor without an approved plan (an issue labelled plan + approved): the design is reviewed there first"
   fi
+fi
+# Fail closed: a rule the API did not let us evaluate is not a rule that passed.
+if [ -n "$unknown" ] && [ "$role" != bot ]; then
+  blocked=1
+  echo "BLOCK: could not read the milestone of$unknown or the open trains from the GitHub API — re-run the check"
 fi
 if [ -n "$later" ] && [ "$role" != bot ]; then
   blocked=1
