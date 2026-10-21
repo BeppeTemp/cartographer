@@ -15,6 +15,7 @@
 #   windows  packages with platform-specific files or behaviour.
 #   demo     the demo Worker or its Terraform (job demo-edge).
 #   tf       the Terraform alone (a step of demo-edge).
+#   docker   what the container is built from (job docker, D995).
 set -euo pipefail
 
 head_ref=${1:-}
@@ -46,5 +47,6 @@ if [ "$web_other" = true ] || [ "$web_go" = true ]; then web=true; else web=fals
 
 echo "web=$web"
 echo "windows=$(any '^(cmd/|internal/(service|provisioning|configurator|clientconfig|mcpbridge|agents|execbit|gitx|kb|repoindex|defaults)/|install\.(sh|ps1)$|test/install/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)|_windows(_test)?\.go$')"
+echo "docker=$(any '^(Dockerfile|\.dockerignore|go\.(mod|sum)|test/smoke/image\.sh|test/lib/mcp\.sh|deploy/demo/|demo/guestbook/)|^(\.github/workflows/ci\.yml|scripts/ci-filters\.sh)$')"
 echo "tf=$(any '^deploy/demo/.*\.(tf|tfvars)$')"
 echo "demo=$(any '^deploy/demo/(worker\.js|worker\.test\.mjs)$|^deploy/demo/.*\.(tf|tfvars)$|^(\.github/workflows/ci\.yml|scripts/ci-filters\.sh)$')"
