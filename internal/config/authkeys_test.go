@@ -60,3 +60,82 @@ func TestUnknownKeyOutsideAuthStaysLenient(t *testing.T) {
 		t.Fatalf("a key outside auth must not stop the load: %v", err)
 	}
 }
+
+func TestAuthKeysThroughMergeKeys(t *testing.T) {
+	for name, y := range map[string]string{
+		"sequence merge": "x: &a {scope: [\"kb:a:r\"]}\nauth:\n  tokens:\n    - {<<: [*a], token: t1}\n",
+		"single merge":   "x: &a {scope: [\"kb:a:r\"]}\nauth:\n  tokens:\n    - {<<: *a, token: t1}\n",
+		"root merge":     "base: &b\n  auth:\n    tokens:\n      - {token: t1, scope: [\"kb:a:r\"]}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			// the root-merge case needs the merge at the root
+			if name == "root merge" {
+				y = "base: &b\n  auth:\n    tokens:\n      - {token: t1, scope: [\"kb:a:r\"]}\n<<: *b\n"
+			}
+			_, err := loadAuthYAML(t, y)
+			if err == nil || !strings.Contains(err.Error(), `"scope"`) {
+				t.Fatalf("want an error naming scope, got %v", err)
+			}
+		})
+	}
+}
+
+func TestMisspelledTopLevelSectionIsRefused(t *testing.T) {
+	for _, y := range []string{
+		"Auth:\n  tokens: [abc]\n",
+		"tokens: [abc]\n",
+		"roles: []\n",
+	} {
+		if _, err := loadAuthYAML(t, y); err == nil {
+			t.Errorf("%q: expected an error", y)
+		}
+	}
+}
+
+func TestEmptyScopeListIsNotAdmin(t *testing.T) {
+	for name, y := range map[string]string{
+		"empty list": "auth:\n  tokens:\n    - {token: abc, scopes: []}\n",
+		"null":       "auth:\n  tokens:\n    - {token: abc, scopes: }\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := loadAuthYAML(t, y)
+			if err == nil {
+				err = ValidateAuth(cfg.Auth)
+			}
+			if err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+	// The admin token stays expressible: no scopes, no roles at all.
+	cfg, err := loadAuthYAML(t, "auth:\n  tokens:\n    - abc\n    - {token: def}\n    - {token: ghi, scopes: [], roles: []}\n")
+	if err == nil {
+		err = ValidateAuth(cfg.Auth)
+	}
+	if err == nil || !strings.Contains(err.Error(), "empty scope list") {
+		t.Fatalf("explicit empty lists must be refused, got %v", err)
+	}
+	cfg, err = loadAuthYAML(t, "auth:\n  tokens:\n    - abc\n    - {token: def}\n")
+	if err != nil || ValidateAuth(cfg.Auth) != nil {
+		t.Fatalf("admin tokens must load: %v", err)
+	}
+}
+
+func TestEnvTokenEmptyScopesAndSpaces(t *testing.T) {
+	for _, v := range []string{"tok|", "tok|;", "tok| ; "} {
+		specs := parseTokenSpecs(v)
+		if len(specs) != 1 || ValidateAuth(AuthConfig{Tokens: specs}) == nil {
+			t.Errorf("%q: want one token refused by ValidateAuth, got %+v", v, specs)
+		}
+	}
+	specs := parseTokenSpecs("tok| kb:a:r ; kb:b:rw, adm")
+	if len(specs) != 2 || len(specs[0].Scopes) != 2 || specs[0].Scopes[0] != "kb:a:r" || specs[0].Scopes[1] != "kb:b:rw" {
+		t.Fatalf("spaces around scopes must be trimmed: %+v", specs)
+	}
+	if specs[1].Token != "adm" || len(specs[1].Scopes) != 0 || specs[1].ScopesDeclared {
+		t.Errorf("bare token is the admin form: %+v", specs[1])
+	}
+	if err := ValidateAuth(AuthConfig{Tokens: specs}); err != nil {
+		t.Error(err)
+	}
+}

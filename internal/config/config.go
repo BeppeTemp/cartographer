@@ -147,6 +147,10 @@ type TokenSpec struct {
 	// audit records. When empty a non-secret ID is derived from the token
 	// hash, never from a plaintext prefix.
 	ID string `yaml:"id,omitempty"`
+	// ScopesDeclared records that the entry wrote a scope list (`scopes:` in
+	// YAML, `|` in the env form). A declared list that ends up empty is refused
+	// by ValidateAuth: the admin token is the one that writes no scopes at all.
+	ScopesDeclared bool `yaml:"-"`
 }
 
 // UnmarshalYAML accepts both a bare scalar ("tok1", legacy `tokens: [...]`
@@ -163,6 +167,11 @@ func (t *TokenSpec) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	*t = TokenSpec(raw)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "scopes" {
+			t.ScopesDeclared = true
+		}
+	}
 	return nil
 }
 
@@ -304,27 +313,80 @@ type rawAuth struct {
 	Roles  []RoleSpec  `yaml:"roles"`
 }
 
-// checkAuthKeys refuses an unknown key anywhere under `auth:`. The rest of the
-// file stays lenient (retired keys are warned about and dropped, D906), but an
-// auth key that is dropped silently changes who may do what: a token whose
-// `scope:` was misspelled would carry no scopes. The walk is done on the node
-// tree because TokenSpec decodes through a custom unmarshaler, which would
-// lose the decoder's strict mode.
+// checkAuthKeys refuses what would silently drop or widen authentication: an
+// unknown key anywhere under `auth:`, and a top-level key that is a misspelled
+// section or an auth key written at the root. The rest of the file stays
+// lenient (retired keys are warned about and dropped, D906), but a dropped
+// auth key changes who may do what: a token whose `scope:` was misspelled would
+// carry no scopes, and an `Auth:` section would leave the server unprotected.
+// The walk is done on the node tree because TokenSpec decodes through a custom
+// unmarshaler, which would lose the decoder's strict mode.
 func checkAuthKeys(data []byte) error {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
 		return nil // the typed decode reports syntax errors
 	}
 	root := doc.Content[0]
+	for root.Kind == yaml.AliasNode && root.Alias != nil {
+		root = root.Alias
+	}
 	if root.Kind != yaml.MappingNode {
 		return nil
 	}
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == "auth" {
-			return checkKnownKeys(root.Content[i+1], reflect.TypeOf(rawAuth{}), "auth")
+	sections := map[string]bool{}
+	rt := reflect.TypeOf(rawConfig{})
+	for i := 0; i < rt.NumField(); i++ {
+		name, _, _ := strings.Cut(rt.Field(i).Tag.Get("yaml"), ",")
+		sections[name] = true
+	}
+	keys, vals := mappingPairs(root)
+	for i, k := range keys {
+		switch {
+		case sections[k.Value]:
+		case k.Value == "tokens" || k.Value == "roles":
+			return fmt.Errorf("key %q at the top level (line %d, column %d): it belongs under auth", k.Value, k.Line, k.Column)
+		default:
+			for name := range sections {
+				if strings.EqualFold(k.Value, name) {
+					return fmt.Errorf("unknown key %q at the top level (line %d, column %d): did you mean %q", k.Value, k.Line, k.Column, name)
+				}
+			}
+		}
+		if k.Value == "auth" {
+			if err := checkKnownKeys(vals[i], reflect.TypeOf(rawAuth{}), "auth"); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// mappingPairs returns the key and value nodes of a mapping with its merge
+// keys (`<<: *a` and `<<: [*a, *b]`) resolved, so a key supplied through a
+// merge is seen like a written one.
+func mappingPairs(n *yaml.Node) (keys, vals []*yaml.Node) {
+	for n.Kind == yaml.AliasNode && n.Alias != nil {
+		n = n.Alias
+	}
+	if n.Kind != yaml.MappingNode {
+		return nil, nil
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		k, v := n.Content[i], n.Content[i+1]
+		if k.Tag != "!!merge" {
+			keys, vals = append(keys, k), append(vals, v)
+			continue
+		}
+		srcs := []*yaml.Node{v}
+		if v.Kind == yaml.SequenceNode {
+			srcs = v.Content
+		}
+		for _, src := range srcs {
+			mk, mv := mappingPairs(src)
+			keys, vals = append(keys, mk...), append(vals, mv...)
+		}
+	}
+	return keys, vals
 }
 
 func checkKnownKeys(n *yaml.Node, t reflect.Type, at string) error {
@@ -354,14 +416,8 @@ func checkKnownKeys(n *yaml.Node, t reflect.Type, at string) error {
 			}
 			known[name] = f.Type
 		}
-		for i := 0; i+1 < len(n.Content); i += 2 {
-			k, v := n.Content[i], n.Content[i+1]
-			if k.Value == "<<" {
-				if err := checkKnownKeys(v, t, at); err != nil {
-					return err
-				}
-				continue
-			}
+		keys, vals := mappingPairs(n)
+		for i, k := range keys {
 			ft, ok := known[k.Value]
 			if !ok && t == reflect.TypeOf(TokenSpec{}) && (k.Value == "author_name" || k.Value == "author_email") {
 				continue // retired (D904): warned about by the realignment, grants nothing
@@ -369,7 +425,7 @@ func checkKnownKeys(n *yaml.Node, t reflect.Type, at string) error {
 			if !ok {
 				return fmt.Errorf("unknown key %q under %s (line %d, column %d)", k.Value, at, k.Line, k.Column)
 			}
-			if err := checkKnownKeys(v, ft, at+"."+k.Value); err != nil {
+			if err := checkKnownKeys(vals[i], ft, at+"."+k.Value); err != nil {
 				return err
 			}
 		}
@@ -599,12 +655,18 @@ func splitCSV(s string) []string {
 	return out
 }
 
+// scopeSepSpaces matches the spaces around a "|" or ";" of a token entry.
+var scopeSepSpaces = regexp.MustCompile(`[ \t]*([|;])[ \t]*`)
+
 // parseTokenSpecs parses CARTOGRAPHER_TOKENS / --tokens into TokenSpecs.
 // Entries are separated by commas and/or whitespace. Each entry is either a
 // bare token or "token|scope1;scope2;..." (scopes separated by ';', which
 // cannot collide with the whitespace/comma entry separators). Empty entries
 // are ignored.
 func parseTokenSpecs(v string) []TokenSpec {
+	// Spaces around a separator belong to the entry: "tok| kb:a:r" is one token
+	// with one scope, not an unscoped token followed by a stray entry.
+	v = scopeSepSpaces.ReplaceAllString(v, "$1")
 	entries := strings.FieldsFunc(v, func(r rune) bool {
 		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
 	})
@@ -621,7 +683,7 @@ func parseTokenSpecs(v string) []TokenSpec {
 		// operator wrote something, and dropping it silently changes the token
 		// count that gates enforcement. It is carried through with an empty
 		// value so ValidateAuth refuses it by name.
-		spec := TokenSpec{Token: tok}
+		spec := TokenSpec{Token: tok, ScopesDeclared: hasScopes}
 		if hasScopes {
 			for _, s := range strings.Split(scopeStr, ";") {
 				if s = strings.TrimSpace(s); s != "" {

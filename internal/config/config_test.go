@@ -56,7 +56,7 @@ func TestLoadFullYAML(t *testing.T) {
 		HTTP: ":39273",
 		Auth: AuthConfig{Mode: "on", Tokens: []TokenSpec{
 			{Token: "tok-a"},
-			{Token: "tok-b", Scopes: []string{"kb:docs:rw", "kb:notes:r"}},
+			{Token: "tok-b", Scopes: []string{"kb:docs:rw", "kb:notes:r"}, ScopesDeclared: true},
 		}},
 		Data:           "/data",
 		CredentialsDir: "/etc/cartographer/credentials",
