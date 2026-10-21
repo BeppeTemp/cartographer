@@ -21,8 +21,7 @@ package starts or stops reaching the binary.
 without GitHub. Excluding all of `internal/` tests and Go from `windows` too:
 `cmd/` and the platform packages carry the platform code, so `windows` is kept
 and only pinned. Limiting `privacy` to `push` on `main`: a branch pushed without a PR would go unscanned. Splitting the release-please action in two so the release PR gets one
-CI run: blocked, the repository setting "Allow GitHub Actions to create and
-approve pull requests" is off (see #994).
+CI run: WP3 moved to #999.
 
 **Consequences.** A new `internal/` package that the binary does not import must
 be added to `not_in_binary` in the script and to the test, or the test fails with
