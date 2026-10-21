@@ -76,6 +76,9 @@ export const DRIFT_TICK_BUDGET_MS = 4;
 export const DRIFT_TICK_RESUME_MS = 3;
 /** A slowed drift ticks once every this many simulation steps. */
 export const DRIFT_SLOW_EVERY = 2;
+/** Past this a tick is a visible hitch even at half rate (~5,000 concepts):
+ *  the drift rests and the network cools, as with motion off (D889). */
+export const DRIFT_REST_MS = 12;
 
 /** Whether the drift may run (keep running) at the full rate, from the average
  *  cost of a tick. */

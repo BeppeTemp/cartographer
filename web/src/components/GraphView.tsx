@@ -597,23 +597,26 @@ function View({
     if (!scene) return;
     const slots = resolveSlots();
     const canvas = cssVar("--surface-0");
+    // Only a drawn concept makes the rest recede: an index page is no node,
+    // and fading every node around nothing would turn the graph grey.
+    const focal = shown && scene.nodeById(shown) ? shown : null;
     const near = new Set<string>();
-    if (shown) {
-      near.add(shown);
-      for (const n of scene.neighboursOf(shown)) near.add(n.id);
+    if (focal) {
+      near.add(focal);
+      for (const n of scene.neighboursOf(focal)) near.add(n.id);
     }
     const drawn = snapshot.nodes.filter((n) => !hiddenIds.has(n.id));
     const colours = drawn.map((n, i) => {
       const base = tako
         ? takoColour(i, drawn.length)
         : slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
-      return !shown || near.has(n.id) ? base : fade(base, RECEDED, canvas);
+      return !focal || near.has(n.id) ? base : fade(base, RECEDED, canvas);
     });
     // Diamonds wear the signal colour: an artifact is not in any community
     // or Map, and a colour of its own says so.
     const artifactColour = cssVar("--graph-signal");
     for (const a of drawnArtifacts) {
-      colours.push(!shown || near.has(a.node.id) ? artifactColour : fade(artifactColour, RECEDED, canvas));
+      colours.push(!focal || near.has(a.node.id) ? artifactColour : fade(artifactColour, RECEDED, canvas));
     }
     scene.setColours(colours, {
       background: canvas,
@@ -637,8 +640,11 @@ function View({
     const scene = sceneRef.current;
     const layer = labelsRef.current;
     if (!scene || !layer) return;
-    scene.setSelection(shown);
     const node = shown ? scene.nodeById(shown) : undefined;
+    // A concept the graph does not draw (an index page) selects nothing: a
+    // selection makes everything else recede, and with no node to stand out
+    // the whole graph would go grey.
+    scene.setSelection(node ? shown : null);
     if (!node) {
       if (focusedId.current !== null) scene.unfocus(savedPose.current);
       focusedId.current = null;
