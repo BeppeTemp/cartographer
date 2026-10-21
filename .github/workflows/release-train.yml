@@ -1,8 +1,8 @@
 name: release-train
 
-# The weekly release train (D956): Friday 00:30 Europe/Rome builds the release
+# The weekly release train (D956, D989): Saturday 00:30 Europe/Rome builds the release
 # candidate, Monday 08:30 Europe/Rome merges the release PR if a maintainer ran
-# the candidate and added the `rc-ok` label. Freeze: Friday 00:00 to Monday 08:30,
+# the candidate and added the `rc-ok` label. Freeze: Saturday 00:00 to Monday 08:30,
 # nothing that adds or breaks behaviour lands (CONTRIBUTING.md §Releases).
 #
 # TRAPS (pinned by internal/repodocs/release_train_test.go):
@@ -21,8 +21,8 @@ name: release-train
 #     so no third-party code runs with the PAT. Keep it that way, or pin to a SHA.
 on:
   schedule:
-    - cron: "30 22 * * 4" # Thu 22:30 UTC = Fri 00:30 CEST (summer)
-    - cron: "30 23 * * 4" # Thu 23:30 UTC = Fri 00:30 CET (winter)
+    - cron: "30 22 * * 5" # Fri 22:30 UTC = Sat 00:30 CEST (summer)
+    - cron: "30 23 * * 5" # Fri 23:30 UTC = Sat 00:30 CET (winter)
     - cron: "30 6 * * 1" # Mon 06:30 UTC = Mon 08:30 CEST
     - cron: "30 7 * * 1" # Mon 07:30 UTC = Mon 08:30 CET
   workflow_dispatch:
@@ -63,7 +63,7 @@ jobs:
             offset=$(TZ=Europe/Rome date +%z) # +0200 summer, +0100 winter
             case "$offset $CRON" in
               "+0200 30 6 * * 1" | "+0100 30 7 * * 1") mode=release ;;
-              "+0200 30 22 * * 4" | "+0100 30 23 * * 4") mode=rc ;;
+              "+0200 30 22 * * 5" | "+0100 30 23 * * 5") mode=rc ;;
             esac
           fi
           echo "cron: ${CRON:-manual}, Europe/Rome offset: ${offset:-n/a}, mode: $mode"
@@ -88,7 +88,7 @@ jobs:
             echo "number=$n" >> "$GITHUB_OUTPUT"
           fi
 
-      # Friday: the candidate is the main of the start of the freeze.
+      # Saturday: the candidate is the main of the start of the freeze.
       - name: Dispatch the release candidate build
         if: steps.mode.outputs.mode == 'rc' && steps.pr.outputs.number != ''
         env:
@@ -128,7 +128,7 @@ jobs:
           # The train must not ship a commit the candidate did not contain: the newest
           # successful candidate build must be of the head of main, and the label must
           # come after that build. A label newer than the last commit is not enough: a
-          # fix merged after the Friday build and before the label was never run.
+          # fix merged after the Saturday build and before the label was never run.
           retry="Run \`release-train\` by hand with \`action: rc\`, try the new candidate, then remove and add \`rc-ok\` again."
           head_sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
           # Only a release candidate counts, not any preview of main: run-name carries the tag.
@@ -145,9 +145,9 @@ jobs:
           perm=$(gh api "repos/$GH_REPO/collaborators/$ok_by/permission" --jq .permission || true)
           case "$perm" in admin | maintain | write) ;; *) skip "\`rc-ok\` was added by $ok_by, who is not a maintainer. $retry" ;; esac
 
-          # Freeze: any feat, perf, refactor or breaking commit since last Friday 00:00 in Rome.
-          friday=$(TZ=Europe/Rome date -d 'last friday 00:00' +%s)
-          since=$(date -u -d "@$friday" +%Y-%m-%dT%H:%M:%SZ)
+          # Freeze: any feat, perf, refactor or breaking commit since last Saturday 00:00 in Rome.
+          saturday=$(TZ=Europe/Rome date -d 'last saturday 00:00' +%s)
+          since=$(date -u -d "@$saturday" +%Y-%m-%dT%H:%M:%SZ)
           blocked=$(gh api --paginate "repos/$GH_REPO/commits?sha=main&since=$since&per_page=100" \
             --jq '.[] | select(.commit.message | test("\\A(feat|perf|refactor)(\\([^)]*\\))?!?:|\\A[a-z]+(\\([^)]*\\))?!:|\\nBREAKING[ -]CHANGE")) | "- \(.sha[0:8]) \(.commit.message | split("\n")[0])"')
           [ -z "$blocked" ] || skip "commits blocked by the freeze landed on \`main\` since $since:"$'\n'"$blocked"
