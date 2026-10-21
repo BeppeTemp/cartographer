@@ -90,7 +90,7 @@ func cmdKBRepair(args []string) int {
 		}
 	}
 	token := resolveToken(cfg)
-	health, err := client.New(cfg.ServerURL, token).Health(probeTimeout)
+	health, err := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).Health(probeTimeout)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kb repair:", err)
 		return kbRepairExitError
@@ -111,7 +111,7 @@ func cmdKBRepair(args []string) int {
 // repairCaller is the caller kb repair writes through: scoped to the KB, and
 // naming who the repair and a revert are authored as (D904).
 func repairCaller(cfg *clientconfig.Config, token string, target kbTarget, dir string, errOut io.Writer) targetCaller {
-	c := client.New(cfg.ServerURL, token).WithKB(target.Name).WithAuthor(cliAuthor(cfg, target.Name, dir, errOut))
+	c := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithKB(target.Name).WithAuthor(cliAuthor(cfg, target.Name, dir, errOut))
 	return targetCaller{c: c, target: target}
 }
 

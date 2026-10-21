@@ -45,7 +45,7 @@ func reportUsage(cfg *clientconfig.Config, dir string) int {
 		kbNames = append(kbNames, name)
 	}
 	sort.Strings(kbNames)
-	c := client.New(cfg.ServerURL, resolveToken(cfg)).WithTokenEnv(tokenEnvName(cfg))
+	c := client.New(cfg.ServerURL, resolveToken(cfg)).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnvName(cfg))
 	sent := 0
 	for _, name := range kbNames {
 		if err := c.ReportUsage(name, byKB[name], probeTimeout); err != nil {
@@ -70,7 +70,7 @@ func reportClientSettings(cfg *clientconfig.Config, dir string) bool {
 	}
 	report.Providers = reportProviders(cfg)
 	report.Placeholders = reportPlaceholders(cfg, dir)
-	c := client.New(cfg.ServerURL, resolveToken(cfg)).WithTokenEnv(tokenEnvName(cfg))
+	c := client.New(cfg.ServerURL, resolveToken(cfg)).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnvName(cfg))
 	if err := c.ReportClientSettings(report, probeTimeout); err != nil {
 		slog.Debug("client settings report not delivered", "err", err)
 		return false

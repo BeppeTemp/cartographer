@@ -124,7 +124,7 @@ func probeServer(opts connectOptions) (probeState, error) {
 	if opts.Auth {
 		token = tokenSpecValue(opts.Token)
 	}
-	health, err := client.New(opts.ServerURL, token).Health(probeTimeout)
+	health, err := client.New(opts.ServerURL, token).WithInsecureHTTP(opts.insecureHTTPAllowed()).Health(probeTimeout)
 	if err != nil {
 		return probeUnreachable, err
 	}
@@ -150,7 +150,7 @@ func probeErrorMessage(state probeState, err error) string {
 	return fmt.Sprintf("server unreachable: %v", err)
 }
 
-// isLoopbackURL reports whether rawURL's host is localhost/127.0.0.1/::1 —
+// isLoopbackURL reports whether rawURL's host is loopback (client.IsLoopbackHost) —
 // used to decide whether an unreachable server is plausibly this machine's
 // own cartographer service (worth offering to install), as opposed to a
 // remote server the user doesn't control.
@@ -159,12 +159,7 @@ func isLoopbackURL(rawURL string) bool {
 	if err != nil {
 		return false
 	}
-	switch u.Hostname() {
-	case "localhost", "127.0.0.1", "::1":
-		return true
-	default:
-		return false
-	}
+	return client.IsLoopbackHost(u.Hostname())
 }
 
 // shouldOfferServiceInstall decides whether cmdConnect should offer to
@@ -229,10 +224,11 @@ var isTerminal = func(fd uintptr) bool {
 // choice and skips the form even in a TTY. Behavior flags (--dry-run) are
 // orthogonal to the form and don't suppress it.
 var connectFormFlagNames = map[string]bool{
-	"server-url": true,
-	"auth":       true,
-	"token-env":  true,
-	"agents":     true,
+	"server-url":          true,
+	"auth":                true,
+	"allow-insecure-http": true,
+	"token-env":           true,
+	"agents":              true,
 }
 
 // wantsConnectForm decides whether cmdConnect should open the interactive
@@ -331,6 +327,7 @@ func cmdConnect(args []string) int {
 	agentsCSV := fs.String("agents", "", "Comma-separated agent subset: claude,codex")
 	var kbSel repeatedString
 	fs.Var(&kbSel, "kb", "KB this client may receive (repeatable, or comma-separated; 'all' for every mounted KB)")
+	allowInsecure := fs.Bool("allow-insecure-http", false, "Accept a plain http:// server URL that is not loopback (the bearer token then travels in clear)")
 	workspaceFlag := fs.String("workspace", "", "Project the selected KBs into this repository instead of the global catalogue (D193)")
 	fs.Parse(rest)
 	warnRemovedAutoTrust(*autoTrust)
@@ -373,9 +370,11 @@ func cmdConnect(args []string) int {
 		Auth:      settings.Auth,
 		Token:     settings.Token,
 		DryRun:    *dryRun,
-		PinKeys:   pinKeys,
-		KBs:       splitCommaList(kbSel),
-		Workspace: *workspaceFlag,
+		// The key survives a re-run without the flag; the flag only adds it.
+		AllowInsecureHTTP: *allowInsecure || (existing != nil && existing.AllowInsecureHTTP),
+		PinKeys:           pinKeys,
+		KBs:               splitCommaList(kbSel),
+		Workspace:         *workspaceFlag,
 		// The placeholder step is a question, so it follows the same rule as
 		// every other connect question: a terminal on both ends, and no
 		// --no-input. A dry run has nothing to re-materialize.
@@ -411,6 +410,11 @@ func cmdConnect(args []string) int {
 				continue
 			}
 
+			formOpts.AllowInsecureHTTP = opts.AllowInsecureHTTP
+			if err := client.CheckServerURL(formOpts.ServerURL, formOpts.insecureHTTPAllowed()); err != nil {
+				formPrefill, errMsg = formOpts, err.Error()
+				continue
+			}
 			state, perr := probeServer(formOpts)
 			if state != probeReady {
 				msg := probeErrorMessage(state, perr)
@@ -453,7 +457,7 @@ func cmdConnect(args []string) int {
 			// first artifact would be written. Only asked when there is a
 			// choice to make and the operator has not already made it.
 			if len(opts.KBs) == 0 {
-				facts, ferr := enumerateKBs(opts.ServerURL, opts.Auth, opts.Token)
+				facts, ferr := enumerateKBs(opts.ServerURL, opts.Auth, opts.Token, opts.insecureHTTPAllowed())
 				if ferr == nil && facts.Listed && len(facts.Names) > 1 && !allProvidersBound(existingOrDefault(dir), providers) {
 					selection, ok, err := runKBSelectForm(facts.Names)
 					if err != nil {
@@ -707,6 +711,9 @@ type connectOptions struct {
 	Token   string
 	DryRun  bool
 	PinKeys []string
+	// AllowInsecureHTTP is the persisted opt-in to a non-loopback http://
+	// server URL (D1023); the env var also allows a run (insecureHTTPAllowed).
+	AllowInsecureHTTP bool
 	// KBs is the operator's explicit KB selection for this connect (D190),
 	// from --kb or the form. Empty means "not chosen": with two or more KBs
 	// mounted and no existing binding that is an error, not a silent
@@ -747,6 +754,12 @@ type connectResult struct {
 	Warnings       []string
 }
 
+// insecureHTTPAllowed reports whether this connect may reach a non-loopback
+// http:// URL: the opt-in, or CARTOGRAPHER_ALLOW_INSECURE_HTTP.
+func (o connectOptions) insecureHTTPAllowed() bool {
+	return (&clientconfig.Config{AllowInsecureHTTP: o.AllowInsecureHTTP}).InsecureHTTPAllowed()
+}
+
 // doConnect runs the connect flow for opts.Providers against opts.Dir: writes the
 // MCP client configs (HTTP transport only), best-effort materializes skills via
 // sync_pull (deferred, not fatal, if the server is unreachable), and persists
@@ -760,6 +773,11 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	// here from old scripts and docs, and on Windows it points at ::1, where
 	// the local service does not listen (D231).
 	opts.ServerURL = defaults.MigrateLegacyMCPURL(opts.ServerURL)
+	// Refused before anything is read or written: a bearer token never leaves
+	// for a cleartext non-loopback URL without the opt-in (D1023).
+	if err := client.CheckServerURL(opts.ServerURL, opts.insecureHTTPAllowed()); err != nil {
+		return connectResult{}, err
+	}
 
 	// 1. Discover mounted KBs before generating MCP entries. A down server
 	// deliberately falls back to the historical bare entry, so connection can
@@ -781,7 +799,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 			return connectResult{}, fmt.Errorf("invalid --pin-key %q: %w", pin, err)
 		}
 	}
-	facts, healthErr := enumerateKBs(opts.ServerURL, opts.Auth, opts.Token)
+	facts, healthErr := enumerateKBs(opts.ServerURL, opts.Auth, opts.Token, opts.insecureHTTPAllowed())
 	kbs := facts.Names
 
 	// 1a. Resolve and persist the KB selection BEFORE the first MCP entry or
@@ -901,7 +919,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	}
 	// Clients travels with it: connecting a provider must not pull or
 	// materialize a KB it is not bound to (D170).
-	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, Token: opts.Token, KnownKBs: pullKBs, Clients: existing.Clients, SigningKeys: existing.SigningKeys}
+	pullCfg := &clientconfig.Config{ServerURL: opts.ServerURL, ServerName: opts.Name, Auth: opts.Auth, Token: opts.Token, AllowInsecureHTTP: opts.AllowInsecureHTTP, KnownKBs: pullKBs, Clients: existing.Clients, SigningKeys: existing.SigningKeys}
 
 	mcpEntries := allEntryNames(entriesByProvider)
 	res := connectResult{Providers: opts.Providers, ConfigsWritten: configsWritten, MCPEntries: mcpEntries, Warnings: configWarnings}
@@ -953,6 +971,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 
 	// 3. Persist .cartographer.yaml.
 	existing.ServerURL, existing.ServerName, existing.Auth, existing.Token = opts.ServerURL, opts.Name, opts.Auth, opts.Token
+	existing.AllowInsecureHTTP = opts.AllowInsecureHTTP
 	if healthErr == nil {
 		existing.KnownKBs = kbs
 	}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"net"
 	"net/url"
 	"os"
@@ -259,15 +260,8 @@ func upgradeRepairSyncEligible(clientURL, serviceHTTPAddr string) (bool, string)
 	return true, ""
 }
 
-// isLoopbackHost treats localhost/127.0.0.1/::1 as equivalent loopback hosts.
-func isLoopbackHost(host string) bool {
-	switch host {
-	case "localhost", "127.0.0.1", "::1":
-		return true
-	default:
-		return false
-	}
-}
+// isLoopbackHost is client.IsLoopbackHost (D1023).
+func isLoopbackHost(host string) bool { return client.IsLoopbackHost(host) }
 
 // serviceBindPort extracts the port from a native service http address,
 // which may be a bare port (":39273", meaning all interfaces) or host:port.
