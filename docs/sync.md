@@ -541,6 +541,10 @@ A projection writes into a directory the user version-controls, so two rules hol
 `git status` is clean after a sync. That is asserted end-to-end by the `18_workspace_projection`
 E2E scenario, along with the rest of this section.
 
+`status` judges the provider the way sync applies it: the global projection against the bundle
+only, each bound workspace against its own manifest and lock, so a clean sync is `in-sync` (exit 0)
+([D1011](decisions/D1011-status-judges-workspace-projections.md)).
+
 ### Unbinding
 
 `cartographer workspace unbind <provider> <path>` removes the declaration; the next `sync` prunes

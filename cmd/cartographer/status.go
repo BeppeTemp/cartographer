@@ -24,7 +24,10 @@ var (
 		return client.New(cfg.ServerURL, resolveToken(cfg)).Health(statusHealthTimeout)
 	}
 	statusManifestsFn = manifestsForProviders
-	statusServiceFn   = func() (service.Status, error) { return service.NewManager().Status("") }
+	// statusProjectionManifestsFn builds the per-projection manifests of the
+	// workspace-scoped providers (D193), the same ones sync applies.
+	statusProjectionManifestsFn = manifestsForProjections
+	statusServiceFn             = func() (service.Status, error) { return service.NewManager().Status("") }
 )
 
 // cmdStatus reports the sync status of every connected provider against the

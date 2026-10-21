@@ -11,6 +11,7 @@
 # provider bound to a different KB in each.
 #
 # Verifies (operator channel only — no agent/model):
+#   0. `status` is in sync (exit 0) after a clean sync, #1011.
 #   1. Each workspace receives only its own KB's skill, and the bodies differ:
 #      the projection reached the right perimeter, not merely *a* file.
 #   2. Neither skill exists in the global catalogue under $HOME — decision 5.
@@ -130,6 +131,17 @@ if run_client "${DIR}/sync1.log" sync; then
 else
     _assert_fail "sync failed: $(cat "${DIR}/sync1.log")"
 fi
+
+# #1011: after a clean sync (a second one is a no-op) status judges the bundle
+# globally and each workspace against its own projection: in sync, exit 0.
+run_client "${DIR}/sync1b.log" sync || true
+if run_client "${DIR}/status-clean.log" status; then
+    _assert_pass "status exits 0 after a clean workspace-scoped sync"
+else
+    _assert_fail "status reported drift after a clean sync: $(cat "${DIR}/status-clean.log")"
+fi
+assert_file_contains "${DIR}/status-clean.log" "in-sync"
+assert_file_not_contains "${DIR}/status-clean.log" "+ skill/"
 
 echo ""
 echo "--- Phase 2: each workspace sees ONLY its own perimeter ---"

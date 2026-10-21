@@ -286,8 +286,38 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			connectedProviders = append(connectedProviders, s.Providers[i].Name)
 		}
 	}
-	manifests, err := statusManifestsFn(cfg, connectedProviders)
-	if err != nil {
+	// D193: a workspace-scoped provider has several projections (the bundle-only
+	// global one plus one per bound workspace) and is judged projection by
+	// projection, the way sync applies it. Its single provider-wide manifest
+	// would list every KB artifact as missing from the bundle-only global lock.
+	wsProjections := map[string][]syncProjection{}
+	wsProjectionErr := map[string]error{}
+	var plainProviders []string
+	var allWs []syncProjection
+	for _, name := range connectedProviders {
+		if cfg.WorkspaceScope(name) != clientconfig.ScopeWorkspace {
+			plainProviders = append(plainProviders, name)
+			continue
+		}
+		ps, perr := projectionsFor(cfg, name, dir)
+		if perr != nil {
+			wsProjectionErr[name] = perr
+			continue
+		}
+		wsProjections[name] = ps
+		allWs = append(allWs, ps...)
+	}
+	var manifests map[string]provisioning.Manifest
+	var wsManifests map[string]provisioning.Manifest
+	var err2 error
+	if len(plainProviders) > 0 || len(connectedProviders) == 0 {
+		manifests, err2 = statusManifestsFn(cfg, plainProviders)
+	}
+	if err2 == nil && len(allWs) > 0 {
+		wsManifests, err2 = statusProjectionManifestsFn(cfg, allWs)
+	}
+	if err2 != nil {
+		err = err2
 		s.State = "unavailable"
 		e := classifyNetworkError(cfg.ServerURL, err)
 		s.Error = &e
@@ -298,8 +328,11 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		return s
 	}
-	for _, p := range connectedProviders {
+	for _, p := range plainProviders {
 		s.Artifacts += len(manifests[p].Artifacts)
+	}
+	for _, p := range allWs {
+		s.Artifacts += len(wsManifests[projectionKey(p)].Artifacts)
 	}
 	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
 	if err != nil {
@@ -311,9 +344,22 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		if !s.Providers[i].Connected {
 			continue
 		}
-		pm := provisioning.FilterForProvider(manifests[s.Providers[i].Name], configurator.Provider(s.Providers[i].Name))
-		d := provisioning.ComputeDiff(pm, lockFile.ForProvider(s.Providers[i].Name))
 		p := &s.Providers[i]
+		var pm provisioning.Manifest
+		var d provisioning.Diff
+		var wsDiverged []provisioning.DriftFinding
+		if ps, ok := wsProjections[p.Name]; ok {
+			pm, d, wsDiverged = workspaceProviderDiff(ps, wsManifests, lockFile, dir)
+		} else if wsProjectionErr[p.Name] != nil {
+			// A bound workspace that is gone: sync would refuse, and
+			// workspaceStatuses already names it. Not in sync.
+			p.State = "drift"
+			s.State = "drift"
+			continue
+		} else {
+			pm = provisioning.FilterForProvider(manifests[p.Name], configurator.Provider(p.Name))
+			d = provisioning.ComputeDiff(pm, lockFile.ForProvider(p.Name))
+		}
 		p.Revision = pm.Revision
 		p.LockRevision = lockFile.ForProvider(p.Name).AppliedRevision
 		if shadowing, _, ok := configurator.ShadowedInstructions(
@@ -338,7 +384,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			p.BindingOrigin = "explicit"
 		}
 		p.KBCounts = countBySource(lock)
-		p.Diverged = snapshotDiverged(provisioning.VerifyManaged(lock, configurator.Provider(p.Name), provisioning.LockBaseDir(lock, dir)))
+		p.Diverged = snapshotDiverged(append(provisioning.VerifyManaged(lock, configurator.Provider(p.Name), provisioning.LockBaseDir(lock, dir)), wsDiverged...))
 		if d.InSync && len(p.Diverged) == 0 {
 			p.State = "in_sync"
 			continue
@@ -351,6 +397,33 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		s.State = "version_skew"
 	}
 	return s
+}
+
+// workspaceProviderDiff judges a workspace-scoped provider the way sync applies
+// it (D193): the global projection against the bundle only, each workspace
+// against its own manifest and lock. It returns the global manifest (for the
+// revision and the kind counts), one merged Diff, and the on-disk findings of
+// the workspace locks.
+func workspaceProviderDiff(ps []syncProjection, manifests map[string]provisioning.Manifest, lockFile provisioning.LockFile, dir string) (provisioning.Manifest, provisioning.Diff, []provisioning.DriftFinding) {
+	var global provisioning.Manifest
+	merged := provisioning.Diff{InSync: true}
+	var diverged []provisioning.DriftFinding
+	for _, sp := range ps {
+		provider := configurator.Provider(sp.Provider)
+		pm := provisioning.FilterForProviderScoped(manifests[projectionKey(sp)], provider, sp.Scope)
+		lock := lockFile.ForProjection(sp.Key())
+		d := provisioning.ComputeDiff(pm, lock)
+		merged.Added = append(merged.Added, d.Added...)
+		merged.Updated = append(merged.Updated, d.Updated...)
+		merged.Removed = append(merged.Removed, d.Removed...)
+		merged.InSync = merged.InSync && d.InSync
+		if sp.Workspace == "" {
+			global = pm
+			continue
+		}
+		diverged = append(diverged, provisioning.VerifyManaged(lock, provider, provisioning.LockBaseDir(lock, dir))...)
+	}
+	return global, merged, diverged
 }
 
 // snapshotDiverged renders the healable on-disk findings (D139). "unknown"
