@@ -7,6 +7,7 @@ import (
 	neturl "net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -901,10 +902,12 @@ func (k *KB) RemoteInfo() (url string, ok bool) {
 // unchanged.
 func RedactRemoteURL(raw string) string {
 	if !strings.Contains(raw, "://") {
-		return raw
+		return redactSchemeless(raw)
 	}
 	u, err := neturl.Parse(raw)
-	if err != nil {
+	// An "@" left in the path means the parser took part of a password for the
+	// host or the path (a "/" inside it, or an empty host).
+	if err != nil || strings.Contains(u.Path, "@") || strings.Contains(u.RawPath, "@") {
 		return redactUnparsable(raw)
 	}
 	scheme := strings.ToLower(u.Scheme)
@@ -915,17 +918,68 @@ func RedactRemoteURL(raw string) string {
 			u.User = neturl.User(u.User.Username())
 		}
 	}
-	if u.RawQuery != "" {
-		var kept []string
-		for _, part := range strings.Split(u.RawQuery, "&") {
-			name, _, _ := strings.Cut(part, "=")
-			if !secretQueryName(name) {
-				kept = append(kept, part)
-			}
-		}
-		u.RawQuery = strings.Join(kept, "&")
-	}
+	u.RawQuery = dropSecretParams(u.RawQuery)
+	u.Fragment, u.RawFragment = "", ""
 	return u.String()
+}
+
+var schemePrefix = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]+:`)
+
+// redactSchemeless handles a value with no "://": a scheme-relative
+// "//user:pass@host/x" and "https:user:pass@host/x" carry userinfo and lose
+// it; scp-style git@host:owner/repo.git (the colon follows the "@"), local
+// paths and single-letter drive prefixes have none and are returned unchanged.
+func redactSchemeless(raw string) string {
+	v := strings.TrimSpace(raw)
+	prefix := ""
+	switch {
+	case strings.HasPrefix(v, "//"):
+		prefix = "//"
+	case schemePrefix.MatchString(v):
+		prefix = v[:strings.Index(v, ":")+1]
+	default:
+		return raw
+	}
+	rest := v[len(prefix):]
+	first := strings.Index(rest, "@")
+	if first < 0 || !strings.Contains(rest[:first], ":") {
+		return raw
+	}
+	return prefix + stripFragment(afterUserinfo(rest))
+}
+
+// afterUserinfo drops what precedes the last "@" that comes before the query.
+func afterUserinfo(rest string) string {
+	head := rest
+	if q := strings.Index(head, "?"); q >= 0 {
+		head = head[:q]
+	}
+	if at := strings.LastIndex(head, "@"); at >= 0 {
+		rest = rest[at+1:]
+	}
+	return rest
+}
+
+func stripFragment(s string) string {
+	if h := strings.Index(s, "#"); h >= 0 {
+		return s[:h]
+	}
+	return s
+}
+
+// dropSecretParams removes the query parameters whose name looks like a credential.
+func dropSecretParams(query string) string {
+	if query == "" {
+		return ""
+	}
+	var kept []string
+	for _, part := range strings.Split(query, "&") {
+		name, _, _ := strings.Cut(part, "=")
+		if !secretQueryName(name) {
+			kept = append(kept, part)
+		}
+	}
+	return strings.Join(kept, "&")
 }
 
 // secretQueryName reports whether a query parameter name looks like it carries
@@ -935,7 +989,7 @@ func secretQueryName(name string) bool {
 		name = dec
 	}
 	name = strings.ToLower(name)
-	for _, w := range []string{"token", "key", "secret", "password"} {
+	for _, w := range []string{"token", "key", "secret", "password", "pwd", "auth", "sig", "access"} {
 		if strings.Contains(name, w) {
 			return true
 		}
@@ -943,33 +997,25 @@ func secretQueryName(name string) bool {
 	return false
 }
 
-// redactUnparsable handles a URL-looking value net/url refuses. It cuts what
-// sits between "://" and the last "@" before the first "/" that follows the
-// authority; when no such boundary exists it uses the last "@" in the string.
-// The credential may itself hold "/", "#" or "?", so the last "@" is what
-// separates userinfo from host. Query parameters that look like credentials
-// are dropped too.
+// redactUnparsable handles a URL-looking value whose userinfo the parser cannot
+// be trusted with (net/url refuses it, or a "/" or "@" in the password moved
+// part of it into the host or path). It cuts what sits between "://" and the
+// last "@" before the query; the credential may itself hold "/", "#" or "?",
+// so the last "@" is what separates userinfo from host. Credential-looking
+// query parameters and the fragment are dropped too.
 func redactUnparsable(raw string) string {
 	raw = strings.TrimSpace(raw)
 	i := strings.Index(raw, "://")
 	if i < 0 {
 		return raw
 	}
-	head, rest := raw[:i+3], raw[i+3:]
-	if at := strings.LastIndex(rest, "@"); at >= 0 {
-		rest = rest[at+1:]
-	}
+	head, rest := raw[:i+3], afterUserinfo(raw[i+3:])
+	rest = stripFragment(rest)
 	if q := strings.Index(rest, "?"); q >= 0 {
-		var kept []string
-		for _, part := range strings.Split(rest[q+1:], "&") {
-			name, _, _ := strings.Cut(part, "=")
-			if !secretQueryName(name) {
-				kept = append(kept, part)
-			}
-		}
+		query := dropSecretParams(rest[q+1:])
 		rest = rest[:q]
-		if len(kept) > 0 {
-			rest += "?" + strings.Join(kept, "&")
+		if query != "" {
+			rest += "?" + query
 		}
 	}
 	return head + rest
