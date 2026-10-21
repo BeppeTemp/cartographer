@@ -64,6 +64,22 @@ mac_wait_ready "$port" 30 || mac_fail "service not ready after update"
 [ "$(mac_launchd_pid)" != "$pid_before" ] || mac_fail "launchd pid unchanged ($pid_before) after update"
 mac_ok "/health reports v9.9.9, new pid $(mac_launchd_pid)"
 
+echo "→ update with a stopped service leaves it stopped (#1006)"
+# The "update" goes back to v9.9.8: install.sh short-circuits on the same tag, and
+# only a changed binary reaches upgrade-repair. Stop leaves the job registered
+# but disabled; repair must not try to signal it (a timeout, exit 2).
+"$bin" service stop >/dev/null || mac_fail "service stop failed"
+# The process drains after SIGTERM and a live pid reads as running: wait for exit 3.
+status_stopped() { "$bin" service status --config "$work/server.yaml" >/dev/null 2>&1; [ $? -eq 3 ]; }
+mac_wait_for 30 status_stopped || mac_fail "status never exited 3 after stop"
+FAKE_TAG=v9.9.8 FAKE_NEW_BINARY=$OLD FAKE_SHA_MODE=valid run_installer update >"$work/out.log" 2>&1 || { cat "$work/out.log" >&2; mac_fail "install.sh update failed with the service stopped"; }
+[ "$("$bin" version)" = v9.9.8 ] || mac_fail "binary is $("$bin" version), want v9.9.8"
+rc=0
+"$bin" service status --config "$work/server.yaml" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || mac_fail "status after update exited $rc, want 3: repair started or lost the stopped service"
+if $MAC_CURL -fsS --max-time 2 "http://127.0.0.1:$port/health" >/dev/null 2>&1; then mac_fail "service answers after an update that should leave it stopped"; fi
+mac_ok "update with the service stopped: succeeded, still stopped"
+
 echo "→ uninstall refuses while units are installed"
 rc=0
 run_installer uninstall >"$work/out.log" 2>&1 || rc=$?
