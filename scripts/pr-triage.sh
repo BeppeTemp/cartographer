@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# triage.sh — the cheap first pass of a PR review (cartographer-review-pr skill §1).
+# pr-triage.sh — the cheap first pass of a PR review (cartographer-review-pr skill §1).
 #
-#   triage.sh <pr-number>   a pull request on GitHub (needs gh, jq)
-#   triage.sh --gate <pr>   the same report; exits 1 iff a BLOCK other than "CI is red"
+#   pr-triage.sh <pr-number>   a pull request on GitHub (needs gh, jq)
+#   pr-triage.sh --gate <pr>   the same report; exits 1 iff a BLOCK other than "CI is red"
 #                           was printed (the plan-gate workflow runs this, D955)
-#   triage.sh               the current branch against upstream/main (origin/main when
+#   pr-triage.sh               the current branch against upstream/main (origin/main when
 #                           there is no `upstream` remote), before opening a PR
 #
 # Prints at most ~20 lines: size split by kind, areas, review tier, linked plan,
@@ -24,6 +24,7 @@ INVARIANT_AREAS='^internal/(mcpserver|provisioning|auth|gitx|sops|service)/'
 # is a supply-chain change at any size: always a full review, never a standing merge (D857).
 # The files agents execute are the same class (D955): a PR that edits AGENTS.md, a skill,
 # an agent definition, the Makefile or a script steers the review and the sessions that read it.
+# .agents/, .kiro/, .opencode/ and .github/agents/ are no longer tracked (D992), but stay listed: a PR that adds them plants definitions other clients load.
 SUPPLY_CHAIN='^(\.github/workflows/|install\.(sh|ps1)$|\.goreleaser\.yaml$|Dockerfile$|release-please-config\.json$|internal/skillbundle/bundled/|(.*/)?(AGENTS|CLAUDE)\.md$|SECURITY\.md$|CONTRIBUTING\.md$|\.agents/|\.claude/|\.kiro/|\.opencode/|\.github/agents/|\.github/ISSUE_TEMPLATE/|\.github/pull_request_template\.md$|Makefile$|scripts/)'
 
 kind() { # production | test | docs | generated
@@ -41,7 +42,7 @@ kind() { # production | test | docs | generated
 
 GATE=0
 if [ "${1:-}" = "--gate" ]; then GATE=1; shift; fi
-[ "$GATE" = 0 ] || [ $# -ge 1 ] || { echo "triage.sh --gate needs a PR number" >&2; exit 2; }
+[ "$GATE" = 0 ] || [ $# -ge 1 ] || { echo "pr-triage.sh --gate needs a PR number" >&2; exit 2; }
 
 # The upstream remote: `upstream` in a fork clone, else `origin` (D955).
 remote=origin
@@ -71,11 +72,11 @@ if [ $# -ge 1 ]; then
   body=$(jq -r .body <<<"$meta")
 else
   # Fail closed on a fork clone without `upstream`: never diff against a stale fork main.
-  "$(dirname "$0")/../../../../scripts/upstream-repo.sh" --require-remote >/dev/null || exit 2
+  "$(dirname "$0")/upstream-repo.sh" --require-remote >/dev/null || exit 2
   git fetch -q "$remote" main
   files=$(git diff --numstat "$remote"/main...HEAD | awk -F'\t' '$1 != "-"')
   ci=local
-  slug=$("$(dirname "$0")/../../../../scripts/upstream-repo.sh")
+  slug=$("$(dirname "$0")/upstream-repo.sh")
   author=$(gh api user --jq .login 2>/dev/null || echo me)
   sizelabel=""
   perm=$(gh repo view "$slug" --json viewerPermission --jq .viewerPermission 2>/dev/null || echo UNKNOWN)
@@ -183,7 +184,7 @@ if [ -z "$docs_touched" ] && [ "$prod" -gt 50 ]; then
 fi
 [ -n "$decision" ] && echo "Decision file: $decision"
 regression=$(grep -i -m1 '^regression-of:' <<<"$body" || true)
-[ -n "$regression" ] && echo "$regression — a regression: if it merges, add it to .agents/skills/cartographer-review-pr/evals/cases.md (cartographer-review-pr §When a defect escapes)"
+[ -n "$regression" ] && echo "$regression — a regression: if it merges, add it to .claude/skills/cartographer-review-pr/evals/cases.md (cartographer-review-pr §When a defect escapes)"
 if [ $# -ge 1 ]; then
   for section in '## Self-review' '## Docs' '## Revert'; do
     grep -qF "$section" <<<"$body" || echo "WARN: PR body has no \"$section\" section (.github/pull_request_template.md)"

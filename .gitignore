@@ -8,23 +8,13 @@ migrated-kb/
 .claude/*
 !.claude/skills/
 !.claude/agents/
-.kiro/*
-!.kiro/skills/
-!.kiro/agents/
-.opencode/*
-!.opencode/skills/
-!.opencode/agents/
 # Per-client MCP configuration is machine-local, as CONTRIBUTING.md says: written
 # by `cartographer connect`, never committed.
 .mcp.json
 .codex/config.toml
 opencode.json
-# Everything under .agents/ other than skills/ is machine-local client state,
-# not ours to track: .agents/skills is the canonical, versioned source for the
-# repository's own skills (Copilot CLI reads it natively), and nothing else in
-# there belongs in a commit.
-.agents/*
-!.agents/skills/
+# Machine-local client state, never ours to track.
+.agents/
 # Isolated worktrees for plan branches (see `make worktree-add`): never tracked.
 /.worktrees/
 /data/kb/

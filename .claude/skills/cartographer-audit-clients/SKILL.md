@@ -12,9 +12,6 @@ the matrix it protects is `destinationMatrix`
 `internal/configurator/registry.go`. Why this is a procedure and not a CI job:
 D292.
 
-This file is the single copy for every client; `.claude/skills/cartographer-audit-clients`,
-`.kiro/skills/cartographer-audit-clients` and `.opencode/skills/cartographer-audit-clients` are symlinks to it.
-
 ## Invariants
 
 - Read-only on the machine, except probe sentinels under a temp directory that
@@ -38,8 +35,8 @@ This file is the single copy for every client; `.claude/skills/cartographer-audi
 2. **Current version.** Use the ledger's package source. Report installed versus
    latest released versus the ledger's **Aligned with**.
 3. **Delta.** Read the changelog or release notes **since the ledger version**
-   only. For each client with a new version, spawn one `cartographer-source-reader` (how to spawn it:
-   `cartographer-review-pr` §Per-client mechanics) with that client's release-note URLs from
+   only. For each client with a new version, spawn one `cartographer-source-reader` (spawn it with
+   `Agent`, `subagent_type: cartographer-source-reader`, `run_in_background: true`) with that client's release-note URLs from
    its ledger section, the version range and the cells to look for (skills,
    agents, hooks, MCP, instruction paths, transcripts); the readers are read-only,
    so run them in parallel, and compare their digests against the matrix here.

@@ -10,10 +10,6 @@ self-sufficiency test) and the issue structure in
 `.github/ISSUE_TEMPLATE/plan.md`. Read both; this skill only adds the
 mechanics.
 
-This file is the single copy for every client. `.claude/skills/cartographer-propose-plan`,
-`.kiro/skills/cartographer-propose-plan` and `.opencode/skills/cartographer-propose-plan` are symlinks to it — see §Per-client mechanics for
-the two places where the clients genuinely differ.
-
 ## Role
 
 Before anything else, find your role (D955; `CONTRIBUTING.md` §Working with an agent client):
@@ -44,9 +40,9 @@ maintainer assigns it to them.
    Title it `Plan: <title>`. Whether it needs a decision file at all (an
    architectural or contract choice) is stated in its Closing section; the file
    is written **at the end of implementation**, not now — the plan is its draft.
-3. Derive the real `file:line` pointers before writing, with your client's
-   symbol search rather than by reading whole files, and read only the located
-   ranges. For an area you do not already know, send a context-gathering
+3. Derive the real `file:line` pointers before writing, with `Grep`/`Glob`
+   rather than by reading whole files, and read only the located
+   ranges. For an area you do not already know, send an `Explore`
    subagent first and derive the pointers from its report. The plan contains
    pointers, not paraphrases.
 4. Write the body (in English) to a scratch file following the template
@@ -86,14 +82,3 @@ maintainer assigns it to them.
    PR: the release PR regenerates the index (D328)); the implementation PR body includes `Closes #<n>`.
 4. Contradiction between plan and code → **stop and flag it** in an issue
    comment: the plan may be stale relative to `main`.
-
-## Per-client mechanics
-
-Everything above is identical on every client. These two things are not:
-
-| | How to derive `file:line` pointers | Note |
-|---|---|---|
-| **Claude Code** | `Grep`/`Glob`, then `Read` on the located ranges; `Explore` subagent for an unknown area | — |
-| **Kiro** | the `code` tool (`search_symbols`, `lookup_symbols`, `pattern_search`) or `grep_search`; `context-gatherer` subagent for an unknown area | The skill is `cartographer-propose-plan`, not `plan`: `/plan` is a built-in Kiro slash command (the planner agent) and the two are unrelated |
-| **OpenCode** | `grep`/`glob`, then `read` on the located ranges; the built-in `explore` subagent for an unknown area | — |
-| **Copilot CLI** | `rg`/`glob`, then `view` on the located ranges; the `explore` agent (`task` tool) for an unknown area | — |

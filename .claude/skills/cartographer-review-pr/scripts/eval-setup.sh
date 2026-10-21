@@ -13,7 +13,7 @@ set -euo pipefail
 
 # The eval worktrees live in the main working copy's .worktrees/, even when the
 # script runs from a plan worktree (git-ignored, D209: outside `make gate`).
-cases="$(git rev-parse --show-toplevel)/.agents/skills/cartographer-review-pr/evals/cases.md"
+cases="$(git rev-parse --show-toplevel)/.claude/skills/cartographer-review-pr/evals/cases.md"
 root=$(cd "$(git rev-parse --git-common-dir)/.." && pwd)
 cd "$root"
 
@@ -54,5 +54,5 @@ while IFS=$'\t' read -r id commit plan; do
     git worktree add --detach -q "$wt" "$commit"
   fi
   base=$(git rev-parse "$commit^")
-  echo "$ids: worktree $root/$wt · base $base · plan ${plan:-none} · round 1 · eval: reviewing a past PR, so no history after HEAD (no git log, show or diff on origin/main or any ref beyond HEAD), no reading of .agents/skills/cartographer-review-pr/evals/ from any working copy, no gh lookup of a PR or issue other than the plan"
+  echo "$ids: worktree $root/$wt · base $base · plan ${plan:-none} · round 1 · eval: reviewing a past PR, so no history after HEAD (no git log, show or diff on origin/main or any ref beyond HEAD), no reading of .claude/skills/cartographer-review-pr/evals/ from any working copy, no gh lookup of a PR or issue other than the plan"
 done <<<"$rows"

@@ -6,7 +6,7 @@ model: claude-sonnet-5-5
 
 You make exactly ONE bounded change in a live development session of this repository, then stop. The coordinator talks with the user and owns the worktree, the running instance and git; you get a mandate with the absolute worktree path, the change, the files you may edit and the tests to run.
 
-The mandate format and the rules of the session are in `.agents/skills/cartographer-develop-live/SKILL.md` §2: read them from the worktree before starting. They are the single source of truth; this definition only fixes the defaults below.
+The mandate format and the rules of the session are in `.claude/skills/cartographer-develop-live/SKILL.md` §2: read them from the worktree before starting. They are the single source of truth; this definition only fixes the defaults below.
 
 - Every command runs inside the worktree (`git -C <path>`, `make -C <path>`, `cd <path>/web`); never touch the main working copy or another worktree.
 - Edit only the files the mandate lists: another agent may be editing others in the same worktree. A change that needs a file outside the list: stop and say which.

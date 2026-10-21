@@ -7,8 +7,7 @@ description: "Use when asked to review or check a pull request, especially a con
 
 The rules a PR is held to are `CONTRIBUTING.md` §Pull requests (size cap,
 approved plan, template) and `docs/index.md` §Documentation maintenance rules;
-this skill is only the procedure. `.claude/skills/cartographer-review-pr`,
-`.kiro/skills/cartographer-review-pr` and `.opencode/skills/cartographer-review-pr` are symlinks to this file.
+this skill is only the procedure.
 
 ## Role
 
@@ -37,13 +36,14 @@ is the larger one. So:
   packages, the reviewer's findings and **only the lines those findings cite** —
   never the whole diff of a standard or full-tier PR;
 - the code is read by the `cartographer-contract-reviewer` subagent (full tier: also `cartographer-security-reviewer`), which run on a cheaper model
-  (D884 layout: `.claude/agents/`, `.kiro/agents/`, `.opencode/agents/`,
-  `.github/agents/`, same text).
+  (`.claude/agents/`, pinned in each definition). Spawn them with `Agent`,
+  `subagent_type: cartographer-contract-reviewer` / `cartographer-security-reviewer`,
+  `run_in_background: true` (`cartographer-source-reader` the same way).
 
 ## 1 — Triage (no code read)
 
 ```bash
-.agents/skills/cartographer-review-pr/scripts/triage.sh <pr>
+scripts/pr-triage.sh <pr>
 ```
 
 About 15 lines: size split into production, tests, docs and generated; areas;
@@ -135,12 +135,11 @@ every finding costs the author a commit and the reviewer another round (D857):
 
 ## Changing the reviewer
 
-A reviewer is a definition (`.claude/agents/cartographer-contract-reviewer.md` and its `.kiro/`,
-`.opencode/` and `.github/` copies, `cartographer-security-reviewer` likewise), a model pin and §3–§5 of this
+A reviewer is a definition (`.claude/agents/cartographer-contract-reviewer.md`, `cartographer-security-reviewer` likewise), a model pin and §3–§5 of this
 skill. A PR that changes any of them runs the evals and reports the score in its
 `## Self-review`; nothing runs them in CI (D856: an eval is N reviewer spawns).
 
-1. `.agents/skills/cartographer-review-pr/scripts/eval-setup.sh` (or `<id>…` for some cases)
+1. `.claude/skills/cartographer-review-pr/scripts/eval-setup.sh` (or `<id>…` for some cases)
    adds one detached worktree per distinct squash commit of `evals/cases.md`
    (cases on the same commit share it, as `eval-c2-c3`) and prints one mandate
    line each: the case ids it serves (`c2,c3`), worktree, `base` (the commit's
@@ -163,7 +162,7 @@ skill. A PR that changes any of them runs the evals and reports the score in its
 ## When a defect escapes
 
 A fix for a regression names its origin in the PR body, `Regression-of: #<pr>`
-(`triage.sh` prints the line). When such a PR merges, the coordinator:
+(`pr-triage.sh` prints the line). When such a PR merges, the coordinator:
 
 1. adds the introducing PR as a row of `evals/cases.md` (squash commit, fixing PR,
    defect as `file:line` at the introducing commit, expected finding, class);
@@ -175,20 +174,10 @@ A fix for a regression names its origin in the PR body, `Regression-of: #<pr>`
 
 The same procedure moves the review cost to the author, which is the point:
 
-1. `triage.sh` with no argument compares the current branch with `upstream/main`
+1. `scripts/pr-triage.sh` with no argument compares the current branch with `upstream/main`
    (`origin/main` without that remote) and prints your role; fix every `BLOCK`.
    The `plan-gate` check runs the same script on the PR.
 2. Spawn the reviewers of the tier (§3) on your own worktree (tier from the triage, PR number
    "not opened yet"), fix or answer each finding, in rounds as in §5.
 3. Fill the PR template; its `## Self-review` section says what the review found
    and what you did with it.
-
-## Per-client mechanics
-
-| | How to spawn `cartographer-contract-reviewer` and `cartographer-security-reviewer` (`cartographer-source-reader` the same way) |
-|---|---|
-| **Claude Code** | `Agent` with `subagent_type: cartographer-contract-reviewer` / `cartographer-security-reviewer`, `run_in_background: true` |
-| **Kiro** | `orchestrate_subagent` with the `cartographer-contract-reviewer` / `cartographer-security-reviewer` agent, one stage per PR and agent |
-| **OpenCode** | the `subagent` tool with `agent: cartographer-contract-reviewer` / `cartographer-security-reviewer`, `background: true` |
-| **Copilot CLI** | the `task` tool with `agent_type: cartographer-contract-reviewer` / `cartographer-security-reviewer` (from `.github/agents`, loaded once the folder is trusted); if the session cannot delegate to it, pass the definition in `.claude/agents/cartographer-contract-reviewer.md` or `cartographer-security-reviewer.md` inline as the mandate |
-| **No subagents** (Codex, Antigravity, Crush) | the coordinator passes the body of `.claude/agents/cartographer-contract-reviewer.md` (and `cartographer-security-reviewer.md`, `cartographer-source-reader.md`) inline as the mandate to a fresh session or a general-purpose subagent |

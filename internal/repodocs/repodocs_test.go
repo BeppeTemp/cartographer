@@ -4,8 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -15,7 +13,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/lint"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 var update = flag.Bool("update", false, "rewrite the generated blocks instead of checking them")
@@ -168,142 +165,6 @@ func TestContextFileBudgets(t *testing.T) {
 	}
 }
 
-// One skill, one copy. Every other location is a symlink into .agents/skills,
-// because the way this degrades is that someone replaces a link with a copy and
-// two clients start reading different procedures without any warning.
-//
-// The check is on the **git index**, not on the working tree, and that is the
-// point: a Windows checkout without Developer Mode gets core.symlinks=false and
-// materialises every link as a text file containing its target, so a working-tree
-// check would either fail for that contributor or have to skip and prove nothing.
-// The index records mode 120000 regardless of the platform that checked it out,
-// so this runs identically everywhere. Verified empirically (Kiro CLI 2.21.4, 45
-// runs with negative controls): a client does follow the symlink, and given the
-// materialised-text-file variant it loads nothing at all, silently — which is
-// exactly why the mode has to be asserted rather than assumed.
-func TestSkillBridgesAreSymlinksInTheIndex(t *testing.T) {
-	root := repoRoot(t)
-
-	skills, err := os.ReadDir(filepath.Join(root, CanonicalSkillDir))
-	if err != nil {
-		t.Fatalf("reading %s: %v", CanonicalSkillDir, err)
-	}
-	var names []string
-	for _, s := range skills {
-		if s.IsDir() {
-			names = append(names, s.Name())
-		}
-	}
-	if len(names) == 0 {
-		t.Fatalf("%s is empty: the parity check is not doing anything", CanonicalSkillDir)
-	}
-
-	bridges := SupportedClients()
-	if len(bridges) == 0 {
-		t.Fatal("no client needs a bridge: the parity check is not doing anything")
-	}
-
-	for _, client := range bridges {
-		out, err := gitIndex(root, client.SkillDir)
-		if err != nil {
-			t.Fatalf("git ls-files %s: %v", client.SkillDir, err)
-		}
-
-		for _, name := range names {
-			want := client.SkillDir + "/" + name
-			mode, tracked := out[want]
-			switch {
-			case !tracked:
-				t.Errorf("%s is not in the git index, so %s will not see the %q skill:\n"+
-					"  ln -s ../../%s/%s %s && git add %s",
-					want, client.Name, name, CanonicalSkillDir, name, want, want)
-			case mode != "120000":
-				t.Errorf("%s is recorded in the git index with mode %s instead of 120000 "+
-					"(symlink): it is a copy, and it will drift from %s/%s.\n"+
-					"  git rm -r --cached %s && rm -rf %s && ln -s ../../%s/%s %s && git add %s",
-					want, mode, CanonicalSkillDir, name, want, want, CanonicalSkillDir, name, want, want)
-			}
-		}
-	}
-}
-
-// gitIndex maps every path tracked under dir to its index mode.
-func gitIndex(root, dir string) (map[string]string, error) {
-	cmd := exec.Command("git", "ls-files", "-s", "--", dir)
-	cmd.Dir = root
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	modes := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		// <mode> <sha> <stage>\t<path>
-		meta, path, ok := strings.Cut(line, "\t")
-		if !ok {
-			continue
-		}
-		fields := strings.Fields(meta)
-		if len(fields) == 0 {
-			continue
-		}
-		modes[path] = fields[0]
-	}
-	return modes, nil
-}
-
-// Where a client reads its instructions and its skills is a fact this repository
-// already owns, in internal/provisioning's provider matrix. CONTRIBUTING.md's
-// per-client table restates it for a human, and a restatement drifts: it did,
-// for the whole row of a client. This checks the restatement against the matrix.
-func TestClientSkillSurfacesMatchTheProviderRegistry(t *testing.T) {
-	root := repoRoot(t)
-	contributing := readFile(t, root, "CONTRIBUTING.md")
-
-	const probe = "probe-skill"
-	for _, c := range ClientSurfaces {
-		got := provisioning.ProjectDestination("skill", probe, c.Provider)
-		want := ""
-		if c.SkillDir != "" {
-			want = path.Join(c.SkillDir, probe)
-		}
-		if got != want {
-			t.Errorf("%s: ClientSurfaces says a project-local skill goes to %q, but "+
-				"provisioning.ProjectDestination says %q.\nOne of the two is wrong — the matrix in "+
-				"internal/provisioning/workspacescope.go is the audited source (D193), so change "+
-				"ClientSurfaces and CONTRIBUTING.md unless you are re-auditing the client.",
-				c.Name, want, got)
-		}
-
-		row := tableRow(contributing, "| **"+c.Name+"**")
-		switch {
-		case row == "":
-			t.Errorf("CONTRIBUTING.md §Working with an agent client has no row for %s", c.Name)
-		case !strings.Contains(row, c.RowMustSay):
-			t.Errorf("CONTRIBUTING.md's %s row does not mention %q:\n  %s\n"+
-				"A client with no project-local scope must name its real, global location rather "+
-				"than leaving the reader to assume there is a repo-local one.",
-				c.Name, c.RowMustSay, strings.TrimSpace(row))
-		}
-
-		if c.SkillDir == "" && strings.Contains(row, CanonicalSkillDir) {
-			t.Errorf("CONTRIBUTING.md's %s row claims %s, but the provider matrix gives that "+
-				"client no project-local skill scope at all:\n  %s",
-				c.Name, CanonicalSkillDir, strings.TrimSpace(row))
-		}
-	}
-}
-
-// tableRow returns the first line starting with prefix, or "".
-func tableRow(text, prefix string) string {
-	for _, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(line, prefix) {
-			return line
-		}
-	}
-	return ""
-}
-
 // The code map in AGENTS.md is generated from the package doc comments, so it
 // cannot describe a layout the code no longer has. With -update this is
 // `make codemap`.
@@ -424,9 +285,6 @@ func TestEveryCitedDocumentationPathExists(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, p)); err == nil {
 			continue
 		}
-		if citedOnlyByDecisionsOfRenamedSkill(p, cited[p]) {
-			continue
-		}
 		t.Errorf("%q is cited in %s but does not exist.\n"+
 			"If the page moved, point at where it went; if the reference is to a decision, the "+
 			"convention is the bare `D<n>` with no path, which survives the next move.",
@@ -486,17 +344,17 @@ func TestEveryAgentsMdHasAClaudeImport(t *testing.T) {
 	}
 }
 
-// Written to Kiro's rules, the strictest of the clients in ClientSurfaces, so
-// the same file is valid on every client — and parsed with the same YAML parser a client uses, because
+// Written to Kiro's rules, the strictest of the clients that read
+// agentskills.io files, so the same file is valid on every client — and parsed with the same YAML parser a client uses, because
 // the defect that actually loses a skill is a frontmatter no strict parser
 // accepts, and a lenient reader of our own cannot see it.
 func TestSkillFrontmatterMatchesTheStrictestClient(t *testing.T) {
 	root := repoRoot(t)
 	kebab := regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
-	dirs, err := os.ReadDir(filepath.Join(root, CanonicalSkillDir))
+	dirs, err := os.ReadDir(filepath.Join(root, SkillDir))
 	if err != nil {
-		t.Fatalf("reading %s: %v", CanonicalSkillDir, err)
+		t.Fatalf("reading %s: %v", SkillDir, err)
 	}
 
 	checked := 0
@@ -505,9 +363,9 @@ func TestSkillFrontmatterMatchesTheStrictestClient(t *testing.T) {
 			continue
 		}
 		name := d.Name()
-		fm, err := ParseSkillFrontmatter(filepath.Join(root, CanonicalSkillDir, name, "SKILL.md"))
+		fm, err := ParseSkillFrontmatter(filepath.Join(root, SkillDir, name, "SKILL.md"))
 		if err != nil {
-			t.Errorf("%s/%s: %v", CanonicalSkillDir, name, err)
+			t.Errorf("%s/%s: %v", SkillDir, name, err)
 			continue
 		}
 		checked++
@@ -530,7 +388,7 @@ func TestSkillFrontmatterMatchesTheStrictestClient(t *testing.T) {
 		}
 	}
 	if checked == 0 {
-		t.Fatalf("no SKILL.md parsed under %s: the check is not doing anything", CanonicalSkillDir)
+		t.Fatalf("no SKILL.md parsed under %s: the check is not doing anything", SkillDir)
 	}
 }
 
@@ -703,7 +561,7 @@ func TestReferenceCorpusIsSane(t *testing.T) {
 		"docs/decisions/D206-d163-was-a-copied-off-by-one-not-a-missing-record.md",
 		"internal/mcpserver/AGENTS.md",
 		"internal/provisioning/provisioning.go",
-		".agents/skills/cartographer-implement-plan/SKILL.md",
+		".claude/skills/cartographer-implement-plan/SKILL.md",
 		".github/ISSUE_TEMPLATE/plan.md",
 		"test/e2e/scenarios/03_config_opencode.sh",
 		"config.example.yaml",
@@ -892,31 +750,4 @@ func TestUnavoidableChecksSayWhy(t *testing.T) {
 			t.Errorf("the docs/data-plane.md table lists %q as unavoidable, but the registry marks it AvoidableAtWrite", name)
 		}
 	}
-}
-
-// renamedSkillDirs are the skill directories that carried another name when the
-// decisions citing them were written (#957). A decision is a historical record
-// and is not rewritten, so its pointer to the old directory stays.
-var renamedSkillDirs = []string{
-	".agents/skills/plan-issue/", ".agents/skills/implement-issue/", ".agents/skills/live-dev/",
-	".agents/skills/review-pr/", ".agents/skills/harness-watch/",
-}
-
-// citedOnlyByDecisionsOfRenamedSkill reports a dangling path that is the old
-// name of a renamed skill and is cited by decision files alone: any other file
-// citing it is a pointer to fix.
-func citedOnlyByDecisionsOfRenamedSkill(path string, citers []string) bool {
-	old := false
-	for _, d := range renamedSkillDirs {
-		old = old || strings.HasPrefix(path, d)
-	}
-	if !old {
-		return false
-	}
-	for _, c := range citers {
-		if !strings.HasPrefix(filepath.ToSlash(c), "docs/decisions/") {
-			return false
-		}
-	}
-	return true
 }
