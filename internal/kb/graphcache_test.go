@@ -208,9 +208,8 @@ func TestGraphCacheMatchesTheUncachedReaders(t *testing.T) {
 		name string
 		do   func()
 	}{"symlink target edited", func() {
-		// The link itself is untouched: its lstat signature cannot tell. Its
-		// own mtime cannot be backdated with os, so the racy window is shut
-		// for this step: only the symlink rule forces the re-read.
+		// The link is refused (D1025): editing its target must change nothing
+		// the cache or the oracle report.
 		saved := racyWindow
 		racyWindow = 0
 		t.Cleanup(func() { racyWindow = saved })
@@ -382,10 +381,9 @@ func backdate(t *testing.T, k *KB) {
 	}
 }
 
-// A symlinked concept's lstat signature says nothing about its target, so
-// ConceptFacets re-reads it every time — even when the link itself is old
-// enough to be trusted.
-func TestConceptFacetsNeverTrustsASymlink(t *testing.T) {
+// A symlinked concept is refused (D1025): its facets are empty, whatever the
+// target holds, and the cache never serves it.
+func TestConceptFacetsRefusesASymlink(t *testing.T) {
 	f := newGraphFixture(t)
 	target := filepath.Join(t.TempDir(), "outside.md")
 	if err := os.WriteFile(target, []byte("---\ntype: Note\n---\nOutside.\n"), 0o644); err != nil {
@@ -395,19 +393,8 @@ func TestConceptFacetsNeverTrustsASymlink(t *testing.T) {
 	if err := os.Symlink(target, f.abs("notes/plain.md")); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	saved := racyWindow
-	racyWindow = 0
-	t.Cleanup(func() { racyWindow = saved })
-	if got := f.k.ConceptFacets("notes/plain").Type; got != "Note" {
-		t.Fatalf("type = %q", got)
-	}
-	old := time.Now().Add(-time.Hour)
-	if err := os.WriteFile(target, []byte("---\ntype: Runbook\n---\nRetyped.\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.Chtimes(target, old, old)
-	if got := f.k.ConceptFacets("notes/plain").Type; got != "Runbook" {
-		t.Fatalf("type after the target changed = %q, want Runbook", got)
+	if got := f.k.ConceptFacets("notes/plain").Type; got != "" {
+		t.Fatalf("type = %q, want it refused", got)
 	}
 }
 

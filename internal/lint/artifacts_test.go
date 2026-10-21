@@ -212,6 +212,55 @@ func TestLint_JunkFile(t *testing.T) {
 	}
 }
 
+func TestLint_SymlinkedPath(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "f.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, k.Root, "data/ops/real.md", "---\ntype: Note\ntitle: R\n---\n# R\n")
+	writeFile(t, k.Root, "data/ops/dossier/index.md", "---\ntype: Note\ntitle: D\n---\n# D\n")
+
+	clean, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(clean, "symlinked_path"); len(got) != 0 {
+		t.Fatalf("clean KB: want none, got %v", got)
+	}
+
+	links := map[string]string{
+		"data/linkedmap":           outside,
+		"data/ops/linked.md":       filepath.Join(outside, "f.md"),
+		"data/ops/dossier/lnk.csv": filepath.Join(outside, "f.md"),
+	}
+	for rel, target := range links {
+		if err := os.Symlink(target, filepath.Join(k.Root, rel)); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(findings, "symlinked_path"); len(got) != 3 {
+		t.Fatalf("want 3 symlinked_path, got %v", got)
+	}
+	for rel := range links {
+		if !hasCheck(findings, rel, "symlinked_path") {
+			t.Errorf("want symlinked_path on %s", rel)
+		}
+	}
+	scoped, err := Run(k, "ops", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(scoped, "symlinked_path"); len(got) != 0 {
+		t.Errorf("a scoped lint does not report it: %v", got)
+	}
+}
+
 func TestLint_JunkIgnoredByDataGitignore(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)

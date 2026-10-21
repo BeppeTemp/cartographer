@@ -629,12 +629,18 @@ const ServicesNamespace = "services"
 // services/ tree is a first-class concept root included in WalkConcepts but
 // lives as a sibling of data/ under Root, so it is anchored at Root.
 func (kb *KB) ResolvePath(relPath string, writeMode bool) (string, error) {
-	base := kb.DataRoot()
+	return safeJoin(kb.baseFor(relPath), relPath)
+}
+
+// baseFor is the directory a concept-relative path is anchored at: Root for
+// the services/ namespace, DataRoot() otherwise. ResolvePath and the symlink
+// guard of resolveConceptRelPath both use it so they cannot drift.
+func (kb *KB) baseFor(relPath string) string {
 	clean := filepath.Clean(relPath)
 	if clean == ServicesNamespace || strings.HasPrefix(clean, ServicesNamespace+string(os.PathSeparator)) {
-		base = kb.Root
+		return kb.Root
 	}
-	return safeJoin(base, relPath)
+	return kb.DataRoot()
 }
 
 // ResolveRootPath resolves a path relative to the KB root (kb.Root itself,
@@ -786,7 +792,7 @@ func (kb *KB) PatchIndex(path, ifMatch, newContent string) (string, error) {
 //
 // Everything else is rejected: a nested/multi-segment path, a Map/Journal
 // name with no descriptor, or a symlink anywhere along the resolved path
-// (rejectIndexSymlinks) — ResolvePath's existing traversal/absolute-path
+// (rejectSymlinkPath) — ResolvePath's existing traversal/absolute-path
 // guard applies transitively since every returned path is reconstructed from
 // a validated single segment, never echoed from the caller directly. A path
 // that names an existing expanded concept's own index ("<map>/<concept>",
@@ -800,7 +806,7 @@ func (kb *KB) curatedIndexRelPath(path string) (string, error) {
 	}
 
 	if clean == "" {
-		if err := rejectIndexSymlinks(kb.DataRoot(), "index.md"); err != nil {
+		if err := rejectSymlinkPath(kb.DataRoot(), "index.md"); err != nil {
 			return "", err
 		}
 		return "index.md", nil
@@ -833,18 +839,19 @@ func (kb *KB) curatedIndexRelPath(path string) (string, error) {
 	}
 
 	indexRel := gopath.Join(archive, "index.md")
-	if err := rejectIndexSymlinks(kb.DataRoot(), indexRel); err != nil {
+	if err := rejectSymlinkPath(kb.DataRoot(), indexRel); err != nil {
 		return "", err
 	}
 	return indexRel, nil
 }
 
-// rejectIndexSymlinks walks each path component from base and fails if any
-// component is a symlink — the same defence used for expanded-concept assets
-// (resolveAsset, asset.go) and provisioning artifacts
+// rejectSymlinkPath walks each path component from base and fails if any
+// component is a symlink (a dangling one included) — the same defence used for
+// expanded-concept assets (resolveAsset, asset.go) and provisioning artifacts
 // (mcpserver.rejectArtifactSymlinks), applied here to the root/Map
-// index-patch path.
-func rejectIndexSymlinks(base, relPath string) error {
+// index-patch path and to every concept path (resolveConceptRelPath, D1025).
+// base itself is not inspected: an operator may mount it through a link.
+func rejectSymlinkPath(base, relPath string) error {
 	current := base
 	for _, part := range strings.Split(filepath.ToSlash(relPath), "/") {
 		current = filepath.Join(current, part)
@@ -955,10 +962,17 @@ func (kb *KB) LocateConcept(id okf.ConceptID) (ConceptLocation, error) {
 // rejected as ambiguous (expanded_ambiguous) rather than silently preferring
 // one; on the read path the direct form wins silently (lint's
 // expanded_ambiguous check is the place that surfaces this instead).
+//
+// Every ID→path caller must go through here (D1025): it refuses a symlink on
+// the concept's path, which ResolvePath and ReadRaw do not check. A caller
+// building okf.IDToPath(id) by hand bypasses the guard.
 func (kb *KB) resolveConceptRelPath(id okf.ConceptID, writeMode bool) (relPath string, expanded bool, err error) {
 	direct := okf.IDToPath(id)
 	directAbs, err := kb.ResolvePath(direct, false)
 	if err != nil {
+		return "", false, err
+	}
+	if err := rejectSymlinkPath(kb.baseFor(direct), direct); err != nil {
 		return "", false, err
 	}
 	_, statErr := os.Stat(directAbs)
@@ -967,6 +981,9 @@ func (kb *KB) resolveConceptRelPath(id okf.ConceptID, writeMode bool) (relPath s
 	expandedRel := gopath.Join(string(id), "index.md")
 	expandedAbs, err := kb.ResolvePath(expandedRel, false)
 	if err != nil {
+		return "", false, err
+	}
+	if err := rejectSymlinkPath(kb.baseFor(expandedRel), expandedRel); err != nil {
 		return "", false, err
 	}
 	_, statErr = os.Stat(expandedAbs)
@@ -1405,6 +1422,12 @@ func (kb *KB) prepareWriteConceptMode(id okf.ConceptID, fm *okf.Frontmatter, bod
 		directAbs, resolveErr := kb.ResolvePath(okf.IDToPath(id), false)
 		if resolveErr != nil {
 			return nil, resolveErr
+		}
+		if err := rejectSymlinkPath(kb.DataRoot(), okf.IDToPath(id)); err != nil {
+			return nil, err
+		}
+		if err := rejectSymlinkPath(kb.DataRoot(), gopath.Join(string(id), "index.md")); err != nil {
+			return nil, err
 		}
 		if _, statErr := os.Stat(directAbs); statErr == nil {
 			return nil, fmt.Errorf("expanded_ambiguous: direct concept %s already exists", id)

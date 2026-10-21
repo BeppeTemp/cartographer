@@ -34,6 +34,14 @@ func (kb *KB) oracleWalk(fn func(id okf.ConceptID, physicalPath, content string)
 		rel = filepath.ToSlash(rel)
 		base := path.Base(rel)
 
+		// The one deviation from the pre-D241 copy: a symlinked file is not
+		// a concept (D1025).
+		if abs, aerr := kb.ResolvePath(rel, false); aerr == nil {
+			if fi, lerr := os.Lstat(abs); lerr == nil && fi.Mode()&fs.ModeSymlink != 0 {
+				continue
+			}
+		}
+
 		if base == "index.md" {
 			dir := path.Dir(rel)
 			if dir == "." || len(strings.Split(dir, "/")) != 2 {
