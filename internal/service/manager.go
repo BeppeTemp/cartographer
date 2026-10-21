@@ -362,6 +362,22 @@ func (m *Manager) Restart() error {
 	}
 }
 
+// launchdPrintStopped reports whether `launchctl print` output says the job is
+// registered but has no process: its top-level `state = not running` (Stop
+// disables the job and sends SIGTERM, and launchd never relaunches a disabled
+// job). Only the job's own properties are read (one tab of indentation): the
+// nested blocks carry unrelated `state =` lines. Any other state (running,
+// spawn scheduled, waiting) or unparsable output counts as not stopped, so a
+// prose change in launchctl cannot make a live service read as stopped.
+func launchdPrintStopped(out string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if v, ok := strings.CutPrefix(line, "\tstate = "); ok {
+			return strings.TrimSpace(v) == "not running"
+		}
+	}
+	return false
+}
+
 // launchdJobLoaded reports whether the job is registered in the user's GUI
 // domain. It branches on launchctl's exit status rather than parsing its prose,
 // which is localized.
@@ -769,8 +785,8 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		if _, err := os.Stat(plistPath); err == nil {
 			st.Installed = true
 		}
-		if _, err := m.run("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel)); err == nil {
-			st.Running = true
+		if out, err := m.run("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel)); err == nil {
+			st.Running = !launchdPrintStopped(out)
 		}
 	case "linux":
 		unitPath, err := SystemdUnitPath()

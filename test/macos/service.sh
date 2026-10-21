@@ -44,15 +44,17 @@ mac_wait_ready "$port" 30 || mac_fail "/health not ready after restart"
 mac_ok "restart --wait: same label serving, new pid"
 
 echo "→ stop and start"
-# launchd keeps the job registered after a stop, so `status` still reports it
-# loaded (exit 0: "loaded" is not a liveness check); what stop must change is
-# that nothing serves any more.
+# launchd keeps the job registered (disabled) after a stop; `status` must still
+# tell it from a running one: exit 3, installed but stopped (#1006).
 "$BIN" service stop >/dev/null || mac_fail "stop failed"
 serving() { $MAC_CURL -fsS --max-time 2 "http://127.0.0.1:$port/health" >/dev/null 2>&1; }
 not_serving() { ! serving; }
-# TODO(#1006): assert `service status` exits 3 once darwin Status reports stopped
 mac_wait_for 30 not_serving || mac_fail "/health still answers 30s after stop"
 mac_ok "stopped: /health no longer answers"
+rc=0
+"$BIN" service status --config "$work/server.yaml" >/dev/null 2>&1 || rc=$?
+[ "$rc" -eq 3 ] || mac_fail "status after stop exited $rc, want 3"
+mac_ok "stopped: service status exits 3"
 "$BIN" service start >/dev/null || mac_fail "start failed"
 mac_wait_ready "$port" 30 || mac_fail "/health not ready after start"
 mac_ok "start: serving again"
