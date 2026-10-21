@@ -1,4 +1,6 @@
 name: Preview image
+# The tag in the run title: release-train.yml finds the release candidate by it.
+run-name: Preview image ${{ inputs.tag }}
 
 # A server image for trying an unreleased main on a real deployment before the
 # release PR is merged (D303). It publishes ONLY ghcr.io/…:<tag>: no `latest`,

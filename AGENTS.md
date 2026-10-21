@@ -118,7 +118,7 @@ Not duplicated here:
 
 ## Working rules
 
-- All changes land via PR: `main` is protected (required `test`, `test-windows`, `web` and `pr-title` checks, squash-merge only, no direct pushes). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
+- All changes land via PR: `main` is protected (required `test`, `test-windows`, `web`, `pr-title` and `plan-gate` checks, squash-merge only, no direct pushes). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
 - Isolable code may be delegated to a coding subagent; the coordinator verifies `make gate`.
 - **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts and remotes → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter: a hit already left a public revision (D259).
 - **Done** means: `make gate` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code if it is about that code, otherwise one line in the area `AGENTS.md` or in the skill of the procedure (D214); one decision file per architectural or contract choice (D672).
@@ -126,7 +126,7 @@ Not duplicated here:
 - **Roles are GitHub permissions** (D955): `WRITE`/`MAINTAIN`/`ADMIN` on upstream is a maintainer, anyone else a contributor; the skills check it, a contributor's agent stops at an open PR (`CONTRIBUTING.md` §Working with an agent client).
 - A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** on a running instance with the user, landing one PR (`live-dev` skill).
 - A PR is reviewed with the `review-pr` skill: scripted triage first, code read by the `pr-reviewer` subagent, the coordinator verifies only the lines its findings cite. Size cap and approved-plan rule: `CONTRIBUTING.md` §Pull requests.
-- Server and client releases (release-please PR merge, pipeline, rollout, local client update) → maintainer-local tooling, not versioned here.
+- Server and client releases (release-please PR merge, pipeline, rollout, local client update) → maintainer-local tooling, not versioned here; the weekly calendar is in `CONTRIBUTING.md` §Releases.
 - **Documentation is updated in the same session in which the code is changed — never afterward.** The "what changes → which file to update" table is in `docs/index.md` §Documentation maintenance rules: use it for every change.
 - Conventions → `docs/conventions.md`. Every architectural or contract choice → one file `docs/decisions/D<n>-<slug>.md`, numbered after its plan issue or PR (D672), never regenerate `docs/decisions.md` in a feature PR (D328).
 - Project status and backlog live in GitHub issues, pull requests and releases; user-visible completed work lives in `CHANGELOG.md`.
