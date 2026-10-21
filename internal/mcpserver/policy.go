@@ -353,7 +353,15 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 
 	// Exact concept operations share the conventional id/concept_id/service_id
 	// fields. Missing or forbidden resources intentionally collapse to not found.
-	id := stringField(raw, "id", "concept_id", "service_id")
+	// Authorize the field the handler reads, not the first one present: a
+	// request that carries a second, differing id field is refused.
+	idField := exactIDField(tool)
+	id := stringField(raw, idField)
+	for _, other := range []string{"id", "concept_id", "service_id"} {
+		if v := stringField(raw, other); other != idField && v != "" && v != id {
+			return errors.New(genericNotFound)
+		}
+	}
 	if id == "" && resourceClassForTool(tool) == resourceExact && write {
 		return deny(denyMissingID)
 	}
@@ -398,6 +406,17 @@ func kbName(k *kb.KB) string {
 	}
 	parts := strings.Split(strings.TrimRight(k.Root, "/"), "/")
 	return parts[len(parts)-1]
+}
+
+// exactIDField is the argument a tool's handler reads its concept id from.
+func exactIDField(tool string) string {
+	switch tool {
+	case "asset_read", "asset_list", "asset_write", "asset_delete":
+		return "concept_id"
+	case "service_get":
+		return "service_id"
+	}
+	return "id"
 }
 
 func stringField(raw map[string]json.RawMessage, names ...string) string {
