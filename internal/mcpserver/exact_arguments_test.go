@@ -74,9 +74,23 @@ func TestToolSchemasUseLowerCaseProperties(t *testing.T) {
 			continue
 		}
 		for prop := range schema.Properties {
-			if prop != strings.ToLower(prop) {
-				t.Errorf("%s: property %q is not lower case", name, prop)
+			if strings.Trim(prop, "abcdefghijklmnopqrstuvwxyz0123456789_") != "" {
+				t.Errorf("%s: property %q is not lower-case ASCII", name, prop)
 			}
 		}
+	}
+}
+
+// encoding/json folds U+017F onto "s" and the Kelvin sign onto "k": a key
+// carrying either is lower case and would still reach an ASCII field.
+func TestExactKeysRefuseNonASCII(t *testing.T) {
+	t.Parallel()
+	for _, key := range []string{"ſatellite_id", "Kind", "idé"} {
+		if exactKeys(map[string]json.RawMessage{key: json.RawMessage(`"x"`)}) {
+			t.Errorf("%q accepted", key)
+		}
+	}
+	if !exactKeys(map[string]json.RawMessage{"satellite_id": nil, "if_match": nil}) {
+		t.Error("ordinary keys refused")
 	}
 }

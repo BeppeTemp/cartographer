@@ -454,8 +454,13 @@ func exactArgumentKeys(args json.RawMessage) bool {
 func exactKeys(m map[string]json.RawMessage) bool {
 	seen := make(map[string]bool, len(m))
 	for key := range m {
-		if key != strings.ToLower(key) {
-			return false
+		// ASCII only: encoding/json also folds non-ASCII letters onto ASCII
+		// ones (U+017F "ſ" matches "s", U+212A the Kelvin sign matches "k"), so
+		// "ſervice_id" is lower case and still reaches a service_id field.
+		for _, r := range key {
+			if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_') {
+				return false
+			}
 		}
 		folded := strings.ToLower(key)
 		if seen[folded] {
