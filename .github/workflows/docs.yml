@@ -16,6 +16,7 @@ on:
       - "mkdocs.yml"
       - "demo/**"
       - "web/**"
+      - "!web/e2e/**"
       - "CHANGELOG.md"
       - ".github/workflows/docs.yml"
   pull_request:
@@ -24,6 +25,7 @@ on:
       - "mkdocs.yml"
       - "demo/**"
       - "web/**"
+      - "!web/e2e/**"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
