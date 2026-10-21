@@ -112,7 +112,7 @@ var themes = map[string]*theme{
 		),
 		nouns: words("dome mount tripod lens mirror sensor filter focuser guider camera shutter telescope eyepiece collimator finder battery cable enclosure roof tracker nebula galaxy cluster comet planet moon star field frame stack dark flat bias plate catalogue transit horizon seeing haze dew heater rail pier tube vane"),
 		adjs:  words("clear cloudy steady faint bright dim northern southern remote rooftop portable motorised calibrated stacked wide narrow"),
-		paths: []string{"shared-drive"}, repos: []string{"sky-tools", "stacking-scripts"},
+		paths: []string{"shared-drive"}, repos: []string{"observatory-tools", "stacking-scripts"},
 	},
 	"library-consortium": {
 		name: "library-consortium",

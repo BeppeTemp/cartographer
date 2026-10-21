@@ -55,5 +55,11 @@ one process per KB, instead of one `git` invocation per operation.
 - Findings are planted on `ferry-line` only (an island, broken links, the
   defects of `defects()`, the conflicts), so the other profiles open with no
   finding but `status_semantics`, which the status mix puts there by design.
+- The privacy test reads every generated text file (concepts, Map contracts,
+  text assets, `paths.yaml`, `instructions.md`) against the package's vocabulary
+  tables plus a fixed list of English and scaffold words. It cannot catch a word
+  pasted into the vocabulary tables themselves, which define what is allowed,
+  and the tables of all themes are pooled, so one theme's words are allowed in
+  another. Review changes to `themes.go` as a privacy matter (D259).
 - A new Atlas state must be planted somewhere in the fleet and checked by
   `TestGeneratedKBShowsEveryPlantedState`.

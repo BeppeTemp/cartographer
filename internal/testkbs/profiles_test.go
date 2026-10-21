@@ -448,8 +448,11 @@ func TestProfiledKBsOpenClean(t *testing.T) {
 
 // Everything a profiled KB says comes from the vocabulary tables of this
 // package and a fixed list of English filler: a real name pasted into a
-// fixture, or a leak into a generated page, breaks the build instead of
-// reaching a public repository (D259, D1032).
+// fixture, or a leak into a generated page or text file (Map contracts, text
+// assets, paths.yaml, instructions.md), breaks the build instead of reaching a
+// public repository (D259, D1032). It cannot see a word pasted into the
+// vocabulary tables themselves (they define what is allowed), and the tables of
+// all themes are pooled, so one theme's words are allowed in another.
 func TestProfiledKBsUseOnlyTheirOwnVocabulary(t *testing.T) {
 	allowed := map[string]bool{}
 	add := func(texts ...string) {
@@ -467,9 +470,15 @@ func TestProfiledKBsUseOnlyTheirOwnVocabulary(t *testing.T) {
 		the two values do not overlap priority waiting on an answer from review after open resolved measurement
 		definition missing context secret refs base url api active service a described in that team calls skill for
 		reads few concepts first agent you review once pointed at it before start run sh echo session brief
-		https example com reports md path repo name txt csv png drawio pptx docx xlsx pdf sh x p store sops yaml such concept services where work tracked tickets measurement scheduled in progress blocked proposed accepted rejected completed
+		https example com reports md path repo name txt csv png drawio pptx docx xlsx pdf sh renamed x p store sops yaml such concept services where work tracked tickets measurement scheduled in progress blocked proposed accepted rejected completed
 		reference archived deprecated draft done when is to and with at or not no it has had was were be this which
 		as uses use used map concepts about shared folder tooling lives scripts team runs token user password`)
+	// The scaffold every KB gets (index, log, glossary, settings, hooks, drawio
+	// stand-in) and the names and keys of the planted defects.
+	add(`types test kb synthetic knowledge generated exercise atlas t z filed doctor worked through list fixed
+		terms aliases forbidden walk house finding under owns its cite paths default repos usage stale template
+		dated required fields topic explained bin mxfile diagram mxgraphmodel mxcell id parent misc untitled bad
+		wrong soon mixed case points retired event nosuchevent gitlab git sessionstart command files statuses`)
 	add(fillerPeriods...)
 	for _, w := range fillerPeriods {
 		add(w + "s") // "after two {period}s of trial use"
@@ -514,13 +523,12 @@ func TestProfiledKBsUseOnlyTheirOwnVocabulary(t *testing.T) {
 			}
 			rel, _ := filepath.Rel(root, p)
 			rel = filepath.ToSlash(rel)
-			// The scaffold files and the sops stand-ins are not themed text.
-			switch {
-			case !strings.HasSuffix(p, ".md") || d.Name() == "_map.md":
+			// Every generated text file; binary assets and the sops stand-ins are not text.
+			switch ext := filepath.Ext(p); {
+			case strings.HasSuffix(p, ".sops.yaml") || d.Name() == ".sops.yaml":
 				return nil
-			case d.Name() == "index.md" && strings.Count(rel, "/") == 2: // a Map's index lists "-renamed" ids
-				return nil
-			case rel == "instructions.md" || strings.HasPrefix(rel, "templates/") || rel == "data/log.md" || rel == "data/index.md":
+			case ext == ".md" || ext == ".csv" || ext == ".sh" || ext == ".txt" || ext == ".drawio" || ext == ".yaml" || ext == ".json":
+			default:
 				return nil
 			}
 			data, _ := os.ReadFile(p)

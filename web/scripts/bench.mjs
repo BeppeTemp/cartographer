@@ -19,7 +19,7 @@
 // Usage (from web/, after `make build` at the repo root):
 //   node scripts/bench.mjs [--data <dir>] [--kbs test-5000,ferry-line] [--gpu] [--skip-frames]
 //   --data   a data directory (one KB per subdirectory), copied before serving;
-//            without it the fleet is generated (about a minute)
+//            without it the fleet is generated (a few seconds)
 //   --gpu    headed Chromium on the machine's GPU; without it the run is
 //            headless, on whatever the browser falls back to
 

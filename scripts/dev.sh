@@ -57,7 +57,7 @@ else
 	# The test KBs (internal/testkbs, D818, D1032): eleven synthetic KBs, the
 	# 5,000-concept scale KB, nine shaped after measured real KBs with invented
 	# content, and a bare 30, built to put every Atlas view in a state worth
-	# judging. Generating them takes a few tens of seconds, so they are cached
+	# judging. Generating them takes a few seconds, so they are cached
 	# per generator source and per day (their dates are relative to today).
 	# The client report (client-report.json) is built from the client schema, so
 	# the sources of the client settings are part of the key too.

@@ -542,8 +542,10 @@ of a relationship — the inspector lists every link.
   few percent. Reference measurement for 2,000 nodes / ~3,900 edges: the 3D
   warm-up (300 ticks) takes ~2.2 s on an Apple M5 and ~5.4 s on a
   GitHub-hosted runner.
-- **Scale target** (#861: ten KBs, the largest at 5,000 concepts; the fleet
-  `make dev` served then, before D1032 replaced the mid-size KBs, `test-800` among them, by profiled ones). Measured by hand, not in CI, headed on the GPU (Apple M5,
+- **Scale target** (#861: ten KBs, the largest at 5,000 concepts). **Historical
+  measurement, on the fleet before D1032**: `test-800` and the other mid-size KBs
+  no longer exist, so the table below cannot be reproduced with `bench.mjs`; the
+  nearest KB today is `ferry-line`. Measured by hand, not in CI, headed on the GPU (Apple M5,
   ANGLE Metal, 144 Hz display) with `web/scripts/bench.mjs --gpu` and
   `web/scripts/idle.mjs --gpu`, from `web/` after `make build`:
 
