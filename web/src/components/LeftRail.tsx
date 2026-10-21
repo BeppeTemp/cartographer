@@ -204,7 +204,10 @@ export function LeftRail({
                             style={{ background: collectionVar(collection.name) }}
                           />
                           <span className="rail__collection-name">{collection.title || collection.name}</span>
-                          {collection.archive && <span className="rail__archive">Archive</span>}
+                          {/* A Map already titled as an archive (Archive, Archivio, Archiv…) needs no badge saying so. */}
+                          {collection.archive && !/^archiv/i.test(collection.title || collection.name) && (
+                            <span className="rail__archive">Archive</span>
+                          )}
                           <span className="rail__collection-count">
                             <Count value={collection.concepts} />
                           </span>

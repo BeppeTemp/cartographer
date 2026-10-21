@@ -28,6 +28,7 @@ func cmdSync(args []string) int {
 	autoTrust := fs.Bool("auto-trust", false, "Removed (D906): accepted and ignored, because session-start hooks written by older versions still pass it")
 	noHeal := fs.Bool("no-heal", false, "Report locally modified managed artifacts instead of restoring them from the server")
 	logFile := fs.String("log-file", "", "Append this run's output to this file instead of stdout/stderr (created if absent; never rotated)")
+	reportTo := fs.String("report-to", "", "Only send this machine's usage and settings reports to this MCP endpoint (a live development instance), and change nothing")
 	fs.Parse(args)
 	warnRemovedAutoTrust(*autoTrust)
 
@@ -48,6 +49,9 @@ func cmdSync(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
+	}
+	if *reportTo != "" {
+		return reportOnly(dir, *reportTo)
 	}
 	if !*dryRun {
 		realignClientConfig(dir)

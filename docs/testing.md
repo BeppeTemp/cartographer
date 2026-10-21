@@ -375,7 +375,7 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 `web/src/test/locale.test.ts` scans the sources and rejects any `toLocale*String` call without `"en"` as first argument, and any `Intl.` or `navigator.language`: the UI is English in every browser locale, and a value test of a formatter would pass on an English runner even with the bug back.
 
 To work on the UI live, `make dev` from a worktree runs both halves and rebuilds
-the server on every Go change (`CONTRIBUTING.md` §Live sessions). Without `DATA` it serves a throwaway copy of ten
+the server on every Go change (with `DATA`, the installed client reports to it through `sync --report-to`, D1044) (`CONTRIBUTING.md` §Live sessions). Without `DATA` it serves a throwaway copy of ten
 generated test KBs (`internal/testkbs`; D818, D1032): the 5,000-concept scale KB, the bare 30-concept KB, and nine KBs that
 take the shape of measured real ones (Maps and journals, expanded concepts with up to a hundred satellites, pages past
 90 KB, hubs with a hundred backlinks, a status mix, thousands of commits) with invented content, named after their themes
@@ -463,7 +463,7 @@ toolchain (D227). What they hold:
   p95, and paused motion dies out; a non-finite node is repaired at its
   neighbours' centroid;
 - the 3D motion and camera policy (`src/test/motion.test.ts`): the panorama
-  turns only after quiet time with nothing selected; signals run only on the
+  turns only after quiet time with nothing selected; the drift runs at half rate past the tick budget and rests only past 12 ms (D1044); signals run only on the
   selection's links, in their data direction, within 48 and a finite span;
   focus centres the node in the strip the inspector leaves visible;
 - the no-WebGL state: the shell names why there is no graph and keeps the

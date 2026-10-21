@@ -753,12 +753,13 @@ button.row {
   box-shadow: 0 0 0 2px var(--surface-0);
 }
 
-.skeleton-rows {
+.skeleton-rows,
+.skeleton-rows .loading-shape__body {
   display: grid;
   gap: var(--space-3);
 }
 
-.skeleton-rows > span {
+.skeleton-rows span.skeleton {
   display: block;
   height: 48px;
   border-radius: var(--radius-control);
