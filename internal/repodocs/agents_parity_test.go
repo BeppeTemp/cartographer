@@ -112,6 +112,16 @@ func TestRepoSubagentsSayTheSameThingOnEveryClient(t *testing.T) {
 				t.Errorf(".github/agents/%s.agent.md: `tools` is %v, want a read/search/execute list without edit", name, cp.Tools)
 			}
 		}
+		// Kiro lists ["*"] (no read-only tool names in the ledger, D300), so the
+		// restriction is the prompt's own sentence: pin it.
+		if raw, err := os.ReadFile(filepath.Join(root, ".kiro", "agents", name+".json")); err == nil {
+			var k struct {
+				Prompt string `json:"prompt"`
+			}
+			if json.Unmarshal(raw, &k) == nil && !strings.Contains(k.Prompt, "read-only, then stop") {
+				t.Errorf(".kiro/agents/%s.json: the prompt lost its \"read-only, then stop\" sentence, the only read-only restriction Kiro has", name)
+			}
+		}
 		oc, ok := loadMarkdownAgent(t, filepath.Join(root, ".opencode", "agents", name+".md"))
 		if ok && oc.Permission["edit"] != "deny" {
 			t.Errorf(".opencode/agents/%s.md: `permission.edit` is %v, want deny", name, oc.Permission["edit"])

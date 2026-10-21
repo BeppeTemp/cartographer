@@ -358,7 +358,9 @@ would flip a matrix cell is confirmed with a probe
 
 - **Aligned with**: `1.0.98` — 2026-10-17, probed: project agents in
   `.github/agents/<name>.agent.md` load once the folder is trusted, the `model` key is
-  honoured and an unavailable model falls back to `auto` with a warning. `1.0.94` — 2026-10-10, probed (#676). The GitHub Copilot CLI
+  honoured and an unavailable model falls back to `auto` with a warning.
+  The read-only agents list `tools: ["read", "search", "execute"]`, GitHub's documented
+  aliases, not yet probed (a watch item for `cartographer-audit-clients`). `1.0.94` — 2026-10-10, probed (#676). The GitHub Copilot CLI
   (`copilot`), not Copilot in VS Code.
 - **Sources** (`unverified`): releases <https://github.com/github/copilot-cli/releases>;
   docs <https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli>.

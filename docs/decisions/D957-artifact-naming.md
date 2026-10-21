@@ -13,7 +13,7 @@ topic: project-governance
 `cartographer-source-reader`). An agent program is a **client** in names,
 descriptions and CONTRIBUTING. A description opens with "Use when …" and the
 trigger words, and lists every spawner. Kiro agents carry `tools`, and a read-only
-agent carries its restriction on each client that can state one.
+agent has the edit tools removed on Claude Code, OpenCode and Copilot CLI.
 
 **Why.** In a user's catalogue next to other projects' skills, `review-pr` or
 `reader` collide or mislead; the old names mixed word orders, did not pair
@@ -28,7 +28,9 @@ they keep the old names (the one dangling-path check exempts them for the old sk
 directories). Renaming the bundled skills here: they reach users, so it is a
 separate, breaking plan.
 
-**Consequences.** `TestRepoSubagentsSayTheSameThingOnEveryClient` pins Kiro
+**Consequences.** Read-only is enforced against edits only: those three clients keep a
+shell (`go test` needs one), so beyond edits it is instructional. On Kiro it is
+instructional alone (`["*"]`, tool names unverified), pinned as a prompt sentence. `TestRepoSubagentsSayTheSameThingOnEveryClient` pins Kiro
 `tools` and the read-only restrictions. Kiro's read-only agents list `["*"]` because
 the ledger names no read-only tool set; Copilot's list uses the documented
 `read`, `search` and `execute` aliases. A new skill or agent takes the prefix and the
