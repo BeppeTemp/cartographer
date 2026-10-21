@@ -34,7 +34,11 @@ jobs:
     outputs:
       web: ${{ steps.filter.outputs.web }}
       windows: ${{ steps.filter.outputs.windows }}
+      demo: ${{ steps.filter.outputs.demo }}
+      tf: ${{ steps.filter.outputs.tf }}
     steps:
+      # The table lives in scripts/ci-filters.sh, pinned by a test (D994).
+      - uses: actions/checkout@v7
       - id: filter
         env:
           GH_TOKEN: ${{ github.token }}
@@ -42,18 +46,7 @@ jobs:
         run: |
           files=$(gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename')
           printf '%s\n' "$files"
-          # Not the rebuilt UI bundle: its provenance test is
-          # platform-independent and runs on `test`.
-          any() { printf '%s\n' "$files" | grep -v '^internal/webui/dist/' | grep -qE "$1" && echo true || echo false; }
-          # The release PR runs everything: it is the one full pass over what
-          # the merged PRs add up to before a tag.
-          if [[ "$HEAD_REF" == release-please--* ]]; then any() { echo true; }; fi
-          # Web: the frontend, and the Go server the browser suite drives.
-          echo "web=$(any '^(web/|cmd/|internal/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$)')" >> "$GITHUB_OUTPUT"
-          # Windows: the packages that carry platform-specific files or
-          # behaviour (process, service, paths in client configs, git, the
-          # execute bit), the installers, and anything named *_windows.go.
-          echo "windows=$(any '^(cmd/|internal/(service|provisioning|configurator|clientconfig|mcpbridge|agents|execbit|gitx|kb|repoindex|defaults)/|install\.(sh|ps1)$|test/install/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$)|_windows(_test)?\.go$')" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$files" | scripts/ci-filters.sh "$HEAD_REF" >> "$GITHUB_OUTPUT"
 
   test:
     name: test
@@ -81,6 +74,7 @@ jobs:
       # answers to "what must be green" drift apart.
       - run: make gate
       - run: make smoke-http
+      - run: make smoke
       - run: make e2e
       - run: make test-install
 
@@ -216,8 +210,6 @@ jobs:
         run: make web-check
       - if: matrix.leg == 'video'
         run: make web-test
-      - if: matrix.leg == 'video'
-        run: make demo-worker-test
       - run: cd web && npm ci --silent
       # The browser suite (D228) drives bin/cartographer, which commits to the
       # fixture KBs it initialises, so git needs an identity here too.
@@ -253,6 +245,26 @@ jobs:
           echo "legs: $RESULT"
           case "$RESULT" in failure|cancelled) exit 1 ;; esac
 
+  # The demo Worker (Node only) and the demo's Terraform: a Worker change used
+  # to ride the web video leg and a deploy/demo-only PR skipped it. Not a
+  # required check, but main-status watches it.
+  demo-edge:
+    name: demo-edge
+    needs: changes
+    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.demo == 'true')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: web/.nvmrc
+      - run: make demo-worker-test
+      - if: needs.changes.result != 'success' || needs.changes.outputs.tf == 'true'
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.9.8
+      - if: needs.changes.result != 'success' || needs.changes.outputs.tf == 'true'
+        run: make demo-tf-check
 
   # The PR title and body lint (the required `pr-title` check) is its own
   # workflow, pr-title.yml: it re-runs on `edited`, which this one must not (D865).
@@ -262,7 +274,7 @@ jobs:
   # first green push closes it.
   main-status:
     name: main-status
-    needs: [test, test-windows, web]
+    needs: [test, test-windows, web, demo-edge]
     if: github.event_name == 'push' && !cancelled()
     runs-on: ubuntu-latest
     permissions:

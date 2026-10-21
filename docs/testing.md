@@ -48,8 +48,14 @@ run on every push to `main`, on the release-please PR, and on a feature PR that
 touches a package with platform-specific code — `cmd/`, `internal/{service,provisioning,configurator,clientconfig,agents,execbit,gitx,kb,repoindex,defaults}`,
 the installers, any `*_windows.go` (D672). A regression elsewhere still shows
 on `main` right after the merge. The `web` legs run after every push to `main`
-and on a PR that touches their paths (D672, D255); the Playwright browser is
-cached by version. A `changes` job decides both, failing open, and the
+and on a PR that touches the frontend, `test/lib/`, the build files, or a
+non-test file of a package `bin/cartographer` imports: `internal/{changelog,repodocs,testkbs,webui/gen}`
+and every `_test.go` cannot change what the browser sees (D672, D255, D994); the
+Playwright browser is cached by version. A `demo-edge` job runs the demo
+Worker's tests (`make demo-worker-test`) and, for Terraform changes, `make demo-tf-check`
+when `deploy/demo/` changes. A `changes` job decides all of these with
+`scripts/ci-filters.sh` (a table pinned by `internal/repodocs/ci_filters_test.go`,
+which also compares the excluded packages with `go list -deps`), failing open, and the
 release-please PR always runs everything. `test`, `test-windows`, `web` and
 `pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the approved-plan, size and next-train rules, D955) are required checks; a job skipped by its path condition reports as
 passed. On `main` every push gets its own run (the concurrency group is the
@@ -150,8 +156,9 @@ stdio the client owns the pipe's lifetime and the server tears the session down
 on EOF, so closing it immediately races the response out of existence
 ([D168](decisions/D168-the-mcp-wire-format-comes-from-the-official-sdk.md)).
 
-This is a fast local check and is not currently a separate CI step; the Go
-server tests cover the same protocol path more precisely.
+`make smoke` runs in the `test` job after `make smoke-http` (D994). A test in
+`internal/repodocs` fails when a Makefile target is run by no workflow and is not
+in its list of local-only targets.
 
 ### HTTP smoke
 
