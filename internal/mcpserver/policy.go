@@ -353,6 +353,19 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 
 	// Exact concept operations share the conventional id/concept_id/service_id
 	// fields. Missing or forbidden resources intentionally collapse to not found.
+	// concept_merge acts on a satellite and on its parent: both must be
+	// writable, and an extra, differing "id" is refused.
+	if tool == "concept_merge" {
+		sat := stringField(raw, "satellite_id")
+		if v := stringField(raw, "id"); v != "" && v != sat {
+			return errors.New(genericNotFound)
+		}
+		parts := strings.Split(sat, "/")
+		if len(parts) < 2 || !allowedID(policy, k, name, sat, true, "") || !allowedID(policy, k, name, strings.Join(parts[:2], "/"), true, "") {
+			return errors.New(genericNotFound)
+		}
+		return nil
+	}
 	// Authorize the field the handler reads, not the first one present: a
 	// request that carries a second, differing id field is refused.
 	idField := exactIDField(tool)
@@ -406,6 +419,51 @@ func kbName(k *kb.KB) string {
 	}
 	parts := strings.Split(strings.TrimRight(k.Root, "/"), "/")
 	return parts[len(parts)-1]
+}
+
+// exactArgumentKeys reports whether every top-level argument key, and every key
+// of an object that is an element of a top-level array, is spelled in lower
+// case and appears once under case folding. encoding/json matches struct fields
+// case-insensitively (the last duplicate wins) while the authorization gate
+// reads a case-sensitive map, so this check keeps the gate and the handler
+// reading the same key. Free-form objects (frontmatter, vars) are not entered:
+// their keys are user data.
+func exactArgumentKeys(args json.RawMessage) bool {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(args, &top) != nil {
+		return true // not an object: the handler reports it
+	}
+	if !exactKeys(top) {
+		return false
+	}
+	for _, v := range top {
+		var elems []json.RawMessage
+		if json.Unmarshal(v, &elems) != nil {
+			continue
+		}
+		for _, e := range elems {
+			var obj map[string]json.RawMessage
+			if json.Unmarshal(e, &obj) == nil && !exactKeys(obj) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func exactKeys(m map[string]json.RawMessage) bool {
+	seen := make(map[string]bool, len(m))
+	for key := range m {
+		if key != strings.ToLower(key) {
+			return false
+		}
+		folded := strings.ToLower(key)
+		if seen[folded] {
+			return false
+		}
+		seen[folded] = true
+	}
+	return true
 }
 
 // exactIDField is the argument a tool's handler reads its concept id from.

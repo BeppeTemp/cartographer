@@ -175,6 +175,12 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		return result
 	}
 
+	if !exactArgumentKeys(args) {
+		// Refused before authorization: see exactArgumentKeys.
+		s.auditDenied(principal, name, args)
+		return errorResult(deny(denyBadArguments).Error())
+	}
+
 	if err := s.authorize(ctx, name, args); err != nil {
 		// D119/D132: the denial is audited at the point the decision happens,
 		// not where the call would have been dispatched.
