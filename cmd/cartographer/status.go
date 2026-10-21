@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -150,7 +151,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 				mcpPending = true
 			}
 			if a.Kind == "hook" {
-				fmt.Printf("    new hook: after the sync, add the entry to settings.json manually (see hook.json in .claude/hooks/%s/)\n", a.Name)
+				printHookRegistrationHint(p.Name, a.Name, "new hook")
 			}
 		}
 		for _, a := range p.Updated {
@@ -160,7 +161,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 				mcpPending = true
 			}
 			if a.Kind == "hook" {
-				fmt.Printf("    hook updated: after the sync, verify the entry in settings.json (see hook.json in .claude/hooks/%s/)\n", a.Name)
+				printHookRegistrationHint(p.Name, a.Name, "hook updated")
 			}
 		}
 		for _, a := range p.Removed {
@@ -190,6 +191,22 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 	printSyncTimerHint(connected)
 
 	return code
+}
+
+// printHookRegistrationHint says where the sync registers a pending hook.
+// Every provider with a hook destination is registered by Cartographer itself
+// (provisioning.hookMechanisms), so the line names the provider's own
+// registration, read from the exported accessors rather than a second table,
+// and asks nothing of the user. The file is relative to the scope's base
+// directory: a provider with no registration of its own prints nothing.
+func printHookRegistrationHint(provider, hook, lead string) {
+	p := configurator.Provider(provider)
+	switch {
+	case provisioning.HookPluginRelPath(p, hook) != "":
+		fmt.Printf("    %s: the sync registers it itself, as the generated file %s\n", lead, filepath.ToSlash(provisioning.HookPluginRelPath(p, hook)))
+	case provisioning.HookRegistrationFile(p) != "":
+		fmt.Printf("    %s: the sync registers it itself in %s\n", lead, filepath.ToSlash(provisioning.HookRegistrationFile(p)))
+	}
 }
 
 func statusArtifactTrust(a statusArtifact) string {
