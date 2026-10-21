@@ -22,7 +22,7 @@ const statusHealthTimeout = 5 * time.Second
 // a network connection or a real launchd/systemd service.
 var (
 	statusHealthFn = func(cfg *clientconfig.Config) (*client.Health, error) {
-		return client.New(cfg.ServerURL, resolveToken(cfg)).Health(statusHealthTimeout)
+		return client.New(cfg.ServerURL, resolveToken(cfg)).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).Health(statusHealthTimeout)
 	}
 	// statusManifestsFn builds the per-projection manifests sync applies (D193).
 	statusManifestsFn = manifestsForProjections

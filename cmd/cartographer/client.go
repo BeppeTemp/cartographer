@@ -244,7 +244,7 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 	}
 	suffix := ""
 	if stale {
-		facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token)
+		facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
 		switch {
 		case err != nil:
 			suffix = fmt.Sprintf(" (could not read the server's KB list: %v; using the cached list)", err)

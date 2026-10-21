@@ -262,6 +262,12 @@ mode.
 
 Send a token only in `Authorization: Bearer <token>`, never in a URL.
 
+**The client refuses cleartext (D1023).** A client never sends the bearer token to
+a non-loopback `http://` URL: every request fails before dialing unless the
+operator opted in with `allow_insecure_http` or `CARTOGRAPHER_ALLOW_INSECURE_HTTP=1`
+(see [configurator.md](configurator.md) §Transport security). Serve a remote
+deployment over `https://`. The client also refuses to follow a redirect to a URL that fails the same check, and any https to http downgrade, even to loopback.
+
 ### What a 401 tells the client
 
 The client reads its token from the variable `.cartographer.yaml` names in

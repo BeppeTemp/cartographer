@@ -138,6 +138,8 @@ func doReconnect(opts reconnectOptions) (reconnectResult, error) {
 		Auth:      cfg.Auth,
 		Token:     cfg.Token,
 		DryRun:    opts.DryRun,
+
+		AllowInsecureHTTP: cfg.AllowInsecureHTTP,
 	}
 	connectRes, err := doConnect(res.ConnectOptions)
 	if err != nil {
@@ -160,6 +162,9 @@ func reconnectRecoveryCommand(providers []string, opts connectOptions) string {
 	sb.WriteString(strings.Join(providers, ","))
 	if opts.ServerURL != "" {
 		fmt.Fprintf(&sb, " --server-url %s", opts.ServerURL)
+	}
+	if opts.AllowInsecureHTTP {
+		sb.WriteString(" --allow-insecure-http")
 	}
 	if opts.Auth {
 		sb.WriteString(" --auth")

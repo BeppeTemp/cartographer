@@ -531,7 +531,7 @@ func syncOneProvider(provider, dir string) syncDoneMsg {
 	// The server version recorded in the lockfile (D142). A failed probe
 	// leaves it empty, which preserves the previously recorded value
 	// instead of erasing it.
-	facts, _ := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token)
+	facts, _ := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
 	applied, err := materializeForProviders(manifests, projections, dir, facts.Version, false, false /* noHeal */, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths}, kbOrderForProviders(cfg, []string{provider}), cfg.ApprovedMCPHashes())
 	if err != nil {
 		return syncDoneMsg{provider: provider, err: err}

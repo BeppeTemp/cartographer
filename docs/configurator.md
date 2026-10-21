@@ -308,7 +308,25 @@ cartographer connect all --dry-run
 | `--auth` | `false` | Enables the Bearer header in generated configs |
 | `--token-env` | `CARTOGRAPHER_TOKENS` | Name of the env var holding the Bearer token; written as `token: ${NAME}` |
 | `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)) |
+| `--allow-insecure-http` | `false` | Accepts a plain `http://` server URL that is not loopback and records `allow_insecure_http: true`; without it `connect` refuses such a URL (§Transport security, D1023) |
 | `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
+
+### Transport security (D1023)
+
+The bearer token and the responses must not cross the network in clear. Every
+client request goes through `client.CheckServerURL`: `https://` is always
+accepted; `http://` only when the host is loopback (`localhost`, or an IP for
+which `net.ParseIP(host).IsLoopback()` holds: `127.0.0.0/8`, `::1`, IPv4-mapped
+`::ffff:127.0.0.1`; a name such as `127.0.0.1.example.com` is not); any other
+scheme is refused. The check is in the client transport, so `connect`, `sync`,
+`status`, `doctor`, `kb repair`, `reindex`, the usage sync and the stdio bridge
+all obey it, and `connect` and `sync` fail before writing anything.
+
+The explicit opt-in is the `allow_insecure_http: true` key, set by
+`connect --allow-insecure-http` (re-run `connect` with the same flags; it only
+adds the key), or `CARTOGRAPHER_ALLOW_INSECURE_HTTP=1` for one run. A machine
+already connected to a plain-http remote is refused at its next `sync` with an
+error that names both fixes. Nothing upgrades `http` to `https` by itself.
 
 `signing_keys` in `.cartographer.yaml` stores public-key pins per KB. Pins are
 operator-supplied and are never learned from `sync_pull`; multiple pins permit
@@ -1155,6 +1173,7 @@ ignored_paths: []               # placeholder ids known to be absent on this mac
 identities:                     # D904; the git author of this machine's writes, by KB name or default; without an entry, the identity git resolves in the session's repository (an HTTP entry: the global one)
   default: Ada Lovelace <ada@example.com>
   work-kb: Ada Lovelace <ada@corp.example>   # an entry decides: "" sends no author (the server names the token), an invalid one sends none and `sync` warns
+allow_insecure_http: false      # D1023; written only when true. true: accept a plain http:// server_url that is not loopback (the token then travels in clear); set by `connect --allow-insecure-http`
 update_check: true              # D254, D906; written only when false. false: no update lookup at all. The client never installs a release by itself
 usage_scan: true                # D326; written only when false. false: sync reads no session transcript and reports no skill usage (docs/sync.md §Usage scan)
 ```

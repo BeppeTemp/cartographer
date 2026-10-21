@@ -133,6 +133,9 @@ type Config struct {
 	// lookup (D254, D906). Held as the negation so a Config built from the zero
 	// value checks, as the default is. Use UpdateCheckEnabled.
 	UpdateCheckOff bool `yaml:"-"`
+	// AllowInsecureHTTP is the persisted opt-in to a non-loopback http://
+	// server_url (D1023). Use InsecureHTTPAllowed, which also honours the env var.
+	AllowInsecureHTTP bool `yaml:"-"`
 	// Extra retains unknown top-level YAML keys across approval updates.
 	Extra map[string]interface{} `yaml:"-"`
 	// Unsupported lists, sorted, the provider names Load found in the file and
@@ -239,6 +242,8 @@ type yamlConfig struct {
 	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
 	UpdateCheck  *bool                             `yaml:"update_check,omitempty"`
 	UsageScan    *bool                             `yaml:"usage_scan,omitempty"`
+
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http,omitempty"`
 }
 
 // legacyCaches are the keys older versions kept in .cartographer.yaml and that
@@ -261,6 +266,17 @@ type legacyCaches struct {
 	Update          struct {
 		Check *bool `yaml:"check"`
 	} `yaml:"update"`
+}
+
+// InsecureHTTPAllowed reports whether a non-loopback http:// server_url is
+// accepted: the allow_insecure_http key, or CARTOGRAPHER_ALLOW_INSECURE_HTTP
+// set to 1 or true (D1023). A nil Config is not allowed.
+func (c *Config) InsecureHTTPAllowed() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CARTOGRAPHER_ALLOW_INSECURE_HTTP"))) {
+	case "1", "true":
+		return true
+	}
+	return c != nil && c.AllowInsecureHTTP
 }
 
 // UpdateCheckEnabled reports whether the daily release lookup runs: true unless
@@ -406,14 +422,15 @@ func Load(dir string) (*Config, error) {
 	cfg := Config{
 		// The pre-#329 default is migrated on read, so the next connect or
 		// sync writes the working URL into every client's MCP config.
-		ServerURL:  defaults.MigrateLegacyMCPURL(y.ServerURL),
-		ServerName: y.ServerName,
-		Auth:       y.Auth,
-		Token:      y.Token,
-		Clients:    y.Clients,
-		Scopes:     y.Scopes,
-		Workspaces: y.Workspaces,
-		UsageScan:  true, // absent `usage_scan` key defaults to true
+		ServerURL:         defaults.MigrateLegacyMCPURL(y.ServerURL),
+		ServerName:        y.ServerName,
+		Auth:              y.Auth,
+		Token:             y.Token,
+		Clients:           y.Clients,
+		Scopes:            y.Scopes,
+		Workspaces:        y.Workspaces,
+		AllowInsecureHTTP: y.AllowInsecureHTTP,
+		UsageScan:         true, // absent `usage_scan` key defaults to true
 
 		SearchRoots:  y.SearchRoots,
 		Paths:        y.Paths,
@@ -509,6 +526,8 @@ func Save(dir string, cfg *Config) error {
 		SigningKeys:  cfg.SigningKeys,
 		Identities:   cfg.Identities,
 		MCPApprovals: cfg.MCPApprovals,
+
+		AllowInsecureHTTP: cfg.AllowInsecureHTTP,
 	}
 	// The defaults are not written: a file that never set search_roots keeps
 	// getting whatever the defaults are (D906).

@@ -428,7 +428,7 @@ func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candida
 	cs := candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]provisioning.PathRegistry)}
 	token := resolveToken(cfg)
 	tokenEnv := tokenEnvName(cfg)
-	health, err := client.New(cfg.ServerURL, token).WithTokenEnv(tokenEnv).Health(probeTimeout)
+	health, err := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnv).Health(probeTimeout)
 	if err != nil {
 		return cs, nil, fmt.Errorf("health: %w", err)
 	}
@@ -451,7 +451,7 @@ func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candida
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			c := client.New(cfg.ServerURL, token).WithTokenEnv(tokenEnv).WithKB(target.Name)
+			c := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnv).WithKB(target.Name)
 			results[i] = pullTarget(c, target)
 		}()
 	}
