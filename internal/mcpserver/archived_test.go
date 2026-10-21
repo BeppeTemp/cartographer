@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // archivedServer holds one live and one archived concept that both match
@@ -421,5 +422,55 @@ func TestMapList_StaleAfterJournalAndReference(t *testing.T) {
 				t.Fatalf("reference map must omit stale_after: %v", m)
 			}
 		}
+	}
+}
+
+// TestConceptMove_RefusesATypeTheStrictTargetDoesNotAdmit: a move into a strict
+// map that does not list the concept's type used to succeed and leave the page
+// failing the next validate (#921). It is refused before anything is written;
+// a type the map admits still moves.
+func TestConceptMove_RefusesATypeTheStrictTargetDoesNotAdmit(t *testing.T) {
+	t.Parallel()
+	s, k := strictMapServer(t)
+	for id, typ := range map[string]string{"ops/client": "Client", "ops/note": "Note"} {
+		fm := newFM()
+		fm.Set("type", typ)
+		fm.Set("title", id)
+		if _, err := k.WriteConcept(okf.ConceptID(id), fm, "# T\n", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := k.CommitOp("test: seed"); err != nil {
+		t.Fatal(err)
+	}
+
+	res := callTool(t, s, "concept_move", `{"source_id":"ops/client","target_id":"jr/client"}`)
+	if !res.IsError {
+		t.Fatal("a Client page must not move into a map that admits only Note")
+	}
+	for _, want := range []string{`"Client"`, "map jr", "Note", "Nothing was moved"} {
+		if !strings.Contains(res.Content[0].Text, want) {
+			t.Errorf("refusal lacks %q: %s", want, res.Content[0].Text)
+		}
+	}
+	if _, err := k.ReadConcept("ops/client"); err != nil {
+		t.Errorf("the source must still be there: %v", err)
+	}
+	if _, err := k.ReadConcept("jr/client"); err == nil {
+		t.Error("the target must not exist")
+	}
+
+	// One refused entry aborts the whole batch.
+	res = callTool(t, s, "concept_move", `{"moves":[{"source_id":"ops/note","target_id":"jr/note"},{"source_id":"ops/client","target_id":"jr/client"}]}`)
+	if !res.IsError {
+		t.Fatal("a batch with a refused entry must abort")
+	}
+	if _, err := k.ReadConcept("ops/note"); err != nil {
+		t.Errorf("the admitted page of an aborted batch must stay: %v", err)
+	}
+
+	callOK(t, s, "concept_move", `{"source_id":"ops/note","target_id":"jr/note"}`)
+	if _, err := k.ReadConcept("jr/note"); err != nil {
+		t.Errorf("an admitted type must move: %v", err)
 	}
 }
