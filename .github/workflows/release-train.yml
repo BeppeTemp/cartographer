@@ -7,9 +7,12 @@ name: release-train
 #
 # TRAPS (pinned by internal/repodocs/release_train_test.go):
 #   - GitHub cron runs in UTC and knows no time zone, so each slot has two entries,
-#     one per offset of Europe/Rome, and the run continues only when the hour in
-#     Europe/Rome is the wanted one. The guard is on the HOUR, not the minute: a
-#     scheduled run can start many minutes late and a minute guard would drop it.
+#     one per offset of Europe/Rome, and the run continues only when the entry
+#     that fired (github.event.schedule) is the one for today's offset
+#     (TZ=Europe/Rome date +%z). Never a guard on the clock: a scheduled run can
+#     start an hour or more late, which drops it under a minute or hour guard, and
+#     lets both entries of a slot pass an hour guard, running the slot twice.
+#     Neither slot falls on a daylight-saving change (always a Sunday).
 #   - Schedules run only from the default branch.
 #   - A merge made with the default GITHUB_TOKEN does not trigger the `push`
 #     workflows, so release-please would never cut the tag: the merge step uses the
@@ -43,24 +46,25 @@ jobs:
   train:
     runs-on: ubuntu-latest
     steps:
-      # The Europe/Rome hour guard. A manual dispatch skips it and names the action.
+      # The daylight-saving guard (see TRAPS). A manual dispatch skips it and names the action.
       - name: What does this run do
         id: mode
         env:
           EVENT: ${{ github.event_name }}
           INPUT_ACTION: ${{ inputs.action }}
+          CRON: ${{ github.event.schedule }}
         run: |
           mode=none
           if [ "$EVENT" = workflow_dispatch ]; then
             mode="$INPUT_ACTION"
           else
-            slot=$(TZ=Europe/Rome date +%u%H) # weekday (1=Mon) and hour in Rome
-            case "$slot" in
-              108) mode=release ;;
-              500) mode=rc ;;
+            offset=$(TZ=Europe/Rome date +%z) # +0200 summer, +0100 winter
+            case "$offset $CRON" in
+              "+0200 30 6 * * 1" | "+0100 30 7 * * 1") mode=release ;;
+              "+0200 30 22 * * 4" | "+0100 30 23 * * 4") mode=rc ;;
             esac
           fi
-          echo "slot in Europe/Rome: ${slot:-manual}, mode: $mode"
+          echo "cron: ${CRON:-manual}, Europe/Rome offset: ${offset:-n/a}, mode: $mode"
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
 
       - name: Find the release PR
@@ -116,12 +120,20 @@ jobs:
           labelled=$(gh pr view "$PR" --json labels --jq '[.labels[].name] | index("rc-ok") != null')
           [ "$labelled" = true ] || skip "no \`rc-ok\` label. Run the release candidate, add the label, and the next train (a week later) merges this PR."
 
-          # The label counts only if it is newer than the last commit on main: the
-          # train must not ship a commit the candidate did not contain.
+          # The train must not ship a commit the candidate did not contain: the newest
+          # successful candidate build must be of the head of main, and the label must
+          # come after that build. A label newer than the last commit is not enough: a
+          # fix merged after the Friday build and before the label was never run.
+          retry="Run \`release-train\` by hand with \`action: rc\`, try the new candidate, then remove and add \`rc-ok\` again."
+          head_sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          read -r rc_sha rc_at < <(gh run list --workflow preview.yml --branch main --status success --limit 1 \
+            --json headSha,updatedAt --jq '.[0] | "\(.headSha) \(.updatedAt)"') || true
+          [ -n "${rc_sha:-}" ] && [ "$rc_sha" = "$head_sha" ] \
+            || skip "the last candidate built (${rc_sha:-none}) is not the head of \`main\` (${head_sha:0:8}). $retry"
           ok_at=$(gh api --paginate "repos/$GH_REPO/issues/$PR/timeline" \
             --jq '.[] | select(.event == "labeled" and .label.name == "rc-ok") | .created_at' | sort | tail -1)
-          head_at=$(gh api "repos/$GH_REPO/commits/main" --jq .commit.committer.date)
-          [ -n "$ok_at" ] && [ "$ok_at" \> "$head_at" ] || skip "\`main\` changed after \`rc-ok\` was added (label $ok_at, last commit on main $head_at). Re-test the candidate and add the label again."
+          [ -n "$ok_at" ] && [ "$ok_at" \> "$rc_at" ] \
+            || skip "\`rc-ok\` (added $ok_at) predates the build of the current candidate ($rc_at). $retry"
 
           # Freeze: any feat, perf, refactor or breaking commit since last Friday 00:00 in Rome.
           friday=$(TZ=Europe/Rome date -d 'last friday 00:00' +%s)

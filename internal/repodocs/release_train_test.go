@@ -10,8 +10,8 @@ import (
 
 // The release train (D956) fails silently in three ways, and nothing else reads
 // them: a cron in UTC without its second daylight-saving entry (the train runs
-// an hour off for half the year), a guard on the minute (a delayed schedule is
-// dropped), and a merge with the default token (the merge succeeds, but no `push`
+// an hour off for half the year), a guard on the clock (a delayed schedule is
+// dropped or runs twice), and a merge with the default token (the merge succeeds, but no `push`
 // workflow runs, so release-please never cuts the tag).
 func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 	root := repoRoot(t)
@@ -51,12 +51,19 @@ func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 		t.Errorf("release-train.yml: missing cron %q", c)
 	}
 
-	// The guard reads the hour (and weekday) in Europe/Rome and never the minute.
-	if !regexp.MustCompile(`TZ=Europe/Rome date \+%u%H\)`).MatchString(raw) {
-		t.Error("release-train.yml: the guard must read the weekday and hour with `TZ=Europe/Rome date +%u%H`")
+	// The guard matches the entry that fired against today's Europe/Rome offset,
+	// each cron paired with its offset, and never reads the clock: a late run is
+	// dropped by a minute or hour guard, or passes it twice in one slot.
+	if !strings.Contains(raw, "${{ github.event.schedule }}") || !strings.Contains(raw, "TZ=Europe/Rome date +%z") {
+		t.Error("release-train.yml: the guard must compare github.event.schedule with `TZ=Europe/Rome date +%z`")
 	}
-	if regexp.MustCompile(`TZ=Europe/Rome date \+[^\n]*%M`).MatchString(raw) {
-		t.Error("release-train.yml: a minute guard drops a delayed scheduled run; guard on the hour")
+	for _, pair := range []string{`"+0200 30 22 * * 4"`, `"+0100 30 23 * * 4"`, `"+0200 30 6 * * 1"`, `"+0100 30 7 * * 1"`} {
+		if !strings.Contains(raw, pair) {
+			t.Errorf("release-train.yml: the guard lacks the offset/cron pair %s", pair)
+		}
+	}
+	if regexp.MustCompile(`TZ=Europe/Rome date \+[^\n]*%[HM]`).MatchString(raw) {
+		t.Error("release-train.yml: a guard on the hour or minute mishandles a delayed scheduled run; match the cron entry instead")
 	}
 
 	merges := 0

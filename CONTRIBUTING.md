@@ -273,8 +273,9 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
 - **The release candidate.** On Friday at 00:30 the workflow builds a server image
   `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. A
   maintainer runs it on a real deployment and adds the `rc-ok` label. Without the
-  label, or if `main` changed after it was added, the train is skipped with a comment
-  and the next one is a week later.
+  label, or if the candidate is not the current head of `main` (a fix landed after the
+  build), the train is skipped with a comment: run the candidate again by hand
+  (`release-train`, `action: rc`), try it and add the label again, or wait a week.
 - **Out of train**, only for a regression of the latest release or a security fix: the
   maintainer merges the release PR by hand.
 
