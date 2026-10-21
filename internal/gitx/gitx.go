@@ -38,16 +38,20 @@ func gitEnv(extra []string) []string {
 const sshBatchCommand = "ssh -o BatchMode=yes -o ConnectTimeout=10"
 
 // netEnv is gitEnv for a command that talks to the remote. On top of it, ssh
-// runs in batch mode — unless GIT_SSH_COMMAND is already set by the caller or
+// runs in batch mode — unless GIT_SSH_COMMAND or GIT_SSH is already set by the caller or
 // the process, or the repository configures core.sshCommand: GIT_SSH_COMMAND
 // would override that, and an operator's proxy command or identity file is not
 // ours to replace (the rule cloneEnv follows).
 func netEnv(dir string, extra []string) []string {
 	env := gitEnv(extra)
-	if hasEnv(env, "GIT_SSH_COMMAND") {
+	if hasEnv(env, "GIT_SSH_COMMAND") || hasEnv(env, "GIT_SSH") {
 		return env
 	}
-	cfg := exec.Command("git", "-C", dir, "config", "--get", "core.sshCommand")
+	// Bounded: this runs before every fetch and push, and must not become the
+	// thing that hangs.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cfg := exec.CommandContext(ctx, "git", "-C", dir, "config", "--get", "core.sshCommand")
 	cfg.Env = env
 	if out, err := cfg.Output(); err == nil && strings.TrimSpace(string(out)) != "" {
 		return env
@@ -119,7 +123,7 @@ func Clone(ctx context.Context, remote, dest string, env ...string) error {
 // or a jump host has said how to reach their forge, and overwriting that
 // breaks a working setup to prevent a hypothetical one.
 func cloneEnv(remote string, extra []string) []string {
-	env := append(gitEnv(extra), "GIT_TERMINAL_PROMPT=0")
+	env := gitEnv(extra)
 	if !isSSHRemote(remote) || hasEnv(env, "GIT_SSH_COMMAND") {
 		return env
 	}
@@ -460,7 +464,7 @@ func LsRemote(dir, remote string, env ...string) (RemoteRefs, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "ls-remote", "--symref", remote)
-	cmd.Env = gitEnv(env)
+	cmd.Env = netEnv(dir, env)
 	killGroupOnCancel(cmd)
 	cmd.WaitDelay = time.Second
 	var stderr strings.Builder

@@ -8,9 +8,11 @@ topic: concurrency-git
 `GIT_TERMINAL_PROMPT=0` (before the caller's own variables, which can still
 override it). Commands that talk to a remote (`Fetch`, `Push`, `PushSetUpstream`)
 also run ssh in batch mode (`GIT_SSH_COMMAND`), unless the caller or process sets
-`GIT_SSH_COMMAND` or the repository sets `core.sshCommand`. `Push` and
+`GIT_SSH_COMMAND` or `GIT_SSH`, or the repository sets `core.sshCommand`. The
+command `sshCommand` builds for a provisioned key carries `BatchMode=yes` itself.
+`SyncOut` does not retry a timed-out push. `Push` and
 `PushSetUpstream` are bounded by `PushTimeout` (60s, a package variable like
-`FetchTimeout`), kill the whole process group on expiry and report a
+`FetchTimeout`), are killed on expiry (the process group on Unix; on Windows git alone, `WaitDelay` bounding the pipes) and report a
 `RemoteTimeoutError`; a failed push carries the same remedy line as a clone.
 
 **Why.** Only `Clone` was non-interactive. A server started from a terminal that

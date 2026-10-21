@@ -192,7 +192,7 @@ func TestSetupGitSSHSetsCommand(t *testing.T) {
 		t.Fatalf("setupGitSSH: %v", err)
 	}
 	got := os.Getenv("GIT_SSH_COMMAND")
-	want := "ssh -i '" + key + "' -o 'UserKnownHostsFile=\"" + hosts + "\"' -o StrictHostKeyChecking=yes"
+	want := "ssh -i '" + key + "' -o BatchMode=yes -o ConnectTimeout=10 -o 'UserKnownHostsFile=\"" + hosts + "\"' -o StrictHostKeyChecking=yes"
 	if got != want {
 		t.Errorf("GIT_SSH_COMMAND = %q, want %q", got, want)
 	}
@@ -216,7 +216,7 @@ func TestSSHCommandQuotesPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sh -c %q: %v", cmd, err)
 	}
-	want := "-i\n" + key + "\n-o\nUserKnownHostsFile=\"" + hosts + "\"\n-o\nStrictHostKeyChecking=yes\n"
+	want := "-i\n" + key + "\n-o\nBatchMode=yes\n-o\nConnectTimeout=10\n-o\nUserKnownHostsFile=\"" + hosts + "\"\n-o\nStrictHostKeyChecking=yes\n"
 	if string(out) != want {
 		t.Errorf("ssh received\n%s\nwant\n%s", out, want)
 	}
@@ -251,7 +251,7 @@ func TestGitEnvForKB_OwnSSHKey(t *testing.T) {
 
 	got := gitEnvForKB("wiki-kb", dir)
 	want := []string{
-		"GIT_SSH_COMMAND=ssh -i '" + key + "' -o 'UserKnownHostsFile=\"" + hosts + "\"' -o StrictHostKeyChecking=yes",
+		"GIT_SSH_COMMAND=ssh -i '" + key + "' -o BatchMode=yes -o ConnectTimeout=10 -o 'UserKnownHostsFile=\"" + hosts + "\"' -o StrictHostKeyChecking=yes",
 	}
 	if !equalStringSlices(got, want) {
 		t.Errorf("gitEnvForKB(own key) = %v, want %v", got, want)
