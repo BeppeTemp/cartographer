@@ -4,12 +4,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/BeppeTemp/cartographer/internal/client"
 	"net"
 	"net/url"
 	"os"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )

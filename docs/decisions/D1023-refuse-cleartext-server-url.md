@@ -24,6 +24,8 @@ without TLS).
 - Auto-upgrading `http` to `https` or certificate pinning: guessing a scheme can send the token to the wrong place.
 - Keeping the literal `localhost`/`127.0.0.1`/`::1` lists: they refuse `127.0.0.2` and IPv4-mapped loopback.
 
+A redirect is held to the same rule: every client `http.Client` refuses a redirect whose target fails the check, and any https to http downgrade, because Go keeps `Authorization` on same-host redirects.
+
 **Consequences.** Any new code that builds a client request must go through
 `client.MCPClient` (or `CheckServerURL`) and chain `WithInsecureHTTP(cfg.InsecureHTTPAllowed())`
 at construction. Breaking for non-loopback `http://` users: shipped as `feat(client)!`.

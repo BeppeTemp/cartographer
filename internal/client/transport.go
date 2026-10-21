@@ -59,6 +59,11 @@ func RedirectPolicy(allowInsecure bool) func(req *http.Request, via []*http.Requ
 		if len(via) >= 10 {
 			return errors.New("stopped after 10 redirects")
 		}
+		// https -> http is refused even to loopback and even with the opt-in:
+		// a secure endpoint never legitimately sends the client back to cleartext.
+		if len(via) > 0 && strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && !strings.EqualFold(req.URL.Scheme, "https") {
+			return fmt.Errorf("refusing redirect from %s to %s: https to http downgrade", via[len(via)-1].URL.Redacted(), req.URL.Redacted())
+		}
 		return CheckServerURL(req.URL.String(), allowInsecure)
 	}
 }

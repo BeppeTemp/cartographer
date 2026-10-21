@@ -100,14 +100,24 @@ func TestRedirectPolicy_RefusesDowngrade(t *testing.T) {
 	if err := RedirectPolicy(false)(mk("http://example.com/mcp"), via); err == nil {
 		t.Error("https -> remote http redirect was followed")
 	}
-	if err := RedirectPolicy(true)(mk("http://example.com/mcp"), via); err != nil {
-		t.Errorf("opt-in should follow: %v", err)
+	// The opt-in covers an http:// server URL, not a downgrade from https.
+	if err := RedirectPolicy(true)(mk("http://example.com/mcp"), via); err == nil {
+		t.Error("opt-in followed an https -> http downgrade")
+	}
+	if err := RedirectPolicy(true)(mk("http://example.com/b"), []*http.Request{mk("http://example.com/a")}); err != nil {
+		t.Errorf("opt-in should follow http -> http: %v", err)
 	}
 	if err := RedirectPolicy(false)(mk("https://example.com/other"), via); err != nil {
 		t.Errorf("https -> https refused: %v", err)
 	}
-	if err := RedirectPolicy(false)(mk("http://127.0.0.1/x"), via); err != nil {
-		t.Errorf("loopback target refused: %v", err)
+	if err := RedirectPolicy(false)(mk("http://127.0.0.1/x"), via); err == nil {
+		t.Error("https -> loopback http downgrade was followed")
+	}
+	if err := RedirectPolicy(true)(mk("http://127.0.0.1/x"), via); err == nil {
+		t.Error("https -> http downgrade was followed under the opt-in")
+	}
+	if err := RedirectPolicy(false)(mk("http://127.0.0.1/y"), []*http.Request{mk("http://127.0.0.1/x")}); err != nil {
+		t.Errorf("loopback http -> loopback http refused: %v", err)
 	}
 }
 
