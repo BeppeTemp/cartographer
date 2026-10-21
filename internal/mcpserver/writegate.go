@@ -133,7 +133,7 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 
 	// Baseline: the same concepts at HEAD. Only paid when the write left
 	// something to judge.
-	if err := gitx.StashPushAll(k.Root); err != nil {
+	if err := gitx.StashPushAllEnv(k.Root, kb.ServerGitEnv()...); err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: write_gate skipped (%s): %v\n", toolName, err)
 		return nil
 	}

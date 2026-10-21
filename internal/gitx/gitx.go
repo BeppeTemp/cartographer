@@ -1264,7 +1264,15 @@ var noEOL = []string{"-c", "core.autocrlf=false"}
 
 // StashPush stashes uncommitted changes.
 func StashPush(dir string) error {
-	out, err := runGit(dir, append(noEOL, "stash", "push")...)
+	return StashPushEnv(dir)
+}
+
+// StashPushEnv is StashPush with env layered on the git process environment.
+// git stash creates commits, so a host with no git identity needs the caller
+// to pass one (kb.ServerGitEnv) or the stash fails with "Committer identity
+// unknown".
+func StashPushEnv(dir string, env ...string) error {
+	out, err := runGitEnv(dir, env, append(noEOL, "stash", "push")...)
 	if err != nil {
 		return fmt.Errorf("git stash push: %w: %s", err, out)
 	}
@@ -1426,7 +1434,13 @@ func DiscardChanges(dir string) error {
 // StashPushAll stashes every uncommitted change including untracked files, so
 // the tree is at HEAD until StashPop (StashPush leaves untracked files behind).
 func StashPushAll(dir string) error {
-	out, err := runGit(dir, append(noEOL, "stash", "push", "--include-untracked")...)
+	return StashPushAllEnv(dir)
+}
+
+// StashPushAllEnv is StashPushAll with env layered on the git process
+// environment. See StashPushEnv for why a caller passes the server identity.
+func StashPushAllEnv(dir string, env ...string) error {
+	out, err := runGitEnv(dir, env, append(noEOL, "stash", "push", "--include-untracked")...)
 	if err != nil {
 		return fmt.Errorf("git stash push --include-untracked: %w: %s", err, out)
 	}
