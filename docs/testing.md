@@ -85,7 +85,8 @@ test that stubs only the home directory writes task definitions into the
 `test-windows` runner's real user profile — `withTestHome` neutralises both. And
 the recorded commands are asserted, not merely the absence of an error: no test
 stubs `os.Getuid`, which returns `-1` on Windows, so a branch that built
-`gui/-1/com.cartographer.serve` would otherwise pass. What the gate cannot check
+`gui/-1/com.cartographer.serve` would otherwise pass. The launchd branch is the one that
+is also run for real, on a macOS runner (§Real macOS, D997). What the gate cannot check
 is the *schema validity* of the two generated task XML documents — nothing
 registers a task, since `make gate` stays side-effect-free — so their element
 order follows Task Scheduler's own export, and the first real
@@ -142,6 +143,29 @@ and on `workflow_dispatch` (`gh workflow run ci.yml --ref <branch>`), never on `
 and never as a required check. By hand, from the repository root, with Docker:
 `make build && test/forge/run.sh forgejo` (`FORGE_KEEP=1` leaves the container up;
 `FORGE_PORT`, `FORGE_SSH_PORT` and `FORGE_SERVER_PORT` move the ports).
+
+### Real macOS (D997)
+
+The `test-macos` CI job (`macos-latest`) runs three scripts under `test/macos/`
+(shared helpers in `lib.sh`, bash 3.2 as macOS ships it), against two real binaries
+built with `-X main.version=v9.9.8` and `v9.9.9`. `service.sh` installs the service
+under the real launchd (`plutil -lint`, `launchctl print` state, `/health` ready,
+`restart --wait` with a new pid, `stop` (nothing serves) then `start`, `uninstall` then status
+exit 4, the sync timer plist). `install.sh` runs `install.sh install` and `update`
+(the fake curl of `test/install/lib/`, no network) over a real running service and
+asserts `/health` reports the new version after `upgrade-repair`, that a checksum
+mismatch leaves the old binary and the same pid, and that `uninstall` refuses while
+the units exist. `cask.sh` installs the Cask a `goreleaser release --snapshot
+--skip=publish` renders from a local tap (`brew tap-new local/cart-test`, only the
+`url` rewritten to the snapshot binary), and checks the version, the absent
+quarantine attribute (the `postflight_steps`), the caveats and the uninstall.
+The scripts register a real job under the account's own `$HOME` (the home guard,
+`internal/service/homeguard.go`, refuses a sandbox one) so they refuse to run
+outside CI unless `CARTOGRAPHER_MACOS_E2E=1`: never on a Mac that runs its own
+Cartographer service, which carries the same label. The job runs on the release PR,
+on a PR touching `internal/service/`, `install.sh`, `.goreleaser.yaml`,
+`test/install/`, `test/macos/` or the service commands, on `main` and on
+`workflow_dispatch`; it is not a required check, `main-status` watches it.
 
 CLI JSON tests decode stdout as JSON and assert that diagnostics remain on
 stderr. Golden help is limited to 80 columns. Bubble Tea view/update tests use
@@ -678,6 +702,8 @@ scripts against a scratch bare repository.
 - Provider/model quality comparisons.
 - Tests requiring production credentials or external private infrastructure.
 - Manual UI appearance checks, and screenshot baselines of the Atlas UI (D228).
+- The macOS scripts on any other host: `test/macos/` runs only on a macOS runner (or a
+  throwaway Mac with `CARTOGRAPHER_MACOS_E2E=1`).
 - The shell harnesses on Windows: `make smoke-http`, `make e2e` and
   `make test-install` are POSIX `sh` scripts (`test/smoke/`, `test/e2e/`,
   `test/install/`) driving a launchd/systemd install path, so they run on the

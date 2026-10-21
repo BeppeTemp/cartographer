@@ -42,6 +42,7 @@ jobs:
       tf: ${{ steps.filter.outputs.tf }}
       docker: ${{ steps.filter.outputs.docker }}
       forge: ${{ steps.filter.outputs.forge }}
+      macos: ${{ steps.filter.outputs.macos }}
     steps:
       # The table lives in scripts/ci-filters.sh, pinned by a test (D994).
       - uses: actions/checkout@v7
@@ -335,6 +336,49 @@ jobs:
       - run: make build
       - run: test/forge/run.sh ${{ matrix.forge }}
 
+  # The macOS leg (D997): the launchd agent, install.sh against a real service
+  # and the Cask GoReleaser renders, each on a real runner. It registers a real
+  # job under the runner's own HOME (internal/service/homeguard.go refuses a
+  # sandbox HOME). Push to main, the release PR, a PR touching its inputs, and a
+  # manual run, through the same fail-open `changes` as the Windows legs. Not a
+  # required check; main-status watches it.
+  test-macos:
+    name: test-macos
+    needs: changes
+    if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.macos == 'true')"
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the snapshot version is computed from the tags
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Configure git for tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@local
+          git config --global init.defaultBranch master
+      - name: Build the two versions
+        run: |
+          go build -ldflags "-X main.version=v9.9.9" -o "$RUNNER_TEMP/new/cartographer" ./cmd/cartographer
+          go build -ldflags "-X main.version=v9.9.8" -o "$RUNNER_TEMP/old/cartographer" ./cmd/cartographer
+      - name: The per-user launchd domain exists
+        run: launchctl print "gui/$(id -u)" >/dev/null
+      - name: launchd service
+        run: test/macos/service.sh "$RUNNER_TEMP/new/cartographer"
+      - name: install.sh against a real service
+        run: test/macos/install.sh "$RUNNER_TEMP/old/cartographer" "$RUNNER_TEMP/new/cartographer"
+      # Never published: --skip=publish needs no HOMEBREW_TAP_TOKEN.
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean --skip=publish
+      - name: The Cask from a local tap
+        run: test/macos/cask.sh dist
+
   # The PR title and body lint (the required `pr-title` check) is its own
   # workflow, pr-title.yml: it re-runs on `edited`, which this one must not (D865).
 
@@ -343,7 +387,7 @@ jobs:
   # first green push closes it.
   main-status:
     name: main-status
-    needs: [test, test-windows, web, demo-edge, docker]
+    needs: [test, test-windows, web, demo-edge, docker, test-macos]
     if: github.event_name == 'push' && !cancelled()
     runs-on: ubuntu-latest
     permissions:
