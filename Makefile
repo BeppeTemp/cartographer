@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -149,6 +149,9 @@ worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree
 	@git worktree remove --force ".worktrees/$(SLUG)"
 	@git branch -D "feat/$(SLUG)" 2>/dev/null || true
 	@echo "worktree removed: .worktrees/$(SLUG)"
+
+worktree-clean: ## Remove the worktrees, local and fork branches of merged PRs, each checked against its PR: make worktree-clean [DRY=1]
+	@./scripts/worktree-clean.sh $(if $(DRY),--dry-run)
 
 # The live session's instance (the cartographer-develop-live skill): Go rebuilt and restarted on
 # change, the UI hot-reloaded by Vite. DATA is copied, never served in place.
