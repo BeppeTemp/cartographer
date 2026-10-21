@@ -42,6 +42,12 @@ brew tap-new "$tap" --no-git >/dev/null
 tap_dir=$(brew --repository "$tap")
 mkdir -p "$tap_dir/Casks"
 
+# The Cask's binary stanza names the downloaded file after the release asset
+# (cartographer-darwin-<arch>), and Homebrew names it after the url's basename:
+# serve a copy under that name, the same bytes.
+stage=$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/cartographer-cask.XXXXXX")
+cp "$asset" "$stage/cartographer-darwin-$arch"
+asset="$stage/cartographer-darwin-$arch"
 want=$(shasum -a 256 "$asset" | cut -d' ' -f1)
 grep -q "$want" "$cask_src" || mac_fail "the Cask sha256 is not the snapshot binary's ($want)"
 mac_ok "Cask sha256 matches $(basename "$asset")"
