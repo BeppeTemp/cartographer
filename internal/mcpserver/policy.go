@@ -428,6 +428,19 @@ func templateType(k *kb.KB, slug string) (string, bool) {
 	return typeName, ok && typeName != "" && !strings.Contains(typeName, "{{")
 }
 
+// kbRosterVisible reports whether the caller may see the /clients roster rows
+// of a KB. The roster is protocol metadata (a row names a KB, not a concept),
+// so any read grant on the KB is enough, whatever its map/journal/type
+// selectors; an admin sees every KB. The zero principal (no ID) is non-admin
+// and holds no rules: nothing is visible, fail-closed.
+func kbRosterVisible(ctx context.Context, name string) bool {
+	p := auth.PrincipalFromContext(ctx)
+	if p.ID != "" && p.Policy.Admin {
+		return true
+	}
+	return p.Policy.HasKBAccess(name, false)
+}
+
 // Visible is the reusable collection predicate. It never treats an unreadable
 // concept as visible, avoiding an error side channel for restricted callers.
 func Visible(ctx context.Context, k *kb.KB, id string) bool {
