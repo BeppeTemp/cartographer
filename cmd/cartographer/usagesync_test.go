@@ -161,13 +161,13 @@ func TestReportOnly_SendsToTheGivenURLAndChangesNothing(t *testing.T) {
 	}
 }
 
-func TestReportOnly_RefusesPlainHTTPToANonLoopbackHost(t *testing.T) {
+func TestReportOnly_RefusesAServerOffThisMachine(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
 	if err := clientconfig.Save(home, clientconfig.Default()); err != nil {
 		t.Fatal(err)
 	}
-	if code := reportOnly(home, "http://example.com/mcp"); code != 2 {
+	if code := reportOnly(home, "https://example.com/mcp"); code != 2 {
 		t.Fatalf("exit %d, want 2", code)
 	}
 }

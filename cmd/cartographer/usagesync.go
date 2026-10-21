@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	neturl "net/url"
 	"os"
 	"sort"
 	"strings"
@@ -89,6 +90,13 @@ func reportOnly(dir, url string) int {
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: no client config found in %s: %v\n", dir, err)
+		return 2
+	}
+	// The configured token goes with the reports: only a server on this
+	// machine may receive it, the live instance it is meant for, so a typo
+	// cannot hand the real token to another host.
+	if u, err := neturl.Parse(url); err != nil || !client.IsLoopbackHost(u.Hostname()) {
+		fmt.Fprintf(os.Stderr, "Error: --report-to takes a server on this machine (localhost, 127.0.0.1, ::1), not %q\n", url)
 		return 2
 	}
 	cfg.ServerURL = url

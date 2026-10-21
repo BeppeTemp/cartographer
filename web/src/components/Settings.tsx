@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "./Icon";
 import { fetchPlaceholders, fetchSettings, fetchWhoami } from "../api/client";
 import type {
@@ -40,6 +40,13 @@ export function tildify(text: string): string {
     .replace(/(^|[\s:→])C:\\Users\\[^\\\s]+/gi, "$1~");
 }
 
+/** Whether the values on screen are this machine's (a client's report): only
+ *  then is a home directory the viewer's own, and shown as `~`. */
+const ClientValues = createContext(false);
+function useHome(): (text: string) => string {
+  return useContext(ClientValues) ? tildify : (text) => text;
+}
+
 /** Past this many characters an item, or past this many items a list, no
  *  longer fits beside the description: the row puts its values on their own
  *  full-width lines under it. */
@@ -52,7 +59,7 @@ function isWide(list: readonly string[] | null): boolean {
 /** One item of a list: a `key: value` or `key → value` entry shows its key
  *  muted before the value, so a long path wraps under itself. */
 function Item({ text }: { text: string }) {
-  const t = tildify(text);
+  const t = useHome()(text);
   const m = /^([^\s:→]+(?::[^\s:→]+)?)(: | → )(.+)$/.exec(t);
   return (
     <span className="settings__item">
@@ -278,14 +285,16 @@ export function Settings({
 
       <div role="tabpanel" aria-labelledby={`settings-tab-${current}`}>
         {client !== undefined ? (
-          <ClientPanel
-            client={client}
-            template={view.client_template}
-            kbs={view.kbs.map((k) => k.name)}
-            mode={mode}
-            query={query}
-            activeKB={selected?.name}
-          />
+          <ClientValues.Provider value={true}>
+            <ClientPanel
+              client={client}
+              template={view.client_template}
+              kbs={view.kbs.map((k) => k.name)}
+              mode={mode}
+              query={query}
+              activeKB={selected?.name}
+            />
+          </ClientValues.Provider>
         ) : kb ? (
           <KBPanel kb={kb} mode={mode} query={query} />
         ) : (
@@ -468,6 +477,7 @@ function mapOf(entries: SettingEntry[], key: string): Record<string, unknown> {
 
 /** One client setting of one KB: the YAML key it lives under, what it does, its value. */
 function KBSetting({ yamlKey, about, value }: { yamlKey: string; about: string; value: string[] | string | null }) {
+  const home = useHome();
   const empty = value === null || (Array.isArray(value) && value.length === 0);
   return (
     <li className="settings__row" data-wide={(Array.isArray(value) && isWide(value)) || undefined}>
@@ -489,7 +499,7 @@ function KBSetting({ yamlKey, about, value }: { yamlKey: string; about: string; 
             </span>
           ) : (
             <span className="settings__value" aria-label={`Value of ${yamlKey}`}>
-              {tildify(value)}
+              {home(value)}
             </span>
           )}
         </span>
@@ -747,6 +757,7 @@ function asBool(value: unknown): boolean | null {
 
 /** The value as a chip: a switch for a boolean, chips for a list, a muted word for nothing. */
 function Value({ entry: e }: { entry: SettingEntry }) {
+  const home = useHome();
   const label = `Value of ${e.key}`;
   const b = asBool(e.value);
   if (b !== null) {
@@ -777,7 +788,7 @@ function Value({ entry: e }: { entry: SettingEntry }) {
   const text = formatValue(e.value);
   return (
     <span className="settings__value" data-empty={text.startsWith("(") || undefined} aria-label={label}>
-      {tildify(text)}
+      {home(text)}
     </span>
   );
 }

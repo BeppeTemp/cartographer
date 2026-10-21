@@ -475,7 +475,7 @@ cartographer sync [--client <provider>]... [--dry-run] [--no-heal] [--report-to 
 | `--client` | *(all)* | Syncs only this provider (repeatable). A provider left out is not touched at all: not its MCP entries, not its artifacts, not its lockfile entry |
 | `--dry-run` | `false` | Prints without writing |
 | `--no-heal` | `false` | Reports managed artifacts that diverged on disk instead of restoring them from the server (D139) |
-| `--report-to` | *(none)* | Only sends this machine's usage and client-settings reports (D326, D818) to that MCP endpoint, and changes nothing: the config is read, never saved, nothing is provisioned, the configured server is not contacted. It is how `make dev DATA=<dir>` shows the real client on a live instance (D1044). The configured token goes to that URL, which passes the same check as `server_url` (plain `http://` only to loopback unless insecure HTTP is allowed; refused with exit 2) |
+| `--report-to` | *(none)* | Only sends this machine's usage and client-settings reports (D326, D818) to that MCP endpoint, and changes nothing: the config is read, never saved, nothing is provisioned, the configured server is not contacted. It is how `make dev DATA=<dir>` shows the real client on a live instance (D1044). The configured token goes with the reports, so the URL must name a server on this machine (`localhost`, `127.0.0.1`, `::1`): any other host is refused with exit 2 |
 
 For Claude Code the `cartographer` MCP entries are written to `$HOME/.claude.json` and to
 `<dir>/.claude.json` for every `clients.claude.config_dirs` (D755), and removed from all of them.

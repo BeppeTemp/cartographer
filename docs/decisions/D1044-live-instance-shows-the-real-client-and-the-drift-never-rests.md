@@ -37,9 +37,9 @@ largest graphs.
 - Run the drift at full rate on every graph. At 2,000 concepts a 7.5 ms tick
   every frame takes half a 60 Hz frame from the rest of the page.
 
-**Consequences.** `--report-to` sends the configured token to the URL it is
-given. The URL goes through the same check as `server_url`: plain `http://` is
-refused unless it is loopback or insecure HTTP is allowed. `make dev` without
+**Consequences.** `--report-to` sends the configured token with the reports,
+so it takes only a server on this machine (a loopback host): a typo cannot hand
+the real token to another host. `make dev` without
 `DATA` still posts the test fleet's invented client. The idle refit moves the
 camera only while the panorama turns, so a reader's own framing holds until
 they leave the controls for `IDLE_RESUME_MS`.
