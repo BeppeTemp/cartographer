@@ -201,8 +201,8 @@ func TestEmitAntigravity_HTTP_NoAuth(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing wiki entry in mcpServers")
 	}
-	if entry["serverUrl"] != "https://mcp.example.test/mcp" {
-		t.Errorf("serverUrl = %v, want https://mcp.example.test/mcp", entry["serverUrl"])
+	if entry["url"] != "https://mcp.example.test/mcp" {
+		t.Errorf("url = %v, want https://mcp.example.test/mcp", entry["url"])
 	}
 	if _, hasHeaders := entry["headers"]; hasHeaders {
 		t.Error("headers should not be present when auth is disabled")

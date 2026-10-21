@@ -171,7 +171,7 @@ func TestEmitServer_Antigravity(t *testing.T) {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 	entry := root["mcpServers"].(map[string]any)["kb-server"].(map[string]any)
-	if entry["serverUrl"] != spec.URL {
+	if entry["url"] != spec.URL {
 		t.Errorf("unexpected entry: %+v", entry)
 	}
 	headers := entry["headers"].(map[string]any)

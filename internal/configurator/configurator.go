@@ -854,7 +854,7 @@ func emitAntigravityServer(name string, spec ServerSpec) (*EmitResult, error) {
 	entry := map[string]any{}
 	switch spec.Type {
 	case "http":
-		entry["serverUrl"] = spec.URL
+		entry["url"] = spec.URL
 		if len(spec.Headers) > 0 {
 			entry["headers"] = spec.Headers
 		}
