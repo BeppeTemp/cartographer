@@ -112,7 +112,7 @@ func TestEmptyScopeListIsNotAdmin(t *testing.T) {
 	if err == nil {
 		err = ValidateAuth(cfg.Auth)
 	}
-	if err == nil || !strings.Contains(err.Error(), "empty scope list") {
+	if err == nil || !strings.Contains(err.Error(), "empty scope or role list") {
 		t.Fatalf("explicit empty lists must be refused, got %v", err)
 	}
 	cfg, err = loadAuthYAML(t, "auth:\n  tokens:\n    - abc\n    - {token: def}\n")
@@ -137,5 +137,23 @@ func TestEnvTokenEmptyScopesAndSpaces(t *testing.T) {
 	}
 	if err := ValidateAuth(AuthConfig{Tokens: specs}); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestEmptyRoleListAndMergedEmptyListsAreNotAdmin(t *testing.T) {
+	for name, y := range map[string]string{
+		"empty roles":         "auth:\n  tokens:\n    - {token: t, roles: []}\n",
+		"merged empty scopes": "x: &a {scopes: []}\nauth:\n  tokens:\n    - {<<: *a, token: t1}\n",
+		"merged empty roles":  "x: &a {roles: []}\nauth:\n  tokens:\n    - {<<: [*a], token: t1}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := loadAuthYAML(t, y)
+			if err == nil {
+				err = ValidateAuth(cfg.Auth)
+			}
+			if err == nil || !strings.Contains(err.Error(), "empty scope or role list") {
+				t.Fatalf("want the empty list refused, got %v", err)
+			}
+		})
 	}
 }

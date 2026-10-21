@@ -134,7 +134,7 @@ audit:
   retention_days: 90           # (audit.retention_days) delete checkpointed segments older than N days; default 90; 0 = keep forever
 ```
 
-An unknown key anywhere under `auth` (a token's `scope:` for `scopes:`, `role:` for `roles:`, a rule's `map:` for `maps:`) stops the server at startup, naming the key and its line, and so does a top-level `Auth:` or a root `tokens:`/`roles:`: a dropped key would otherwise change who may do what. A token that declares a scope list which comes out empty (`scopes: []`, `tok|`) is refused too; the admin token is the one that writes no `scopes` and no `roles` at all.
+An unknown key anywhere under `auth` (a token's `scope:` for `scopes:`, `role:` for `roles:`, a rule's `map:` for `maps:`) stops the server at startup, naming the key and its line, and so does a top-level `Auth:` or a root `tokens:`/`roles:`: a dropped key would otherwise change who may do what. A token that declares a scope list which comes out empty (`scopes: []`, `roles: []`, `tok|`) is refused too; the admin token is the one that writes no `scopes` and no `roles` at all.
 
 `kbs[]` (YAML) is additive to `CARTOGRAPHER_KB_REMOTES` (append, not replace) — all listed KBs get
 mounted — and every entry has a `remote`: a KB without one is a folder under `data`, which is discovered

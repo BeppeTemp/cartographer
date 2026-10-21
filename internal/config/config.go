@@ -147,8 +147,8 @@ type TokenSpec struct {
 	// audit records. When empty a non-secret ID is derived from the token
 	// hash, never from a plaintext prefix.
 	ID string `yaml:"id,omitempty"`
-	// ScopesDeclared records that the entry wrote a scope list (`scopes:` in
-	// YAML, `|` in the env form). A declared list that ends up empty is refused
+	// ScopesDeclared records that the entry wrote a scope or role list
+	// (`scopes:` or `roles:` in YAML, `|` in the env form). A declared list that ends up empty is refused
 	// by ValidateAuth: the admin token is the one that writes no scopes at all.
 	ScopesDeclared bool `yaml:"-"`
 }
@@ -167,8 +167,9 @@ func (t *TokenSpec) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	*t = TokenSpec(raw)
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == "scopes" {
+	keys, _ := mappingPairs(node) // merge keys count: a merged `scopes: []` is declared too
+	for _, k := range keys {
+		if k.Value == "scopes" || k.Value == "roles" {
 			t.ScopesDeclared = true
 		}
 	}
