@@ -52,8 +52,8 @@ re-reads the block with a strict parser and refuses it. Quote the value, or use 
 em dash:
 
 ```yaml
-description: "Sibling of the plan-issue skill: it writes the issues"
-description: Sibling of the plan-issue skill — it writes the issues
+description: "Sibling of the cartographer-propose-plan skill: it writes the issues"
+description: Sibling of the cartographer-propose-plan skill — it writes the issues
 ```
 
 An error excludes that skill from the manifest and nothing else: the KB's other

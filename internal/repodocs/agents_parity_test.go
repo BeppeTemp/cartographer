@@ -5,14 +5,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
 
-// The repository's own subagents (plan-implementer, live-implementer,
-// pr-reviewer, security-reviewer, reader) exist once per client format and must
+// The repository's own subagents (cartographer-plan-implementer, cartographer-live-implementer,
+// cartographer-contract-reviewer, cartographer-security-reviewer, cartographer-source-reader) exist once per client format and must
 // say the same thing (D327, D884): a coordinator on one client and a coordinator
 // on another hand the same mandate to a worker with the same rules, on the same
 // model. `.claude/agents/<name>.md` is the reference, and for each of its agents
@@ -50,10 +51,11 @@ func TestRepoSubagentsSayTheSameThingOnEveryClient(t *testing.T) {
 
 		// Kiro: JSON, the prompt is the body.
 		var kiro struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
-			Model       string `json:"model"`
-			Prompt      string `json:"prompt"`
+			Name        string   `json:"name"`
+			Description string   `json:"description"`
+			Model       string   `json:"model"`
+			Prompt      string   `json:"prompt"`
+			Tools       []string `json:"tools"`
 		}
 		kiroPath := filepath.Join(".kiro", "agents", name+".json")
 		if raw, err := os.ReadFile(filepath.Join(root, kiroPath)); err != nil {
@@ -65,6 +67,11 @@ func TestRepoSubagentsSayTheSameThingOnEveryClient(t *testing.T) {
 				t.Errorf("%s: `name` is %q, want the file name", kiroPath, kiro.Name)
 			}
 			agentMatches(t, kiroPath, name, agentSpec{Description: kiro.Description, Model: kiro.Model, Body: strings.TrimSpace(kiro.Prompt)}, ref, dotted)
+			// A Kiro agent with no `tools` has no tools at all (probe, D300): an
+			// agent that loads but cannot read a file looks like it works.
+			if len(kiro.Tools) == 0 {
+				t.Errorf("%s: no `tools`: a Kiro agent without them is offered no tool, so list them (`[\"*\"]` when the client has no narrower read set) (#957)", kiroPath)
+			}
 		}
 
 		// OpenCode: Markdown, the name is the file name, a model carries its provider.
@@ -86,9 +93,35 @@ func TestRepoSubagentsSayTheSameThingOnEveryClient(t *testing.T) {
 		}
 	}
 
-	// A read-only agent is read-only in the client that can say so: OpenCode
-	// takes a permission block, and a copy that lost it would let `reader` edit.
-	for _, name := range []string{"reader"} {
+	// A read-only agent is read-only in every client that can say so (#957):
+	// Claude Code and Copilot CLI list the tools it may use, OpenCode takes a
+	// permission block. Kiro has no read-only set in the ledger, so its copy
+	// keeps the restriction in the prompt. A copy that lost its restriction would
+	// let the agent edit.
+	for _, name := range readOnlyAgents {
+		cl, ok := loadMarkdownAgent(t, filepath.Join(root, ".claude", "agents", name+".md"))
+		if ok {
+			if got, _ := cl.Tools.(string); got != "Read, Grep, Glob, Bash" {
+				t.Errorf(".claude/agents/%s.md: `tools` is %v, want `Read, Grep, Glob, Bash`", name, cl.Tools)
+			}
+		}
+		cp, ok := loadMarkdownAgent(t, filepath.Join(root, ".github", "agents", name+".agent.md"))
+		if ok {
+			tools, _ := cp.Tools.([]any)
+			if len(tools) == 0 || slices.Contains(tools, any("edit")) || slices.Contains(tools, any("*")) {
+				t.Errorf(".github/agents/%s.agent.md: `tools` is %v, want a read/search/execute list without edit", name, cp.Tools)
+			}
+		}
+		// Kiro lists ["*"] (no read-only tool names in the ledger, D300), so the
+		// restriction is the prompt's own sentence: pin it.
+		if raw, err := os.ReadFile(filepath.Join(root, ".kiro", "agents", name+".json")); err == nil {
+			var k struct {
+				Prompt string `json:"prompt"`
+			}
+			if json.Unmarshal(raw, &k) == nil && !strings.Contains(k.Prompt, "read-only, then stop") {
+				t.Errorf(".kiro/agents/%s.json: the prompt lost its \"read-only, then stop\" sentence, the only read-only restriction Kiro has", name)
+			}
+		}
 		oc, ok := loadMarkdownAgent(t, filepath.Join(root, ".opencode", "agents", name+".md"))
 		if ok && oc.Permission["edit"] != "deny" {
 			t.Errorf(".opencode/agents/%s.md: `permission.edit` is %v, want deny", name, oc.Permission["edit"])
@@ -114,6 +147,9 @@ func TestRepoSubagentsSayTheSameThingOnEveryClient(t *testing.T) {
 	}
 }
 
+// readOnlyAgents are the agents that must not change the working copy.
+var readOnlyAgents = []string{"cartographer-contract-reviewer", "cartographer-security-reviewer", "cartographer-source-reader"}
+
 // agentSpec is what one client's agent file says, in the fields the parity
 // check compares; Mode and Permission are OpenCode's, Name the Markdown ones.
 type agentSpec struct {
@@ -122,6 +158,7 @@ type agentSpec struct {
 	Model       string         `yaml:"model"`
 	Mode        string         `yaml:"mode"`
 	Permission  map[string]any `yaml:"permission"`
+	Tools       any            `yaml:"tools"`
 	Body        string         `yaml:"-"`
 }
 

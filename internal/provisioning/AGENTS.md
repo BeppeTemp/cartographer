@@ -53,7 +53,7 @@ modifies files a user did not ask about.
 
 ## Scope note
 
-The repository's own `.claude/skills` and `.kiro/skills` are symlinks into
+The repository's own `.claude/skills`, `.kiro/skills` and `.opencode/skills` are symlinks into
 `.agents/skills` (D203). Because of D148 this package will refuse to materialize
 into them, which is the correct outcome: those are repo-scoped skills, versioned
 here, and not something a KB sync should own.

@@ -6,8 +6,8 @@ depend on it. The matrix itself stays the source of truth for *what* is written
 where (`destinationMatrix` in `internal/provisioning/provisioning.go`,
 `projectDestinationMatrix` in `internal/provisioning/workspacescope.go`, the
 descriptors in `internal/configurator/registry.go`); this page records *how
-recently it was checked* and *what to watch*. The `harness-watch` skill
-(`.agents/skills/harness-watch/SKILL.md`) reads it as its baseline and updates it
+recently it was checked* and *what to watch*. The `cartographer-audit-clients` skill
+(`.agents/skills/cartographer-audit-clients/SKILL.md`) reads it as its baseline and updates it
 as its output ([D292](decisions/D292-a-harness-ledger-and-a-procedure-not-version-polling.md)).
 
 `TestHarnessLedgerCoversEveryProvider` requires one `## <provider-id>` section per
@@ -17,7 +17,7 @@ Conventions: `unknown` means no version or date was ever recorded in this
 repository; `unverified` means a source was named but not confirmed to exist. A
 value is never filled in from memory. Documentation is not evidence: a change that
 would flip a matrix cell is confirmed with a probe
-(`.agents/skills/harness-watch/references/probes.md`), not from a changelog line.
+(`.agents/skills/cartographer-audit-clients/references/probes.md`), not from a changelog line.
 
 ## claude
 
@@ -155,7 +155,9 @@ would flip a matrix cell is confirmed with a probe
   - Writer header (D904): none. Kiro documents `headers` for a remote server (<https://kiro.dev/docs/mcp/configuration/>), but the emitter writes no headers for Kiro, `Authorization` included (an older gap), so a write over a Kiro HTTP entry is authored by the token; the bridge names the writer.
   - `agent` as JSON (`name`/`description`/`prompt`) in `~/.kiro/agents/`,
     workspace `.kiro/agents/` wins over global (D195); native restriction keys
-    believed to be `tools`/`allowedTools` (D291, not verified).
+    believed to be `tools`/`allowedTools` (D291, not verified). The ledger names no
+    read-only tool set, so the repository's read-only agents list `["*"]` and keep the
+    restriction in the prompt; an agent with no `tools` has none (D300).
   - `hook` in `~/.kiro/hooks/cartographer/<name>/`, registered in the owned
     `~/.kiro/hooks/cartographer.json` (D300). It fires only in
     `kiro-cli chat --v3 --tui`, so the scheduled timer stays advised. The loader
@@ -201,7 +203,9 @@ would flip a matrix cell is confirmed with a probe
 
 ## opencode
 
-- **Aligned with**: `2.0.25` — 2026-10-09, probed (#478, #638): global skill and
+- **Aligned with**: `2.0.30` — 2026-10-17, probed: project agents in `.opencode/agents/`
+  (`opencode debug agents` lists them; it does not load `.claude/agents/`) and
+  `.agents/skills/` found, `.opencode/skills/` winning. `2.0.25` — 2026-10-09, probed (#478, #638): global skill and
   agent discovery, agent `permission`, the write-findings channel. `1.18.34` —
   2026-10-01 (documentary review). Earlier probe: `1.18.20`, date `unknown` (D192).
 - **Sources**: repository <https://github.com/anomalyco/opencode> (`sst/opencode`
@@ -248,8 +252,8 @@ would flip a matrix cell is confirmed with a probe
   - `opencode --version` prints `opencode v2.0.25` (seen on both streams); the major parser reads it (D719). The no-`PATH` sync run and `session.created` delivery to `ctx.event.subscribe` are not yet probed.
   - 2.x `opencode.json` is translated on load (`mcp` → `mcp.servers`,
     `permission` map → `permissions` list), so the 1.x shape still works.
-- **Watch items**: project cells (`.opencode/skills`, `.opencode/agent`) not
-  re-probed on 2.x (the 2.x docs name `.opencode/agents`).
+- **Watch items**: the project skill cell (`.opencode/skills`) is documented, and
+  the project agent cell is `.opencode/agents` (probed on 2.0.30).
 - **Probe notes**: 2.x has no `opencode agent list`: use `opencode debug agents`
   (JSON) and `opencode debug paths`. A background service caches the
   configuration: run `opencode reload` after changing a file. `opencode run -m
@@ -352,7 +356,11 @@ would flip a matrix cell is confirmed with a probe
 
 ## copilot
 
-- **Aligned with**: `1.0.94` — 2026-10-10, probed (#676). The GitHub Copilot CLI
+- **Aligned with**: `1.0.98` — 2026-10-17, probed: project agents in
+  `.github/agents/<name>.agent.md` load once the folder is trusted, the `model` key is
+  honoured and an unavailable model falls back to `auto` with a warning.
+  The read-only agents list `tools: ["read", "search", "execute"]`, GitHub's documented
+  aliases, not yet probed (a watch item for `cartographer-audit-clients`). `1.0.94` — 2026-10-10, probed (#676). The GitHub Copilot CLI
   (`copilot`), not Copilot in VS Code.
 - **Sources** (`unverified`): releases <https://github.com/github/copilot-cli/releases>;
   docs <https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli>.

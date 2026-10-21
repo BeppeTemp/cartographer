@@ -2,7 +2,7 @@ name: plan-gate
 
 # The approved-plan rule of CONTRIBUTING.md §Pull requests, enforced where a
 # contributor's agent cannot skip it (D955). The rule itself lives in
-# .agents/skills/review-pr/scripts/triage.sh, the single source: this file only
+# .agents/skills/cartographer-review-pr/scripts/triage.sh, the single source: this file only
 # runs it, so no threshold is duplicated here.
 #
 # INVARIANTS (pinned by internal/repodocs/plan_gate_test.go):
@@ -53,7 +53,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
           PR: ${{ github.event.pull_request.number }}
-        run: .agents/skills/review-pr/scripts/triage.sh --gate "$PR"
+        run: .agents/skills/cartographer-review-pr/scripts/triage.sh --gate "$PR"
 
   # A plan labelled `approved` or assigned after its PR was opened: the check that
   # failed for want of either runs again, without a push.

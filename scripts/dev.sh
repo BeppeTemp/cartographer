@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Live development instance for a live session (the live-dev skill): the server
+# Live development instance for a live session (the cartographer-develop-live skill): the server
 # rebuilt and restarted on every Go change, and the Atlas UI served by Vite with
 # hot reload against it. Run from the worktree being edited: `make dev`.
 #
