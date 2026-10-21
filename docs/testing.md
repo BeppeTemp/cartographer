@@ -132,11 +132,10 @@ otherwise silent — no client, compiler or linter reports any of them:
 - every relative link in every tracked markdown file resolves, and none uses the
   retired `#d<n>` anchor form;
 - each skill's frontmatter parses with the same spec-compliant YAML parser a
-  client uses, and satisfies the strictest client's rules (D207);
-- the skill bridges are symlinks **in the git index**, so the answer is the same
-  on a Windows checkout as on CI;
-- `CONTRIBUTING.md`'s per-client table agrees with the provider matrix in
-  `internal/provisioning` (D207);
+  client uses, and satisfies the strictest client's rules (D207), the skills being real directories in
+  `.claude/skills/`;
+- each subagent in `.claude/agents/` pins a Claude model, and the read-only ones
+  (reviewers, source reader) carry no `Edit` or `Write` tool (D992);
 - `CLAUDE.md` is exactly `@AGENTS.md` and nothing else, and the corpus these
   checks read actually contains the files they exist to read — a corpus definition
   fails by matching nothing and passing.

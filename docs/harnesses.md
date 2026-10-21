@@ -7,7 +7,7 @@ where (`destinationMatrix` in `internal/provisioning/provisioning.go`,
 `projectDestinationMatrix` in `internal/provisioning/workspacescope.go`, the
 descriptors in `internal/configurator/registry.go`); this page records *how
 recently it was checked* and *what to watch*. The `cartographer-audit-clients` skill
-(`.agents/skills/cartographer-audit-clients/SKILL.md`) reads it as its baseline and updates it
+(`.claude/skills/cartographer-audit-clients/SKILL.md`) reads it as its baseline and updates it
 as its output ([D292](decisions/D292-a-harness-ledger-and-a-procedure-not-version-polling.md)).
 
 `TestHarnessLedgerCoversEveryProvider` requires one `## <provider-id>` section per
@@ -17,7 +17,7 @@ Conventions: `unknown` means no version or date was ever recorded in this
 repository; `unverified` means a source was named but not confirmed to exist. A
 value is never filled in from memory. Documentation is not evidence: a change that
 would flip a matrix cell is confirmed with a probe
-(`.agents/skills/cartographer-audit-clients/references/probes.md`), not from a changelog line.
+(`.claude/skills/cartographer-audit-clients/references/probes.md`), not from a changelog line.
 
 ## claude
 
@@ -359,8 +359,7 @@ would flip a matrix cell is confirmed with a probe
 - **Aligned with**: `1.0.98` — 2026-10-17, probed: project agents in
   `.github/agents/<name>.agent.md` load once the folder is trusted, the `model` key is
   honoured and an unavailable model falls back to `auto` with a warning.
-  The read-only agents list `tools: ["read", "search", "execute"]`, GitHub's documented
-  aliases, not yet probed (a watch item for `cartographer-audit-clients`). `1.0.94` — 2026-10-10, probed (#676). The GitHub Copilot CLI
+  `1.0.94` — 2026-10-10, probed (#676). The GitHub Copilot CLI
   (`copilot`), not Copilot in VS Code.
 - **Sources** (`unverified`): releases <https://github.com/github/copilot-cli/releases>;
   docs <https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli>.

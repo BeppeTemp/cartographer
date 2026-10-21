@@ -11,11 +11,7 @@ Source of truth is `CONTRIBUTING.md` §Plan issues + §Pull requests, `AGENTS.md
 adds only the **multi-plan orchestration** and the **PR/merge cycle** — read
 those first; do not duplicate them here.
 
-This file is the single copy for every client. `.claude/skills/cartographer-implement-plan`,
-`.kiro/skills/cartographer-implement-plan` and `.opencode/skills/cartographer-implement-plan` are symlinks to it. The three things that
-genuinely differ per client are in §Per-client mechanics; everything else in
-this file is client-neutral **because the git work lives in `make` targets**,
-not in prose.
+The git work lives in `make` targets, not in prose.
 
 ## Role
 
@@ -44,7 +40,7 @@ failure to read it, is **contributor mode**. State the mode to the user in one l
 ## Preconditions
 
 - `main` is protected: every plan lands via its own PR, squash-merge, CI green. No direct pushes.
-- Merging a self-authored PR and `git push --force-with-lease` require an explicit user decision or a standing approval. **Never work around the approval gate** — surface it and let the user choose.
+- Merging a self-authored PR and `git push --force-with-lease` require an explicit user decision or a standing approval (the user's own Claude Code permission settings, e.g. `Bash(gh pr merge *)`, `Bash(git push --force-with-lease *)`, or `.claude/settings.local.json`). **Never work around the approval gate** — surface it and let the user choose.
 
 ## 0 — Keep the coordinator cheap
 
@@ -61,8 +57,7 @@ state; the plans are read by the subagents that implement them.
 - **Spawn prompt = issue number + absolute worktree path** (plus the sibling
   plans in flight); the `cartographer-plan-implementer` agent carries the rest (D327).
 - **Implementers run on a cheaper model** than the coordinator, pinned in each
-  agent definition (Claude Code `claude-sonnet-5-5`, Kiro and Copilot CLI
-  `claude-sonnet-5.5`, OpenCode `anthropic/claude-sonnet-5-5`): the plan already
+  agent definition (`model: claude-sonnet-5-5`): the plan already
   carries the design, so the implementer executes, and the coordinator's §3 read
   is the quality gate.
 - **The code is read by the tier's reviewers, not by the coordinator** (§3): the
@@ -82,7 +77,7 @@ state; the plans are read by the subagents that implement them.
    for n in $(jq -r '.[].number' "$plans" | sort -n); do
      b=$(jq -r ".[]|select(.number==$n).body" "$plans"); echo "=== #$n"
      echo "$b" | grep -iA5 -m2 'execution order\|cross-plan'
-     echo "FILES: $(echo "$b" | grep -oE '(internal|cmd|docs|web|scripts|\.github|\.agents)/[A-Za-z0-9_./-]+\.(go|md|ts|tsx|sh|yml)' | grep -v decisions/ | sort -u | tr '\n' ' ')"
+     echo "FILES: $(echo "$b" | grep -oE '(internal|cmd|docs|web|scripts|\.github|\.claude)/[A-Za-z0-9_./-]+\.(go|md|ts|tsx|sh|yml)' | grep -v decisions/ | sort -u | tr '\n' ' ')"
    done
    ```
 
@@ -112,10 +107,11 @@ Never run two subagents in the same working copy. Worktrees branch from fresh
 `upstream/main` (`origin/main` without an `upstream` remote), so each subagent sees the merged predecessors — start a chain's
 next plan only after the previous PR is merged.
 
-Spawn the `cartographer-plan-implementer` subagent (D884: `.claude/agents/`, `.kiro/agents/`,
-`.opencode/agents/`, `.github/agents/`, same text): it already carries the mandate below and a fixed
+Spawn the `cartographer-plan-implementer` subagent (`.claude/agents/`) with `Agent`
+and `subagent_type: cartographer-plan-implementer`, in the background: it already carries the mandate below and a fixed
 ≤10-line report, so the spawn prompt is just the issue number and the absolute
-worktree path. Where the client has no such agent, pass the mandate inline.
+worktree path. `isolation: "worktree"` is available, but pass the `make worktree-add` path
+explicitly. Without the agent, pass the mandate inline.
 
 Canonical mandate (self-contained — the subagent never sees this conversation):
 
@@ -136,7 +132,7 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 
 ## 3 — Review (coordinator GATE — never skip)
 
-For each finished PR, `.agents/skills/cartographer-review-pr/scripts/triage.sh <pr>` gives the
+For each finished PR, `scripts/pr-triage.sh <pr>` gives the
 tier; the procedure is `cartographer-review-pr` §3–§5, with the coordinator on the verifying
 side and the implementer on the author side. Trust the disk, not the
 subagent's report — report text can be garbled or compressed.
@@ -146,7 +142,7 @@ subagent's report — report text can be garbled or compressed.
   `cartographer-contract-reviewer`, plus `cartographer-security-reviewer` on full) on `.worktrees/<slug>` (round 1,
   plan = the issue number), verify its findings per `cartographer-review-pr` §4, and send the
   **verified** findings — never the raw report — to the implementer that wrote
-  the PR (§Per-client mechanics). The fix mandate: add commits on the branch,
+  the PR with `SendMessage` to its agent id. The fix mandate: add commits on the branch,
   never amend; answer each finding; one report line per finding. Repeat per
   `cartographer-review-pr` §5 (at most three rounds, later rounds read `<reviewed commit>..HEAD`).
   The pre-merge rebase (§4) comes after the last round.
@@ -193,15 +189,5 @@ stop and comment on the issue rather than guessing).
 - **Review** of every PR (§3).
 - **Non-append conflicts** during rebase — hand back to the user.
 - **Self-merge / force-push** — act only on an explicit user decision or a standing approval.
-- **Supply-chain files** (a CI workflow, an installer, the release pipeline, a bundled skill: `triage.sh` says so) — the user reads those hunks and decides that merge; a standing approval does not cover it.
+- **Supply-chain files** (a CI workflow, an installer, the release pipeline, a bundled skill: `pr-triage.sh` says so) — the user reads those hunks and decides that merge; a standing approval does not cover it.
 - **`make worktree-rm`** — it runs `git worktree remove --force`, which discards uncommitted work: confirm the PR is merged and the slug is the right one first.
-
-## Per-client mechanics
-
-| | How to spawn a subagent | Fix round (§3) | Authorization gate |
-|---|---|---|---|
-| **Claude Code** | `Agent` with `subagent_type: cartographer-plan-implementer`; `isolation: "worktree"` is available, but pass the `make worktree-add` path explicitly so the layout matches every other client. The agent pins Sonnet 5.5 (`model:` in its frontmatter) | `SendMessage` to the implementer's agent id with the verified findings |  auto-mode classifier; a standing approval is the user's own Claude Code permission settings (`Bash(gh pr merge *)`, `Bash(git push --force-with-lease *)`) |
-| **Kiro** | `orchestrate_subagent` with the `cartographer-plan-implementer` agent (or `role: general-task-execution`), one stage per plan. Independent plans are stages **without** `depends_on` and run in parallel; a dependency chain is `depends_on` on the predecessor | a new `cartographer-plan-implementer` with the fix mandate (worktree path, PR number, the verified findings) |  explicit user decision or a standing approval |
-| **OpenCode** | the `subagent` tool with `agent: cartographer-plan-implementer` (`background: true` to run it in the background), one call per plan; `explore` is the built-in context-gathering subagent | a new `cartographer-plan-implementer` with the fix mandate (worktree path, PR number, the verified findings) |  explicit user decision or a standing approval |
-| **Copilot CLI** | the `task` tool with `agent_type: cartographer-plan-implementer`, one call per plan; the agent comes from `.github/agents`, which loads once the folder is trusted. If the session cannot delegate to it, pass the body of `.claude/agents/cartographer-plan-implementer.md` inline as the mandate | a new `cartographer-plan-implementer` with the fix mandate (worktree path, PR number, the verified findings) |  explicit user decision or a standing approval |
-| **No subagents** (Codex, Antigravity, Crush: they read `.agents/skills` but have no repository agents) | Pass the canonical mandate (§2) inline to a fresh session or a general-purpose subagent, one per plan, with the issue number and the absolute worktree path | the same mandate plus the verified findings | explicit user decision or a standing approval |

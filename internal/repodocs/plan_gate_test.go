@@ -30,10 +30,10 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 	}
 
 	if _, ok := wf.On["pull_request_target"]; !ok {
-		t.Error("plan-gate.yml: the PR trigger must be `pull_request_target`, so the workflow and triage.sh come from the base branch")
+		t.Error("plan-gate.yml: the PR trigger must be `pull_request_target`, so the workflow and pr-triage.sh come from the base branch")
 	}
 	if _, ok := wf.On["pull_request"]; ok {
-		t.Error("plan-gate.yml: a `pull_request` trigger would run the PR's own copy of the workflow and of triage.sh")
+		t.Error("plan-gate.yml: a `pull_request` trigger would run the PR's own copy of the workflow and of pr-triage.sh")
 	}
 	// The next-train rule (D987) is only as current as its re-runs: an issue moved to
 	// another train, or any milestone change that alters which train is next.
@@ -61,6 +61,14 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 	}
 	body := strings.Join(code, "\n")
 
+	// The required check runs the triage script, so CI must not depend on a skill
+	// path: a skill rename once broke it (#988). The script lives in scripts/.
+	if !strings.Contains(body, "scripts/pr-triage.sh --gate") {
+		t.Error("plan-gate.yml: must run scripts/pr-triage.sh, outside any skill directory")
+	}
+	if strings.Contains(body, "skills/") {
+		t.Error("plan-gate.yml: depends on a skill path: CI must not break when a skill is renamed (D992)")
+	}
 	if regexp.MustCompile(`pull_request\.head|pull_request\[\s*['"]head|github\.head_ref|refs/pull/|merge_commit_sha`).MatchString(body) {
 		t.Error("plan-gate.yml: references the PR head or its merge commit: only the base branch tip may be checked out")
 	}

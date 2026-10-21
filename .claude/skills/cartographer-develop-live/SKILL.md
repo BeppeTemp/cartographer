@@ -15,9 +15,6 @@ docs and decision in the same PR (`AGENTS.md`, `CONTRIBUTING.md` §Pull requests
 Choose it when the result can only be judged on the instance. If the change
 can be written down completely before it is built, write a plan instead.
 
-This file is the single copy for every client; `.claude/skills/cartographer-develop-live` and
-`.kiro/skills/cartographer-develop-live` and `.opencode/skills/cartographer-develop-live` are symlinks to it.
-
 ## Role
 
 Before anything else, find your role (D955; `CONTRIBUTING.md` §Working with an agent client):
@@ -40,8 +37,8 @@ In maintainer mode nothing changes.
   the worktree, the live instance, every git operation and the decision record.
   It turns feedback into changes and reads every diff before the user sees it.
 - **`cartographer-live-implementer`** — a coding subagent on a cheaper model, pinned in its
-  definition (`.claude/agents/`, `.kiro/agents/`, `.opencode/agents/`,
-  `.github/agents/`, same text),
+  definition (`.claude/agents/`), spawned with `Agent`,
+  `subagent_type: cartographer-live-implementer`, `run_in_background: true` (act on the completion notification),
   for the closing pass only (§3). It works in the coordinator's worktree and
   stops: it never commits, never runs `make dev`, never touches a file outside
   its mandate.
@@ -109,7 +106,7 @@ first (D703).
    still missing, `make web` if `web/` changed (the bundle is committed), then
    `make gate` until green. The coordinator writes the decision file: it holds
    the why.
-3. Review: `cartographer-review-pr` run on the draft PR — `triage.sh` on the branch,
+3. Review: `cartographer-review-pr` run on the draft PR — `scripts/pr-triage.sh` on the branch,
    the reviewers of the tier on the worktree, rounds per `cartographer-review-pr` §5, fixes by you or a
    `cartographer-live-implementer`. You have already read every step's diff (§2), so this pass
    is the independent read. The user tried the behaviour; nobody else has read
@@ -160,15 +157,3 @@ release-please reads both.
   machines (a scheduled job, a file) must be removed by the new version.
 - Keep no file of your own under `web/`: it enters the bundle's provenance hash
   and `web-check` fails in CI (`docs/testing.md` §Frontend).
-
-## Per-client mechanics
-
-| | How to spawn the implementer |
-|---|---|
-| **Claude Code** | `Agent` with `subagent_type: cartographer-live-implementer`, `run_in_background: true`; act on the completion notification |
-| **Kiro** | `orchestrate_subagent` with the `cartographer-live-implementer` agent |
-| **OpenCode** | the `subagent` tool with `agent: cartographer-live-implementer` |
-| **Copilot CLI** | the `task` tool with `agent_type: cartographer-live-implementer` (from `.github/agents`, loaded once the folder is trusted); if the session cannot delegate to it, pass the body of `.claude/agents/cartographer-live-implementer.md` inline as the mandate |
-| **No subagents** (Codex, Antigravity, Crush) | pass the body of `.claude/agents/cartographer-live-implementer.md` inline as the mandate to a fresh session or a general-purpose subagent |
-
-To spawn the reviewers and `cartographer-source-reader`, see `cartographer-review-pr` §Per-client mechanics.

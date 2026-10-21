@@ -25,13 +25,9 @@ modifies files a user did not ask about.
   stated reason, so `Unsupported` means "no approval unblocks this" (D50). Do not
   make a destination up for a provider that does not document one.
 - **This matrix is the repository's answer about a client, including in prose.**
-  `destinationMatrix` and `workspacescope.go` (D193) are what `CONTRIBUTING.md`
-  §Working with an agent client restates for a human, and the restatement drifted
-  once already — a whole client column claimed repo-local paths this matrix marks
-  unsupported (D207). `internal/repodocs`
-  `TestClientSkillSurfacesMatchTheProviderRegistry` now fails when the two
-  disagree: if you re-audit a client, change the matrix and that table in the same
-  PR.
+  `destinationMatrix` and `workspacescope.go` (D193) are what `docs/sync.md` and
+  `docs/interoperability.md` restate for a human, and a restatement drifts (D207):
+  if you re-audit a client, change the matrix and those pages in the same PR.
 - **Prune is as dangerous as write.** It removes what the lockfile says we own;
   anything outside it is someone else's. Deleting an empty directory has
   boundaries for the same reason (D63).
@@ -53,7 +49,6 @@ modifies files a user did not ask about.
 
 ## Scope note
 
-The repository's own `.claude/skills`, `.kiro/skills` and `.opencode/skills` are symlinks into
-`.agents/skills` (D203). Because of D148 this package will refuse to materialize
+The repository's own `.claude/skills` and `.claude/agents` are real directories (D992). Because of D148 this package will refuse to materialize
 into them, which is the correct outcome: those are repo-scoped skills, versioned
 here, and not something a KB sync should own.

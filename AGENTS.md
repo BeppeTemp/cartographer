@@ -109,7 +109,7 @@ Not duplicated here:
 | Full doc map + reading paths | `docs/index.md` (read that first, then only the relevant pages) |
 | Project status and planned work | GitHub issues, pull requests and releases (links in `docs/index.md`) |
 | Why behind a choice (`D<n>`) | One file per decision: `ls docs/decisions/D<n>-*`. The generated list is `docs/decisions.md` |
-| Working with an agent client (Claude Code, Kiro, OpenCode, Copilot CLI) | `CONTRIBUTING.md` §Working with an agent client |
+| Working with an agent client (this repo is developed with Claude Code, D992) | `CONTRIBUTING.md` §Working with an agent client |
 | List of MCP tools | `docs/control-plane.md` §API MCP |
 | `CARTOGRAPHER_*` env vars, YAML config, deploy | `docs/deployment.md` |
 | Client subcommands / TUI | `docs/configurator.md` |
