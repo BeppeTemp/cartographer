@@ -29,15 +29,12 @@ func ClientReport() (*clientconfig.SettingsReport, error) {
 	}
 	defer os.RemoveAll(dir)
 
-	var all, cited []string // every KB of the fleet; those that cite placeholders
+	var all []string // every KB of the fleet
 	for _, s := range Fleet() {
 		all = append(all, s.Name)
-		if !s.Bare {
-			cited = append(cited, s.Name)
-		}
 	}
 	// Three KBs of the fleet are the ones the workstation works on.
-	const kbA, kbB, kbC = "test-300", "test-150", "test-80"
+	const kbA, kbB, kbC = "observatory", "mountain-rescue", "choir-season"
 	// The bound folders are invented ones under $HOME, bound to fleet KBs.
 	ws := []clientconfig.WorkspaceBinding{
 		{Path: "$HOME/projects/field-guide", KBs: []string{kbA}},
@@ -80,10 +77,10 @@ func ClientReport() (*clientconfig.SettingsReport, error) {
 	// testkbs.go), as the last sync resolved it here: two resolved, one
 	// ignored, one unresolved.
 	r.Placeholders = []clientconfig.ReportPlaceholder{
-		{Key: "path:old-archive", KBs: cited, Reason: "no directory is mapped to it", Description: "an archive nobody cites any more", Ignored: true},
-		{Key: "path:shared-drive", KBs: cited, Path: "$HOME/shared", Description: "the team's shared folder"},
-		{Key: "repo:tooling", KBs: cited, Path: "$HOME/projects/tooling", Description: "the scripts the team runs"},
-		{Key: "repo:undeclared-tool", KBs: cited, Reason: "no git clone with this name under the search roots"},
+		{Key: "path:old-archive", KBs: []string{"test-5000"}, Reason: "no directory is mapped to it", Description: "an archive nobody cites any more", Ignored: true},
+		{Key: "path:shared-drive", KBs: []string{"test-5000", "observatory"}, Path: "$HOME/shared", Description: "the team's shared folder"},
+		{Key: "repo:tooling", KBs: []string{"test-5000"}, Path: "$HOME/projects/tooling", Description: "the scripts the team runs"},
+		{Key: "repo:undeclared-tool", KBs: []string{"test-5000", "ferry-line"}, Reason: "no git clone with this name under the search roots"},
 	}
 	return r, nil
 }

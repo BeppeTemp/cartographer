@@ -373,9 +373,14 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 
 To work on the UI live, `make dev` from a worktree runs both halves and rebuilds
 the server on every Go change (`CONTRIBUTING.md` §Live sessions). Without `DATA` it serves a throwaway copy of ten
-generated test KBs (`internal/testkbs`, 5,000 concepts down to 30, every Atlas state planted; D818), cached per day in
-`$TMPDIR/cartographer-testkbs`, with the audit log on; `internal/testkbs/testkbs_test.go` checks the planted states, the
-bare KB and the fleet's scale. Beside the KBs it posts the settings report of an imaginary client (`client-report.json`,
+generated test KBs (`internal/testkbs`; D818, D1032): the 5,000-concept scale KB, the bare 30-concept KB, and nine KBs that
+take the shape of measured real ones (Maps and journals, expanded concepts with up to a hundred satellites, pages past
+90 KB, hubs with a hundred backlinks, a status mix, thousands of commits) with invented content, named after their themes
+(`seed-bank`, `ferry-line`, …). The shapes are a table of numbers (`profiles.go`), the words invented per theme
+(`themes.go`); the history is written through one `git fast-import` per KB. Every Atlas state is planted somewhere in
+the fleet, the conflicts on `ferry-line`. The fleet is cached per day in
+`$TMPDIR/cartographer-testkbs`, with the audit log on; `internal/testkbs` tests check the planted states, the bare KB, the
+fleet, each profile (`profiles_test.go`) and that no generated page holds a word outside the package's vocabulary. Beside the KBs it posts the settings report of an imaginary client (`client-report.json`,
 built by `clientconfig.Save` and `Report`) after every server start, so Settings → Client has a machine to show. By hand: run a
 server (`cartographer serve --http :39273 --kb …`) and `cd web && npm run dev`: Vite serves the UI with hot reload on
 `http://localhost:5173/ui/` and proxies `/api` and `/health` (the version beside the theme switch) to the server
@@ -537,8 +542,8 @@ of a relationship — the inspector lists every link.
   few percent. Reference measurement for 2,000 nodes / ~3,900 edges: the 3D
   warm-up (300 ticks) takes ~2.2 s on an Apple M5 and ~5.4 s on a
   GitHub-hosted runner.
-- **Scale target** (#861: ten KBs, the largest at 5,000 concepts, the fleet
-  `make dev` serves). Measured by hand, not in CI, headed on the GPU (Apple M5,
+- **Scale target** (#861: ten KBs, the largest at 5,000 concepts; the fleet
+  `make dev` served then, before D1032 replaced the mid-size KBs, `test-800` among them, by profiled ones). Measured by hand, not in CI, headed on the GPU (Apple M5,
   ANGLE Metal, 144 Hz display) with `web/scripts/bench.mjs --gpu` and
   `web/scripts/idle.mjs --gpu`, from `web/` after `make build`:
 

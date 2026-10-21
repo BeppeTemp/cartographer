@@ -1,7 +1,7 @@
 // What an open, untouched Atlas tab costs the machine it runs on (#861) -- not
 // part of CI.
 //
-// It serves the ten test KBs `make dev` serves (internal/testkbs) with
+// It serves the eleven test KBs `make dev` serves (internal/testkbs) with
 // bin/cartographer, opens the Atlas in Chromium and leaves it alone. For each
 // scenario it reports, over the window, the CPU each Chromium process type
 // spent (percent of one core), their resident memory, the page's JS heap, the
@@ -91,7 +91,7 @@ if (opt("--data")) {
   log("generating the test KBs");
   execFileSync("go", ["run", "./internal/testkbs/gen", data], { cwd: ROOT, stdio: "ignore" });
 }
-const kbs = (opt("--kbs")?.split(",") ?? ["test-5000", "test-800", "test-30"]);
+const kbs = (opt("--kbs")?.split(",") ?? ["test-5000", "ferry-line", "test-30"]);
 
 const port = await freePort();
 const base = `http://127.0.0.1:${port}`;

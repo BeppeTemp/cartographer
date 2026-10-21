@@ -54,9 +54,10 @@ if [ -n "${DATA:-}" ]; then
 	done
 	kbargs=(--data "$work/data")
 else
-	# The test KBs (internal/testkbs, D818): ten synthetic KBs from 5,000
-	# concepts down to 30, built to put every Atlas view in a state worth
-	# judging. Generating them takes about half a minute, so they are cached
+	# The test KBs (internal/testkbs, D818, D1032): eleven synthetic KBs, the
+	# 5,000-concept scale KB, nine shaped after measured real KBs with invented
+	# content, and a bare 30, built to put every Atlas view in a state worth
+	# judging. Generating them takes a few tens of seconds, so they are cached
 	# per generator source and per day (their dates are relative to today).
 	# The client report (client-report.json) is built from the client schema, so
 	# the sources of the client settings are part of the key too.
