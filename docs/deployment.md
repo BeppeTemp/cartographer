@@ -231,7 +231,7 @@ of the remote, without `.git` — or the explicit `kbs[].name`, if set, see D53 
 the destination doesn't already exist** — an existing clone is left untouched: the existing
 sync that follows the remote handles fetch/push on subsequent writes
 (`cmd/cartographer/bootstrap.go`). Requires `--data`/`CARTOGRAPHER_DATA`/`data:` as the destination
-directory for clones. A remote that is still empty clones to a branch with no commit, named by the
+directory for clones. A remote is an scp-like address, an `https`/`http`/`ssh`/`git`/`file` URL or a local path; one starting with `-`, using git's `<transport>::<address>` helper syntax (`ext::`, `fd::`) or any other scheme (`ftp://`, `rsync://`) is refused before git runs (`gitx.ValidateRemote`), and git itself is limited to those schemes (`GIT_ALLOW_PROTOCOL`, unless the environment sets it). A remote that is still empty clones to a branch with no commit, named by the
 host's git (often `master`), and the server does not mount it: `serve` never creates a KB (D906), so it
 fails naming `cartographer kb create`. `kb create <name> --remote <url>` is what fills an empty remote: the KB is
 pinned to `main` and given its initial commit, which it pushes as the remote's first branch. From then on writes follow the remote's
