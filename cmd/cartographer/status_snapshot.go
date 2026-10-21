@@ -37,6 +37,10 @@ type providerStatus struct {
 	Revision     string `json:"revision,omitempty"`
 	LockRevision string `json:"lock_revision,omitempty"`
 	Kinds        string `json:"kind_status,omitempty"`
+	// Problem is why sync would refuse this provider before projecting it: a
+	// bound workspace that is gone, or a provider that cannot be scoped to a
+	// workspace. Empty otherwise.
+	Problem string `json:"problem,omitempty"`
 	// ShadowedInstructions names the provider-owned file that takes precedence
 	// over the instructions file Cartographer manages, when one exists (D189).
 	// A block written correctly into a file the provider does not read is not
@@ -286,38 +290,29 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			connectedProviders = append(connectedProviders, s.Providers[i].Name)
 		}
 	}
-	// D193: a workspace-scoped provider has several projections (the bundle-only
-	// global one plus one per bound workspace) and is judged projection by
-	// projection, the way sync applies it. Its single provider-wide manifest
-	// would list every KB artifact as missing from the bundle-only global lock.
-	wsProjections := map[string][]syncProjection{}
-	wsProjectionErr := map[string]error{}
-	var plainProviders []string
-	var allWs []syncProjection
+	// D193: every provider is judged projection by projection, built in ONE
+	// call exactly as sync builds them (a bundle-only projection gets the bundle
+	// depending on what the whole run pulls, so splitting the call would make
+	// status disagree with sync). A workspace-scoped provider has the
+	// bundle-only global projection plus one per bound workspace; a default one
+	// has the single global projection.
+	provProjections := map[string][]syncProjection{}
+	projectionErr := map[string]error{}
+	var allProjs []syncProjection
 	for _, name := range connectedProviders {
-		if cfg.WorkspaceScope(name) != clientconfig.ScopeWorkspace {
-			plainProviders = append(plainProviders, name)
-			continue
-		}
 		ps, perr := projectionsFor(cfg, name, dir)
 		if perr != nil {
-			wsProjectionErr[name] = perr
+			projectionErr[name] = perr
 			continue
 		}
-		wsProjections[name] = ps
-		allWs = append(allWs, ps...)
+		provProjections[name] = ps
+		allProjs = append(allProjs, ps...)
 	}
 	var manifests map[string]provisioning.Manifest
-	var wsManifests map[string]provisioning.Manifest
-	var err2 error
-	if len(plainProviders) > 0 || len(connectedProviders) == 0 {
-		manifests, err2 = statusManifestsFn(cfg, plainProviders)
+	if len(allProjs) > 0 || len(connectedProviders) == 0 {
+		manifests, err = statusManifestsFn(cfg, allProjs)
 	}
-	if err2 == nil && len(allWs) > 0 {
-		wsManifests, err2 = statusProjectionManifestsFn(cfg, allWs)
-	}
-	if err2 != nil {
-		err = err2
+	if err != nil {
 		s.State = "unavailable"
 		e := classifyNetworkError(cfg.ServerURL, err)
 		s.Error = &e
@@ -328,11 +323,16 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		return s
 	}
-	for _, p := range plainProviders {
-		s.Artifacts += len(manifests[p].Artifacts)
-	}
-	for _, p := range allWs {
-		s.Artifacts += len(wsManifests[projectionKey(p)].Artifacts)
+	// The count keeps its meaning: distinct artifacts per provider, summed. An
+	// artifact in two workspaces of one provider is one artifact.
+	for _, name := range connectedProviders {
+		distinct := map[string]bool{}
+		for _, sp := range provProjections[name] {
+			for _, a := range manifests[projectionKey(sp)].Artifacts {
+				distinct[a.Kind+"\x00"+a.Name] = true
+			}
+		}
+		s.Artifacts += len(distinct)
 	}
 	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
 	if err != nil {
@@ -348,14 +348,17 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		var pm provisioning.Manifest
 		var d provisioning.Diff
 		var wsDiverged []provisioning.DriftFinding
-		if ps, ok := wsProjections[p.Name]; ok {
-			pm, d, wsDiverged = workspaceProviderDiff(ps, wsManifests, lockFile, dir)
-		} else if wsProjectionErr[p.Name] != nil {
-			// A bound workspace that is gone: sync would refuse, and
-			// workspaceStatuses already names it. Not in sync.
+		if perr := projectionErr[p.Name]; perr != nil {
+			// Sync would refuse this provider (a bound workspace is gone, or
+			// the provider cannot be scoped to a workspace): not in sync, and
+			// the cause belongs on the card.
 			p.State = "drift"
+			p.Problem = perr.Error()
 			s.State = "drift"
 			continue
+		}
+		if cfg.WorkspaceScope(p.Name) == clientconfig.ScopeWorkspace {
+			pm, d, wsDiverged = workspaceProviderDiff(provProjections[p.Name], manifests, lockFile, dir)
 		} else {
 			pm = provisioning.FilterForProvider(manifests[p.Name], configurator.Provider(p.Name))
 			d = provisioning.ComputeDiff(pm, lockFile.ForProvider(p.Name))

@@ -83,8 +83,8 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 			statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
 				return &client.Health{Version: tc.serverVersion}, nil
 			}
-			statusManifestsFn = func(_ *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
-				return uniformManifests(served, providers), nil
+			statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+				return uniformManifests(served, projectionProviders(ps)), nil
 			}
 			statusServiceFn = func() (service.Status, error) { return service.Status{Installed: tc.serviceInstalled}, nil }
 			t.Cleanup(func() {
@@ -148,8 +148,8 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
-		return uniformManifests(served, providers), nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -214,8 +214,8 @@ func TestStatus_ShadowedInstructionsNotCountedAsInstalled(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
-		return uniformManifests(served, providers), nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -286,16 +286,10 @@ func TestStatus_WorkspaceScopedProviderInSyncAfterCleanSync(t *testing.T) {
 		t.Fatalf("write lockfile: %v", err)
 	}
 
-	oldVersion, oldHealth, oldManifest, oldProj, oldService := version, statusHealthFn, statusManifestsFn, statusProjectionManifestsFn, statusServiceFn
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
-		if len(providers) > 0 {
-			t.Errorf("a workspace-scoped provider must not use the provider-wide manifest, got %v", providers)
-		}
-		return nil, nil
-	}
-	statusProjectionManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
 		out := map[string]provisioning.Manifest{}
 		for _, p := range ps {
 			if p.BundleOnly {
@@ -308,7 +302,7 @@ func TestStatus_WorkspaceScopedProviderInSyncAfterCleanSync(t *testing.T) {
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
-		version, statusHealthFn, statusManifestsFn, statusProjectionManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldProj, oldService
+		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
 	})
 
 	// The files the lock names are absent on disk: the on-disk check reports
@@ -346,5 +340,105 @@ func TestStatus_WorkspaceScopedProviderInSyncAfterCleanSync(t *testing.T) {
 	})
 	if !strings.Contains(out, "+ skill/runbooks") {
 		t.Errorf("output = %q, want the missing workspace artifact", out)
+	}
+}
+
+// projectionProviders lists the providers a set of projections belongs to, for
+// the stubs of statusManifestsFn that serve one manifest per provider.
+func projectionProviders(ps []syncProjection) []string {
+	var out []string
+	for _, p := range ps {
+		if p.Workspace == "" {
+			out = append(out, p.Provider)
+		}
+	}
+	return out
+}
+
+// #1011 review: sync builds every projection of the run in ONE call, because a
+// bundle-only projection receives the bundle depending on what the whole run
+// pulls (buildProjectionManifests). status must do the same, or a
+// workspace-scoped provider with no KB bindings next to a default-bound one is
+// judged against an empty bundle and reported as drift.
+func TestStatus_BuildsAllProjectionsInOneCall(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	cfg := &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude", "codex"}}
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
+	var calls [][]syncProjection
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+		calls = append(calls, ps)
+		out := map[string]provisioning.Manifest{}
+		for _, p := range ps {
+			out[projectionKey(p)] = provisioning.Manifest{}
+		}
+		return out, nil
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() {
+		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+	})
+
+	withStdout(t, func() { cmdStatus(nil) })
+	if len(calls) != 1 {
+		t.Fatalf("manifests built in %d calls, want 1 (as sync does)", len(calls))
+	}
+	var bundleOnly, codexGlobal bool
+	for _, p := range calls[0] {
+		bundleOnly = bundleOnly || (p.Provider == "claude" && p.BundleOnly)
+		codexGlobal = codexGlobal || (p.Provider == "codex" && p.Workspace == "" && !p.BundleOnly)
+	}
+	if !bundleOnly || !codexGlobal {
+		t.Errorf("the single call must carry the bundle-only claude projection and the default codex one: %+v", calls[0])
+	}
+}
+
+// #1011 review: when sync would refuse a provider before projecting it, the
+// status card says why instead of a bare "drift".
+func TestStatus_WorkspaceProblemNamesTheCause(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	ws := t.TempDir()
+	cfg := &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace("claude", ws, []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(ws); err != nil {
+		t.Fatal(err)
+	}
+
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+		return map[string]provisioning.Manifest{}, nil
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() {
+		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+	})
+
+	out := withStdout(t, func() {
+		if code := cmdStatus(nil); code != 1 {
+			t.Errorf("cmdStatus with a gone workspace = %d, want 1", code)
+		}
+	})
+	if !strings.Contains(out, "cannot sync:") || !strings.Contains(out, "is gone") {
+		t.Errorf("output = %q, want the cause named", out)
 	}
 }

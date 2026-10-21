@@ -23,11 +23,9 @@ var (
 	statusHealthFn = func(cfg *clientconfig.Config) (*client.Health, error) {
 		return client.New(cfg.ServerURL, resolveToken(cfg)).Health(statusHealthTimeout)
 	}
-	statusManifestsFn = manifestsForProviders
-	// statusProjectionManifestsFn builds the per-projection manifests of the
-	// workspace-scoped providers (D193), the same ones sync applies.
-	statusProjectionManifestsFn = manifestsForProjections
-	statusServiceFn             = func() (service.Status, error) { return service.NewManager().Status("") }
+	// statusManifestsFn builds the per-projection manifests sync applies (D193).
+	statusManifestsFn = manifestsForProjections
+	statusServiceFn   = func() (service.Status, error) { return service.NewManager().Status("") }
 )
 
 // cmdStatus reports the sync status of every connected provider against the
@@ -133,6 +131,9 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			continue
 		}
 		fmt.Printf("[%s] drift (manifest %s, lock %s)\n", p.Name, p.Revision, p.LockRevision)
+		if p.Problem != "" {
+			fmt.Printf("  cannot sync: %s\n", p.Problem)
+		}
 		printBindingLine(p)
 		printWorkspaceLines(p.Workspaces)
 		if p.Kinds != "" {
