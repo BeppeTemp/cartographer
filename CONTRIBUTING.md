@@ -279,13 +279,13 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
 
 - **The train leaves on Monday at 08:30.** The `release-train` workflow merges the open
   release PR, and release-please then cuts the tag.
-- **Freeze, Friday 00:00 to Monday 08:30.** Nothing that adds or breaks behaviour
+- **Freeze, Saturday 00:00 to Monday 08:30.** Nothing that adds or breaks behaviour
   lands: no `feat`, `perf` or `refactor`, and no breaking change (`!:` in the title or
   a `BREAKING CHANGE` footer). `fix`, `docs`, `test`, `ci`, `build` and `chore` may
-  land, so Dependabot keeps working. In short: a PR merged by Thursday ships the
+  land, so Dependabot keeps working. In short: a PR merged by Friday ships the
   following Monday; a blocked one waits until after the release. A blocked commit on
   `main` during the freeze skips the train.
-- **The release candidate.** On Friday at 00:30 the workflow builds a server image
+- **The release candidate.** On Saturday at 00:30 the workflow builds a server image
   `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. A
   maintainer runs it on a real deployment and adds the `rc-ok` label. Without the
   label, or if the candidate is not the current head of `main` (a fix landed after the

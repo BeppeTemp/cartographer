@@ -36,8 +36,8 @@ func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 		t.Fatalf("release-train.yml: %v", err)
 	}
 
-	// Friday 00:30 and Monday 08:30 in Europe/Rome, once per UTC offset.
-	want := map[string]bool{"30 22 * * 4": true, "30 23 * * 4": true, "30 6 * * 1": true, "30 7 * * 1": true}
+	// Saturday 00:30 and Monday 08:30 in Europe/Rome, once per UTC offset.
+	want := map[string]bool{"30 22 * * 5": true, "30 23 * * 5": true, "30 6 * * 1": true, "30 7 * * 1": true}
 	if len(wf.On.Schedule) != len(want) {
 		t.Errorf("release-train.yml: %d schedule entries, want the %d of D956", len(wf.On.Schedule), len(want))
 	}
@@ -57,7 +57,7 @@ func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 	if !strings.Contains(raw, "${{ github.event.schedule }}") || !strings.Contains(raw, "TZ=Europe/Rome date +%z") {
 		t.Error("release-train.yml: the guard must compare github.event.schedule with `TZ=Europe/Rome date +%z`")
 	}
-	for _, pair := range []string{`"+0200 30 22 * * 4"`, `"+0100 30 23 * * 4"`, `"+0200 30 6 * * 1"`, `"+0100 30 7 * * 1"`} {
+	for _, pair := range []string{`"+0200 30 22 * * 5"`, `"+0100 30 23 * * 5"`, `"+0200 30 6 * * 1"`, `"+0100 30 7 * * 1"`} {
 		if !strings.Contains(raw, pair) {
 			t.Errorf("release-train.yml: the guard lacks the offset/cron pair %s", pair)
 		}

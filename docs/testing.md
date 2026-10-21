@@ -657,7 +657,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 
 ## Before a release
 
-- The Friday release candidate (`release-train.yml` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D956) has run on a real deployment; only then is the `rc-ok` label added to the release PR.
+- The Saturday release candidate (`release-train.yml` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D956) has run on a real deployment; only then is the `rc-ok` label added to the release PR.
 - CI is green on the release commit, including `make e2e-web` in the `web` job.
 - `make smoke` succeeds for the packaged/local stdio path.
 - Installation and upgrade are verified on the target platform.
