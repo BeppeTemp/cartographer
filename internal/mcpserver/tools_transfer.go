@@ -344,6 +344,26 @@ func transferSubject(pl *transferPlan, dir, other string) string {
 	return fmt.Sprintf("concept_transfer: %s %s %s", strings.Join(ids, ", "), dir, other)
 }
 
+// transferTypeViolation refuses a move into a target-KB map that is strict and
+// does not admit the concept's type: the page would only fail the next validate
+// of the target KB, so the transfer is refused before either KB is written
+// (#940, the same rule as concept_move's #921). A typeless page is not judged.
+func transferTypeViolation(dst *kb.KB, m conceptMoveEntry, fm *okf.Frontmatter) error {
+	dstMap, ok := conceptMapName(m.TargetID)
+	conceptType := fm.Type()
+	if !ok || conceptType == "" {
+		return nil
+	}
+	meta, err := dst.ReadArchiveMeta(dstMap)
+	if err != nil || strictTypeViolation(meta, dstMap, conceptType) == nil {
+		return nil
+	}
+	admitted, _ := meta.Get("concept_types")
+	return fmt.Errorf("concept_transfer: %q has type %q, which map %s of the target KB (strict) does not admit; admitted types: %s. "+
+		"Nothing was transferred — extend the map's concept_types with map_update, or pick a map that admits the type",
+		m.SourceID, conceptType, dstMap, strings.Join(admitted.([]string), ", "))
+}
+
 // planTransfer validates every move before any write. Nothing here mutates
 // either KB.
 func planTransfer(src, dst *kb.KB, p transferParams) (*transferPlan, *ToolResult) {
@@ -386,6 +406,9 @@ func planTransfer(src, dst *kb.KB, p transferParams) (*transferPlan, *ToolResult
 		fm, err := okf.ParseFrontmatter(data.FrontmatterRaw)
 		if err != nil {
 			return nil, errRes(errorResult(fmt.Sprintf("concept_transfer: parse frontmatter %q: %v", m.SourceID, err)))
+		}
+		if err := transferTypeViolation(dst, m, fm); err != nil {
+			return nil, errRes(errorResult(err.Error()))
 		}
 		it := transferItem{fromID: m.SourceID, toID: m.TargetID, srcLoc: srcLoc, dstLoc: dstLoc, expanded: srcLoc.Expanded, fm: fm, body: data.Body,
 			mappings: map[string]string{m.SourceID: m.TargetID}}
