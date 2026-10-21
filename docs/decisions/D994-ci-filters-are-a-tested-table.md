@@ -24,5 +24,5 @@ and only pinned. Limiting `privacy` to `push` on `main`: a branch pushed without
 CI run: WP3 moved to #999.
 
 **Consequences.** A new `internal/` package that the binary does not import must
-be added to `not_in_binary` in the script and to the test, or the test fails with
+be added to `not_in_binary` in the script, or the test fails with
 that instruction. Narrowing never removes a check from `main`, where every job runs.
