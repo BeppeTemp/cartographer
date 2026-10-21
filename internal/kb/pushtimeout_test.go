@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -29,12 +30,29 @@ func TestSyncOut_PushTimeoutIsNotRetried(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The remote answers everything but stalls the push itself in its hook.
+	// On Windows the timeout kills git but not this hook, which would keep
+	// the bare repository open past the test: the hook is bounded and the test
+	// waits for its marker before t.TempDir is removed.
 	hook := filepath.Join(bare, "hooks", "pre-receive")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\nsleep 30\n"), 0o755); err != nil {
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nsleep 3\ntouch \"$GIT_DIR/hook-done\"\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	defer func(d time.Duration) { gitx.PushTimeout = d }(gitx.PushTimeout)
-	gitx.PushTimeout = 500 * time.Millisecond
+	gitx.PushTimeout = time.Second
+
+	t.Cleanup(func() {
+		if runtime.GOOS != "windows" {
+			return // the process group kill took the hook with git
+		}
+		deadline := time.Now().Add(20 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(filepath.Join(bare, "hook-done")); err == nil {
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Error("the stalled hook never finished")
+	})
 
 	start := time.Now()
 	err := k.SyncOut()
