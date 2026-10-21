@@ -32,6 +32,42 @@ function items(value: unknown): string[] | null {
   return null;
 }
 
+/** A home directory shown as `~`: the page names this machine's paths, and the
+ *  user's own home adds nothing but width. */
+export function tildify(text: string): string {
+  return text
+    .replace(/(^|[\s:→])(?:\/Users|\/home)\/[^/\s]+(?=\/|$|\s)/g, "$1~")
+    .replace(/(^|[\s:→])C:\\Users\\[^\\\s]+/gi, "$1~");
+}
+
+/** Past this many characters an item, or past this many items a list, no
+ *  longer fits beside the description: the row puts its values on their own
+ *  full-width lines under it. */
+const WIDE_ITEM = 36;
+const TALL_LIST = 4;
+function isWide(list: readonly string[] | null): boolean {
+  return !!list && (list.length > TALL_LIST || list.some((v) => tildify(v).length > WIDE_ITEM));
+}
+
+/** One item of a list: a `key: value` or `key → value` entry shows its key
+ *  muted before the value, so a long path wraps under itself. */
+function Item({ text }: { text: string }) {
+  const t = tildify(text);
+  const m = /^([^\s:→]+(?::[^\s:→]+)?)(: | → )(.+)$/.exec(t);
+  return (
+    <span className="settings__item">
+      {m ? (
+        <>
+          <span className="settings__item-key">{`${m[1]}${(m[2] ?? "").trimEnd()}`}</span>{" "}
+          <span className="settings__item-val">{m[3]}</span>
+        </>
+      ) : (
+        t
+      )}
+    </span>
+  );
+}
+
 /** Where a value comes from, in words. */
 const ORIGIN_LABEL: Record<SettingOrigin, string> = {
   default: "default",
@@ -164,9 +200,14 @@ export function Settings({
     <Page label="Settings" className="settings">
       <PageHeader
         eyebrow="Settings"
+        title={client !== undefined ? (client?.machine ?? "Client") : kb ? kb.name : "Server"}
         subtitle={
           <>
-            The configuration this server runs with, read-only
+            {client
+              ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
+              : kb
+                ? "This Knowledge Base's configuration, read-only"
+                : "The configuration this server runs with, read-only"}
             {who && (
               <>
                 {" · "}
@@ -386,9 +427,6 @@ function ClientPanel({
   }
   return (
     <>
-      <p className="page-note settings__reported">
-        {client.machine} · client {client.version} · reported {new Date(client.received_at).toLocaleString("en")}
-      </p>
       {mode === "yaml" ? (
         client.yaml ? (
           <Yaml name=".cartographer.yaml" text={client.yaml} />
@@ -426,7 +464,7 @@ function mapOf(entries: SettingEntry[], key: string): Record<string, unknown> {
 function KBSetting({ yamlKey, about, value }: { yamlKey: string; about: string; value: string[] | string | null }) {
   const empty = value === null || (Array.isArray(value) && value.length === 0);
   return (
-    <li className="settings__row">
+    <li className="settings__row" data-wide={(Array.isArray(value) && isWide(value)) || undefined}>
       <div className="settings__row-head settings__row-head--static">
         <span className="settings__what">
           <code className="settings__key">{yamlKey}</code>
@@ -440,14 +478,12 @@ function KBSetting({ yamlKey, about, value }: { yamlKey: string; about: string; 
           ) : Array.isArray(value) ? (
             <span className="settings__value settings__value--list" aria-label={`Value of ${yamlKey}`}>
               {value.map((v) => (
-                <span key={v} className="settings__item">
-                  {v}
-                </span>
+                <Item key={v} text={v} />
               ))}
             </span>
           ) : (
             <span className="settings__value" aria-label={`Value of ${yamlKey}`}>
-              {value}
+              {tildify(value)}
             </span>
           )}
         </span>
@@ -548,34 +584,34 @@ function ClientKBs({
         ))}
       </div>
       <ul className="settings__rows" aria-label={`Client settings of ${kb}`}>
-                  <KBSetting
-                    yamlKey={`identities.${kb}`}
-                    about="The git author of your writes to this KB."
-                    value={k.identity ?? "the repository's git identity"}
-                  />
-                  <KBSetting
-                    yamlKey="clients.<agent>.kbs"
-                    about="The agents that receive it: all of them unless their list names other KBs."
-                    value={client ? k.agents : "every connected agent"}
-                  />
-                  <KBSetting
-                    yamlKey="workspaces"
-                    about="Where each agent gives it to a session: everywhere, or only in the folders bound to it."
-                    value={k.where.length ? k.where : client ? null : "everywhere"}
-                  />
-                  {(client?.placeholders ?? []).length > 0 && (
-                    <KBSetting
-                      yamlKey="paths"
-                      about="Where its {{repo:…}} and {{path:…}} placeholders resolve here."
-                      value={k.paths}
-                    />
-                  )}
-                  <KBSetting
-                    yamlKey={`signing_keys.${kb}`}
-                    about="Public keys pinned to verify the artifacts it signs."
-                    value={k.keys ? `${k.keys} pinned` : null}
-                  />
-                  <KBSetting yamlKey={`mcp_approvals.${kb}`} about="Its MCP servers you approved." value={k.approved} />
+        <KBSetting
+          yamlKey={`identities.${kb}`}
+          about="The git author of your writes to this KB."
+          value={k.identity ?? "the repository's git identity"}
+        />
+        <KBSetting
+          yamlKey="clients.<agent>.kbs"
+          about="The agents that receive it: all of them unless their list names other KBs."
+          value={client ? k.agents : "every connected agent"}
+        />
+        <KBSetting
+          yamlKey="workspaces"
+          about="Where each agent gives it to a session: everywhere, or only in the folders bound to it."
+          value={k.where.length ? k.where : client ? null : "everywhere"}
+        />
+        {(client?.placeholders ?? []).length > 0 && (
+          <KBSetting
+            yamlKey="paths"
+            about="Where its {{repo:…}} and {{path:…}} placeholders resolve here."
+            value={k.paths}
+          />
+        )}
+        <KBSetting
+          yamlKey={`signing_keys.${kb}`}
+          about="Public keys pinned to verify the artifacts it signs."
+          value={k.keys ? `${k.keys} pinned` : null}
+        />
+        <KBSetting yamlKey={`mcp_approvals.${kb}`} about="Its MCP servers you approved." value={k.approved} />
       </ul>
     </Folded>
   );
@@ -726,9 +762,7 @@ function Value({ entry: e }: { entry: SettingEntry }) {
     return (
       <span className="settings__value settings__value--list" aria-label={label}>
         {shown.map((v, i) => (
-          <span key={i} className="settings__item">
-            {v}
-          </span>
+          <Item key={i} text={v} />
         ))}
         {list.length > shown.length && <span className="settings__item">+{list.length - shown.length}</span>}
       </span>
@@ -737,7 +771,7 @@ function Value({ entry: e }: { entry: SettingEntry }) {
   const text = formatValue(e.value);
   return (
     <span className="settings__value" data-empty={text.startsWith("(") || undefined} aria-label={label}>
-      {text}
+      {tildify(text)}
     </span>
   );
 }
@@ -752,7 +786,12 @@ function Row({ entry: e }: { entry: SettingEntry }) {
   const key = shortKey(e.key);
   const set = e.origin !== "default";
   return (
-    <li className="settings__row" data-set={set || undefined} data-open={open || undefined}>
+    <li
+      className="settings__row"
+      data-set={set || undefined}
+      data-open={open || undefined}
+      data-wide={isWide(items(e.value)) || undefined}
+    >
       <button type="button" className="settings__row-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="settings__what">
           <code className="settings__key">{key}</code>

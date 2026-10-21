@@ -65,19 +65,22 @@ export class IdleRotation {
 /**
  * What one tick of the live simulation may cost while the network only
  * breathes (drift at rest, nothing reheated it): a quarter of a 60 Hz frame.
- * Past it the drift rests and the simulation cools and stops, as with motion
- * off; the panorama and the signals still run. On an Apple M5 a tick costs
- * ~2.4 ms at 800 concepts, ~3.8 ms at 1,200, ~7.5 ms at 2,000 and ~23 ms at
- * 5,000, which no frame budget holds at 60 Hz.
+ * Past it the drift keeps running at half rate (DRIFT_SLOW_EVERY), so a large
+ * network still breathes, only slower, and the frame keeps room for the rest
+ * of the page. On an Apple M5 a tick costs ~2.4 ms at 800 concepts, ~3.8 ms at
+ * 1,200, ~7.5 ms at 2,000 and ~23 ms at 5,000.
  */
 export const DRIFT_TICK_BUDGET_MS = 4;
-/** A resting network resumes its drift only below this: the gap keeps a graph
- *  near the line from flipping between the two. */
+/** A slowed network returns to the full rate only below this: the gap keeps a
+ *  graph near the line from flipping between the two. */
 export const DRIFT_TICK_RESUME_MS = 3;
+/** A slowed drift ticks once every this many simulation steps. */
+export const DRIFT_SLOW_EVERY = 2;
 
-/** Whether the network may (keep) breathing, from the average cost of a tick. */
-export function sustainsDrift(tickMs: number, breathing: boolean): boolean {
-  return breathing ? tickMs <= DRIFT_TICK_BUDGET_MS : tickMs < DRIFT_TICK_RESUME_MS;
+/** Whether the drift may run (keep running) at the full rate, from the average
+ *  cost of a tick. */
+export function sustainsFullRate(tickMs: number, fullRate: boolean): boolean {
+  return fullRate ? tickMs <= DRIFT_TICK_BUDGET_MS : tickMs < DRIFT_TICK_RESUME_MS;
 }
 
 /** Signals alive at once, at most. */

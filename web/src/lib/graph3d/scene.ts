@@ -27,7 +27,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CAMERA_MOVE, CAMERA_ZOOM, fitPose, focusPose, zoomLimits, type Pose } from "./camera";
 import { MOTION_MS, motionMs, type MotionToken } from "../theme";
 import { smooth } from "./transition";
-import { AUTO_ROTATE_SPEED, IdleRotation, MAX_SIGNALS, SIGNAL_PASS_MS, sustainsDrift, type Signal } from "./motion";
+import { AUTO_ROTATE_SPEED, IdleRotation, DRIFT_SLOW_EVERY, MAX_SIGNALS, SIGNAL_PASS_MS, sustainsFullRate, type Signal } from "./motion";
 import {
   LINK_DISTANCE,
   LIVE_ALPHA,
@@ -431,9 +431,9 @@ export class LivingScene {
       }
     }
     this.sim = sim;
-    // The warm-up has just timed this graph's ticks: a large one opens
-    // resting rather than drifting for a few seconds first.
-    if (!this.offscreen && this.tickMs !== null) this.breathing = sustainsDrift(this.tickMs, this.breathing);
+    // The warm-up has just timed this graph's ticks: a large one opens at the
+    // slow drift rather than at the full rate for a few seconds first.
+    if (!this.offscreen && this.tickMs !== null) this.fullRate = sustainsFullRate(this.tickMs, this.fullRate);
     this.applyMotion();
 
     this.sphereNodes = nodes.filter((n) => !n.artifact);
@@ -671,7 +671,7 @@ export class LivingScene {
   /** Drift and the live simulation follow the motion toggle alone: a
    *  selection keeps the network breathing (the rest recedes instead). */
   private applyMotion(): void {
-    const drifting = this.live && this.breathing;
+    const drifting = this.live;
     this.driftForce.enabled(drifting);
     const target = drifting ? LIVE_ALPHA : 0;
     this.sim?.alphaTarget(this.bloom ? Math.max(target, BLOOM_WARMTH) : target);
@@ -929,9 +929,11 @@ export class LivingScene {
   private lastDraw = Number.NEGATIVE_INFINITY;
   /** The running average cost of one simulation tick, in ms. */
   private tickMs: number | null = null;
-  /** Whether the live network drifts: false while a tick costs more than the
-   *  drift budget allows (sustainsDrift). */
-  private breathing = true;
+  /** Whether the drift ticks at the full rate: false while a tick costs more
+   *  than the drift budget allows (sustainsFullRate), and it ticks at half. */
+  private fullRate = true;
+  /** Simulation steps skipped or taken by the slowed drift. */
+  private slowSteps = 0;
 
   private invalidate(): void {
     this.dirty = true;
@@ -948,15 +950,13 @@ export class LivingScene {
     this.tickMs = this.tickMs === null ? ms : this.tickMs + (ms - this.tickMs) * 0.1;
   }
 
-  /** Rests the drift of a network too costly to keep ticking, or resumes it
-   *  once a tick is cheap again (a smaller Map). An offline scene keeps its
-   *  motion: its frames must not depend on the exporting machine's speed. */
+  /** Slows the drift of a network too costly to tick at the full rate, or
+   *  restores it once a tick is cheap again (a smaller Map). An offline scene
+   *  keeps the full rate: its frames must not depend on the exporting
+   *  machine's speed. */
   private reconsiderDrift(): void {
     if (this.offscreen || this.tickMs === null) return;
-    const breathing = sustainsDrift(this.tickMs, this.breathing);
-    if (breathing === this.breathing) return;
-    this.breathing = breathing;
-    this.applyMotion();
+    this.fullRate = sustainsFullRate(this.tickMs, this.fullRate);
   }
 
   /** The simulation runs at a fixed SIM_HZ whatever the display's refresh:
@@ -1004,8 +1004,12 @@ export class LivingScene {
     // Still mode lets the simulation cool and then stops ticking it: at rest
     // the frame costs only the draw.
     let ticked = 0;
-    for (; ticked < simTicks && sim && ((this.live && this.breathing) || sim.alpha() > 0.002); ticked++) {
+    for (let step = 0; step < simTicks && sim && (this.live || sim.alpha() > 0.002); step++) {
+      // A costly network only breathing (nothing reheated it) skips steps;
+      // a drag, a knock or a new layout always runs at the full rate.
+      if (!this.fullRate && this.live && sim.alpha() <= LIVE_ALPHA * 1.5 && ++this.slowSteps % DRIFT_SLOW_EVERY !== 0) continue;
       this.timedTick(sim);
+      ticked++;
       if (++this.ticks % 30 === 0) sanitize(this.nodes, this.neighbours);
     }
     if (ticked > 0) {

@@ -3619,6 +3619,30 @@ code.mapcontract__label {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-small);
 }
+/* A list too long to sit beside the description (paths, KB lists) takes its
+   own full-width line under it, read left to right like the YAML. */
+.settings__row[data-wide] .settings__row-head {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2);
+}
+.settings__row[data-wide] .settings__val {
+  align-items: flex-start;
+  max-width: none;
+}
+.settings__row[data-wide] .settings__value--list {
+  flex-direction: row;
+  justify-content: flex-start;
+  width: 100%;
+  gap: 4px;
+  text-align: start;
+}
+.settings__item-key {
+  color: var(--text-muted);
+}
+.settings__item-val {
+  overflow-wrap: anywhere;
+}
 .settings__meta {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);

@@ -312,7 +312,7 @@ export function Activity({
         {data?.truncated && (
           <p className="page-note">Showing the {all.length} most recent changes: narrow the window to see the rest.</p>
         )}
-        {journal !== null && (
+        {journal !== null && (data !== null || error !== null) && (
           <PageSection title="Journal" id="activity-journal">
             {journal.trim() === "" ? (
               <p className="page-note">
@@ -329,7 +329,7 @@ export function Activity({
             )}
           </PageSection>
         )}
-        {audit !== null && <AuditSection audit={audit} />}
+        {audit !== null && (data !== null || error !== null) && <AuditSection audit={audit} />}
       </div>
     </Page>
   );
