@@ -213,8 +213,10 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   `git remote add upstream https://github.com/beppetemp/cartographer.git`.
 - **Review costs more than writing**, so a PR is shaped to be cheap to review
   (D856). Three rules, checked by `.agents/skills/cartographer-review-pr/scripts/triage.sh`
-  — run it on your branch before opening; the first rule is also enforced by
-  the required `plan-gate` check, which runs the same script on the PR:
+  — run it on your branch before opening; the first two are also enforced by
+  the required `plan-gate` check, which runs the same script on the PR, together
+  with the next-train rule of §Releases (a PR that closes an issue of a later
+  milestone waits):
   - a contributor's change over **150 production lines** (tests, docs and
     generated files excluded), or one that changes a public contract (MCP tool
     schema, CLI flag, config key, on-disk format), closes a **plan issue the
@@ -289,6 +291,13 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
   label, or if the candidate is not the current head of `main` (a fix landed after the
   build), the train is skipped with a comment: run the candidate again by hand
   (`release-train`, `action: rc`), try it and add the label again, or wait a week.
+- **Only the next train's work merges.** The next train is the open milestone due
+  first. Work of a later milestone can be planned, implemented and reviewed at any
+  time, but its PR waits, open, until the train before it has left: `plan-gate`
+  fails a PR that closes an issue of a later milestone, and runs again by itself
+  when the issue moves to another milestone or the milestones change (the maintainer
+  closes the train's milestone after the release, moving what did not make it). A large change
+  that spans trains lands as PRs that change nothing a user sees on their own.
 - **Out of train**, only for a regression of the latest release or a security fix: the
   maintainer merges the release PR by hand.
 
@@ -312,12 +321,17 @@ change who acts:
 | `bug`, `plan` | The two kinds of issue (ideas and questions are Discussions). An accepted issue without a plan yet sits in a milestone and is promoted to `plan` when it is not trivial |
 | `approved` | A maintainer accepted the plan (only triage rights can set it); for a contributor's PR the plan is also assigned to them |
 | `size-exception` | Maintainer-granted exception to the 500-line cap |
-| `good first issue` | Small, self-contained, suitable for a first contribution |
+| `good first issue` | Small, self-contained, suitable for a first contribution: set at triage on the easiest issues of the next milestones, and dropped when nobody claims one by the Wednesday of its train week (the maintainer takes it or moves it to the next train) |
 | `ci-red` | Opened by CI when `main` is red |
 | `dependencies`, `autorelease: pending`, `autorelease: tagged` | Set by Dependabot and release-please, never by hand |
 
 Milestones are the roadmap: one per weekly release, `vX.Y.0`; an issue in a
-milestone is accepted work.
+milestone is accepted work. **Every accepted issue has a milestone**, approved plans
+included: an open issue without one is not triaged yet, and the weekly triage puts
+it in a train, moves it to Discussions or closes it. Keep two or three milestones
+open: the non-trivial work of the next two is written as approved plans, ready to
+be claimed; further out an issue stays a plain issue until its train comes closer,
+because a plan's `file:line` pointers age.
 
 When a bug is picked up for implementation, it is **promoted in place** (by a
 maintainer: the label edit needs triage rights; a contributor opens a new Plan

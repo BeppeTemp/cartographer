@@ -1,6 +1,7 @@
 package repodocs
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -33,6 +34,22 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 	}
 	if _, ok := wf.On["pull_request"]; ok {
 		t.Error("plan-gate.yml: a `pull_request` trigger would run the PR's own copy of the workflow and of triage.sh")
+	}
+	// The next-train rule (D987) is only as current as its re-runs: an issue moved to
+	// another train, or any milestone change that alters which train is next.
+	types := func(event string) string {
+		m, _ := wf.On[event].(map[string]any)
+		return fmt.Sprint(m["types"])
+	}
+	for _, want := range []string{"milestoned", "demilestoned"} {
+		if !strings.Contains(types("issues"), want) {
+			t.Errorf("plan-gate.yml: the `issues` trigger lacks %q: moving an issue to another train must re-run the gate", want)
+		}
+	}
+	for _, want := range []string{"created", "opened", "closed", "edited", "deleted"} {
+		if !strings.Contains(types("milestone"), want) {
+			t.Errorf("plan-gate.yml: the `milestone` trigger lacks %q: it can change which train is next", want)
+		}
 	}
 	// Comments carry the explanations (and name the forbidden strings): judge code only.
 	var code []string
