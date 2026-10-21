@@ -498,7 +498,7 @@ The operator commands are offline by design — they read the files, not a
 running server, because an audit trail is most needed when the server is down:
 
 ```
-cartographer audit verify --log /var/lib/cartographer/audit.jsonl [--public-key <hex>]
+cartographer audit verify --log /var/lib/cartographer/audit.jsonl [--public-key <hex> [--signed-since <RFC3339>]]
 cartographer audit export --log /var/lib/cartographer/audit.jsonl --out report.json
 ```
 
@@ -507,6 +507,15 @@ for a chain it cannot verify, so an exported document is never
 authoritative-looking without being authoritative. Without `--public-key` the
 chain is checked but signatures are not, and the unsigned count is reported so
 the two situations stay distinguishable.
+
+With a key the log must be signed from a start: `--signed-since`, else the
+first checkpoint written with a key loaded, else the first signed entry. A log
+with entries and none of the three has no signature at all, so a rewrite that
+recomputed the chain and dropped every signature would pass for the original:
+verification (and `export`) fails with `no signed entry`. `--signed-since`
+asserts that every entry at or after that time is signed (it needs
+`--public-key`, otherwise exit 2); an operator whose log was never signed
+passes a time after its last entry, or drops the key.
 
 ## Stateless behavior
 
