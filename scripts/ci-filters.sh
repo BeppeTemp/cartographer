@@ -16,6 +16,9 @@
 #   demo     the demo Worker or its Terraform (job demo-edge).
 #   tf       the Terraform alone (a step of demo-edge).
 #   docker   what the container is built from (job docker, D995).
+#   macos    the launchd service, install.sh and the Cask (job test-macos, D997):
+#            a macOS runner queues slowly, so only what can break them, and the
+#            release PR.
 #   forge    the real-forge tests and the hook they share (job forge, D996): not
 #            an ordinary PR, which would pay minutes of GitLab CE boot for a
 #            change that cannot touch it. The release PR runs it like everything.
@@ -54,3 +57,4 @@ echo "docker=$(any '^(Dockerfile|\.dockerignore|go\.(mod|sum)|test/smoke/image\.
 echo "tf=$(any '^deploy/demo/.*\.(tf|tfvars)$')"
 echo "demo=$(any '^deploy/demo/(worker\.js|worker\.test\.mjs)$|^deploy/demo/.*\.(tf|tfvars)$|^(\.github/workflows/ci\.yml|scripts/ci-filters\.sh)$')"
 echo "forge=$(any '^test/forge/|^(\.github/workflows/ci\.yml|scripts/ci-filters\.sh)$')"
+echo "macos=$(any '^(internal/service/|install\.sh$|\.goreleaser\.yaml$|test/(install|macos)/|cmd/cartographer/(service|upgraderepair)[^/]*$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')"
