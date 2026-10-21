@@ -10,8 +10,11 @@ name: plan-gate
 #   - The trigger is `pull_request_target`: the workflow file and triage.sh come
 #     from the BASE branch. A `pull_request` workflow would run the PR's own,
 #     possibly edited, copy of both.
-#   - It checks out the base SHA only, never the PR head, and executes nothing
-#     from the PR. A fork PR's code never runs with this token.
+#   - It checks out github.sha only — under pull_request_target the tip of the base
+#     branch, the same commit the workflow file is read from — never the PR head,
+#     and executes nothing from the PR. A fork PR's code never runs with this token.
+#     Not pull_request.base.sha: that is the base as of the PR's last push, so after
+#     a rename on main the current workflow runs a path the old tree does not have.
 #   - Every `uses:` is pinned to a full commit SHA: this is the only workflow that holds
 #     the base repository token on fork-triggered events, so a moved tag must not reach it.
 #   - Read-only permissions and no secrets; only the re-run job gets actions: write.
@@ -44,10 +47,10 @@ jobs:
       group: plan-gate-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     steps:
-      # The base SHA, nothing else: see INVARIANTS.
+      # The base branch tip, nothing else: see INVARIANTS.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
       # Values reach the script through the environment, never interpolated into it.
       - name: Approved plan, size cap
