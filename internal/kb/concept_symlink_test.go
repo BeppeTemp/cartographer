@@ -118,3 +118,35 @@ func TestWalkConceptsSkipsASymlinkedFile(t *testing.T) {
 		return nil
 	})
 }
+
+func TestExpandConceptRefusesSymlinks(t *testing.T) {
+	t.Parallel()
+	k, _ := Init(tempKB(t))
+	outDir := t.TempDir()
+	outside := filepath.Join(outDir, "c.md")
+	if err := os.WriteFile(outside, []byte(symlinkOutside), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A symlinked concept file.
+	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "m"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	symlinkOrSkip(t, outside, filepath.Join(k.DataRoot(), "m", "c.md"))
+	if err := k.ExpandConcept("m/c"); !errors.Is(err, okf.ErrInvalidPath) {
+		t.Fatalf("symlinked file: want ErrInvalidPath, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "m", "c")); err == nil {
+		t.Fatal("a directory was created next to the link")
+	}
+	// A symlinked map directory.
+	symlinkOrSkip(t, outDir, filepath.Join(k.DataRoot(), "linked"))
+	if err := k.ExpandConcept("linked/c"); !errors.Is(err, okf.ErrInvalidPath) {
+		t.Fatalf("symlinked map: want ErrInvalidPath, got %v", err)
+	}
+	if got, err := os.ReadFile(outside); err != nil || string(got) != symlinkOutside {
+		t.Fatalf("outside file changed: %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "c")); err == nil {
+		t.Fatal("a directory was created outside the KB")
+	}
+}

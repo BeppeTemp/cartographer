@@ -845,6 +845,13 @@ func (kb *KB) curatedIndexRelPath(path string) (string, error) {
 	return indexRel, nil
 }
 
+// RejectSymlinkedConceptPath refuses (okf.ErrInvalidPath) a concept-relative
+// path with a symlink on it, for a caller that builds the path itself instead
+// of going through resolveConceptRelPath (D1025).
+func (kb *KB) RejectSymlinkedConceptPath(relPath string) error {
+	return rejectSymlinkPath(kb.baseFor(relPath), relPath)
+}
+
 // rejectSymlinkPath walks each path component from base and fails if any
 // component is a symlink (a dangling one included) — the same defence used for
 // expanded-concept assets (resolveAsset, asset.go) and provisioning artifacts
@@ -1601,6 +1608,11 @@ func (kb *KB) ExpandConcept(id okf.ConceptID) error {
 	}
 
 	direct := okf.IDToPath(id)
+	for _, rel := range []string{direct, string(id)} {
+		if err := kb.RejectSymlinkedConceptPath(rel); err != nil {
+			return err
+		}
+	}
 	directAbs, err := kb.ResolvePath(direct, true)
 	if err != nil {
 		return err

@@ -384,8 +384,8 @@ func generationAfter(v *graphView) uint64 {
 func (kb *KB) validateEntry(c *graphCache, f conceptFile, read map[string]string) *graphEntry {
 	now := time.Now()
 	old := c.entries[f.rel]
-	// A symlinked concept is never cached: its lstat signature says nothing
-	// about the target ReadRaw follows.
+	// A symlinked concept (or one whose Info fails) is dropped, never read or
+	// cached: concept paths do not follow links (D1025).
 	symlink := f.entry.Type()&fs.ModeSymlink != 0
 	var sig fileSig
 	if info, err := f.entry.Info(); err == nil {
