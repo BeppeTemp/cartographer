@@ -29,7 +29,7 @@ name: plan-gate
 # the required checks of `main-protection`.
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, edited, labeled, unlabeled] # edited: `Closes #n` is often added later; labeled: the `size-exception` label
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled, assigned, unassigned] # edited: `Closes #n` is often added later; labeled: the `size-exception` label; assigned: the PR given to its author in place of the plan
   issues:
     types: [labeled, assigned, milestoned, demilestoned] # approved, assigned, or moved to another train: the gate reads all three
   milestone:

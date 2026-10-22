@@ -54,7 +54,7 @@ git remote get-url upstream >/dev/null 2>&1 && remote=upstream
 role=contributor
 if [ $# -ge 1 ]; then
   PR=$1
-  meta=$(gh pr view "$PR" --json title,author,files,closingIssuesReferences,statusCheckRollup,body,headRefName,labels)
+  meta=$(gh pr view "$PR" --json title,author,files,closingIssuesReferences,statusCheckRollup,body,headRefName,labels,assignees)
   files=$(jq -r '.files[] | "\(.additions)\t\(.deletions)\t\(.path)"' <<<"$meta")
   author=$(jq -r .author.login <<<"$meta")
   prinfo=$(gh api "repos/{owner}/{repo}/pulls/$PR" --jq '[.author_association, .user.type] | @tsv')
@@ -63,6 +63,9 @@ if [ $# -ge 1 ]; then
   [ "${prinfo##*$'\t'}" = Bot ] && role=bot
   echo "PR #$PR $(jq -r .title <<<"$meta") — by $author, branch $(jq -r .headRefName <<<"$meta")"
   sizelabel=$(jq -r '[.labels[].name] | index("size-exception") // empty' <<<"$meta")
+  # GitHub silently refuses to assign an issue to someone who never commented on it, so a
+  # maintainer can assign the PR to its author instead: only triage rights can (D955).
+  prassigned=$(jq -r --arg a "$author" '[.assignees[].login] | index($a) // empty' <<<"$meta")
   ci=$(jq -r '[.statusCheckRollup[] | (.conclusion // .state // "PENDING")] |
     if length == 0 then "none"
     elif any(. == "FAILURE" or . == "CANCELLED" or . == "TIMED_OUT" or . == "ERROR") then "FAILURE"
@@ -78,7 +81,7 @@ else
   ci=local
   slug=$("$(dirname "$0")/upstream-repo.sh")
   author=$(gh api user --jq .login 2>/dev/null || echo me)
-  sizelabel=""
+  sizelabel=""; prassigned=""
   perm=$(gh repo view "$slug" --json viewerPermission --jq .viewerPermission 2>/dev/null || echo UNKNOWN)
   case "$perm" in ADMIN|MAINTAIN|WRITE) role=maintainer ;; esac
   echo "Branch $(git rev-parse --abbrev-ref HEAD) vs $remote/main (before opening a PR)"
@@ -136,9 +139,10 @@ for n in $issues; do
   if [[ ",$labels," == *",plan,"* ]]; then
     plan=$n
     if [[ ",$labels," == *",approved,"* ]]; then
-      # A contributor claims an approved plan by commenting on it; the maintainer assigns it (D955).
+      # A contributor claims an approved plan by commenting on it; the maintainer assigns it,
+      # or assigns the PR to its author (D955).
       assignees=$(gh issue view "$n" --json assignees --jq '[.assignees[].login] | join(",")' 2>/dev/null || echo "")
-      if [ "$role" != contributor ] || [[ ",$assignees," == *",$author,"* ]]; then
+      if [ "$role" != contributor ] || [ -n "$prassigned" ] || [[ ",$assignees," == *",$author,"* ]]; then
         plan_ok=$n
       else
         unassigned=$n
@@ -155,7 +159,7 @@ blocked=0
 if [ "$role" = contributor ] && [ "$prod" -gt "$PLAN_FLOOR" ] && [ -z "$plan_ok" ]; then
   blocked=1
   if [ -n "$unassigned" ]; then
-    echo "BLOCK: plan #$unassigned is approved but not assigned to $author: comment on it to claim it, and ask the maintainer to assign the plan to you"
+    echo "BLOCK: plan #$unassigned is approved but not assigned to $author: comment on it to claim it, and ask the maintainer to assign the plan, or this PR, to you"
   else
     echo "BLOCK: $prod production lines from a contributor without an approved plan (an issue labelled plan + approved): the design is reviewed there first"
   fi
