@@ -58,7 +58,7 @@ export function readViewState(search: string = window.location.search): ViewStat
   // Observatory and Maintenance became Health (D338); Services became the
   // Secrets page, grouped by Service, and the pending Sources a Work column, and
   // Paths a part of Settings (D818): their old links still land there rather than on the atlas.
-  const panel: Panel =
+  let panel: Panel =
     param === "maintenance" || param === "observatory"
       ? "health"
       : param === "services"
@@ -78,6 +78,12 @@ export function readViewState(search: string = window.location.search): ViewStat
                 param === "settings"
               ? param
               : "atlas";
+  // An artifact link from before the section had tabs (D1057) opens the tab of its kind.
+  const linked = panel === "artifacts" ? params.get("artifact") : null;
+  if (linked) {
+    const tab = artifactPanel(linked.slice(0, linked.indexOf("/")));
+    if (tab !== "artifacts") panel = tab;
+  }
   return {
     kb: params.get("kb"),
     scope: params.get("scope"),

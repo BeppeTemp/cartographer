@@ -484,7 +484,7 @@ function ArtifactDetail({
 
   const back = narrow ? (
     <button type="button" className="button artifacts__back" onClick={onClose}>
-      Back
+      Back to artifacts
     </button>
   ) : (
     <button type="button" className="artifacts__close" aria-label="Close the artifact" title="Close" onClick={onClose}>
