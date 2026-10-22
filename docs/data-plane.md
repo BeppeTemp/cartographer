@@ -284,7 +284,7 @@ operator's. `index_patch` refuses an edit that changes the block (`generated_ind
 leaves a generated index to the server instead of editing it, and `lint` reports `index_stale`
 (directory-level) when the block differs from what the next write would put there — in place
 of `index_incomplete`, which a generated map never gets. A KB's `instructions.md` that tells agents
-to add new pages to the index is the `kb-doctor` skill's to update, not the server's.
+to add new pages to the index is the `cartographer-kb-doctor` skill's to update, not the server's.
 
 ### Cost thresholds (D301)
 
@@ -310,7 +310,7 @@ Page-name key (D315), read by `title_quality`:
 
 ### No check can be switched off (D907)
 
-Nothing in a KB switches a lint check off or hides a finding ([D907](decisions/D907-the-lint-cannot-be-escaped.md)). Every finding is closed by fixing the page or the map contract; a Health panel with no findings is what a finished `kb-doctor` session leaves, and it means the pages are right, not that something was set aside. A false positive is a defect of the check: report it and the check is fixed for every KB, instead of one page silencing it. What was removed:
+Nothing in a KB switches a lint check off or hides a finding ([D907](decisions/D907-the-lint-cannot-be-escaped.md)). Every finding is closed by fixing the page or the map contract; a Health panel with no findings is what a finished `cartographer-kb-doctor` session leaves, and it means the pages are right, not that something was set aside. A false positive is a defect of the check: report it and the check is fixed for every KB, instead of one page silencing it. What was removed:
 
 - `lint_ignore` in a concept's frontmatter (D159) and in a map's `_map.md` (D306), and `lint_accept` in `instructions.md` (D332);
 - the per-map thresholds and opt-outs: §Cost thresholds, §Decay checks, §Templates are page schemas, §Maps and Journals (**Removed keys**);
@@ -444,6 +444,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `stray_file` | map | yes | - | - | - |
 | `skill_invalid` | artifact | yes | - | - | - |
 | `skill_warning` | artifact | yes | - | - | - |
+| `legacy_skill_name` | artifact | yes | `move_skill` | - | - |
 | `legacy_tool_name` | artifact | yes | `strip_tool_prefix` | yes | - |
 | `skill_broken_ref` | artifact | yes | - | - | - |
 | `skill_git_command` | artifact | yes | - | - | - |
@@ -645,7 +646,7 @@ On a map that declares `templates` or a `default_template`, all evaluated on the
 
 ### The `archived` status (D322)
 
-`archived` is a server-reserved status, after `done`: the entry is finished **and** its durable facts have been carried into the live pages it links. It is retired like `deprecated` and `superseded` (`link_to_retired` counts live linkers, `map_misfit` and `link_suggest` skip it; a `digest`-typed page linking archived entries is not a linker) and closed, never open, and in no synonym family: it is a lifecycle stage, not a value a KB chooses among synonyms. An archived concept stays readable and linkable but leaves the active surface: default `search` (with an archived fallback, `docs/control-plane.md`), `read_cost`, the `atlas_overview` structure graph and the `map_oversize` count. The other graph tools still show it; `deprecated` and `superseded` concepts still count in `read_cost`. The bundled `kb-doctor` skill does the harvest: facts into live pages with a dated link back, `status: archived` with a header line, one `reference` digest per quarter. Nothing is deleted or moved. The status is allowed on any concept, not only in a journal: it is the harvest outcome for journal entries and also what `concept_archive` (D344) writes into the archive map, so no check flags it elsewhere. A retired page that stays in a live map gets no `index_incomplete` or `orphan` finding (D826). Where a retired concept went, when and why is not in the page: `concept_archive` and `supersede` log it (`concept_archive: <src> -> <dst> (<status>[, <reason>])`, `supersede: <src> → <dst>`) and `kb.Retirements` reads the root `log.md` back (the reason is one line: `concept_archive` collapses line breaks, and the parser also reads an older multi-line title), which is how `GET /api/ui/v1/kbs/{kb}/retired` (D820), and the Atlas's Retired tab on it, tell the story of a page archived before it existed.
+`archived` is a server-reserved status, after `done`: the entry is finished **and** its durable facts have been carried into the live pages it links. It is retired like `deprecated` and `superseded` (`link_to_retired` counts live linkers, `map_misfit` and `link_suggest` skip it; a `digest`-typed page linking archived entries is not a linker) and closed, never open, and in no synonym family: it is a lifecycle stage, not a value a KB chooses among synonyms. An archived concept stays readable and linkable but leaves the active surface: default `search` (with an archived fallback, `docs/control-plane.md`), `read_cost`, the `atlas_overview` structure graph and the `map_oversize` count. The other graph tools still show it; `deprecated` and `superseded` concepts still count in `read_cost`. The bundled `cartographer-kb-doctor` skill does the harvest: facts into live pages with a dated link back, `status: archived` with a header line, one `reference` digest per quarter. Nothing is deleted or moved. The status is allowed on any concept, not only in a journal: it is the harvest outcome for journal entries and also what `concept_archive` (D344) writes into the archive map, so no check flags it elsewhere. A retired page that stays in a live map gets no `index_incomplete` or `orphan` finding (D826). Where a retired concept went, when and why is not in the page: `concept_archive` and `supersede` log it (`concept_archive: <src> -> <dst> (<status>[, <reason>])`, `supersede: <src> → <dst>`) and `kb.Retirements` reads the root `log.md` back (the reason is one line: `concept_archive` collapses line breaks, and the parser also reads an older multi-line title), which is how `GET /api/ui/v1/kbs/{kb}/retired` (D820), and the Atlas's Retired tab on it, tell the story of a page archived before it existed.
 
 ### Review keys (D298)
 
@@ -690,6 +691,11 @@ only in a whole-KB lint, and their findings name the artifact file (`skills/<nam
   rules, name ≠ directory, no description), or a `skills/<dir>` has no `SKILL.md`.
 - `skill_warning`: `skill.Validate`'s warnings (description over 1024 characters, body over
   500 lines).
+- `legacy_skill_name` (fix `move_skill`, D958): `skills/<dir>` carries the name a bundled skill had
+  before the `cartographer-` prefix (`kb-create`, `kb-conflict-resolve`, `kb-doctor`, `kb-import`,
+  `kb-ingest`). The copy and the bundled skill would reach one agent twice under two names, so the
+  repair moves the directory to the new name and sets its `name`, keeping the body. When the new
+  name exists too, the message says both copies stay: merging two diverged skills is a person's job.
 - `legacy_tool_name` (fix `strip_tool_prefix`): a pre-D288 prefixed tool name
   (`<kb>__search`, e.g. kb_a__search) in a skill, agent or `instructions.md` (Markdown, text, scripts and config
   files; stylesheets are skipped, a BEM class has the same shape). A client's own MCP tool name,

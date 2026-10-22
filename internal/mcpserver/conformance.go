@@ -266,7 +266,9 @@ var conformanceChecks = map[string]bool{
 }
 
 // doctorMarker is the text a log.md entry carries when the cartographer-kb-doctor skill
-// closed a session: kb_status reads the date of the newest one.
+// closed a session: kb_status reads the date of the newest one. It is a log
+// marker, not the skill name: existing KB logs carry "kb-doctor", so it stays
+// when the skill is renamed (D958), and it still matches the new name by substring.
 const doctorMarker = "kb-doctor"
 
 var logDateRe = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)

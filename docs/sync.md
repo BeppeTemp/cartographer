@@ -16,8 +16,8 @@ The artifacts a client must have come from two sources that change over time:
 | **Server bundle** | `internal/skillbundle/bundled/` (compiled into the binary) — `skill` only | Cartographer upgrade |
 | **KB artifacts** | `skills/`, `agents/`, `hooks/`, `mcp/` at the KB root (git) | `git pull`, `skill_install`, edits |
 
-The bundled skill catalog is `cartographer-ops` (server and client operations), `kb-create`,
-`kb-import`, `kb-ingest` (one primary source into existing pages, D279), `kb-doctor` (aligning a drifted KB, D290), and `kb-conflict-resolve`. Because the bundle is compiled into the binary, clients
+The bundled skill catalog is `cartographer-ops` (server and client operations), `cartographer-kb-create`,
+`cartographer-kb-import`, `cartographer-kb-ingest` (one primary source into existing pages, D279), `cartographer-kb-doctor` (aligning a drifted KB, D290), and `cartographer-kb-conflict-resolve`. Because the bundle is compiled into the binary, clients
 receive operational guidance that matches their installed Cartographer version after `sync`.
 
 Without a sync mechanism, the files materialized on the client silently drift on every bundle upgrade or KB `git pull`. Goal: the client notices the change and realigns, with a model extensible to new `kind`s without a redesign.
@@ -275,6 +275,11 @@ rather than from the diff: the per-artifact `unsupported:` line appears only on 
 artifact enters the diff, after which the condition is invisible while the KB keeps declaring
 artifacts that are silently not installed.
 
+**A KB copy of a bundled skill under its pre-D958 name is warned about once per KB**, also on
+every run: `kb-create` and the other four old names reach the client next to the bundled
+`cartographer-kb-*` skills, so the agent sees one skill twice. The warning points to
+`kb_repair check=legacy_skill_name`, which moves the copy to the new name.
+
 ## Security
 
 - **Cryptographic signature gate.** A configured KB signer creates a canonical Ed25519 envelope over domain, format version, source KB, kind, name, version and content hash. The remote client recomputes the content hash and verifies against out-of-band `signing_keys` pins before writing any provider file or lockfile. `signed:true` is verification output only; malformed, invalid, source-mismatched, unknown-key or tampered content fails the whole sync, and so does an artifact with **no** signature under a pinned KB (a KB with a configured signer signs every artifact it ships, instructions and MCP descriptors included, so a missing signature means it was stripped). Bundled artifacts use the separate `built_in:true` origin.
@@ -440,7 +445,7 @@ configuration, and **nothing KB-sourced is written globally** any more.
 | The binding | one per provider (D169/D170) | one per provider **and** workspace |
 | Lockfile key | provider | provider + workspace, in its own namespace |
 
-**Cartographer's own bundled skills stay global.** `cartographer-ops`, `kb-create` and their
+**Cartographer's own bundled skills stay global.** `cartographer-ops`, `cartographer-kb-create` and their
 siblings belong to no perimeter, and a session outside every bound workspace still needs them. They
 are the only thing the global catalogue of a workspace-scoped provider holds.
 
