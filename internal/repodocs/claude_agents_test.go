@@ -19,6 +19,7 @@ var claudeModelID = regexp.MustCompile(`^claude-[a-z]+-\d+-\d+$`)
 // readOnlyAgents are the agents that must not change the working copy.
 var readOnlyAgents = map[string]bool{
 	"cartographer-contract-reviewer": true,
+	"cartographer-plan-writer":       true,
 	"cartographer-security-reviewer": true,
 	"cartographer-source-reader":     true,
 }

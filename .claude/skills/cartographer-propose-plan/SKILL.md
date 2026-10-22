@@ -71,6 +71,18 @@ maintainer assigns it to them.
    into several plans files new issues; it then closes the request with
    `-c "Split into #<a>, #<b>"`.
 
+## Delegating the drafting
+
+The design decisions are the coordinator's, taken with the user before any draft:
+one question per request, with options and a recommendation. Once they are taken,
+each plan body is drafted by a `cartographer-plan-writer` subagent (`.claude/agents/`,
+Sonnet), several in parallel, in the background: the spawn prompt is the issue number,
+the decisions, the sibling plans with their execution order and an absolute scratch
+path outside the repository. It reports the decisions the code contradicts; the
+coordinator brings those back to the user, then reads the body (privacy, execution
+order) and publishes it per steps 4-8 above. A request split into several plans gets
+one writer per plan.
+
 ## Consuming a plan (implementing session)
 
 0. Only a plan labelled `approved` is implemented, whoever the caller is: check `gh issue view <n> --json labels` first and stop if it is missing.
