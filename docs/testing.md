@@ -748,8 +748,8 @@ scripts against a scratch bare repository.
 
 `security.yml` is the one workflow that tests nothing of ours: `make vulncheck`
 (govulncheck) and `npm audit` over the `web/` production dependencies,
-`make lint-workflows` (actionlint and zizmor) and CodeQL. It runs on push to
-`main`, on a PR touching code, dependencies or workflows, and weekly, and **none
+`make lint-workflows` (actionlint and zizmor); CodeQL is `codeql.yml`, which also runs on a PR touching code. It runs on push to
+`main`, on a PR touching dependencies or workflows, and weekly, and **none
 of it is a required check**: an advisory published against an old dependency must
 not block an unrelated PR. A red scan on `main` opens a `vuln-scan` issue with
 the run link. `TestWorkflowActionsArePinnedBySHA` is the part that does gate: it
