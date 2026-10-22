@@ -110,6 +110,38 @@ func TestWriteGate_BrokenLinkRefusedTargetInBatchPasses(t *testing.T) {
 	}
 }
 
+// noHostGitIdentity removes the git identity from everywhere git looks (empty
+// home, no system or global config, no identity variables). t.Setenv forbids
+// t.Parallel, so the caller must not be parallel.
+func noHostGitIdentity(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "missing-gitconfig"))
+	for _, v := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL", "USER", "USERNAME"} {
+		t.Setenv(v, "")
+	}
+}
+
+// The gate stashes the write to judge the baseline, and git stash creates
+// commits: on a host with no git identity the stash must use the server one
+// (kb.ServerGitEnv). The gate FAILS OPEN when the stash fails (it logs "write_gate
+// skipped" and accepts the write), so "the write succeeded" would pass with the
+// bug present: the write here is one the gate refuses, and the refusal proves it
+// ran. Not parallel: it sets the process environment.
+func TestWriteGate_RefusesOnHostWithoutGitIdentity(t *testing.T) {
+	k := gateKB(t)
+	s := gateSeed(t, k, nil)
+	head := gitOut(t, k, "rev-parse", "HEAD")
+	noHostGitIdentity(t)
+
+	newPage := gateWrite("ops/new", "New", "# New\n\nSee [Target](target.md).\n", true, "")
+	text, isErr := callJSON(t, s, adminCtx, "concept_batch", gateBatch(newPage))
+	refusedCleanly(t, k, head, text, isErr, "broken_link")
+}
+
 // Acceptance: a new page without its curated index entry is refused, and the
 // same batch with index_entry passes.
 func TestWriteGate_MissingIndexEntryRefusedEntryInBatchPasses(t *testing.T) {

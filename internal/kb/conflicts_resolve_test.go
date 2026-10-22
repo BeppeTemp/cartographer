@@ -121,6 +121,57 @@ func TestFinalizeConflictsTheirs(t *testing.T) {
 	}
 }
 
+// FinalizeConflicts stashes the degraded markers, and git stash creates
+// commits: on a host with no git identity it must use the server one
+// (ServerGitEnv). Not parallel: it sets the process environment.
+func TestFinalizeConflictsTheirs_NoIdentityOnHost(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+	k, localSHA, remoteSHA, branch, fooPath := setupDivergedKB(t)
+	mustRegisterFoo(t, k, localSHA, remoteSHA, branch)
+	if err := k.RecordResolution("foo", "theirs", ""); err != nil {
+		t.Fatalf("RecordResolution: %v", err)
+	}
+
+	// No identity anywhere git looks, after the fixture is built.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "missing-gitconfig"))
+	for _, v := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL", "USER", "USERNAME"} {
+		t.Setenv(v, "")
+	}
+
+	ids, err := k.FinalizeConflicts()
+	if err != nil {
+		// Known gap, reported on the plan issue (#991): the later `git merge
+		// --no-commit` runs without the server identity and fails on such a host
+		// ("empty ident name"). This test pins the stash call site only: the
+		// stash precedes the merge, so a stash error is the regression.
+		if strings.Contains(err.Error(), "stash") {
+			t.Fatalf("the stash needs the server identity: %v", err)
+		}
+		t.Logf("FinalizeConflicts failed after the stash, past what this test pins: %v", err)
+		return
+	}
+	if len(ids) != 1 || ids[0] != "foo" {
+		t.Fatalf("expected ids=[foo], got %v", ids)
+	}
+	got, _ := os.ReadFile(fooPath)
+	if strings.TrimSpace(string(got)) != "remote version" {
+		t.Fatalf("expected 'remote version', got %q", string(got))
+	}
+	if conflicts, _ := k.ListConflicts(); len(conflicts) != 0 {
+		t.Fatalf("expected empty registry, got %d", len(conflicts))
+	}
+	parents := strings.Fields(tgit(t, k.Root, "rev-list", "--parents", "-n", "1", "HEAD"))
+	if len(parents) != 3 {
+		t.Fatalf("expected a merge commit with 2 parents, got %v", parents)
+	}
+}
+
 func TestFinalizeConflictsOurs(t *testing.T) {
 	t.Parallel()
 	k, localSHA, remoteSHA, branch, fooPath := setupDivergedKB(t)

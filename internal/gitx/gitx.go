@@ -1385,7 +1385,9 @@ func BranchExists(dir, branch string) bool {
 // write the gate stashed and restored came back rewritten.
 var noEOL = []string{"-c", "core.autocrlf=false"}
 
-// StashPush stashes uncommitted changes.
+// StashPush stashes uncommitted changes. A caller working inside a KB must use
+// StashPushEnv with kb.ServerGitEnv(), because this plain form needs a host git
+// identity and fails with "Committer identity unknown" without one.
 func StashPush(dir string) error {
 	return StashPushEnv(dir)
 }
@@ -1556,6 +1558,9 @@ func DiscardChanges(dir string) error {
 
 // StashPushAll stashes every uncommitted change including untracked files, so
 // the tree is at HEAD until StashPop (StashPush leaves untracked files behind).
+// A caller working inside a KB must use StashPushAllEnv with kb.ServerGitEnv(),
+// because this plain form needs a host git identity and fails with "Committer
+// identity unknown" without one; StashPushEnv explains why.
 func StashPushAll(dir string) error {
 	return StashPushAllEnv(dir)
 }
