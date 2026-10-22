@@ -1,5 +1,5 @@
 ---
-name: kb-ingest
+name: cartographer-kb-ingest
 description: Ingest ONE primary source of any kind (document, meeting transcript or notes, chat thread, ticket or issue, incident timeline, email, web page, dataset) into an existing Cartographer KB - register it, merge its content into the pages that own the subject, record unknowns and contradictions, and leave a trace of which pages came from which source.
 version: "1.1"
 ---
@@ -7,7 +7,7 @@ version: "1.1"
 
 ## Purpose
 
-Absorb **one new primary source** into knowledge the KB already holds. Unlike `kb-import`, which
+Absorb **one new primary source** into knowledge the KB already holds. Unlike `cartographer-kb-import`, which
 maps the structure of a whole foreign corpus with a mechanical scaffold, ingestion takes one
 unstructured source and merges its **content** into existing pages. The agent reads the source;
 the server never fetches or parses anything (D28, amended by D278). Binary formats (PDF, DOCX,
@@ -21,7 +21,7 @@ pages came from which source.
 ## When to use
 
 A new document, transcript, thread, ticket, incident timeline, email, web page or dataset must
-become KB knowledge. Not for importing a whole wiki (`kb-import`), creating a KB (`kb-create`)
+become KB knowledge. Not for importing a whole wiki (`cartographer-kb-import`), creating a KB (`cartographer-kb-create`)
 or server operations (`cartographer-ops`).
 
 ## Procedure
@@ -70,7 +70,7 @@ with its fix. Write what the gate accepts:
 - Open work is a checkbox (`- [ ] …`) on the page that owns it, never a `TODO`/`TBD`/`FIXME`
   marker; an unknown is a `Contradiction` (step 7).
 - Credentials found in the source never go into a page: store them with `secret_set` (SOPS; see
-  the `kb-create` skill's `references/secrets.md`) or leave them out and flag them to the operator.
+  the `cartographer-kb-create` skill's `references/secrets.md`) or leave them out and flag them to the operator.
 
 ### 7. Record unknowns
 One `Contradiction` concept per real unknown, with `contradiction_kind: open_question` (raised,

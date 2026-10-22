@@ -632,7 +632,7 @@ func removeLegacyDoctorTimer() {
 	case err != nil:
 		fmt.Fprintf(os.Stderr, "warning: removing the old scheduled doctor job failed: %v\n", err)
 	case removed:
-		fmt.Println("removed the old scheduled doctor job: kb-doctor sessions now start only when you ask an agent for one")
+		fmt.Println("removed the old scheduled doctor job: cartographer-kb-doctor sessions now start only when you ask an agent for one")
 	}
 }
 

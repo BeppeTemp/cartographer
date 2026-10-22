@@ -67,13 +67,13 @@ func (s *Server) legacyToolMessage(name string) string {
 //   - provisioning plumbing (sync_*, skill_*, service_*): consumed by the
 //     client CLI / hooks, or operator-level (skill_install, service_get).
 //
-// NOT advanced since D318: concept_batch (the bundled kb-doctor skill
+// NOT advanced since D318: concept_batch (the bundled cartographer-kb-doctor skill
 // prescribes it, and an agent cannot call by name what tools/list omits),
 // asset_delete and artifact_delete.
 //
 // NOT advanced (agent-visible) despite being niche: conflicts_list and
 // git_conflict_resolve — an agent whose write fails on a degraded concept must
-// self-recover (kb-conflict-resolve skill, concurrency.md Step 4). Also NOT
+// self-recover (cartographer-kb-conflict-resolve skill, concurrency.md Step 4). Also NOT
 // advanced: artifact_read/artifact_write (D71) — the point of the pair is
 // self-maintenance of the agent's own skills/agents, so it must be part of
 // the default working set, unlike the enumeration/removal tools below. Also

@@ -86,7 +86,7 @@ else same `locator`) was already ingested, and `source_list` shows what is still
 `provenance`, then mark it ingested with `concept_patch` (`ingest_status:
 ingested`, `ingested_at`). `lint` flags an ingested source nobody cites
 (`source_uncited`). The ledger is bookkeeping: the server never fetches or copies
-the source (D278). The bundled `kb-ingest` skill runs this whole step as one procedure — register,
+the source (D278). The bundled `cartographer-kb-ingest` skill runs this whole step as one procedure — register,
 distil, patch the owning pages, cite, record gaps, verify, close — for any new primary source (D279).
 
 ## The maintenance loop
@@ -104,7 +104,7 @@ cheapest first:
    a pull that moved HEAD, and once a day. No setting changes the list or the period (D907).
 3. **Doctor session**: what needs judgement. The server proposes one: the first tool result of an
    MCP session that starts while debt exists and the last `kb-doctor` log entry is older than
-   14 days (a constant since D907) carries a notice asking the agent to propose a `kb-doctor` session
+   14 days (a constant since D907) carries a notice asking the agent to propose a `cartographer-kb-doctor` session
    to the operator. The agent never starts it without their agreement. In the session the
    operator decides each item (assisted) or hands it over ("do it yourself", delegated), up to
    10 review items (or the number the operator names when asking for the session) plus every mechanical repair; the session closes with a

@@ -33,12 +33,12 @@ them incrementally:
 4. clear the imported status when a concept is reviewed;
 5. run `validate` and `lint`.
 
-The bundled `kb-import` skill contains the operator procedure.
+The bundled `cartographer-kb-import` skill contains the operator procedure.
 
 ## Ingest one new source into existing knowledge
 
 A document, meeting transcript, thread, ticket, incident timeline, email, web page or dataset
-arrives and must become KB knowledge. The bundled `kb-ingest` skill (D279) is the procedure: the
+arrives and must become KB knowledge. The bundled `cartographer-kb-ingest` skill (D279) is the procedure: the
 agent registers the source in the ledger (`source_register`, which refuses a second ingestion of
 the same source), distils it, patches the pages that own each subject instead of creating
 duplicates, cites the source in their `provenance`, opens a `Contradiction` rather than overwriting
@@ -50,7 +50,7 @@ before any write. The agent reads the source; the server never does.
 
 A KB written on earlier releases, or by agents that never saw today's conventions, drifts: synonym
 fields (`updated` for `timestamp`), tool parameters stored as fields, links to retired pages.
-`kb_status` reports it as `conformance` and sets `doctor_suggested`; the bundled `kb-doctor` skill
+`kb_status` reports it as `conformance` and sets `doctor_suggested`; the bundled `cartographer-kb-doctor` skill
 then runs `kb_repair` as a dry run per check, applies it after the operator confirms (one commit per
 check, however many concepts), and walks the judgement fixes with the agent. Nothing runs by itself.
 

@@ -17,7 +17,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
-// The background repair (D323): a KB that is never visited by a kb-doctor
+// The background repair (D323): a KB that is never visited by a cartographer-kb-doctor
 // session still drifts, so the server applies every safe fix (lint.AutoRepairChecks)
 // itself, once per autoRepairInterval (D907: no setting turns it off or moves
 // it). It is a heartbeat, not a doctor

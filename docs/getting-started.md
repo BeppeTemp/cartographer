@@ -239,12 +239,12 @@ and removing `~/cartographer-data` is a deliberate, separate act.
 - Connecting other agents and keeping them in sync →
   [`configurator.md`](configurator.md) and [`sync.md`](sync.md)
 - Authoring the KB's own skills, subagents, hooks and MCP descriptors → the
-  bundled `kb-create` skill's `references/artifacts.md`
+  bundled `cartographer-kb-create` skill's `references/artifacts.md`
 - Keeping encrypted values the KB can resolve → the same skill's
   `references/secrets.md`
-- Importing an existing wiki or docs folder → the bundled `kb-import` skill
+- Importing an existing wiki or docs folder → the bundled `cartographer-kb-import` skill
 - Absorbing one new document, transcript, ticket or thread into existing pages → the bundled
-  `kb-ingest` skill
+  `cartographer-kb-ingest` skill
 - Giving a new or imported KB its first structure (Maps, Journals, concept
   boundaries) → worth doing with the strongest reasoning model you have; both
   skills suggest it once, before modeling starts, and a faster model is fine

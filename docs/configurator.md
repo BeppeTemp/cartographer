@@ -639,7 +639,7 @@ mechanical fix, and prints per check the planned count and up to 5 examples. Wit
 report) with `dry_run: false`; any other check is never applied by `--apply`. No setting narrows the list. The server applies the same checks by
 itself every day, and each write already repairs the concepts it wrote
 (D349, always since D907), so `--apply` usually finds little. It ends with the judgement
-work left — the `kb_review` counts by kind — which only a `kb-doctor` session with the operator handles.
+work left — the `kb_review` counts by kind — which only a `cartographer-kb-doctor` session with the operator handles.
 It writes no `kb-doctor` log entry: a mechanical pass is not a doctor session, and the entry would
 silence the server's doctor proposal while the judgement work is undone (each applied check still
 leaves `kb_repair`'s own entry).
@@ -734,8 +734,8 @@ and §Upgrades, schema migration, and repo growth.
 
 ### `cartographer import`
 
-A mechanical import scaffold (D74 WP2), a sibling of the agentic `kb-import` skill
-(`internal/skillbundle/bundled/kb-import/`): unlike the other subcommands, it doesn't talk to the
+A mechanical import scaffold (D74 WP2), a sibling of the agentic `cartographer-kb-import` skill
+(`internal/skillbundle/bundled/cartographer-kb-import/`): unlike the other subcommands, it doesn't talk to the
 server, it operates directly on a local clone of the KB (`--kb`). It walks the `.md` files under `--source`
 (recursively, skipping hidden directories), maps each source directory onto a destination map (or
 expanded concept), fills in the frontmatter (never overwriting a field already present), and writes via

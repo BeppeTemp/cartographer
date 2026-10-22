@@ -71,7 +71,7 @@ func TestKBDoctorScriptsReadAKBClone(t *testing.T) {
 	}
 	scripts := t.TempDir()
 	for _, name := range []string{"section_freq.sh"} {
-		data, err := fs.ReadFile(FS, path.Join("bundled", "kb-doctor", "scripts", name))
+		data, err := fs.ReadFile(FS, path.Join("bundled", "cartographer-kb-doctor", "scripts", name))
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
 		}

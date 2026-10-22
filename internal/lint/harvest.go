@@ -70,7 +70,7 @@ func harvestCandidateItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 			Kind:            ReviewHarvestCandidate,
 			Concepts:        []string{string(c.id)},
 			Evidence:        evidence,
-			SuggestedAction: "harvest the durable facts into the live pages this entry links to, then set status to archived with a header line (kb-doctor, harvest and archive)",
+			SuggestedAction: "harvest the durable facts into the live pages this entry links to, then set status to archived with a header line (cartographer-kb-doctor, harvest and archive)",
 			Weight:          age,
 		})
 	}

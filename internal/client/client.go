@@ -558,7 +558,7 @@ func (c *MCPClient) ReportClientSettings(report any, timeout time.Duration) erro
 // doctorSchedulePath is the server route a scheduled-doctor declaration goes to (D369).
 const doctorSchedulePath = "/api/doctor-schedule"
 
-// DeclareDoctorSchedule tells the server that a headless kb-doctor session of
+// DeclareDoctorSchedule tells the server that a headless cartographer-kb-doctor session of
 // client is due at next, for one KB. Best-effort like ReportUsage: a server too
 // old for the route answers 404, which the caller is free to ignore.
 func (c *MCPClient) DeclareDoctorSchedule(kbName, clientName string, next time.Time, timeout time.Duration) error {

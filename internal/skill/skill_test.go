@@ -285,7 +285,7 @@ func TestBundledSkillsValidate(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"cartographer-ops", "kb-conflict-resolve", "kb-create", "kb-doctor", "kb-import", "kb-ingest"} {
+	for _, name := range []string{"cartographer-ops", "cartographer-kb-conflict-resolve", "cartographer-kb-create", "cartographer-kb-doctor", "cartographer-kb-import", "cartographer-kb-ingest"} {
 		if !found[name] {
 			t.Errorf("bundled skill %q not found", name)
 		}

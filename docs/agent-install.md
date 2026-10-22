@@ -134,8 +134,8 @@ instructions installed, report it: a provider precedence rule Cartographer does 
 
 `setup` (through `connect`) provisioned the bundled skills, including `cartographer-ops`. Use that skill for ongoing
 operations, diagnosis, upgrades, and synchronization after installation. From there the bundled
-`kb-create` and `kb-import` skills take over: `kb-create/references/artifacts.md` for authoring the
-KB's skills, subagents, hooks and MCP descriptors, and `kb-create/references/secrets.md` for the
+`cartographer-kb-create` and `cartographer-kb-import` skills take over: `cartographer-kb-create/references/artifacts.md` for authoring the
+KB's skills, subagents, hooks and MCP descriptors, and `cartographer-kb-create/references/secrets.md` for the
 SOPS encryption flow.
 
 ## 5. Tell the user to restart their agent session
@@ -166,6 +166,6 @@ Omitting this is the single most common way a correct installation is reported a
 | `setup` says `this client is connected to <url>, not to a local server` | This machine already uses a remote Cartographer server; setup does not re-point it. To add agents to that server use `cartographer connect --agents <agents>`. |
 | `setup` says `git is not installed` | Install git (on macOS `xcode-select --install` or Homebrew; on Windows the installer from git-scm.com), open a new shell, rerun. |
 | `setup` says `no agent client detected` | Name the agent explicitly with `--agents`; if it is really absent, it has to be installed first. |
-| `setup` stops at the KB step with `not an OKF KB` | The repository holds content that is not a Cartographer KB. Use the `kb-import` skill to import it into an OKF KB, push it, then rerun. |
+| `setup` stops at the KB step with `not an OKF KB` | The repository holds content that is not a Cartographer KB. Use the `cartographer-kb-import` skill to import it into an OKF KB, push it, then rerun. |
 | `setup` stops at the KB step with `Init: initial commit` | Git refused the KB's first commit; the git message under it names why (a commit hook, commit signing with no usable key; `Committer identity unknown` on a Cartographer older than D265 — set `git config --global user.name`/`user.email`). Fix it, remove the partial scaffold the hint names, rerun. |
 | `setup` stops at the KB step with a push failure | The repository was not empty after all, or the forge rejected the commit's author: the output names the fix. `src refspec main does not match any` is neither — the KB has no initial commit (see the row above; the hint prints the commit command). The scaffold is kept (D156). |

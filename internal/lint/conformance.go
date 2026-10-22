@@ -70,6 +70,10 @@ const (
 	// key found (for a `_map.md`), or "lint_accept" on instructions.md; the
 	// repair rewrites the descriptor to the current shape, or drops the key.
 	FixRewriteContract = "rewrite_contract"
+	// FixMoveSkill: Field = a KB skill directory named as a bundled skill was
+	// before D958, To = the directory it moves to (legacy_skill_name). The
+	// repair also sets the SKILL.md name; the body stays as written.
+	FixMoveSkill = "move_skill"
 	// FixRenameHeading and FixReorderSections (D352) are declared with the
 	// template checks, in template.go.
 )

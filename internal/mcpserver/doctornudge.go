@@ -13,7 +13,7 @@ import (
 )
 
 // doctorNudgeWindow is how long the server stays quiet toward one MCP session
-// after proposing a kb-doctor session (D299, D358). In memory: a restart
+// after proposing a cartographer-kb-doctor session (D299, D358). In memory: a restart
 // re-arms it, which costs one extra notice at most.
 const doctorNudgeWindow = 24 * time.Hour
 
@@ -61,7 +61,7 @@ func callerClient(ctx context.Context) string {
 	return name
 }
 
-// withDoctorNudge appends one text block proposing a kb-doctor session to a
+// withDoctorNudge appends one text block proposing a cartographer-kb-doctor session to a
 // successful tool result, at most once per doctorNudgeWindow per MCP session
 // (D358: the natural moment is a session start), when the
 // KB has debt and kb.DoctorSuggestionDays have passed since the last session (D299, D907). The server only
@@ -148,7 +148,7 @@ func doctorNudgeText(kbName, lastDoctor string, findings, fixable, review int) s
 	if lastDoctor == "" {
 		lastDoctor = "never"
 	}
-	return fmt.Sprintf("cartographer: KB %s - last kb-doctor session %s; %d lint findings, %d fixable, %d review items. "+
-		"Propose a kb-doctor session to the operator (skill kb-doctor); do not start it without their agreement.",
+	return fmt.Sprintf("cartographer: KB %s - last cartographer-kb-doctor session %s; %d lint findings, %d fixable, %d review items. "+
+		"Propose a cartographer-kb-doctor session to the operator (skill cartographer-kb-doctor); do not start it without their agreement.",
 		kbName, lastDoctor, findings, fixable, review)
 }

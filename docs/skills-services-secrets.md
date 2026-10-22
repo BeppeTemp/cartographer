@@ -10,11 +10,11 @@ the Agent Skills frontmatter (`name` and `description`) and exposes installed
 and binary-bundled skills through `skill_list`. `skill_install` copies a
 bundled skill into the KB.
 
-The bundled catalog (`internal/skillbundle/bundled/`) is `cartographer-ops`, `kb-create`,
-`kb-import`, `kb-conflict-resolve`, `kb-doctor` and `kb-ingest`. `kb-doctor` (D290) aligns a
+The bundled catalog (`internal/skillbundle/bundled/`) is `cartographer-ops`, `cartographer-kb-create`,
+`cartographer-kb-import`, `cartographer-kb-conflict-resolve`, `cartographer-kb-doctor` and `cartographer-kb-ingest`. `cartographer-kb-doctor` (D290) aligns a
 drifted KB in budgeted sessions; it ships one read-only POSIX shell script under `scripts/`
 (`section_freq.sh`) that answers an aggregate question from a local clone, guarded by
-`internal/skillbundle/scripts_test.go`. `kb-ingest` (D279) ingests **one** primary
+`internal/skillbundle/scripts_test.go`. `cartographer-kb-ingest` (D279) ingests **one** primary
 source (document, transcript, thread, ticket, incident timeline, email, web page, dataset) into
 existing pages through the source ledger of D278: register, distil, patch rather than create,
 cite via `provenance`, open a `Contradiction` instead of overwriting, record gaps, verify with
@@ -73,7 +73,7 @@ rules.
 
 Authoring a KB's artifacts — the seven accepted `artifact_write` paths, the minimum
 shape of each kind, the `if_match` protocol, and the manifest → trust →
-projection → materialization chain — is written out in the bundled `kb-create`
+projection → materialization chain — is written out in the bundled `cartographer-kb-create`
 skill's `references/artifacts.md` (D196).
 
 A materialized `SKILL.md` carries a provenance block naming the KB it came
@@ -217,7 +217,7 @@ flow. It **refuses** any path that is not a local `secrets/*.sops.yaml` and any
 file that does not yet exist — bootstrapping one is an operator action, not a
 tool call.
 
-The operator-side half is written out step by step in the bundled `kb-create`
+The operator-side half is written out step by step in the bundled `cartographer-kb-create`
 skill's `references/secrets.md`, which is where an agent is sent when it has to
 perform it.
 

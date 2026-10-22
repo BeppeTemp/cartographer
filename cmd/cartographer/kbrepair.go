@@ -66,7 +66,7 @@ type kbRepairReport struct {
 // cmdKBRepair implements `cartographer kb repair <kb> [--apply] [--json]`:
 // the unattended half of the doctor loop (D299). It plans every mechanical
 // repair, applies only the checks whose fix is safe to run unattended
-// (lint.AutoRepairChecks, D907), and reports the judgement work left for a kb-doctor
+// (lint.AutoRepairChecks, D907), and reports the judgement work left for a cartographer-kb-doctor
 // session. It never writes the kb-doctor log marker: a mechanical pass is not
 // a doctor session (D290), and writing it would silence the doctor proposal
 // for a whole interval while the judgement work is still undone.
@@ -301,6 +301,6 @@ func printKBRepairReport(w io.Writer, rep kbRepairReport) {
 	}
 	fmt.Fprintln(w)
 	if rep.Remaining > 0 {
-		fmt.Fprintln(w, "Run a kb-doctor session in an agent for what is left.")
+		fmt.Fprintln(w, "Run a cartographer-kb-doctor session in an agent for what is left.")
 	}
 }

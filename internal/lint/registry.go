@@ -179,6 +179,8 @@ var registry = []CheckSpec{
 	// KB-root artifacts (D316).
 	{Name: "skill_invalid", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	{Name: "skill_warning", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
+	// A move, not a file rewrite: kb_repair routes it with the map repairs.
+	{Name: "legacy_skill_name", Level: LevelArtifact, Panel: true, FixKinds: []string{FixMoveSkill}, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	{Name: "legacy_tool_name", Level: LevelArtifact, Panel: true, FixKinds: []string{FixStripToolPrefix}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	{Name: "skill_broken_ref", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	{Name: "skill_git_command", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
@@ -282,7 +284,7 @@ func MapRepairCheck(check string) bool {
 		return false
 	}
 	for _, k := range s.FixKinds {
-		if k == FixScaffoldMap || k == FixDropIndexEntry || k == FixRewriteContract {
+		if k == FixScaffoldMap || k == FixDropIndexEntry || k == FixRewriteContract || k == FixMoveSkill {
 			return true
 		}
 	}
@@ -294,7 +296,7 @@ func MapRepairCheck(check string) bool {
 // file the way artifact_write would.
 func ArtifactRepairCheck(check string) bool {
 	s, ok := Spec(check)
-	return ok && s.Level == LevelArtifact && len(s.FixKinds) > 0
+	return ok && s.Level == LevelArtifact && len(s.FixKinds) > 0 && !MapRepairCheck(check)
 }
 
 var unknownCheckOnce sync.Map

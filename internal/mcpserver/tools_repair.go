@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -495,11 +496,16 @@ type mapRepairTarget struct {
 	// Artifact and DropKey, when set, make the target a KB-root artifact
 	// whose frontmatter loses that key (lint_accept in instructions.md, D907).
 	Artifact, DropKey string
+	// MoveFrom and MoveTo, when set, make the target a skill directory that
+	// moves to its post-D958 name (legacy_skill_name).
+	MoveFrom, MoveTo string
 }
 
 // key is what the target's finding path is, for the limit filter.
 func (t mapRepairTarget) key() string {
 	switch {
+	case t.MoveFrom != "":
+		return t.MoveFrom
 	case t.Artifact != "":
 		return t.Artifact
 	case t.Realign:
@@ -536,6 +542,8 @@ func planMapRepair(k *kb.KB, check, scope string) ([]mapRepairTarget, []repairIt
 			} else {
 				targets = append(targets, mapRepairTarget{Artifact: f.Path, DropKey: f.Fix.Field})
 			}
+		case lint.FixMoveSkill:
+			targets = append(targets, mapRepairTarget{MoveFrom: f.Fix.Field, MoveTo: f.Fix.To})
 		default:
 			continue
 		}
@@ -558,6 +566,14 @@ func planMapRepair(k *kb.KB, check, scope string) ([]mapRepairTarget, []repairIt
 // target the plan no longer applies to. The caller holds the KB lock (gitWrap).
 func applyMapRepair(k *kb.KB, targets []mapRepairTarget) (applied []mapRepairTarget, skipped []repairSkip) {
 	for _, t := range targets {
+		if t.MoveFrom != "" {
+			if err := moveLegacySkill(k, t.MoveFrom, t.MoveTo); err != nil {
+				skipped = append(skipped, repairSkip{t.key(), err.Error()})
+				continue
+			}
+			applied = append(applied, t)
+			continue
+		}
 		if t.Artifact != "" {
 			if err := dropArtifactFrontmatterKey(k, t.Artifact, t.DropKey); err != nil {
 				skipped = append(skipped, repairSkip{t.key(), err.Error()})
@@ -640,6 +656,67 @@ func dropArtifactFrontmatterKey(k *kb.KB, rel, key string) error {
 		return err
 	}
 	return os.WriteFile(abs, []byte(text), st.Mode().Perm())
+}
+
+// moveLegacySkill moves the skill directory from to to (both skills/<name>) and
+// sets the SKILL.md name to the new directory name; the body and every other
+// key stay as written. It leaves both copies when to exists: two skills that
+// diverged are a person's merge, not a mechanical move. Nothing is touched when
+// a check fails, and a second run finds no from directory.
+func moveLegacySkill(k *kb.KB, from, to string) error {
+	// from/SKILL.md too: the KB comes from a remote, and a SKILL.md that is a
+	// link would make the WriteFile below truncate its target outside the KB.
+	for _, rel := range []string{from + "/SKILL.md", to} {
+		if err := rejectArtifactSymlinks(k.Root, rel); err != nil {
+			return err
+		}
+	}
+	absFrom, err := k.ResolveRootPath(from + "/SKILL.md")
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(absFrom)
+	if err != nil {
+		return fmt.Errorf("%s has no SKILL.md any more", from)
+	}
+	absTo, err := k.ResolveRootPath(to)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Lstat(absTo); err == nil {
+		return fmt.Errorf("conflict: %s already exists; both copies are left as they are, merge them by hand", to)
+	}
+	fmRaw, body, ok := okf.SplitFrontmatter(string(data))
+	if !ok {
+		return fmt.Errorf("%s/SKILL.md has no frontmatter", from)
+	}
+	fm, err := okf.ParseFrontmatter(fmRaw)
+	if err != nil {
+		return fmt.Errorf("%s/SKILL.md: %w", from, err)
+	}
+	newName := filepath.Base(to)
+	fm.Set("name", newName)
+	text := "---\n" + fm.Serialize() + "\n---\n" + body
+	info, err := classifyArtifactPath(to + "/SKILL.md")
+	if err != nil {
+		return err
+	}
+	if err := validateArtifactContent(info, to+"/SKILL.md", []byte(text)); err != nil {
+		return fmt.Errorf("the moved skill would not validate: %w", err)
+	}
+	st, err := os.Lstat(absFrom)
+	if err != nil {
+		return err
+	}
+	absFromDir := filepath.Dir(absFrom)
+	if err := os.Rename(absFromDir, absTo); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(absTo, "SKILL.md"), []byte(text), st.Mode().Perm()); err != nil {
+		_ = os.Rename(absTo, absFromDir)
+		return err
+	}
+	return nil
 }
 
 // kbRepairMaps is kb_repair for a map check: the same response shape, counted
@@ -1030,7 +1107,7 @@ func toolKBRepair(k *kb.KB) Tool {
 		// and an unknown check is refused naming them (D301 budget).
 		Description: "Applies the mechanical fix a lint finding carries (fix) for one check, " +
 			"KB-wide in one commit. dry_run defaults to true (plan only). " +
-			"Concepts changed since listing are skipped. Judgement fixes: kb-doctor skill.",
+			"Concepts changed since listing are skipped. Judgement fixes: cartographer-kb-doctor skill.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["check"],

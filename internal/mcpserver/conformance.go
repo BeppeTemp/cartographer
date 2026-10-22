@@ -265,8 +265,10 @@ var conformanceChecks = map[string]bool{
 	"legacy_archive_descriptor": true,
 }
 
-// doctorMarker is the text a log.md entry carries when the kb-doctor skill
-// closed a session: kb_status reads the date of the newest one.
+// doctorMarker is the text a log.md entry carries when the cartographer-kb-doctor skill
+// closed a session: kb_status reads the date of the newest one. It is a log
+// marker, not the skill name: existing KB logs carry "kb-doctor", so it stays
+// when the skill is renamed (D958), and it still matches the new name by substring.
 const doctorMarker = "kb-doctor"
 
 var logDateRe = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
@@ -292,7 +294,7 @@ func lastDoctorDate(k *kb.KB) string {
 	return newest
 }
 
-// doctorDue says whether a kb-doctor session is due (D299): the KB's interval
+// doctorDue says whether a cartographer-kb-doctor session is due (D299): the KB's interval
 // has passed since the last one, or there never was one. An interval of 0
 // means the operator turned the proposal off.
 func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {

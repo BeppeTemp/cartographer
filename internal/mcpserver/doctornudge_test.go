@@ -155,7 +155,7 @@ func TestDoctorNudgeOnlyProposes(t *testing.T) {
 	s, _ := nudgeKB(t)
 	res := s.callTool(inSession("a"), "search", json.RawMessage(`{"query":"N0"}`))
 	text := res.Content[len(res.Content)-1].Text
-	if !strings.Contains(text, "Propose a kb-doctor session to the operator") || !strings.Contains(text, "do not start it") {
+	if !strings.Contains(text, "Propose a cartographer-kb-doctor session to the operator") || !strings.Contains(text, "do not start it") {
 		t.Fatalf("nudge text = %q", text)
 	}
 }

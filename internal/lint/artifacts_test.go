@@ -95,6 +95,33 @@ func TestLint_LegacyToolName(t *testing.T) {
 	}
 }
 
+// A KB copy under a pre-D958 bundled-skill name is a finding with a move fix;
+// when the new name exists too, the finding says the repair leaves both.
+func TestLint_LegacySkillName(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.Root, "skills/kb-create/SKILL.md", skillMD("kb-create", "Old", "Body.\n"))
+	writeFile(t, k.Root, "skills/kb-import/SKILL.md", skillMD("kb-import", "Old", "Body.\n"))
+	writeFile(t, k.Root, "skills/cartographer-kb-import/SKILL.md", skillMD("cartographer-kb-import", "New", "Body.\n"))
+	writeFile(t, k.Root, "skills/my-own/SKILL.md", skillMD("my-own", "Mine", "Body.\n"))
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := findingsOf(findings, "legacy_skill_name")
+	if len(got) != 2 {
+		t.Fatalf("want 2 legacy_skill_name, got %v", got)
+	}
+	byPath := map[string]Finding{got[0].Path: got[0], got[1].Path: got[1]}
+	f := byPath["skills/kb-create"]
+	if f.Fix == nil || f.Fix.Kind != FixMoveSkill || f.Fix.Field != "skills/kb-create" || f.Fix.To != "skills/cartographer-kb-create" {
+		t.Errorf("fix = %+v", f.Fix)
+	}
+	if c := byPath["skills/kb-import"]; !strings.Contains(c.Message, "both copies") {
+		t.Errorf("a conflict must say both copies stay: %q", c.Message)
+	}
+}
+
 func TestLint_LegacyToolNameInInstructions(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
