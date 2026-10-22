@@ -52,6 +52,12 @@ jobs:
           MANUAL_REF: ${{ inputs.ref }}
         run: |
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # Caches are scoped to the ref the run started on (main): only main's own code may read or write them.
+          if [ -z "$MANUAL_REF" ] || [ "$MANUAL_REF" = main ]; then
+            echo "trusted=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "trusted=false" >> "$GITHUB_OUTPUT"
+          fi
           if [ -n "$MANUAL_REF" ]; then
             echo "manual run: rendering $MANUAL_REF"
             echo "render=true" >> "$GITHUB_OUTPUT"
@@ -68,7 +74,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: web/.nvmrc
-          cache: npm
+          cache: ${{ steps.needed.outputs.trusted == 'true' && 'npm' || '' }}
           cache-dependency-path: web/package-lock.json
       - if: steps.needed.outputs.render == 'true'
         run: cd web && npm ci --silent
@@ -77,7 +83,7 @@ jobs:
       - if: steps.needed.outputs.render == 'true'
         id: playwright
         run: echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
-      - if: steps.needed.outputs.render == 'true'
+      - if: steps.needed.outputs.render == 'true' && steps.needed.outputs.trusted == 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         id: pw-cache
         with:

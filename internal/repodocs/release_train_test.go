@@ -134,9 +134,11 @@ func TestPreviewWorkflowSmokesBeforePush(t *testing.T) {
 func TestPreviewCallsTheFilmWithoutToleratingFailure(t *testing.T) {
 	root := repoRoot(t)
 	type step struct {
-		Uses            string `yaml:"uses"`
-		Run             string `yaml:"run"`
-		ContinueOnError any    `yaml:"continue-on-error"`
+		Uses            string            `yaml:"uses"`
+		Run             string            `yaml:"run"`
+		If              string            `yaml:"if"`
+		With            map[string]string `yaml:"with"`
+		ContinueOnError any               `yaml:"continue-on-error"`
 	}
 	var preview struct {
 		Jobs map[string]struct {
@@ -192,10 +194,27 @@ func TestPreviewCallsTheFilmWithoutToleratingFailure(t *testing.T) {
 	if len(render.Permissions) != 1 || render.Permissions["contents"] != "read" {
 		t.Errorf("film.yml: job render has permissions %v, want exactly contents: read", render.Permissions)
 	}
+	checkouts := 0
 	for _, st := range render.Steps {
-		if strings.HasPrefix(st.Uses, "actions/checkout@") && !strings.Contains(raw, "persist-credentials: false") {
-			t.Errorf("film.yml: job render checks out without persist-credentials: false")
+		switch {
+		case strings.HasPrefix(st.Uses, "actions/checkout@"):
+			checkouts++
+			if st.With["persist-credentials"] != "false" {
+				t.Errorf("film.yml: job render checks out with persist-credentials %q, want false", st.With["persist-credentials"])
+			}
+		// A manual run of another ref renders unreviewed code: it must neither read nor write the caches main uses.
+		case strings.HasPrefix(st.Uses, "actions/cache@"):
+			if !strings.Contains(st.If, "steps.needed.outputs.trusted == 'true'") {
+				t.Errorf("film.yml: render's cache step is not gated on trusted, if: %q", st.If)
+			}
+		case strings.HasPrefix(st.Uses, "actions/setup-node@"):
+			if c := st.With["cache"]; c != "" && !strings.Contains(c, "steps.needed.outputs.trusted == 'true'") {
+				t.Errorf("film.yml: render's setup-node cache %q is not gated on trusted", c)
+			}
 		}
+	}
+	if checkouts != 1 {
+		t.Errorf("film.yml: job render has %d checkouts, want 1", checkouts)
 	}
 	if len(publish.Permissions) != 1 || publish.Permissions["contents"] != "write" || !strings.Contains(toString(publish.Needs), "render") {
 		t.Errorf("film.yml: job publish must need render and hold exactly contents: write, got %v needs %v", publish.Permissions, publish.Needs)
@@ -204,6 +223,12 @@ func TestPreviewCallsTheFilmWithoutToleratingFailure(t *testing.T) {
 		t.Errorf("film.yml: job publish must be gated on refs/heads/main, if: %q", publish.If)
 	}
 	for _, st := range publish.Steps {
+		if strings.HasPrefix(st.Uses, "actions/checkout@") && st.With["ref"] != "${{ needs.render.outputs.sha }}" {
+			t.Errorf("film.yml: job publish checks out ref %q, want the rendered sha", st.With["ref"])
+		}
+		if strings.HasPrefix(st.Uses, "actions/download-artifact@") && st.With["path"] != "film/out" {
+			t.Errorf("film.yml: job publish downloads to %q, want film/out only", st.With["path"])
+		}
 		if strings.Contains(st.Run, "npm ") || strings.Contains(st.Run, "npx ") || strings.Contains(st.Run, "render.sh") {
 			t.Errorf("film.yml: job publish holds the write token and must not run the film's code: %q", st.Run)
 		}
