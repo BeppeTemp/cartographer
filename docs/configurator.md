@@ -236,10 +236,10 @@ them afterwards is a migration. `workspace unbind` removes the declaration and t
 prunes what was projected there. A binding also scopes the **tools** in every client, with no file
 written into the workspace: `sync` writes the provider's global MCP entry as a local stdio bridge,
 `cartographer mcp --provider <p>`, which serves only the KBs of the folder the session runs in
-(deepest binding wins; an unbound folder keeps the provider's default set; `--no-kb` means no KB,
-never every KB). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
+(deepest binding wins; an unbound folder, `$HOME` included, gets the provider's default set
+**read-only** and no KB artifact (D1018); `--no-kb` means no KB, never every KB). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
 token (D44/D45). Artifacts stay opt-in per scope (above). `workspace resolve [<path>]` shows which
-binding wins for a folder. `workspace list` shows the bindings, with `[gone]` next to a
+binding wins for a folder, and prints `read-only` for one that no binding covers. `workspace list` shows the bindings, with `[gone]` next to a
 directory that is not there any more (D737, `sync.md` §Workspace scope). Limits: the bridge opens no
 server-push stream; if `cartographer` is not on `PATH` when `sync` runs, the provider keeps its HTTP
 entry with a warning; a client with `roots` in an unbound folder gets a handshake naming no KB.

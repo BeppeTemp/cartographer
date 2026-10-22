@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 )
 
 func mkdir(t *testing.T, parts ...string) string {
@@ -67,11 +68,15 @@ func TestResolveMatrix(t *testing.T) {
 		{"unmounted KB is no KB", ghost, nil, false, true},
 		{"unbound folder is the provider default", t.TempDir(), nil, true, false},
 	}
+	readOnly := map[string]bool{"unbound folder is the provider default": true}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := Resolve(cfg, "claude", c.dir)
 			if s.All != c.all || s.None() != c.none || !reflect.DeepEqual(s.KBs, c.want) {
 				t.Fatalf("scope = %+v, want kbs=%v all=%v none=%v", s, c.want, c.all, c.none)
+			}
+			if s.ReadOnly != readOnly[c.name] {
+				t.Fatalf("ReadOnly = %v, want %v (only an unbound folder is read-only)", s.ReadOnly, readOnly[c.name])
 			}
 			if c.none && s.Query() != "" {
 				t.Fatalf("an empty set must never produce a kbs= query, got %q", s.Query())
@@ -87,7 +92,7 @@ func TestResolveUnboundUsesTheProviderBinding(t *testing.T) {
 	if s.All || !reflect.DeepEqual(s.KBs, []string{"kb-b"}) {
 		t.Fatalf("scope = %+v", s)
 	}
-	if got := s.Query(); got != "kbs=kb-b" {
+	if got := s.Query(); got != "kbs=kb-b&access=read" {
 		t.Fatalf("query = %q", got)
 	}
 }
@@ -130,6 +135,9 @@ func TestResolveRootsFallback(t *testing.T) {
 	if want := map[string][]string{"kb-a": {a}, "kb-b": {b}}; !reflect.DeepEqual(s.Dirs, want) {
 		t.Errorf("dirs = %v, want %v", s.Dirs, want)
 	}
+	if s.ReadOnly || strings.Contains(s.Query(), "access") {
+		t.Errorf("a root-derived binding is never read-only: %+v", s)
+	}
 	if _, ok := ResolveRoots(cfg, "claude", []string{fileURI(plain)}); ok {
 		t.Fatal("an unbound root must leave the provider scope alone")
 	}
@@ -170,5 +178,44 @@ func TestQueryEscapesAndSorts(t *testing.T) {
 	s := Scope{KBs: []string{"kb a", "kb-b"}}
 	if got := s.Query(); !strings.HasPrefix(got, "kbs=kb+a,kb-b") {
 		t.Fatalf("query = %q", got)
+	}
+}
+
+// The read-only flag survives to the query in every shape, and an empty set is
+// still never sent as kbs=.
+func TestQueryReadOnly(t *testing.T) {
+	cases := []struct {
+		s    Scope
+		want string
+	}{
+		{Scope{All: true}, ""},
+		{Scope{All: true, ReadOnly: true}, "access=read"},
+		{Scope{KBs: []string{"kb-a", "kb-b"}}, "kbs=kb-a,kb-b"},
+		{Scope{KBs: []string{"kb-a", "kb-b"}, ReadOnly: true}, "kbs=kb-a,kb-b&access=read"},
+		{Scope{ReadOnly: true}, "access=read"},
+	}
+	for _, c := range cases {
+		if got := c.s.Query(); got != c.want {
+			t.Errorf("%+v: query = %q, want %q", c.s, got, c.want)
+		}
+	}
+}
+
+// With the provider default read-only, roots that bind nothing keep it.
+func TestResolveRootsUnboundKeepsReadOnlyProviderScope(t *testing.T) {
+	cfg := baseConfig()
+	plain := mkdir(t, t.TempDir())
+	if _, ok := ResolveRoots(cfg, "claude", []string{fileURI(plain)}); ok {
+		t.Fatal("an unbound root must leave the provider scope alone")
+	}
+	if s := Resolve(cfg, "claude", plain); !s.ReadOnly || !s.All {
+		t.Fatalf("provider scope = %+v, want read-only All", s)
+	}
+}
+
+// The bridge's header constants are the server's.
+func TestAccessConstantsMatchTheServer(t *testing.T) {
+	if accessHeader != mcpserver.AccessHeader || accessRead != mcpserver.AccessReadValue {
+		t.Fatalf("bridge %q=%q, server %q=%q", accessHeader, accessRead, mcpserver.AccessHeader, mcpserver.AccessReadValue)
 	}
 }

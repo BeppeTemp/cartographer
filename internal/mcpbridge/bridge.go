@@ -18,6 +18,13 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 )
 
+// accessHeader and accessRead mirror mcpserver.AccessHeader and
+// mcpserver.AccessReadValue: the bridge does not import the server package.
+const (
+	accessHeader = "Cartographer-Access"
+	accessRead   = "read"
+)
+
 // rootsTimeout bounds the wait for a client's answer to roots/list. A client
 // that declares roots and never answers must not hang the session.
 const rootsTimeout = 5 * time.Second
@@ -45,8 +52,12 @@ type Bridge struct {
 	mu         sync.Mutex // guards the fields below
 	scope      *Scope
 	rootsAware bool
-	protocol   string
-	sessionID  string
+	// accessConfirmed is set once a server response of a read-only session
+	// carried Cartographer-Access: read; serverTooOld once one did not.
+	accessConfirmed bool
+	serverTooOld    bool
+	protocol        string
+	sessionID       string
 
 	authorMu       sync.Mutex // guards the fields below
 	gitAuthors     map[string]gitAuthor
@@ -288,8 +299,18 @@ func (b *Bridge) writeResult(id json.RawMessage, result any) {
 // its own goroutine, so a slow tool call never blocks a cancellation.
 func (b *Bridge) dispatch(ctx context.Context, wg *sync.WaitGroup, raw []byte, m message) {
 	scope := b.currentScope()
+	if b.isServerTooOld() {
+		scope = serverTooOldScope(scope)
+	}
 	if scope.None() {
 		b.answerLocally(scope, m)
+		return
+	}
+	if b.awaitingAccess(scope) {
+		// TRAP: until the server has confirmed read-only mode, forward in
+		// order and wait. Concurrent forwards would put the next requests on an
+		// old server that ignores ?access=read before the first answer says so.
+		b.forward(ctx, scope, raw, m)
 		return
 	}
 	wg.Add(1)
@@ -297,6 +318,14 @@ func (b *Bridge) dispatch(ctx context.Context, wg *sync.WaitGroup, raw []byte, m
 		defer wg.Done()
 		b.forward(ctx, scope, raw, m)
 	}()
+}
+
+// awaitingAccess is true for a read-only scope whose mode the server has not
+// confirmed yet.
+func (b *Bridge) awaitingAccess(scope Scope) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return scope.ReadOnly && !b.accessConfirmed
 }
 
 // answerLocally serves a session whose folder is bound to no KB: the handshake
@@ -349,7 +378,49 @@ func orUnknown(v string) string {
 	return v
 }
 
+// errServerTooOld is the scope error of a read-only session whose server did
+// not confirm the mode (Cartographer-Access: read). An older server ignores
+// ?access=read and would serve write tools silently, so the bridge serves no
+// KB instead (fail closed across versions).
+var errServerTooOld = errors.New("the Cartographer server must be upgraded to serve read-only sessions " +
+	"(this folder is bound to no KB, so the session must be read-only, and this server did not confirm it)")
+
+func serverTooOldScope(s Scope) Scope {
+	return Scope{Source: s.Source, ReadOnly: true, Err: errServerTooOld}
+}
+
+func (b *Bridge) isServerTooOld() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.serverTooOld
+}
+
+// checkAccess verifies the server's confirmation of a read-only session on a
+// successful response. It returns false when the response must not be relayed.
+func (b *Bridge) checkAccess(scope Scope, resp *http.Response) bool {
+	b.mu.Lock()
+	confirmed := b.accessConfirmed
+	b.mu.Unlock()
+	if !scope.ReadOnly || confirmed || resp.StatusCode >= 300 {
+		return true
+	}
+	if resp.Header.Get(accessHeader) == accessRead {
+		b.mu.Lock()
+		b.accessConfirmed = true
+		b.mu.Unlock()
+		return true
+	}
+	b.mu.Lock()
+	b.serverTooOld = true
+	b.mu.Unlock()
+	b.logf("%s", errServerTooOld)
+	return false
+}
+
 func noKBInstructions(scope Scope) string {
+	if errors.Is(scope.Err, errServerTooOld) {
+		return "Cartographer serves no KB in this session: " + scope.Err.Error() + "."
+	}
 	if scope.Err != nil {
 		return "This folder's Cartographer binding cannot be honoured, so no KB is served here: " + scope.Err.Error()
 	}
@@ -423,6 +494,10 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 		return
 	}
 	defer resp.Body.Close()
+	if !b.checkAccess(scope, resp) {
+		b.answerLocally(serverTooOldScope(scope), m)
+		return
+	}
 	if id := resp.Header.Get("Mcp-Session-Id"); id != "" {
 		b.mu.Lock()
 		b.sessionID = id

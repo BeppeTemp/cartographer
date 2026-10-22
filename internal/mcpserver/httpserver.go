@@ -531,10 +531,22 @@ func (m *MultiKBServer) Handler() http.Handler {
 				http.Error(w, "conflicting kb selection: the routed mount takes the KB as a tool argument, not as a query parameter", http.StatusBadRequest)
 				return
 			}
-			srv, unknown, renamed, err := m.routedFor(r.URL.Query()["kbs"])
+			readOnly := false
+			switch access := r.URL.Query().Get("access"); access {
+			case "":
+			case AccessReadValue:
+				readOnly = true
+			default:
+				http.Error(w, fmt.Sprintf("invalid access %q: the only accepted value is %q (omit it for the connection's normal access)", access, AccessReadValue), http.StatusBadRequest)
+				return
+			}
+			srv, unknown, renamed, err := m.routedFor(r.URL.Query()["kbs"], readOnly)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
+			}
+			if readOnly {
+				w.Header().Set(AccessHeader, AccessReadValue)
 			}
 			ctx := withRoutedRenamed(withRoutedUnknown(r.Context(), unknown), renamed)
 			srv.handleMCP(w, r.WithContext(ctx))

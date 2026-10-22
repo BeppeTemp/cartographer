@@ -224,7 +224,8 @@ func TestWorkspaceResolveGolden(t *testing.T) {
 	// Outside the binding: unbound, with the roots note on a bridge entry.
 	other := t.TempDir()
 	got = renderWorkspaceResolve(cfg, other, []string{"claude"})
-	if !strings.Contains(got, "unbound: the provider's default set (every KB)") || !strings.Contains(got, "MCP roots") {
+	if !strings.Contains(got, "unbound: the provider's default set (every KB)") || !strings.Contains(got, "MCP roots") ||
+		!strings.Contains(got, "read-only") {
 		t.Fatalf("unbound output:\n%s", got)
 	}
 
