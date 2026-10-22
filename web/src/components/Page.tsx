@@ -718,14 +718,28 @@ export function SourceSkeleton({ label, lines = 14 }: { label: string; lines?: n
   );
 }
 
-/** A body of text that has not arrived: lines of varying length, as a paragraph reads. */
+/**
+ * A body of text that has not arrived: paragraphs of line bones inside the
+ * concept reader's own box (.markdown), so each line is the height of a line
+ * of the text that replaces it.
+ */
 export function TextSkeleton({ label, lines = 6 }: { label: string; lines?: number }) {
   const widths = [96, 88, 92, 60, 94, 80, 90, 45];
+  const paragraphs: number[][] = [];
+  for (let i = 0; i < lines; i += 4) paragraphs.push(Array.from({ length: Math.min(4, lines - i) }, (_, k) => i + k));
   return (
     <LoadingRegion label={label} className="text-skeleton">
-      {Array.from({ length: lines }, (_, i) => (
-        <Bone key={i} w={`${widths[i % widths.length]}%`} h={14} />
-      ))}
+      <div className="markdown">
+        {paragraphs.map((p, n) => (
+          <p key={n}>
+            {p.map((i) => (
+              <span key={i} className="text-skeleton__line">
+                <Bone line w={`${widths[i % widths.length]}%`} />
+              </span>
+            ))}
+          </p>
+        ))}
+      </div>
     </LoadingRegion>
   );
 }

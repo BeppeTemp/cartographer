@@ -3945,17 +3945,20 @@ code.mapcontract__label {
   display: block;
 }
 
-.text-skeleton,
 .entries-skeleton {
   display: grid;
   gap: var(--space-3);
   padding-block: var(--space-2);
 }
 
-.text-skeleton .loading-shape__body,
 .entries-skeleton .loading-shape__body {
   display: grid;
   gap: var(--space-3);
+}
+
+/* One line of the paragraph each: the bone takes the reader's line height. */
+.text-skeleton__line {
+  display: block;
 }
 
 .entries-skeleton__row {
