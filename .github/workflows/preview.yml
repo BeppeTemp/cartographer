@@ -18,6 +18,13 @@ permissions:
   packages: write
 
 jobs:
+  # Renders the README film from the sources being released (D1068). Parallel to the image, no `needs` either
+  # way: a red film makes the run fail, release-train.yml then finds no successful candidate and the train skips.
+  film:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/film.yml
+
   docker:
     runs-on: ubuntu-latest
     steps:

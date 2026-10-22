@@ -331,6 +331,17 @@ bare origin: no branch means a recording is needed; after a publish the same tag
 tag whose `web/` tree differs does; publishing twice leaves one commit carrying the `Web-Tree:`
 trailer; a tag that changes only files outside `web/` needs none.
 
+**The film's branch is asserted the same way, and its render only in CI.** `23_film_publish` runs
+`film/publish.sh` and `film/film-needed.sh` (D1068) against a scratch repository and a bare origin: no branch
+means a render is needed; after a publish the same revision needs none; a change to a file in each class of the
+film's inputs (`film/inputs.sh`) needs one and a change outside them (`README.md`, another `web/src` file) none;
+publishing twice leaves one commit with `README.md`, `film.webp` and the `Film-Tree:` trailer; an input missing
+at the revision is exit 2. `TestFilmImportsStayInsideTheHashedInputs` (`internal/repodocs`) fails when an import
+of `film/src` resolves outside that list, and `TestPreviewCallsTheFilmWithoutToleratingFailure` pins the workflow
+shape (no `continue-on-error`, `contents: write` only, actions pinned). The render itself needs a browser,
+ffmpeg and minutes of software WebGL, so it is exercised only by `film.yml`: no test or pull-request check
+renders it.
+
 ### Packaging (`install.sh` and the generated Cask)
 
 `make test-install` runs the network-free suite under `test/install/` plus

@@ -545,7 +545,7 @@ async function frame(n: number) {
   gctx.drawImage(sc.canvas, 0, 0);
 }
 
-const film = { fps: FPS, frames: Math.round(DURATION * FPS), frame };
+const film = { fps: FPS, frames: Math.round(DURATION * FPS), frame, rendered: () => last + 1 };
 (window as unknown as { film: typeof film }).film = film;
 
 if (!RECORD) {

@@ -126,3 +126,92 @@ func TestPreviewWorkflowSmokesBeforePush(t *testing.T) {
 		t.Errorf("preview.yml: the smoke (step %d) runs after the push (step %d): a candidate whose container does not start would be published", smoke, push)
 	}
 }
+
+// A film that cannot render blocks the release candidate and so the train (D1068): the film job of preview.yml
+// must not tolerate failure, film.yml must not swallow one anywhere in its path, and it may only write contents.
+// Every action it uses is pinned to a full commit SHA (it holds a write token).
+func TestPreviewCallsTheFilmWithoutToleratingFailure(t *testing.T) {
+	root := repoRoot(t)
+	type step struct {
+		Uses            string `yaml:"uses"`
+		Run             string `yaml:"run"`
+		ContinueOnError any    `yaml:"continue-on-error"`
+	}
+	var preview struct {
+		Jobs map[string]struct {
+			Uses            string            `yaml:"uses"`
+			Permissions     map[string]string `yaml:"permissions"`
+			ContinueOnError any               `yaml:"continue-on-error"`
+			Needs           any               `yaml:"needs"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, root, ".github/workflows/preview.yml")), &preview); err != nil {
+		t.Fatalf("preview.yml: %v", err)
+	}
+	calls := 0
+	for name, job := range preview.Jobs {
+		if job.Uses == "./.github/workflows/film.yml" {
+			calls++
+			if job.ContinueOnError != nil {
+				t.Errorf("preview.yml: job %s calls film.yml with continue-on-error: a film that fails must fail the candidate", name)
+			}
+			if job.Permissions["contents"] != "write" {
+				t.Errorf("preview.yml: job %s needs `permissions: contents: write` to call film.yml", name)
+			}
+		} else if strings.Contains(toString(job.Needs), "film") {
+			t.Errorf("preview.yml: job %s needs the film job: the film and the image run in parallel", name)
+		}
+		if job.Uses != "" && job.Needs != nil {
+			t.Errorf("preview.yml: job %s has needs: the film and the image run in parallel", name)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("preview.yml: %d jobs call film.yml, want exactly one", calls)
+	}
+
+	raw := readFile(t, root, ".github/workflows/film.yml")
+	var film struct {
+		Permissions map[string]string `yaml:"permissions"`
+		Jobs        map[string]struct {
+			ContinueOnError any    `yaml:"continue-on-error"`
+			Steps           []step `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(raw), &film); err != nil {
+		t.Fatalf("film.yml: %v", err)
+	}
+	if len(film.Permissions) != 1 || film.Permissions["contents"] != "write" {
+		t.Errorf("film.yml: permissions %v, want exactly contents: write", film.Permissions)
+	}
+	pinned := regexp.MustCompile(`^[^@\s]+@[0-9a-f]{40}$`)
+	for name, job := range film.Jobs {
+		if job.ContinueOnError != nil {
+			t.Errorf("film.yml: job %s has continue-on-error", name)
+		}
+		for i, st := range job.Steps {
+			if st.ContinueOnError != nil {
+				t.Errorf("film.yml: job %s step %d has continue-on-error", name, i)
+			}
+			if strings.Contains(st.Run, "|| true") {
+				t.Errorf("film.yml: job %s step %d swallows a failure with `|| true`", name, i)
+			}
+			if st.Uses != "" && !pinned.MatchString(st.Uses) {
+				t.Errorf("film.yml: `uses: %s` is not pinned to a 40-hex commit SHA", st.Uses)
+			}
+		}
+	}
+}
+
+func toString(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case []any:
+		parts := make([]string, 0, len(x))
+		for _, e := range x {
+			parts = append(parts, toString(e))
+		}
+		return strings.Join(parts, " ")
+	}
+	return ""
+}
