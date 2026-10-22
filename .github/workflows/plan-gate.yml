@@ -17,7 +17,9 @@ name: plan-gate
 #     a rename on main the current workflow runs a path the old tree does not have.
 #   - Every `uses:` is pinned to a full commit SHA: this is the only workflow that holds
 #     the base repository token on fork-triggered events, so a moved tag must not reach it.
-#   - Read-only permissions and no secrets; only the re-run job gets actions: write.
+#   - Read-only permissions and no secrets; only the re-run job gets actions: write,
+#     and the milestone job pull-requests: write. Neither checks anything out: they
+#     run gh against the API with values the API returned, never PR content.
 #
 # TRAP: a `pull_request_target` workflow added or changed by a PR does not run
 # from that PR (it runs from the base branch): this file starts working on the
@@ -91,4 +93,52 @@ jobs:
             [ -n "$run" ] || { echo "PR #$pr: no plan-gate run to re-run"; continue; }
             echo "PR #$pr: re-running plan-gate run $run"
             gh run rerun "$run" || echo "PR #$pr: run $run could not be re-run"
+          done
+
+  # A PR sits in the milestone of the issues it closes, so a train's milestone lists its
+  # PRs too (CONTRIBUTING.md §Pull requests). A contributor cannot set a milestone, so
+  # the workflow does: on a PR whose `Closes #n` changed, and on an issue moved to
+  # another train. Of several closed issues the latest train wins, since the PR merges
+  # only when that one is next (an undated milestone is no train and loses). A PR that
+  # closes no milestoned issue is left as it is.
+  milestone:
+    name: pr-milestone
+    if: >-
+      (github.event_name == 'pull_request_target' &&
+      (github.event.action == 'opened' || github.event.action == 'edited' || github.event.action == 'reopened')) ||
+      (github.event_name == 'issues' &&
+      (github.event.action == 'milestoned' || github.event.action == 'demilestoned'))
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: read
+      contents: read
+    steps:
+      - name: Give each PR the milestone of the issues it closes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          if [ -n "$PR" ]; then
+            prs=$PR
+          else
+            prs=$(gh pr list --state open --limit 200 --json number,closingIssuesReferences \
+              | jq -r --arg i "$ISSUE" --arg u "https://github.com/$GH_REPO/issues/$ISSUE" \
+                '.[] | select(any(.closingIssuesReferences[]?; .number == ($i | tonumber) and .url == $u)) | .number')
+          fi
+          for pr in $prs; do
+            # Only this repository's issues: `Closes other/repo#n` must not read local #n.
+            want=$(gh pr view "$pr" --json closingIssuesReferences \
+              --jq '.closingIssuesReferences[] | select(.url | startswith("https://github.com/" + env.GH_REPO + "/issues/")) | .number' \
+              | while read -r n; do
+                  gh api "repos/$GH_REPO/issues/$n" --jq 'select(.milestone != null) | "\(.milestone.due_on // "0000")|\(.milestone.number)|\(.milestone.title)"'
+                done | sort | tail -n1)
+            [ -n "$want" ] || { echo "PR #$pr: closes no milestoned issue"; continue; }
+            IFS='|' read -r _ number title <<<"$want"
+            have=$(gh api "repos/$GH_REPO/issues/$pr" --jq '.milestone.number // empty')
+            [ "$have" = "$number" ] && { echo "PR #$pr: already in $title"; continue; }
+            echo "PR #$pr: milestone $title"
+            gh api -X PATCH "repos/$GH_REPO/issues/$pr" -F milestone="$number" --silent
           done

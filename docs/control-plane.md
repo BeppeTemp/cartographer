@@ -49,7 +49,11 @@ Tools marked **[A]** (advanced, `advancedToolNames` in `internal/mcpserver/visib
 **Agent governance vs. operator maintenance (D123).** `validate`, `lint`, `gate_check`, and `kb_status` are read-only governance diagnostics, not operator maintenance: the documented agent loop (`loop.md`, `use-cases.md`) runs them every session, and a descriptor-bound MCP host (one that can only invoke tools `tools/list` advertises, e.g. Codex) cannot call them by name the way a stdio/TUI agent can. They are therefore part of the default `agent` profile's core set, unlike `commit_gate`, `conflict_resolve`, `contradiction_report`, and the rest of `advancedToolNames`, which stay operator-only and advanced.
 
 **The `kb` argument on the routed mount (D187, D288).** On `/mcp/routed`, the endpoint agent clients use, the
-connection's KB set is `?kbs=` (absent: every mounted KB). With two or more KBs in that set every tool below
+connection's KB set is `?kbs=` (absent: every mounted KB). `?access=read` (D1018; any other value is a 400) makes
+the connection read-only, with or without `kbs`: `tools/list` carries only the read tools, `initialize` says so, a
+call to a write tool is refused with `forbidden: unbound_folder`, and every response carries
+`Cartographer-Access: read`. The local bridge asks for it in a folder under no workspace binding, and treats a
+missing header as a server that cannot serve the mode. It is a scope filter, not a security boundary (D737). With two or more KBs in that set every tool below
 carries one extra property, `kb`, **required** and an **enum** of the set: the KB is never inferred, and a call
 without it, or naming a KB outside the set, is refused with an error naming the allowed KBs (D712: for a KB the server mounts but the connection does not bind, the error says to `cartographer client bind`, `cartographer sync` and start a new agent session; for a KB that is not mounted, that a KB created after the server started needs `cartographer service restart` first). With exactly one KB
 in the set `kb` is **absent** from every schema and the call targets that KB (a `kb` equal to it is accepted, any

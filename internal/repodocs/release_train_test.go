@@ -85,3 +85,44 @@ func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 		t.Errorf("release-train.yml: %d steps run `gh pr merge`, want exactly one", merges)
 	}
 }
+
+// The release candidate is started before it is published (D995): a smoke step
+// that came after the push would publish an image whose container does not
+// start, and release-train.yml matches the candidate by the tag at the end of
+// run-name.
+func TestPreviewWorkflowSmokesBeforePush(t *testing.T) {
+	raw := readFile(t, repoRoot(t), ".github/workflows/preview.yml")
+	var wf struct {
+		RunName string `yaml:"run-name"`
+		Jobs    map[string]struct {
+			Steps []struct {
+				Uses string                 `yaml:"uses"`
+				Run  string                 `yaml:"run"`
+				With map[string]interface{} `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(raw), &wf); err != nil {
+		t.Fatalf("preview.yml: %v", err)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(wf.RunName), "${{ inputs.tag }}") {
+		t.Errorf("preview.yml: run-name %q must end with the tag input: release-train.yml finds the candidate by it", wf.RunName)
+	}
+	smoke, push := -1, -1
+	for _, job := range wf.Jobs {
+		for i, s := range job.Steps {
+			if strings.Contains(s.Run, "test/smoke/image.sh") && smoke < 0 {
+				smoke = i
+			}
+			if p, ok := s.With["push"]; ok && p == true && push < 0 {
+				push = i
+			}
+		}
+	}
+	if smoke < 0 || push < 0 {
+		t.Fatalf("preview.yml: smoke step at %d, push step at %d: both must exist", smoke, push)
+	}
+	if smoke > push {
+		t.Errorf("preview.yml: the smoke (step %d) runs after the push (step %d): a candidate whose container does not start would be published", smoke, push)
+	}
+}

@@ -41,6 +41,10 @@ type Scope struct {
 	// the repositories whose git identity authors its writes (D904). Nil for
 	// any other scope, where the session's own folder stands for every KB.
 	Dirs map[string][]string
+	// ReadOnly is true for a folder no workspace binding covers: the session
+	// keeps the provider's set but asks the server for read tools only
+	// (?access=read, #1018). A workspace binding that wins is never read-only.
+	ReadOnly bool
 	// Err is a binding that could not be honoured (bound directory gone, git
 	// remote changed). The scope is then empty: failing open here would hand a
 	// customer's folder another perimeter's KBs.
@@ -50,18 +54,23 @@ type Scope struct {
 // None reports whether the session must be served without any KB.
 func (s Scope) None() bool { return !s.All && len(s.KBs) == 0 }
 
-// Query is the ?kbs= value for the routed endpoint, "" when the scope is All.
-// It is never "" for a restricted scope: callers check None first, because an
-// empty kbs means every KB at the server.
+// Query is the query string for the routed endpoint: ?kbs= for a restricted
+// scope, plus access=read for a read-only one. It is "" only for an All scope
+// that is not read-only. kbs is never sent empty for a restricted scope:
+// callers check None first, because an empty kbs means every KB at the server.
 func (s Scope) Query() string {
-	if s.All || len(s.KBs) == 0 {
-		return ""
+	var parts []string
+	if !s.All && len(s.KBs) > 0 {
+		escaped := make([]string, len(s.KBs))
+		for i, n := range s.KBs {
+			escaped[i] = url.QueryEscape(n)
+		}
+		parts = append(parts, "kbs="+strings.Join(escaped, ","))
 	}
-	escaped := make([]string, len(s.KBs))
-	for i, n := range s.KBs {
-		escaped[i] = url.QueryEscape(n)
+	if s.ReadOnly {
+		parts = append(parts, "access=read")
 	}
-	return "kbs=" + strings.Join(escaped, ",")
+	return strings.Join(parts, "&")
 }
 
 // Resolve maps a working directory to a scope. dir is the process working
@@ -82,19 +91,22 @@ func Resolve(cfg *clientconfig.Config, provider, dir string) Scope {
 	return providerScope(cfg, provider)
 }
 
-// providerScope is the unbound answer: the provider's own binding (D169).
+// providerScope is the unbound answer: the provider's own binding (D169),
+// read-only, because a folder under no binding receives no KB artifact and a
+// session with write tools and none of the skills that explain them is the
+// failure this prevents.
 func providerScope(cfg *clientconfig.Config, provider string) Scope {
 	bound, explicit := cfg.BoundKBs(provider)
 	if !explicit {
-		return Scope{All: true, Source: "provider default"}
+		return Scope{All: true, ReadOnly: true, Source: "provider default"}
 	}
-	return Scope{KBs: clientconfig.RoutedBinding(cfg.KnownKBs, bound), Source: "provider binding"}
+	return Scope{KBs: clientconfig.RoutedBinding(cfg.KnownKBs, bound), ReadOnly: true, Source: "provider binding"}
 }
 
 // ResolveRoots is the fallback for a client that declares MCP roots while the
 // working directory is bound to nothing: the union of the bindings the roots
 // resolve to. ok is false when no root is bound, and the caller keeps the
-// provider scope.
+// provider scope, which is read-only.
 func ResolveRoots(cfg *clientconfig.Config, provider string, roots []string) (Scope, bool) {
 	dirs := map[string][]string{}
 	var firstErr error
@@ -159,10 +171,14 @@ func (s Scope) Describe() string {
 	switch {
 	case s.Err != nil:
 		return fmt.Sprintf("no KB (%s)", s.Err)
+	case s.All && s.ReadOnly:
+		return "every KB of the provider, read-only (" + s.Source + ")"
 	case s.All:
 		return "every KB of the provider (" + s.Source + ")"
 	case len(s.KBs) == 0:
 		return "no KB (" + s.Source + ")"
+	case s.ReadOnly:
+		return strings.Join(s.KBs, ", ") + " read-only (" + s.Source + ")"
 	default:
 		return strings.Join(s.KBs, ", ") + " (" + s.Source + ")"
 	}

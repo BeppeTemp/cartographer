@@ -96,8 +96,8 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 	}
 	for name, job := range wf.Jobs {
 		for perm, level := range job.Permissions {
-			if level == "write" && !(name == "rerun" && perm == "actions") {
-				t.Errorf("plan-gate.yml: job %s has %s: write; only the rerun job's actions: write is allowed", name, perm)
+			if level == "write" && !(name == "rerun" && perm == "actions") && !(name == "milestone" && perm == "pull-requests") {
+				t.Errorf("plan-gate.yml: job %s has %s: write; only the rerun job's actions: write and the milestone job's pull-requests: write are allowed", name, perm)
 			}
 		}
 	}

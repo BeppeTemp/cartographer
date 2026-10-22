@@ -201,8 +201,8 @@ func TestEmitAntigravity_HTTP_NoAuth(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing wiki entry in mcpServers")
 	}
-	if entry["serverUrl"] != "https://mcp.example.test/mcp" {
-		t.Errorf("serverUrl = %v, want https://mcp.example.test/mcp", entry["serverUrl"])
+	if entry["url"] != "https://mcp.example.test/mcp" {
+		t.Errorf("url = %v, want https://mcp.example.test/mcp", entry["url"])
 	}
 	if _, hasHeaders := entry["headers"]; hasHeaders {
 		t.Error("headers should not be present when auth is disabled")
@@ -315,6 +315,52 @@ func TestApplyAndRemoveAntigravityPreservesForeignServers(t *testing.T) {
 // A config carrying comments or trailing commas is not silently normalized: it
 // is refused, and the file on disk is left byte-for-byte as the user wrote it.
 // Rewriting it as plain JSON would drop the comments without asking (D194).
+// An entry written before D1030 carries "serverUrl": the upgrade leaves "url"
+// alone in our entry, and a foreign server's "serverUrl" untouched.
+func TestApplyAntigravityDropsSupersededServerURL(t *testing.T) {
+	baseDir := t.TempDir()
+	path := filepath.Join(baseDir, ".gemini", "config", "mcp_config.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := `{
+  "mcpServers": {
+    "cartographer": {"serverUrl": "https://old.example/mcp"},
+    "foreign": {"serverUrl": "https://foreign.example/mcp"}
+  }
+}`
+	if err := os.WriteFile(path, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://cartographer.example/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderAntigravity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, baseDir, false); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	servers := root["mcpServers"].(map[string]any)
+	own := servers["cartographer"].(map[string]any)
+	if own["url"] != "https://cartographer.example/mcp" {
+		t.Errorf("url = %v", own["url"])
+	}
+	if _, stale := own["serverUrl"]; stale {
+		t.Errorf("stale serverUrl kept beside url: %#v", own)
+	}
+	if servers["foreign"].(map[string]any)["serverUrl"] != "https://foreign.example/mcp" {
+		t.Errorf("foreign server changed: %#v", servers["foreign"])
+	}
+}
+
 func TestApplyAntigravityRefusesNonJSONConfig(t *testing.T) {
 	baseDir := t.TempDir()
 	path := filepath.Join(baseDir, ".gemini", "config", "mcp_config.json")

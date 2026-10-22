@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { fetchAssets, fetchHistory } from "../api/client";
 import type { AssetEntry, ConceptHistory as History } from "../api/types";
-import { relativeDay } from "./Page";
-import { ErrorState, Skeleton } from "./States";
+import { EntriesSkeleton, relativeDay } from "./Page";
+import { ErrorState } from "./States";
 
 interface Props {
   kb: string;
@@ -46,7 +46,7 @@ export function ConceptHistory({ kb, conceptId }: Props) {
   }, [kb, conceptId]);
 
   if (error) return <ErrorState error={error} />;
-  if (!history) return <Skeleton lines={4} label={`Loading history of ${conceptId}`} />;
+  if (!history) return <EntriesSkeleton label={`Loading history of ${conceptId}`} rows={5} />;
 
   return (
     <div className="concept-history">

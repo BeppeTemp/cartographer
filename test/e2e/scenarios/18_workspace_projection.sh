@@ -11,6 +11,7 @@
 # provider bound to a different KB in each.
 #
 # Verifies (operator channel only — no agent/model):
+#   0. `status` is in sync (exit 0) after a clean sync, #1011.
 #   1. Each workspace receives only its own KB's skill, and the bodies differ:
 #      the projection reached the right perimeter, not merely *a* file.
 #   2. Neither skill exists in the global catalogue under $HOME — decision 5.
@@ -18,7 +19,8 @@
 #   4. The two workspaces are independent: unbinding one prunes only its files.
 #   5. Generated files do not dirty the repository: .git/info/exclude carries
 #      Cartographer's block, .gitignore is untouched, `git status` is clean.
-#   6. An unbound workspace is fail-closed: it receives no KB artifact at all.
+#   6. An unbound workspace is fail-closed: it receives no KB artifact at all,
+#      and its MCP session is read-only: only read tools are listed (#1018).
 #
 # Expected environment variables: E2E_TMP_DIR, E2E_HTTP_PORT, REPO_ROOT.
 
@@ -131,6 +133,17 @@ else
     _assert_fail "sync failed: $(cat "${DIR}/sync1.log")"
 fi
 
+# #1011: after a clean sync (a second one is a no-op) status judges the bundle
+# globally and each workspace against its own projection: in sync, exit 0.
+run_client "${DIR}/sync1b.log" sync || true
+if run_client "${DIR}/status-clean.log" status; then
+    _assert_pass "status exits 0 after a clean workspace-scoped sync"
+else
+    _assert_fail "status reported drift after a clean sync: $(cat "${DIR}/status-clean.log")"
+fi
+assert_file_contains "${DIR}/status-clean.log" "in-sync"
+assert_file_not_contains "${DIR}/status-clean.log" "+ skill/"
+
 echo ""
 echo "--- Phase 2: each workspace sees ONLY its own perimeter ---"
 
@@ -164,6 +177,19 @@ if [[ -d "${WS_UNBOUND}/.claude/skills" ]]; then
 else
     _assert_pass "an unbound workspace receives no KB artifact"
 fi
+
+# #1018: the same folder gets the provider's KBs through the stdio bridge, but
+# read-only. The server enforces it: tools/list carries no write tool.
+UNBOUND_TOOLS="${DIR}/unbound-tools.json"
+(cd "$WS_UNBOUND" && HOME="$SANDBOX" "$BIN" mcp --provider claude <<'MCP'
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e","version":"1"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+MCP
+) >"$UNBOUND_TOOLS" 2>"${DIR}/unbound-tools.err"
+assert_file_contains "$UNBOUND_TOOLS" '"name":"concept_read"'
+assert_file_not_contains "$UNBOUND_TOOLS" '"name":"concept_write"'
+assert_file_not_contains "$UNBOUND_TOOLS" '"name":"concept_patch"'
 
 echo ""
 echo "--- Phase 5: the repository is not dirtied ---"

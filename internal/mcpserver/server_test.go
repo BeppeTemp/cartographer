@@ -5537,6 +5537,37 @@ func TestConceptMerge_RefusesANonSatellite(t *testing.T) {
 	}
 }
 
+// A dangling <id>.md link reads as absent to os.Stat; the collapse must refuse
+// it instead of renaming index.md through the link (D1025).
+func TestConceptCollapse_RefusesASymlinkedFlatPath(t *testing.T) {
+	t.Parallel()
+	k, s := d160Fixture(t)
+	d160Write(t, k, "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	d160Write(t, k, "m/c.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
+	if err := k.ExpandConcept("m/c"); err != nil {
+		t.Fatal(err)
+	}
+	expanded, err := k.ReadConcept("m/c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "missing.md")
+	if err := os.Symlink(target, filepath.Join(k.DataRoot(), "m", "c.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	args, _ := json.Marshal(map[string]string{"id": "m/c", "if_match": expanded.ContentHash})
+	res, err := s.Tools()["concept_collapse"].Handler(authLocalContext(), args)
+	if err != nil || !res.IsError {
+		t.Fatalf("concept_collapse through a symlink: %+v err=%v, want a refusal", res, err)
+	}
+	if _, statErr := os.Lstat(target); !os.IsNotExist(statErr) {
+		t.Errorf("the link target was written: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(k.DataRoot(), "m", "c", "index.md")); statErr != nil {
+		t.Errorf("index.md moved despite the refusal: %v", statErr)
+	}
+}
+
 // Expansion never changes an ID, so its inverse must not either: the round trip
 // is the strongest available assertion that this really is an inverse.
 func TestConceptCollapse_RoundTripsExpand(t *testing.T) {

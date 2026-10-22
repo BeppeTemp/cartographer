@@ -362,6 +362,47 @@ func (m *Manager) Restart() error {
 	}
 }
 
+// launchdPrintStopped reports whether `launchctl print` output says the job is
+// registered but has no process: its top-level `state = not running` (Stop
+// disables the job and sends SIGTERM, and launchd never relaunches a disabled
+// job). Only the job's own properties are read (one tab of indentation): the
+// nested blocks carry unrelated `state =` lines. Any other state (running,
+// spawn scheduled, waiting) or unparsable output counts as not stopped, so a
+// prose change in launchctl cannot make a live service read as stopped.
+func launchdPrintStopped(out string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if v, ok := strings.CutPrefix(line, "\tstate = "); ok {
+			return strings.TrimSpace(v) == "not running"
+		}
+	}
+	return false
+}
+
+// launchdPrintHasPID reports whether the job's own properties carry a `pid =`:
+// a process is alive (absent while stopped or between spawns).
+func launchdPrintHasPID(out string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "\tpid = ") {
+			return true
+		}
+	}
+	return false
+}
+
+// launchdLabelDisabled reports whether `launchctl print-disabled gui/<uid>`
+// lists the service label as disabled (`"label" => disabled`; older macOS prints
+// `=> true`). Anything else, including an absent label, is not disabled.
+func launchdLabelDisabled(out string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		l := strings.TrimSpace(line)
+		if v, ok := strings.CutPrefix(l, `"`+launchdLabel+`" =>`); ok {
+			v = strings.TrimSpace(v)
+			return v == "disabled" || v == "true"
+		}
+	}
+	return false
+}
+
 // launchdJobLoaded reports whether the job is registered in the user's GUI
 // domain. It branches on launchctl's exit status rather than parsing its prose,
 // which is localized.
@@ -691,10 +732,11 @@ type Lifecycle string
 const (
 	// LifecycleNotInstalled: no plist/unit on disk. Nothing else is a fault.
 	LifecycleNotInstalled Lifecycle = "not_installed"
-	// LifecycleNotLoaded: installed, but the init system does not know it.
+	// LifecycleNotLoaded: installed, but the init system does not know it, or
+	// (macOS, Windows) knows it with no process because it was stopped.
 	LifecycleNotLoaded Lifecycle = "not_loaded"
-	// LifecycleLoaded: registered with launchd/systemd — see Status.Running
-	// for exactly how much that proves.
+	// LifecycleLoaded: registered with the init system and, on macOS and
+	// Windows, not stopped — see Status.Running for exactly how much that proves.
 	LifecycleLoaded Lifecycle = "loaded"
 )
 
@@ -719,11 +761,14 @@ const (
 // with "not checked" is how an absent service came to read as an outage
 // (D174).
 //
-// Running reports that the service is registered with the init system: on
-// darwin `launchctl print` on the label succeeded, on linux `systemctl
-// --user is-active`, on Windows `Get-ScheduledTask` on the task. On darwin and
-// on Windows that proves the job is known to the scheduler, NOT that a process
-// is currently alive. Callers must not present it as a liveness probe.
+// Running reports that the service is registered with the init system and not
+// stopped: on darwin `launchctl print` on the label succeeded and the job is
+// alive (a `pid`) or neither disabled nor `not running` (Stop leaves it
+// registered, disabled and without a process); on linux `systemctl --user
+// is-active`; on Windows `Get-ScheduledTask` succeeded and the task's State is
+// neither Disabled (what Stop leaves) nor Ready (no process), and an unreadable
+// State counts as running. On darwin and Windows that proves the job is known
+// to the scheduler and not stopped, NOT that the server answers. Callers must not present it as a liveness probe.
 type Status struct {
 	BinPath          string
 	ConfigPath       string
@@ -769,8 +814,20 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		if _, err := os.Stat(plistPath); err == nil {
 			st.Installed = true
 		}
-		if _, err := m.run("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel)); err == nil {
+		if out, err := m.run("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel)); err == nil {
 			st.Running = true
+			// A live process is running whatever the flags say: a job disabled by
+			// hand still serves a binary upgrade-repair must replace. Without one,
+			// Stop's own mark decides: right after it the job can read `spawn
+			// scheduled` (KeepAlive throttle), so the disabled flag, not the
+			// state, is the authority.
+			if !launchdPrintHasPID(out) {
+				if launchdPrintStopped(out) {
+					st.Running = false
+				} else if dis, err := m.run("launchctl", "print-disabled", fmt.Sprintf("gui/%d", os.Getuid())); err == nil && launchdLabelDisabled(dis) {
+					st.Running = false
+				}
+			}
 		}
 	case "linux":
 		unitPath, err := SystemdUnitPath()
@@ -791,11 +848,10 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		if _, err := os.Stat(taskPath); err == nil {
 			st.Installed = true
 		}
-		// Registered, not alive — the same thing `launchctl print` proves. A
-		// task's State would even distinguish Ready from Running, which is more
-		// than launchd reports; conflating the two here would make Running mean
-		// something different on this platform than on the other two.
-		st.Running = m.windowsTaskRegistered(windowsServeTaskName)
+		// Registered and not stopped, as on macOS (D1014): Stop leaves the task
+		// registered but Disabled, which must not read as running. The query
+		// fails open, so an unreadable state counts as running.
+		st.Running = m.windowsTaskRegistered(windowsServeTaskName) && !m.windowsTaskStopped(windowsServeTaskName)
 	default:
 		return st, fmt.Errorf("service: unsupported platform %q", goos)
 	}

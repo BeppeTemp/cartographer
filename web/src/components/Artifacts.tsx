@@ -3,9 +3,20 @@ import { fetchArtifact } from "../api/client";
 import type { Artifact, ArtifactFile, ArtifactKindInfo, ArtifactList } from "../api/types";
 import { DocsLink } from "./DocsLink";
 import { Markdown } from "./Markdown";
-import { Count, FilterChip, FilterChips, Hero, HeroRow, Page, PageHeader } from "./Page";
+import {
+  CatalogSkeleton,
+  Count,
+  FilterChip,
+  FilterChips,
+  Hero,
+  HeroRow,
+  Page,
+  PageHeader,
+  TextSkeleton,
+  TitleBone,
+} from "./Page";
 import { FindingBadge } from "./FindingBadge";
-import { EmptyState, ErrorState, Skeleton } from "./States";
+import { EmptyState, ErrorState } from "./States";
 
 /** What each kind is, said once where the overview introduces it. */
 const KIND_ABOUT: Record<string, string> = {
@@ -68,7 +79,9 @@ export function lastUsed(a: Artifact): { text: string; tone: "active" | "normal"
   if (!a.last_used || a.last_used_days_ago == null) return { text: "never used", tone: "never" };
   const days = a.last_used_days_ago;
   const when = days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
-  if (a.last_used_catalog_only) return { text: `catalogue loaded ${when}${provider}, no use seen`, tone: "stale" };
+  // Listed in a client's catalogue but never invoked is no use: it reads as
+  // one, and whether an artifact goes unused is a Health matter, not a card's.
+  if (a.last_used_catalog_only) return { text: "never used", tone: "never" };
   const tone = days <= ACTIVE_DAYS ? "active" : days > STALE_DAYS ? "stale" : "normal";
   return { text: `${when}${provider}`, tone };
 }
@@ -157,7 +170,14 @@ export function Artifacts({
       .filter((g) => g.items.length > 0 || keepEmpty);
   }, [all, filter, kind, slice, kinds]);
 
-  if (loading && !list) return <Skeleton lines={6} label="Loading artifacts" />;
+  if (loading && !list)
+    return (
+      <Page label="Artifact catalog" busy className="catalog">
+        <PageHeader eyebrow="Artifacts" title={<TitleBone label="Loading artifacts" />} />
+        {tabs}
+        <CatalogSkeleton label="Loading artifacts" />
+      </Page>
+    );
   if (error) return <ErrorState error={error} onRetry={onRetry} />;
   if (!list) return null;
   if (!kinds && list.artifacts.length === 0 && list.issues.length === 0) {
@@ -457,7 +477,7 @@ function ArtifactDetail({
     return (
       <div className="artifacts__detail">
         {back}
-        <Skeleton lines={4} label="Loading the artifact" />
+        <TextSkeleton label="Loading the artifact" lines={6} />
       </div>
     );
   }
@@ -489,7 +509,7 @@ function ArtifactDetail({
           {lastUsed(artifact) && (
             <span className="pill artifacts__used-pill">
               <span className="artifacts__fact-label">Last used</span> <LastUsed artifact={artifact} />
-              {artifact.last_used && (
+              {artifact.last_used && !artifact.last_used_catalog_only && (
                 <>
                   {" "}
                   <time dateTime={artifact.last_used}>{artifact.last_used}</time>

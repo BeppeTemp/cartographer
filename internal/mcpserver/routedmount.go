@@ -63,16 +63,28 @@ func (m *MultiKBServer) EnableRoutedMount(version string, setup func(s *Server))
 	m.routedSetup = setup
 	names := m.mountedNames()
 	m.routedViews = map[string]*Server{}
-	m.routed = m.buildRouted(names)
+	m.routed = m.buildRouted(names, false)
 	m.routedViews[strings.Join(names, ",")] = m.routed
 	m.routedNames = names
 	return nil
 }
 
+// AccessReadValue is the one accepted value of the routed endpoint's `access`
+// query parameter. Absent keeps the connection's normal access.
+const AccessReadValue = "read"
+
+// AccessHeader is set on every response of a read-only routed session. A bridge
+// that asked for ?access=read checks it: a server that predates the parameter
+// ignores it and would serve a read-write session without saying so.
+const AccessHeader = "Cartographer-Access"
+
 // buildRouted assembles the routed server for one effective KB set: the union
-// of those KBs' tools, once, with the schemas shaped for that set.
-func (m *MultiKBServer) buildRouted(set []string) *Server {
+// of those KBs' tools, once, with the schemas shaped for that set. readOnly
+// builds the read-only twin: no write tool is listed and a call to one is
+// refused (denyUnboundFolder).
+func (m *MultiKBServer) buildRouted(set []string, readOnly bool) *Server {
 	routed := New(m.routedVersion)
+	routed.readOnlySession = readOnly
 	routed.SetDisplayName("cartographer")
 	routed.connKBs = append([]string(nil), set...)
 	if m.routedSetup != nil {
@@ -88,6 +100,10 @@ func (m *MultiKBServer) buildRouted(set []string) *Server {
 	// call on the others.
 	routed.SetAuthorizer(func(ctx context.Context, tool string, args json.RawMessage) error {
 		if tool != "" {
+			// Fail-closed: an unknown name requires write (ToolRequiresWrite).
+			if readOnly && ToolRequiresWrite(tool) {
+				return deny(denyUnboundFolder)
+			}
 			return nil
 		}
 		var lastErr error = deny(denyNoPrincipal)
@@ -182,7 +198,10 @@ const routedScopeHint = "If the client has a workspace binding, this connection'
 // of the URL, so tools/list differs per connection and cannot come from a
 // single shared registry. The number of sets is bounded by the subsets of the
 // mounted KBs; stale URLs with different unknown or renamed names share a view.
-func (m *MultiKBServer) routedFor(rawKBs []string) (*Server, []string, map[string]string, error) {
+//
+// readOnly (?access=read) is part of the cache key: a read-only and a
+// read-write session on the same set are two Servers.
+func (m *MultiKBServer) routedFor(rawKBs []string, readOnly bool) (*Server, []string, map[string]string, error) {
 	seen := map[string]bool{}
 	for _, raw := range rawKBs {
 		for _, n := range strings.Split(raw, ",") {
@@ -192,7 +211,18 @@ func (m *MultiKBServer) routedFor(rawKBs []string) (*Server, []string, map[strin
 		}
 	}
 	if len(seen) == 0 {
-		return m.routed, nil, nil, nil
+		if !readOnly {
+			return m.routed, nil, nil, nil
+		}
+		m.routedMu.Lock()
+		defer m.routedMu.Unlock()
+		key := strings.Join(m.routedNames, ",") + routedReadOnlySuffix
+		if srv, ok := m.routedViews[key]; ok {
+			return srv, nil, nil, nil
+		}
+		srv := m.buildRouted(m.routedNames, true)
+		m.routedViews[key] = srv
+		return srv, nil, nil, nil
 	}
 	var unknown []string
 	renamed := map[string]string{}
@@ -252,13 +282,21 @@ func (m *MultiKBServer) routedFor(rawKBs []string) (*Server, []string, map[strin
 	if len(renamed) == 0 {
 		renamed = nil
 	}
-	if srv, ok := m.routedViews[key]; ok {
+	viewKey := key
+	if readOnly {
+		viewKey += routedReadOnlySuffix
+	}
+	if srv, ok := m.routedViews[viewKey]; ok {
 		return srv, unknown, renamed, nil
 	}
-	srv := m.buildRouted(set)
-	m.routedViews[key] = srv
+	srv := m.buildRouted(set, readOnly)
+	m.routedViews[viewKey] = srv
 	return srv, unknown, renamed, nil
 }
+
+// routedReadOnlySuffix distinguishes a read-only view in routedViews. A KB name
+// cannot contain "|", so it never collides with a set key.
+const routedReadOnlySuffix = "|access=read"
 
 // renamedKey renders old → new pairs in a stable order, for logs.
 func renamedKey(renamed map[string]string) string {

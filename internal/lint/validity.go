@@ -28,6 +28,16 @@ const (
 // slugPattern is the concept file-name pattern, the same as an artifact slug.
 var slugPattern = regexp.MustCompile(`^[a-z0-9]+(-{1,2}[a-z0-9]+)*$`)
 
+// slugExpansions spells out letters that have no single-letter ASCII fold.
+// Search.Fold stays rune-preserving for search offsets; file slugs can expand.
+var slugExpansions = strings.NewReplacer(
+	"ß", "ss", "ẞ", "ss",
+	"æ", "ae", "Æ", "ae",
+	"œ", "oe", "Œ", "oe",
+	"þ", "th", "Þ", "th",
+	"ĳ", "ij", "Ĳ", "ij",
+)
+
 // mapTypes is the type a map's pages agree on, per map (D356 decision 3), or ""
 // when they do not. Computed once per run from the walk.
 type mapTypes map[string]string
@@ -155,12 +165,12 @@ func validityFindings(id okf.ConceptID, content string, types mapTypes, slugTarg
 	return out
 }
 
-// Slugify turns a file stem into the slug form: lowercase, accents folded, every
-// run of other characters one hyphen, no leading or trailing hyphen.
+// Slugify lowercases a file stem, expands slug-specific letters, folds accents,
+// and turns every run of other characters into one hyphen.
 func Slugify(s string) string {
 	var sb strings.Builder
 	pendingHyphen := false
-	for _, r := range search.Fold(s) {
+	for _, r := range search.Fold(slugExpansions.Replace(s)) {
 		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
 			if pendingHyphen && sb.Len() > 0 {
 				sb.WriteByte('-')

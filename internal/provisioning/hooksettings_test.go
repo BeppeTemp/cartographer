@@ -531,3 +531,62 @@ func TestApplyAndPrune_AntigravityHook(t *testing.T) {
 		t.Fatalf("prune changed the wrong hook: %s", data)
 	}
 }
+
+func TestApplyAndPrune_AntigravityHook_SessionStart(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeHookKB(t, kbRoot, "startup", "SessionStart", "", "./init.sh")
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseDir := t.TempDir()
+	settingsPath := filepath.Join(baseDir, ".gemini", "config", "hooks.json")
+	opts := provisioning.ApplyOptions{
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Lock: provisioning.Lock{},
+	}
+	res, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	if root["cartographer-startup"] == nil {
+		t.Fatalf("expected cartographer-startup in hooks.json: %s", data)
+	}
+	owned := root["cartographer-startup"].(map[string]any)
+	if owned["enabled"] != true {
+		t.Errorf("enabled = %#v, want true", owned["enabled"])
+	}
+	handlers := owned["SessionStart"].([]any)
+	if len(handlers) != 1 {
+		t.Fatalf("expected 1 SessionStart handler, got: %+v", owned)
+	}
+	handler := handlers[0].(map[string]any)
+	if handler["type"] != "command" {
+		t.Errorf("type = %v, want command", handler["type"])
+	}
+	wantCommand := filepath.Join(baseDir, ".gemini", "config", "hooks", "startup", "init.sh")
+	if handler["command"] != wantCommand {
+		t.Errorf("command = %q, want %q", handler["command"], wantCommand)
+	}
+
+	var hookManaged []provisioning.ManagedFile
+	for _, mf := range res.NewLock.Managed {
+		if mf.Kind == "hook" && mf.Name == "startup" {
+			hookManaged = append(hookManaged, mf)
+		}
+	}
+	if _, err := provisioning.PruneManaged(hookManaged, baseDir, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(settingsPath); !os.IsNotExist(err) {
+		t.Fatalf("expected hooks.json to be deleted when empty, err=%v", err)
+	}
+}

@@ -322,7 +322,7 @@ func printServiceStatus(w io.Writer, st service.Status, serverURL string) {
 	fmt.Fprintf(w, "config:  %s\n", st.ConfigPath)
 	fmt.Fprintf(w, "installed: %v\n", st.Installed)
 	if st.Installed {
-		fmt.Fprintf(w, "loaded:    %v (known to the init system; not a liveness check)\n", st.Running)
+		fmt.Fprintf(w, "loaded:    %v (registered and not stopped; not a liveness check)\n", st.Running)
 		fmt.Fprintln(w, serviceHealthLine(st))
 		if st.UIURL != "" {
 			fmt.Fprintf(w, "ui:        %s\n", st.UIURL)

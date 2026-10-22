@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -104,6 +104,9 @@ hero: ## Record the README's Atlas animation to ./hero.webp (needs Node, Chromiu
 
 docker: ## Build the Docker image
 	docker build -t cartographer .
+
+docker-smoke: docker ## Build the image, then check its tools, user and a served write (test/smoke/image.sh, D995)
+	test/smoke/image.sh cartographer
 
 DEMO_IMAGE ?= cartographer-demo
 # Override with BASE=cartographer (after `make docker`) to test the working tree.

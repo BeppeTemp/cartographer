@@ -516,6 +516,59 @@ func TestUninstall_ConfigNotTouched(t *testing.T) {
 	}
 }
 
+// launchctlPrintRunning and launchctlPrintStopped are the shape of `launchctl print gui/<uid>/<label>`: the job's
+// own properties sit one tab deep, nested blocks (here the event trigger) carry
+// their own, unrelated `state =` lines.
+const launchctlPrintRunning = "gui/501/com.cartographer.serve = {\n\tactive count = 1\n\tpath = /Users/user/Library/LaunchAgents/com.cartographer.serve.plist\n\ttype = LaunchAgent\n\tstate = running\n\n\tprogram = /usr/local/bin/cartographer\n\tpid = 4242\n\tevent triggers = {\n\t\tcom.example => {\n\t\t\tstate = not running\n\t\t}\n\t}\n}\n"
+
+const launchctlPrintStopped = "gui/501/com.cartographer.serve = {\n\tactive count = 0\n\tpath = /Users/user/Library/LaunchAgents/com.cartographer.serve.plist\n\ttype = LaunchAgent\n\tstate = not running\n\n\tprogram = /usr/local/bin/cartographer\n\tlast exit code = 0\n}\n"
+
+const launchctlPrintDisabledOff = "disabled services = {\n\t\"com.example.other\" => disabled\n\t\"com.cartographer.serve\" => enabled\n}\n"
+const launchctlPrintDisabledOn = "disabled services = {\n\t\"com.example.other\" => enabled\n\t\"com.cartographer.serve\" => disabled\n}\n"
+
+// printRunner answers `launchctl print` with out and `print-disabled` with dis.
+type printRunner struct{ out, dis string }
+
+func (p printRunner) run(name string, args ...string) (string, error) {
+	if len(args) > 0 && args[0] == "print-disabled" {
+		return p.dis, nil
+	}
+	return p.out, nil
+}
+
+// A stopped macOS service stays registered (disabled): Status must report it
+// stopped, or `service status` never exits 3 and upgrade-repair tries to replace
+// a job launchd will not relaunch (#1006).
+func TestStatus_Darwin_StoppedVsRunning(t *testing.T) {
+	for _, tc := range []struct {
+		name, out, dis string
+		running        bool
+	}{
+		{"running", launchctlPrintRunning, launchctlPrintDisabledOff, true},
+		{"stopped", launchctlPrintStopped, launchctlPrintDisabledOn, false},
+		{"stopped, state not yet settled", "gui/501/x = {\n\tstate = spawn scheduled\n}\n", launchctlPrintDisabledOn, false},
+		{"not running but enabled", launchctlPrintStopped, launchctlPrintDisabledOff, false},
+		{"spawn scheduled, enabled", "gui/501/x = {\n\tstate = spawn scheduled\n}\n", launchctlPrintDisabledOff, true},
+		{"alive but disabled by hand", launchctlPrintRunning, launchctlPrintDisabledOn, true},
+		{"unparsable output", "something else", "something else", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTestHome(t, "darwin")
+			plistPath := filepath.Join(home, "Library", "LaunchAgents", "com.cartographer.serve.plist")
+			os.MkdirAll(filepath.Dir(plistPath), 0o755)
+			os.WriteFile(plistPath, []byte("<plist/>"), 0o644)
+			m := &Manager{run: printRunner{tc.out, tc.dis}.run}
+			st, err := m.Status(filepath.Join(home, "server.yaml"))
+			if err != nil {
+				t.Fatalf("Status: %v", err)
+			}
+			if !st.Installed || st.Running != tc.running {
+				t.Errorf("Installed=%v Running=%v, want true/%v", st.Installed, st.Running, tc.running)
+			}
+		})
+	}
+}
+
 func TestStatus_NotInstalled(t *testing.T) {
 	withTestHome(t, "darwin")
 	m, stub := newTestManager()

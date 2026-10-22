@@ -4,9 +4,9 @@ import type { SecretEntry, SecretFile, SecretList, ServiceEntry } from "../api/t
 import { decryptFile, encType, InvalidKeyError, looksLikeAgeKey, WrongKeyError } from "../lib/secrets";
 import { DocsLink } from "./DocsLink";
 import { Icon } from "./Icon";
-import { Count, Page, PageHeader } from "./Page";
+import { CatalogSkeleton, Count, Page, PageHeader, TitleBone } from "./Page";
 import { useMediaQuery } from "./Sheet";
-import { ErrorState, Skeleton } from "./States";
+import { ErrorState } from "./States";
 
 const MASK = "••••••••";
 
@@ -177,7 +177,14 @@ export function Secrets({
     setKeyError(null);
   }
 
-  if (loading && !list) return <Skeleton lines={6} label="Loading secrets" />;
+  if (loading && !list)
+    return (
+      <Page label="Secrets" busy className="catalog secrets">
+        <PageHeader eyebrow="Artifacts" title={<TitleBone label="Loading secrets" />} />
+        {tabs}
+        <CatalogSkeleton label="Loading secrets" groups={1} tiles={4} />
+      </Page>
+    );
   if (error) return <ErrorState error={error} onRetry={onRetry} />;
   if (!list) return null;
   const total = files.reduce((n, f) => n + f.entries.length, 0);

@@ -19,7 +19,7 @@ import {
   rowSize,
   type CheckGroup,
 } from "../lib/health";
-import { Count, Page, PageHeader, PageSection, Quiet, Segmented, SkeletonRows } from "./Page";
+import { Count, Page, PageHeader, PageSection, Quiet, Segmented, TitleBone, HealthSkeleton } from "./Page";
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
 import { ErrorState } from "./States";
@@ -129,7 +129,7 @@ export function Health({
         eyebrow="Health"
         title={
           !settled ? (
-            <>Reading the KB&apos;s health…</>
+            <TitleBone label="Reading the KB's health" />
           ) : tab === "checks" ? (
             <>What Cartographer checks</>
           ) : allClear ? (
@@ -219,7 +219,7 @@ export function Health({
             <ErrorState error={error} onRetry={onRetry} />
           ) : !report ? (
             loading ? (
-              <SkeletonRows label="Loading the issues" rows={4} />
+              <HealthSkeleton label="Loading the issues" />
             ) : null
           ) : issues === 0 ? (
             allClear && checks ? (

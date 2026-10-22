@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"gopkg.in/yaml.v3"
@@ -183,6 +184,9 @@ func lookupPath(doc map[string]any, path string) (any, bool) {
 // one-line note, never an error: the client section is still worth printing.
 func fetchSettings(cfg *clientconfig.Config) (*settingsReply, string) {
 	base := strings.TrimSuffix(strings.TrimRight(cfg.ServerURL, "/"), "/mcp")
+	if err := client.CheckServerURL(cfg.ServerURL, cfg.InsecureHTTPAllowed()); err != nil {
+		return nil, fmt.Sprintf("server settings unavailable: %v", err)
+	}
 	req, err := http.NewRequest(http.MethodGet, base+"/api/ui/v1/settings", nil)
 	if err != nil {
 		return nil, fmt.Sprintf("server settings unavailable: %v", err)
@@ -190,7 +194,7 @@ func fetchSettings(cfg *clientconfig.Config) (*settingsReply, string) {
 	if tok := resolveToken(cfg); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
-	resp, err := (&http.Client{Timeout: settingsTimeout}).Do(req)
+	resp, err := client.HTTPClient(&http.Client{Timeout: settingsTimeout}, cfg.InsecureHTTPAllowed()).Do(req)
 	if err != nil {
 		return nil, fmt.Sprintf("server at %s not reachable: server settings not shown", base)
 	}

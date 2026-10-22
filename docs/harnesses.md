@@ -284,10 +284,11 @@ would flip a matrix cell is confirmed with a probe
     `.agents/hooks.json` (the file is picked from the hook's path), `mcp`
     `.agents/mcp_config.json`, `instructions` the `AGENTS.md` block. Rules
     (`.agents/rules/`) are deliberately unused: they need `trigger: always_on`.
-  - Native hooks exist but there is no `SessionStart` event (documented:
-    PreToolUse, PostToolUse, PreInvocation, PostInvocation, Stop): sync layer 1 is
-    the timer (D140, D194, D284). Agent frontmatter documents `tools`, `model`
-    and `commandExecutionPolicy` (candidate D291 keys, not verified).
+  - Native hooks support `SessionStart` (D1007), `PreToolUse`, `PostToolUse`,
+    `PreInvocation`, `PostInvocation`, and `Stop`. Sync layer 1 installs the
+    `cartographer-bootstrap` hook for Antigravity (D60, D1007). Agent frontmatter
+    documents `tools`, `model` and `commandExecutionPolicy` (candidate D291 keys,
+    not verified).
 - **Probed on CLI 1.3.2** (2026-10-09):
   - workspace scope confirmed (now the project cells above): `.agents/skills/`, `.agents/agents/`,
     `.agents/hooks.json`, `.agents/mcp_config.json` (used in the session even

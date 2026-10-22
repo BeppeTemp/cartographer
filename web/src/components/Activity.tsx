@@ -5,7 +5,7 @@ import { changedAt, changeKind, mostWorked, shownReasons, type ChangeKind } from
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
 import { Markdown } from "./Markdown";
-import { Avatar, Count, Hero, MapBar, MapDot, Page, PageHeader, PageSection, Segmented, SkeletonRows } from "./Page";
+import { Avatar, Count, Hero, MapBar, MapDot, Page, PageHeader, PageSection, Segmented, TitleBone, ActivitySkeleton } from "./Page";
 
 const WINDOWS = [
   ["1d", "1d"],
@@ -277,7 +277,7 @@ export function Activity({
         {error ? (
           <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
         ) : !data ? (
-          <SkeletonRows label="Reading the history" />
+          <ActivitySkeleton label="Reading the history" />
         ) : rows.length === 0 ? (
           <div className="timeline__empty">
             <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
@@ -312,7 +312,7 @@ export function Activity({
         {data?.truncated && (
           <p className="page-note">Showing the {all.length} most recent changes: narrow the window to see the rest.</p>
         )}
-        {journal !== null && (
+        {journal !== null && (data !== null || error !== null) && (
           <PageSection title="Journal" id="activity-journal">
             {journal.trim() === "" ? (
               <p className="page-note">
@@ -329,7 +329,7 @@ export function Activity({
             )}
           </PageSection>
         )}
-        {audit !== null && <AuditSection audit={audit} />}
+        {audit !== null && (data !== null || error !== null) && <AuditSection audit={audit} />}
       </div>
     </Page>
   );
@@ -658,7 +658,7 @@ function Headline({
   author: string | null;
   mapTitle: string | null | undefined;
 }) {
-  if (!data) return <>{failed ? "History unavailable" : "Reading the history…"}</>;
+  if (!data) return <>{failed ? "History unavailable" : <TitleBone label="Reading the history" />}</>;
   const who = author ? ` by ${author}` : "";
   const where = mapTitle ? ` in ${mapTitle}` : "";
   if (n === 0) return <>{`Nothing edited${where}${who} ${when(since)}.`}</>;

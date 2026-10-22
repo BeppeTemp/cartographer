@@ -54,9 +54,10 @@ if [ -n "${DATA:-}" ]; then
 	done
 	kbargs=(--data "$work/data")
 else
-	# The test KBs (internal/testkbs, D818): ten synthetic KBs from 5,000
-	# concepts down to 30, built to put every Atlas view in a state worth
-	# judging. Generating them takes about half a minute, so they are cached
+	# The test KBs (internal/testkbs, D818, D1032): eleven synthetic KBs, the
+	# 5,000-concept scale KB, nine shaped after measured real KBs with invented
+	# content, and a bare 30, built to put every Atlas view in a state worth
+	# judging. Generating them takes a few seconds, so they are cached
 	# per generator source and per day (their dates are relative to today).
 	# The client report (client-report.json) is built from the client schema, so
 	# the sources of the client settings are part of the key too.
@@ -86,8 +87,19 @@ fi
 
 # The server keeps the client settings reports in memory (D818), so a restart
 # forgets the test client: every start tells the server about it again, as a
-# client does with `cartographer sync`. Only the test KBs come with a report.
+# client does with `cartographer sync`. The test KBs come with a report; with
+# DATA the instance holds copies of this machine's KBs, so this machine's own
+# client reports to it (`sync --report-to`: the config is read, never saved,
+# nothing is provisioned and the configured server is not contacted).
 post_client_report() {
+	if [ -n "${DATA:-}" ]; then
+		for _ in $(seq 1 30); do
+			"$work/cartographer" sync --report-to "http://127.0.0.1:$API_PORT/mcp" 2>/dev/null && return 0
+			sleep 1
+		done
+		echo "[dev] this machine's client did not report: no client config, or the server refused it" >&2
+		return 0
+	fi
 	[ -f "$work/client-report.json" ] || return 0
 	# /health answers before the KBs are open, and the route refuses until then.
 	for _ in $(seq 1 30); do

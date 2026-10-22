@@ -33,6 +33,7 @@ const (
 	denyMissingID        = "missing_id"
 	denyNoKBAccess       = "no_kb_access"
 	denyNoPrincipal      = "no_principal"
+	denyUnboundFolder    = "unbound_folder"
 )
 
 var denyHints = map[string]string{
@@ -45,6 +46,8 @@ var denyHints = map[string]string{
 	denyMissingID:        "this write needs a non-empty id",
 	denyNoKBAccess:       "the token has no access to this KB",
 	denyNoPrincipal:      "no principal resolved for this connection",
+	denyUnboundFolder: "this session is read-only because the folder it was started in is bound to no KB: " +
+		"bind the folder (cartographer workspace bind <provider> <path> --kb <name>) or declare its repository in a KB's paths.yaml, then start a new agent session",
 }
 
 // deny builds the reasoned denial for code, with an optional replacement hint.
@@ -426,6 +429,19 @@ func templateType(k *kb.KB, slug string) (string, bool) {
 	}
 	typeName, ok := t.(string)
 	return typeName, ok && typeName != "" && !strings.Contains(typeName, "{{")
+}
+
+// kbRosterVisible reports whether the caller may see the /clients roster rows
+// of a KB. The roster is protocol metadata (a row names a KB, not a concept),
+// so any read grant on the KB is enough, whatever its map/journal/type
+// selectors; an admin sees every KB. The zero principal (no ID) is non-admin
+// and holds no rules: nothing is visible, fail-closed.
+func kbRosterVisible(ctx context.Context, name string) bool {
+	p := auth.PrincipalFromContext(ctx)
+	if p.ID != "" && p.Policy.Admin {
+		return true
+	}
+	return p.Policy.HasKBAccess(name, false)
 }
 
 // Visible is the reusable collection predicate. It never treats an unreadable

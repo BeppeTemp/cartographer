@@ -122,6 +122,14 @@ func cmdKBCreate(args []string) int {
 	if code := checkRemoteChoice(remote, *noRemoteFlag); code != 0 {
 		return code
 	}
+	// Refuse an option-like or transport-helper remote before the scaffold
+	// exists, so nothing is left behind.
+	if remote != "" {
+		if err := gitx.ValidateRemote(remote); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+	}
 
 	if code := checkLocalTarget(*dataFlag, *localFlag); code != 0 {
 		return code

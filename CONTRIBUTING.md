@@ -253,11 +253,14 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
   following Monday; a blocked one waits until after the release. A blocked commit on
   `main` during the freeze skips the train.
 - **The release candidate.** On Saturday at 00:30 the workflow builds a server image
-  `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. A
-  maintainer runs it on a real deployment and adds the `rc-ok` label. Without the
-  label, or if the candidate is not the current head of `main` (a fix landed after the
-  build), the train is skipped with a comment: run the candidate again by hand
-  (`release-train`, `action: rc`), try it and add the label again, or wait a week.
+  `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. The
+  image is started and smoked before it is published (tools, non-root user, a KB served
+  over HTTP with a write that commits), so a candidate that exists starts. A maintainer
+  runs it on a real deployment and adds the `rc-ok` label. Without the label, or if the
+  candidate is not the current head of `main` (a fix landed after the build), the train
+  is skipped with a comment (it says when the candidate build itself failed): run the
+  candidate again by hand (`release-train`, `action: rc`), try it and add the label
+  again, or wait a week.
 - **Only the next train's work merges.** The next train is the open milestone due
   first. Work of a later milestone can be planned, implemented and reviewed at any
   time, but its PR waits, open, until the train before it has left: `plan-gate`
@@ -293,7 +296,9 @@ change who acts:
 | `dependencies`, `autorelease: pending`, `autorelease: tagged` | Set by Dependabot and release-please, never by hand |
 
 Milestones are the roadmap: one per weekly release, `vX.Y.0`; an issue in a
-milestone is accepted work. **Every accepted issue has a milestone**, approved plans
+milestone is accepted work, and a PR sits in the milestone of the issues it closes
+(the `pr-milestone` job of `plan-gate` sets it, and moves it with the issue), so a
+train's milestone lists its PRs too. **Every accepted issue has a milestone**, approved plans
 included: an open issue without one is not triaged yet, and the weekly triage puts
 it in a train, moves it to Discussions or closes it. Keep two or three milestones
 open: the non-trivial work of the next two is written as approved plans, ready to
@@ -372,7 +377,7 @@ cd .worktrees/my-change && make dev DATA=<data dir>   # or no DATA: the generate
 `make dev` rebuilds and restarts the server on every Go change and serves the UI
 with hot reload on `http://localhost:5173/ui/`. `DATA` is copied with its git
 remotes removed and git sync off, so nothing the session writes leaves the
-machine; `API_PORT`/`UI_PORT` keep two sessions apart. The PR is opened as a
+machine; `API_PORT`/`UI_PORT` keep two sessions apart. With `DATA`, the instance also shows this machine's real client (Settings, Artifacts usage): `make dev` runs `cartographer sync --report-to` against it, which reports and changes nothing (D1044). The PR is opened as a
 draft after the first accepted step, and its number is the decision number
 (D672). With no plan issue, the PR is the record: its title (`feat:`/`fix:` for
 what a user notices) and its body become the squashed commit, and so the

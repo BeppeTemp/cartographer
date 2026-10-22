@@ -2,25 +2,12 @@ package kb
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 )
-
-// protectBranch installs a pre-receive hook on the bare remote that refuses
-// every push the way a protected branch does, with the wording of message.
-func protectBranch(t *testing.T, bare, message string) {
-	t.Helper()
-	hook := filepath.Join(bare, "hooks", "pre-receive")
-	script := "#!/bin/sh\necho '" + message + "' >&2\nexit 1\n"
-	if err := os.WriteFile(hook, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-}
 
 // D903: Cartographer never opens a pull request, so a push the remote refuses
 // because the branch is protected is reported as that, with what to do about it,

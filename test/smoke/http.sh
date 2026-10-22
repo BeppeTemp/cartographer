@@ -9,6 +9,15 @@ BIN="$BASE/bin/cartographer"
 [ -x "$BIN" ] || { echo "missing $BIN: run 'make build' first" >&2; exit 1; }
 
 DATA="$(mktemp -d)"
+# No git identity on this host (D996): see test/e2e/run.sh.
+export GIT_CONFIG_GLOBAL="$DATA/gitconfig" GIT_CONFIG_NOSYSTEM=1
+# useConfigOnly: git must not guess an identity from the passwd entry and hostname.
+printf '[init]\n\tdefaultBranch = master\n[user]\n\tuseConfigOnly = true\n' > "$GIT_CONFIG_GLOBAL"
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL EMAIL
+if git var GIT_COMMITTER_IDENT >/dev/null 2>&1; then
+  echo "[ERROR] the isolated git config still yields an identity: the isolation regressed" >&2
+  exit 1
+fi
 PORT=18081
 MCP="http://127.0.0.1:$PORT/mcp"
 
@@ -55,26 +64,8 @@ done
 kbs=$(curl -sf "http://127.0.0.1:$PORT/health" | python3 -c "import sys,json; d=json.load(sys.stdin); print([k['name'] for k in d['kbs']])")
 echo "→ mounted KBs: $kbs"
 
-# mcp_call fails the script on a tool error. Without this an unresolvable tool
-# name is just a JSON-RPC *result* whose text says so, which curl -sf and the
-# pipeline below both treat as success.
-mcp_call() {
-  local kb=$1 method=$2 args=$3 id=$4
-  curl -sf -X POST "$MCP?kb=$kb" \
-    -H "Content-Type: application/json" \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":$id,\"method\":\"tools/call\",\"params\":{\"name\":\"$method\",\"arguments\":$args}}" \
-    | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-if 'error' in d:
-    sys.exit('MCP error calling $method: %s' % d['error'])
-r = d['result']
-text = r['content'][0]['text']
-print(text)
-if r.get('isError'):
-    sys.exit('tool $method returned an error for KB $kb: %s' % text)
-"
-}
+# mcp_call (test/lib/mcp.sh) fails the script on a tool error.
+. "$BASE/test/lib/mcp.sh"
 
 # seed_index KB ID TITLE N creates an Index page and an overview page that links
 # it, in one concept_batch with their curated index entries: the write gate (D907)

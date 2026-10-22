@@ -493,10 +493,21 @@
   scrollbar-color: var(--border-strong) transparent;
 }
 
-/* Rows fade out under the panel switcher once the list is scrolled, instead
-   of being cut by it; at the top nothing is under it, so nothing fades. */
+/* Rows fade out at the bottom edge, where more of the list waits below,
+   instead of ending cut in half; the list's own bottom padding is what fades
+   once it is scrolled to the end. Once scrolled, they also fade under the
+   panel switcher at the top; at the top nothing is under it. */
+.rail__scroll {
+  mask-image: linear-gradient(to bottom, black calc(100% - var(--space-4)), transparent);
+}
 .rail__scroll[data-scrolled] {
-  mask-image: linear-gradient(to bottom, transparent, black var(--space-3));
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black var(--space-3),
+    black calc(100% - var(--space-4)),
+    transparent
+  );
 }
 
 .rail__title {
@@ -2657,10 +2668,17 @@ code.mapcontract__label {
 
 .catalog__tile-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--space-2);
+  gap: 2px var(--space-2);
   min-width: 0;
+}
+/* The name keeps its width: a badge that does not fit beside it wraps under
+   it rather than cutting the name to an ellipsis. */
+.catalog__tile-head .catalog__tile-name {
+  flex: 1 1 auto;
+  min-width: min(100%, 20ch);
 }
 
 .catalog__tile-name {
@@ -3619,6 +3637,30 @@ code.mapcontract__label {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-small);
 }
+/* A list too long to sit beside the description (paths, KB lists) takes its
+   own full-width line under it, read left to right like the YAML. */
+.settings__row[data-wide] .settings__row-head {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2);
+}
+.settings__row[data-wide] .settings__val {
+  align-items: flex-start;
+  max-width: none;
+}
+.settings__row[data-wide] .settings__value--list {
+  flex-direction: row;
+  justify-content: flex-start;
+  width: 100%;
+  gap: 4px;
+  text-align: start;
+}
+.settings__item-key {
+  color: var(--text-muted);
+}
+.settings__item-val {
+  overflow-wrap: anywhere;
+}
 .settings__meta {
   display: grid;
   grid-template-columns: max-content minmax(0, 1fr);
@@ -3817,4 +3859,80 @@ code.mapcontract__label {
 }
 .artifacts__detail .secrets__rows {
   margin-block-start: var(--space-4);
+}
+
+/* --- Loading shapes: a page that has not arrived keeps the layout of the one
+   that will, with grey bars where the text goes. They are never interactive. */
+.loading-shape {
+  pointer-events: none;
+  cursor: default;
+}
+
+.loading-shape__body {
+  display: contents;
+}
+
+.bone {
+  display: block;
+  max-width: 100%;
+}
+
+.bone--round {
+  border-radius: var(--radius-pill);
+}
+
+/* The headline line of a page, in bar form: the h1 keeps its height. */
+.skel-title {
+  display: inline-block;
+  width: min(26ch, 70%);
+  height: 0.9em;
+  vertical-align: middle;
+}
+
+.loading-shape .timeline__item,
+.loading-shape .catalog__tile,
+.loading-shape .work__card-main {
+  cursor: default;
+}
+
+.loading-shape .timeline__node {
+  width: 10px;
+  height: 10px;
+}
+
+.loading-shape .catalog__tile:hover {
+  background: var(--surface-1);
+  border-color: var(--border-subtle);
+  transform: none;
+}
+
+.loading-shape .catalog__tile-desc {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.loading-shape .agenda__head {
+  pointer-events: none;
+}
+
+.loading-shape .arow__bar {
+  display: block;
+}
+
+.text-skeleton,
+.entries-skeleton {
+  display: grid;
+  gap: var(--space-3);
+  padding-block: var(--space-2);
+}
+
+.text-skeleton .loading-shape__body,
+.entries-skeleton .loading-shape__body {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.entries-skeleton__row {
+  display: grid;
+  gap: var(--space-2);
 }

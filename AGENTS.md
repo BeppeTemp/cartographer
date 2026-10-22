@@ -77,6 +77,7 @@ internal/configurator   generates MCP configuration files for multiple LLM provi
 internal/defaults       contains the local endpoint values shared by the native service and client first-run paths
 internal/execbit        reports whether the host filesystem carries the POSIX execute bit, and is the one place that answers…
 internal/gitx           provides a git wrapper via os/exec for the Agentic Wiki
+internal/gitx/gitxtest  is a git smart-HTTP server for tests (D996)
 internal/graphalgo      holds the graph algorithms behind the retrieval tools (D242)
 internal/kb             implements the data plane of the OKF knowledge base
 internal/lint           implements deterministic lint checks on a KB scope
@@ -93,7 +94,7 @@ internal/skill          implements loading and validation of SKILL.md files (age
 internal/skillbundle    embeds the skills shipped inside the binary (bundled/) so a fresh install can provision an agent client…
 internal/sops           decrypts sops-encrypted KB secrets and resolves the references a concept declares, turning them into…
 internal/sqlindex       implements a persistent SQLite-backed keyword index
-internal/testkbs        generates the synthetic test Knowledge Bases `make dev` serves (D818)
+internal/testkbs        generates the synthetic test Knowledge Bases `make dev` serves (D818, D1032)
 internal/testkbs/gen    Command gen writes the test KB fleet of package testkbs into a data directory, one subdirectory per KB
 internal/updatecheck    answers whether a newer Cartographer release exists and how this binary is upgraded (D254)
 internal/webui          serves the embedded read-only Atlas UI (D227)

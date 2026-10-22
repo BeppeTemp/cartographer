@@ -470,7 +470,29 @@ func mergeJSON(existing, incoming []byte) ([]byte, error) {
 		return incoming, nil
 	}
 	jsonDeepMerge(existMap, incomMap)
+	dropSupersededURLKeys(existMap, incomMap)
 	return json.MarshalIndent(existMap, "", "  ")
+}
+
+// dropSupersededURLKeys removes "serverUrl" from every server entry that the
+// incoming content writes with "url": Antigravity entries written before D1030
+// carry "serverUrl", and the deep merge would otherwise keep it beside "url",
+// pointing at the old address once the URL changes. Entries the incoming
+// content does not write (other servers) are left alone.
+func dropSupersededURLKeys(dst, src map[string]any) {
+	for _, key := range mcpServerKeys {
+		srcServers, _ := src[key].(map[string]any)
+		dstServers, _ := dst[key].(map[string]any)
+		for name, sv := range srcServers {
+			se, _ := sv.(map[string]any)
+			de, _ := dstServers[name].(map[string]any)
+			if _, hasURL := se["url"]; hasURL && de != nil {
+				if _, own := se["serverUrl"]; !own {
+					delete(de, "serverUrl")
+				}
+			}
+		}
+	}
 }
 
 // jsonDeepMerge merges src into dst. For nested maps, recurses.
@@ -854,7 +876,7 @@ func emitAntigravityServer(name string, spec ServerSpec) (*EmitResult, error) {
 	entry := map[string]any{}
 	switch spec.Type {
 	case "http":
-		entry["serverUrl"] = spec.URL
+		entry["url"] = spec.URL
 		if len(spec.Headers) > 0 {
 			entry["headers"] = spec.Headers
 		}

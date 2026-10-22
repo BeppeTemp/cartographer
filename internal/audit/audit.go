@@ -978,12 +978,24 @@ func validV2Outcome(e Entry) bool {
 	return e.Outcome == ""
 }
 
+// VerifyOptions tunes VerifyAudit.
+type VerifyOptions struct {
+	// SignedSince, when non-zero, declares that every entry with a timestamp
+	// at or after it must be signed, even if no signed entry precedes it.
+	SignedSince time.Time
+}
+
 // VerifyAudit validates the durable checkpoint index, retained (still
 // present) rotated segments, checkpoint-only (already deleted by retention)
 // segments, and the active file — all as one continuous chain. It is the
 // offline operator entry point (`cartographer audit verify`/`export`) and
 // never modifies anything on disk.
-func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey) (Summary, error) {
+//
+// With a public key the log must have a signing start: opts.SignedSince, else
+// the first SigningRequired checkpoint, else the first signed entry. A log
+// with entries and none of the three carries no signature at all and is
+// refused, since nothing would authenticate it.
+func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey, opts VerifyOptions) (Summary, error) {
 	if _, err := os.Stat(path); err != nil {
 		return Summary{}, fmt.Errorf("audit: active log: %w", err)
 	}
@@ -1059,12 +1071,26 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey) (Summ
 	}
 	activeStart := len(timeline)
 	timeline = append(timeline, active...)
+	if !opts.SignedSince.IsZero() {
+		for i, e := range timeline {
+			if _, isBoundary := boundaries[i]; isBoundary {
+				continue
+			}
+			if !e.Timestamp.Before(opts.SignedSince) {
+				if signedFrom < 0 || i < signedFrom {
+					signedFrom = i
+				}
+				break
+			}
+		}
+	}
 
 	sum := Summary{Retained: retained, CheckpointOnly: checkpointOnly}
 	ids := map[string]bool{}
 	attempts := map[string]bool{}
 	prev := "genesis"
 	signing := false
+	sawSig := false
 	for i, e := range timeline {
 		if i == signedFrom {
 			signing = true
@@ -1116,6 +1142,7 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey) (Summ
 		}
 		if e.Sig != "" {
 			signing = true
+			sawSig = true
 		}
 		if e.Sig == "" {
 			sum.Unsigned++
@@ -1133,6 +1160,14 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey) (Summ
 	sum.Incomplete = len(attempts)
 	if sum.Incomplete > 0 {
 		return sum, fmt.Errorf("audit: %d attempt(s) without completion", sum.Incomplete)
+	}
+	// Only with a key: without one the caller asked for the chain alone and
+	// the unsigned count tells the story. With a key, a log in which nothing
+	// is signed and no start was declared could be a rewrite that recomputed
+	// the chain and dropped every signature, so it is refused.
+	if public != nil && len(sum.Events) > 0 && signedFrom < 0 && !sawSig && opts.SignedSince.IsZero() {
+		sum.Corrupt++
+		return sum, errors.New("audit: no signed entry: the log cannot be authenticated with this key (pass --signed-since <RFC3339> if it predates signing)")
 	}
 	return sum, nil
 }
