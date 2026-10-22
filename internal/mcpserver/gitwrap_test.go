@@ -140,6 +140,21 @@ func TestGitWrap_DebouncedWriteAppendsPendingWarningAndPreservesFailure(t *testi
 	}
 }
 
+// A KB without a remote never reports a pending push: the debounce applies
+// only to a push that can happen, so the state stays no_remote after a write.
+func TestGitWrap_DebouncedWriteWithoutRemoteStaysNoRemote(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	k.SyncOutDebounce = time.Hour
+	res := writeWrappedTool(t, k, "test_write", nil)
+	if len(res.Content) != 1 {
+		t.Fatalf("content blocks = %+v, want no sync warning", res.Content)
+	}
+	if status := k.GitStatusSnapshot(); status.State != "no_remote" {
+		t.Fatalf("state = %q, want no_remote", status.State)
+	}
+}
+
 func TestGitWrap_CommitFailureIsRecordedAndDoesNotSchedulePush(t *testing.T) {
 	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
