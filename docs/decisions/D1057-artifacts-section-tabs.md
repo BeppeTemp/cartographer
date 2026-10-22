@@ -38,3 +38,24 @@ D864 list of kinds still drives what each tab shows, filtered by the tab's
 kinds. An old `panel=artifacts&artifact=template/<name>` link is read as the
 Templates tab with that template open, and one to the instructions as the
 Instructions tab.
+
+## Also in this change: `changes_since` counts changes by day
+
+**Decision.** `changes_since` returns `changes_by_day` (`{"2006-01-02": {work, upkeep?}}`,
+UTC days): one per concept a commit of the window touched, among the concepts the
+caller can see, the server's `auto-repair` commits counted apart. The Activity
+histogram reads it whenever no Map or author filter narrows the page.
+
+**Why.** The histogram counted `concepts`, which holds each concept once, at its
+newest change, and is truncated: over *All* a KB whose pages were nearly all
+touched last month drew a year of empty days, though hundreds of commits had
+happened in them.
+
+**Alternatives rejected.** *A per-day commit count* (`commits_by_day`): a commit
+writing ten pages would count as one, and it would have to be whole-KB only, like
+`commit_count`; counting visible concept changes needs no such rule.
+*Raising the concepts limit*: still each concept once, at its last change.
+
+**Consequences.** The series cannot be filtered by Map or author, so with a filter
+the histogram falls back to the concepts. A server older than this field sends
+none, and the page draws what it drew before.

@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
-import { formatValue } from "../components/Settings";
+import { formatValue, humanBytes } from "../components/Settings";
 import { json, stubApi } from "./fixtures";
 
 const SETTINGS = {
@@ -134,6 +134,13 @@ describe("the Settings panel", () => {
               entries: [
                 { key: "server_url", value: "http://example.com/mcp", origin: "file", description: "MCP endpoint.", default: "x" },
                 { key: "update_check", value: true, origin: "default", description: "Look up releases.", default: "true" },
+                {
+                  key: "scopes",
+                  value: { codex: "workspace", kiro: "home" },
+                  origin: "file",
+                  description: "Where a provider receives KB artifacts.",
+                  default: "{}",
+                },
               ],
             },
           ],
@@ -147,6 +154,11 @@ describe("the Settings panel", () => {
     expect(screen.getByText(/Client v-client · reported/)).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Client Connection settings" })).toHaveTextContent("server_url");
     expect(screen.getByRole("list", { name: "Client Updates & sync settings" })).toHaveTextContent("update_check");
+    // A map is a table under its row, its size beside the key.
+    expect(screen.getByLabelText("Value of scopes")).toHaveTextContent("2 entries");
+    const scopes = screen.getByLabelText("Entries of scopes");
+    expect(scopes).toHaveTextContent("codex");
+    expect(scopes).toHaveTextContent("home");
     // Below the settings, one section per KB with its own client settings, named by their YAML key.
     const kbA = screen.getByRole("list", { name: "Client settings of kb-a" });
     expect(within(kbA).getByLabelText("Value of clients.<agent>.kbs")).toHaveTextContent("claude");
@@ -198,6 +210,12 @@ describe("the Settings panel", () => {
     stubApi({ "/settings": () => json({ error: { code: "internal", message: "internal error" } }, 500) });
     render(<App />);
     expect(await screen.findByRole("button", { name: /retry|try again/i })).toBeInTheDocument();
+  });
+
+  it("says a byte count in the unit it fills", () => {
+    expect(humanBytes(67108864)).toBe("64 MiB");
+    expect(humanBytes(1536)).toBe("1.5 KiB");
+    expect(humanBytes(12)).toBe("12 B");
   });
 
   it("formats lists and empty values", () => {
