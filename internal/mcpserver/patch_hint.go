@@ -75,21 +75,67 @@ func closestLineHint(body, oldString string) string {
 }
 
 // matchLines lists the 1-based body lines where oldString matches, at most
-// ambiguousMaxLines, as "a, b, c".
-func matchLines(body, oldString string) string {
-	var lines []string
+// ambiguousMaxLines, as "a, b, c"; truncated reports that more lines match.
+func matchLines(body, oldString string) (lines string, truncated bool) {
+	var found []string
 	last := 0
-	for pos := 0; len(lines) < ambiguousMaxLines; {
+	for pos := 0; len(found) <= ambiguousMaxLines; {
 		i := strings.Index(body[pos:], oldString)
 		if i < 0 {
 			break
 		}
 		line := 1 + strings.Count(body[:pos+i], "\n")
 		if line != last {
-			lines = append(lines, fmt.Sprint(line))
+			found = append(found, fmt.Sprint(line))
 			last = line
 		}
 		pos += i + len(oldString)
 	}
-	return strings.Join(lines, ", ")
+	if len(found) > ambiguousMaxLines {
+		found, truncated = found[:ambiguousMaxLines], true
+	}
+	return strings.Join(found, ", "), truncated
+}
+
+// ambiguousHint is the old_string_ambiguous message: the true count, the
+// lines (flagged when the list is cut), the usual cause when old_string
+// starts or ends with a newline, and how to disambiguate.
+func ambiguousHint(body, oldString string, count int) string {
+	lines, truncated := matchLines(body, oldString)
+	where := "lines " + lines
+	if truncated {
+		where = fmt.Sprintf("first %d lines: %s", ambiguousMaxLines, lines)
+	}
+	var cause string
+	if edge := newlineEdge(oldString); edge != "" {
+		cause = fmt.Sprintf("; a %s newline in old_string is the usual reason a snippet matches more places than intended (it also matches the line break of every neighbouring occurrence): drop it", edge)
+	}
+	return fmt.Sprintf("old_string_ambiguous: old_string matches %d times (%s)%s; extend old_string with the unique text on the line before or after, or pass replace_all=true if all %d occurrences are meant",
+		count, where, cause, count)
+}
+
+// newlineEdge names the end(s) of s that are a newline: "leading", "trailing",
+// "leading or trailing" when both, "" when neither.
+func newlineEdge(s string) string {
+	lead, trail := strings.HasPrefix(s, "\n"), strings.HasSuffix(s, "\n")
+	switch {
+	case lead && trail:
+		return "leading or trailing"
+	case lead:
+		return "leading"
+	case trail:
+		return "trailing"
+	}
+	return ""
+}
+
+// editChainNote is the clause a failed edit i of an edits array carries when
+// it was matched against the result of earlier edits rather than the stored
+// body. It is appended by the callers, which own the index: applyPatchEdit
+// stays index-agnostic. i is 1-based.
+func editChainNote(i int) string {
+	if i <= 1 {
+		return ""
+	}
+	return fmt.Sprintf("; matched against the body after edits 1..%d, not the stored one; none of them was written", i-1)
 }

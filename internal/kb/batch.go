@@ -102,6 +102,11 @@ func pruneEmptyDirs(dir, root string) error {
 	return nil
 }
 
+// RollbackFailedMarker is in the error of a batch whose rollback itself
+// failed: the tree may hold part of the batch, and a caller that must tell
+// that case from a clean refusal looks for it.
+const RollbackFailedMarker = "rollback also failed"
+
 // WriteConceptBatch atomically materializes every op's final content plus
 // one summary log.md entry as a single logical operation (D125 WP1/WP2):
 // every op is prepared — validated and its content built — before any disk
@@ -181,7 +186,7 @@ func (kb *KB) WriteConceptBatch(ops []BatchWriteOp, logMessage string, afterFile
 			}
 		}
 		if len(errs) > 0 {
-			return fmt.Errorf("%w (rollback also failed: %s)", cause, strings.Join(errs, "; "))
+			return fmt.Errorf("%w (%s: %s)", cause, RollbackFailedMarker, strings.Join(errs, "; "))
 		}
 		return cause
 	}

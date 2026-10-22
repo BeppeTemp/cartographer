@@ -75,7 +75,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			newHash, err := writeConceptAndLog(k, "concept_write", params.ID, fm, params.Body, params.IfMatch)
 			if err != nil {
 				if errors.Is(err, okf.ErrStaleWrite) {
-					return errorResult("stale_write: " + err.Error()), nil
+					return errorResult("stale_write: " + err.Error() + staleConceptSuffix(k, params.ID)), nil
 				}
 				return errorResult(fmt.Sprintf("concept_write %q: %v", params.ID, err)), nil
 			}
@@ -465,10 +465,7 @@ func applyPatchEdit(body, oldString, newString string, replaceAll bool) (newBody
 		return "", 0, errors.New("old_string_not_found: no match for old_string" + closestLineHint(body, oldString))
 	}
 	if count > 1 && !replaceAll {
-		return "", 0, fmt.Errorf(
-			"old_string_ambiguous: old_string matches %d times (lines %s); pass replace_all=true or provide more surrounding context",
-			count, matchLines(body, oldString),
-		)
+		return "", 0, errors.New(ambiguousHint(body, oldString, count))
 	}
 	if replaceAll {
 		return strings.ReplaceAll(body, oldString, newString), count, nil
@@ -603,7 +600,8 @@ func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 					}
 					newBody, n, err := applyPatchEdit(body, e.OldString, e.NewString, e.ReplaceAll)
 					if err != nil {
-						return errorResult(fmt.Sprintf("edit %d of %d: %v", i+1, len(params.Edits), err)), nil
+						// applyPatchEdit does not know its index: the chain clause is added here.
+						return errorResult(fmt.Sprintf("edit %d of %d: %v%s", i+1, len(params.Edits), err, editChainNote(i+1))), nil
 					}
 					body = newBody
 					replacements += n
@@ -632,7 +630,7 @@ func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 			newHash, err := writeConceptAndLog(k, "concept_patch", params.ID, fm, body, params.IfMatch)
 			if err != nil {
 				if errors.Is(err, okf.ErrStaleWrite) {
-					return errorResult("stale_write: " + err.Error()), nil
+					return errorResult("stale_write: " + err.Error() + staleConceptSuffix(k, params.ID)), nil
 				}
 				return errorResult(fmt.Sprintf("concept_patch %q: %v", params.ID, err)), nil
 			}
@@ -769,7 +767,7 @@ func toolIndexPatch(k *kb.KB) Tool {
 					}
 					newContent, n, err := applyPatchEdit(content, e.OldString, e.NewString, e.ReplaceAll)
 					if err != nil {
-						return errorResult(fmt.Sprintf("edit %d of %d: %v", i+1, len(params.Edits), err)), nil
+						return errorResult(fmt.Sprintf("edit %d of %d: %v%s", i+1, len(params.Edits), err, editChainNote(i+1))), nil
 					}
 					content = newContent
 					replacements += n
@@ -790,7 +788,7 @@ func toolIndexPatch(k *kb.KB) Tool {
 			newHash, err := k.PatchIndex(params.Path, params.IfMatch, content)
 			if err != nil {
 				if errors.Is(err, okf.ErrStaleWrite) {
-					return errorResult("stale_write: " + err.Error()), nil
+					return errorResult("stale_write: " + err.Error() + staleIndexSuffix(k, params.Path)), nil
 				}
 				return errorResult(fmt.Sprintf("index_patch %q: %v", params.Path, err)), nil
 			}
@@ -1830,30 +1828,36 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 	// move, this entry's target) are already on disk and are not rolled
 	// back. It must still be an explicit application error — gitWrap
 	// then neither commits nor logs success — and say what is where.
-	appliedNote := func() string {
-		if len(applied) == 0 {
-			return ""
+	// entryWritten: this entry already changed the tree, so the recovery hint
+	// applies even when no earlier move did.
+	appliedNote := func(entryWritten bool) string {
+		note := ""
+		if len(applied) > 0 {
+			note = fmt.Sprintf("; %d earlier move(s) in this batch were already applied and are not rolled back", len(applied))
 		}
-		return fmt.Sprintf("; %d earlier move(s) in this batch were already applied and are not rolled back", len(applied))
+		if len(applied) > 0 || entryWritten {
+			note += "; " + recoveryHint
+		}
+		return note
 	}
 	for _, mv := range valid {
 		if mv.expanded {
 			if err := os.MkdirAll(filepath.Dir(mv.target.Dir), 0o755); err != nil {
-				return nil, errRes(errorResult(fmt.Sprintf("concept_move: create target parent %q: %v%s", mv.targetID, err, appliedNote())))
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: create target parent %q: %v%s", mv.targetID, err, appliedNote(false))))
 			}
 			if err := conceptMoveRename(mv.source.Dir, mv.target.Dir); err != nil {
-				return nil, errRes(errorResult(fmt.Sprintf("concept_move: could not move expanded concept %q to %q: %v; its directory was not moved%s", mv.sourceID, mv.targetID, err, appliedNote())))
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: could not move expanded concept %q to %q: %v; its directory was not moved%s", mv.sourceID, mv.targetID, err, appliedNote(false))))
 			}
 		} else {
 			if _, err := k.WriteConcept(okf.ConceptID(mv.targetID), mv.fm, mv.body, ""); err != nil {
-				return nil, errRes(errorResult(fmt.Sprintf("concept_move: write target %q: %v%s", mv.targetID, err, appliedNote())))
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: write target %q: %v%s", mv.targetID, err, appliedNote(false))))
 			}
 
 			// The source was resolved and read in preflight, so even
 			// not-found here is a failure: ignoring it is how the move
 			// used to report success with the source still in place.
 			if err := conceptMoveRemove(mv.source.File); err != nil {
-				return nil, errRes(errorResult(fmt.Sprintf("concept_move: target %q was already written but source %q could not be removed: %v; both now exist and nothing was rolled back — delete one of them%s", mv.targetID, mv.sourceID, err, appliedNote())))
+				return nil, errRes(errorResult(fmt.Sprintf("concept_move: target %q was already written but source %q could not be removed: %v; both now exist and nothing was rolled back — delete one of them%s", mv.targetID, mv.sourceID, err, appliedNote(true))))
 			}
 		}
 
@@ -2855,7 +2859,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 							return errorResult(fmt.Sprintf("stale_write: %s: file not found", label)), nil
 						}
 						if existing.ContentHash != op.IfMatch {
-							return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match", label)), nil
+							return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match%s", label, staleConceptSuffix(k, op.ID))), nil
 						}
 					}
 					var err error
@@ -2874,7 +2878,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 						return errorResult(fmt.Sprintf("%s: not found", label)), nil
 					}
 					if existing.ContentHash != op.IfMatch {
-						return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match", label)), nil
+						return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match%s", label, staleConceptSuffix(k, op.ID))), nil
 					}
 					if hasEdits && hasSingle {
 						return errorResult(fmt.Sprintf("%s: 'edits' is mutually exclusive with top-level 'old_string'/'new_string'/'replace_all'", label)), nil
@@ -2900,7 +2904,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 							}
 							newBody, _, editErr := applyPatchEdit(body, e.OldString, e.NewString, e.ReplaceAll)
 							if editErr != nil {
-								return errorResult(fmt.Sprintf("%s, edit %d of %d: %v", label, ei+1, len(op.Edits), editErr)), nil
+								return errorResult(fmt.Sprintf("%s, edit %d of %d: %v%s", label, ei+1, len(op.Edits), editErr, editChainNote(ei+1))), nil
 							}
 							body = newBody
 						}
@@ -2972,10 +2976,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				return applyIndexEntries(k, indexPending)
 			})
 			if err != nil {
-				if errors.Is(err, okf.ErrStaleWrite) {
-					return errorResult("stale_write: " + err.Error()), nil
-				}
-				return errorResult("concept_batch: " + err.Error()), nil
+				return errorResult(batchWriteError(k, ops, err)), nil
 			}
 
 			entries := make([]batchResultEntry, len(results))
@@ -3105,7 +3106,7 @@ func toolConceptDelete(k *kb.KB) Tool {
 					return errorResult(fmt.Sprintf("concept_delete %q: %v", params.ID, err)), nil
 				}
 				if data.ContentHash != params.IfMatch {
-					return errorResult("stale_write: content_hash does not match if_match"), nil
+					return errorResult("stale_write: content_hash does not match if_match" + staleConceptSuffix(k, params.ID)), nil
 				}
 			}
 
