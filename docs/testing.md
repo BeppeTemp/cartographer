@@ -120,7 +120,7 @@ made with no writer is re-committed by that identity (`gitwrap_author_test.go`,
 behind basic auth, in process (`internal/gitx/gitxtest`): clone, fetch and push with
 the token helper, a wrong token (the "credentials were rejected" remedy), no token
 (terminal prompts disabled, never a hang), `SyncOut`/`SyncIn` of a KB and a hook's
-rejection reaching the caller through HTTP. Every package whose tests touch git calls `gitxtest.QuietGit()` in its `TestMain` (a `repodocs` test enforces it): it switches off git's auto-gc and maintenance, whose detached run would otherwise race `t.TempDir()`'s cleanup. `smoke-http` and `e2e` run with **no git
+rejection reaching the caller through HTTP. Every package whose tests touch git calls `gitxtest.QuietGit()` in its `TestMain` (a `repodocs` test enforces it): it switches off git's auto-gc and maintenance, whose detached run would otherwise race `t.TempDir()`'s cleanup. A test that waits on git or the server with a wall-clock deadline (`time.After`, a polling loop, a client timeout) wraps it in `gitxtest.Deadline(d)`, which is `d` everywhere but 4×`d` on Windows, where one commit takes 1-2 s under load (#1048); never raise a single number after a red run, and never scale a deadline that is the thing under test. `smoke-http` and `e2e` run with **no git
 identity** on the host (`GIT_CONFIG_GLOBAL` points at a file holding only
 `init.defaultBranch`): a scenario that commits by hand passes its identity with `-c`;
 scenario 21 serves a KB whose remote enforces membership. Realignment of the three settings files (server YAML,

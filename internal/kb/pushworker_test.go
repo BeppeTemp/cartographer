@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 )
 
 // TestSchedulePush_Burst_CoalescesIntoOnePush sends a burst of SchedulePush
@@ -134,7 +135,7 @@ func TestSchedulePush_Conflict_InvokesOnPushConflict(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(gitxtest.Deadline(10 * time.Second)):
 		t.Fatal("timed out waiting for OnPushConflict")
 	}
 
@@ -211,7 +212,7 @@ func TestFlushPushDuringRunDoesNotLeakForce(t *testing.T) {
 
 	k.SchedulePush()
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(gitxtest.Deadline(5 * time.Second))
 	for {
 		k.pushMu.Lock()
 		running := k.pushRunning
@@ -230,7 +231,7 @@ func TestFlushPushDuringRunDoesNotLeakForce(t *testing.T) {
 	go func() { flushed <- k.FlushPush(10 * time.Second) }()
 
 	// Let FlushPush register its force+waiter against the running push.
-	deadline = time.Now().Add(5 * time.Second)
+	deadline = time.Now().Add(gitxtest.Deadline(5 * time.Second))
 	for {
 		k.pushMu.Lock()
 		queued := len(k.pushWaiters) > 0

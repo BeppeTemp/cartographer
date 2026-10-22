@@ -18,6 +18,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -178,7 +179,7 @@ func runMCPSequence(t *testing.T, s *Server, messages []string) []Response {
 				}
 				responses = append(responses, d.resp)
 				waiting = false
-			case <-time.After(20 * time.Second):
+			case <-time.After(gitxtest.Deadline(20 * time.Second)):
 				t.Fatalf("timed out waiting for a response to %s", m)
 			}
 		}
@@ -5717,7 +5718,7 @@ func runStdioSession(t *testing.T, run func(io.Reader, io.Writer) error, message
 				t.Fatalf("decode: %v", d.err)
 			}
 			responses = append(responses, d.resp)
-		case <-time.After(20 * time.Second):
+		case <-time.After(gitxtest.Deadline(20 * time.Second)):
 			t.Fatalf("timed out on %s", m)
 		}
 	}
@@ -6193,7 +6194,7 @@ func TestChangesSinceRenameBackAndForth(t *testing.T) {
 		if !found {
 			t.Errorf("one/page missing from %+v", r.Concepts)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(gitxtest.Deadline(10 * time.Second)):
 		t.Fatal("changes_since did not return: the rename chain loops")
 	}
 }

@@ -342,7 +342,7 @@ func TestServerUpdateCheck(t *testing.T) {
 	if src == nil {
 		t.Fatal("a release build with update_check on starts the checker")
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(gitxtest.Deadline(5 * time.Second))
 	for src() == "" && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -433,7 +433,7 @@ func TestServerUpdateCheckRetriesSoonAfterAFailure(t *testing.T) {
 	if src == nil {
 		t.Fatal("checker not started")
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(gitxtest.Deadline(5 * time.Second))
 	for src() == "" && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}

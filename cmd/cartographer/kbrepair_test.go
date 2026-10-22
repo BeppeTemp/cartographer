@@ -14,6 +14,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
@@ -48,7 +49,11 @@ func repairTestKB(t *testing.T) (toolCaller, string) {
 		h.ServeHTTP(w, r.WithContext(ctx))
 	}))
 	t.Cleanup(srv.Close)
-	return targetCaller{c: client.New(srv.URL+"/mcp", "")}, concept
+	// The client's 30 s default is a wall-clock bound on a request that commits
+	// to git: scale it for the slow Windows runners (#1048).
+	cl := client.New(srv.URL+"/mcp", "")
+	cl.HTTP.Timeout = gitxtest.Deadline(cl.HTTP.Timeout)
+	return targetCaller{c: cl}, concept
 }
 
 func runRepairJSON(t *testing.T, c toolCaller, apply bool) (kbRepairReport, int) {

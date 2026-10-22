@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -275,7 +276,7 @@ func countRuns(t *testing.T, k *kb.KB) int {
 
 func waitFor(t *testing.T, what string, ok func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(gitxtest.Deadline(5 * time.Second))
 	for time.Now().Before(deadline) {
 		if ok() {
 			return

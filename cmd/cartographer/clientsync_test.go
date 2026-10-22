@@ -21,6 +21,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -643,7 +644,7 @@ func TestFetchCandidatesPullsConcurrently(t *testing.T) {
 		select {
 		case <-met:
 			return syncPullPayload(t, kb, "skill-"+kb), false
-		case <-time.After(5 * time.Second):
+		case <-time.After(gitxtest.Deadline(5 * time.Second)):
 			return "the other KB's pull never started while this one was in flight", true
 		}
 	})
@@ -673,7 +674,7 @@ func TestFetchCandidatesReportsFirstFailureInTargetOrder(t *testing.T) {
 		}
 		select {
 		case <-twoDone:
-		case <-time.After(5 * time.Second):
+		case <-time.After(gitxtest.Deadline(5 * time.Second)):
 		}
 		return "not json", false // a decode error, not a call error
 	})
