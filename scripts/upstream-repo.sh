@@ -18,8 +18,10 @@ if git remote get-url upstream >/dev/null 2>&1; then
   exit 0
 fi
 origin=$(slug_of origin)
-if ! parent=$(gh repo view "$origin" --json isFork,parent \
-  --jq 'if .isFork then .parent.owner.login + "/" + .parent.name else "" end' 2>/dev/null); then
+# REST, not `gh repo view`: that one is GraphQL, which some environments (cloud
+# agent sessions behind a proxy) refuse while REST works.
+if ! parent=$(gh api "repos/$origin" \
+  --jq 'if .fork then .parent.full_name else "" end' 2>/dev/null); then
   if [ "${1:-}" = "--require-remote" ]; then
     echo "the fork check of $origin could not run (gh failed): authenticate gh or add the upstream remote" >&2
     exit 1
