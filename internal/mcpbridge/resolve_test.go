@@ -218,4 +218,7 @@ func TestAccessConstantsMatchTheServer(t *testing.T) {
 	if accessHeader != mcpserver.AccessHeader || accessRead != mcpserver.AccessReadValue {
 		t.Fatalf("bridge %q=%q, server %q=%q", accessHeader, accessRead, mcpserver.AccessHeader, mcpserver.AccessReadValue)
 	}
+	if provisionedParam != mcpserver.ProvisionedParam || provisionedValue != mcpserver.ProvisionedValue {
+		t.Fatalf("bridge %q=%q, server %q=%q", provisionedParam, provisionedValue, mcpserver.ProvisionedParam, mcpserver.ProvisionedValue)
+	}
 }

@@ -45,7 +45,7 @@ func TestEntriesSwitchBetweenHTTPAndBridge(t *testing.T) {
 	if e := got["claude"]; len(e) != 1 || !e[0].Bridge || e[0].Name != "cartographer" {
 		t.Fatalf("claude (bound) = %+v, want the bridge", e)
 	}
-	if e := got["codex"]; len(e) != 1 || e[0].Bridge || e[0].URL != "https://example.com/mcp/routed" {
+	if e := got["codex"]; len(e) != 1 || e[0].Bridge || e[0].URL != "https://example.com/mcp/routed?provisioned=1" {
 		t.Fatalf("codex (unbound) = %+v, want the unchanged HTTP entry", e)
 	}
 

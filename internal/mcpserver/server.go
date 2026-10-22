@@ -92,6 +92,9 @@ type Server struct {
 	// to name the KB in the legacy prefixed-tool message (D320). Empty on a
 	// per-KB server, which names policyKB instead.
 	connKBs []string
+	// connKB resolves a name of connKBs to its KB, for the guide (D1097).
+	// Installed by buildRouted; nil on a per-KB server, which uses kbRef.
+	connKB func(name string) *kb.KB
 	// readOnlySession marks a routed connection that asked for ?access=read:
 	// tools/list carries no write tool and a call to one is refused with
 	// denyUnboundFolder. Set once by buildRouted, before the server is served.

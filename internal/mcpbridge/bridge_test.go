@@ -177,7 +177,7 @@ func TestBridgeProxiesToTheBoundSet(t *testing.T) {
 		t.Fatalf("a KB outside the set must be the server's refusal, got %q err=%v", text, isErr)
 	}
 	for _, u := range rs.seen() {
-		if !strings.HasSuffix(u, "/mcp/routed?kbs=kb-a,kb-b") {
+		if !strings.HasSuffix(u, "/mcp/routed?kbs=kb-a,kb-b&provisioned=1") {
 			t.Fatalf("request URL %q does not carry the bound set", u)
 		}
 	}
@@ -194,7 +194,7 @@ func TestBridgeUnboundFolderSendsNoKbs(t *testing.T) {
 		t.Fatalf("unbound folder refused kb-b: %s", text)
 	}
 	for _, u := range rs.seen() {
-		if strings.Contains(u, "kbs=") || !strings.HasSuffix(u, "?access=read") {
+		if strings.Contains(u, "kbs=") || !strings.HasSuffix(u, "?access=read&provisioned=1") {
 			t.Fatalf("unbound folder sent %q, want the bare routed path with access=read", u)
 		}
 	}
@@ -223,7 +223,7 @@ func TestBridgeReadOnlyOnlyWhenUnbound(t *testing.T) {
 	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir(), Token: testToken}
 	exchange(t, b, initMsg, initedMsg, listMsg)
 	for _, u := range rs.seen() {
-		if !strings.HasSuffix(u, "?kbs=kb-b&access=read") {
+		if !strings.HasSuffix(u, "?kbs=kb-b&access=read&provisioned=1") {
 			t.Fatalf("unbound folder with a provider binding sent %q", u)
 		}
 	}
@@ -450,4 +450,25 @@ func TestBridgeRootsLiftAnEmptyProviderScope(t *testing.T) {
 		t.Fatalf("tools/list after roots is empty: %v", res)
 	}
 	inW.Close()
+}
+
+// D1097: every routed URL the bridge builds, for the POST and for the closing
+// DELETE, declares the session provisioned.
+func TestEndpointCarriesTheProvisionedMarker(t *testing.T) {
+	rs := newRoutedServer(t, "kb-a")
+	b := &Bridge{Cfg: bridgeConfig(rs), Provider: "claude", Dir: t.TempDir(), Token: testToken}
+	for _, c := range []struct {
+		scope Scope
+		want  string
+	}{
+		{Scope{All: true}, "/mcp/routed?provisioned=1"},
+		{Scope{KBs: []string{"kb-a", "kb-b"}}, "/mcp/routed?kbs=kb-a,kb-b&provisioned=1"},
+		{Scope{All: true, ReadOnly: true}, "/mcp/routed?access=read&provisioned=1"},
+		{Scope{KBs: []string{"kb-a"}, ReadOnly: true}, "/mcp/routed?kbs=kb-a&access=read&provisioned=1"},
+	} {
+		got, err := b.endpoint(c.scope)
+		if err != nil || !strings.HasSuffix(got, c.want) {
+			t.Errorf("endpoint(%+v) = %q, %v; want suffix %q", c.scope, got, err, c.want)
+		}
+	}
 }

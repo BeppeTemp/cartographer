@@ -761,7 +761,7 @@ func TestEntriesForKBs_Routed_OneEntry(t *testing.T) {
 	if entries[0].Name != "wiki" {
 		t.Errorf("entry name = %q, want the bare server name", entries[0].Name)
 	}
-	if !strings.HasSuffix(entries[0].URL, "/mcp/routed") {
+	if !strings.HasSuffix(entries[0].URL, "/mcp/routed?provisioned=1") {
 		t.Errorf("entry URL = %q, want the routed path", entries[0].URL)
 	}
 	if strings.Contains(entries[0].URL, "kb=") {
@@ -781,7 +781,7 @@ func TestEntriesForKBs_Routed_ExplicitBindingTravelsInTheURL(t *testing.T) {
 	if len(entries) != 1 || entries[0].Name != "wiki" {
 		t.Fatalf("entries = %+v, want the single routed entry", entries)
 	}
-	if want := "https://example.test/mcp/routed?kbs=a,c"; entries[0].URL != want {
+	if want := "https://example.test/mcp/routed?kbs=a,c&provisioned=1"; entries[0].URL != want {
 		t.Errorf("entry URL = %q, want %q", entries[0].URL, want)
 	}
 }
@@ -794,7 +794,7 @@ func TestEntriesForKBs_Routed_DefaultBindingHasNoKBS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("entriesForKBs: %v", err)
 	}
-	if len(entries) != 1 || entries[0].URL != "https://example.test/mcp/routed" {
+	if len(entries) != 1 || entries[0].URL != "https://example.test/mcp/routed?provisioned=1" {
 		t.Fatalf("entries = %+v, want the bare routed URL", entries)
 	}
 }
@@ -816,9 +816,9 @@ func TestEntriesByProviderForKBs_Routed_PerProviderBinding(t *testing.T) {
 		t.Fatalf("entriesByProviderForKBs: %v", err)
 	}
 	want := map[string]string{
-		"claude":   "https://example.test/mcp/routed?kbs=b",
-		"codex":    "https://example.test/mcp/routed?kbs=a,b",
-		"opencode": "https://example.test/mcp/routed",
+		"claude":   "https://example.test/mcp/routed?kbs=b&provisioned=1",
+		"codex":    "https://example.test/mcp/routed?kbs=a,b&provisioned=1",
+		"opencode": "https://example.test/mcp/routed?provisioned=1",
 	}
 	for p, url := range want {
 		if len(got[p]) != 1 || got[p][0].URL != url {

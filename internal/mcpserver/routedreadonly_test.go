@@ -141,11 +141,19 @@ func TestRoutedReadOnly_InstructionsSayReadOnly(t *testing.T) {
 		}
 		return resp.Result.Instructions
 	}
-	if got := instr(readOnlyPath); !strings.Contains(got, "read-only") {
-		t.Errorf("read-only instructions = %q", got)
+	// Unmarked connections get the guide (D1097); the bridge's workspace-bind
+	// sentence is for a provisioned bridge only.
+	if got := instr(readOnlyPath); !strings.Contains(got, "read-only") || strings.Contains(got, "workspace bind") {
+		t.Errorf("unmarked read-only instructions = %q", got)
 	}
-	if got := instr(RoutedMountPath); got != "" {
-		t.Errorf("read-write instructions = %q, want none", got)
+	if got := instr(readOnlyPath + "&provisioned=1"); got != readOnlyInstructions {
+		t.Errorf("provisioned read-only instructions = %q, want readOnlyInstructions", got)
+	}
+	if got := instr(RoutedMountPath); !strings.Contains(got, "concept_write") {
+		t.Errorf("read-write guide = %q, want the operational bullets", got)
+	}
+	if got := instr(RoutedMountPath + "?provisioned=1"); got != "" {
+		t.Errorf("provisioned read-write instructions = %q, want none", got)
 	}
 }
 
