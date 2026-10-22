@@ -29,7 +29,7 @@ var hookEventReach = map[string][]configurator.Provider{
 	// cells, verified to fire under `kiro-cli chat --v3 --tui` (D300). Its
 	// PreToolUse/PostToolUse were never exercised and its SessionEnd is not in
 	// this vocabulary, so neither is claimed.
-	"SessionStart":     {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderKiro, configurator.ProviderCopilot},
+	"SessionStart":     {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderKiro, configurator.ProviderCopilot},
 	"UserPromptSubmit": {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro},
 	"PreToolUse":       {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderCrush, configurator.ProviderCopilot},
 	"PostToolUse":      {configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderOpenCode, configurator.ProviderAntigravity, configurator.ProviderCopilot},

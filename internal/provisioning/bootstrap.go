@@ -63,7 +63,7 @@ var bootstrapContentHash = contentHashBytes(append(bootstrapHookJSON(), []byte(b
 //
 // A provider that cannot run a hook at session start is a no-op here, lock
 // returned unchanged: one with no hook cell
-// (destDir("hook", _, p) == ""), and antigravity and crush, which have one but no
+// (destDir("hook", _, p) == ""), and crush, which has one but no
 // session-start event (noSessionStartEvent). They sync on the scheduled trigger instead
 // (D140). Kiro gets the hook, which fires only in some of its sessions
 // (SessionHookLimit, D300).
@@ -227,11 +227,9 @@ type hookMechanism struct {
 	// noSessionStartEvent marks a provider whose hook engine has no event
 	// firing once at session start. It registers KB hooks normally, but the
 	// bootstrap hook (D60) cannot exist for it: its trigger is the scheduled
-	// timer instead (D140). True for crush (only PreToolUse fires, D363) and antigravity, whose five events
-	// (PreToolUse, PostToolUse, PreInvocation, PostInvocation, Stop) all fire
-	// per tool call or per model invocation — mapping SessionStart onto one of
-	// them would run `sync` on every turn, which is a different behaviour
-	// wearing the same name. https://antigravity.google/docs/hooks/
+	// timer instead (D140). True for crush (only PreToolUse fires, D363): its six
+	// events other than PreToolUse do not fire, so there is no session-start event.
+	// Antigravity gained SessionStart in D1007.
 	noSessionStartEvent bool
 	// warningBlocksBootstrap makes a non-fatal warning fatal for the
 	// bootstrap hook specifically. True only for opencode: its warning means
@@ -313,8 +311,7 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		},
 	},
 	configurator.ProviderAntigravity: {
-		settingsFile:        []string{".gemini", "config", "hooks.json"},
-		noSessionStartEvent: true,
+		settingsFile: []string{".gemini", "config", "hooks.json"},
 		register: func(baseDir, name, fullDestDir string) (string, string, error) {
 			warning, err := registerAntigravityHook(baseDir, name, fullDestDir)
 			if err != nil {
