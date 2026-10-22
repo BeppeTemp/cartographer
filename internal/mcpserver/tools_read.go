@@ -731,17 +731,17 @@ type changesSinceResult struct {
 	// CommitsByAgent counts the window's commits per Agent: trailer (D718);
 	// commits without one are not counted. Whole-KB figure, so filled under the
 	// same WholeVisible rule as CommitCount.
-	CommitsByAgent map[string]int        `json:"commits_by_agent,omitempty"`
+	CommitsByAgent map[string]int `json:"commits_by_agent,omitempty"`
 	// ChangesByDay counts, per UTC day ("2006-01-02"), the concept changes of
 	// the window the caller can see: one per concept a commit touched, the
 	// server's upkeep apart (D1057). Unlike Concepts, which keeps each concept
 	// once at its newest change, it is the history of the whole window and is
 	// never truncated.
 	ChangesByDay map[string]changesDay `json:"changes_by_day,omitempty"`
-	Concepts       []changesSinceConcept `json:"concepts"`
-	OtherChanges   int                   `json:"other_changes"`
-	Truncated      bool                  `json:"truncated"`
-	Note           string                `json:"note,omitempty"`
+	Concepts     []changesSinceConcept `json:"concepts"`
+	OtherChanges int                   `json:"other_changes"`
+	Truncated    bool                  `json:"truncated"`
+	Note         string                `json:"note,omitempty"`
 	// Links and LinksNote are set only by changes_since(links: true), D250.
 	Links     *changesLinks `json:"links,omitempty"`
 	LinksNote string        `json:"links_note,omitempty"`
