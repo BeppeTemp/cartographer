@@ -88,6 +88,10 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		return citedErr || len(citedSet[string(t)]) > 0
 	}
 
+	// The live census (D1099) counts the whole graph, but only an orphan
+	// candidate asks for it: an ordinary write pays nothing.
+	var census *liveCensus
+
 	var findings []Finding
 	emitFor := func(okf.ConceptID) func(Finding) {
 		return func(f Finding) { findings = append(findings, f) }
@@ -167,7 +171,12 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		for _, f := range forbiddenTermFindings(relPath, data.Body, glossary) {
 			emit(f)
 		}
-		if f, ok := orphanFinding(id, relPath, retired(lg.Facets[node].Status), links.In, links.Out, archiveSet, present, provCited); ok {
+		if f, ok := orphanFinding(id, relPath, retired(lg.Facets[node].Status), links.In, links.Out, archiveSet, present, provCited, func() bool {
+			if census == nil {
+				census = newLiveCensus(lg)
+			}
+			return census.only(id, archiveSet)
+		}); ok {
 			emit(f)
 		}
 		for _, f := range st.brokenRelation(id, relPath, lg.Facets[node]) {

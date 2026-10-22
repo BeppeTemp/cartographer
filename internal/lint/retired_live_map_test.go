@@ -117,6 +117,8 @@ func TestRetiredConcept_NoOrphan(t *testing.T) {
 			writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\ntitle: Ops\nkind: map\n---\n")
 			writeFile(t, k.DataRoot(), "ops/old.md", "---\ntype: Note\ntitle: Old\nstatus: "+status+"\n---\n# Old\n")
 			writeFile(t, k.DataRoot(), "ops/live.md", "---\ntype: Note\ntitle: Live\n---\n# Live\n")
+			// Two live pages: the only live page of an archive is exempt (D1099).
+			writeFile(t, k.DataRoot(), "ops/live2.md", "---\ntype: Note\ntitle: Live 2\n---\n# Live 2\n")
 
 			got, err := Run(k, "", false)
 			if err != nil {

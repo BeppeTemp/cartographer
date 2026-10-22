@@ -4,6 +4,8 @@ topic: control-plane
 
 # D714 — `index_entry` on creation adds a curated index entry, atomically in `concept_batch`
 
+> **Amended by [D1099](D1099-lone-live-page-and-concept-write-index-entry.md)**: `concept_write` also takes `index_entry`, with the same creation-only semantics.
+
 **Decision.** `concept_new` and a creating `write` operation of `concept_batch` accept `index_entry: true`, which appends `- [title](rel.md)` under a `## New pages` heading of the map's curated index, in the same commit as the concept. It applies to any non-generated index, whether or not the map declared `require_index_entry`; a generated index only yields a note.
 
 **Why.** Bulk-creating drafts in a map with a hand-curated index cost an `index_get` and `index_patch` per map and a second commit, with a window where the KB was not conformant. The caller asking explicitly is the same intent as `concept_archive` (D344), so no map opt-in is needed.

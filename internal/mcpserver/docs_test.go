@@ -44,7 +44,7 @@ var docsNonTools = map[string]bool{
 	"sync_timer_opt_out":       true, // client config key (D325), not a tool
 	"open_gaps":                true, // kb_status field (D273), not a tool
 	"index_lists_retired":      true, // lint check (D344), not a tool
-	"index_entry":              true, // concept_new/concept_batch parameter (D714), not a tool
+	"index_entry":              true, // concept_write/concept_new/concept_batch parameter (D714, D1099), not a tool
 	"commit_count":             true, // changes_since result field, not a tool
 	"commit_sha":               true, // audit entry field (GET /kbs/{kb}/audit), not a tool
 	"kb_path":                  true, // GET /kbs/{kb}/artifacts kinds field (D864), not a tool
