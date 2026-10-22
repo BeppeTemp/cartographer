@@ -161,6 +161,16 @@ describe("the Activity summary", () => {
     expect(caption).toHaveTextContent("today · 3 changed · 1 maintenance");
   });
 
+  it("counts every change of the day from the server's series, not each concept once (D1057)", async () => {
+    const today = new Date(Date.now()).toISOString().slice(0, 10);
+    stubApi({
+      "/changes": () => json({ ...response(concepts), changes_by_day: { [today]: { work: 7, upkeep: 2 } } }),
+    });
+    render(<Activity kb="kb-a" snapshot={null} collections={[]} onOpen={() => {}} />);
+    const caption = (await summary()).querySelector(".activity-bars__caption")!;
+    expect(caption).toHaveTextContent("today · 7 changed · 2 maintenance");
+  });
+
   it("is absent when nothing changed in the window", async () => {
     renderActivity([]);
     await screen.findByText("Quiet stretch.");

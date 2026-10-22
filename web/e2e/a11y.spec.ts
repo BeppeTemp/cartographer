@@ -55,7 +55,7 @@ for (const viewport of [
       if (narrow) {
         // The list only, and the detail full-width with a way back.
         await page.getByRole("button", { name: "Back to artifacts" }).click();
-        await expect(page.getByRole("searchbox", { name: "Filter artifacts" })).toBeVisible();
+        await expect(page.getByRole("tab", { name: "Agent kit" })).toBeVisible();
       } else {
         // The detail opens beside the catalog and closes back to it.
         await page.getByRole("button", { name: "Close the artifact" }).click();

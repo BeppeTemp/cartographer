@@ -346,16 +346,21 @@ export function Bone({
   w,
   h,
   round,
+  line,
   className,
 }: {
   w?: string | number;
   h?: string | number;
   round?: boolean;
+  /** A line of text: placed inside the element whose text it stands for, it
+   *  takes that element's font and line height, so the shape is the height of
+   *  the content it gives way to. */
+  line?: boolean;
   className?: string;
 }) {
   return (
     <span
-      className={`skeleton bone${round ? " bone--round" : ""}${className ? ` ${className}` : ""}`}
+      className={`skeleton bone${round ? " bone--round" : ""}${line ? " bone--line" : ""}${className ? ` ${className}` : ""}`}
       aria-hidden="true"
       style={{ width: w, height: h }}
     />
@@ -372,6 +377,37 @@ export function TitleBone({ label }: { label: string }) {
   );
 }
 
+/** A page's subtitle that has not arrived: one line of the subtitle's own text size. */
+export function SubtitleBone({ w = "42ch" }: { w?: string | number }) {
+  return <Bone line w={w} className="bone--subtitle" />;
+}
+
+/**
+ * The hero's rows before their chips exist: each row its label and a line of
+ * pill-shaped bones, the first optionally over a bar (Where's map bar).
+ */
+export function HeroBones({ rows, bar = false }: { rows: number[]; bar?: boolean }) {
+  return (
+    <div className="hero">
+      {rows.map((chips, r) => (
+        <div key={r} className="hero__row">
+          <span className="hero__label">
+            <Bone line w={44} />
+          </span>
+          <div className="hero__content">
+            {bar && r === 0 && <Bone w="100%" h={4} />}
+            <span className="filter-chips">
+              {Array.from({ length: chips }, (_, i) => (
+                <Bone key={i} w={70 + ((i * 23 + r * 11) % 50)} h={26} round />
+              ))}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Activity: the summary hero (figures and histogram), then a day with timeline entries. */
 export function ActivitySkeleton({ label }: { label: string }) {
   return (
@@ -380,37 +416,50 @@ export function ActivitySkeleton({ label }: { label: string }) {
         <div className="activity-sum">
           <div className="activity-sum__lead">
             <div className="activity-stats">
-              <Bone w={220} h={22} />
+              <Bone line w={280} />
             </div>
+            <span className="activity-top">
+              <span className="activity-top__label">
+                <Bone line w={260} />
+              </span>
+            </span>
           </div>
           <div className="activity-bars">
             <div className="activity-bars__track">
               <Bone w="100%" h="100%" />
             </div>
-            <Bone w="80%" h={14} />
+            <span className="activity-bars__caption">
+              <Bone line w="60%" />
+            </span>
           </div>
         </div>
       </div>
       {[4, 3].map((n, d) => (
         <div key={d} className="timeline__day">
           <h2 className="timeline__date">
-            <Bone w={96} h={14} />
+            <span>
+              <Bone line w={96} />
+            </span>
           </h2>
           <ol className="timeline__entries">
             {Array.from({ length: n }, (_, i) => (
               <li key={i} className="timeline__entry">
                 <div className="timeline__item">
                   <span className="timeline__time">
-                    <Bone w={36} h={12} />
+                    <Bone line w="5ch" />
                   </span>
                   <span className="timeline__track">
-                    <span className="timeline__node skeleton" />
+                    <span className="timeline__node" />
                   </span>
                   <span className="timeline__item-body">
                     <span className="timeline__item-head">
-                      <Bone w={`${38 + ((i * 17 + d * 9) % 30)}%`} h={16} />
+                      <span className="timeline__title" style={{ width: `${38 + ((i * 17 + d * 9) % 30)}%` }}>
+                        <Bone line w="100%" />
+                      </span>
                     </span>
-                    <Bone w={`${22 + ((i * 11) % 25)}%`} h={12} />
+                    <span className="timeline__reason">
+                      <Bone line w={`${22 + ((i * 11) % 25)}%`} />
+                    </span>
                   </span>
                   <span className="timeline__authors">
                     <Bone w={22} h={22} round />
@@ -429,21 +478,29 @@ export function ActivitySkeleton({ label }: { label: string }) {
 export function WorkSkeleton({ label }: { label: string }) {
   return (
     <LoadingRegion label={label}>
+      <HeroBones rows={[9, 8]} bar />
       <div className="work__board">
-        {[3, 2, 2].map((n, c) => (
+        {[4, 3, 4, 2, 3].map((n, c) => (
           <section key={c} className="work__column">
             <h2 className="work__column-title">
-              <Bone w={110} h={14} />
+              <Bone line w={90} />
             </h2>
             <ul className="work__cards">
               {Array.from({ length: n }, (_, i) => (
                 <li key={i}>
                   <div className="work__card">
                     <div className="work__card-main">
-                      <Bone w={`${55 + ((i * 13 + c * 7) % 35)}%`} h={16} />
+                      <span className="work__card-map">
+                        <Bone line w={64} />
+                      </span>
+                      <span className="work__card-title">
+                        <Bone line w="92%" />
+                        <br />
+                        <Bone line w={`${40 + ((i * 13 + c * 7) % 40)}%`} />
+                      </span>
                       <span className="work__card-meta">
-                        <Bone w={54} h={18} />
-                        <Bone w={30} h={14} />
+                        <Bone w={44} h={20} round />
+                        <Bone line w={28} />
                       </span>
                     </div>
                   </div>
@@ -497,6 +554,7 @@ export function HealthSkeleton({ label }: { label: string }) {
 export function RetiredSkeleton({ label }: { label: string }) {
   return (
     <LoadingRegion label={label}>
+      <HeroBones rows={[2]} />
       <ul className="retired__list">
         {[0, 1, 2, 3].map((i) => (
           <li key={i}>
@@ -518,9 +576,21 @@ export function RetiredSkeleton({ label }: { label: string }) {
 }
 
 /** Artifacts: kind headings, each with a grid of tiles (name, two lines, foot). */
-export function CatalogSkeleton({ label, groups = 2, tiles = 6 }: { label: string; groups?: number; tiles?: number }) {
+export function CatalogSkeleton({
+  label,
+  groups = 2,
+  tiles = 6,
+  hero,
+}: {
+  label: string;
+  groups?: number;
+  tiles?: number;
+  /** The chips of each hero row, when the page has a hero above its catalog. */
+  hero?: number[];
+}) {
   return (
     <LoadingRegion label={label} className="catalog">
+      {hero && <HeroBones rows={hero} />}
       {Array.from({ length: groups }, (_, g) => (
         <section key={g} className="catalog__group">
           <header className="catalog__group-head">
@@ -583,14 +653,93 @@ export function SettingsSkeleton({ label, rows = 5 }: { label: string; rows?: nu
   );
 }
 
-/** A body of text that has not arrived: lines of varying length, as a paragraph reads. */
+/** Templates: the cards of the types, a name and count over a brief, fields and numbered sections. */
+export function TemplatesSkeleton({ label, cards = 6 }: { label: string; cards?: number }) {
+  return (
+    <LoadingRegion label={label}>
+      <ul className="tpl-cards">
+        {Array.from({ length: cards }, (_, i) => (
+          <li key={i}>
+            <div className="tpl-card">
+              <div className="tpl-card__head">
+                <span className="tpl-card__name">
+                  <Bone line w={`${40 + ((i * 17) % 30)}%`} />
+                </span>
+                <Bone w={84} h={22} round />
+              </div>
+              <span className="tpl-card__usage" />
+              <div className="tpl-card__body">
+                <p className="tpl-card__brief">
+                  <Bone line w="80%" />
+                </p>
+                <span className="tpl-card__fields">
+                  <Bone w={44} h={18} />
+                  <Bone w={60} h={18} />
+                </span>
+                <ol className="tpl-card__sections">
+                  {Array.from({ length: 4 + (i % 3) }, (_, k) => (
+                    <li key={k}>
+                      <Bone line w={`${30 + ((k * 23 + i * 7) % 40)}%`} />
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </LoadingRegion>
+  );
+}
+
+/** A source file that has not arrived: the frame Settings and Instructions show files in, with numbered lines. */
+export function SourceSkeleton({ label, lines = 14 }: { label: string; lines?: number }) {
+  const widths = [8, 0, 34, 0, 82, 76, 40, 0, 26, 0, 88, 70, 0, 30, 64, 52];
+  return (
+    <LoadingRegion label={label}>
+      <figure className="settings__file">
+        <figcaption className="settings__file-head">
+          <span className="settings__file-name">
+            <Bone line w={120} />
+          </span>
+        </figcaption>
+        <pre className="settings__yaml">
+          <code>
+            {Array.from({ length: lines }, (_, i) => (
+              <span key={i} className="yaml__line">
+                {widths[i % widths.length] ? <Bone line w={`${widths[i % widths.length]}%`} /> : " "}
+                {"\n"}
+              </span>
+            ))}
+          </code>
+        </pre>
+      </figure>
+    </LoadingRegion>
+  );
+}
+
+/**
+ * A body of text that has not arrived: paragraphs of line bones inside the
+ * concept reader's own box (.markdown), so each line is the height of a line
+ * of the text that replaces it.
+ */
 export function TextSkeleton({ label, lines = 6 }: { label: string; lines?: number }) {
   const widths = [96, 88, 92, 60, 94, 80, 90, 45];
+  const paragraphs: number[][] = [];
+  for (let i = 0; i < lines; i += 4) paragraphs.push(Array.from({ length: Math.min(4, lines - i) }, (_, k) => i + k));
   return (
     <LoadingRegion label={label} className="text-skeleton">
-      {Array.from({ length: lines }, (_, i) => (
-        <Bone key={i} w={`${widths[i % widths.length]}%`} h={14} />
-      ))}
+      <div className="markdown">
+        {paragraphs.map((p, n) => (
+          <p key={n}>
+            {p.map((i) => (
+              <span key={i} className="text-skeleton__line">
+                <Bone line w={`${widths[i % widths.length]}%`} />
+              </span>
+            ))}
+          </p>
+        ))}
+      </div>
     </LoadingRegion>
   );
 }

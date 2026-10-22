@@ -102,7 +102,9 @@ describe("the Work panel's other sources", () => {
     expect(within(answer).getByText("searched once")).toBeInTheDocument();
     // A search that finds something now is no work: only named.
     expect(within(panel).queryByText("“old term”", { selector: ".work__card-title" })).toBeNull();
-    expect(within(panel).getByText(/Found since:/)).toHaveTextContent("Found since: “old term”.");
+    const answered = within(panel).getByRole("region", { name: "Searches answered since" });
+    expect(answered).toHaveTextContent("Answered since: 1 search that found nothing before now finds a page.");
+    expect(within(answered).getByText("“old term”")).toBeInTheDocument();
 
     const decide = within(panel).getByRole("region", { name: "to decide, 2" });
     expect(within(decide).getByText(/titles "Alpha" and "Alfa" share 80%/)).toBeInTheDocument();

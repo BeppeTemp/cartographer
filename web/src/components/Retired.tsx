@@ -15,6 +15,7 @@ import {
   PageSection,
   Quiet,
   RetiredSkeleton,
+  SubtitleBone,
   TitleBone,
 } from "./Page";
 
@@ -98,14 +99,15 @@ export function Retired({
       <PageHeader
         eyebrow="Retired"
         title={<Headline data={data} failed={error !== null} />}
-        subtitle={data && all.length > 0 ? breakdown(counts) : undefined}
+        subtitle={!data && !error ? <SubtitleBone w="12ch" /> : data && all.length > 0 ? breakdown(counts) : undefined}
         actions={
-          all.length > 0 ? (
+          !data || all.length > 0 ? (
             <input
               className="page-search"
               type="search"
               aria-label="Filter retired concepts"
               placeholder="Filter title, id and reason"
+              disabled={!data}
               value={text}
               onChange={(e) => setText(e.target.value)}
             />

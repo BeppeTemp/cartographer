@@ -26,6 +26,8 @@ function modified(iso: string): string {
  * component state, keyed by ciphertext, until Lock, until the panel closes or
  * the KB changes. Nothing is stored, logged or sent.
  */
+const SUBTITLE = "Key names are cleartext in sops. Values stay masked until you paste an age key; it is used in this page only.";
+
 export function Secrets({
   kb,
   reloadKey,
@@ -180,7 +182,7 @@ export function Secrets({
   if (loading && !list)
     return (
       <Page label="Secrets" busy className="catalog secrets">
-        <PageHeader eyebrow="Artifacts" title={<TitleBone label="Loading secrets" />} />
+        <PageHeader eyebrow="Secrets" title={<TitleBone label="Loading secrets" />} subtitle={SUBTITLE} />
         {tabs}
         <CatalogSkeleton label="Loading secrets" groups={1} tiles={4} />
       </Page>
@@ -259,7 +261,7 @@ export function Secrets({
   const catalog = (
     <Page label="Secrets" className="catalog secrets">
       <PageHeader
-        eyebrow="Artifacts"
+        eyebrow="Secrets"
         title={
           files.length === 0 ? (
             "This KB keeps no secrets."
@@ -270,7 +272,7 @@ export function Secrets({
             </>
           )
         }
-        subtitle="Key names are cleartext in sops. Values stay masked until you paste an age key; it is used in this page only."
+        subtitle={SUBTITLE}
         actions={keyForm || undefined}
       />
       {tabs}

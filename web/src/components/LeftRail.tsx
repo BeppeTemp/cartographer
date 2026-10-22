@@ -1,9 +1,10 @@
 import type { CSSProperties } from "react";
 import type { Overview } from "../api/types";
-import type { Panel } from "../lib/viewstate";
+import { ARTIFACT_PANELS, type Panel } from "../lib/viewstate";
 import { collectionVar } from "../lib/palette";
 import { Count } from "./Count";
 import { Icon } from "./Icon";
+import { Bone, LoadingRegion } from "./Page";
 
 interface Props {
   overview: Overview | null;
@@ -131,7 +132,7 @@ export function LeftRail({
               className="rail__panel"
               aria-label="Artifacts"
               title={collapsed ? "Artifacts" : undefined}
-              aria-current={panel === "artifacts" || panel === "secrets" ? "page" : undefined}
+              aria-current={ARTIFACT_PANELS.includes(panel) ? "page" : undefined}
               onClick={() => onPanel("artifacts")}
             >
               <span className="rail__glyph">
@@ -168,6 +169,7 @@ export function LeftRail({
           }}
         >
           <section className="rail__section">
+            {!overview && <RailSkeleton />}
             {(["map", "journal"] as const).map((kind, groupIndex, kinds) => {
               // An archive map is listed after the live ones (D820); the sort is
               // stable, so each half keeps the server's order.
@@ -262,6 +264,34 @@ export function LeftRail({
         </button>
       )}
     </nav>
+  );
+}
+
+/**
+ * The Maps before the overview arrives: the shape of the list they land in,
+ * in the same bones the pages load with, so the rail and the page fill in as
+ * one motion.
+ */
+export function RailSkeleton() {
+  return (
+    <LoadingRegion label="Reading the Maps">
+      <div className="rail__group">
+        <h2 className="rail__title">
+          <Bone w="34%" h={10} />
+        </h2>
+        <ul className="rail__collections">
+          {[72, 58, 80, 64, 50].map((w, i) => (
+            <li key={i}>
+              <div className="rail__collection rail__collection--bone">
+                <Bone w={10} h={10} className="rail__swatch" />
+                <Bone w={`${w}%`} h={12} />
+                <Bone w={16} h={10} className="rail__collection-count" />
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </LoadingRegion>
   );
 }
 

@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { fetchAudit, fetchChanges, fetchJournal } from "../api/client";
 import type { AuditLog, ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot } from "../api/types";
-import { changedAt, changeKind, mostWorked, shownReasons, type ChangeKind } from "../lib/activity";
+import { changedAt, changeKind, mostWorked, parseJournal, shownReasons, type ChangeKind } from "../lib/activity";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
-import { Markdown } from "./Markdown";
 import { Avatar, Count, Hero, MapBar, MapDot, Page, PageHeader, PageSection, Segmented, TitleBone, ActivitySkeleton } from "./Page";
 
 const WINDOWS = [
@@ -165,7 +164,15 @@ export function Activity({
     [filtered, kinds, showUpkeep],
   );
   const days = useMemo(() => groupByDay(rows), [rows]);
-  const histogram = useMemo(() => perDay(filtered, kinds, DAYS[shown]), [filtered, kinds, shown]);
+  // The server's day series counts every change of the window; the concepts
+  // keep each one once, at its newest change, so they only stand in when a
+  // filter narrows the page (the series cannot be filtered) or the server is
+  // older than the series (D1057).
+  const byDay = map === null && author === null ? data?.changes_by_day : undefined;
+  const histogram = useMemo(
+    () => perDay(filtered, kinds, DAYS[shown], byDay),
+    [filtered, kinds, shown, byDay],
+  );
   const top = useMemo(() => mostWorked(filtered), [filtered]);
 
   return (
@@ -285,6 +292,19 @@ export function Activity({
               No concept edited {when(shown)}
               {author ? ` by ${author}` : ""}.
             </p>
+            {/* An empty window offers the next wider one rather than leaving the reader to guess. */}
+            {(() => {
+              const next = WINDOWS[WINDOWS.findIndex(([w]) => w === shown) + 1];
+              return next ? (
+                <button type="button" className="button" onClick={() => setSince(next[0])}>
+                  {next[0] === "all"
+                    ? "Show the whole history"
+                    : next[0] === "1y"
+                      ? "Show the last year"
+                      : `Show the last ${DAYS[next[0]]} days`}
+                </button>
+              ) : null;
+            })()}
           </div>
         ) : (
           <ol className="timeline__days">
@@ -324,7 +344,7 @@ export function Activity({
                 <p className="page-note">
                   The last entries of the KB&apos;s log, written by agents with <code>log_append</code>.
                 </p>
-                <Markdown>{journal}</Markdown>
+                <JournalEntries text={journal} />
               </>
             )}
           </PageSection>
@@ -332,6 +352,58 @@ export function Activity({
         {audit !== null && (data !== null || error !== null) && <AuditSection audit={audit} />}
       </div>
     </Page>
+  );
+}
+
+/**
+ * The journal tail as a log, grouped by day like the timeline above it: a
+ * day heading with its count, then one row per entry, its time beside its
+ * lines. An entry whose heading is not a time keeps it as its label.
+ */
+function JournalEntries({ text }: { text: string }) {
+  const days = useMemo(() => {
+    const groups: { key: string; label: string; items: { at: string | null; t: number; body: string }[] }[] = [];
+    for (const e of parseJournal(text)) {
+      const t = e.at ? Date.parse(e.at) : NaN;
+      const key = Number.isFinite(t) ? dayKey(t) : "undated";
+      let g = groups[groups.length - 1];
+      if (!g || g.key !== key) {
+        g = { key, label: Number.isFinite(t) ? dayLabel(t) : "Undated", items: [] };
+        groups.push(g);
+      }
+      g.items.push({ at: e.at, t, body: e.body });
+    }
+    return groups;
+  }, [text]);
+  return (
+    <ol className="journal">
+      {days.map((day, d) => (
+        <li key={`${day.key}-${d}`} className="journal__day">
+          <h3 className="timeline__date">
+            <span>{day.label}</span>
+            <span className="timeline__date-count">{day.items.length}</span>
+          </h3>
+          <ol className="journal__entries">
+            {day.items.map((e, i) => (
+              <li key={`${e.at}-${i}`} className="journal__entry">
+                {Number.isFinite(e.t) ? (
+                  <time
+                    className="journal__time"
+                    dateTime={e.at!}
+                    title={new Date(e.t).toLocaleString("en", { dateStyle: "medium", timeStyle: "medium" })}
+                  >
+                    {clock(e.at!)}
+                  </time>
+                ) : (
+                  <span className="journal__time">{e.at}</span>
+                )}
+                <p className="journal__body">{e.body}</p>
+              </li>
+            ))}
+          </ol>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -583,11 +655,24 @@ function groupByDay(rows: ConceptChange[]): { key: string; label: string; items:
 
 /** One bar per day of the window -- or, for the whole history, from the
  *  oldest change on -- oldest first, today last. */
-function perDay(rows: ConceptChange[], kinds: Map<ConceptChange, ChangeKind>, days: number | null): DayBar[] {
+function perDay(
+  rows: ConceptChange[],
+  kinds: Map<ConceptChange, ChangeKind>,
+  days: number | null,
+  byDay?: Record<string, { work: number; upkeep?: number }>,
+): DayBar[] {
   const today = startOfDay(Date.now());
+  // A UTC day of the server's series, at its noon: the local day it falls on
+  // for every offset within twelve hours of UTC.
+  const series = byDay
+    ? Object.entries(byDay)
+        .map(([d, n]) => ({ t: Date.parse(`${d}T12:00:00Z`), n }))
+        .filter((e) => Number.isFinite(e.t))
+    : null;
   let span = days;
   if (span === null) {
-    const oldest = Math.min(today, ...rows.map((c) => Date.parse(changedAt(c))).filter(Number.isFinite));
+    const times = series ? series.map((e) => e.t) : rows.map((c) => Date.parse(changedAt(c))).filter(Number.isFinite);
+    const oldest = Math.min(today, ...times);
     span = Math.max(2, Math.round((today - startOfDay(oldest)) / DAY_MS) + 1);
   }
   const bars: DayBar[] = Array.from({ length: span }, (_, i) => {
@@ -604,6 +689,15 @@ function perDay(rows: ConceptChange[], kinds: Map<ConceptChange, ChangeKind>, da
     };
   });
   const index = new Map(bars.map((b, i) => [dayKey(b.day), i]));
+  if (series) {
+    for (const { t, n } of series) {
+      const i = index.get(dayKey(t));
+      if (i === undefined) continue;
+      bars[i]!.work += n.work;
+      bars[i]!.upkeep += n.upkeep ?? 0;
+    }
+    return bucket(bars);
+  }
   for (const c of rows) {
     const t = Date.parse(changedAt(c));
     const i = Number.isFinite(t) ? index.get(dayKey(t)) : undefined;

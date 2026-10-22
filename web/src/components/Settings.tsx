@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Icon } from "./Icon";
+import { createContext, useContext, useEffect, useState, type CSSProperties } from "react";
+import { SourceFile } from "./SourceFile";
 import { fetchPlaceholders, fetchSettings, fetchWhoami } from "../api/client";
 import type {
   PlaceholderList,
@@ -11,7 +11,7 @@ import type {
   Whoami,
   WhoamiRule,
 } from "../api/types";
-import { Page, PageHeader, Segmented, SettingsSkeleton, TitleBone } from "./Page";
+import { Bone, Page, PageHeader, Segmented, SettingsSkeleton, SubtitleBone, TitleBone } from "./Page";
 import { ErrorState } from "./States";
 
 /** A value as a person reads it: lists joined, maps as `key: value`, empty said out loud. */
@@ -188,10 +188,50 @@ export function Settings({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadKey]);
 
+  // The header's controls need no data: they stand from the first frame, so
+  // the page does not shift when the settings arrive.
+  const headerActions = (
+    <>
+      {mode === "readable" && (
+        <input
+          className="page-search"
+          type="search"
+          aria-label="Search settings"
+          placeholder="Search settings"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      )}
+      <Segmented<Mode>
+        label="Show as"
+        value={mode}
+        options={[
+          ["readable", "Readable"],
+          ["yaml", "YAML"],
+        ]}
+        onChange={setMode}
+      />
+    </>
+  );
+
   if (loading && !view)
     return (
       <Page label="Settings" busy className="settings">
-        <PageHeader eyebrow="Settings" title={<TitleBone label="Loading settings" />} />
+        <PageHeader
+          eyebrow="Settings"
+          title={<TitleBone label="Loading settings" />}
+          subtitle={<SubtitleBone />}
+          actions={headerActions}
+        />
+        <div className="settings__bar">
+          <div className="inspector__tabs settings__tabs" aria-hidden="true">
+            {[44, 40, 92].map((w, i) => (
+              <span key={i} className="inspector__tab">
+                <Bone line w={w} />
+              </span>
+            ))}
+          </div>
+        </div>
         <SettingsSkeleton label="Loading settings" />
       </Page>
     );
@@ -229,29 +269,7 @@ export function Settings({
             )}
           </>
         }
-        actions={
-          <>
-            {mode === "readable" && (
-              <input
-                className="page-search"
-                type="search"
-                aria-label="Search settings"
-                placeholder="Search settings"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            )}
-            <Segmented<Mode>
-              label="Show as"
-              value={mode}
-              options={[
-                ["readable", "Readable"],
-                ["yaml", "YAML"],
-              ]}
-              onChange={setMode}
-            />
-          </>
-        }
+        actions={headerActions}
       />
 
       <div className="settings__bar">
@@ -476,18 +494,33 @@ function mapOf(entries: SettingEntry[], key: string): Record<string, unknown> {
 }
 
 /** One client setting of one KB: the YAML key it lives under, what it does, its value. */
-function KBSetting({ yamlKey, about, value }: { yamlKey: string; about: string; value: string[] | string | null }) {
+function KBSetting({
+  yamlKey,
+  about,
+  value,
+  map,
+}: {
+  yamlKey: string;
+  about: string;
+  value: string[] | string | null;
+  /** A value with keys: drawn as a table under the row, its size beside the key. */
+  map?: [string, unknown][];
+}) {
   const home = useHome();
-  const empty = value === null || (Array.isArray(value) && value.length === 0);
+  const empty = !map && (value === null || (Array.isArray(value) && value.length === 0));
   return (
-    <li className="settings__row" data-wide={(Array.isArray(value) && isWide(value)) || undefined}>
+    <li className="settings__row" data-wide={(!map && Array.isArray(value) && isWide(value)) || undefined}>
       <div className="settings__row-head settings__row-head--static">
         <span className="settings__what">
           <code className="settings__key">{yamlKey}</code>
           <span className="settings__desc">{about}</span>
         </span>
         <span className="settings__val">
-          {empty ? (
+          {map ? (
+            <span className="settings__value" aria-label={`Value of ${yamlKey}`}>
+              {map.length} {map.length === 1 ? "entry" : "entries"}
+            </span>
+          ) : empty ? (
             <span className="settings__value" data-empty aria-label={`Value of ${yamlKey}`}>
               (none)
             </span>
@@ -499,11 +532,12 @@ function KBSetting({ yamlKey, about, value }: { yamlKey: string; about: string; 
             </span>
           ) : (
             <span className="settings__value" aria-label={`Value of ${yamlKey}`}>
-              {home(value)}
+              {home(value ?? "")}
             </span>
           )}
         </span>
       </div>
+      {map && <MapTable entries={map} label={`Entries of ${yamlKey}`} />}
     </li>
   );
 }
@@ -558,21 +592,23 @@ function ClientKBs({
       const ks = clientsMap[a]?.kbs;
       return !ks?.length || ks.includes(kb);
     });
-    const where: string[] = [];
+    // Per agent, the folders it gives this KB in (or everywhere): a table, one agent a line.
+    const where: Record<string, string[]> = {};
+    const add = (agent: string, place: string) => (where[agent] ??= []).push(place);
     for (const p of providers.filter((p) => agents.includes(p.name))) {
       if (p.scope === "workspace") {
-        for (const w of p.workspaces ?? []) if (w.kbs.includes(kb)) where.push(`${p.name}: ${w.path}`);
-      } else where.push(`${p.name}: everywhere`);
+        for (const w of p.workspaces ?? []) if (w.kbs.includes(kb)) add(p.name, w.path);
+      } else add(p.name, "everywhere");
     }
     if (!providers.length) {
       for (const [agent, list] of Object.entries(workspaces))
-        for (const w of list ?? []) if (w.kbs?.includes(kb)) where.push(`${agent}: ${w.path}`);
+        for (const w of list ?? []) if (w.kbs?.includes(kb)) add(agent, w.path);
     }
     const keys = signing[kb];
     const approved = approvals[kb];
-    const paths = (client?.placeholders ?? [])
+    const paths: [string, unknown][] = (client?.placeholders ?? [])
       .filter((ph) => ph.kbs?.includes(kb))
-      .map((ph) => `${ph.key} → ${ph.path ?? (ph.ignored ? "ignored" : "unresolved")}`);
+      .map((ph) => [ph.key, ph.path ?? (ph.ignored ? "ignored" : "unresolved")]);
     return {
       identity,
       agents,
@@ -613,13 +649,15 @@ function ClientKBs({
         <KBSetting
           yamlKey="workspaces"
           about="Where each agent gives it to a session: everywhere, or only in the folders bound to it."
-          value={k.where.length ? k.where : client ? null : "everywhere"}
+          value={Object.keys(k.where).length ? null : client ? null : "everywhere"}
+          map={Object.keys(k.where).length ? Object.entries(k.where) : undefined}
         />
         {(client?.placeholders ?? []).length > 0 && (
           <KBSetting
             yamlKey="paths"
             about="Where its {{repo:…}} and {{path:…}} placeholders resolve here."
-            value={k.paths}
+            value={null}
+            map={k.paths.length ? k.paths : undefined}
           />
         )}
         <KBSetting
@@ -755,6 +793,91 @@ function asBool(value: unknown): boolean | null {
   return null;
 }
 
+/** A byte count in the largest binary unit it fills: 67108864 is "64 MiB". */
+export function humanBytes(n: number): string {
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let u = 0;
+  let v = n;
+  while (v >= 1024 && u < units.length - 1) {
+    v /= 1024;
+    u++;
+  }
+  return `${Number.isInteger(v) ? v : v.toFixed(1)} ${units[u]}`;
+}
+
+/** A map with entries: shown as a table under the row, not as chips beside it. */
+function asMap(value: unknown): [string, unknown][] | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value);
+  return entries.length > 0 ? entries : null;
+}
+
+/**
+ * A map setting as a table under its row: one line per key, the key muted on
+ * the left and its value on the right — a list as chips, a `{kbs: [...]}` as
+ * its KBs, a nested map as `key: value` chips, text as itself. The chips of
+ * one value wrap within its cell, so `clients` reads as provider → KBs instead
+ * of one line of everything.
+ */
+/** Past this many entries a map table shows its first MAP_FOLDED and a button for the rest. */
+const MAP_FOLD = 14;
+const MAP_FOLDED = 10;
+
+function MapTable({ entries, label }: { entries: [string, unknown][]; label: string }) {
+  const home = useHome();
+  const [all, setAll] = useState(false);
+  const folded = !all && entries.length > MAP_FOLD;
+  const cell = (v: unknown) => {
+    const map = asMap(v);
+    const kbs = map && map.length === 1 && map[0]![0] === "kbs" && Array.isArray(map[0]![1]) ? (map[0]![1] as unknown[]) : null;
+    const list = kbs ?? (Array.isArray(v) ? v : null);
+    if (list)
+      return list.length === 0 ? (
+        <span className="settings__map-none">(none)</span>
+      ) : (
+        <span className="settings__map-chips">
+          {list.map((x, i) =>
+            asMap(x) ? (
+              <span key={i} className="settings__map-sub">
+                {asMap(x)!.map(([k, y]) => (
+                  <Item key={k} text={`${k}: ${formatValue(y)}`} />
+                ))}
+              </span>
+            ) : (
+              <Item key={i} text={formatValue(x)} />
+            ),
+          )}
+        </span>
+      );
+    if (map)
+      return (
+        <span className="settings__map-chips">
+          {map.map(([k, y]) => (
+            <Item key={k} text={`${k}: ${formatValue(y)}`} />
+          ))}
+        </span>
+      );
+    return <span className="settings__map-text">{home(formatValue(v))}</span>;
+  };
+  return (
+    <dl className="settings__map" aria-label={label}>
+      {(folded ? entries.slice(0, MAP_FOLDED) : entries).map(([k, v]) => (
+        <div key={k} className="settings__map-row">
+          <dt>{k}</dt>
+          <dd>{cell(v)}</dd>
+        </div>
+      ))}
+      {entries.length > MAP_FOLD && (
+        <div className="settings__map-more">
+          <button type="button" className="chip chip--more" onClick={() => setAll(!all)}>
+            {all ? "Show less" : `Show all ${entries.length}`}
+          </button>
+        </div>
+      )}
+    </dl>
+  );
+}
+
 /** The value as a chip: a switch for a boolean, chips for a list, a muted word for nothing. */
 function Value({ entry: e }: { entry: SettingEntry }) {
   const home = useHome();
@@ -773,9 +896,18 @@ function Value({ entry: e }: { entry: SettingEntry }) {
       </span>
     );
   }
+  // A map is drawn as a table under the row (Row): beside the key, its size.
+  const map = asMap(e.value);
+  if (map)
+    return (
+      <span className="settings__value" aria-label={label}>
+        {map.length} {map.length === 1 ? "entry" : "entries"}
+      </span>
+    );
   const list = items(e.value);
   if (list && list.length > 0) {
-    const shown = list.slice(0, 3);
+    // A list that drops under the description has the width to show all of it.
+    const shown = isWide(list) ? list : list.slice(0, 3);
     return (
       <span className="settings__value settings__value--list" aria-label={label}>
         {shown.map((v, i) => (
@@ -785,9 +917,11 @@ function Value({ entry: e }: { entry: SettingEntry }) {
       </span>
     );
   }
-  const text = formatValue(e.value);
+  // A size in bytes reads as one (64 MiB), the exact count kept in the tooltip.
+  const bytes = /_bytes$/.test(e.key) && /^\d+$/.test(String(e.value)) ? Number(e.value) : null;
+  const text = bytes !== null ? humanBytes(bytes) : formatValue(e.value);
   return (
-    <span className="settings__value" data-empty={text.startsWith("(") || undefined} aria-label={label}>
+    <span className="settings__value" data-empty={text.startsWith("(") || undefined} aria-label={label} title={bytes !== null ? `${bytes} bytes` : undefined}>
       {home(text)}
     </span>
   );
@@ -807,7 +941,7 @@ function Row({ entry: e }: { entry: SettingEntry }) {
       className="settings__row"
       data-set={set || undefined}
       data-open={open || undefined}
-      data-wide={isWide(items(e.value)) || undefined}
+      data-wide={(!asMap(e.value) && isWide(items(e.value) ?? [formatValue(e.value)])) || undefined}
     >
       <button type="button" className="settings__row-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="settings__what">
@@ -818,6 +952,7 @@ function Row({ entry: e }: { entry: SettingEntry }) {
           <Value entry={e} />
         </span>
       </button>
+      {asMap(e.value) && <MapTable entries={asMap(e.value)!} label={`Entries of ${e.key}`} />}
       {open && (
         <dl className="settings__meta">
           <div>
@@ -876,26 +1011,6 @@ const AVAILABLE = /^#\s*-+\s*available settings\b.*-+\s*$/i;
  * pointer over it, or with it focused, selects the file alone.
  */
 function Yaml({ name, text }: { name: string; text?: string }) {
-  const ref = useRef<HTMLPreElement>(null);
-  const hovered = useRef(false);
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    const onKey = (ev: KeyboardEvent) => {
-      const pre = ref.current;
-      if (!pre || ev.key.toLowerCase() !== "a" || !(ev.metaKey || ev.ctrlKey) || ev.altKey || ev.shiftKey) return;
-      if (!hovered.current && !pre.contains(document.activeElement)) return;
-      const target = ev.target as HTMLElement | null;
-      if (target && target !== pre && target.closest("input, textarea, [contenteditable='true']")) return;
-      ev.preventDefault();
-      const range = document.createRange();
-      range.selectNodeContents(pre);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
   if (!text) return <p className="page-note">This server does not return the YAML view.</p>;
   const lines = text.replace(/\n$/, "").split("\n");
   const cut = lines.findIndex((l) => AVAILABLE.test(l.trim()));
@@ -905,47 +1020,14 @@ function Yaml({ name, text }: { name: string; text?: string }) {
   const shown = lines.filter(
     (l, i) => !AVAILABLE.test(l.trim()) && !(l.trim() === "" && AVAILABLE.test(lines[i - 1]?.trim() ?? "")),
   );
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard unavailable: the file can still be selected */
-    }
-  };
   return (
-    <figure className="settings__file">
-      <figcaption className="settings__file-head">
-        <span className="settings__file-name">{name}</span>
-        <span className="settings__file-note">
-          {inForce} key{inForce === 1 ? "" : "s"} set
-        </span>
-        <button
-          type="button"
-          className="button button--icon"
-          aria-label={`Copy ${name}`}
-          title={copied ? "Copied" : "Copy the file"}
-          onClick={() => void copy()}
-        >
-          <Icon name={copied ? "check" : "copy"} size={14} />
-        </button>
-      </figcaption>
-      <pre
-        ref={ref}
-        className="settings__yaml"
-        aria-label={name}
-        tabIndex={0}
-        onMouseEnter={() => (hovered.current = true)}
-        onMouseLeave={() => (hovered.current = false)}
-      >
-        <code>
-          {shown.map((line, i) => (
-            <YamlLine key={i} line={line} />
-          ))}
-        </code>
-      </pre>
-    </figure>
+    <SourceFile
+      name={name}
+      note={`${inForce} key${inForce === 1 ? "" : "s"} set`}
+      text={text}
+      lines={shown}
+      renderLine={(line, i) => <YamlLine key={i} line={line} />}
+    />
   );
 }
 

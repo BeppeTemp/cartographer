@@ -718,6 +718,12 @@ type changesSinceConcept struct {
 	AcceptedFindings []string `json:"accepted_findings,omitempty"`
 }
 
+// changesDay is one day of changes_since's ChangesByDay.
+type changesDay struct {
+	Work   int `json:"work"`
+	Upkeep int `json:"upkeep,omitempty"`
+}
+
 type changesSinceResult struct {
 	Since       string `json:"since"`
 	Head        string `json:"head"`
@@ -725,11 +731,17 @@ type changesSinceResult struct {
 	// CommitsByAgent counts the window's commits per Agent: trailer (D718);
 	// commits without one are not counted. Whole-KB figure, so filled under the
 	// same WholeVisible rule as CommitCount.
-	CommitsByAgent map[string]int        `json:"commits_by_agent,omitempty"`
-	Concepts       []changesSinceConcept `json:"concepts"`
-	OtherChanges   int                   `json:"other_changes"`
-	Truncated      bool                  `json:"truncated"`
-	Note           string                `json:"note,omitempty"`
+	CommitsByAgent map[string]int `json:"commits_by_agent,omitempty"`
+	// ChangesByDay counts, per UTC day ("2006-01-02"), the concept changes of
+	// the window the caller can see: one per concept a commit touched, the
+	// server's upkeep apart (D1057). Unlike Concepts, which keeps each concept
+	// once at its newest change, it is the history of the whole window and is
+	// never truncated.
+	ChangesByDay map[string]changesDay `json:"changes_by_day,omitempty"`
+	Concepts     []changesSinceConcept `json:"concepts"`
+	OtherChanges int                   `json:"other_changes"`
+	Truncated    bool                  `json:"truncated"`
+	Note         string                `json:"note,omitempty"`
 	// Links and LinksNote are set only by changes_since(links: true), D250.
 	Links     *changesLinks `json:"links,omitempty"`
 	LinksNote string        `json:"links_note,omitempty"`
@@ -831,6 +843,7 @@ func toolChangesSince(k *kb.KB) Tool {
 			}
 
 			conceptByID := map[string]*changesSinceConcept{}
+			byDay := map[string]changesDay{}
 			authorSeen := map[string]map[string]bool{}
 			agentSeen := map[string]map[string]bool{}
 			opSeen := map[string]map[string]bool{}
@@ -894,6 +907,13 @@ func toolChangesSince(k *kb.KB) Tool {
 					if file.Status == "A" {
 						info.Added = true
 					}
+					day := byDay[commit.At.UTC().Format("2006-01-02")]
+					if isUpkeepCommit(commit.Subject) {
+						day.Upkeep++
+					} else {
+						day.Work++
+					}
+					byDay[commit.At.UTC().Format("2006-01-02")] = day
 					if info.LastEditAt == "" && !isUpkeepCommit(commit.Subject) {
 						info.LastEditAt = commit.At.UTC().Format(time.RFC3339)
 					}
@@ -948,6 +968,9 @@ func toolChangesSince(k *kb.KB) Tool {
 				Concepts:     concepts,
 				OtherChanges: 0,
 				Truncated:    truncated,
+			}
+			if len(byDay) > 0 {
+				result.ChangesByDay = byDay
 			}
 			if WholeVisible(ctx, k, false) {
 				result.CommitCount, result.OtherChanges = len(commits), otherChanges

@@ -1,9 +1,10 @@
-import { Fragment, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { fetchMaintenanceReview, fetchPendingSources, fetchStatus, fetchWork } from "../api/client";
 import type { CollectionSummary, KBStatus, ReviewItem, SourceEntry, WorkEntry, WorkResponse } from "../api/types";
 import { reviewInfo } from "../lib/review";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
+import { Icon } from "./Icon";
 import {
   Count,
   FilterChip,
@@ -209,13 +210,15 @@ export function Work({
           </>
         }
         actions={
-          data && !empty ? (
+          // Standing while the list loads too, so the header does not shift when it lands.
+          !data || !empty ? (
             <>
               <input
                 className="page-search"
                 type="search"
                 aria-label="Filter work"
                 placeholder="Filter title and items"
+                disabled={!data}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
               />
@@ -289,33 +292,39 @@ export function Work({
                 {layout === "status" ? <StatusDot status={key} /> : <MapDot map={key} />}
                 {layout === "status" ? key : titleOfMap(key)} <span className="page-section__count">{list.length}</span>
               </h2>
-              <ul className="work__cards">
-                {list.map((e) => (
-                  <li key={e.id}>
-                    <WorkCard
-                      entry={e}
-                      mapTitle={titleOfMap(e.map ?? "")}
-                      showMap={layout === "status"}
-                      showStatus={layout === "map"}
-                      onOpen={onOpen}
-                    />
-                  </li>
-                ))}
-              </ul>
+              <ColumnCards
+                list={list}
+                render={(e) => (
+                  <WorkCard
+                    entry={e}
+                    mapTitle={titleOfMap(e.map ?? "")}
+                    showMap={layout === "status"}
+                    showStatus={layout === "map"}
+                    onOpen={onOpen}
+                  />
+                )}
+              />
             </section>
           ))}
         </div>
       )}
       {data && extra.found.length > 0 && (
-        <p className="page-note">
-          Found since:{" "}
-          {extra.found.map((q, i) => (
-            <span key={q}>
-              {i > 0 && ", "}&ldquo;{q}&rdquo;
-            </span>
-          ))}
-          .
-        </p>
+        // A search that found nothing and now finds a page closed by itself
+        // (D319): no longer work, named so the reader sees the gap was filled.
+        <section className="work__answered" aria-label="Searches answered since">
+          <p className="page-note">
+            <Icon name="check" size={14} /> Answered since: {extra.found.length}{" "}
+            {extra.found.length === 1 ? "search" : "searches"} that found nothing before now{" "}
+            {extra.found.length === 1 ? "finds" : "find"} a page.
+          </p>
+          <ul className="work__answered-list">
+            {extra.found.map((q) => (
+              <li key={q} className="chip work__answered-chip">
+                &ldquo;{q}&rdquo;
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       {data && data.next_offset !== undefined && (
         <p className="page-note">
@@ -323,6 +332,48 @@ export function Work({
         </p>
       )}
     </Page>
+  );
+}
+
+/**
+ * A column's cards in a list that scrolls on its own: the columns of a row
+ * share its height, capped, so a column of four hundred proposals no longer
+ * sets the height of the whole board. The list says at which ends it has
+ * more to show, and the stylesheet fades those ends.
+ */
+function ColumnCards({ list, render }: { list: BoardEntry[]; render(e: BoardEntry): ReactNode }) {
+  const ref = useRef<HTMLUListElement>(null);
+  const [more, setMore] = useState<{ above: boolean; below: boolean }>({ above: false, below: false });
+  const measure = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const above = el.scrollTop > 1;
+    const below = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+    setMore((m) => (m.above === above && m.below === below ? m : { above, below }));
+  }, []);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [measure, list]);
+  return (
+    <ul
+      ref={ref}
+      className="work__cards"
+      tabIndex={0}
+      aria-label="Cards"
+      data-more-above={more.above || undefined}
+      data-more-below={more.below || undefined}
+      onScroll={measure}
+    >
+      {list.map((e) => (
+        <li key={e.id}>{render(e)}</li>
+      ))}
+    </ul>
   );
 }
 

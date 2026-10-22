@@ -523,8 +523,8 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   The rail holds six panels: Atlas, Activity, Work, Health, Artifacts and Settings (D818).
   Health shows the lint's findings and nothing else; what a person has to answer or decide is in Work
   (contradictions and gaps, the searches that found nothing under "to answer", the `kb_review` proposals
-  under "to decide", D948). Artifacts lists every kind, an empty one as an outline tile where its first
-  artifact would go, and has a Secrets tab (a card per Service that uses a value and per sops file, the same
+  under "to decide", D948). Artifacts has four tabs (D1057: Agent kit, Instructions, Templates, Secrets), lists every kind of a tab, an empty one as an outline tile where its first
+  artifact would go, and its Secrets tab has a card per Service that uses a value and per sops file, the same
   detail panel as an artifact); Activity has a Retired tab (D820: every deprecated, superseded or archived concept with where it went,
   when and why, read from the root `log.md`, and each journal's harvest state; an archive map wears an "Archive"
   badge in the rail); the command palette's "Include archived" toggle adds archived pages to a search;
@@ -658,7 +658,9 @@ more than a quarter of a 60 Hz frame per tick (on an Apple M5, from about 1,500
 concepts) drifts at half rate, which still breathes at half the CPU; only a tick
 past 12 ms (about 5,000 concepts) rests the drift: it settles and stops, as with
 motion off, while the panorama and the signals still run; a smaller Map opened in
-its place breathes again (D889, D1044). While the panorama turns with nobody at
+its place breathes again (D889, D1044). With a concept open the network's
+breathing eases down to a fifth over about two seconds and, after the same quiet
+as the panorama, the camera circles the concept at a third of the panorama's pace. While the panorama turns with nobody at
 the controls, the camera eases slowly onto the fit, so hours of drift never carry
 the network off screen. The view draws only when something moves or changes, at most about 60
 times a second whatever the display's refresh, so an untouched graph at rest
@@ -767,7 +769,12 @@ one last changed, newest first, one row each on a rail in its Map's colour:
 time, title, Map, the kind of change when it is not a plain edit, the first
 recorded reason (upkeep reasons dropped when there is another) and the
 authors. Changing the window keeps the current answer on screen, dimmed,
-until the new one arrives. A row opens the concept on the atlas.
+until the new one arrives. A row opens the concept on the atlas. A window
+with no change says so in one box, with a button to the next wider window.
+Under the timeline, the *Journal* section shows the tail of the KB's log
+(`log_append`) grouped by day under the same day headings, one row per
+`## <timestamp>` entry: its time, and the entry's body kept as written, line
+breaks included, not rendered as Markdown.
 
 The **Work** panel is where a person answers or decides (D302, D948). It is `work_list` for the reader:
 the concepts in an open phase, the concepts that are work by their `reason` (open contradictions, open gaps,
@@ -777,11 +784,11 @@ staleness, each with its count; a search box filters titles, items and proposals
 column, in the order work moves: *to resolve* (an open contradiction: `commit_gate` blocks until someone decides
 which page holds), decision-needed, blocked, in-progress, open, *to answer* (the open gaps, `missing_context` and
 `open_question`, and the searches of `kb_status.search_misses` that found nothing; one that finds something now
-leaves the column and is named under *Found since*, D319), proposed, *to review* (a page past its `review_after`
+leaves the column and is listed under *Answered since*, D319), proposed, *to review* (a page past its `review_after`
 that is neither open by its status nor finished), *to decide* (the proposals of `kb_review`, `observation` items
 included, `GET /api/ui/v1/kbs/<kb>/maintenance/review`), *to ingest* (pending sources) and *unchecked items* (a
 closed concept listed only for them); any other status a map's `open_statuses` names follows. The other layout is
-one column per Map, busiest first, with the same cards. A card shows its Map, title, type (a contradiction its
+one column per Map, busiest first, with the same cards. The columns wrap into a grid (at least 300px wide) instead of scrolling sideways, all of one capped height, and a column's cards scroll inside it with a fade where more lies above or below. A card shows its Map, title, type (a contradiction its
 kind) and age (stale ones flagged), expands to its items, and opens the concept on the atlas; a search opens
 nothing. It is read-only: work changes through the agents' write tools. The pending sources, `kb_status` and the
 review list are each optional: without one (a caller that cannot see the whole KB has no `kb_status`) the board
@@ -831,33 +838,51 @@ Like the rest of the UI the panel writes nothing. A caller that cannot see the w
 see. The rail marks Health with a dot while there are problems. The former Observatory and
 Maintenance links (`panel=observatory`, `panel=maintenance`) open Health.
 
-The **Artifacts** panel, last in the rail, shows what the KB ships to agent
-clients: skills, subagents, hooks, MCP descriptors, the
-curated `instructions.md` and templates. It is a catalog page built like the
-others (D339): its title counts the artifacts, the line under it gives the
-artifact findings ("No artifact findings" when clean, `finding_counts`
-in `GET …/artifacts`, counting those no listed artifact
-owns) and says when no client has reported a use yet, and a search box filters
-names and descriptions. The hero filters by kind (each with its own mark and
-colour) and, when there is something to show, to the recently used, the idle
-(never used, or not in the last 42 days) or those with findings. Below, each
-kind is a section saying what that kind is — and, when all its artifacts go to
-the same clients, how many — with one tile per artifact: name, worst finding,
-two lines of description, its clients when they differ, and its last use once
-any use has been reported. Bundled skills are not listed: they belong to the
-binary; skills left out for failing validation are listed above the catalog.
+The **Artifacts** section, last in the rail, shows what the KB ships to agent
+clients. It has four tabs, each its own panel in the URL (D1057): **Agent kit**
+(`panel=artifacts`: skills, subagents, hooks and MCP descriptors, as tiles with
+a detail beside them), **Instructions** (`panel=instructions`: the curated
+`instructions.md` shown as its source), **Templates** (`panel=templates`: one
+card per type, busiest first, with how many concepts carry it — a button that
+opens the atlas filtered to the type — the one-line brief its template asks
+for, the frontmatter fields it adds beyond the common ones and the sections a
+new page starts with) and **Secrets**. The agent kit and the templates are catalog pages built like the
+others (D339): the title counts the artifacts of the tab, the line under it
+gives the findings of the tab's artifacts ("No artifact findings" when clean) and says when no client has reported a use yet. There is
+no text filter: the hero filters the agent kit by kind (each with its own mark
+and colour) and, when there is something to show, to the recently used, the
+idle (never used, or not in the last 42 days) or those with findings. Below,
+each kind is a section saying what that kind is — and, when all its artifacts
+go to the same clients, how many — with one tile per artifact: name, worst
+finding, two lines of description, its clients when they differ, and its last
+use once any use has been reported. Bundled skills are not listed: they belong
+to the binary; skills left out for failing validation are listed above the
+catalog.
 
-Every kind a KB can hold gets a chip and a section, **whether or not the KB
-ships one** (D864): the page is also how a reader learns what a KB can provide
-to its agent clients. An empty kind is an outline tile where its first artifact would go (D948): what the kind
+The **Instructions** tab is not a catalog: the instructions are one text every
+client receives as it is, so the page shows the file itself in the frame
+Settings shows its YAML in — file name and line count in the head, a copy
+button, numbered lines, Cmd/Ctrl-A selecting the file alone — under a line
+naming the clients whose instruction file it is written into. A KB without
+instructions shows the kind's empty tile. The **Templates** tab lists the
+template tiles; a template is not followed by the usage scanner, so it has no
+last-use cell, and it offers the atlas filtered to the concepts of its type.
+An artifact link from before the tabs (`panel=artifacts&artifact=template/<name>`)
+opens the Templates tab with that template, and one to the instructions the
+Instructions tab; `artifactPanel(kind)` in `web/src/lib/viewstate.ts` is where a
+kind chooses its tab, and a kind nobody routes there lands in the agent kit.
+
+Every kind a tab lists gets a chip (the agent kit) and a section, **whether or
+not the KB ships one** (D864): the page is also how a reader learns what a KB
+can provide to its agent clients. An empty kind is an outline tile where its first artifact would go (D948): what the kind
 is, where its files go in the KB (`skills/<name>/SKILL.md`, shown as text), the clients that receive it or "Stays in the KB: no client receives it" for a
 template, and a *Docs* link to the page that explains it on GitHub (the
 repository's `main`, in a new tab). The kinds, their order, paths and docs come
 from the server (`kinds` in `GET …/artifacts`, from `provisioning.Kinds`); the
 blurb, the glyph and the colour of a kind are the page's own, and a kind it does
-not know gets a neutral glyph and no blurb. A filter or a *Show* slice hides the
+not know gets a neutral glyph and no blurb. A *Show* slice hides the
 empty kinds, so "no match" still reads as no match, and a KB with nothing at all
-shows the six empty kinds instead of a page-level empty state. Against a server
+shows the empty kinds of the tab instead of a page-level empty state. Against a server
 that sends no `kinds` the page behaves as before: only the kinds that have an
 artifact, and the page-level empty state.
 
@@ -870,9 +895,8 @@ without the name and description the header already shows, list values such
 as `tools` as chips folded past eight, nested values as a folded YAML block),
 anything else as plain text, a binary or over-256-KiB file named but not shown.
 Its findings are listed under **Findings**. A skill, agent or hook lists the
-concepts it reads, each opening on the atlas; a template offers the atlas
-filtered to the concepts of its type. The selection is in the URL
-(`panel=artifacts&artifact=<kind>/<name>`). The panel exists only for a
+concepts it reads, each opening on the atlas. The selection is in the URL
+(`panel=artifacts&artifact=<kind>/<name>`, or `panel=templates&artifact=template/<name>`). The section exists only for a
 principal that can read the whole KB, since artifacts are whole-KB resources
 (D238); the rail entry carries no count.
 

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { ApiError } from "../api/client";
 import { Icon } from "./Icon";
+import { RailSkeleton } from "./LeftRail";
 
 /**
  * Every non-happy path is a designed state, not a blank panel. They live
@@ -85,13 +86,10 @@ export function ShellSkeleton({
               ))}
             </ul>
             {!railCollapsed && (
-              <div className="rail__group" aria-hidden="true">
-                {block("40%", "var(--space-3)")}
-                {[0, 1, 2, 3].map((i) => (
-                  <div key={i} className="rail__collection">
-                    {block(`${80 - i * 10}%`)}
-                  </div>
-                ))}
+              <div className="rail__scroll">
+                <section className="rail__section">
+                  <RailSkeleton />
+                </section>
               </div>
             )}
           </nav>

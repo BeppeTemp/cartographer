@@ -295,6 +295,8 @@ export interface ChangesResponse {
   since: string;
   commit_count: number;
   truncated?: boolean;
+  /** Every change of the window per UTC day ("2006-01-02"), never truncated (D1057); absent from an older server. */
+  changes_by_day?: Record<string, { work: number; upkeep?: number }>;
   concepts: ConceptChange[];
 }
 

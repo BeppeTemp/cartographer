@@ -19,7 +19,7 @@ import {
   rowSize,
   type CheckGroup,
 } from "../lib/health";
-import { Count, Page, PageHeader, PageSection, Quiet, Segmented, TitleBone, HealthSkeleton } from "./Page";
+import { Bone, Count, Page, PageHeader, PageSection, Quiet, Segmented, TitleBone, HealthSkeleton } from "./Page";
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
 import { ErrorState } from "./States";
@@ -146,7 +146,7 @@ export function Health({
           )
         }
         actions={
-          checks && settled ? (
+          (checks && settled) || !settled ? (
             <Segmented<"agenda" | "checks">
               label="Health view"
               value={tab}
@@ -154,7 +154,8 @@ export function Health({
                 ["agenda", "Issues"],
                 ["checks", "What it checks"],
               ]}
-              onChange={setTab}
+              // Before the checks arrive the switch only holds its place.
+              onChange={(t) => settled && setTab(t)}
             />
           ) : undefined
         }
@@ -167,6 +168,11 @@ export function Health({
       />
       {/* Below the header, not its subtitle: the header's controls sit on the
         title line on every page, and a subtitle would push them down. */}
+      {!settled && (
+        <p className="health__lede" aria-hidden="true">
+          <Bone line w="48ch" />
+        </p>
+      )}
       {settled && (
         <p className="health__lede">
           {tab === "checks"

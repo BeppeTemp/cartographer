@@ -39,6 +39,7 @@ var docsNonTools = map[string]bool{
 	"git_base_branch": true, "git_forge": true, "git_working_branch": true, "git_branch": true,
 	"kb_aliases":               true, // server config key (D772), not a tool
 	"search_misses":            true, // kb_status field (D247), not a tool
+	"changes_by_day":           true, // changes_since field (D1057), not a tool
 	"template_unusable":        true, // policy denial code (D343), not a tool
 	"sync_timer_opt_out":       true, // client config key (D325), not a tool
 	"open_gaps":                true, // kb_status field (D273), not a tool

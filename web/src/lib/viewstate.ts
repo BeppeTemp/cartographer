@@ -8,14 +8,36 @@
  * the bearer token never touches it.
  */
 
-export type Panel = "atlas" | "activity" | "retired" | "work" | "health" | "artifacts" | "secrets" | "settings";
+export type Panel =
+  | "atlas"
+  | "activity"
+  | "retired"
+  | "work"
+  | "health"
+  | "artifacts"
+  | "instructions"
+  | "templates"
+  | "secrets"
+  | "settings";
+
+/** The panels of the Artifacts section, one tab each. */
+export const ARTIFACT_PANELS: Panel[] = ["artifacts", "instructions", "templates", "secrets"];
+
+/**
+ * The tab an artifact of a kind opens in: the KB's instructions and its
+ * templates have tabs of their own, every other kind (skill, subagent, hook,
+ * MCP server) is the agent kit.
+ */
+export function artifactPanel(kind: string): "artifacts" | "instructions" | "templates" {
+  return kind === "instructions" ? "instructions" : kind === "template" ? "templates" : "artifacts";
+}
 
 export interface ViewState {
   kb: string | null;
   scope: string | null;
   concept: string | null;
   panel: Panel;
-  /** The selected artifact, `kind/name`: only on the Artifacts panel. */
+  /** The selected artifact, `kind/name`: only on the agent kit and Templates panels. */
   artifact: string | null;
   /** Health's own Map filter: only on the Health panel; the rail's scope never reaches it. */
   hmap: string | null;
@@ -36,7 +58,7 @@ export function readViewState(search: string = window.location.search): ViewStat
   // Observatory and Maintenance became Health (D338); Services became the
   // Secrets page, grouped by Service, and the pending Sources a Work column, and
   // Paths a part of Settings (D818): their old links still land there rather than on the atlas.
-  const panel: Panel =
+  let panel: Panel =
     param === "maintenance" || param === "observatory"
       ? "health"
       : param === "services"
@@ -50,17 +72,25 @@ export function readViewState(search: string = window.location.search): ViewStat
                 param === "work" ||
                 param === "health" ||
                 param === "artifacts" ||
+                param === "instructions" ||
+                param === "templates" ||
                 param === "secrets" ||
                 param === "settings"
               ? param
               : "atlas";
+  // An artifact link from before the section had tabs (D1057) opens the tab of its kind.
+  const linked = panel === "artifacts" ? params.get("artifact") : null;
+  if (linked) {
+    const tab = artifactPanel(linked.slice(0, linked.indexOf("/")));
+    if (tab !== "artifacts") panel = tab;
+  }
   return {
     kb: params.get("kb"),
     scope: params.get("scope"),
     concept: params.get("concept"),
     panel,
     // An artifact without its panel is ignored, not carried to another one.
-    artifact: panel === "artifacts" ? params.get("artifact") : null,
+    artifact: panel === "artifacts" || panel === "templates" ? params.get("artifact") : null,
     hmap: panel === "health" ? params.get("hmap") : null,
   };
 }
@@ -71,7 +101,8 @@ export function viewStateToSearch(view: ViewState): string {
   if (view.scope) params.set("scope", view.scope);
   if (view.concept) params.set("concept", view.concept);
   if (view.panel !== "atlas") params.set("panel", view.panel);
-  if (view.panel === "artifacts" && view.artifact) params.set("artifact", view.artifact);
+  if ((view.panel === "artifacts" || view.panel === "templates") && view.artifact)
+    params.set("artifact", view.artifact);
   if (view.panel === "health" && view.hmap) params.set("hmap", view.hmap);
   const query = params.toString();
   return query ? `?${query}` : "";
