@@ -8,13 +8,17 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOG="$(mktemp)"
 PID=""
 cleanup() {
-    [ -z "$PID" ] || kill "$PID" 2>/dev/null || true
+    # The server runs as its own process group (set -m below): npx, vite and any child go together, so none
+    # outlives the script holding port 5180 (strictPort).
+    [ -z "$PID" ] || kill -- "-$PID" 2>/dev/null || kill "$PID" 2>/dev/null || true
     rm -f "$LOG"
 }
 trap cleanup EXIT
 
+set -m
 (cd "$ROOT/web" && exec npx vite --config ../film/vite.config.ts) >"$LOG" 2>&1 &
 PID=$!
+set +m
 
 # strictPort: a second server on 5180 fails instead of moving, so the wait below cannot see a stranger's server.
 up=""

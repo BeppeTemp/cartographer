@@ -35,6 +35,9 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
+          # npm ci, vite and record.mjs run code from the checked-out ref: the write token must not sit in
+          # .git/config while they do. Only the publish step gets it (film/publish.sh, GH_TOKEN).
+          persist-credentials: false
       # The commit on readme-film is written with the checkout's git.
       - name: Configure git
         run: |
@@ -42,10 +45,12 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
       - name: Is a render needed
         id: needed
+        env:
+          REF: ${{ inputs.ref }}
         run: |
           # Not github.event_name: in a called workflow it is the caller's, and preview.yml is itself
           # dispatched. `ref` is set (default main) only on this workflow's own manual run.
-          if [ -n "${{ inputs.ref }}" ]; then
+          if [ -n "$REF" ]; then
             echo "manual run: rendering"
             echo "render=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -87,4 +92,6 @@ jobs:
         run: film/render.sh --no-mp4
       - if: steps.needed.outputs.render == 'true'
         name: Publish to readme-film
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: film/publish.sh

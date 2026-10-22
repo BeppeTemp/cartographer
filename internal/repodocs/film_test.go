@@ -11,8 +11,9 @@ import (
 
 var (
 	filmInputsBlock = regexp.MustCompile(`(?s)FILM_INPUTS=\((.*?)\n\)`)
-	// An import specifier: `import "x"`, `import ... from "x"` or `export ... from "x"`.
-	tsImport = regexp.MustCompile(`(?m)^\s*(?:import|export)\b[^"'\n;]*?["']([^"']+)["']`)
+	// A relative specifier in any form, over the whole file so that a multi-line import counts:
+	// `... from "./x"` (import or export), a side-effect `import "./x"`, a dynamic `import("./x")`.
+	tsImport = regexp.MustCompile(`(?:\bfrom\s*|\bimport\s*\(?\s*)["'](\.[^"']*)["']`)
 )
 
 // The film's hash covers an explicit list of paths (film/inputs.sh, D1068). A new
@@ -76,5 +77,17 @@ func TestFilmInputsCoverTheFilmsImports(t *testing.T) {
 	}
 	if len(seen) < 5 {
 		t.Errorf("only %d files reached from the film's entry points: the import pattern no longer matches", len(seen))
+	}
+}
+
+func TestFilmImportPatternSeesEveryForm(t *testing.T) {
+	src := "import a from \"./one\";\nimport {\n  b,\n  c,\n} from '../two';\nimport \"./three.css\";\nexport * from \"./four\";\nconst x = await import(\"./five\");\nimport three from \"three\";\n"
+	var got []string
+	for _, m := range tsImport.FindAllStringSubmatch(src, -1) {
+		got = append(got, m[1])
+	}
+	want := "./one ../two ./three.css ./four ./five"
+	if strings.Join(got, " ") != want {
+		t.Errorf("relative specifiers %q, want %q", strings.Join(got, " "), want)
 	}
 }

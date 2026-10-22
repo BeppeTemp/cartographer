@@ -18,5 +18,11 @@ ROOT="$(printf '100644 blob %s\tREADME.md\n100644 blob %s\tfilm.webp\n' "$NOTE" 
 # The Film-Tree trailer is what film/film-needed.sh compares (D1068); computed for HEAD, the revision rendered.
 TREE="$(film_tree HEAD)"
 COMMIT="$(printf 'film: rendered from %s\n\nFilm-Tree: %s\n' "$(git rev-parse --short HEAD)" "$TREE" | git commit-tree "$ROOT")"
-git push --force origin "${COMMIT}:refs/heads/readme-film"
+# In CI the checkout holds no credentials (film.yml), so the token reaches only this push, as an
+# extra header (what actions/checkout itself sets); by hand, origin's own credentials apply.
+AUTH=()
+if [ -n "${GH_TOKEN:-}" ]; then
+    AUTH=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')")
+fi
+git ${AUTH[@]+"${AUTH[@]}"} push --force origin "${COMMIT}:refs/heads/readme-film"
 echo "publish: readme-film is ${COMMIT}"
