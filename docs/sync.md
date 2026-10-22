@@ -58,7 +58,7 @@ After the silent sync the script runs `cartographer update notice`, keeping its 
 | codex | `SessionStart` | entry in `~/.codex/hooks.json` (D230) |
 | opencode | `session.created` event | generated plugin in `~/.config/opencode/plugins/` |
 | kiro | `SessionStart`, **only in `kiro-cli chat --v3 --tui`** ([D300](decisions/D300-kiro-gets-a-session-start-hook.md)): plain `kiro-cli chat` and every `--no-interactive` run fire no standalone hook | entry in `~/.kiro/hooks/cartographer.json`, plus the scheduled trigger below for every other session |
-| antigravity | — (native hooks exist, but there is no `SessionStart` event) | the scheduled trigger below, or Layer 2 |
+| antigravity | `SessionStart` ([D1007](decisions/D1007-antigravity-session-start.md)) | owned `cartographer-<name>` definition in `~/.gemini/config/hooks.json` |
 
 **Scheduled trigger (D140).** For a client with no session hook, `cartographer service sync-timer
 install [--interval 30m]` registers a launchd agent (macOS) or a systemd user timer (Linux) that

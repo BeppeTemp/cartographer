@@ -63,7 +63,7 @@ var bootstrapContentHash = contentHashBytes(append(bootstrapHookJSON(), []byte(b
 //
 // A provider that cannot run a hook at session start is a no-op here, lock
 // returned unchanged: one with no hook cell
-// (destDir("hook", _, p) == ""), and antigravity and crush, which have one but no
+// (destDir("hook", _, p) == ""), and crush, which has one but no
 // session-start event (noSessionStartEvent). They sync on the scheduled trigger instead
 // (D140). Kiro gets the hook, which fires only in some of its sessions
 // (SessionHookLimit, D300).
