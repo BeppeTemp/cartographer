@@ -556,6 +556,15 @@ func (m *MultiKBServer) Handler() http.Handler {
 				http.Error(w, fmt.Sprintf("invalid access %q: the only accepted value is %q (omit it for the connection's normal access)", access, AccessReadValue), http.StatusBadRequest)
 				return
 			}
+			provisioned := false
+			switch v := r.URL.Query().Get(ProvisionedParam); v {
+			case "":
+			case ProvisionedValue:
+				provisioned = true
+			default:
+				http.Error(w, fmt.Sprintf("invalid provisioned %q: the only accepted value is %q (omit it for a client that has no Cartographer client side)", v, ProvisionedValue), http.StatusBadRequest)
+				return
+			}
 			srv, unknown, renamed, err := m.routedFor(r.Context(), r.URL.Query()["kbs"], readOnly)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -565,6 +574,9 @@ func (m *MultiKBServer) Handler() http.Handler {
 				w.Header().Set(AccessHeader, AccessReadValue)
 			}
 			ctx := withRoutedRenamed(withRoutedUnknown(r.Context(), unknown), renamed)
+			if provisioned {
+				ctx = withProvisioned(ctx)
+			}
 			srv.handleMCP(w, r.WithContext(ctx))
 			return
 

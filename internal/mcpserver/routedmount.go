@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 // routedmount.go (D187) — one endpoint for a multi-KB server.
@@ -73,6 +74,17 @@ func (m *MultiKBServer) EnableRoutedMount(version string, setup func(s *Server))
 // query parameter. Absent keeps the connection's normal access.
 const AccessReadValue = "read"
 
+// ProvisionedParam and ProvisionedValue are the routed endpoint's `provisioned`
+// query parameter (D1097): a client that has the managed instructions block
+// sends it, and gets no operating guide in `initialize`. Absent or empty means
+// "not provisioned": the connection gets the guide. A server that predates the
+// parameter ignores it (unknown query parameters are ignored), so a client
+// always sends it.
+const (
+	ProvisionedParam = "provisioned"
+	ProvisionedValue = "1"
+)
+
 // AccessHeader is set on every response of a read-only routed session. A bridge
 // that asked for ?access=read checks it: a server that predates the parameter
 // ignores it and would serve a read-write session without saying so.
@@ -108,6 +120,12 @@ func (m *MultiKBServer) buildRouted(set []string, mode routedMode) *Server {
 	routed.tokenReadOnly = mode == routedTokenReadOnly
 	routed.SetDisplayName("cartographer")
 	routed.connKBs = append([]string(nil), set...)
+	routed.connKB = func(name string) *kb.KB {
+		if srv := m.servers[name]; srv != nil {
+			return srv.kbRef
+		}
+		return nil
+	}
 	if m.routedSetup != nil {
 		m.routedSetup(routed)
 	}
@@ -159,6 +177,24 @@ func withRoutedUnknown(ctx context.Context, unknown []string) context.Context {
 func routedUnknown(ctx context.Context) []string {
 	u, _ := ctx.Value(routedUnknownKey{}).([]string)
 	return u
+}
+
+// provisionedKey marks a request whose client declared itself provisioned
+// (?provisioned=1, D1097). TRAP: like unknown and renamed it rides the request
+// context and never the cached routed view: the view is shared by every URL that
+// resolves to the same set, and the target KB's server (where the doctor nudge
+// runs) is not the view.
+type provisionedKey struct{}
+
+func withProvisioned(ctx context.Context) context.Context {
+	return context.WithValue(ctx, provisionedKey{}, true)
+}
+
+// isProvisioned reports whether the request carried ?provisioned=1 on the
+// routed endpoint.
+func isProvisioned(ctx context.Context) bool {
+	v, _ := ctx.Value(provisionedKey{}).(bool)
+	return v
 }
 
 // routedRenamedKey carries the request's names resolved through kb_aliases

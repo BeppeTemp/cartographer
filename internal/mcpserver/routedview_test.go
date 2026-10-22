@@ -33,6 +33,7 @@ type viewFixture struct {
 	multi   *MultiKBServer
 	store   *auth.TokenStore
 	handler http.Handler
+	kbs     map[string]*kb.KB
 }
 
 func newViewFixture(t *testing.T, aliases []config.KBAlias, names ...string) *viewFixture {
@@ -57,7 +58,7 @@ func newViewFixture(t *testing.T, aliases []config.KBAlias, names ...string) *vi
 		{Token: tokMapRule, Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Write: true, Maps: []string{"manutenzione"}}}}},
 		{Token: tokTransfer, Scopes: []auth.KBScope{{KB: "kb-a", Write: true}, {KB: "kb-c", Write: true}}},
 	})
-	return &viewFixture{multi: multi, store: store, handler: store.Middleware(multi.Handler())}
+	return &viewFixture{multi: multi, store: store, handler: store.Middleware(multi.Handler()), kbs: byName}
 }
 
 func (f *viewFixture) post(t *testing.T, token, path, body string) *httptest.ResponseRecorder {
@@ -152,8 +153,11 @@ func TestRoutedView_ReadOnlyTokenSeesItsOwnKBOnly(t *testing.T) {
 		}
 	}
 	init := f.post(t, tokRO, RoutedMountPath, initializeBody)
-	if got := instructionsOf(t, init); got != "" {
-		t.Errorf("token view instructions = %q, want none", got)
+	if got := instructionsOf(t, init); !strings.Contains(got, "read-only") || !strings.Contains(got, `kb: "kb-a"`) || strings.Contains(got, "kb-b") {
+		t.Errorf("token view instructions = %q, want the read-only guide of kb-a alone", got)
+	}
+	if got := instructionsOf(t, f.post(t, tokRO, RoutedMountPath+"?provisioned=1", initializeBody)); got != "" {
+		t.Errorf("provisioned token view instructions = %q, want none", got)
 	}
 	if got := init.Header().Get(AccessHeader); got != "" {
 		t.Errorf("token view carries %s = %q", AccessHeader, got)
@@ -176,8 +180,11 @@ func TestRoutedView_ReadOnlyTokenWithKBSAndBridge(t *testing.T) {
 	}
 	path := RoutedMountPath + "?kbs=kb-a,kb-b&access=read"
 	init := f.post(t, tokRO, path, initializeBody)
-	if got := instructionsOf(t, init); !strings.Contains(got, "workspace bind") {
-		t.Errorf("bridge mode instructions = %q, want the workspace bind sentence", got)
+	if got := instructionsOf(t, init); !strings.Contains(got, "read-only") || strings.Contains(got, "workspace bind") {
+		t.Errorf("unmarked bridge mode instructions = %q, want the guide's read-only wording, not the bridge's", got)
+	}
+	if got := instructionsOf(t, f.post(t, tokRO, path+"&provisioned=1", initializeBody)); got != readOnlyInstructions {
+		t.Errorf("provisioned bridge mode instructions = %q, want the workspace bind sentence", got)
 	}
 	if init.Header().Get(AccessHeader) != AccessReadValue {
 		t.Errorf("bridge mode lacks the %s header", AccessHeader)

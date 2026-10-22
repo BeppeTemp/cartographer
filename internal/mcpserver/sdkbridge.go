@@ -75,7 +75,9 @@ func (s *Server) buildSDKServer() *sdk.Server {
 		// D151's rule that a capability is advertised only where it is
 		// implemented.
 		Capabilities: &sdk.ServerCapabilities{},
-		Instructions: s.sessionInstructions(),
+		// No Instructions here: the SDK server is memoised, so build-time text
+		// would be stale and the same for every caller. guideMiddleware sets
+		// them per handshake (D1097).
 	})
 
 	s.mu.Lock()
@@ -114,6 +116,7 @@ func (s *Server) buildSDKServer() *sdk.Server {
 		s.rosterMiddleware(),
 		s.unknownToolMiddleware(),
 		s.agentProfileMiddleware(),
+		s.guideMiddleware(),
 	)
 	return srv
 }
@@ -278,6 +281,32 @@ func (s *Server) rosterMiddleware() sdk.Middleware {
 				s.recordSDKRequest(method, req)
 			}
 			return next(ctx, method, req)
+		}
+	}
+}
+
+// guideMiddleware sets the instructions of an initialize and of a
+// server/discover result (D1097): the operating guide of this connection, or
+// what a provisioned one gets (sessionInstructions). The text is edited on the
+// result, which the SDK builds fresh per call, rather than at build time: the
+// SDK server is memoised and its views are shared by every URL that resolves to
+// the same set, while the guide depends on the caller and on files read at each
+// handshake. The discover result varies by caller, so it is not public.
+func (s *Server) guideMiddleware() sdk.Middleware {
+	return func(next sdk.MethodHandler) sdk.MethodHandler {
+		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
+			res, err := next(ctx, method, req)
+			if err != nil {
+				return res, err
+			}
+			switch r := res.(type) {
+			case *sdk.InitializeResult:
+				r.Instructions = s.handshakeInstructions(ctx)
+			case *sdk.DiscoverResult:
+				r.Instructions = s.handshakeInstructions(ctx)
+				r.CacheScope = "private"
+			}
+			return res, nil
 		}
 	}
 }
