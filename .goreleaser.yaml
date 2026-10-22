@@ -45,8 +45,18 @@ checksum:
   name_template: sha256sums.txt
   algorithm: sha256
 
+# One SPDX document per platform binary (D1022): `binary` catalogs the build
+# outputs, so the Windows executable inside the zip gets one too, and the raw
+# darwin/linux assets are not cataloged twice. Documents are new release assets
+# (cartographer_<version>_<os>_<arch>.sbom.json); no existing asset is renamed.
+# syft is installed by release.yml at a pinned version.
+sboms:
+  - artifacts: binary
+    documents:
+      - "{{ .Binary }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}.sbom.json"
+
 # The GitHub Release is created by release-please with the changelog as body:
-# GoReleaser only attaches the binaries and checksums to it.
+# GoReleaser only attaches the binaries, SBOMs and checksums to it.
 release:
   mode: keep-existing
 

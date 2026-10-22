@@ -8,13 +8,16 @@ permissions:
   contents: read
 
 jobs:
-  # Binaries + checksums attached to the release-please release, plus the
-  # Homebrew formula pushed to BeppeTemp/homebrew-tap. Windows has no package
-  # manager channel: install.ps1 reads the release assets directly (D252).
+  # Binaries + SBOMs + checksums attached to the release-please release, plus
+  # the Homebrew formula pushed to BeppeTemp/homebrew-tap. Windows has no package
+  # manager channel: install.ps1 reads the release assets directly (D252). Every
+  # asset carries a keyless build-provenance attestation (D1022).
   goreleaser:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,6 +28,21 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      # goreleaser's `sboms:` shells out to syft. Pinned by version and by the
+      # sha256 of the archive, as mcp-publisher below (D1020); a bump is a
+      # reviewed edit of both lines.
+      - name: Install syft
+        env:
+          SYFT_VERSION: v1.55.0
+          SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+        run: |
+          set -euo pipefail
+          archive="syft_${SYFT_VERSION#v}_linux_amd64.tar.gz"
+          curl -fsSL -o "$archive" "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/${archive}"
+          echo "${SYFT_SHA256}  ${archive}" | sha256sum -c -
+          tar xzf "$archive" syft
+          install -m 0755 syft /usr/local/bin/syft
+          rm "$archive" syft
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: "~> v2"
@@ -32,6 +50,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      # sha256sums.txt lists every other published asset (binaries, Windows zips,
+      # SBOMs) with its digest, so one attestation covers them all, and a second
+      # covers the file itself (D1022). Names are not what verification matches:
+      # `gh attestation verify <file>` looks the file's digest up.
+      - name: Attest the release assets
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: dist/sha256sums.txt
+      - name: Attest the checksum file
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/sha256sums.txt
 
   # The beta marker on the release itself (D82), which nothing was actually
   # setting: `"prerelease": true` in release-please-config.json does not put the
@@ -74,6 +104,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -86,15 +118,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        id: push
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          provenance: mode=max
+          sbom: true
           build-args: |
             VERSION=${{ github.ref_name }}
           tags: |
             ghcr.io/beppetemp/cartographer:${{ github.ref_name }}
             ghcr.io/beppetemp/cartographer:latest
+      # The digest is the one buildx pushed (the image index), so the signature
+      # holds for :<tag> and :latest alike (D1022).
+      - name: Attest the image
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/beppetemp/cartographer
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
 
   # Live read-only MCP demo on Cloud Run (D751). Skipped until the repository
   # variables exist; nothing waits on it, so a demo failure never blocks the
