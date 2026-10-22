@@ -41,11 +41,14 @@ describe("autonomous motion", () => {
     now += 1;
     expect(idle.shouldRotate()).toBe(true);
 
-    // Reading: never while a concept is selected ...
+    // Reading: a concept open turns too, after the same quiet (the scene
+    // slows it to READING_ROTATE_SPEED) ...
+    idle.input();
     idle.setSelected(true);
-    now += IDLE_RESUME_MS * 3;
     expect(idle.shouldRotate()).toBe(false);
-    // ... and not the instant it is closed.
+    now += IDLE_RESUME_MS;
+    expect(idle.shouldRotate()).toBe(true);
+    // ... and closing it is input: the panorama does not lurch the instant it closes.
     idle.setSelected(false);
     expect(idle.shouldRotate()).toBe(false);
     now += IDLE_RESUME_MS;

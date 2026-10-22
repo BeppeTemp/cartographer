@@ -16,14 +16,18 @@ export function initialMotion(stored: boolean, reducedMotion: boolean): boolean 
 
 /** OrbitControls.autoRotateSpeed for ~1 deg/s: 2.0 is one orbit per 30 s. */
 export const AUTO_ROTATE_SPEED = 2 * (1 / 12);
+/** While a concept is open the camera circles it at a third of that: the
+ *  scene keeps moving, slowly enough to read beside it. */
+export const READING_ROTATE_SPEED = AUTO_ROTATE_SPEED / 3;
 /** Quiet time after the last input before the panorama may turn again. */
 export const IDLE_RESUME_MS = 10_000;
 
 /**
  * IdleRotation decides whether the panorama turns. It stops on any input,
- * while a concept is selected (the reader is reading), while the camera is
- * focusing and while motion is off; it resumes only after IDLE_RESUME_MS of
- * quiet in the overview. A clock is injected so tests need no timers.
+ * while the camera is focusing and while motion is off; it resumes only after
+ * IDLE_RESUME_MS of quiet. With a concept open it turns too, around that
+ * concept and slower (READING_ROTATE_SPEED, set by the scene): a reader beside
+ * a frozen picture read it as stuck. A clock is injected so tests need no timers.
  */
 export class IdleRotation {
   private lastInput = Number.NEGATIVE_INFINITY;
@@ -57,7 +61,7 @@ export class IdleRotation {
   }
 
   shouldRotate(): boolean {
-    if (!this.live || this.selected || this.focusing) return false;
+    if (!this.live || this.focusing) return false;
     return this.now() - this.lastInput >= IDLE_RESUME_MS;
   }
 }

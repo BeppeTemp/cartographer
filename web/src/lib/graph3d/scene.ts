@@ -29,6 +29,7 @@ import { MOTION_MS, motionMs, type MotionToken } from "../theme";
 import { smooth } from "./transition";
 import {
   AUTO_ROTATE_SPEED,
+  READING_ROTATE_SPEED,
   IdleRotation,
   DRIFT_REST_MS,
   DRIFT_SLOW_EVERY,
@@ -646,6 +647,7 @@ export class LivingScene {
     );
     this.ring.visible = !!node;
     this.idle.setSelected(!!node);
+    this.applyMotion();
     const opacity = node ? EDGE_BEHIND_SELECTION : EDGE_REST;
     // Faded like the node colours (see setColours), unless nothing is on
     // screen yet to fade from.
@@ -713,10 +715,11 @@ export class LivingScene {
     }
   }
 
-  /** Drift and the live simulation follow the motion toggle alone: a
-   *  selection keeps the network breathing (the rest recedes instead). */
+  /** Drift and the live simulation follow the motion toggle, and rest while
+   *  a concept is open: the camera circles it slowly instead, and labels that
+   *  breathe around a still point are hard to read beside the inspector. */
   private applyMotion(): void {
-    const drifting = this.live && !this.resting;
+    const drifting = this.live && !this.resting && !this.selected;
     this.driftForce.enabled(drifting);
     const target = drifting ? LIVE_ALPHA : 0;
     this.sim?.alphaTarget(this.bloom ? Math.max(target, BLOOM_WARMTH) : target);
@@ -1138,6 +1141,7 @@ export class LivingScene {
       }
     }
     this.controls.autoRotate = !this.tween && this.idle.shouldRotate();
+    this.controls.autoRotateSpeed = this.selected ? READING_ROTATE_SPEED : AUTO_ROTATE_SPEED;
     if (!this.controls.autoRotate) this.idleFit = null;
     if (this.controls.autoRotate && !this.selected && !this.fitFollow) {
       // Idle: the network breathes and the panorama turns around a pivot
