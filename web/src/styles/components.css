@@ -272,6 +272,97 @@
   color: var(--sev-error);
 }
 
+/* The sync indicator (SyncIndicator.tsx): the state word and a glyph, coloured
+   only from the severity tokens; the popover borrows the picker menu's surface. */
+.sync {
+  position: relative;
+}
+
+.sync__button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.sync__button[aria-expanded="true"] {
+  border-color: var(--border-strong);
+}
+
+.sync__glyph {
+  display: inline-flex;
+}
+
+.sync__button--ok .sync__glyph,
+.sync__headline--ok strong {
+  color: var(--sev-ok);
+}
+
+.sync__button--attention .sync__glyph,
+.sync__button--warning .sync__glyph,
+.sync__headline--attention strong,
+.sync__headline--warning strong {
+  color: var(--sev-warning);
+}
+
+.sync__button--problem .sync__glyph,
+.sync__headline--problem strong {
+  color: var(--sev-error);
+}
+
+.sync__popover {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  inset-inline-end: 0;
+  z-index: 40;
+  width: 320px;
+  max-width: calc(100vw - 2 * var(--space-3));
+  padding: var(--space-3);
+  font-size: var(--text-xs);
+  color: var(--text-primary);
+  background: var(--surface-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  box-shadow: var(--elevation-2);
+  animation: palette-in var(--motion-fast) var(--ease-out);
+}
+
+.sync__headline {
+  margin: 0 0 var(--space-2);
+}
+
+.sync__details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+}
+
+.sync__details dt {
+  color: var(--text-muted);
+}
+
+.sync__details dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sync__note {
+  color: var(--text-muted);
+}
+
+.sync__error {
+  color: var(--sev-error);
+}
+
 /* A phone has room for the mark, the KB and a row of icons, not for the
    whole desktop bar: without this the bar's content sets a 750px minimum and
    the browser widens the whole page to fit it. The name, the search field's
@@ -287,6 +378,19 @@
     border-inline-end: 0;
   }
 
+  /* Anchored to the bar, not to the button, so it cannot run off the left. */
+  .sync {
+    position: static;
+  }
+
+  .sync__popover {
+    position: fixed;
+    top: var(--topbar-height);
+    inset-inline: var(--space-3);
+    width: auto;
+    max-width: none;
+  }
+
   .topbar__name,
   .topbar__search .field__placeholder,
   .topbar__search .kbd {
@@ -294,7 +398,8 @@
   }
 
   /* The dot stays; the word stays for a screen reader. */
-  .topbar__status-text {
+  .topbar__status-text,
+  .sync__text {
     position: absolute;
     width: 1px;
     height: 1px;

@@ -188,14 +188,16 @@ describe("the Work panel's other sources", () => {
     expect(columns(panel)).toEqual(["to answer 1"]);
   });
 
-  it("is gone from Health: no searched-for section, and no read of the status", async () => {
+  it("is gone from Health: no searched-for section, and no read of the status of its own", async () => {
     window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=health");
     const fetchMock = stubWork();
     render(<App />);
     await waitFor(() => expect(screen.getByText(/Cartographer found/)).toBeInTheDocument());
     expect(screen.queryByText("Searched for, not found")).toBeNull();
     expect(screen.queryByText("cluster upgrade")).toBeNull();
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/status"))).toBe(false);
+    // Health no longer reads the status for itself; the one read left is the
+    // top bar's sync indicator (plan 1092), made once on load.
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/status")).length).toBeLessThanOrEqual(1);
   });
 });
 

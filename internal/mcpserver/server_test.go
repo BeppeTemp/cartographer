@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -2075,6 +2076,79 @@ func TestServer_KBStatus_NoRemote(t *testing.T) {
 	}
 	if _, ok := result["push_state"]; !ok {
 		t.Error("kb_status: missing field push_state")
+	}
+}
+
+// #1092: kb_status carries the branch the KB commits to and why, from the same
+// snapshot as sync_status, so the Atlas needs no second call.
+func TestServer_KBStatus_Branch(t *testing.T) {
+	t.Parallel()
+	k, bare := setupGitKBWithRemote(t)
+	if err := k.SyncOut(); err != nil {
+		t.Fatalf("seed SyncOut: %v", err)
+	}
+	s := New("0.7.0")
+	RegisterKBTools(s, k, Deps{})
+
+	cur, err := gitx.Branch(k.Root)
+	if err != nil || cur == "" {
+		t.Fatalf("Branch = %q, %v", cur, err)
+	}
+	result := kbStatusResult(t, s)
+	if string(result["branch"]) != `"`+cur+`"` || string(result["branch_source"]) != `"remote"` {
+		t.Errorf("branch = %s, branch_source = %s, want %q and \"remote\"", result["branch"], result["branch_source"], cur)
+	}
+
+	// settings.yaml on the remote's default branch names the branch.
+	if out, err := exec.Command("git", "-C", bare, "symbolic-ref", "HEAD", "refs/heads/"+cur).CombinedOutput(); err != nil {
+		t.Fatalf("set remote HEAD: %v\n%s", err, out)
+	}
+	work := filepath.Join(t.TempDir(), "teammate")
+	for _, args := range [][]string{
+		{"clone", "-q", bare, work},
+	} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(work, kb.SettingsFile), []byte("branch: "+cur+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"add", kb.SettingsFile},
+		{"-c", "user.name=user", "-c", "user.email=user@example.com", "commit", "-q", "-m", "settings: branch"},
+		{"push", "-q", "origin", cur},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", work}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	if _, err := k.SyncIn(); err != nil {
+		t.Fatalf("SyncIn: %v", err)
+	}
+	result = kbStatusResult(t, s)
+	if string(result["branch_source"]) != `"settings"` {
+		t.Errorf("branch_source = %s, want \"settings\"", result["branch_source"])
+	}
+}
+
+func TestServer_KBStatus_NoBranchWithoutRepo(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	if err := os.RemoveAll(filepath.Join(k.Root, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	s := New("0.7.0")
+	RegisterKBTools(s, k, Deps{})
+
+	result := kbStatusResult(t, s)
+	for _, f := range []string{"branch", "branch_source"} {
+		if _, ok := result[f]; ok {
+			t.Errorf("kb_status reports %s for a KB that is not a repository", f)
+		}
+	}
+	if string(result["push_state"]) != `"disabled"` {
+		t.Errorf("push_state = %s, want disabled", result["push_state"])
 	}
 }
 

@@ -527,6 +527,14 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   when a refresh fails. The upgrade command for the install channel comes with it when a newer release is known.
   It obeys the update-check switch (`update_check`, `CARTOGRAPHER_NO_UPDATE_CHECK`, never on a `dev` build): off,
   the route answers `unavailable: "disabled"` and the server makes no call.
+  The top bar shows, for the selected KB, whether everything is on its remote (`kb_status`'s replication
+  facts, read from `GET /api/ui/v1/kbs/{kb}/status`): `On remote`, `N to push`, `N behind`, `Push pending`,
+  `Not verified`, `Push failed`, `Writes blocked`, and, as persistent warnings, `No remote` (not backed up) and
+  `Not versioned`; a click opens the details (branch and its source, counts, last push and fetch, last error,
+  redacted remote). A push completing moves no concept file, so the live revision cannot drive it: the status is
+  read again when the KB changes, when the revision moves, when the tab becomes visible, and every 10 s while
+  the state is unsettled or every minute otherwise (never in a hidden tab). A principal that does not see the
+  whole KB, an older server and the static demo get no indicator.
   The rail holds six panels: Atlas, Activity, Work, Health, Artifacts and Settings (D818).
   Health shows the lint's findings and nothing else; what a person has to answer or decide is in Work
   (contradictions and gaps, the searches that found nothing under "to answer", the `kb_review` proposals

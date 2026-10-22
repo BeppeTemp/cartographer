@@ -333,8 +333,9 @@ export interface WorkResponse {
   next_offset?: number;
 }
 
-/** GET /kbs/{kb}/status: the parts of kb_status the home reads. Both are
- *  omitted by the server when empty. */
+/** GET /kbs/{kb}/status: the parts of kb_status the Atlas reads. The home reads
+ *  open_gaps, search_misses and stale_count (omitted by the server when empty);
+ *  the top bar's sync indicator reads the replication facts. */
 export interface KBStatus {
   open_gaps?: {
     total: number;
@@ -344,6 +345,24 @@ export interface KBStatus {
   /** resolved: the same search now finds something (D319); sorted last. */
   search_misses?: { query: string; count: number; last_seen?: string; resolved?: boolean }[];
   stale_count?: number;
+  /** Replication facts (D145). Absent from an older server. */
+  has_remote?: boolean;
+  /** `origin`, credentials already redacted by the server. */
+  remote_url?: string;
+  /** disabled | no_remote | clean | pending | failed | degraded. */
+  push_state?: string;
+  push_last_error?: string;
+  /** null: no trustworthy remote-tracking comparison exists. */
+  unpushed_commits?: number | null;
+  /** As of the last fetch; null when unknown. */
+  behind_commits?: number | null;
+  /** In-process: null until the next push after a server restart (D713). */
+  last_push_at?: string | null;
+  last_sync_in_at?: string | null;
+  /** Checked-out branch ("" on a detached HEAD); absent for a KB that is not a repository. */
+  branch?: string;
+  /** Where the canonical branch comes from: an opaque string, printed as received. */
+  branch_source?: string;
 }
 
 /** GET /kbs/{kb}/maintenance/review (D704): the doctor's agenda beyond lint. */

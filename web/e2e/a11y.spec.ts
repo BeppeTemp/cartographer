@@ -32,6 +32,25 @@ for (const viewport of [
       expect(await seriousViolations(page)).toEqual([]);
     });
 
+    test("sync indicator popover", async ({ page }) => {
+      await page.goto(ATLAS);
+      // The fixture KBs are created with no remote (run.sh), so the indicator
+      // is the persistent warning.
+      const sync = page.getByRole("button", { name: /^Sync: / });
+      await expect(sync).toBeVisible();
+      await expect(sync).toHaveAccessibleName("Sync: No remote");
+      await sync.click();
+      await expect(page.getByRole("dialog", { name: "Sync details" })).toBeVisible();
+      const box = await page.getByRole("dialog", { name: "Sync details" }).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+      expect(await seriousViolations(page)).toEqual([]);
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("dialog", { name: "Sync details" })).toHaveCount(0);
+      await expect(sync).toBeFocused();
+    });
+
     test("inspector", async ({ page }) => {
       await page.goto(`${ATLAS}&scope=infra&concept=infra%2Fgateway`);
       if (narrow) await page.getByRole("button", { name: "Open inspector" }).click();
