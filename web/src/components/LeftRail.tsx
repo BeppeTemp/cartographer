@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import type { Overview } from "../api/types";
-import type { Panel } from "../lib/viewstate";
+import { ARTIFACT_PANELS, type Panel } from "../lib/viewstate";
 import { collectionVar } from "../lib/palette";
 import { Count } from "./Count";
 import { Icon } from "./Icon";
@@ -132,7 +132,7 @@ export function LeftRail({
               className="rail__panel"
               aria-label="Artifacts"
               title={collapsed ? "Artifacts" : undefined}
-              aria-current={panel === "artifacts" || panel === "secrets" ? "page" : undefined}
+              aria-current={ARTIFACT_PANELS.includes(panel) ? "page" : undefined}
               onClick={() => onPanel("artifacts")}
             >
               <span className="rail__glyph">

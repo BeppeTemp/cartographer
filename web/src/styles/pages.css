@@ -2404,3 +2404,39 @@ button.row {
   font-weight: 600;
   color: var(--text-primary);
 }
+
+/* --- Instructions: one text, read as a page --- */
+
+.instructions__doc {
+  margin-block-start: var(--space-6);
+}
+
+.instructions__doc + .instructions__doc {
+  margin-block-start: var(--space-12);
+}
+
+.instructions__name {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.instructions__file + .instructions__file {
+  margin-block-start: var(--space-8);
+}
+
+.instructions__findings {
+  max-width: var(--reading-measure);
+  margin: var(--space-6) 0 0;
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  list-style: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.instructions__empty {
+  max-width: 420px;
+  margin-block-start: var(--space-6);
+}

@@ -50,7 +50,13 @@ const KIND_MARK: Record<string, { glyph: string; hue: string }> = {
   template: { glyph: "▢", hue: "var(--hue-4)" },
 };
 
-function KindMark({ kind }: { kind: string }) {
+/** The kinds each tab of the section lists: Instructions has a page of its own. */
+const SECTION_KINDS: Record<"kit" | "templates", string[]> = {
+  kit: ["skill", "agent", "hook", "mcp"],
+  templates: ["template"],
+};
+
+export function KindMark({ kind }: { kind: string }) {
   const mark = KIND_MARK[kind] ?? { glyph: "•", hue: "var(--text-muted)" };
   return (
     <span className="kind-mark" aria-hidden="true" style={{ "--kind": mark.hue } as CSSProperties}>
@@ -98,6 +104,7 @@ function formatBytes(n: number): string {
  * shared link both work. Read-only, like the rest of the UI API.
  */
 export function Artifacts({
+  section = "kit",
   kb,
   list,
   loading,
@@ -114,7 +121,9 @@ export function Artifacts({
   onOpenHealth,
   tabs,
 }: {
-  /** The section tabs (Artifacts · Secrets), drawn under the header. */
+  /** Which tab this is: the agent kit (skills, subagents, hooks, MCP servers) or the templates. */
+  section?: "kit" | "templates";
+  /** The section tabs (Agent kit · Instructions · Templates · Secrets), drawn under the header. */
   tabs?: React.ReactNode;
   titleOf?(id: string): string | undefined;
   /** How many concepts carry a type: a template's reach. */
@@ -135,13 +144,13 @@ export function Artifacts({
   /** True when the failure was handled (a 401 sends the user to sign in). */
   onFailure(err: unknown): boolean;
 }) {
-  const [filter, setFilter] = useState("");
   // One kind at a time, or all of them: a KB with twenty skills must not make
   // its two hooks a scroll away.
   const [kind, setKind] = useState<string | null>(null);
   const [slice, setSlice] = useState<Slice>(null);
 
-  const all = useMemo(() => list?.artifacts ?? [], [list]);
+  const own = SECTION_KINDS[section];
+  const all = useMemo(() => (list?.artifacts ?? []).filter((a) => own.includes(a.kind)), [list, own]);
   // "never used" on every tile says nothing when no use was ever reported
   // (no client scanner): the subtitle says it once instead.
   const anyUse = all.some((a) => !!a.last_used);
@@ -158,41 +167,48 @@ export function Artifacts({
   };
   // The server lists every kind a KB can hold (D864); a server that predates
   // it sends none, and the panel lists only the kinds that have an artifact.
-  const kinds = list?.kinds?.length ? list.kinds : undefined;
+  const kinds = useMemo(
+    () => (list?.kinds?.length ? list.kinds.filter((k) => own.includes(k.kind)) : undefined),
+    [list, own],
+  );
   const groups = useMemo(() => {
-    const needle = filter.trim().toLowerCase();
-    const match = (a: Artifact) =>
-      (!needle || a.name.toLowerCase().includes(needle) || (a.description ?? "").toLowerCase().includes(needle)) &&
-      inSlice(a, slice);
+    const match = (a: Artifact) => inSlice(a, slice);
     // An empty kind is a section of its own only while nothing narrows the
     // list: with a filter, "no match" must still read as no match.
-    const keepEmpty = !!kinds && !needle && slice === null;
+    const keepEmpty = !!kinds && slice === null;
     const rows: { kind: string; title: string; info?: ArtifactKindInfo }[] =
       kinds?.map((info) => ({ kind: info.kind, title: info.title, info })) ??
-      KINDS.map(([k, title]) => ({ kind: k, title }));
+      KINDS.filter(([k]) => own.includes(k)).map(([k, title]) => ({ kind: k, title }));
     return rows
       .filter((r) => kind === null || r.kind === kind)
       .map((r) => ({ ...r, items: all.filter((a) => a.kind === r.kind && match(a)) }))
       .filter((g) => g.items.length > 0 || keepEmpty);
-  }, [all, filter, kind, slice, kinds]);
+  }, [all, kind, slice, kinds, own]);
+  const noun = section === "templates" ? "template" : "artifact";
+  const eyebrow = section === "templates" ? "Templates" : "Agent kit";
 
   if (loading && !list)
     return (
       <Page label="Artifact catalog" busy className="catalog">
-        <PageHeader eyebrow="Artifacts" title={<TitleBone label="Loading artifacts" />} />
+        <PageHeader eyebrow={eyebrow} title={<TitleBone label="Loading artifacts" />} />
         {tabs}
         <CatalogSkeleton label="Loading artifacts" />
       </Page>
     );
   if (error) return <ErrorState error={error} onRetry={onRetry} />;
   if (!list) return null;
-  if (!kinds && list.artifacts.length === 0 && list.issues.length === 0) {
+  if (!kinds && all.length === 0 && list.issues.length === 0) {
     return (
       <Page label="Artifact catalog" className="catalog">
+        <PageHeader eyebrow={eyebrow} title={section === "templates" ? "No templates yet." : "No agent kit yet."} />
         {tabs}
         <EmptyState
-          title="This KB ships no artifacts"
-          detail="Skills, subagents, hooks, MCP servers, instructions and templates appear here once the KB has them."
+          title={section === "templates" ? "This KB has no templates" : "This KB ships no agent kit"}
+          detail={
+            section === "templates"
+              ? "A template is the shape a new concept of a type starts from."
+              : "Skills, subagents, hooks and MCP servers appear here once the KB has them."
+          }
         />
       </Page>
     );
@@ -223,66 +239,67 @@ export function Artifacts({
   const catalog = (
     <Page label="Artifact catalog" className="catalog">
       <PageHeader
-        eyebrow="Artifacts"
+        eyebrow={eyebrow}
         title={
-          <>
-            <Count>{all.length}</Count> artifact{all.length === 1 ? "" : "s"} ship with this KB.
-          </>
+          section === "templates" ? (
+            <>
+              <Count>{all.length}</Count> template{all.length === 1 ? "" : "s"} shape new concepts.
+            </>
+          ) : (
+            <>
+              <Count>{all.length}</Count> {noun}
+              {all.length === 1 ? " ships" : "s ship"} to agent clients.
+            </>
+          )
         }
         subtitle={
           <>
-            <FindingSummary list={list} />
+            <FindingSummary items={all} />
             {!anyUse && all.some((a) => lastUsed(a) !== null) && " · no client has reported a use yet"}
           </>
         }
-        actions={
-          <input
-            className="page-search"
-            type="search"
-            placeholder="Filter by name or description"
-            aria-label="Filter artifacts"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-        }
       />
       {tabs}
-      <Hero label="Filters">
-        <HeroRow label="Kind">
-          <FilterChips label="Show kind">
-            <FilterChip label="All" count={all.length} pressed={kind === null} onToggle={() => setKind(null)} />
-            {(
-              kinds?.map((info): [string, string] => [info.kind, info.title]) ??
-              KINDS.filter(([k]) => (list.counts[k] ?? 0) > 0)
-            ).map(([k, title]) => (
-              <FilterChip
-                key={k}
-                label={title}
-                count={list.counts[k] ?? 0}
-                pressed={kind === k}
-                hue={KIND_MARK[k]?.hue}
-                mark={<KindMark kind={k} />}
-                onToggle={() => setKind(kind === k ? null : k)}
-              />
-            ))}
-          </FilterChips>
-        </HeroRow>
-        {slices.length > 0 && (
-          <HeroRow label="Show">
-            <FilterChips label="Show only">
-              {slices.map(([sl, label, n]) => (
-                <FilterChip
-                  key={sl}
-                  label={label}
-                  count={n}
-                  pressed={slice === sl}
-                  onToggle={() => setSlice(slice === sl ? null : sl)}
-                />
-              ))}
-            </FilterChips>
-          </HeroRow>
-        )}
-      </Hero>
+      {(section === "kit" || slices.length > 0) && (
+        <Hero label="Filters">
+          {section === "kit" && (
+            <HeroRow label="Kind">
+              <FilterChips label="Show kind">
+                <FilterChip label="All" count={all.length} pressed={kind === null} onToggle={() => setKind(null)} />
+                {(
+                  kinds?.map((info): [string, string] => [info.kind, info.title]) ??
+                  KINDS.filter(([k]) => own.includes(k) && (list.counts[k] ?? 0) > 0)
+                ).map(([k, title]) => (
+                  <FilterChip
+                    key={k}
+                    label={title}
+                    count={list.counts[k] ?? 0}
+                    pressed={kind === k}
+                    hue={KIND_MARK[k]?.hue}
+                    mark={<KindMark kind={k} />}
+                    onToggle={() => setKind(kind === k ? null : k)}
+                  />
+                ))}
+              </FilterChips>
+            </HeroRow>
+          )}
+          {slices.length > 0 && (
+            <HeroRow label="Show">
+              <FilterChips label="Show only">
+                {slices.map(([sl, label, n]) => (
+                  <FilterChip
+                    key={sl}
+                    label={label}
+                    count={n}
+                    pressed={slice === sl}
+                    onToggle={() => setSlice(slice === sl ? null : sl)}
+                  />
+                ))}
+              </FilterChips>
+            </HeroRow>
+          )}
+        </Hero>
+      )}
       {list.issues.length > 0 && (
         <ul className="artifacts__issues" aria-label="Artifacts left out">
           {list.issues.map((issue) => (
@@ -400,7 +417,7 @@ export function Artifacts({
  * docs. The path is text, never a link: it comes from the server and names a
  * folder, not a page.
  */
-function EmptyKindTile({ info }: { info: ArtifactKindInfo }) {
+export function EmptyKindTile({ info }: { info: ArtifactKindInfo }) {
   return (
     <div
       className="catalog__tile catalog__tile--ghost"
@@ -467,7 +484,7 @@ function ArtifactDetail({
 
   const back = narrow ? (
     <button type="button" className="button artifacts__back" onClick={onClose}>
-      Back to artifacts
+      Back
     </button>
   ) : (
     <button type="button" className="artifacts__close" aria-label="Close the artifact" title="Close" onClick={onClose}>
@@ -634,7 +651,7 @@ function LastUsed({ artifact }: { artifact: Artifact }) {
 }
 
 /** Frontmatter as key/value rows, never rendered as Markdown. */
-function splitFrontmatter(text: string): { fields: [string, string][]; body: string } | null {
+export function splitFrontmatter(text: string): { fields: [string, string][]; body: string } | null {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
   if (!m) return null;
   const fields: [string, string][] = [];
@@ -752,9 +769,9 @@ function FileContent({ file, known = {} }: { file: ArtifactFile; known?: Record<
   );
 }
 
-/** The panel's health line (D316): every artifact finding, counted. */
-function FindingSummary({ list }: { list: ArtifactList }) {
-  const total = Object.values(list.finding_counts ?? {}).reduce((a, b) => a + b, 0);
+/** The panel's health line (D316): every finding of the tab's artifacts, counted. */
+export function FindingSummary({ items }: { items: Artifact[] }) {
+  const total = items.reduce((n, a) => n + (a.findings?.length ?? 0), 0);
   if (total === 0) return <span className="artifacts__health">No artifact findings</span>;
   return (
     <span className="artifacts__health">

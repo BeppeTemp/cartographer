@@ -30,6 +30,7 @@ import type {
 } from "./api/types";
 import { Artifacts } from "./components/Artifacts";
 import { Secrets } from "./components/Secrets";
+import { Instructions } from "./components/Instructions";
 import { PageTabs } from "./components/Page";
 import { MapContractPanel, MAP_PANEL_SLIDE, MAP_PANEL_WIDTH } from "./components/MapContractPanel";
 import { Legend } from "./components/Legend";
@@ -65,7 +66,7 @@ import { toggleEggs, type Egg } from "./lib/eggs";
 import { Eggs } from "./components/Eggs";
 import { snapshotCommunities, type Communities } from "./lib/communities";
 import { readColorBy, writeColorBy, type ColorBy } from "./lib/palette";
-import { pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
+import { ARTIFACT_PANELS, artifactPanel, pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
 import {
   inspectorDefault,
   INSPECTOR_MIN,
@@ -332,19 +333,25 @@ export function App() {
   // time, and the graph must not wait for it.
   const artifactsAllowed = kbs.find((kb) => kb.name === activeKB)?.artifacts ?? false;
   const secretsAllowed = kbs.find((kb) => kb.name === activeKB)?.secrets ?? false;
-  // Secrets are artifacts of the KB too: a tab of the Artifacts section,
-  // shown only to a principal that may read them.
-  const sectionTabs = secretsAllowed ? (
-    <PageTabs<"artifacts" | "secrets">
+  // What the KB gives its agents, one tab per kind of thing: the agent kit
+  // (skills, subagents, hooks, MCP servers), the one set of instructions read
+  // as text, the templates, and the secrets for a principal that may read them.
+  type ArtifactTab = "artifacts" | "instructions" | "templates" | "secrets";
+  const sectionTabs = (
+    <PageTabs<ArtifactTab>
       label="Artifacts section"
-      tabs={[
-        ["artifacts", "Artifacts"],
-        ["secrets", "Secrets"],
-      ]}
-      current={view.panel === "secrets" ? "secrets" : "artifacts"}
+      tabs={(
+        [
+          ["artifacts", "Agent kit"],
+          ["instructions", "Instructions"],
+          ["templates", "Templates"],
+          ["secrets", "Secrets"],
+        ] as [ArtifactTab, string][]
+      ).filter(([tab]) => (tab === "secrets" ? secretsAllowed : artifactsAllowed))}
+      current={(ARTIFACT_PANELS.includes(view.panel) ? view.panel : "artifacts") as ArtifactTab}
       onSelect={(panel) => navigate({ panel, artifact: null })}
     />
-  ) : null;
+  );
   // Retired concepts are what happened to the KB: a tab of Activity (D820).
   const activityTabs = (
     <PageTabs<"activity" | "retired">
@@ -523,7 +530,13 @@ export function App() {
   // principal that cannot see the whole KB gets no panel, and a link to one
   // falls back to the atlas.
   useEffect(() => {
-    if (view.panel !== "artifacts" || !activeKB || kbs.length === 0 || artifactsAllowed) return;
+    if (
+      !["artifacts", "instructions", "templates"].includes(view.panel) ||
+      !activeKB ||
+      kbs.length === 0 ||
+      artifactsAllowed
+    )
+      return;
     const next = { ...view, panel: "atlas" as const, artifact: null };
     setView(next);
     replaceView(next);
@@ -769,7 +782,9 @@ export function App() {
       loading={conceptLoading}
       findings={view.concept ? (findingsByConcept.get(view.concept) ?? []) : []}
       titleOf={(id) => nodeTitles.get(id)}
-      onOpenArtifact={(kind, name) => navigate({ panel: "artifacts", artifact: `${kind}/${name}` })}
+      onOpenArtifact={(kind, name) =>
+        navigate({ panel: artifactPanel(kind), artifact: kind === "instructions" ? null : `${kind}/${name}` })
+      }
       onNavigate={selectConcept}
       onPreview={setPreview}
       onClose={closeInspector}
@@ -886,8 +901,20 @@ export function App() {
               onRetry={() => setReloadKey((k) => k + 1)}
               onFailure={handleFailure}
             />
-          ) : view.panel === "artifacts" && activeKB ? (
+          ) : view.panel === "instructions" && activeKB ? (
+            <Instructions
+              tabs={sectionTabs}
+              kb={activeKB}
+              list={artifacts}
+              loading={artifactsLoading}
+              error={artifactsError}
+              onRetry={() => setReloadKey((k) => k + 1)}
+              onFailure={handleFailure}
+            />
+          ) : (view.panel === "artifacts" || view.panel === "templates") && activeKB ? (
             <Artifacts
+              key={view.panel}
+              section={view.panel === "templates" ? "templates" : "kit"}
               tabs={sectionTabs}
               kb={activeKB}
               list={artifacts}
@@ -952,7 +979,12 @@ export function App() {
                   loadBirths={activeKB && !view.scope ? () => fetchBirths(activeKB).then((r) => r.births) : undefined}
                   kbName={activeKB ?? undefined}
                   artifacts={graphArtifacts}
-                  onOpenArtifact={(kind, name) => navigate({ panel: "artifacts", artifact: `${kind}/${name}` })}
+                  onOpenArtifact={(kind, name) =>
+                    navigate({
+                      panel: artifactPanel(kind),
+                      artifact: kind === "instructions" ? null : `${kind}/${name}`,
+                    })
+                  }
                   communities={communities}
                   colorBy={colorBy}
                   selected={view.concept}
