@@ -319,7 +319,7 @@ accepted; `http://` only when the host is loopback (`localhost`, or an IP for
 which `net.ParseIP(host).IsLoopback()` holds: `127.0.0.0/8`, `::1`, IPv4-mapped
 `::ffff:127.0.0.1`; a name such as `127.0.0.1.example.com` is not); any other
 scheme is refused. The check is in the client transport, so `connect`, `sync`,
-`status`, `doctor`, `kb repair`, `reindex`, the usage sync and the stdio bridge
+`status`, `doctor`, `kb repair`, `kb reauthor`, `reindex`, the usage sync and the stdio bridge
 all obey it, and `connect` and `sync` fail before writing anything.
 
 The explicit opt-in is the `allow_insecure_http: true` key, set by
@@ -658,6 +658,36 @@ someone.
 Exit codes: `0` nothing left to do, `3` only judgement work or checks that are not safe to run unattended remain,
 `2` error. `--json` prints the report as an object (`checks`, `review_total`, `review_by_kind`,
 `remaining`). Not to be confused with `cartographer doctor`, which checks the client's provisioning.
+
+### `cartographer kb reauthor <kb> [--apply] [--json]`
+
+Recovery for a push a remote refused because of who authored or committed its commits (a membership
+push rule, a private-email rule; D1063). It re-authors, under the identity the server file configures
+for the KB (`git.identity` / `git.identities`, the rule `serve` applies at mount), the commits that exist
+only in the local clone, then pushes. Without an identity configured it refuses: rewriting with the
+fallback identity would reproduce the problem. The sync alone already re-authors a commit made by
+exactly the server identity (D950); this command is for what it leaves alone, a commit authored by a
+token (`<token id> <cartographer@host>`).
+
+Like `kb unmount` it is offline and local (D177: `--data`, `--config`, `--local`), because it needs the
+server config and the clone on this machine and operator authority, not a token. It takes the KB's
+advisory process lock, so a running service does not have to be stopped, fetches `origin` with the KB's
+credentials, and moves the branch with a compare-and-swap `update-ref`, so a write racing it makes the
+rewrite fail instead of being lost. The working tree and index are never touched.
+
+Without `--apply` it is a preview: every commit ahead of the upstream with its author, committer and
+subject, marked `*` when it would change; nothing is written. `--json` prints
+`{kb, branch, upstream, identity, commits:[{sha, author, committer, subject, rewrite}], apply, pushed}`.
+`--apply` replaces author and committer, keeping message (so the `Cartographer-Author`,
+`Cartographer-Token` and `Cartographer-Host` trailers stay as the record of who really wrote), tree and
+dates, logs the old → new count on stderr (the branch reflog records the command), and pushes through the
+normal path. A running service recomputes its sync status at its next sync or write.
+
+It refuses, with exit `2` and a one-line reason, when: there is no identity configured; the directory is
+not a git clone with an `origin`; `HEAD` is detached; a rebase or merge is in progress; the fetch fails (what
+is only local must be proven against the remote); the branch has no upstream; it has diverged (behind the
+upstream); the commits ahead hold a merge or a root commit; or any of them is already reachable from
+another remote ref (published history is never rewritten). Exit `0` is done or nothing to re-author.
 
 ### `cartographer service sync-timer <action>`
 

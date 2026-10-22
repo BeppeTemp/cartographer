@@ -459,7 +459,26 @@ func (k *KB) SyncOut() error {
 
 		// A protected branch is the remote's decision, not a transient failure:
 		// retrying only repeats the refusal. The commit stays safe locally.
+		//
+		// TRAP: the identity test runs first. A membership rule and a branch
+		// protection both end with "pre-receive hook declined", so testing the
+		// protected wording first sent the operator to unprotect a branch that
+		// was never the problem (D1063).
+		if gitx.IsIdentityRejection(pushErr.Error()) {
+			err := k.identityRejection(remote, branch, pushErr.Error())
+			k.setGitStatus("failed", err, attempt)
+			return err
+		}
 		if gitx.IsProtectedBranchRejection(pushErr.Error()) {
+			// A bare "hook declined" is still an identity problem when the local
+			// evidence is conclusive: fallback identities ahead, none configured.
+			l := strings.ToLower(pushErr.Error())
+			explicit := strings.Contains(l, "gh006") || strings.Contains(l, "protected branch")
+			if idents, fallback := k.localIdentities(remote, branch); !explicit && fallback && !k.hasConfiguredIdentity() {
+				err := &ErrIdentityRejected{Branch: branch, Git: pushErr.Error(), Identities: idents}
+				k.setGitStatus("failed", err, attempt)
+				return err
+			}
 			err := &ErrProtectedBranch{Branch: branch, Git: pushErr.Error()}
 			k.setGitStatus("failed", err, attempt)
 			return err
@@ -620,6 +639,95 @@ func (e *ErrProtectedBranch) Error() string {
 		"Cartographer pushes to the branch directly and never opens a pull request: unprotect the branch, or set `branch` in settings.yaml "+
 		"(committed on the remote's default branch) to write to another one. The change is committed and safe in the local clone. Git said: %s",
 		e.Branch, firstLines(e.Git, 3))
+}
+
+// ErrIdentityRejected is the error of a push the remote refused because of who
+// authored or committed a commit (a membership push rule, a private-email
+// rule), not because the branch is protected (D1063). The way out is the
+// identity of the local commits, not the branch.
+type ErrIdentityRejected struct {
+	Branch string
+	// Git is what git printed, kept for the operator.
+	Git string
+	// Identities are the distinct "Name <email>" of author and committer over
+	// the commits ahead of the upstream, at most three, those that differ from
+	// the configured identity first; empty when the range cannot be read.
+	Identities []string
+	// Configured says whether git.identity (or git.identities) applies to the KB.
+	Configured bool
+}
+
+func (e *ErrIdentityRejected) Error() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "the remote refused the push to branch %q because of who authored or committed its commits, not because the branch is protected.", e.Branch)
+	if len(e.Identities) > 0 {
+		fmt.Fprintf(&b, " The unpushed commits are by: %s.", strings.Join(e.Identities, ", "))
+	}
+	if !e.Configured {
+		b.WriteString(" No git identity is configured: set `git.identity` (or `git.identities`) in the server file to a user the remote accepts, and restart.")
+	}
+	b.WriteString(" Commits made by the server identity are re-authored by the next sync; commits authored by a token need `cartographer kb reauthor <kb>` run on the server host (a preview first, then `--apply`).")
+	fmt.Fprintf(&b, " The changes are committed and safe in the local clone. Git said: %s", firstLines(e.Git, 3))
+	return b.String()
+}
+
+func (k *KB) hasConfiguredIdentity() bool {
+	_, _, ok := k.ConfiguredIdentity()
+	return ok
+}
+
+// identityRejection builds the *ErrIdentityRejected for a push the remote
+// refused on identity grounds.
+func (k *KB) identityRejection(remote, branch, git string) *ErrIdentityRejected {
+	idents, _ := k.localIdentities(remote, branch)
+	return &ErrIdentityRejected{Branch: branch, Git: git, Identities: idents, Configured: k.hasConfiguredIdentity()}
+}
+
+// localIdentities lists the distinct "Name <email>" of author and committer
+// over the commits ahead of the upstream (at most three, the ones that differ
+// from the configured identity first), and whether any of them is a fallback
+// identity: the server's or a token's, both at cartographer@<host>. Empty and
+// false when the range cannot be read.
+func (k *KB) localIdentities(remote, branch string) (idents []string, fallback bool) {
+	if remote == "" {
+		remote = "origin"
+	}
+	if !gitx.RemoteBranchExists(k.Root, remote, branch) {
+		return nil, false
+	}
+	commits, err := gitx.LocalCommits(k.Root, remote+"/"+branch)
+	if err != nil {
+		return nil, false
+	}
+	_, serverEmail := ServerIdentity()
+	local, _, _ := strings.Cut(serverEmail, "@")
+	cfgName, cfgEmail, _ := k.ConfiguredIdentity()
+	seen := map[string]bool{}
+	var differing, same []string
+	add := func(name, email string) {
+		id := name + " <" + email + ">"
+		if seen[id] {
+			return
+		}
+		seen[id] = true
+		if strings.HasPrefix(email, local+"@") {
+			fallback = true
+		}
+		if name == cfgName && email == cfgEmail {
+			same = append(same, id)
+		} else {
+			differing = append(differing, id)
+		}
+	}
+	for _, c := range commits {
+		add(c.Author, c.AuthorEmail)
+		add(c.Committer, c.CommitterEmail)
+	}
+	idents = append(differing, same...)
+	if len(idents) > 3 {
+		idents = idents[:3]
+	}
+	return idents, fallback
 }
 
 // firstLines keeps the first n non-empty lines of git's output, on one line.

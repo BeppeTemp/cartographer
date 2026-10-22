@@ -25,6 +25,9 @@ func TestSyncOut_ProtectedBranchRejectionIsReportedAsSuch(t *testing.T) {
 		message := message
 		t.Run(name, func(t *testing.T) {
 			k, bare := setupKBWithRemote(t)
+			// An operator identity is configured: a refusal with no identity
+			// wording is then not blamed on the identity (D1063).
+			k.SetDefaultIdentity("Ada Example", "ada@example.test")
 			if err := k.SyncOut(); err != nil { // the seed push, before the branch is protected
 				t.Fatalf("seed SyncOut: %v", err)
 			}

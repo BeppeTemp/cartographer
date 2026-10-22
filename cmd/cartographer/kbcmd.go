@@ -66,6 +66,8 @@ func cmdKB(args []string) int {
 		return cmdKBRename(rest)
 	case "repair":
 		return cmdKBRepair(rest)
+	case "reauthor":
+		return cmdKBReauthor(rest)
 	case "unmount":
 		return cmdKBUnmount(rest)
 	default:
@@ -76,7 +78,7 @@ func cmdKB(args []string) int {
 }
 
 func printKBUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
+	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
 }
 
 // validateKBName returns an error describing why name is not a usable KB

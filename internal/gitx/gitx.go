@@ -1606,6 +1606,34 @@ func IsProtectedBranchRejection(output string) bool {
 		strings.Contains(l, "pre-receive hook declined")
 }
 
+// IsIdentityRejection reports whether the output of a failed push says the
+// remote refused it because of who authored or committed a commit: GitLab's
+// membership push rule ("GitLab: Author 'x' is not a member of team", and the
+// "Committer" variant), GitHub's private-email protection ("GH007: Your push
+// would publish a private email address"). It is a different refusal from a
+// protected branch (IsProtectedBranchRejection) and needs a different fix:
+// callers test it first, because the generic "pre-receive hook declined" line
+// accompanies both. It never matches GH006 or a protected-branch wording.
+func IsIdentityRejection(output string) bool {
+	l := strings.ToLower(output)
+	if strings.Contains(l, "gh006") || strings.Contains(l, "protected branch") {
+		return false
+	}
+	for _, phrase := range []string{
+		"is not a member of team",
+		"is not a member of the",
+		"gh007",
+		"private email address",
+		"committer email",
+		"author email",
+	} {
+		if strings.Contains(l, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
 // Births replays commits (newest first, as LogNameStatus returns them) from
 // the oldest and returns when each key first entered the repository: the
 // commit that added its file, carried across renames. key maps a file path to

@@ -273,7 +273,14 @@ applies to `default.ssh` and `GIT_SSH_COMMAND` above) — see `internal/gitx.run
 
 If your forge enforces author or committer push rules (GitLab `member_check`), the server identity and the
 token-id author are not forge accounts and the push is refused: set `git.identity` (or `git.identities`) to
-a real account. Commits already pushed under another identity stay as they are.
+a real account. Commits already pushed under another identity stay as they are. Commits that are still
+only local when `git.identity` is set are another matter, and two cases (D1063): the sync itself
+re-authors those made by exactly the server identity (`gitx.RealignCommitters`, D950), but leaves a
+commit authored by a token alone, and refuses to touch a range that holds a merge. The refusal is
+reported in `last_error` as an identity refusal (it names the identities found, and is not a protected
+branch), and `cartographer kb reauthor <kb>` (preview, then `--apply`, [configurator](configurator.md))
+re-authors the token-authored ones on the server host and pushes them; it never rewrites a commit
+that exists on a remote, and a range with a merge is refused there too.
 
 **Explicit KB name and its credential files (D53, D905)**: `kbs[].name` fixes the
 KB's name (overrides the name derived from remote/path) — it's the name used everywhere: the HTTP
