@@ -128,7 +128,8 @@ func TestPreviewWorkflowSmokesBeforePush(t *testing.T) {
 }
 
 // A film that cannot render blocks the release candidate and so the train (D1068): the film job of preview.yml
-// must not tolerate failure, film.yml must not swallow one anywhere in its path, and it may only write contents.
+// must not tolerate failure, film.yml must not swallow one anywhere in its path, the job that runs the checked-out code is read-only and
+// the one that writes (only on main) runs none of it.
 // Every action it uses is pinned to a full commit SHA (it holds a write token).
 func TestPreviewCallsTheFilmWithoutToleratingFailure(t *testing.T) {
 	root := repoRoot(t)
@@ -173,15 +174,39 @@ func TestPreviewCallsTheFilmWithoutToleratingFailure(t *testing.T) {
 	var film struct {
 		Permissions map[string]string `yaml:"permissions"`
 		Jobs        map[string]struct {
-			ContinueOnError any    `yaml:"continue-on-error"`
-			Steps           []step `yaml:"steps"`
+			ContinueOnError any               `yaml:"continue-on-error"`
+			Permissions     map[string]string `yaml:"permissions"`
+			Needs           any               `yaml:"needs"`
+			If              string            `yaml:"if"`
+			Steps           []step            `yaml:"steps"`
 		} `yaml:"jobs"`
 	}
 	if err := yaml.Unmarshal([]byte(raw), &film); err != nil {
 		t.Fatalf("film.yml: %v", err)
 	}
-	if len(film.Permissions) != 1 || film.Permissions["contents"] != "write" {
-		t.Errorf("film.yml: permissions %v, want exactly contents: write", film.Permissions)
+	if len(film.Permissions) != 1 || film.Permissions["contents"] != "read" {
+		t.Errorf("film.yml: permissions %v, want exactly contents: read", film.Permissions)
+	}
+	// The job that runs the checked-out code never holds the write token, and does not leave one in .git/config.
+	render, publish := film.Jobs["render"], film.Jobs["publish"]
+	if len(render.Permissions) != 1 || render.Permissions["contents"] != "read" {
+		t.Errorf("film.yml: job render has permissions %v, want exactly contents: read", render.Permissions)
+	}
+	for _, st := range render.Steps {
+		if strings.HasPrefix(st.Uses, "actions/checkout@") && !strings.Contains(raw, "persist-credentials: false") {
+			t.Errorf("film.yml: job render checks out without persist-credentials: false")
+		}
+	}
+	if len(publish.Permissions) != 1 || publish.Permissions["contents"] != "write" || !strings.Contains(toString(publish.Needs), "render") {
+		t.Errorf("film.yml: job publish must need render and hold exactly contents: write, got %v needs %v", publish.Permissions, publish.Needs)
+	}
+	if !strings.Contains(publish.If, "refs/heads/main") {
+		t.Errorf("film.yml: job publish must be gated on refs/heads/main, if: %q", publish.If)
+	}
+	for _, st := range publish.Steps {
+		if strings.Contains(st.Run, "npm ") || strings.Contains(st.Run, "npx ") || strings.Contains(st.Run, "render.sh") {
+			t.Errorf("film.yml: job publish holds the write token and must not run the film's code: %q", st.Run)
+		}
 	}
 	pinned := regexp.MustCompile(`^[^@\s]+@[0-9a-f]{40}$`)
 	for name, job := range film.Jobs {
