@@ -298,7 +298,7 @@ func TestReviewDuplicateCandidate_ResourceNeedsSimilarTitle(t *testing.T) {
 
 func TestReviewDuplicateActionSatellite(t *testing.T) {
 	t.Parallel()
-	if got := duplicateAction(idsOf("m/x", "m/x/y"), false); !strings.Contains(got, "concept_merge m/x/y into its parent m/x") {
+	if got := duplicateAction(idsOf("m/x", "m/x/y"), false); !strings.Contains(got, "concept_merge m/x/y into its parent m/x") || !strings.Contains(got, "link each") || !strings.Contains(got, "assisted session only") || !strings.Contains(got, "delete the child") {
 		t.Fatalf("satellite pair: %q", got)
 	}
 	if got := duplicateAction(idsOf("m/x", "m/z"), false); strings.Contains(got, "concept_merge") {
@@ -972,7 +972,7 @@ func TestReviewDuplicateLinkedPair(t *testing.T) {
 		{"parent and satellite linked both ways", map[string]string{
 			"m/x.md":   page("Alpha beta gamma", "See [part](x/y.md)."),
 			"m/x/y.md": page("Gamma beta alpha delta", "See [whole](../x.md)."),
-		}, "m/x|m/x/y", "concept_merge m/x/y into its parent m/x", "link each"},
+		}, "m/x|m/x/y", "concept_merge m/x/y into its parent m/x", ""},
 		{"resource group of two, linked", map[string]string{
 			"m/gw-one.md": res("Gateway one", "See [two](gw-two.md)."),
 			"m/gw-two.md": res("Gateway two", "See [one](gw-one.md)."),

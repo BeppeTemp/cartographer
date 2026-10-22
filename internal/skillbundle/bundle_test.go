@@ -3,6 +3,7 @@ package skillbundle
 import (
 	"io/fs"
 	"path"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -165,4 +166,64 @@ func TestOpsSkillCarriesTheSetupInterview(t *testing.T) {
 			t.Errorf("the first-time setup section lost %q (D253)", want)
 		}
 	}
+}
+
+// advancedTools mirrors advancedToolNames in internal/mcpserver/visibility.go
+// (skillbundle does not import mcpserver): the tools tools/list does not show.
+var advancedTools = []string{"concept_merge", "concept_archive", "contradiction_report", "conflict_resolve", "repair_revert"}
+
+func TestBundledSkillsDoNotStrandOnAdvancedTools(t *testing.T) {
+	t.Parallel()
+	err := fs.WalkDir(FS, "bundled", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || path.Base(p) != "SKILL.md" {
+			return err
+		}
+		data, rerr := fs.ReadFile(FS, p)
+		if rerr != nil {
+			return rerr
+		}
+		text := string(data)
+		if strings.Contains(text, "tools.profile") || strings.Contains(text, "profile: full") {
+			t.Errorf("%s names the removed tools.profile setting (D906)", p)
+		}
+		// Per citation: a block (blank-line separated, a new list item starts
+		// one) that cites an advanced tool must carry the pointer itself.
+		for _, block := range skillBlocks(text) {
+			for _, tool := range advancedTools {
+				// git_conflict_resolve is a core tool: match the name as a whole word.
+				re := regexp.MustCompile("(^|[^_a-z])" + tool + "([^_a-z]|$)")
+				if re.MatchString(block) && !strings.Contains(block, "`tools/list`") {
+					t.Errorf("%s cites %s without a pointer to `tools/list` in the same block:\n%s", p, tool, block)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+var listItem = regexp.MustCompile(`^\s*([-*]|\d+\.)\s`)
+
+// skillBlocks splits a skill into paragraphs, a list item starting a new one.
+func skillBlocks(text string) []string {
+	var blocks []string
+	var cur []string
+	flush := func() {
+		if len(cur) > 0 {
+			blocks = append(blocks, strings.Join(cur, "\n"))
+			cur = nil
+		}
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == "" || listItem.MatchString(line) {
+			flush()
+		}
+		if strings.TrimSpace(line) != "" {
+			cur = append(cur, line)
+		}
+	}
+	flush()
+	return blocks
 }

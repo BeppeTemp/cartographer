@@ -1,6 +1,7 @@
 package lint
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -152,5 +153,39 @@ func TestRetiredConcept_NoOrphanOnSatellite(t *testing.T) {
 	}
 	if hasCheck(got, "ops/owner/old.md", "orphan") {
 		t.Fatalf("a retired satellite nothing links must not be an orphan: %v", got)
+	}
+}
+
+// The message cites an advanced tool (not in tools/list), so it must also name
+// the core routes, and never a profile switch that D906 removed (#833).
+func TestIndexListsRetired_MessageNamesCoreRoute(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", retiredMapContract)
+	writeFile(t, k.DataRoot(), "ops/a.md", "---\ntype: Note\ntitle: A\nstatus: superseded\nsuperseded_by: ops/b\n---\n# A\n")
+	writeFile(t, k.DataRoot(), "ops/b.md", "---\ntype: Note\ntitle: B\n---\n# B\n")
+	writeFile(t, k.DataRoot(), "ops/c.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
+	writeFile(t, k.DataRoot(), "ops/index.md", "---\ntype: Index\ntitle: Ops\n---\n\n- [A](a.md)\n- [B](b.md)\n- [C](c.md)\n")
+	got, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range got {
+		if f.Check != "index_lists_retired" {
+			continue
+		}
+		found = true
+		for _, want := range []string{"the index lists 1 retired concept(s): ", "concept_archive", "kb_repair", "index_patch"} {
+			if !strings.Contains(f.Message, want) {
+				t.Errorf("message lacks %q: %s", want, f.Message)
+			}
+		}
+		if strings.Contains(f.Message, "profile") {
+			t.Errorf("message mentions a profile: %s", f.Message)
+		}
+	}
+	if !found {
+		t.Fatalf("no index_lists_retired finding: %v", got)
 	}
 }

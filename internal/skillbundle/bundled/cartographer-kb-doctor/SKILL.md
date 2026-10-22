@@ -1,7 +1,7 @@
 ---
 name: cartographer-kb-doctor
 description: Keep a Knowledge Base from rotting - a budgeted session that applies mechanical repairs and works through the server's ranked review list, always started by the operator, who decides each item or delegates the session. Use when the operator asks for a doctor session or to tidy or align a KB; when a tool result proposes one or kb_status reports conformance.doctor_suggested, propose it to the operator and wait.
-version: "3.4"
+version: "3.5"
 ---
 # KB Doctor - Skill
 
@@ -37,7 +37,7 @@ run, one commit per run with reason "auto-repair (background)". It is not a sess
 **What a delegated session may decide.**
 - allowed: mechanical repairs the background repair does not run, after a dry run you read yourself; vocabulary
   and template proposals (`map_update`; `artifact_write` on `templates/`); a merge of `duplicate_candidate` when one
-  page's facts are a subset of the other's; moving a section to another page; closing work whose
+  page's facts are a subset of the other's, only while `concept_merge` is callable (see "Tools not in `tools/list`"); moving a section to another page; closing work whose
   successor the KB names; filling a section from sources the KB cites;
 - never delete a concept, never rename a map's folder, never invent content; never decide a fact
   the KB does not hold;
@@ -87,12 +87,32 @@ Token economy (a doctor session reads a KB, not a page):
   <map>` (the headings the map's pages really use). Never write files in the clone, never run git
   there.
 
+## Tools not in `tools/list`
+
+`concept_merge`, `concept_archive`, `contradiction_report`, `conflict_resolve` and `repair_revert` are
+not advertised by `tools/list`; the server serves them when called by name. A client that calls only
+the tools it lists cannot use them. This is a property of the client, not a server setting (no operator switch
+advertises them, D906), and `kb_status` does not report it: try the call, and when the client answers
+that the tool does not exist or cannot be called, take the route below.
+
+| Tool (not in `tools/list`) | Without it |
+|---|---|
+| `contradiction_report` | `work_list`, or `concept_list` with `where: ["type=Contradiction", "resolution_status=open"]`; `kb_status` `open_gaps` for gaps only |
+| `conflict_resolve` | `concept_patch` the Contradiction: `resolution_status: resolved`, `resolution`, `resolution_date`, a `reason` |
+| `concept_archive` | `concept_patch` the status to `deprecated`/`archived`, `concept_move` it to the archive map (inbound links are rewritten), then drop its index entry with `kb_repair` on `index_lists_retired` (or `index_patch` when the line cites other concepts); move first, or a transient `link_to_retired` shows on the live page |
+| `concept_merge` | no equivalent: take the other option the review item offers (a link from each page to the other saying how they differ); assisted, after the operator's choice, `concept_read` both, `concept_patch` the parent with the satellite's facts, `concept_delete` the satellite and repair the inbound links |
+| `repair_revert` | no equivalent: report the commit sha to the operator, who runs `cartographer kb repair <kb> --revert <sha>` |
+
+An alternative never weakens a rule: a delegated session never deletes a concept, so without
+`concept_merge` (not in `tools/list`) it records the item as a gap (step 5c) instead of folding.
+
 ## Procedure
 
 1. **Signal.** `kb_status`: read `conformance` (`findings`, `fixable`, `repairable`, `last_doctor`,
    `next_doctor`, `doctor_suggested`), `review` (`total`, `by_kind`), `open_markers`, `read_cost`.
-   Read the questions earlier sessions deferred: `contradiction_report` with `kind: "open_question"`
-   (status open). Answer the ones the KB (or, assisted, the operator) can now settle: `concept_patch` the answer
+   Read the questions earlier sessions deferred: `work_list` or `concept_list` (`type=Contradiction`,
+   `resolution_status=open`; `contradiction_report` with `kind: "open_question"` when the client can call it, see
+   "Tools not in `tools/list`"). Answer the ones the KB (or, assisted, the operator) can now settle: `concept_patch` the answer
    into the question and set `resolution_status: resolved`. Say in two lines what the
    session will cover (assisted: to the operator, before starting).
 2. **Mechanical.** For each check in `conformance.repairable` (every check with a fixable finding,
@@ -101,7 +121,7 @@ Token economy (a doctor session reads a KB, not a page):
    drop a link (D323): apply them (`dry_run: false`) and report the counts. The server applies them
    by itself every day and on each write (D907), so they are usually already done: run them again
    only when findings remain after the last write (a `skipped` entry, or a KB with more than 50 per check). To
-   undo a repair commit, `repair_revert` with its `sha` (only `kb_repair` and auto-repair commits are
+   undo a repair commit, `repair_revert` with its `sha` (not in `tools/list`: see the section above; only `kb_repair` and auto-repair commits are
    accepted; `git log` on the KB shows them with reason "auto-repair (background)"). Any other: show the plan (`found_total` is the whole
    job, `planned_total` what this call covers under `limit`), apply on confirmation. One call is
    one commit. A `skipped` entry is either a concept changed since it was listed (run the check
@@ -140,7 +160,7 @@ Token economy (a doctor session reads a KB, not a page):
    silence it.
 5. **Review items.** `kb_review` with `limit` set to the session budget (10 unless the operator named another) minus the decisions steps 3-4 used.
    Assisted: present **one numbered list**; for each item the kind, the concepts, the evidence and 2-3 options:
-   - **act** with the ordinary tools: `concept_merge` or a link from each page to the other saying how they differ (`duplicate_candidate`), close
+   - **act** with the ordinary tools: `concept_merge` (see "Tools not in `tools/list`") or a link from each page to the other saying how they differ (`duplicate_candidate`), close
      or update (`zombie_work`, `stale_open`, `closed_with_open_items`), `concept_new` from the target
      map's template and links both ways (`promotion_candidate`), a glossary entry
      (`glossary_gap`); an `observation` item is a state with no single right answer, never a lint
@@ -148,7 +168,7 @@ Token economy (a doctor session reads a KB, not a page):
      of the map (`map_oversize`), a link from outside into the group (`island`), a second path around
      the page (`cut_concept`), a short tag vocabulary (`facet_sprawl`); leaving it as it is is a
      legitimate decision, and the report says so; a `lint_judgement` item is a `lint` finding of that check, so decide it
-     from `lint` (the check is the actionable unit) and do not count it twice; `concept_too_deep`: decide where the page belongs and `concept_move` it; `empty_concept`: write the page or retire it (`concept_archive`), never delete it blindly; `missing_type` / `missing_frontmatter` with no fix: the map's pages disagree on a type, so delegated, pick the type most of the map's pages carry and `concept_patch` it; assisted, ask which one; for `repeated_fact` choose the owner concept with the operator, keep the
+     from `lint` (the check is the actionable unit) and do not count it twice; `concept_too_deep`: decide where the page belongs and `concept_move` it; `empty_concept`: write the page or retire it (`concept_archive`, see "Tools not in `tools/list`"), never delete it blindly; `missing_type` / `missing_frontmatter` with no fix: the map's pages disagree on a type, so delegated, pick the type most of the map's pages carry and `concept_patch` it; assisted, ask which one; for `repeated_fact` choose the owner concept with the operator, keep the
      fact there and replace each copy with a link (never rewrite the fact); for `read_hotspot`
      `concept_expand` into satellites with a short summary page, or turn it into an index page;
      for `scattered_work` create a concept in the contract's `work_map` from its template (one per
@@ -200,7 +220,7 @@ Token economy (a doctor session reads a KB, not a page):
      (D273); `kb_status` `open_gaps` is the queue of what people have to answer;
    - the next session meets the item again, finds the open gap in step 1 and does not ask twice.
      Count the item against the budget.
-   Closing a gap later (the answer arrives) is `conflict_resolve`; step 1 reads the open ones back.
+   Closing a gap later (the answer arrives) is `concept_patch` (`resolution_status: resolved`), or `conflict_resolve` when the client can call it (not in `tools/list`); step 1 reads the open ones back.
 
 5b. **Harvest and archive.** `kb_review` `kind: "harvest_candidate"`: a journal entry that is closed
    and older than the journal's `harvest_after` (default 45 days). Extracting the durable facts is
@@ -227,7 +247,7 @@ Token economy (a doctor session reads a KB, not a page):
 6. **Findings.** `lint`: every finding is a problem, none is advice (D947), and the session is done only when
    nothing is left: nothing accepts a finding (D907), so each one is fixed on the page. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
    one reason per link; `link_to_retired` in a live page: update the sentence or point at the
-   successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive`, not patch + move + `index_patch`). A finding
+   successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive` when the client can call it, otherwise patch + move + `kb_repair`, see "Tools not in `tools/list`"). A finding
    that is wrong for a page that is right as written is a defect of the check, not of the page:
    leave the page, and list the check, the page and why in the closing report so the operator
    can raise it upstream; never add a field, a heading or an empty section to silence it. A
