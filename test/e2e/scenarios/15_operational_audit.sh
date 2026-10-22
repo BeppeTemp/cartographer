@@ -8,7 +8,9 @@
 #      non-zero count of valid entries.
 #   3. Tampering with a single byte of a recorded entry makes verify fail with a
 #      non-zero exit status — the chain is what makes the log evidence.
-#   4. `cartographer audit export` refuses to export a chain it cannot verify,
+#   4. With --public-key, a log rewritten without its signatures is refused by
+#      verify and export.
+#   5. `cartographer audit export` refuses to export a chain it cannot verify,
 #      and exports JSON containing the recorded events once the log is intact.
 #
 # The audit mode is configured through a YAML config file (E2E_CONFIG) because
@@ -103,7 +105,44 @@ assert_file_contains "$EXPORT_OUT" '"events"'
 assert_file_contains "$EXPORT_OUT" 'map_create'
 
 echo ""
-echo "--- Phase 4: tampering is detected ---"
+echo "--- Phase 4: a log rewritten without its signatures is refused ---"
+
+# The signature is not part of the hash, so dropping every "sig" field keeps
+# the chain valid: only the public key can tell the log lost its signatures.
+PUBKEY="$(grep -o 'verify with --public-key [0-9a-f]*' "${E2E_TMP_DIR}/cartographer_e2e.log" | head -1 | awk '{print $4}')"
+if [[ -n "$PUBKEY" ]]; then
+    _assert_pass "the server logged the audit public key"
+else
+    _assert_fail "the server logged the audit public key"
+fi
+if "$BIN" audit verify --log "$AUDIT_LOG" --public-key "$PUBKEY" >/dev/null 2>&1; then
+    _assert_pass "audit verify with the key accepts the signed log"
+else
+    _assert_fail "audit verify with the key accepts the signed log"
+fi
+STRIPPED="${DIR}/stripped.jsonl"
+sed 's/,"sig":"[0-9a-f]*"//' "$AUDIT_LOG" > "$STRIPPED"
+if "$BIN" audit verify --log "$STRIPPED" >/dev/null 2>&1; then
+    _assert_pass "audit verify without a key still checks only the chain"
+else
+    _assert_fail "audit verify without a key still checks only the chain"
+fi
+STRIPPED_OUT="${DIR}/verify-stripped.txt"
+if "$BIN" audit verify --log "$STRIPPED" --public-key "$PUBKEY" >"$STRIPPED_OUT" 2>&1; then
+    _assert_fail "audit verify --public-key rejects a log with no signature: exited 0"
+else
+    _assert_pass "audit verify --public-key rejects a log with no signature"
+fi
+assert_file_contains "$STRIPPED_OUT" "no signed entry"
+if "$BIN" audit export --log "$STRIPPED" --public-key "$PUBKEY" --out "${DIR}/export-stripped.json" >/dev/null 2>&1; then
+    _assert_fail "audit export --public-key refuses a log with no signature: exited 0"
+else
+    _assert_pass "audit export --public-key refuses a log with no signature"
+fi
+assert_file_not_exists "${DIR}/export-stripped.json"
+
+echo ""
+echo "--- Phase 5: tampering is detected ---"
 
 # Rewrite the outcome of a recorded entry: the payload stays valid JSON, so only
 # the hash chain can catch it.

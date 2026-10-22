@@ -143,7 +143,8 @@ describe("the Settings panel", () => {
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     await user.click(within(tabs).getByRole("tab", { name: /^Client/ }));
-    expect(screen.getByText(/laptop · client v-client · reported/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "laptop" })).toBeInTheDocument();
+    expect(screen.getByText(/Client v-client · reported/)).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Client Connection settings" })).toHaveTextContent("server_url");
     expect(screen.getByRole("list", { name: "Client Updates & sync settings" })).toHaveTextContent("update_check");
     // Below the settings, one section per KB with its own client settings, named by their YAML key.

@@ -191,7 +191,8 @@ describe("the Retired panel", () => {
     });
     expect(maps[0]).toHaveTextContent("Infrastructure");
     expect(maps[1]).toHaveTextContent("Archive");
-    expect(within(maps[1]!).getByText("Archive", { selector: ".rail__archive" })).toBeInTheDocument();
+    // Titled "Archive" already: the badge would only repeat it.
+    expect(within(maps[1]!).queryByText("Archive", { selector: ".rail__archive" })).not.toBeInTheDocument();
     expect(within(maps[0]!).queryByText("Archive", { selector: ".rail__archive" })).not.toBeInTheDocument();
   });
 });

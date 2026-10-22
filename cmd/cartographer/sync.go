@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -27,6 +28,7 @@ func cmdSync(args []string) int {
 	autoTrust := fs.Bool("auto-trust", false, "Removed (D906): accepted and ignored, because session-start hooks written by older versions still pass it")
 	noHeal := fs.Bool("no-heal", false, "Report locally modified managed artifacts instead of restoring them from the server")
 	logFile := fs.String("log-file", "", "Append this run's output to this file instead of stdout/stderr (created if absent; never rotated)")
+	reportTo := fs.String("report-to", "", "Only send this machine's usage and settings reports to this MCP endpoint (a live development instance), and change nothing")
 	fs.Parse(args)
 	warnRemovedAutoTrust(*autoTrust)
 
@@ -47,6 +49,9 @@ func cmdSync(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
+	}
+	if *reportTo != "" {
+		return reportOnly(dir, *reportTo)
 	}
 	if !*dryRun {
 		realignClientConfig(dir)
@@ -169,7 +174,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// .cartographer.yaml first, so a failed sync_pull, an unverifiable
 	// signature or a cross-KB collision (D171) left a machine reconfigured for
 	// a sync that never happened — and the error said nothing about it.
-	facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token)
+	facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
 	kbs := facts.Names
 	var entriesByProvider map[string][]mcpEntry
 	if healthErr != nil {
@@ -374,6 +379,11 @@ func dropUnbuiltProviders(targets []string, projections []syncProjection, manife
 // token is still a 401 further down. Nothing downstream is removed; this only
 // moves the diagnosis earlier.
 func preflightEnvironment(cfg *clientconfig.Config) error {
+	// Before the lock and before any write: a refused URL leaves every file as
+	// it was (D1023).
+	if err := client.CheckServerURL(cfg.ServerURL, cfg.InsecureHTTPAllowed()); err != nil {
+		return err
+	}
 	var missing []string
 
 	// The same condition resolveToken applies: auth off, no token, or a literal

@@ -465,6 +465,15 @@ func (k *KB) SyncOut() error {
 			return err
 		}
 
+		// A push that hit PushTimeout is not retried: five attempts would hold
+		// the KB's git lock for minutes against a remote that is not answering.
+		// The commit stays safe locally; the next write pushes it.
+		var rte *gitx.RemoteTimeoutError
+		if errors.As(pushErr, &rte) {
+			k.setGitStatus("failed", pushErr, attempt)
+			return pushErr
+		}
+
 		// Determine whether the failure is a non-fast-forward rejection.
 		// git push prints "[rejected]" and/or "non-fast-forward" in such cases.
 		errMsg := pushErr.Error()

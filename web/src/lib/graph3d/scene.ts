@@ -27,7 +27,16 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { CAMERA_MOVE, CAMERA_ZOOM, fitPose, focusPose, zoomLimits, type Pose } from "./camera";
 import { MOTION_MS, motionMs, type MotionToken } from "../theme";
 import { smooth } from "./transition";
-import { AUTO_ROTATE_SPEED, IdleRotation, MAX_SIGNALS, SIGNAL_PASS_MS, sustainsDrift, type Signal } from "./motion";
+import {
+  AUTO_ROTATE_SPEED,
+  IdleRotation,
+  DRIFT_REST_MS,
+  DRIFT_SLOW_EVERY,
+  MAX_SIGNALS,
+  SIGNAL_PASS_MS,
+  sustainsFullRate,
+  type Signal,
+} from "./motion";
 import {
   LINK_DISTANCE,
   LIVE_ALPHA,
@@ -97,6 +106,11 @@ export interface SceneCallbacks {
  *  the way to its fit it eases each frame. */
 const SETTLE_MS = 3500;
 const SETTLE_EASE = 0.06;
+/** While the panorama turns with nobody at the controls, the camera eases
+ *  this much of the way to the fit every frame: hours of drift and rotation
+ *  never carry the network off screen, and the reader never sees it move. */
+const IDLE_FIT_EASE = 0.01;
+const IDLE_FIT_EVERY = 10;
 /** How long a new KB or Map takes to open out of its centre. */
 const BLOOM_MS = 1800;
 /** The burst's raggedness: the latest a node sets off, and how much slower
@@ -115,11 +129,7 @@ function easeOutBack(t: number): number {
 
 /** A stable value in [0, 1) for an id. */
 function distanceOf(pose: Pose): number {
-  return Math.hypot(
-    pose.position.x - pose.lookAt.x,
-    pose.position.y - pose.lookAt.y,
-    pose.position.z - pose.lookAt.z,
-  );
+  return Math.hypot(pose.position.x - pose.lookAt.x, pose.position.y - pose.lookAt.y, pose.position.z - pose.lookAt.z);
 }
 
 function hashUnit(id: string): number {
@@ -209,7 +219,10 @@ export class LivingScene {
   private readonly signalGeometry = new BufferGeometry();
   private readonly signalMaterial = new PointsMaterial({ size: 4, sizeAttenuation: false, transparent: true });
   private readonly signals = new Points(this.signalGeometry, this.signalMaterial);
-  private readonly ring = new Mesh(new SphereGeometry(1, 10, 6), new MeshBasicMaterial({ wireframe: true, transparent: true, opacity: 0.75 }));
+  private readonly ring = new Mesh(
+    new SphereGeometry(1, 10, 6),
+    new MeshBasicMaterial({ wireframe: true, transparent: true, opacity: 0.75 }),
+  );
 
   private colours: string[] = [];
   /** Node colours as drawn: what a colour change fades from. */
@@ -226,7 +239,8 @@ export class LivingScene {
   private live: boolean;
   private readonly reducedMotion: boolean;
   private frame: number | null = null;
-  private tween: { from: Pose; to: () => Pose; start: number; ms: number; shiftFrom: number; shiftTo: number } | null = null;
+  private tween: { from: Pose; to: () => Pose; start: number; ms: number; shiftFrom: number; shiftTo: number } | null =
+    null;
   /** Horizontal screen shift, in CSS pixels, applied through the camera's view
    *  offset: it centres a focused node in the strip the panels leave visible
    *  while the orbit still pivots on the node itself. */
@@ -339,7 +353,10 @@ export class LivingScene {
 
     this.sim?.stop();
     const sim = forceSimulation<SceneNode>(nodes, 3)
-      .force("link", forceLink<SceneNode, SceneLink>(links).id((n) => n.id))
+      .force(
+        "link",
+        forceLink<SceneNode, SceneLink>(links).id((n) => n.id),
+      )
       .force("charge", forceManyBody<SceneNode>())
       .velocityDecay(VELOCITY_DECAY)
       .stop();
@@ -390,7 +407,11 @@ export class LivingScene {
         // into the usual drift with no seam between the two.
         sim.alpha(BLOOM_ALPHA);
         const c = nodes.reduce(
-          (s, n) => ({ x: s.x + (n.x ?? 0) / nodes.length, y: s.y + (n.y ?? 0) / nodes.length, z: s.z + (n.z ?? 0) / nodes.length }),
+          (s, n) => ({
+            x: s.x + (n.x ?? 0) / nodes.length,
+            y: s.y + (n.y ?? 0) / nodes.length,
+            z: s.z + (n.z ?? 0) / nodes.length,
+          }),
           { x: 0, y: 0, z: 0 },
         );
         // Each node its own flight: a small start delay and its own speed,
@@ -420,7 +441,9 @@ export class LivingScene {
         for (const m of beforeNeighbours.get(id) ?? []) hit(m.id, KNOCK * 0.6);
       }
       const nowLinks = new Set(links.map(linkKey));
-      const changed = [...nowLinks].filter((k) => !beforeLinks.has(k)).concat([...beforeLinks].filter((k) => !nowLinks.has(k)));
+      const changed = [...nowLinks]
+        .filter((k) => !beforeLinks.has(k))
+        .concat([...beforeLinks].filter((k) => !nowLinks.has(k)));
       for (const key of changed) {
         for (const id of key.split("\u0000")) hit(id, KNOCK * 0.6);
       }
@@ -431,9 +454,12 @@ export class LivingScene {
       }
     }
     this.sim = sim;
-    // The warm-up has just timed this graph's ticks: a large one opens
-    // resting rather than drifting for a few seconds first.
-    if (!this.offscreen && this.tickMs !== null) this.breathing = sustainsDrift(this.tickMs, this.breathing);
+    // The warm-up has just timed this graph's ticks: a large one opens at the
+    // slow drift rather than at the full rate for a few seconds first.
+    if (!this.offscreen && this.tickMs !== null) {
+      this.fullRate = sustainsFullRate(this.tickMs, this.fullRate);
+      this.resting = this.tickMs > DRIFT_REST_MS;
+    }
     this.applyMotion();
 
     this.sphereNodes = nodes.filter((n) => !n.artifact);
@@ -472,7 +498,10 @@ export class LivingScene {
     }
     this.nodeMesh = build(this.sphere, spheres);
     this.artifactMesh = build(this.diamond, diamonds);
-    this.edgeGeometry.setAttribute("position", new BufferAttribute(new Float32Array(links.length * 6), 3).setUsage(DynamicDrawUsage));
+    this.edgeGeometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array(links.length * 6), 3).setUsage(DynamicDrawUsage),
+    );
     this.colourFade = null;
     this.applyColours();
     // The colours just painted were laid out for the previous node order: the
@@ -550,7 +579,11 @@ export class LivingScene {
     this.colours = colours;
     this.palette = palette;
     if (same && !this.reducedMotion && !this.offscreen && this.drawn.length) {
-      this.colourFade = { start: this.clock(), ms: Math.max(1, motionMs(RECEDE)), from: this.drawn.map((c) => c.clone()) };
+      this.colourFade = {
+        start: this.clock(),
+        ms: Math.max(1, motionMs(RECEDE)),
+        from: this.drawn.map((c) => c.clone()),
+      };
     } else {
       this.colourFade = null;
     }
@@ -604,20 +637,32 @@ export class LivingScene {
     this.invalidate();
     const node = id ? this.nodes[this.index.get(id) ?? -1] : undefined;
     this.selected = node ? node.id : null;
-    this.activeLinks = node ? this.links.filter((l) => endpoint(l.source) === node.id || endpoint(l.target) === node.id) : [];
-    this.activeGeometry.setAttribute("position", new BufferAttribute(new Float32Array(this.activeLinks.length * 6), 3).setUsage(DynamicDrawUsage));
+    this.activeLinks = node
+      ? this.links.filter((l) => endpoint(l.source) === node.id || endpoint(l.target) === node.id)
+      : [];
+    this.activeGeometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array(this.activeLinks.length * 6), 3).setUsage(DynamicDrawUsage),
+    );
     this.ring.visible = !!node;
     this.idle.setSelected(!!node);
     const opacity = node ? EDGE_BEHIND_SELECTION : EDGE_REST;
     // Faded like the node colours (see setColours), unless nothing is on
     // screen yet to fade from.
     this.edgeFade =
-      opacity !== this.edgeMaterial.opacity && !this.reducedMotion && !this.offscreen && this.drawn.length && !this.bloom
+      opacity !== this.edgeMaterial.opacity &&
+      !this.reducedMotion &&
+      !this.offscreen &&
+      this.drawn.length &&
+      !this.bloom
         ? { start: this.clock(), ms: Math.max(1, motionMs(RECEDE)), from: this.edgeMaterial.opacity }
         : null;
     this.edgeMaterial.opacity = this.edgeFade ? this.edgeFade.from : opacity;
     this.burst = null;
-    this.signalGeometry.setAttribute("position", new BufferAttribute(new Float32Array(MAX_SIGNALS * 3), 3).setUsage(DynamicDrawUsage));
+    this.signalGeometry.setAttribute(
+      "position",
+      new BufferAttribute(new Float32Array(MAX_SIGNALS * 3), 3).setUsage(DynamicDrawUsage),
+    );
     this.signals.visible = false;
   }
 
@@ -671,7 +716,7 @@ export class LivingScene {
   /** Drift and the live simulation follow the motion toggle alone: a
    *  selection keeps the network breathing (the rest recedes instead). */
   private applyMotion(): void {
-    const drifting = this.live && this.breathing;
+    const drifting = this.live && !this.resting;
     this.driftForce.enabled(drifting);
     const target = drifting ? LIVE_ALPHA : 0;
     this.sim?.alphaTarget(this.bloom ? Math.max(target, BLOOM_WARMTH) : target);
@@ -697,6 +742,17 @@ export class LivingScene {
     const shift = (Math.max(0, occluded.right) - Math.max(0, occluded.left)) / 2;
     this.animateTo(target, this.cameraMs(CAMERA_MOVE), shift);
     this.follow = new Vector3(node.x, node.y, node.z);
+  }
+
+  /** Moves the picture, as it is, into the strip the panels leave visible:
+   *  for an open concept the graph does not draw (an index page), so the
+   *  graph is not left under the reading panel. */
+  centreIn(occluded: { left: number; right: number }): void {
+    this.follow = null;
+    const shift = (Math.max(0, occluded.right) - Math.max(0, occluded.left)) / 2;
+    if (Math.abs(shift - this.shift) < 0.5) return;
+    const pose = this.pose();
+    this.animateTo(() => pose, this.cameraMs(CAMERA_MOVE), shift);
   }
 
   unfocus(pose: Pose | null): void {
@@ -793,7 +849,11 @@ export class LivingScene {
     const distance = Math.hypot(along.x, along.y, along.z);
     if (distance > 0 && distance < minDistance) {
       const k = minDistance / distance;
-      pose.position = { x: pose.lookAt.x + along.x * k, y: pose.lookAt.y + along.y * k, z: pose.lookAt.z + along.z * k };
+      pose.position = {
+        x: pose.lookAt.x + along.x * k,
+        y: pose.lookAt.y + along.y * k,
+        z: pose.lookAt.z + along.z * k,
+      };
     }
     return pose;
   }
@@ -824,7 +884,8 @@ export class LivingScene {
     // The view stays centred on the canvas, so a band at the bottom is kept
     // clear by fitting the height left once it is taken off both edges.
     const usable = Math.max(1, height - 2 * Math.max(0, occludedBottom));
-    const fov = (2 * Math.atan(Math.tan((this.camera.fov * Math.PI) / 360) * (usable / Math.max(1, height))) * 180) / Math.PI;
+    const fov =
+      (2 * Math.atan(Math.tan((this.camera.fov * Math.PI) / 360) * (usable / Math.max(1, height))) * 180) / Math.PI;
     const eye = from ? new Vector3(from.position.x, from.position.y, from.position.z) : this.camera.position;
     const look = from ? new Vector3(from.lookAt.x, from.lookAt.y, from.lookAt.z) : this.controls.target;
     const pose = fitPose(bodies, eye, look, {
@@ -929,9 +990,16 @@ export class LivingScene {
   private lastDraw = Number.NEGATIVE_INFINITY;
   /** The running average cost of one simulation tick, in ms. */
   private tickMs: number | null = null;
-  /** Whether the live network drifts: false while a tick costs more than the
-   *  drift budget allows (sustainsDrift). */
-  private breathing = true;
+  /** Whether the drift ticks at the full rate: false while a tick costs more
+   *  than the drift budget allows (sustainsFullRate), and it ticks at half. */
+  private fullRate = true;
+  /** Simulation steps skipped or taken by the slowed drift. */
+  private slowSteps = 0;
+  /** A tick past DRIFT_REST_MS: the drift rests and the network cools. */
+  private resting = false;
+  /** The idle refit's target, refreshed every IDLE_FIT_EVERY frames. */
+  private idleFit: Pose | null = null;
+  private idleFrames = 0;
 
   private invalidate(): void {
     this.dirty = true;
@@ -948,14 +1016,16 @@ export class LivingScene {
     this.tickMs = this.tickMs === null ? ms : this.tickMs + (ms - this.tickMs) * 0.1;
   }
 
-  /** Rests the drift of a network too costly to keep ticking, or resumes it
-   *  once a tick is cheap again (a smaller Map). An offline scene keeps its
-   *  motion: its frames must not depend on the exporting machine's speed. */
+  /** Slows the drift of a network too costly to tick at the full rate, or
+   *  restores it once a tick is cheap again (a smaller Map). An offline scene
+   *  keeps the full rate: its frames must not depend on the exporting
+   *  machine's speed. */
   private reconsiderDrift(): void {
     if (this.offscreen || this.tickMs === null) return;
-    const breathing = sustainsDrift(this.tickMs, this.breathing);
-    if (breathing === this.breathing) return;
-    this.breathing = breathing;
+    this.fullRate = sustainsFullRate(this.tickMs, this.fullRate);
+    const resting = this.tickMs > DRIFT_REST_MS;
+    if (resting === this.resting) return;
+    this.resting = resting;
     this.applyMotion();
   }
 
@@ -1004,8 +1074,13 @@ export class LivingScene {
     // Still mode lets the simulation cool and then stops ticking it: at rest
     // the frame costs only the draw.
     let ticked = 0;
-    for (; ticked < simTicks && sim && ((this.live && this.breathing) || sim.alpha() > 0.002); ticked++) {
+    for (let step = 0; step < simTicks && sim && ((this.live && !this.resting) || sim.alpha() > 0.002); step++) {
+      // A costly network only breathing (nothing reheated it) skips steps;
+      // a drag, a knock or a new layout always runs at the full rate.
+      if (!this.fullRate && this.live && sim.alpha() <= LIVE_ALPHA * 1.5 && ++this.slowSteps % DRIFT_SLOW_EVERY !== 0)
+        continue;
       this.timedTick(sim);
+      ticked++;
       if (++this.ticks % 30 === 0) sanitize(this.nodes, this.neighbours);
     }
     if (ticked > 0) {
@@ -1021,8 +1096,16 @@ export class LivingScene {
       const lerp = (a: number, b: number) => a + (b - a) * k;
       this.setShift(lerp(this.tween.shiftFrom, this.tween.shiftTo));
       this.applyPose({
-        position: { x: lerp(f.position.x, to.position.x), y: lerp(f.position.y, to.position.y), z: lerp(f.position.z, to.position.z) },
-        lookAt: { x: lerp(f.lookAt.x, to.lookAt.x), y: lerp(f.lookAt.y, to.lookAt.y), z: lerp(f.lookAt.z, to.lookAt.z) },
+        position: {
+          x: lerp(f.position.x, to.position.x),
+          y: lerp(f.position.y, to.position.y),
+          z: lerp(f.position.z, to.position.z),
+        },
+        lookAt: {
+          x: lerp(f.lookAt.x, to.lookAt.x),
+          y: lerp(f.lookAt.y, to.lookAt.y),
+          z: lerp(f.lookAt.z, to.lookAt.z),
+        },
       });
       if (t >= 1) this.cancelTween();
     } else if (this.follow && this.selected) {
@@ -1055,6 +1138,24 @@ export class LivingScene {
       }
     }
     this.controls.autoRotate = !this.tween && this.idle.shouldRotate();
+    if (!this.controls.autoRotate) this.idleFit = null;
+    if (this.controls.autoRotate && !this.selected && !this.fitFollow) {
+      // Idle: the network breathes and the panorama turns around a pivot
+      // the drift slowly leaves. Keep the whole of it in frame, gently. The
+      // fit walks every node, and the drift moves it slowly: refreshed every
+      // IDLE_FIT_EVERY frames, eased towards on every one.
+      if (this.idleFit === null || ++this.idleFrames % IDLE_FIT_EVERY === 0) this.idleFit = this.fitPoseFor(0);
+      const pose = this.idleFit;
+      if (pose) {
+        const p = this.camera.position;
+        const t = this.controls.target;
+        const e = IDLE_FIT_EASE;
+        p.set(p.x + (pose.position.x - p.x) * e, p.y + (pose.position.y - p.y) * e, p.z + (pose.position.z - p.z) * e);
+        t.set(t.x + (pose.lookAt.x - t.x) * e, t.y + (pose.lookAt.y - t.y) * e, t.z + (pose.lookAt.z - t.z) * e);
+        this.controls.maxDistance = Math.max(this.controls.maxDistance, p.distanceTo(t) * 1.5);
+        moved = true;
+      }
+    }
     // True while the camera moves: the reader's drag, its damping, the panorama.
     if (this.controls.update()) moved = true;
     const animating = !!(this.bloom || this.morph || this.colourFade || this.edgeFade || (this.burst && this.live));
@@ -1414,8 +1515,23 @@ export class LivingScene {
     this.controls.dispose();
     this.nodeMesh?.dispose();
     this.artifactMesh?.dispose();
-    for (const g of [this.sphere, this.diamond, this.edgeGeometry, this.activeGeometry, this.signalGeometry, this.ring.geometry]) g.dispose();
-    for (const m of [this.nodeMaterial, this.edgeMaterial, this.activeMaterial, this.signalMaterial, this.ring.material as MeshBasicMaterial]) m.dispose();
+    for (const g of [
+      this.sphere,
+      this.diamond,
+      this.edgeGeometry,
+      this.activeGeometry,
+      this.signalGeometry,
+      this.ring.geometry,
+    ])
+      g.dispose();
+    for (const m of [
+      this.nodeMaterial,
+      this.edgeMaterial,
+      this.activeMaterial,
+      this.signalMaterial,
+      this.ring.material as MeshBasicMaterial,
+    ])
+      m.dispose();
     this.renderer.dispose();
     // An offline scene is one of two contexts alive at once (the visible one
     // is the other): release it now, not when the collector gets to it.

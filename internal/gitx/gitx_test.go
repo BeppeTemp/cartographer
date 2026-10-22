@@ -901,3 +901,83 @@ func TestStashPushAllEnv_NoIdentityOnHost(t *testing.T) {
 		t.Fatalf("restored index.md = %q", got)
 	}
 }
+
+func TestValidateRemote(t *testing.T) {
+	ok := []string{
+		"git@forge.example.com:team/kb.git",
+		"ssh://git@forge.example.com:2222/team/kb.git",
+		"https://forge.example.com/team/kb.git",
+		"HTTP://forge.example.com/team/kb.git",
+		"git://forge.example.com/team/kb.git",
+		"file:///srv/kb.git",
+		"git@[::1]:repo.git",
+		"ssh://[::1]/x",
+		"/srv/kb.git",
+		"./relative/kb.git",
+	}
+	for _, r := range ok {
+		if err := ValidateRemote(r); err != nil {
+			t.Errorf("ValidateRemote(%q) = %v, want nil", r, err)
+		}
+	}
+	bad := []string{
+		"", "-oProxyCommand=x", "--upload-pack=x", "ext::sh -c id", "fd::3", "[::1]::x",
+		"http::https://example.com/r", "ftp://h/r", "rsync://h/r", "https://h/r\nx",
+	}
+	for _, r := range bad {
+		if err := ValidateRemote(r); err == nil {
+			t.Errorf("ValidateRemote(%q) = nil, want an error", r)
+		}
+	}
+}
+
+func TestRemoteHelpersAreRefused(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not available")
+	}
+	marker := filepath.Join(t.TempDir(), "pwned")
+	helper := "ext::touch " + marker
+
+	if err := Clone(context.Background(), helper, filepath.Join(t.TempDir(), "c")); err == nil {
+		t.Error("Clone accepted a transport helper")
+	}
+	if _, err := ProbeRemote(context.Background(), helper); err == nil {
+		t.Error("ProbeRemote accepted a transport helper")
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the transport helper ran")
+	}
+
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddRemote(dir, "origin", "--upload-pack=x"); err == nil {
+		t.Error("AddRemote accepted an option-like URL")
+	}
+	if out, _ := exec.Command("git", "-C", dir, "config", "--get-regexp", `^remote\.`).Output(); len(out) != 0 {
+		t.Errorf("a remote was configured: %s", out)
+	}
+	// Pins that this git accepts "--" in "remote add" for a valid URL.
+	if err := AddRemote(dir, "origin", "https://forge.example.com/team/kb.git"); err != nil {
+		t.Errorf("AddRemote with a valid URL: %v", err)
+	}
+}
+
+func TestCloneEnv_AllowProtocol(t *testing.T) {
+	t.Setenv("GIT_ALLOW_PROTOCOL", "")
+	os.Unsetenv("GIT_ALLOW_PROTOCOL")
+	if env := cloneEnv("/srv/kb.git", nil); !hasEnv(env, "GIT_ALLOW_PROTOCOL") {
+		t.Error("GIT_ALLOW_PROTOCOL must be set when nobody provided one")
+	}
+	env := cloneEnv("/srv/kb.git", []string{"GIT_ALLOW_PROTOCOL=file"})
+	n := 0
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "GIT_ALLOW_PROTOCOL=") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("caller's GIT_ALLOW_PROTOCOL must be kept alone, got %d entries", n)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"crypto/ed25519"
 
@@ -47,23 +48,28 @@ func printAuditUsage(w *os.File) {
 	fmt.Fprintln(w, "Flags:")
 	fmt.Fprintln(w, "  --log <path>         Active audit log (required)")
 	fmt.Fprintln(w, "  --archive <dir>      Archive directory, if not the default beside --log")
-	fmt.Fprintln(w, "  --public-key <hex>   Ed25519 public key; required once the log is signed")
+	fmt.Fprintln(w, "  --public-key <hex>   Ed25519 public key; required once the log is signed. With a key")
+	fmt.Fprintln(w, "                       the log must be signed from a start (signing-required")
+	fmt.Fprintln(w, "                       checkpoint, first signed entry or --signed-since)")
+	fmt.Fprintln(w, "  --signed-since <t>   RFC3339 time from which every entry must be signed (needs --public-key)")
 	fmt.Fprintln(w, "  --out <path>         export only: output file (default stdout)")
 }
 
 // auditFlags are shared by both subcommands so an operator does not have to
 // remember which one takes which flag.
 type auditFlags struct {
-	log       string
-	archive   string
-	publicKey string
-	out       string
+	log         string
+	archive     string
+	publicKey   string
+	signedSince string
+	out         string
 }
 
 func bindAuditFlags(fs *flag.FlagSet, f *auditFlags, withOut bool) {
 	fs.StringVar(&f.log, "log", "", "Path to the active audit log")
 	fs.StringVar(&f.archive, "archive", "", "Archive directory for rotated segments")
 	fs.StringVar(&f.publicKey, "public-key", "", "Ed25519 public key in hex")
+	fs.StringVar(&f.signedSince, "signed-since", "", "RFC3339 time from which every entry must be signed")
 	if withOut {
 		fs.StringVar(&f.out, "out", "", "Output file (default stdout)")
 	}
@@ -166,7 +172,20 @@ func runAuditVerify(f auditFlags) (audit.Summary, int) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return audit.Summary{}, 2
 	}
-	summary, err := audit.VerifyAudit(f.log, f.archive, pub)
+	var opts audit.VerifyOptions
+	if f.signedSince != "" {
+		if pub == nil {
+			fmt.Fprintln(os.Stderr, "Error: --signed-since needs --public-key: signatures cannot be checked without it")
+			return audit.Summary{}, 2
+		}
+		t, err := time.Parse(time.RFC3339, f.signedSince)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid --signed-since: %v\n", err)
+			return audit.Summary{}, 2
+		}
+		opts.SignedSince = t
+	}
+	summary, err := audit.VerifyAudit(f.log, f.archive, pub, opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return audit.Summary{}, 1

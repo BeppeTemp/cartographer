@@ -44,7 +44,7 @@ FROM scratch AS artifacts
 COPY --from=dist /dist /
 
 # Final stage (default): server runtime image.
-FROM alpine:3.21
+FROM alpine:3.24
 # Ownership verification for the MCP Registry (must match server.json's name).
 LABEL io.modelcontextprotocol.server.name="io.github.BeppeTemp/cartographer"
 RUN apk add --no-cache git sops age openssh-client

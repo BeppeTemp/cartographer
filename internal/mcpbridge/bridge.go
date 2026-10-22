@@ -359,6 +359,11 @@ func noKBInstructions(scope Scope) string {
 
 // endpoint is the routed URL for a scope.
 func (b *Bridge) endpoint(scope Scope) (string, error) {
+	// The bridge builds its own requests with the bearer header, so the gate is
+	// here: both the POST forward and the shutdown DELETE go through endpoint (D1023).
+	if err := client.CheckServerURL(b.Cfg.ServerURL, b.Cfg.InsecureHTTPAllowed()); err != nil {
+		return "", err
+	}
 	u, err := url.Parse(b.Cfg.ServerURL)
 	if err != nil {
 		return "", fmt.Errorf("parse server URL %q: %w", b.Cfg.ServerURL, err)
@@ -412,7 +417,7 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 		}
 	}
 
-	resp, err := b.HTTP.Do(req)
+	resp, err := client.HTTPClient(b.HTTP, b.Cfg.InsecureHTTPAllowed()).Do(req)
 	if err != nil {
 		b.writeError(m.ID, -32000, client.UnreachableMessage(reqURL, err)+": "+err.Error())
 		return
@@ -426,7 +431,7 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 
 	switch {
 	case resp.StatusCode == http.StatusUnauthorized:
-		c := client.New(reqURL, b.Token).WithTokenEnv(b.Cfg.TokenEnv())
+		c := client.New(reqURL, b.Token).WithInsecureHTTP(b.Cfg.InsecureHTTPAllowed()).WithTokenEnv(b.Cfg.TokenEnv())
 		b.writeError(m.ID, -32000, reqURL+" rejected the request: "+c.UnauthorizedError().Error())
 	case resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent:
 		// A notification or a client response: nothing to relay.
@@ -532,7 +537,7 @@ func (b *Bridge) closeSession() {
 	if b.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+b.Token)
 	}
-	if resp, err := b.HTTP.Do(req); err == nil {
+	if resp, err := client.HTTPClient(b.HTTP, b.Cfg.InsecureHTTPAllowed()).Do(req); err == nil {
 		resp.Body.Close()
 	}
 }

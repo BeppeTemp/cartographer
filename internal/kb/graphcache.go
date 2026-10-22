@@ -46,7 +46,9 @@ type conceptFile struct {
 // conceptFiles enumerates exactly the files walkConceptPaths emits, in its
 // order, without reading them. It is the one place the walk's rules live:
 // data/ plus services/, only map/concept/index.md among index files (as
-// map/concept), reserved names skipped.
+// map/concept), reserved names skipped. A symlinked file is not a concept
+// (D1025): concept paths never follow links, and lint's symlinked_path tells
+// the operator why it is missing.
 func (kb *KB) conceptFiles() ([]conceptFile, error) {
 	var files []conceptFile
 	dataRoot, err := kb.ResolvePath(".", false)
@@ -57,7 +59,7 @@ func (kb *KB) conceptFiles() ([]conceptFile, error) {
 		if err != nil {
 			return err
 		}
-		if !d.IsDir() && strings.HasSuffix(p, ".md") {
+		if !d.IsDir() && d.Type()&fs.ModeSymlink == 0 && strings.HasSuffix(p, ".md") {
 			rel, _ := filepath.Rel(kb.DataRoot(), p)
 			files = append(files, conceptFile{rel: filepath.ToSlash(rel), entry: d})
 		}
@@ -72,7 +74,7 @@ func (kb *KB) conceptFiles() ([]conceptFile, error) {
 			if err != nil {
 				return err
 			}
-			if !d.IsDir() && strings.HasSuffix(p, ".md") {
+			if !d.IsDir() && d.Type()&fs.ModeSymlink == 0 && strings.HasSuffix(p, ".md") {
 				rel, _ := filepath.Rel(kb.Root, p)
 				files = append(files, conceptFile{rel: filepath.ToSlash(rel), entry: d})
 			}
@@ -382,8 +384,8 @@ func generationAfter(v *graphView) uint64 {
 func (kb *KB) validateEntry(c *graphCache, f conceptFile, read map[string]string) *graphEntry {
 	now := time.Now()
 	old := c.entries[f.rel]
-	// A symlinked concept is never cached: its lstat signature says nothing
-	// about the target ReadRaw follows.
+	// A symlinked concept (or one whose Info fails) is dropped, never read or
+	// cached: concept paths do not follow links (D1025).
 	symlink := f.entry.Type()&fs.ModeSymlink != 0
 	var sig fileSig
 	if info, err := f.entry.Info(); err == nil {
@@ -396,6 +398,11 @@ func (kb *KB) validateEntry(c *graphCache, f conceptFile, read map[string]string
 		return old
 	}
 
+	if symlink {
+		// Refused like every concept path (D1025); lint's symlinked_path
+		// tells the operator why the concept is missing.
+		return nil
+	}
 	content, err := kb.ReadRaw(f.rel)
 	c.stats.reads++
 	if err != nil {
@@ -410,16 +417,10 @@ func (kb *KB) validateEntry(c *graphCache, f conceptFile, read map[string]string
 		// Same bytes: keep the parse, refresh what it was checked against.
 		refreshed := *old
 		refreshed.sig, refreshed.observed = sig, now
-		if symlink {
-			refreshed.sig = fileSig{modTime: now.UnixNano()} // never trusted
-		}
 		return &refreshed
 	}
 	entry := parseGraphEntry(kb, f, content, hash)
 	entry.sig, entry.observed = sig, now
-	if symlink {
-		entry.sig = fileSig{modTime: now.UnixNano()}
-	}
 	return entry
 }
 
