@@ -148,7 +148,7 @@ An alternative never weakens a rule: a delegated session never deletes a concept
    one per map, when it spans several maps: apply each. One numbered decision per item: after approval
    `artifact_write` `templates/<template_slug>.md` with the text (an existing slug is already
    written: only the `map_update`), then `map_update` with the arguments, then `kb_repair
-   template_missing` binds the pages. Do not edit the proposal's sections; the operator may drop an
+   template_missing` only sets `shape` on a page that still resolves to nothing (pages bind through `templates/<type>.md` or the map's `default_template` once the map declares it). The item's `impact` says how many pages of the map, of any type, would fail the template checks once declared: report it with the decision, it is the cost of the strictness. Do not edit the proposal's sections; the operator may drop an
    optional one. Before enriching or writing a template for pages that already exist,
    `sh <skill-dir>/scripts/section_freq.sh <clone> <map>` lists the headings the map's pages really use, so the
    schema describes the house style instead of fighting it: adopt what recurs, leave one-off

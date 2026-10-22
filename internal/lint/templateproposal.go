@@ -31,6 +31,7 @@ const (
 	proposalOptionalShare = 0.50
 	proposalFieldShare    = 0.90
 	proposalMaxValues     = 8
+	proposalMaxExamples   = 5
 )
 
 // proposalSkipFields never become required or optional fields of a proposed
@@ -52,6 +53,8 @@ type proposalGroup struct {
 	typ   string
 	pages []*reviewConcept // each page carries its own mapName
 	maps  []string         // sorted
+	// following counts the pages that already follow templates/<slug>.md, when it exists.
+	following int
 }
 
 // mapGroup is the pages of one type in one map, before the maps are merged.
@@ -73,9 +76,13 @@ func (g *proposalGroup) perMap(name string) []*reviewConcept {
 }
 
 // templateProposalItems proposes, per template slug, the template the pages of
-// one type already follow across the maps that would declare it. A group qualifies with at least proposalMinPages pages in a
-// map that declares no templates, or when most of its pages are unbound in a map
-// that does. Deterministic: the same KB gives byte-identical items.
+// one type already follow across the maps that would declare it. A group
+// qualifies when its pages bind to no template: with at least proposalMinPages
+// pages for a template still to write, or with at least proposalRequiredShare
+// of them following the template that already exists, whatever their number. In
+// a map that declares templates, most of the pages must also be unbound.
+// Each item carries the impact of declaring it. Deterministic: the same KB gives
+// byte-identical items.
 func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.MapContract, catalog kb.TemplateCatalog) []ReviewItem {
 	groups := map[[2]string]*mapGroup{}
 	for _, c := range concepts {
@@ -108,7 +115,17 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 	for _, key := range keys {
 		g := groups[key]
 		contract, ok := contracts[g.mapName]
-		if !ok || len(g.pages) < proposalMinPages {
+		if !ok {
+			continue
+		}
+		slug := Slugify(g.typ)
+		if !kb.ValidTemplateSlug(slug) {
+			continue
+		}
+		// The floor is for induction: a template to write needs enough pages to
+		// generalise from. One that already exists is only matched against the pages.
+		_, existing := catalog[slug]
+		if !existing && len(g.pages) < proposalMinPages {
 			continue
 		}
 		if len(contract.Templates) > 0 {
@@ -123,9 +140,16 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 				continue
 			}
 		}
-		slug := Slugify(g.typ)
-		if !kb.ValidTemplateSlug(slug) {
-			continue
+		following := 0
+		if existing {
+			for _, p := range g.pages {
+				if followsTemplate(p, g.mapName, contract, catalog, slug) {
+					following++
+				}
+			}
+			if float64(following)/float64(len(g.pages)) < proposalRequiredShare {
+				continue
+			}
 		}
 		sg := bySlug[slug]
 		if sg == nil {
@@ -134,6 +158,7 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 			slugOrder = append(slugOrder, slug)
 		}
 		sg.pages = append(sg.pages, g.pages...)
+		sg.following += following
 		// Two type spellings in one map share a slug: the map counts once.
 		if !slices.Contains(sg.maps, g.mapName) {
 			sg.maps = append(sg.maps, g.mapName)
@@ -165,6 +190,22 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 		return map[string]interface{}{"map": name, "templates": all, "default_template": biggest}
 	}
 
+	texts := map[string]string{}
+	proposed := map[string]kb.TemplateInfo{}
+	for _, slug := range slugOrder {
+		if _, have := catalog[slug]; have {
+			continue
+		}
+		texts[slug] = proposedTemplate(bySlug[slug], contracts)
+		if info, ok := kb.ParseTemplate(slug, texts[slug]); ok {
+			proposed[slug] = info
+		}
+	}
+	impacts := map[string]TemplateImpact{}
+	for name := range mapSlugs {
+		impacts[name] = templateImpact(name, concepts, contracts[name], catalog, proposed, mapUpdateFor(name))
+	}
+
 	var out []ReviewItem
 	for _, slug := range slugOrder {
 		g := bySlug[slug]
@@ -179,15 +220,25 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 			where = fmt.Sprintf("%d maps (%s)", len(g.maps), strings.Join(g.maps, ", "))
 		}
 		evidence := fmt.Sprintf("%d %s pages in %s follow a common structure and bind to no template", len(g.pages), g.typ, where)
-		action := fmt.Sprintf("artifact_write templates/%s.md with the `template` text, then map_update with `map_update` (every entry of `map_updates` when it lists several maps); kb_repair template_missing then binds the pages", slug)
+		action := fmt.Sprintf("artifact_write templates/%s.md with the `template` text, then map_update with `map_update` (every entry of `map_updates` when it lists several maps); %s", slug, bindingNote)
 		text := ""
 		if have {
-			evidence = fmt.Sprintf("%d %s pages in %s bind to no template, though templates/%s.md exists", len(g.pages), g.typ, where, slug)
-			action = "map_update with `map_update` (every entry of `map_updates` when it lists several maps) to declare it; kb_repair template_missing then binds the pages"
+			evidence = fmt.Sprintf("%d %s pages in %s follow templates/%s.md, which the map does not declare", g.following, g.typ, where, slug)
+			action = "map_update with `map_update` (every entry of `map_updates` when it lists several maps) to declare it; " + bindingNote
 		} else {
-			text = proposedTemplate(g, contracts)
+			text = texts[slug]
+		}
+		var impact []TemplateImpact
+		for _, m := range g.maps {
+			if im := impacts[m]; im.Pages > 0 {
+				impact = append(impact, im)
+			}
+		}
+		if clause := impactClause(impact); clause != "" {
+			evidence += "; " + clause
 		}
 		item := ReviewItem{
+			Impact:          impact,
 			Kind:            ReviewTemplateProposal,
 			Concepts:        concepts,
 			Evidence:        evidence,
@@ -206,6 +257,119 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 		out = append(out, item)
 	}
 	return out
+}
+
+// bindingNote says how pages bind once a map declares a template: by resolution
+// (TemplateCatalog.Resolve), not by a repair.
+const bindingNote = "once the map declares it, pages bind through templates/<type>.md or the map's default_template, and kb_repair template_missing only sets `shape` on a page that still resolves to nothing"
+
+// templateChecks are the findings that say a page does not follow its template.
+var templateChecks = map[string]bool{
+	"template_field_missing": true, "template_field_value": true, "template_section_missing": true,
+	"template_section_order": true, "template_section_alias": true, "template_extra_section": true,
+	"template_not_allowed": true, "template_type_mismatch": true,
+}
+
+// pageTemplateFindings runs the template checks lint runs on one page of a map.
+func pageTemplateFindings(p *reviewConcept, mapName string, contract kb.MapContract, catalog kb.TemplateCatalog) []Finding {
+	return templateFindings(conceptInput{RelPath: p.path, Body: p.body, Parsed: p.fm, MapName: mapName, Contract: &contract, Catalog: catalog})
+}
+
+// followsTemplate reports whether a page passes lint's template checks against
+// templates/<slug>.md, were the map to declare it: the same checks as lint, not
+// a second implementation of them (D352).
+func followsTemplate(p *reviewConcept, mapName string, contract kb.MapContract, catalog kb.TemplateCatalog, slug string) bool {
+	c := contract
+	c.Templates = append(slices.Clone(contract.Templates), slug)
+	c.DefaultTemplate = slug
+	for _, f := range pageTemplateFindings(p, mapName, c, catalog) {
+		if templateChecks[f.Check] {
+			return false
+		}
+	}
+	return true
+}
+
+// templateImpact previews what declaring the proposed templates does to one map:
+// the template findings its pages gain, over those they already have. It runs
+// lint's own checks on every page of the map, whatever its type, so the preview
+// cannot drift from what lint reports once the update is applied.
+func templateImpact(mapName string, concepts []*reviewConcept, current kb.MapContract, catalog kb.TemplateCatalog, proposed map[string]kb.TemplateInfo, update map[string]interface{}) TemplateImpact {
+	after := current
+	after.Templates, _ = update["templates"].([]string)
+	after.DefaultTemplate, _ = update["default_template"].(string)
+	merged := kb.TemplateCatalog{}
+	for k, v := range catalog {
+		merged[k] = v
+	}
+	for _, slug := range after.Templates {
+		if info, ok := proposed[slug]; ok {
+			merged[slug] = info
+		}
+	}
+	im := TemplateImpact{Map: mapName}
+	pages := map[string]bool{}
+	for _, p := range concepts {
+		if p.mapName != mapName || p.fm == nil {
+			continue
+		}
+		before := map[string]bool{}
+		for _, f := range pageTemplateFindings(p, mapName, current, catalog) {
+			before[f.Check] = true
+		}
+		seen := map[string]bool{}
+		for _, f := range pageTemplateFindings(p, mapName, after, merged) {
+			if before[f.Check] || seen[f.Check] {
+				continue
+			}
+			seen[f.Check] = true
+			im.NewFindings++
+			if im.ByCheck == nil {
+				im.ByCheck = map[string]int{}
+			}
+			im.ByCheck[f.Check]++
+			pages[string(p.id)] = true
+		}
+	}
+	im.Pages = len(pages)
+	for id := range pages {
+		im.Examples = append(im.Examples, id)
+	}
+	sort.Strings(im.Examples)
+	if len(im.Examples) > proposalMaxExamples {
+		im.Examples = im.Examples[:proposalMaxExamples]
+	}
+	return im
+}
+
+// impactClause is the evidence sentence about the pages a proposal would fail.
+func impactClause(impact []TemplateImpact) string {
+	pages := 0
+	byCheck := map[string]int{}
+	for _, im := range impact {
+		pages += im.Pages
+		for c, n := range im.ByCheck {
+			byCheck[c] += n
+		}
+	}
+	if pages == 0 {
+		return ""
+	}
+	checks := make([]string, 0, len(byCheck))
+	for c := range byCheck {
+		checks = append(checks, c)
+	}
+	sort.Slice(checks, func(i, j int) bool {
+		if byCheck[checks[i]] != byCheck[checks[j]] {
+			return byCheck[checks[i]] > byCheck[checks[j]]
+		}
+		return checks[i] < checks[j]
+	})
+	parts := make([]string, len(checks))
+	for i, c := range checks {
+		parts[i] = fmt.Sprintf("%s: %d", c, byCheck[c])
+	}
+	return fmt.Sprintf("declaring it makes %d pages of the map fail (%s)", pages, strings.Join(parts, ", "))
 }
 
 // proposedTemplate induces the template text of one slug (D352 decision 7),
@@ -348,7 +512,10 @@ func proposedTemplate(g *proposalGroup, contracts map[string]kb.MapContract) str
 		case len(vals) == 0, allDateShaped(counts):
 		case !constrained && identifierValued(f.values, f.count):
 		case constrained:
-			return vals
+			// The map's own vocabulary, not the part of it the pages happen to use.
+			out := slices.Clone(allowed)
+			sort.Strings(out)
+			return slices.Compact(out)
 		case len(vals) <= proposalMaxValues && len(vals) < f.count:
 			return vals
 		}
