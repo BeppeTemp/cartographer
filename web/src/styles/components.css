@@ -3592,6 +3592,23 @@ code.mapcontract__label {
   background: color-mix(in srgb, var(--primary) 16%, var(--surface-1));
   border-color: color-mix(in srgb, var(--primary) 45%, transparent);
 }
+/* A phone: the value goes under its key, not beside it, where the two
+   columns had no room and the value ran over the description. */
+@media (max-width: 640px) {
+  .settings__row-head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+  .settings__val,
+  .settings__val.settings__chip-row {
+    align-items: flex-start;
+    justify-content: flex-start;
+    max-width: 100%;
+  }
+  .settings__value {
+    text-align: start;
+  }
+}
 /* A boolean is a small switch. */
 .settings__switch {
   position: relative;

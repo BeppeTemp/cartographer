@@ -325,40 +325,18 @@ export function Work({
   );
 }
 
-/** Cards a column shows before it asks; each "show more" adds a page of them. */
-const COLUMN_PAGE = 6;
-const COLUMN_MORE = 12;
-
 /**
- * A column's cards, a page at a time: a column of four hundred proposals
- * would otherwise set the height of the whole board, and the short columns
- * beside it would float in its empty space.
+ * A column's cards in a list that scrolls on its own: every column has the
+ * same height, so a column of four hundred proposals no longer sets the
+ * height of the whole board.
  */
 function ColumnCards({ list, render }: { list: BoardEntry[]; render(e: BoardEntry): ReactNode }) {
-  const [shown, setShown] = useState(COLUMN_PAGE);
-  const rest = list.length - shown;
   return (
-    <>
-      <ul className="work__cards">
-        {list.slice(0, shown).map((e) => (
-          <li key={e.id}>{render(e)}</li>
-        ))}
-      </ul>
-      {(rest > 0 || shown > COLUMN_PAGE) && (
-        <div className="work__column-foot">
-          {rest > 0 && (
-            <button type="button" className="work__more" onClick={() => setShown((n) => n + COLUMN_MORE)}>
-              Show more <span className="work__more-rest">· {rest} left</span>
-            </button>
-          )}
-          {shown > COLUMN_PAGE && (
-            <button type="button" className="work__more work__more--less" onClick={() => setShown(COLUMN_PAGE)}>
-              Show less
-            </button>
-          )}
-        </div>
-      )}
-    </>
+    <ul className="work__cards" tabIndex={0} aria-label="Cards">
+      {list.map((e) => (
+        <li key={e.id}>{render(e)}</li>
+      ))}
+    </ul>
   );
 }
 

@@ -909,50 +909,21 @@ button.row {
    narrow window gets fewer columns per row down to one. */
 .work__board {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   gap: var(--space-4);
-  align-items: start;
 }
 
+/* Every column the same height, its cards scrolling inside it: the board
+   reads as a grid of equal boxes however uneven the counts. */
 .work__column {
+  display: flex;
+  flex-direction: column;
+  height: clamp(320px, 62vh, 640px);
   min-width: 0;
   padding: var(--space-3);
   background: var(--surface-1);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
-}
-
-.work__column-foot {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin-block-start: var(--space-2);
-}
-
-.work__more {
-  padding: var(--space-2);
-  font: inherit;
-  font-size: var(--text-xs);
-  color: var(--text-secondary);
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-control);
-  cursor: pointer;
-}
-
-.work__more:hover {
-  color: var(--text-primary);
-  background: var(--surface-2);
-}
-
-.work__more:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
-.work__more-rest,
-.work__more--less {
-  color: var(--text-muted);
 }
 
 .work__column-title {
@@ -972,11 +943,22 @@ button.row {
    card would otherwise widen the track and slide the card under the next column. */
 .work__cards {
   display: grid;
+  flex: 1;
   grid-template-columns: minmax(0, 1fr);
+  align-content: start;
   gap: var(--space-2);
+  min-height: 0;
   margin: 0;
   padding: 0;
   list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--radius-control);
+}
+
+.work__cards:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 
 .work__card {
@@ -2336,9 +2318,16 @@ button.row {
 }
 
 /* Tabs between the pages of one section (Artifacts · Secrets), under the header. */
+/* The tabs scroll sideways on a narrow window rather than leave one off it. */
 .page__tabs {
   margin: var(--space-4) 0 var(--space-4);
+  overflow-x: auto;
+  scrollbar-width: none;
   border-block-end: 1px solid var(--border-subtle);
+}
+.page__tabs .inspector__tab {
+  flex: none;
+  white-space: nowrap;
 }
 .page__tabs.inspector__tabs {
   padding-inline: 0;
