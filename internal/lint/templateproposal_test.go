@@ -289,6 +289,29 @@ func TestTemplateProposalImpactMatchesLintAfterApplying(t *testing.T) {
 	}
 }
 
+// Impact reads every page of a map: a caller scoped to part of it (the map
+// descriptor and one page visible) gets the proposal without ids or counts of
+// the pages it cannot see; a whole-KB caller keeps the preview.
+func TestTemplateProposalImpactHiddenFromScopedCaller(t *testing.T) {
+	t.Parallel()
+	got := itemsOf(review(t, proposalKB(t)), ReviewTemplateProposal)
+	if len(got) != 1 || len(got[0].Impact) == 0 {
+		t.Fatalf("want a proposal with impact: %+v", got)
+	}
+	visible := func(id string) bool { return id == "infra/_map" || id == "infra/h0" }
+	scoped := FilterReview(got, visible, false)
+	if len(scoped) != 1 {
+		t.Fatalf("the proposal itself stays visible: %+v", scoped)
+	}
+	if len(scoped[0].Impact) != 0 || strings.Contains(scoped[0].Evidence, "declaring it") || strings.Contains(scoped[0].Evidence, "infra/h") {
+		t.Errorf("impact leaked to a scoped caller: %+v", scoped[0])
+	}
+	whole := FilterReview(got, visible, true)
+	if len(whole[0].Impact) == 0 || !strings.Contains(whole[0].Evidence, "declaring it") {
+		t.Errorf("whole caller lost the preview: %+v", whole[0])
+	}
+}
+
 func TestTemplateProposalImpactEmptyWhenEverythingFollows(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)

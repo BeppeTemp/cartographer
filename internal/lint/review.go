@@ -210,6 +210,9 @@ type ReviewItem struct {
 	// graph (WholeGraphChecks): a caller who cannot see the whole KB must not
 	// receive it.
 	wholeGraph bool
+	// publicEvidence is Evidence without the impact clause: Impact reads every
+	// page of a map, so a caller who cannot see the whole KB gets this instead.
+	publicEvidence string
 }
 
 // TemplateImpact is the preview of a template_proposal on one map: the template
@@ -366,6 +369,10 @@ func FilterReview(items []ReviewItem, visible func(id string) bool, whole bool) 
 	for _, it := range items {
 		if it.wholeGraph && !whole {
 			continue
+		}
+		if len(it.Impact) > 0 && !whole {
+			it.Impact = nil
+			it.Evidence = it.publicEvidence
 		}
 		if it.Kind == ReviewGlossary {
 			var vis []string

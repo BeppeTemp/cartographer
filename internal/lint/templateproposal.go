@@ -234,6 +234,7 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 				impact = append(impact, im)
 			}
 		}
+		publicEvidence := evidence
 		if clause := impactClause(impact); clause != "" {
 			evidence += "; " + clause
 		}
@@ -242,6 +243,7 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 			Kind:            ReviewTemplateProposal,
 			Concepts:        concepts,
 			Evidence:        evidence,
+			publicEvidence:  publicEvidence,
 			SuggestedAction: action,
 			Weight:          len(g.pages),
 			TemplateSlug:    slug,
