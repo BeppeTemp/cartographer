@@ -70,6 +70,8 @@ those match names, not arguments, and are lost by design. Real authorization is
 per-KB scopes (D44/D45), and read auto-approval through `readOnlyHint` (D76) is
 unaffected.
 
+**URL parameters of `/mcp/routed`.** `kbs` (below), `access=read` (D1018) and `provisioned=1` (D1097: the client has the managed instructions block, so `initialize` carries no guide; empty is absent, any other value is a 400). Any other parameter is ignored, which is what lets a client always send `provisioned=1` to a server that predates it. Only the routed path reads the marker: `/mcp?kb=<name>`, `/mcp/<name>` and stdio always send the guide. The marker rides the request context, never the cached routed view.
+
 **The binding travels in the URL: `/mcp/routed?kbs=kb-a,kb-b`.** Absent, the
 connection serves every mounted KB. `kbs` only **narrows**, never widens:
 per-KB authorization still runs at the target KB. It is a different parameter

@@ -255,7 +255,10 @@ the KB is no longer part of the entry name: the client writes **one** entry per 
 binding writes `?kbs=<bound KBs, sorted, comma-joined>`, which the server turns into that connection's
 KB set (two or more KBs: `kb` is a required enum in every schema; exactly one: no `kb` argument at
 all); the default binding, every KB the server mounts, writes no `kbs`, so a KB added later reaches the
-provider without a rewrite. A bound name the server no longer mounts is left out of the URL (the server
+provider without a rewrite. Every routed entry ends with `provisioned=1` (`/mcp/routed?provisioned=1`,
+`/mcp/routed?kbs=kb-a,work-kb&provisioned=1`; D1097): the client has the managed block, so the server sends
+it no operating guide in `initialize`. The marker is always written, a server that predates it ignores it,
+and `mcpbridge` adds it to the URL it forwards to. One `sync` adds it to an entry written before. A bound name the server no longer mounts is left out of the URL (the server
 refuses an unknown name), and a provider bound only to vanished KBs gets no entry, the same declaration
 as an explicit empty binding. `kbs` only narrows, never widens: the per-KB authorization still runs at
 the target, and with `auth: false` the binding is advisory, since the client can edit its own URL.

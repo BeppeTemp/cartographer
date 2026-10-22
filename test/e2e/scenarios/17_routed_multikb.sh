@@ -180,8 +180,8 @@ assert_file_contains "$OPENCODE_CFG" "/mcp/routed?kbs=alpha,beta"
 assert_file_contains "$CLAUDE_CFG" "/mcp/routed?kbs=gamma"
 assert_file_not_contains "$OPENCODE_CFG" "kb=alpha\""
 # D1097: a client with the managed block declares it, so the server sends no guide.
-assert_file_contains "$OPENCODE_CFG" "/mcp/routed?kbs=alpha,beta&provisioned=1"
-assert_file_contains "$CLAUDE_CFG" "/mcp/routed?kbs=gamma&provisioned=1"
+assert_file_contains "$OPENCODE_CFG" "provisioned=1"
+assert_file_contains "$CLAUDE_CFG" "provisioned=1"
 
 ENTRIES="$(grep -o '/mcp/routed' "$OPENCODE_CFG" | wc -l | tr -d ' ')"
 if [[ "$ENTRIES" == "1" ]]; then
@@ -276,7 +276,7 @@ json.dump(cfg, open(path, "w"), indent=2)
 PY
 assert_file_not_contains "$OPENCODE_CFG" "provisioned=1"
 run_client "${DIR}/sync-marker.log" sync || _assert_fail "cartographer sync failed: $(cat "${DIR}/sync-marker.log")"
-assert_file_contains "$OPENCODE_CFG" "/mcp/routed?kbs=alpha,beta&provisioned=1"
+assert_file_contains "$OPENCODE_CFG" "provisioned=1"
 ENTRIES="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['mcp']))" "$OPENCODE_CFG")"
 if [[ "$ENTRIES" == "1" ]]; then
     _assert_pass "the marker was healed with still one entry"

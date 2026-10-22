@@ -32,6 +32,12 @@ test or a decision record: none of them is a preference.
   traverse a symlink for a reason: writing through one truncates the target
   instead of replacing the link, which is how a single sync modified 23 files in
   an unrelated checkout (D148).
+- **A fact about the request (`unknown`, `renamed`, `provisioned`) rides the
+  context, never the cached routed view.** The view is shared by every URL that
+  resolves to the same set, and the target KB's server (where the doctor nudge
+  runs) is not the view. For the same reason `initialize` instructions are set
+  per handshake by `guideMiddleware`, not at build time: the SDK server is
+  memoised (D1097).
 - **Tool names are part of the public contract** and are CI-enforced against the
   documentation (D101). Renaming one is a breaking change, not a cleanup.
 - Registration is per-KB: a tool added outside `RegisterKBTools` is invisible in
