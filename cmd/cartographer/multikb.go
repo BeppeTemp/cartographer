@@ -370,6 +370,13 @@ func entriesForKBs(baseName, serverURL string, mounted, bound []string, routedPa
 				reach, open = names, false
 			}
 		}
+		// D1097: the entry declares itself provisioned (this client writes the
+		// managed instructions block), so the server sends it no operating
+		// guide. Always sent: a server that predates it ignores the parameter.
+		if u.RawQuery != "" {
+			u.RawQuery += "&"
+		}
+		u.RawQuery += mcpserver.ProvisionedParam + "=" + mcpserver.ProvisionedValue
 		return []mcpEntry{{Name: baseName, URL: u.String(), Reach: reach, Open: open}}, nil
 	}
 	if len(mounted) <= 1 {

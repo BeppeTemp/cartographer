@@ -23,6 +23,11 @@ import (
 const (
 	accessHeader = "Cartographer-Access"
 	accessRead   = "read"
+	// provisionedParam and provisionedValue mirror mcpserver.ProvisionedParam
+	// and mcpserver.ProvisionedValue (D1097): a bridge runs under a client that
+	// has the managed instructions block, so it never needs the server's guide.
+	provisionedParam = "provisioned"
+	provisionedValue = "1"
 )
 
 // rootsTimeout bounds the wait for a client's answer to roots/list. A client
@@ -443,7 +448,13 @@ func (b *Bridge) endpoint(scope Scope) (string, error) {
 		return "", errors.New("the server has no routed endpoint recorded; run `cartographer sync`")
 	}
 	u.Path = b.Cfg.ServerRoutedPath
-	u.RawQuery = scope.Query()
+	// scope.Query() stays scope-only (an empty set never produces a kbs= query);
+	// the marker is added here so forward and the closing DELETE both carry it.
+	q := scope.Query()
+	if q != "" {
+		q += "&"
+	}
+	u.RawQuery = q + provisionedParam + "=" + provisionedValue
 	return u.String(), nil
 }
 
