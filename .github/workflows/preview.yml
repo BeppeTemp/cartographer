@@ -15,7 +15,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   # Renders the README film from the sources being released (D1068). Parallel to the image, no `needs` either
@@ -29,6 +28,9 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       # A plain vX.Y.Z here would overwrite the image a real release publishes
       # under the same tag; a pre-release suffix is mandatory.

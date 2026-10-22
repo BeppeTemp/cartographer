@@ -13,3 +13,6 @@ rules:
       # Help-level style hint: the local ./ reusable-workflow path is what the
       # release workflow wants (it runs the tag's own copy).
       - release.yml
+      # Same reason: the film job calls ./.github/workflows/film.yml, the
+      # candidate's own copy of the called workflow.
+      - preview.yml
