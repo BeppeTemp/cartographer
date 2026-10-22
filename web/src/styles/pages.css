@@ -935,8 +935,11 @@ button.row {
   color: var(--text-secondary);
 }
 
+/* One track that cannot grow past the column: an unbreakable concept id in a
+   card would otherwise widen the track and slide the card under the next column. */
 .work__cards {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2);
   margin: 0;
   padding: 0;
@@ -1026,6 +1029,16 @@ button.row {
   padding: 0 var(--space-3) var(--space-3);
   font-size: var(--text-xs);
   list-style: none;
+}
+
+.work__refs li {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.work__refs .ref-link {
+  text-align: start;
+  overflow-wrap: anywhere;
 }
 
 .work__refs-more {
@@ -2407,8 +2420,19 @@ button.row {
 
 /* --- Instructions: one text, read as a page --- */
 
+/* Instructions are a reference read across the page, tables included: a wider
+   measure than a concept's, sans tables at the text's size. */
 .instructions__doc {
   margin-block-start: var(--space-6);
+}
+
+.instructions__doc .markdown {
+  max-width: min(100%, 110ch);
+}
+
+.instructions__doc .markdown table {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
 }
 
 .instructions__doc + .instructions__doc {
