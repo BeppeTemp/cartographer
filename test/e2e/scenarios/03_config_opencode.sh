@@ -54,7 +54,7 @@ echo ""
 echo "--- Assertions ---"
 
 OPENCODE_JSON="${SANDBOX_DIR}/opencode.json"
-SKILL_FILE="${SANDBOX_DIR}/.config/opencode/skills/kb-create/SKILL.md"
+SKILL_FILE="${SANDBOX_DIR}/.config/opencode/skills/cartographer-kb-create/SKILL.md"
 LOCK_FILE="${SANDBOX_DIR}/.cartographer-sync.lock.json"
 CLIENT_CONFIG="${SANDBOX_DIR}/.cartographer.yaml"
 
@@ -70,7 +70,7 @@ assert_file_contains "$OPENCODE_JSON" '"enabled": true'
 # 4. It must contain "type": "remote"
 assert_file_contains "$OPENCODE_JSON" '"type": "remote"'
 
-# 5. The bundled kb-create skill must be materialized in .config/opencode/skills/ (via sync_pull)
+# 5. The bundled cartographer-kb-create skill must be materialized in .config/opencode/skills/ (via sync_pull)
 assert_file_exists "$SKILL_FILE"
 
 # 6. The v2 lockfile (multi-provider) must exist and reference the opencode provider

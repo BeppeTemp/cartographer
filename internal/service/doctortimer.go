@@ -1,7 +1,7 @@
 package service
 
 // The scheduled doctor session (D369, D690) is gone (D704): Cartographer never
-// starts an agent by itself, a kb-doctor session is always one the operator
+// starts an agent by itself, a cartographer-kb-doctor session is always one the operator
 // launches. What remains removes the job that 0.22 and 0.23 installed, so an
 // upgraded machine does not keep firing a `doctor run` that no longer exists.
 // Label, unit names and task are those releases' own: change them and the

@@ -36,7 +36,7 @@ import { ErrorState } from "./States";
  * the rules by category, with the result on this KB.
  *
  * Like the rest of the Atlas it reads and never writes: a fix happens in a
- * kb-doctor session the operator starts from an agent.
+ * cartographer-kb-doctor session the operator starts from an agent.
  *
  * The agenda is filtered by the page's own Map picker (the rail only
  * navigates). Status describes the whole KB, so a
@@ -869,7 +869,7 @@ function GitConflicts({
     <PageSection title="Git conflicts" id="health-conflicts" count={items.length}>
       <p className="page-note">
         A sync met two versions of these files and stopped. An agent settles each one with{" "}
-        <code>git_conflict_resolve</code> (the <code>kb-conflict-resolve</code> skill walks it through).
+        <code>git_conflict_resolve</code> (the <code>cartographer-kb-conflict-resolve</code> skill walks it through).
       </p>
       <ul className="rows">
         {items.map((c) => (

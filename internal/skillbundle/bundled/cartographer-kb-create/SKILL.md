@@ -1,5 +1,5 @@
 ---
-name: kb-create
+name: cartographer-kb-create
 description: Operator procedure to declare and provision a new Knowledge Base GitOps-style, so it survives pod restarts; also covers authoring the KB's artifacts (skills, subagents, hooks, MCP descriptors) and the SOPS encryption flow.
 version: "3.2"
 ---

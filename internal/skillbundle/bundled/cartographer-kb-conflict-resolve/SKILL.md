@@ -1,5 +1,5 @@
 ---
-name: kb-conflict-resolve
+name: cartographer-kb-conflict-resolve
 description: Guide an agent through resolving open git rebase conflicts on degraded KB concepts.
 version: "1.2"
 ---

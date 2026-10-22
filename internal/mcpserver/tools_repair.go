@@ -1030,7 +1030,7 @@ func toolKBRepair(k *kb.KB) Tool {
 		// and an unknown check is refused naming them (D301 budget).
 		Description: "Applies the mechanical fix a lint finding carries (fix) for one check, " +
 			"KB-wide in one commit. dry_run defaults to true (plan only). " +
-			"Concepts changed since listing are skipped. Judgement fixes: kb-doctor skill.",
+			"Concepts changed since listing are skipped. Judgement fixes: cartographer-kb-doctor skill.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["check"],

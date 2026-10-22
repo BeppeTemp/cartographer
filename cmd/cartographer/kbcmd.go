@@ -337,7 +337,7 @@ func adoptForgeCommit(path, remote, branch string, refs gitx.RemoteRefs, authorN
 	if !forgeInit {
 		fmt.Fprintf(os.Stderr, "Error: the remote %s already has commits, so a new KB cannot be created in it.\n", remote)
 		fmt.Fprintf(os.Stderr, "Hint: if it holds a KB, mount it: cartographer kb clone %s\n", remote)
-		fmt.Fprintln(os.Stderr, "Hint: otherwise import its content with the kb-import skill, or point --remote at an empty repository.")
+		fmt.Fprintln(os.Stderr, "Hint: otherwise import its content with the cartographer-kb-import skill, or point --remote at an empty repository.")
 		return refuse()
 	}
 
@@ -470,7 +470,7 @@ func cmdKBClone(args []string) int {
 			fmt.Fprintf(os.Stderr, "Error: %s holds only a forge's initial commit — create the KB in it: cartographer kb create <name> --remote %s\n", remote, remote)
 			return 1
 		}
-		fmt.Fprintln(os.Stderr, "Error: not an OKF KB — import it with the kb-import skill, push, then retry")
+		fmt.Fprintln(os.Stderr, "Error: not an OKF KB — import it with the cartographer-kb-import skill, push, then retry")
 		return 1
 	}
 

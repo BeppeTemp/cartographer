@@ -84,7 +84,7 @@ A KB syncs exactly when it has a remote, and every write is one commit: neither 
    repository already holds a KB; a forge-initialized one is adopted by `kb create`) and `cartographer service restart` for a local service.
 3. If client artifacts are stale or missing, run `cartographer sync`, then restart the affected
    agent session so it reloads MCP configuration and skills.
-4. If concepts are degraded after a git conflict, use the `kb-conflict-resolve` skill; do not
+4. If concepts are degraded after a git conflict, use the `cartographer-kb-conflict-resolve` skill; do not
    repair their files outside Cartographer.
 5. If the binary and the running service differ, run `cartographer upgrade-repair` (D121): it
    gracefully replaces a running server, proves the new version is serving, and reconciles the

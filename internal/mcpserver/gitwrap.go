@@ -520,7 +520,7 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string
 func conflictMessage(n int, reserved []string) string {
 	if len(reserved) == 0 {
 		return fmt.Sprintf("git conflict detected and registered on %d concept(s); "+
-			"use the conflicts_list tool and kb-conflict-resolve skill to resolve", n)
+			"use the conflicts_list tool and cartographer-kb-conflict-resolve skill to resolve", n)
 	}
 	files := strings.Join(reserved, ", ")
 	if n == 0 {
@@ -529,7 +529,7 @@ func conflictMessage(n int, reserved []string) string {
 	}
 	return fmt.Sprintf("git conflict detected and registered on %d concept(s); "+
 		"%d reserved file(s) also in conflict (%s) — these are auto-resolved when the concept conflicts are resolved; "+
-		"use the conflicts_list tool and kb-conflict-resolve skill to resolve the concept conflicts", n, len(reserved), files)
+		"use the conflicts_list tool and cartographer-kb-conflict-resolve skill to resolve the concept conflicts", n, len(reserved), files)
 }
 
 // byteBudget renders a byte limit the way an operator reads it, so a tool

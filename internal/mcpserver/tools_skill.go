@@ -412,7 +412,7 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 			"properties": {
 				"name": {
 					"type": "string",
-					"description": "Name of the bundled skill to install (e.g. kb-create)"
+					"description": "Name of the bundled skill to install (e.g. cartographer-kb-create)"
 				},
 				"force": {
 					"type": "boolean",

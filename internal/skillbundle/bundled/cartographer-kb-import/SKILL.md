@@ -1,5 +1,5 @@
 ---
-name: kb-import
+name: cartographer-kb-import
 description: Agent-guided procedure to import an existing non-OKF wiki or knowledge base (Obsidian vault, markdown folder, wiki export) into a Cartographer KB, incrementally and without big-bang LLM rewriting.
 version: "1.4"
 ---
@@ -34,7 +34,7 @@ non-content (assets, templates, daily notes, trash). Produce a short summary for
 >    not a credential the KB needs to resolve;
 > 2. **Move the value into an encrypted file** and leave the concept referencing it via
 >    `secret_refs`. The full procedure — age key, root `.sops.yaml` creation rules, the first
->    encrypted file, the `Service` concept — is the `kb-create` skill's
+>    encrypted file, the `Service` concept — is the `cartographer-kb-create` skill's
 >    `references/secrets.md`. Cartographer performs none of the operator-side steps.
 >
 > If the corpus carries a `.sops.yaml` or `*.sops.yaml` of its own, do **not** merge it blindly
@@ -55,7 +55,7 @@ Then propose, and get the operator's explicit approval on:
 - target **Maps** (existing ones, or new via `map_create`: `entities/`, `topics/`,
   `notes/`, `incidents/`, or custom) and the mapping *source directory → map[/expanded concept]*;
 - what to **exclude** (assets, templates, generated files, empty stubs);
-- whether the target is an existing KB or a new one (create it first with the `kb-create` skill).
+- whether the target is an existing KB or a new one (create it first with the `cartographer-kb-create` skill).
 
 **No write happens before this checkpoint.**
 
@@ -114,7 +114,7 @@ full `lint`, `log_append` with the closing summary.
 
 An imported corpus usually needs **artifacts** of its own — the skills, subagents and hooks that
 configure the agents reading it, which no import scaffold can synthesize. Once the curation queue is
-drained, `references/artifacts.md` in the `kb-create` skill is the procedure. For the operational
+drained, `references/artifacts.md` in the `cartographer-kb-create` skill is the procedure. For the operational
 aftermath — connecting clients, syncing, diagnosing drift, upgrades — use the `cartographer-ops`
 skill.
 
@@ -123,7 +123,7 @@ skill.
 - Tools: `atlas_overview`, `map_create`, `concept_expand`, `concept_read`, `concept_write`,
   `concept_patch`, `concept_batch`, `concept_move`, `concept_list`, `supersede`, `lint`, `search`,
   `log_append`; `artifact_read`/`artifact_write` for the KB's `paths.yaml`.
-- CLI: `cartographer import` (see D74 WP2), `kb-create` skill for a brand-new target KB,
+- CLI: `cartographer import` (see D74 WP2), `cartographer-kb-create` skill for a brand-new target KB,
   for authoring artifacts (`references/artifacts.md`) and for the SOPS flow
   (`references/secrets.md`); `cartographer-ops` for operations after the import.
 - Rationale and scope: decisions D74 (import), D28 (why no server-side ingest), D72

@@ -265,7 +265,7 @@ var conformanceChecks = map[string]bool{
 	"legacy_archive_descriptor": true,
 }
 
-// doctorMarker is the text a log.md entry carries when the kb-doctor skill
+// doctorMarker is the text a log.md entry carries when the cartographer-kb-doctor skill
 // closed a session: kb_status reads the date of the newest one.
 const doctorMarker = "kb-doctor"
 
@@ -292,7 +292,7 @@ func lastDoctorDate(k *kb.KB) string {
 	return newest
 }
 
-// doctorDue says whether a kb-doctor session is due (D299): the KB's interval
+// doctorDue says whether a cartographer-kb-doctor session is due (D299): the KB's interval
 // has passed since the last one, or there never was one. An interval of 0
 // means the operator turned the proposal off.
 func doctorDue(lastDoctor string, intervalDays int, now time.Time) bool {

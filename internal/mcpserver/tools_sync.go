@@ -103,7 +103,7 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 			}
 
 			// Include the count of open git conflicts so the SessionStart hook can
-			// surface them and direct the agent to kb-conflict-resolve.
+			// surface them and direct the agent to cartographer-kb-conflict-resolve.
 			openConflicts := 0
 			if cs, cerr := k.ListConflicts(); cerr == nil {
 				openConflicts = len(cs)

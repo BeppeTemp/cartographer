@@ -16,7 +16,7 @@ type KBAlias struct {
 // kbNameRe validates a KB name as directory-safe: letters, digits, '-', '_'
 // only — no '/', '.', or whitespace, so the name can never escape
 // <dataDir>/<name> (no ".." is even expressible) and matches the kebab-case
-// convention already documented for KB names (D53, skillbundle kb-create
+// convention already documented for KB names (D53, skillbundle cartographer-kb-create
 // SKILL.md).
 var kbNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
