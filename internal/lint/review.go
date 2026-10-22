@@ -1154,15 +1154,23 @@ func glossaryEvidence(term string, n int) string {
 	return fmt.Sprintf("%q is used in %d concepts and defined nowhere: not in glossary.yaml, not in a glossary map", term, n)
 }
 
-// commonTechTerms are acronyms every technical reader knows: a glossary entry
+// commonTechTerms are terms every technical reader knows: a glossary entry
 // for them defines nothing (D307). A KB's own terms are what glossary_gap is
 // for. Compared folded.
+//
+// A KB raising a term does not admit it here: a term is admitted when it is
+// not a name (PostgreSQL and ZFS stay KB terms), when a standard or general
+// computing usage fixes its meaning, so an entry could only restate it, and
+// when a technical reader of any specialty knows it (NFS stays a term). A
+// closed set a standard defines enters whole: the HTTP methods are the eight
+// of RFC 9110 and PATCH (RFC 5789).
 var commonTechTerms = map[string]bool{}
 
 func init() {
 	for _, t := range strings.Fields(`API HTTP HTTPS IP URL URI JSON YAML XML HTML CSS CLI UI UX
 		SSH DNS LAN WAN VPN TCP UDP TLS SSL CPU GPU RAM SSD HDD NVMe USB GB MB KB TB GiB MiB KiB TiB
-		DB SQL ID OK PR CI CD SDK REST PC VM AI LLM UTC TTL OS PDF CSV IoT WiFi FAQ TODO README`) {
+		DB SQL ID OK PR CI CD SDK REST PC VM AI LLM UTC TTL OS PDF CSV IoT WiFi FAQ TODO README
+		GET HEAD POST PUT DELETE CONNECT OPTIONS TRACE PATCH`) {
 		commonTechTerms[search.Fold(t)] = true
 	}
 }
