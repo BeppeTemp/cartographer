@@ -111,17 +111,19 @@ do_install() {
     trap 'rm -f "$tmp" "$tmp.sha"' EXIT
     auth_curl -o "$tmp" "$url" || fail "download failed: $url"
 
-    # Verify checksum when the release ships sha256sums.txt. A release with no
-    # such file is still installable (older tags have none); a file that exists
-    # but does not cover this asset is an error, not a skip — it is the shape a
-    # tampered or truncated manifest has.
-    if auth_curl -o "$tmp.sha" "${DOWNLOAD_URL}/${tag}/sha256sums.txt" 2>/dev/null; then
-        expected=$(grep " ${asset}\$" "$tmp.sha" | cut -d' ' -f1)
-        [ -n "$expected" ] || fail "sha256sums.txt has no entry for ${asset}: refusing to install unverified"
-        actual=$( (sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp") | cut -d' ' -f1)
-        [ "$actual" = "$expected" ] || fail "checksum mismatch for ${asset}"
-        log "checksum OK"
-    fi
+    # Every release since v0.1.0 publishes sha256sums.txt, so a manifest that
+    # cannot be fetched (404, network error) is never "an old tag": it is the
+    # shape of an attack that drops that one request to skip verification, or of
+    # a broken release. Either way nothing is installed unverified (D1022, as
+    # install.ps1 does). A manifest that exists but does not cover this asset is
+    # the same error.
+    auth_curl -o "$tmp.sha" "${DOWNLOAD_URL}/${tag}/sha256sums.txt" 2>/dev/null \
+        || fail "cannot download sha256sums.txt for ${tag}: refusing to install unverified"
+    expected=$(grep " ${asset}\$" "$tmp.sha" | cut -d' ' -f1)
+    [ -n "$expected" ] || fail "sha256sums.txt has no entry for ${asset}: refusing to install unverified"
+    actual=$( (sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp") | cut -d' ' -f1)
+    [ "$actual" = "$expected" ] || fail "checksum mismatch for ${asset}"
+    log "checksum OK"
 
     chmod +x "$tmp"
     mv "$tmp" "$dest"

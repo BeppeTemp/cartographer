@@ -75,6 +75,21 @@ else
     else
         _assert_pass "no windows override produces a raw binary"
     fi
+    # --- SBOMs (D1022): new assets next to the binaries, never instead of them --
+    # `artifacts: binary` catalogs each platform binary once, the Windows exe
+    # inside its zip included; `archive` would skip the raw darwin/linux assets.
+    assert_file_contains "$CODE_FILE" 'sboms:' \
+        "publishes an SBOM next to the binaries"
+    assert_file_contains "$CODE_FILE" 'artifacts: binary' \
+        "the SBOMs catalog the platform binaries"
+    assert_file_contains "$CODE_FILE" '.sbom.json' \
+        "the SBOM documents have a .sbom.json name"
+    # The asset names install.sh and install.ps1 download must not move (D252).
+    assert_file_contains "$CODE_FILE" 'name_template: "{{ .ProjectName }}-{{ .Os }}-{{ .Arch }}"' \
+        "the archive asset names are unchanged"
+    assert_file_contains "$CODE_FILE" 'name_template: sha256sums.txt' \
+        "the checksum manifest keeps its name"
+
     # winget was withdrawn (D252): a stray `winget:` block would start opening
     # pull requests against microsoft/winget-pkgs again on the next tag.
     assert_file_not_contains "$CODE_FILE" 'winget:' \

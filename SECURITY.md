@@ -35,6 +35,20 @@ Dependabot proposes dependency, action and base-image updates. A failed scan
 opens a public issue that carries only a link to the run; a vulnerability that
 is reachable in our own code is handled through a private advisory instead.
 
+## Verifying a release
+
+Release assets and the container image carry GitHub artifact attestations (Sigstore,
+keyless, tied to this repository's `release.yml`). With the `gh` CLI:
+
+```bash
+gh attestation verify <downloaded-asset> --repo BeppeTemp/cartographer
+gh attestation verify oci://ghcr.io/beppetemp/cartographer:<tag> --repo BeppeTemp/cartographer
+```
+
+Each release also ships an SPDX SBOM per platform binary. `install.sh` and
+`install.ps1` verify `sha256sums.txt` and refuse to install when it is missing;
+that catches a corrupted download, the attestation catches a replaced one.
+
 ## Supported versions
 
 Only the latest release is supported with security fixes.

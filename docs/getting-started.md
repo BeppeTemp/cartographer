@@ -31,6 +31,11 @@ go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 multi-provider client (`connect` / `status` / `sync`), and a TUI dashboard
 (run it with no arguments in a terminal).
 
+The installers verify the download against the release's `sha256sums.txt` and stop
+without it. For a stronger proof that an asset was built by this repository's release
+workflow, with the `gh` CLI: `gh attestation verify <file> --repo BeppeTemp/cartographer`
+(optional; [D1022](decisions/D1022-releases-carry-build-provenance.md)).
+
 If an **agent** is performing the installation on your behalf, it follows the
 imperative [agent-driven installation runbook](agent-install.md) instead of this
 human walkthrough — a repository link is all it needs to start, and it will ask

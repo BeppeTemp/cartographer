@@ -4,7 +4,7 @@ topic: deployment-release
 
 # D192 — Onboarding and release hygiene: text that lied, hints that could not be run, paths that ended half-done
 
-**Status: implemented.** Closes #246.
+**Status: implemented; the missing-`sha256sums.txt` case amended by [D1022](D1022-releases-carry-build-provenance.md).** Closes #246.
 
 **Context.** A read-only audit of installation and onboarding found the machinery solid — one
 binary for server and client, Homebrew plus a POSIX installer, four platform targets, an idempotent
@@ -40,7 +40,7 @@ grouping them kept fifteen trivial PRs from competing with the substantive work.
 - **A checksum file that does not cover the asset is an error.** `install.sh` skipped verification
   when the entry was missing, which is the shape a truncated or tampered manifest has. A release
   that ships no `sha256sums.txt` at all remains installable — older tags have none, and refusing
-  them would break a legitimate downgrade. Four scenarios now cover the matrix; the mismatch case
+  them would break a legitimate downgrade (amended by [D1022](D1022-releases-carry-build-provenance.md), which reverses it). Four scenarios now cover the matrix; the mismatch case
   asserts no binary is left behind.
 - **The Cask deprecation is upstream's, and is recorded as such.** Item 13 of the plan prescribed
   replacing `postflight` with `postflight_steps` in `.goreleaser.yaml`. Verified and **corrected

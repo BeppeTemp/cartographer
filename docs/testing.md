@@ -345,7 +345,7 @@ renders it.
 ### Packaging (`install.sh` and the generated Cask)
 
 `make test-install` runs the network-free suite under `test/install/` plus
-`test/install/goreleaser_guard.sh`, and runs in CI after `make e2e`. The
+`test/install/goreleaser_guard.sh` (which also pins that the SBOMs are published and no asset name moved), and runs in CI after `make e2e`. The
 scenarios drive `install.sh` against a fake `curl` and a **stateful fake
 installed binary** that records its invocations and returns a scripted exit
 code, so the D121 contract is asserted without downloading a release or
@@ -357,8 +357,8 @@ code) fails visibly but only *after* the new binary is in place.
 Since D192 the suite also covers the checksum path — a matching digest installs
 and says `checksum OK`, a mismatch fails without leaving a binary behind, a
 `sha256sums.txt` that exists but does not cover the asset is an **error** rather
-than a silent skip, and a release shipping no checksum file at all still
-installs — and the `uninstall` branches: nothing installed, a binary with no
+than a silent skip, and so is a manifest that cannot be downloaded (D1022: every
+release since v0.1.0 ships one, so its absence is never an old tag) — and the `uninstall` branches: nothing installed, a binary with no
 units, a unit present (refused, non-zero, nothing removed), `--binary-only`
 (proceeds and states what it left behind), and a partial state such as a timer
 without a service.

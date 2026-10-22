@@ -1,7 +1,8 @@
 #!/bin/sh
-# scenarios/11_checksum_absent.sh (D192) — a release that ships no
-# sha256sums.txt at all is still installable: older tags have none, and
-# refusing them would break a legitimate downgrade.
+# scenarios/11_checksum_absent.sh (D192, D1022) — a manifest that cannot be
+# fetched is an error: every release since v0.1.0 ships sha256sums.txt, so its
+# absence is a broken release or a request dropped to skip verification, never
+# an old tag.
 
 SCENARIO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 INSTALL_TEST_DIR=$(CDPATH= cd -- "${SCENARIO_DIR}/.." && pwd)
@@ -27,8 +28,17 @@ write_fake_binary "$NEW_BINARY" "$FAKE_TAG"
 run_install install
 
 echo "--- Assertions ---"
-assert_eq "$INSTALL_RC" "0" "a release with no checksum file still installs"
-assert_executable "$DEST" "the binary is installed"
+if [ "$INSTALL_RC" -eq 0 ]; then
+    _assert_fail "a release whose checksum file cannot be fetched must fail the install (rc=0)"
+else
+    _assert_pass "a release whose checksum file cannot be fetched fails the install"
+fi
+assert_file_contains "$INSTALL_OUTPUT_FILE" "cannot download sha256sums.txt" "the failure names the missing manifest"
+if [ -e "$DEST" ]; then
+    _assert_fail "nothing unverified may be installed: ${DEST} exists"
+else
+    _assert_pass "no binary is installed"
+fi
 
 install_report "$SCENARIO_NAME"
 exit $?

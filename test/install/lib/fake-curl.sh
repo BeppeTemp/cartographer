@@ -3,13 +3,13 @@
 # Installed as `curl` at the front of PATH so install.sh's auth_curl() calls
 # land here instead of the network. Recognizes exactly the three requests
 # install.sh makes: the release-list API call, the asset download, and the
-# optional sha256sums.txt (see FAKE_SHA_MODE).
+# sha256sums.txt (see FAKE_SHA_MODE).
 #
 # Driven by env vars set by lib/harness.sh:
 #   FAKE_TAG          tag_name returned for the release-list API call
 #   FAKE_NEW_BINARY   path to the fixture copied in as the "downloaded" asset
 #   FAKE_SHA_MODE     how to answer the sha256sums.txt request (D192):
-#                       absent   — 404, as before: a release that ships none
+#                       absent   — 404: a release whose manifest cannot be fetched (D1022)
 #                       valid    — the real sha256 of FAKE_NEW_BINARY
 #                       mismatch — a well-formed line with the wrong digest
 #                       noasset  — a file that covers some other asset only
@@ -39,7 +39,7 @@ case "$url" in
         # The asset request always precedes this one, and it recorded the
         # exact asset name install.sh derived for this platform.
         asset=$(cat "${SCENARIO_TMP:-/tmp}/last-asset" 2>/dev/null || echo "unknown-asset")
-        case "${FAKE_SHA_MODE:-absent}" in
+        case "${FAKE_SHA_MODE:-valid}" in
             valid)
                 digest=$( (sha256sum "${FAKE_NEW_BINARY}" 2>/dev/null || shasum -a 256 "${FAKE_NEW_BINARY}") | cut -d' ' -f1)
                 printf '%s  %s\n' "$digest" "$asset" > "${out:-/dev/stdout}"
