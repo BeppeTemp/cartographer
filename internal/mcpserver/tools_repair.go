@@ -664,7 +664,9 @@ func dropArtifactFrontmatterKey(k *kb.KB, rel, key string) error {
 // diverged are a person's merge, not a mechanical move. Nothing is touched when
 // a check fails, and a second run finds no from directory.
 func moveLegacySkill(k *kb.KB, from, to string) error {
-	for _, rel := range []string{from, to} {
+	// from/SKILL.md too: the KB comes from a remote, and a SKILL.md that is a
+	// link would make the WriteFile below truncate its target outside the KB.
+	for _, rel := range []string{from + "/SKILL.md", to} {
 		if err := rejectArtifactSymlinks(k.Root, rel); err != nil {
 			return err
 		}

@@ -92,6 +92,35 @@ func TestRepairLegacySkillName_ConflictLeavesBothCopies(t *testing.T) {
 	}
 }
 
+// A legacy SKILL.md that is a symlink is refused: the repair would otherwise
+// write the renamed text through it, into a file outside the KB.
+func TestRepairLegacySkillName_RefusesASymlinkedSkillFile(t *testing.T) {
+	t.Parallel()
+	k, s := repairKB(t, 0)
+	outside := filepath.Join(t.TempDir(), "victim.md")
+	if err := os.WriteFile(outside, []byte(legacySkillText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(k.Root, "skills", "kb-create")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "SKILL.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	out := repairApply(t, s, "legacy_skill_name")
+	if applied, _ := out["applied"].(float64); applied != 0 {
+		t.Fatalf("a symlinked SKILL.md must not be moved: %v", out)
+	}
+	if raw, err := os.ReadFile(outside); err != nil || string(raw) != legacySkillText {
+		t.Fatalf("the link target outside the KB changed: %v %q", err, raw)
+	}
+	if _, err := os.Lstat(filepath.Join(k.Root, "skills", "cartographer-kb-create")); !os.IsNotExist(err) {
+		t.Fatalf("the new directory must not exist: %v", err)
+	}
+}
+
 // skill_install still answers to a name the bundle had before D958, installs
 // under the current name, and says so.
 func TestSkillInstall_LegacyNameInstallsUnderTheNewName(t *testing.T) {
