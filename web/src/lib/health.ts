@@ -198,6 +198,7 @@ const LABELS: Record<string, string> = {
   cross_kb_path: "Artifacts reaching into another KB",
   junk_asset: "Junk assets",
   missing_instructions: "No instructions for agents",
+  artifact_unused: "Unused skills and agents",
   hook_invalid: "Invalid hooks",
   unused_placeholder: "Placeholders nobody uses",
 };
@@ -293,6 +294,8 @@ const HELP: Record<string, string> = {
   symlinked_path: "A symlink under data/ or services/. Concepts and assets never follow it, so what it points to is invisible.",
   junk_asset: "A system or editor file among the assets.",
   missing_instructions: "No instructions.md telling agents how to work on this KB.",
+  artifact_unused:
+    "A skill or agent no client has invoked since it was added, or not for longer than usage_stale_days (Settings).",
   missing_registry: "Placeholders are cited but paths.yaml does not exist.",
   unused_placeholder: "A placeholder declared in paths.yaml that no page uses.",
 };
@@ -317,6 +320,7 @@ const DECIDE: Record<string, string> = {
   junk_file: "Remove the file from git.",
   symlinked_path: "Remove the link from git (git rm); commit the real file instead.",
   junk_asset: "Remove the file.",
+  artifact_unused: "Delete the artifact, or fix its description so a client picks it up.",
   missing_registry: "Create paths.yaml declaring the placeholders the pages cite.",
   skill_git_command: "Rewrite the step to use the tools.",
   stale_claim: "Check the page is still true, then set a new review date.",

@@ -423,7 +423,8 @@ func countExpanded(t *testing.T, root string, th *theme) int {
 
 // A profiled KB that does not plant findings opens clean: lint reports only
 // what the mix itself puts there (a journal whose pages carry a status that
-// reads as valid, not as open work), never a structural defect.
+// reads as valid, not as open work), never a structural defect. An unused
+// skill (D1043) is the fleet's usage reports doing their job, not a defect.
 func TestProfiledKBsOpenClean(t *testing.T) {
 	for _, name := range profiled {
 		if profiles[name].Plant {
@@ -440,7 +441,7 @@ func TestProfiledKBsOpenClean(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, f := range findings {
-				if f.Check != "status_semantics" {
+				if f.Check != "status_semantics" && f.Check != "artifact_unused" {
 					t.Errorf("%s: %s: %s", f.Check, f.Path, f.Message)
 				}
 			}

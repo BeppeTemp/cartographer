@@ -395,6 +395,10 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	hasSecretsDir := secretsDirExists(k)
 	if scopeNorm == "" {
 		findings = append(findings, checkArtifacts(k, opts, instr, len(allConcepts), hasSecretsDir)...)
+		// Not in ArtifactFindings: it reads the usage store and git history,
+		// and its callers hold a lock (D1043).
+		skills, _ := loadSkills(k)
+		findings = append(findings, checkArtifactsUnused(k, skills)...)
 	}
 	// junkAssets are the junk files the expanded-concept pass reported as
 	// junk_asset, so the whole-tree junk_file pass does not report them twice.

@@ -193,39 +193,12 @@ func uiBirths(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 		writeUIInternal(w, "births: git log", err)
 		return
 	}
-	born := map[string]time.Time{}
-	// git log is newest first: the history is replayed from the oldest commit.
-	for i := len(commits) - 1; i >= 0; i-- {
-		for _, file := range commits[i].Files {
-			if isCartographerPath(file.Path) {
-				continue
-			}
-			id, ok := kb.GitPathToConceptID(file.Path)
-			switch file.Status {
-			case "A":
-				if ok {
-					if _, seen := born[id]; !seen {
-						born[id] = commits[i].At
-					}
-				}
-			case "R":
-				at := commits[i].At
-				if oldID, oldOK := kb.GitPathToConceptID(file.OldPath); oldOK {
-					if prev, seen := born[oldID]; seen {
-						at = prev
-					}
-					delete(born, oldID)
-				}
-				if ok {
-					born[id] = at
-				}
-			case "D":
-				if ok {
-					delete(born, id)
-				}
-			}
+	born := gitx.Births(commits, func(path string) (string, bool) {
+		if isCartographerPath(path) {
+			return "", false
 		}
-	}
+		return kb.GitPathToConceptID(path)
+	})
 	out := make(map[string]string, len(born))
 	for id, at := range born {
 		if Visible(ctx, k, id) {

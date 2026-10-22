@@ -816,3 +816,58 @@ func usageArtifacts(k *kb.KB, skills []skill.Skill) []UsageArtifact {
 	}
 	return items
 }
+
+// checkArtifactsUnused reports the skills and agents nobody uses (D1043): never
+// invoked since they were added, or not invoked for longer than the threshold.
+// Three guards keep it honest. A KB whose usage store is empty reports nothing
+// (no client scans usage there, so everything would be "never used"). A
+// catalogue load is not a use, as kb_status counts it. An artifact is never
+// "never used" before it is UsageStale days old: its birth is the commit that
+// added its file, and one with no history is skipped.
+func checkArtifactsUnused(k *kb.KB, skills []skill.Skill) []Finding {
+	entries, err := k.LoadUsage()
+	if err != nil || len(entries) == 0 {
+		return nil
+	}
+	items := usageArtifacts(k, skills)
+	if len(items) == 0 {
+		return nil
+	}
+	usage := kb.SummarizeUsage(entries)
+	staleDays := k.Policy().UsageStale()
+	now := Now()
+	var births map[string]time.Time
+	var findings []Finding
+	for _, a := range items {
+		u, seen := usage[kb.UsageKey(a.Kind, a.Name)]
+		var msg string
+		switch UsageState(u, seen, staleDays, now) {
+		case UsageNever, UsageCatalog:
+			if births == nil {
+				births = artifactBirths(k)
+			}
+			born, ok := births[a.Path]
+			if !ok || int(now.Sub(born).Hours()/24) <= staleDays {
+				continue
+			}
+			msg = fmt.Sprintf("%s %s was never invoked since it was added on %s", a.Kind, a.Name, born.UTC().Format("2006-01-02"))
+		case UsageStale:
+			msg = fmt.Sprintf("%s %s was last used %d days ago by %s (threshold %d days)", a.Kind, a.Name, int(now.Sub(u.LastUsed).Hours()/24), u.Provider, staleDays)
+		default:
+			continue
+		}
+		msg += ": delete it, or fix its description so a client selects it"
+		findings = append(findings, newFinding("artifact_unused", Finding{Path: a.Path, Message: msg, Artifact: true}))
+	}
+	return findings
+}
+
+// artifactBirths is when each file of the KB first entered its repository, one
+// git call for all of them. A KB that is not a repository has none.
+func artifactBirths(k *kb.KB) map[string]time.Time {
+	commits, err := gitx.LogNameStatus(k.Root, time.Unix(0, 0))
+	if err != nil {
+		return nil
+	}
+	return gitx.Births(commits, func(path string) (string, bool) { return path, true })
+}

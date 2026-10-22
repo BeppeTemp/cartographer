@@ -536,6 +536,9 @@ func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) ([]l
 func lintInputsStamp(k *kb.KB) string {
 	root := filepath.Dir(k.DataRoot())
 	h := sha256.New()
+	// artifact_unused ages with the clock: a finding can appear with no file
+	// changing, so the UTC date is an input (D1043).
+	fmt.Fprintf(h, "%s\n", time.Now().UTC().Format("2006-01-02"))
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -551,9 +554,9 @@ func lintInputsStamp(k *kb.KB) string {
 		// .cartographer holds local state the server rewrites as it serves:
 		// the search index, the read and search-miss telemetry, the lint
 		// history (D370), the usage reports and the repair log. Counting them
-		// made every concept_read or search invalidate the whole-KB lint (D736);
-		// lint reads none of them (usage.json fed artifact_unused until D947).
-		if strings.HasPrefix(filepath.ToSlash(rel), ".cartographer/") {
+		// made every concept_read or search invalidate the whole-KB lint (D736).
+		// The one exception is usage.json, which artifact_unused reads (D1043).
+		if strings.HasPrefix(filepath.ToSlash(rel), ".cartographer/") && filepath.ToSlash(rel) != ".cartographer/usage.json" {
 			return nil
 		}
 		if strings.HasSuffix(name, ".md") && name != "index.md" && name != "_map.md" && name != "_archive.md" && strings.HasPrefix(filepath.ToSlash(rel), "data/") {

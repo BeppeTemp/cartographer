@@ -168,8 +168,8 @@ func TestLintOutputFixShape(t *testing.T) {
 }
 
 // The server's own local state under .cartographer — telemetry rewritten by
-// every read and search, the search index, the usage reports — does not
-// invalidate the lint cache (D736, D947).
+// every read and search, the search index — does not invalidate the lint
+// cache (D736). usage.json is the exception (D1043), pinned below.
 func TestLintInputsStampIgnoresServerState(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
@@ -178,13 +178,30 @@ func TestLintInputsStampIgnoresServerState(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := lintInputsStamp(k)
-	// usage.json included: lint reads no usage since artifact_unused went (D947).
-	for _, name := range []string{"read-access.json", "search-misses.jsonl", "index.db", "auto-repair-log.jsonl", "usage.json"} {
+	for _, name := range []string{"read-access.json", "search-misses.jsonl", "index.db", "auto-repair-log.jsonl"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if got := lintInputsStamp(k); got != before {
 		t.Fatal("server state under .cartographer changed the lint stamp")
+	}
+}
+
+// artifact_unused reads the usage reports (D1043): a change to usage.json
+// invalidates the whole-KB lint cache, any other .cartographer file does not.
+func TestLintInputsStampSeesUsageJSON(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	dir := filepath.Join(k.Root, ".cartographer")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := lintInputsStamp(k)
+	if err := os.WriteFile(filepath.Join(dir, "usage.json"), []byte(`{"entries":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if lintInputsStamp(k) == before {
+		t.Fatal("usage.json did not change the lint stamp")
 	}
 }

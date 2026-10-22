@@ -1,5 +1,6 @@
 import {
   categoryHue,
+  checkHelp,
   checkLabel,
   filterReportByMap,
   groupByCategory,
@@ -32,6 +33,13 @@ describe("checkLabel", () => {
   it("says what a check finds, and falls back to its name", () => {
     expect(checkLabel("orphan")).toBe("Pages nothing links to");
     expect(checkLabel("some_new_check")).toBe("Some new check");
+  });
+});
+
+describe("artifact_unused", () => {
+  it("has a label and says what it looks for (D1043)", () => {
+    expect(checkLabel("artifact_unused")).toBe("Unused skills and agents");
+    expect(checkHelp("artifact_unused")).toMatch(/usage_stale_days/);
   });
 });
 
