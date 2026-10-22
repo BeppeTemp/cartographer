@@ -150,8 +150,13 @@ describe("the Settings panel", () => {
     // Below the settings, one section per KB with its own client settings, named by their YAML key.
     const kbA = screen.getByRole("list", { name: "Client settings of kb-a" });
     expect(within(kbA).getByLabelText("Value of clients.<agent>.kbs")).toHaveTextContent("claude");
-    expect(within(kbA).getByLabelText("Value of workspaces")).toHaveTextContent("claude: $HOME/work");
-    expect(within(kbA).getByLabelText("Value of paths")).toHaveTextContent("repo:infra → $HOME/src/infra");
+    // A value with keys is a table under its row, one key a line.
+    const where = within(kbA).getByLabelText("Entries of workspaces");
+    expect(where).toHaveTextContent("claude");
+    expect(where).toHaveTextContent("$HOME/work");
+    const paths = within(kbA).getByLabelText("Entries of paths");
+    expect(paths).toHaveTextContent("repo:infra");
+    expect(paths).toHaveTextContent("$HOME/src/infra");
     // the KBs are pills, the active one picked
     const picker = screen.getByRole("group", { name: "Knowledge bases on this machine" });
     expect(within(picker).getByRole("button", { name: "kb-a" })).toHaveAttribute("aria-pressed", "true");

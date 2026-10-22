@@ -3692,6 +3692,10 @@ code.mapcontract__label {
   font-family: var(--font-mono);
   color: var(--text-secondary);
 }
+.settings__map-more {
+  grid-column: 1 / -1;
+  padding-block-start: var(--space-2);
+}
 .settings__map-sub {
   display: inline-flex;
   flex-wrap: wrap;
@@ -3728,6 +3732,11 @@ code.mapcontract__label {
 .settings__row[data-wide] .settings__val {
   align-items: flex-start;
   max-width: none;
+}
+/* A long single value (a path) under its description reads left to right,
+   whole, not right-aligned and broken in a pill beside it. */
+.settings__row[data-wide] .settings__value:not(.settings__value--list) {
+  text-align: start;
 }
 .settings__row[data-wide] .settings__value--list {
   flex-direction: row;
