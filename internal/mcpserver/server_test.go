@@ -6122,6 +6122,15 @@ func TestChangesSinceLastEditAt(t *testing.T) {
 	if upkept.ID == "" || upkept.LastEditAt != "" {
 		t.Errorf("a concept only auto-repair touched has no last_edit_at: %+v", upkept)
 	}
+	// Every change of the window is counted by day, not only each concept's
+	// newest one, with the upkeep apart (D1057).
+	var work, upkeep int
+	for _, d := range result.ChangesByDay {
+		work, upkeep = work+d.Work, upkeep+d.Upkeep
+	}
+	if work != 1 || upkeep != 2 {
+		t.Errorf("changes_by_day sums to work=%d upkeep=%d, want 1 and 2: %+v", work, upkeep, result.ChangesByDay)
+	}
 }
 
 // A page moved away and back within the window (A→B, then B→A) made the

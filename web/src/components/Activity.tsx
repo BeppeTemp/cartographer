@@ -164,7 +164,15 @@ export function Activity({
     [filtered, kinds, showUpkeep],
   );
   const days = useMemo(() => groupByDay(rows), [rows]);
-  const histogram = useMemo(() => perDay(filtered, kinds, DAYS[shown]), [filtered, kinds, shown]);
+  // The server's day series counts every change of the window; the concepts
+  // keep each one once, at its newest change, so they only stand in when a
+  // filter narrows the page (the series cannot be filtered) or the server is
+  // older than the series (D1057).
+  const byDay = map === null && author === null ? data?.changes_by_day : undefined;
+  const histogram = useMemo(
+    () => perDay(filtered, kinds, DAYS[shown], byDay),
+    [filtered, kinds, shown, byDay],
+  );
   const top = useMemo(() => mostWorked(filtered), [filtered]);
 
   return (
@@ -647,11 +655,24 @@ function groupByDay(rows: ConceptChange[]): { key: string; label: string; items:
 
 /** One bar per day of the window -- or, for the whole history, from the
  *  oldest change on -- oldest first, today last. */
-function perDay(rows: ConceptChange[], kinds: Map<ConceptChange, ChangeKind>, days: number | null): DayBar[] {
+function perDay(
+  rows: ConceptChange[],
+  kinds: Map<ConceptChange, ChangeKind>,
+  days: number | null,
+  byDay?: Record<string, { work: number; upkeep?: number }>,
+): DayBar[] {
   const today = startOfDay(Date.now());
+  // A UTC day of the server's series, at its noon: the local day it falls on
+  // for every offset within twelve hours of UTC.
+  const series = byDay
+    ? Object.entries(byDay)
+        .map(([d, n]) => ({ t: Date.parse(`${d}T12:00:00Z`), n }))
+        .filter((e) => Number.isFinite(e.t))
+    : null;
   let span = days;
   if (span === null) {
-    const oldest = Math.min(today, ...rows.map((c) => Date.parse(changedAt(c))).filter(Number.isFinite));
+    const times = series ? series.map((e) => e.t) : rows.map((c) => Date.parse(changedAt(c))).filter(Number.isFinite);
+    const oldest = Math.min(today, ...times);
     span = Math.max(2, Math.round((today - startOfDay(oldest)) / DAY_MS) + 1);
   }
   const bars: DayBar[] = Array.from({ length: span }, (_, i) => {
@@ -668,6 +689,15 @@ function perDay(rows: ConceptChange[], kinds: Map<ConceptChange, ChangeKind>, da
     };
   });
   const index = new Map(bars.map((b, i) => [dayKey(b.day), i]));
+  if (series) {
+    for (const { t, n } of series) {
+      const i = index.get(dayKey(t));
+      if (i === undefined) continue;
+      bars[i]!.work += n.work;
+      bars[i]!.upkeep += n.upkeep ?? 0;
+    }
+    return bucket(bars);
+  }
   for (const c of rows) {
     const t = Date.parse(changedAt(c));
     const i = Number.isFinite(t) ? index.get(dayKey(t)) : undefined;
