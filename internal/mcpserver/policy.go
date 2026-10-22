@@ -33,6 +33,7 @@ const (
 	denyMissingID        = "missing_id"
 	denyNoKBAccess       = "no_kb_access"
 	denyNoPrincipal      = "no_principal"
+	denyUnboundFolder    = "unbound_folder"
 )
 
 var denyHints = map[string]string{
@@ -45,6 +46,8 @@ var denyHints = map[string]string{
 	denyMissingID:        "this write needs a non-empty id",
 	denyNoKBAccess:       "the token has no access to this KB",
 	denyNoPrincipal:      "no principal resolved for this connection",
+	denyUnboundFolder: "this session is read-only because the folder it was started in is bound to no KB: " +
+		"bind the folder (cartographer workspace bind <provider> <path> --kb <name>) or declare its repository in a KB's paths.yaml, then start a new agent session",
 }
 
 // deny builds the reasoned denial for code, with an optional replacement hint.

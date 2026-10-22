@@ -59,3 +59,25 @@ func TestSchemaEntriesAreComplete(t *testing.T) {
 		}
 	}
 }
+
+// The mode is described where it is chosen: both keys state the read-only rule
+// of an unbound folder, because the file the client writes is where a person
+// meets it first.
+func TestSchemaDescribesTheReadOnlyRule(t *testing.T) {
+	for _, path := range []string{"scopes", "workspaces"} {
+		var desc string
+		for _, k := range Schema.Keys {
+			if k.Path == path {
+				desc = k.Description
+			}
+		}
+		if !strings.Contains(desc, "read-only") {
+			t.Errorf("%s: the description does not name the read-only rule: %q", path, desc)
+		}
+	}
+	for _, k := range Schema.Keys {
+		if k.Path == "workspaces" && !strings.Contains(k.Description, "deepest binding wins") {
+			t.Errorf("workspaces: the description does not say the deepest binding wins")
+		}
+	}
+}

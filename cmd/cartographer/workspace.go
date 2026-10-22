@@ -440,6 +440,11 @@ func renderWorkspaceResolve(cfg *clientconfig.Config, path string, providers []s
 			}
 			fmt.Fprintf(&sb, "  unbound: the provider's binding  ->  %s\n", kbs)
 		}
+		// Only a bridge entry carries the mode: an http entry is not narrowed
+		// by any binding, so it is not made read-only either.
+		if entry == "bridge" && scope.ReadOnly && scope.Err == nil {
+			fmt.Fprintf(&sb, "  read-only: no write tool and no KB artifact here; bind the folder to write\n")
+		}
 		if entry == "bridge" && scope.Binding == nil && scope.Err == nil {
 			fmt.Fprintf(&sb, "  a client that declares MCP roots can still bind this session through them\n")
 		}

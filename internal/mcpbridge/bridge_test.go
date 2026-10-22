@@ -186,19 +186,102 @@ func TestBridgeProxiesToTheBoundSet(t *testing.T) {
 	}
 }
 
-// An unbound folder keeps today's behaviour: the whole routed endpoint.
+// An unbound folder reaches the whole routed endpoint, read-only: no kbs=, and
+// access=read, which the server enforces.
 func TestBridgeUnboundFolderSendsNoKbs(t *testing.T) {
 	rs := newRoutedServer(t, "kb-a", "kb-b")
 	cfg := bridgeConfig(rs)
 	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir(), Token: testToken}
-	got := exchange(t, b, initMsg, initedMsg, callMsg(3, "kb_status", "kb-b"))
+	got := exchange(t, b, initMsg, initedMsg, listMsg, callMsg(3, "kb_status", "kb-b"))
 	if text, isErr := toolText(t, got["3"]); isErr {
 		t.Fatalf("unbound folder refused kb-b: %s", text)
 	}
 	for _, u := range rs.seen() {
-		if strings.Contains(u, "kbs=") {
-			t.Fatalf("unbound folder sent %q", u)
+		if strings.Contains(u, "kbs=") || !strings.HasSuffix(u, "?access=read") {
+			t.Fatalf("unbound folder sent %q, want the bare routed path with access=read", u)
 		}
+	}
+	res, _ := got["2"]["result"].(map[string]any)
+	tools, _ := res["tools"].([]any)
+	if len(tools) == 0 {
+		t.Fatal("an unbound folder lists no tool")
+	}
+	for _, raw := range tools {
+		name, _ := raw.(map[string]any)["name"].(string)
+		if mcpserver.ToolRequiresWrite(name) {
+			t.Errorf("unbound folder lists the write tool %q", name)
+		}
+	}
+}
+
+// An unbound folder with an explicit provider binding (D169) is read-only too;
+// a bound folder is not.
+func TestBridgeReadOnlyOnlyWhenUnbound(t *testing.T) {
+	rs := newRoutedServer(t, "kb-a", "kb-b")
+	cfg := bridgeConfig(rs)
+	cfg.Clients = map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"kb-b"}, KBsSet: true}}
+	ws := mkdir(t, t.TempDir())
+	bind(t, cfg, ws, "kb-a")
+
+	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir(), Token: testToken}
+	exchange(t, b, initMsg, initedMsg, listMsg)
+	for _, u := range rs.seen() {
+		if !strings.HasSuffix(u, "?kbs=kb-b&access=read") {
+			t.Fatalf("unbound folder with a provider binding sent %q", u)
+		}
+	}
+
+	rs = newRoutedServer(t, "kb-a", "kb-b")
+	cfg.ServerURL = rs.URL + "/mcp"
+	b = &Bridge{Cfg: cfg, Provider: "claude", Dir: ws, Token: testToken}
+	got := exchange(t, b, initMsg, initedMsg, listMsg)
+	for _, u := range rs.seen() {
+		if strings.Contains(u, "access") {
+			t.Fatalf("a bound folder asked for read-only: %q", u)
+		}
+	}
+	res, _ := got["2"]["result"].(map[string]any)
+	hasWrite := false
+	for _, raw := range res["tools"].([]any) {
+		if mcpserver.ToolRequiresWrite(raw.(map[string]any)["name"].(string)) {
+			hasWrite = true
+		}
+	}
+	if !hasWrite {
+		t.Error("a bound folder must list write tools")
+	}
+}
+
+// Fail closed across versions: a server that does not confirm read-only mode
+// (it ignores ?access=) is not proxied; the session has no tools.
+func TestBridgeServerWithoutConfirmationServesNoTools(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"concept_write","inputSchema":{"type":"object"}}]}}`)
+	}))
+	defer srv.Close()
+	cfg := &clientconfig.Config{
+		ServerName: "cartographer", ServerURL: srv.URL + "/mcp", ServerRoutedPath: mcpserver.RoutedMountPath,
+		KnownKBs: []string{"kb-a"},
+	}
+	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir()}
+	got := exchange(t, b, initMsg, initedMsg, listMsg, callMsg(3, "concept_write", "kb-a"))
+
+	if n := hits.Load(); n != 1 {
+		t.Fatalf("the bridge kept proxying to an unconfirmed server (%d requests)", n)
+	}
+	// The first response is replaced by the local answer, not relayed.
+	res, _ := got["1"]["result"].(map[string]any)
+	if instr, _ := res["instructions"].(string); !strings.Contains(instr, "upgraded") {
+		t.Fatalf("initialize instructions = %v", res["instructions"])
+	}
+	if tools, _ := got["2"]["result"].(map[string]any)["tools"].([]any); len(tools) != 0 {
+		t.Fatalf("tools = %v, want none", tools)
+	}
+	if got["3"]["error"] == nil {
+		t.Fatalf("a tool call must be refused locally: %v", got["3"])
 	}
 }
 

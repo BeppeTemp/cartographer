@@ -42,6 +42,18 @@ func (s *Server) sdkImplementation() *sdk.Implementation {
 	return &sdk.Implementation{Name: name, Version: s.version}
 }
 
+// readOnlyInstructions is the initialize instructions of a read-only routed
+// session: one sentence, so the agent knows why it has no write tool.
+const readOnlyInstructions = "This session is read-only: the folder it was started in is bound to no KB, so only read tools are available. " +
+	"Bind the folder with `cartographer workspace bind <provider> <path> --kb <name>` to write."
+
+func (s *Server) sessionInstructions() string {
+	if s.readOnlySession {
+		return readOnlyInstructions
+	}
+	return ""
+}
+
 // SDKServer returns the SDK server for this Server, building it on first use.
 //
 // It is built once and memoised because the SDK infers its advertised
@@ -63,6 +75,7 @@ func (s *Server) buildSDKServer() *sdk.Server {
 		// D151's rule that a capability is advertised only where it is
 		// implemented.
 		Capabilities: &sdk.ServerCapabilities{},
+		Instructions: s.sessionInstructions(),
 	})
 
 	s.mu.Lock()
@@ -272,7 +285,9 @@ func (s *Server) rosterMiddleware() sdk.Middleware {
 // agentProfileMiddleware hides advanced tools from tools/list while leaving
 // them callable through tools/call (D65). The SDK lists every tool added to
 // it, so the filter is applied to the result rather than at registration —
-// registering them is what keeps them callable.
+// registering them is what keeps them callable. A read-only routed session
+// (readOnlySession) also drops every write tool from the list; those stay
+// registered so a call is refused with a reason, not with "tool not found".
 func (s *Server) agentProfileMiddleware() sdk.Middleware {
 	return func(next sdk.MethodHandler) sdk.MethodHandler {
 		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
@@ -282,8 +297,9 @@ func (s *Server) agentProfileMiddleware() sdk.Middleware {
 			}
 			s.mu.Lock()
 			hide := s.agentProfile
+			readOnly := s.readOnlySession
 			s.mu.Unlock()
-			if !hide {
+			if !hide && !readOnly {
 				return res, nil
 			}
 			list, ok := res.(*sdk.ListToolsResult)
@@ -292,7 +308,12 @@ func (s *Server) agentProfileMiddleware() sdk.Middleware {
 			}
 			kept := make([]*sdk.Tool, 0, len(list.Tools))
 			for _, t := range list.Tools {
-				if ToolAdvanced(t.Name) {
+				if hide && ToolAdvanced(t.Name) {
+					continue
+				}
+				// A read-only session lists only what it may call; the call
+				// itself is refused by the routed authorizer (denyUnboundFolder).
+				if readOnly && ToolRequiresWrite(t.Name) {
 					continue
 				}
 				kept = append(kept, t)

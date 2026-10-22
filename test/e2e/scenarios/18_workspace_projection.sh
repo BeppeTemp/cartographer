@@ -19,7 +19,8 @@
 #   4. The two workspaces are independent: unbinding one prunes only its files.
 #   5. Generated files do not dirty the repository: .git/info/exclude carries
 #      Cartographer's block, .gitignore is untouched, `git status` is clean.
-#   6. An unbound workspace is fail-closed: it receives no KB artifact at all.
+#   6. An unbound workspace is fail-closed: it receives no KB artifact at all,
+#      and its MCP session is read-only: only read tools are listed (#1018).
 #
 # Expected environment variables: E2E_TMP_DIR, E2E_HTTP_PORT, REPO_ROOT.
 
@@ -176,6 +177,19 @@ if [[ -d "${WS_UNBOUND}/.claude/skills" ]]; then
 else
     _assert_pass "an unbound workspace receives no KB artifact"
 fi
+
+# #1018: the same folder gets the provider's KBs through the stdio bridge, but
+# read-only. The server enforces it: tools/list carries no write tool.
+UNBOUND_TOOLS="${DIR}/unbound-tools.json"
+(cd "$WS_UNBOUND" && HOME="$SANDBOX" "$BIN" mcp --provider claude <<'MCP'
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"e2e","version":"1"}}}
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+{"jsonrpc":"2.0","id":2,"method":"tools/list"}
+MCP
+) >"$UNBOUND_TOOLS" 2>"${DIR}/unbound-tools.err"
+assert_file_contains "$UNBOUND_TOOLS" '"name":"concept_read"'
+assert_file_not_contains "$UNBOUND_TOOLS" '"name":"concept_write"'
+assert_file_not_contains "$UNBOUND_TOOLS" '"name":"concept_patch"'
 
 echo ""
 echo "--- Phase 5: the repository is not dirtied ---"
