@@ -49,7 +49,7 @@ touches a package with platform-specific code — `cmd/`, `internal/{service,pro
 the installers, any `*_windows.go` (D672). A regression elsewhere still shows
 on `main` right after the merge. The `web` legs run after every push to `main`
 and on a PR that touches the frontend, `test/lib/`, the build files, or a
-non-test file of a package `bin/cartographer` imports: `internal/{changelog,repodocs,testkbs,webui/gen}`
+non-test file of a package `bin/cartographer` imports: `internal/{changelog,kbtest,repodocs,testkbs,testtree,webui/gen}`
 and every `_test.go` cannot change what the browser sees (D672, D255, D994); the
 Playwright browser is cached by version. A `demo-edge` job runs the demo
 Worker's tests (`make demo-worker-test`) and, for Terraform changes, `make demo-tf-check`
@@ -97,6 +97,23 @@ because the Windows filesystem has no execute bit (D219). A skip on that leg
 states what it is about — there is no bit to set or remove, so a `chmod` changes
 nothing and a file that is readable but not executable cannot exist — and a skip
 whose reason is a platform name is not accepted.
+
+A test that needs a blank KB takes it from `kbtest.New(t)` (inside `internal/kb`,
+from `newTestKB`), never from its own `kb.Init`: the suite is dominated by the
+git processes it spawns, and `Init` alone runs about a dozen, so a template
+built once per test binary and copied into a temporary directory of the test (through
+`internal/testtree`) is what keeps the suite fast (D812). `kb.Init` stays in the
+tests whose subject is what `Init` itself does (skeleton, git attributes and
+initial commit, identity, default branch, existing or unborn repositories) and
+in those where the directory name is the subject; `kbtest.New` always names the
+directory `kb`. Test-support packages are never imported by production code
+(`internal/repodocs` fails if one is). To see where the processes go, put a
+`git` wrapper that appends a line to a log and then `exec`s the real binary
+first on `PATH` and count the lines after a run; run it with
+`GIT_CONFIG_COUNT=0` when the environment injects `safe.bareRepository`, which
+breaks the bare-repository tests. On macOS `/usr/bin/git` is an `xcrun` shim
+that costs roughly twice a real binary per call, so a suite that looks slow
+there is mostly paying for process creation, not for the code under test.
 
 Provisioning signature coverage includes deterministic Ed25519 envelopes, strict
 key parsing and identity separation, plus remote `sync_pull` verification and

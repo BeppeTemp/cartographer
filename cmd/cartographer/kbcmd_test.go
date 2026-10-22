@@ -16,6 +16,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 )
 
 // hasGitBinary skips the tests that shell out to git where it is absent.
@@ -404,10 +405,7 @@ func TestCmdKBClone(t *testing.T) {
 	}
 
 	tmp := t.TempDir()
-	src := filepath.Join(tmp, "source")
-	if _, err := kb.Init(src); err != nil {
-		t.Fatalf("kb.Init(source): %v", err)
-	}
+	src := kbtest.New(t).Root
 	branchOut, err := os.ReadFile(filepath.Join(src, ".git", "HEAD"))
 	if err != nil {
 		t.Fatalf("read source HEAD: %v", err)

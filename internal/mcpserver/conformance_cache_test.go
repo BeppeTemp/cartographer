@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
@@ -120,11 +121,7 @@ func TestConformanceCacheDoctorDateCached(t *testing.T) {
 
 func cacheTestKB(t *testing.T) *kb.KB {
 	t.Helper()
-	dir := t.TempDir()
-	k, err := kb.Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
 	if err := k.CreateMapWithContract("arch", "Arch", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}

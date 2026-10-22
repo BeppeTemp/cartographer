@@ -17,7 +17,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 )
 
@@ -40,10 +40,7 @@ func newRoutedServer(t *testing.T, names ...string) *routedServer {
 	multi := mcpserver.NewMultiKBServer("test")
 	scopes := make([]auth.KBScope, 0, len(names))
 	for _, n := range names {
-		k, err := kb.Init(t.TempDir())
-		if err != nil {
-			t.Fatal(err)
-		}
+		k := kbtest.New(t)
 		multi.MountKB(n, func(s *mcpserver.Server) { mcpserver.RegisterKBTools(s, k, mcpserver.Deps{}) })
 		scopes = append(scopes, auth.KBScope{KB: n, Write: true})
 	}

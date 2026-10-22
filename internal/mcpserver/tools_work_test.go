@@ -8,16 +8,14 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 )
 
 // workServer: open work in "visible" (with KB-own priority/owner fields) and
 // in "hidden" (D302).
 func workServer(t *testing.T) (*Server, *kb.KB) {
 	t.Helper()
-	k, err := kb.Init(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
 	k.AuthName = "docs"
 	for _, m := range []string{"visible", "hidden"} {
 		writeKBFile(t, k, m+"/_map.md", "---\ntype: Map\ntitle: "+m+"\n---\n")
@@ -138,10 +136,7 @@ func TestWorkListDescriptionBudget(t *testing.T) {
 // D347: with an open_field, by_status groups by the field's value.
 func TestWorkList_OpenFieldState(t *testing.T) {
 	t.Parallel()
-	k, err := kb.Init(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
 	writeKBFile(t, k, "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\nopen_field: outcome\nopen_statuses: [open]\n---\n")
 	writeKBFile(t, k, "j/a.md", "---\ntype: Incident\ntitle: A\nstatus: active\noutcome: open\n---\n# A\n")
 	writeKBFile(t, k, "j/b.md", "---\ntype: Incident\ntitle: B\nstatus: active\noutcome: resolved\n---\n# B\n")

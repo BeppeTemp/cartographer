@@ -24,11 +24,7 @@ func writeTestFile(t *testing.T, root, rel, content string) {
 
 func TestCommitGate_NoContradictions(t *testing.T) {
 	t.Parallel()
-	dir := tempKB(t)
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	result, err := k.CommitGate([]okf.ConceptID{"arch/concept-a"})
 	if err != nil {
 		t.Fatalf("CommitGate: %v", err)
@@ -40,11 +36,7 @@ func TestCommitGate_NoContradictions(t *testing.T) {
 
 func TestCommitGate_OpenContradiction_NotInvolving(t *testing.T) {
 	t.Parallel()
-	dir := tempKB(t)
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	writeTestFile(t, k.DataRoot(), "conflicts/c1.md", `---
 type: Contradiction
 resolution_status: open
@@ -66,11 +58,7 @@ Body.
 
 func TestCommitGate_OpenContradiction_Involving(t *testing.T) {
 	t.Parallel()
-	dir := tempKB(t)
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	writeTestFile(t, k.DataRoot(), "conflicts/c1.md", `---
 type: Contradiction
 resolution_status: open
@@ -108,11 +96,7 @@ Body.
 
 func TestCommitGate_ResolvedContradiction_NoBlocker(t *testing.T) {
 	t.Parallel()
-	dir := tempKB(t)
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	writeTestFile(t, k.DataRoot(), "conflicts/c1.md", `---
 type: Contradiction
 resolution_status: resolved
@@ -136,10 +120,7 @@ Body.
 // (or none) still does.
 func TestCommitGate_GapKindsDoNotBlock(t *testing.T) {
 	t.Parallel()
-	k, err := Init(tempKB(t))
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	for _, kind := range []string{"open_question", "missing_context"} {
 		writeTestFile(t, k.DataRoot(), "conflicts/"+kind+".md", "---\ntype: Contradiction\nresolution_status: open\ninvolves: [arch/concept-a]\ncontradiction_kind: "+kind+"\n---\nBody.\n")
 	}

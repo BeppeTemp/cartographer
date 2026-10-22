@@ -8,15 +8,13 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 )
 
 // readCostServer: visible/a ↔ visible/b, hidden/h → visible/a (D301).
 func readCostServer(t *testing.T) (*Server, *kb.KB, map[string]int64) {
 	t.Helper()
-	k, err := kb.Init(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
 	k.AuthName = "docs"
 	for _, m := range []string{"visible", "hidden"} {
 		writeKBFile(t, k, m+"/_map.md", "---\ntype: Map\ntitle: "+m+"\n---\n")

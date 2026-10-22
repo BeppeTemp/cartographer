@@ -8,10 +8,7 @@ import (
 
 func usageTestKB(t *testing.T) *KB {
 	t.Helper()
-	k, err := Init(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	return k
 }
 

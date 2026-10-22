@@ -287,12 +287,16 @@ func Init(dir string) error {
 // InitOnBranch is Init with the unborn HEAD pinned to branch instead of
 // DefaultBranch.
 func InitOnBranch(dir, branch string) error {
+	created := false
 	if !IsRepo(dir) {
 		if out, err := runGit(dir, "init"); err != nil {
 			return fmt.Errorf("git init: %w: %s", err, out)
 		}
+		created = true
 	}
-	if HeadUnborn(dir) {
+	// A repository this call just created is unborn by construction: asking
+	// HeadUnborn would spend three more git processes to learn that.
+	if created || HeadUnborn(dir) {
 		// The repository has no commits yet, so moving HEAD is safe and does
 		// not depend on a git version that supports "init -b".
 		if out, err := runGit(dir, "symbolic-ref", "HEAD", "refs/heads/"+branch); err != nil {

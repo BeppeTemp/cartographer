@@ -98,10 +98,7 @@ func TestEnsureGitAttributesIdempotent(t *testing.T) {
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
-	k, err := Init(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	writeRel(t, k.Root, gitAttributesFile, "*.png binary") // no trailing newline
 	tgit(t, k.Root, "commit", "-q", "-am", "other attributes")
 	before := tgit(t, k.Root, "rev-list", "--count", "HEAD")

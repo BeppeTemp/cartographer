@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -16,16 +17,7 @@ import (
 
 func tempKB(t *testing.T) *kb.KB {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "lint-test-*")
-	if err != nil {
-		t.Fatalf("tempKB: %v", err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	k, err := kb.Init(dir)
-	if err != nil {
-		t.Fatalf("kb.Init: %v", err)
-	}
-	return k
+	return kbtest.New(t)
 }
 
 func writeFile(t *testing.T, root, rel, content string) {

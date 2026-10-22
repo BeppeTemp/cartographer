@@ -3,6 +3,8 @@ package repodocs
 import (
 	"flag"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -748,6 +750,36 @@ func TestUnavoidableChecksSayWhy(t *testing.T) {
 			t.Errorf("the docs/data-plane.md table of unavoidable checks lists %q, which is not registered", name)
 		case c.AvoidableAtWrite:
 			t.Errorf("the docs/data-plane.md table lists %q as unavoidable, but the registry marks it AvoidableAtWrite", name)
+		}
+	}
+}
+
+// The fixture packages are test support (D812): a production file importing one
+// would ship test scaffolding in the binary, and kbtest reaches for t.Fatalf on
+// a failure no caller could handle.
+func TestProductionCodeDoesNotImportTestSupport(t *testing.T) {
+	root := repoRoot(t)
+	files, err := TextFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const module = "github.com/BeppeTemp/cartographer/"
+	support := map[string]bool{module + "internal/kbtest": true, module + "internal/testtree": true}
+	fset := token.NewFileSet()
+	for _, rel := range files {
+		if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") ||
+			strings.HasPrefix(rel, "internal/kbtest/") || strings.HasPrefix(rel, "internal/testtree/") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(root, filepath.FromSlash(rel)), nil, parser.ImportsOnly)
+		if err != nil {
+			t.Errorf("parsing %s: %v", rel, err)
+			continue
+		}
+		for _, imp := range f.Imports {
+			if path := strings.Trim(imp.Path.Value, `"`); support[path] {
+				t.Errorf("%s imports %s: test-support packages are for _test.go files only", rel, path)
+			}
 		}
 	}
 }

@@ -15,11 +15,7 @@ import (
 // expanded concept, a self-link, a link to a missing target and an orphan.
 func snapshotKB(t *testing.T) *KB {
 	t.Helper()
-	dir := t.TempDir()
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	write := func(rel, content string) {
 		t.Helper()
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(k.DataRoot(), rel)), 0o755); err != nil {
@@ -358,11 +354,7 @@ func TestGraphSnapshot_LimitDefaultsAndClamps(t *testing.T) {
 
 func TestGraphSnapshot_RootConceptHasNoCollection(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "loose.md"), []byte("---\ntype: Note\n---\nbody\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -377,11 +369,7 @@ func TestGraphSnapshot_RootConceptHasNoCollection(t *testing.T) {
 
 func TestGraphSnapshot_DuplicateLinksCollapseIntoOneEdge(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "m"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -407,11 +395,7 @@ func TestGraphSnapshot_DuplicateLinksCollapseIntoOneEdge(t *testing.T) {
 
 func TestGraphSnapshot_EdgeCapTruncatesWithoutDangling(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	k, err := Init(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := newTestKB(t)
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "m"), 0o755); err != nil {
 		t.Fatal(err)
 	}

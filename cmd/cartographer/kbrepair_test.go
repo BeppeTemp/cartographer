@@ -16,6 +16,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -25,11 +26,7 @@ import (
 // `timestamp`) through an in-process server, and returns a caller for it.
 func repairTestKB(t *testing.T) (toolCaller, string) {
 	t.Helper()
-	root := filepath.Join(t.TempDir(), "kb-a")
-	k, err := kb.Init(root)
-	if err != nil {
-		t.Fatal(err)
-	}
+	k := kbtest.New(t)
 	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
