@@ -254,7 +254,7 @@ func (k *KB) FinalizeConflicts() ([]string, error) {
 		}
 	}
 
-	if _, err := gitx.MergeNoCommitNoFF(k.Root, remoteSHA); err != nil {
+	if _, err := gitx.MergeNoCommitNoFFEnv(k.Root, remoteSHA, ServerGitEnv()...); err != nil {
 		restore()
 		return nil, fmt.Errorf("FinalizeConflicts: merge: %w", err)
 	}

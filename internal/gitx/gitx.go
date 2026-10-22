@@ -1047,8 +1047,19 @@ func ShowFile(dir, ref, path string) (string, error) {
 // merge produced conflicts. A clean merge (conflicted=false) is left staged but
 // uncommitted; a conflicting merge (conflicted=true) leaves the conflicting files
 // unmerged for the caller to resolve. Any other failure is returned as err.
+// A caller working inside a KB must use MergeNoCommitNoFFEnv with
+// kb.ServerGitEnv(), because this plain form needs a host git identity and
+// fails with "empty ident name" without one.
 func MergeNoCommitNoFF(dir, ref string) (conflicted bool, err error) {
-	out, gerr := runGit(dir, "merge", "--no-commit", "--no-ff", ref)
+	return MergeNoCommitNoFFEnv(dir, ref)
+}
+
+// MergeNoCommitNoFFEnv is MergeNoCommitNoFF with env layered on the git
+// process environment. A merge needs a committer identity even with
+// --no-commit, so a caller inside a KB passes kb.ServerGitEnv() or it fails
+// with "empty ident name" on a host with no git identity.
+func MergeNoCommitNoFFEnv(dir, ref string, env ...string) (conflicted bool, err error) {
+	out, gerr := runGitEnv(dir, env, "merge", "--no-commit", "--no-ff", ref)
 	if gerr == nil {
 		return false, nil
 	}
@@ -1385,7 +1396,9 @@ func BranchExists(dir, branch string) bool {
 // write the gate stashed and restored came back rewritten.
 var noEOL = []string{"-c", "core.autocrlf=false"}
 
-// StashPush stashes uncommitted changes.
+// StashPush stashes uncommitted changes. A caller working inside a KB must use
+// StashPushEnv with kb.ServerGitEnv(), because this plain form needs a host git
+// identity and fails with "Committer identity unknown" without one.
 func StashPush(dir string) error {
 	return StashPushEnv(dir)
 }
@@ -1556,6 +1569,9 @@ func DiscardChanges(dir string) error {
 
 // StashPushAll stashes every uncommitted change including untracked files, so
 // the tree is at HEAD until StashPop (StashPush leaves untracked files behind).
+// A caller working inside a KB must use StashPushAllEnv with kb.ServerGitEnv(),
+// because this plain form needs a host git identity and fails with "Committer
+// identity unknown" without one; StashPushEnv explains why.
 func StashPushAll(dir string) error {
 	return StashPushAllEnv(dir)
 }
