@@ -793,74 +793,13 @@ func contentHashBytes(data []byte) string {
 	return fmt.Sprintf("%x", h)
 }
 
-// kbArchive is a top-level archive of a KB (a subdirectory of <kbRoot>/data/
-// holding concept .md pages), with the count of those pages.
-type kbArchive struct {
-	name  string
-	pages int
-}
-
-// kbArchives lists the top-level archives of the KB rooted at kbRoot: the
-// direct subdirectories of <kbRoot>/data/ (where the concept .md pages live,
-// see kb.DataRoot), sorted by name, each with the count of .md pages inside it
-// (recursive). The KB's infrastructure directories (skills/, agents/,
-// hooks/, .cartographer/, .git/) live alongside data/, not inside it, so
-// they are already excluded by construction; their names are still filtered
-// here defensively in case they end up as subdirectories of data/. No error if
-// data/ is missing or unreadable: returns nil (BuildManifest stays best-effort on
-// this purely informational count).
-func kbArchives(kbRoot string) []kbArchive {
-	dataDir := filepath.Join(kbRoot, "data")
-	entries, err := os.ReadDir(dataDir)
-	if err != nil {
-		return nil
-	}
-
-	infra := map[string]bool{
-		"skills": true, "agents": true, "hooks": true, ".cartographer": true, ".git": true,
-	}
-
-	var archives []kbArchive
-	for _, e := range entries {
-		// A dot-directory is never an archive: it is tool state an agent left
-		// in the clone (.omc/, #757), not a map.
-		if !e.IsDir() || infra[e.Name()] || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		archives = append(archives, kbArchive{
-			name:  e.Name(),
-			pages: countMarkdownFiles(filepath.Join(dataDir, e.Name())),
-		})
-	}
-	sort.Slice(archives, func(i, j int) bool { return archives[i].name < archives[j].name })
-	return archives
-}
-
-// countMarkdownFiles counts the files with a ".md" extension under dir, recursively.
-// Best-effort: a walk error simply returns the partial count accumulated
-// so far, it doesn't fail instructions generation over a purely cosmetic
-// count.
-func countMarkdownFiles(dir string) int {
-	n := 0
-	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !d.IsDir() && strings.HasSuffix(d.Name(), ".md") {
-			n++
-		}
-		return nil
-	})
-	return n
-}
-
 // generateKBInstructions generates the content (in English) of the "instructions"
 // imprinting artifact for the KB kbName rooted at kbRoot (D56): tells the LLM
 // agent that this KB exists, lists the names of its top-level archives
-// (§kbArchives) and gives four lines of operational instructions
+// (§KBArchiveNames) and gives four lines of operational instructions
 // (search/atlas_overview/concept_read/concept_write/log_append), then appends
 // the optional curated file <kbRoot>/instructions.md
-// (§kbCuratedInstructionsWithPreamble) — orchestration directives hand-written
+// (§KBCuratedInstructions) — orchestration directives hand-written
 // by the operator, omitted when absent (D61). That file may also suppress the
 // generated bullets entirely (D154).
 //
@@ -876,39 +815,24 @@ func countMarkdownFiles(dir string) int {
 func generateKBInstructions(kbName, kbRoot string, routed bool) string {
 	var sb strings.Builder
 
-	fmt.Fprintf(&sb, "The %q KB is served via MCP by the \"cartographer\" server.", kbName)
-	if routed {
-		// D187/D288: one endpoint, one copy of the tools, bare names. A
-		// connection bound to several KBs has a `kb` argument on every tool, a
-		// connection bound to one has none — the sentence is true for both, so
-		// it names the value and says where it applies instead of requiring it.
-		fmt.Fprintf(&sb, " Its tools are not prefixed: where a tool takes a `kb` argument, pass `kb: %q` — that connection serves several KBs through one set of tools and never infers which one you mean.", kbName)
-	}
+	sb.WriteString(routingSentence(kbName, routed))
+	sb.WriteString(archivesSentence(KBArchiveNames(kbRoot), false))
 
-	archives := kbArchives(kbRoot)
-	if len(archives) == 0 {
-		sb.WriteString(" No archives detected yet.\n\n")
-	} else {
-		names := make([]string, len(archives))
-		for i, a := range archives {
-			names[i] = a.name + "/"
-		}
-		fmt.Fprintf(&sb, " Archives: %s.\n\n", strings.Join(names, ", "))
-	}
-
-	curated, skipPreamble := kbCuratedInstructionsWithPreamble(kbRoot)
+	curated, skipPreamble := KBCuratedInstructions(kbRoot)
 
 	if !skipPreamble {
 		sb.WriteString("Operational instructions:\n")
-		// D780: graph_context is named here because agents choose the tools
-		// this line names; nothing else in the session says when to use it.
-		sb.WriteString("- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n")
-		sb.WriteString("- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n")
-		// D907: the write gate is always on and nothing accepts a finding.
-		sb.WriteString("- a write that would introduce an avoidable finding (broken link, missing index entry, orphan) is refused with each finding's fix and nothing is committed: write the target, the index entry and the link in the same `concept_batch`;\n")
-		// D321: one meaning for `active`, said once, true for every KB.
-		sb.WriteString("- status convention: `active` means the page is valid and current, not that work is open; open work uses `open` (accepted or queued, not started), `in-progress` or `blocked`: when you start executing an `open` item, set `in-progress` in the same `concept_patch` or `concept_batch` that records the first progress; when progress cannot continue, set `blocked` and declare `waiting_on` and `review_after`; a finished task is `done`;\n")
-		sb.WriteString("- every write is a git commit, revertible.\n")
+		sb.WriteString(orientationBullet)
+		sb.WriteString(writeBullet)
+		sb.WriteString(refusedWriteBullet)
+		sb.WriteString(statusBullet)
+		sb.WriteString(commitBullet)
+		// The two bullets below, and the update notice after them, are the lines
+		// the server's guide (RenderGuide, D1097) leaves out: they only make
+		// sense with a Cartographer client (`cartographer kb reauthor`,
+		// `cartographer update check`, the cartographer-ops skill) or tell a
+		// session what the operator's tooling does. Keep them here, not in the
+		// shared pieces.
 		// D264: an agent's own git in the clone (init, checkout -b, push) is
 		// what forks a KB on its remote; the server owns that clone.
 		sb.WriteString("- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead; a push refused because of the commits' author is reported with the command `cartographer kb reauthor <kb>`, for the operator to run.\n")
@@ -927,16 +851,7 @@ func generateKBInstructions(kbName, kbRoot string, routed bool) string {
 
 	if curated != "" {
 		sb.WriteString("\n")
-		// Scope sentence (D182 WP1): the curated body that follows is one KB's
-		// own prose, not a session-wide law, and it's what lets a model apply
-		// the ordinary "more specific source wins" rule when two KBs' curated
-		// directives (or a repository's own instruction file) disagree — D171
-		// cannot catch that class of conflict (unique by construction), so this
-		// makes provenance and precedence declared instead of accidental.
-		// Emitted only when there IS curated content to scope; the opt-out
-		// marker (preambleNoneRe) only suppresses the operational bullets, not
-		// this sentence.
-		fmt.Fprintf(&sb, "The following directives are the %q KB's own and govern work in its perimeter; where they conflict with another KB's directives or with a repository's own instruction file, the more specific source wins.\n\n", kbName)
+		sb.WriteString(scopeSentence(kbName))
 		sb.WriteString(curated)
 		sb.WriteString("\n")
 	}
@@ -950,7 +865,7 @@ func generateKBInstructions(kbName, kbRoot string, routed bool) string {
 // placeholder syntax (D162).
 var preambleNoneRe = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*preamble:\s*none\s*-->\s*$`)
 
-// kbCuratedInstructionsWithPreamble reads the optional curated file
+// KBCuratedInstructions reads the optional curated file
 // <kbRoot>/instructions.md (D61) and reports whether it opted out of the
 // generated "Operational instructions" bullets (D154).
 //
@@ -975,7 +890,7 @@ var preambleNoneRe = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*preamble:\s
 // prose instead. The one-line routing sentence (KB name, server, archives) stays
 // generated in every case — it is state, not prose, and no KB can write it for
 // itself — so the residual is one English line rather than none.
-func kbCuratedInstructionsWithPreamble(kbRoot string) (body string, skipPreamble bool) {
+func KBCuratedInstructions(kbRoot string) (body string, skipPreamble bool) {
 	data, err := os.ReadFile(filepath.Join(kbRoot, "instructions.md"))
 	if err != nil {
 		return "", false
