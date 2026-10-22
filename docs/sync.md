@@ -352,6 +352,14 @@ D138). Keeping them separate is also a fix: previously the expanded hash was sto
 `content_hash`, so any artifact containing a placeholder compared unequal against the manifest on
 every sync and was reported as permanent drift.
 
+A changed *resolution* is a rewrite trigger too (#967). Expansion happens only when a file is
+written, so a clone that moved (or a `cartographer paths set`) would leave the old path in every
+artifact whose source did not change. Each client's lockfile records what every cited key resolved
+to (`resolved_placeholders`); on the next `sync`, an artifact citing a key whose resolution differs
+from the recorded one (or that stopped or started resolving) is rewritten, in each client
+separately. An unchanged resolution rewrites nothing, and a lockfile with no recorded placeholder
+state never reports drift.
+
 ## Order of operations, and what a failure leaves behind (D172)
 
 `runSync` writes nothing before the manifest is fetched and verified:

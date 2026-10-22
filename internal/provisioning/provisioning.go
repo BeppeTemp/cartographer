@@ -1706,6 +1706,20 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		toWriteKeys[key] = true
 		relocated[key] = true
 	}
+	// Resolution drift (#967): placeholders are expanded when an artifact is
+	// written, so a changed resolution (clone moved, `paths set`) leaves an
+	// artifact whose source did not change with the old expansion on disk. The
+	// provider's own lock records what each key resolved to when it last
+	// applied, so a cited key that now resolves differently is a rewrite,
+	// decided per client like a source change.
+	for _, a := range m.Artifacts {
+		key := a.Kind + "\x00" + a.Name
+		if toWriteKeys[key] || !artifactAuthorized(a, opts) || !resolutionDrifted(a, opts, tracker) {
+			continue
+		}
+		toWrite = append(toWrite, a)
+		toWriteKeys[key] = true
+	}
 	healed := make(map[string]bool)
 	for _, f := range VerifyManaged(opts.Lock, opts.Provider, opts.BaseDir) {
 		if !f.Healable() || relocated[f.Kind+"\x00"+f.Name] {
@@ -3625,6 +3639,44 @@ func yamlQuoteScalar(s string) string {
 	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
 	escaped = strings.ReplaceAll(escaped, "\n", `\n`)
 	return `"` + escaped + `"`
+}
+
+// resolutionDrifted reports whether a placeholder cited by a (a file-expanded
+// kind) resolves, in this Apply, to something other than what the lock
+// recorded when it was last applied (#967). A lock that recorded no
+// placeholder state at all (written before D262, or by a server-side Apply)
+// knows nothing to compare against, so it never reports drift.
+func resolutionDrifted(a Artifact, opts ApplyOptions, tracker *expansionTracker) bool {
+	if !opts.ExpandPlaceholders || a.Kind == "instructions" || a.Kind == "mcp" {
+		return false
+	}
+	if opts.Lock.ResolvedPlaceholders == nil && opts.Lock.UnresolvedPlaceholders == nil {
+		return false
+	}
+	files := a.Files
+	if len(files) == 0 {
+		var err error
+		if files, err = ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots); err != nil {
+			return false
+		}
+	}
+	for _, f := range files {
+		for _, id := range okf.Placeholders(string(f.Content)) {
+			kind, key, ok := okf.SplitPlaceholderID(id)
+			if !ok {
+				continue
+			}
+			cur, resolved := tracker.resolve(kind, key, opts)
+			if resolved {
+				if cur != opts.Lock.ResolvedPlaceholders[id] {
+					return true
+				}
+			} else if _, was := opts.Lock.UnresolvedPlaceholders[id]; !was {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // singleArtifactContent returns the content of a single-file artifact (kind
