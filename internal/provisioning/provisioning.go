@@ -907,7 +907,7 @@ func generateKBInstructions(kbName, kbRoot string, routed bool) string {
 		// D907: the write gate is always on and nothing accepts a finding.
 		sb.WriteString("- a write that would introduce an avoidable finding (broken link, missing index entry, orphan) is refused with each finding's fix and nothing is committed: write the target, the index entry and the link in the same `concept_batch`;\n")
 		// D321: one meaning for `active`, said once, true for every KB.
-		sb.WriteString("- status convention: `active` means the page is valid and current; open work uses `open`, `in-progress` or `blocked`, and a wait is declared with `waiting_on` and `review_after`;\n")
+		sb.WriteString("- status convention: `active` means the page is valid and current; open work uses `open` (accepted or queued, not started), `in-progress` (set it in the same `concept_patch` or `concept_batch` that records the first progress of the work you start) or `blocked` (progress cannot continue: declare `waiting_on` and `review_after`), and a finished task is `done`;\n")
 		sb.WriteString("- every write is a git commit, revertible.\n")
 		// D264: an agent's own git in the clone (init, checkout -b, push) is
 		// what forks a KB on its remote; the server owns that clone.

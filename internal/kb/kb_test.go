@@ -71,9 +71,29 @@ func TestInit_DefaultInstructions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("instructions.md missing after Init: %v", err)
 	}
-	for _, want := range []string{"Status convention", "gate_check"} {
+	for _, want := range []string{"Status convention", "gate_check", "`in-progress`", "same write that records the first progress", "`waiting_on`"} {
 		if !strings.Contains(string(first), want) {
 			t.Errorf("instructions.md lacks %q:\n%s", want, first)
+		}
+	}
+	// The statuses the file teaches must be the default journal's open ones
+	// plus the closing words, so the two cannot drift (D1073).
+	allowed := map[string]bool{"done": true, "reference": true, "active": true}
+	for _, st := range DefaultJournalOpenStatuses {
+		allowed[st] = true
+	}
+	in := false
+	for _, l := range strings.Split(string(first), "\n") {
+		if strings.HasPrefix(l, "## ") {
+			in = strings.Contains(l, "Status convention")
+			continue
+		}
+		if !in || !strings.HasPrefix(l, "- `") {
+			continue
+		}
+		st := strings.SplitN(strings.TrimPrefix(l, "- `"), "`", 2)[0]
+		if !allowed[st] {
+			t.Errorf("default instructions.md teaches status %q, not an open status of DefaultJournalOpenStatuses: %s", st, l)
 		}
 	}
 	if strings.Contains(string(first), "preamble") {
