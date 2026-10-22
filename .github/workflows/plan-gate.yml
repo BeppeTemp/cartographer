@@ -125,10 +125,13 @@ jobs:
             prs=$PR
           else
             prs=$(gh pr list --state open --limit 200 --json number,closingIssuesReferences \
-              | jq -r --arg i "$ISSUE" '.[] | select(any(.closingIssuesReferences[]?; .number == ($i | tonumber))) | .number')
+              | jq -r --arg i "$ISSUE" --arg u "https://github.com/$GH_REPO/issues/$ISSUE" \
+                '.[] | select(any(.closingIssuesReferences[]?; .number == ($i | tonumber) and .url == $u)) | .number')
           fi
           for pr in $prs; do
-            want=$(gh pr view "$pr" --json closingIssuesReferences --jq '.closingIssuesReferences[].number' \
+            # Only this repository's issues: `Closes other/repo#n` must not read local #n.
+            want=$(gh pr view "$pr" --json closingIssuesReferences \
+              --jq '.closingIssuesReferences[] | select(.url | startswith("https://github.com/" + env.GH_REPO + "/issues/")) | .number' \
               | while read -r n; do
                   gh api "repos/$GH_REPO/issues/$n" --jq 'select(.milestone != null) | "\(.milestone.due_on // "0000")|\(.milestone.number)|\(.milestone.title)"'
                 done | sort | tail -n1)
