@@ -911,7 +911,7 @@ func generateKBInstructions(kbName, kbRoot string, routed bool) string {
 		sb.WriteString("- every write is a git commit, revertible.\n")
 		// D264: an agent's own git in the clone (init, checkout -b, push) is
 		// what forks a KB on its remote; the server owns that clone.
-		sb.WriteString("- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead.\n")
+		sb.WriteString("- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead; a push refused because of the commits' author is reported with the command `cartographer kb reauthor <kb>`, for the operator to run.\n")
 		// D320: the fallback update channel for every client whose
 		// SessionStart hook does not fire (Kiro default chat, timer-only
 		// clients): kb_status carries latest_version (D254).

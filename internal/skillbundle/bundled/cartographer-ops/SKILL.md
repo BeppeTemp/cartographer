@@ -21,6 +21,7 @@ around writes.
 | `cartographer service install\|status\|restart` | Installing, checking, or restarting the native local service. |
 | `cartographer kb create <name> --remote <url>` | Creating the first local KB in the service data directory, pushed to an empty repository (or one holding only a forge's initial README/LICENSE/.gitignore commit, which is adopted) that becomes its `origin`; any other non-empty remote is refused before the push. `--no-remote` opts out into a local-only KB that is neither durable nor synced; the choice is mandatory. |
 | `cartographer kb clone <remote> [name]` | Mounting an existing OKF KB remote in the service data directory. |
+| `cartographer kb reauthor <kb> [--apply]` | A push was refused because of the commits' author or committer: preview, then re-author the unpushed commits as the configured `git.identity` and push (offline, on the server host). |
 | `cartographer connect [provider\|all] [--agents a,b]` | Connecting one or more detected agent clients to a server. |
 | `cartographer status` | Checking client configuration and provisioning drift. |
 | `cartographer sync` | Realigning provisioned skills, agents, hooks, and instructions. |
@@ -105,6 +106,14 @@ A KB syncs exactly when it has a remote, and every write is one commit: neither 
    request: the commit is safe in the clone, and the way out is the user's — unprotect the
    branch on the remote, or set `branch` in `settings.yaml` on the default branch so writes go
    to another one. Do not retry in a loop: the remote's answer will not change.
+   If instead `last_error` says the remote refused the push because of who authored or committed
+   the commits (a membership or private-email rule; it names the identities, D1063), the branch is
+   not the problem. Check that `git.identity` (or `git.identities`) is set in the server file and
+   the service restarted; commits made by the server identity are re-authored by the next sync, but
+   commits authored by a token need `cartographer kb reauthor <kb>` on the server host. Run it
+   without `--apply` first, show the user the list of commits it would change, and run it with
+   `--apply` only on their consent; it refuses anything already published. Never rewrite those
+   commits with git by hand.
 8. If a sync warns that a `{{repo:…}}`/`{{path:…}}` placeholder is not resolved, run
    `cartographer paths list`: it shows each key, the KBs citing it, what the KB's `paths.yaml`
    says it points at and its declared default (D263). A key resolves from `paths:` in
@@ -173,7 +182,8 @@ or `cartographer status` / `kb_status` can report one (`update available`, `late
 - Do not edit KB concept files directly: use Cartographer MCP tools so validation, git commits,
   and synchronization invariants apply.
 - Do not run git in a KB's clone (`init`, `checkout`, `push`, …): the server owns it, and a
-  branch created there is how a KB forks on its remote. Report `sync_status` instead.
+  branch created there is how a KB forks on its remote. Report `sync_status` instead; the one
+  sanctioned rewrite of unpushed commits is `cartographer kb reauthor <kb>` (step 7).
 - Do not hand-edit provisioned MCP entries or `.cartographer.yaml`; use `connect`, `sync`, and
   `disconnect` so Cartographer can track and safely prune its own files.
 

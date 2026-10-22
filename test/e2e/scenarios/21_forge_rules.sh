@@ -10,8 +10,9 @@
 #      and the remote head has that author and committer;
 #   b. a write with no header is committed by the server identity: the rule
 #      refuses it, the tool result says so, and the remote does not move;
-#   c. restarted with git.identity of the allowed user, a header-less write is
-#      by that user and publishes;
+#   c. git.identity of the allowed user is set; `kb reauthor` previews, then
+#      re-authors the refused commit, and after a restart a header-less write
+#      publishes with it;
 #   d. a commit made with no writer (server identity) is re-committed by that
 #      identity and publishes with the next write.
 #
@@ -36,6 +37,7 @@ DIR="${E2E_TMP_DIR}/${SCENARIO_NAME}"
 BARE="${DIR}/remote.git"
 KB_DIR="${DIR}/kb-rules"
 CONFIG="${DIR}/config.yaml"
+BIN="${REPO_ROOT}/bin/cartographer"
 MCP="http://127.0.0.1:${E2E_HTTP_PORT}/mcp?kb=kb-rules"
 ADA='Ada Example <ada@example.test>'
 mkdir -p "$DIR"
@@ -96,6 +98,11 @@ if printf '%s' "$OUT" | grep -q 'is not a member of team' && printf '%s' "$OUT" 
 else
     _assert_fail "the tool result does not report the refusal: ${OUT}"
 fi
+if printf '%s' "$OUT" | grep -q 'local-admin' && printf '%s' "$OUT" | grep -q 'kb reauthor' && ! printf '%s' "$OUT" | grep -qi 'unprotect'; then
+    _assert_pass "the refusal names the identity and the recovery, and does not blame a protected branch"
+else
+    _assert_fail "the refusal is not worded as an identity refusal: ${OUT}"
+fi
 [[ "$(remote_head %H)" == "$HEAD_A" ]] && _assert_pass "the remote did not move" || _assert_fail "the remote moved"
 [[ -f "${KB_DIR}/data/rules/two/note.md" ]] && _assert_pass "the write is kept in the local clone" || _assert_fail "the write is missing locally"
 [[ "$(git -C "$KB_DIR" rev-list --count "origin/main..HEAD")" -ge 1 ]] && _assert_pass "the commit is local only" || _assert_fail "no local-only commit"
@@ -103,16 +110,26 @@ fi
 echo ""
 echo "--- c. git.identity of the allowed user lets a header-less write publish ---"
 # The refused commit is by the token that made it (here local-admin), which the
-# server keeps as its author: the operator drops it, as the refusal's hint says
-# the change is only safe locally.
+# server keeps as its author: only `kb reauthor` repairs it.
 REFUSED="$(git -C "$KB_DIR" log -1 --format='%an|%cn|%ae|%ce')"
 [[ "$REFUSED" == "local-admin|local-admin|"* && "$REFUSED" != *ada@example.test* ]] \
     && _assert_pass "the refused commit is by the token identity, author and committer" \
     || _assert_fail "refused commit identity = ${REFUSED}"
 [[ "$(remote_head %H)" == "$HEAD_A" ]] && _assert_pass "the remote head is still the last member's commit" || _assert_fail "the remote head moved"
 server_stop
-git -C "$KB_DIR" reset -q --hard origin/main
 printf 'http: "127.0.0.1:%s"\ngit:\n  identity: "%s"\n' "$E2E_HTTP_PORT" "$ADA" > "$CONFIG"
+REAUTHOR=("${BIN}" kb reauthor kb-rules --data "$DIR" --config "$CONFIG")
+PREVIEW="$("${REAUTHOR[@]}" 2>&1)"
+if printf '%s' "$PREVIEW" | grep -q 'local-admin' && printf '%s' "$PREVIEW" | grep -q 'would be re-authored'; then
+    _assert_pass "the preview lists the token-authored commit"
+else
+    _assert_fail "preview = ${PREVIEW}"
+fi
+[[ "$(remote_head %H)" == "$HEAD_A" ]] && _assert_pass "the preview did not push" || _assert_fail "the preview pushed"
+if "${REAUTHOR[@]}" --apply >"${DIR}/reauthor.log" 2>&1; then _assert_pass "kb reauthor --apply succeeds"; else _assert_fail "kb reauthor --apply failed: $(cat "${DIR}/reauthor.log")"; fi
+[[ "$(remote_head '%an <%ae> | %cn <%ce>')" == "Ada Example <ada@example.test> | Ada Example <ada@example.test>" ]] \
+    && _assert_pass "the refused commit is published, by the configured identity" \
+    || _assert_fail "remote head = $(remote_head '%an <%ae> | %cn <%ce>')"
 E2E_CONFIG="$CONFIG" server_start "$KB_DIR"
 server_wait_health 20
 OUT="$(page three "Identity from the server file.")"

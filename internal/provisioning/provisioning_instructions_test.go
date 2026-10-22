@@ -242,7 +242,7 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 		"- a write that would introduce an avoidable finding (broken link, missing index entry, orphan) is refused with each finding's fix and nothing is committed: write the target, the index entry and the link in the same `concept_batch`;\n" +
 		"- status convention: `active` means the page is valid and current; open work uses `open`, `in-progress` or `blocked`, and a wait is declared with `waiting_on` and `review_after`;\n" +
 		"- every write is a git commit, revertible.\n" +
-		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead.\n" +
+		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead; a push refused because of the commits' author is reported with the command `cartographer kb reauthor <kb>`, for the operator to run.\n" +
 		"- when `kb_status` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).\n"
 	if content != want {
 		t.Errorf("output changed with no agent/instructions.md:\ngot:\n%s\nwant:\n%s", content, want)
@@ -840,7 +840,7 @@ func TestBuildManifest_Instructions_ToolNames(t *testing.T) {
 	for _, want := range []string{
 		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n",
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n",
-		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead.\n",
+		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead; a push refused because of the commits' author is reported with the command `cartographer kb reauthor <kb>`, for the operator to run.\n",
 		"- when `kb_status` reports a `latest_version`",
 	} {
 		if !strings.Contains(plainContent, want) {
