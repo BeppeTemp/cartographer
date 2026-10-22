@@ -15,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/skill"
+	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
 
 // Artifact checks (D316): lint covers what a KB ships next to its concepts —
@@ -196,6 +197,7 @@ func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount i
 
 	var findings []Finding
 	findings = append(findings, checkSkills(skills, missing)...)
+	findings = append(findings, checkLegacySkillNames(k)...)
 	findings = append(findings, checkLegacyToolNames(files, mountedKBNames(k, opts))...)
 	findings = append(findings, checkSkillInternalRefs(k, skills)...)
 	findings = append(findings, checkInstructions(instr, conceptCount)...)
@@ -251,6 +253,34 @@ func loadSkills(k *kb.KB) (skills []skill.Skill, missing []string) {
 	}
 	skills, _ = skill.LoadAllSkills(k.Root) // the errors are the missing SKILL.md above
 	return skills, missing
+}
+
+// checkLegacySkillNames reports a KB copy of a bundled skill under the name it
+// had before D958 (kb-create, now cartographer-kb-create). Left alone the copy
+// and the bundled skill reach the same agent twice under two names, with
+// instructions that drift apart; the repair moves the copy to the new name.
+func checkLegacySkillNames(k *kb.KB) []Finding {
+	entries, err := os.ReadDir(filepath.Join(k.Root, "skills"))
+	if err != nil {
+		return nil
+	}
+	var findings []Finding
+	for _, e := range entries {
+		current, ok := skillbundle.Renamed(e.Name())
+		if !ok || !e.IsDir() {
+			continue
+		}
+		msg := fmt.Sprintf("skill %q was renamed %q (D958): the KB copy reaches agents next to the bundled skill under a second name — the repair moves it to the new name", e.Name(), current)
+		if _, err := os.Lstat(filepath.Join(k.Root, "skills", current)); err == nil {
+			msg = fmt.Sprintf("skill %q was renamed %q (D958) and the KB holds both copies: merge them by hand, the repair leaves both untouched", e.Name(), current)
+		}
+		findings = append(findings, newFinding("legacy_skill_name", Finding{
+			Path:    "skills/" + e.Name(),
+			Message: msg,
+			Fix:     &Fix{Kind: FixMoveSkill, Field: "skills/" + e.Name(), To: "skills/" + current},
+		}))
+	}
+	return findings
 }
 
 // checkSkills surfaces skill.Validate in lint (WP1), the same way checkHooks

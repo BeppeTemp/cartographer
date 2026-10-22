@@ -13,6 +13,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/skill"
+	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 	"github.com/BeppeTemp/cartographer/internal/sops"
 )
 
@@ -432,10 +433,18 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 				return errorResult("'name' is required"), nil
 			}
 
+			// A name the bundle no longer carries but knew before D958 installs
+			// under its current name; the exact name is tried first.
+			requested := params.Name
+			if _, err := fs.Stat(bundleFS, "bundled/"+params.Name); err != nil {
+				if current, ok := skillbundle.Renamed(params.Name); ok {
+					params.Name = current
+				}
+			}
 			srcDir := "bundled/" + params.Name
 			// Verify the bundled skill exists.
 			if _, err := fs.Stat(bundleFS, srcDir); err != nil {
-				return errorResult(fmt.Sprintf("unknown bundled skill %q", params.Name)), nil
+				return errorResult(fmt.Sprintf("unknown bundled skill %q", requested)), nil
 			}
 
 			dstDir := filepath.Join(k.Root, "skills", params.Name)
@@ -473,6 +482,10 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 				"skill":  params.Name,
 				"status": "installed",
 				"path":   "skills/" + params.Name + "/",
+			}
+			if requested != params.Name {
+				result["renamed_from"] = requested
+				result["note"] = fmt.Sprintf("%q is now %q: the skill was installed under its current name", requested, params.Name)
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil

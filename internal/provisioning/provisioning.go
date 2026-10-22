@@ -33,6 +33,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/skill"
+	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
 
 // Artifact describes a single provisioning artifact.
@@ -2032,6 +2033,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 
 	result.Warnings = append(result.Warnings, tracker.warnings...)
 	result.Warnings = append(result.Warnings, unsupportedKindWarnings(m, opts.Provider)...)
+	result.Warnings = append(result.Warnings, legacySkillWarnings(m)...)
 	result.Warnings = append(result.Warnings, widenedAgentWarnings(m, opts)...)
 	result.Warnings = append(result.Warnings, absentMCPServerWarnings(m, opts)...)
 
@@ -2693,6 +2695,37 @@ func absentMCPServerWarnings(m Manifest, opts ApplyOptions) []string {
 					a.Name, opts.Provider, server))
 			}
 		}
+	}
+	return out
+}
+
+// legacySkillWarnings reports, once per KB, that the KB carries a copy of a
+// bundled skill under its pre-D958 name (kb-create, now cartographer-kb-create).
+// The client receives that copy next to the bundled skill, so the agent sees
+// one skill twice; kb_repair (legacy_skill_name) moves the copy to the new
+// name. Computed from the manifest, so it repeats on every run until fixed.
+func legacySkillWarnings(m Manifest) []string {
+	found := map[string][]string{}
+	for _, a := range m.Artifacts {
+		if !strings.HasPrefix(a.Source, "kb:") || a.Kind != "skill" {
+			continue
+		}
+		if _, ok := skillbundle.Renamed(a.Name); ok {
+			name := strings.TrimPrefix(a.Source, "kb:")
+			found[name] = append(found[name], a.Name)
+		}
+	}
+	kbs := make([]string, 0, len(found))
+	for name := range found {
+		kbs = append(kbs, name)
+	}
+	sort.Strings(kbs)
+	out := make([]string, 0, len(kbs))
+	for _, name := range kbs {
+		skills := found[name]
+		sort.Strings(skills)
+		out = append(out, fmt.Sprintf("KB %q still carries skill(s) under pre-D958 names (%s): the client gets them next to the bundled cartographer-* skills — run kb_repair check=legacy_skill_name to move them",
+			name, strings.Join(skills, ", ")))
 	}
 	return out
 }
