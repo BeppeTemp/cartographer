@@ -84,9 +84,10 @@ func TestPolicyDenialsCarryReasonCodes(t *testing.T) {
 	}
 }
 
-// A role narrowed to a map and a type is allowed the collection itself (D228):
-// index_patch on the map's index and a scoped collection tool, while every
-// concept-level check still applies the type and the map.
+// A role narrowed to a map and a type is allowed the collection itself (D228)
+// for reading: a scoped collection tool, while every concept-level check still
+// applies the type and the map. index_patch stays refused: the map's index
+// lists pages of every type.
 func TestTypedRoleReachesItsCollection(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
@@ -102,7 +103,6 @@ func TestTypedRoleReachesItsCollection(t *testing.T) {
 		return authorizeTool(typed, k, "docs", tool, json.RawMessage(args))
 	}
 	for _, c := range []struct{ name, tool, args string }{
-		{"index_patch own map", "index_patch", `{"path":"manutenzione","old_string":"a","new_string":"b"}`},
 		{"concept_list scoped", "concept_list", `{"map":"manutenzione"}`},
 		{"search scoped", "search", `{"query":"x","scope":"manutenzione"}`},
 		{"creation with index_entry", "concept_new", `{"id":"manutenzione/n","template":"runbook","index_entry":"n"}`},
@@ -112,6 +112,7 @@ func TestTypedRoleReachesItsCollection(t *testing.T) {
 		}
 	}
 	for _, c := range []struct{ name, tool, args, code string }{
+		{"index_patch own map", "index_patch", `{"path":"manutenzione","old_string":"a","new_string":"b"}`, "outside_scope"},
 		{"index_patch other map", "index_patch", `{"path":"other","old_string":"a","new_string":"b"}`, "outside_scope"},
 		{"index_patch root", "index_patch", `{"path":"","old_string":"a","new_string":"b"}`, "needs_whole_kb"},
 		{"scope other map", "concept_list", `{"map":"other"}`, "outside_scope"},

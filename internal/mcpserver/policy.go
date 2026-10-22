@@ -313,7 +313,10 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 				mapName, journalName = "", mapName
 			}
 		}
-		if policy.AllowsCollection(name, mapName, journalName, true) {
+		// Not AllowsCollection: the index lists pages of every type, so a role
+		// narrowed by type may not rewrite it; its own entry is written with
+		// index_entry when the page is created, under the page's grant (D714).
+		if policy.Allows(name, mapName, journalName, "", true) {
 			return nil
 		}
 		return deny(denyOutsideScope)
