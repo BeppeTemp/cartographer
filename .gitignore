@@ -42,3 +42,4 @@ dist/
 
 # The launch film renders (film/README.md).
 film/out/
+/cmd/cartographer/cartographer
