@@ -827,6 +827,8 @@ paths" table materialized in the instructions block — the block's placeholder 
 agents here, and to `cartographer paths set` when resolution fails (`docs/sync.md` §Path portability placeholders), as well
 as a standalone debugging tool.
 
+When a key is not found, stderr carries, after the `Error:` line, one line naming the two commands that fix it (`cartographer paths set <kind>:<key> <path>` and `cartographer paths suggest`); stdout stays empty and the exit code is 1.
+
 ```bash
 cartographer resolve repo:cartographer          # short form: key = last segment of the remote
 cartographer resolve repo:github.com/org/nome   # full form: host/owner/name

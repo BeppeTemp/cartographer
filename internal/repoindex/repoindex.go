@@ -310,6 +310,17 @@ func NormalizeRemote(raw string) (RemoteKey, error) {
 // than paper over with a rescan).
 var errNotIndexed = errors.New("repoindex: not indexed")
 
+// ErrNotFound is what errors.Is matches on the error Resolve returns when the
+// key has no match anywhere, as opposed to an ambiguity or a scan failure. It
+// lets a caller tell "unresolved" apart without parsing the message.
+var ErrNotFound = errors.New("repoindex: not found")
+
+// notFoundError keeps Resolve's message unchanged while matching ErrNotFound.
+type notFoundError struct{ msg string }
+
+func (e notFoundError) Error() string        { return e.msg }
+func (e notFoundError) Is(target error) bool { return target == ErrNotFound }
+
 // lookupIndex resolves key against idx alone: key containing "/" is treated
 // as a full canonical RemoteKey, otherwise as a short name matched against
 // every indexed key's ShortName(). A candidate whose every local path has
@@ -473,7 +484,7 @@ func (r *Resolver) ResolveDeclared(key, remote string) (string, []string, error)
 	warnings = append(warnings, lookupWarnings...)
 	if err != nil {
 		if errors.Is(err, errNotIndexed) {
-			return "", warnings, fmt.Errorf("repoindex: repo %q not found within %d directory levels of search roots %v — add a closer root to search_roots in .cartographer.yaml, or map it with `cartographer paths set`", key, EffectiveDepth(r.maxDepth), r.roots)
+			return "", warnings, notFoundError{fmt.Sprintf("repoindex: repo %q not found within %d directory levels of search roots %v — add a closer root to search_roots in .cartographer.yaml, or map it with `cartographer paths set`", key, EffectiveDepth(r.maxDepth), r.roots)}
 		}
 		return "", warnings, err
 	}

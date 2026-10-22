@@ -1,12 +1,13 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/repoindex"
 )
 
@@ -29,8 +30,8 @@ func cmdResolve(args []string) int {
 		return 2
 	}
 
-	kind, key, ok := strings.Cut(rest[0], ":")
-	if !ok || key == "" || (kind != "repo" && kind != "path") {
+	kind, key, ok := okf.SplitPlaceholderID(rest[0])
+	if !ok {
 		fmt.Fprintf(os.Stderr, "Error: expected repo:<key> or path:<name>, got %q\n", rest[0])
 		return 2
 	}
@@ -49,6 +50,7 @@ func cmdResolve(args []string) int {
 	}
 
 	var resolved string
+	notFound := false
 	switch kind {
 	case "repo":
 		var warnings []string
@@ -56,16 +58,21 @@ func cmdResolve(args []string) int {
 		for _, w := range warnings {
 			fmt.Fprintln(os.Stderr, w)
 		}
+		notFound = errors.Is(err, repoindex.ErrNotFound)
 	case "path":
 		p, found := cfg.Paths[key]
 		if !found {
 			err = fmt.Errorf("no entry %q in paths: (.cartographer.yaml)", key)
+			notFound = true
 		} else {
 			resolved = repoindex.ExpandHome(p)
 		}
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
+		if notFound {
+			fmt.Fprintf(os.Stderr, "To fix it: `cartographer paths set %s:%s <path>`, or `cartographer paths suggest` to propose the missing entries.\n", kind, key)
+		}
 		return 1
 	}
 
