@@ -69,8 +69,10 @@ server_start() {
 
 # server_wait_health [timeout_sec]
 #   Polls GET /health until it responds with a CARTOGRAPHER body or the timeout expires.
-#   Verifies that the response contains "kbs" (marker of cartographer's /health): this way
+#   Verifies that the response contains "started_at" (marker of cartographer's /health): this way
 #   another service listening on the same port (e.g. Docker/Colima) does not cause false positives.
+#   TRAP: not "kbs". With auth on, a tokenless /health carries no kbs (D1096), while
+#   started_at is in the anonymous, identified and bootstrapping shapes alike.
 server_wait_health() {
     local timeout="${1:-20}"
     local elapsed=0
@@ -82,7 +84,7 @@ server_wait_health() {
         # being mounted, and every other path is 503 until then.
         local body
         body=$(curl -sf "$url" 2>/dev/null) || body=""
-        if printf '%s' "$body" | grep -q '"kbs"' && ! printf '%s' "$body" | grep -q '"bootstrapping"'; then
+        if printf '%s' "$body" | grep -q '"started_at"' && ! printf '%s' "$body" | grep -q '"bootstrapping"'; then
             echo "[server] /health OK (cartographer) after ${elapsed}s" >&2
             return 0
         fi

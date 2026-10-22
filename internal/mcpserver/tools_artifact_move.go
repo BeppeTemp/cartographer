@@ -119,7 +119,9 @@ func toolArtifactMove(src *kb.KB, deps Deps) Tool {
 			return errorResult(fmt.Sprintf("'paths' needs 1 to %d entries", artifactMoveMaxUnits)), nil
 		}
 		dst, ok := deps.KBByName(p.TargetKB)
-		if !ok {
+		// D1096: on a routed connection a mounted KB the principal cannot read
+		// answers like one that is not mounted.
+		if !ok || (routedSetFrom(ctx) != nil && !kbRosterVisible(ctx, p.TargetKB)) {
 			return errorResult(fmt.Sprintf("unknown target_kb %q", p.TargetKB)), nil
 		}
 		srcName := kbName(src)

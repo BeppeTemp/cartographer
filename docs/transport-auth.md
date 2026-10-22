@@ -27,7 +27,7 @@ call, such as a full reindex or a git sync, and those are bounded per operation
 instead. Read them as protection against connections that never complete, not
 as a request budget.
 
-`GET /health` reports service readiness. `GET /.well-known/oauth-protected-resource`
+`GET /health` reports service readiness; it stays public (never a 401, an invalid token is read as anonymous), but its body depends on the token (D1096): without a valid one it carries no `kbs`, with one it lists the KBs that token reads. `GET /.well-known/oauth-protected-resource`
 publishes RFC 9728 Protected Resource Metadata, unauthenticated, so clients can
 discover the protected resource; `resource` and `authorization_servers` both
 name this server's own externally-visible base URL (scheme + `Host`, from the
@@ -42,7 +42,8 @@ public path: it passes through the same origin check and token middleware as
 `/mcp`, is filtered with the same principal, and answers `404` — never `403` —
 for a KB or concept the principal cannot see, so it cannot be used to probe for
 existence. Only `/health` and the RFC 9728 metadata are exempt from
-authentication.
+requiring a token; with auth on the middleware still reads one there, and attaches
+the principal of a valid bearer and no principal otherwise, never the local admin (D1096).
 
 ### One routed topology (D288)
 
@@ -112,13 +113,15 @@ accepted; any other value is refused. A KB is never guessed when the URL left
 more than one open: a default would land a write in the wrong archive on a model
 slip.
 
-**The advertised set is the union** of the connection's KBs. A tool that only
+**The effective set (D1096)** is the `?kbs=` set (or every mounted KB) narrowed to the KBs the principal reads. A `?kbs=` name the token cannot read is `unknown`, like an unmounted one, and an alias never discloses its target; a token that reads no mounted KB gets a denied view (`forbidden: no_kb_access` on the metadata calls, no HTTP 403, D118). A principal that writes none of the set gets a read-only token view: no write tool is listed and a write call is refused by the target KB with `read_only_token`.
+
+**The advertised set is the union** of the effective set's KBs. A tool that only
 some of them register is advertised once, and refused at dispatch for a KB that
 does not, with an error naming the KB and the tool. The alternative, an
 intersection, would silently hide a tool from a KB that has it because a
 sibling does not. The metadata
 gate (`initialize`, `tools/list`) asks whether the principal can reach at least
-one KB of the connection's set.
+one KB of the connection's set; since the set is already what the principal reads, it is defence in depth.
 
 **Everything per-KB is resolved after `kb`**: the read/write classification, the
 per-KB authorization policy, the git lock and commit wrapper, and the audit

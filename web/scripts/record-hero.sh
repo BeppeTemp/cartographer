@@ -51,7 +51,7 @@ CARTOGRAPHER_AUTH=false "$BIN" serve --http "127.0.0.1:${PORT}" --kb "${TMP}/dem
 PID="$!"
 URL="http://127.0.0.1:${PORT}"
 for _ in $(seq 1 60); do
-    curl -sf "${URL}/health" 2>/dev/null | grep -q '"kbs"' && break
+    curl -sf "${URL}/health" 2>/dev/null | grep -q '"started_at"' && break
     sleep 0.5
 done
 

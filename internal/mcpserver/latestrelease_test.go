@@ -5,12 +5,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
 func healthBody(t *testing.T, h http.Handler) map[string]interface{} {
 	t.Helper()
 	rr := httptest.NewRecorder()
-	h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/health", nil))
+	// The raw handler has no principal and is anonymous by design (D1096):
+	// latest_version and kbs are read through the auth-off middleware.
+	auth.NewTokenStore(nil).Middleware(h).ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/health", nil))
 	var body map[string]interface{}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid /health JSON: %v", err)

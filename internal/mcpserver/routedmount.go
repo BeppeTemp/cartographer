@@ -63,8 +63,8 @@ func (m *MultiKBServer) EnableRoutedMount(version string, setup func(s *Server))
 	m.routedSetup = setup
 	names := m.mountedNames()
 	m.routedViews = map[string]*Server{}
-	m.routed = m.buildRouted(names, false)
-	m.routedViews[strings.Join(names, ",")] = m.routed
+	m.routed = m.buildRouted(names, routedNormal)
+	m.routedViews[routedViewKey(names, routedNormal)] = m.routed
 	m.routedNames = names
 	return nil
 }
@@ -78,13 +78,34 @@ const AccessReadValue = "read"
 // ignores it and would serve a read-write session without saying so.
 const AccessHeader = "Cartographer-Access"
 
+// routedMode is how a routed view treats writes (D1096). It is part of the
+// view's cache key, so the cached Server never depends on who asks.
+type routedMode int
+
+const (
+	// routedNormal lists every tool; the target KB decides each call.
+	routedNormal routedMode = iota
+	// routedTokenReadOnly is the view of a principal that can write none of
+	// the set: no write tool is listed, and a call to one falls through to the
+	// target KB, which refuses with read_only_token. No instructions.
+	routedTokenReadOnly
+	// routedBridgeReadOnly is the bridge's twin (?access=read, D1018): no
+	// write tool, the workspace-bind sentence, and a call to a write tool is
+	// refused with unbound_folder at this level.
+	routedBridgeReadOnly
+)
+
+// denyNoReadableKBHint is the hint of the denied view: it names no KB.
+const denyNoReadableKBHint = "the token has no read access to any KB this server serves"
+
 // buildRouted assembles the routed server for one effective KB set: the union
-// of those KBs' tools, once, with the schemas shaped for that set. readOnly
-// builds the read-only twin: no write tool is listed and a call to one is
-// refused (denyUnboundFolder).
-func (m *MultiKBServer) buildRouted(set []string, readOnly bool) *Server {
+// of those KBs' tools, once, with the schemas shaped for that set. The mode
+// shapes the read-only views (see routedMode). An empty set is the denied
+// view: no tool, and every metadata call is refused.
+func (m *MultiKBServer) buildRouted(set []string, mode routedMode) *Server {
 	routed := New(m.routedVersion)
-	routed.readOnlySession = readOnly
+	routed.readOnlySession = mode == routedBridgeReadOnly
+	routed.tokenReadOnly = mode == routedTokenReadOnly
 	routed.SetDisplayName("cartographer")
 	routed.connKBs = append([]string(nil), set...)
 	if m.routedSetup != nil {
@@ -94,17 +115,18 @@ func (m *MultiKBServer) buildRouted(set []string, readOnly bool) *Server {
 	// inside its own callTool, after `kb` has been resolved. What this
 	// authorizer still has to answer is the metadata gate (initialize, ping,
 	// tools/list): a caller with no resolvable principal must be denied rather
-	// than implicitly treated as having full access. On a routed mount the
-	// honest rule is "can reach at least one of the connection's KBs" — a
-	// principal scoped to one KB legitimately lists the union and is refused per
-	// call on the others.
+	// than implicitly treated as having full access. The set is already the
+	// KBs the principal reads (routedFor), so this is defence in depth (D1096).
 	routed.SetAuthorizer(func(ctx context.Context, tool string, args json.RawMessage) error {
 		if tool != "" {
 			// Fail-closed: an unknown name requires write (ToolRequiresWrite).
-			if readOnly && ToolRequiresWrite(tool) {
+			if mode == routedBridgeReadOnly && ToolRequiresWrite(tool) {
 				return deny(denyUnboundFolder)
 			}
 			return nil
+		}
+		if len(set) == 0 {
+			return deny(denyNoKBAccess, denyNoReadableKBHint)
 		}
 		var lastErr error = deny(denyNoPrincipal)
 		for _, name := range set {
@@ -180,28 +202,38 @@ const routedScopeHint = "If the client has a workspace binding, this connection'
 	"the session was started in: run `cartographer workspace resolve` there to see which binding applies."
 
 // routedFor resolves the `kbs` query parameter of a routed request to the
-// server that answers it (D288). Absent or empty means every mounted KB. The
-// binding only narrows: the effective set is the requested names that are
-// mounted (D756). A name that is not mounted but is the old name of a renamed
-// KB (kb_aliases, D772) selects that KB; the pair is returned so the caller
-// reports it, and a mounted name always wins over an alias. Names that are
-// neither (a KB removed since the client was synced) are returned sorted, not
-// dropped silently: the caller reports them to the agent. Duplicates are
-// ignored and per-KB authorization still runs at the target, by the name the
-// KB has now: an alias selects a KB, it never grants access.
+// server that answers it (D288). The effective set is what the principal can
+// read, narrowed by `kbs` (D1096): absent or empty means every mounted KB it
+// reads. The binding only narrows: the effective set is the requested names
+// that are mounted and readable (D756). A name that is not mounted but is the
+// old name of a renamed KB (kb_aliases, D772) selects that KB, if the target is
+// readable too; the pair is returned so the caller reports it, and a mounted
+// name always wins over an alias. Names that are neither (a KB removed since
+// the client was synced, or one the principal cannot read: the two are
+// indistinguishable by design, D1096) are returned sorted, not dropped
+// silently: the caller reports them to the agent. Duplicates are ignored and
+// per-KB authorization still runs at the target, by the name the KB has now:
+// an alias selects a KB, it never grants access.
 //
 // An empty effective set stays an error naming every unknown name and the
-// mounted KBs. It must not become "every mounted KB": that would widen the
-// binding, which only narrows, and an empty set would be a server with no tools.
+// readable KBs. It must not become "every mounted KB": that would widen the
+// binding, which only narrows, and an empty set would be a server with no
+// tools. A principal that reads no mounted KB at all gets the denied view (a
+// Server with an empty set: D118 has no HTTP 403 from the gate).
 //
-// One Server is built per distinct effective set and cached: the set is part
-// of the URL, so tools/list differs per connection and cannot come from a
-// single shared registry. The number of sets is bounded by the subsets of the
-// mounted KBs; stale URLs with different unknown or renamed names share a view.
+// One Server is built per distinct (effective set, mode) and cached: the set
+// is part of the URL, so tools/list differs per connection and cannot come
+// from a single shared registry. The number of views is bounded by the subsets
+// of the mounted KBs times the modes; stale URLs with different unknown or
+// renamed names share a view.
 //
-// readOnly (?access=read) is part of the cache key: a read-only and a
-// read-write session on the same set are two Servers.
-func (m *MultiKBServer) routedFor(rawKBs []string, readOnly bool) (*Server, []string, map[string]string, error) {
+// TRAP: the cache key is the set and the mode and nothing else. A cached Server
+// never carries the principal or the request's names (unknown, renamed): those
+// come from the request context, as routedHandler reads them.
+//
+// bridge (?access=read) wins over the token's own read-only view: the client
+// asked for it and checks the response header.
+func (m *MultiKBServer) routedFor(ctx context.Context, rawKBs []string, bridge bool) (*Server, []string, map[string]string, error) {
 	seen := map[string]bool{}
 	for _, raw := range rawKBs {
 		for _, n := range strings.Split(raw, ",") {
@@ -210,37 +242,34 @@ func (m *MultiKBServer) routedFor(rawKBs []string, readOnly bool) (*Server, []st
 			}
 		}
 	}
+	readable := readableKBs(ctx, m.routedNames)
+	if len(readable) == 0 {
+		return m.routedView(nil, routedNormal), nil, nil, nil
+	}
 	if len(seen) == 0 {
-		if !readOnly {
-			return m.routed, nil, nil, nil
-		}
-		m.routedMu.Lock()
-		defer m.routedMu.Unlock()
-		key := strings.Join(m.routedNames, ",") + routedReadOnlySuffix
-		if srv, ok := m.routedViews[key]; ok {
-			return srv, nil, nil, nil
-		}
-		srv := m.buildRouted(m.routedNames, true)
-		m.routedViews[key] = srv
-		return srv, nil, nil, nil
+		return m.routedView(readable, m.routedModeFor(ctx, readable, bridge)), nil, nil, nil
+	}
+	isReadable := make(map[string]bool, len(readable))
+	for _, n := range readable {
+		isReadable[n] = true
 	}
 	var unknown []string
 	renamed := map[string]string{}
 	inSet := map[string]bool{}
 	for n := range seen {
-		if _, ok := m.servers[n]; ok {
+		if isReadable[n] {
 			inSet[n] = true
 			continue
 		}
 		// TRAP: the mounted check comes first. A name that is mounted is never
 		// looked up as an alias, so a KB created later under an old name is
-		// reached by its own name, not redirected to the renamed one.
-		if to, ok := m.routedAliases[n]; ok {
-			if _, mounted := m.servers[to]; mounted {
-				renamed[n] = to
-				inSet[to] = true
-				continue
-			}
+		// reached by its own name, not redirected to the renamed one. (A
+		// mounted name the principal cannot read falls to unknown below, with
+		// no alias lookup: SetKBAliases drops an alias whose from is mounted.)
+		if to, ok := m.routedAliases[n]; ok && isReadable[to] {
+			renamed[n] = to
+			inSet[to] = true
+			continue
 		}
 		unknown = append(unknown, n)
 	}
@@ -252,11 +281,10 @@ func (m *MultiKBServer) routedFor(rawKBs []string, readOnly bool) (*Server, []st
 	sort.Strings(unknown)
 	if len(set) == 0 {
 		return nil, unknown, nil, fmt.Errorf("unknown kb in kbs: %s not mounted on this server, which mounts %s",
-			quoteJoin(unknown), strings.Join(m.routedNames, ", "))
+			quoteJoin(unknown), strings.Join(readable, ", "))
 	}
 	key := strings.Join(set, ",")
 	m.routedMu.Lock()
-	defer m.routedMu.Unlock()
 	if len(renamed) > 0 {
 		warn := key + "|renamed|" + renamedKey(renamed)
 		if !m.routedWarned[warn] {
@@ -275,28 +303,58 @@ func (m *MultiKBServer) routedFor(rawKBs []string, readOnly bool) (*Server, []st
 				m.routedWarned = map[string]bool{}
 			}
 			m.routedWarned[warn] = true
-			log.Printf("routed mount: kbs names %s not mounted; serving %s (renamed or removed? run cartographer sync on the client)",
+			log.Printf("routed mount: kbs names %s not mounted or not readable by the token; serving %s (renamed or removed? run cartographer sync on the client)",
 				quoteJoin(unknown), key)
 		}
 	}
+	m.routedMu.Unlock()
 	if len(renamed) == 0 {
 		renamed = nil
 	}
-	viewKey := key
-	if readOnly {
-		viewKey += routedReadOnlySuffix
-	}
-	if srv, ok := m.routedViews[viewKey]; ok {
-		return srv, unknown, renamed, nil
-	}
-	srv := m.buildRouted(set, readOnly)
-	m.routedViews[viewKey] = srv
-	return srv, unknown, renamed, nil
+	return m.routedView(set, m.routedModeFor(ctx, set, bridge)), unknown, renamed, nil
 }
 
-// routedReadOnlySuffix distinguishes a read-only view in routedViews. A KB name
-// cannot contain "|", so it never collides with a set key.
-const routedReadOnlySuffix = "|access=read"
+// routedModeFor picks the view mode of a connection over set (see routedFor).
+func (m *MultiKBServer) routedModeFor(ctx context.Context, set []string, bridge bool) routedMode {
+	switch {
+	case bridge:
+		return routedBridgeReadOnly
+	case !writesAnyKB(ctx, set):
+		return routedTokenReadOnly
+	}
+	return routedNormal
+}
+
+// routedView returns the cached view for (set, mode), building it on first use.
+// The default view (every mounted KB, normal) is the pre-built m.routed.
+func (m *MultiKBServer) routedView(set []string, mode routedMode) *Server {
+	key := routedViewKey(set, mode)
+	m.routedMu.Lock()
+	defer m.routedMu.Unlock()
+	if srv, ok := m.routedViews[key]; ok {
+		return srv
+	}
+	srv := m.buildRouted(set, mode)
+	m.routedViews[key] = srv
+	return srv
+}
+
+// routedViewKey is the one function that names a view in routedViews: the
+// sorted set and the mode. A KB name cannot contain "|", so a suffix never
+// collides with a set key. An empty set is the denied view.
+func routedViewKey(set []string, mode routedMode) string {
+	if len(set) == 0 {
+		return "|denied"
+	}
+	key := strings.Join(set, ",")
+	switch mode {
+	case routedTokenReadOnly:
+		key += "|token=read"
+	case routedBridgeReadOnly:
+		key += "|access=read"
+	}
+	return key
+}
 
 // renamedKey renders old → new pairs in a stable order, for logs.
 func renamedKey(renamed map[string]string) string {
@@ -394,7 +452,10 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 		}
 		if !containsString(set, kbName) {
 			allowed := strings.Join(m.describeRoutedKBs(set), ", ")
-			if _, mounted := m.servers[kbName]; mounted {
+			// D1096: only a KB the principal can read is confirmed as mounted;
+			// an unreadable one is "unknown" (named in the URL) or "not
+			// available", with the same texts as a name that does not exist.
+			if _, mounted := m.servers[kbName]; mounted && kbRosterVisible(ctx, kbName) {
 				return errorResult(fmt.Sprintf("kb %q is mounted on this server but not bound to this connection (allowed: %s): "+
 					"bind it to this client (cartographer client bind), run cartographer sync, then start a new agent session — "+
 					"an open session keeps the tool list it started with. "+routedScopeHint, kbName, allowed)), nil
@@ -419,7 +480,7 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 		}
 		res := srv.callTool(withRoutedSet(ctx, set), toolName, rest)
 		if toolName == "kb_status" && !res.IsError {
-			res = m.withConnectionNotice(res, set, routedUnknown(ctx), routedRenamed(ctx))
+			res = m.withConnectionNotice(ctx, res, set, routedUnknown(ctx), routedRenamed(ctx))
 		}
 		return res, nil
 	}
@@ -437,14 +498,15 @@ const routedUnknownHint = "Names in unknown are in this connection's kbs but not
 const routedRenamedHint = "Names in renamed are the old names of KBs served under their new name: the URL still works, but it is stale: run cartographer sync on this client."
 
 // withConnectionNotice adds the routed-only `connection` object to a kb_status
-// result (D712): the connection's set, every mounted KB, the ones the
+// result (D712): the connection's set, every mounted KB the principal reads
+// (D1096: no other name is spoken), the ones the
 // connection does not serve, and the server start time, so an agent whose
 // session predates a KB can spot the difference. It decodes and re-encodes the
 // JSON instead of appending a content block because CLI callers decode
 // Content[0] only and a second block breaks them (doctornudge.go). On any
 // decoding trouble the result is returned unchanged: the notice must never
 // break kb_status.
-func (m *MultiKBServer) withConnectionNotice(res ToolResult, set, unknown []string, renamed map[string]string) ToolResult {
+func (m *MultiKBServer) withConnectionNotice(ctx context.Context, res ToolResult, set, unknown []string, renamed map[string]string) ToolResult {
 	if len(res.Content) == 0 {
 		return res
 	}
@@ -452,7 +514,7 @@ func (m *MultiKBServer) withConnectionNotice(res ToolResult, set, unknown []stri
 	if err := json.Unmarshal([]byte(res.Content[0].Text), &obj); err != nil || obj == nil {
 		return res
 	}
-	mounted := m.mountedNames()
+	mounted := readableKBs(ctx, m.mountedNames())
 	kbs := append([]string(nil), set...)
 	sort.Strings(kbs)
 	conn := map[string]any{

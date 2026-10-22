@@ -286,7 +286,8 @@ func (s *Server) rosterMiddleware() sdk.Middleware {
 // them callable through tools/call (D65). The SDK lists every tool added to
 // it, so the filter is applied to the result rather than at registration —
 // registering them is what keeps them callable. A read-only routed session
-// (readOnlySession) also drops every write tool from the list; those stay
+// (readOnlySession) or a token view that writes nothing (tokenReadOnly) also
+// drops every write tool from the list; those stay
 // registered so a call is refused with a reason, not with "tool not found".
 func (s *Server) agentProfileMiddleware() sdk.Middleware {
 	return func(next sdk.MethodHandler) sdk.MethodHandler {
@@ -297,7 +298,7 @@ func (s *Server) agentProfileMiddleware() sdk.Middleware {
 			}
 			s.mu.Lock()
 			hide := s.agentProfile
-			readOnly := s.readOnlySession
+			readOnly := s.readOnlySession || s.tokenReadOnly
 			s.mu.Unlock()
 			if !hide && !readOnly {
 				return res, nil

@@ -1151,6 +1151,28 @@ func TestWaitHealthy_DoesNotAcceptBootstrapping(t *testing.T) {
 	}
 }
 
+// D1096: a tokenless /health of a server with authentication on carries no
+// kbs. kb list's MOUNTED column then says why, and the no-KB hint asks the
+// data directory instead of concluding anything from the missing field.
+func TestMountedKBNames_AnonymousHealthHasNoKBs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"status":"ok","version":"v","started_at":"s","ready":true}`)
+	}))
+	defer srv.Close()
+
+	_, err := mountedKBNames(srv.URL)
+	if err == nil || !strings.Contains(err.Error(), "does not list its KBs to a request without a token") {
+		t.Fatalf("mountedKBNames error = %v, want the reworded reason", err)
+	}
+	h, err := fetchHealth(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !h.hasNoKBs(t.TempDir()) {
+		t.Error("hasNoKBs on an empty data dir with kbs absent = false, want true (falls back to the data directory)")
+	}
+}
+
 // kbCreateEnv returns a server config whose data: is a temp dir, and that dir,
 // so kb create tests never read the developer's real config.
 func kbCreateEnv(t *testing.T) (cfg, data string) {

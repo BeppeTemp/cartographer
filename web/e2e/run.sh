@@ -40,7 +40,7 @@ wait_health() {
         # Past bootstrap too (D348): until then /ui/ and /api are 503.
         local body
         body=$(curl -sf "${url}/health" 2>/dev/null) || body=""
-        if printf '%s' "$body" | grep -q '"kbs"' && ! printf '%s' "$body" | grep -q '"bootstrapping"'; then return 0; fi
+        if printf '%s' "$body" | grep -q '"started_at"' && ! printf '%s' "$body" | grep -q '"bootstrapping"'; then return 0; fi
         sleep 0.5
     done
     echo "[e2e-web] server at ${url} never became healthy; its log:" >&2
