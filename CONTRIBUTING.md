@@ -189,7 +189,8 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     schema, CLI flag, config key, on-disk format), closes a **plan issue the
     maintainer approved** — labelled `plan` and `approved` — **and assigned to
     you** (comment on the plan to claim it; the maintainer assigns it, so nobody
-    ships against a plan someone else holds). The design is
+    ships against a plan someone else holds — or assigns your PR to you, since GitHub
+    refuses to assign an issue to someone who never commented on it). The design is
     reviewed there, before any code exists; a trivial fix needs only `Closes #<n>`;
   - at most **500 production lines added** per PR: a larger change is split by
     work package into PRs that land in order. The exception is a maintainer's
@@ -314,7 +315,7 @@ trivial fix needs no plan: a PR that says `Closes #<n>` is enough. A plan is a
 with triage rights can set; no agent implements a plan without it, and none adds
 it on its own initiative. A contributor claims an approved plan by commenting on
 it; the maintainer assigns it to them, and `plan-gate` accepts only a plan
-assigned to the PR author.
+assigned to the PR author, or a PR the maintainer assigned to its author.
 
 ## Plan issues (design → implementation handoff)
 

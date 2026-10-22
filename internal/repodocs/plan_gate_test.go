@@ -46,6 +46,11 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 			t.Errorf("plan-gate.yml: the `issues` trigger lacks %q: moving an issue to another train must re-run the gate", want)
 		}
 	}
+	// A maintainer may assign the PR to its author in place of the plan (D955): GitHub
+	// refuses to assign an issue to someone who never commented on it.
+	if !strings.Contains(types("pull_request_target"), "assigned") {
+		t.Error("plan-gate.yml: the `pull_request_target` trigger lacks \"assigned\": a PR assigned to its author must re-run the gate")
+	}
 	for _, want := range []string{"created", "opened", "closed", "edited", "deleted"} {
 		if !strings.Contains(types("milestone"), want) {
 			t.Errorf("plan-gate.yml: the `milestone` trigger lacks %q: it can change which train is next", want)
