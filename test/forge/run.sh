@@ -181,7 +181,7 @@ KB="$DATA/kb-rules"
 MCP="http://127.0.0.1:$SRV_PORT/mcp?kb=kb-rules"
 K_SERVICE=forge CARTOGRAPHER_AUTH=false "$BIN" serve --data "$DATA" --http "127.0.0.1:$SRV_PORT" >"$WORK/serve.log" 2>&1 &
 SRV_PID=$!
-wait_for "the server" 60 bash -c "curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q '\"kbs\"' && ! curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q bootstrapping"
+wait_for "the server" 60 bash -c "curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q '\"started_at\"' && ! curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q bootstrapping"
 
 call() { # call TOOL ARGS [AUTHOR] -> the raw JSON-RPC response
   local h=(); [ -n "${3:-}" ] && h=(-H "Cartographer-Author: $3")
@@ -256,7 +256,7 @@ if [ -n "$SSH_REMOTE" ]; then
   kill "$SRV_PID"; wait "$SRV_PID" 2>/dev/null || true
   K_SERVICE=forge CARTOGRAPHER_AUTH=false "$BIN" serve --data "$DATA" --http "127.0.0.1:$SRV_PORT" >"$WORK/serve2.log" 2>&1 &
   SRV_PID=$!
-  wait_for "the server" 60 bash -c "curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q '\"kbs\"' && ! curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q bootstrapping"
+  wait_for "the server" 60 bash -c "curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q '\"started_at\"' && ! curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q bootstrapping"
   MCP="http://127.0.0.1:$SRV_PORT/mcp?kb=kb-ssh"
   call map_create '{"name":"rules","title":"Rules"}' "$ADA" >/dev/null
   OUT=$(page one "Over SSH." "$ADA")

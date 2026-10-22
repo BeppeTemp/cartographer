@@ -201,8 +201,8 @@ and never carry the literal (nor does any provider file). A literal token theref
 saying so; for agents that should work without it, use a `${NAME}` reference. A token is never put on a command line (`--token-env` takes a variable name,
 no flag takes a value) and never printed.
 
-**Multi-KB servers (D92).** `connect` reads `GET /health` before emitting MCP
-configuration. With one mounted KB (or an older single-KB server that omits
+**Multi-KB servers (D92).** `connect` reads `GET /health`, with the token, before emitting MCP
+configuration (a scoped token sees only the KBs it reads, D1096). With one mounted KB (or an older single-KB server that omits
 `kbs`) it keeps the compatible single entry, `<server_name>`, pointed at the
 bare `/mcp` URL. With two or more KBs it writes one entry per KB, named
 `<server_name>-<kb>` and pointed at `/mcp?kb=<kb>`, and records that KB list in

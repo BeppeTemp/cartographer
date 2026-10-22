@@ -174,13 +174,19 @@ func TestRoutedMount_KBS_AliasDoesNotWidenAuthorization(t *testing.T) {
 		t.Fatalf("control: a token scoped to the new name must read the renamed KB: %+v", res)
 	}
 
+	// A token scoped to the old name reads no mounted KB: the request is the
+	// denied view (D1096), refused at connection level with no KB named.
 	handler := newRoutedAliasHandler(t, []config.KBAlias{{From: "kb-old", To: "kb-a"}}, []string{"kb-old"}, "kb-a", "kb-b")
-	res := aliasCall(t, handler, path, "concept_read", args)
-	if !res.IsError {
-		t.Fatalf("a token scoped to the old name reached the renamed KB: %+v", res)
+	rr := routedPost(t, handler, path, toolsListBody)
+	if !strings.Contains(rr.Body.String(), "forbidden: no_kb_access") {
+		t.Fatalf("a token scoped to the old name must get the denied view: %.300s", rr.Body.String())
 	}
-	if strings.Contains(res.Content[0].Text, "belongs-to-kb-a") {
-		t.Errorf("the refusal leaks the renamed KB's content: %q", res.Content[0].Text)
+	if strings.Contains(rr.Body.String(), "belongs-to-kb-a") || strings.Contains(rr.Body.String(), "kb-a") {
+		t.Errorf("the refusal leaks the renamed KB: %.300s", rr.Body.String())
+	}
+	res := aliasCall(t, handler, path, "concept_read", args)
+	if !res.IsError || strings.Contains(res.Content[0].Text, "belongs-to-kb-a") {
+		t.Fatalf("a token scoped to the old name reached the renamed KB: %+v", res)
 	}
 }
 

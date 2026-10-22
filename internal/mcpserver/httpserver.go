@@ -435,7 +435,6 @@ func (m *MultiKBServer) Handler() http.Handler {
 				"status":     "ok",
 				"version":    m.version,
 				"started_at": processStartedAt,
-				"kbs":        kbs,
 				"ready":      ready,
 			}
 			// D187: the client needs to know the mount topology before it
@@ -446,11 +445,28 @@ func (m *MultiKBServer) Handler() http.Handler {
 				result["mount_mode"] = "routed"
 				result["routed_path"] = RoutedMountPath
 			}
-			// D254: additive, and only when a newer release is known —
-			// absent means unknown or up to date.
-			if m.latestVersion != nil {
-				if latest := m.latestVersion(); latest != "" {
-					result["latest_version"] = latest
+			// D1096: the body follows the caller's token. An anonymous probe
+			// (auth on, no valid token: the middleware attaches no principal)
+			// learns that the server is alive, ready, which version and where
+			// the routed endpoint is, and no KB. An identified caller (a valid
+			// token, or the local admin with auth off) also gets the KBs it
+			// reads. TRAP: kbs is always a list, never null, for an identified
+			// caller: client.Health.KBs is a pointer and null would read as
+			// "this server does not list its KBs".
+			if auth.PrincipalFromContext(r.Context()).ID != "" {
+				visible := make([]KBInfo, 0, len(kbs))
+				for _, info := range kbs {
+					if kbRosterVisible(r.Context(), info.Name) {
+						visible = append(visible, info)
+					}
+				}
+				result["kbs"] = visible
+				// D254: additive, and only when a newer release is known —
+				// absent means unknown or up to date.
+				if m.latestVersion != nil {
+					if latest := m.latestVersion(); latest != "" {
+						result["latest_version"] = latest
+					}
 				}
 			}
 			json.NewEncoder(w).Encode(result)
@@ -540,7 +556,7 @@ func (m *MultiKBServer) Handler() http.Handler {
 				http.Error(w, fmt.Sprintf("invalid access %q: the only accepted value is %q (omit it for the connection's normal access)", access, AccessReadValue), http.StatusBadRequest)
 				return
 			}
-			srv, unknown, renamed, err := m.routedFor(r.URL.Query()["kbs"], readOnly)
+			srv, unknown, renamed, err := m.routedFor(r.Context(), r.URL.Query()["kbs"], readOnly)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return

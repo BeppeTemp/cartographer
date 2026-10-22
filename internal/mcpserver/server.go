@@ -96,6 +96,11 @@ type Server struct {
 	// tools/list carries no write tool and a call to one is refused with
 	// denyUnboundFolder. Set once by buildRouted, before the server is served.
 	readOnlySession bool
+	// tokenReadOnly marks a routed view for a principal that can write none of
+	// the connection's KBs (D1096): tools/list carries no write tool, but the
+	// call is not refused here: it reaches the target KB, which answers
+	// read_only_token. Unlike readOnlySession it sends no instructions.
+	tokenReadOnly bool
 	// authorizer is installed during KB tool registration (installPolicy). It
 	// is a closure over immutable registration dependencies, never mutable
 	// request-global state.

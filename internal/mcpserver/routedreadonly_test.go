@@ -1,10 +1,13 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/auth"
 )
 
 const readOnlyPath = RoutedMountPath + "?access=read"
@@ -158,12 +161,13 @@ func TestRoutedReadOnly_DoesNotShareACachedServer(t *testing.T) {
 	if err := multi.EnableRoutedMount("test", nil); err != nil {
 		t.Fatal(err)
 	}
+	admin := auth.ContextWithPrincipal(context.Background(), auth.LocalAdminPrincipal())
 	for _, kbs := range [][]string{nil, {"kb-a,kb-b"}, {"kb-a"}} {
-		rw, _, _, err := multi.routedFor(kbs, false)
+		rw, _, _, err := multi.routedFor(admin, kbs, false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		ro, _, _, err := multi.routedFor(kbs, true)
+		ro, _, _, err := multi.routedFor(admin, kbs, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -173,7 +177,7 @@ func TestRoutedReadOnly_DoesNotShareACachedServer(t *testing.T) {
 		if !ro.readOnlySession || rw.readOnlySession {
 			t.Errorf("kbs=%v: modes swapped (ro=%v rw=%v)", kbs, ro.readOnlySession, rw.readOnlySession)
 		}
-		again, _, _, _ := multi.routedFor(kbs, true)
+		again, _, _, _ := multi.routedFor(admin, kbs, true)
 		if again != ro {
 			t.Errorf("kbs=%v: the read-only Server is not cached", kbs)
 		}

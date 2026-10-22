@@ -259,12 +259,30 @@ func (ts *TokenStore) PrincipalOf(token string) (Principal, bool) {
 }
 
 // Middleware returns an HTTP middleware that validates the Authorization: Bearer header.
-// If auth is disabled, passes through. On failure, returns 401 with WWW-Authenticate header.
-// On success, injects the token's scopes into the request context.
+// If auth is disabled, passes through as the local admin. On failure, returns 401 with WWW-Authenticate header.
+// On success, injects the token's principal into the request context. A public
+// path (isPublicPath) is never refused: it carries the principal of a valid
+// bearer when there is one and no principal otherwise.
 func (ts *TokenStore) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !ts.IsEnabled() || isPublicPath(r.URL.Path) {
+		if !ts.IsEnabled() {
 			next.ServeHTTP(w, r.WithContext(ContextWithPrincipal(r.Context(), LocalAdminPrincipal())))
+			return
+		}
+		if isPublicPath(r.URL.Path) {
+			// TRAP: with auth on, a public path is exempt from *requiring* a
+			// token, not from reading one, and it never carries the local
+			// admin: a valid bearer brings its own principal, anything else
+			// (no token, an invalid one: never a 401 here) brings none, so the
+			// zero principal reads nothing. /health relies on it to name KBs
+			// only to a caller that proved who it is.
+			if token, ok := extractBearer(r); ok {
+				if _, valid := ts.Validate(token); valid {
+					principal, _ := ts.PrincipalOf(token)
+					r = r.WithContext(ContextWithPrincipal(r.Context(), principal))
+				}
+			}
+			next.ServeHTTP(w, r)
 			return
 		}
 		token, ok := extractBearer(r)
@@ -288,7 +306,8 @@ func (ts *TokenStore) Middleware(next http.Handler) http.Handler {
 // using ProtectedResourceMetadata.
 const WellKnownProtectedResourcePath = "/.well-known/oauth-protected-resource"
 
-// isPublicPath reports whether a request path must be reachable without auth:
+// isPublicPath reports whether a request path must be reachable without a token
+// (the middleware still reads one, to attach its principal):
 // the health endpoint (used by k8s liveness/readiness probes), the OAuth
 // protected-resource metadata (RFC 9728, which by definition must be public),
 // and the embedded UI's own static assets.

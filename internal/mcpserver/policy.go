@@ -448,6 +448,35 @@ func kbRosterVisible(ctx context.Context, name string) bool {
 	return p.Policy.HasKBAccess(name, false)
 }
 
+// readableKBs keeps, in order, the KBs of names the caller may read at all
+// (kbRosterVisible: any read grant, whatever its selectors). It is what a
+// routed connection may advertise and name (D1096); the zero principal gets
+// none.
+func readableKBs(ctx context.Context, names []string) []string {
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if kbRosterVisible(ctx, n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// writesAnyKB reports whether the caller holds a write grant on at least one
+// of names; an identified admin does, the zero principal holds nothing.
+func writesAnyKB(ctx context.Context, names []string) bool {
+	p := auth.PrincipalFromContext(ctx)
+	if p.ID != "" && p.Policy.Admin {
+		return len(names) > 0
+	}
+	for _, n := range names {
+		if p.Policy.HasKBAccess(n, true) {
+			return true
+		}
+	}
+	return false
+}
+
 // Visible is the reusable collection predicate. It never treats an unreadable
 // concept as visible, avoiding an error side channel for restricted callers.
 func Visible(ctx context.Context, k *kb.KB, id string) bool {

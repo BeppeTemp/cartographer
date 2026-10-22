@@ -465,3 +465,45 @@ func TestUnrequiredEmptyStoreStillDisablesAuth(t *testing.T) {
 		t.Error("an empty store with no requirement must leave auth disabled")
 	}
 }
+
+// TestMiddlewarePublicPathPrincipal pins that a public path carries the
+// principal of a valid bearer, no principal for none or an invalid one (never
+// a 401), and the local admin only when auth is off.
+func TestMiddlewarePublicPathPrincipal(t *testing.T) {
+	scoped := NewScopedTokenStore([]ScopedToken{{Token: "tok-ro", Scopes: []KBScope{{KB: "kb-a"}}}})
+	cases := []struct {
+		name   string
+		ts     *TokenStore
+		path   string
+		bearer string
+		wantID bool
+		admin  bool
+	}{
+		{"health valid", scoped, "/health", "tok-ro", true, false},
+		{"health none", scoped, "/health", "", false, false},
+		{"health invalid", scoped, "/health", "nope", false, false},
+		{"ui valid", scoped, "/ui/x.js", "tok-ro", true, false},
+		{"ui none", scoped, "/ui/x.js", "", false, false},
+		{"metadata none", scoped, WellKnownProtectedResourcePath, "", false, false},
+		{"metadata invalid", scoped, WellKnownProtectedResourcePath, "nope", false, false},
+		{"auth off", NewTokenStore(nil), "/health", "", true, true},
+	}
+	for _, c := range cases {
+		var got Principal
+		h := c.ts.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got = PrincipalFromContext(r.Context())
+		}))
+		req := httptest.NewRequest("GET", c.path, nil)
+		if c.bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+c.bearer)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: status %d, want 200", c.name, rec.Code)
+		}
+		if (got.ID != "") != c.wantID || got.Policy.Admin != c.admin {
+			t.Errorf("%s: principal id=%q admin=%v, want identified=%v admin=%v", c.name, got.ID, got.Policy.Admin, c.wantID, c.admin)
+		}
+	}
+}

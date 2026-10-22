@@ -612,8 +612,9 @@ func TestRoutedMount_KBS_CallUnknownKB(t *testing.T) {
 }
 
 // TestRoutedMount_KBS_MetadataGateUsesTheSet: a principal scoped to kb-a only
-// is refused the metadata of a connection bound to kb-b (it can reach none of
-// that connection's KBs) and admitted on one bound to kb-a.
+// is admitted on a connection bound to kb-a. Bound to kb-b it is refused with
+// the D756 400 (kb-b is unreadable, so it is unknown to this principal, D1096),
+// before the metadata gate runs.
 func TestRoutedMount_KBS_MetadataGateUsesTheSet(t *testing.T) {
 	t.Parallel()
 	multi := NewMultiKBServer("test")

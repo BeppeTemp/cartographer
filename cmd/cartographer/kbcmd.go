@@ -802,7 +802,7 @@ func mountedKBNames(baseURL string) (map[string]bool, error) {
 		return nil, err
 	}
 	if h.KBs == nil {
-		return nil, fmt.Errorf("server at %s does not report mounted KBs (single-KB server)", baseURL)
+		return nil, fmt.Errorf("server at %s does not list its KBs to a request without a token (authentication on) or is a single-KB server", baseURL)
 	}
 	names := map[string]bool{}
 	for _, kb := range *h.KBs {

@@ -121,7 +121,7 @@ func resolveKBTargets(health *client.Health, selectedNames []string) ([]kbTarget
 			}
 			prefix, ok := prefixByName[name]
 			if !ok {
-				return nil, fmt.Errorf("configured KB %q is not among the KBs currently advertised by the server (stale selection: check .cartographer.yaml or the server config)", name)
+				return nil, fmt.Errorf("configured KB %q is not among the KBs currently advertised by the server (stale selection: check .cartographer.yaml or the server config; the server lists only the KBs the token may read)", name)
 			}
 			targets = append(targets, kbTarget{Name: name, ToolPrefix: prefix})
 		}

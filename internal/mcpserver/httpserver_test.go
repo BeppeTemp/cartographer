@@ -561,7 +561,9 @@ func TestMultiKB_Health_StaysLiveWhenNotReady(t *testing.T) {
 	m.kbs = []KBInfo{{Name: "broken", Status: "normal"}}
 
 	rec := httptest.NewRecorder()
-	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	// The raw handler has no principal and is anonymous by design (D1096): the
+	// KB list is read through the auth-off middleware, which is the local admin.
+	auth.NewTokenStore(nil).Middleware(m.Handler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if rec.Code != http.StatusOK {
 		t.Errorf("/health status = %d, want 200 (liveness)", rec.Code)
 	}
@@ -642,7 +644,7 @@ func TestMultiKB_Ready_BestEffortSinkUnaffected(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
+	auth.NewTokenStore(nil).Middleware(m.Handler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/health", nil))
 	var body struct {
 		Ready bool `json:"ready"`
 		KBs   []struct {
