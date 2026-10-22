@@ -72,6 +72,7 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 `kb create` also writes a short generic `instructions.md` at the KB root (status convention and write
 discipline, English, no KB-specific names), only when it creates the KB and before the initial commit,
 so a new KB never raises `missing_instructions`; an existing KB is left alone (D325). The file tells agents to set `in-progress` in the write that records the first progress of an `open` item; an existing KB's `instructions.md` is not rewritten, while the managed preamble carries the same rule and reaches every client on its next sync.
+It writes no README: a KB adopted from a forge's initial commit gets a short generated one only in place of that forge's boilerplate README (D1071).
 
 `instructions.md` is folded into the client instructions with its frontmatter discarded (D61). Three
 optional frontmatter keys are read by `lint` only (D316, D332):

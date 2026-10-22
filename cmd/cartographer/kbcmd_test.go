@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/kbtest"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
 // hasGitBinary skips the tests that shell out to git where it is absent.
@@ -241,12 +243,21 @@ func TestCmdKBCreateRemoteFailureKeepsScaffold(t *testing.T) {
 // first writing files; the bare repo's HEAD points at it.
 func seedForgeRemote(t *testing.T, tmp, branch string, files []string, commits int) string {
 	t.Helper()
+	content := map[string]string{}
+	for _, f := range files {
+		content[f] = "x\n"
+	}
+	return seedForgeRemoteContent(t, tmp, branch, content, commits)
+}
+
+func seedForgeRemoteContent(t *testing.T, tmp, branch string, files map[string]string, commits int) string {
+	t.Helper()
 	src := filepath.Join(tmp, "forge-src")
 	mustRunGit(t, "", "init", "-b", branch, src)
 	mustRunGit(t, src, "config", "user.email", "forge@example.com")
 	mustRunGit(t, src, "config", "user.name", "Forge")
-	for _, f := range files {
-		if err := os.WriteFile(filepath.Join(src, f), []byte("x\n"), 0o644); err != nil {
+	for f, body := range files {
+		if err := os.WriteFile(filepath.Join(src, f), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -325,6 +336,188 @@ func TestCmdKBCreateAdoptsForgeInitialCommit(t *testing.T) {
 				t.Error("a main branch was pushed beside the forge's master (D264)")
 			}
 		})
+	}
+}
+
+func TestCmdKBCreateReadme(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	const desc = "A short project description."
+	const handWritten = "# forge\n\nHow we run this repository.\n\n## Usage\n\nRead the notes.\n"
+	gitlab, err := os.ReadFile(filepath.Join("..", "..", "internal", "gitx", "testdata", "forge-readmes", "gitlab.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitlabReadme := strings.Replace(string(gitlab), "# kb-a", "# forge", 1)
+	cases := []struct {
+		name, readme, flag string
+		replaced           bool
+		subject            string
+		wantDesc           bool
+	}{
+		{"auto github-shaped", "# forge\n\n" + desc + "\n", "", true, "docs: replace the forge's boilerplate README", true},
+		{"auto gitlab template", gitlabReadme, "", true, "docs: replace the forge's boilerplate README", false},
+		{"auto hand-written", handWritten, "", false, "", false},
+		{"keep boilerplate", "# forge\n\n" + desc + "\n", "keep", false, "", false},
+		{"generate hand-written", handWritten, "generate", true, "docs: generate the README", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			bare := seedForgeRemoteContent(t, tmp, "main", map[string]string{"README.md": c.readme, "LICENSE": "x\n"}, 1)
+			forgeSHA := gitOut(t, bare, "rev-parse", "main")
+			dataDir := filepath.Join(tmp, "data")
+			args := []string{"alpha", "--data", dataDir, "--remote", fileURL(bare)}
+			if c.flag != "" {
+				args = append(args, "--readme", c.flag)
+			}
+			var code int
+			var stderr string
+			stdout := withStdout(t, func() {
+				stderr = withStderr(t, func() {
+					withNoGuidance(t, func() { code = cmdKBCreate(args) })
+				})
+			})
+			if code != 0 {
+				t.Fatalf("cmdKBCreate = %d, stderr:\n%s", code, stderr)
+			}
+			kbPath := filepath.Join(dataDir, "alpha")
+			got := gitOut(t, bare, "show", "main:README.md")
+			if gitOut(t, kbPath, "status", "--porcelain") != "" {
+				t.Errorf("KB working tree is not clean:\n%s", gitOut(t, kbPath, "status", "--porcelain"))
+			}
+			if !c.replaced {
+				if got != strings.TrimSpace(c.readme) {
+					t.Errorf("README changed:\n%s", got)
+				}
+				if n := gitOut(t, bare, "rev-list", "--count", "main"); n != "2" {
+					t.Errorf("remote has %s commits, want 2", n)
+				}
+				if strings.Contains(stdout, "replaced README.md") {
+					t.Errorf("stdout claims a replacement:\n%s", stdout)
+				}
+				if hint := strings.Contains(stderr, "--readme generate"); hint != (c.flag == "") {
+					t.Errorf("hint printed = %v, stderr:\n%s", hint, stderr)
+				}
+				return
+			}
+			if !strings.Contains(stdout, "replaced README.md") {
+				t.Errorf("stdout lacks the replacement:\n%s", stdout)
+			}
+			if !strings.HasPrefix(got, "# alpha\n") || !strings.Contains(got, "data/index.md") || strings.Contains(got, "GitLab") {
+				t.Errorf("generated README:\n%s", got)
+			}
+			if strings.Contains(got, desc) != c.wantDesc {
+				t.Errorf("description carried = %v, want %v:\n%s", !c.wantDesc, c.wantDesc, got)
+			}
+			if n := gitOut(t, bare, "rev-list", "--count", "main"); n != "3" {
+				t.Errorf("remote has %s commits, want 3", n)
+			}
+			if gitOut(t, bare, "log", "-1", "--format=%s", "main") != c.subject {
+				t.Errorf("subject = %q, want %q", gitOut(t, bare, "log", "-1", "--format=%s", "main"), c.subject)
+			}
+			// The push was a fast-forward: the forge commit is still an ancestor.
+			mustRunGit(t, bare, "merge-base", "--is-ancestor", forgeSHA, "main")
+			const idFmt = "--format=%an <%ae> %cn <%ce>"
+			if a, b := gitOut(t, bare, "log", "-1", idFmt, "main"), gitOut(t, bare, "log", "-1", idFmt, "main~1"); a != b {
+				t.Errorf("extra commit identity %q differs from the rebased commit's %q", a, b)
+			}
+			k, err := kb.Open(kbPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			findings, err := lint.Run(k, "", false)
+			if err != nil || len(findings) != 0 {
+				t.Errorf("lint of the new KB: %v, %v", findings, err)
+			}
+		})
+	}
+}
+
+// A remote whose README is a symlink must not have the generated README
+// written through it: the link may point anywhere on the operator's disk.
+func TestCmdKBCreateReadmeRefusesSymlink(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	tmp := t.TempDir()
+	victim := filepath.Join(tmp, "victim.txt")
+	if err := os.WriteFile(victim, []byte("untouched\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bare := seedForgeRemoteContent(t, tmp, "main", map[string]string{"LICENSE": "x\n"}, 1)
+	src := filepath.Join(tmp, "forge-src")
+	if err := os.Symlink(victim, filepath.Join(src, "README.md")); err != nil {
+		t.Fatal(err)
+	}
+	mustRunGit(t, src, "add", "README.md")
+	mustRunGit(t, src, "commit", "--amend", "--no-edit")
+	mustRunGit(t, src, "push", "--force", bare, "main")
+	dataDir := filepath.Join(tmp, "data")
+	var code int
+	errOut := withStderr(t, func() {
+		withStdout(t, func() {
+			withNoGuidance(t, func() {
+				code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", fileURL(bare), "--readme", "generate"})
+			})
+		})
+	})
+	if code == 0 {
+		t.Fatalf("cmdKBCreate = 0, want a refusal; stderr:\n%s", errOut)
+	}
+	if !strings.Contains(errOut, "not a regular file") {
+		t.Errorf("stderr does not name the symlink:\n%s", errOut)
+	}
+	if got, _ := os.ReadFile(victim); string(got) != "untouched\n" {
+		t.Errorf("the symlink target was written: %q", got)
+	}
+}
+
+func TestCmdKBCreateReadmeUsageErrors(t *testing.T) {
+	for _, args := range [][]string{
+		{"--readme", "bogus", "--remote", "file:///nonexistent/forge.git"},
+		{"--readme", "generate", "--no-remote"},
+	} {
+		dataDir := t.TempDir()
+		var code int
+		errOut := withStderr(t, func() {
+			code = cmdKBCreate(append([]string{"alpha", "--data", dataDir}, args...))
+		})
+		if code != 2 || !strings.Contains(errOut, "--readme") {
+			t.Errorf("%v: code=%d stderr=%q, want 2 naming --readme", args, code, errOut)
+		}
+		if _, err := os.Stat(filepath.Join(dataDir, "alpha")); !os.IsNotExist(err) {
+			t.Errorf("%v: KB created: %v", args, err)
+		}
+	}
+}
+
+func TestCmdKBCreateReadmeGenerateOnEmptyRemote(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	tmp := t.TempDir()
+	bare := filepath.Join(tmp, "forge.git")
+	mustRunGit(t, "", "init", "--bare", bare)
+	dataDir := filepath.Join(tmp, "data")
+	var code int
+	withStdout(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", fileURL(bare), "--readme", "generate"})
+		})
+	})
+	if code != 0 {
+		t.Fatalf("cmdKBCreate = %d, want 0", code)
+	}
+	if n := gitOut(t, bare, "rev-list", "--count", "--all"); n != "1" {
+		t.Errorf("remote has %s commits, want the scaffold's only", n)
+	}
+	if tree := gitOut(t, bare, "ls-tree", "-r", "--name-only", "main"); strings.Contains(tree, "README") {
+		t.Errorf("a README was written:\n%s", tree)
 	}
 }
 
