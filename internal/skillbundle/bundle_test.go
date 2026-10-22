@@ -172,10 +172,6 @@ func TestOpsSkillCarriesTheSetupInterview(t *testing.T) {
 // (skillbundle does not import mcpserver): the tools tools/list does not show.
 var advancedTools = []string{"concept_merge", "concept_archive", "contradiction_report", "conflict_resolve", "repair_revert"}
 
-// The section anchor of the doctor skill that every skill citing an advanced
-// tool must carry, and the stale prerequisite no skill may state (#833, D906).
-const advancedAnchor = "not in `tools/list`"
-
 func TestBundledSkillsDoNotStrandOnAdvancedTools(t *testing.T) {
 	t.Parallel()
 	err := fs.WalkDir(FS, "bundled", func(p string, d fs.DirEntry, err error) error {
@@ -190,11 +186,15 @@ func TestBundledSkillsDoNotStrandOnAdvancedTools(t *testing.T) {
 		if strings.Contains(text, "tools.profile") || strings.Contains(text, "profile: full") {
 			t.Errorf("%s names the removed tools.profile setting (D906)", p)
 		}
-		for _, tool := range advancedTools {
-			// git_conflict_resolve is a core tool: match the name as a whole word.
-			re := regexp.MustCompile("(^|[^_a-z])" + tool + "([^_a-z]|$)")
-			if re.MatchString(text) && !strings.Contains(text, advancedAnchor) {
-				t.Errorf("%s cites %s without saying it is %s", p, tool, advancedAnchor)
+		// Per citation: a block (blank-line separated, a new list item starts
+		// one) that cites an advanced tool must carry the pointer itself.
+		for _, block := range skillBlocks(text) {
+			for _, tool := range advancedTools {
+				// git_conflict_resolve is a core tool: match the name as a whole word.
+				re := regexp.MustCompile("(^|[^_a-z])" + tool + "([^_a-z]|$)")
+				if re.MatchString(block) && !strings.Contains(block, "`tools/list`") {
+					t.Errorf("%s cites %s without a pointer to `tools/list` in the same block:\n%s", p, tool, block)
+				}
 			}
 		}
 		return nil
@@ -202,4 +202,28 @@ func TestBundledSkillsDoNotStrandOnAdvancedTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+var listItem = regexp.MustCompile(`^\s*([-*]|\d+\.)\s`)
+
+// skillBlocks splits a skill into paragraphs, a list item starting a new one.
+func skillBlocks(text string) []string {
+	var blocks []string
+	var cur []string
+	flush := func() {
+		if len(cur) > 0 {
+			blocks = append(blocks, strings.Join(cur, "\n"))
+			cur = nil
+		}
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == "" || listItem.MatchString(line) {
+			flush()
+		}
+		if strings.TrimSpace(line) != "" {
+			cur = append(cur, line)
+		}
+	}
+	flush()
+	return blocks
 }

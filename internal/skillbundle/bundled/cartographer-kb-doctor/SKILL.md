@@ -37,7 +37,7 @@ run, one commit per run with reason "auto-repair (background)". It is not a sess
 **What a delegated session may decide.**
 - allowed: mechanical repairs the background repair does not run, after a dry run you read yourself; vocabulary
   and template proposals (`map_update`; `artifact_write` on `templates/`); a merge of `duplicate_candidate` when one
-  page's facts are a subset of the other's; moving a section to another page; closing work whose
+  page's facts are a subset of the other's, only while `concept_merge` is callable (see "Tools not in `tools/list`"); moving a section to another page; closing work whose
   successor the KB names; filling a section from sources the KB cites;
 - never delete a concept, never rename a map's folder, never invent content; never decide a fact
   the KB does not hold;
@@ -95,7 +95,7 @@ the tools it lists cannot use them. This is a property of the client, not a serv
 advertises them, D906), and `kb_status` does not report it: try the call, and when the client answers
 that the tool does not exist or cannot be called, take the route below.
 
-| Tool | Without it |
+| Tool (not in `tools/list`) | Without it |
 |---|---|
 | `contradiction_report` | `work_list`, or `concept_list` with `where: ["type=Contradiction", "resolution_status=open"]`; `kb_status` `open_gaps` for gaps only |
 | `conflict_resolve` | `concept_patch` the Contradiction: `resolution_status: resolved`, `resolution`, `resolution_date`, a `reason` |
@@ -104,7 +104,7 @@ that the tool does not exist or cannot be called, take the route below.
 | `repair_revert` | no equivalent: report the commit sha to the operator, who runs `cartographer kb repair <kb> --revert <sha>` |
 
 An alternative never weakens a rule: a delegated session never deletes a concept, so without
-`concept_merge` it records the item as a gap (step 5c) instead of folding.
+`concept_merge` (not in `tools/list`) it records the item as a gap (step 5c) instead of folding.
 
 ## Procedure
 
@@ -220,7 +220,7 @@ An alternative never weakens a rule: a delegated session never deletes a concept
      (D273); `kb_status` `open_gaps` is the queue of what people have to answer;
    - the next session meets the item again, finds the open gap in step 1 and does not ask twice.
      Count the item against the budget.
-   Closing a gap later (the answer arrives) is `concept_patch` (`resolution_status: resolved`), or `conflict_resolve` when the client can call it; step 1 reads the open ones back.
+   Closing a gap later (the answer arrives) is `concept_patch` (`resolution_status: resolved`), or `conflict_resolve` when the client can call it (not in `tools/list`); step 1 reads the open ones back.
 
 5b. **Harvest and archive.** `kb_review` `kind: "harvest_candidate"`: a journal entry that is closed
    and older than the journal's `harvest_after` (default 45 days). Extracting the durable facts is

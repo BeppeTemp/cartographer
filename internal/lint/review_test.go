@@ -298,7 +298,7 @@ func TestReviewDuplicateCandidate_ResourceNeedsSimilarTitle(t *testing.T) {
 
 func TestReviewDuplicateActionSatellite(t *testing.T) {
 	t.Parallel()
-	if got := duplicateAction(idsOf("m/x", "m/x/y"), false); !strings.Contains(got, "concept_merge m/x/y into its parent m/x") || !strings.Contains(got, "link each") {
+	if got := duplicateAction(idsOf("m/x", "m/x/y"), false); !strings.Contains(got, "concept_merge m/x/y into its parent m/x") || !strings.Contains(got, "link each") || !strings.Contains(got, "assisted session only") || !strings.Contains(got, "delete the child") {
 		t.Fatalf("satellite pair: %q", got)
 	}
 	if got := duplicateAction(idsOf("m/x", "m/z"), false); strings.Contains(got, "concept_merge") {

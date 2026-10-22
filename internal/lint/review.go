@@ -583,7 +583,7 @@ func satellitePair(a, b okf.ConceptID) (parent, child okf.ConceptID, ok bool) {
 func duplicateAction(ids []okf.ConceptID, sameTitleWords bool) string {
 	if len(ids) == 2 {
 		if parent, child, ok := satellitePair(ids[0], ids[1]); ok {
-			return fmt.Sprintf("concept_merge %s into its parent %s (not in tools/list; if the client cannot call it by name, link each to the other saying how they differ, or fold the child into the parent with concept_patch after the operator's choice)", child, parent)
+			return fmt.Sprintf("concept_merge %s into its parent %s (not in tools/list; if the client cannot call it by name, link each to the other saying how they differ, or, in an assisted session only, fold the child into the parent with concept_patch and delete the child after the operator's choice)", child, parent)
 		}
 	}
 	if sameTitleWords {
