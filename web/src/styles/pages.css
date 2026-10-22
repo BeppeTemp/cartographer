@@ -8,13 +8,15 @@
 
 /* --- The page --- */
 
-/* Wide enough to use a large screen, not so wide that rows lose their eye
-   line; the gutter grows with the window between the phone and the desk. */
+/* The page scrolls across the whole main area, so its scrollbar sits at the
+   window's edge; the content inside is at most --page-measure wide, centred
+   by the gutter, which grows with the window between the phone and the desk. */
 .page {
+  --page-measure: 1680px;
+  --page-gutter: clamp(var(--space-4), 3vw, var(--space-12));
   width: 100%;
-  max-width: 1680px;
-  margin-inline: auto;
-  padding: var(--space-8) clamp(var(--space-4), 3vw, var(--space-12)) var(--space-12);
+  padding-block: var(--space-8) var(--space-12);
+  padding-inline: max(var(--page-gutter), calc((100% - var(--page-measure)) / 2));
   overflow-y: auto;
 }
 
@@ -562,7 +564,7 @@ button.row {
   }
 
   .page {
-    padding: var(--space-6) var(--space-4) var(--space-12);
+    padding-block: var(--space-6) var(--space-12);
   }
 
   .page__head {
@@ -769,41 +771,50 @@ button.row {
 }
 
 .timeline__empty {
-  padding: var(--space-12) var(--space-6);
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
   text-align: center;
   border: 1px dashed var(--border-subtle);
   border-radius: var(--radius-card);
 }
 
-/* The journal is a log, not a concept: sans, its lines kept as written,
-   the time in the same column the timeline uses. */
-.journal {
+/* The journal is a log, not a concept: grouped by day under the timeline's
+   own day heading, sans, its lines kept as written, the time in the column
+   the timeline uses for its own. */
+.journal,
+.journal__entries {
   display: grid;
-  margin: var(--space-3) 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.journal {
+  gap: var(--space-4);
+  margin-block-start: var(--space-3);
+}
+
 .journal__entry {
   display: grid;
-  grid-template-columns: 9rem minmax(0, 1fr);
+  grid-template-columns: 48px minmax(0, 1fr);
   gap: var(--space-4);
-  padding-block: var(--space-3);
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2);
+  border-radius: var(--radius-control);
+}
+
+.journal__entry + .journal__entry {
   border-block-start: 1px solid var(--border-subtle);
 }
 
-.journal__entry:first-child {
-  border-block-start: 0;
-}
-
 .journal__time {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  line-height: var(--leading-normal);
+  line-height: var(--leading-relaxed);
   color: var(--text-muted);
+  text-align: end;
+  overflow-wrap: anywhere;
 }
 
 .journal__body {
@@ -818,13 +829,8 @@ button.row {
 
 @media (max-width: 640px) {
   .journal__entry {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-1);
-  }
-
-  .journal__time {
-    flex-direction: row;
-    gap: var(--space-2);
+    grid-template-columns: 40px minmax(0, 1fr);
+    gap: var(--space-3);
   }
 }
 
@@ -978,6 +984,9 @@ button.row {
   list-style: none;
   overflow-y: auto;
   scroll-snap-type: y proximity;
+  /* No bar: the faded ends say there is more, and a thumb drawn over the
+     cards' edge was the only thing breaking the column's frame. */
+  scrollbar-width: none;
   scroll-padding-block: var(--space-2);
   border-radius: var(--radius-control);
   --fade: var(--space-12);
@@ -985,6 +994,10 @@ button.row {
 
 .work__cards > li {
   scroll-snap-align: start;
+}
+
+.work__cards::-webkit-scrollbar {
+  display: none;
 }
 
 /* An end with more cards past it fades out: the cut reads as "more here",
@@ -1102,9 +1115,14 @@ button.row {
   max-width: 100%;
 }
 
+/* A concept id on one line, cut with an ellipsis rather than broken mid-word. */
 .work__refs .ref-link {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
   text-align: start;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .work__refs-more {
@@ -2527,4 +2545,177 @@ button.row {
 .instructions__empty {
   max-width: 420px;
   margin-block-start: var(--space-6);
+}
+
+/* --- Templates: one card per type, the shape a new page starts from --- */
+
+.tpl-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: var(--space-3);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tpl-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  height: 100%;
+  overflow: hidden;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  transition:
+    border-color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
+}
+
+.tpl-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--elevation-1);
+}
+
+.tpl-card[aria-current="true"] {
+  border-color: var(--accent);
+}
+
+.tpl-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-2);
+}
+
+.tpl-card__name {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+/* The card's name opens the template; the whole card is its target. */
+.tpl-card__name::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.tpl-card__name:focus-visible {
+  outline: none;
+}
+
+.tpl-card:has(.tpl-card__name:focus-visible) {
+  box-shadow: var(--focus-ring);
+}
+
+.tpl-card__count {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  padding: 2px var(--space-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+}
+
+.tpl-card__count strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.tpl-card__count:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.tpl-card__count:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+/* How much of the KB the type shapes, against the busiest type: a hairline. */
+.tpl-card__usage {
+  height: 2px;
+  margin-inline: var(--space-4);
+  background: linear-gradient(
+    to right,
+    var(--hue-4) var(--share),
+    var(--border-subtle) var(--share)
+  );
+  border-radius: var(--radius-pill);
+}
+
+.tpl-card__body {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+}
+
+.tpl-card__brief {
+  margin: 0;
+  font-family: var(--font-editorial);
+  font-size: var(--text-sm);
+  font-style: italic;
+  line-height: var(--leading-normal);
+  color: var(--text-secondary);
+}
+
+.tpl-card__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tpl-card__fields code {
+  padding: 1px 6px;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border-radius: var(--radius-small);
+}
+
+.tpl-card__sections {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  list-style: none;
+  counter-reset: tpl-section;
+}
+
+.tpl-card__sections li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  counter-increment: tpl-section;
+}
+
+.tpl-card__sections li::before {
+  content: counter(tpl-section) "  ";
+  display: inline-block;
+  width: 2.5ch;
+  font-family: var(--font-mono);
+  color: var(--border-strong);
 }

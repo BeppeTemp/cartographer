@@ -16,6 +16,7 @@ import {
   TitleBone,
 } from "./Page";
 import { FindingBadge } from "./FindingBadge";
+import { TemplateCards } from "./TemplateCards";
 import { EmptyState, ErrorState } from "./States";
 
 /** What each kind is, said once where the overview introduces it. */
@@ -311,6 +312,19 @@ export function Artifacts({
         {groups.length === 0 && <p className="page-note">No artifact matches these filters.</p>}
         {groups.map((group) => {
           const shared = sharedClients(group.items);
+          // A template is a shape, not a tool: its own cards, under the page's header.
+          if (section === "templates" && group.items.length > 0)
+            return (
+              <TemplateCards
+                key={group.kind}
+                kb={kb}
+                items={group.items}
+                selected={selected}
+                typeCount={typeCount}
+                onSelect={onSelect}
+                onFilterType={onFilterType}
+              />
+            );
           return (
             <section key={group.kind} className="catalog__group" aria-label={group.title}>
               <header className="catalog__group-head">

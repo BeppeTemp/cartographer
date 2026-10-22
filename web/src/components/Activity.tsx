@@ -284,6 +284,19 @@ export function Activity({
               No concept edited {when(shown)}
               {author ? ` by ${author}` : ""}.
             </p>
+            {/* An empty window offers the next wider one rather than leaving the reader to guess. */}
+            {(() => {
+              const next = WINDOWS[WINDOWS.findIndex(([w]) => w === shown) + 1];
+              return next ? (
+                <button type="button" className="button" onClick={() => setSince(next[0])}>
+                  {next[0] === "all"
+                    ? "Show the whole history"
+                    : next[0] === "1y"
+                      ? "Show the last year"
+                      : `Show the last ${DAYS[next[0]]} days`}
+                </button>
+              ) : null;
+            })()}
           </div>
         ) : (
           <ol className="timeline__days">
@@ -334,31 +347,54 @@ export function Activity({
   );
 }
 
-/** The journal tail as a log: one row per entry, its time beside its lines. */
+/**
+ * The journal tail as a log, grouped by day like the timeline above it: a
+ * day heading with its count, then one row per entry, its time beside its
+ * lines. An entry whose heading is not a time keeps it as its label.
+ */
 function JournalEntries({ text }: { text: string }) {
-  const entries = useMemo(() => parseJournal(text), [text]);
+  const days = useMemo(() => {
+    const groups: { key: string; label: string; items: { at: string | null; t: number; body: string }[] }[] = [];
+    for (const e of parseJournal(text)) {
+      const t = e.at ? Date.parse(e.at) : NaN;
+      const key = Number.isFinite(t) ? dayKey(t) : "undated";
+      let g = groups[groups.length - 1];
+      if (!g || g.key !== key) {
+        g = { key, label: Number.isFinite(t) ? dayLabel(t) : "Undated", items: [] };
+        groups.push(g);
+      }
+      g.items.push({ at: e.at, t, body: e.body });
+    }
+    return groups;
+  }, [text]);
   return (
     <ol className="journal">
-      {entries.map((e, i) => {
-        const t = e.at ? Date.parse(e.at) : NaN;
-        return (
-          <li key={`${e.at}-${i}`} className="journal__entry">
-            {Number.isFinite(t) ? (
-              <time
-                className="journal__time"
-                dateTime={e.at!}
-                title={new Date(t).toLocaleString("en", { dateStyle: "medium", timeStyle: "medium" })}
-              >
-                <span>{dayLabel(t)}</span>
-                <span>{clock(e.at!)}</span>
-              </time>
-            ) : (
-              <span className="journal__time">{e.at}</span>
-            )}
-            <p className="journal__body">{e.body}</p>
-          </li>
-        );
-      })}
+      {days.map((day, d) => (
+        <li key={`${day.key}-${d}`} className="journal__day">
+          <h3 className="timeline__date">
+            <span>{day.label}</span>
+            <span className="timeline__date-count">{day.items.length}</span>
+          </h3>
+          <ol className="journal__entries">
+            {day.items.map((e, i) => (
+              <li key={`${e.at}-${i}`} className="journal__entry">
+                {Number.isFinite(e.t) ? (
+                  <time
+                    className="journal__time"
+                    dateTime={e.at!}
+                    title={new Date(e.t).toLocaleString("en", { dateStyle: "medium", timeStyle: "medium" })}
+                  >
+                    {clock(e.at!)}
+                  </time>
+                ) : (
+                  <span className="journal__time">{e.at}</span>
+                )}
+                <p className="journal__body">{e.body}</p>
+              </li>
+            ))}
+          </ol>
+        </li>
+      ))}
     </ol>
   );
 }
