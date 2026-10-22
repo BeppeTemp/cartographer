@@ -378,6 +378,19 @@
     border-inline-end: 0;
   }
 
+  /* Anchored to the bar, not to the button, so it cannot run off the left. */
+  .sync {
+    position: static;
+  }
+
+  .sync__popover {
+    position: fixed;
+    top: var(--topbar-height);
+    inset-inline: var(--space-3);
+    width: auto;
+    max-width: none;
+  }
+
   .topbar__name,
   .topbar__search .field__placeholder,
   .topbar__search .kbd {

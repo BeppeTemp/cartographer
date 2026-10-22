@@ -86,6 +86,17 @@ describe("useSyncStatus (#1092)", () => {
     expect(fetchStatus).toHaveBeenCalledTimes(2);
   });
 
+  it("retries on the short interval while the first read has failed", async () => {
+    fetchStatus.mockRejectedValueOnce(new TypeError("offline"));
+    fetchStatus.mockResolvedValue(ok);
+    const { result } = renderHook(() => useSyncStatus("a", true, 0));
+    await advance(0);
+    expect(result.current.status).toBeNull();
+    await advance(LIVE_INTERVAL_MS);
+    expect(fetchStatus).toHaveBeenCalledTimes(2);
+    expect(result.current.status).toEqual(ok);
+  });
+
   it("keeps the last value on a network error", async () => {
     fetchStatus.mockResolvedValueOnce(pending);
     const { result } = renderHook(() => useSyncStatus("a", true, 0));

@@ -71,7 +71,7 @@ export function useSyncStatus(
 
   useEffect(() => {
     if (!kb || !enabled) return;
-    const period = unsettled ? pollIntervalMs(currentSource()) : SETTLED_INTERVAL_MS;
+    const period = unsettled || status === null ? pollIntervalMs(currentSource()) : SETTLED_INTERVAL_MS;
     const timer = window.setInterval(() => refresh.current?.(), period);
     const onVisible = () => {
       if (document.visibilityState === "visible") refresh.current?.();
@@ -81,7 +81,7 @@ export function useSyncStatus(
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [kb, enabled, unsettled]);
+  }, [kb, enabled, unsettled, status === null]);
 
   useEffect(() => {
     if (live === lastLive.current) return;

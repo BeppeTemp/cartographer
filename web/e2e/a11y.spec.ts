@@ -41,6 +41,10 @@ for (const viewport of [
       await expect(sync).toHaveAccessibleName("Sync: No remote");
       await sync.click();
       await expect(page.getByRole("dialog", { name: "Sync details" })).toBeVisible();
+      const box = await page.getByRole("dialog", { name: "Sync details" }).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
       expect(await seriousViolations(page)).toEqual([]);
       await page.keyboard.press("Escape");
       await expect(page.getByRole("dialog", { name: "Sync details" })).toHaveCount(0);

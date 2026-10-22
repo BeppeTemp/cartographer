@@ -46,17 +46,21 @@ export function SyncIndicator({ kb, live }: Props) {
     const onPointer = (event: PointerEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     };
+    // Capture phase: the shell's own Escape (clear the selection, App.tsx)
+    // sits on document too and was registered first, so only a capturing
+    // listener that stops the event keeps Escape to the popover alone.
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      event.preventDefault();
       event.stopPropagation();
       setOpen(false);
       buttonRef.current?.focus();
     };
     document.addEventListener("pointerdown", onPointer);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("pointerdown", onPointer);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
 
@@ -67,6 +71,8 @@ export function SyncIndicator({ kb, live }: Props) {
 
   const ahead = status.unpushed_commits;
   const behind = status.behind_commits;
+  // No remote, no counts: the rows would only say "Unknown".
+  const counted = status.push_state !== "no_remote" && status.push_state !== "disabled" && status.has_remote !== false;
   const count = (n: number | null | undefined) => (typeof n === "number" ? String(n) : "Unknown");
 
   return (
@@ -98,20 +104,25 @@ export function SyncIndicator({ kb, live }: Props) {
           <dl className="sync__details">
             <dt>State</dt>
             <dd>{status.push_state}</dd>
-            {status.branch_source !== undefined && status.branch !== undefined && (
+            {status.branch !== undefined && (
               <>
                 <dt>Branch</dt>
                 <dd>
-                  {status.branch || "Detached HEAD"} <span className="sync__note">({status.branch_source})</span>
+                  {status.branch || "Detached HEAD"}
+                  {status.branch_source && <span className="sync__note"> ({status.branch_source})</span>}
                 </dd>
               </>
             )}
-            <dt>To push</dt>
-            <dd>{count(ahead)}</dd>
-            <dt>Behind</dt>
-            <dd>
-              {count(behind)} <span className="sync__note">as of the last fetch</span>
-            </dd>
+            {counted && (
+              <>
+                <dt>To push</dt>
+                <dd>{count(ahead)}</dd>
+                <dt>Behind</dt>
+                <dd>
+                  {count(behind)} <span className="sync__note">as of the last fetch</span>
+                </dd>
+              </>
+            )}
             <dt>Last push</dt>
             <dd>{status.last_push_at ? formatWhen(status.last_push_at) : "Unknown since the server restarted"}</dd>
             <dt>Last fetch</dt>

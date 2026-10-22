@@ -91,6 +91,30 @@ describe("SyncIndicator (#1092)", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("keeps Escape from reaching the shell's own document handler", async () => {
+    serve(base);
+    const user = userEvent.setup();
+    const shell = vi.fn();
+    document.addEventListener("keydown", shell);
+    render(<SyncIndicator kb="kb-a" live={0} />);
+    await user.click(await screen.findByRole("button", { name: "Sync: On remote" }));
+    await user.keyboard("{Escape}");
+    document.removeEventListener("keydown", shell);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(shell).not.toHaveBeenCalled();
+  });
+
+  it("shows no count rows for a KB without a remote, and the branch without a source", async () => {
+    serve({ ...base, push_state: "no_remote", has_remote: false, remote_url: "", branch_source: undefined });
+    const user = userEvent.setup();
+    render(<SyncIndicator kb="kb-a" live={0} />);
+    await user.click(await screen.findByRole("button", { name: "Sync: No remote" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).not.toHaveTextContent("To push");
+    expect(dialog).not.toHaveTextContent("Behind");
+    expect(dialog).toHaveTextContent("main");
+  });
+
   it("draws nothing on a 404, and nothing for a payload without push_state", async () => {
     serve(null);
     const { container, unmount } = render(<SyncIndicator kb="kb-a" live={0} />);
