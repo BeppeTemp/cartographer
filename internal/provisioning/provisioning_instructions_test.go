@@ -240,12 +240,46 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n" +
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n" +
 		"- a write that would introduce an avoidable finding (broken link, missing index entry, orphan) is refused with each finding's fix and nothing is committed: write the target, the index entry and the link in the same `concept_batch`;\n" +
-		"- status convention: `active` means the page is valid and current; open work uses `open`, `in-progress` or `blocked`, and a wait is declared with `waiting_on` and `review_after`;\n" +
+		"- status convention: `active` means the page is valid and current, not that work is open; open work uses `open` (accepted or queued, not started), `in-progress` or `blocked`: when you start executing an `open` item, set `in-progress` in the same `concept_patch` or `concept_batch` that records the first progress; when progress cannot continue, set `blocked` and declare `waiting_on` and `review_after`; a finished task is `done`;\n" +
 		"- every write is a git commit, revertible.\n" +
 		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead; a push refused because of the commits' author is reported with the command `cartographer kb reauthor <kb>`, for the operator to run.\n" +
 		"- when `kb_status` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).\n"
 	if content != want {
 		t.Errorf("output changed with no agent/instructions.md:\ngot:\n%s\nwant:\n%s", content, want)
+	}
+}
+
+// The exact-text test above gets regenerated when the wording changes; this one
+// keeps the rule itself: starting an open item is a state change, made
+// in the write that records the first progress.
+func TestBuildManifest_Instructions_StatusBulletSaysWhenWorkMoves(t *testing.T) {
+	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
+	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatalf("BuildManifest: %v", err)
+	}
+	content := string(findInstructionsArtifact(t, m, "homelab").Files[0].Content)
+	var bullet string
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(line, "- status convention:") {
+			bullet = line
+		}
+	}
+	if bullet == "" {
+		t.Fatalf("status convention bullet missing:\n%s", content)
+	}
+	for _, want := range []string{
+		"set `in-progress` in the same `concept_patch` or `concept_batch` that records the first progress",
+		"`waiting_on`", "`review_after`", "`done`",
+	} {
+		if !strings.Contains(bullet, want) {
+			t.Errorf("status convention bullet lacks %q:\n%s", want, bullet)
+		}
+	}
+	for _, banned := range []string{"proposed", "decision-needed"} {
+		if strings.Contains(bullet, banned) {
+			t.Errorf("status convention bullet names %q, which the default journal does not treat as open (D321)", banned)
+		}
 	}
 }
 

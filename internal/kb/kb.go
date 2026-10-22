@@ -3197,7 +3197,9 @@ const defaultInstructionsContent = "# How to use this KB\n\n" +
 	"Reply in **English** unless the operator writes in another language.\n\n" +
 	"## Status convention\n\n" +
 	"- `active` means the page is valid and current, not that work is open.\n" +
-	"- Work in journals uses `open`, `in-progress`, `blocked`, or `proposed`.\n" +
+	"- `open`: work accepted or queued, not started.\n" +
+	"- `in-progress`: execution has started; set it in the same write that records the first progress.\n" +
+	"- `blocked`: progress cannot continue; declare `waiting_on` and `review_after`.\n" +
 	"- A finished task is `done`; a reference that stays valid is `reference`.\n\n" +
 	"## Write discipline\n\n" +
 	"- Act on every finding a write returns: fix or acknowledge it before moving on.\n" +
