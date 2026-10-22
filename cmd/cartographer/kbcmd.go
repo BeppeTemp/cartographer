@@ -444,8 +444,23 @@ The rules are in ` + "`instructions.md`" + ` and the content starts at ` + "`dat
 // whatever the README holds; "keep" never does. It reports whether it did.
 func replaceForgeReadme(path, forgeRef, remote, kbName, readme string, forgePaths []string, authorName, authorEmail string) (bool, error) {
 	readmePath, single := gitx.ForgeReadmePath(forgePaths)
-	if readmePath == "" || readme == readmeKeep {
+	if readme == readmeKeep {
 		return false, nil
+	}
+	if readmePath == "" {
+		if readme == readmeGenerate {
+			fmt.Fprintln(os.Stderr, "Hint: the remote has no README.md to replace; --readme generate did nothing.")
+		}
+		return false, nil
+	}
+	// The adopted tree comes from the remote: a README that is a symlink
+	// would make the write below land outside the KB, so only a regular
+	// file is replaced.
+	target := filepath.Join(path, readmePath)
+	if fi, err := os.Lstat(target); err != nil {
+		return false, err
+	} else if !fi.Mode().IsRegular() {
+		return false, fmt.Errorf("the remote's %s is not a regular file; refusing to replace it", readmePath)
 	}
 	var boilerplate bool
 	var description string
@@ -463,7 +478,7 @@ func replaceForgeReadme(path, forgeRef, remote, kbName, readme string, forgePath
 		description += "\n\n"
 	}
 	content := fmt.Sprintf(generatedReadme, kbName, description)
-	if err := os.WriteFile(filepath.Join(path, readmePath), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
 		return false, err
 	}
 	subject := "docs: replace the forge's boilerplate README"

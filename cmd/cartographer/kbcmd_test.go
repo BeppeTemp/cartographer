@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -431,6 +432,48 @@ func TestCmdKBCreateReadme(t *testing.T) {
 				t.Errorf("lint of the new KB: %v, %v", findings, err)
 			}
 		})
+	}
+}
+
+// A remote whose README is a symlink must not have the generated README
+// written through it: the link may point anywhere on the operator's disk.
+func TestCmdKBCreateReadmeRefusesSymlink(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	tmp := t.TempDir()
+	victim := filepath.Join(tmp, "victim.txt")
+	if err := os.WriteFile(victim, []byte("untouched\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bare := seedForgeRemoteContent(t, tmp, "main", map[string]string{"LICENSE": "x\n"}, 1)
+	src := filepath.Join(tmp, "forge-src")
+	if err := os.Symlink(victim, filepath.Join(src, "README.md")); err != nil {
+		t.Fatal(err)
+	}
+	mustRunGit(t, src, "add", "README.md")
+	mustRunGit(t, src, "commit", "--amend", "--no-edit")
+	mustRunGit(t, src, "push", "--force", bare, "main")
+	dataDir := filepath.Join(tmp, "data")
+	var code int
+	errOut := withStderr(t, func() {
+		withStdout(t, func() {
+			withNoGuidance(t, func() {
+				code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", fileURL(bare), "--readme", "generate"})
+			})
+		})
+	})
+	if code == 0 {
+		t.Fatalf("cmdKBCreate = 0, want a refusal; stderr:\n%s", errOut)
+	}
+	if !strings.Contains(errOut, "not a regular file") {
+		t.Errorf("stderr does not name the symlink:\n%s", errOut)
+	}
+	if got, _ := os.ReadFile(victim); string(got) != "untouched\n" {
+		t.Errorf("the symlink target was written: %q", got)
 	}
 }
 
