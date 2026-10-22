@@ -74,13 +74,15 @@ export interface JournalEntry {
  * The entries of a journal tail. log_append heads each entry with a
  * `## <timestamp>` line and writes its body as plain lines, not as prose: a
  * Markdown renderer would join them into one paragraph. Text before the first
- * heading is an entry without a time.
+ * dated heading is an entry without a time; a `## ` line that is not a date
+ * stays in its entry's body.
  */
 export function parseJournal(text: string): JournalEntry[] {
   const entries: JournalEntry[] = [];
   let current: JournalEntry | null = null;
   for (const line of text.split("\n")) {
-    const head = /^##\s+(.+?)\s*$/.exec(line);
+    // Only a dated heading starts an entry: a body may hold `## ` headings of its own.
+    const head = /^##\s+(\d{4}-\d{2}-\d{2}\S*)\s*$/.exec(line);
     if (head) {
       if (current) entries.push(current);
       current = { at: head[1]!, body: "" };

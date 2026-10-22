@@ -50,9 +50,15 @@ describe("parseJournal", () => {
   });
 
   it("keeps text before the first heading as an entry without a time", () => {
-    expect(parseJournal("preamble\n## t\nbody")).toEqual([
+    expect(parseJournal("preamble\n## 2026-10-01T10:00:00Z\nbody")).toEqual([
       { at: null, body: "preamble" },
-      { at: "t", body: "body" },
+      { at: "2026-10-01T10:00:00Z", body: "body" },
+    ]);
+  });
+
+  it("keeps a heading that is not a date inside its entry", () => {
+    expect(parseJournal("## 2026-10-01T10:00:00Z\nsummary\n## Details\nmore")).toEqual([
+      { at: "2026-10-01T10:00:00Z", body: "summary\n## Details\nmore" },
     ]);
   });
 

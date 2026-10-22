@@ -63,7 +63,7 @@ export function TemplateCards({
   onSelect(id: string | null): void;
   onFilterType?(type: string): void;
 }) {
-  const [shapes, setShapes] = useState<Record<string, TemplateShape>>({});
+  const [shapes, setShapes] = useState<Record<string, TemplateShape | null>>({});
   const names = items.map((a) => a.name).join("\u0000");
   useEffect(() => {
     const controller = new AbortController();
@@ -74,7 +74,9 @@ export function TemplateCards({
           setShapes((s) => ({ ...s, [name]: templateShape(text) }));
         })
         .catch(() => {
-          /* the card keeps its name and count: the detail says what failed */
+          // The card keeps its name and count and says it could not read the
+          // rest, instead of loading forever; the detail says what failed.
+          if (!controller.signal.aborted) setShapes((s) => ({ ...s, [name]: null }));
         });
     }
     return () => controller.abort();
@@ -110,7 +112,11 @@ export function TemplateCards({
                 </button>
               </header>
               <span className="tpl-card__usage" aria-hidden="true" />
-              {!shape ? (
+              {shape === null ? (
+                <div className="tpl-card__body">
+                  <p className="tpl-card__bare">Could not read this template: open it to see why.</p>
+                </div>
+              ) : !shape ? (
                 <div className="tpl-card__body">
                   <Bone line w="70%" />
                   <Bone line w="45%" />
