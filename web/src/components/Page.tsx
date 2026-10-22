@@ -377,6 +377,37 @@ export function TitleBone({ label }: { label: string }) {
   );
 }
 
+/** A page's subtitle that has not arrived: one line of the subtitle's own text size. */
+export function SubtitleBone({ w = "42ch" }: { w?: string | number }) {
+  return <Bone line w={w} className="bone--subtitle" />;
+}
+
+/**
+ * The hero's rows before their chips exist: each row its label and a line of
+ * pill-shaped bones, the first optionally over a bar (Where's map bar).
+ */
+export function HeroBones({ rows, bar = false }: { rows: number[]; bar?: boolean }) {
+  return (
+    <div className="hero">
+      {rows.map((chips, r) => (
+        <div key={r} className="hero__row">
+          <span className="hero__label">
+            <Bone line w={44} />
+          </span>
+          <div className="hero__content">
+            {bar && r === 0 && <Bone w="100%" h={4} />}
+            <span className="filter-chips">
+              {Array.from({ length: chips }, (_, i) => (
+                <Bone key={i} w={70 + ((i * 23 + r * 11) % 50)} h={26} round />
+              ))}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Activity: the summary hero (figures and histogram), then a day with timeline entries. */
 export function ActivitySkeleton({ label }: { label: string }) {
   return (
@@ -447,23 +478,7 @@ export function ActivitySkeleton({ label }: { label: string }) {
 export function WorkSkeleton({ label }: { label: string }) {
   return (
     <LoadingRegion label={label}>
-      <div className="hero">
-        {[9, 8].map((chips, r) => (
-          <div key={r} className="hero__row">
-            <span className="hero__label">
-              <Bone line w={44} />
-            </span>
-            <div className="hero__content">
-              {r === 0 && <Bone w="100%" h={4} />}
-              <span className="chips">
-                {Array.from({ length: chips }, (_, i) => (
-                  <Bone key={i} w={70 + ((i * 23 + r * 11) % 50)} h={26} round />
-                ))}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
+      <HeroBones rows={[9, 8]} bar />
       <div className="work__board">
         {[4, 3, 4, 2, 3].map((n, c) => (
           <section key={c} className="work__column">
@@ -539,6 +554,7 @@ export function HealthSkeleton({ label }: { label: string }) {
 export function RetiredSkeleton({ label }: { label: string }) {
   return (
     <LoadingRegion label={label}>
+      <HeroBones rows={[2]} />
       <ul className="retired__list">
         {[0, 1, 2, 3].map((i) => (
           <li key={i}>
@@ -560,9 +576,21 @@ export function RetiredSkeleton({ label }: { label: string }) {
 }
 
 /** Artifacts: kind headings, each with a grid of tiles (name, two lines, foot). */
-export function CatalogSkeleton({ label, groups = 2, tiles = 6 }: { label: string; groups?: number; tiles?: number }) {
+export function CatalogSkeleton({
+  label,
+  groups = 2,
+  tiles = 6,
+  hero,
+}: {
+  label: string;
+  groups?: number;
+  tiles?: number;
+  /** The chips of each hero row, when the page has a hero above its catalog. */
+  hero?: number[];
+}) {
   return (
     <LoadingRegion label={label} className="catalog">
+      {hero && <HeroBones rows={hero} />}
       {Array.from({ length: groups }, (_, g) => (
         <section key={g} className="catalog__group">
           <header className="catalog__group-head">
@@ -621,6 +649,71 @@ export function SettingsSkeleton({ label, rows = 5 }: { label: string; rows?: nu
           ))}
         </ul>
       </section>
+    </LoadingRegion>
+  );
+}
+
+/** Templates: the cards of the types, a name and count over a brief, fields and numbered sections. */
+export function TemplatesSkeleton({ label, cards = 6 }: { label: string; cards?: number }) {
+  return (
+    <LoadingRegion label={label}>
+      <ul className="tpl-cards">
+        {Array.from({ length: cards }, (_, i) => (
+          <li key={i}>
+            <div className="tpl-card">
+              <div className="tpl-card__head">
+                <span className="tpl-card__name">
+                  <Bone line w={`${40 + ((i * 17) % 30)}%`} />
+                </span>
+                <Bone w={84} h={22} round />
+              </div>
+              <span className="tpl-card__usage" />
+              <div className="tpl-card__body">
+                <p className="tpl-card__brief">
+                  <Bone line w="80%" />
+                </p>
+                <span className="tpl-card__fields">
+                  <Bone w={44} h={18} />
+                  <Bone w={60} h={18} />
+                </span>
+                <ol className="tpl-card__sections">
+                  {Array.from({ length: 4 + (i % 3) }, (_, k) => (
+                    <li key={k}>
+                      <Bone line w={`${30 + ((k * 23 + i * 7) % 40)}%`} />
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </LoadingRegion>
+  );
+}
+
+/** A source file that has not arrived: the frame Settings and Instructions show files in, with numbered lines. */
+export function SourceSkeleton({ label, lines = 14 }: { label: string; lines?: number }) {
+  const widths = [8, 0, 34, 0, 82, 76, 40, 0, 26, 0, 88, 70, 0, 30, 64, 52];
+  return (
+    <LoadingRegion label={label}>
+      <figure className="settings__file">
+        <figcaption className="settings__file-head">
+          <span className="settings__file-name">
+            <Bone line w={120} />
+          </span>
+        </figcaption>
+        <pre className="settings__yaml">
+          <code>
+            {Array.from({ length: lines }, (_, i) => (
+              <span key={i} className="yaml__line">
+                {widths[i % widths.length] ? <Bone line w={`${widths[i % widths.length]}%`} /> : " "}
+                {"\n"}
+              </span>
+            ))}
+          </code>
+        </pre>
+      </figure>
     </LoadingRegion>
   );
 }

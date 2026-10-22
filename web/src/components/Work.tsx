@@ -210,13 +210,15 @@ export function Work({
           </>
         }
         actions={
-          data && !empty ? (
+          // Standing while the list loads too, so the header does not shift when it lands.
+          !data || !empty ? (
             <>
               <input
                 className="page-search"
                 type="search"
                 aria-label="Filter work"
                 placeholder="Filter title and items"
+                disabled={!data}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
               />

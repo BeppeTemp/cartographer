@@ -382,9 +382,14 @@
 
 /* --- Sections and rows --- */
 
-.page-section + .page-section,
-.page__body > .page-section:not(:first-child) {
+/* A section stands apart from whatever precedes it — another section, a
+   list, an empty state — except the header's tabs, which already leave room. */
+* + .page-section {
   margin-block-start: var(--space-8);
+}
+
+.page__tabs + .page-section {
+  margin-block-start: 0;
 }
 
 .page-section__head {

@@ -11,7 +11,7 @@ import type {
   Whoami,
   WhoamiRule,
 } from "../api/types";
-import { Page, PageHeader, Segmented, SettingsSkeleton, TitleBone } from "./Page";
+import { Bone, Page, PageHeader, Segmented, SettingsSkeleton, SubtitleBone, TitleBone } from "./Page";
 import { ErrorState } from "./States";
 
 /** A value as a person reads it: lists joined, maps as `key: value`, empty said out loud. */
@@ -188,10 +188,50 @@ export function Settings({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadKey]);
 
+  // The header's controls need no data: they stand from the first frame, so
+  // the page does not shift when the settings arrive.
+  const headerActions = (
+    <>
+      {mode === "readable" && (
+        <input
+          className="page-search"
+          type="search"
+          aria-label="Search settings"
+          placeholder="Search settings"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      )}
+      <Segmented<Mode>
+        label="Show as"
+        value={mode}
+        options={[
+          ["readable", "Readable"],
+          ["yaml", "YAML"],
+        ]}
+        onChange={setMode}
+      />
+    </>
+  );
+
   if (loading && !view)
     return (
       <Page label="Settings" busy className="settings">
-        <PageHeader eyebrow="Settings" title={<TitleBone label="Loading settings" />} />
+        <PageHeader
+          eyebrow="Settings"
+          title={<TitleBone label="Loading settings" />}
+          subtitle={<SubtitleBone />}
+          actions={headerActions}
+        />
+        <div className="settings__bar">
+          <div className="inspector__tabs settings__tabs" aria-hidden="true">
+            {[44, 40, 92].map((w, i) => (
+              <span key={i} className="inspector__tab">
+                <Bone line w={w} />
+              </span>
+            ))}
+          </div>
+        </div>
         <SettingsSkeleton label="Loading settings" />
       </Page>
     );
@@ -229,29 +269,7 @@ export function Settings({
             )}
           </>
         }
-        actions={
-          <>
-            {mode === "readable" && (
-              <input
-                className="page-search"
-                type="search"
-                aria-label="Search settings"
-                placeholder="Search settings"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            )}
-            <Segmented<Mode>
-              label="Show as"
-              value={mode}
-              options={[
-                ["readable", "Readable"],
-                ["yaml", "YAML"],
-              ]}
-              onChange={setMode}
-            />
-          </>
-        }
+        actions={headerActions}
       />
 
       <div className="settings__bar">

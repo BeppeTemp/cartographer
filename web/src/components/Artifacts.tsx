@@ -13,6 +13,8 @@ import {
   Page,
   PageHeader,
   TextSkeleton,
+  SubtitleBone,
+  TemplatesSkeleton,
   TitleBone,
 } from "./Page";
 import { FindingBadge } from "./FindingBadge";
@@ -191,9 +193,13 @@ export function Artifacts({
   if (loading && !list)
     return (
       <Page label="Artifact catalog" busy className="catalog">
-        <PageHeader eyebrow={eyebrow} title={<TitleBone label="Loading artifacts" />} />
+        <PageHeader eyebrow={eyebrow} title={<TitleBone label="Loading artifacts" />} subtitle={<SubtitleBone w="16ch" />} />
         {tabs}
-        <CatalogSkeleton label="Loading artifacts" />
+        {section === "templates" ? (
+          <TemplatesSkeleton label="Loading templates" />
+        ) : (
+          <CatalogSkeleton label="Loading artifacts" hero={[5, 3]} />
+        )}
       </Page>
     );
   if (error) return <ErrorState error={error} onRetry={onRetry} />;

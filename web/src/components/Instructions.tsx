@@ -3,7 +3,7 @@ import { fetchArtifact } from "../api/client";
 import type { Artifact, ArtifactList } from "../api/types";
 import { EmptyKindTile, FindingSummary } from "./Artifacts";
 import { MarkdownLine, SourceFile } from "./SourceFile";
-import { Page, PageHeader, TextSkeleton, TitleBone } from "./Page";
+import { Page, PageHeader, SourceSkeleton, SubtitleBone, TitleBone } from "./Page";
 import { ErrorState } from "./States";
 
 /**
@@ -57,9 +57,13 @@ export function Instructions({
   if ((loading && !list) || (names && !items)) {
     return (
       <Page label="Instructions" busy className="instructions">
-        <PageHeader eyebrow="Instructions" title={<TitleBone label="Loading the instructions" />} />
+        <PageHeader
+          eyebrow="Instructions"
+          title={<TitleBone label="Loading the instructions" />}
+          subtitle={<SubtitleBone />}
+        />
         {tabs}
-        <TextSkeleton label="Loading the instructions" lines={10} />
+        <SourceSkeleton label="Loading the instructions" />
       </Page>
     );
   }
