@@ -366,6 +366,41 @@ func TestReviewGlossaryGap(t *testing.T) {
 	}
 }
 
+// TestReviewGlossaryGapHTTPMethods: an endpoint table masks its paths, not its
+// methods, and the HTTP methods are HTTP's own vocabulary, so a service page
+// does not make them terms, in a table or in prose (#855). A KB's own
+// all-caps value next to them still is one.
+func TestReviewGlossaryGapHTTPMethods(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "api/_map.md", "---\ntype: Map\ntitle: API\n---\n")
+	page := strings.Join([]string{
+		"# Service",
+		"",
+		"| Method | Path | Purpose |",
+		"|---|---|---|",
+		"| GET | `/resources/{id}` | Read one |",
+		"| POST | `/resources` | Create one |",
+		"| PUT | `/resources/{id}` | Replace one |",
+		"| PATCH | `/resources/{id}` | Change some fields |",
+		"| DELETE | `/resources/{id}` | Remove one |",
+		"| HEAD | `/resources/{id}` | Check it exists |",
+		"| OPTIONS | `/resources` | Allowed methods |",
+		"",
+		"A POST on a PENDING tenant returns 409; TRACE and CONNECT are refused at the gateway.",
+	}, "\n")
+	for i := 0; i < glossaryMinConcepts; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("api/s%02d.md", i), "---\ntype: Service\ntitle: S\n---\n"+page+"\n")
+	}
+	terms := map[string]int{}
+	for _, it := range itemsOf(review(t, k), ReviewGlossary) {
+		terms[it.Term] = len(it.Concepts)
+	}
+	if want := map[string]int{"PENDING": glossaryMinConcepts}; !reflect.DeepEqual(terms, want) {
+		t.Fatalf("glossary terms = %v, want %v", terms, want)
+	}
+}
+
 func TestReviewLintJudgement(t *testing.T) {
 	t.Parallel()
 	k, _ := reviewFixtures[ReviewLintJudgement](t)
