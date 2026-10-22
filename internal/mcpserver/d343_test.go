@@ -84,6 +84,51 @@ func TestPolicyDenialsCarryReasonCodes(t *testing.T) {
 	}
 }
 
+// A role narrowed to a map and a type is allowed the collection itself (D228)
+// for reading: a scoped collection tool, while every concept-level check still
+// applies the type and the map. index_patch stays refused: the map's index
+// lists pages of every type.
+func TestTypedRoleReachesItsCollection(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	k.AuthName = "docs"
+	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.Root, "templates", "runbook.md"), []byte("---\ntype: Runbook\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	typed := auth.Policy{Permissions: []auth.Permission{{KB: "docs", Write: true, Maps: []string{"manutenzione"}, Types: []string{"Runbook"}}}}
+	call := func(tool, args string) error {
+		return authorizeTool(typed, k, "docs", tool, json.RawMessage(args))
+	}
+	for _, c := range []struct{ name, tool, args string }{
+		{"concept_list scoped", "concept_list", `{"map":"manutenzione"}`},
+		{"search scoped", "search", `{"query":"x","scope":"manutenzione"}`},
+		{"creation with index_entry", "concept_new", `{"id":"manutenzione/n","template":"runbook","index_entry":"n"}`},
+	} {
+		if err := call(c.tool, c.args); err != nil {
+			t.Errorf("%s: got %v, want allowed", c.name, err)
+		}
+	}
+	for _, c := range []struct{ name, tool, args, code string }{
+		{"index_patch own map", "index_patch", `{"path":"manutenzione","old_string":"a","new_string":"b"}`, "outside_scope"},
+		{"index_patch other map", "index_patch", `{"path":"other","old_string":"a","new_string":"b"}`, "outside_scope"},
+		{"index_patch root", "index_patch", `{"path":"","old_string":"a","new_string":"b"}`, "needs_whole_kb"},
+		{"scope other map", "concept_list", `{"map":"other"}`, "outside_scope"},
+		{"top-level creation", "concept_new", `{"id":"top","template":"runbook","index_entry":"n"}`, "outside_scope"},
+	} {
+		err := call(c.tool, c.args)
+		if err == nil || (!strings.HasPrefix(err.Error(), "forbidden: "+c.code+": ") && err.Error() != genericNotFound) {
+			t.Errorf("%s: got %v, want forbidden: %s", c.name, err, c.code)
+		}
+	}
+	// The type is still checked on a concept in the allowed map.
+	if err := call("concept_write", `{"id":"manutenzione/n","frontmatter":{"type":"Incident"},"body":"x"}`); err == nil {
+		t.Error("writing a non-Runbook page in the allowed map must be refused")
+	}
+}
+
 func TestMapListExposesFieldValues(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)

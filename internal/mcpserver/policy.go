@@ -313,6 +313,9 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 				mapName, journalName = "", mapName
 			}
 		}
+		// Not AllowsCollection: the index lists pages of every type, so a role
+		// narrowed by type may not rewrite it; its own entry is written with
+		// index_entry when the page is created, under the page's grant (D714).
 		if policy.Allows(name, mapName, journalName, "", true) {
 			return nil
 		}
@@ -357,7 +360,8 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 	}
 	// A caller may only request an explicitly scoped collection inside an
 	// allowed map/journal. Unscoped collection reads are filtered by Visible.
-	if scope := stringField(raw, "scope", "map", "journal"); scope != "" && !policy.Allows(name, scope, "", "", false) && !policy.Allows(name, "", scope, "", false) {
+	// A collection has no type, so the type selector is not consulted (D228).
+	if scope := stringField(raw, "scope", "map", "journal"); scope != "" && !policy.AllowsCollection(name, scope, "", false) && !policy.AllowsCollection(name, "", scope, false) {
 		return deny(denyOutsideScope)
 	}
 	return nil
