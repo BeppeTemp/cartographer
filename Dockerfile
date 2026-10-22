@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26-alpine@sha256:5cb67f19c5e7994dcb80c074f7cfca8aeeada45bbdca035f73df269cefdcce61 AS builder
 ARG VERSION=dev
 WORKDIR /src
 # Copy go.mod and go.sum first for cached dependency download.
@@ -44,7 +44,7 @@ FROM scratch AS artifacts
 COPY --from=dist /dist /
 
 # Final stage (default): server runtime image.
-FROM alpine:3.24
+FROM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35
 # Ownership verification for the MCP Registry (must match server.json's name).
 LABEL io.modelcontextprotocol.server.name="io.github.BeppeTemp/cartographer"
 RUN apk add --no-cache git sops age openssh-client

@@ -54,9 +54,10 @@ jobs:
           else
             printf '%s\n' "$DIGESTS" > "$RUNNER_TEMP/digests"; echo "run=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.gate.outputs.run == 'true'
         with:
+          persist-credentials: false
           fetch-depth: 0
       - name: Scan commits
         if: steps.gate.outputs.run == 'true' && (github.event_name == 'push' || github.event_name == 'pull_request')

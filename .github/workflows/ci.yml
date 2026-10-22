@@ -45,7 +45,7 @@ jobs:
       macos: ${{ steps.filter.outputs.macos }}
     steps:
       # The table lives in scripts/ci-filters.sh, pinned by a test (D994).
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - id: filter
@@ -65,8 +65,10 @@ jobs:
       # it and is the one place its staleness is checked (D328).
       CARTOGRAPHER_STRICT_DECISION_INDEX: ${{ startsWith(github.head_ref, 'release-please--') && '1' || '' }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       # The git-backed Go tests (gitx, kb, bootstrap) need an identity and the
@@ -125,8 +127,10 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: Set-MpPreference -DisableRealtimeMonitoring $true
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - name: Configure git for tests
@@ -150,8 +154,10 @@ jobs:
       - name: Disable Defender real-time scanning
         continue-on-error: true
         run: Set-MpPreference -DisableRealtimeMonitoring $true
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - name: install.ps1
@@ -208,11 +214,13 @@ jobs:
           - leg: browser
             grep: --grep-invert @video
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: web/.nvmrc
           cache: npm
@@ -233,7 +241,7 @@ jobs:
       # packages it needs are not cacheable and are installed every run.
       - id: playwright
         run: echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: pw-cache
         with:
           path: ~/.cache/ms-playwright
@@ -265,13 +273,15 @@ jobs:
     if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.demo == 'true')"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: web/.nvmrc
       - run: make demo-worker-test
       - if: needs.changes.result != 'success' || needs.changes.outputs.tf == 'true'
-        uses: hashicorp/setup-terraform@v4
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.9.8
       - if: needs.changes.result != 'success' || needs.changes.outputs.tf == 'true'
@@ -286,10 +296,12 @@ jobs:
     if: "!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.docker == 'true')"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # vet + test in a clean alpine; never pushed.
-      - uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           target: test
@@ -297,7 +309,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       # The runtime image the smoke starts.
-      - uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           load: true
@@ -329,8 +341,10 @@ jobs:
       matrix:
         forge: [forgejo, gitlab]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - run: make build
@@ -349,12 +363,14 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # the snapshot version is computed from the tags
-      - uses: actions/setup-go@v7
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: false # this job runs GoReleaser: nothing it builds may come from a shared cache (D1020)
       - name: Configure git for tests
         run: |
           git config --global user.name ci
@@ -371,7 +387,7 @@ jobs:
       - name: install.sh against a real service
         run: test/macos/install.sh "$RUNNER_TEMP/old/cartographer" "$RUNNER_TEMP/new/cartographer"
       # Never published: --skip=publish needs no HOMEBREW_TAP_TOKEN.
-      - uses: goreleaser/goreleaser-action@v7
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
           version: "~> v2"

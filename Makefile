@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -123,6 +123,25 @@ demo-worker-test: ## Test the demo Worker's moderation logic (D800), Node only
 
 demo-tf-check: ## terraform fmt + validate of deploy/demo (no credentials)
 	cd deploy/demo && terraform fmt -check && terraform init -backend=false -input=false >/dev/null && terraform validate
+
+# The security tooling of .github/workflows/security.yml (D1020). Not part of
+# gate: gate stays offline and deterministic on a fixed commit, while these need
+# the network and answer from a database that changes under an unchanged tree.
+# The versions are pinned: Dependabot does not read them, bump them by hand.
+GOVULNCHECK_VERSION ?= v1.9.0
+ACTIONLINT_VERSION ?= v1.7.12
+ZIZMOR_VERSION ?= 1.31.1
+
+vulncheck: ## Known-vulnerability scan of the Go module graph (govulncheck; needs network)
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+# zizmor runs through pipx (preinstalled on the GitHub runners); it reads
+# .github/zizmor.yml, where every suppression carries its reason. actionlint runs
+# without its shellcheck integration: the result must not depend on whether the
+# host has shellcheck, and the scripts' info-level notes predate this target.
+lint-workflows: ## Lint .github/workflows with actionlint and zizmor (needs network and pipx)
+	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) -shellcheck=
+	pipx run zizmor==$(ZIZMOR_VERSION) --min-severity low .github/workflows
 
 clean: ## Remove bin/ and demo-kb/
 	rm -rf bin/ demo-kb/

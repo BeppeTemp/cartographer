@@ -119,10 +119,12 @@ jobs:
     timeout-minutes: 10
     steps:
       # The commit that was rendered, not whatever main is by now: Film-Tree must describe the film.
+      # No credential stays in .git/config: the push step sets the token on `origin` itself, last (D1020).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.render.outputs.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: film
@@ -133,4 +135,8 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
       - name: Publish to readme-film
-        run: film/publish.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          film/publish.sh

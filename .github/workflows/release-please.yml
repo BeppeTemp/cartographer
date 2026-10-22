@@ -5,8 +5,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 # The release-pr job reads the PR body, groups it and writes it back: two runs
 # close together would race between the read and the write, and the grouped body
@@ -19,11 +18,14 @@ concurrency:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       # RELEASE_PLEASE_TOKEN is a PAT: PRs opened with the default
       # GITHUB_TOKEN do not trigger pull_request workflows, and the release
       # PR would stay blocked without the required "test" check.
-      - uses: googleapis/release-please-action@v5
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
@@ -38,6 +40,8 @@ jobs:
   release-pr:
     needs: release-please
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - id: branch
         env:
@@ -48,22 +52,32 @@ jobs:
         run: |
           b=$(gh pr list -R "${{ github.repository }}" --state open --search "head:release-please--" --json headRefName,isCrossRepository -q '[.[] | select(.isCrossRepository | not)][0].headRefName // empty')
           echo "name=$b" >> "$GITHUB_OUTPUT"
+      # No credential stays in the checkout: the next steps run the branch's own
+      # code (`make`, `go run`). The push step sets the PAT on `origin` itself,
+      # last (D1020).
       - if: steps.branch.outputs.name != ''
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.branch.outputs.name }}
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          persist-credentials: false
       - if: steps.branch.outputs.name != ''
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - if: steps.branch.outputs.name != ''
+        id: regen
         run: |
           make decisions-index changelog-areas
           if git diff --quiet docs/decisions.md CHANGELOG.md; then exit 0; fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "docs: regenerate the decision index and group the changelog by area" docs/decisions.md CHANGELOG.md
+          echo "committed=true" >> "$GITHUB_OUTPUT"
+      - if: steps.regen.outputs.committed == 'true'
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push
       # Edited only when the grouping changes it: an edit re-runs pr-title.
       - if: steps.branch.outputs.name != ''

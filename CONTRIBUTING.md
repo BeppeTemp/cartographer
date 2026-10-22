@@ -208,6 +208,10 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     released change would not undo. A `fix:` PR that repairs a regression also
     names the PR that introduced it, on a line `Regression-of: #<n>`: the
     reviewers are scored against such PRs (`cartographer-review-pr` §When a defect escapes).
+  - **A new GitHub Action** is added pinned by its full commit SHA with the version in a
+    trailing comment (`uses: owner/repo@<40 hex> # v1.2.3`; resolve it with
+    `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`). `make gate` fails on any other
+    reference (D1020); Dependabot keeps the pins current.
 - PRs are **squash-merged** and the PR title becomes the commit message on
   `main`: it must be a valid [conventional commit](https://www.conventionalcommits.org/)
   (`feat: ...`, `fix: ...`, `docs: ...`, ...). CI enforces this. Releases are
