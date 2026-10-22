@@ -789,6 +789,16 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				// an answer, hence the setting alongside it.
 				"capabilities": kbCapabilities(k),
 			}
+			// The branch the KB commits to and why, from the same snapshot as
+			// sync_status (#1092). A KB that is not a repository has neither;
+			// branch is "" on a detached HEAD, and branch_source is an opaque
+			// string the reader prints as received.
+			if git.State != "disabled" {
+				result["branch"] = git.Branch
+				if git.BranchSource != "" {
+					result["branch_source"] = git.BranchSource
+				}
+			}
 			// D746: an entry of the KB's settings.yaml that was left out is
 			// something its owner needs to be told.
 			if info := k.SettingsInfo(); len(info.Findings) > 0 {

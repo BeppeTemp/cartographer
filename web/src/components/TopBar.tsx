@@ -5,6 +5,7 @@ import type { KBSummary } from "../api/types";
 import type { Theme } from "../lib/theme";
 import { Icon, type IconName } from "./Icon";
 import { KBPicker } from "./KBPicker";
+import { SyncIndicator } from "./SyncIndicator";
 
 interface Props {
   kbs: KBSummary[];
@@ -24,6 +25,8 @@ interface Props {
   onHome?(): void;
   onOpenNav?(): void;
   onOpenInspector?(): void;
+  /** The live revision tick (D337): the sync indicator refetches when it moves. */
+  live?: number;
 }
 
 const THEME_ICON: Record<Theme, IconName> = {
@@ -46,6 +49,7 @@ export function TopBar({
   onHome,
   onOpenNav,
   onOpenInspector,
+  live = 0,
 }: Props) {
   const nextTheme: Record<Theme, Theme> = { system: "light", light: "dark", dark: "system" };
   const [version, setVersion] = useState<string | null>(null);
@@ -117,6 +121,9 @@ export function TopBar({
             <Icon name="info" />
           </button>
         )}
+        {/* Whether the selected KB is all on its remote (plan 1092). A snapshot says
+            nothing about a remote, so the static build draws none. */}
+        {activeKB && !STATIC_MODE && <SyncIndicator kb={activeKB} live={live} />}
         {/* Being connected is the normal state and says nothing: the status
             takes room only when the server is unreachable. The live region
             stays mounted so the change is still announced. */}

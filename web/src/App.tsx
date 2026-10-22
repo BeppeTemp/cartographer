@@ -818,6 +818,7 @@ export function App() {
         onHome={() => navigate({ panel: "atlas", scope: null, concept: null, artifact: null })}
         onOpenNav={() => setSheet("nav")}
         onOpenInspector={() => setSheet("inspector")}
+        live={live}
       />
 
       <div
