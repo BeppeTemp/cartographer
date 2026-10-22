@@ -80,8 +80,8 @@ func TestAssetOverwriteModesDeleteAndWalk(t *testing.T) {
 	if err != nil || (execbit.Supported && !first.Executable) {
 		t.Fatalf("create executable: %+v %v", first, err)
 	}
-	if _, err := k.WriteAsset("map/owner", "nested/tool.sh", []byte("new"), "wrong", nil); !errors.Is(err, okf.ErrStaleWrite) {
-		t.Fatalf("mismatch: expected ErrStaleWrite, got %v", err)
+	if _, err := k.WriteAsset("map/owner", "nested/tool.sh", []byte("new"), "wrong", nil); !errors.Is(err, okf.ErrStaleWrite) || !strings.Contains(err.Error(), "current sha256 "+first.SHA256) {
+		t.Fatalf("mismatch: expected ErrStaleWrite naming the current sha256, got %v", err)
 	}
 	second, err := k.WriteAsset("map/owner", "nested/tool.sh", []byte("new"), first.SHA256, nil)
 	if err != nil || (execbit.Supported && !second.Executable) {

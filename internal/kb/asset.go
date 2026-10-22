@@ -206,7 +206,7 @@ func (kb *KB) WriteAsset(id okf.ConceptID, assetPath string, data []byte, ifMatc
 			return AssetEntry{}, fmt.Errorf("already_exists: %s already exists (sha256 %s) — pass if_match to overwrite", assetPath, current)
 		}
 		if ifMatch != current {
-			return AssetEntry{}, fmt.Errorf("%w: %s content-hash mismatch", okf.ErrStaleWrite, assetPath)
+			return AssetEntry{}, fmt.Errorf("%w: %s content-hash mismatch; current sha256 %s", okf.ErrStaleWrite, assetPath, current)
 		}
 	} else if ifMatch != "" {
 		return AssetEntry{}, fmt.Errorf("%w: if_match must be omitted when creating %s", okf.ErrStaleWrite, assetPath)
@@ -312,7 +312,7 @@ func (kb *KB) DeleteAsset(id okf.ConceptID, assetPath, ifMatch string) error {
 		return fmt.Errorf("DeleteAsset %s: %w", assetPath, err)
 	}
 	if ifMatch != sum {
-		return fmt.Errorf("%w: %s content-hash mismatch", okf.ErrStaleWrite, assetPath)
+		return fmt.Errorf("%w: %s content-hash mismatch; current sha256 %s", okf.ErrStaleWrite, assetPath, sum)
 	}
 	if err := os.Remove(abs); err != nil {
 		return fmt.Errorf("DeleteAsset %s: %w", assetPath, err)

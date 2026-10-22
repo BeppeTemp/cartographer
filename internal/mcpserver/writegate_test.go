@@ -291,6 +291,10 @@ func TestWriteGate_StashPopFailureRollsBack(t *testing.T) {
 	if !isErr || !strings.Contains(text, "write_gate: could not restore the write, nothing was written") {
 		t.Fatalf("got %q (error=%v)", text, isErr)
 	}
+	// A refusal that wrote nothing has nothing to undo: no recovery hint (#838).
+	if strings.Contains(text, "concept_history") {
+		t.Fatalf("the refusal carries a recovery hint: %q", text)
+	}
 	gateClean(t, k)
 	if gitOut(t, k, "rev-parse", "HEAD") != head || strings.TrimSpace(gitOut(t, k, "stash", "list")) != "" {
 		t.Fatal("rollback left HEAD moved or a stash behind")

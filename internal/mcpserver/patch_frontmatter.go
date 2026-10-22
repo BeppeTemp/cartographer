@@ -113,6 +113,9 @@ func applyPatchFrontmatter(fm *okf.Frontmatter, p patchFrontmatter) (dropped str
 			}
 			items, err := listItems(spec.param, key, spec.in[key])
 			if err != nil {
+				if spec.param == "frontmatter_remove" {
+					err = fmt.Errorf("%w; frontmatter_remove drops items from a list ({key: [items]}); to remove the key itself use unset: [%q] or frontmatter: {%q: null}", err, key, key)
+				}
 				return "", err
 			}
 			spec.out[key] = items

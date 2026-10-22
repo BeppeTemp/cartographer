@@ -497,7 +497,7 @@ func toolArtifactWrite(k *kb.KB) Tool {
 					"already_exists: %s already exists (sha256 %s) — pass if_match to overwrite",
 					params.Path, sha256Hex(existing))), nil
 			case fileExists && params.IfMatch != sha256Hex(existing):
-				return errorResult(fmt.Sprintf("stale_write: %s content-hash mismatch", params.Path)), nil
+				return errorResult(fmt.Sprintf("stale_write: %s content-hash mismatch; current sha256 %s", params.Path, sha256Hex(existing))), nil
 			case !fileExists && params.IfMatch != "":
 				return errorResult(fmt.Sprintf("stale_write: %s not found", params.Path)), nil
 			}
@@ -990,7 +990,7 @@ func toolArtifactDelete(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("artifact_delete %q: %v", params.Path, readErr)), nil
 			}
 			if sha256Hex(existing) != params.IfMatch {
-				return errorResult(fmt.Sprintf("stale_write: %s content-hash mismatch", params.Path)), nil
+				return errorResult(fmt.Sprintf("stale_write: %s content-hash mismatch; current sha256 %s", params.Path, sha256Hex(existing))), nil
 			}
 
 			if err := os.Remove(abs); err != nil {
