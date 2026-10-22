@@ -1679,22 +1679,28 @@ body.is-resizing {
 
 /* The growth replay's trigger, in the legend card's head: a quiet text action
    beside the counts it will replay. */
+/* The replay is a sprout in a round, borderless button: a quiet mark in the
+   legend's head, which lights in the accent when pointed at or running. */
 .legend__grow {
-  display: inline-flex;
+  display: inline-grid;
   flex: none;
-  align-items: center;
-  gap: 4px;
-  padding: 2px var(--space-2);
-  font: inherit;
-  color: var(--text-secondary);
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-muted);
   cursor: pointer;
   background: none;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-small);
+  border: 0;
+  border-radius: var(--radius-pill);
+  transition:
+    color var(--motion-fast) var(--ease-out),
+    background-color var(--motion-fast) var(--ease-out);
 }
 
-.legend__grow:hover {
-  color: var(--text-primary);
+.legend__grow:hover,
+.legend__grow[aria-pressed="true"] {
+  color: var(--accent);
   background: var(--surface-2);
 }
 
