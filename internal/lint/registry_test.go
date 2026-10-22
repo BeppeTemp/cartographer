@@ -20,7 +20,7 @@ import (
 var legacyTables = map[string]string{
 	"wholeGraph":    `index_lists_retired link_to_retired unknown_type value_case_variant`,
 	"lintJudgement": `bare_link_list broken_link closed_with_open_items concept_too_deep empty_concept missing_frontmatter missing_type stale_open stray_file template_extra_section template_field_missing template_field_value template_missing template_not_allowed template_section_alias template_section_missing template_unknown unknown_type unparseable_frontmatter`,
-	"fixable":       `broken_link contract_legacy_key duplicate_link index_link_form index_lists_retired invalid_field_value legacy_path legacy_tool_name link_to_retired missing_frontmatter missing_title missing_type nonslug_file_name nonstandard_field prose_value reciprocal_link_item repeated_link stringified_list template_field_value template_missing template_section_alias template_section_order template_type_mismatch title_h1_mismatch title_quality tool_param_field unknown_type unmapped_folder unparseable_frontmatter value_case_variant`,
+	"fixable":       `broken_link contract_legacy_key duplicate_link index_link_form index_lists_retired invalid_field_value legacy_path legacy_skill_name legacy_tool_name link_to_retired missing_frontmatter missing_title missing_type nonslug_file_name nonstandard_field prose_value reciprocal_link_item repeated_link stringified_list template_field_value template_missing template_section_alias template_section_order template_type_mismatch title_h1_mismatch title_quality tool_param_field unknown_type unmapped_folder unparseable_frontmatter value_case_variant`,
 }
 
 func sortedKeys(m map[string]bool) []string {
