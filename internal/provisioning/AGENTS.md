@@ -46,6 +46,11 @@ modifies files a user did not ask about.
 - The lockfile is the client-side record of applied state. Changing its shape is a
   migration, and an empty new field must keep meaning what the files written
   before it meant (see `base_dir`, empty for a global projection, D193).
+- **A derived workspace binding (D1019) is applied with no command run in the
+  repository, so it never edits a tracked file.** The instructions block goes
+  through `ApplyOptions.InstructionsRel` (Claude Code's `CLAUDE.local.md`) or is
+  dropped; anything new a projection writes into a shared file needs the same
+  answer for a derived binding.
 
 ## Scope note
 

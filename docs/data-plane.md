@@ -739,7 +739,10 @@ repos:
 
 Keys are lowercase-hyphenated slugs; `description` is required; `default` is optional and must be
 `~`/`$HOME`-anchored (an absolute or relative path, or a `..` segment, is refused); `remote` is
-optional on repo keys only, a clone URL or `host/owner/name`, stored normalized. It is written with
+optional on repo keys only, a clone URL or `host/owner/name`, stored normalized; `bind` is optional
+on repo keys only, a boolean: a repository a KB declares is bound to that KB for every provider in
+workspace scope, and `bind: false` keeps the placeholder without binding it (D1019, `sync.md`
+§Workspace scope), for a repository the KB only cites. It is written with
 git or `artifact_write` (validated strictly: any malformed entry refuses the write, naming it) and
 read tolerantly (a malformed entry is left out). It is not a concept and is never materialized on a
 client: `sync_pull` serves it as data, and the client uses it to resolve keys

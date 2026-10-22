@@ -300,6 +300,14 @@ Cartographer created itself was left untracked and dirtying the repository, and
 unbinding a workspace left its projected files behind forever because every
 later sync only iterates the *declared* projections.
 
+`22_workspace_derived_binding` asserts the other way to get a binding (D1019):
+a KB's `paths.yaml` declares two repositories, one with `bind: false`, and no
+`workspace bind` runs in either. `sync` projects into the declared one only, its
+`git status` stays clean with a tracked `CLAUDE.md` untouched (the block goes to
+the excluded `CLAUDE.local.md`), the bridge started there serves the KB with its
+write tools, and an explicit `--no-kb` binding on the same path replaces the
+derived one and prunes the projection.
+
 **The hero's branch is asserted without a network.** `19_hero_publish` runs
 `web/scripts/publish-hero.sh` and `hero-needed.sh` (D790) against a scratch repository and a
 bare origin: no branch means a recording is needed; after a publish the same tag needs none and a

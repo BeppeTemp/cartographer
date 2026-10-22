@@ -49,6 +49,12 @@ type WorkspaceBinding struct {
 	Path   string   `yaml:"path"`
 	Remote string   `yaml:"remote,omitempty"`
 	KBs    []string `yaml:"kbs"`
+
+	// Derived and Sources are never stored here: a binding with Derived set
+	// comes from the paths.yaml of the KBs named in Sources (D1019), not from
+	// the user's `workspaces:` table.
+	Derived bool     `yaml:"-"`
+	Sources []string `yaml:"-"`
 }
 
 // gitRemoteFn is indirected for tests: a bind must work in a temp dir with no
@@ -146,10 +152,14 @@ func (c *Config) SetWorkspaceScope(provider, scope string) error {
 	}
 }
 
-// WorkspaceBindings returns provider's workspace bindings, as a copy.
+// WorkspaceBindings returns provider's workspace bindings, as a copy: the
+// explicit ones and, for a provider in workspace scope, the ones its KBs derive
+// from the repositories they declare (D1019), an explicit binding replacing the
+// derived one on the same path.
 func (c *Config) WorkspaceBindings(provider string) []WorkspaceBinding {
-	out := make([]WorkspaceBinding, 0, len(c.Workspaces[provider]))
-	for _, w := range c.Workspaces[provider] {
+	effective := c.effectiveWorkspaces(provider)
+	out := make([]WorkspaceBinding, 0, len(effective))
+	for _, w := range effective {
 		w.KBs = append([]string(nil), w.KBs...)
 		out = append(out, w)
 	}
@@ -257,7 +267,7 @@ func (e *WorkspaceLookupError) Error() string {
 // something that is not there any more, and continuing would project a
 // perimeter's artifacts into a checkout nobody bound.
 func (c *Config) ResolveWorkspace(provider, dir string) (WorkspaceBinding, bool, error) {
-	list := c.Workspaces[provider]
+	list := c.effectiveWorkspaces(provider)
 	if len(list) == 0 {
 		return WorkspaceBinding{}, false, nil
 	}
@@ -336,8 +346,8 @@ func RoutedBinding(mounted, bound []string) []string {
 
 // UsesBridge reports whether provider's global MCP entry is the local stdio
 // bridge (D737) rather than the HTTP URL: it has at least one workspace binding
-// and the server has the routed endpoint the bridge proxies to. The single rule
+// (explicit or derived, D1019) and the server has the routed endpoint the bridge proxies to. The single rule
 // both the entry writer and the Atlas report apply.
 func (c *Config) UsesBridge(provider, routedPath string) bool {
-	return routedPath != "" && len(c.Workspaces[provider]) > 0
+	return routedPath != "" && len(c.effectiveWorkspaces(provider)) > 0
 }

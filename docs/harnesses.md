@@ -19,6 +19,25 @@ value is never filled in from memory. Documentation is not evidence: a change th
 would flip a matrix cell is confirmed with a probe
 (`.claude/skills/cartographer-audit-clients/references/probes.md`), not from a changelog line.
 
+**Project skills and instructions below a bound folder (probe 2026-10-21, D1019).** A project
+skill and project instructions in a bound non-git folder `W`, asked back from `W`, from a git
+repository `W/repo` and from a plain subfolder `W/plain`. Four clients of five look for project
+skills only up to the repository root, so a folder binding gives the repositories below it the
+tools (through the bridge, D737) but not the skills or agents: a repository a KB declares in its
+`paths.yaml` is therefore bound itself and projected into (`sync.md` §Workspace scope).
+
+| Client (version) | skill in `W/repo` | instructions in `W/repo` |
+|---|---|---|
+| Claude Code 2.1.304 | no | yes (`CLAUDE.md` is read up every ancestor) |
+| Codex 0.163.0 | no | no |
+| Copilot CLI 1.0.98 | no | no |
+| Kiro CLI 2.32.0 | no | no |
+| OpenCode 2.0.32 | yes | no |
+
+Claude Code 2.1.304 also reads an untracked `CLAUDE.local.md` beside a tracked `CLAUDE.md`
+(probed 2026-10-22: a unique token in it was repeated by `claude -p`), which is where a derived
+binding puts its instructions block when the repository tracks `CLAUDE.md`.
+
 ## claude
 
 - **Aligned with**: `2.1.286` — 2026-10-01. Documentary review of the changelog

@@ -498,6 +498,27 @@ func ProjectDestination(kind, name string, provider configurator.Provider) strin
 	return destDirScoped(kind, name, provider, ScopeProject)
 }
 
+// ClaudeLocalInstructions is the untracked file Claude Code reads beside
+// CLAUDE.md. A derived workspace binding (D1019) puts its instructions block
+// there when the repository tracks CLAUDE.md, so no tracked file is edited.
+const ClaudeLocalInstructions = "CLAUDE.local.md"
+
+// OwnedLocalInstructions returns the workspace-relative local instructions
+// file Cartographer wrote into workspaceDir for provider, to be excluded from
+// git: ClaudeLocalInstructions when it holds a managed block, otherwise none.
+// The block itself is the record, so the answer holds for a projection this
+// run does not touch.
+func OwnedLocalInstructions(workspaceDir string, provider configurator.Provider) []string {
+	if provider != configurator.ProviderClaudeCode {
+		return nil
+	}
+	begins, _, err := InstructionsBlockMarkers(filepath.Join(workspaceDir, ClaudeLocalInstructions))
+	if err != nil || begins == 0 {
+		return nil
+	}
+	return []string{ClaudeLocalInstructions}
+}
+
 // FilterForProviderScoped is FilterForProvider with the scope axis: a kind the
 // provider cannot materialize **in this scope** is not missing, it simply does
 // not apply here.

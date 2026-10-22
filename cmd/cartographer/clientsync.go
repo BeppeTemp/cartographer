@@ -732,6 +732,14 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			PathRegistries: manifest.PathRegistries,
 			KBOrder:        kbOrder[p.Provider],
 		}
+		if p.Derived {
+			// A derived binding never edits a tracked file (D1019): the
+			// instructions block goes to an untracked file, or nowhere.
+			opts.InstructionsRel = p.InstructionsRel
+			if p.InstructionsSkipped != "" {
+				manifest = withoutInstructions(manifest)
+			}
+		}
 		// Apply only the artifacts the provider knows how to materialize in
 		// this scope: unsupported kinds are neither drift nor pending, they
 		// simply don't concern it.

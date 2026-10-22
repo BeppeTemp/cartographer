@@ -79,6 +79,11 @@ type Config struct {
 	// emptiness test cannot tell apart.
 	Workspaces map[string][]WorkspaceBinding `yaml:"workspaces,omitempty"`
 
+	// derived is the bindings the KBs' paths.yaml imply (D1019): recomputed by
+	// every sync, stored apart from this file (derived.go) and never written
+	// to it. Read it through WorkspaceBindings/ResolveWorkspace.
+	derived DerivedState
+
 	// SearchRoots is where repoindex.Scan looks for local git clones to
 	// resolve `{{repo:<key>}}` placeholders (D75 WP1/WP3). "~" is expanded by
 	// the consumer (repoindex.expandHome), not here. Defaults to
@@ -497,6 +502,7 @@ func Load(dir string) (*Config, error) {
 		// before this field existed default here, matching Default() (D906).
 		cfg.SearchRoots = append([]string(nil), DefaultSearchRoots...)
 	}
+	cfg.derived = LoadDerived(dir)
 	return &cfg, nil
 }
 

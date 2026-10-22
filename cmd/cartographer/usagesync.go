@@ -122,7 +122,7 @@ func reportProviders(cfg *clientconfig.Config) []clientconfig.ReportProvider {
 		if cfg.UsesBridge(name, cfg.ServerRoutedPath) {
 			p.Entry, p.Isolation = "bridge", "workspace"
 		}
-		for _, b := range cfg.Workspaces[name] {
+		for _, b := range cfg.WorkspaceBindings(name) {
 			p.Workspaces = append(p.Workspaces, clientconfig.ReportWorkspace{Path: b.Path, Remote: b.Remote, KBs: b.KBs})
 		}
 		out = append(out, p)

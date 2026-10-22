@@ -68,15 +68,8 @@ func (t *expansionTracker) resolve(kind, key string, opts ApplyOptions) (string,
 			t.resolver = repoindex.NewResolver(opts.Paths, opts.SearchRoots, repoindex.DefaultDepth)
 		}
 		var warnings []string
-		resolved, warnings, err = t.resolver.ResolveDeclared(key, decl.Remote)
+		resolved, warnings, err = ResolveDeclaredRepo(t.resolver, key, decl, declared)
 		t.warnings = append(t.warnings, warnings...)
-		if err != nil && declared && decl.Default != "" {
-			if p, ok := registryDefaultPath(decl.Default); ok && repoindex.IsLiveClone(p) {
-				resolved, err = p, nil
-			} else {
-				err = fmt.Errorf("%v; the KB's declared default %s is not a git clone on this machine", err, decl.Default)
-			}
-		}
 	case "path":
 		if p, ok := opts.Paths[key]; ok {
 			resolved = expandHomePath(p)
@@ -98,6 +91,23 @@ func (t *expansionTracker) resolve(kind, key string, opts ApplyOptions) (string,
 	}
 	t.resolved[id] = resolved
 	return resolved, true
+}
+
+// ResolveDeclaredRepo is the one resolution of a `{{repo:<key>}}`: the
+// resolver (the operator's `paths:` entry, then the repo index by the declared
+// remote when there is one), then — when the KB declares one and the resolver
+// found nothing — the declared default, used only if it is a git clone here.
+// The placeholder expansion and the derived workspace bindings (D1019) both
+// call it, so a repository binds exactly where its placeholder points.
+func ResolveDeclaredRepo(r *repoindex.Resolver, key string, decl PathDecl, declared bool) (string, []string, error) {
+	resolved, warnings, err := r.ResolveDeclared(key, decl.Remote)
+	if err != nil && declared && decl.Default != "" {
+		if p, ok := registryDefaultPath(decl.Default); ok && repoindex.IsLiveClone(p) {
+			return p, warnings, nil
+		}
+		err = fmt.Errorf("%v; the KB's declared default %s is not a git clone on this machine", err, decl.Default)
+	}
+	return resolved, warnings, err
 }
 
 // preResolve resolves every listed "kind:key" before any artifact is

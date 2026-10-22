@@ -16,7 +16,13 @@ type PathDecl struct {
 	Description string `json:"description"`
 	Default     string `json:"default,omitempty"`
 	Remote      string `json:"remote,omitempty"`
+	// Bind mirrors kb.PathDecl.Bind: nil or true binds the declared repository
+	// to its KB (D1019), false opts it out.
+	Bind *bool `json:"bind,omitempty"`
 }
+
+// BindsRepo reports whether the declared repository is bound to its KB.
+func (d PathDecl) BindsRepo() bool { return d.Bind == nil || *d.Bind }
 
 // PathRegistry is one KB's declared placeholder vocabulary (D263): `paths`
 // declares {{path:<key>}} keys, `repos` {{repo:<key>}} keys. Unsigned KB

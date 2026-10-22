@@ -91,6 +91,11 @@ type workspaceStatus struct {
 	// exposure this whole scope exists to prevent.
 	State  string `json:"state"`
 	Detail string `json:"detail,omitempty"`
+	// Derived marks a binding that comes from a KB's paths.yaml (D1019);
+	// Source says which KBs. "unresolved" is a declared repository with no
+	// local clone: its Path is "repo:<key>".
+	Derived bool   `json:"derived,omitempty"`
+	Source  string `json:"source,omitempty"`
 }
 
 type statusArtifact struct {

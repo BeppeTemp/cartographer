@@ -179,3 +179,42 @@ func TestArtifactPlaceholders(t *testing.T) {
 		t.Errorf("got %v, want %v", got, want)
 	}
 }
+
+func TestParsePathRegistry_Bind(t *testing.T) {
+	t.Parallel()
+	reg, bad, err := ParsePathRegistry([]byte(`repos:
+  cited: {description: only cited, bind: false}
+  worked-on: {description: worked on, bind: true}
+  plain: {description: no bind field}
+`))
+	if err != nil || len(bad) != 0 {
+		t.Fatalf("err=%v bad=%v", err, bad)
+	}
+	if reg.Repos["cited"].BindsRepo() {
+		t.Error("bind: false must not bind")
+	}
+	if !reg.Repos["worked-on"].BindsRepo() || !reg.Repos["plain"].BindsRepo() {
+		t.Error("bind: true and an absent bind both bind")
+	}
+	if reg.Repos["plain"].Bind != nil {
+		t.Error("an absent bind stays nil on the wire")
+	}
+}
+
+func TestParsePathRegistry_BindMalformed(t *testing.T) {
+	t.Parallel()
+	for name, doc := range map[string]string{
+		"a string":       "repos:\n  r: {description: d, bind: \"no\"}\n",
+		"a number":       "repos:\n  r: {description: d, bind: 0}\n",
+		"under paths":    "paths:\n  p: {description: d, bind: false}\n",
+		"declared twice": "repos:\n  r:\n    description: d\n    bind: true\n    bind: false\n",
+	} {
+		_, bad, err := ParsePathRegistry([]byte(doc))
+		if err != nil || len(bad) != 1 {
+			t.Errorf("%s: err=%v bad=%v, want one malformed entry", name, err, bad)
+		}
+		if ValidatePathRegistry([]byte(doc)) == nil {
+			t.Errorf("%s: the strict form must reject it", name)
+		}
+	}
+}

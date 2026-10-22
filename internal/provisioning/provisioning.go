@@ -327,6 +327,22 @@ type ApplyOptions struct {
 	// never dropped by an ordering change. Empty (no explicit binding, the
 	// default meaning "every known KB") keeps the alphabetical fallback.
 	KBOrder []string
+
+	// InstructionsRel, when non-empty, is the project-scope file the
+	// "instructions" block goes into, instead of the matrix cell (D1019): a
+	// derived workspace binding must not edit a CLAUDE.md git tracks, so Claude
+	// Code's block goes to CLAUDE.local.md, which it reads beside CLAUDE.md.
+	// Only read for ScopeProject.
+	InstructionsRel string
+}
+
+// instructionsDest is the file, relative to opts.BaseDir, the instructions
+// block of this Apply lives in.
+func instructionsDest(opts ApplyOptions) string {
+	if opts.Scope == ScopeProject && opts.InstructionsRel != "" {
+		return opts.InstructionsRel
+	}
+	return destDirScoped("instructions", "", opts.Provider, opts.Scope)
 }
 
 // AppliedResult is the result of Apply.
@@ -2227,7 +2243,7 @@ func wrapKBSection(name, content string) string {
 // after this call (D262), for the new Lock; "" when there is no block or no
 // client-side expansion.
 func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *expansionTracker, result *AppliedResult, newManaged *[]ManagedFile, force bool, pathsHash *string) error {
-	destRel := destDirScoped("instructions", "", opts.Provider, opts.Scope)
+	destRel := instructionsDest(opts)
 	if destRel == "" {
 		// Provider with no known destination for instructions: keep this handled
 		// consistently with the other kinds' unsupported/needs_approval schema,
@@ -2487,13 +2503,18 @@ func needsAgentsMDImport(opts ApplyOptions) bool {
 	if opts.Provider != configurator.ProviderClaudeCode || opts.Scope != ScopeProject {
 		return false
 	}
+	if opts.InstructionsRel != "" {
+		// A block beside a CLAUDE.md the repository already tracks hides
+		// nothing: that file is read as it is, and so is AGENTS.md through it.
+		return false
+	}
 	agentsPath := filepath.Join(opts.BaseDir, "AGENTS.md")
 	if _, err := os.Lstat(agentsPath); err != nil {
 		return false
 	}
 	// If the target file already imports @AGENTS.md outside the managed block,
 	// skip: the user (or D213) already wrote one and a duplicate would be wrong.
-	destRel := destDirScoped("instructions", "", opts.Provider, opts.Scope)
+	destRel := instructionsDest(opts)
 	fullPath := filepath.Join(opts.BaseDir, destRel)
 	return !fileImportsAgentsMDOutsideBlock(fullPath)
 }

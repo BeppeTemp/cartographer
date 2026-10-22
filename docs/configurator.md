@@ -239,8 +239,8 @@ written into the workspace: `sync` writes the provider's global MCP entry as a l
 (deepest binding wins; an unbound folder, `$HOME` included, gets the provider's default set
 **read-only** and no KB artifact (D1018); `--no-kb` means no KB, never every KB). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
 token (D44/D45). Artifacts stay opt-in per scope (above). `workspace resolve [<path>]` shows which
-binding wins for a folder, and prints `read-only` for one that no binding covers. `workspace list` shows the bindings, with `[gone]` next to a
-directory that is not there any more (D737, `sync.md` §Workspace scope). Limits: the bridge opens no
+binding wins for a folder, says when it is derived from a KB's `paths.yaml` (D1019), and prints `read-only` for one that no binding covers. `workspace list` shows the bindings, with `[gone]` next to a
+directory that is not there any more and `[derived: paths.yaml of kb-a]` next to one a KB's declared repository implies, then the declared repositories with no local clone (D737, `sync.md` §Workspace scope). Limits: the bridge opens no
 server-push stream; if `cartographer` is not on `PATH` when `sync` runs, the provider keeps its HTTP
 entry with a warning; a client with `roots` in an unbound folder gets a handshake naming no KB.
 

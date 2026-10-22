@@ -45,6 +45,13 @@ type syncProjection struct {
 	BundleOnly bool
 	// Scope is the destination matrix half this projection writes through.
 	Scope provisioning.Scope
+	// Derived marks a projection whose binding comes from a KB's paths.yaml
+	// (D1019), not from `workspace bind`. It never edits a file git tracks:
+	// InstructionsRel redirects the instructions block to an untracked file,
+	// and InstructionsSkipped names the tracked file that made it write none.
+	Derived             bool
+	InstructionsRel     string
+	InstructionsSkipped string
 }
 
 // Key is the lockfile projection this state is recorded under.
@@ -99,6 +106,12 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 	sort.Slice(bindings, func(i, j int) bool { return bindings[i].Path < bindings[j].Path })
 	for _, w := range bindings {
 		if info, err := os.Stat(w.Path); err != nil || !info.IsDir() {
+			if w.Derived {
+				// Derived state, recomputed by the next sync: a clone that
+				// moved is no reason to refuse every other projection, and
+				// its files are pruned once it stops being derived.
+				continue
+			}
 			return nil, fmt.Errorf("%s: bound workspace %s is gone — rebind it, or remove the binding with `cartographer workspace unbind %s %s`",
 				provider, w.Path, provider, w.Path)
 		}
@@ -109,6 +122,10 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 			Remote:    w.Remote,
 			KBs:       w.KBs,
 			Scope:     provisioning.ScopeProject,
+			Derived:   w.Derived,
+		}
+		if w.Derived {
+			sp.InstructionsRel, sp.InstructionsSkipped = derivedInstructions(provider, w.Path)
 		}
 		out = append(out, sp)
 	}
@@ -299,9 +316,23 @@ func cmdWorkspaceUnbind(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
+	derivedHere := false
+	if canonical, err := clientconfig.CanonicalWorkspacePath(path); err == nil {
+		explicit := false
+		for _, w := range cfg.Workspaces[provider] {
+			explicit = explicit || w.Path == canonical
+		}
+		for _, w := range cfg.WorkspaceBindings(provider) {
+			derivedHere = derivedHere || (w.Derived && w.Path == canonical && !explicit)
+		}
+	}
 	if err := cfg.UnbindWorkspace(provider, path); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
+	}
+	if derivedHere {
+		fmt.Fprintf(os.Stderr, "note: %s is bound by a KB's paths.yaml, not by a `workspace bind`, so there is nothing to unbind; "+
+			"`cartographer workspace bind %s %s --no-kb` opts it out on this machine, `bind: false` in the KB's paths.yaml for everyone\n", path, provider, path)
 	}
 	if len(cfg.WorkspaceBindings(provider)) == 0 {
 		// The last workspace: the provider goes back to the global catalogue,
@@ -345,7 +376,9 @@ func cmdWorkspaceList(args []string) int {
 		}
 		any = true
 		fmt.Printf("%s  (workspace scope)\n", provider)
-		for _, w := range cfg.WorkspaceBindings(provider) {
+		bindings := cfg.WorkspaceBindings(provider)
+		sort.Slice(bindings, func(i, j int) bool { return bindings[i].Path < bindings[j].Path })
+		for _, w := range bindings {
 			state := ""
 			if info, err := os.Stat(w.Path); err != nil || !info.IsDir() {
 				state = "  [gone]"
@@ -354,10 +387,16 @@ func cmdWorkspaceList(args []string) int {
 			if len(w.KBs) > 0 {
 				kbs = strings.Join(w.KBs, ", ")
 			}
+			if src := sourcesLabel(w); src != "" {
+				state += "  [derived: " + src + "]"
+			}
 			fmt.Printf("  %s  →  %s%s\n", w.Path, kbs, state)
 			if w.Remote != "" {
 				fmt.Printf("      remote %s\n", w.Remote)
 			}
+		}
+		for _, u := range cfg.DerivedUnresolved(provider) {
+			fmt.Printf("  repository %s of %s  [%s]\n", u.Key, u.KB, u.Reason)
 		}
 	}
 	if !any {
@@ -430,7 +469,12 @@ func renderWorkspaceResolve(cfg *clientconfig.Config, path string, providers []s
 			if len(scope.KBs) > 0 {
 				kbs = strings.Join(scope.KBs, ", ")
 			}
-			fmt.Fprintf(&sb, "  bound by %s  ->  %s\n", scope.Binding.Path, kbs)
+			if scope.Binding.Derived {
+				fmt.Fprintf(&sb, "  bound by %s  ->  %s  (derived from %s; `workspace bind %s %s --no-kb` opts out here)\n",
+					scope.Binding.Path, kbs, sourcesLabel(*scope.Binding), p, scope.Binding.Path)
+			} else {
+				fmt.Fprintf(&sb, "  bound by %s  ->  %s\n", scope.Binding.Path, kbs)
+			}
 		case scope.All:
 			fmt.Fprintf(&sb, "  unbound: the provider's default set (every KB)\n")
 		default:
@@ -515,7 +559,7 @@ func allProjections(cfg *clientconfig.Config, providers []string, clientBaseDir 
 // workspaces is legal and must stay legal, while the same two bound to one
 // workspace is still refused.
 func manifestsForProjections(cfg *clientconfig.Config, projections []syncProjection) (map[string]provisioning.Manifest, error) {
-	out, _, err := buildProjectionManifests(cfg, projections, false)
+	out, _, err := buildProjectionManifests(cfg, projections, false, nil)
 	return out, err
 }
 
@@ -525,11 +569,14 @@ func manifestsForProjections(cfg *clientconfig.Config, projections []syncProject
 // keeps its previous state — and the failures come back in KB order for the
 // caller to report. A projection that needs no failed KB is built exactly as
 // manifestsForProjections builds it.
-func manifestsForProjectionsPartial(cfg *clientconfig.Config, projections []syncProjection) (map[string]provisioning.Manifest, []kbPullFailure, error) {
-	return buildProjectionManifests(cfg, projections, true)
+func manifestsForProjectionsPartial(cfg *clientconfig.Config, projections []syncProjection, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, error) {
+	return buildProjectionManifests(cfg, projections, true, pre)
 }
 
-func buildProjectionManifests(cfg *clientconfig.Config, projections []syncProjection, partial bool) (map[string]provisioning.Manifest, []kbPullFailure, error) {
+// buildProjectionManifests builds one manifest per projection. pre, when it
+// covers every KB the projections ask for, replaces the pulls (D1019: the
+// derivation already made them); nil pulls here.
+func buildProjectionManifests(cfg *clientconfig.Config, projections []syncProjection, partial bool, pre *prefetched) (map[string]provisioning.Manifest, []kbPullFailure, error) {
 	out := make(map[string]provisioning.Manifest, len(projections))
 
 	// Every KB any projection asks for, pulled once.
@@ -569,7 +616,13 @@ func buildProjectionManifests(cfg *clientconfig.Config, projections []syncProjec
 	var cs candidateSet
 	var failed []kbPullFailure
 	var err error
-	if partial {
+	if !anyDefault && pre.covers(union) {
+		cs = pre.cs
+		failed = pre.failedFor(union)
+		if len(failed) > 0 && len(failed) == len(union) {
+			err = failed[0].Err
+		}
+	} else if partial {
 		cs, failed, err = fetchCandidatesPartial(cfg, union)
 		if err == nil && len(failed) > 0 && len(failed) == len(union) {
 			// Nothing answered: there is no run to continue, only the first
@@ -638,7 +691,7 @@ func prepareWorkspace(p syncProjection, providers []string, dryRun bool) error {
 	if dryRun {
 		return nil
 	}
-	return writeWorkspaceExclusions(p.Workspace, providers)
+	return writeWorkspaceExclusions(p.Workspace, providers, p.InstructionsRel)
 }
 
 // workspaceBlockFiles are the files Cartographer writes a marker-delimited
@@ -665,7 +718,7 @@ func workspaceBlockFiles(provider configurator.Provider) []string {
 // ignore their own file. One it created itself, because the repository had
 // none, is untracked and is ours to exclude — otherwise every sync leaves the
 // working tree dirty.
-func writeWorkspaceExclusions(workspace string, providers []string) error {
+func writeWorkspaceExclusions(workspace string, providers []string, extra ...string) error {
 	if len(providers) == 0 {
 		return provisioning.RemoveWorkspaceExclusions(workspace)
 	}
@@ -673,9 +726,14 @@ func writeWorkspaceExclusions(workspace string, providers []string) error {
 	if err != nil {
 		return err
 	}
-	var excluded []string
+	// The untracked file a derived projection puts its instructions block in
+	// (D1019) is Cartographer's own, so it is excluded like its directories:
+	// the one this run is about to write (extra) and the ones earlier runs
+	// wrote, which the block they hold gives away.
+	excluded := slices.Clone(extra)
 	for _, name := range providers {
 		provider := configurator.Provider(name)
+		excluded = append(excluded, provisioning.OwnedLocalInstructions(workspace, provider)...)
 		blocks := workspaceBlockFiles(provider)
 		for _, o := range provisioning.ProjectOwnedPaths(provider) {
 			if slices.Contains(blocks, o) && tracked[filepath.ToSlash(o)] {
@@ -729,9 +787,12 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 
 	out := make([]workspaceStatus, 0, len(bindings))
 	for _, w := range bindings {
-		st := workspaceStatus{Path: w.Path, KBs: w.KBs, State: "ok"}
+		st := workspaceStatus{Path: w.Path, KBs: w.KBs, State: "ok", Derived: w.Derived, Source: sourcesLabel(w)}
 		if info, err := os.Stat(w.Path); err != nil || !info.IsDir() {
 			st.State, st.Detail = "gone", "the bound directory is not there any more"
+			if w.Derived {
+				st.Detail += "; the next sync drops this derived binding"
+			}
 			out = append(out, st)
 			continue
 		}
@@ -749,7 +810,16 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 			st.State = "inactive"
 			st.Detail = "codex does not trust this project, so it ignores its .codex/ layer — trust it from a codex session in this directory"
 		}
+		if w.Derived {
+			if _, skipped := derivedInstructions(provider, w.Path); skipped != "" {
+				st.Detail = fmt.Sprintf("instructions not written: %s is tracked by git and a derived binding never edits a tracked file — `cartographer workspace bind %s %s --kb %s` writes the block there",
+					skipped, provider, w.Path, strings.Join(w.KBs, ","))
+			}
+		}
 		out = append(out, st)
+	}
+	for _, u := range cfg.DerivedUnresolved(provider) {
+		out = append(out, workspaceStatus{Path: "repo:" + u.Key, KBs: []string{u.KB}, State: "unresolved", Detail: u.Reason, Derived: true, Source: "paths.yaml of " + u.KB})
 	}
 	return out
 }
@@ -762,8 +832,15 @@ func printWorkspaceLines(ws []workspaceStatus) {
 			kbs = strings.Join(w.KBs, ", ")
 		}
 		suffix := ""
+		if w.State == "unresolved" {
+			fmt.Printf("  repository %s of %s  [%s]\n", strings.TrimPrefix(w.Path, "repo:"), kbs, w.Detail)
+			continue
+		}
 		if w.State != "ok" {
 			suffix = "  [" + w.State + "]"
+		}
+		if w.Source != "" {
+			suffix += "  (" + w.Source + ")"
 		}
 		fmt.Printf("  workspace %s → %s%s\n", w.Path, kbs, suffix)
 		if w.Detail != "" {
@@ -791,6 +868,27 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 			continue
 		}
 		for _, w := range workspaceStatuses(cfg, provider, dir) {
+			if w.Derived && w.State == "ok" && w.Detail != "" {
+				out = append(out, doctorFinding{
+					Check: "workspace", Severity: doctorWarning, Path: w.Path,
+					Message: fmt.Sprintf("%s: %s", provider, w.Detail),
+					Fix:     fmt.Sprintf("cartographer workspace bind %s %s --kb %s", provider, w.Path, strings.Join(w.KBs, ",")),
+				})
+				continue
+			}
+			if w.Derived && (w.State == "gone" || w.State == "moved" || w.State == "unresolved") {
+				// Derived state is rebuilt by sync: the fix is a sync, never an
+				// unbind (there is no explicit binding to remove).
+				if w.State == "unresolved" {
+					continue
+				}
+				out = append(out, doctorFinding{
+					Check: "workspace", Severity: doctorWarning, Path: w.Path,
+					Message: fmt.Sprintf("%s: derived binding %s (%s)", provider, w.State, w.Detail),
+					Fix:     "cartographer sync",
+				})
+				continue
+			}
 			switch w.State {
 			case "gone":
 				out = append(out, doctorFinding{
