@@ -205,7 +205,8 @@ describe("the Artifacts panel", () => {
 
     const hooks = within(nav).getByRole("region", { name: "Hooks" });
     expect(within(hooks).getByText("hooks/<name>/hook.json").tagName).toBe("CODE");
-    expect(within(hooks).getByText(/Synced to Claude Code, Codex CLI\./)).toBeInTheDocument();
+    // The empty tile names no clients: the detail panel lists them.
+    expect(within(hooks).queryByText(/Synced to/)).not.toBeInTheDocument();
     expect(within(hooks).getByText(/Commands a client runs on its own events\./)).toBeInTheDocument();
     // An empty section says where the files go.
     const mcp = within(nav).getByRole("region", { name: "MCP servers" });
@@ -232,7 +233,7 @@ describe("the Artifacts panel", () => {
       "Templates 0",
     ]);
     const templates = within(nav).getByRole("region", { name: "Templates" });
-    expect(within(templates).getByText(/Stays in the KB: no client receives it\./)).toBeInTheDocument();
+    expect(within(templates).getByText("Stays in the KB")).toBeInTheDocument();
     expect(within(templates).queryByText(/Synced to/)).not.toBeInTheDocument();
   });
 

@@ -72,9 +72,13 @@ export function Instructions({
         subtitle={
           listed.length > 0 && (
             <>
-              {clients.length === 0
-                ? "Kept in the KB, written into no client's instruction file"
-                : `Written into the instruction file of ${clients.join(", ")}`}
+              {clients.length === 0 ? (
+                "Kept in the KB, written into no client's instruction file"
+              ) : (
+                <span title={clients.join(", ")}>
+                  Written into the instruction file of {clients.length} client{clients.length === 1 ? "" : "s"}
+                </span>
+              )}
               {" · "}
               <FindingSummary items={listed} />
             </>

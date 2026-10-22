@@ -443,12 +443,10 @@ export function EmptyKindTile({ info }: { info: ArtifactKindInfo }) {
       <span className="catalog__tile-desc">
         Add one as <code>{info.kb_path}</code>.
       </span>
+      {/* Which clients would receive it is the detail panel's to say: listed
+          on every empty tile it buried the one line that matters. */}
       <span className="catalog__tile-foot">
-        <span>
-          {info.kb_only || info.clients.length === 0
-            ? "Stays in the KB: no client receives it."
-            : `Synced to ${info.clients.map((c) => c.name || c.id).join(", ")}.`}
-        </span>
+        <span>{info.kb_only || info.clients.length === 0 ? "Stays in the KB" : ""}</span>
         <DocsLink doc={info.doc} />
       </span>
     </div>
