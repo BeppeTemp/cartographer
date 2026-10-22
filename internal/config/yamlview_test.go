@@ -20,11 +20,11 @@ func yamlView() View {
 		KBs: []KBEntries{
 			{Name: "kb-a", Entries: []Entry{
 				{Key: "kbs[].remote", Value: "https://git.example.com/user/kb-a.git", Origin: OriginFile},
-				{Key: "kbs[].doctor_mode", Value: "auto", Origin: OriginKB},
-				{Key: "kbs[].auto_repair", Value: []string{"x"}, Origin: OriginDefault},
+				{Key: "kbs[].usage_stale_days", Value: 30, Origin: OriginKB},
+				{Key: "kbs[].branch", Value: "x", Origin: OriginDefault},
 			}},
 			{Name: "work-kb", Entries: []Entry{
-				{Key: "kbs[].auto_repair", Value: []string{"x"}, Origin: OriginDefault},
+				{Key: "kbs[].branch", Value: "x", Origin: OriginDefault},
 			}},
 		},
 	}
@@ -42,7 +42,7 @@ func TestServerYAMLIsTheEffectiveFileDocumented(t *testing.T) {
 		"tokens: " + Redacted,
 		"data: /etc/data",
 		// A key at its default is documented, commented out, not set.
-		"# credentials_dir: <data>/credentials",
+		"# credentials_dir: /etc/cartographer/credentials",
 		// The server file's kbs[] entry, not what the KB's own file sets.
 		"remote: https://git.example.com/user/kb-a.git",
 	} {
@@ -50,7 +50,7 @@ func TestServerYAMLIsTheEffectiveFileDocumented(t *testing.T) {
 			t.Errorf("server YAML lacks %q:\n%s", want, text)
 		}
 	}
-	for _, unwanted := range []string{"doctor_mode: auto", "work-kb"} {
+	for _, unwanted := range []string{"usage_stale_days: 30", "work-kb"} {
 		if strings.Contains(text, unwanted) {
 			t.Errorf("server YAML carries %q:\n%s", unwanted, text)
 		}
@@ -68,7 +68,7 @@ func TestKBYAMLIsTheKBsSettingsFile(t *testing.T) {
 	}
 	text := string(out)
 	for _, want := range []string{
-		"doctor_mode: auto",
+		"usage_stale_days: 30",
 		"remote: https://git.example.com/user/kb-a.git # from the server's kbs[] entry",
 	} {
 		if !strings.Contains(text, want) {
@@ -81,7 +81,7 @@ func TestKBYAMLIsTheKBsSettingsFile(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("KBYAML: ok=%v err=%v", ok, err)
 	}
-	if strings.HasPrefix(string(empty), "{}") || !strings.Contains(string(empty), "# --- available settings ---") {
+	if strings.HasPrefix(string(empty), "{}") || !strings.Contains(string(empty), "# --- available settings: uncomment a key to set it ---") {
 		t.Errorf("empty KB YAML:\n%s", empty)
 	}
 

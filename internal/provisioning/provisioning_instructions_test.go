@@ -239,7 +239,7 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 		"Operational instructions:\n" +
 		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n" +
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n" +
-		"- a write is done when its response has no findings (broken links, missing index entry, orphan): fix them, or `lint_ignore` them with a reason;\n" +
+		"- a write that would introduce an avoidable finding (broken link, missing index entry, orphan) is refused with each finding's fix and nothing is committed: write the target, the index entry and the link in the same `concept_batch`;\n" +
 		"- status convention: `active` means the page is valid and current; open work uses `open`, `in-progress` or `blocked`, and a wait is declared with `waiting_on` and `review_after`;\n" +
 		"- every write is a git commit, revertible.\n" +
 		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead.\n" +
@@ -571,7 +571,9 @@ func TestApply_Instructions_Idempotente(t *testing.T) {
 	}
 }
 
-func TestApply_Instructions_NonFirmato_NeedsApproval(t *testing.T) {
+// Since D906 an unsigned KB artifact is installed: the client has no trust
+// switch, and the pull has already rejected a bad signature or path.
+func TestApply_Instructions_NonFirmato_Installed(t *testing.T) {
 	baseDir := t.TempDir()
 	a := instructionsArtifact("homelab", "Content.\n")
 	a.Signed = false
@@ -583,14 +585,11 @@ func TestApply_Instructions_NonFirmato_NeedsApproval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	if len(res.NeedsApproval) != 1 || res.NeedsApproval[0].Kind != "instructions" {
-		t.Errorf("expected 1 instructions artifact in NeedsApproval, got %+v", res.NeedsApproval)
+	if len(res.NeedsApproval) != 0 {
+		t.Errorf("an unsigned KB instructions artifact needs no approval: %+v", res.NeedsApproval)
 	}
-	if len(res.Written) != 0 {
-		t.Errorf("Written must stay empty for an unsigned artifact: %+v", res.Written)
-	}
-	if _, err := os.Stat(filepath.Join(baseDir, ".claude", "CLAUDE.md")); !os.IsNotExist(err) {
-		t.Errorf("no file must be written for an unsigned instructions artifact")
+	if _, err := os.Stat(filepath.Join(baseDir, ".claude", "CLAUDE.md")); err != nil {
+		t.Errorf("the unsigned instructions artifact must be written: %v", err)
 	}
 }
 
@@ -1523,8 +1522,8 @@ func TestGeneratedInstructionsContainUpdateDirective(t *testing.T) {
 	}
 }
 
-// D312: the instructions tell the agent that a write answers with structural
-// findings and that they are its to fix.
+// D312, D907: the instructions tell the agent that a write introducing an
+// avoidable finding is refused, and never offer a way to accept one.
 func TestGenerateKBInstructions_ContainsWriteFindingsGuidance(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
@@ -1532,7 +1531,10 @@ func TestGenerateKBInstructions_ContainsWriteFindingsGuidance(t *testing.T) {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	content := string(findInstructionsArtifact(t, m, "homelab").Files[0].Content)
-	if !strings.Contains(content, "a write is done when its response has no findings") || !strings.Contains(content, "`lint_ignore` them with a reason") {
-		t.Errorf("write-findings guidance missing:\n%s", content)
+	if !strings.Contains(content, "is refused with each finding's fix and nothing is committed") {
+		t.Errorf("write-gate guidance missing:\n%s", content)
+	}
+	if strings.Contains(content, "lint_ignore") || strings.Contains(content, "lint_accept") {
+		t.Errorf("instructions still offer a way to accept a finding:\n%s", content)
 	}
 }

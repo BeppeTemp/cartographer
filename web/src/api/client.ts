@@ -5,7 +5,6 @@ import type {
   AssetList,
   ConceptHistory,
   AuditLog,
-  ContradictionList,
   GitConflict,
   ServiceList,
   Whoami,
@@ -22,7 +21,6 @@ import type {
   ChangesResponse,
   KBStatus,
   MaintenanceReview,
-  MaintenanceSummary,
   RetiredResponse,
   SearchResponse,
   WorkResponse,
@@ -206,17 +204,9 @@ export function fetchConcept(kb: string, id: string, signal?: AbortSignal): Prom
   return get<Concept>(`/kbs/${encodeURIComponent(kb)}/concept?id=${encodeURIComponent(id)}`, signal);
 }
 
-export function fetchLint(
-  kb: string,
-  severityMin: string,
-  scope: string | null,
-  signal?: AbortSignal,
-): Promise<LintReport> {
-  const scoped = scope ? `&scope=${encodeURIComponent(scope)}` : "";
-  return get<LintReport>(
-    `/kbs/${encodeURIComponent(kb)}/lint?severity_min=${encodeURIComponent(severityMin)}${scoped}`,
-    signal,
-  );
+export function fetchLint(kb: string, scope: string | null, signal?: AbortSignal): Promise<LintReport> {
+  const scoped = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+  return get<LintReport>(`/kbs/${encodeURIComponent(kb)}/lint${scoped}`, signal);
 }
 
 /** includeArchived asks for archived pages too; a search leaves them out by default (D820). */
@@ -245,14 +235,9 @@ export function fetchChanges(kb: string, since: string, signal?: AbortSignal): P
   );
 }
 
-/** The caller's open work, up to the route's cap (D302). */
+/** The caller's open work, up to the route's cap (D302), with the kind of each contradiction. */
 export function fetchWork(kb: string, signal?: AbortSignal): Promise<WorkResponse> {
-  return get<WorkResponse>(`/kbs/${encodeURIComponent(kb)}/work?limit=200`, signal);
-}
-
-/** What the server repaired by itself and what the doctor left (D323). */
-export function fetchMaintenanceSummary(kb: string, signal?: AbortSignal): Promise<MaintenanceSummary> {
-  return get<MaintenanceSummary>(`/kbs/${encodeURIComponent(kb)}/maintenance/summary`, signal);
+  return get<WorkResponse>(`/kbs/${encodeURIComponent(kb)}/work?limit=200&fields=contradiction_kind`, signal);
 }
 
 /** Every lint check the server runs, by category (D365). */
@@ -296,16 +281,6 @@ export function fetchSecrets(kb: string, signal?: AbortSignal): Promise<SecretLi
 
 export function fetchPlaceholders(kb: string, signal?: AbortSignal): Promise<PlaceholderList> {
   return get<PlaceholderList>(`/kbs/${encodeURIComponent(kb)}/placeholders`, signal);
-}
-
-/** status: "open" (the server's default, so omitted) or "all". */
-export function fetchContradictions(
-  kb: string,
-  status?: "open" | "all",
-  signal?: AbortSignal,
-): Promise<ContradictionList> {
-  const query = status && status !== "open" ? `?status=${encodeURIComponent(status)}` : "";
-  return get<ContradictionList>(`/kbs/${encodeURIComponent(kb)}/contradictions${query}`, signal);
 }
 
 export function fetchMaps(kb: string, signal?: AbortSignal): Promise<MapList> {

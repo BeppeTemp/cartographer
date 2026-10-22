@@ -7,7 +7,6 @@ package mcpserver
 // A rename that forgets a page now fails CI instead.
 
 import (
-	"github.com/BeppeTemp/cartographer/internal/kb"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,7 +52,8 @@ var docsNonTools = map[string]bool{
 	"template_section_missing": true, // lint check (D297), not a tool
 	// artifact lint checks (D316), not tools
 	"skill_invalid": true, "skill_warning": true, "skill_broken_ref": true,
-	"skill_git_command": true, "skill_missing_perimeter": true, "artifact_unused": true,
+	"skill_git_command": true, "skill_missing_perimeter": true,
+	"artifact_unused": true, // removed check (D947), still named in data-plane.md
 	"missing_context": true, // reserved contradiction_kind (D273)
 	"sync_h1":         true, // kb_repair fix kind (D315), not a tool
 	"index_link_form": true, // lint check (D310), not a tool
@@ -77,7 +77,7 @@ var docsNonTools = map[string]bool{
 	"template_type_mismatch": true, "template_field_missing": true, "template_field_value": true,
 	"template_extra_section": true, "template_section_alias": true, "template_section_order": true,
 	"map_without_templates": true, "template_proposal": true, "template_slug": true,
-	"template_write": true, "template_sections": true,
+	"template_sections": true,
 	// gate_check response field (D186), not a tool
 	"gate_blockers": true,
 	// frontmatter fields and schema keys
@@ -88,7 +88,7 @@ var docsNonTools = map[string]bool{
 	"contradiction_kind": true, "service_ref": true, "secret_refs": true,
 	"secrets_source": true, "source_of": true, "review_after": true, "asserted_by": true,
 	"last_indexed_commit": true, "content_hash": true, "applied_revision": true,
-	"allow_artifact_write": true, "sops_age_key_file": true, "token_env": true,
+	"sops_age_key_file": true, "token_env": true,
 	"search_roots": true, "search_depth": true, "resolution_strategy": true, "resolution_body": true,
 	// kb_status / sync_status output fields and server config keys that D903 removed,
 	// named in the docs that say they are gone: not tools
@@ -129,10 +129,9 @@ func docsFiles(t *testing.T) []string {
 
 func TestDocsToolNamesExist(t *testing.T) {
 	t.Parallel()
-	// Full surface: artifact writes and the bundle-backed skill/sync tools are
-	// registered conditionally, and the docs describe them all.
+	// Full surface: the bundle-backed skill/sync tools are registered
+	// conditionally, and the docs describe them all.
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{BundleFS: fstest.MapFS{}})
 	registered := make(map[string]bool, len(s.tools))

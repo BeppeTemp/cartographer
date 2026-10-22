@@ -22,15 +22,15 @@ only the KB and derived key ID. Distribute and pin the corresponding public key
 on each client before switching a signer; unsigned KBs remain supported through
 the explicit client trust policy.
 
-### KB-provided MCP allow-list
+### KB-provided MCP descriptors
 
-Third-party MCP descriptors under `mcp/*.json` are denied by default, including
-after an upgrade. To advertise one, add an exact per-KB `mcp_allowlist` entry
-with its artifact name, `http` transport and normalized absolute target URL.
-The server omits every unlisted descriptor from manifest and `artifact_list`
-responses and logs the configuration action at startup; headers and environment
-references never appear in that diagnostic. Stale allow-list entries are a
-warning, so an endpoint can be staged before its descriptor is committed.
+The descriptors under a KB's `mcp/*.json` are always distributable (D906): the server
+lists every valid one in the manifest and in `artifact_list`, and `artifact_read` returns it.
+There is no allow-list on the server (`mcp_allowlist`, in a KB's `settings.yaml` or `kbs[]`,
+is a removed key: it is ignored with a warning and dropped when the file is realigned). The
+consent lives on the client, which asks for a per-descriptor, hash-bound approval before it
+installs one (`docs/sync.md` §MCP servers). Headers and environment references stay references
+and are never written to the manifest as values.
 | **Partitioned servers** | Several instances mount different KBs. A client can connect to entries from more than one server. Do not use several active writer servers as replicas for the same KB; git conflict recovery is a safety net, not a write-scaling protocol. |
 
 ### State and volumes
@@ -45,14 +45,14 @@ The server process is **ephemeral** (k8s pod or local service); what persists on
   An entry ages out after 30 days; one whose search finds something now is
   reported `resolved` by `kb_status` before that (D319). Deleting the file is
   the only manual reset. `lint-history.jsonl` (D370) holds one sample a day of
-  the whole-KB lint totals (`{at, total, by_severity, by_handler}`, the latest
-  of the UTC day, 90 days kept, pruned on write): derived state for the Health
-  trend and `kb_status.lint_trend`, rewritten whole, never in the KB's git
+  the whole-KB lint totals (`{at, total, by_handler}`, the latest
+  of the UTC day, 90 days kept, pruned on write): derived state for
+  `kb_status.lint_trend`, rewritten whole, never in the KB's git
   history, and lost harmlessly with the volume (the trend restarts from the
   next lint). `usage.json` (D326) holds the artifact usage clients
   report on `sync`: on an `emptyDir` it is lost at every restart, and until each
   client syncs again `kb_status.usage` is `no_data` (with `no_report_since`, the
-  start time, D333) and `artifact_unused` is silent. Keep `.cartographer/` on
+  start time, D333) and no artifact reads as stale. Keep `.cartographer/` on
   the KB's persistent volume when that signal matters.
 
 The audit log is always on (D905): MCP tool execution appends an attempt+completion event
@@ -77,11 +77,18 @@ scope, type, values, default, description, the environment variable and flag tha
 restart) by `make settings-example`; a test fails when the committed file differs, and another when a key reaches
 `rawConfig` or `KBSpec` without a schema entry. Edit the schema, not the example. A `config.yaml` written by
 `service install` is self-documenting the same way: the keys it sets carry their comment and the unset ones are listed
-commented out under `# --- available settings ---`. Comments are ignored by the parser, so a file without them behaves
+commented out under `# --- available settings: uncomment a key to set it ---` (the divider older versions wrote,
+`# --- available settings ---`, is read the same), a blank line between keys, each with the value to uncomment: the key's
+`Example` when its schema entry has one (a map or a list is shown in block style, indented under the key), its default
+otherwise. Comments are ignored by the parser, so a file without them behaves
 identically. `kb create`/`kb clone` and `kb rename` give a `kbs[]` entry they add the comment of the keys they set,
 and leave every comment already in the file alone.
 
-`kb_aliases` is a list of `{from, to}` items (server config only, applied at the next start like `kbs`; `kb rename` writes it, an operator may edit it): it makes a routed `?kbs=<from>` select the KB mounted as `<to>`. It is validated at load (valid KB names, no `from` equal to its `to`, no duplicate `from`). A mounted name always wins over an alias.
+The old names of renamed KBs are not a setting (D906): they are a list of `{from, to}` items in the **server state file** `<data>/.cartographer/state.json` (`kb_aliases`), beside `update-check.json`. `kb rename` and `kb unmount` write it (offline, atomically), the server reads it at its start, and an operator never needs to edit it. It makes a routed `?kbs=<from>` select the KB mounted as `<to>`; it is validated when read (valid KB names, no `from` equal to its `to`, no duplicate `from`), and a mounted name always wins over an alias. A server YAML that still carries a `kb_aliases` key is realigned (D903): its items are moved into the state file first, and until then they resolve as before. A server with no `data` directory has no state file, hence no aliases.
+
+Three behaviours that used to be settings are fixed (D906): `serve` never creates a KB (a missing one fails with *create it with `cartographer kb create`*; the `init` key and `--init` flag are removed); `tools/list` shows the core set (below) with every other tool still callable by name (`tools.profile` is removed); and a request to `/mcp` with an `Origin` header is accepted only when the origin's host and port are the request's `Host`, one with no `Origin` header (a non-browser client) always is (`mcp.allowed_origins` is removed, see [transport-auth](transport-auth.md) §Origin). Each removed key, environment variable and flag is warned about and dropped by the realignment, never an error that stops the start.
+
+A server that would listen **off-loopback with authentication off** refuses to start and says why: loopback is a listen host in `127.0.0.0/8`, `::1` or `localhost`; `auth.mode: off`, or `auto` with no token, is auth off; `:39273` and `0.0.0.0:39273` listen on every interface. The local service pins auth off on `127.0.0.1` (D268) and is unaffected.
 
 One startup option is deliberately **flag-only**, with no YAML key and no environment variable:
 `serve --log-file <path>` appends the server log to a file instead of writing it to stderr,
@@ -98,8 +105,7 @@ still be able to log to two files.
 
 Schema (`internal/config.Config`, YAML tags in parentheses):
 ```yaml
-http: ":39273"                # (http) listen address; absent = stdio
-init: true                    # (init) initialize missing KBs
+http: ":39273"                # (http) listen address; absent = stdio. Off-loopback needs a token (D906)
 auth:
   mode: "on"                  # (auth.mode) on | off | auto (default auto: on if tokens are present)
   tokens: [...]                # (auth.tokens) prefer env CARTOGRAPHER_TOKENS instead (secret)
@@ -119,54 +125,6 @@ kbs:                          # (kbs[]) KBs to clone from a git remote (bootstra
                                                       # endpoint, token scope, clone dir, and the
                                                       # KB's files in credentials_dir all use
                                                       # this name
-    allow_artifact_write: true                       # (kbs[].allow_artifact_write) enables artifact_write/
-                                                      # artifact_delete/artifact_move on this KB (default false, D71):
-                                                      # writing a skill means injecting instructions that
-                                                      # clients will execute — the capability must be
-                                                      # granted per-KB by the operator; an rw token alone
-                                                      # does not imply it
-    allow_template_write: true                       # (kbs[].allow_template_write) artifact_write/
-                                                      # artifact_delete accept templates/<slug>.md and
-                                                      # nothing else when allow_artifact_write is off
-                                                      # (default true, D352): a template is KB-only and
-                                                      # never provisioned to a client, so the risk the
-                                                      # full right guards against does not apply; false
-                                                      # removes the tools again
-    auto_repair: [nonstandard_field, duplicate_link] # (kbs[].auto_repair) checks `cartographer kb repair
-                                                      # --apply` may apply unattended (D299); each must be
-                                                      # a check with a mechanical fix, listed by name (no
-                                                      # "all"). Absent: every check whose fix is safe to
-                                                      # run unattended (D323, D355); [] means none. A
-                                                      # listed check that is not safe is ignored by the
-                                                      # background repair and repair on write
-    repair_on_write: true                            # (kbs[].repair_on_write) a write applies the
-                                                      # auto_repair fixes (except broken_link and
-                                                      # reciprocal_link_item) to the concepts it wrote,
-                                                      # in the same commit (D349); absent follows
-                                                      # auto_repair, false = timer only
-    write_gate: error                                # (kbs[].write_gate) off (default), error or warning:
-                                                      # a concept write that introduces a finding of that
-                                                      # severity or worse is refused and rolled back
-                                                      # (D350); needs a git repository
-    doctor_auto_interval: 1d                         # (kbs[].doctor_auto_interval) how often the server
-                                                      # applies auto_repair by itself, to a fixpoint,
-                                                      # at most 500 concepts per run, one commit per run
-                                                      # (D323, D355, HTTP serve only); it also runs
-                                                      # shortly after every start and after a pull that
-                                                      # changed HEAD (at most once per 10 min, D704);
-                                                      # "0" disables, default 1d
-    doctor_interval: 14d                             # (kbs[].doctor_interval) days after the last
-                                                      # kb-doctor session before the agent proposes the
-                                                      # next one to the operator (D299, D704); "0"
-                                                      # disables; default 14d. doctor_mode is accepted
-                                                      # and ignored: a session never starts by itself
-    doctor_budget: 10                                # (kbs[].doctor_budget) review items one session
-                                                      # decides; default 10
-    usage_stale_days: 42                             # (kbs[].usage_stale_days) days without a client
-                                                      # activating a skill or agent before the
-                                                      # artifact_unused lint reports it (D326); "0"
-                                                      # disables the finding, default 42
-mcp:
 audit:
   log: ""                      # (audit.log) the always-on audit log; empty = <data>/audit/audit.log,
                                # signed with audit.key from credentials_dir (D905)
@@ -174,10 +132,6 @@ audit:
   max_segment_bytes: 0         # (audit.max_segment_bytes) rotate past this size; 0 = package default
   archive_dir: ""              # (audit.archive_dir) rotated segments; empty = beside the log
   retention_days: 90           # (audit.retention_days) delete checkpointed segments older than N days; default 90; 0 = keep forever
-tools:
-  profile: agent               # (tools.profile) agent (default: tools/list exposes only the core
-                               # set for the LLM agent) | full (all tools, including governance/plumbing).
-                               # Hidden tools remain callable via tools/call (D65).
 ```
 
 `kbs[]` (YAML) is additive to `CARTOGRAPHER_KB_REMOTES` (append, not replace) — all listed KBs get
@@ -208,7 +162,7 @@ per key, and does nothing, writing no backup, to a file already in that form; a 
 read-only mount) keeps working, since a removed key is ignored with a warning that names its replacement.
 The same applies to a removed environment variable and flag (`CARTOGRAPHER_GIT_SYNC`, `--git-sync`, ...): ignored
 with a warning, never an error. Each KB's `settings.yaml` is realigned the same way as one commit by the server,
-through the normal commit and push, so it is revertible; a file with uncommitted edits is left alone. The client
+through the normal commit and push, so it is revertible; a file with uncommitted edits is left alone. `write_gate`, `auto_repair`, `repair_on_write` and the `doctor_*` keys (D907), in a KB's `settings.yaml` or in a `kbs[]` entry, go the same way: the gate and the safe repairs are fixed behaviour. The client
 file `~/.cartographer.yaml` is realigned by the first `cartographer sync`. Two removed settings are refused and
 not ignored, because ignoring them would change where writes go. The server profile (`git.profile: server`,
 `kbs[].git_profile: server`, `CARTOGRAPHER_GIT_PROFILE=server`, or `git_profile: server` in a KB's
@@ -277,9 +231,10 @@ of the remote, without `.git` — or the explicit `kbs[].name`, if set, see D53 
 the destination doesn't already exist** — an existing clone is left untouched: the existing
 sync that follows the remote handles fetch/push on subsequent writes
 (`cmd/cartographer/bootstrap.go`). Requires `--data`/`CARTOGRAPHER_DATA`/`data:` as the destination
-directory for clones. A remote that is still empty clones to a branch with no commit, named by the
-host's git (often `master`); with `--init` the KB is pinned to `main` and given its initial commit,
-which the first write pushes as the remote's first branch. From then on writes follow the remote's
+directory for clones. A remote is an scp-like address, an `https`/`http`/`ssh`/`git`/`file` URL or a local path; one starting with `-`, using git's `<transport>::<address>` helper syntax (`ext::`, `fd::`) or any other scheme (`ftp://`, `rsync://`) is refused before git runs (`gitx.ValidateRemote`), and git itself is limited to those schemes (`GIT_ALLOW_PROTOCOL`, unless the environment sets it). A remote that is still empty clones to a branch with no commit, named by the
+host's git (often `master`), and the server does not mount it: `serve` never creates a KB (D906), so it
+fails naming `cartographer kb create`. `kb create <name> --remote <url>` is what fills an empty remote: the KB is
+pinned to `main` and given its initial commit, which it pushes as the remote's first branch. From then on writes follow the remote's
 default branch (`concurrency.md` §How changes land, D264), unless the `settings.yaml` committed on that
 default branch sets `branch` (D335, D903): a fresh clone is then checked out on that branch, and the first
 push creates it on the remote if it is missing. An existing clone is never switched.
@@ -292,26 +247,33 @@ path with spaces or a Windows one survives the shell git runs it with); if
 `GIT_SSH_COMMAND` is already present in the environment, it wins over `default.ssh`. This removes the need for
 a separate Kubernetes init container for the initial clone.
 
-**Git identity: the server commits, the writer is the author (D904).** The committer of every commit is
-`Cartographer <cartographer@<host>>`, `<host>` being the machine's name (a pod's hostname in
-Kubernetes, reduced to what an email domain accepts), so the history says which instance recorded a
-commit. It needs no configuration and no account on the forge. The author of a write is whoever wrote
-it: the `Cartographer-Author: Name <email>` header of the request, else `<token id>
-<cartographer@<host>>`; every write also carries a `Cartographer-Token: <token id>` trailer that
-cannot be forged (see [control plane](control-plane.md)). A commit that is not a write (the
-`external changes` commit, a sync merge, conflict resolution, the KB's first commit made by
-`serve --init`) is authored by the server too; a sync that rebases local writes keeps their authors.
-The git config of the machine, `GIT_AUTHOR_*` and
-`GIT_COMMITTER_*` in the environment no longer influence any of it. `author_name`/`author_email`/
-`committer_name`/`committer_email` (global `git.*`, `kbs[]`, and a token's `author_name`/`author_email`)
-are removed settings: a file that still has them loads with a warning, and the realignment above drops
-them. A KB's own SSH key, `<kb>.ssh`, and its token helper (`<kb>.token` or `default.token`) **override**
-the server's process environment (the reverse of the "environment wins" rule that applies to `default.ssh`
-and `GIT_SSH_COMMAND` above) — see `internal/gitx.runGitEnv`.
+**Git identity: the writer commits (D904, D950).** A commit with a known writer has that writer as author
+**and** committer: a forge with a membership push rule checks both. `<host>` — the machine's name (a pod's
+hostname in Kubernetes, reduced to what an email domain accepts) — is recorded in the `Cartographer-Host`
+trailer, so the history still says which instance recorded a commit. The author of a write is whoever wrote
+it: the `Cartographer-Author: Name <email>` header of the request, else the identity configured for the KB,
+else `<token id> <cartographer@<host>>`; every write also carries `Cartographer-Host` and `Cartographer-Token:
+<token id>` trailers, the latter unforgeable (see [control plane](control-plane.md)).
 
-If your forge enforces author push rules, the server and token-id authors a write falls back to are
-not forge accounts and the push is refused: have the client send a `Cartographer-Author` of a real
-account. Commits already pushed under another identity stay as they are.
+The identity the server commits as is a **server setting**, because it is the machine's and not the KB's (a
+KB's `settings.yaml` is committed and shared by everyone who writes to it): `git.identity: "Name <email>"`
+for every KB, and `git.identities: {<kb>: "Name <email>", default: "Name <email>"}` per KB name (the entry
+`default` for the KBs without one; a present empty entry means that KB has none). It is the author and the
+committer of what has no writer of its own — the unattended repair, the `external changes` commit, a sync
+merge, conflict resolution — and of a write whose client sends no valid header (Kiro's MCP config has no
+headers). Without it the server identity `Cartographer <cartographer@<host>>` applies. An invalid value is
+dropped with a warning. A sync that rebases local commits gives each its author back as committer, and
+re-commits one the server made before the identity was configured as that identity (`gitx.RealignCommitters`).
+`git.author_name` and `git.author_email`, the 0.24 keys, are read as `git.identity` and moved to it by the
+realignment; the other `author_*`/`committer_*` keys are removed settings (a file that still has them loads
+with a warning). The git config of the machine, `GIT_AUTHOR_*` and `GIT_COMMITTER_*` in the environment do
+not influence any of it. A KB's own SSH key, `<kb>.ssh`, and its token helper (`<kb>.token` or
+`default.token`) **override** the server's process environment (the reverse of the "environment wins" rule that
+applies to `default.ssh` and `GIT_SSH_COMMAND` above) — see `internal/gitx.runGitEnv`.
+
+If your forge enforces author or committer push rules (GitLab `member_check`), the server identity and the
+token-id author are not forge accounts and the push is refused: set `git.identity` (or `git.identities`) to
+a real account. Commits already pushed under another identity stay as they are.
 
 **Explicit KB name and its credential files (D53, D905)**: `kbs[].name` fixes the
 KB's name (overrides the name derived from remote/path) — it's the name used everywhere: the HTTP
@@ -356,12 +318,12 @@ Every startup option has a corresponding environment variable (the CLI flag take
 | `CARTOGRAPHER_TOKENS` | `--tokens` | Bearer tokens, comma/whitespace-separated. Each entry is either a bare `token` (admin, full access to every KB) or `token\|scope1;scope2` with per-KB scopes `kb:<name>:r\|rw` (scopes separated by `;`, never by spaces/commas, to avoid colliding with the between-entry separator). E.g. `admintok, readtok\|kb:wiki:r, writetok\|kb:wiki:rw;kb:notes:r` (D44). |
 | `CARTOGRAPHER_AUTH` | — | Explicit auth toggle (see §Auth) |
 | — | — | Fine-grained roles have no env form: `auth.roles` is YAML-only, because a rule is a structured object (see §Fine-grained roles). |
-| `CARTOGRAPHER_TOOLS_PROFILE` | `--tools-profile` | `tools/list` tool profile: `agent` (default, only the core set for the LLM agent) \| `full` (all of them). Hidden tools remain callable via `tools/call` (D65, → `control-plane.md` §MCP API). |
 | `CARTOGRAPHER_AUDIT_LOG` | — | Path of the audit log's JSONL file, which is always on (D905); empty keeps it at `<data>/audit/audit.log`. Its signing key is `audit.key` in the credentials directory. |
+| `CARTOGRAPHER_ALLOW_INSECURE_HTTP` | — | **Client**: `1` or `true` lets this run use a plain `http://` server URL that is not loopback; without it the client refuses (D1023). A server reachable beyond loopback should sit behind TLS. |
 | `CARTOGRAPHER_SERVER_URL` | — | **Client** (not server): default server URL for `cartographer connect` on the client machine when no `.cartographer.yaml` exists yet. Precedence: existing yaml > env > `http://127.0.0.1:39273/mcp` (D64, `internal/clientconfig.Default`). |
 | `CARTOGRAPHER_WEB_ENABLED` | `--web-enabled` | Serve the embedded read-only Atlas UI at `/ui/` and its JSON API at `/api/ui/v1` in HTTP mode. Default `true`; `false` registers neither route, so both answer 404 and the HTTP surface is what it was before the UI. Stdio mode never serves it. D227, → `control-plane.md` §Read-only UI API. |
 | `CARTOGRAPHER_UPDATE_CHECK` | `--update-check` | YAML `update_check`. Look up the latest release (GitHub release list) 30 s after start and every 24 h, cached in the data dir's `.cartographer/update-check.json` (the user cache dir without a data dir), and report it as `latest_version` in `/health` and `kb_status` when newer. Default `true`; a failed lookup is silent and retried after an hour instead of 24 h, and a `dev` build never checks. D254. The same switch gates the UI API's release history (`GET /api/ui/v1/releases`), a second GitHub call made on demand (§The embedded Atlas UI, D862). |
-| `CARTOGRAPHER_MCP_ALLOWED_ORIGINS` | — | Comma-separated browser origins allowed to reach `/mcp`, scheme and port included. Empty (default) accepts only an `Origin` matching the request's own `Host`; `*` accepts any; a request without an `Origin` header is unaffected (D128, → `transport-auth.md` §Origin). |
+| — | — | Removed in D906, each warned about and ignored: `CARTOGRAPHER_TOOLS_PROFILE` and `--tools-profile` (the core set is fixed), `CARTOGRAPHER_MCP_ALLOWED_ORIGINS` (the same-origin rule is fixed, → `transport-auth.md` §Origin) and `--init` (`serve` never creates a KB). |
 
 **`CARTOGRAPHER_AUTH`** — three modes:
 
@@ -382,10 +344,9 @@ cartographer service start|stop|restart
 cartographer service uninstall               # removes the service; config and data remain
 cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, pushes it to <url> (D85, D134)
 cartographer kb clone <remote>               # mounts an existing remote KB in that data dir (D97)
-                                             # create/clone --artifact-write: also records a kbs[] entry (remote, allow_artifact_write: true) (D711, D903)
 cartographer kb list                         # what is on disk, and what the server actually serves (D173)
-cartographer kb rename <old> <new>           # renames the mount point: directory + kbs[] entry + kb_aliases record + client bindings (D177, D754, D772)
-cartographer kb unmount <name>               # retires a KB locally: kbs[] entry + kb_aliases pointing at it + client bindings, clone parked or deleted (D761, D772)
+cartographer kb rename <old> <new>           # renames the mount point: directory + kbs[] entry + alias in the server state file + client bindings (D177, D754, D772, D906)
+cartographer kb unmount <name>               # retires a KB locally: kbs[] entry + state-file aliases pointing at it + client bindings, clone parked or deleted (D761, D772)
 ```
 
 `service install` (idempotent: re-running it rewrites the plist/unit and restarts):
@@ -401,25 +362,25 @@ cartographer kb unmount <name>               # retires a KB locally: kbs[] entry
 
 `service restart --wait` (D121) is a **graceful** replacement everywhere, and on Windows that took a mechanism of its own: there is no CLI-deliverable `SIGTERM`, `Stop-ScheduledTask` is a kill, and `GenerateConsoleCtrlEvent` cannot reach a process with no console. `serve` therefore also waits on a named event in the user's session (`Local\cartographer-serve-shutdown`) and triggers the same drain a `SIGTERM` does; the Manager sets it, waits for the server to exit, and then **starts the task again** — a Scheduled Task is not a supervisor, so nothing else would bring back a server that exited cleanly. `Local\` is per logon session, so from another session — `upgrade-repair` or an `auto-patch` apply run over SSH while the server runs on the desktop — the event cannot be opened: the Manager then stops the task with `Stop-ScheduledTask`, waits for the exit, and prints why, since that stop cuts in-flight requests and does not flush pending pushes. The verification that follows only accepts a `/health` answer from a **new** process: `/health` reports `started_at`, and a value equal to the one read before the restart is the old process still draining (D266).
 
-**Per-KB policy lives in the KB (D746).** The `kbs[]` keys of the schema's `kb` scope (`allow_artifact_write`, `allow_template_write`, `write_gate`, `auto_repair`, `repair_on_write`, `doctor_*`, `usage_stale_days`, `mcp_allowlist`, `secrets`) can also be set in the KB's own `settings.yaml` (`docs/data-plane.md` §The KB's own settings). The KB file wins: a differing `kbs[]`/env/flag value is ignored and reported (startup warning, `kb_status` `ignored_server_settings`, origin `kb` in `cartographer config`). The `kbs[]` form stays for KBs that do not carry the file; the machine-bound keys (`remote`, `name`) are server-only. `branch`, the branch Cartographer writes to, is the opposite: it has no `kbs[]` form and lives only in the KB's `settings.yaml`, because it is a decision of the team that owns the KB, the same for every server that mounts it (D903).
+**Per-KB policy lives in the KB, and only there (D746, D906).** `kbs[]` keeps two keys, `remote` and `name`. A KB's behaviour (`usage_stale_days`, `branch`; the write gate and the safe repairs have no key, D907) is set in the KB's own `settings.yaml` (`docs/data-plane.md` §The KB's own settings), the same for every server that mounts it. The former `kbs[]` form of those keys, and `allow_artifact_write`, `allow_template_write`, `mcp_allowlist` and `secrets`, are removed keys: each is ignored with a warning that names the KB file (or says why the key is gone), and dropped when the server file is realigned. A KB declares secrets by holding a sops-encrypted file under `secrets/`; its MCP descriptors are always distributable; artifact writes need only a token with `rw` scope on the KB.
 
-**Configured versus discovered mounts.** A KB listed in `kbs[]` is *configured*; a KB found by scanning `data:` is *discovered* and has **no `KBSpec`**, so every per-KB setting sits at its zero value unless the KB carries a `settings.yaml` (D746, which a discovered KB reads like any other) — `allow_artifact_write` false, no `machine_path_allow_prefixes` — and nothing but adding the entry can change that. A discovered KB otherwise works and looks identical from every client surface, which is how one deployment ran a whole migration with artifact writes silently off. Startup now warns once per discovered KB, `kb_status` reports `capabilities.mount: discovered`, and `cartographer doctor` raises a `capability` finding (D151). `kb create` / `kb clone` mount a KB *discovered* by default; `--artifact-write` additionally upserts a `kbs[]` entry (`remote` = the KB's remote, `allow_artifact_write: true`, and a `name` when it differs from the one the remote gives) in the server config so it mounts *configured* with artifact writes on; for `kb create --no-remote`, which has no remote for an entry to name, it writes `allow_artifact_write: true` into the new KB's own `settings.yaml` instead (D903). It stays opt-in because artifacts, hooks included, reach client machines through `sync` (D71); the entry form needs an existing, valid server config (checked before anything is created, `--config` names it) and a config-write failure keeps the KB and prints the entry to add by hand ([D711](decisions/D711-kb-create-can-record-its-kbs-entry.md)). An existing discovered KB is still fixed by editing `kbs[]`. Dot-directories are never discovered: `kb unmount` parks a retired clone in `<data>/.unmounted/` for that reason (D761).
+**Configured versus discovered mounts.** A KB listed in `kbs[]` is *configured*; a KB found by scanning `data:` is *discovered* and has **no `KBSpec`**, so every per-KB setting sits at its zero value unless the KB carries a `settings.yaml` (D746, which a discovered KB reads like any other) — no `machine_path_allow_prefixes` — and nothing but adding the entry can change that. A discovered KB otherwise works and looks identical from every client surface, so the mount kind is reported explicitly: startup warns once per discovered KB, `kb_status` reports `capabilities.mount: discovered`, and `cartographer doctor` raises a `capability` finding (D151). `kb create` / `kb clone` mount a KB *discovered*. An existing discovered KB is still fixed by editing `kbs[]`. Dot-directories are never discovered: `kb unmount` parks a retired clone in `<data>/.unmounted/` for that reason (D761).
 
-`kb create` authors the KB's initial commit with the operator's own git identity (`user.name`/`user.email`) when git resolves one, otherwise the server identity (D904); the committer is the server. **Before pushing it asks the remote (`ls-remote`).** An empty repository gets the scaffold as is. A repository holding only a forge's initial commit — one branch, one commit, top-level README/LICENSE/LICENCE/COPYING/`.gitignore`/`.gitattributes` files — is adopted automatically: the scaffold commit is rebased on top of it (the forge's files are kept), the KB lives on the remote's default branch whatever its name (D264), and the push is a fast-forward, never forced; a scaffold path that collides with a forge file (e.g. `.gitattributes`) is a refusal, not a merge. Any other non-empty remote is refused with a `kb clone` / kb-import hint. These refusals happen before any push, so the local KB is deleted and the command can be rerun (D710). **If the push fails the scaffold is kept**, not rolled back: the local KB is complete and valid and only the push failed, so the command exits non-zero and prints the `commit --amend --author` and `push -u origin` lines to finish by hand — or the command that discards it (`rm -rf`, or `Remove-Item -Recurse -Force` on Windows), noting that a server started with that data dir would otherwise mount it (D156). If git refuses the initial commit itself (a commit hook, signing without a key), `kb create` reports that error and stops before the push (D265).
+`kb create` authors the KB's initial commit with the operator's own git identity (`user.name`/`user.email`) when git resolves one, otherwise the server identity (D904); the committer is the same identity (D950). **Before pushing it asks the remote (`ls-remote`).** An empty repository gets the scaffold as is. A repository holding only a forge's initial commit — one branch, one commit, top-level README/LICENSE/LICENCE/COPYING/`.gitignore`/`.gitattributes` files — is adopted automatically: the scaffold commit is rebased on top of it (the forge's files are kept), the KB lives on the remote's default branch whatever its name (D264), and the push is a fast-forward, never forced; a scaffold path that collides with a forge file (e.g. `.gitattributes`) is a refusal, not a merge. Any other non-empty remote is refused with a `kb clone` / kb-import hint. These refusals happen before any push, so the local KB is deleted and the command can be rerun (D710). **If the push fails the scaffold is kept**, not rolled back: the local KB is complete and valid and only the push failed, so the command exits non-zero and prints the `commit --amend --author` and `push -u origin` lines to finish by hand — or the command that discards it (`rm -rf`, or `Remove-Item -Recurse -Force` on Windows), noting that a server started with that data dir would otherwise mount it (D156). If git refuses the initial commit itself (a commit hook, signing without a key), `kb create` reports that error and stops before the push (D265).
 
-Binds to **loopback** by default (`127.0.0.1:39273`) → auth is off (pinned in the generated config, D268) without exposing anything on the network. With an empty (or missing — D83: `serve` creates it and treats it as empty rather than failing) data dir the server starts with 0 KBs — `/health` is still up (liveness: `status:"ok"`) but `/ready` reports `503 {"ready":false}` (D84, §Observability): `cartographer kb create <name> --remote <url>` scaffolds a subfolder KB the same way `serve --kb <path> --init` would (D85) and pushes it to the empty repository at `<url>` (or builds it on the one commit a forge writes at project creation, D710), which becomes its `origin` — the remote is mandatory, `--no-remote` being the explicit opt-out for a local-only, non-durable KB (D134) — while `cartographer kb clone <remote>` mounts an existing OKF remote there (D97; `service install` itself prints a hint pointing at creation if it starts with 0 KBs mounted), or add `kbs:` entries to clone remotes (§Bootstrapping a KB) — either way, `service restart` (or `kb create --restart` / `kb clone --restart`, which do this for you and wait for the server to report healthy again) is what makes the new KB visible.
+Binds to **loopback** by default (`127.0.0.1:39273`) → auth is off (pinned in the generated config, D268) without exposing anything on the network. With an empty (or missing — D83: `serve` creates the directory and treats it as empty rather than failing) data dir the server starts with 0 KBs — `/health` is still up (liveness: `status:"ok"`) but `/ready` reports `503 {"ready":false}` (D84, §Observability): `cartographer kb create <name> --remote <url>` scaffolds a subfolder KB (D85; `serve` itself never creates one, D906) and pushes it to the empty repository at `<url>` (or builds it on the one commit a forge writes at project creation, D710), which becomes its `origin` — the remote is mandatory, `--no-remote` being the explicit opt-out for a local-only, non-durable KB (D134) — while `cartographer kb clone <remote>` mounts an existing OKF remote there (D97; `service install` itself prints a hint pointing at creation if it starts with 0 KBs mounted), or add `kbs:` entries to clone remotes (§Bootstrapping a KB) — either way, `service restart` (or `kb create --restart` / `kb clone --restart`, which do this for you and wait for the server to report healthy again) is what makes the new KB visible.
 
 **The `kb` commands act on the LOCAL server's data dir** (D173). They take `--config <path>` to name the server config to read `data:` from, mirroring `service install`/`service status`: without it a service installed at a custom config path is invisible, and the command reports `KB "x" mounted at …` about a directory no running server reads. On a machine whose `.cartographer.yaml` points at a **remote** server they refuse to run, since mounting a KB on that server is an operation on its deployment — `--local` is the explicit opt-out, and `--data <dir>` (naming the target outright) bypasses the question.
 
 `kb clone` is bounded: `--timeout` (default 120s) caps the whole operation, `GIT_TERMINAL_PROMPT=0` and, for ssh remotes, `BatchMode=yes -o ConnectTimeout=10` make git fail instead of blocking on a credential or host-key prompt, and progress is streamed as it happens. Host-key *policy* is left to the operator's ssh config: `accept-new` would trade a hang for a silent trust-on-first-use decision. Recognised failures (DNS, SSH key, host key, repository not found, authentication) are reported with a remedy, and an interrupt removes the partial clone it created — never a directory that was already there. A pre-existing `GIT_SSH_COMMAND` is never overwritten.
 
-`kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]` renames a KB's **mount point**: the directory, the matching `kbs[]` entry when there is one, and a `kb_aliases` item `{from: <old>, to: <new>}` in the server config, together or neither (D177, D772). The alias is written whether or not the KB has an entry — a discovered KB has none, and no entry is created for it — in the same single write as the entry, so a routed `?kbs=<old>` from a client that has not synced yet still reaches the KB (see `transport-auth.md`). The list stays flat and single hop: renaming `b` to `c` after `a` to `b` leaves `a: c` and `b: c`, and renaming a KB back drops the alias of the restored name. With no server config nothing is recorded and the preflight says so. It is offline and local — it never contacts a server, a client or a git remote, and the git `origin` is untouched: renaming a mount point is not renaming a repository. A cross-filesystem move fails explicitly rather than falling back to a recursive copy, which would silently change the ownership and timestamps of a git repository.
+`kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]` renames a KB's **mount point**: the directory, the matching `kbs[]` entry when there is one, and an alias `{from: <old>, to: <new>}` in the server state file `<data>/.cartographer/state.json` (D177, D772, D906), together or neither: if the entry cannot be rewritten, the directory is renamed back and the alias removed. The alias is written whether or not the KB has an entry — a discovered KB has none, and no entry is created for it — and even with no server config, since the file lives under the data dir, so a routed `?kbs=<old>` from a client that has not synced yet still reaches the KB after the next restart (see `transport-auth.md`). A `kb_aliases` list the server YAML still carries is moved into the state file by the command, and the key leaves the YAML. The list stays flat and single hop: renaming `b` to `c` after `a` to `b` leaves `a: c` and `b: c`, and renaming a KB back drops the alias of the restored name. It is offline and local — it never contacts a server, a client or a git remote, and the git `origin` is untouched: renaming a mount point is not renaming a repository. A cross-filesystem move fails explicitly rather than falling back to a recursive copy, which would silently change the ownership and timestamps of a git repository.
 
 Before moving anything it reports what else the name is an identity for. Auth scopes (`kb:<old>:r|rw`), role rules, client `signing_keys` pins, `mcp_approvals` entries and `identities` entries (D904) are **listed, never rewritten**: they are configured out of band, and silently editing an operator's auth configuration would be worse than telling them what to change. This machine's client bindings that select the KB by name (`clients.<provider>.kbs`, `workspaces.<provider>[].kbs`) **are rewritten** to the new name, in place, when the client points at the local server — otherwise every `sync` would abort on a stale selection (D754); a client pointed at another server keeps its bindings, which name that server's KBs. Clients' MCP entries then reconcile on the next `cartographer sync`.
 
 Two entries that could both be the KB is a refusal, naming them: guessing there silently detaches a KB from its configuration. **No** entry is not a refusal — a KB created by `kb create` or found by discovery legitimately has none, and renaming its directory is then the whole job.
 
-`kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]` is the inverse of `kb create`/`kb clone`, offline and local like `kb rename` (D761). It refuses when the clone cannot be proven pushed — uncommitted changes, commits ahead of `origin/<branch>`, no upstream or no `origin` (it runs `git fetch` first) — unless `--force`. It then writes `server.yaml.bak-<UTC timestamp>` and removes the matching `kbs[]` entry in place (comments kept; a discovered KB has none) together with the `kb_aliases` items that point at the KB or start at its name (an alias records where a KB went, not who owns a name, so a different KB later mounted under it must not be reached by an old URL, D772), drops the KB from this machine's client and workspace bindings, and either deletes the clone (`--delete-clone`) or, when it sits under `data:`, parks it in `<data>/.unmounted/<name>`: a clone left in the data dir would be remounted by discovery at the next start. Auth scopes, signing-key pins, MCP approvals and `identities` entries naming the KB are listed, not removed. A failure after the config edit restores it from the backup. The remote stays the source of truth: the command prints the `kb clone` line that brings the KB back. Other machines' client URLs still name the KB until they `sync`; the routed endpoint serves them without it (D756).
+`kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]` is the inverse of `kb create`/`kb clone`, offline and local like `kb rename` (D761). It refuses when the clone cannot be proven pushed — uncommitted changes, commits ahead of `origin/<branch>`, no upstream or no `origin` (it runs `git fetch` first) — unless `--force`. It then writes `server.yaml.bak-<UTC timestamp>` and removes the matching `kbs[]` entry in place (comments kept; a discovered KB has none) together with the state-file aliases that point at the KB or start at its name (an alias records where a KB went, not who owns a name, so a different KB later mounted under it must not be reached by an old URL, D772), drops the KB from this machine's client and workspace bindings, and either deletes the clone (`--delete-clone`) or, when it sits under `data:`, parks it in `<data>/.unmounted/<name>`: a clone left in the data dir would be remounted by discovery at the next start. Auth scopes, signing-key pins, MCP approvals and `identities` entries naming the KB are listed, not removed. A failure after the config edit restores it from the backup, and the aliases with it. The remote stays the source of truth: the command prints the `kb clone` line that brings the KB back. Other machines' client URLs still name the KB until they `sync`; the routed endpoint serves them without it (D756).
 
 `kb list [--data <dir>] [--config <path>]` prints one row per subdirectory of the data dir — name, whether it is an OKF KB (`data/index.md`), whether it is a git repository, its `origin` — and a `MOUNTED` column when the server answers `/health`. When it does not, the column disappears and the reason is printed: absence of the signal is not evidence that nothing is mounted. The command writes **nothing**: a missing data dir is reported rather than created, and no repository is opened (which would migrate its git-exclude entry as a side effect).
 
@@ -428,7 +389,7 @@ Two entries that could both be the KB is a refusal, naming them: guessing there 
 **What `service status` reports** (D174). It inspects the **local native service** and nothing else: the remote server a client points at is a different question, answered by `cartographer status` and `cartographer doctor`. It reports what it observed, never a verdict on what does not exist:
 
 - `installed` — the plist, the unit or the task definition is on disk. It is a **file**, on every platform, and never a query to the scheduler: `EffectiveConfigPath` reads that same file to recover the `--config` the service was installed with. When it is `false` the output says there is no local service and how to install one, and prints **no health line**: `healthy: false` next to `installed: false` describes an absence, and reads as an outage.
-- `loaded` — `launchctl print` / `systemctl --user is-active` / `Get-ScheduledTask` succeeded. On macOS and on Windows that proves the job is registered with the scheduler, **not** that a process is alive — a task's state would even distinguish `Ready` from `Running`, and conflating the two would make the field mean something different there. The JSON field keeps its name, `running`, and `lifecycle` (`not_installed` / `not_loaded` / `loaded`) is the field to read.
+- `loaded` — `launchctl print` / `systemctl --user is-active` / `Get-ScheduledTask` succeeded. On macOS it is false for a job that `stop` left registered but disabled and without a process (D1006), so `status` exits 3 and `upgrade-repair` leaves it alone; a job with a live `pid` is loaded whatever its disabled flag says. On Windows it is false for a task `stop` left `Disabled` or `Ready` (registered, no process), so `status` exits 3 and `upgrade-repair` leaves it alone (D1014); the state is compared inside PowerShell, and a state query that errors or answers anything unexpected reads as loaded, so a live service is never hidden. It does **not** prove the server answers. The JSON field keeps its name, `running`, and `lifecycle` (`not_installed` / `not_loaded` / `loaded`) is the field to read.
 - `healthy` — the result of `GET /health` on the address in the server config. It is a verdict only when the probe **ran**: `health_checked` says whether it did, and `health_skip_reason` why not (`config_missing`, `config_unreadable`, `stdio_transport`). An empty `http:` means the server is configured for **stdio**, so there is no endpoint to probe — the default listen address is never substituted, since that would probe an address nothing listens on.
 - `ui` — the address of the embedded Atlas UI (JSON `ui_url`, D227), only when the service is installed, configured for HTTP and `web.enabled` is on. A wildcard bind (`0.0.0.0`, `::`) is reported as `127.0.0.1`, because a browser cannot open a wildcard. An absent line means there is no UI, never that it is down — liveness is `healthy`.
 - `client` — one context line when the `.cartographer.yaml` on this machine points at a server that is not this local service. A local service alongside a client pointed at a shared remote one is a legitimate configuration, reported as context and never as a warning.
@@ -549,7 +510,7 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   `/ui/`, and `/` does the same from outside the auth chain.
 - `/api/ui/v1/…` — the JSON the UI reads (→ `control-plane.md` §Read-only UI API). Its Settings page lists every
   server and per-KB setting with its value and origin, read-only (D743, §Configuration above).
-  The server's version, in the top bar and in the Settings title, opens the release history: a sheet
+  The server's version, in the top bar, opens the release history: a sheet
   with every release, newest first, each changelog rendered as sanitised Markdown, the running release marked
   `Current`, and, above them, the upgrade command when a newer release is known; a cut changelog links to
   GitHub, a disabled check is said so, and the static demo, with no server to ask, says the same.
@@ -560,14 +521,22 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   It obeys the update-check switch (`update_check`, `CARTOGRAPHER_NO_UPDATE_CHECK`, never on a `dev` build): off,
   the route answers `unavailable: "disabled"` and the server makes no call.
   The rail holds six panels: Atlas, Activity, Work, Health, Artifacts and Settings (D818).
-  Artifacts has a Secrets tab (the secrets grouped by the Service that uses each value, the files summed up
-  below); Activity has a Retired tab (D820: every deprecated, superseded or archived concept with where it went,
+  Health shows the lint's findings and nothing else; what a person has to answer or decide is in Work
+  (contradictions and gaps, the searches that found nothing under "to answer", the `kb_review` proposals
+  under "to decide", D948). Artifacts lists every kind, an empty one as an outline tile where its first
+  artifact would go, and has a Secrets tab (a card per Service that uses a value and per sops file, the same
+  detail panel as an artifact); Activity has a Retired tab (D820: every deprecated, superseded or archived concept with where it went,
   when and why, read from the root `log.md`, and each journal's harvest state; an archive map wears an "Archive"
   badge in the rail); the command palette's "Include archived" toggle adds archived pages to a search;
-  pending sources are Work's "to ingest" column. Settings has three tabs, Client, Server and Knowledge Base,
-  each with a readable view (folded groups, each key with its value and where it was set) and a YAML view; the
-  Knowledge Base tab lists the KB's placeholders, the Client tab the viewer's own client as its last `sync`
-  reported it (workspaces with their isolation, and where each placeholder resolves on that machine). The former
+  pending sources are Work's "to ingest" column. Settings has three tabs, Client, Server and
+  Knowledge Base (no counts on them), and opens on the Client one: the client's own settings first, as the
+  viewer's last `sync` reported them (its agents, the workspaces with their isolation), then the KBs as a row
+  of pills (the active one picked) and, for the picked one, the client keys that concern it: which of the machine's agents receive it and where (everywhere, or only the folders
+  bound to it, through the bridge or over HTTP) and where its placeholders resolve on that machine. Each key
+  shows its description and its value; the default, where it was set, the environment variable and the flag
+  open on a click. A readable view and a YAML view are switched in the header; the Knowledge Base tab lists the
+  KB's own keys and placeholders. Before any client of the viewer has reported, the Client tab shows the keys of
+  `.cartographer.yaml` at their defaults (`client_template`, D948). The former
   `panel=services`, `panel=sources` and `panel=paths` links land on Secrets, Work and Settings.
 
 The static bundle is reachable without a bearer token, because it is the page
@@ -675,7 +644,9 @@ does not refresh by itself.
 Behind an SSO reverse proxy that protects `/ui` and `/api/ui` only (leave `/mcp`
 on bearer auth) and injects a read-only bearer, the Atlas opens without the token
 prompt. The UI sends same-origin cookies so the proxy session reaches the API
-(D308).
+(D308). The origin rule of `/mcp` is fixed and keeps that setup working (D906): the
+proxy serves the page and the API from one origin, so a request's `Origin` has the
+`Host` it arrived with.
 
 The Atlas draws its graph in 3D, as a live force-directed network (D234, D235): it breathes and turns slowly on its own; drag to orbit, zoom with the
 wheel or a pinch, click a concept to select it (nodes are not dragged). A *Motion* toggle, remembered per browser,
@@ -684,9 +655,12 @@ links; `prefers-reduced-motion` starts it paused. The simulation advances at a
 fixed 60 Hz whatever the display's refresh rate, so the motion has the same
 pace on a 60 Hz and a 120 Hz screen (D736). A network whose simulation costs
 more than a quarter of a 60 Hz frame per tick (on an Apple M5, from about 1,500
-concepts) rests its drift: it settles and stops, as with motion off, while the
-panorama and the signals still run; a smaller Map opened in its place breathes
-again. The view draws only when something moves or changes, at most about 60
+concepts) drifts at half rate, which still breathes at half the CPU; only a tick
+past 12 ms (about 5,000 concepts) rests the drift: it settles and stops, as with
+motion off, while the panorama and the signals still run; a smaller Map opened in
+its place breathes again (D889, D1044). While the panorama turns with nobody at
+the controls, the camera eases slowly onto the fit, so hours of drift never carry
+the network off screen. The view draws only when something moves or changes, at most about 60
 times a second whatever the display's refresh, so an untouched graph at rest
 costs no drawing at all. There is no 2D view: when
 the WebGL context is lost the graph area says so. The view draws up to 5,000 concepts (the graph API's ceiling). A browser without WebGL
@@ -752,7 +726,7 @@ while it stays centred in the strip the panels leave visible, and everything
 outside its neighbourhood recedes. The skills, agents and hooks that reference
 concepts are drawn as diamonds linked to them; clicking one opens it on the
 Artifacts panel (D286). The legend colours nodes by community or by Map, never by
-lint severity: on a real KB a severity colour painted most of the graph one
+lint findings: on a real KB a finding colour painted most of the graph one
 colour, and a KB's health is read on the Health panel (D307). The legend folds to its
 switch and counts, remembered per browser (`cartographer.panel.legend`). Ctrl/Cmd+K searches titles and ids at once and, after a
 pause in typing, the full text through the `search` tool, showing the excerpt
@@ -795,67 +769,74 @@ recorded reason (upkeep reasons dropped when there is another) and the
 authors. Changing the window keeps the current answer on screen, dimmed,
 until the new one arrives. A row opens the concept on the atlas.
 
-The **Work** panel is `work_list` for the reader (D302): open-phase concepts and
-unchecked items, counted in the title. The band filters by Map (*Where*), by
-status and by staleness, each with its count; a search box filters titles and
-items. The board lays the work
-out by status, as columns in the order work moves (decision-needed, blocked,
-in-progress, open, proposed, then *unchecked items* for a closed concept listed
-only for its items), or by Map, as one column per Map, busiest first, with the
-same cards. A card
-shows its Map, title, type and age (stale ones flagged), expands to its items,
-and opens the concept on the atlas. It is read-only: work changes through the
-agents' write tools.
+The **Work** panel is where a person answers or decides (D302, D948). It is `work_list` for the reader:
+the concepts in an open phase, the concepts that are work by their `reason` (open contradictions, open gaps,
+pages past their `review_after`) and the unchecked items, to which it adds what has no page of its own, the
+searches that found nothing and the doctor's proposals. The band filters by Map (*Where*), by column and by
+staleness, each with its count; a search box filters titles, items and proposals. The board lays the work out by
+column, in the order work moves: *to resolve* (an open contradiction: `commit_gate` blocks until someone decides
+which page holds), decision-needed, blocked, in-progress, open, *to answer* (the open gaps, `missing_context` and
+`open_question`, and the searches of `kb_status.search_misses` that found nothing; one that finds something now
+leaves the column and is named under *Found since*, D319), proposed, *to review* (a page past its `review_after`
+that is neither open by its status nor finished), *to decide* (the proposals of `kb_review`, `observation` items
+included, `GET /api/ui/v1/kbs/<kb>/maintenance/review`), *to ingest* (pending sources) and *unchecked items* (a
+closed concept listed only for them); any other status a map's `open_statuses` names follows. The other layout is
+one column per Map, busiest first, with the same cards. A card shows its Map, title, type (a contradiction its
+kind) and age (stale ones flagged), expands to its items, and opens the concept on the atlas; a search opens
+nothing. It is read-only: work changes through the agents' write tools. The pending sources, `kb_status` and the
+review list are each optional: without one (a caller that cannot see the whole KB has no `kb_status`) the board
+shows the rest.
 
-The **Health** panel (D338, D365, D704) shows what Cartographer found, and on a
-second tab what it checks. Two buttons in the header switch them, *Issues* and
-*What it checks*.
+The **Health** panel (D338, D365, D947, D948) shows what is wrong with the pages and nothing else: the lint's
+findings. What a person has to answer or decide is in Work. Two buttons in the header switch its views, *Issues*
+and *What it checks*.
 
 *Issues*: the title counts the kinds of issue found ("Cartographer found 25 kinds
 of issues"), the line under it every occurrence and how many pages carry one.
 The **page field** draws one square per page, clustered by Map under the Map's
-hue: amber for a problem (red when broken), blue for a suggestion, both split on
-the diagonal when a page has both, dark when fine; a lit square opens its page,
-a Map's name filters the page to it (`hmap=` in the URL, one whole-KB
+hue. A page with a problem takes the colour of the category of each of its problems (up to four, drawn as halves,
+stripes or quadrants); a page without one is dark (the legend names the categories present, and *fine*). A lit
+square opens its page, a Map's name filters the page to it (`hmap=` in the URL, one whole-KB
 `GET /api/ui/v1/kbs/<kb>/lint` filtered by path, counts over the unfiltered
-findings) and pressing it again returns to the KB. Under it two open, foldable
-bands: *Problems* (errors and warnings) and *Suggestions* (notes, and the
-proposals of `kb_review` from `GET /api/ui/v1/kbs/<kb>/maintenance/review`).
-One row per kind: its name, a bar for its weight against the heaviest row, and
+findings) and pressing it again returns to the KB. Under it the issues are grouped by the category of the check,
+in the catalog's order (pages, templates, validity, links, values, maps, artifacts, the KB itself), each category
+with its own colour, the same in the squares, the legend and the bars, and folding: one card, a row per category
+with its count of kinds, only the first open. A lint finding is a problem and has no
+severity (D947): there are no bands of problems and suggestions, no count by severity and no trend. The doctor's
+`kb_review` items, observations included, are decisions, and the open contradictions too: both are in Work.
+In each category one row per kind, the heaviest first: its name, a bar for its weight against the heaviest row, and
 its count in its own unit (pages, maps, files, terms, templates…); a kind
 Cartographer fixes by itself says *fixes itself*. Hovering a row lights its pages
-in the field, in the row's colour only. An open row says *What it is* and *To
+in the field. An open row says *What it is* and *To
 fix*, then one line per case with its page count; the pages unfold on click,
 named by their last segment, and a file that is no page is named without a link.
-A `map_without_templates` finding is not listed while a `template_proposal`
-carries the same decision. *What the KB doesn't know* follows when there is
-any: open questions and gaps, searches that found nothing (ticked once they find
-something, D319), and the pages past their review date
-(`GET /api/ui/v1/kbs/<kb>/status`). The rail does not filter here: a Map click
+The rail does not filter here: a Map click
 opens the Atlas on it, and the Type and Status filters step aside.
 
-*What it checks*: how checking works in three steps (fixed rules, no AI; the
+When nothing is found the page keeps its shape and says what was read instead of what was found: the field
+turns green, one square per page, and under it one row per family of rules says how many of its rules ran and
+found nothing; a family whose rules have nothing to read in this KB (D371) says so instead of claiming a pass.
+A row opens *What it checks*.
+
+*What it checks* (`GET /api/ui/v1/kbs/<kb>/checks`): how checking works in three steps (fixed rules, no AI; the
 sure fixes applied by Cartographer; the rest shown under *Issues*), the result on
 this KB (rules that pass, that found something, that have nothing to read here),
-*Trend* (D370: how the total moved over the last week, absent with fewer than
-two samples), then one folded line per category with what its rules read and
+then one folded line per category with what its rules read and
 what they found. Open, each rule is one line — its name, what it looks for, a
 mark when Cartographer fixes it by itself, its count — those that found
 something first; a rule that cannot run on this KB is greyed out with its reason
-(D371) instead of a zero. The last category lists the `kb_review` suggestion kinds.
+(D371) instead of a zero.
 
-Like the rest of the UI the panel writes nothing. The status and the summary are
-whole-KB: a caller that cannot see the whole KB gets the issues it can see, and
-the rest is left out rather than reported as an error. The rail marks Health with
-a dot while there are problems (errors or warnings). The former Observatory and
+Like the rest of the UI the panel writes nothing. A caller that cannot see the whole KB gets the issues it can
+see. The rail marks Health with a dot while there are problems. The former Observatory and
 Maintenance links (`panel=observatory`, `panel=maintenance`) open Health.
 
 The **Artifacts** panel, last in the rail, shows what the KB ships to agent
-clients: skills, subagents, hooks, MCP descriptors in the allowlist, the
+clients: skills, subagents, hooks, MCP descriptors, the
 curated `instructions.md` and templates. It is a catalog page built like the
 others (D339): its title counts the artifacts, the line under it gives the
-artifact findings ("No artifact findings" when clean, `finding_counts`/
-`finding_severities` in `GET …/artifacts`, counting those no listed artifact
+artifact findings ("No artifact findings" when clean, `finding_counts`
+in `GET …/artifacts`, counting those no listed artifact
 owns) and says when no client has reported a use yet, and a search box filters
 names and descriptions. The hero filters by kind (each with its own mark and
 colour) and, when there is something to show, to the recently used, the idle
@@ -868,11 +849,8 @@ binary; skills left out for failing validation are listed above the catalog.
 
 Every kind a KB can hold gets a chip and a section, **whether or not the KB
 ships one** (D864): the page is also how a reader learns what a KB can provide
-to its agent clients. An empty kind's section is one line: what the kind is,
-where its files go in the KB (`skills/<name>/SKILL.md`, shown as text; for MCP
-servers with the reminder that a descriptor is listed only when the server's
-`mcp_allowlist` for the KB allows it, so a file that was written and still shows
-0 is explained), the clients that receive it or "Stays in the KB: no client receives it" for a
+to its agent clients. An empty kind is an outline tile where its first artifact would go (D948): what the kind
+is, where its files go in the KB (`skills/<name>/SKILL.md`, shown as text), the clients that receive it or "Stays in the KB: no client receives it" for a
 template, and a *Docs* link to the page that explains it on GitHub (the
 repository's `main`, in a new tab). The kinds, their order, paths and docs come
 from the server (`kinds` in `GET …/artifacts`, from `provisioning.Kinds`); the
@@ -1021,7 +999,11 @@ Rollout notes:
   It is in the start's log line, and derives from `audit.key`: back the key up
   with the log, since a new one starts signing with a different key.
 - **An unsigned log stays verifiable.** A log kept without a key before D905 is
-  signed from the upgrade on. `audit verify` accepts its unsigned entries up to
+  signed from the upgrade on. With a key, a log in which no entry is signed is
+  refused (`no signed entry`): a log kept unsigned for its whole life is
+  verified without a key, or with `--signed-since` set after its last entry;
+  `--signed-since` earlier than the upgrade makes the legacy entries fail.
+  `audit verify` accepts its unsigned entries up to
   the first signature, which covers them through the hash chain, and up to the
   first checkpoint written with the key; an unsigned entry after either is
   reported. So a `best_effort` start without the key, once the log has been
@@ -1066,7 +1048,7 @@ deployment with no audit sink, or one in `best_effort` mode, is unaffected.
 
 **Connected clients (D129)**: `GET /clients` reports which clients have talked to this process,
 with their self-reported name and version, the protocol version and era, a request count and a
-last-seen timestamp (shape and caveats: `transport-auth.md` §Client roster). Unlike `/health` and
+last-seen timestamp, limited to the KBs the token can read (shape and caveats: `transport-auth.md` §Client roster). Unlike `/health` and
 `/ready` it requires a bearer token when auth is enabled, so it is not a probe target:
 
 ```bash
@@ -1119,12 +1101,14 @@ backup before discarding any state.
 
 The GitHub Actions workflows (`.github/workflows/`):
 
-- **`ci.yml`** — on every PR and push to `main`: the `test` job (`make gate`, then `make smoke-http`, `make e2e` and `make test-install`; Go from `go.mod`, git identity configured for git-backed tests) `test-windows` (the tests in four shards plus `install.ps1`, on Windows runners, D785) and `web` (two legs). On a PR a `changes` job runs `test-windows` and `web` only when the PR touches their paths, and every job on the release-please PR (D255, D672); on `main` they always run, and a `main-status` job keeps one `ci-red` issue open while `main` is red. `test`, `test-windows`, `web` and `pr-title` are the required status checks on `main`'s ruleset; a job skipped by its path condition reports as passed.
+- **`ci.yml`** — on every PR and push to `main`: the `test` job (`make gate`, then `make smoke-http`, `make smoke`, `make e2e` and `make test-install`; Go from `go.mod`, git identity configured for git-backed tests) `test-windows` (the tests in four shards plus `install.ps1`, on Windows runners, D785) `web` (two legs) and `docker` (the Dockerfile's `test` stage, `test/smoke/image.sh` on the built image and `make demo-smoke` on top of it, D995). `smoke-http` and `e2e` run with no git identity (they isolate their own git config), so a host without one is exercised; the Go tests get the identity above. A `test-macos` job (`macos-latest`: `test/macos/` against the real launchd, `install.sh` and the Cask GoReleaser renders, D997) runs on the release PR, on a PR touching its inputs, on `main` and on `workflow_dispatch`, not as a required check (`main-status` watches it). A `forge` job (Forgejo and GitLab CE in containers, `test/forge/run.sh`, D996) runs on the release PR, on a PR touching `test/forge/` and on `workflow_dispatch` (the workflow has that trigger), never on `main` and not as a required check. On a PR a `changes` job (`scripts/ci-filters.sh`, D994) runs `test-windows`, `web`, `demo-edge` (the demo Worker tests and Terraform check) and `docker` only when the PR touches their paths, and every job on the release-please PR (D255, D672); on `main` they always run, and a `main-status` job keeps one `ci-red` issue open while `main` is red. `test`, `test-windows`, `web`, `pr-title` and `plan-gate` are the required status checks on `main`'s ruleset (`docker` is not: the release PR and the release candidate run it, and `main-status` watches it); a job skipped by its path condition reports as passed.
 - **`pr-title.yml`** — on a PR opened, edited, pushed to or reopened: the required `pr-title` check, lint of what release-please will read from the squash commit (D865). The title must be a conventional commit whose scope, when it has one, is a canonical one (`internal/changelog.CanonicalScopes()`; a test compares the list with the workflow's), and no line of the body that starts like a conventional header (`feat(mcp): …`) may be wrapped onto the next line, because release-please keeps only the first physical line of such an entry (`go run ./internal/changelog/gen -check-body`; the body reaches it through the environment, never interpolated). It is a workflow of its own, not a job of `ci.yml`, because it must re-run on `edited` and that trigger in `ci.yml` would re-run the whole suite on every PR edit. The ruleset requires the job name, not the workflow.
-- **`privacy.yml`** — on every push, PR, issue and comment: scans the published commits and text for private names, held only as HMAC digests in the `PRIVACY_GUARD_DIGESTS`/`PRIVACY_GUARD_KEY` secrets; a hit fails the run and redacts the text (D259). Skipped on forks.
+- **`privacy.yml`** — on every push, PR, issue and comment: scans the published commits and text for private names, held only as HMAC digests in the `PRIVACY_GUARD_DIGESTS`/`PRIVACY_GUARD_KEY` secrets; a hit fails the run and redacts the text (D259). Skipped on forks; issue and comment text is scanned only when its author or editor has write access.
 - **`release-please.yml`** — on every push to `main`: maintains the **release PR** (semver bump computed from conventional commits + `CHANGELOG.md`). On merge, it creates the `vX.Y.Z` tag and GitHub Release with the notes (the merged PR body between its `---` lines). Its `release-pr` job runs after it on every push to `main`, on the open release PR's branch: it regenerates `docs/decisions.md` (D328) and groups the newest `CHANGELOG.md` section by area (`make changelog-areas`, `internal/changelog`, D865) — one `### <Area>` heading per area with its Features and Bug Fixes, the scope prefix dropped, `dev`/`demo`/`deploy`/`ci` entries left out — then pushes one commit for both files when either changed and rewrites the PR body with the same grouping when it differs, so the release page reads like the changelog. Both steps are idempotent because release-please rewrites its branch and body on every push. Uses the `RELEASE_PLEASE_TOKEN` PAT (PRs opened with the default `GITHUB_TOKEN` do not trigger `pull_request` workflows).
+- **`plan-gate.yml`** — on a PR (`pull_request_target`, so the workflow and `pr-triage.sh` come from the base branch) and when a plan is labelled or assigned, an issue changes milestone or a milestone is created, edited, closed or deleted (these re-run the check): the required `plan-gate` check, `pr-triage.sh --gate`, the approved-plan and size rule of `CONTRIBUTING.md` §Pull requests (D955) and the next-train rule of §Releases.
+- **`release-train.yml`** — the weekly release train (D956), `gh` only and no checkout. Two cron entries per slot, one per UTC offset of Europe/Rome, and a run continues only when the entry that fired is the one for today's Rome offset. **Saturday 00:30**: dispatches `preview.yml` with `v<next>-rc.<YYYYMMDD>` (`<next>` read from the release PR title) and comments the tag on the release PR. **Monday 08:30**: merges the release PR (`gh pr merge --squash --match-head-commit`, with `RELEASE_PLEASE_TOKEN`: a merge by `GITHUB_TOKEN` triggers no `push` workflow, so release-please would never tag) only if the PR comes from this repository, the newest successful release candidate build is of the head of `main`, `rc-ok` was added after that build by a maintainer, no `feat`, `perf`, `refactor` or breaking commit landed on `main` since Saturday 00:00, and every required check passed; otherwise it comments why and the next train is a week later. `workflow_dispatch` with `action=rc|release` runs one step by hand; `internal/repodocs/release_train_test.go` pins the crons, the guard and the merge token. The calendar is `CONTRIBUTING.md` §Releases.
 - **`release.yml`** — on the `v*` tag: **GoReleaser** (`.goreleaser.yaml`) builds the `darwin/linux/windows × amd64/arm64` binaries (`-X main.version=v<semver>`, read by `cartographer version`), attaches them to the existing release with `sha256sums.txt` (`release.mode: keep-existing` — the release and its notes belong to release-please), publishes the Homebrew cask on `BeppeTemp/homebrew-tap` (`HOMEBREW_TAP_TOKEN` PAT, macOS only); in parallel, buildx publishes the multi-arch image `ghcr.io/beppetemp/cartographer:<tag>` + `:latest`. After the image push, the `mcp-registry` job publishes the server's metadata to the official **MCP Registry** (`io.github.beppetemp/cartographer`, OCI package pointing at the ghcr image): `mcp-publisher login github-oidc` (no long-lived secret) + `publish` with `server.json` (repo root; `version` and image tag are stamped by the job). Ownership is verified via the `io.modelcontextprotocol.server.name` LABEL baked into the image. A final `prerelease-flag` job marks a `v0.*` release as a GitHub **pre-release** and reads the flag back, failing the release if it is not set (D82, D211): the `"prerelease": true` key in `release-please-config.json` does **not** set it — this job does. Because a pre-release is invisible to the `releases/latest` API endpoint, `install.sh` resolves the newest tag through `/releases?per_page=1` instead; until 1.0.0, nothing should reach for `releases/latest`.
-- **`preview.yml`** — dispatched by hand with a pre-release tag (`vX.Y.Z-<suffix>`, anything else is refused): builds the same multi-arch image as `release.yml` and pushes **only** `ghcr.io/beppetemp/cartographer:<tag>` — no `latest`, release, cask or MCP Registry entry — so an unreleased `main` can run on a real deployment before the release PR is merged (D303). `gh workflow run preview.yml -f tag=v0.18.0-rc.1`; a macOS client for it is built from source (`make build VERSION=<tag>`).
+- **`preview.yml`** — dispatched by hand with a pre-release tag (`vX.Y.Z-<suffix>`, anything else is refused): builds the same multi-arch image as `release.yml` and pushes **only** `ghcr.io/beppetemp/cartographer:<tag>` — no `latest`, release, cask or MCP Registry entry — so an unreleased `main` can run on a real deployment before the release PR is merged (D303). Before the login and the push it builds the amd64 image, loads it and runs `test/smoke/image.sh` on it (D995): a red smoke fails the run, so ghcr gets no tag and `release-train.yml` names the failed build in its skip comment. `gh workflow run preview.yml -f tag=v0.18.0-rc.1`; a macOS client for it is built from source (`make build VERSION=<tag>`).
 - **`docs.yml`** — on a push to `main` that touches `docs/` or `mkdocs.yml` (and by hand): builds the site with MkDocs Material (`--strict`, so a broken link fails it) and deploys it to GitHub Pages; on a PR it only builds. Only the deploy job holds the `pages` concurrency group.
 - **`demo.yml`** — called by `release.yml` after the image push (and runnable by hand for a given tag): builds `deploy/demo/Dockerfile` on that release's image and deploys it to the hosted MCP demo on Cloud Run through Workload Identity Federation (D751). Skipped while `vars.GCP_WIF_PROVIDER` is empty; `mcp-registry` does not wait for it.
 - **`hero.yml`** — called by `release.yml` as the `hero` job (and runnable by hand for a given tag, which always records): when the tag's `web/` tree differs from the one the README's hero was recorded from (`web/scripts/hero-needed.sh`), it runs `make hero` on the runner (headless, no GPU, deterministic, D790) and force-pushes the result as the single commit of the orphan branch `readme-assets` (`web/scripts/publish-hero.sh`), where the README reads it from `raw.githubusercontent.com`. `contents: write` on `GITHUB_TOKEN` is all it holds, it never pushes to `main`, and nothing waits on it: a failed recording never blocks a release.

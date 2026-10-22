@@ -1,7 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
+	neturl "net/url"
+	"os"
 	"sort"
 	"strings"
 
@@ -45,7 +48,7 @@ func reportUsage(cfg *clientconfig.Config, dir string) int {
 		kbNames = append(kbNames, name)
 	}
 	sort.Strings(kbNames)
-	c := client.New(cfg.ServerURL, resolveToken(cfg)).WithTokenEnv(tokenEnvName(cfg))
+	c := client.New(cfg.ServerURL, resolveToken(cfg)).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnvName(cfg))
 	sent := 0
 	for _, name := range kbNames {
 		if err := c.ReportUsage(name, byKB[name], probeTimeout); err != nil {
@@ -70,12 +73,44 @@ func reportClientSettings(cfg *clientconfig.Config, dir string) bool {
 	}
 	report.Providers = reportProviders(cfg)
 	report.Placeholders = reportPlaceholders(cfg, dir)
-	c := client.New(cfg.ServerURL, resolveToken(cfg)).WithTokenEnv(tokenEnvName(cfg))
+	c := client.New(cfg.ServerURL, resolveToken(cfg)).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnvName(cfg))
 	if err := c.ReportClientSettings(report, probeTimeout); err != nil {
 		slog.Debug("client settings report not delivered", "err", err)
 		return false
 	}
 	return true
+}
+
+// reportOnly is `sync --report-to <url>`: the two reports above, sent to
+// another server than the configured one, and nothing else. It is how
+// `make dev DATA=…` shows this machine's real client on a live instance: the
+// config is read, never saved, nothing is provisioned, and the configured
+// server is not contacted.
+func reportOnly(dir, url string) int {
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: no client config found in %s: %v\n", dir, err)
+		return 2
+	}
+	// The configured token goes with the reports: only a server on this
+	// machine may receive it, the live instance it is meant for, so a typo
+	// cannot hand the real token to another host.
+	if u, err := neturl.Parse(url); err != nil || !client.IsLoopbackHost(u.Hostname()) {
+		fmt.Fprintf(os.Stderr, "Error: --report-to takes a server on this machine (localhost, 127.0.0.1, ::1), not %q\n", url)
+		return 2
+	}
+	cfg.ServerURL = url
+	if err := client.CheckServerURL(url, cfg.InsecureHTTPAllowed()); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	usage := reportUsage(cfg, dir)
+	settings := reportClientSettings(cfg, dir)
+	fmt.Printf("reported to %s: %d usage entries, client settings %s\n", url, usage, map[bool]string{true: "sent", false: "not sent"}[settings])
+	if !settings {
+		return 1
+	}
+	return 0
 }
 
 // reportProviders describes each connected agent client: its scope, its bound

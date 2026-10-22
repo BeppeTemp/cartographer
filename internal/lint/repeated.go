@@ -8,7 +8,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
-// repeated_link (info, D357): the same target linked more than once in one
+// repeated_link (D357): the same target linked more than once in one
 // paragraph. duplicate_link only covers a link the text already carries and
 // the "See also" section repeats; two links to one target inside a paragraph
 // are noise a reader meets as a wall of blue, and nothing reported them.

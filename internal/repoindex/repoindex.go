@@ -24,15 +24,13 @@ import (
 var userHomeDir = os.UserHomeDir
 
 // DefaultDepth and MaxDepth bound how many directory levels Scan descends from
-// each root (D162). The old fixed cap of 4 made a workspace organised as
-// <root>/<program>/<area>/<repo> invisible — ~160 repositories unreachable in one
-// deployment, so every {{repo:<name>}} citing one was unusable — and the failure
-// message never mentioned a depth, so the limit had to be guessed.
-//
-// The default stays 4: raising it for everyone would slow every resolution to
-// accommodate one layout. MaxDepth exists because Scan walks the filesystem on
-// every unresolved placeholder, and an unbounded depth on a large home directory
-// is a multi-second stall in the middle of a sync.
+// each root (D162). DefaultDepth is the depth every client scans: since D906 it
+// is a constant and no longer the `search_depth` setting, because a layout deeper
+// than 4 is served by a closer entry in search_roots or by `paths`, without
+// slowing every resolution. MaxDepth stays the ceiling Scan clamps a caller's
+// depth to: Scan walks the filesystem on every unresolved placeholder, and an
+// unbounded depth on a large home directory is a multi-second stall in the
+// middle of a sync.
 const (
 	DefaultDepth = 4
 	MaxDepth     = 8
@@ -475,7 +473,7 @@ func (r *Resolver) ResolveDeclared(key, remote string) (string, []string, error)
 	warnings = append(warnings, lookupWarnings...)
 	if err != nil {
 		if errors.Is(err, errNotIndexed) {
-			return "", warnings, fmt.Errorf("repoindex: repo %q not found within %d directory levels of search roots %v — raise search_depth (max %d) or add a closer root in .cartographer.yaml", key, EffectiveDepth(r.maxDepth), r.roots, MaxDepth)
+			return "", warnings, fmt.Errorf("repoindex: repo %q not found within %d directory levels of search roots %v — add a closer root to search_roots in .cartographer.yaml, or map it with `cartographer paths set`", key, EffectiveDepth(r.maxDepth), r.roots)
 		}
 		return "", warnings, err
 	}

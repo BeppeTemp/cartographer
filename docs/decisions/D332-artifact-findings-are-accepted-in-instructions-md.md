@@ -4,6 +4,8 @@ topic: data-plane
 
 # D332 — Artifact findings are accepted with `lint_accept` in `instructions.md`, keyed by path
 
+> **Superseded by [D907](D907-the-lint-cannot-be-escaped.md)**: `lint_accept` is removed; `contract_legacy_key` reports it in `instructions.md` and the repair drops it.
+
 **Decision.** `instructions.md` may declare `lint_accept`, a mapping from an
 artifact path (or a directory prefix ending in `/`) to the checks accepted on
 it. Lint drops a matching non-error finding of an artifact check, and reports

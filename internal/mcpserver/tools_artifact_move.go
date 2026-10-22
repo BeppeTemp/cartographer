@@ -88,8 +88,7 @@ func toolArtifactMove(src *kb.KB, deps Deps) Tool {
 		Name: "artifact_move",
 		Description: "Moves artifacts to another KB on this server, in one commit per KB: a whole skill (skills/<slug>) or hook (hooks/<name>) directory, " +
 			"or a single agents/<slug>.md, mcp/<slug>.json or templates/<slug>.md. The path stays the same in the target and must be free there. " +
-			"Bytes copied verbatim. instructions.md, paths.yaml and glossary.yaml describe their own KB and do not move. " +
-			"Needs allow_artifact_write on both KBs (templates/ alone needs only allow_template_write).",
+			"Bytes copied verbatim. instructions.md, paths.yaml and glossary.yaml describe their own KB and do not move.",
 		InputSchema: json.RawMessage(fmt.Sprintf(`{
 			"type": "object",
 			"required": ["target_kb", "paths"],
@@ -141,9 +140,7 @@ func toolArtifactMove(src *kb.KB, deps Deps) Tool {
 
 // authorizeArtifactMoveTarget is the target half of the policy: the move adds to
 // the target what artifact_write would, so it needs the whole-KB write grant
-// there, as authorizeTool demands on the source. The per-KB right to write
-// artifacts (allow_artifact_write, or allow_template_write for templates/ only)
-// is checked by the plan, against the settings read under the locks.
+// there, as authorizeTool demands on the source.
 func authorizeArtifactMoveTarget(ctx context.Context, dstName string) error {
 	p := auth.PrincipalFromContext(ctx)
 	if p.ID != "" && p.Policy.Admin {
@@ -298,20 +295,6 @@ func parseArtifactUnit(raw string) (artifactUnit, error) {
 	return artifactUnit{}, fmt.Errorf("path %q is not a movable artifact (skills/<slug>, hooks/<name>, agents/<slug>.md, mcp/<slug>.json, templates/<slug>.md)", raw)
 }
 
-// artifactWriteRefusal says why a KB cannot take artifact writes of this unit:
-// the same right artifact_write needs, so a move cannot reach what a write
-// could not.
-func artifactWriteRefusal(k *kb.KB, name string, u artifactUnit) string {
-	pol := k.Policy()
-	if !pol.AllowArtifactWrite && !pol.AllowTemplateWrite {
-		return fmt.Sprintf("artifact_move: %s does not accept artifact writes (set kbs[].allow_artifact_write for it)", name)
-	}
-	if msg := templateOnlyRefusal(k, "artifact_move", u.info); msg != "" {
-		return strings.Replace(msg, "on this KB", "on "+name, 1)
-	}
-	return ""
-}
-
 // planArtifactMove validates every unit before any write. Nothing here mutates
 // either KB.
 func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *ToolResult) {
@@ -333,16 +316,6 @@ func planArtifactMove(src, dst *kb.KB, paths []string) (*artifactMovePlan, *Tool
 			return refuse("%s is listed twice", u.rel)
 		}
 		seen[u.rel] = true
-		for _, side := range []struct {
-			k    *kb.KB
-			name string
-		}{{src, srcName}, {dst, dstName}} {
-			if msg := artifactWriteRefusal(side.k, side.name, u); msg != "" {
-				r := errorResult(msg)
-				return nil, &r
-			}
-		}
-
 		for _, side := range []struct {
 			k    *kb.KB
 			name string

@@ -41,7 +41,7 @@ export function PageHeader({
   help,
 }: {
   eyebrow: string;
-  title: ReactNode;
+  title?: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
   help?: ReactNode;
@@ -60,7 +60,7 @@ export function PageHeader({
             </details>
           )}
         </p>
-        <h1 className="page__title">{title}</h1>
+        {title && <h1 className="page__title">{title}</h1>}
         {subtitle && <p className="page__subtitle">{subtitle}</p>}
       </div>
       {actions && <div className="page__actions">{actions}</div>}
@@ -131,9 +131,9 @@ export function Facet({
  * chart and filters, separated by space and a hairline below. Boxes are kept
  * for content that is dense enough to fill them.
  */
-export function Hero({ label, children }: { label: string; children: ReactNode }) {
+export function Hero({ label, className, children }: { label: string; className?: string; children: ReactNode }) {
   return (
-    <div className="hero" role="region" aria-label={label}>
+    <div className={className ? `hero ${className}` : "hero"} role="region" aria-label={label}>
       {children}
     </div>
   );
@@ -310,11 +310,302 @@ export function Quiet({ children, tone = "ok" }: { children: ReactNode; tone?: "
 /** Placeholder rows while a list loads. */
 export function SkeletonRows({ label, rows = 4 }: { label: string; rows?: number }) {
   return (
-    <div className="skeleton-rows" role="status" aria-busy="true" aria-label={label}>
+    <LoadingRegion label={label} className="skeleton-rows">
       {Array.from({ length: rows }, (_, i) => (
         <span key={i} className="skeleton" />
       ))}
+    </LoadingRegion>
+  );
+}
+
+/**
+ * The one live region of a loading page: a single status with a screen-reader
+ * label, and the shapes inside it hidden, so nothing is announced twice.
+ */
+export function LoadingRegion({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={className ? `loading-shape ${className}` : "loading-shape"} role="status" aria-busy="true">
+      <span className="sr-only">{label}</span>
+      <div className="loading-shape__body" aria-hidden="true">
+        {children}
+      </div>
     </div>
+  );
+}
+
+/** A grey bar of a given size: a line of text, a pill, an avatar before they exist. */
+export function Bone({
+  w,
+  h,
+  round,
+  className,
+}: {
+  w?: string | number;
+  h?: string | number;
+  round?: boolean;
+  className?: string;
+}) {
+  return (
+    <span
+      className={`skeleton bone${round ? " bone--round" : ""}${className ? ` ${className}` : ""}`}
+      aria-hidden="true"
+      style={{ width: w, height: h }}
+    />
+  );
+}
+
+/** A page headline that has not arrived: a bar the size of the title line, with the label for screen readers only. */
+export function TitleBone({ label }: { label: string }) {
+  return (
+    <>
+      <span className="skeleton skel-title" aria-hidden="true" />
+      <span className="sr-only">{label}</span>
+    </>
+  );
+}
+
+/** Activity: the summary hero (figures and histogram), then a day with timeline entries. */
+export function ActivitySkeleton({ label }: { label: string }) {
+  return (
+    <LoadingRegion label={label}>
+      <div className="hero activity-hero">
+        <div className="activity-sum">
+          <div className="activity-sum__lead">
+            <div className="activity-stats">
+              <Bone w={220} h={22} />
+            </div>
+          </div>
+          <div className="activity-bars">
+            <div className="activity-bars__track">
+              <Bone w="100%" h="100%" />
+            </div>
+            <Bone w="80%" h={14} />
+          </div>
+        </div>
+      </div>
+      {[4, 3].map((n, d) => (
+        <div key={d} className="timeline__day">
+          <h2 className="timeline__date">
+            <Bone w={96} h={14} />
+          </h2>
+          <ol className="timeline__entries">
+            {Array.from({ length: n }, (_, i) => (
+              <li key={i} className="timeline__entry">
+                <div className="timeline__item">
+                  <span className="timeline__time">
+                    <Bone w={36} h={12} />
+                  </span>
+                  <span className="timeline__track">
+                    <span className="timeline__node skeleton" />
+                  </span>
+                  <span className="timeline__item-body">
+                    <span className="timeline__item-head">
+                      <Bone w={`${38 + ((i * 17 + d * 9) % 30)}%`} h={16} />
+                    </span>
+                    <Bone w={`${22 + ((i * 11) % 25)}%`} h={12} />
+                  </span>
+                  <span className="timeline__authors">
+                    <Bone w={22} h={22} round />
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ))}
+    </LoadingRegion>
+  );
+}
+
+/** Work: board columns with cards (map or status, title, pills). */
+export function WorkSkeleton({ label }: { label: string }) {
+  return (
+    <LoadingRegion label={label}>
+      <div className="work__board">
+        {[3, 2, 2].map((n, c) => (
+          <section key={c} className="work__column">
+            <h2 className="work__column-title">
+              <Bone w={110} h={14} />
+            </h2>
+            <ul className="work__cards">
+              {Array.from({ length: n }, (_, i) => (
+                <li key={i}>
+                  <div className="work__card">
+                    <div className="work__card-main">
+                      <Bone w={`${55 + ((i * 13 + c * 7) % 35)}%`} h={16} />
+                      <span className="work__card-meta">
+                        <Bone w={54} h={18} />
+                        <Bone w={30} h={14} />
+                      </span>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+    </LoadingRegion>
+  );
+}
+
+/** Health: an agenda category with its issue rows (label, bar, count). */
+export function HealthSkeleton({ label }: { label: string }) {
+  return (
+    <LoadingRegion label={label}>
+      <div className="agenda-list">
+        {[4, 2].map((n, g) => (
+          <details key={g} className="agenda" open>
+            <summary className="agenda__head">
+              <Bone w={10} h={10} round />
+              <Bone w={130} h={16} />
+              <Bone w={60} h={12} />
+            </summary>
+            <ul className="agenda__rows">
+              {Array.from({ length: n }, (_, i) => (
+                <li key={i} className="arow-item">
+                  <div className="arow">
+                    <span className="arow__label">
+                      <Bone w={`${60 + ((i * 23 + g * 11) % 40)}%`} h={14} />
+                    </span>
+                    <span className="arow__bar">
+                      <Bone w={`${20 + ((i * 29) % 70)}%`} h={8} />
+                    </span>
+                    <span className="arow__count">
+                      <Bone w={56} h={14} />
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ))}
+      </div>
+    </LoadingRegion>
+  );
+}
+
+/** Retired: rows with a title, a pill, and a meta line. */
+export function RetiredSkeleton({ label }: { label: string }) {
+  return (
+    <LoadingRegion label={label}>
+      <ul className="retired__list">
+        {[0, 1, 2, 3].map((i) => (
+          <li key={i}>
+            <div className="retired__row">
+              <div className="retired__head">
+                <Bone w={`${30 + ((i * 19) % 30)}%`} h={16} />
+                <Bone w={64} h={18} />
+              </div>
+              <div className="retired__meta">
+                <Bone w={`${35 + ((i * 13) % 25)}%`} h={12} />
+              </div>
+              <Bone w="70%" h={12} />
+            </div>
+          </li>
+        ))}
+      </ul>
+    </LoadingRegion>
+  );
+}
+
+/** Artifacts: kind headings, each with a grid of tiles (name, two lines, foot). */
+export function CatalogSkeleton({ label, groups = 2, tiles = 6 }: { label: string; groups?: number; tiles?: number }) {
+  return (
+    <LoadingRegion label={label} className="catalog">
+      {Array.from({ length: groups }, (_, g) => (
+        <section key={g} className="catalog__group">
+          <header className="catalog__group-head">
+            <h2 className="catalog__group-title">
+              <Bone w={140} h={16} />
+            </h2>
+            <p className="catalog__about">
+              <Bone w="50%" h={12} />
+            </p>
+          </header>
+          <ul className="catalog__tiles">
+            {Array.from({ length: g === 0 ? tiles : Math.ceil(tiles / 2) }, (_, i) => (
+              <li key={i}>
+                <div className="catalog__tile">
+                  <Bone w={`${45 + ((i * 17) % 35)}%`} h={16} />
+                  <span className="catalog__tile-desc">
+                    <Bone w="95%" h={12} />
+                    <Bone w="70%" h={12} />
+                  </span>
+                  <Bone w={80} h={12} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </LoadingRegion>
+  );
+}
+
+/** Settings: a group heading and a bordered block of rows (key and description left, value pill right). */
+export function SettingsSkeleton({ label, rows = 5 }: { label: string; rows?: number }) {
+  return (
+    <LoadingRegion label={label}>
+      <section className="settings__group">
+        <header className="settings__group-head">
+          <h2 className="settings__heading">
+            <Bone w={22} h={22} />
+            <Bone w={120} h={16} />
+          </h2>
+          <Bone w={60} h={12} />
+        </header>
+        <ul className="settings__rows">
+          {Array.from({ length: rows }, (_, i) => (
+            <li key={i} className="settings__row">
+              <div className="settings__row-head settings__row-head--static">
+                <span className="settings__what">
+                  <Bone w={`${110 + ((i * 37) % 90)}px`} h={14} />
+                  <Bone w={`${55 + ((i * 17) % 30)}%`} h={12} />
+                </span>
+                <span className="settings__val">
+                  <Bone w={`${70 + ((i * 29) % 80)}px`} h={22} />
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </LoadingRegion>
+  );
+}
+
+/** A body of text that has not arrived: lines of varying length, as a paragraph reads. */
+export function TextSkeleton({ label, lines = 6 }: { label: string; lines?: number }) {
+  const widths = [96, 88, 92, 60, 94, 80, 90, 45];
+  return (
+    <LoadingRegion label={label} className="text-skeleton">
+      {Array.from({ length: lines }, (_, i) => (
+        <Bone key={i} w={`${widths[i % widths.length]}%`} h={14} />
+      ))}
+    </LoadingRegion>
+  );
+}
+
+/** A side panel list (releases, concept revisions): entries of a title line and a meta line. */
+export function EntriesSkeleton({ label, rows = 4 }: { label: string; rows?: number }) {
+  return (
+    <LoadingRegion label={label} className="entries-skeleton">
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="entries-skeleton__row">
+          <Bone w={`${45 + ((i * 23) % 40)}%`} h={16} />
+          <Bone w={`${25 + ((i * 17) % 25)}%`} h={12} />
+        </div>
+      ))}
+    </LoadingRegion>
   );
 }
 

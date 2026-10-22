@@ -56,7 +56,7 @@ func TestDoConnect_DeclaredDefaultResolvesWithoutPaths(t *testing.T) {
 	}
 	defer func() { runPathsForm = old }()
 
-	res, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Trust: true, KBs: []string{"alpha"}, PromptPaths: true})
+	res, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", KBs: []string{"alpha"}, PromptPaths: true})
 	if err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestDoConnect_MissingDefaultIsOfferedPrefilled(t *testing.T) {
 	}
 	defer func() { runPathsForm = old }()
 
-	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: t.TempDir(), ServerURL: srv.URL + "/mcp", Name: "cartographer", Trust: true, KBs: []string{"alpha"}, PromptPaths: true}); err != nil {
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: t.TempDir(), ServerURL: srv.URL + "/mcp", Name: "cartographer", KBs: []string{"alpha"}, PromptPaths: true}); err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
 	if len(asked) != 1 || asked[0].Description != "Claude Code's directory" || asked[0].Default != "~/.claude" {

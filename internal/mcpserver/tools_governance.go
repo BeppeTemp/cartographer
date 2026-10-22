@@ -12,6 +12,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/sops"
 )
 
 // toolReindex reconciles the derived search indexes with out-of-band KB
@@ -125,7 +126,7 @@ func toolLint(k *kb.KB) Tool {
 	return Tool{
 		Name:        "lint",
 		ReadOnly:    true,
-		Description: "Deterministic checks. check, severity_min, limit (max 200), offset filter and page. Counts ignore them.",
+		Description: "Deterministic checks; every finding is a problem to fix. check, limit (max 200), offset filter and page. Counts ignore them.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
@@ -135,11 +136,6 @@ func toolLint(k *kb.KB) Tool {
 				"scope_neighbors": {
 					"type": "boolean",
 					"description": "Also lint 1-hop neighbors"
-				},
-				"severity_min": {
-					"type": "string",
-					"enum": ["info", "warning", "error"],
-					"description": "info (default), warning or error"
 				},
 				"check": {
 					"oneOf": [
@@ -155,7 +151,6 @@ func toolLint(k *kb.KB) Tool {
 			var params struct {
 				Scope          string          `json:"scope"`
 				ScopeNeighbors bool            `json:"scope_neighbors"`
-				SeverityMin    string          `json:"severity_min"`
 				Check          json.RawMessage `json:"check"`
 				Limit          int             `json:"limit"`
 				Offset         int             `json:"offset"`
@@ -174,14 +169,6 @@ func toolLint(k *kb.KB) Tool {
 				}
 			}
 
-			if params.SeverityMin == "" {
-				params.SeverityMin = lint.SevInfo
-			}
-			if !lint.ValidSeverity(params.SeverityMin) {
-				return errorResult(fmt.Sprintf("lint: 'severity_min' must be one of %s, got %q",
-					strings.Join(lint.Severities, ", "), params.SeverityMin)), nil
-			}
-
 			findings, err := lint.Run(k, params.Scope, params.ScopeNeighbors)
 			if err != nil {
 				return errorResult(fmt.Sprintf("lint: %v", err)), nil
@@ -191,11 +178,8 @@ func toolLint(k *kb.KB) Tool {
 			// of a non-empty one, so a caller that parses JSON never meets a
 			// bare string (D318).
 			total := len(findings)
-			findings, countsByCheck, countsBySeverity := lint.Filter(findings, params.SeverityMin)
-
-			// findings_omitted is what severity_min hid, taken before the check
-			// filter so it keeps its old meaning.
-			omitted := total - len(findings)
+			countsByCheck := lint.CountsByCheck(findings)
+			findings = lint.Order(findings)
 
 			if len(checks) > 0 {
 				want := make(map[string]bool, len(checks))
@@ -223,17 +207,15 @@ func toolLint(k *kb.KB) Tool {
 				page = findings[offset:min(offset+limit, afterFilter)]
 			}
 
-			// 'count' keeps meaning the unfiltered total, which is what it has
-			// always meant; findings_omitted says how much severity_min hid.
+			// 'count' is the unfiltered total: the view (check, paging) never
+			// changes it, so a caller knows the shape of what it is not shown.
 			result := map[string]interface{}{
 				"count":                 total,
 				"findings":              findingsOut(page),
 				"findings_in_page":      len(page),
 				"findings_after_filter": afterFilter,
-				"findings_omitted":      omitted,
 				"offset":                offset,
 				"counts_by_check":       countsByCheck,
-				"counts_by_severity":    countsBySeverity,
 			}
 			if next := offset + len(page); next < afterFilter {
 				result["next_offset"] = next
@@ -343,7 +325,7 @@ func toolGateCheck(k *kb.KB) Tool {
 	return Tool{
 		Name:        "gate_check",
 		ReadOnly:    true,
-		Description: "Local gate: validate + lint + commit_gate. Use at session end over the IDs you wrote, or before fast-forwarding to main. changed_ids alone lints just those (no whole-KB structure checks); empty changed_ids: whole KB, no commit gate; scope: a path prefix. severity_min sets the lint floor (default warning); pass ignores it.",
+		Description: "Local gate: validate + lint + commit_gate. Use at session end over the IDs you wrote, or before fast-forwarding to main. changed_ids alone lints just those (no whole-KB structure checks); empty changed_ids: whole KB, no commit gate; scope: a path prefix. pass needs zero lint findings in the scope, no validation error and a passing commit gate: a finding is a problem to fix.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["changed_ids"],
@@ -351,11 +333,6 @@ func toolGateCheck(k *kb.KB) Tool {
 				"changed_ids": {
 					"type": "array",
 					"items": {"type": "string"}
-				},
-				"severity_min": {
-					"type": "string",
-					"enum": ["info", "warning", "error"],
-					"description": "info, warning (default) or error"
 				},
 				"scope": {
 					"type": "string"
@@ -369,21 +346,12 @@ func toolGateCheck(k *kb.KB) Tool {
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				ChangedIDs     []string `json:"changed_ids"`
-				SeverityMin    string   `json:"severity_min"`
 				Scope          string   `json:"scope"`
 				ScopeNeighbors bool     `json:"scope_neighbors"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
-			if params.SeverityMin == "" {
-				params.SeverityMin = lint.SevWarning
-			}
-			if !lint.ValidSeverity(params.SeverityMin) {
-				return errorResult(fmt.Sprintf("gate_check: 'severity_min' must be one of %s, got %q",
-					strings.Join(lint.Severities, ", "), params.SeverityMin)), nil
-			}
-
 			ids := make([]okf.ConceptID, len(params.ChangedIDs))
 			for i, s := range params.ChangedIDs {
 				ids[i] = okf.ConceptID(s)
@@ -444,17 +412,15 @@ func toolGateCheck(k *kb.KB) Tool {
 			// finding that mirrors a validation error on the same path is the
 			// same fact, listed once, under validation_errors.
 			lintFindings = dropMirroredValidation(lintFindings, valErrs)
-			// pass is decided on the unfiltered findings, before severity_min is
-			// applied below: a response budget must never be able to change a
-			// verdict.
-			for _, f := range lintFindings {
-				if f.Severity == lint.SevError {
-					pass = false
-					break
-				}
+			// A finding is a problem (D947): the gate passes only with none in the
+			// scope it checks, so a KB with old debt fails the whole-KB gate until
+			// it is repaired.
+			if len(lintFindings) > 0 {
+				pass = false
 			}
 			lintTotal := len(lintFindings)
-			lintFindings, countsByCheck, countsBySeverity := lint.Filter(lintFindings, params.SeverityMin)
+			countsByCheck := lint.CountsByCheck(lintFindings)
+			lintFindings = lint.Order(lintFindings)
 
 			// 3. Commit gate. It checks the contradictions that involve the
 			// changed concepts, so with none there is nothing to check: an empty
@@ -494,18 +460,14 @@ func toolGateCheck(k *kb.KB) Tool {
 				})
 			}
 
-			// validation_errors and gate_blockers are never filtered: they are
-			// already error-level and small.
 			result := map[string]interface{}{
-				"pass":               pass,
-				"lint_scope":         lintScope,
-				"validation_errors":  valErrsJSON,
-				"lint_findings":      lintJSON2,
-				"gate_blockers":      blockers,
-				"lint_count":         lintTotal,
-				"findings_omitted":   lintTotal - len(lintJSON2),
-				"counts_by_check":    countsByCheck,
-				"counts_by_severity": countsBySeverity,
+				"pass":              pass,
+				"lint_scope":        lintScope,
+				"validation_errors": valErrsJSON,
+				"lint_findings":     lintJSON2,
+				"gate_blockers":     blockers,
+				"lint_count":        lintTotal,
+				"counts_by_check":   countsByCheck,
 			}
 			out, _ := json.MarshalIndent(result, "", "  ")
 			return textResult(string(out)), nil
@@ -611,107 +573,29 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	if k.Discovered {
 		mount = "discovered"
 	}
-	pol := k.Policy() // one snapshot: the map never mixes two policies (D775)
-	interval := "disabled"
-	if pol.DoctorIntervalDays > 0 {
-		interval = fmt.Sprintf("%d days", pol.DoctorIntervalDays)
-	}
-	autoInterval := "disabled"
-	if pol.DoctorAutoIntervalDays > 0 && len(pol.AutoRepair) > 0 {
-		autoInterval = fmt.Sprintf("%d days", pol.DoctorAutoIntervalDays)
-	}
-	_, ignoredAuto := splitAutoRepair(pol.AutoRepair)
-	info := k.SettingsInfo()
-	// cap builds one capability whose controlling key can be carried by the KB
-	// (D746): Setting names settings.yaml when the KB sets it, and
-	// IgnoredServerValue says a different server value lost to it.
-	cap := func(key, state, serverSetting string) KBCapability {
-		c := KBCapability{State: state, Setting: serverSetting}
-		if info.FromKBHas(key) {
-			c.Setting = kb.SettingsFile + " " + key
-		}
-		if g, ok := info.IgnoredFor(key); ok {
-			c.IgnoredServerValue = g.ServerValue
-		}
-		return c
-	}
-	with := func(c KBCapability, f func(*KBCapability)) KBCapability { f(&c); return c }
 	secretsState := onOff(k.SopsAgeKeyFile != "")
 	secretsSetting := "credentials_dir"
-	if info.SecretsDeclared {
-		secretsSetting = kb.SettingsFile + " secrets, " + secretsSetting
+	// A KB declares secrets when a sops file sits under secrets/ (D906).
+	if sops.Declared(k.Root) {
 		if k.SopsAgeKeyFile == "" {
 			secretsState = "missing key"
 		}
 	}
 	return map[string]KBCapability{
-		"artifact_write": cap("allow_artifact_write", onOff(pol.AllowArtifactWrite), "kbs[].allow_artifact_write"),
-		"template_write": cap("allow_template_write", templateWriteState(pol), "kbs[].allow_template_write"),
-		"secrets":        {State: secretsState, Setting: secretsSetting},
+		"secrets": {State: secretsState, Setting: secretsSetting},
 		// A discovered KB has no kbs[] entry: its policy comes from its own
 		// settings.yaml, which is the one place left that can carry it (D746).
 		"mount": {State: mount, Setting: "kbs[]"},
-		// D299: what `cartographer kb repair --apply` may apply unattended,
-		// and when the server proposes the next kb-doctor session.
-		"auto_repair": with(cap("auto_repair", onOff(len(pol.AutoRepair) > 0), "kbs[].auto_repair"), func(c *KBCapability) {
-			c.Checks, c.Default, c.Ignored = pol.AutoRepair, pol.AutoRepairDefault, ignoredAuto
-		}),
-		// D349: a write applies the mechanical auto_repair fixes to what it wrote.
-		"repair_on_write": cap("repair_on_write", onOff(pol.RepairOnWrite && len(pol.AutoRepair) > 0), "kbs[].repair_on_write"),
-		// D350: a write that introduces findings at or above the floor is refused.
-		"write_gate":      cap("write_gate", writeGateStateOf(k, pol), "kbs[].write_gate"),
-		"doctor_interval": cap("doctor_interval", interval, "kbs[].doctor_interval"),
-		// D704: always assisted. Still reported because a kb-doctor skill
-		// synced before 0.24 reads a missing doctor_mode as unattended and would
-		// start a session by itself.
-		"doctor_mode": {State: "assisted", Setting: "kbs[].doctor_mode (ignored)"},
-		// D358: how many review items a kb-doctor session decides.
-		"doctor_budget": cap("doctor_budget", fmt.Sprintf("%d review items", doctorBudget(pol)), "kbs[].doctor_budget"),
-		// D323: the server applies auto_repair by itself on this interval.
-		"doctor_auto_interval": cap("doctor_auto_interval", autoInterval, "kbs[].doctor_auto_interval"),
 	}
-}
-
-// doctorBudget is the review items a kb-doctor session decides (D358); a KB
-// opened without a spec gets the default.
-func doctorBudget(p kb.Policy) int {
-	if p.DoctorBudget > 0 {
-		return p.DoctorBudget
-	}
-	return defaultDoctorBudget
-}
-
-// config.DefaultDoctorBudget, repeated because this package does not import
-// config; TestDoctorBudgetDefaultsMatchConfig pins them equal.
-const defaultDoctorBudget = 10
-
-// templateWriteState is the kb_status view of D352: artifact_write limited to
-// templates/, "full" when allow_artifact_write already lifts the limit.
-func templateWriteState(p kb.Policy) string {
-	switch {
-	case p.AllowArtifactWrite:
-		return "full"
-	case p.AllowTemplateWrite:
-		return "enabled"
-	}
-	return "disabled"
 }
 
 func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {
 	return Tool{
 		Name:        "kb_status",
-		Description: "KB health in one call: concept counts, stale concepts, contradictions and gaps, git replication, capabilities (gate, state, key), source and search-miss counts, versions, conformance {findings by severity, fixable, last_doctor, doctor_suggested} (when doctor_suggested is true, follow the kb-doctor skill), usage of skills and agents, suppressions {entries, hidden, stale} (suppressions=true lists entries with when and why). Read-only.",
+		Description: "KB health in one call: concept counts, stale concepts, contradictions and gaps, git replication, capabilities (gate, state, key), source and search-miss counts, versions, conformance {findings, fixable, last_doctor, doctor_suggested} (when doctor_suggested is true, follow the kb-doctor skill), usage of skills and agents. Read-only.",
 		ReadOnly:    true,
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"suppressions":{"type":"boolean","description":"List each entry with its git origin (slow)."}}}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
-			var params struct {
-				Suppressions bool `json:"suppressions"`
-			}
-			if len(args) > 0 {
-				if err := json.Unmarshal(args, &params); err != nil {
-					return errorResult(fmt.Sprintf("kb_status: invalid arguments: %v", err)), nil
-				}
-			}
 			today := time.Now().UTC().Format("2006-01-02")
 			typeCounts := map[string]int{}
 			statusCounts := map[string]int{}
@@ -828,16 +712,10 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				// an answer, hence the setting alongside it.
 				"capabilities": kbCapabilities(k),
 			}
-			// D746: the KB's settings.yaml is authoritative. A server value it
-			// beat, and an entry of the file that was left out, are the two
-			// things an operator who edited kbs[] in vain needs to be told.
-			if info := k.SettingsInfo(); len(info.Ignored) > 0 || len(info.Findings) > 0 {
-				if len(info.Ignored) > 0 {
-					result["ignored_server_settings"] = info.Ignored
-				}
-				if len(info.Findings) > 0 {
-					result["settings_findings"] = info.Findings
-				}
+			// D746: an entry of the KB's settings.yaml that was left out is
+			// something its owner needs to be told.
+			if info := k.SettingsInfo(); len(info.Findings) > 0 {
+				result["settings_findings"] = info.Findings
 			}
 			if len(gaps) > 0 {
 				// Newest first by frontmatter timestamp, then ID descending.
@@ -858,10 +736,12 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				}
 			}
 			// D298: the size of the doctor's work list this caller may see.
+			// The summary lists every kind; the debt that suggests a session
+			// leaves out the observations (D947).
 			reviewTotal := 0
 			if items, rerr := visibleReview(ctx, k, cc); rerr == nil {
 				result["review"] = reviewSummary(items)
-				reviewTotal = len(items)
+				reviewTotal = reviewDebt(items)
 			}
 			// D302: the open work this caller can see.
 			if work, werr := visibleWork(ctx, k, cc); werr == nil {
@@ -875,24 +755,9 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 			// D294: lint.Run is cached on the graph generation; the visibility
 			// filter stays outside the cache so a restricted caller never sees
 			// a hidden concept's findings from a warm cache.
-			if allFindings, allSups, lerr := cc.lintResult(k); lerr == nil {
+			if allFindings, lerr := cc.lintFindings(k); lerr == nil {
 				vis, _ := uiVisibleFindingsFrom(ctx, k, "", allFindings)
-				// D834: what the KB's lint_ignore / lint_accept entries hide.
-				if sups := visibleSuppressions(ctx, k, allSups); len(sups) > 0 {
-					section := suppressionsSummary(sups)
-					if params.Suppressions {
-						list, truncated, originsTruncated := suppressionsList(k, sups, suppressionRevisionBudget)
-						section["list"] = list
-						if truncated {
-							section["truncated"] = true
-						}
-						if originsTruncated {
-							section["origins_truncated"] = true
-						}
-					}
-					result["suppressions"] = section
-				}
-				result["conformance"] = summarizeConformance(vis, reviewTotal, cc.cachedDoctorDate(k), k.Policy().DoctorIntervalDays, time.Now().UTC())
+				result["conformance"] = summarizeConformance(vis, reviewTotal, cc.cachedDoctorDate(k), kb.DoctorSuggestionDays, time.Now().UTC())
 				// D370: the trend of the whole-KB totals, whole-KB callers only.
 				if WholeVisible(ctx, k, false) {
 					if tr := lintTrend(readLintHistory(k), time.Now().UTC()); tr != nil {
@@ -1280,10 +1145,7 @@ func usageSummary(k *kb.KB, now time.Time) map[string]interface{} {
 	usage := kb.SummarizeUsage(entries)
 	counts := map[string]int{}
 	pol := k.Policy()
-	staleDays := pol.UsageStaleDays
-	if staleDays <= 0 { // threshold disabled: nothing is stale, only never or active
-		staleDays = 1 << 30
-	}
+	staleDays := pol.UsageStale()
 	for _, a := range lint.UsageArtifacts(k) {
 		u, seen := usage[kb.UsageKey(a.Kind, a.Name)]
 		counts[lint.UsageState(u, seen, staleDays, now)]++
@@ -1298,6 +1160,6 @@ func usageSummary(k *kb.KB, now time.Time) map[string]interface{} {
 		"artifacts_never_used": counts[lint.UsageNever] + counts[lint.UsageCatalog],
 		"artifacts_stale":      counts[lint.UsageStale],
 		"artifacts_active":     counts[lint.UsageActive],
-		"stale_threshold_days": pol.UsageStaleDays,
+		"stale_threshold_days": staleDays,
 	}
 }

@@ -113,8 +113,8 @@ type disconnectResult struct {
 //
 // If the lockfile ends up with no providers, the lockfile is removed.
 // .cartographer.yaml is never removed (D64): with no agents left it is saved
-// with an empty agents list, preserving server_url/server_name/auth/token_env/
-// trust/kbs as the defaults for the next connect. DryRun computes everything
+// with an empty agents list, preserving server_url/server_name/auth/token/
+// kbs as the defaults for the next connect. DryRun computes everything
 // without writing.
 func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 	var res disconnectResult
@@ -152,7 +152,7 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 	for _, p := range opts.Providers {
 		pr := disconnectProviderResult{Provider: p}
 
-		_, removed, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{p}, opts.Dir, claudeDirs, cfg.Auth, cfg.TokenEnv, opts.DryRun)
+		_, removed, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{p}, opts.Dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
 		if err != nil {
 			return disconnectResult{}, fmt.Errorf("remove config for %s: %w", p, err)
 		}
@@ -194,7 +194,7 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 		return disconnectResult{}, err
 	}
 
-	// cfg (server_url/server_name/auth/token_env/trust/kbs) is preserved even
+	// cfg (server_url/server_name/auth/token/kbs) is preserved even
 	// when Agents ends up empty (D64): it seeds the next `connect` — server_url
 	// in particular, so a disconnect-then-reconnect doesn't fall back to
 	// the local default when the user was pointed at a real server. Only

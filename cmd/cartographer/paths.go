@@ -284,9 +284,8 @@ func cmdPathsSuggest(args []string) int {
 		return 1
 	}
 	var ignored, roots []string
-	depth := 0
 	if cfg, err := clientconfig.Load(dir); err == nil {
-		ignored, roots, depth = cfg.IgnoredPaths, cfg.SearchRoots, cfg.SearchDepth
+		ignored, roots = cfg.IgnoredPaths, cfg.ScanRoots()
 	}
 	rows := unresolvedRows(lf, ignored)
 	if len(rows) == 0 {
@@ -311,7 +310,7 @@ func cmdPathsSuggest(args []string) int {
 		switch kind {
 		case "repo":
 			if idx == nil {
-				idx, _, _ = repoindex.Scan(roots, depth)
+				idx, _, _ = repoindex.Scan(roots, repoindex.DefaultDepth)
 			}
 			for _, p := range repoCandidates(idx, name) {
 				add(p)

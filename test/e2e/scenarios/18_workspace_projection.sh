@@ -11,6 +11,7 @@
 # provider bound to a different KB in each.
 #
 # Verifies (operator channel only — no agent/model):
+#   0. `status` is in sync (exit 0) after a clean sync, #1011.
 #   1. Each workspace receives only its own KB's skill, and the bodies differ:
 #      the projection reached the right perimeter, not merely *a* file.
 #   2. Neither skill exists in the global catalogue under $HOME — decision 5.
@@ -85,8 +86,7 @@ for ws in "$WS_WORK" "$WS_HOMELAB" "$WS_UNBOUND"; do
 done
 
 cat > "$CONFIG" <<YAML
-http: ":${E2E_HTTP_PORT}"
-init: true
+http: "127.0.0.1:${E2E_HTTP_PORT}"
 YAML
 
 E2E_CONFIG="$CONFIG" server_start "${WORK_KB},${HOMELAB_KB}"
@@ -105,7 +105,7 @@ echo "--- Phase 1: connect, then bind each workspace to its own KB ---"
 # Bound to ONE KB globally: that is the pre-D193 state this plan moves away
 # from, and it is also the only global state these two KBs can be in — binding
 # a single catalogue to both is refused as a collision (D171), which is phase 7.
-run_client "${DIR}/connect.log" connect claude --server-url "$SERVER_URL" --kb work-kb --auto-trust || true
+run_client "${DIR}/connect.log" connect claude --server-url "$SERVER_URL" --kb work-kb || true
 assert_file_exists "${SANDBOX}/.claude.json"
 
 # The global catalogue holds the WORK skill, reachable from every directory on
@@ -131,6 +131,17 @@ if run_client "${DIR}/sync1.log" sync; then
 else
     _assert_fail "sync failed: $(cat "${DIR}/sync1.log")"
 fi
+
+# #1011: after a clean sync (a second one is a no-op) status judges the bundle
+# globally and each workspace against its own projection: in sync, exit 0.
+run_client "${DIR}/sync1b.log" sync || true
+if run_client "${DIR}/status-clean.log" status; then
+    _assert_pass "status exits 0 after a clean workspace-scoped sync"
+else
+    _assert_fail "status reported drift after a clean sync: $(cat "${DIR}/status-clean.log")"
+fi
+assert_file_contains "${DIR}/status-clean.log" "in-sync"
+assert_file_not_contains "${DIR}/status-clean.log" "+ skill/"
 
 echo ""
 echo "--- Phase 2: each workspace sees ONLY its own perimeter ---"

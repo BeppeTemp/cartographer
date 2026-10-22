@@ -87,3 +87,82 @@ func TestWork(t *testing.T) {
 		t.Fatal("default open status kept despite open_statuses")
 	}
 }
+
+// TestWorkReason pins the work a concept carries by what it is (D948): an open
+// Contradiction, an open gap, and a page past its review_after unless it is
+// open by status already or finished (done, resolved, archived, deprecated,
+// superseded).
+func TestWorkReason(t *testing.T) {
+	old := Now
+	Now = func() time.Time { return time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC) }
+	t.Cleanup(func() { Now = old })
+
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	page := func(name, front string) {
+		writeFile(t, k.DataRoot(), "m/"+name+".md", "---\n"+front+"\n---\n# "+name+"\n")
+	}
+	// Contradictions: open without a resolution_status, as kb_status counts it.
+	page("c-bare", "type: Contradiction\ntitle: C")
+	page("c-open", "type: Contradiction\ntitle: C\nresolution_status: open")
+	page("c-resolved", "type: Contradiction\ntitle: C\nresolution_status: resolved")
+	// The reserved kinds are gaps, whatever else they say.
+	page("g-question", "type: Contradiction\ntitle: G\ncontradiction_kind: open_question")
+	page("g-context", "type: Contradiction\ntitle: G\ncontradiction_kind: missing_context\nresolution_status: open")
+	page("g-resolved", "type: Contradiction\ntitle: G\ncontradiction_kind: open_question\nresolution_status: resolved")
+	// A page past its review_after is due; today and later are not.
+	page("r-past", "type: Topic\ntitle: R\nstatus: active\nreview_after: 2026-05-31")
+	page("r-nostatus", "type: Topic\ntitle: R\nreview_after: 2026-01-01")
+	page("r-today", "type: Topic\ntitle: R\nstatus: active\nreview_after: 2026-06-01")
+	page("r-future", "type: Topic\ntitle: R\nstatus: active\nreview_after: 2026-07-01")
+	page("r-none", "type: Topic\ntitle: R\nstatus: active")
+	// Open by its status already: work, but not "to review".
+	page("r-open", "type: Topic\ntitle: R\nstatus: in-progress\nreview_after: 2026-01-01")
+	// Finished or retired pages are not due: nothing to check on them. Each
+	// carries an unchecked item, so it is listed all the same, with no reason.
+	for _, status := range []string{"done", "resolved", "archived", "deprecated", "superseded"} {
+		writeFile(t, k.DataRoot(), "m/f-"+status+".md", "---\ntype: Topic\ntitle: F\nstatus: "+status+"\nreview_after: 2026-01-01\n---\n# F\n\n- [ ] item\n")
+	}
+
+	entries, err := Work(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := workByID(t, entries)
+	for id, want := range map[string]string{
+		"m/c-bare":       WorkReasonContradiction,
+		"m/c-open":       WorkReasonContradiction,
+		"m/g-question":   WorkReasonGap,
+		"m/g-context":    WorkReasonGap,
+		"m/r-past":       WorkReasonReview,
+		"m/r-nostatus":   WorkReasonReview,
+		"m/r-open":       "",
+		"m/f-done":       "",
+		"m/f-resolved":   "",
+		"m/f-archived":   "",
+		"m/f-deprecated": "",
+		"m/f-superseded": "",
+	} {
+		e, ok := got[id]
+		if !ok {
+			t.Errorf("%s is not work", id)
+			continue
+		}
+		if e.Reason != want {
+			t.Errorf("%s: reason %q, want %q", id, e.Reason, want)
+		}
+		// A reason makes the concept work, as an open status does; a retired
+		// page is listed for its items only.
+		if wantOpen := want != "" || id == "m/r-open"; e.OpenPhase != wantOpen {
+			t.Errorf("%s: open_phase %v, want %v", id, e.OpenPhase, wantOpen)
+		}
+	}
+	for _, id := range []string{"m/c-resolved", "m/g-resolved", "m/r-today", "m/r-future", "m/r-none"} {
+		if e, ok := got[id]; ok {
+			t.Errorf("%s is work: %+v", id, e)
+		}
+	}
+	if workReason(nil, nil) != "" {
+		t.Error("a page without frontmatter carries a reason")
+	}
+}

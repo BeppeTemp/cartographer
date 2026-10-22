@@ -28,6 +28,8 @@ E2E_DIR="$(cd "${SCENARIO_DIR}/.." && pwd)"
 
 # shellcheck source=../lib/assert.sh
 source "${E2E_DIR}/lib/assert.sh"
+# shellcheck source=../lib/kb.sh
+source "${E2E_DIR}/lib/kb.sh"
 
 SCENARIO_NAME="09_git_conflict"
 echo "=== Scenario ${SCENARIO_NAME} ==="
@@ -87,10 +89,10 @@ git init --bare "$BARE" >/dev/null 2>&1
 # A KB is always initialized on main; make the remote advertise the same branch
 # so the scenario does not depend on the host's init.defaultBranch.
 git -C "$BARE" symbolic-ref HEAD refs/heads/main
-mkdir -p "$KBA"
+kb_bootstrap "$KBA"
 
 CARTOGRAPHER_AUTH=false K_SERVICE=e2e \
-    "$BIN" serve --kb "$KBA" --init --http ":${PORT_A}" >"${DIR}/srvA.log" 2>&1 &
+    "$BIN" serve --kb "$KBA" --http "127.0.0.1:${PORT_A}" >"${DIR}/srvA.log" 2>&1 &
 PID_A=$!
 wait_health "$PORT_A" || { echo "[ERROR] server A not responding"; cat "${DIR}/srvA.log" >&2; exit 1; }
 
@@ -105,16 +107,16 @@ git clone "$BARE" "$KBB" >/dev/null 2>&1
 git -C "$KBB" config user.email "test@wiki.local" && git -C "$KBB" config user.name "Wiki Test"
 
 CARTOGRAPHER_AUTH=false K_SERVICE=e2e \
-    "$BIN" serve --kb "$KBB" --init --http ":${PORT_B}" >"${DIR}/srvB.log" 2>&1 &
+    "$BIN" serve --kb "$KBB" --http "127.0.0.1:${PORT_B}" >"${DIR}/srvB.log" 2>&1 &
 PID_B=$!
 wait_health "$PORT_B" || { echo "[ERROR] server B not responding"; cat "${DIR}/srvB.log" >&2; exit 1; }
 
 # --- A writes shared/notes/c with body1 (commit + push) ---
 echo "[09] A: creates shared/notes/c with body1"
 mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"shared","title":"Shared"}}}'
-mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"shared/notes","frontmatter":{"type":"Index","title":"Notes"},"body":"# Notes\n"}}}'
+# One concept_batch: the write gate (D907) refuses an orphan page or one missing from its map index.
+mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"shared/notes","index_entry":true,"frontmatter":{"type":"Index","title":"Notes"},"body":"# Notes\n\nSee [[shared/notes/c]].\n"},{"op":"write","id":"shared/notes/c","index_entry":true,"frontmatter":{"type":"note","title":"Shared Note C"},"body":"body1: written by A.\n"}]}}}'
 mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"shared/notes"}}}'
-mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"shared/notes/c","frontmatter":{"type":"note","title":"Shared Note C"},"body":"body1: written by A.\n"}}}'
 
 # --- B syncs (SyncIn pulls in A's commits) and rewrites the same concept with body2 ---
 echo "[09] B: syncs + rewrites shared/notes/c with body2"
@@ -126,7 +128,7 @@ echo "[09] A: direct commit of body3 (local divergence, no push)"
 CONCEPT_A="${KBA}/data/shared/notes/c.md"
 printf -- '---\ntype: note\ntitle: Shared Note C\n---\nbody3: rewritten directly by A (no MCP).\n' > "$CONCEPT_A"
 git -C "$KBA" add -A >/dev/null 2>&1
-git -C "$KBA" commit -m "A: body3 direct commit" >/dev/null 2>&1
+git -C "$KBA" -c user.name="Wiki Test" -c user.email=test@wiki.local commit -m "A: body3 direct commit" >/dev/null 2>&1
 
 # --- A performs any MCP operation: SyncIn must detect the conflict ---
 echo "[09] A: MCP operation that triggers SyncIn (must detect the conflict)"

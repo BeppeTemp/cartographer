@@ -24,7 +24,8 @@ func sshCommand(key, knownHosts string) string {
 	if key == "" {
 		return ""
 	}
-	cmd := "ssh -i " + shellQuote(key)
+	// BatchMode: a passphrase-protected key must fail, not prompt on the tty (#1004).
+	cmd := "ssh -i " + shellQuote(key) + " -o BatchMode=yes -o ConnectTimeout=10"
 	if knownHosts != "" {
 		cmd += " -o " + shellQuote(`UserKnownHostsFile="`+knownHosts+`"`) + " -o StrictHostKeyChecking=yes"
 	}
@@ -109,7 +110,7 @@ func gitTokenCredentialEnv(tokenPath string) []string {
 // default.token exists — a credential.helper (D905,
 // gitTokenCredentialEnv). name is the resolved KB name (resolveKBName). Only
 // entries that resolve to a non-empty value are included. It carries no
-// identity: the committer is the server's, added by kb.KB.GitCommandEnv (D904). The result is
+// identity: the KB's default identity is added by kb.KB.GitCommandEnv (D950). The result is
 // passed to gitx as env: it takes precedence over the process environment
 // (runGitEnv).
 func gitEnvForKB(name, credDir string) []string {
@@ -138,7 +139,7 @@ func gitEnvForKB(name, credDir string) []string {
 // A fresh clone is checked out on the `branch` its settings.yaml sets (D335,
 // D903) — tracking it when the remote has it, created from the remote's default
 // branch otherwise — read from the default branch the clone has just checked
-// out. The clone of an empty remote is left unborn for kb.Init. An existing
+// out. The clone of an empty remote is left unborn: serve cannot mount it and says to create the KB with `kb create` (D906). An existing
 // clone is never switched: SyncIn refuses its writes if it sits on another
 // branch.
 func ensureClonedKB(remote, name, dataDir string, env ...string) (string, error) {

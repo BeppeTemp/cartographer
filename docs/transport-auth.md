@@ -84,7 +84,8 @@ no tools, and falling back to all KBs would widen the binding). Duplicates are
 ignored.
 
 **A renamed KB keeps its URL working (D772).** `kb rename` records the old name
-in the server config's `kb_aliases` (`{from, to}` items). A name in `?kbs=` that is
+in the server state file, `<data>/.cartographer/state.json` (`kb_aliases`, `{from, to}`
+items; D906). A name in `?kbs=` that is
 not mounted but is the `from` of an alias whose `to` is mounted selects that KB;
 a mounted name always wins over an alias, so a KB later created under an old name
 is reached by its own name. The pair is reported, never silent:
@@ -111,11 +112,11 @@ accepted; any other value is refused. A KB is never guessed when the URL left
 more than one open: a default would land a write in the wrong archive on a model
 slip.
 
-**The advertised set is the union** of the connection's KBs. A tool one KB gates
-off — `artifact_write` under `kbs[].allow_artifact_write` — is still registered
-once, and refused at dispatch for the KB that gates it, with an error naming the
-tool, the KB and the setting. The alternative, an intersection, would silently
-hide a tool from a KB that allows it because a sibling does not. The metadata
+**The advertised set is the union** of the connection's KBs. A tool that only
+some of them register is advertised once, and refused at dispatch for a KB that
+does not, with an error naming the KB and the tool. The alternative, an
+intersection, would silently hide a tool from a KB that has it because a
+sibling does not. The metadata
 gate (`initialize`, `tools/list`) asks whether the principal can reach at least
 one KB of the connection's set.
 
@@ -220,18 +221,26 @@ nothing about access, and a missing or invalid one falls back to the token
 
 ### Origin
 
-The MCP endpoint validates the `Origin` header. A request without one — every
-non-browser client — is unaffected. With one, it must appear in
-`mcp.allowed_origins` (`CARTOGRAPHER_MCP_ALLOWED_ORIGINS`); when that list is
-empty, the default, only the request's own `Host` is accepted. `"*"` in the
-list disables the check. A refused origin gets HTTP 403 before authentication
-runs, and the CORS allow-origin response header echoes the accepted origin
-rather than a wildcard.
+The MCP endpoint validates the `Origin` header, and the rule is fixed (D906):
+a request without one — every non-browser client — is unaffected; with one, its
+host and port must be the request's own `Host`, whatever the scheme (a TLS-terminating
+proxy does not have to be told which one it terminated, and an Atlas behind an SSO
+proxy, which serves the page and the API from one origin, keeps working, D308). A
+refused origin gets HTTP 403 before authentication runs, and the CORS allow-origin
+response header echoes the accepted origin rather than a wildcard. There is no list
+of other origins to allow (`mcp.allowed_origins` was removed): a page of another
+site has no business scripting this server.
 
-Operators exposing Cartographer to a browser should list the origins
-explicitly: the same-origin default keeps a local browser working, but a
-rebound DNS name arrives with `Origin` and `Host` both naming the attacker, so
-it matches.
+The same-origin rule alone does not tell a page served from a rebound DNS name
+from the real one: `Origin` and `Host` then both name that name. A server that
+listens on a loopback address with authentication off (the local service, D268)
+therefore hardens the rule: every request on every route (`/mcp`, `/ui/`,
+`/api/ui/v1`, the health routes) must carry a `Host` naming this machine
+(`localhost`, an address in `127.0.0.0/8`, or `[::1]`, with any port), whether or
+not it carries an `Origin`; any other `Host` gets HTTP 403. It is installed only
+under that condition: with authentication on, the token is the access control,
+and a listen address beyond loopback with authentication off refuses to start
+(§Enabling bearer authentication). An `Origin` that carries userinfo is refused.
 
 ## Enabling bearer authentication
 
@@ -242,12 +251,27 @@ Tokens can be configured through server YAML or
 - `true`: require authentication and fail startup if no token is configured;
 - `false`: disable authentication.
 
+**Off-loopback needs a token (D906).** After the mode is resolved, a server whose
+listen address is reachable beyond this machine while authentication is off —
+`false`, or unset with no token — does not start, and the message says why.
+Loopback is a listen host in `127.0.0.0/8`, `::1` or `localhost`; an empty or
+wildcard host (`:39273`, `0.0.0.0:39273`) listens on every interface. The local
+service pins auth off and listens on `127.0.0.1` (D268), so it is unaffected; a
+remote deployment configures tokens, which turns authentication on in the default
+mode.
+
 Send a token only in `Authorization: Bearer <token>`, never in a URL.
+
+**The client refuses cleartext (D1023).** A client never sends the bearer token to
+a non-loopback `http://` URL: every request fails before dialing unless the
+operator opted in with `allow_insecure_http` or `CARTOGRAPHER_ALLOW_INSECURE_HTTP=1`
+(see [configurator.md](configurator.md) §Transport security). Serve a remote
+deployment over `https://`. The client also refuses to follow a redirect to a URL that fails the same check, and any https to http downgrade, even to loopback.
 
 ### What a 401 tells the client
 
 The client reads its token from the variable `.cartographer.yaml` names in
-`token_env`, so it names that variable back when the server answers 401, and
+`token: ${NAME}` (D906), so it names that variable back when the server answers 401, and
 distinguishes the two cases that need different fixes
 ([D222](decisions/D222-sync-checks-the-environment-once-and-the-401-names.md)):
 
@@ -411,12 +435,13 @@ Bearer tokens authorize requests. SSH keys and git tokens are files of the
 credentials directory, a KB's own or a default one, as described in
 [deployment](deployment.md) §Credentials directory (D905).
 
-The git **author** of a write is the writer, not a setting (D904). A client that
-knows who it acts for sends `Cartographer-Author: Name <email>` with the
-request; without a valid one the author is `<token id> <cartographer@<host>>`.
-The committer is always the server, `Cartographer <cartographer@<host>>`, and
-every write carries a `Cartographer-Token: <token id>` trailer that the server
-appends itself. The author line is therefore a claim by the caller, and the
+The git **author and committer** of a write are the writer, not a setting (D904,
+D950). A client that knows who it acts for sends `Cartographer-Author: Name <email>`
+with the request; without a valid one the writer is the identity the operator
+configured for the KB in the server file (`git.identity`, `git.identities`),
+else `<token id> <cartographer@<host>>`. Every write carries `Cartographer-Host`
+and `Cartographer-Token: <token id>` trailers that the server appends itself.
+The configured identity is attribution, never authorization. The author line is therefore a claim by the caller, and the
 trailer is what the server knows: attribution, not a signature, since whoever
 holds the token can write under any name. Format, validation and the warning on
 a rejected header → [control plane](control-plane.md). A token's `author_name`
@@ -479,7 +504,7 @@ The operator commands are offline by design — they read the files, not a
 running server, because an audit trail is most needed when the server is down:
 
 ```
-cartographer audit verify --log /var/lib/cartographer/audit.jsonl [--public-key <hex>]
+cartographer audit verify --log /var/lib/cartographer/audit.jsonl [--public-key <hex> [--signed-since <RFC3339>]]
 cartographer audit export --log /var/lib/cartographer/audit.jsonl --out report.json
 ```
 
@@ -488,6 +513,15 @@ for a chain it cannot verify, so an exported document is never
 authoritative-looking without being authoritative. Without `--public-key` the
 chain is checked but signatures are not, and the unsigned count is reported so
 the two situations stay distinguishable.
+
+With a key the log must be signed from a start: `--signed-since`, else the
+first checkpoint written with a key loaded, else the first signed entry. A log
+with entries and none of the three has no signature at all, so a rewrite that
+recomputed the chain and dropped every signature would pass for the original:
+verification (and `export`) fails with `no signed entry`. `--signed-since`
+asserts that every entry at or after that time is signed (it needs
+`--public-key`, otherwise exit 2); an operator whose log was never signed
+passes a time after its last entry, or drops the key.
 
 ## Stateless behavior
 
@@ -513,7 +547,11 @@ One row per distinct (KB, client name, client version, protocol version, era)
 combination, with a request count and a last-seen timestamp; rows are sorted by
 KB, then client name, then version, so consecutive polls are diffable. A
 multi-KB server answers with one flat array across every mounted KB, each row
-naming its `kb`. An `overflow` counter appears only when it is non-zero.
+naming its `kb`. Rows are limited to the KBs the token can read (any read grant
+on the KB, whatever its map, journal or type selectors; an admin sees all): a
+token with no grant on a KB gets neither its rows nor its activity, and an empty
+roster is a 200, not a 403, so the answer does not confirm the KB exists. An
+`overflow` counter appears only when it is non-zero and counts visible KBs only.
 
 ```json
 {"clients":[{"kb":"homelab-wiki","client_name":"claude-code","client_version":"2.1.0",

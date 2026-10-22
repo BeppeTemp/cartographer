@@ -142,7 +142,7 @@ func writeFindingsFeedback(payload []byte) string {
 		}
 		fmt.Fprintf(&b, "%s %s: %s\n", f.Check, f.Path, f.Message)
 	}
-	b.WriteString("Fix them in your next write, or accept them by adding the check name to the concept's `lint_ignore` list (`lint_ignore: [<check>]`), with the why in the write's `reason`.")
+	b.WriteString("Fix them in your next write: nothing accepts or silences a finding, so change the page, not the check.")
 	return b.String()
 }
 

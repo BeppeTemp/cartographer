@@ -30,7 +30,7 @@ func yamlPaths(t reflect.Type, prefix string, out *[]string) {
 		switch {
 		case ft.Kind() == reflect.Struct:
 			yamlPaths(ft, path+".", out)
-		case ft.Kind() == reflect.Slice && ft.Elem() == reflect.TypeOf(KBSpec{}):
+		case ft.Kind() == reflect.Slice && ft.Elem() == reflect.TypeOf(rawKB{}):
 			yamlPaths(ft.Elem(), path+"[].", out)
 		}
 	}
@@ -82,28 +82,33 @@ func TestSchemaEntriesAreComplete(t *testing.T) {
 		if first := k.Description[0]; first < 'A' || first > 'Z' {
 			t.Errorf("%s: a description starts with a capital, or it reads as a commented-out key", k.Path)
 		}
-		if k.Scope == settingschema.ScopeKB && !strings.HasPrefix(k.Path, "kbs[].") {
-			t.Errorf("%s: scope %s", k.Path, k.Scope)
-		}
 	}
 }
 
-// The KB-scoped keys are the ones a KB may carry itself (#746): this pins the
-// list so moving a key across the boundary is a decision, not a side effect.
+// The KB keys are the ones a KB carries itself (D746) and only there (D906):
+// this pins the list so adding or moving a key is a decision, not a side effect.
+// The server schema holds none of them.
 func TestSchemaKBScope(t *testing.T) {
-	var got []string
 	for _, k := range Schema.Keys {
 		if k.Scope == settingschema.ScopeKB {
-			got = append(got, strings.TrimPrefix(k.Path, "kbs[]."))
+			t.Errorf("%s is a KB key in the server schema (D906)", k.Path)
 		}
 	}
-	want := []string{"allow_artifact_write", "allow_template_write", "write_gate", "auto_repair", "repair_on_write",
-		"doctor_mode", "doctor_interval", "doctor_auto_interval", "doctor_budget", "usage_stale_days",
-		"mcp_allowlist", "secrets"}
+	var got []string
+	for _, k := range KBKeys {
+		if k.Scope != settingschema.ScopeKB || strings.HasPrefix(k.Path, "kbs[]") {
+			t.Errorf("%s: scope %s", k.Path, k.Scope)
+		}
+		if strings.TrimSpace(k.Description) == "" || strings.TrimSpace(k.Default) == "" {
+			t.Errorf("%s: description and default are required", k.Path)
+		}
+		got = append(got, k.Path)
+	}
+	want := []string{"usage_stale_days", "branch"}
 	sort.Strings(got)
 	sort.Strings(want)
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("kb-scoped keys = %v, want %v", got, want)
+		t.Errorf("KB keys = %v, want %v", got, want)
 	}
 }
 
@@ -146,10 +151,10 @@ func TestExampleLoadsAsDefaultsPlusExplicitValues(t *testing.T) {
 	}
 	want := Default()
 	want.HTTP = ":39273"
-	want.Init = true
 	want.Data = "/data"
 	want.CredentialsDir = "/etc/cartographer/credentials"
 	want.KBs = []KBSpec{{Remote: "https://git.example.com/user/kb-a.git", Name: "kb-a"}}
+	want.GitIdentity = "Ada Example <ada@example.com>"
 	want.Origins = got.Origins // origins are covered in origin_test.go
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Load(example) = %+v\nwant %+v", got, want)
@@ -158,7 +163,7 @@ func TestExampleLoadsAsDefaultsPlusExplicitValues(t *testing.T) {
 
 // A file with the comments stripped behaves as the commented one.
 func TestFormattedFileLoadsLikeTheOriginal(t *testing.T) {
-	src := "http: \":8080\"\nkbs:\n  - remote: https://git.example.com/user/kb-a.git\n    write_gate: error\n"
+	src := "http: \":8080\"\nkbs:\n  - remote: https://git.example.com/user/kb-a.git\n    path: /data/kb-a\n"
 	dir := t.TempDir()
 	plain := filepath.Join(dir, "plain.yaml")
 	if err := os.WriteFile(plain, []byte(src), 0o600); err != nil {

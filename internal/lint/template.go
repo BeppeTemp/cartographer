@@ -9,14 +9,13 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
-// Template checks (D352). Every page of a map that sets require_template binds
+// Template checks (D352). Every page of a map that declares templates binds
 // to one template ("shape") its map accepts, and a template is a closed page
 // schema: required fields and values, required and optional H2 sections, their
-// order, and the alternative names a heading may carry. All findings are
-// warning or info (D289): adopting templates never turns a gate red.
+// order, and the alternative names a heading may carry.
 //
-// No template is read, and nothing is reported, for a map that sets none of
-// templates, default_template, require_template and template_sections.
+// No template is read, and nothing is reported, for a map that sets neither
+// templates nor default_template; a map that sets one binds every page (D907).
 
 // Fix kinds of the template checks.
 const (
@@ -126,7 +125,6 @@ func trimTrailingBlank(lines []string) []string {
 // templateInput is the part of conceptInput the template checks read.
 type templateCtx struct {
 	in       conceptInput
-	strict   bool
 	closed   bool
 	shape    string // the page's shape as written ("" when absent or not a string)
 	hasShape bool
@@ -143,7 +141,7 @@ func newTemplateCtx(in conceptInput) (templateCtx, bool) {
 	if in.Parsed == nil || c == nil || !c.HasTemplateKeys() {
 		return templateCtx{}, false
 	}
-	x := templateCtx{in: in, strict: c.StrictTemplates(), pageType: strings.TrimSpace(in.Parsed.Type())}
+	x := templateCtx{in: in, pageType: strings.TrimSpace(in.Parsed.Type())}
 	if v, ok := in.Parsed.Get(kb.ShapeField); ok {
 		x.hasShape = true
 		x.shape, _ = v.(string)
@@ -160,20 +158,16 @@ func templateFindings(in conceptInput) []Finding {
 	if !ok {
 		return nil
 	}
-	c := in.Contract
 
-	var out []Finding
-	if x.strict {
-		out = append(out, x.bindingFindings()...)
-	}
-	if x.bound && (x.strict || c.TemplateSections) {
+	// A map that declares templates requires every page to bind to one, and a
+	// bound page to follow it (D371, D907): there is no key to say otherwise.
+	out := x.bindingFindings()
+	if x.bound {
 		if !x.closed {
 			out = append(out, x.missingSections()...)
 		}
-		if x.strict {
-			out = append(out, x.fieldFindings()...)
-			out = append(out, x.sectionShapeFindings()...)
-		}
+		out = append(out, x.fieldFindings()...)
+		out = append(out, x.sectionShapeFindings()...)
 	}
 	return out
 }
@@ -295,9 +289,8 @@ func (x templateCtx) optionalSet() map[string]bool {
 	return optional
 }
 
-// missingSections: template_section_missing. Info under template_sections,
-// warning under require_template. An alias counts as the section; no fix, an
-// empty heading is a hollow promise.
+// missingSections: template_section_missing. An alias counts as the
+// section; no fix, an empty heading is a hollow promise.
 func (x templateCtx) missingSections() []Finding {
 	names := namesOf(x.tpl)
 	have := map[int]bool{}
@@ -316,11 +309,7 @@ func (x templateCtx) missingSections() []Finding {
 	if len(missing) == 0 {
 		return nil
 	}
-	f := x.finding("template_section_missing", missingSectionsMessage(x.tpl.Slug, missing), nil)
-	if x.strict {
-		f.Severity = SevWarning
-	}
-	return []Finding{f}
+	return []Finding{x.finding("template_section_missing", missingSectionsMessage(x.tpl.Slug, missing), nil)}
 }
 
 // missingSectionsMessage names the missing sections. When one is a links
@@ -342,7 +331,7 @@ func missingSectionsMessage(slug string, missing []string) string {
 // gone. A page in a closed phase is not asked for its sections, yet keeps the
 // heading here: an empty heading costs nothing, and the page may reopen.
 func (x templateCtx) requiresSection(heading string) bool {
-	if !x.bound || !(x.strict || x.in.Contract.TemplateSections) {
+	if !x.bound {
 		return false
 	}
 	i, ok := namesOf(x.tpl).index(foldHeading(heading))
@@ -525,21 +514,12 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// mapTemplateMinConcepts is the page count from which a map with no templates
-// is worth a template proposal (map_without_templates, kb_review).
-const mapTemplateMinConcepts = 3
-
-// mapTemplateFindings are the checks on a map's descriptor: a map of at least
-// mapTemplateMinConcepts pages that declares no templates (map_without_templates)
-// and a template whose allowed values leave the map's own (contract_malformed).
-func mapTemplateFindings(descriptor, mapName string, contract kb.MapContract, concepts int, catalog kb.TemplateCatalog) []Finding {
+// mapTemplateFindings are the checks on a map's descriptor: a template whose
+// allowed values leave the map's own (contract_malformed). A map that declares
+// no templates is not a finding (D947): kb_review's template_proposal proposes
+// the ones its pages already follow.
+func mapTemplateFindings(descriptor, mapName string, contract kb.MapContract, catalog kb.TemplateCatalog) []Finding {
 	var out []Finding
-	if len(contract.Templates) == 0 && concepts >= mapTemplateMinConcepts {
-		out = append(out, newFinding("map_without_templates", Finding{
-			Path:    descriptor,
-			Message: fmt.Sprintf("map %q holds %d pages and declares no templates: kb_review proposes the ones its pages already follow", mapName, concepts),
-		}))
-	}
 	slugs := append([]string(nil), contract.Templates...)
 	sort.Strings(slugs)
 	for _, slug := range slugs {

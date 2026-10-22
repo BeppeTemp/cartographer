@@ -126,6 +126,13 @@ func TestLoadAllSkills(t *testing.T) {
 	}
 }
 
+func TestLoadAllSkillsWithoutSkillsDir(t *testing.T) {
+	skills, errs := LoadAllSkills(t.TempDir())
+	if len(skills) != 0 || len(errs) != 0 {
+		t.Fatalf("a KB without skills/ has no skills and no error, got %d skills, errors %v", len(skills), errs)
+	}
+}
+
 func TestLoadAllSkillsPartialError(t *testing.T) {
 	kbRoot := t.TempDir()
 	skillsDir := filepath.Join(kbRoot, "skills")
@@ -387,17 +394,17 @@ func TestValidate_FrontmatterInvalidYAML(t *testing.T) {
 	}{
 		{
 			"colon-space in an unquoted scalar",
-			"name: my-skill\ndescription: Sibling of the plan-issue skill: it writes issues\n",
+			"name: my-skill\ndescription: Sibling of the cartographer-propose-plan skill: it writes issues\n",
 			"frontmatter_invalid_yaml",
 		},
 		{
 			"the same value, quoted",
-			"name: my-skill\ndescription: \"Sibling of the plan-issue skill: it writes issues\"\n",
+			"name: my-skill\ndescription: \"Sibling of the cartographer-propose-plan skill: it writes issues\"\n",
 			"",
 		},
 		{
 			"the same value, colon replaced",
-			"name: my-skill\ndescription: Sibling of the plan-issue skill — it writes issues\n",
+			"name: my-skill\ndescription: Sibling of the cartographer-propose-plan skill — it writes issues\n",
 			"",
 		},
 		{

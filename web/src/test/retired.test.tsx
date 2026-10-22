@@ -37,7 +37,7 @@ const retired: RetiredResponse = {
   ],
   journals: [
     { name: "runs", title: "Runs", harvest_after: 45, waiting: 2, archived: 1 },
-    { name: "ops", harvest_off: true, waiting: 0, archived: 3 },
+    { name: "ops", harvest_after: 30, waiting: 0, archived: 3 },
   ],
 };
 
@@ -135,7 +135,7 @@ describe("the Retired panel", () => {
     expect(
       await screen.findByText("2 closed entries waiting to be harvested (after 45 days) · 1 archived"),
     ).toBeInTheDocument();
-    expect(screen.getByText("harvest off · 3 archived")).toBeInTheDocument();
+    expect(screen.getByText("0 closed entries waiting to be harvested (after 30 days) · 3 archived")).toBeInTheDocument();
   });
 
   it("explains how a concept gets retired when nothing is", async () => {
@@ -191,7 +191,8 @@ describe("the Retired panel", () => {
     });
     expect(maps[0]).toHaveTextContent("Infrastructure");
     expect(maps[1]).toHaveTextContent("Archive");
-    expect(within(maps[1]!).getByText("Archive", { selector: ".rail__archive" })).toBeInTheDocument();
+    // Titled "Archive" already: the badge would only repeat it.
+    expect(within(maps[1]!).queryByText("Archive", { selector: ".rail__archive" })).not.toBeInTheDocument();
     expect(within(maps[0]!).queryByText("Archive", { selector: ".rail__archive" })).not.toBeInTheDocument();
   });
 });

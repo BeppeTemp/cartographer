@@ -743,7 +743,7 @@ func managedHookNames(lock provisioning.Lock) []string {
 // server is one finding, not a failure — doctor must stay useful offline.
 func checkServer(dir string, cfg *clientconfig.Config, providers []string) []doctorFinding {
 	configPath := filepath.Join(dir, clientconfig.FileName)
-	facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
+	facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
 	if err != nil {
 		f := doctorFinding{
 			Check: "server", Severity: doctorWarning, Path: configPath,
@@ -881,7 +881,7 @@ func checkKBCollisions(dir string, cfg *clientconfig.Config, providers []string)
 // not advertise capabilities: a missing signal is not evidence that everything is
 // on.
 func checkCapabilities(dir string, cfg *clientconfig.Config) []doctorFinding {
-	facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
+	facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
 	if err != nil {
 		return nil
 	}

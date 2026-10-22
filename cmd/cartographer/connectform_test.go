@@ -10,7 +10,7 @@ import (
 )
 
 func TestConnectFormModel_Prefill(t *testing.T) {
-	prefill := connectOptions{ServerURL: "https://wiki.example.com/mcp", Name: "kb", Auth: true, TokenEnv: "MY_TOKEN", Trust: true}
+	prefill := connectOptions{ServerURL: "https://wiki.example.com/mcp", Name: "kb", Auth: true, Token: "${MY_TOKEN}"}
 	m := newConnectFormModel("Connect claude", prefill, false)
 
 	if m.focus != fieldServerURL {
@@ -25,21 +25,18 @@ func TestConnectFormModel_Prefill(t *testing.T) {
 	if got := m.serverName; got != prefill.Name {
 		t.Errorf("serverName = %q, want %q (carried through, not a form field)", got, prefill.Name)
 	}
-	if got := m.tokenEnv.Value(); got != prefill.TokenEnv {
-		t.Errorf("tokenEnv = %q, want %q", got, prefill.TokenEnv)
+	if got := m.tokenEnv.Value(); got != "MY_TOKEN" {
+		t.Errorf("tokenEnv = %q, want the variable name MY_TOKEN", got)
 	}
 	if !m.auth {
 		t.Error("auth = false, want true (from prefill)")
-	}
-	if !m.trust {
-		t.Error("trust = false, want true (from prefill)")
 	}
 }
 
 func TestConnectFormModel_TabCyclesFocus(t *testing.T) {
 	m := newConnectFormModel("Connect claude", connectOptions{}, false)
 
-	order := []connectField{fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldTokenEnv, fieldAuth, fieldTrust, fieldSubmit, fieldServerURL}
+	order := []connectField{fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot, fieldTokenEnv, fieldAuth, fieldSubmit, fieldServerURL}
 	for i, want := range order {
 		tm, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
 		m = tm.(connectFormModel)
@@ -98,25 +95,22 @@ func TestConnectFormModel_ToggleAuthWithSpace(t *testing.T) {
 	}
 }
 
-func TestConnectFormModel_ToggleTrustWithSpace(t *testing.T) {
-	m := newConnectFormModel("Connect claude", connectOptions{Trust: true}, false)
-	m.setFormFocus(fieldTrust)
-
-	tm, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
-	m = tm.(connectFormModel)
-	if m.trust {
-		t.Fatal("expected trust = false after space on fieldTrust")
+// D906: the form shows only a variable name, so a literal token already in the
+// file is kept while that text is left alone, and replaced once another name is
+// typed.
+func TestConnectFormModel_KeepsALiteralToken(t *testing.T) {
+	m := newConnectFormModel("Connect claude", connectOptions{Token: "s3cr3t-literal", Auth: true}, false)
+	if got := m.Values().Token; got != "s3cr3t-literal" {
+		t.Errorf("Token = %q, want the literal kept", got)
 	}
-
-	tm, _ = m.Update(tea.KeyMsg{Type: tea.KeySpace})
-	m = tm.(connectFormModel)
-	if !m.trust {
-		t.Fatal("expected trust = true after toggling twice")
+	m.tokenEnv.SetValue("OTHER_TOKEN")
+	if got := m.Values().Token; got != "${OTHER_TOKEN}" {
+		t.Errorf("Token = %q, want the typed variable", got)
 	}
 }
 
 func TestConnectFormModel_SubmitOnEnterAtSubmitField(t *testing.T) {
-	prefill := connectOptions{ServerURL: "http://host/mcp", Name: "kb", Auth: true, TokenEnv: "TOK", Trust: true}
+	prefill := connectOptions{ServerURL: "http://host/mcp", Name: "kb", Auth: true, Token: "${TOK}"}
 	m := newConnectFormModel("Connect claude", prefill, false)
 	m.setFormFocus(fieldSubmit)
 
@@ -146,7 +140,7 @@ func TestConnectFormModel_ValuesDefaultsBlankFields(t *testing.T) {
 	m := newConnectFormModel("Connect claude", connectOptions{}, false)
 
 	got := m.Values()
-	want := connectOptions{ServerURL: defaults.DefaultMCPURL, Name: "cartographer", TokenEnv: "CARTOGRAPHER_TOKENS"}
+	want := connectOptions{ServerURL: defaults.DefaultMCPURL, Name: "cartographer", Token: "${CARTOGRAPHER_TOKENS}"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Values() = %+v, want %+v", got, want)
 	}
@@ -183,8 +177,8 @@ func TestConnectFormModel_HintFollowsFocus(t *testing.T) {
 	if !strings.Contains(out, "environment variable that holds the bearer token") {
 		t.Errorf("hint for Token env var missing with focus on it (auth on):\n%s", out)
 	}
-	if !strings.Contains(out, "never written to disk") {
-		t.Errorf("token-env hint must clarify the token is never written to disk:\n%s", out)
+	if !strings.Contains(out, "saves only the name") || strings.Contains(out, "never written to disk") {
+		t.Errorf("token-env hint must say the form saves only the name:\n%s", out)
 	}
 
 	m.setFormFocus(fieldSubmit)
@@ -212,7 +206,7 @@ func TestConnectFormModel_LabelIsTokenEnvVar(t *testing.T) {
 }
 
 func TestConnectFormModel_WithErrorPreservesValuesAndRendersInline(t *testing.T) {
-	prefill := connectOptions{ServerURL: "https://x/mcp", TokenEnv: "TOK", Auth: true, Trust: true}
+	prefill := connectOptions{ServerURL: "https://x/mcp", Token: "${TOK}", Auth: true}
 	m := newConnectFormModel("Connect claude", prefill, false)
 	m.submitted = true
 

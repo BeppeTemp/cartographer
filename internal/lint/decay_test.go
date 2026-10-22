@@ -127,7 +127,7 @@ func TestTemplateSectionMissing(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.Root, "templates/service.md", "---\ntype: Service\ntitle: \"{{title}}\"\n---\n# {{title}}\n\n## Endpoint\n\n## Source of truth\n\n## Città\n")
-	writeFile(t, k.DataRoot(), "s/_map.md", "---\ntype: Map\ntitle: S\ntemplate_sections: true\n---\n")
+	writeFile(t, k.DataRoot(), "s/_map.md", "---\ntype: Map\ntitle: S\ntemplates: [service]\n---\n")
 	writeFile(t, k.DataRoot(), "o/_map.md", "---\ntype: Map\ntitle: O\n---\n")
 	writeFile(t, k.DataRoot(), "s/a.md", "---\ntype: Service\ntitle: A\n---\n# A\n\n## endpoint\n\n## Citta\n")
 	writeFile(t, k.DataRoot(), "o/a.md", "---\ntype: Service\ntitle: A\n---\n# A\n")
@@ -138,7 +138,7 @@ func TestTemplateSectionMissing(t *testing.T) {
 		t.Fatalf("s/a: %+v", got)
 	}
 	if hasCheck(f, "o/a.md", "template_section_missing") || hasCheck(f, "s/n.md", "template_section_missing") {
-		t.Fatal("opt-in only, and only for types with a template")
+		t.Fatal("only a map that declares templates, and only for types with a template")
 	}
 }
 
@@ -182,7 +182,7 @@ func TestFacetSprawl(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: C\ntags: [common, t%d]\n---\n# C\n", i))
 	}
-	f, _ := Run(k, "", false)
+	f := observed(t, k)
 	if !hasCheck(f, "m/_map.md", "facet_sprawl") {
 		t.Fatal("facet_sprawl not reported")
 	}

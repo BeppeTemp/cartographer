@@ -39,7 +39,7 @@ func TestDoConnect_UnresolvedPlaceholderNonTTYPrintsFix(t *testing.T) {
 	srv := placeholderServer(t)
 	defer srv.Close()
 	dir := t.TempDir()
-	opts := connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Trust: true, KBs: []string{"alpha"}}
+	opts := connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", KBs: []string{"alpha"}}
 	res, err := doConnect(opts)
 	if err != nil {
 		t.Fatalf("doConnect: %v", err)
@@ -72,7 +72,7 @@ func TestDoConnect_PlaceholderStepWritesPaths(t *testing.T) {
 	}
 	defer func() { runPathsForm = old }()
 
-	res, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Trust: true, KBs: []string{"alpha"}, PromptPaths: true})
+	res, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", KBs: []string{"alpha"}, PromptPaths: true})
 	if err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestDoConnect_PlaceholderStepWritesPaths(t *testing.T) {
 func TestCmdPaths_SetListUnsetRoundTrip(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
-	writeClientConfig(t, home, "search_depth: 5\nfuture_key: kept\n")
+	writeClientConfig(t, home, "search_roots: [~/work]\nfuture_key: kept\n")
 
 	lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{
 		"claude": {
@@ -140,8 +140,8 @@ func TestCmdPaths_SetListUnsetRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Paths["x"] != filepath.Join(home, "not-yet") || cfg.SearchDepth != 5 {
-		t.Errorf("after set: paths=%v search_depth=%d", cfg.Paths, cfg.SearchDepth)
+	if cfg.Paths["x"] != filepath.Join(home, "not-yet") || len(cfg.SearchRoots) != 1 || cfg.SearchRoots[0] != "~/work" {
+		t.Errorf("after set: paths=%v search_roots=%v", cfg.Paths, cfg.SearchRoots)
 	}
 	if data, _ := os.ReadFile(clientconfig.Path(home)); !strings.Contains(string(data), "future_key: kept") {
 		t.Errorf("an unknown key must survive the save:\n%s", data)

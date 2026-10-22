@@ -23,7 +23,7 @@ import (
 func TestExpandPlaceholders_NoopWhenDisabled(t *testing.T) {
 	content := []byte("See {{path:design}} for the assets.")
 	opts := ApplyOptions{
-		AutoTrust: true, Paths: map[string]string{"design": "/mnt/design"}} // ExpandPlaceholders: false
+		Paths: map[string]string{"design": "/mnt/design"}} // ExpandPlaceholders: false
 	tracker := newExpansionTracker()
 
 	got := expandPlaceholders(content, opts, tracker)
@@ -38,7 +38,7 @@ func TestExpandPlaceholders_NoopWhenDisabled(t *testing.T) {
 func TestExpandPlaceholders_PathResolved(t *testing.T) {
 	content := []byte("See {{path:design}} for the assets.")
 	opts := ApplyOptions{
-		AutoTrust: true, ExpandPlaceholders: true, Paths: map[string]string{"design": "/mnt/design"}}
+		ExpandPlaceholders: true, Paths: map[string]string{"design": "/mnt/design"}}
 	tracker := newExpansionTracker()
 
 	got := expandPlaceholders(content, opts, tracker)
@@ -58,7 +58,7 @@ func TestExpandPlaceholders_RepoResolvedViaManualPathsOverride(t *testing.T) {
 	// so this test neither scans nor writes anything on the real filesystem.
 	content := []byte("The repo is in {{repo:cartographer}}.")
 	opts := ApplyOptions{
-		AutoTrust: true, ExpandPlaceholders: true, Paths: map[string]string{"cartographer": "/home/x/repos/cartographer"}}
+		ExpandPlaceholders: true, Paths: map[string]string{"cartographer": "/home/x/repos/cartographer"}}
 	tracker := newExpansionTracker()
 
 	got := expandPlaceholders(content, opts, tracker)
@@ -73,7 +73,7 @@ func TestExpandPlaceholders_RepoResolvedViaManualPathsOverride(t *testing.T) {
 func TestExpandPlaceholders_UnresolvedLeftAsIsWithWarning(t *testing.T) {
 	content := []byte("See {{path:missing}} for the assets.")
 	opts := ApplyOptions{
-		AutoTrust: true, ExpandPlaceholders: true, Paths: map[string]string{}}
+		ExpandPlaceholders: true, Paths: map[string]string{}}
 	tracker := newExpansionTracker()
 
 	got := expandPlaceholders(content, opts, tracker)
@@ -93,7 +93,7 @@ func TestExpandPlaceholders_UnresolvedLeftAsIsWithWarning(t *testing.T) {
 func TestExpandPlaceholders_NoPlaceholdersUntouched(t *testing.T) {
 	content := []byte("No placeholder here.")
 	opts := ApplyOptions{
-		AutoTrust: true, ExpandPlaceholders: true, Paths: map[string]string{}}
+		ExpandPlaceholders: true, Paths: map[string]string{}}
 	tracker := newExpansionTracker()
 
 	got := expandPlaceholders(content, opts, tracker)
@@ -181,7 +181,6 @@ func TestApply_ExpandPlaceholders_ZeroDriftAgent(t *testing.T) {
 
 	baseDir := t.TempDir()
 	res, err := Apply(m, ApplyOptions{
-		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -222,7 +221,6 @@ func TestApply_ExpandPlaceholders_AgentPathPlaceholder(t *testing.T) {
 
 	baseDir := t.TempDir()
 	res, err := Apply(m, ApplyOptions{
-		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -275,7 +273,6 @@ func TestApply_ExpandPlaceholders_UnresolvedWarnsAndLeavesLiteral(t *testing.T) 
 
 	baseDir := t.TempDir()
 	res, err := Apply(m, ApplyOptions{
-		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -321,11 +318,10 @@ func TestApply_ExpandPlaceholders_ServerNeverExpands(t *testing.T) {
 	baseDir := t.TempDir()
 	// Like internal/mcpserver: ExpandPlaceholders never set (default false).
 	res, err := Apply(m, ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		Lock:      Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		Lock:     Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -374,7 +370,6 @@ func TestApply_ExpandPlaceholders_ZeroDriftSkill(t *testing.T) {
 
 	baseDir := t.TempDir()
 	res, err := Apply(m, ApplyOptions{
-		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -411,7 +406,6 @@ func TestApply_ExpandPlaceholders_SkillMultiFilePlaceholder(t *testing.T) {
 
 	baseDir := t.TempDir()
 	result, err := Apply(m, ApplyOptions{
-		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -472,7 +466,6 @@ func TestApply_ExpandPlaceholders_Instructions(t *testing.T) {
 	m := MergeArtifacts([]Artifact{a})
 
 	res, err := Apply(m, ApplyOptions{
-		AutoTrust:          true,
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
 		Lock:               Lock{},
@@ -504,7 +497,6 @@ func TestApply_ExpandPlaceholders_ZeroDriftInstructions(t *testing.T) {
 	m := MergeArtifacts([]Artifact{a})
 
 	res, err := Apply(m, ApplyOptions{
-		AutoTrust:          true,
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
 		Lock:               Lock{},
@@ -564,7 +556,6 @@ func TestApply_ExpandPlaceholders_PathsTableInInstructions(t *testing.T) {
 
 	baseDir := t.TempDir()
 	_, err = Apply(m, ApplyOptions{
-		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -608,7 +599,6 @@ func TestApply_ExpandPlaceholders_NoPathsTableWhenNothingResolved(t *testing.T) 
 
 	baseDir := t.TempDir()
 	_, err = Apply(m, ApplyOptions{
-		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -648,11 +638,10 @@ func TestApply_ExpandPlaceholders_NoPathsTableServerSide(t *testing.T) {
 	baseDir := t.TempDir()
 	// ExpandPlaceholders never set, like internal/mcpserver.
 	_, err = Apply(m, ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		Lock:      Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		Lock:     Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)

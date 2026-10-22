@@ -136,9 +136,10 @@ func doReconnect(opts reconnectOptions) (reconnectResult, error) {
 		ServerURL: cfg.ServerURL,
 		Name:      cfg.ServerName,
 		Auth:      cfg.Auth,
-		TokenEnv:  cfg.TokenEnv,
-		Trust:     cfg.Trust,
+		Token:     cfg.Token,
 		DryRun:    opts.DryRun,
+
+		AllowInsecureHTTP: cfg.AllowInsecureHTTP,
 	}
 	connectRes, err := doConnect(res.ConnectOptions)
 	if err != nil {
@@ -162,10 +163,14 @@ func reconnectRecoveryCommand(providers []string, opts connectOptions) string {
 	if opts.ServerURL != "" {
 		fmt.Fprintf(&sb, " --server-url %s", opts.ServerURL)
 	}
+	if opts.AllowInsecureHTTP {
+		sb.WriteString(" --allow-insecure-http")
+	}
 	if opts.Auth {
 		sb.WriteString(" --auth")
-		if opts.TokenEnv != "" {
-			fmt.Fprintf(&sb, " --token-env %s", opts.TokenEnv)
+		// A literal token is in the file and never goes on a command line.
+		if name := opts.tokenEnvName(); name != "" && (&clientconfig.Config{Token: opts.Token}).LiteralToken() == "" {
+			fmt.Fprintf(&sb, " --token-env %s", name)
 		}
 	}
 	return sb.String()

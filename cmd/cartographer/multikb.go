@@ -157,13 +157,13 @@ type serverFacts struct {
 
 // enumerateKBs obtains the mounted KB names and the server version from
 // /health.
-func enumerateKBs(serverURL string, auth bool, tokenEnv string) (serverFacts, error) {
+func enumerateKBs(serverURL string, auth bool, tokenSpec string, allowInsecure bool) (serverFacts, error) {
 	token, name := "", ""
-	if auth && tokenEnv != "" {
-		token = resolveToken(&clientconfig.Config{Auth: auth, TokenEnv: tokenEnv})
-		name = tokenEnv
+	if c := (&clientconfig.Config{Auth: auth, Token: tokenSpec}); auth && strings.TrimSpace(tokenSpec) != "" {
+		token = resolveToken(c)
+		name = tokenEnvName(c)
 	}
-	health, err := client.New(serverURL, token).WithTokenEnv(name).Health(probeTimeout)
+	health, err := client.New(serverURL, token).WithInsecureHTTP(allowInsecure).WithTokenEnv(name).Health(probeTimeout)
 	if err != nil {
 		return serverFacts{}, err
 	}

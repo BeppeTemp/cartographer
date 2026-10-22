@@ -14,7 +14,8 @@ import {
   PageHeader,
   PageSection,
   Quiet,
-  SkeletonRows,
+  RetiredSkeleton,
+  TitleBone,
 } from "./Page";
 
 /** The statuses the page lists, in the order the chips show them. */
@@ -139,7 +140,7 @@ export function Retired({
       ) : error ? (
         <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
       ) : !data ? (
-        <SkeletonRows label="Reading what was retired" />
+        <RetiredSkeleton label="Reading what was retired" />
       ) : all.length === 0 ? (
         <EmptyState
           title="Nothing retired yet"
@@ -233,7 +234,7 @@ function Row({
 }
 
 function Headline({ data, failed }: { data: RetiredResponse | null; failed: boolean }) {
-  if (!data) return <>{failed ? "Retired concepts unavailable" : "Reading what was retired…"}</>;
+  if (!data) return <>{failed ? "Retired concepts unavailable" : <TitleBone label="Reading what was retired" />}</>;
   const n = data.concepts.length;
   if (n === 0) return <>Nothing is retired.</>;
   return (
@@ -252,7 +253,6 @@ function breakdown(counts: Map<string, number>): string {
 
 function harvestLine(j: RetiredJournal): string {
   const archived = `${j.archived} archived`;
-  if (j.harvest_off) return `harvest off · ${archived}`;
   const waiting = `${j.waiting} closed ${j.waiting === 1 ? "entry" : "entries"} waiting to be harvested`;
   return `${waiting}${j.harvest_after ? ` (after ${j.harvest_after} days)` : ""} · ${archived}`;
 }

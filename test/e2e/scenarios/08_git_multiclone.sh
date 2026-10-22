@@ -18,6 +18,8 @@ E2E_DIR="$(cd "${SCENARIO_DIR}/.." && pwd)"
 
 # shellcheck source=../lib/assert.sh
 source "${E2E_DIR}/lib/assert.sh"
+# shellcheck source=../lib/kb.sh
+source "${E2E_DIR}/lib/kb.sh"
 
 SCENARIO_NAME="08_git_multiclone"
 echo "=== Scenario ${SCENARIO_NAME} ==="
@@ -71,11 +73,11 @@ git init --bare "$BARE" >/dev/null 2>&1
 # A KB is always initialized on main; make the remote advertise the same branch
 # so the scenario does not depend on the host's init.defaultBranch.
 git -C "$BARE" symbolic-ref HEAD refs/heads/main
-mkdir -p "$KBA"
+kb_bootstrap "$KBA"
 
-# Start instance A on KBA with --init (creates structure + git init + initial commit).
+# Start instance A on KBA (made a KB by kb_bootstrap above: serve never creates one).
 CARTOGRAPHER_AUTH=false K_SERVICE=e2e \
-    "$BIN" serve --kb "$KBA" --init --http ":${PORT_A}" >"${DIR}/srvA.log" 2>&1 &
+    "$BIN" serve --kb "$KBA" --http "127.0.0.1:${PORT_A}" >"${DIR}/srvA.log" 2>&1 &
 PID_A=$!
 wait_health "$PORT_A" || { echo "[ERROR] server A not responding"; exit 1; }
 
@@ -88,16 +90,16 @@ git -C "$KBA" push -u origin "$BRANCH" >/dev/null 2>&1
 echo "[08] clone B from remote + start instance B"
 git clone "$BARE" "$KBB" >/dev/null 2>&1
 CARTOGRAPHER_AUTH=false K_SERVICE=e2e \
-    "$BIN" serve --kb "$KBB" --init --http ":${PORT_B}" >"${DIR}/srvB.log" 2>&1 &
+    "$BIN" serve --kb "$KBB" --http "127.0.0.1:${PORT_B}" >"${DIR}/srvB.log" 2>&1 &
 PID_B=$!
 wait_health "$PORT_B" || { echo "[ERROR] server B not responding"; exit 1; }
 
 # --- A writes a concept (autocommit + push to the bare repo) ---
 echo "[08] write on instance A"
 mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"shared","title":"Shared"}}}'
-mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"shared/notes","frontmatter":{"type":"Index","title":"Notes"},"body":"# Notes\n"}}}'
+# One concept_batch: the write gate (D907) refuses an orphan page or one missing from its map index.
+mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"shared/notes","index_entry":true,"frontmatter":{"type":"Index","title":"Notes"},"body":"# Notes\n\nSee [[shared/notes/from-a]].\n"},{"op":"write","id":"shared/notes/from-a","index_entry":true,"frontmatter":{"type":"note","title":"From A"},"body":"Concept created on instance A."}]}}}'
 mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"shared/notes"}}}'
-mcp "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"shared/notes/from-a","frontmatter":{"type":"note","title":"From A"},"body":"Concept created on instance A."}}}'
 
 # --- B performs an operation: SyncIn (fetch+pull) must bring in A's concept ---
 echo "[08] operation on instance B (triggers SyncIn)"

@@ -1,0 +1,184 @@
+name: release-train
+
+# The weekly release train (D956, D989): Saturday 00:30 Europe/Rome builds the release
+# candidate, Monday 08:30 Europe/Rome merges the release PR if a maintainer ran
+# the candidate and added the `rc-ok` label. Freeze: Saturday 00:00 to Monday 08:30,
+# nothing that adds or breaks behaviour lands (CONTRIBUTING.md §Releases).
+#
+# TRAPS (pinned by internal/repodocs/release_train_test.go):
+#   - GitHub cron runs in UTC and knows no time zone, so each slot has two entries,
+#     one per offset of Europe/Rome, and the run continues only when the entry
+#     that fired (github.event.schedule) is the one for today's offset
+#     (TZ=Europe/Rome date +%z). Never a guard on the clock: a scheduled run can
+#     start an hour or more late, which drops it under a minute or hour guard, and
+#     lets both entries of a slot pass an hour guard, running the slot twice.
+#     Neither slot falls on a daylight-saving change (always a Sunday).
+#   - Schedules run only from the default branch.
+#   - A merge made with the default GITHUB_TOKEN does not trigger the `push`
+#     workflows, so release-please would never cut the tag: the merge step uses the
+#     RELEASE_PLEASE_TOKEN PAT, as release-please.yml does.
+#   - No `uses:` here on purpose: the workflow checks out nothing and runs only `gh`,
+#     so no third-party code runs with the PAT. Keep it that way, or pin to a SHA.
+on:
+  schedule:
+    - cron: "30 22 * * 5" # Fri 22:30 UTC = Sat 00:30 CEST (summer)
+    - cron: "30 23 * * 5" # Fri 23:30 UTC = Sat 00:30 CET (winter)
+    - cron: "30 6 * * 1" # Mon 06:30 UTC = Mon 08:30 CEST
+    - cron: "30 7 * * 1" # Mon 07:30 UTC = Mon 08:30 CET
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Run one step by hand: rc (dispatch the candidate build) or release (the Monday merge, with all its checks)"
+        type: choice
+        options: [rc, release]
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write # comments on the release PR
+  actions: write # dispatching preview.yml
+  checks: read # gh pr checks reads the check runs
+  statuses: read # and the commit statuses
+
+concurrency:
+  group: release-train
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      # The daylight-saving guard (see TRAPS). A manual dispatch skips it and names the action.
+      - name: What does this run do
+        id: mode
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_ACTION: ${{ inputs.action }}
+          CRON: ${{ github.event.schedule }}
+        run: |
+          mode=none
+          if [ "$EVENT" = workflow_dispatch ]; then
+            mode="$INPUT_ACTION"
+          else
+            offset=$(TZ=Europe/Rome date +%z) # +0200 summer, +0100 winter
+            case "$offset $CRON" in
+              "+0200 30 6 * * 1" | "+0100 30 7 * * 1") mode=release ;;
+              "+0200 30 22 * * 5" | "+0100 30 23 * * 5") mode=rc ;;
+            esac
+          fi
+          echo "cron: ${CRON:-manual}, Europe/Rome offset: ${offset:-n/a}, mode: $mode"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+
+      - name: Find the release PR
+        id: pr
+        if: steps.mode.outputs.mode != 'none'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # --head matches only the branch name: a fork can open a PR from a branch of
+          # the same name, so the PR must come from this repository.
+          n=$(gh pr list --state open --label "autorelease: pending" \
+            --head release-please--branches--main --json number,isCrossRepository \
+            --jq '[.[] | select(.isCrossRepository | not)][0].number // empty')
+          if [ -z "$n" ]; then
+            echo "no release PR open: nothing to do"
+          else
+            echo "release PR: #$n"
+            echo "number=$n" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Saturday: the candidate is the main of the start of the freeze.
+      - name: Dispatch the release candidate build
+        if: steps.mode.outputs.mode == 'rc' && steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          title=$(gh pr view "$PR" --json title --jq .title)
+          version=$(printf '%s' "$title" | sed -n 's/^chore([a-z]*): release \([0-9][0-9.]*[0-9]\).*/\1/p')
+          if [ -z "$version" ]; then
+            echo "::error::cannot read the version from the release PR title '$title'" >&2
+            exit 1
+          fi
+          # Must match the pre-release rule of preview.yml (vX.Y.Z-<suffix>).
+          tag="v${version}-rc.$(TZ=Europe/Rome date +%Y%m%d)"
+          gh workflow run preview.yml -f tag="$tag"
+          gh pr comment "$PR" --body "Release candidate \`$tag\` is building (preview.yml, image \`ghcr.io/beppetemp/cartographer:$tag\`). Try it on a real deployment, then add the \`rc-ok\` label: the Monday train merges this PR only with it."
+
+      # Monday: every condition below is a reason to skip the train, never to fail it.
+      - name: Check the train may leave
+        id: gate
+        if: steps.mode.outputs.mode == 'release' && steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          skip() { # skip <comment body>: say why on the PR and leave without merging
+            echo "train skipped: $1"
+            gh pr comment "$PR" --body "Release train skipped: $1"
+            exit 0
+          }
+
+          labelled=$(gh pr view "$PR" --json labels --jq '[.labels[].name] | index("rc-ok") != null')
+          [ "$labelled" = true ] || skip "no \`rc-ok\` label. Run the release candidate, add the label, and the next train (a week later) merges this PR."
+
+          # The train must not ship a commit the candidate did not contain: the newest
+          # successful candidate build must be of the head of main, and the label must
+          # come after that build. A label newer than the last commit is not enough: a
+          # fix merged after the Saturday build and before the label was never run.
+          retry="Run \`release-train\` by hand with \`action: rc\`, try the new candidate, then remove and add \`rc-ok\` again."
+          head_sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+          # Only a release candidate counts, not any preview of main: run-name carries the tag.
+          read -r rc_sha rc_at < <(gh run list --workflow preview.yml --branch main --status success --limit 20 \
+            --json headSha,updatedAt,displayTitle \
+            --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}$"))][0] | "\(.headSha) \(.updatedAt)"') || true
+          if [ -z "${rc_sha:-}" ] || [ "$rc_sha" != "$head_sha" ]; then
+            # Name the cause: a candidate whose build or smoke failed (D995) also
+            # leaves no successful run, and "not the head of main" hid it.
+            failed_url=$(gh run list --workflow preview.yml --branch main --limit 20 \
+              --json conclusion,displayTitle,url \
+              --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}$"))][0] | select(.conclusion == "failure") | .url') || true
+            if [ -n "${failed_url:-}" ]; then
+              skip "the last release candidate build failed (${failed_url}). Fix it, run \`release-train\` by hand with \`action: rc\`, try the new candidate, then remove and add \`rc-ok\` again."
+            fi
+            skip "the last candidate built (${rc_sha:-none}) is not the head of \`main\` (${head_sha:0:8}). $retry"
+          fi
+          read -r ok_at ok_by < <(gh api --paginate "repos/$GH_REPO/issues/$PR/timeline" \
+            --jq '.[] | select(.event == "labeled" and .label.name == "rc-ok") | "\(.created_at) \(.actor.login)"' | sort | tail -1) || true
+          [ -n "${ok_at:-}" ] && [ "$ok_at" \> "$rc_at" ] \
+            || skip "\`rc-ok\` (added ${ok_at:-never}) predates the build of the current candidate ($rc_at). $retry"
+          # Triage can add a label; only a maintainer (write or more) vouches for a candidate.
+          perm=$(gh api "repos/$GH_REPO/collaborators/$ok_by/permission" --jq .permission || true)
+          case "$perm" in admin | maintain | write) ;; *) skip "\`rc-ok\` was added by $ok_by, who is not a maintainer. $retry" ;; esac
+
+          # Freeze: any feat, perf, refactor or breaking commit since last Saturday 00:00 in Rome.
+          saturday=$(TZ=Europe/Rome date -d 'last saturday 00:00' +%s)
+          since=$(date -u -d "@$saturday" +%Y-%m-%dT%H:%M:%SZ)
+          blocked=$(gh api --paginate "repos/$GH_REPO/commits?sha=main&since=$since&per_page=100" \
+            --jq '.[] | select(.commit.message | test("\\A(feat|perf|refactor)(\\([^)]*\\))?!?:|\\A[a-z]+(\\([^)]*\\))?!:|\\nBREAKING[ -]CHANGE")) | "- \(.sha[0:8]) \(.commit.message | split("\n")[0])"')
+          [ -z "$blocked" ] || skip "commits blocked by the freeze landed on \`main\` since $since:"$'\n'"$blocked"
+
+          # A skipped required check reports as passed (docs/deployment.md), so skipping counts.
+          checks=$(gh pr checks "$PR" --required --json bucket --jq '[.[].bucket]' || true)
+          [ -n "$checks" ] && [ "$(echo "$checks" | jq 'length > 0 and all(. == "pass" or . == "skipping")')" = true ] \
+            || skip "the required checks of this PR have not all passed."
+
+          # Pin the head that was checked: release-please may push to the branch before the merge.
+          sha=$(gh pr view "$PR" --json headRefOid --jq .headRefOid)
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      # The only step that merges. RELEASE_PLEASE_TOKEN, never github.token (see TRAPS).
+      - name: Merge the release PR
+        if: steps.gate.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.gate.outputs.number }}
+          SHA: ${{ steps.gate.outputs.sha }}
+        run: |
+          gh pr merge "$PR" --squash --match-head-commit "$SHA"
+          gh pr comment "$PR" --body "Release train: merged. release-please cuts the tag next."

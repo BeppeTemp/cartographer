@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -15,7 +17,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
-	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,11 +26,16 @@ const FileName = ".cartographer.yaml"
 
 // Config is the on-disk client configuration.
 type Config struct {
-	ServerURL  string   `yaml:"server_url"`
-	ServerName string   `yaml:"server_name"`
-	Auth       bool     `yaml:"auth"`
-	TokenEnv   string   `yaml:"token_env"`
-	Agents     []string `yaml:"agents"` // connected provider names, e.g. ["claude", "opencode"]
+	ServerURL  string `yaml:"server_url"`
+	ServerName string `yaml:"server_name"`
+	Auth       bool   `yaml:"auth"`
+	// Token is the bearer token the clients send: a literal, or "${NAME}" to
+	// read it from the environment variable NAME (D906). Use TokenEnv and
+	// LiteralToken, never the raw string.
+	Token string `yaml:"token"`
+	// Agents are the connected provider names, e.g. ["claude", "opencode"]. A
+	// machine-written record, kept in the state file (D906), not in the YAML.
+	Agents []string `yaml:"-"`
 
 	// KnownKBs caches the KB names the server advertised at the last
 	// successful connect/sync. It is SERVER-owned: every sync overwrites it
@@ -73,28 +79,12 @@ type Config struct {
 	// emptiness test cannot tell apart.
 	Workspaces map[string][]WorkspaceBinding `yaml:"workspaces,omitempty"`
 
-	// Trust records the persistent, per-server decision made at connect time:
-	// when true, kb:-sourced provisioning artifacts (skill/agent/hook/instructions)
-	// are treated as trusted at every sync, without needing the one-time
-	// --auto-trust flag (see docs/sync.md §Sicurezza, D54). Defaults to true —
-	// both for brand-new configs (Default()) and for existing config files
-	// written before this field existed (see yamlConfig.Trust, a *bool, which
-	// distinguishes "absent" from an explicit "trust: false").
-	Trust bool `yaml:"-"`
-
 	// SearchRoots is where repoindex.Scan looks for local git clones to
 	// resolve `{{repo:<key>}}` placeholders (D75 WP1/WP3). "~" is expanded by
 	// the consumer (repoindex.expandHome), not here. Defaults to
-	// ["~/Documents"] (Default()) and for config files written before this
-	// field existed (see Load).
+	// DefaultSearchRoots (Default()) and for config files written before this
+	// field existed (see Load); consulted only for a key with no `paths` entry.
 	SearchRoots []string `yaml:"search_roots,omitempty"`
-
-	// SearchDepth bounds how many directory levels repoindex descends from each
-	// root (D162). Zero means the default of 4; values above the maximum of 8 are
-	// clamped with a warning rather than rejected, since a config value that stops
-	// a sync is worse than one adjusted loudly. A workspace organised as
-	// <root>/<program>/<area>/<repo> needs 5.
-	SearchDepth int `yaml:"search_depth,omitempty"`
 
 	// Paths is the manual `{{path:<nome>}}` mapping (D75 WP1/WP3): a
 	// fallback for directories that aren't git repos, and an override for
@@ -133,25 +123,19 @@ type Config struct {
 	// data". USER-owned: sync never writes it.
 	UsageScan bool `yaml:"-"`
 
-	// WriteFindingsHook is the opt-out of the client-side hook that returns a
-	// write response's findings to the agent as feedback (D353). Defaults to
-	// true; only an explicit `write_findings_hook: false` turns it off, and the
-	// next sync/connect then removes the installed hook. USER-owned: sync never
-	// writes it. The hook lives in this machine's client directory and fires for
-	// every KB it talks to, which is why the switch is here and not per KB.
-	//
-	// Held as the negation so a Config built from the zero value (several call
-	// sites do) is enabled, not silently switched off on the next Save.
-	WriteFindingsHookOff bool `yaml:"-"`
-
 	// SyncTimerOptOut remembers that the operator ran `service sync-timer
 	// uninstall` (D325): connect and setup then stop installing the timer
 	// themselves. Cleared by an explicit `sync-timer install`. A removal
-	// because no client needs the timer any more does not set it.
+	// because no client needs the timer any more does not set it. Kept in the
+	// state file with Agents (D906).
 	SyncTimerOptOut bool `yaml:"-"`
-	// Update is the client-wide update-notice setting (D254), USER-owned.
-	// The zero value is the default: check, and only notify.
-	Update UpdateSettings `yaml:"-"`
+	// UpdateCheckOff is the `update_check: false` opt-out of the daily release
+	// lookup (D254, D906). Held as the negation so a Config built from the zero
+	// value checks, as the default is. Use UpdateCheckEnabled.
+	UpdateCheckOff bool `yaml:"-"`
+	// AllowInsecureHTTP is the persisted opt-in to a non-loopback http://
+	// server_url (D1023). Use InsecureHTTPAllowed, which also honours the env var.
+	AllowInsecureHTTP bool `yaml:"-"`
 	// Extra retains unknown top-level YAML keys across approval updates.
 	Extra map[string]interface{} `yaml:"-"`
 	// Unsupported lists, sorted, the provider names Load found in the file and
@@ -166,25 +150,6 @@ type Config struct {
 	// persisted; `sync` prints them, and its realignment (RealignFile) drops the
 	// removed keys.
 	Warnings []string `yaml:"-"`
-}
-
-// UpdateSettings is the `update:` block. Check nil means the default, true;
-// Policy is "notify" (the default, also for an empty value) or "auto-patch",
-// and Load refuses anything else, naming the valid values.
-type UpdateSettings struct {
-	Check  *bool  `yaml:"check,omitempty"`
-	Policy string `yaml:"policy,omitempty"`
-}
-
-// CheckEnabled reports whether the update check runs (default true).
-func (u UpdateSettings) CheckEnabled() bool { return u.Check == nil || *u.Check }
-
-// EffectivePolicy is the policy with the default applied.
-func (u UpdateSettings) EffectivePolicy() string {
-	if u.Policy == "" {
-		return updatecheck.PolicyNotify
-	}
-	return u.Policy
 }
 
 type MCPApproval struct {
@@ -254,34 +219,31 @@ func (b ClientBinding) MarshalYAML() (interface{}, error) {
 	return out, nil
 }
 
-// yamlConfig mirrors Config for YAML (de)serialization. Trust is a *bool here
-// (unlike Config.Trust, a plain bool) so Load can tell an absent `trust` key
-// (nil, defaults to true) apart from an explicit `trust: false` written by a
-// user who revoked it.
+// yamlConfig mirrors Config for YAML (de)serialization. UsageScan and
+// UpdateCheck are *bool so Load can tell an absent key (the default, true)
+// apart from an explicit `false`.
 //
-// It holds the user-owned keys only: the server-owned caches live in the state
-// file (D747) and are read from the YAML solely through legacyCaches.
+// It holds the user-owned keys only: the server-owned caches and the
+// machine-written lists (agents, sync_timer_opt_out) live in the state file
+// (D747, D906) and are read from the YAML solely through legacyCaches.
 type yamlConfig struct {
-	ServerURL         string                            `yaml:"server_url"`
-	ServerName        string                            `yaml:"server_name"`
-	Auth              bool                              `yaml:"auth"`
-	TokenEnv          string                            `yaml:"token_env"`
-	Agents            []string                          `yaml:"agents"`
-	Clients           map[string]ClientBinding          `yaml:"clients,omitempty"`
-	Scopes            map[string]string                 `yaml:"scopes,omitempty"`
-	Workspaces        map[string][]WorkspaceBinding     `yaml:"workspaces,omitempty"`
-	Trust             *bool                             `yaml:"trust,omitempty"`
-	SearchRoots       []string                          `yaml:"search_roots,omitempty"`
-	SearchDepth       int                               `yaml:"search_depth,omitempty"`
-	Paths             map[string]string                 `yaml:"paths,omitempty"`
-	IgnoredPaths      []string                          `yaml:"ignored_paths,omitempty"`
-	SigningKeys       map[string][]string               `yaml:"signing_keys,omitempty"`
-	Identities        map[string]string                 `yaml:"identities,omitempty"`
-	MCPApprovals      map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
-	Update            *UpdateSettings                   `yaml:"update,omitempty"`
-	UsageScan         *bool                             `yaml:"usage_scan,omitempty"`
-	WriteFindingsHook *bool                             `yaml:"write_findings_hook,omitempty"`
-	SyncTimerOptOut   bool                              `yaml:"sync_timer_opt_out,omitempty"`
+	ServerURL    string                            `yaml:"server_url"`
+	ServerName   string                            `yaml:"server_name"`
+	Auth         bool                              `yaml:"auth"`
+	Token        string                            `yaml:"token"`
+	Clients      map[string]ClientBinding          `yaml:"clients,omitempty"`
+	Scopes       map[string]string                 `yaml:"scopes,omitempty"`
+	Workspaces   map[string][]WorkspaceBinding     `yaml:"workspaces,omitempty"`
+	SearchRoots  []string                          `yaml:"search_roots,omitempty"`
+	Paths        map[string]string                 `yaml:"paths,omitempty"`
+	IgnoredPaths []string                          `yaml:"ignored_paths,omitempty"`
+	SigningKeys  map[string][]string               `yaml:"signing_keys,omitempty"`
+	Identities   map[string]string                 `yaml:"identities,omitempty"`
+	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
+	UpdateCheck  *bool                             `yaml:"update_check,omitempty"`
+	UsageScan    *bool                             `yaml:"usage_scan,omitempty"`
+
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http,omitempty"`
 }
 
 // legacyCaches are the keys older versions kept in .cartographer.yaml and that
@@ -294,11 +256,98 @@ type legacyCaches struct {
 	KnownKBs         *[]string `yaml:"known_kbs"`
 	ServerMountMode  string    `yaml:"server_mount_mode"`
 	ServerRoutedPath string    `yaml:"server_routed_path"`
+	// The keys D906 took out of the YAML, still honoured on read so a file not
+	// yet realigned (a read-only mount) keeps working: agents and
+	// sync_timer_opt_out until the state file holds them, token_env and
+	// update.check as the keys that replaced them.
+	Agents          *[]string `yaml:"agents"`
+	SyncTimerOptOut bool      `yaml:"sync_timer_opt_out"`
+	TokenEnv        string    `yaml:"token_env"`
+	Update          struct {
+		Check *bool `yaml:"check"`
+	} `yaml:"update"`
 }
 
-// WriteFindingsHookEnabled reports whether the write-findings hook (D353) is
-// wanted on this machine: true unless `write_findings_hook: false`.
-func (c *Config) WriteFindingsHookEnabled() bool { return c == nil || !c.WriteFindingsHookOff }
+// InsecureHTTPAllowed reports whether a non-loopback http:// server_url is
+// accepted: the allow_insecure_http key, or CARTOGRAPHER_ALLOW_INSECURE_HTTP
+// set to 1 or true (D1023). A nil Config is not allowed.
+func (c *Config) InsecureHTTPAllowed() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CARTOGRAPHER_ALLOW_INSECURE_HTTP"))) {
+	case "1", "true":
+		return true
+	}
+	return c != nil && c.AllowInsecureHTTP
+}
+
+// UpdateCheckEnabled reports whether the daily release lookup runs: true unless
+// `update_check: false` (D254, D906).
+func (c *Config) UpdateCheckEnabled() bool { return c == nil || !c.UpdateCheckOff }
+
+// DefaultTokenEnv is the environment variable the bearer token is read from by
+// default, and the one a literal `token` has the agents' MCP entries name.
+const DefaultTokenEnv = "CARTOGRAPHER_TOKENS"
+
+// DefaultSearchRoots are the directories scanned for git clones when
+// `search_roots` is absent (D906): the usual places a person keeps checkouts.
+// A root that does not exist is skipped by the scan. They are consulted only
+// for a {{repo:<key>}} with no `paths` entry.
+var DefaultSearchRoots = []string{"~/Documents", "~/src", "~/code", "~/projects"}
+
+// ScanRoots is SearchRoots as the scan should walk them. A file that sets
+// search_roots is taken as written, so a root that is missing is reported by the
+// scan. The defaults are guesses: those that do not exist on this machine are
+// left out silently, or every sync would warn about three directories nobody
+// asked for (D906).
+func (c *Config) ScanRoots() []string {
+	if !slices.Equal(c.SearchRoots, DefaultSearchRoots) {
+		return c.SearchRoots
+	}
+	home, _ := os.UserHomeDir()
+	var out []string
+	for _, r := range c.SearchRoots {
+		p := r
+		if rest, ok := strings.CutPrefix(r, "~/"); ok && home != "" {
+			p = filepath.Join(home, rest)
+		}
+		if fi, err := os.Stat(p); err == nil && fi.IsDir() {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+var tokenEnvRef = regexp.MustCompile(`^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$`)
+
+// EnvRefToken is the token value that reads the environment variable name.
+func EnvRefToken(name string) string { return "${" + name + "}" }
+
+// IsEnvRef reports whether v is a `${NAME}` reference rather than a literal.
+func IsEnvRef(v string) bool { return tokenEnvRef.MatchString(strings.TrimSpace(v)) }
+
+// TokenEnv is the name of the environment variable the clients read the token
+// from: the NAME of a `${NAME}` token, DefaultTokenEnv for a literal token
+// (the agents' MCP entries can only reference a variable, never carry the
+// secret), and "" when no token is configured.
+func (c *Config) TokenEnv() string {
+	t := strings.TrimSpace(c.Token)
+	if t == "" {
+		return ""
+	}
+	if m := tokenEnvRef.FindStringSubmatch(t); m != nil {
+		return m[1]
+	}
+	return DefaultTokenEnv
+}
+
+// LiteralToken is the token written in the file, "" when the token is absent
+// or a `${NAME}` reference.
+func (c *Config) LiteralToken() string {
+	t := strings.TrimSpace(c.Token)
+	if t == "" || tokenEnvRef.MatchString(t) {
+		return ""
+	}
+	return t
+}
 
 // Default returns a Config with the same defaults as configurator.DefaultConfig.
 func Default() *Config {
@@ -306,11 +355,10 @@ func Default() *Config {
 		ServerURL:   defaultServerURL(),
 		ServerName:  "cartographer",
 		Auth:        false,
-		TokenEnv:    "CARTOGRAPHER_TOKENS",
+		Token:       EnvRefToken(DefaultTokenEnv),
 		Agents:      []string{},
-		Trust:       true,
 		UsageScan:   true,
-		SearchRoots: []string{"~/Documents"},
+		SearchRoots: append([]string(nil), DefaultSearchRoots...),
 	}
 }
 
@@ -374,31 +422,43 @@ func Load(dir string) (*Config, error) {
 	cfg := Config{
 		// The pre-#329 default is migrated on read, so the next connect or
 		// sync writes the working URL into every client's MCP config.
-		ServerURL:  defaults.MigrateLegacyMCPURL(y.ServerURL),
-		ServerName: y.ServerName,
-		Auth:       y.Auth,
-		TokenEnv:   y.TokenEnv,
-		Agents:     y.Agents,
-		Clients:    y.Clients,
-		Scopes:     y.Scopes,
-		Workspaces: y.Workspaces,
-		Trust:      true, // absent `trust` key defaults to true, see yamlConfig doc
-		UsageScan:  true, // absent `usage_scan` key defaults to true
+		ServerURL:         defaults.MigrateLegacyMCPURL(y.ServerURL),
+		ServerName:        y.ServerName,
+		Auth:              y.Auth,
+		Token:             y.Token,
+		Clients:           y.Clients,
+		Scopes:            y.Scopes,
+		Workspaces:        y.Workspaces,
+		AllowInsecureHTTP: y.AllowInsecureHTTP,
+		UsageScan:         true, // absent `usage_scan` key defaults to true
 
-		SearchRoots:     y.SearchRoots,
-		SearchDepth:     y.SearchDepth,
-		Paths:           y.Paths,
-		IgnoredPaths:    y.IgnoredPaths,
-		SigningKeys:     y.SigningKeys,
-		Identities:      y.Identities,
-		MCPApprovals:    y.MCPApprovals,
-		SyncTimerOptOut: y.SyncTimerOptOut,
-		Extra:           extra,
+		SearchRoots:  y.SearchRoots,
+		Paths:        y.Paths,
+		IgnoredPaths: y.IgnoredPaths,
+		SigningKeys:  y.SigningKeys,
+		Identities:   y.Identities,
+		MCPApprovals: y.MCPApprovals,
+		Extra:        extra,
+	}
+	// token_env (removed, D906) is honoured as the token it became until the
+	// file is realigned, so a read-only file does not lose its credentials.
+	if cfg.Token == "" && tokenEnvRef.MatchString(EnvRefToken(legacy.TokenEnv)) {
+		cfg.Token = EnvRefToken(legacy.TokenEnv)
+	} else if legacy.TokenEnv != "" && cfg.Token != EnvRefToken(legacy.TokenEnv) {
+		// Never lost in silence: token wins, or the name cannot be a variable.
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("token_env is ignored: token is already %s (or its value is not an environment variable name); set token: ${NAME} to read a variable", tokenLabel(cfg.Token)))
+	}
+	if cfg.LiteralToken() != "" && !fileIsPrivate(Path(dir)) {
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("%s holds a literal token and is readable by other users: run `chmod 600 %s`", Path(dir), Path(dir)))
 	}
 	if state, ok := loadState(dir); ok {
 		cfg.KnownKBs = state.KnownKBs
 		cfg.ServerMountMode = state.ServerMountMode
 		cfg.ServerRoutedPath = state.ServerRoutedPath
+		cfg.SyncTimerOptOut = state.SyncTimerOptOut
+		if state.Agents != nil {
+			cfg.Agents = *state.Agents
+		}
 	} else {
 		// No state file yet: an installation from before D747 keeps its caches
 		// in the YAML. The next Save moves them.
@@ -411,27 +471,21 @@ func Load(dir string) (*Config, error) {
 		cfg.ServerMountMode = legacy.ServerMountMode
 		cfg.ServerRoutedPath = legacy.ServerRoutedPath
 	}
-	if y.Trust != nil {
-		cfg.Trust = *y.Trust
+	// agents and sync_timer_opt_out moved to the state file (D906); a state file
+	// from before that, or none, leaves the YAML's values to be read.
+	if cfg.Agents == nil && legacy.Agents != nil {
+		cfg.Agents = *legacy.Agents
 	}
+	cfg.SyncTimerOptOut = cfg.SyncTimerOptOut || legacy.SyncTimerOptOut
 	if y.UsageScan != nil {
 		cfg.UsageScan = *y.UsageScan
 	}
-	if y.WriteFindingsHook != nil {
-		cfg.WriteFindingsHookOff = !*y.WriteFindingsHook
-	}
-	if y.Update != nil {
-		// An unknown policy is a load error, not a silent default: this
-		// setting decides whether a machine upgrades itself (D254).
-		policy := ""
-		if strings.TrimSpace(y.Update.Policy) != "" {
-			p, err := updatecheck.ParsePolicy(y.Update.Policy)
-			if err != nil {
-				return nil, fmt.Errorf("clientconfig: %s: %w", Path(dir), err)
-			}
-			policy = p
-		}
-		cfg.Update = UpdateSettings{Check: y.Update.Check, Policy: policy}
+	// update.check (removed, D906) is honoured until the file is realigned;
+	// update.policy is not: a client never replaces itself.
+	if y.UpdateCheck != nil {
+		cfg.UpdateCheckOff = !*y.UpdateCheck
+	} else if legacy.Update.Check != nil {
+		cfg.UpdateCheckOff = !*legacy.Update.Check
 	}
 	cfg.dropUnsupportedProviders()
 	for _, h := range Retired.Find(&yamlDoc) {
@@ -440,8 +494,8 @@ func Load(dir string) (*Config, error) {
 	cfg.Warnings = append(cfg.Warnings, cfg.identityWarnings()...)
 	if len(cfg.SearchRoots) == 0 {
 		// Absent `search_roots` key: both brand-new configs and files written
-		// before this field existed default here, matching Default().
-		cfg.SearchRoots = []string{"~/Documents"}
+		// before this field existed default here, matching Default() (D906).
+		cfg.SearchRoots = append([]string(nil), DefaultSearchRoots...)
 	}
 	return &cfg, nil
 }
@@ -460,37 +514,34 @@ func Save(dir string, cfg *Config) error {
 		return fmt.Errorf("clientconfig: mkdir %s: %w", dir, err)
 	}
 	y := yamlConfig{
-		ServerURL:       cfg.ServerURL,
-		ServerName:      cfg.ServerName,
-		Auth:            cfg.Auth,
-		TokenEnv:        cfg.TokenEnv,
-		Agents:          cfg.Agents,
-		Clients:         cfg.Clients,
-		Scopes:          cfg.Scopes,
-		Workspaces:      cfg.Workspaces,
-		Trust:           &cfg.Trust,
-		SearchRoots:     cfg.SearchRoots,
-		SearchDepth:     cfg.SearchDepth,
-		Paths:           cfg.Paths,
-		IgnoredPaths:    cfg.IgnoredPaths,
-		SigningKeys:     cfg.SigningKeys,
-		Identities:      cfg.Identities,
-		MCPApprovals:    cfg.MCPApprovals,
-		SyncTimerOptOut: cfg.SyncTimerOptOut,
+		ServerURL:    cfg.ServerURL,
+		ServerName:   cfg.ServerName,
+		Auth:         cfg.Auth,
+		Token:        cfg.Token,
+		Clients:      cfg.Clients,
+		Scopes:       cfg.Scopes,
+		Workspaces:   cfg.Workspaces,
+		Paths:        cfg.Paths,
+		IgnoredPaths: cfg.IgnoredPaths,
+		SigningKeys:  cfg.SigningKeys,
+		Identities:   cfg.Identities,
+		MCPApprovals: cfg.MCPApprovals,
+
+		AllowInsecureHTTP: cfg.AllowInsecureHTTP,
+	}
+	// The defaults are not written: a file that never set search_roots keeps
+	// getting whatever the defaults are (D906).
+	if !slices.Equal(cfg.SearchRoots, DefaultSearchRoots) {
+		y.SearchRoots = cfg.SearchRoots
 	}
 	// Emitted only when off: a default machine's file stays free of them.
 	if !cfg.UsageScan {
 		off := false
 		y.UsageScan = &off
 	}
-	if cfg.WriteFindingsHookOff {
+	if cfg.UpdateCheckOff {
 		off := false
-		y.WriteFindingsHook = &off
-	}
-	// Emitted only when set.
-	if cfg.Update.Check != nil || cfg.Update.Policy != "" {
-		u := cfg.Update
-		y.Update = &u
+		y.UpdateCheck = &off
 	}
 	existing, err := os.ReadFile(Path(dir))
 	if err != nil && !os.IsNotExist(err) {
@@ -500,10 +551,12 @@ func Save(dir string, cfg *Config) error {
 	if err != nil {
 		return err
 	}
-	if err := writeYAML(dir, doc); err != nil {
+	// The state file first: agents and sync_timer_opt_out leave the YAML in this
+	// same save (D906), so a failure here must not cost the values.
+	if err := writeState(dir, cfg); err != nil {
 		return err
 	}
-	return writeState(dir, cfg)
+	return writeYAML(dir, doc, cfg.LiteralToken() != "")
 }
 
 // ApproveMCP records the exact descriptor hash for one source/name pair.

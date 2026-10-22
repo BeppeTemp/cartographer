@@ -35,7 +35,6 @@ func placeholderKB(t *testing.T) (Manifest, string) {
 
 func clientApplyOptions(kbRoot, baseDir string, lock Lock) ApplyOptions {
 	return ApplyOptions{
-		AutoTrust:          true,
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -166,7 +165,7 @@ func TestPlaceholderSources_UnionsListedAndArtifactKeys(t *testing.T) {
 		{Kind: "skill", Name: "s", Source: "kb:kb-a", Signed: true, Files: []ArtifactFile{{Path: "SKILL.md", Content: []byte("{{repo:tool}} {{\\path:doc}} {{path:<name>}}")}}},
 		{Kind: "skill", Name: "b", Source: "bundle", BuiltIn: true, Signed: true, Files: []ArtifactFile{{Path: "SKILL.md", Content: []byte("{{path:bundled}}")}}},
 	}}
-	got := placeholderSources(m, ApplyOptions{AutoTrust: true, Placeholders: map[string][]string{"path:concept": {"kb-b"}, "repo:tool": {"kb-b"}}})
+	got := placeholderSources(m, ApplyOptions{Placeholders: map[string][]string{"path:concept": {"kb-b"}, "repo:tool": {"kb-b"}}})
 	want := map[string][]string{
 		"path:concept": {"kb-b"},
 		"repo:tool":    {"kb-a", "kb-b"},

@@ -64,7 +64,6 @@ export interface Artifact {
 export interface ArtifactFinding {
   path: string;
   check: string;
-  severity: string;
   message: string;
 }
 
@@ -100,8 +99,6 @@ export interface ArtifactList {
   issues: string[];
   /** Every artifact finding by check, including those no listed artifact owns (D316). */
   finding_counts?: Record<string, number>;
-  /** The same findings by severity. */
-  finding_severities?: Record<string, number>;
 }
 
 export interface CollectionSummary {
@@ -123,7 +120,6 @@ export interface Overview {
   };
   lint: {
     total: number;
-    by_severity: Record<string, number>;
     by_check: Record<string, number>;
   };
   git?: { has_remote: boolean; remote_url?: string };
@@ -210,13 +206,11 @@ export interface Concept {
   superseded_by?: string;
 }
 
-export type Severity = "info" | "warning" | "error";
-
+/** A lint finding is a problem (D947): there is no severity to carry. */
 export interface LintFinding {
   path: string;
   concept?: string;
   check: string;
-  severity: string;
   message: string;
   /** Who acts on it (D365): the background repair, or the doctor session. */
   handler?: "auto" | "doctor";
@@ -225,12 +219,7 @@ export interface LintFinding {
 export interface LintReport {
   findings: LintFinding[];
   count: number;
-  total: number;
-  by_severity: Record<string, number>;
   by_check: Record<string, number>;
-  /** Where each reported check can be accepted with lint_ignore (D313). */
-  acceptability?: Record<string, "concept" | "map" | "artifact" | "none">;
-  severity_min: string;
 }
 
 /** GET /kbs/{kb}/search: the search tool's own response. */
@@ -279,7 +268,6 @@ export interface RetiredJournal {
   name: string;
   title?: string;
   harvest_after?: number;
-  harvest_off?: boolean;
   waiting: number;
   archived: number;
 }
@@ -323,15 +311,20 @@ export interface WorkEntry {
   map?: string;
   status?: string;
   open_phase: boolean;
+  /** Why a concept is work when its status does not say so. */
+  reason?: "contradiction" | "gap" | "review";
   timestamp?: string;
   age_days?: number;
   stale: boolean;
   items: WorkItem[];
+  /** The frontmatter values asked for with fields. */
+  fields?: Record<string, string>;
 }
 export interface WorkResponse {
   total: number;
   open_concepts: number;
   by_status: Record<string, number>;
+  by_reason?: Record<string, number>;
   by_map: Record<string, number>;
   open_items: number;
   entries: WorkEntry[];
@@ -349,43 +342,6 @@ export interface KBStatus {
   /** resolved: the same search now finds something (D319); sorted last. */
   search_misses?: { query: string; count: number; last_seen?: string; resolved?: boolean }[];
   stale_count?: number;
-}
-
-/** GET /kbs/{kb}/maintenance/summary (D323). */
-export interface MaintenanceRepair {
-  sha: string;
-  at: string;
-  subject: string;
-  reason?: string;
-  files: number;
-  /** Made by the server's own heartbeat, not by a kb_repair someone ran. */
-  background: boolean;
-  /** The command that undoes it: shown, never run, by the Atlas. */
-  revert: string;
-}
-export interface MaintenanceRun {
-  at: string;
-  skipped?: string;
-  checks?: { check: string; applied: number; skipped?: number; commit?: string; error?: string }[];
-}
-/** One daily sample of the whole-KB lint totals (D370). */
-export interface LintSample {
-  at: string;
-  total: number;
-  by_severity: Record<string, number>;
-  by_handler: Record<string, number>;
-}
-export interface MaintenanceSummary {
-  auto_repair: { enabled: boolean; default: boolean; checks: string[]; interval_days: number };
-  last_auto_repair: MaintenanceRun | null;
-  last_doctor?: string;
-  next_doctor?: string;
-  doctor_interval_days: number;
-  /** The background repair's runs of the last 30 days, newest first (D365). */
-  runs?: MaintenanceRun[];
-  /** One sample a day of the lint totals, oldest first, 90 days at most (D370). */
-  lint_history?: LintSample[];
-  repairs: MaintenanceRepair[];
 }
 
 /** GET /kbs/{kb}/maintenance/review (D704): the doctor's agenda beyond lint. */
@@ -408,7 +364,6 @@ export interface CheckCatalog {
   checks: {
     name: string;
     category: string;
-    severity: string;
     fixable: boolean;
     auto: boolean;
     /** False when the check cannot run on this KB (D371): `reason` says why, and a zero would not mean clean. */
@@ -475,62 +430,39 @@ export interface PlaceholderList {
   keys: PlaceholderKey[];
 }
 
-/** One Contradiction concept (GET /kbs/{kb}/contradictions), as the
- *  contradiction_report tool lists it. */
-export interface Contradiction {
-  id: string;
-  title?: string;
-  /** The concepts the contradiction is about. */
-  involves?: string[];
-  contradiction_kind?: string;
-  /** "open" unless the concept says otherwise. */
-  resolution_status: string;
-}
-
-/** GET /kbs/{kb}/contradictions?status=: gap-kind contradictions excluded. */
-export interface ContradictionList {
-  contradictions: Contradiction[];
-}
-
 /** One Map or Journal contract, as the map_list tool returns it. */
 export interface MapContract {
   name: string;
   title?: string;
   kind?: string;
+  /** Derived from concept_types (D907): "strict" when the Map lists types,
+   *  "flexible" otherwise. Not a key of _map.md. */
   ontology_mode?: string;
   concept_types?: string[];
-  /** Checks the map accepts as a whole (D306). */
-  lint_ignore?: string[];
   /** Whole-KB callers only (0 otherwise). */
   expanded_concepts: number;
   /** Effective stale_open threshold in days (D346). */
   stale_after?: number;
   /** stale_after is the default for the map's kind, not set in _map.md. */
   stale_after_defaulted?: boolean;
-  /** Allowed values per frontmatter field (D343); a by-type list replaces the
-   *  map-wide one for that type. */
-  field_values?: Record<string, string[]>;
-  field_values_by_type?: Record<string, Record<string, string[]>>;
+  /** Allowed values per frontmatter field (D343), keyed by concept type, `*`
+   *  for every type (D907): a type's list replaces the `*` one for that type. */
+  field_values?: Record<string, Record<string, string[]>>;
   /** The rest of the _map.md contract, as map_list returns it; every key is
    *  omitted when the contract does not set it. */
   description?: string;
-  required_fields?: string[];
-  required_fields_by_type?: Record<string, string[]>;
+  /** Required fields keyed by concept type, `*` for every type (D907). */
+  required_fields?: Record<string, string[]>;
   forbidden_fields?: string[];
-  require_index_entry?: boolean;
+  /** Declared templates bind every page to one of them (D371, D907). */
   templates?: string[];
   default_template?: string;
-  /** Effective: a Map that declares templates is strict without saying so (D371). */
-  require_template?: boolean;
-  template_sections?: boolean;
   open_field?: string;
   open_statuses?: string[];
   open_markers?: string[];
-  /** A journal's effective harvest_after in days (D322); absent when
-   *  `harvest_off` says harvest_after: 0 switched it off (D347). */
+  /** A journal's effective harvest_after in days (D322). */
   harvest_after?: number;
   harvest_after_defaulted?: boolean;
-  harvest_off?: boolean;
   promote_to?: string;
   procedure_headings?: string[];
   /** This Map defines the KB's terms. */
@@ -540,23 +472,13 @@ export interface MapContract {
   index?: string;
   /** Canonical value -> the synonyms the server treats as it. */
   value_synonyms?: Record<string, string[]>;
-  machine_path_allow_prefixes?: string[];
-  thresholds?: MapThresholds;
+  /** Substrings no page title here may carry (D315). */
+  forbidden_title_terms?: string[];
+  /** Removed keys the descriptor still carries (D907): they take no part in
+   *  the contract, and kb_repair drops them. */
+  legacy_keys?: string[];
   /** Entries of _map.md the server tolerated but could not read. */
   malformed?: { key: string; reason: string }[];
-}
-
-/** The cost and page-name keys a contract sets (D301, D313, D315); a key left
- *  out runs at the built-in default. `title_max_length: 0` turns the length
- *  rule off. */
-export interface MapThresholds {
-  repeated_fact_min?: number;
-  hotspot_in_degree?: number;
-  hotspot_bytes?: number;
-  oversize_bytes?: number;
-  oversize_concepts?: number;
-  title_max_length?: number;
-  forbidden_title_terms?: string[];
 }
 
 /** GET /kbs/{kb}/maps. */
@@ -681,6 +603,8 @@ export interface SettingsView {
   kbs: SettingsKB[];
   /** The viewer's own clients, as each machine last reported them (D818). */
   clients?: SettingsClient[];
+  /** What a client can set, every key at its default: shown until a client reports. */
+  client_template?: { entries: SettingEntry[]; yaml?: string };
 }
 
 /** One machine's client settings, reported by its last sync (D818). */

@@ -28,7 +28,7 @@ Without a sync mechanism, the files materialized on the client silently drift on
 
 The generic unit of what gets synchronized: `kind` (`skill`/`agent`/`hook`/`instructions`/`mcp`, extensible), `name`, `source` (`bundle` | `kb:<name>`), `version`, `content_hash`, `signed`. The per-provider destination is resolved by `destDir(kind, name, provider)`. A new future `kind` = a new emitter in `BuildManifest` + a case in `destDir`: manifest, lockfile, revision, detection, triggers, and pruning don't change.
 
-A KB's provisioning artifacts are edited through **two equivalent channels**: git (clone/push of the KB repo, as usual) or the MCP tools `artifact_read`/`artifact_write`/`artifact_list`/`artifact_delete` (→ `control-plane.md` §KB-root artifacts; requires `allow_artifact_write: true` for the KB). The MCP write path goes through `gitWrap` (lock, commit, `SyncIn`/`SyncOut`), so it also absorbs concurrent git pushes; the manifest revision changes with the content on disk, and the layered triggers propagate to clients either way. `templates/<slug>.md` is intentionally a KB-only artifact: it uses the same artifact lifecycle but is excluded from `BuildManifest`, the kind × provider matrix, lockfiles, pruning and manifest revisions.
+A KB's provisioning artifacts are edited through **two equivalent channels**: git (clone/push of the KB repo, as usual) or the MCP tools `artifact_read`/`artifact_write`/`artifact_list`/`artifact_delete` (→ `control-plane.md` §KB-root artifacts; requires a token with write scope on the KB). The MCP write path goes through `gitWrap` (lock, commit, `SyncIn`/`SyncOut`), so it also absorbs concurrent git pushes; the manifest revision changes with the content on disk, and the layered triggers propagate to clients either way. `templates/<slug>.md` is intentionally a KB-only artifact: it uses the same artifact lifecycle but is excluded from `BuildManifest`, the kind × provider matrix, lockfiles, pruning and manifest revisions.
 
 ### 2. Provisioning manifest — source of truth
 
@@ -46,9 +46,9 @@ Three optional per-provider fields, all empty for everything written before they
 
 ### Layer 1 — `SessionStart` bootstrap hook (primary trigger)
 
-Hook **`cartographer-bootstrap`** (reserved name, `provisioning.BootstrapHookName`): generated entirely by the client (never from the manifest), installed/updated by `EnsureBootstrapHook` on every `connect`/`sync` and removed by `disconnect`. At the start of a session, the generated script (deterministic, silent, always `exit 0`) checks that `cartographer` is resolvable and launches `cartographer sync --auto-trust` in the background. The script is the platform's own: `bootstrap.sh` (`#!/bin/sh`, `command -v`) on unix, `bootstrap.cmd` (batch, `where`) on Windows, where a shell script is not executable in any sense the operating system recognises and the explicit `chmod` that follows the write grants nothing ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md)). Explicitly excluded from `ComputeDiff`/`Apply` (a server manifest will never contain it → it's never treated as an orphan to prune). Details → [D60](decisions/D60-client-side-bootstrap-hook-auto-sync-at-session-start.md).
+Hook **`cartographer-bootstrap`** (reserved name, `provisioning.BootstrapHookName`): generated entirely by the client (never from the manifest), installed/updated by `EnsureBootstrapHook` on every `connect`/`sync` and removed by `disconnect`. At the start of a session, the generated script (deterministic, silent, always `exit 0`) checks that `cartographer` is resolvable and launches `cartographer sync` in the background. The script is the platform's own: `bootstrap.sh` (`#!/bin/sh`, `command -v`) on unix, `bootstrap.cmd` (batch, `where`) on Windows, where a shell script is not executable in any sense the operating system recognises and the explicit `chmod` that follows the write grants nothing ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md)). Explicitly excluded from `ComputeDiff`/`Apply` (a server manifest will never contain it → it's never treated as an orphan to prune). Details → [D60](decisions/D60-client-side-bootstrap-hook-auto-sync-at-session-start.md).
 
-**Write-findings hook (`cartographer-write-findings`, D353).** A second client-generated hook of the same family, reserved name `provisioning.WriteFindingsHookName`, installed by `EnsureWriteFindingsHook` next to the bootstrap hook on every `connect`/`sync` and removed by `disconnect`; it goes through the same no-follow writers and registration code (`ensureSyntheticHook`) and is excluded from `ComputeDiff`/`Apply` the same way (`reservedHookNames`). **Claude Code, Codex and OpenCode 2.x** (D361, D362): a `PostToolUse` entry whose matcher is `mcp__.*__(concept_write|concept_new|concept_patch|concept_batch|concept_move|concept_archive|supersede|index_patch)$` (the server segment is a wildcard, so it follows `server_name`) runs a two-line script that hands the payload on stdin to `cartographer hook write-findings` ([configurator](configurator.md)). When the write response carries findings of any severity, the subcommand returns them to the agent as feedback it must act on (fix, or `lint_ignore`); it cannot undo the write. The channel is per client, chosen by the hook command and never sniffed from the payload: Claude Code gets stderr with exit 2; Codex gets `--channel context` (`provisioning.writeFindingsCommandArgs`), `additionalContext` on stdout with exit 0, because on exit 2 Codex replaces the tool result with the stderr text and the agent repeats the write ([D361](decisions/D361-codex-write-findings-context.md)). In every other case, a crash included, it is silent and exits 0. The shim forwards its arguments (`"$@"` / `%*`). **OpenCode ≥ 2** gets a dedicated generated plugin instead of the generic one ([D362](decisions/D362-opencode-write-findings-plugin.md)): on `execute.after` it pipes `{tool_name, tool_response}` to the same shim and, on exit 2, appends the stderr text to `result.output`; it never throws, because a throw reaches the model as a tool error and the agent retries the write. OpenCode 1.x (or an unreadable version) gets no hook and loses a previous one. Codex trusts a hook per definition, so the user approves this hook once in Codex, as for the bootstrap hook. The tool list is `provisioning.WriteFindingsTools`, checked by a test against the handlers that return `findings`. Opt out per machine with `write_findings_hook: false` in `.cartographer.yaml` (the next `sync` removes the hook; a config that cannot be read counts as enabled). Other clients are added by a probe of their payload and feedback channel, never by inference.
+**Write-findings hook (`cartographer-write-findings`, D353).** A second client-generated hook of the same family, reserved name `provisioning.WriteFindingsHookName`, installed by `EnsureWriteFindingsHook` next to the bootstrap hook on every `connect`/`sync` and removed by `disconnect`; it goes through the same no-follow writers and registration code (`ensureSyntheticHook`) and is excluded from `ComputeDiff`/`Apply` the same way (`reservedHookNames`). **Claude Code, Codex and OpenCode 2.x** (D361, D362): a `PostToolUse` entry whose matcher is `mcp__.*__(concept_write|concept_new|concept_patch|concept_batch|concept_move|concept_archive|supersede|index_patch)$` (the server segment is a wildcard, so it follows `server_name`) runs a two-line script that hands the payload on stdin to `cartographer hook write-findings` ([configurator](configurator.md)). When the write response carries findings, the subcommand returns them to the agent as feedback it must act on (fix the page in the next write: nothing accepts or silences a finding, D907); it cannot undo the write. The channel is per client, chosen by the hook command and never sniffed from the payload: Claude Code gets stderr with exit 2; Codex gets `--channel context` (`provisioning.writeFindingsCommandArgs`), `additionalContext` on stdout with exit 0, because on exit 2 Codex replaces the tool result with the stderr text and the agent repeats the write ([D361](decisions/D361-codex-write-findings-context.md)). In every other case, a crash included, it is silent and exits 0. The shim forwards its arguments (`"$@"` / `%*`). **OpenCode ≥ 2** gets a dedicated generated plugin instead of the generic one ([D362](decisions/D362-opencode-write-findings-plugin.md)): on `execute.after` it pipes `{tool_name, tool_response}` to the same shim and, on exit 2, appends the stderr text to `result.output`; it never throws, because a throw reaches the model as a tool error and the agent retries the write. OpenCode 1.x (or an unreadable version) gets no hook and loses a previous one. Codex trusts a hook per definition, so the user approves this hook once in Codex, as for the bootstrap hook. The tool list is `provisioning.WriteFindingsTools`, checked by a test against the handlers that return `findings`. It is always installed (D906): there is no per-machine opt-out. Other clients are added by a probe of their payload and feedback channel, never by inference.
 
 After the silent sync the script runs `cartographer update notice`, keeping its stdout and discarding its stderr ([D254](decisions/D254-agents-are-told-when-cartographer-is-out-of-date.md)). It prints nothing unless a newer release is known, then one paragraph that a client adding SessionStart hook output to the session context (Claude Code) hands to the agent; the rest of the script's guarantees are unchanged. Because the hook is excluded from diffing, nothing compares an installed script with the current one: what delivers a changed script to an already-connected machine is that `EnsureBootstrapHook` rewrites both files **unconditionally** on every `connect`/`sync`, and the hook itself runs `sync` — so the first session start after an upgrade installs the new script and the next one runs it, with no `reconnect`. A test pins that rewrite.
 
@@ -66,7 +66,7 @@ runs `cartographer sync` on an interval. `setup` and `connect` (and so `reconnec
 themselves** (D325) when a connected provider has no session hook, or one that fires only in some of
 its sessions (kiro, `provisioning.SessionHookLimit`, D300), **and** the timer is not already
 installed; `setup` shows it in its plan first. `service sync-timer uninstall` is the explicit
-opt-out and is remembered (`sync_timer_opt_out` in `.cartographer.yaml`): connect then only notes it,
+opt-out and is remembered (`sync_timer_opt_out` in the client state file, `.cartographer-state.json`): connect then only notes it,
 and `doctor`'s `trigger` check drops to info; `sync-timer install` clears it. `disconnect` removes the
 timer once no remaining client needs it, without recording an opt-out. `status` never installs: it
 names the command. The predicate is the one `doctor`'s `trigger` check uses, so the commands cannot
@@ -75,9 +75,9 @@ evidence of coverage, and a client config that cannot be read never triggers an 
 `reconnect` always print the hint and then record in the lockfile that it was shown
 (`session_hook_limit_acked`, carried over by every sync); `status` does not repeat it after that,
 while a client with no hook at all is always named and `doctor`'s `trigger` check still reports the
-limit on every run ([D320](decisions/D320-upgrades-and-provisioning-tell-the-user-what-changed.md)). The timer runs sync **without**
-`--auto-trust` — an unattended job must not grant a trust the user never gave; the persisted
-`trust` setting in `.cartographer.yaml` still applies (D54). Logs: `~/Library/Logs/cartographer/sync.log`
+limit on every run ([D320](decisions/D320-upgrades-and-provisioning-tell-the-user-what-changed.md)). The timer runs plain
+`sync`: the client has no trust flag (D906), and an MCP descriptor still needs the point approval an
+unattended job cannot give. Logs: `~/Library/Logs/cartographer/sync.log`
 on macOS, the journal on Linux.
 
 Beyond the revision comparison, every `sync` also verifies the managed files on disk and restores
@@ -118,8 +118,8 @@ which runs no Cartographer code — the next plain `cartographer sync` does
 it instead (D199): before syncing it replaces a
 native service still running the previous binary, under the client-state lock so concurrent
 session-start syncs replace it once. It runs the very same in-process sync as plain `cartographer sync` — same
-authorization, same persisted trust, pinned keys, point approvals and allow-lists. Automatic
-repair never implies `--auto-trust`, never invents an approval and never broadens trust; it also
+authorization, pinned keys and point approvals. Automatic
+repair never invents an approval and never broadens trust; it also
 never disconnects or reconnects a provider. It only runs when the client is configured against
 that same native service over loopback HTTP; any other endpoint is skipped rather than contacted.
 
@@ -176,12 +176,11 @@ deployment, which trains people to ignore warnings. Two ways out (D162):
   is left verbatim **and silent**. A real key cannot look like that — `repoindex` keys are git remote
   names or path keys, and `<` `>` are legal in neither.
 
-`search_depth` in `.cartographer.yaml` bounds how many directory levels the repo scan descends from
-each root: default **4**, maximum **8**, a value above it clamped with a warning rather than rejected.
-A workspace organised as `<root>/<program>/<area>/<repo>` puts the repository directory at the fourth
-level and its contents at the fifth, so it needs `search_depth: 5` — with the old fixed cap ~160
-repositories were invisible and every `{{repo:<key>}}` citing one was unusable. The not-found message
-now names the depth it searched, the maximum, and the setting. Keying stays on the **normalised git
+The repo scan descends **4** directory levels from each root (a constant since D906; it was the
+`search_depth` setting, D162). A workspace organised deeper than that is served by a closer root in
+`search_roots` or a `paths` entry, which is also what the not-found message tells. `search_roots`
+defaults to `~/Documents`, `~/src`, `~/code` and `~/projects` (a default root that does not exist on the
+machine is skipped without a warning), and is consulted only for a key with no `paths` entry. Keying stays on the **normalised git
 remote**, never on a directory name: that is what makes a `repo:` key identical for every operator.
 
 A cache hit is not trusted blindly (D181): before a cached path is returned, `repoindex` checks
@@ -278,8 +277,8 @@ artifacts that are silently not installed.
 
 ## Security
 
-- **Cryptographic signature gate.** A configured KB signer creates a canonical Ed25519 envelope over domain, format version, source KB, kind, name, version and content hash. The remote client recomputes the content hash and verifies against out-of-band `signing_keys` pins before writing any provider file or lockfile. `signed:true` is verification output only; malformed, invalid, source-mismatched, unknown-key or tampered content fails the whole sync. Bundled artifacts use the separate `built_in:true` origin.
-- **Explicit unsigned authorization.** `trust: true` and one-shot `--auto-trust` retain the backwards-compatible approval path for eligible unsigned KB artifacts, but never change `signed`. Rotate keys by pinning the new public key first, switching the server signer second, then removing the old pin.
+- **Cryptographic signature gate.** A configured KB signer creates a canonical Ed25519 envelope over domain, format version, source KB, kind, name, version and content hash. The remote client recomputes the content hash and verifies against out-of-band `signing_keys` pins before writing any provider file or lockfile. `signed:true` is verification output only; malformed, invalid, source-mismatched, unknown-key or tampered content fails the whole sync, and so does an artifact with **no** signature under a pinned KB (a KB with a configured signer signs every artifact it ships, instructions and MCP descriptors included, so a missing signature means it was stripped). Bundled artifacts use the separate `built_in:true` origin.
+- **Unsigned KB artifacts are installed, unless the KB is pinned** (D906). The client has no `trust` setting and no `--auto-trust` (the flag is still accepted and ignored with a warning, because the session-start hook of an older version passes it). Everything a KB ships is installed after the pull's own checks — path traversal below, the signature against a pinned `signing_keys` entry above, which fails the whole sync when it does not verify — and `signed` stays verification output only: an artifact with no signature is installed and reported as `trusted`, not `verified` — but only for a KB with no `signing_keys` pin: a pinned KB accepts only signed artifacts. The one exception is an MCP descriptor (below). Rotate keys by pinning the new public key first, switching the server signer second, then removing the old pin.
 - **Path traversal.** Artifact names and paths come from the server via JSON: `provisioning.Apply` rejects anything that is not `filepath.IsLocal` (no absolute paths, no `../`) before writing. Applies to every kind.
 - **Symlinked destinations are refused** (D148). `os.WriteFile` on a symlinked path opens the *target* with `O_WRONLY|O_TRUNC` — it does not replace the link — so a symlinked client directory diverts the write outside the client, and when the target is another git repository it lands there with a provenance footer declaring a false origin. Every materialization walks the destination's components under the base dir with `os.Lstat` and refuses the first one that is not a plain file or a plain directory — a symlink, a device, a socket, a named pipe, or anything Go can only report as `ModeIrregular`, which is one of the two ways a Windows directory junction may appear ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md): the guard refuses both spellings, because which one Go uses there is unverified). A regular file where a directory is expected stays accepted, since `MkdirAll` already reports that accurately. The base dir itself is exempt, since it may legitimately be a link (a symlinked `$HOME`, a provider root from `BaseDirEnv`). The same widened refusal applies to `internal/sops`' path walk, which has the same shape and the same exposure. The refusal is **per artifact**: it is reported in the sync summary as `refused: <kind>/<name>` and in `AppliedResult.Refused`, the rest of the pass proceeds, and the artifact is left out of the lockfile so the next sync retries and reports again — the condition can only be cleared by the operator. `cartographer doctor` reports a symlinked destination directly, since a sync only mentions it on a run where that artifact is in the diff. Symlinked client-config directories are ordinary (a dotfile manager, a monorepo checkout, a shared team directory, an earlier bootstrap that linked skills out of a source repo), which is why this is a refusal rather than an assumption.
 - Sync never carries secrets, only references (`skills-services-secrets.md`).
@@ -473,8 +472,8 @@ one sends no author, an invalid one sends none and the bridge logs it once. Git 
 work tree, never guesses `user@host` (`user.useConfigOnly`), and is asked once per folder for the
 session (a folder with no identity again after 30s). A call that writes to two KBs (`target_kb`)
 carries one author for both commits, so it is sent only when both KBs resolve to the same one. The
-`identities` keys are the client's KB names: a `kb_aliases` name the server resolves is not one.
-Without a header the server authors the write as the token.
+`identities` keys are the client's KB names: a renamed KB's old name, which the server resolves through its state file, is not one.
+Without a header the server authors the write as the identity configured for the KB in the server file (`git.identity`, `git.identities`), else the token.
 
 **Who an HTTP entry's writes are authored as (D904).** A provider without a workspace binding (or
 whose bridge cannot start) keeps an HTTP entry, written once into a file every folder shares, so
@@ -542,6 +541,10 @@ A projection writes into a directory the user version-controls, so two rules hol
 `git status` is clean after a sync. That is asserted end-to-end by the `18_workspace_projection`
 E2E scenario, along with the rest of this section.
 
+`status` judges the provider the way sync applies it: the global projection against the bundle
+only, each bound workspace against its own manifest and lock, so a clean sync is `in-sync` (exit 0)
+([D1011](decisions/D1011-status-judges-workspace-projections.md)).
+
 ### Unbinding
 
 `cartographer workspace unbind <provider> <path>` removes the declaration; the next `sync` prunes
@@ -568,6 +571,7 @@ cannot reach past its own projection.
 
   This is why the flag is **lockfile state, not an observation**, where the filesystem has none. `materialized_hash` is recorded from what the writer intended, so on-disk verification must reproduce that same intent: it takes the flag from the lockfile's `executable_paths` instead of from the mode, falling back — for a lockfile written before that field, or one with nothing executable — to the kind's own rule, which is exact for a hook and means "not executable" for everything else. Without it a skill shipping an executable helper reported `modified` on every check, permanently, with no repair able to clear it. On unix nothing changes: there the filesystem is the authority, because an external `chmod` is real drift and reporting it is the point. The artifact hash itself is untouched by all of this — normalising the mode inside the digest would make every client's expanded hash differ from the server's `content_hash` and re-materialize every installation at once ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md)).
 - **Per-kind counts**: `provisioning.KindCounts` → a `skill 4/5 · agent 2/2 · hook 1/1` line in `cartographer status` and the TUI.
+- **Pending hook hint**: under a hook that is new or updated, `status` says where the sync registers it for that provider, read from `provisioning.HookPluginRelPath` / `HookRegistrationFile` (a generated file, or the provider's registration file under the scope's base directory); it never asks the user to register by hand, because `Apply` does it for every provider with a hook destination (#1012).
 
 ## Instructions (imprinting)
 
@@ -628,10 +632,11 @@ anchor itself, so a default that is absolute or climbs out with `..` is ignored 
 sent it.
 
 The server-side `machine_path` lint flags a literal client-local path left in a concept body
-instead of one of these placeholders. Not every absolute path in a body is client-local: a Map's
-`machine_path_allow_prefixes` contract (D124, `docs/data-plane.md` §Maps and Journals) declares
-absolute prefixes — a container image's home directory, a remote node's runtime path — that are
-identical on every reader's machine and therefore not a placeholder candidate.
+instead of one of these placeholders. Not every absolute path in a body is client-local: a path
+inside a URL is not one (D124), a container or cluster path (`/etc/…`, `/var/…`) is never a
+candidate, and the conventional tool paths every machine agrees on (`~/.ssh/config`,
+`~/.kube/config`, D313) are documentation. No map declares more exceptions (D907): a remote
+node's home directory is written `$HOME/…`, a clone or a local folder as a placeholder.
 
 **No server-side expansion**: it would break `content_hash`/`if_match` (hash on the raw content, content
 served differently per client) and the server doesn't know clients' filesystems. `internal/mcpserver`
@@ -693,7 +698,7 @@ A KB can distribute third-party MCP servers (endpoints that connected agents mus
 - **Emission (`internal/configurator.EmitServer`)**: a refactor that extracts from `Emit`/`ServerConfig` (Cartographer's own entry) a provider-neutral core `EmitServer(name, spec ServerSpec, provider)`, reused both by `connect` (for the `cartographer` entry) and by `Apply` for KB servers. Translation of the `${VAR}` reference: claude/kiro/codex leave it verbatim (native syntax); OpenCode translates it to `{env:VAR}`. Codex only exposes `bearer_token_env_var` for auth: an `Authorization: Bearer ${VAR}` header is translated there, any other header is not representable and is dropped with a warning (`EmitResult.Warnings`) instead of failing. Kiro has never had a header field for MCP servers (a pre-existing limitation, not introduced by D69): a KB server with headers generates a warning in `AppliedResult.Warnings`, not an error.
 - **Apply**: unlike skills/agents/hooks, an MCP server does not materialize its own file/folder — it **merges into the provider's native config** (`internal/provisioning/mcpsettings.go`, `registerMCPServer`/`removeMCPServer`), with per-name ownership so multiple MCP servers (and Cartographer's own entry) coexist in the same file: claude/opencode/kiro do a JSON merge on the `mcpServers`/`mcp` key; codex uses a marker-delimited block `# cartographer:mcp:<name>:begin/end` (distinct from the unnamed block `cartographer connect` writes for itself) via `internal/blocktext`. `destDir("mcp", ...)` resolves to the same shared file for all servers of that provider (like `instructions`), but — unlike `instructions` (a GROUP block) — each server is an independent `ManagedFile`.
 - **Prune/disconnect**: `PruneManaged` strips only that name's entry/block (never the whole file), with the same empty-shell cleanup as `configurator.Remove` (D63): `.kiro/settings/mcp.json`/`opencode.json`/`.gemini/config/mcp_config.json` are deleted if the removal leaves only `$schema`/nothing; `.claude.json` is never deleted; `.codex/config.toml` only loses the marker-delimited block.
-- **Server policy and client consent**: an MCP server receives the agent's data, so two independent grants apply. The server omits it unless the KB's exact `mcp_allowlist` entry matches name, transport and target — the normalized URL for `http`, the exact command for `stdio`; absent/empty policy denies every descriptor. On the client an unsigned descriptor requires `cartographer approve mcp <name> --kb <kb>`, binding consent to source, name and full content hash. `trust`/`--auto-trust` never authorize MCP. A cryptographically verified descriptor is eligible without a point approval, but is still subject to the server allow-list. Any hash change returns it to `needs_approval`; revoke then sync prunes managed provider config.
+- **Client consent** (D906): the server distributes every valid descriptor of a KB (the former per-KB `mcp_allowlist` is gone), but an MCP server receives the agent's data, so the client decides. Every descriptor, signed or not, requires `cartographer approve mcp <name> --kb <kb>`, binding consent to source, name and full content hash: a signature proves the origin, and any `rw` token on the KB can write a descriptor (D906). Nothing else authorizes an MCP descriptor. Any hash change returns it to `needs_approval`; revoke then sync prunes managed provider config.
 - **Remote sync**: no per-kind filtering in `sync_pull`/`tools_sync.go` nor in the HTTP client — an `mcp` artifact travels as a single `ArtifactFile` (the `mcp/<name>.json` file), same schema as an agent.
 
 **Stdio descriptors (D116).** A descriptor may use `{"type":"stdio","command","args"?,"env"?}`,
@@ -706,8 +711,8 @@ refused; parentheses are the one exception and only for an **absolute** command,
 `C:\Program Files (x86)\srv\srv.exe` is expressible — an absolute command is handed to `exec.Command`
 with a separate argv and never reaches a shell, while a bare name has no reason to carry one
 ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md)). Arguments keep their order and `env` values are `${VAR}` references only, so
-no secret value ever reaches the server or a provider file. The allow-list binds the exact command,
-while the artifact content hash binds every argument and reference: changing any field invalidates a
+no secret value ever reaches the server or a provider file. The artifact content hash binds the exact command,
+every argument and every reference: changing any field invalidates a
 D115 approval. Before any provider config or lockfile is written, `PreflightStdioMCP` resolves the
 command locally for **every** target provider (PATH lookup for bare names, executable regular-file
 check for absolute paths — on Windows the extension is what makes a file executable, so `PATHEXT`

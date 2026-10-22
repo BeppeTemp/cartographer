@@ -32,7 +32,18 @@ func newChangesLinksKB(t *testing.T) *changesLinksKB {
 	}
 	k.AuthName = "docs"
 	for _, m := range []string{"ops", "other", "hidden"} {
-		if err := k.CreateMap(m, m, "map", nil, ""); err != nil {
+		if err := k.CreateMap(m, m, "map", nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Pages the tests write link to this one, and every map lists its pages
+	// itself: the write gate (D907) refuses a page nothing reaches.
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "anchor.md"), []byte("---\ntype: Note\ntitle: Anchor\n---\n# Anchor\n\nThe page the others link to.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	generated := kb.IndexGenerated
+	for _, m := range []string{"ops", "other", "hidden"} {
+		if _, err := k.UpdateMapContract(m, kb.MapContractUpdate{Index: &generated}); err != nil {
 			t.Fatal(err)
 		}
 	}

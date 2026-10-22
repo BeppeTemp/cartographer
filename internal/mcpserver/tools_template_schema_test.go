@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 )
@@ -58,7 +57,6 @@ func TestValidateTemplateArtifactMetadata(t *testing.T) {
 func TestTemplateListCarriesTheSchema(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	if res := callTool(t, s, "artifact_write", `{"path":"templates/server.md","content":`+jsonString(schemaTemplate)+`}`); res.IsError {
@@ -92,11 +90,15 @@ func TestConceptNewStampsShapeAndStripsSchema(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(k.Root, "templates", "server.md"), []byte(tpl+"\n## Operations\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.CreateMapWithContract("infra", "Infra", "map", nil, "", kb.MapContract{Templates: []string{"server"}, RequireTemplate: true}), error(nil); err != nil {
+	if _, err := k.CreateMapWithContract("infra", "Infra", "map", nil, kb.MapContract{Templates: []string{"server"}}), error(nil); err != nil {
 		t.Fatal(err)
 	}
+	forwardLinks(t, k, "infra/box")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
+	if res := callTool(t, s, "map_update", `{"map":"infra","index":"generated"}`); res.IsError {
+		t.Fatalf("map_update: %+v", res.Content)
+	}
 	res := callTool(t, s, "concept_new", `{"template":"server","id":"infra/box","vars":{"title":"Box"}}`)
 	if res.IsError {
 		t.Fatalf("concept_new: %+v", res.Content)
@@ -116,13 +118,16 @@ func TestConceptNewStampsShapeAndStripsSchema(t *testing.T) {
 			t.Errorf("a page made from its template has a template finding: %s %s", f.Check, f.Message)
 		}
 	}
-	// A template the map does not list is not refused; the response says so.
+	// A template the map does not list is refused, with the finding (D907).
 	if err := os.WriteFile(filepath.Join(k.Root, "templates", "appliance.md"), []byte("---\ntype: Host\ntitle: \"{{title}}\"\n---\n# {{title}}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	res = callTool(t, s, "concept_new", `{"template":"appliance","id":"infra/other","vars":{"title":"Other"}}`)
-	if res.IsError || !strings.Contains(res.Content[0].Text, "template_not_allowed") {
-		t.Fatalf("a template outside the map's list is reported, not refused: %+v", res)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "template_not_allowed") {
+		t.Fatalf("a template outside the map's list is refused with its finding: %+v", res)
+	}
+	if _, err := k.ReadConcept("infra/other"); err == nil {
+		t.Fatal("the refused page was written")
 	}
 }
 
@@ -135,7 +140,7 @@ func TestMapCreateAndUpdateTemplateKeys(t *testing.T) {
 		t.Fatalf("map_create: %+v", res.Content)
 	}
 	c, err := k.ReadMapContract("infra")
-	if err != nil || !c.RequireTemplate || c.DefaultTemplate != "server" || strings.Join(c.Templates, ",") != "runbook,server" {
+	if err != nil || !c.StrictTemplates() || c.DefaultTemplate != "server" || strings.Join(c.Templates, ",") != "runbook,server" {
 		t.Fatalf("a map created with templates starts strict: %v %+v", err, c)
 	}
 	if res := callTool(t, s, "map_create", `{"name":"bad","title":"Bad","templates":["a"],"default_template":"b"}`); !res.IsError {
@@ -144,11 +149,11 @@ func TestMapCreateAndUpdateTemplateKeys(t *testing.T) {
 	if res := callTool(t, s, "map_create", `{"name":"bad2","title":"Bad","templates":["../x"]}`); !res.IsError {
 		t.Fatal("a path is not a template slug")
 	}
-	res := callTool(t, s, "map_update", `{"map":"infra","require_template":false,"templates":["server"],"default_template":"server"}`)
+	res := callTool(t, s, "map_update", `{"map":"infra","templates":["server"],"default_template":"server"}`)
 	if res.IsError {
 		t.Fatalf("map_update: %+v", res.Content)
 	}
-	if !strings.Contains(res.Content[0].Text, `"require_template": false`) || !strings.Contains(res.Content[0].Text, `"default_template": "server"`) {
+	if !strings.Contains(res.Content[0].Text, `"default_template": "server"`) {
 		t.Fatalf("the contract echo lacks the template keys: %s", res.Content[0].Text)
 	}
 	if res := callTool(t, s, "map_update", `{"map":"infra","templates":["runbook"]}`); !res.IsError {
@@ -159,57 +164,11 @@ func TestMapCreateAndUpdateTemplateKeys(t *testing.T) {
 	}
 }
 
-func TestTemplateOnlyArtifactWrite(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowTemplateWrite = true }) // allow_artifact_write stays off
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	content := jsonString("---\ntype: Note\ntitle: x\n---\n# x\n")
-	if res := callTool(t, s, "artifact_write", `{"path":"templates/x.md","content":`+content+`}`); res.IsError {
-		t.Fatalf("a template is writable: %+v", res.Content)
-	}
-	for _, path := range []string{"skills/s/SKILL.md", "instructions.md", "paths.yaml", "agents/a.md"} {
-		res := callTool(t, s, "artifact_write", `{"path":"`+path+`","content":"x"}`)
-		if !res.IsError || !strings.Contains(res.Content[0].Text, "only templates/ is writable on this KB") {
-			t.Errorf("%s must be refused in template-only mode: %+v", path, res)
-		}
-	}
-	res := callTool(t, s, "artifact_read", `{"path":"templates/x.md"}`)
-	var read struct {
-		SHA256 string `json:"sha256"`
-	}
-	_ = json.Unmarshal([]byte(res.Content[0].Text), &read)
-	if res := callTool(t, s, "artifact_delete", `{"path":"instructions.md","if_match":"x"}`); !res.IsError || !strings.Contains(res.Content[0].Text, "only templates/") {
-		t.Fatalf("artifact_delete outside templates/: %+v", res)
-	}
-	if res := callTool(t, s, "artifact_delete", `{"path":"templates/x.md","if_match":"`+read.SHA256+`"}`); res.IsError {
-		t.Fatalf("a template is deletable: %+v", res.Content)
-	}
-	// The full right lifts the limit.
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
-	s2 := New("test")
-	RegisterKBTools(s2, k, Deps{})
-	if res := callTool(t, s2, "artifact_write", `{"path":"hooks/h/run.sh","content":"echo hi\n"}`); res.IsError {
-		t.Fatalf("allow_artifact_write unchanged: %+v", res.Content)
-	}
-}
-
-func TestTemplateWriteOffRegistersNothing(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	if _, ok := s.Tools()["artifact_write"]; ok {
-		t.Fatal("with neither right artifact_write is not registered")
-	}
-}
-
 // The proposal kb_review builds is a template artifact_write accepts.
 func TestTemplateProposalPassesValidation(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	if err := k.CreateMapWithContract("infra", "Infra", "map", nil, "", kb.MapContract{}); err != nil {
+	if err := k.CreateMapWithContract("infra", "Infra", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 	for i, n := range []string{"a", "b", "c", "d"} {
@@ -258,7 +217,7 @@ func TestFixpointRepairsTemplateShape(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(k.Root, "templates", "server.md"), []byte(tpl), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CreateMapWithContract("infra", "Infra", "map", nil, "", kb.MapContract{Templates: []string{"server"}, RequireTemplate: true}); err != nil {
+	if err := k.CreateMapWithContract("infra", "Infra", "map", nil, kb.MapContract{Templates: []string{"server"}}); err != nil {
 		t.Fatal(err)
 	}
 	page := "---\ntype: Host\ntitle: Box\n---\n# Box\n\nIntro line.\n\n## Operations\n\nops text\n\n## Odd one\n\nodd text\n\n## Objective\n\nwhy text\n\n```\n## Fenced\n```\n"
@@ -268,7 +227,7 @@ func TestFixpointRepairsTemplateShape(t *testing.T) {
 	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
-	out, skip := repairConceptFixpoint(k, "infra/box", config.DefaultAutoRepair, nil)
+	out, skip := repairConceptFixpoint(k, "infra/box", lint.AutoRepairChecks(), nil)
 	if skip != nil {
 		t.Fatalf("skip = %+v", skip)
 	}

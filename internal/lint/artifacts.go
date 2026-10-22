@@ -19,9 +19,8 @@ import (
 
 // Artifact checks (D316): lint covers what a KB ships next to its concepts —
 // skills, agents, instructions.md — and the junk files committed with them,
-// not only the concepts and hooks. Every check here is deterministic and
-// warning or info: the artifact is already in the KB, and the fix is its
-// author's.
+// not only the concepts and hooks. Every check here is deterministic: the
+// artifact is already in the KB, and the fix is its author's.
 
 // Options carries the inputs lint cannot read from the KB itself.
 type Options struct {
@@ -30,20 +29,7 @@ type Options struct {
 	// for a single-KB server. checkCrossKBPaths uses it to detect hard-coded
 	// cross-KB references in artifacts.
 	CrossKBRoots map[string]string
-
-	// Usage is the per-artifact usage the clients reported (D326), keyed by
-	// kb.UsageKey. Nil means no client ever reported — a fresh KB, the scan
-	// switched off, no supported client — and artifact_unused stays silent:
-	// the absence of a signal is not evidence of disuse.
-	Usage map[string]kb.UsageSummary
-	// UsageStaleDays is the age past which a used artifact is reported as
-	// unused; 0 disables the check. Run fills both from the KB.
-	UsageStaleDays int
 }
-
-// artifactChecks are the KB-level checks of this file: no concept's
-// lint_ignore can reach them, so naming one there is reported as invalid.
-var artifactChecks = checkSet(func(s CheckSpec) bool { return s.Level == LevelArtifact })
 
 // missingInstructionsThreshold is the concept count above which a KB with no
 // instructions.md is reported: below it sit the demo and freshly-created KBs,
@@ -103,9 +89,9 @@ type kbInstructions struct {
 	exists      bool
 	perimeter   string
 	legacyPaths []legacyPath // longest prefix first
-	// accept is lint_accept (D332): artifact path (or a directory prefix
-	// ending in "/") → the checks accepted on it.
-	accept map[string]map[string]bool
+	// legacyAccept: the frontmatter still carries lint_accept (D332), which
+	// D907 removed; contract_legacy_key reports it and the repair drops it.
+	legacyAccept bool
 }
 
 // legacyPath is one declared prefix rewrite (WP13).
@@ -137,117 +123,8 @@ func readInstructions(k *kb.KB) kbInstructions {
 			out.legacyPaths = parseLegacyPaths(string(b))
 		}
 	}
-	if v, ok := fm.Get("lint_accept"); ok {
-		if b, ok := v.(okf.Block); ok {
-			out.accept = parseLintAccept(string(b))
-		}
-	}
+	_, out.legacyAccept = fm.Get("lint_accept")
 	return out
-}
-
-// parseLintAccept reads the indented `"path": [check, …]` lines of the
-// lint_accept mapping. A bare value is a one-element list, as in lint_ignore.
-func parseLintAccept(block string) map[string]map[string]bool {
-	out := map[string]map[string]bool{}
-	for _, line := range strings.Split(block, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		key, rest, ok := splitYAMLKey(line)
-		if !ok || key == "" {
-			continue
-		}
-		if i := strings.Index(rest, " #"); i >= 0 {
-			rest = rest[:i]
-		}
-		rest = strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(rest), "["), "]")
-		for _, name := range strings.Split(rest, ",") {
-			if name = unquote(strings.TrimSpace(name)); name != "" {
-				if out[key] == nil {
-					out[key] = map[string]bool{}
-				}
-				out[key][name] = true
-			}
-		}
-	}
-	return out
-}
-
-// artifactAcceptable are the checks lint_accept may name: the artifact
-// checks reported on a file, plus the per-concept checks checkArtifacts also
-// runs on skills. A junk file is deleted, never accepted, and
-// missing_instructions has no file to key on.
-func artifactAcceptable(check string) bool {
-	s, ok := Spec(check)
-	return ok && (s.Accept == AcceptArtifact || s.AlsoArtifact)
-}
-
-// applyLintAccept drops the artifact findings instructions.md accepts with
-// lint_accept (D332): an artifact has no frontmatter lint can own — a skill's
-// is read by every client — so the KB's own instructions file holds the
-// operator's judgement, keyed by path. A key ending in "/" covers every file
-// under it. Errors never go. A name that cannot be accepted, or a key that
-// matches no finding, is itself reported on instructions.md.
-func applyLintAccept(findings []Finding, accept map[string]map[string]bool) ([]Finding, []Suppression) {
-	if len(accept) == 0 {
-		return findings, nil
-	}
-	used := map[string]map[string]int{} // key → check → findings dropped (D834)
-	matches := func(key, path string) bool {
-		return path == key || (strings.HasSuffix(key, "/") && strings.HasPrefix(path, key))
-	}
-	out := findings[:0]
-	for _, f := range findings {
-		dropped := false
-		if f.Severity != SevError && f.Path != "" && artifactAcceptable(f.Check) {
-			for key, checks := range accept {
-				if checks[f.Check] && matches(key, f.Path) {
-					if used[key] == nil {
-						used[key] = map[string]int{}
-					}
-					used[key][f.Check]++
-					dropped = true
-				}
-			}
-		}
-		if !dropped {
-			out = append(out, f)
-		}
-	}
-	keys := make([]string, 0, len(accept))
-	for key := range accept {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	var sups []Suppression
-	for _, key := range keys {
-		names := make([]string, 0, len(accept[key]))
-		for name := range accept[key] {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			sp := Suppression{Source: SourceAccept, Path: key, Check: name, Hidden: used[key][name]}
-			reason := ""
-			switch {
-			case !artifactAcceptable(name):
-				reason = "a check lint_accept cannot accept (unknown, a junk file to delete, or not reported on artifacts)"
-			case used[key][name] == 0:
-				reason = "no such finding on that path, so the entry is stale"
-				sp.Stale = true // already reported below: reportStale adds no second finding
-			default:
-				sups = append(sups, sp)
-				continue
-			}
-			sups = append(sups, sp)
-			out = append(out, newFinding("lint_ignore_invalid", Finding{
-				Path:    "instructions.md",
-				Message: fmt.Sprintf("lint_accept names %q on %q: %s", name, key, reason),
-			}))
-		}
-	}
-	return out, sups
 }
 
 // parseLegacyPaths reads the indented `"old/": "new/"` lines of the
@@ -313,7 +190,7 @@ type artifactText struct {
 // checkArtifacts runs every artifact check of an unscoped lint. The skills are
 // loaded once and handed to each check that needs them: LoadAllSkills walks
 // the filesystem.
-func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount int, hasSecretsDir bool) ([]Finding, []Suppression) {
+func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount int, hasSecretsDir bool) []Finding {
 	skills, missing := loadSkills(k)
 	files := artifactTextFiles(k)
 
@@ -328,8 +205,9 @@ func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount i
 	}
 	findings = append(findings, checkCrossKBPaths(files, opts.CrossKBRoots)...)
 	findings = append(findings, checkSkillMissingPerimeter(skills, instr.perimeter)...)
-	findings = append(findings, checkArtifactUnused(k, skills, opts, time.Now())...)
-	findings, sups := applyLintAccept(findings, instr.accept)
+	if instr.legacyAccept {
+		findings = append(findings, legacyAcceptFinding())
+	}
 	for i := range findings {
 		if findings[i].Path != "" {
 			findings[i].Artifact = true
@@ -341,7 +219,17 @@ func checkArtifacts(k *kb.KB, opts Options, instr kbInstructions, conceptCount i
 		}
 		return findings[i].Check < findings[j].Check
 	})
-	return findings, sups
+	return findings
+}
+
+// legacyAcceptFinding reports the lint_accept key of instructions.md, removed
+// in D907 with every other way to switch a check off: the repair drops it.
+func legacyAcceptFinding() Finding {
+	return newFinding("contract_legacy_key", Finding{
+		Path:    "instructions.md",
+		Message: "lint_accept was removed (D907): no setting switches a check off, so the key does nothing — the repair drops it; fix the artifact each entry named instead",
+		Fix:     &Fix{Kind: FixRewriteContract, Field: "lint_accept"},
+	})
 }
 
 func skillFile(s skill.Skill) string { return s.DirPath + "/SKILL.md" }
@@ -618,7 +506,8 @@ func checkInstructions(instr kbInstructions, conceptCount int) []Finding {
 // checkSkillGitCommands reports a skill whose code runs a git mutation (WP6):
 // the KB is written only through MCP tools, and an agent's own git in the
 // clone is how a KB forks on its remote (D264). Info: the command may target
-// another repository, which only the author can tell.
+// another repository, which only the author can tell; `git -C <repo> <verb>`
+// names it, and is not matched (nothing accepts the finding, D907).
 func checkSkillGitCommands(skills []skill.Skill) []Finding {
 	var findings []Finding
 	for _, s := range skills {
@@ -631,7 +520,7 @@ func checkSkillGitCommands(skills []skill.Skill) []Finding {
 				seen[m[1]] = true
 				findings = append(findings, newFinding("skill_git_command", Finding{
 					Path:    skillFile(s),
-					Message: fmt.Sprintf("skill instructs git %s — if it targets the KB clone, write through the MCP tools instead; if it targets another repository, accept it in instructions.md lint_accept", m[1]),
+					Message: fmt.Sprintf("skill instructs git %s — if it targets the KB clone, write through the MCP tools instead; if it targets another repository, write it as `git -C <that repository> %s` so the step names it", m[1], m[1]),
 				}))
 			}
 		}
@@ -817,6 +706,43 @@ func junkFindings(files []string, junkAssets map[string]bool) []Finding {
 	return findings
 }
 
+// checkSymlinkedPaths reports every symlink under data/ and services/ (D1025).
+// Concept and asset paths never follow one, so the operator needs to see why a
+// concept or asset "does not exist". It walks the disk, not git: a link that
+// is not committed yet is refused just the same.
+func checkSymlinkedPaths(k *kb.KB) []Finding {
+	var findings []Finding
+	for _, top := range []string{"data", "services"} {
+		start := filepath.Join(k.Root, top)
+		// data/ itself may be a mount point; walk through it.
+		if resolved, err := filepath.EvalSymlinks(start); err == nil {
+			start = resolved
+		} else {
+			continue
+		}
+		_ = filepath.WalkDir(start, func(abs string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.Type()&fs.ModeSymlink == 0 {
+				return nil
+			}
+			rel, relErr := filepath.Rel(start, abs)
+			if relErr != nil {
+				return nil
+			}
+			findings = append(findings, newFinding("symlinked_path", Finding{
+				Path:     top + "/" + filepath.ToSlash(rel),
+				Message:  "symlink in the KB; concepts and assets never follow it, remove it with git rm",
+				Artifact: true,
+			}))
+			return nil
+		})
+	}
+	sort.Slice(findings, func(i, j int) bool { return findings[i].Path < findings[j].Path })
+	return findings
+}
+
 // walkFiles lists every regular file under root, slash-relative, outside .git
 // and the server's own .cartographer state.
 func walkFiles(root string) []string {
@@ -849,7 +775,7 @@ const (
 
 // UsageState classifies one artifact against the usage reports. seen is false
 // for an artifact absent from them. kb_status counts by it and
-// artifact_unused reports by it, so the two cannot disagree.
+// the Artifacts panel reports by it, so the two cannot disagree.
 func UsageState(u kb.UsageSummary, seen bool, staleDays int, now time.Time) string {
 	switch {
 	case !seen || u.LastUsed.IsZero():
@@ -860,26 +786,6 @@ func UsageState(u kb.UsageSummary, seen bool, staleDays int, now time.Time) stri
 		return UsageStale
 	}
 	return UsageActive
-}
-
-// recentlyAdded returns the KB-root-relative paths added (or renamed into
-// place) since the given instant, from one git log over that window. A KB
-// that is not a git repository, or whose history cannot be read, has none:
-// the check then reports as before rather than going silent.
-func recentlyAdded(root string, since time.Time) map[string]bool {
-	commits, err := gitx.LogNameStatus(root, since)
-	if err != nil {
-		return nil
-	}
-	out := map[string]bool{}
-	for _, c := range commits {
-		for _, f := range c.Files {
-			if f.Status == "A" || f.Status == "R" {
-				out[f.Path] = true
-			}
-		}
-	}
-	return out
 }
 
 // UsageArtifact is a skill or agent the KB ships, as usage tracking sees it.
@@ -909,42 +815,4 @@ func usageArtifacts(k *kb.KB, skills []skill.Skill) []UsageArtifact {
 		}
 	}
 	return items
-}
-
-// checkArtifactUnused reports the skills and agents no client has activated
-// for opts.UsageStaleDays (D326): a candidate for retirement, or a sign it is
-// broken (twelve skills of fifty had never been read when this was measured).
-// Info, because the signal is partial by construction — a provider with no
-// readable transcript contributes nothing, and a Codex catalogue load proves
-// availability, not use — so it never blocks a gate.
-func checkArtifactUnused(k *kb.KB, skills []skill.Skill, opts Options, now time.Time) []Finding {
-	if opts.Usage == nil || opts.UsageStaleDays <= 0 {
-		return nil
-	}
-	recent := recentlyAdded(k.Root, now.AddDate(0, 0, -opts.UsageStaleDays))
-	var findings []Finding
-	for _, it := range usageArtifacts(k, skills) {
-		u, seen := opts.Usage[kb.UsageKey(it.Kind, it.Name)]
-		days := int(now.Sub(u.LastUsed).Hours() / 24)
-		f := newFinding("artifact_unused", Finding{Path: it.Path})
-		state := UsageState(u, seen, opts.UsageStaleDays, now)
-		// D336: an artifact added inside the threshold has not had the time
-		// to be used — "never" says nothing yet, as "stale" would not.
-		if (state == UsageNever || state == UsageCatalog) && recent[it.Path] {
-			continue
-		}
-		switch state {
-		case UsageNever:
-			f.Message = fmt.Sprintf("%s %q has never been activated by any client (no signal in session transcripts)", it.Kind, it.Name)
-		case UsageCatalog:
-			// Only a catalogue load: the client listed it, nothing shows it was used.
-			f.Message = fmt.Sprintf("%s %q has never been seen activated; a client last loaded its catalogue %d days ago (%s)", it.Kind, it.Name, days, u.Provider)
-		case UsageStale:
-			f.Message = fmt.Sprintf("%s %q was last activated %d days ago (by %s) — consider retiring or updating it", it.Kind, it.Name, days, u.Provider)
-		default:
-			continue
-		}
-		findings = append(findings, f)
-	}
-	return findings
 }

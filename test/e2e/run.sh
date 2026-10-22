@@ -40,6 +40,18 @@ export E2E_TMP_DIR
 E2E_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cartographer_e2e_XXXXXX")"
 echo "[run] temp directory: ${E2E_TMP_DIR}"
 
+# No git identity on this host (D996): a global user.name/user.email would hide
+# every "host without a git identity" bug, the one that left 0.25.0 unable to
+# publish. A scenario that commits by hand passes its identity with -c.
+export GIT_CONFIG_GLOBAL="${E2E_TMP_DIR}/gitconfig" GIT_CONFIG_NOSYSTEM=1
+# useConfigOnly: git must not guess an identity from the passwd entry and hostname.
+printf '[init]\n\tdefaultBranch = master\n[user]\n\tuseConfigOnly = true\n' > "$GIT_CONFIG_GLOBAL"
+unset GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL EMAIL
+if git var GIT_COMMITTER_IDENT >/dev/null 2>&1; then
+    echo "[ERROR] the isolated git config still yields an identity: the isolation regressed" >&2
+    exit 1
+fi
+
 cleanup() {
     if [[ "$KEEP" == false ]]; then
         rm -rf "$E2E_TMP_DIR"

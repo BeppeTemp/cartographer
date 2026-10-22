@@ -50,6 +50,28 @@ func setupTestKB(t testing.TB) *kb.KB {
 	return k
 }
 
+// forwardLinks writes, on disk, a page of the fixture's own map that already
+// links the ids a test is about to create. The write gate (D907) refuses a new
+// page nothing links to, and a test whose subject is not the gate gets its
+// page reached this way instead of through a body that the test asserts on:
+// the links are broken until the page exists, a finding the fixture had
+// before the write and the write resolves.
+func forwardLinks(t testing.TB, k *kb.KB, ids ...string) {
+	t.Helper()
+	var b strings.Builder
+	b.WriteString("---\ntype: Note\ntitle: Forward links\n---\n# Forward links\n\n")
+	for _, id := range ids {
+		b.WriteString("- [[" + id + "]]\n")
+	}
+	abs := filepath.Join(k.DataRoot(), "manutenzione", "forward-links.md")
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
 const initializedNotification = `{"jsonrpc":"2.0","method":"notifications/initialized"}`
 
 // asMCPSession turns a bare message list into a valid MCP session: the SDK
@@ -578,7 +600,7 @@ func TestServer_ConceptWrite_Creazione(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/nuovo-concept","frontmatter":{"type":"Note","title":"Nuovo Concept"},"body":"# Titolo\n\nContenuto di prova.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/nuovo-concept","frontmatter":{"type":"Note","title":"Nuovo Concept"},"body":"# Titolo\n\nContenuto di prova.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/nuovo-concept"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -614,10 +636,10 @@ func TestServer_ConceptRead_Outline(t *testing.T) {
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
 
-	body := "# Uno\n\nContenuto uno.\n\n## Sotto\n\nDettaglio.\n\n# Due\n\nContenuto due.\n"
+	body := "# Uno\n\nContenuto uno.\n\n## Sotto\n\nDettaglio.\n\n# Due\n\nContenuto due.\n\n\n[[manutenzione/test-runbook]]\n"
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/outline-test","frontmatter":{"type":"Note","title":"Outline"},"body":%q}}}`, body),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/outline-test","frontmatter":{"type":"Note","title":"Uno"},"body":%q}}}`, body),
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/outline-test","outline":true}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -649,10 +671,10 @@ func TestServer_ConceptRead_SectionNotFound_ListsHeadings(t *testing.T) {
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
 
-	body := "# Uno\n\nContenuto uno.\n\n# Due\n\nContenuto due.\n"
+	body := "# Uno\n\nContenuto uno.\n\n# Due\n\nContenuto due.\n\n\n[[manutenzione/test-runbook]]\n"
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/section-test","frontmatter":{"type":"Note","title":"Section"},"body":%q}}}`, body),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/section-test","frontmatter":{"type":"Note","title":"Uno"},"body":%q}}}`, body),
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/section-test","section":"# NonEsiste"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -680,21 +702,18 @@ func TestServer_ConceptRead_SizeGuard_OutlineThenFull(t *testing.T) {
 	RegisterKBTools(s, k, Deps{})
 
 	big := "# Grande\n\n" + strings.Repeat("a", conceptReadSizeGuard+1) + "\n"
+	// Written on disk: this test is about what concept_read does with a big one.
+	writeTestConcept(t, k, "note/big", big)
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/big","frontmatter":{"type":"Note","title":"Big"},"body":%q}}}`, big),
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/big"}}}`,
-		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/big","full":true}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/big"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/big","full":true}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
-	if len(resps) != 4 {
-		t.Fatalf("expected 4 responses, received %d", len(resps))
+	if len(resps) != 3 {
+		t.Fatalf("expected 3 responses, received %d", len(resps))
 	}
-	if tr := decodeToolResult(t, resps[1]); tr.IsError {
-		t.Fatalf("concept_write: isError=true: %v", tr.Content)
-	}
-
-	trGuarded := decodeToolResult(t, resps[2])
+	trGuarded := decodeToolResult(t, resps[1])
 	if trGuarded.IsError {
 		t.Fatalf("concept_read (guarded): isError=true: %v", trGuarded.Content)
 	}
@@ -706,7 +725,7 @@ func TestServer_ConceptRead_SizeGuard_OutlineThenFull(t *testing.T) {
 		t.Errorf("concept_read over size guard: must not include the full body")
 	}
 
-	trFull := decodeToolResult(t, resps[3])
+	trFull := decodeToolResult(t, resps[2])
 	if trFull.IsError {
 		t.Fatalf("concept_read full=true: isError=true: %v", trFull.Content)
 	}
@@ -723,7 +742,7 @@ func TestServer_ConceptRead_FullResponse_ContentIsOptIn(t *testing.T) {
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
 
-	body := "# Uno\n\nContenuto uno.\n"
+	body := "# Uno\n\nContenuto uno.\n\n\n[[manutenzione/test-runbook]]\n"
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/once","frontmatter":{"type":"Note","title":"Once"},"body":%q}}}`, body),
@@ -790,10 +809,10 @@ func TestServer_ConceptRead_WithContent_IgnoredByOtherBranches(t *testing.T) {
 	s := New("0.1.0-m1")
 	RegisterKBTools(s, k, Deps{})
 
-	body := "# Uno\n\nContenuto uno.\n"
+	body := "# Uno\n\nContenuto uno.\n\n\n[[manutenzione/test-runbook]]\n"
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/branches","frontmatter":{"type":"Note","title":"Branches"},"body":%q}}}`, body),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/branches","frontmatter":{"type":"Note","title":"Uno"},"body":%q}}}`, body),
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/branches","outline":true,"with_content":true}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/branches","section":"# Uno","with_content":true}}}`,
 	}
@@ -841,9 +860,9 @@ func TestServer_ConceptWrite_StaleWrite(t *testing.T) {
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		// First write without if_match.
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/concept-stale","frontmatter":{"type":"Note"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/concept-stale","frontmatter":{"type":"Note"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		// Second write with wrong if_match.
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/concept-stale","frontmatter":{"type":"Note"},"body":"# Aggiornato\n","if_match":"hash-sbagliato-xyz"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/concept-stale","frontmatter":{"type":"Note"},"body":"# Aggiornato\n\n[[manutenzione/test-runbook]]\n","if_match":"hash-sbagliato-xyz"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 
@@ -875,7 +894,7 @@ func TestServer_ConceptDelete(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/da-cancellare","frontmatter":{"type":"Note","title":"Da Cancellare"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/da-cancellare","frontmatter":{"type":"Note","title":"Da Cancellare"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_delete","arguments":{"id":"note/da-cancellare"}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"note/da-cancellare"}}}`,
 	}
@@ -918,7 +937,7 @@ func TestServer_ConceptDelete_StaleWrite(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/stale-delete","frontmatter":{"type":"Note"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/stale-delete","frontmatter":{"type":"Note"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_delete","arguments":{"id":"note/stale-delete","if_match":"hash-sbagliato-xyz"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -1036,14 +1055,14 @@ func TestServer_MapCreate_Contract(t *testing.T) {
 	RegisterKBTools(s, k, Deps{})
 	resps := runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"contract-map","title":"Contract","required_fields":["timestamp","timestamp"],"required_fields_by_type":{"Runbook":["provenance"]},"require_index_entry":true}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"contract-map","title":"Contract","required_fields":{"*":["timestamp","timestamp"],"Runbook":["provenance"]}}}}`,
 	})
 	tr := decodeToolResult(t, resps[1])
 	if tr.IsError {
 		t.Fatalf("map_create: %v", tr.Content)
 	}
 	content, err := k.ReadRaw("contract-map/_map.md")
-	if err != nil || !strings.Contains(content, "required_fields: [timestamp]") || !strings.Contains(content, "required_fields.Runbook: [provenance]") || !strings.Contains(content, "require_index_entry: true") {
+	if err != nil || !strings.Contains(content, "required_fields.*: [timestamp]") || !strings.Contains(content, "required_fields.Runbook: [provenance]") || strings.Contains(content, "require_index_entry") {
 		t.Fatalf("contract descriptor = %q, %v", content, err)
 	}
 }
@@ -1055,10 +1074,10 @@ func TestServer_MapCreateUpdate_FieldValues(t *testing.T) {
 	RegisterKBTools(s, k, Deps{})
 	resps := runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"fv-map","title":"FV","field_values":{"status":["active","draft"]},"field_values_by_type":{"Incident":{"outcome":["open","resolved"]}},"forbidden_fields":["state"]}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values":{"status":["active"]},"forbidden_fields":[]}}}`,
-		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"fv-bad","title":"Bad","field_values":{"status":[]}}}}`,
-		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values_by_type":{"T":{"a.b":["x"]}}}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"fv-map","title":"FV","field_values":{"*":{"status":["active","draft"]},"Incident":{"outcome":["open","resolved"]}},"forbidden_fields":["state"]}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values":{"*":{"status":["active"]},"Incident":{"outcome":["open","resolved"]}},"forbidden_fields":[],"reason":"the state field is allowed again"}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"fv-bad","title":"Bad","field_values":{"*":{"status":[]}}}}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"fv-map","field_values":{"T":{"a.b":["x"]}}}}}`,
 	})
 	if tr := decodeToolResult(t, resps[1]); tr.IsError {
 		t.Fatalf("map_create: %v", tr.Content)
@@ -1068,7 +1087,7 @@ func TestServer_MapCreateUpdate_FieldValues(t *testing.T) {
 		t.Fatalf("map_update: %v", tr.Content)
 	}
 	content, _ := k.ReadRaw("fv-map/_map.md")
-	if !strings.Contains(content, "field_values.status: [active]") || !strings.Contains(content, "field_values.Incident.outcome: [open, resolved]") || strings.Contains(content, "forbidden_fields") {
+	if !strings.Contains(content, "field_values.*.status: [active]") || !strings.Contains(content, "field_values.Incident.outcome: [open, resolved]") || strings.Contains(content, "forbidden_fields") {
 		t.Fatalf("descriptor = %q", content)
 	}
 	for _, r := range resps[3:] {
@@ -1085,90 +1104,13 @@ func TestServer_MapCreate_RejectsEmptyContractNames(t *testing.T) {
 	RegisterKBTools(s, k, Deps{})
 	resps := runMCPSequence(t, s, []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-field","title":"Bad","required_fields":[" "]}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-type","title":"Bad","required_fields_by_type":{" ":["owner"]}}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-field","title":"Bad","required_fields":{"*":[" "]}}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-type","title":"Bad","required_fields":{" ":["owner"]}}}}`,
 	})
 	for _, response := range resps[1:] {
 		if result := decodeToolResult(t, response); !result.IsError {
 			t.Fatalf("map_create accepted an empty contract name: %#v", result)
 		}
-	}
-}
-
-// TestServer_MapCreate_MachinePathAllowPrefixes verifies map_create writes
-// machine_path_allow_prefixes into the Map descriptor and that ReadMapContract
-// round-trips it, exercising the D124 field end to end via MCP.
-func TestServer_MapCreate_MachinePathAllowPrefixes(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	resps := runMCPSequence(t, s, []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"infra","title":"Infra","machine_path_allow_prefixes":["/home/nonroot","/home/ubuntu/.cache/huggingface"]}}}`,
-	})
-	tr := decodeToolResult(t, resps[1])
-	if tr.IsError {
-		t.Fatalf("map_create: %v", tr.Content)
-	}
-	content, err := k.ReadRaw("infra/_map.md")
-	if err != nil || !strings.Contains(content, "machine_path_allow_prefixes: [/home/nonroot, /home/ubuntu/.cache/huggingface]") {
-		t.Fatalf("contract descriptor = %q, %v", content, err)
-	}
-}
-
-func TestServer_MapCreate_RejectsEmptyMachinePathAllowPrefix(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	resps := runMCPSequence(t, s, []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"bad-prefix","title":"Bad","machine_path_allow_prefixes":[" "]}}}`,
-	})
-	if result := decodeToolResult(t, resps[1]); !result.IsError {
-		t.Fatalf("map_create accepted an empty machine_path_allow_prefixes entry: %#v", result)
-	}
-}
-
-// TestServer_Lint_MachinePath_ContractMalformed verifies that a malformed
-// machine_path_allow_prefixes entry in a Map descriptor surfaces as a
-// contract_malformed finding through the lint tool (D124), the same way
-// other malformed contract keys already do.
-func TestServer_Lint_MachinePath_ContractMalformed(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "_map.md"),
-		[]byte("---\ntype: Map\nmachine_path_allow_prefixes: [relative/path]\n---\n"), 0o644)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	resps := runMCPSequence(t, s, []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"lint","arguments":{"scope":"manutenzione"}}}`,
-	})
-	tr := decodeToolResult(t, resps[1])
-	if tr.IsError || !strings.Contains(tr.Content[0].Text, "contract_malformed") || !strings.Contains(tr.Content[0].Text, "machine_path_allow_prefixes") {
-		t.Fatalf("lint contract_malformed result: %#v", tr)
-	}
-}
-
-// TestServer_GateCheck_MachinePath_AllowedOperationalPath verifies gate_check
-// consumes the same Map contract as lint: an operational path covered by
-// machine_path_allow_prefixes must not block the gate (D124).
-func TestServer_GateCheck_MachinePath_AllowedOperationalPath(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	resps := runMCPSequence(t, s, []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"infra","title":"Infra","machine_path_allow_prefixes":["/home/nonroot"]}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"infra/image","frontmatter":{"type":"Note","title":"Image"},"body":"Config lives at /home/nonroot/.headroom.\n"}}}`,
-		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"gate_check","arguments":{"changed_ids":["infra/image"]}}}`,
-	})
-	tr := decodeToolResult(t, resps[3])
-	if tr.IsError || strings.Contains(tr.Content[0].Text, "machine_path") {
-		t.Fatalf("gate_check should not flag an allowed operational path: %#v", tr)
 	}
 }
 
@@ -1183,7 +1125,7 @@ func TestServer_MapDelete_NonEmpty(t *testing.T) {
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"test-map-nonempty","title":"Test Map","kind":"map"}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"test-map-nonempty/keeper","frontmatter":{"type":"Note","title":"Keeper"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"test-map-nonempty/keeper","frontmatter":{"type":"Note","title":"Keeper"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n","index_entry":true}]}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"map_delete","arguments":{"map":"test-map-nonempty"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -1216,7 +1158,7 @@ func TestServer_ConceptExpand(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"manutenzione/rotazione-cert","frontmatter":{"type":"note","title":"Rotazione Cert"},"body":"Body.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"manutenzione/rotazione-cert","frontmatter":{"type":"note","title":"Rotazione Cert"},"body":"Body.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"manutenzione/rotazione-cert"}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_read","arguments":{"id":"manutenzione/rotazione-cert"}}}`,
 	}
@@ -1255,7 +1197,7 @@ func TestServer_ConceptExpand_AlreadyExpanded(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"manutenzione/rotazione-cert","frontmatter":{"type":"note","title":"Rotazione Cert"},"body":"Body.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"manutenzione/rotazione-cert","frontmatter":{"type":"note","title":"Rotazione Cert"},"body":"Body.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"manutenzione/rotazione-cert"}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"manutenzione/rotazione-cert"}}}`,
 	}
@@ -1582,7 +1524,7 @@ func TestServer_MapList(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"test-map","title":"Test Map","kind":"journal","ontology_mode":"strict","concept_types":["Runbook","Note"]}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"test-map","title":"Test Map","kind":"journal","concept_types":["Runbook","Note"]}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_list","arguments":{}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -2200,9 +2142,32 @@ func TestServer_KBStatus_KBName(t *testing.T) {
 	}
 }
 
+// makeCleanKB turns the test KB into one the lint has nothing to say about: the
+// runbook's title matches its heading, a described map with a curated index
+// lists both pages, and the two pages link each other (a finding is a problem,
+// D947, so a gate that is meant to pass needs a KB with none).
+func makeCleanKB(t testing.TB, k *kb.KB) {
+	t.Helper()
+	d := filepath.Join(k.DataRoot(), "manutenzione")
+	for name, content := range map[string]string{
+		"_map.md":         "---\ntype: Map\nkind: map\ntitle: Manutenzione\n---\n# Manutenzione\n",
+		"index.md":        "---\ntype: Index\ntitle: Manutenzione\n---\n# Manutenzione\n\n- [Test Runbook](test-runbook.md): the test runbook\n- [Related](related.md): the related page\n",
+		"test-runbook.md": "---\ntype: Runbook\ntitle: Test Runbook\n---\n# Test Runbook\n\nIl runbook di test, vedi [Related](related.md).\n",
+		"related.md":      "---\ntype: Note\ntitle: Related\n---\n# Related\n\nTorna a [Test Runbook](test-runbook.md).\n",
+	} {
+		if err := os.WriteFile(filepath.Join(d, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f, err := lint.Run(k, "", false); err != nil || len(f) != 0 {
+		t.Fatalf("the fixture KB must be clean: %v %+v", err, f)
+	}
+}
+
 func TestServer_GateCheck_Pass(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
+	makeCleanKB(t, k)
 	s := New("0.5.0-m5")
 	RegisterKBTools(s, k, Deps{})
 
@@ -2221,17 +2186,17 @@ func TestServer_GateCheck_Pass(t *testing.T) {
 	}
 }
 
-// --- gate_check / lint: severity floor, counts, scope (D186) ---
+// --- gate_check / lint: a finding is a problem, counts, scope (D186, D947) ---
 
-// setupThreeSeverityKB adds one finding of each severity to the test KB:
-// concept_oversize (info), broken_link (warning) and expanded_ambiguous
-// (error, from a concept that exists both as a file and as a directory).
-func setupThreeSeverityKB(t *testing.T, k *kb.KB) {
+// setupProblemsKB adds three findings of different kinds to the test KB:
+// open_marker (a TODO), broken_link and expanded_ambiguous (from a concept that
+// exists both as a file and as a directory).
+func setupProblemsKB(t *testing.T, k *kb.KB) {
 	t.Helper()
 	root := k.DataRoot()
-	big := "---\ntype: Note\ntitle: Big\n---\n# Grande\n\n" + strings.Repeat("a", 40000) + "\n"
-	if err := os.WriteFile(filepath.Join(root, "manutenzione", "big.md"), []byte(big), 0o644); err != nil {
-		t.Fatalf("write big: %v", err)
+	todo := "---\ntype: Note\ntitle: Todo\n---\n# Todo\n\nTODO: write this up.\n"
+	if err := os.WriteFile(filepath.Join(root, "manutenzione", "todo.md"), []byte(todo), 0o644); err != nil {
+		t.Fatalf("write todo: %v", err)
 	}
 	broken := "---\ntype: Note\ntitle: Broken\n---\nSee [missing](nonexistent.md).\n"
 	if err := os.WriteFile(filepath.Join(root, "manutenzione", "broken.md"), []byte(broken), 0o644); err != nil {
@@ -2253,14 +2218,11 @@ func setupThreeSeverityKB(t *testing.T, k *kb.KB) {
 type gateResponse struct {
 	Pass         bool `json:"pass"`
 	LintFindings []struct {
-		Path     string `json:"path"`
-		Check    string `json:"check"`
-		Severity string `json:"severity"`
+		Path  string `json:"path"`
+		Check string `json:"check"`
 	} `json:"lint_findings"`
-	LintCount        int            `json:"lint_count"`
-	FindingsOmitted  int            `json:"findings_omitted"`
-	CountsByCheck    map[string]int `json:"counts_by_check"`
-	CountsBySeverity map[string]int `json:"counts_by_severity"`
+	LintCount     int            `json:"lint_count"`
+	CountsByCheck map[string]int `json:"counts_by_check"`
 }
 
 func decodeGate(t *testing.T, tr ToolResult) gateResponse {
@@ -2275,89 +2237,63 @@ func decodeGate(t *testing.T, tr ToolResult) gateResponse {
 	return g
 }
 
-func TestServer_GateCheck_SeverityFloor_DefaultDropsInfo(t *testing.T) {
+// D947: every finding is a problem. The whole-KB gate lists them all, in the
+// registry's category order, counts them by check, and fails on any of them.
+func TestServer_GateCheck_EveryFindingFailsTheGate(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
 
-	// An empty changed_ids is the whole-KB gate (D318): the fixture's three
-	// severities live on different concepts, and a changed_ids-scoped gate
-	// (D312) would see only one.
+	// An empty changed_ids is the whole-KB gate (D318): the fixture's findings
+	// live on different concepts, and a changed_ids-scoped gate (D312) would
+	// see only one.
 	resps := runMCPSequence(t, s, []string{
 		initMsg,
 		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{}}),
-		artifactCallMsg(t, 3, "gate_check", map[string]any{"changed_ids": []string{}, "severity_min": "info"}),
-		artifactCallMsg(t, 4, "gate_check", map[string]any{"changed_ids": []string{}, "severity_min": "error"}),
 	})
-
-	byDefault := decodeGate(t, decodeToolResult(t, resps[1]))
-	withInfo := decodeGate(t, decodeToolResult(t, resps[2]))
-	withError := decodeGate(t, decodeToolResult(t, resps[3]))
-
-	// The fixture must actually exercise all three levels, or the rest proves
-	// nothing.
-	for _, sev := range []string{"info", "warning", "error"} {
-		if withInfo.CountsBySeverity[sev] == 0 {
-			t.Fatalf("fixture produced no %s finding: %v", sev, withInfo.CountsBySeverity)
+	tr := decodeToolResult(t, resps[1])
+	g := decodeGate(t, tr)
+	if g.Pass {
+		t.Error("a KB with findings must not pass the whole-KB gate")
+	}
+	for _, want := range []string{"open_marker", "broken_link", "expanded_ambiguous"} {
+		if g.CountsByCheck[want] == 0 {
+			t.Fatalf("fixture produced no %s finding: %v", want, g.CountsByCheck)
 		}
 	}
-
-	for _, f := range byDefault.LintFindings {
-		if f.Severity == "info" {
-			t.Errorf("default gate_check must not carry info findings, got %s on %s", f.Check, f.Path)
-		}
-	}
-	if len(byDefault.LintFindings) >= len(withInfo.LintFindings) {
-		t.Errorf("default floor should return fewer findings than severity_min=info: %d vs %d",
-			len(byDefault.LintFindings), len(withInfo.LintFindings))
-	}
-
-	// The counts are computed before filtering, so they are identical whatever
-	// the floor, and they total the unfiltered count.
+	// Nothing is hidden: the findings listed are the findings counted.
 	total := 0
-	for _, n := range byDefault.CountsByCheck {
+	for _, n := range g.CountsByCheck {
 		total += n
 	}
-	if total != byDefault.LintCount {
-		t.Errorf("counts_by_check totals %d, lint_count says %d", total, byDefault.LintCount)
+	if total != g.LintCount || len(g.LintFindings) != g.LintCount {
+		t.Errorf("counts_by_check totals %d, lint_count %d, %d findings listed", total, g.LintCount, len(g.LintFindings))
 	}
-	if byDefault.FindingsOmitted != byDefault.LintCount-len(byDefault.LintFindings) {
-		t.Errorf("findings_omitted=%d does not match %d-%d", byDefault.FindingsOmitted,
-			byDefault.LintCount, len(byDefault.LintFindings))
+	// No severity anywhere in the answer, and no floor that hid findings.
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &raw); err != nil {
+		t.Fatal(err)
 	}
-	if withInfo.FindingsOmitted != 0 {
-		t.Errorf("severity_min=info omits nothing, got findings_omitted=%d", withInfo.FindingsOmitted)
+	for _, gone := range []string{"counts_by_severity", "findings_omitted"} {
+		if _, ok := raw[gone]; ok {
+			t.Errorf("gate_check still answers %s", gone)
+		}
 	}
-
-	// A response budget must never change a verdict.
-	if withInfo.Pass != withError.Pass || byDefault.Pass != withInfo.Pass {
-		t.Errorf("pass must not depend on severity_min: default=%v info=%v error=%v",
-			byDefault.Pass, withInfo.Pass, withError.Pass)
-	}
-	if withError.Pass {
-		t.Error("fixture has an error-severity finding: pass must be false")
+	if strings.Contains(tr.Content[0].Text, "severity") {
+		t.Errorf("gate_check answer names a severity: %s", tr.Content[0].Text)
 	}
 }
 
-func TestServer_GateCheck_InvalidSeverityMin(t *testing.T) {
+// D947: the lint and gate_check tools take no severity: neither the schema nor
+// the description names one.
+func TestServer_LintAndGateCheckHaveNoSeverity(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	s := New("1.0.0")
-	RegisterKBTools(s, k, Deps{})
-
-	resps := runMCPSequence(t, s, []string{
-		initMsg,
-		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "severity_min": "critical"}),
-	})
-	tr := decodeToolResult(t, resps[1])
-	if !tr.IsError {
-		t.Fatal("gate_check: an invalid severity_min must be an error, not a silent fallback")
-	}
-	for _, want := range []string{"info", "warning", "error"} {
-		if !strings.Contains(tr.Content[0].Text, want) {
-			t.Errorf("error must name the accepted value %q: %s", want, tr.Content[0].Text)
+	for _, tool := range []Tool{toolLint(k), toolGateCheck(k)} {
+		if strings.Contains(strings.ToLower(string(tool.InputSchema)+tool.Description), "severity") {
+			t.Errorf("%s still names a severity: %s %s", tool.Name, tool.Description, tool.InputSchema)
 		}
 	}
 }
@@ -2365,7 +2301,7 @@ func TestServer_GateCheck_InvalidSeverityMin(t *testing.T) {
 func TestServer_GateCheck_Scope(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "altrove"), 0o755); err != nil {
 		t.Fatalf("mkdir altrove: %v", err)
 	}
@@ -2378,6 +2314,10 @@ func TestServer_GateCheck_Scope(t *testing.T) {
 		[]byte("---\ntype: Map\nkind: map\ntitle: Altrove\n---\n# Altrove\n"), 0o644); err != nil {
 		t.Fatalf("write altrove map: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "altrove", "index.md"),
+		[]byte("---\ntype: Index\ntitle: Altrove\n---\n# Altrove\n\n- [Pulito](pulito.md)\n- [Vicino](vicino.md)\n"), 0o644); err != nil {
+		t.Fatalf("write altrove index: %v", err)
+	}
 	// A clean page is linked: an isolated one is an orphan wherever it sits.
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "altrove", "vicino.md"),
 		[]byte("---\ntype: Note\ntitle: Vicino\n---\nTorna a [[altrove/pulito]].\n"), 0o644); err != nil {
@@ -2388,8 +2328,8 @@ func TestServer_GateCheck_Scope(t *testing.T) {
 
 	resps := runMCPSequence(t, s, []string{
 		initMsg,
-		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "scope": "manutenzione", "severity_min": "info"}),
-		artifactCallMsg(t, 3, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "scope": "altrove", "severity_min": "info"}),
+		artifactCallMsg(t, 2, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "scope": "manutenzione"}),
+		artifactCallMsg(t, 3, "gate_check", map[string]any{"changed_ids": []string{"manutenzione/test-runbook"}, "scope": "altrove"}),
 	})
 
 	inScope := decodeGate(t, decodeToolResult(t, resps[1]))
@@ -2408,77 +2348,32 @@ func TestServer_GateCheck_Scope(t *testing.T) {
 	}
 }
 
-func TestServer_Lint_SeverityFloor_CountsSurvive(t *testing.T) {
+// D947: one finding of any kind fails the gate, a broken link as much as a
+// page without a title; a KB without findings passes it.
+func TestServer_GateCheck_OneBrokenLinkFails(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	makeCleanKB(t, k)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
-
-	resps := runMCPSequence(t, s, []string{
-		initMsg,
-		artifactCallMsg(t, 2, "lint", map[string]any{}),
-		artifactCallMsg(t, 3, "lint", map[string]any{"severity_min": "error"}),
-	})
-
-	decode := func(tr ToolResult) gateResponse {
-		t.Helper()
-		if tr.IsError {
-			t.Fatalf("lint: isError=true: %v", tr.Content)
-		}
-		var r struct {
-			Count            int            `json:"count"`
-			FindingsOmitted  int            `json:"findings_omitted"`
-			Offset           *int           `json:"offset"`
-			NextOffset       *int           `json:"next_offset"`
-			Truncated        bool           `json:"truncated"`
-			CountsByCheck    map[string]int `json:"counts_by_check"`
-			CountsBySeverity map[string]int `json:"counts_by_severity"`
-			Findings         []struct {
-				Path     string `json:"path"`
-				Check    string `json:"check"`
-				Severity string `json:"severity"`
-			} `json:"findings"`
-		}
-		if err := json.Unmarshal([]byte(tr.Content[0].Text), &r); err != nil {
-			t.Fatalf("decode lint: %v", err)
-		}
-		// Pagination fields (D324): offset is always present; with no limit
-		// the page is the whole list, so there is no next_offset.
-		if r.Offset == nil || *r.Offset != 0 || r.NextOffset != nil || r.Truncated {
-			t.Errorf("lint without limit: want offset 0, no next_offset, not truncated; got %+v", r)
-		}
-		return gateResponse{
-			LintFindings:     r.Findings,
-			LintCount:        r.Count,
-			FindingsOmitted:  r.FindingsOmitted,
-			CountsByCheck:    r.CountsByCheck,
-			CountsBySeverity: r.CountsBySeverity,
-		}
+	gate := func(ids ...string) gateResponse {
+		args, _ := json.Marshal(map[string]any{"changed_ids": append([]string{}, ids...)})
+		return decodeGate(t, callTool(t, s, "gate_check", string(args)))
 	}
-
-	// lint's default stays exhaustive: it is the tool you call to see findings.
-	byDefault := decode(decodeToolResult(t, resps[1]))
-	if byDefault.FindingsOmitted != 0 {
-		t.Errorf("lint default must omit nothing, got findings_omitted=%d", byDefault.FindingsOmitted)
+	if g := gate("manutenzione/test-runbook"); !g.Pass || g.LintCount != 0 {
+		t.Fatalf("clean KB, changed concept: %+v", g)
 	}
-	if byDefault.CountsBySeverity["info"] == 0 {
-		t.Errorf("lint default must still carry info findings: %v", byDefault.CountsBySeverity)
+	if g := gate(); !g.Pass {
+		t.Fatalf("clean KB, whole-KB gate: %+v", g)
 	}
-
-	onlyErrors := decode(decodeToolResult(t, resps[2]))
-	for _, f := range onlyErrors.LintFindings {
-		if f.Severity != "error" {
-			t.Errorf("severity_min=error returned a %s finding: %s", f.Severity, f.Check)
+	broken := "---\ntype: Runbook\ntitle: Test Runbook\n---\n# Test Runbook\n\nVedi [Related](related.md) e [gone](gone.md).\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "manutenzione", "test-runbook.md"), []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, g := range map[string]gateResponse{"changed concept": gate("manutenzione/test-runbook"), "whole KB": gate()} {
+		if g.Pass || g.CountsByCheck["broken_link"] != 1 {
+			t.Errorf("%s: one broken link must fail the gate: %+v", name, g)
 		}
-	}
-	// count keeps meaning the unfiltered total, and the counts still describe
-	// everything that was found.
-	if onlyErrors.LintCount != byDefault.LintCount {
-		t.Errorf("count must stay the unfiltered total: %d vs %d", onlyErrors.LintCount, byDefault.LintCount)
-	}
-	if onlyErrors.CountsBySeverity["warning"] == 0 {
-		t.Errorf("counts must survive the filter: %v", onlyErrors.CountsBySeverity)
 	}
 }
 
@@ -2547,25 +2442,28 @@ func TestServer_E2E_WriteQueryLint(t *testing.T) {
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		// 2. Create map
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"docs","title":"Documentation"}}}`,
+		// 2b. The map lists its pages itself: a satellite of an expanded concept
+		// has no index_entry, and a curated dossier index would need an edit.
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_update","arguments":{"map":"docs","index":"generated"}}}`,
 		// 3. Write the "architecture" concept...
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"docs/architecture","frontmatter":{"type":"Index","title":"Architecture"},"body":"# Architecture\n"}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"docs/architecture","frontmatter":{"type":"Note","title":"Architecture"},"body":"# Architecture\n\n[[manutenzione/test-runbook]]\n","index_entry":true}]}}}`,
 		// 4. ...and expand it into a directory so it can grow satellite concepts.
-		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"docs/architecture"}}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"concept_expand","arguments":{"id":"docs/architecture"}}}`,
 		// 5. Write a satellite concept under the expanded "docs/architecture"
-		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"docs/architecture/stack","frontmatter":{"type":"Reference","title":"Tech Stack","status":"active"},"body":"# Tech Stack\n\nPostgreSQL for persistence, Redis for caching.\n"}}}`,
+		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"concept_batch","arguments":{"operations":[{"op":"write","id":"docs/architecture/stack","frontmatter":{"type":"Reference","title":"Tech Stack","status":"active"},"body":"# Tech Stack\n\nPostgreSQL for persistence, Redis for caching.\n","index_entry":true},{"op":"write","id":"docs/overview","frontmatter":{"type":"Note","title":"Overview"},"body":"# Overview\n\nThe [[docs/architecture/stack]] and the [[manutenzione/test-runbook]].\n","index_entry":true}]}}}`,
 		// 6. Rebuild index to include new concept
-		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"reindex","arguments":{"full":true}}}`,
+		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"reindex","arguments":{"full":true}}}`,
 		// 7. Search for the concept
-		`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"search","arguments":{"query":"postgresql redis"}}}`,
+		`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"search","arguments":{"query":"postgresql redis"}}}`,
 		// 8. Lint scoped to changed concept + neighbors
-		`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"lint","arguments":{"scope":"docs","scope_neighbors":true}}}`,
+		`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"lint","arguments":{"scope":"docs","scope_neighbors":true}}}`,
 		// 9. Gate check
-		`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"gate_check","arguments":{"changed_ids":["docs/architecture/stack"]}}}`,
+		`{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"gate_check","arguments":{"changed_ids":["docs/architecture/stack"]}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 
-	if len(resps) != 9 {
-		t.Fatalf("expected 9 responses, received %d", len(resps))
+	if len(resps) != 10 {
+		t.Fatalf("expected 10 responses, received %d", len(resps))
 	}
 
 	// Verify map_create OK
@@ -2574,20 +2472,24 @@ func TestServer_E2E_WriteQueryLint(t *testing.T) {
 		t.Fatalf("map_create: %v", tr2.Content)
 	}
 
+	if tr3 := decodeToolResult(t, resps[3]); tr3.IsError {
+		t.Fatalf("concept_batch (architecture): %v", tr3.Content)
+	}
+
 	// Verify concept_expand OK
-	tr4 := decodeToolResult(t, resps[3])
+	tr4 := decodeToolResult(t, resps[4])
 	if tr4.IsError {
 		t.Fatalf("concept_expand: %v", tr4.Content)
 	}
 
 	// Verify concept_write (satellite) OK
-	tr5 := decodeToolResult(t, resps[4])
+	tr5 := decodeToolResult(t, resps[5])
 	if tr5.IsError {
-		t.Fatalf("concept_write: %v", tr5.Content)
+		t.Fatalf("concept_batch (satellite): %v", tr5.Content)
 	}
 
 	// Verify search finds the concept
-	tr7 := decodeToolResult(t, resps[6])
+	tr7 := decodeToolResult(t, resps[7])
 	if tr7.IsError {
 		t.Fatalf("search: %v", tr7.Content)
 	}
@@ -2596,13 +2498,13 @@ func TestServer_E2E_WriteQueryLint(t *testing.T) {
 	}
 
 	// Verify lint clean
-	tr8 := decodeToolResult(t, resps[7])
+	tr8 := decodeToolResult(t, resps[8])
 	if tr8.IsError {
 		t.Fatalf("lint: %v", tr8.Content)
 	}
 
 	// Verify gate_check passes
-	tr9 := decodeToolResult(t, resps[8])
+	tr9 := decodeToolResult(t, resps[9])
 	if tr9.IsError {
 		t.Fatalf("gate_check: %v", tr9.Content)
 	}
@@ -2736,7 +2638,7 @@ func TestServer_ConceptWrite_UpdatesIndex(t *testing.T) {
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		// Write a new concept containing the unique keyword.
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/kw-test","frontmatter":{"type":"Note","title":"KW Test"},"body":"# Body\n\n` + uniqueKW + `\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/kw-test","frontmatter":{"type":"Note","title":"KW Test"},"body":"# Body\n\n` + uniqueKW + `\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		// Search immediately — must find the concept without reindex.
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"` + uniqueKW + `"}}}`,
 	}
@@ -2915,7 +2817,7 @@ func TestServer_ConceptWrite_UpdatesSQLIndex(t *testing.T) {
 		t.Helper()
 		msgs := []string{
 			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/sql-kw-test","frontmatter":{"type":"Note","title":"SQL KW Test"},"body":"# Body\n\n` + uniqueKW + `\n"}}}`,
+			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/sql-kw-test","frontmatter":{"type":"Note","title":"SQL KW Test"},"body":"# Body\n\n` + uniqueKW + `\n\n[[manutenzione/test-runbook]]\n"}}}`,
 			`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"` + uniqueKW + `"}}}`,
 		}
 		resps := runMCPSequence(t, s, msgs)
@@ -2988,7 +2890,7 @@ func TestServer_ConceptMove_UpdatesIndexes(t *testing.T) {
 		t.Helper()
 		msgs := []string{
 			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/move-src","frontmatter":{"type":"Note","title":"Move Src"},"body":"# Body\n\n` + uniqueKW + `\n"}}}`,
+			`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/move-src","frontmatter":{"type":"Note","title":"Move Src"},"body":"# Body\n\n` + uniqueKW + `\n\n[[manutenzione/test-runbook]]\n"}}}`,
 			`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_move","arguments":{"source_id":"notes/move-src","target_id":"notes/move-dst"}}}`,
 			`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"search","arguments":{"query":"` + uniqueKW + `"}}}`,
 		}
@@ -3080,7 +2982,7 @@ func TestServer_ConceptMove_StubsImplicitDossierIndex(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/move-src","frontmatter":{"type":"Note","title":"Move Src"},"body":"# Body\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/move-src","frontmatter":{"type":"Note","title":"Move Src"},"body":"# Body\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_move","arguments":{"source_id":"notes/move-src","target_id":"notes/sub-topic/moved"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -3296,36 +3198,6 @@ func TestServer_ConceptMove_SingleFormBackCompat(t *testing.T) {
 	tr2 := decodeToolResult(t, resps2[1])
 	if !tr2.IsError {
 		t.Fatalf("expected error when mixing 'moves' with top-level source_id/target_id, got: %v", tr2.Content)
-	}
-}
-
-// TestServer_ConceptMove_RewriteLinksFalse verifies that rewrite_links=false
-// leaves inbound links untouched and keeps the "not updated" warning.
-func TestServer_ConceptMove_RewriteLinksFalse(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	writeTestConcept(t, k, "notes/rf-target", "# Target\n")
-	writeTestConcept(t, k, "notes/rf-linker", "See [[notes/rf-target]] for details.\n")
-
-	s := New("1.0.0")
-	RegisterKBTools(s, k, Deps{})
-
-	msgs := []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_move","arguments":{"source_id":"notes/rf-target","target_id":"notes/rf-target-moved","rewrite_links":false}}}`,
-	}
-	resps := runMCPSequence(t, s, msgs)
-	tr := decodeToolResult(t, resps[1])
-	if tr.IsError {
-		t.Fatalf("concept_move: unexpected error: %v", tr.Content)
-	}
-	if !strings.Contains(tr.Content[0].Text, "inbound links to notes/rf-target are not updated") {
-		t.Errorf("expected 'inbound links...not updated' warning, got: %s", tr.Content[0].Text)
-	}
-
-	linkerBody := readTestConceptContent(t, k, "notes/rf-linker")
-	if !strings.Contains(linkerBody, "[[notes/rf-target]]") {
-		t.Errorf("rewrite_links=false: link should be untouched, got:\n%s", linkerBody)
 	}
 }
 
@@ -3818,7 +3690,7 @@ func TestServer_ToolsProfile(t *testing.T) {
 		"map_list", "concept_list", "graph_neighbors", "graph_context", "link_suggest", "search",
 		"supersede", "concept_move", "concept_delete",
 		"conflicts_list", "git_conflict_resolve",
-		"artifact_read", "template_list",
+		"artifact_read", "artifact_write", "artifact_delete", "template_list",
 		"asset_read", "asset_list", "asset_write", "asset_delete",
 		"validate", "lint", "gate_check", "kb_status", "kb_repair", "kb_review", "work_list", "source_register", "source_list",
 	}
@@ -3893,6 +3765,22 @@ func TestServer_ToolsProfile(t *testing.T) {
 		if !readOnlyHint {
 			t.Errorf("agent profile: governance tool %q must advertise readOnlyHint:true", name)
 		}
+	}
+
+	// D906: unlisted does not mean refused. An advanced tool, absent from the
+	// list above, is served when a call names it.
+	if got["graph_path"] || !ToolAdvanced("graph_path") {
+		t.Fatal("graph_path must be an advanced tool for this check")
+	}
+	resps := runMCPSequence(t, s, []string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"graph_path","arguments":{}}}`,
+	})
+	if len(resps) != 2 || resps[1].Error != nil {
+		t.Fatalf("tools/call of an advanced tool: unexpected responses: %+v", resps)
+	}
+	if b, _ := json.Marshal(resps[1].Result); strings.Contains(string(b), "tool not found") {
+		t.Errorf("an advanced tool hidden from tools/list must stay callable by name, got %s", b)
 	}
 
 	// Full profile: everything advertised again.
@@ -4086,7 +3974,7 @@ func TestServer_ConceptPatch_HappyPath(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-happy","frontmatter":{"type":"Note","title":"Patch Happy"},"body":"# Titolo\n\nRiga uno.\nRiga due.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-happy","frontmatter":{"type":"Note","title":"Patch Happy"},"body":"# Titolo\n\nRiga uno.\nRiga due.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4133,7 +4021,7 @@ func TestServer_ConceptPatch_StaleWrite(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-stale","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto originale.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-stale","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto originale.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"concept_patch","arguments":{"id":"note/patch-stale","old_string":"Testo originale.","new_string":"Testo nuovo.","if_match":"hash-sbagliato-xyz"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -4158,7 +4046,7 @@ func TestServer_ConceptPatch_OldStringNotFound(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-notfound","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto presente.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-notfound","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto presente.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4189,7 +4077,7 @@ func TestServer_ConceptPatch_OldStringAmbiguous(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-ambiguous","frontmatter":{"type":"Note"},"body":"# Corpo\n\nripetuto qui, ripetuto ancora, e ripetuto di nuovo.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-ambiguous","frontmatter":{"type":"Note"},"body":"# Corpo\n\nripetuto qui, ripetuto ancora, e ripetuto di nuovo.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4221,7 +4109,7 @@ func TestServer_ConceptPatch_ReplaceAll(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-replaceall","frontmatter":{"type":"Note"},"body":"# Corpo\n\nripetuto qui, ripetuto ancora, e ripetuto di nuovo.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-replaceall","frontmatter":{"type":"Note"},"body":"# Corpo\n\nripetuto qui, ripetuto ancora, e ripetuto di nuovo.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4269,7 +4157,7 @@ func TestServer_ConceptPatch_BatchEdits(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-batch","frontmatter":{"type":"Note"},"body":"# Titolo\n\nRiga uno.\nRiga due.\nRiga tre.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-batch","frontmatter":{"type":"Note"},"body":"# Titolo\n\nRiga uno.\nRiga due.\nRiga tre.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4324,7 +4212,7 @@ func TestServer_ConceptPatch_BatchEdits_FailsMidway(t *testing.T) {
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
 
-	body := "# Titolo\n\nRiga uno.\nRiga due.\n"
+	body := "# Titolo\n\nRiga uno.\nRiga due.\n\n[[manutenzione/test-runbook]]\n"
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-batch-fail","frontmatter":{"type":"Note"},"body":"` + strings.ReplaceAll(body, "\n", `\n`) + `"}}}`,
@@ -4376,7 +4264,7 @@ func TestServer_ConceptPatch_EditsAndTopLevelMutuallyExclusive(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-mutex","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-mutex","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4407,7 +4295,7 @@ func TestServer_ConceptPatch_EmptyEditsArray(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-empty-edits","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-empty-edits","frontmatter":{"type":"Note"},"body":"# Corpo\n\nTesto.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4438,7 +4326,7 @@ func TestServer_ConceptPatch_BatchEditsWithFrontmatter(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-batch-fm","frontmatter":{"type":"Note","status":"draft"},"body":"# Corpo\n\nRiga uno.\nRiga due.\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-batch-fm","frontmatter":{"type":"Note","status":"draft"},"body":"# Corpo\n\nRiga uno.\nRiga due.\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4485,7 +4373,7 @@ func TestServer_ConceptPatch_UnsetKey(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-unset","frontmatter":{"type":"Note","status":"imported"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-unset","frontmatter":{"type":"Note","status":"imported"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4526,7 +4414,7 @@ func TestServer_ConceptPatch_UnsetProtectedKey(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-unset-protected","frontmatter":{"type":"Note"},"body":"# Corpo\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"note/patch-unset-protected","frontmatter":{"type":"Note"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	trWrite := decodeToolResult(t, resps[1])
@@ -4555,7 +4443,7 @@ func TestServer_ConceptPatch_UnsetProtectedKey(t *testing.T) {
 // unsetSeed writes id with a status and returns its content hash.
 func unsetSeed(t *testing.T, s *Server, id string) string {
 	t.Helper()
-	tr := callTool(t, s, "concept_write", `{"id":"`+id+`","frontmatter":{"type":"Note","status":"imported"},"body":"# Corpo\n"}`)
+	tr := callTool(t, s, "concept_write", `{"id":"`+id+`","frontmatter":{"type":"Note","status":"imported"},"body":"# Corpo\n\n[[manutenzione/test-runbook]]\n"}`)
 	if tr.IsError {
 		t.Fatalf("concept_write: %v", tr.Content)
 	}
@@ -4606,7 +4494,7 @@ func TestServer_ConceptRead_ReturnsParsedFrontmatter(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("1.0.0")
 	RegisterKBTools(s, k, Deps{})
-	if tr := callTool(t, s, "concept_write", `{"id":"note/parsed","frontmatter":{"type":"Note","title":"L'operatore","tags":["a","b"]},"body":"# P\n"}`); tr.IsError {
+	if tr := callTool(t, s, "concept_write", `{"id":"note/parsed","frontmatter":{"type":"Note","title":"L'operatore","tags":["a","b"]},"body":"# P\n\n[[manutenzione/test-runbook]]\n"}`); tr.IsError {
 		t.Fatalf("concept_write: %v", tr.Content)
 	}
 	tr := callTool(t, s, "concept_read", `{"id":"note/parsed"}`)
@@ -4648,7 +4536,7 @@ func TestServer_Search_TitleAndSnippet(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/snippet-test","frontmatter":{"type":"Note","title":"Snippet Test Title"},"body":"` + body + `"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"notes/snippet-test","frontmatter":{"type":"Note","title":"Snippet Test Title"},"body":"` + body + `\n\n[[manutenzione/test-runbook]]\n"}}}`,
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"` + uniqueKW + `"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
@@ -5413,13 +5301,13 @@ func TestConceptMove_IsCompleteAcrossMaps(t *testing.T) {
 		}
 	}
 
-	// Two maps, both with a curated-index contract. The moved concept links a
+	// Two maps with a curated index. The moved concept links a
 	// sibling relatively, which is what breaks on a depth change.
-	write("src/_map.md", "---\ntype: Map\nkind: map\ntitle: Src\nrequire_index_entry: true\n---\n# Src\n")
+	write("src/_map.md", "---\ntype: Map\nkind: map\ntitle: Src\n---\n# Src\n")
 	write("src/index.md", "---\ntype: Index\ntitle: Src\n---\n- [mover](mover.md)\n- [friend](friend.md)\n")
 	write("src/friend.md", "---\ntype: Note\ntitle: Friend\n---\n# Friend\n")
 	write("src/mover.md", "---\ntype: Note\ntitle: Mover\n---\nSee [friend](friend.md).\n")
-	write("dst/_map.md", "---\ntype: Map\nkind: map\ntitle: Dst\nrequire_index_entry: true\n---\n# Dst\n")
+	write("dst/_map.md", "---\ntype: Map\nkind: map\ntitle: Dst\n---\n# Dst\n")
 	write("dst/index.md", "---\ntype: Index\ntitle: Dst\n---\n# Dst\n")
 
 	move := s.Tools()["concept_move"]
@@ -5482,7 +5370,7 @@ func TestConceptMove_KeepsAMultiLinkIndexLine(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("src/_map.md", "---\ntype: Map\nkind: map\ntitle: Src\nrequire_index_entry: true\n---\n# Src\n")
+	write("src/_map.md", "---\ntype: Map\nkind: map\ntitle: Src\n---\n# Src\n")
 	write("src/index.md", "---\ntype: Index\ntitle: Src\n---\n- see [mover](mover.md) and [friend](friend.md)\n")
 	write("src/friend.md", "---\ntype: Note\ntitle: Friend\n---\n# Friend\n")
 	write("src/mover.md", "---\ntype: Note\ntitle: Mover\n---\n# Mover\n")
@@ -5518,6 +5406,7 @@ func TestConceptMove_RewritesOtherIndexes(t *testing.T) {
 		"src/_map.md":    "---\ntype: Map\nkind: map\ntitle: Src\n---\n# Src\n",
 		"src/mover.md":   "---\ntype: Note\ntitle: Mover\n---\n# Mover\n",
 		"dst/_map.md":    "---\ntype: Map\nkind: map\ntitle: Dst\n---\n# Dst\n",
+		"dst/index.md":   "---\ntype: Index\ntitle: Dst\n---\n# Dst\n",
 		"third/_map.md":  "---\ntype: Map\nkind: map\ntitle: Third\n---\n# Third\n",
 		"third/index.md": "---\ntype: Index\ntitle: Third\n---\n# Third\n\nThe old page [[src/mover]] is history now.\n",
 		"index.md":       "---\ntype: Index\ntitle: Root\n---\n# Root\n\n- [Mover](src/mover.md)\n",
@@ -5645,6 +5534,37 @@ func TestConceptMerge_RefusesANonSatellite(t *testing.T) {
 	res, _ := s.Tools()["concept_merge"].Handler(authLocalContext(), args)
 	if !res.IsError || !strings.Contains(res.Content[0].Text, "3 segments") {
 		t.Errorf("concept_merge on a non-satellite = %+v, want a refusal", res.Content)
+	}
+}
+
+// A dangling <id>.md link reads as absent to os.Stat; the collapse must refuse
+// it instead of renaming index.md through the link (D1025).
+func TestConceptCollapse_RefusesASymlinkedFlatPath(t *testing.T) {
+	t.Parallel()
+	k, s := d160Fixture(t)
+	d160Write(t, k, "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
+	d160Write(t, k, "m/c.md", "---\ntype: Note\ntitle: C\n---\n# C\n")
+	if err := k.ExpandConcept("m/c"); err != nil {
+		t.Fatal(err)
+	}
+	expanded, err := k.ReadConcept("m/c")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "missing.md")
+	if err := os.Symlink(target, filepath.Join(k.DataRoot(), "m", "c.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	args, _ := json.Marshal(map[string]string{"id": "m/c", "if_match": expanded.ContentHash})
+	res, err := s.Tools()["concept_collapse"].Handler(authLocalContext(), args)
+	if err != nil || !res.IsError {
+		t.Fatalf("concept_collapse through a symlink: %+v err=%v, want a refusal", res, err)
+	}
+	if _, statErr := os.Lstat(target); !os.IsNotExist(statErr) {
+		t.Errorf("the link target was written: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(k.DataRoot(), "m", "c", "index.md")); statErr != nil {
+		t.Errorf("index.md moved despite the refusal: %v", statErr)
 	}
 }
 
@@ -5845,23 +5765,25 @@ func TestConceptDeleteRefusesInboundLinksWithoutForce(t *testing.T) {
 	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target"}`)
 	if !res.IsError || !strings.HasPrefix(res.Content[0].Text, "inbound_links:") ||
 		!strings.Contains(res.Content[0].Text, "manutenzione/linker") ||
-		!strings.Contains(res.Content[0].Text, "force") {
-		t.Fatalf("want inbound_links refusal naming the linker, got %+v", res)
+		!strings.Contains(res.Content[0].Text, "concept_batch") || strings.Contains(res.Content[0].Text, "leave these links broken") {
+		t.Fatalf("want inbound_links refusal naming the linker and the batch route, got %+v", res)
 	}
 	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "target.md")); err != nil {
 		t.Fatalf("refused delete removed the file: %v", err)
 	}
 }
 
-func TestConceptDeleteForceWarnsAboutLinkers(t *testing.T) {
+// force skips the inbound_links check, not the write gate (D907): a delete that
+// leaves a visible page with a broken link is refused and nothing is removed.
+func TestConceptDeleteForceStillMeetsTheWriteGate(t *testing.T) {
 	t.Parallel()
 	k, s := deleteLinkFixture(t)
 	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target","force":true}`)
-	if res.IsError || !strings.Contains(res.Content[0].Text, "Warning: 1 concept(s) still link to manutenzione/target: manutenzione/linker") {
-		t.Fatalf("want deleted with warning, got %+v", res)
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "write_gate: refused") || !strings.Contains(res.Content[0].Text, `"path":"manutenzione/linker.md","check":"broken_link"`) {
+		t.Fatalf("want the gate's refusal naming the linker, got %+v", res)
 	}
-	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "target.md")); !os.IsNotExist(err) {
-		t.Fatalf("forced delete kept the file: %v", err)
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "manutenzione", "target.md")); err != nil {
+		t.Fatalf("refused delete removed the file: %v", err)
 	}
 }
 
@@ -5911,7 +5833,15 @@ func TestConceptDeleteExpandedNotBlockedByOwnSatellites(t *testing.T) {
 	}
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
+	// The satellite is no inbound link (no inbound_links refusal), but it
+	// stays behind with a link to the deleted dossier: the gate refuses (D907)
+	// until the satellite stops linking it.
 	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/owner"}`)
+	if !res.IsError || strings.HasPrefix(res.Content[0].Text, "inbound_links:") || !strings.Contains(res.Content[0].Text, "write_gate: refused") {
+		t.Fatalf("own satellite must not count as an inbound link: %+v", res)
+	}
+	callOK(t, s, "concept_patch", `{"id":"manutenzione/owner/child","if_match":"`+readHash(t, k, "manutenzione/owner/child")+`","old_string":"[[manutenzione/owner]]","new_string":"the owner"}`)
+	res = callTool(t, s, "concept_delete", `{"id":"manutenzione/owner"}`)
 	if res.IsError || strings.Contains(res.Content[0].Text, "Warning") {
 		t.Fatalf("own satellite must not count as an inbound link: %+v", res)
 	}
@@ -5919,9 +5849,10 @@ func TestConceptDeleteExpandedNotBlockedByOwnSatellites(t *testing.T) {
 
 func TestConceptDeleteMissingWithDanglingLinksIsNotFound(t *testing.T) {
 	t.Parallel()
-	_, s := deleteLinkFixture(t)
-	if res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target","force":true}`); res.IsError {
-		t.Fatalf("setup delete: %+v", res)
+	k, s := deleteLinkFixture(t)
+	// The target goes away behind the server's back, leaving the link dangling.
+	if err := os.Remove(filepath.Join(k.DataRoot(), "manutenzione", "target.md")); err != nil {
+		t.Fatal(err)
 	}
 	res := callTool(t, s, "concept_delete", `{"id":"manutenzione/target"}`)
 	if !res.IsError || !strings.Contains(res.Content[0].Text, "not found") {
@@ -5940,15 +5871,16 @@ func TestServer_Lint_ZeroFindingsIsJSON(t *testing.T) {
 	var out struct {
 		Count    int              `json:"count"`
 		Findings []map[string]any `json:"findings"`
-		Omitted  *int             `json:"findings_omitted"`
 		ByCheck  map[string]int   `json:"counts_by_check"`
-		BySev    map[string]int   `json:"counts_by_severity"`
 	}
 	if err := json.Unmarshal([]byte(tr.Content[0].Text), &out); err != nil {
 		t.Fatalf("zero-finding lint is not JSON: %v: %q", err, tr.Content[0].Text)
 	}
-	if out.Count != 0 || out.Findings == nil || len(out.Findings) != 0 || out.Omitted == nil || out.ByCheck == nil || out.BySev == nil {
+	if out.Count != 0 || out.Findings == nil || len(out.Findings) != 0 || out.ByCheck == nil {
 		t.Fatalf("zero-finding shape = %+v (%s)", out, tr.Content[0].Text)
+	}
+	if strings.Contains(tr.Content[0].Text, "severity") || strings.Contains(tr.Content[0].Text, "findings_omitted") {
+		t.Fatalf("lint answers a severity or a hidden count: %s", tr.Content[0].Text)
 	}
 }
 
@@ -5957,6 +5889,7 @@ func TestServer_Lint_ZeroFindingsIsJSON(t *testing.T) {
 func TestServer_GateCheck_EmptyChangedIDsIsWholeKBGate(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
+	makeCleanKB(t, k)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	g := decodeGate(t, callTool(t, s, "gate_check", `{"changed_ids":[]}`))
@@ -5972,39 +5905,11 @@ func TestServer_GateCheck_EmptyChangedIDsIsWholeKBGate(t *testing.T) {
 		t.Fatalf("gate_blockers = %s", raw["gate_blockers"])
 	}
 
-	// A lint error still fails the whole-KB gate.
-	setupThreeSeverityKB(t, k)
+	// A lint finding fails the whole-KB gate, whatever the check (D947).
+	setupProblemsKB(t, k)
 	g = decodeGate(t, callTool(t, s, "gate_check", `{"changed_ids":[]}`))
-	if g.Pass || g.CountsBySeverity["error"] == 0 {
-		t.Fatalf("whole-KB gate must fail on an error finding: %+v", g)
-	}
-}
-
-// TestServer_MapCreate_DefaultRequireIndexEntry: a map created without the
-// key demands index entries (D325); only an explicit false opts out, and the
-// descriptor then carries no key.
-func TestServer_MapCreate_DefaultRequireIndexEntry(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	resps := runMCPSequence(t, s, []string{
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"dflt-map","title":"Default"}}}`,
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"map_create","arguments":{"name":"optout-map","title":"Opt out","require_index_entry":false}}}`,
-	})
-	for _, r := range resps[1:] {
-		if tr := decodeToolResult(t, r); tr.IsError {
-			t.Fatalf("map_create: %v", tr.Content)
-		}
-	}
-	on, err := k.ReadRaw("dflt-map/_map.md")
-	if err != nil || !strings.Contains(on, "require_index_entry: true") {
-		t.Fatalf("default descriptor = %q, %v", on, err)
-	}
-	off, err := k.ReadRaw("optout-map/_map.md")
-	if err != nil || strings.Contains(off, "require_index_entry") {
-		t.Fatalf("opt-out descriptor = %q, %v", off, err)
+	if g.Pass || g.LintCount == 0 {
+		t.Fatalf("whole-KB gate must fail on a finding: %+v", g)
 	}
 }
 
@@ -6014,7 +5919,6 @@ type lintPage struct {
 	Findings            []lintFinding  `json:"findings"`
 	FindingsInPage      int            `json:"findings_in_page"`
 	FindingsAfterFilter int            `json:"findings_after_filter"`
-	FindingsOmitted     int            `json:"findings_omitted"`
 	Offset              int            `json:"offset"`
 	NextOffset          *int           `json:"next_offset"`
 	Truncated           bool           `json:"truncated"`
@@ -6022,10 +5926,9 @@ type lintPage struct {
 }
 
 type lintFinding struct {
-	Path     string `json:"path"`
-	Check    string `json:"check"`
-	Severity string `json:"severity"`
-	Message  string `json:"message"`
+	Path    string `json:"path"`
+	Check   string `json:"check"`
+	Message string `json:"message"`
 }
 
 func callLintPages(t *testing.T, k *kb.KB, calls ...map[string]any) []lintPage {
@@ -6055,7 +5958,7 @@ func callLintPages(t *testing.T, k *kb.KB, calls ...map[string]any) []lintPage {
 func TestServer_Lint_CheckFilter(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	pages := callLintPages(t, k, map[string]any{}, map[string]any{"check": "broken_link"})
 	all, only := pages[0], pages[1]
 	if len(only.Findings) == 0 {
@@ -6071,24 +5974,24 @@ func TestServer_Lint_CheckFilter(t *testing.T) {
 		t.Errorf("counts must be computed before the check filter: %d/%v vs %d/%v",
 			only.Count, only.CountsByCheck, all.Count, all.CountsByCheck)
 	}
-	if only.FindingsAfterFilter != len(only.Findings) || only.FindingsOmitted != 0 {
-		t.Errorf("after_filter=%d omitted=%d", only.FindingsAfterFilter, only.FindingsOmitted)
+	if only.FindingsAfterFilter != len(only.Findings) {
+		t.Errorf("after_filter=%d, %d findings listed", only.FindingsAfterFilter, len(only.Findings))
 	}
 }
 
 func TestServer_Lint_CheckFilterArray(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	pages := callLintPages(t, k,
-		map[string]any{"check": []string{"broken_link", "concept_oversize"}},
+		map[string]any{"check": []string{"broken_link", "open_marker"}},
 		map[string]any{"check": "no_such_check"})
 	seen := map[string]bool{}
 	for _, f := range pages[0].Findings {
 		seen[f.Check] = true
 	}
-	if len(seen) != 2 || !seen["broken_link"] || !seen["concept_oversize"] {
-		t.Errorf("want exactly broken_link and concept_oversize, got %v", seen)
+	if len(seen) != 2 || !seen["broken_link"] || !seen["open_marker"] {
+		t.Errorf("want exactly broken_link and open_marker, got %v", seen)
 	}
 	if len(pages[1].Findings) != 0 || pages[1].Count == 0 {
 		t.Errorf("an unknown check is an empty page with the real count: %+v", pages[1])
@@ -6098,7 +6001,7 @@ func TestServer_Lint_CheckFilterArray(t *testing.T) {
 func TestServer_Lint_Pagination(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	pages := callLintPages(t, k, map[string]any{},
 		map[string]any{"limit": 2, "offset": 0},
 		map[string]any{"limit": 2, "offset": 2},
@@ -6139,7 +6042,7 @@ func TestServer_Lint_Pagination(t *testing.T) {
 func TestServer_Lint_DeterministicOrder(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	pages := callLintPages(t, k, map[string]any{}, map[string]any{}, map[string]any{})
 	for i := 1; i < len(pages); i++ {
 		if len(pages[i].Findings) != len(pages[0].Findings) {
@@ -6156,11 +6059,11 @@ func TestServer_Lint_DeterministicOrder(t *testing.T) {
 func TestServer_Lint_CheckAndPagination(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setupThreeSeverityKB(t, k)
+	setupProblemsKB(t, k)
 	// every check has at most a couple of findings here, so page by 1.
 	pages := callLintPages(t, k,
-		map[string]any{"check": []string{"broken_link", "concept_oversize"}},
-		map[string]any{"check": []string{"broken_link", "concept_oversize"}, "limit": 1, "offset": 1})
+		map[string]any{"check": []string{"broken_link", "open_marker"}},
+		map[string]any{"check": []string{"broken_link", "open_marker"}, "limit": 1, "offset": 1})
 	full, p := pages[0], pages[1]
 	if len(full.Findings) < 2 {
 		t.Fatalf("fixture too small: %d", len(full.Findings))

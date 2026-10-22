@@ -53,6 +53,8 @@ make -C "$REPO_ROOT" --no-print-directory build
 
 node "${WEB_DIR}/e2e/fixture.mjs" "${TMP}/local"
 node "${WEB_DIR}/e2e/fixture.mjs" "${TMP}/auth"
+# serve never creates a KB (D906): the fixture folders become ones.
+"${REPO_ROOT}/test/lib/kb-bootstrap.sh" "${TMP}"/local/{atlas,annex,void} "${TMP}"/auth/{atlas,annex,void}
 
 LOCAL_PORT="$(free_port)"
 AUTH_PORT="$(free_port)"
@@ -60,14 +62,13 @@ AUTH_PORT="$(free_port)"
 # Each server keeps its credentials and its audit log (always on, D905) in its
 # own temp directory, not in the runner's home.
 CARTOGRAPHER_CREDENTIALS_DIR="${TMP}/local-credentials" CARTOGRAPHER_AUDIT_LOG="${TMP}/local-audit/audit.log" \
-CARTOGRAPHER_AUTH=false "$BIN" serve --init --http "127.0.0.1:${LOCAL_PORT}" \
+CARTOGRAPHER_AUTH=false "$BIN" serve --http "127.0.0.1:${LOCAL_PORT}" \
     --kb "${TMP}/local/atlas,${TMP}/local/annex,${TMP}/local/void" \
     >"${TMP}/local.log" 2>&1 &
 PIDS+=("$!")
 
 cat >"${TMP}/auth.yaml" <<EOF
 http: "127.0.0.1:${AUTH_PORT}"
-init: true
 auth:
   mode: "on"
   roles:

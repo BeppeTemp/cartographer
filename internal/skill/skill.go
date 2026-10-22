@@ -4,6 +4,7 @@
 package skill
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -135,10 +136,14 @@ func getString(fm *okf.Frontmatter, key string) string {
 }
 
 // LoadAllSkills scans the skills/ directory under kbRoot and loads all SKILL.md files.
-// Returns skills and any errors encountered (non-fatal per skill).
+// Returns skills and any errors encountered (non-fatal per skill). A KB with no
+// skills/ directory has no skills, which is not an error.
 func LoadAllSkills(kbRoot string) ([]Skill, []error) {
 	skillsDir := filepath.Join(kbRoot, "skills")
 	entries, err := os.ReadDir(skillsDir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, []error{fmt.Errorf("skill: list %s: %w", skillsDir, err)}
 	}

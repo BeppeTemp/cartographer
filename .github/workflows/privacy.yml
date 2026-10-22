@@ -7,7 +7,9 @@ name: privacy
 # PRIVACY_GUARD_KEY), so no term is ever written here. A hit fails the run and,
 # for issue/PR/comment text, replaces the term with [redacted]; the edit
 # history still holds the original, so the notification is the signal to delete
-# that revision. Forks get no secrets and are skipped.
+# that revision. Forks get no secrets and are skipped, and so is issue and
+# comment text by an actor without write access: the guard is for what
+# maintainers publish.
 on:
   push:
   pull_request:
@@ -32,11 +34,23 @@ jobs:
       DIGESTS: ${{ secrets.PRIVACY_GUARD_DIGESTS }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - name: Skip without secrets
+      # The guard is for what maintainers publish (D259): issue and comment text
+      # is scanned only when the actor who wrote or edited it has write access.
+      - name: Skip without secrets or for a non-maintainer's text
         id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          REPO: ${{ github.repository }}
         run: |
+          perm=write
+          if [ "$EVENT" = issues ] || [ "$EVENT" = issue_comment ]; then
+            perm=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq .permission 2>/dev/null || true)
+          fi
           if [ -z "$PRIVACY_GUARD_KEY" ] || [ -z "$DIGESTS" ]; then
             echo "secrets not available (fork or not configured): skipping"; echo "run=false" >> "$GITHUB_OUTPUT"
+          elif ! case "$perm" in admin | maintain | write) true ;; *) false ;; esac; then
+            echo "text by $ACTOR, who is not a maintainer: not scanned"; echo "run=false" >> "$GITHUB_OUTPUT"
           else
             printf '%s\n' "$DIGESTS" > "$RUNNER_TEMP/digests"; echo "run=true" >> "$GITHUB_OUTPUT"
           fi

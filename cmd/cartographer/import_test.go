@@ -310,9 +310,8 @@ func TestCmdImport_MessageCommitsOnlyImportPaths(t *testing.T) {
 		t.Errorf("commit message = %q", message)
 	}
 	// The operator who runs the import is its writer: git's identity for the
-	// KB's folder is the author, the server the committer (D904).
-	name, email := kb.ServerIdentity()
-	want := "Wiki Test <test@wiki.local> | " + name + " <" + email + ">"
+	// KB's folder is the author and the committer (D950).
+	want := "Wiki Test <test@wiki.local> | Wiki Test <test@wiki.local>"
 	if got := strings.TrimSpace(runImportGit(t, kbDir, "log", "-1", "--format=%an <%ae> | %cn <%ce>")); got != want {
 		t.Errorf("author | committer = %q, want %q", got, want)
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
@@ -51,11 +52,8 @@ type maintenanceSummary struct {
 	DoctorInterval int                   `json:"doctor_interval_days"`
 	// Runs are the background repair's runs of the last 30 days, newest first
 	// (D365): what each fixed, by check, with the commit that undoes it.
-	Runs []autoRepairRun `json:"runs"`
-	// LintHistory is one sample of the whole-KB lint totals per day, oldest
-	// first (D370): the Health trend.
-	LintHistory []lintSample        `json:"lint_history"`
-	Repairs     []maintenanceRepair `json:"repairs"`
+	Runs    []autoRepairRun     `json:"runs"`
+	Repairs []maintenanceRepair `json:"repairs"`
 }
 
 // GET /kbs/{kb}/maintenance/{summary,review}.
@@ -90,18 +88,16 @@ func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what str
 			writeUINotFound(w)
 			return
 		}
-		pol := k.Policy()
 		out := maintenanceSummary{
 			AutoRepair: maintenanceAutoRepair{
-				Enabled:      len(pol.AutoRepair) > 0 && pol.DoctorAutoIntervalDays > 0,
-				Default:      pol.AutoRepairDefault,
-				Checks:       append([]string{}, pol.AutoRepair...),
-				IntervalDays: pol.DoctorAutoIntervalDays,
+				Enabled:      true,
+				Default:      true,
+				Checks:       lint.AutoRepairChecks(),
+				IntervalDays: kb.AutoRepairIntervalDays,
 			},
-			DoctorInterval: pol.DoctorIntervalDays,
+			DoctorInterval: kb.DoctorSuggestionDays,
 			Repairs:        []maintenanceRepair{},
 			Runs:           []autoRepairRun{},
-			LintHistory:    readLintHistory(k),
 		}
 		if run, ok := lastAutoRepairRun(k); ok {
 			out.LastAutoRepair = &run
@@ -111,8 +107,8 @@ func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what str
 		if srv.conformance != nil {
 			out.LastDoctor = srv.conformance.cachedDoctorDate(k)
 		}
-		if t, err := time.Parse("2006-01-02", out.LastDoctor); err == nil && pol.DoctorIntervalDays > 0 {
-			out.NextDoctor = t.AddDate(0, 0, pol.DoctorIntervalDays).Format("2006-01-02")
+		if t, err := time.Parse("2006-01-02", out.LastDoctor); err == nil {
+			out.NextDoctor = t.AddDate(0, 0, kb.DoctorSuggestionDays).Format("2006-01-02")
 		}
 		commits, err := gitx.LogNameStatus(k.Root, srv.now().Add(-maintenanceRepairWindow))
 		if err != nil {

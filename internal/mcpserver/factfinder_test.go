@@ -19,10 +19,9 @@ const repeatedLine = "The nightly job runs at 02:00 and copies the data to the b
 
 type findingsOutT struct {
 	Findings []struct {
-		Path     string `json:"path"`
-		Check    string `json:"check"`
-		Severity string `json:"severity"`
-		Message  string `json:"message"`
+		Path    string `json:"path"`
+		Check   string `json:"check"`
+		Message string `json:"message"`
 	} `json:"findings"`
 }
 
@@ -38,9 +37,6 @@ func repeatedFindings(t *testing.T, res ToolResult) []string {
 	var msgs []string
 	for _, f := range out.Findings {
 		if f.Check == "repeated_fact" {
-			if f.Severity != "info" {
-				t.Errorf("severity = %q, want info", f.Severity)
-			}
 			msgs = append(msgs, f.Message)
 		}
 	}
@@ -52,6 +48,7 @@ func factServer(t *testing.T) (*Server, string) {
 	k := setupTestKB(t)
 	writeKBFile(t, k, "ops/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\n"+repeatedLine+"\n")
 	writeKBFile(t, k, "ops/b.md", "---\ntype: Note\ntitle: B\n---\n# B\n\n"+repeatedLine+"\n")
+	forwardLinks(t, k, "ops/c", "ops/d")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	return s, k.Root
@@ -108,6 +105,7 @@ func TestConceptNewTemplateLinesAreNotRepeatedFacts(t *testing.T) {
 	}
 	writeKBFile(t, k, "ops/a.md", "---\ntype: Note\ntitle: A\n---\n"+boiler+"\n")
 	writeKBFile(t, k, "ops/b.md", "---\ntype: Note\ntitle: B\n---\n"+boiler+"\n")
+	forwardLinks(t, k, "ops/c")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	res := callTool(t, s, "concept_new", `{"template":"note","id":"ops/c","vars":{"title":"C"}}`)
@@ -171,8 +169,11 @@ func TestRepeatedFactHidesInvisibleOwners(t *testing.T) {
 	for _, m := range []string{"visible", "hidden"} {
 		writeKBFile(t, k, m+"/_map.md", "---\ntype: Map\ntitle: "+m+"\n---\n")
 	}
-	writeKBFile(t, k, "visible/_map.md", "---\ntype: Map\ntitle: visible\nrepeated_fact_min: 2\n---\n")
-	writeKBFile(t, k, "visible/a.md", "---\ntype: Note\ntitle: A\n---\n"+repeatedLine+"\n")
+	// visible/a already links the page the test creates, and the curated index
+	// lists it (D907: the write must not leave it unreached).
+	writeKBFile(t, k, "visible/index.md", "---\ntype: Index\ntitle: visible\n---\n# visible\n\n- [A](a.md)\n- [B](b.md)\n- [C](c.md)\n")
+	writeKBFile(t, k, "visible/a.md", "---\ntype: Note\ntitle: A\n---\n"+repeatedLine+"\n\n[[visible/c]]\n")
+	writeKBFile(t, k, "visible/b.md", "---\ntype: Note\ntitle: B\n---\n"+repeatedLine+"\n")
 	writeKBFile(t, k, "hidden/b.md", "---\ntype: Note\ntitle: B\n---\n"+repeatedLine+"\n")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
@@ -180,7 +181,7 @@ func TestRepeatedFactHidesInvisibleOwners(t *testing.T) {
 	args, _ := json.Marshal(map[string]interface{}{"id": "visible/c", "frontmatter": map[string]interface{}{"type": "Note", "title": "C"}, "body": repeatedLine + "\n"})
 	res := s.callTool(ctx, "concept_write", args)
 	got := repeatedFindings(t, res)
-	// visible/a + visible/c reach the map's threshold of 2; hidden/b is not named.
+	// visible/a, visible/b and visible/c reach the threshold of 3; hidden/b is not named.
 	if len(got) != 1 || !strings.Contains(got[0], "visible/a") || strings.Contains(res.Content[0].Text, "hidden/") {
 		t.Fatalf("hidden owner counted or named: %v %s", got, res.Content[0].Text)
 	}

@@ -59,7 +59,8 @@ func lockFilePath(targetDir string) string {
 }
 
 // resolveToken returns the bearer token for cfg when cfg.Auth is true: the
-// environment variable cfg.TokenEnv when set, otherwise the private token file
+// literal `token`, or the environment variable a `${NAME}` token names when
+// set, otherwise the private token file
 // `connect` wrote next to .cartographer.yaml (D699), otherwise "" (no
 // Authorization header is sent). The file exists because an unattended run
 // (sync timer, scheduled doctor) never inherits a login shell's exports.
@@ -72,10 +73,13 @@ func resolveToken(cfg *clientconfig.Config) string {
 // usable (unsafe mode, symlink), so the preflight can name it instead of
 // reporting a plain "not set".
 func resolveTokenErr(cfg *clientconfig.Config) (string, error) {
-	if !cfg.Auth || cfg.TokenEnv == "" {
+	if !cfg.Auth || strings.TrimSpace(cfg.Token) == "" {
 		return "", nil
 	}
-	if v := os.Getenv(cfg.TokenEnv); v != "" {
+	if lit := cfg.LiteralToken(); lit != "" {
+		return lit, nil
+	}
+	if v := os.Getenv(cfg.TokenEnv()); v != "" {
 		return v, nil
 	}
 	dir, err := clientconfig.TargetDir()
@@ -86,13 +90,26 @@ func resolveTokenErr(cfg *clientconfig.Config) (string, error) {
 }
 
 // tokenEnvName returns the environment variable resolveToken reads for cfg, or
-// empty when this config sends no credential at all. Passed to the client so a
-// 401 names the variable instead of "the env var" (D222).
+// empty when this config sends no credential at all or a literal one. Passed to
+// the client so a 401 names the variable instead of "the env var" (D222).
 func tokenEnvName(cfg *clientconfig.Config) string {
-	if !cfg.Auth {
+	if !cfg.Auth || cfg.LiteralToken() != "" {
 		return ""
 	}
-	return cfg.TokenEnv
+	return cfg.TokenEnv()
+}
+
+// tokenSpecValue is the value of a token spec ("${NAME}" or a literal), without
+// the token file: what a probe made before anything is written can know.
+func tokenSpecValue(spec string) string {
+	c := &clientconfig.Config{Token: spec}
+	if lit := c.LiteralToken(); lit != "" {
+		return lit
+	}
+	if name := c.TokenEnv(); name != "" {
+		return os.Getenv(name)
+	}
+	return ""
 }
 
 // candidateSet holds the sync_pull responses UNMERGED, one entry per KB, which
@@ -411,7 +428,7 @@ func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candida
 	cs := candidateSet{Named: make(map[string][]provisioning.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]provisioning.PathRegistry)}
 	token := resolveToken(cfg)
 	tokenEnv := tokenEnvName(cfg)
-	health, err := client.New(cfg.ServerURL, token).WithTokenEnv(tokenEnv).Health(probeTimeout)
+	health, err := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnv).Health(probeTimeout)
 	if err != nil {
 		return cs, nil, fmt.Errorf("health: %w", err)
 	}
@@ -434,7 +451,7 @@ func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candida
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			c := client.New(cfg.ServerURL, token).WithTokenEnv(tokenEnv).WithKB(target.Name)
+			c := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnv).WithKB(target.Name)
 			results[i] = pullTarget(c, target)
 		}()
 	}
@@ -626,9 +643,9 @@ func uniformManifests(m provisioning.Manifest, providers []string) map[string]pr
 // unchanged: an offline sync must not erase what the client knew. The lockfile
 // always lives in targetDir, but each
 // provider materializes under its OWN base dir (a workspace projection writes
-// into its repository), recorded in that provider's Lock so prune and verification later find the same files. autoTrust is explicit authorization for eligible
-// unsigned KB artifacts, passed to ApplyOptions.AutoTrust; it never changes an
-// artifact's Signed verification result. searchRoots/paths come from the loaded
+// into its repository), recorded in that provider's Lock so prune and verification later find the same files. There is no trust switch (D906): what a KB ships is
+// installed, MCP descriptors only with an approval in approvalHashes.
+// searchRoots/paths come from the loaded
 // clientconfig.Config (cfg.SearchRoots/cfg.Paths) and drive placeholder expansion
 // (D75 WP3) — this is the one place cmd/cartographer turns
 // ApplyOptions.ExpandPlaceholders on; internal/mcpserver never does.
@@ -637,7 +654,6 @@ func uniformManifests(m provisioning.Manifest, providers []string) map[string]pr
 // next bug gets written.
 type portabilityOptions struct {
 	SearchRoots []string
-	SearchDepth int
 	Paths       map[string]string
 }
 
@@ -645,7 +661,7 @@ type portabilityOptions struct {
 // binding order (D182 WP2) — omitted or nil for a provider entry means no
 // explicit binding, so its instructions block keeps the alphabetical
 // fallback. See kbOrderForProviders.
-func materializeForProviders(manifests map[string]provisioning.Manifest, projections []syncProjection, targetDir, serverVersion string, autoTrust, dryRun, noHeal bool, portability portabilityOptions, kbOrder map[string][]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
+func materializeForProviders(manifests map[string]provisioning.Manifest, projections []syncProjection, targetDir, serverVersion string, dryRun, noHeal bool, portability portabilityOptions, kbOrder map[string][]string, approvalHashes ...map[string]string) (map[string]provisioning.AppliedResult, error) {
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
@@ -667,7 +683,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		// Preflight the projection's OWN view: validating the whole candidate
 		// set would fail a sync over a local command belonging to a KB this
 		// projection is not even bound to (D170).
-		if err := provisioning.PreflightStdioMCP(manifests[projectionKey(p)], provisioning.ApplyOptions{Provider: configurator.Provider(p.Provider), BaseDir: p.BaseDir, Scope: p.Scope, AutoTrust: autoTrust, ApprovedMCP: approvedMCP}); err != nil {
+		if err := provisioning.PreflightStdioMCP(manifests[projectionKey(p)], provisioning.ApplyOptions{Provider: configurator.Provider(p.Provider), BaseDir: p.BaseDir, Scope: p.Scope, ApprovedMCP: approvedMCP}); err != nil {
 			return nil, err
 		}
 		if err := prepareWorkspace(p, workspaceProviders(lockFile, projections, p.Workspace), dryRun); err != nil {
@@ -703,14 +719,12 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			Scope:              p.Scope,
 			DryRun:             dryRun,
 			NoHeal:             noHeal,
-			AutoTrust:          autoTrust,
 			ApprovedMCP:        approvedMCP,
 			Lock:               previous,
 			CoOwnedPaths:       lockFile.CoOwnedPaths(p.Key()),
 			SkipLockWrite:      true,
 			ExpandPlaceholders: true,
 			SearchRoots:        portability.SearchRoots,
-			SearchDepth:        portability.SearchDepth,
 			Paths:              portability.Paths,
 			// Read off the projection's manifest before the filter below,
 			// which — like every Manifest copy — does not carry it (D262).
@@ -789,20 +803,13 @@ func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bo
 		return fmt.Errorf("read lockfile: %w", err)
 	}
 
-	// A config that cannot be read counts as enabled (D353): this hook only
-	// adds feedback, unlike the sync timer (D325) whose absence is the safe side.
-	writeFindings := true
-	if cfg, err := clientconfig.Load(targetDir); err == nil {
-		writeFindings = cfg.WriteFindingsHookEnabled()
-	}
-
 	for _, p := range providers {
 		lock := lockFile.ForProvider(p)
 		newLock, err := provisioning.EnsureBootstrapHook(targetDir, configurator.Provider(p), lock, dryRun)
 		if err != nil {
 			return fmt.Errorf("ensure bootstrap hook (%s): %w", p, err)
 		}
-		newLock, err = provisioning.EnsureWriteFindingsHook(targetDir, configurator.Provider(p), newLock, writeFindings, dryRun)
+		newLock, err = provisioning.EnsureWriteFindingsHook(targetDir, configurator.Provider(p), newLock, true, dryRun)
 		if err != nil {
 			return fmt.Errorf("ensure write-findings hook (%s): %w", p, err)
 		}
@@ -826,7 +833,6 @@ func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bo
 // a pass that never happened — precisely when the reader asked to see the plan
 // before committing to it (D147).
 func printApplySummary(dir string, results map[string]provisioning.AppliedResult, dryRun bool) {
-	needsApproval := false
 	needsMCPApproval := false
 	// "wrote" / "would write", chosen once so every line of the pass agrees.
 	verb := func(done, planned string) string {
@@ -884,11 +890,9 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 			fmt.Printf("[%s] diverged locally (%s): %s/%s at %s — `cartographer sync` restores it\n", p, d.Reason, d.Kind, d.Name, d.Path)
 		}
 		for _, na := range r.NeedsApproval {
-			if na.Kind == "mcp" {
-				needsMCPApproval = true
-			} else {
-				needsApproval = true
-			}
+			// Only an MCP descriptor waits for an approval (D906): the rest of what
+			// a KB ships is installed.
+			needsMCPApproval = true
 			fmt.Printf("[%s] needs_approval: %s/%s [%s]\n", p, na.Kind, na.Name, na.Source)
 		}
 		for _, ua := range r.Unsupported {
@@ -919,9 +923,6 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 	// every provider bound to both, so each is printed once.
 	for _, w := range registryWarningsAcross(results) {
 		fmt.Printf("warning: %s\n", w)
-	}
-	if needsApproval {
-		fmt.Printf("to approve the unsigned artifacts run: %s\n", autoTrustCommand())
 	}
 	if needsMCPApproval {
 		fmt.Println("MCP artifacts require a point approval: cartographer approve mcp <name> --kb <kb>, then cartographer sync")
@@ -969,13 +970,6 @@ func registryWarningsAcross(results map[string]provisioning.AppliedResult) []str
 	}
 	sort.Strings(out)
 	return out
-}
-
-// autoTrustCommand returns the exact command line the user must run to approve
-// unsigned KB-sourced artifacts, so every needs-approval message can print it
-// verbatim instead of a vague "use --auto-trust" hint.
-func autoTrustCommand() string {
-	return "cartographer sync --auto-trust"
 }
 
 // hookRegistrationManagedFile reports whether w is the ManagedFile whose

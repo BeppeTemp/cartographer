@@ -4,6 +4,8 @@ topic: data-plane
 
 # D352 — Every page follows a template its map allows
 
+> **Amended by [D906](D906-settings-cleanup.md)**: `allow_template_write` is removed, since every artifact write is allowed to a token with `rw` scope.
+
 **Decision.** A page names the template it follows in the frontmatter field
 `shape`; a map declares the shapes it accepts (`templates`, `default_template`,
 `require_template`); and a template is a closed page schema, declared with flat

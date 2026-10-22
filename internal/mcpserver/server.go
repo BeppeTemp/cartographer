@@ -56,8 +56,8 @@ type Server struct {
 	toolsOrd      []string // maintains registration order for tools/list
 	// agentProfile hides advanced tools (advancedToolNames, D65) from
 	// tools/list; they remain callable via tools/call. Zero value = full list,
-	// so New() keeps its historical behavior; `serve` sets it from
-	// config.ToolsProfile (default "agent").
+	// so New() keeps its historical behavior; `serve` always sets "agent"
+	// (D906: there is no setting for it).
 	agentProfile bool
 	// displayName, when non-empty, overrides the "cartographer" literal
 	// reported as serverInfo.name by initialize (D102). Set via
@@ -69,8 +69,8 @@ type Server struct {
 	// an adapter then treats the KB as absent rather than assuming one.
 	kbRef *kb.KB
 	// kbArtifacts is what the UI API's artifact routes need beside kbRef to
-	// list the KB's artifacts as artifact_list and sync do (D238): the MCP
-	// allowlist and the artifact signer. Set with kbRef.
+	// list the KB's artifacts as artifact_list and sync do (D238): the
+	// artifact signer. Set with kbRef.
 	kbArtifacts artifactSource
 	// conformance is the KB's lint and review cache, shared by kb_status and
 	// the doctor nudge (D299); nudgedAt is when the nudge last went out to

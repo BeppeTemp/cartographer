@@ -21,12 +21,19 @@ import (
 // value form (--git-sync=false); a bool flag never takes a separate value.
 func dropRemovedFlags(args []string) []string {
 	removed := config.RemovedFlags()
+	takesValue := config.RemovedValueFlags()
 	kept := make([]string, 0, len(args))
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		name := strings.TrimLeft(a, "-")
-		name, _, _ = strings.Cut(name, "=")
+		name, _, hasValue := strings.Cut(name, "=")
 		if advice, ok := removed[name]; ok && strings.HasPrefix(a, "-") {
 			log.Printf("warning: --%s: %s", name, advice)
+			// --flag value: the value is the next argument, dropped with it, or
+			// it would end the flags and hide the ones after it.
+			if takesValue[name] && !hasValue && i+1 < len(args) {
+				i++
+			}
 			continue
 		}
 		kept = append(kept, a)
@@ -55,7 +62,26 @@ func announceConfig(cfg *config.Config, configPath string) {
 		log.Printf("warning: config %s is not realigned until the credentials above are in place", configPath)
 		return
 	}
-	rep, backup, err := config.RealignServerFile(configPath, version)
+	// The old names of renamed KBs move to the server state file before the key
+	// that held them is dropped (D906); a file whose list is not in place keeps it.
+	keep := []string(nil)
+	// The retired git.author_name and git.author_email become git.identity
+	// before the keys that held them are dropped (D950).
+	if wrote, gerr := config.MigrateGitIdentity(configPath); gerr != nil {
+		log.Printf("warning: config %s keeps its git.author_name and git.author_email until they can be moved to git.identity: %v", configPath, gerr)
+		keep = append(keep, "git.author_name", "git.author_email")
+	} else if wrote {
+		log.Printf("git.author_name and git.author_email of %s moved to git.identity (D950)", configPath)
+	}
+	moved, err := config.MigrateKBAliases(configPath, cfg.Data)
+	if err != nil {
+		// Only kb_aliases waits: every other removed key is still realigned.
+		log.Printf("warning: config %s keeps its kb_aliases until they can be moved to the server state file: %v", configPath, err)
+		keep = append(keep, "kb_aliases")
+	} else if moved > 0 {
+		log.Printf("kb_aliases of %s moved to %s (%d item(s), D906)", configPath, config.ServerStatePath(cfg.Data), moved)
+	}
+	rep, backup, err := config.RealignServerFileKeeping(configPath, version, keep...)
 	if err != nil {
 		// A file only lacking comments is not worth a warning on every start
 		// when it cannot be written (a read-only mount); one that holds removed

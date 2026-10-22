@@ -96,3 +96,32 @@ func TestFetch_SilentRemoteTimesOut(t *testing.T) {
 		t.Fatalf("Fetch took %s, want it bounded by FetchTimeout", took)
 	}
 }
+
+func TestPush_SilentRemoteTimesOut(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	dir := removeWhenFree(t)
+	if out, err := exec.Command("git", "init", "-q", "-b", "main", dir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", silentRemote(t)).CombinedOutput(); err != nil {
+		t.Fatalf("remote add: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", dir, "-c", "user.name=T", "-c", "user.email=t@example.test",
+		"commit", "--allow-empty", "-q", "-m", "x").CombinedOutput(); err != nil {
+		t.Fatalf("commit: %v\n%s", err, out)
+	}
+	defer func(d time.Duration) { PushTimeout = d }(PushTimeout)
+	PushTimeout = 500 * time.Millisecond
+
+	start := time.Now()
+	err := Push(dir, "origin", "main")
+	var rte *RemoteTimeoutError
+	if !errors.As(err, &rte) {
+		t.Fatalf("Push = %v, want a RemoteTimeoutError", err)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("Push took %s, want it bounded by PushTimeout", took)
+	}
+}

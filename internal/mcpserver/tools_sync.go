@@ -50,7 +50,7 @@ func flushPendingPush(k *kb.KB, toolName string) {
 // toolSyncCheck returns the current revision of the provisioning manifest (bundle + KB).
 // Read-only: writes nothing, safe on a remote server too.
 // The client may pass its own lockfile revision; the response includes in_sync=true/false.
-func toolSyncCheck(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry) Tool {
+func toolSyncCheck(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.PrivateKey) Tool {
 	return Tool{
 		Name:     "sync_check",
 		ReadOnly: true,
@@ -75,7 +75,7 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 
 			// Use the basename of k.Root as the KB name in the manifest.
 			kbName := filepath.Base(k.Root)
-			m, err := provisioning.BuildManifest(bundleFS, map[string]string{kbName: k.Root}, buildOptions(kbName, routedMount, signer, allowlist))
+			m, err := provisioning.BuildManifest(bundleFS, map[string]string{kbName: k.Root}, buildOptions(kbName, routedMount, signer))
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_check: build manifest: %v", err)), nil
 			}
@@ -126,12 +126,12 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 // toolSyncApply materializes the provisioning artifacts into the client's base_dir.
 // Intended for local deployment (stdio): server and client share the filesystem.
 // For remote deployment use `cartographer sync`/`cartographer connect` (via sync_pull) from the client machine.
-func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry) Tool {
+func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.PrivateKey) Tool {
 	return Tool{
 		Name: "sync_apply",
 		Description: "Materializes the provisioning skills into the given base_dir, updates the lockfile and prunes " +
 			"stale artifacts. Intended for local deployment (stdio) where server and client share the FS. " +
-			"Only artifacts with signed=true are written; the others go into needs_approval. " +
+			"Built-in and KB artifacts are written; MCP descriptors need a local approval and go into needs_approval without one. " +
 			"Supports dry_run=true to show the diff without writing.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -144,19 +144,14 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 				"dry_run": {
 					"type": "boolean",
 					"description": "If true, computes the diff but writes nothing (default false)"
-				},
-				"auto_trust": {
-					"type": "boolean",
-					"description": "If true, KB skills are considered trusted too (opt-in workspace policy). Default false."
 				}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			flushPendingPush(k, "sync_apply")
 			var params struct {
-				BaseDir   string `json:"base_dir"`
-				DryRun    bool   `json:"dry_run"`
-				AutoTrust bool   `json:"auto_trust"`
+				BaseDir string `json:"base_dir"`
+				DryRun  bool   `json:"dry_run"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -168,7 +163,7 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 			kbName := filepath.Base(k.Root)
 			kbRoots := map[string]string{kbName: k.Root}
 
-			m, err := provisioning.BuildManifest(bundleFS, kbRoots, buildOptions(kbName, routedMount, signer, allowlist))
+			m, err := provisioning.BuildManifest(bundleFS, kbRoots, buildOptions(kbName, routedMount, signer))
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_apply: build manifest: %v", err)), nil
 			}
@@ -187,13 +182,12 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 			}
 
 			applyOpts := provisioning.ApplyOptions{
-				BundleFS:  bundleFS,
-				KBRoots:   kbRoots,
-				Provider:  configurator.ProviderClaudeCode,
-				BaseDir:   params.BaseDir,
-				DryRun:    params.DryRun,
-				AutoTrust: params.AutoTrust,
-				Lock:      lock,
+				BundleFS: bundleFS,
+				KBRoots:  kbRoots,
+				Provider: configurator.ProviderClaudeCode,
+				BaseDir:  params.BaseDir,
+				DryRun:   params.DryRun,
+				Lock:     lock,
 			}
 
 			applied, err := provisioning.Apply(m, applyOpts)
@@ -269,7 +263,7 @@ type pulledArtifactJSON struct {
 // artifact's file contents embedded (base64). Meant for a remote HTTP client
 // that does not share the filesystem with the server: the client materializes
 // locally without reading bundle/KB directly. Read-only, no arguments required.
-func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry) Tool {
+func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.PrivateKey) Tool {
 	return Tool{
 		Name:     "sync_pull",
 		ReadOnly: true,
@@ -282,7 +276,7 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pri
 			kbName := filepath.Base(k.Root)
 			kbRoots := map[string]string{kbName: k.Root}
 
-			m, err := provisioning.BuildManifest(bundleFS, kbRoots, buildOptions(kbName, routedMount, signer, allowlist))
+			m, err := provisioning.BuildManifest(bundleFS, kbRoots, buildOptions(kbName, routedMount, signer))
 			if err != nil {
 				return errorResult(fmt.Sprintf("sync_pull: build manifest: %v", err)), nil
 			}
@@ -404,10 +398,9 @@ func pulledPathRegistry(k *kb.KB) (*kb.PathRegistry, []string) {
 // server instance serves. routedMount is whether the server routes its KBs
 // through one endpoint (D187): it reaches the generated instructions block so
 // the imprinting names the arguments the agent must pass (D144).
-func buildOptions(kbName string, routedMount bool, signer ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry) provisioning.BuildOptions {
+func buildOptions(kbName string, routedMount bool, signer ed25519.PrivateKey) provisioning.BuildOptions {
 	opts := provisioning.BuildOptions{
-		MCPAllowlists: map[string][]provisioning.MCPAllowlistEntry{kbName: allowlist},
-		RoutedMount:   routedMount,
+		RoutedMount: routedMount,
 	}
 	if len(signer) != 0 {
 		opts.Signers = map[string]ed25519.PrivateKey{kbName: signer}

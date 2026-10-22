@@ -23,7 +23,7 @@ import (
 func repairKB(t *testing.T, n int) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
-	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, "", kb.MapContract{RequiredFields: []string{"updated"}}); err != nil {
+	if err := k.CreateMapWithContract("ops", "Ops", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < n; i++ {
@@ -32,7 +32,7 @@ func repairKB(t *testing.T, n int) (*kb.KB, *Server) {
 		fm.Set("title", fmt.Sprintf("N%d", i))
 		fm.Set("updated", "2026-01-02")
 		fm.Set("tags", []string{"a"})
-		if _, err := k.WriteConcept(okf.ConceptID(fmt.Sprintf("ops/n%d", i)), fm, "# T\n", ""); err != nil {
+		if _, err := k.WriteConcept(okf.ConceptID(fmt.Sprintf("ops/n%d", i)), fm, fmt.Sprintf("# N%d\n", i), ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -85,7 +85,7 @@ func TestKBRepairDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-func TestKBRepairRenamesInOneCommitAndRewritesContract(t *testing.T) {
+func TestKBRepairRenamesInOneCommit(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 3)
 	before := commitCount(t, k)
@@ -118,7 +118,7 @@ func TestKBRepairRenamesInOneCommitAndRewritesContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.RequiredFields) != 1 || c.RequiredFields[0] != "timestamp" {
+	if len(c.RequiredFields) != 0 {
 		t.Fatalf("contract required_fields = %v", c.RequiredFields)
 	}
 	if got := lastDoctorDate(k); got != "" {
@@ -219,7 +219,7 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 	if _, err := k.WriteConcept("ops/stringified", sf, "# S\n", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string][]string{"status": {"done"}}}); err != nil {
+	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string]map[string][]string{kb.AllTypes: {"status": {"done"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	for id, st := range map[string]string{"ops/v1": "Completato", "ops/v2": "done — with prose"} {
@@ -232,7 +232,8 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	seedDriftFixes(t, k) // D357
+	seedDriftFixes(t, k)                          // D357
+	driftWrite(t, k, "legacy/_map.md", legacyMap) // D907: a pre-D907 descriptor
 	findings, err := lint.Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)
@@ -260,7 +261,13 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 		}
 	}
 	if len(seen) != len(listed) {
-		t.Errorf("fixture did not exercise every fixable check: saw %v", seen)
+		var missing []string
+		for c := range listed {
+			if !seen[c] {
+				missing = append(missing, c)
+			}
+		}
+		t.Errorf("fixture did not exercise every fixable check: missing %v, saw %v", missing, seen)
 	}
 }
 
@@ -310,7 +317,7 @@ func seedTemplateFixes(t *testing.T, write func(rel, content string)) {
 	t.Helper()
 	write("templates/server.md", "---\ntype: Host\ntitle: \"{{title}}\"\nx-template.field_values.state: [up, down]\nx-template.section_aliases.Purpose: [Objective]\n---\n# {{title}}\n\n## Purpose\n\n## Operations\n")
 	write("templates/runbook.md", "---\ntype: Runbook\ntitle: \"{{title}}\"\n---\n# {{title}}\n\n## Steps\n")
-	write("data/strict/_map.md", "---\ntype: Map\nkind: map\ntitle: Strict\ntemplates: [server, runbook]\nrequire_template: true\n---\n# Strict\n")
+	write("data/strict/_map.md", "---\ntype: Map\nkind: map\ntitle: Strict\ntemplates: [server, runbook]\n---\n# Strict\n")
 	write("data/strict/unbound.md", "---\ntype: Host\ntitle: U\n---\n# U\n\n## Purpose\n\n## Operations\n")
 	write("data/strict/wrongtype.md", "---\ntype: Runbook\ntitle: W\nshape: server\n---\n# W\n\n## Purpose\n\n## Operations\n")
 	write("data/strict/alias.md", "---\ntype: Host\ntitle: A\nshape: server\n---\n# A\n\n## Objective\n\n## Operations\n")
@@ -344,15 +351,15 @@ func TestFrontmatterRenameKeepsPosition(t *testing.T) {
 func TestSummarizeConformanceTruthTable(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
-	f := func(check, sev string, fix bool) lint.Finding {
-		x := lint.Finding{Check: check, Severity: sev}
+	f := func(check string, fix bool) lint.Finding {
+		x := lint.Finding{Check: check}
 		if fix {
 			x.Fix = &lint.Fix{Kind: lint.FixDropField}
 		}
 		return x
 	}
-	warn := []lint.Finding{f("broken_link", lint.SevWarning, false)}
-	info := []lint.Finding{f("map_misfit", lint.SevInfo, false)}
+	// A finding is a problem (D947): any of them is debt, whatever the check.
+	debt := []lint.Finding{f("broken_link", false)}
 	cases := []struct {
 		name     string
 		findings []lint.Finding
@@ -362,18 +369,17 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 		want     bool
 	}{
 		{"clean, never run", nil, 0, "", 14, false},
-		{"content finding counts too (D336)", []lint.Finding{f("orphan", lint.SevWarning, false)}, 0, "", 14, true},
-		{"content finding, run recently", []lint.Finding{f("artifact_unused", lint.SevInfo, false)}, 0, "2026-09-30", 14, false},
-		{"warning, never run", warn, 0, "", 14, true},
-		{"warning, run recently", warn, 0, "2026-09-30", 14, false},
-		{"fixable, run long ago", []lint.Finding{f("tool_param_field", lint.SevInfo, true)}, 0, "2026-09-01", 14, true},
-		{"info, interval just passed", info, 0, "2026-09-17", 14, true},
-		{"info, a day short", info, 0, "2026-09-18", 14, false},
-		{"info only, never run (fresh KB)", info, 0, "", 14, false},
-		{"info only, old session (established KB)", info, 0, "2026-09-01", 14, true},
-		{"info plus review item, never run", info, 1, "", 14, true},
+		{"content finding counts too (D336)", []lint.Finding{f("orphan", false)}, 0, "", 14, true},
+		{"content finding, run recently", []lint.Finding{f("orphan", false)}, 0, "2026-09-30", 14, false},
+		{"finding, never run", debt, 0, "", 14, true},
+		{"finding, run recently", debt, 0, "2026-09-30", 14, false},
+		{"fixable, run long ago", []lint.Finding{f("tool_param_field", true)}, 0, "2026-09-01", 14, true},
+		{"finding, interval just passed", debt, 0, "2026-09-17", 14, true},
+		{"finding, a day short", debt, 0, "2026-09-18", 14, false},
+		{"finding plus review item, never run", debt, 1, "", 14, true},
 		{"review only, due", nil, 3, "2026-08-01", 14, true},
-		{"debt, interval off", warn, 5, "", 0, false},
+		{"review only, never run", nil, 1, "", 14, true},
+		{"debt, interval off", debt, 5, "", 0, false},
 	}
 	for _, c := range cases {
 		got := summarizeConformance(c.findings, c.review, c.last, c.interval, now)
@@ -381,25 +387,17 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 			t.Errorf("%s: doctor_suggested = %v, want %v", c.name, got["doctor_suggested"], c.want)
 		}
 	}
-	if got := summarizeConformance(warn, 0, "2026-09-20", 14, now); got["next_doctor"] != "2026-10-04" {
+	if got := summarizeConformance(debt, 0, "2026-09-20", 14, now); got["next_doctor"] != "2026-10-04" {
 		t.Errorf("next_doctor = %v, want 2026-10-04", got["next_doctor"])
 	}
 	got := summarizeConformance([]lint.Finding{
-		f("nonstandard_field", lint.SevWarning, true), f("nonstandard_field", lint.SevWarning, false),
-		f("link_to_retired", lint.SevInfo, false), f("orphan", lint.SevWarning, false),
-		f("stringified_list", lint.SevInfo, true), f("stringified_list", lint.SevInfo, true),
+		f("nonstandard_field", true), f("nonstandard_field", false),
+		f("link_to_retired", false), f("orphan", false),
+		f("stringified_list", true), f("stringified_list", true),
 	}, 0, "2026-09-20", 14, now)
-	// D313: the accept level of every counted check, none for an error-only or
-	// unlisted one.
-	acc := got["acceptability"].(map[string]string)
-	if acc["nonstandard_field"] != "concept" || acc["link_to_retired"] != "concept" || len(acc) != 2 {
-		t.Fatalf("acceptability = %v", acc)
-	}
-	if m := summarizeConformance([]lint.Finding{f("missing_value_contract", lint.SevInfo, false)}, 0, "", 14, now)["acceptability"].(map[string]string); m["missing_value_contract"] != "map" {
-		t.Fatalf("map-only check: %v", m)
-	}
-	sev := got["findings"].(map[string]int)
-	if sev[lint.SevWarning] != 2 || sev[lint.SevInfo] != 1 || got["fixable"] != 1 || got["last_doctor"] != "2026-09-20" {
+	// findings counts the conformance checks only (nonstandard_field x2,
+	// link_to_retired); lint_findings counts every one.
+	if got["findings"] != 3 || got["lint_findings"] != 6 || got["fixable"] != 1 || got["last_doctor"] != "2026-09-20" {
 		t.Fatalf("summary = %v", got)
 	}
 	// D331: repairable counts every fixable finding, conformance check or not.
@@ -408,10 +406,74 @@ func TestSummarizeConformanceTruthTable(t *testing.T) {
 	}
 }
 
+// An observation is a state a maintainer may leave as it is (D947), so it is
+// not debt: a KB whose only item is an oversize concept lists it in kb_review
+// but does not suggest a doctor session, in kb_status and in the write nudge.
+// The same KB with a lint finding added does, so the test is not vacuous.
+func TestObservationsDoNotSuggestTheDoctor(t *testing.T) {
+	t.Parallel()
+	build := func(t *testing.T, withFinding bool) *Server {
+		t.Helper()
+		k, s := repairKB(t, 0)
+		// Listed in the map's curated index and linked to the fixture's
+		// anchor, so that it is neither incomplete nor an orphan: the oversize
+		// concept is the only thing wrong with this KB.
+		fm := newFM()
+		fm.Set("type", "Note")
+		fm.Set("title", "Big")
+		if _, err := k.WriteConcept("ops/big", fm, "# Big\n\nSee [[anchor]].\n\n"+strings.Repeat("a", okf.ConceptReadSizeGuard/2+1)+"\n", ""); err != nil {
+			t.Fatal(err)
+		}
+		writeKBFile(t, k, "ops/index.md", "---\ntype: Index\ntitle: ops\n---\n# ops\n\n- [Big](big.md)\n")
+		if _, err := k.CommitOp("test: an oversize concept"); err != nil {
+			t.Fatal(err)
+		}
+		if withFinding {
+			writeKBFile(t, k, "ops/broken.md", "---\ntype: Note\ntitle: Broken\n---\n# Broken\n\n[x](gone.md)\n")
+		}
+		now := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
+		s.now = func() time.Time { return now }
+		return s
+	}
+	conformance := func(t *testing.T, s *Server) map[string]any {
+		t.Helper()
+		var out map[string]any
+		if err := json.Unmarshal([]byte(callTool(t, s, "kb_status", `{}`).Content[0].Text), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out["conformance"].(map[string]any)
+	}
+
+	s := build(t, false)
+	rev := decodeReview(t, callTool(t, s, "kb_review", `{"kind":"observation"}`))
+	if rev.Total != 1 || rev.Items[0].Check != "concept_oversize" {
+		t.Fatalf("kb_review no longer lists the observation: %+v", rev)
+	}
+	c := conformance(t, s)
+	if c["lint_findings"].(float64) != 0 {
+		t.Fatalf("the fixture has a lint finding: %v", c)
+	}
+	if c["doctor_suggested"] != false {
+		t.Fatalf("an observation alone suggests a doctor session: %v", c)
+	}
+	// The nudge is probed in a session of its own: the calls above may have
+	// claimed the window of the shared one, which would hide a nudge.
+	if nudged(s.callTool(inSession("probe"), "search", json.RawMessage(`{"query":"Big"}`))) {
+		t.Fatal("an observation alone nudged toward a doctor session")
+	}
+
+	s = build(t, true)
+	if c := conformance(t, s); c["doctor_suggested"] != true {
+		t.Fatalf("a lint finding next to the observation does not suggest the doctor: %v", c)
+	}
+	if !nudged(s.callTool(inSession("probe"), "search", json.RawMessage(`{"query":"Big"}`))) {
+		t.Fatal("a lint finding next to the observation did not nudge")
+	}
+}
+
 func TestKBStatusConformance(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 2)
-	setPolicy(k, func(p *kb.Policy) { p.DoctorIntervalDays = 14 })
 	status := func() map[string]any {
 		res := callTool(t, s, "kb_status", `{}`)
 		var out map[string]any
@@ -453,7 +515,7 @@ func BenchmarkKBStatusConformance1000(b *testing.B) {
 	}
 	for m := 0; m < 10; m++ {
 		name := fmt.Sprintf("m%d", m)
-		if err := k.CreateMapWithContract(name, name, "map", nil, "", kb.MapContract{}); err != nil {
+		if err := k.CreateMapWithContract(name, name, "map", nil, kb.MapContract{}); err != nil {
 			b.Fatal(err)
 		}
 		for i := 0; i < 100; i++ {
@@ -606,7 +668,7 @@ func TestKBRepairBodyFixes(t *testing.T) {
 func TestKBRepairValueFixes(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 0)
-	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string][]string{"status": {"done", "in-progress"}}}); err != nil {
+	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{FieldValues: map[string]map[string][]string{kb.AllTypes: {"status": {"done", "in-progress"}}}}); err != nil {
 		t.Fatal(err)
 	}
 	for id, st := range map[string]string{"ops/a": "Completato", "ops/b": "done — after the second pass"} {
@@ -681,24 +743,6 @@ func TestKBRepairSynonymGroups(t *testing.T) {
 	}
 }
 
-// TestMapUpdateLintIgnore (D306): map_update writes the map-wide lint_ignore,
-// map_list shows it, and an empty list removes it.
-func TestMapUpdateLintIgnore(t *testing.T) {
-	t.Parallel()
-	_, s := repairKB(t, 0)
-	res := callTool(t, s, "map_update", `{"map":"ops","lint_ignore":["duplicate_link","map_misfit"]}`)
-	if res.IsError || !strings.Contains(res.Content[0].Text, `"duplicate_link"`) {
-		t.Fatalf("map_update lint_ignore: %+v", res)
-	}
-	if list := callTool(t, s, "map_list", `{}`); !strings.Contains(list.Content[0].Text, `"lint_ignore"`) {
-		t.Fatalf("map_list does not show it: %s", list.Content[0].Text)
-	}
-	res = callTool(t, s, "map_update", `{"map":"ops","lint_ignore":[]}`)
-	if res.IsError || !strings.Contains(res.Content[0].Text, `"lint_ignore": []`) {
-		t.Fatalf("removing lint_ignore: %+v", res)
-	}
-}
-
 // seedLegacyFixes gives a repair KB one legacy_path concept (D316 WP13) and one
 // skill with a pre-D288 prefixed tool name (WP2).
 func seedLegacyFixes(t *testing.T, k *kb.KB) {
@@ -750,7 +794,7 @@ func TestRepair_LegacyPath(t *testing.T) {
 }
 
 // TestRepair_LegacyToolName: the prefix is stripped from every artifact file
-// that carries it, the file mode kept, and only with allow_artifact_write.
+// that carries it, the file mode kept.
 func TestRepair_LegacyToolName(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 0)
@@ -762,10 +806,6 @@ func TestRepair_LegacyToolName(t *testing.T) {
 	if plan["planned_total"].(float64) != 3 || plan["found_files"].(float64) != 2 {
 		t.Fatalf("plan = %v", plan)
 	}
-	if res := callTool(t, s, "kb_repair", `{"check":"legacy_tool_name","dry_run":false}`); !res.IsError || !strings.Contains(res.Content[0].Text, "allow_artifact_write") {
-		t.Fatalf("apply without allow_artifact_write must be refused: %+v", res)
-	}
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	before := commitCount(t, k)
 	out := repairCall(t, s, `{"check":"legacy_tool_name","dry_run":false}`)
 	if out["applied"].(float64) != 2 {

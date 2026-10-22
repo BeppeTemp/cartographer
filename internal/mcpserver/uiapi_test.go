@@ -20,10 +20,10 @@ func uiFixtureKB(t *testing.T, authName string) *kb.KB {
 	t.Helper()
 	k := setupTestKB(t)
 	k.AuthName = authName
-	if err := k.CreateMap("visible", "Visible", "map", nil, ""); err != nil {
+	if err := k.CreateMap("visible", "Visible", "map", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CreateMap("hidden", "Hidden", "map", nil, ""); err != nil {
+	if err := k.CreateMap("hidden", "Hidden", "map", nil); err != nil {
 		t.Fatal(err)
 	}
 	write := func(rel, content string) {
@@ -168,7 +168,6 @@ func TestUIAPI_MalformedParameters(t *testing.T) {
 		{UIAPIPrefix + "/kbs/docs/graph?limit=abc", "limit"},
 		{UIAPIPrefix + "/kbs/docs/graph?scope=a/b", "scope"},
 		{UIAPIPrefix + "/kbs/docs/concept", "id"},
-		{UIAPIPrefix + "/kbs/docs/lint?severity_min=loud", "severity_min"},
 	} {
 		rr := getUI(t, handler, tc.path, "")
 		if rr.Code != http.StatusBadRequest {
@@ -178,12 +177,6 @@ func TestUIAPI_MalformedParameters(t *testing.T) {
 		if errObj["code"] != uiCodeInvalidRequest || errObj["field"] != tc.field {
 			t.Errorf("%s: envelope = %v, want field %q", tc.path, errObj, tc.field)
 		}
-	}
-	// The severity error names the valid values instead of leaving the caller
-	// to guess them.
-	rr := getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint?severity_min=loud", "")
-	if msg := decodeUI(t, rr)["error"].(map[string]interface{})["message"].(string); !strings.Contains(msg, "warning") {
-		t.Errorf("severity error should list the valid severities, got %q", msg)
 	}
 }
 
@@ -377,24 +370,35 @@ func TestUIAPI_NarrowedTokenSeesOnlyItsKB(t *testing.T) {
 	}
 }
 
-func TestUIAPI_LintCountsDescribeWhatIsNotShown(t *testing.T) {
+// D947: a lint finding is a problem. The endpoint lists every finding with no
+// severity, takes no floor, and counts them by check.
+func TestUIAPI_LintListsEveryFindingWithNoSeverity(t *testing.T) {
 	t.Parallel()
 	handler := newUIHandler(t, auth.NewTokenStore(nil), "docs")
 	all := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint", ""))
-	errorsOnly := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint?severity_min=error", ""))
+	floored := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint?severity_min=error", ""))
 
-	if errorsOnly["total"] != all["total"] {
-		t.Errorf("total must be the unfiltered count: %v vs %v", errorsOnly["total"], all["total"])
+	for _, gone := range []string{"by_severity", "severity_min"} {
+		if _, ok := all[gone]; ok {
+			t.Errorf("the lint endpoint still answers %s", gone)
+		}
 	}
-	if errorsOnly["count"].(float64) > all["count"].(float64) {
-		t.Error("a severity floor cannot return more findings than no floor")
+	if floored["count"] != all["count"] {
+		t.Errorf("a severity floor is gone, so it cannot narrow the list: %v vs %v", floored["count"], all["count"])
 	}
-	if errorsOnly["severity_min"] != "error" {
-		t.Errorf("severity_min echo = %v", errorsOnly["severity_min"])
+	if int(all["count"].(float64)) != len(all["findings"].([]interface{})) {
+		t.Errorf("count %v does not match the %d findings listed", all["count"], len(all["findings"].([]interface{})))
 	}
-	for _, raw := range errorsOnly["findings"].([]interface{}) {
-		if sev := raw.(map[string]interface{})["severity"]; sev != "error" {
-			t.Errorf("severity floor leaked a %v finding", sev)
+	byCheck := 0
+	for _, n := range all["by_check"].(map[string]interface{}) {
+		byCheck += int(n.(float64))
+	}
+	if byCheck != int(all["count"].(float64)) {
+		t.Errorf("by_check totals %d, count says %v", byCheck, all["count"])
+	}
+	for _, raw := range all["findings"].([]interface{}) {
+		if _, ok := raw.(map[string]interface{})["severity"]; ok {
+			t.Errorf("a finding carries a severity: %v", raw)
 		}
 	}
 	// The broken link in the fixture is reported against its own concept.
@@ -489,17 +493,16 @@ func TestUIFindingConcept(t *testing.T) {
 	}
 }
 
-// Structural lint checks read the whole graph (D243): a cut_concept on a
-// visible page counts and names the hidden concepts it cuts off. A narrowed
+// Structural lint checks read the whole graph (D243): a link_to_retired on a
+// visible page counts and names the hidden concepts that link it. A narrowed
 // principal gets none of them; one that sees the whole KB gets them all.
 func TestUIAPI_LintHidesWholeGraphChecksFromANarrowedToken(t *testing.T) {
 	t.Parallel()
 	k := uiFixtureKB(t, "docs")
 	for rel, body := range map[string]string{
-		"visible/hub.md":  "---\ntype: Note\ntitle: Hub\n---\n[x1](../hidden/x1.md) [x2](../hidden/x2.md) [x3](../hidden/x3.md)\n",
-		"hidden/x1.md":    "---\ntype: Note\n---\nLeaf.\n",
-		"hidden/x2.md":    "---\ntype: Note\n---\nLeaf.\n",
-		"hidden/x3.md":    "---\ntype: Note\n---\nLeaf.\n",
+		"visible/old.md":  "---\ntype: Note\ntitle: Old\nstatus: deprecated\n---\nRetired.\n",
+		"hidden/x1.md":    "---\ntype: Note\n---\nSee [old](../visible/old.md).\n",
+		"hidden/x2.md":    "---\ntype: Note\n---\nSee [old](../visible/old.md).\n",
 		"visible/beta.md": "---\ntype: Note\ntitle: Beta\n---\nLinks back to [alpha](alpha.md) and [hub](hub.md).\n",
 	} {
 		if err := os.WriteFile(filepath.Join(k.DataRoot(), filepath.FromSlash(rel)), []byte(body), 0o644); err != nil {
@@ -516,11 +519,11 @@ func TestUIAPI_LintHidesWholeGraphChecksFromANarrowedToken(t *testing.T) {
 	handler := ts.Middleware(multi.Handler())
 
 	whole := getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint", "whole").Body.String()
-	if !strings.Contains(whole, `"cut_concept"`) || !strings.Contains(whole, "hidden/x1") {
-		t.Fatalf("a whole-KB reader should see the cut concept: %s", whole)
+	if !strings.Contains(whole, `"link_to_retired"`) || !strings.Contains(whole, "hidden/x1") {
+		t.Fatalf("a whole-KB reader should see the retired link: %s", whole)
 	}
 	narrow := getUI(t, handler, UIAPIPrefix+"/kbs/docs/lint", "narrow").Body.String()
-	if strings.Contains(narrow, "hidden/") || strings.Contains(narrow, "cut_concept") {
+	if strings.Contains(narrow, "hidden/") || strings.Contains(narrow, "link_to_retired") {
 		t.Fatalf("a narrowed reader learns about hidden concepts: %s", narrow)
 	}
 }

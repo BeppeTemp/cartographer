@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
 func TestDefault(t *testing.T) {
@@ -16,30 +15,10 @@ func TestDefault(t *testing.T) {
 	if cfg.Auth.Mode != "auto" {
 		t.Errorf("Auth.Mode = %q, want %q", cfg.Auth.Mode, "auto")
 	}
-	if cfg.ToolsProfile != "agent" {
-		t.Errorf("ToolsProfile = %q, want %q", cfg.ToolsProfile, "agent")
-	}
-}
-
-func TestToolsProfileEnvAndNormalization(t *testing.T) {
-	cfg := Default()
-	t.Setenv("CARTOGRAPHER_TOOLS_PROFILE", "FULL")
-	FromEnv(cfg)
-	if cfg.ToolsProfile != "full" {
-		t.Errorf("ToolsProfile from env = %q, want %q", cfg.ToolsProfile, "full")
-	}
-
-	// An unrecognized value degrades to "agent" (fail-closed).
-	bogus := "operator"
-	ApplyFlags(cfg, FlagOverrides{ToolsProfile: &bogus})
-	if cfg.ToolsProfile != "agent" {
-		t.Errorf("ToolsProfile with unrecognized value = %q, want %q", cfg.ToolsProfile, "agent")
-	}
 }
 
 const fullYAML = `
 http: ":39273"
-init: true
 auth:
   mode: "on"
   tokens:
@@ -59,8 +38,6 @@ search:
   ollama_model: custom-model
 audit:
   log: /data/audit.log
-tools:
-  profile: full
 `
 
 func TestLoadFullYAML(t *testing.T) {
@@ -77,7 +54,6 @@ func TestLoadFullYAML(t *testing.T) {
 
 	want := &Config{
 		HTTP: ":39273",
-		Init: true,
 		Auth: AuthConfig{Mode: "on", Tokens: []TokenSpec{
 			{Token: "tok-a"},
 			{Token: "tok-b", Scopes: []string{"kb:docs:rw", "kb:notes:r"}},
@@ -90,10 +66,7 @@ func TestLoadFullYAML(t *testing.T) {
 				Remote: "ssh://git@gitea.example.com:2222/user/kb-locale.git",
 			},
 		},
-		Audit:        AuditConfig{Log: "/data/audit.log", RetentionDays: 90, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
-		ToolsProfile: "full",
-		// The YAML sets neither deprecated mcp key (D288): both stay empty.
-		MCP: MCPConfig{},
+		Audit: AuditConfig{Log: "/data/audit.log", RetentionDays: 90, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
 		// The UI is on by default in HTTP mode; this YAML does not mention it.
 		Web:         WebConfig{Enabled: true},
 		UpdateCheck: true,
@@ -332,8 +305,9 @@ func TestLoadRetiredAuthorKeysWarn(t *testing.T) {
 	for _, key := range []string{"git.author_name", "git.author_email", "git.committer_name", "git.committer_email",
 		"kbs[0].author_name", "kbs[0].author_email", "kbs[0].committer_name", "kbs[0].committer_email",
 		"auth.tokens[1].author_name"} {
-		if want := key + ": removed setting, ignored: " + kb.AuthorSettingRemoved; !strings.Contains(got, want) {
-			t.Errorf("warnings lack %q:\n%s", want, got)
+		want := key + ": removed setting, ignored"
+		if !strings.Contains(got, want) || !strings.Contains(got, kb.AuthorSettingRemoved) {
+			t.Errorf("warnings lack %q with the replacement note:\n%s", want, got)
 		}
 	}
 	if err := cfg.RefusalError(); err != nil {
@@ -631,52 +605,5 @@ func TestAuditLogPath(t *testing.T) {
 	c.Audit.Log = "/var/log/carto.jsonl"
 	if c.AuditLogPath() != "/var/log/carto.jsonl" {
 		t.Errorf("AuditLogPath() = %q, want audit.log", c.AuditLogPath())
-	}
-}
-
-func TestLoadWriteGate(t *testing.T) {
-	load := func(v string) (*Config, error) {
-		path := filepath.Join(t.TempDir(), "config.yaml")
-		body := "kbs:\n  - remote: https://git.example.com/user/kb-a.git\n"
-		if v != "" {
-			body += "    write_gate: " + v + "\n"
-		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return Load(path)
-	}
-	for in, want := range map[string]string{"": "off", "off": "off", "error": "error", "warning": "warning"} {
-		cfg, err := load(in)
-		if err != nil {
-			t.Fatalf("write_gate %q: %v", in, err)
-		}
-		if got := cfg.KBs[0].WriteGateMode(); got != want {
-			t.Errorf("write_gate %q resolves to %q, want %q", in, got, want)
-		}
-	}
-	for _, bad := range []string{"Error", "strict"} {
-		_, err := load(bad)
-		if err == nil || !strings.Contains(err.Error(), "write_gate: "+bad+": must be off, error or warning") {
-			t.Errorf("write_gate %q: err = %v", bad, err)
-		}
-	}
-}
-
-// DefaultAutoRepair stays a literal here (D323), but each entry must be a
-// check whose registered fix may run with no person (D354).
-func TestDefaultAutoRepairIsAutoRepairSafe(t *testing.T) {
-	in := map[string]bool{}
-	for _, check := range DefaultAutoRepair {
-		in[check] = true
-		if !lint.AutoRepairSafe(check) {
-			t.Errorf("%s is in DefaultAutoRepair but its lint spec is not AutoRepairSafe", check)
-		}
-	}
-	// D355: the default is every safe check, not a subset that drifts.
-	for _, s := range lint.Checks() {
-		if s.AutoRepairSafe && !in[s.Name] {
-			t.Errorf("%s is AutoRepairSafe but missing from DefaultAutoRepair", s.Name)
-		}
 	}
 }

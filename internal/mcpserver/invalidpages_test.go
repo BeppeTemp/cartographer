@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -94,10 +93,9 @@ func TestInvalidPagesAreLintChecks(t *testing.T) {
 	if fx := findingsFor(t, k, "empty_concept")["ops/empty.md"].Fix; fx != nil {
 		t.Errorf("an empty page must carry no fix: %+v", fx)
 	}
-	// Errors, not acceptable.
 	for _, c := range []string{"missing_frontmatter", "unparseable_frontmatter", "missing_type", "concept_too_deep"} {
-		if s, _ := lint.Spec(c); s.Severity != lint.SevError || s.Accept != lint.AcceptNone {
-			t.Errorf("%s: %+v", c, s)
+		if _, ok := lint.Spec(c); !ok {
+			t.Errorf("%s is not a registered check", c)
 		}
 	}
 }
@@ -230,8 +228,7 @@ func TestEmptyConceptIsReviewedNeverDeleted(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 2)
 	seedInvalidPages(t, k)
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = config.DefaultAutoRepair })
-	stagedAutoRepair(context.Background(), k, config.DefaultAutoRepair, 50)
+	stagedAutoRepair(context.Background(), k, lint.AutoRepairChecks(), 50)
 	if _, err := os.Stat(filepath.Join(k.DataRoot(), "ops", "empty.md")); err != nil {
 		t.Fatalf("empty page deleted: %v", err)
 	}
@@ -255,7 +252,7 @@ func TestHeartbeatRepairsInvalidPagesAndLeavesUnresolvedTypes(t *testing.T) {
 	k, s := repairKB(t, 2)
 	seedInvalidPages(t, k)
 	// A map whose pages disagree on the type: nothing resolves there.
-	if err := k.CreateMapWithContract("mix", "Mix", "map", nil, "", kb.MapContract{}); err != nil {
+	if err := k.CreateMapWithContract("mix", "Mix", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 	writeRaw(t, k, "mix/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nBody.\n")
@@ -263,7 +260,7 @@ func TestHeartbeatRepairsInvalidPagesAndLeavesUnresolvedTypes(t *testing.T) {
 	writeRaw(t, k, "mix/c.md", "---\ntitle: C\n---\n# C\n\nBody.\n")
 	// Baseline rule: an unrelated fix lands on a page that has no type.
 	writeRaw(t, k, "mix/d.md", "---\ntitle: D\nupdated: 2026-01-02\n---\n# D\n\nBody.\n")
-	r := stagedAutoRepair(context.Background(), k, config.DefaultAutoRepair, 50)
+	r := stagedAutoRepair(context.Background(), k, lint.AutoRepairChecks(), 50)
 	for _, c := range []string{"missing_frontmatter", "missing_type", "unparseable_frontmatter", "nonslug_file_name"} {
 		if r.applied[c] == 0 {
 			t.Errorf("heartbeat applied nothing for %s: %v", c, r.applied)

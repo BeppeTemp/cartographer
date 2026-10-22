@@ -18,7 +18,7 @@ func placeholderKB(t *testing.T) (*Server, *kb.KB, string) {
 	k := setupTestKB(t)
 	k.AuthName = "docs"
 	for _, m := range []string{"ops", "hidden"} {
-		if err := k.CreateMap(m, m, "map", nil, ""); err != nil {
+		if err := k.CreateMap(m, m, "map", nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -58,7 +58,7 @@ func pullAs(t *testing.T, s *Server, k *kb.KB, admin bool) pullPlaceholders {
 			t.Fatalf("sync_pull: %s", text)
 		}
 	} else {
-		res, err := toolSyncPull(k, fstest.MapFS{}, false, nil, nil).Handler(narrowCtx, json.RawMessage(`{}`))
+		res, err := toolSyncPull(k, fstest.MapFS{}, false, nil).Handler(narrowCtx, json.RawMessage(`{}`))
 		if err != nil || res.IsError {
 			t.Fatalf("sync_pull handler: %v %+v", err, res)
 		}

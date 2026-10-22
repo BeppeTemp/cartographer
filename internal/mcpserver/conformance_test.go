@@ -89,53 +89,48 @@ func TestWriteResponsesCarryFindings(t *testing.T) {
 	t.Parallel()
 	s := graphToolKB(t, map[string]string{"ops/existing.md": "Body.\n"})
 	k := s.kbRef
-	mapMD := "---\ntype: Map\nkind: map\ntitle: Ops\nfield_values.status: [open, done]\n---\n# Ops\n"
+	mapMD := "---\ntype: Map\nkind: map\ntitle: Ops\nindex: generated\nfield_values.status: [open, done]\n---\n# Ops\n"
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "ops", "_map.md"), []byte(mapMD), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// concept_write: a stale-synonym warning and, on the contract, an error
-	// finding; the write itself succeeds.
-	out := decodeJSON(t, mustText(t, s, "concept_write",
-		`{"id":"ops/a","frontmatter":{"type":"Note","title":"A","status":"nope","aggiornato":"2026-01-01"},"body":"b"}`))
-	findings, _ := out["findings"].([]interface{})
-	checks := map[string]map[string]interface{}{}
-	for _, f := range findings {
-		m := f.(map[string]interface{})
-		checks[m["check"].(string)] = m
-	}
-	if checks["invalid_field_value"] == nil || checks["nonstandard_field"] == nil {
-		t.Fatalf("findings = %v", out["findings"])
-	}
-	if fix, _ := checks["nonstandard_field"]["fix"].(map[string]interface{}); fix["kind"] != "rename_field" || fix["to"] != "timestamp" {
-		t.Errorf("fix = %v", checks["nonstandard_field"]["fix"])
-	}
-	if _, err := k.ReadConcept("ops/a"); err != nil {
-		t.Fatalf("write did not persist: %v", err)
+	// An invalid value is a finding the write can avoid: refused, nothing written.
+	requireRefusal(t, s, "concept_write",
+		`{"id":"ops/a","frontmatter":{"type":"Note","title":"A","status":"nope"},"body":"See [existing](existing.md)."}`, "ops/a.md invalid_field_value")
+	if _, err := k.ReadConcept("ops/a"); err == nil {
+		t.Fatal("a refused write persisted")
 	}
 
 	// A clean write carries an empty findings array (D342).
-	clean := decodeJSON(t, mustText(t, s, "concept_write",
-		`{"id":"ops/b","frontmatter":{"type":"Note","title":"B","status":"open"},"body":"See [a](a.md)."}`))
-	if f, has := clean["findings"].([]interface{}); !has || len(f) != 0 {
-		t.Errorf("clean write carries findings: %v", clean["findings"])
+	out := decodeJSON(t, mustText(t, s, "concept_write",
+		`{"id":"ops/a","frontmatter":{"type":"Note","title":"A","status":"open"},"body":"See [existing](existing.md)."}`))
+	if f, has := out["findings"].([]interface{}); !has || len(f) != 0 {
+		t.Errorf("clean write carries findings: %v", out["findings"])
 	}
 
-	// concept_patch and concept_batch report them too.
+	// concept_patch reports the array too, and refuses an invalid value.
 	hash := out["content_hash"].(string)
+	requireRefusal(t, s, "concept_patch",
+		`{"id":"ops/a","if_match":"`+hash+`","frontmatter":{"status":"still-wrong"}}`, "ops/a.md invalid_field_value")
 	patched := decodeJSON(t, mustText(t, s, "concept_patch",
-		`{"id":"ops/a","if_match":"`+hash+`","frontmatter":{"status":"still-wrong"}}`))
+		`{"id":"ops/a","if_match":"`+hash+`","frontmatter":{"status":"done"}}`))
 	if _, has := patched["findings"]; !has {
 		t.Errorf("patch without findings: %v", patched)
 	}
-	batch := decodeJSON(t, mustText(t, s, "concept_batch",
-		`{"operations":[{"op":"write","id":"ops/c","frontmatter":{"type":"Note","title":"C","stato":"x"},"body":"b"},{"op":"write","id":"ops/d","frontmatter":{"type":"Note","title":"D"},"body":"See [a](a.md)."}]}`))
-	results := batch["results"].([]interface{})
-	if _, has := results[0].(map[string]interface{})["findings"]; !has {
-		t.Errorf("batch entry 0 without findings: %v", results[0])
+
+	// concept_batch is atomic: one invalid entry refuses all of them.
+	requireRefusal(t, s, "concept_batch",
+		`{"operations":[{"op":"write","id":"ops/c","frontmatter":{"type":"Note","title":"C","status":"x"},"body":"See [a](a.md)."},{"op":"write","id":"ops/d","frontmatter":{"type":"Note","title":"D"},"body":"See [a](a.md)."}]}`,
+		"ops/c.md invalid_field_value")
+	if _, err := k.ReadConcept("ops/d"); err == nil {
+		t.Fatal("a refused batch persisted an entry")
 	}
-	if _, has := results[1].(map[string]interface{})["findings"]; has {
-		t.Errorf("clean batch entry carries findings: %v", results[1])
+	batch := decodeJSON(t, mustText(t, s, "concept_batch",
+		`{"operations":[{"op":"write","id":"ops/c","frontmatter":{"type":"Note","title":"C"},"body":"See [a](a.md)."},{"op":"write","id":"ops/d","frontmatter":{"type":"Note","title":"D"},"body":"See [a](a.md)."}]}`))
+	for i, r := range batch["results"].([]interface{}) {
+		if _, has := r.(map[string]interface{})["findings"]; has {
+			t.Errorf("clean batch entry %d carries findings: %v", i, r)
+		}
 	}
 }
 
@@ -173,8 +168,8 @@ func TestLintOutputFixShape(t *testing.T) {
 }
 
 // The server's own local state under .cartographer — telemetry rewritten by
-// every read and search, the search index — does not invalidate the lint
-// cache; usage.json, which lint reads, does (D736).
+// every read and search, the search index, the usage reports — does not
+// invalidate the lint cache (D736, D947).
 func TestLintInputsStampIgnoresServerState(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
@@ -183,18 +178,13 @@ func TestLintInputsStampIgnoresServerState(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := lintInputsStamp(k)
-	for _, name := range []string{"read-access.json", "search-misses.jsonl", "index.db", "auto-repair-log.jsonl"} {
+	// usage.json included: lint reads no usage since artifact_unused went (D947).
+	for _, name := range []string{"read-access.json", "search-misses.jsonl", "index.db", "auto-repair-log.jsonl", "usage.json"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	if got := lintInputsStamp(k); got != before {
 		t.Fatal("server state under .cartographer changed the lint stamp")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "usage.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := lintInputsStamp(k); got == before {
-		t.Fatal("usage.json did not change the lint stamp")
 	}
 }

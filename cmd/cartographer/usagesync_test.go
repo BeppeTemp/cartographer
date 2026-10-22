@@ -73,7 +73,7 @@ func TestReportUsage_PostsOnlyTheAggregatePerKB(t *testing.T) {
 	srv, posts := usageServer(t, http.StatusOK)
 	t.Setenv("CARTOGRAPHER_TEST_TOKEN", "secret")
 	cfg := clientconfig.Default()
-	cfg.ServerURL, cfg.Auth, cfg.TokenEnv = srv.URL+"/mcp", true, "CARTOGRAPHER_TEST_TOKEN"
+	cfg.ServerURL, cfg.Auth, cfg.Token = srv.URL+"/mcp", true, "${CARTOGRAPHER_TEST_TOKEN}"
 	if n := reportUsage(cfg, home); n != 1 {
 		t.Fatalf("reported %d entries, want 1 (the bundled skill is not a KB's)", n)
 	}
@@ -114,5 +114,60 @@ func TestReportUsage_UnreachableServerIsNotAnError(t *testing.T) {
 	cfg.ServerURL = url + "/mcp"
 	if n := reportUsage(cfg, home); n != 0 {
 		t.Fatalf("reported %d, want 0", n)
+	}
+}
+
+func TestReportOnly_SendsToTheGivenURLAndChangesNothing(t *testing.T) {
+	home := usageClientHome(t)
+	setHome(t, home)
+	var mu sync.Mutex
+	paths := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		paths[r.URL.Path]++
+		mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+	cfg := clientconfig.Default()
+	cfg.ServerURL = "http://configured.example.com/mcp"
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(clientconfig.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if code := reportOnly(home, srv.URL+"/mcp"); code != 0 {
+		t.Fatalf("exit %d, want 0", code)
+	}
+	mu.Lock()
+	got := paths["/api/client-settings"]
+	usage := paths["/api/usage"]
+	mu.Unlock()
+	if got != 1 {
+		t.Fatalf("client settings posted %d times, want 1 (%v)", got, paths)
+	}
+	if usage != 1 {
+		t.Fatalf("usage posted %d times, want 1 for kb-a (%v)", usage, paths)
+	}
+	after, err := os.ReadFile(clientconfig.Path(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("client config changed:\n%s\n---\n%s", before, after)
+	}
+}
+
+func TestReportOnly_RefusesAServerOffThisMachine(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	if err := clientconfig.Save(home, clientconfig.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if code := reportOnly(home, "https://example.com/mcp"); code != 2 {
+		t.Fatalf("exit %d, want 2", code)
 	}
 }

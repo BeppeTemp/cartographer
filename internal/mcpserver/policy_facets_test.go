@@ -69,10 +69,10 @@ func TestVisibleWithCachedTypesMatchesTheUncachedPolicy(t *testing.T) {
 			})
 		}
 	}
-	if err := k.CreateMap("ops", "Ops", "map", nil, ""); err != nil {
+	if err := k.CreateMap("ops", "Ops", "map", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CreateMap("diary", "Diary", "journal", nil, ""); err != nil {
+	if err := k.CreateMap("diary", "Diary", "journal", nil); err != nil {
 		t.Fatal(err)
 	}
 	write("ops/runbook.md", "---\ntype: Runbook\n---\nRun.\n")

@@ -55,8 +55,7 @@ mkdir -p "$DIR" "$SANDBOX"
 for name in "${KBS[@]}"; do kb_make "${DIR}/${name}"; done
 
 {
-    echo "http: \":${E2E_HTTP_PORT}\""
-    echo "init: true"
+    echo "http: \"127.0.0.1:${E2E_HTTP_PORT}\""
 } > "$CONFIG"
 
 KB_CSV="$(IFS=,; echo "${KBS[*]/#/${DIR}/}")"
@@ -167,8 +166,8 @@ run_client() {
 }
 
 # opencode is bound to two of the three KBs, claude to one.
-run_client "${DIR}/connect-opencode.log" connect opencode --server-url "$SERVER_URL" --kb alpha,beta --auto-trust || true
-run_client "${DIR}/connect-claude.log" connect claude --server-url "$SERVER_URL" --kb gamma --auto-trust || true
+run_client "${DIR}/connect-opencode.log" connect opencode --server-url "$SERVER_URL" --kb alpha,beta || true
+run_client "${DIR}/connect-claude.log" connect claude --server-url "$SERVER_URL" --kb gamma || true
 
 OPENCODE_CFG="${SANDBOX}/opencode.json"
 if [[ ! -f "$OPENCODE_CFG" ]]; then

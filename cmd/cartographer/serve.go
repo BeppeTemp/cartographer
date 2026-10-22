@@ -25,7 +25,9 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/service"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
+	"github.com/BeppeTemp/cartographer/internal/sops"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 	"github.com/BeppeTemp/cartographer/internal/webui"
 )
@@ -47,11 +49,9 @@ func cmdServe(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	kbFlag := fs.String("kb", "", "Folder(s) of KB(s) to mount, comma-separated (or CARTOGRAPHER_KB); such a folder syncs only if it has a git remote")
 	dataFlag := fs.String("data", "", "Directory whose direct subdirs are each a separate KB (or CARTOGRAPHER_DATA)")
-	initFlag := fs.Bool("init", false, "Initialize KB(s) if they do not exist")
 	httpFlag := fs.String("http", "", "HTTP listen address, e.g. :39273 (or CARTOGRAPHER_HTTP)")
 	tokensFlag := fs.String("tokens", "", "Comma-separated bearer tokens (or CARTOGRAPHER_TOKENS)")
 	configFlag := fs.String("config", "", "Path to a YAML config file (or CARTOGRAPHER_CONFIG)")
-	toolsProfileFlag := fs.String("tools-profile", "", "Tools advertised by tools/list: 'agent' (default, core set) or 'full' (or CARTOGRAPHER_TOOLS_PROFILE)")
 	webEnabledFlag := fs.Bool("web-enabled", true, "Serve the embedded read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode (or CARTOGRAPHER_WEB_ENABLED)")
 	updateCheckFlag := fs.Bool("update-check", true, "Look up the latest release once a day and report it in /health and kb_status when newer, and let the Atlas read the release history on demand; off, neither call is made (or CARTOGRAPHER_UPDATE_CHECK)")
 	logFileFlag := fs.String("log-file", "", "Append the server log to this file instead of stderr (created if absent; never rotated)")
@@ -68,14 +68,12 @@ func cmdServe(args []string) int {
 	}
 
 	cfg, err := loadServeConfig(fs, config.FlagOverrides{
-		HTTP:         httpFlag,
-		Init:         initFlag,
-		KB:           kbFlag,
-		Data:         dataFlag,
-		Tokens:       tokensFlag,
-		ToolsProfile: toolsProfileFlag,
-		WebEnabled:   webEnabledFlag,
-		UpdateCheck:  updateCheckFlag,
+		HTTP:        httpFlag,
+		KB:          kbFlag,
+		Data:        dataFlag,
+		Tokens:      tokensFlag,
+		WebEnabled:  webEnabledFlag,
+		UpdateCheck: updateCheckFlag,
 	}, *configFlag)
 	if err != nil {
 		log.Fatal(err)
@@ -111,16 +109,12 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 		switch f.Name {
 		case "http":
 			explicit.HTTP = overrides.HTTP
-		case "init":
-			explicit.Init = overrides.Init
 		case "kb":
 			explicit.KB = overrides.KB
 		case "data":
 			explicit.Data = overrides.Data
 		case "tokens":
 			explicit.Tokens = overrides.Tokens
-		case "tools-profile":
-			explicit.ToolsProfile = overrides.ToolsProfile
 		case "web-enabled":
 			explicit.WebEnabled = overrides.WebEnabled
 		case "update-check":
@@ -172,7 +166,6 @@ type kbBootstrap struct {
 	kbs             []*kb.KB
 	names           []string
 	artifactSigners []ed25519.PrivateKey
-	allowlists      [][]provisioning.MCPAllowlistEntry
 	sqlIdxs         map[string]*sqlindex.Index
 }
 
@@ -242,27 +235,21 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	phase("mounting")
 	seenNames := make(map[string]string) // name → first path seen
 	var kbs []*kb.KB
-	var kbNames []string                                   // index-aligned with kbs
-	var kbArtifactSigners []ed25519.PrivateKey             // index-aligned with kbs
-	var kbMCPAllowlists [][]provisioning.MCPAllowlistEntry // index-aligned with kbs
+	var kbNames []string                       // index-aligned with kbs
+	var kbArtifactSigners []ed25519.PrivateKey // index-aligned with kbs
 	for _, m := range mounts {
 		var k *kb.KB
 		var err error
-		if cfg.Init {
-			k, err = kb.Init(m.Path)
-			if err != nil {
-				log.Fatalf("KB init %q failed: %v", m.Path, err)
-			}
-			log.Printf("KB initialized at %s", k.Root)
-		} else {
-			k, err = kb.Open(m.Path)
-			if err != nil {
-				log.Fatalf("KB open %q failed: %v\n(use --init to create a new KB)", m.Path, err)
-			}
+		k, err = openMountedKB(m.Path)
+		if err != nil {
+			log.Fatal(err)
 		}
 		k.SyncInWindow = kb.DefaultSyncInWindow
 		k.SyncOutDebounce = kb.SyncOutDebounceFor(os.Getenv)
 		k.GitEnv = gitEnvForKB(m.Name, credDir)
+		if n, e, ok := cfg.IdentityFor(m.Name); ok {
+			k.SetDefaultIdentity(n, e)
+		}
 		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(credDir, m.Name)
 		// The KB's settings.yaml is brought up to date first (D903): a retired
 		// key is dropped, in one commit of its own, and a KB that still asks for
@@ -298,8 +285,6 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			log.Printf("KB %q provisioning artifact signing enabled (key ID %s)", name, artifactsig.KeyID(artifactSigner.Public().(ed25519.PublicKey)))
 		}
 		if _, scanErr := provisioning.BuildManifest(nil, map[string]string{name: k.Root}, provisioning.BuildOptions{
-			MCPAllowlists:   map[string][]provisioning.MCPAllowlistEntry{name: m.Spec.MCPAllowlist},
-			MCPDiagnostic:   func(message string) { log.Printf("warning: %s", message) },
 			SkillDiagnostic: func(message string) { log.Printf("warning: %s", message) },
 		}); scanErr != nil {
 			log.Printf("warning: KB %q MCP descriptor scan: %v", name, scanErr)
@@ -307,7 +292,6 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		kbs = append(kbs, k)
 		kbNames = append(kbNames, name)
 		kbArtifactSigners = append(kbArtifactSigners, artifactSigner)
-		kbMCPAllowlists = append(kbMCPAllowlists, m.Spec.MCPAllowlist)
 		if m.Discovered {
 			// A discovered KB works — it serves tools, answers reads, commits
 			// writes — and looks identical to a configured one from every client
@@ -344,7 +328,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			log.Printf("sqlindex: reconciled at startup: indexed=%d updated=%d removed=%d", stats.Indexed, stats.Updated, stats.Removed)
 		}
 	}
-	return kbBootstrap{kbs: kbs, names: kbNames, artifactSigners: kbArtifactSigners, allowlists: kbMCPAllowlists, sqlIdxs: sqlIdxs}
+	return kbBootstrap{kbs: kbs, names: kbNames, artifactSigners: kbArtifactSigners, sqlIdxs: sqlIdxs}
 }
 
 // applyKBPolicy lays the KB's own settings.yaml over its server spec (D746) and
@@ -358,21 +342,13 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 		log.Printf("warning: KB %q: %v — settings.yaml ignored", name, err)
 		st = kb.SettingsState{}
 	}
-	eff, info := config.ResolveKBSettings(server, cfg.ServerSetFunc(name), st)
+	eff, info := config.ResolveKBSettings(server, st)
 	prev := k.SettingsInfo()
 	k.SetSettingsInfo(info)
 	cfg.RecordKBSettings(name, eff, info.FromKB)
 
 	// Validated by config.Load and by ResolveKBSettings; a zero spec yields the default.
 	var pol kb.Policy
-	pol.AllowArtifactWrite = eff.AllowArtifactWrite
-	pol.AllowTemplateWrite = eff.TemplateWriteEnabled()
-	pol.AutoRepair, pol.AutoRepairDefault = eff.AutoRepairChecks()
-	pol.RepairOnWrite = eff.RepairOnWriteEnabled()
-	pol.WriteGate = eff.WriteGateMode()
-	pol.DoctorIntervalDays, _ = eff.DoctorIntervalDays()
-	pol.DoctorAutoIntervalDays, _ = eff.DoctorAutoIntervalDays()
-	pol.DoctorBudget = eff.DoctorBudgetItems()
 	pol.UsageStaleDays = eff.UsageStale()
 	k.SetPolicy(pol)
 
@@ -382,14 +358,11 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 	for _, f := range info.Findings {
 		log.Printf("warning: KB %q: %s: %s", name, kb.SettingsFile, f)
 	}
-	for _, g := range info.Ignored {
-		log.Printf("warning: KB %q: %s sets %s to %s; the server's value %s is ignored — the KB is authoritative", name, kb.SettingsFile, g.Key, g.KBValue, g.ServerValue)
-	}
-	if info.SecretsDeclared && k.SopsAgeKeyFile == "" {
-		log.Printf("warning: KB %q declares secrets: true but no age key is configured for it (create %s.age or default.age in credentials_dir)", name, name)
+	if sops.Declared(k.Root) && k.SopsAgeKeyFile == "" {
+		log.Printf("warning: KB %q holds sops files under secrets/ but no age key is configured for it (create %s.age or default.age in credentials_dir)", name, name)
 	}
 	if refresh {
-		log.Printf("KB %q: settings.yaml changed, effective settings re-resolved (mcp_allowlist and git workflow keys apply at the next start)", name)
+		log.Printf("KB %q: settings.yaml changed, effective settings re-resolved (git workflow keys apply at the next start)", name)
 	}
 	return eff
 }
@@ -410,26 +383,26 @@ func runServe(cfg *config.Config) {
 
 	latestVersion := startServerUpdateCheck(cfg, version)
 	if cfg.HTTP != "" {
-		serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, cfg.MCP.AllowedOrigins, cfg.ToolsProfile, cfg.Web.Enabled, auditLog, latestVersion, cfg)
+		serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, cfg.Web.Enabled, auditLog, latestVersion, cfg)
 	} else {
 		bs := bootstrapKBs(cfg, func(string) {})
-		serveStdio(bs.kbs[0], bs.artifactSigners[0], bs.allowlists[0], cfg.ToolsProfile, bs.sqlIdxs, auditLog, latestVersion)
+		serveStdio(bs.kbs[0], bs.artifactSigners[0], bs.sqlIdxs, auditLog, latestVersion)
 	}
 }
 
-func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisioning.MCPAllowlistEntry, toolsProfile string, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string) {
+func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, sqlIdxs map[string]*sqlindex.Index, auditLog *audit.Log, latestVersion func() string) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
 	sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
 	s := mcpserver.New(version)
-	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigner, MCPAllowlist: allowlist})
+	mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigner})
 	s.SetToolsProfile(toolsProfile)
 	s.SetAuditLog(auditLog)
 	s.SetKBName(k.AuthName)
 	s.SetTransport("stdio")
 	s.SetLatestVersionSource(latestVersion)
-	log.Printf("stdio transport, KB: %s (tools profile: %s)", k.Root, toolsProfile)
+	log.Printf("stdio transport, KB: %s", k.Root)
 	// s.Run blocks on the stdio read loop and returns when the client closes
 	// stdin (or on a transport error) — that return is stdio's natural
 	// shutdown point. Flush any pending async push (D76/WP4) before exiting
@@ -448,13 +421,16 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, allowlist []provisi
 // /health (live, bootstrapping) and /ready (503) and refuses everything else
 // with a retryable 503. A bad auth configuration still fails before the
 // listener starts; a failure inside boot stays fatal.
-func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg config.AuthConfig, allowedOrigins []string, toolsProfile string, webEnabled bool, auditLog *audit.Log, latestVersion func() string, settingsCfg *config.Config) {
+func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg config.AuthConfig, webEnabled bool, auditLog *audit.Log, latestVersion func() string, settingsCfg *config.Config) {
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}
 
 	authOn, err := resolveAuth(authCfg)
 	if err != nil {
+		log.Fatal(err)
+	}
+	if err := checkListenSafety(addr, authOn); err != nil {
 		log.Fatal(err)
 	}
 
@@ -498,9 +474,13 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	// There is deliberately no WriteTimeout: it would also cap the duration of
 	// a legitimately slow tool call (a large reindex, a git sync), and those
 	// are already bounded per-operation.
+	// A loopback listener with authentication off also requires a loopback Host
+	// on every route (hardening of the same-origin rule, D906): outermost, so
+	// the boot gate's own routes are covered too.
+	rootHandler := withLoopbackHostGuard(gate.Handler(), addr, authOn)
 	httpSrv := &http.Server{
 		Addr:              addr,
-		Handler:           gate.Handler(),
+		Handler:           rootHandler,
 		ReadHeaderTimeout: 15 * time.Second,
 		ReadTimeout:       60 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -528,7 +508,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	var mounted atomic.Pointer[[]*kb.KB]
 	go func() {
 		bs := boot(gate.SetPhase)
-		kbs, names, artifactSigners, allowlists, sqlIdxs := bs.kbs, bs.names, bs.artifactSigners, bs.allowlists, bs.sqlIdxs
+		kbs, names, artifactSigners, sqlIdxs := bs.kbs, bs.names, bs.artifactSigners, bs.sqlIdxs
 		multi := mcpserver.NewMultiKBServer(version)
 		multi.SetLatestVersionSource(latestVersion)
 		multi.SetSettings(settingsCfg, string(updateChannelFn()))
@@ -562,7 +542,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 					s.SetDisplayName("cartographer:" + name)
 				}
 				sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
-				mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], MCPAllowlist: allowlists[i], RoutedMount: true, KBByName: kbByName})
+				mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], RoutedMount: true, KBByName: kbByName})
 				s.SetToolsProfile(toolsProfile)
 				s.SetAuditLog(auditLog)
 				s.SetKBName(name)
@@ -571,7 +551,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 				s.StartAutoRepair(repairCtx)
 			})
 			multi.SetKBCapabilities(name, mcpserver.KBCapabilitiesFor(k))
-			log.Printf("mounted KB %q at %s (tools profile: %s)", name, k.Root, toolsProfile)
+			log.Printf("mounted KB %q at %s", name, k.Root)
 		}
 
 		// D187/D288: the routed mount is the one agent-facing topology, always
@@ -582,7 +562,13 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		// restart, with KBs, serves it.
 		if len(names) > 0 {
 			if settingsCfg != nil {
-				multi.SetKBAliases(settingsCfg.KBAliases)
+				aliases, err := settingsCfg.KBAliases()
+				if err != nil {
+					// The state file is the server's own: a damaged one costs the
+					// old URLs of renamed KBs, not the start.
+					log.Printf("warning: kb_aliases are not applied: %v", err)
+				}
+				multi.SetKBAliases(aliases)
 			}
 			err := multi.EnableRoutedMount(version, func(s *mcpserver.Server) {
 				s.SetToolsProfile(toolsProfile)
@@ -616,14 +602,11 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		// The origin check sits outside authentication (D128): a page that is not
 		// allowed to talk to this server should be turned away before its token is
 		// looked at.
-		handler := mcpserver.OriginGuard(allowedOrigins, store.Middleware(multi.Handler()))
+		handler := mcpserver.OriginGuard(store.Middleware(multi.Handler()))
 		if webMounted {
 			// Outside the auth chain: the browser that types the bare address has
 			// no token yet (webui.RedirectRoot).
-			handler = mcpserver.OriginGuard(allowedOrigins, webui.RedirectRoot(store.Middleware(multi.Handler())))
-		}
-		if len(allowedOrigins) > 0 {
-			log.Printf("MCP origin allow-list: %s", strings.Join(allowedOrigins, ", "))
+			handler = mcpserver.OriginGuard(webui.RedirectRoot(store.Middleware(multi.Handler())))
 		}
 
 		// The handler is complete before the gate opens, so no request can
@@ -724,6 +707,44 @@ func principalID(spec config.TokenSpec) string {
 	}
 	sum := sha256.Sum256([]byte(spec.Token))
 	return "tok-" + hex.EncodeToString(sum[:4])
+}
+
+// openMountedKB opens the KB at path for serve. serve never creates one (D906,
+// the --init flag is gone): a path that is not a KB is an error that names the
+// command that makes it.
+func openMountedKB(path string) (*kb.KB, error) {
+	k, err := kb.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("KB open %q failed: %v\n(a KB that does not exist is created with `cartographer kb create`)", path, err)
+	}
+	return k, nil
+}
+
+// toolsProfile is what every server passes to Server.SetToolsProfile: tools/list
+// shows the core set and the advanced tools stay callable by name (D906).
+const toolsProfile = "agent"
+
+// checkListenSafety refuses a server that would listen beyond this machine
+// with authentication off (D906): addr is the listen address and authOn the
+// outcome of resolveAuth. Loopback is a host in 127.0.0.0/8, ::1 or localhost
+// (service.IsLoopbackListenAddr); an empty host (":39273") listens on every interface and is not loopback. The
+// local service pins auth off and listens on 127.0.0.1, so it is unaffected.
+func checkListenSafety(addr string, authOn bool) error {
+	if authOn || service.IsLoopbackListenAddr(addr) {
+		return nil
+	}
+	return fmt.Errorf("refusing to listen on %q with authentication off: that address is reachable beyond this machine and would serve every KB, writes included, to anyone who can connect. "+
+		"Configure a token (auth.tokens, CARTOGRAPHER_TOKENS or --tokens), or listen on a loopback address such as 127.0.0.1:39273", addr)
+}
+
+// withLoopbackHostGuard installs mcpserver.LoopbackHostGuard around h when the
+// server listens on a loopback address with authentication off, and returns h
+// unchanged otherwise.
+func withLoopbackHostGuard(h http.Handler, addr string, authOn bool) http.Handler {
+	if authOn || !service.IsLoopbackListenAddr(addr) {
+		return h
+	}
+	return mcpserver.LoopbackHostGuard(h)
 }
 
 // resolveAuth determines whether auth should be enforced.

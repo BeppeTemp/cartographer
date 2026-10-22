@@ -266,10 +266,10 @@ func cutBytes(s string, n int) string {
 
 // droppedFinding wraps the message as the write-time-only finding. It is not a
 // lint check (lint cannot know the previous state): no conformanceChecks
-// entry, no fix, not suppressible by lint_ignore.
+// entry, no fix.
 func droppedFinding(id, msg string) []findingOut {
 	if msg == "" {
 		return nil
 	}
-	return []findingOut{{Path: okf.IDToPath(okf.ConceptID(id)), Check: "list_items_dropped", Severity: "warning", Message: msg}}
+	return []findingOut{{Path: okf.IDToPath(okf.ConceptID(id)), Check: "list_items_dropped", Message: msg}}
 }

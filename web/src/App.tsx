@@ -11,12 +11,8 @@ import {
   fetchArtifacts,
   fetchLint,
   fetchMaps,
-  fetchMaintenanceReview,
-  fetchMaintenanceSummary,
   fetchOverview,
-  fetchStatus,
   fetchConflicts,
-  fetchContradictions,
   restoreToken,
   setToken,
 } from "./api/client";
@@ -25,15 +21,11 @@ import type {
   ArtifactList,
   CheckCatalog,
   Concept,
-  Contradiction,
   GitConflict,
   GraphSnapshot,
-  KBStatus,
   KBSummary,
   LintReport,
   MapContract,
-  MaintenanceReview,
-  MaintenanceSummary,
   Overview,
 } from "./api/types";
 import { Artifacts } from "./components/Artifacts";
@@ -134,14 +126,9 @@ export function App() {
   );
   // kb_status's knowledge signals for Health; a principal that cannot see
   // the whole KB gets a 404 and those parts are simply absent.
-  const [kbStatus, setKbStatus] = useState<KBStatus | null>(null);
-  const [maintenance, setMaintenance] = useState<MaintenanceSummary | null>(null);
   const [checks, setChecks] = useState<CheckCatalog | null>(null);
-  // The doctor's agenda beyond lint (D704); null leaves it out of Health.
-  const [review, setReview] = useState<MaintenanceReview | null>(null);
-  const [contradictions, setContradictions] = useState<Contradiction[] | null>(null);
   const [conflicts, setConflicts] = useState<GitConflict[] | null>(null);
-  // Health's review and checks have answered (or failed) for the current read.
+  // Health's checks have answered (or failed) for the current read.
   const [healthSettled, setHealthSettled] = useState(false);
   // The KB Health's reads above belong to (D704).
   const healthKB = useRef<string | null>(null);
@@ -158,8 +145,7 @@ export function App() {
   const narrow = useMediaQuery(NARROW_QUERY);
   const [sheet, setSheet] = useState<SheetName>(null);
   // The release history (D862) is a sheet on every viewport, opened from the
-  // top bar's version and the Settings title; it is not one of the narrow
-  // layout's panels, so leaving the narrow layout does not close it.
+  // top bar's version; it is not one of the narrow layout's panels, so leaving the narrow layout does not close it.
   const [releasesOpen, setReleasesOpen] = useState(false);
 
   // The reading panel's width (D239): the viewer's preference, clamped to what
@@ -516,9 +502,9 @@ export function App() {
     if (!activeKB || phase !== "ready") return;
     const controller = new AbortController();
     setLintLoading(true);
-    // The whole KB, every severity: Health groups them itself, suggestions
-    // folded away, and its Map chips filter this report in the page.
-    fetchLint(activeKB, "info", null, controller.signal)
+    // The whole KB, every finding (a finding is a problem, D947): Health groups
+    // them itself, and its Map chips filter this report in the page.
+    fetchLint(activeKB, null, controller.signal)
       .then((data) => {
         setLintAll(data);
         setLintError(null);
@@ -552,17 +538,11 @@ export function App() {
     replaceView(next);
   }, [view, activeKB, kbs, secretsAllowed]);
 
-  // Health's whole-KB reads (D338): kb_status and the maintenance summary
-  // answer 404 to a principal that cannot see the whole KB, which is not an
-  // error to show — the page leaves those parts out. The review items are
-  // filtered per principal and always answer.
+  // Health's whole-KB read (D338): the git conflicts answer 404 to a principal that cannot see
+  // the whole KB, which is not an error to show — the page leaves those parts out.
   useEffect(() => {
     if (view.panel !== "health" || !activeKB || phase !== "ready") {
-      setKbStatus(null);
-      setMaintenance(null);
       setChecks(null);
-      setReview(null);
-      setContradictions(null);
       setConflicts(null);
       setHealthSettled(false);
       return;
@@ -571,37 +551,17 @@ export function App() {
     // the new reads fail. A live refresh of the same KB keeps what it shows.
     if (healthKB.current !== activeKB) {
       healthKB.current = activeKB;
-      setKbStatus(null);
-      setMaintenance(null);
       setChecks(null);
-      setReview(null);
-      setContradictions(null);
       setConflicts(null);
       setHealthSettled(false);
     }
     const controller = new AbortController();
-    fetchStatus(activeKB, controller.signal)
-      .then(setKbStatus)
-      .catch(() => undefined);
-    // Whole-KB like the status: a narrowed principal gets a 404 and no section.
-    fetchContradictions(activeKB, "open", controller.signal)
-      .then((res) => setContradictions(res.contradictions ?? []))
-      .catch(() => undefined);
-    // Whole-KB as well, and only shown when there is something to resolve.
+    // Whole-KB: a narrowed principal gets a 404 and no section, shown only when there is something to resolve.
     fetchConflicts(activeKB, controller.signal)
       .then((res) => setConflicts(Array.isArray(res) ? res : []))
       .catch(() => undefined);
-    fetchMaintenanceSummary(activeKB, controller.signal)
-      .then(setMaintenance)
-      .catch((err) => {
-        if (!controller.signal.aborted) handleFailure(err);
-      });
     // The coverage list: without it Health simply leaves the section out.
-    const sources = [
-      fetchChecks(activeKB, controller.signal).then(setChecks),
-      fetchMaintenanceReview(activeKB, controller.signal).then(setReview),
-    ];
-    void Promise.allSettled(sources).then(() => {
+    void Promise.allSettled([fetchChecks(activeKB, controller.signal).then(setChecks)]).then(() => {
       if (!controller.signal.aborted) setHealthSettled(true);
     });
     return () => controller.abort();
@@ -891,11 +851,7 @@ export function App() {
           ) : view.panel === "health" ? (
             <Health
               report={lint}
-              status={kbStatus}
-              summary={maintenance}
               checks={checks}
-              review={review}
-              contradictions={contradictions}
               conflicts={conflicts}
               pending={!healthSettled}
               scopeTitle={
@@ -917,7 +873,6 @@ export function App() {
             <Settings
               reloadKey={`${reloadKey}:${live}`}
               activeKB={activeKB ?? undefined}
-              onOpenReleases={() => setReleasesOpen(true)}
               onRetry={() => setReloadKey((k) => k + 1)}
               onFailure={handleFailure}
             />

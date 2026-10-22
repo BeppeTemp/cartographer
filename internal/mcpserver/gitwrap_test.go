@@ -95,8 +95,8 @@ func TestGitWrap_ProtectedBranchPushIsReportedAsSuch(t *testing.T) {
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}
-	hook := filepath.Join(bare, "hooks", "pre-receive")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho 'remote: error: GH006: Protected branch update failed' >&2\nexit 1\n"), 0o755); err != nil {
+	installForgeHook(t, bare)
+	if err := os.WriteFile(filepath.Join(bare, "hooks", "protected-branch"), []byte("*\nremote: error: GH006: Protected branch update failed\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	res := writeWrappedTool(t, k, "test_write", nil)
@@ -175,6 +175,19 @@ func TestSyncStatus_MissingRemoteTrackingRefUsesJSONNull(t *testing.T) {
 	}
 }
 
+// seedAnchor commits a page for the pages a test writes to link to: the write
+// gate (D907) refuses a new page that links to nothing.
+func seedAnchor(t *testing.T, k *kb.KB) {
+	t.Helper()
+	anchor := "---\ntype: Note\ntitle: Anchor\n---\n# Anchor\n\nThe page the fixture's other pages link to.\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "anchor.md"), []byte(anchor), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.CommitOp("test: seed the anchor page"); err != nil {
+		t.Fatalf("seed commit: %v", err)
+	}
+}
+
 // setupGitKB initialises a temp KB and verifies the initial git commit was made.
 // If git is not available or not configured, the calling test is skipped.
 func setupGitKB(t *testing.T) (*kb.KB, string) {
@@ -189,9 +202,13 @@ func setupGitKB(t *testing.T) (*kb.KB, string) {
 	if err != nil {
 		t.Fatalf("kb.Init: %v", err)
 	}
+	if _, err := gitx.HeadSHA(dir); err != nil {
+		t.Skipf("git not available or initial commit failed: %v", err)
+	}
+	seedAnchor(t, k)
 	sha, err := gitx.HeadSHA(dir)
 	if err != nil {
-		t.Skipf("git not available or initial commit failed: %v", err)
+		t.Fatal(err)
 	}
 	return k, sha
 }
@@ -207,7 +224,7 @@ func TestGitWrap_ConceptWrite_CreatesCommit(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"test/autocommit","frontmatter":{"type":"Note","title":"AutoCommit"},"body":"# Test\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"test/autocommit","frontmatter":{"type":"Note","title":"AutoCommit"},"body":"# Test\n\n[[anchor]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	if len(resps) != 2 {
@@ -234,7 +251,7 @@ func TestGitWrap_ConceptNew_CreatesOneCommit(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(k.Root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: {{title}}\n---\n# Details\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(k.Root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: {{title}}\n---\n# Details\n\n[[anchor]]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// Seed commit: a template left uncommitted would be
@@ -780,7 +797,7 @@ func TestGitWrap_ReauthorizesAfterSyncInChangesConceptType(t *testing.T) {
 	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
 	k.AuthName = "docs"
-	if err := k.CreateMap("manutenzione", "Maintenance", "map", nil, ""); err != nil {
+	if err := k.CreateMap("manutenzione", "Maintenance", "map", nil); err != nil {
 		t.Fatal(err)
 	}
 	fm, err := okf.ParseFrontmatter("")
@@ -828,6 +845,7 @@ func TestGitWrap_ReauthorizesAfterSyncInChangesConceptType(t *testing.T) {
 func TestGitWrap_AsyncPush_CommitIsSyncPushIsDeferred(t *testing.T) {
 	t.Parallel()
 	k, bare := setupGitKBWithRemote(t)
+	seedAnchor(t, k)
 
 	branch, _ := gitx.Branch(k.Root)
 
@@ -845,7 +863,7 @@ func TestGitWrap_AsyncPush_CommitIsSyncPushIsDeferred(t *testing.T) {
 
 	msgs := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
-		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"test/async","frontmatter":{"type":"Note","title":"Async"},"body":"# Test\n"}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"concept_write","arguments":{"id":"test/async","frontmatter":{"type":"Note","title":"Async"},"body":"# Test\n\n[[anchor]]\n"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
 	tr := decodeToolResult(t, resps[1])
@@ -977,7 +995,6 @@ func TestCommitMessage_IdentifiesTheResourceForEveryWriteTool(t *testing.T) {
 func TestGitWrap_ArtifactWriteCommitSubjectNamesThePath(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -1056,8 +1073,8 @@ func TestToolDescriptions_StateTheirEnforcedLimits(t *testing.T) {
 		{"asset_write", []string{byteBudget(kb.AssetMaxFileSize)}},
 		// The signpost to concept_batch, now a listed tool (D318).
 		{"concept_patch", []string{"concept_batch", fmt.Sprintf("%d operations", conceptBatchMaxOps)}},
-		// required_fields reads as a write gate and is not one.
-		{"map_create", []string{"not a write gate"}},
+		// A contract key never switches a check off (D907).
+		{"map_create", []string{"No contract key switches a check off"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.tool, func(t *testing.T) {
@@ -1248,7 +1265,7 @@ func headReason(t *testing.T, dir string) (reason, body string) {
 
 func writeWithArgs(t *testing.T, k *kb.KB, id string, extra map[string]any) {
 	t.Helper()
-	args := map[string]any{"id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": "# T\n"}
+	args := map[string]any{"id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": "# T\n\n[[anchor]]\n"}
 	for key, v := range extra {
 		args[key] = v
 	}
@@ -1261,8 +1278,9 @@ func writeWithArgs(t *testing.T, k *kb.KB, id string, extra map[string]any) {
 	}
 }
 
-// tokenTrailer is the trailer the local admin's writes carry (D904).
-const tokenTrailer = "Cartographer-Token: local-admin"
+// tokenTrailer is the trailers the local admin's writes end with: the host
+// that recorded them (D950), then the token (D904).
+var tokenTrailer = commitHostKey + ": " + kb.ServerHost() + "\nCartographer-Token: local-admin"
 
 func TestGitWrap_ReasonBecomesTrailer(t *testing.T) {
 	t.Parallel()

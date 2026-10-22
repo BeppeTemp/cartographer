@@ -20,7 +20,7 @@ func TestRun_OracleRelPathOfMatchesResolveConceptRelPath(t *testing.T) {
 	root := k.DataRoot()
 
 	// Create a map.
-	if err := k.CreateMapWithContract("arch", "Arch", "map", nil, "", kb.MapContract{}); err != nil {
+	if err := k.CreateMapWithContract("arch", "Arch", "map", nil, kb.MapContract{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -59,11 +59,11 @@ func TestRun_OracleRelPathOfMatchesResolveConceptRelPath(t *testing.T) {
 	// The oracle: deterministic findings from this fixture. Sorted by
 	// path+check+message so the comparison is order-independent.
 	type entry struct {
-		Path, Check, Severity, Message string
+		Path, Check, Message string
 	}
 	got := make([]entry, 0, len(findings))
 	for _, f := range findings {
-		got = append(got, entry{f.Path, f.Check, f.Severity, f.Message})
+		got = append(got, entry{f.Path, f.Check, f.Message})
 	}
 	sort.Slice(got, func(i, j int) bool {
 		if got[i].Path != got[j].Path {
@@ -122,7 +122,7 @@ func TestRun_OracleRelPathOfMatchesResolveConceptRelPath(t *testing.T) {
 	}
 	got2 := make([]entry, 0, len(findings2))
 	for _, f := range findings2 {
-		got2 = append(got2, entry{f.Path, f.Check, f.Severity, f.Message})
+		got2 = append(got2, entry{f.Path, f.Check, f.Message})
 	}
 	sort.Slice(got2, func(i, j int) bool {
 		if got2[i].Path != got2[j].Path {
@@ -170,7 +170,7 @@ func benchKB(b *testing.B) *kb.KB {
 	const conceptsPerMap = 100
 	for m := 0; m < maps; m++ {
 		name := fmt.Sprintf("m%d", m)
-		if err := k.CreateMapWithContract(name, name, "map", nil, "", kb.MapContract{}); err != nil {
+		if err := k.CreateMapWithContract(name, name, "map", nil, kb.MapContract{}); err != nil {
 			b.Fatal(err)
 		}
 		for i := 0; i < conceptsPerMap; i++ {

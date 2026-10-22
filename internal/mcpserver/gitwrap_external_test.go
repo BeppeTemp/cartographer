@@ -15,7 +15,6 @@ import (
 func externalKB(t *testing.T) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{"nonstandard_field"} })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	return k, s
@@ -66,7 +65,7 @@ func TestExternalChanges_RealWriteIsItsOwnCommit(t *testing.T) {
 	k, s := externalKB(t)
 	editOutOfBand(t, k, "notes/editor.md", "---\ntype: Note\ntitle: Editor\n---\n# Editor\n")
 	text, isErr := callJSON(t, s, adminCtx, "concept_write",
-		`{"id":"notes/written","frontmatter":{"type":"Note","title":"Written"},"body":"# Written\n"}`)
+		`{"id":"notes/written","frontmatter":{"type":"Note","title":"Written"},"body":"# Written\n\n[[anchor]]\n"}`)
 	if isErr {
 		t.Fatalf("concept_write: %s", text)
 	}
@@ -89,7 +88,7 @@ func TestExternalChanges_CleanTreeUnchanged(t *testing.T) {
 	k, s := externalKB(t)
 	before := commitCount(t, k)
 	text, isErr := callJSON(t, s, adminCtx, "concept_write",
-		`{"id":"notes/written","frontmatter":{"type":"Note","title":"Written"},"body":"# Written\n"}`)
+		`{"id":"notes/written","frontmatter":{"type":"Note","title":"Written"},"body":"# Written\n\n[[anchor]]\n"}`)
 	if isErr {
 		t.Fatalf("concept_write: %s", text)
 	}

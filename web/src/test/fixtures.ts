@@ -8,7 +8,7 @@ export const overview: Overview = {
     { name: "notes", kind: "journal", concepts: 1, expanded_concepts: 0 },
   ],
   concepts: { total: 3, by_type: { Service: 2, Note: 1 }, by_status: { active: 2 } },
-  lint: { total: 4, by_severity: { error: 1, warning: 3 }, by_check: { broken_link: 1 } },
+  lint: { total: 4, by_check: { broken_link: 1 } },
 };
 
 export const graph: GraphSnapshot = {
@@ -28,13 +28,10 @@ export const graph: GraphSnapshot = {
 
 export const lint: LintReport = {
   findings: [
-    { path: "infra/a.md", concept: "infra/a", check: "broken_link", severity: "error", message: "missing target" },
+    { path: "infra/a.md", concept: "infra/a", check: "broken_link", message: "missing target" },
   ],
   count: 1,
-  total: 4,
-  by_severity: { error: 1, warning: 3 },
   by_check: { broken_link: 1 },
-  severity_min: "info",
 };
 
 export function json(body: unknown, status = 200) {
@@ -73,7 +70,6 @@ export const artifactList: ArtifactList = {
         {
           path: "skills/review/SKILL.md",
           check: "legacy_tool_name",
-          severity: "warning",
           message: 'references pre-D288 prefixed tool name "kb_a__search"',
         },
       ],
@@ -153,7 +149,6 @@ export const artifactList: ArtifactList = {
   ],
   issues: [],
   finding_counts: { legacy_tool_name: 1, junk_file: 1 },
-  finding_severities: { warning: 2 },
 };
 
 export const reviewSkill: Artifact = {
@@ -209,7 +204,6 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
     if (url.includes("/kbs/") && url.includes("/revision")) return json({ revision: "test-1" });
     // The reference panels' reads: empty, the way a KB that uses none of them answers.
     if (url.includes("/kbs/") && url.includes("/placeholders")) return json({ registry: false, keys: [] });
-    if (url.includes("/kbs/") && url.includes("/contradictions")) return json({ contradictions: [] });
     if (url.includes("/kbs/") && url.includes("/maps")) return json({ maps: [] });
     if (url.includes("/kbs/") && url.includes("/journal")) return json({ text: "" });
     if (url.includes("/kbs/") && url.includes("/services")) return json({ services: [] });

@@ -4,8 +4,8 @@ import { withoutRedundantLinksSection } from "../lib/linksection";
 import { collectionVar } from "../lib/palette";
 import { ConceptHistory } from "./ConceptHistory";
 import { Markdown } from "./Markdown";
-import { ErrorState, Skeleton } from "./States";
-import { SeverityBadge } from "./SeverityBadge";
+import { TextSkeleton } from "./Page";
+import { ErrorState } from "./States";
 
 interface Props {
   /** The KB the concept belongs to: what the History tab reads from. */
@@ -126,7 +126,7 @@ export function Inspector({
       </div>
 
       <div className="inspector__body">
-        {loading && <Skeleton lines={5} label={`Loading ${conceptId}`} />}
+        {loading && <TextSkeleton label={`Loading ${conceptId}`} lines={8} />}
         {!loading && error ? <ErrorState error={error} /> : null}
         {!loading && !error && concept && (
           <>
@@ -134,7 +134,6 @@ export function Inspector({
               <section className="inspector__findings" aria-label="Lint findings for this concept">
                 {findings.map((finding, index) => (
                   <p key={index} className="inspector__finding">
-                    <SeverityBadge severity={finding.severity} />
                     <span>
                       <strong>{finding.check}</strong> {finding.message}
                     </span>

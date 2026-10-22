@@ -27,7 +27,7 @@ make dev [DATA=<data dir>]         # live instance from a worktree: Go rebuilt o
 ```
 
 ```bash
-./bin/cartographer serve --kb /path/to/kb --init      # local stdio server
+./bin/cartographer serve --kb /path/to/kb             # local stdio server (the KB exists: `kb create`)
 ./bin/cartographer serve --config config.yaml         # HTTP/stdio server (YAML, see config.example.yaml)
 ./bin/cartographer connect|disconnect|status|sync     # multi-provider client (HTTP)
 ./bin/cartographer                                    # TUI dashboard (if TTY), otherwise usage
@@ -76,6 +76,7 @@ internal/configurator   generates MCP configuration files for multiple LLM provi
 internal/defaults       contains the local endpoint values shared by the native service and client first-run paths
 internal/execbit        reports whether the host filesystem carries the POSIX execute bit, and is the one place that answers…
 internal/gitx           provides a git wrapper via os/exec for the Agentic Wiki
+internal/gitx/gitxtest  is a git smart-HTTP server for tests (D996)
 internal/graphalgo      holds the graph algorithms behind the retrieval tools (D242)
 internal/kb             implements the data plane of the OKF knowledge base
 internal/lint           implements deterministic lint checks on a KB scope
@@ -92,7 +93,7 @@ internal/skill          implements loading and validation of SKILL.md files (age
 internal/skillbundle    embeds the skills shipped inside the binary (bundled/) so a fresh install can provision an agent client…
 internal/sops           decrypts sops-encrypted KB secrets and resolves the references a concept declares, turning them into…
 internal/sqlindex       implements a persistent SQLite-backed keyword index
-internal/testkbs        generates the synthetic test Knowledge Bases `make dev` serves (D818)
+internal/testkbs        generates the synthetic test Knowledge Bases `make dev` serves (D818, D1032)
 internal/testkbs/gen    Command gen writes the test KB fleet of package testkbs into a data directory, one subdirectory per KB
 internal/updatecheck    answers whether a newer Cartographer release exists and how this binary is upgraded (D254)
 internal/webui          serves the embedded read-only Atlas UI (D227)
@@ -109,7 +110,7 @@ Not duplicated here:
 | Full doc map + reading paths | `docs/index.md` (read that first, then only the relevant pages) |
 | Project status and planned work | GitHub issues, pull requests and releases (links in `docs/index.md`) |
 | Why behind a choice (`D<n>`) | One file per decision: `ls docs/decisions/D<n>-*`. The generated list is `docs/decisions.md` |
-| Working with an agent client (Claude Code, Kiro, OpenCode, Copilot CLI) | `CONTRIBUTING.md` §Working with an agent client |
+| Working with an agent client (this repo is developed with Claude Code, D992) | `CONTRIBUTING.md` §Working with an agent client |
 | List of MCP tools | `docs/control-plane.md` §API MCP |
 | `CARTOGRAPHER_*` env vars, YAML config, deploy | `docs/deployment.md` |
 | Client subcommands / TUI | `docs/configurator.md` |
@@ -118,14 +119,15 @@ Not duplicated here:
 
 ## Working rules
 
-- All changes land via PR: `main` is protected (required `test`, `test-windows`, `web` and `pr-title` checks, squash-merge only, no direct pushes). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
+- All changes land via PR: `main` is protected (required `test`, `test-windows`, `web`, `pr-title` and `plan-gate` checks, squash-merge only, no direct pushes). Branch `feat/<slug>` → `gh pr create` → merge on green CI. PR titles are conventional commits (linted in CI): release-please computes the semver bump from them.
 - Isolable code may be delegated to a coding subagent; the coordinator verifies `make gate`.
 - **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts and remotes → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter: a hit already left a public revision (D259).
 - **Done** means: `make gate` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, a comment next to the code if it is about that code, otherwise one line in the area `AGENTS.md` or in the skill of the procedure (D214); one decision file per architectural or contract choice (D672).
-- Analysis/design and implementation often happen in separate sessions: the handoff is a **plan issue** — a self-contained GitHub issue from the `Plan` template, label `plan` (an `idea` or `bug` issue is promoted to one in place) (procedure and self-sufficiency test in `CONTRIBUTING.md` §Plan issues). The implementing session reads it with `gh issue view <n>` and the implementation PR closes it (`Closes #<n>`).
-- A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** on a running instance with the user, landing one PR (`live-dev` skill).
-- A PR is reviewed with the `review-pr` skill: scripted triage first, code read by the `pr-reviewer` subagent, the coordinator verifies only the lines its findings cite. Size cap and approved-plan rule: `CONTRIBUTING.md` §Pull requests.
-- Server and client releases (release-please PR merge, pipeline, rollout, local client update) → maintainer-local tooling, not versioned here.
+- Analysis/design and implementation often happen in separate sessions: the handoff is a **plan issue** — a self-contained GitHub issue from the `Plan` template, label `plan` (a `bug` issue is promoted to one in place; ideas go to Discussions) (procedure and self-sufficiency test in `CONTRIBUTING.md` §Plan issues). A plan is a proposal until a maintainer adds `approved`: no agent implements one without it, and none adds it unasked. The implementing session reads it with `gh issue view <n>` and the implementation PR closes it (`Closes #<n>`).
+- **Roles are GitHub permissions** (D955): `WRITE`/`MAINTAIN`/`ADMIN` on upstream is a maintainer, anyone else a contributor; the skills check it, a contributor's agent stops at an open PR (`CONTRIBUTING.md` §Working with an agent client).
+- A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** on a running instance with the user, landing one PR (`cartographer-develop-live` skill).
+- A PR is reviewed with the `cartographer-review-pr` skill: scripted triage first, code read by the `cartographer-contract-reviewer` subagent, the coordinator verifies only the lines its findings cite. Size cap and approved-plan rule: `CONTRIBUTING.md` §Pull requests.
+- Server and client releases (release-please PR merge, pipeline, rollout, local client update) → maintainer-local tooling, not versioned here; the weekly calendar is in `CONTRIBUTING.md` §Releases.
 - **Documentation is updated in the same session in which the code is changed — never afterward.** The "what changes → which file to update" table is in `docs/index.md` §Documentation maintenance rules: use it for every change.
 - Conventions → `docs/conventions.md`. Every architectural or contract choice → one file `docs/decisions/D<n>-<slug>.md`, numbered after its plan issue or PR (D672), never regenerate `docs/decisions.md` in a feature PR (D328).
 - Project status and backlog live in GitHub issues, pull requests and releases; user-visible completed work lives in `CHANGELOG.md`.

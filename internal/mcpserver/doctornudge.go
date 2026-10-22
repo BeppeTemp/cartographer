@@ -7,6 +7,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -63,7 +64,7 @@ func callerClient(ctx context.Context) string {
 // withDoctorNudge appends one text block proposing a kb-doctor session to a
 // successful tool result, at most once per doctorNudgeWindow per MCP session
 // (D358: the natural moment is a session start), when the
-// KB has debt and its doctor interval has passed (D299). The server only
+// KB has debt and kb.DoctorSuggestionDays have passed since the last session (D299, D907). The server only
 // proposes: it never starts the session and never writes.
 //
 // The cheap gates come first and the window is claimed before the lint is
@@ -75,10 +76,7 @@ func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResul
 	if res.IsError || tool == "kb_status" || k == nil || cc == nil {
 		return res
 	}
-	intervalDays := k.Policy().DoctorIntervalDays
-	if intervalDays <= 0 {
-		return res
-	}
+	intervalDays := kb.DoctorSuggestionDays
 	if callerClient(ctx) == client.ClientName {
 		return res
 	}
@@ -115,24 +113,42 @@ func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResul
 	vis, _ := uiVisibleFindingsFrom(ctx, k, "", all)
 	review := 0
 	if items, rerr := visibleReview(ctx, k, cc); rerr == nil {
-		review = len(items)
+		review = reviewDebt(items)
 	}
 	summary := summarizeConformance(vis, review, lastDoctor, intervalDays, now)
 	if summary["doctor_suggested"] != true {
 		return res
 	}
-	res.Content = append(res.Content, ContentBlock{Type: "text", Text: doctorNudgeText(kbName(k), lastDoctor, summary["findings"].(map[string]int), summary["fixable"].(int), review)})
+	fixable := 0
+	for _, n := range summary["repairable"].(map[string]int) {
+		fixable += n
+	}
+	res.Content = append(res.Content, ContentBlock{Type: "text", Text: doctorNudgeText(kbName(k), lastDoctor, summary["lint_findings"].(int), fixable, review)})
 	return res
+}
+
+// reviewDebt is how many kb_review items count as debt for doctor_suggested
+// and the nudge: every item but the observations. An observation is a state a
+// maintainer may legitimately leave as it is (D947), so a KB whose only items
+// are observations is not nagged; the doctor still sees them in kb_review.
+func reviewDebt(items []lint.ReviewItem) int {
+	n := 0
+	for _, it := range items {
+		if it.Kind != lint.ReviewObservation {
+			n++
+		}
+	}
+	return n
 }
 
 // doctorNudgeText is the notice: counts only, never KB content. It asks the
 // agent to propose a session, never to start one (D704): an agent works on a
 // KB only when the operator asked for it.
-func doctorNudgeText(kbName, lastDoctor string, bySev map[string]int, fixable, review int) string {
+func doctorNudgeText(kbName, lastDoctor string, findings, fixable, review int) string {
 	if lastDoctor == "" {
 		lastDoctor = "never"
 	}
-	return fmt.Sprintf("cartographer: KB %s - last kb-doctor session %s; %d warnings, %d fixable, %d review items. "+
+	return fmt.Sprintf("cartographer: KB %s - last kb-doctor session %s; %d lint findings, %d fixable, %d review items. "+
 		"Propose a kb-doctor session to the operator (skill kb-doctor); do not start it without their agreement.",
-		kbName, lastDoctor, bySev[lint.SevWarning], fixable, review)
+		kbName, lastDoctor, findings, fixable, review)
 }

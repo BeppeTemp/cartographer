@@ -21,6 +21,20 @@ import (
 // workItemTextMax caps an item's text, cut at a rune boundary.
 const workItemTextMax = 200
 
+// Work a concept carries by what it is rather than by its status: something a
+// person has to settle, whatever the map's open_statuses say.
+const (
+	// WorkReasonContradiction is an open Contradiction: two pages disagree,
+	// and commit_gate blocks until someone decides which one holds.
+	WorkReasonContradiction = "contradiction"
+	// WorkReasonGap is an open knowledge gap (D273): a question or missing
+	// context someone has to answer.
+	WorkReasonGap = "gap"
+	// WorkReasonReview is a page whose review_after has passed: someone has
+	// to check it still holds. Only for a page not already open work.
+	WorkReasonReview = "review"
+)
+
 // WorkItem is one unchecked list item.
 type WorkItem struct {
 	Text    string `json:"text"`
@@ -37,8 +51,11 @@ type WorkEntry struct {
 	Status string `json:"status,omitempty"`
 	// State is the open_field value when the map's contract names one and
 	// the concept carries it (D347); Status stays the real status.
-	State     string     `json:"state,omitempty"`
-	OpenPhase bool       `json:"open_phase"`
+	State     string `json:"state,omitempty"`
+	OpenPhase bool   `json:"open_phase"`
+	// Reason says why a concept is work when its status does not: one of the
+	// WorkReason values, empty for a concept open by its status or items.
+	Reason    string     `json:"reason,omitempty"`
 	Timestamp string     `json:"timestamp,omitempty"`
 	AgeDays   *int       `json:"age_days,omitempty"`
 	Stale     bool       `json:"stale"`
@@ -85,6 +102,11 @@ func Work(k *kb.KB) ([]WorkEntry, error) {
 			e.State = v
 		}
 		e.OpenPhase = workPhase(e.Frontmatter, contract)
+		e.Reason = workReason(e.Frontmatter, contract)
+		if e.Reason == WorkReasonReview && e.OpenPhase {
+			e.Reason = "" // open by its status already: stale_open covers its age
+		}
+		e.OpenPhase = e.OpenPhase || e.Reason != ""
 		if !e.OpenPhase && len(e.Items) == 0 {
 			return nil
 		}
@@ -126,8 +148,35 @@ func workPhase(fm *okf.Frontmatter, contract *kb.MapContract) bool {
 	return !ok || fam != "draft"
 }
 
+// workReason is the WorkReason a concept carries, or "". A Contradiction
+// without resolution_status is open, as kb_status counts it; a finished page
+// (closedPhase) or a retired one (kb.IsRetired: deprecated, superseded,
+// archived) past its review_after is not due: there is nothing left to check.
+func workReason(fm *okf.Frontmatter, contract *kb.MapContract) string {
+	if fm == nil {
+		return ""
+	}
+	if fm.Type() == "Contradiction" {
+		if rs, _ := frontmatterValue(fm, "resolution_status").(string); rs != "" && rs != "open" {
+			return ""
+		}
+		if kind, _ := frontmatterValue(fm, "contradiction_kind").(string); kb.IsGapKind(kind) {
+			return WorkReasonGap
+		}
+		return WorkReasonContradiction
+	}
+	ra, _ := frontmatterValue(fm, "review_after").(string)
+	if len(ra) < 10 || closedPhase(fm, contract) || retired(NormValue(statusOf(fm))) {
+		return ""
+	}
+	if t, err := time.Parse("2006-01-02", ra[:10]); err == nil && pastDay(t) {
+		return WorkReasonReview
+	}
+	return ""
+}
+
 // EffectiveStaleAfter is the one place that decides stale_open's threshold
-// (D346): an explicit stale_after wins, 0 is off, else 60 in a journal, 30 in
+// (D346): an explicit stale_after wins, else 60 in a journal, 30 in
 // a map that holds work, none in a reference map. defaulted is true when the
 // value comes from the default, never written to _map.md.
 func EffectiveStaleAfter(contract *kb.MapContract) (days int, defaulted bool) {
@@ -136,9 +185,6 @@ func EffectiveStaleAfter(contract *kb.MapContract) (days int, defaulted bool) {
 	}
 	if contract.StaleAfterDays > 0 {
 		return contract.StaleAfterDays, false
-	}
-	if contract.StaleAfterOff {
-		return 0, false
 	}
 	if contract.Kind == "journal" {
 		return journalStaleAfterDays, true

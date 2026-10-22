@@ -18,20 +18,6 @@ import (
 
 const amSkillMD = "---\nname: query-rete\ndescription: Query the network\n---\n# Query\nbody\n"
 
-// artifactMoveFixture is the two-KB fixture with artifact writes enabled on
-// both sides, which is what registers the tool.
-func newArtifactMoveFixture(t *testing.T) *transferFixture {
-	t.Helper()
-	f := newTransferFixture(t)
-	for _, k := range []*kb.KB{f.a, f.b} {
-		setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
-	}
-	deps := Deps{KBByName: func(n string) (*kb.KB, bool) { k, ok := f.byName[n]; return k, ok }}
-	f.srvA = New("test")
-	RegisterKBTools(f.srvA, f.a, deps)
-	return f
-}
-
 func (f *transferFixture) move(t *testing.T, args string) ToolResult {
 	t.Helper()
 	return f.srvA.callTool(authLocalContext(), "artifact_move", json.RawMessage(args))
@@ -58,7 +44,7 @@ func amExists(k *kb.KB, rel string) bool {
 
 func TestArtifactMove_SkillMovesVerbatimInOneCommitPerKB(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	script := []byte("#!/bin/sh\necho hi\n")
 	bin := []byte{0, 1, 2, 0xff, 0xfe, 0, 'x'}
 	amWriteBytes(t, f.a, "skills/query-rete/SKILL.md", []byte(amSkillMD), 0o644)
@@ -125,7 +111,7 @@ func TestArtifactMove_SkillMovesVerbatimInOneCommitPerKB(t *testing.T) {
 
 func TestArtifactMove_SingleFileKindsAndHookDirectory(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "agents/helper.md", []byte("---\nname: helper\ndescription: Helps\n---\nbody\n"), 0o644)
 	amWriteBytes(t, f.a, "templates/note.md", []byte("---\ntype: Note\ntitle: \"{{title}}\"\nvariables: [title]\n---\n{{title}}\n"), 0o644)
 	amWriteBytes(t, f.a, "hooks/guard/hook.json", []byte(`{"event":"SessionStart","command":"./run.sh"}`), 0o644)
@@ -150,7 +136,7 @@ func TestArtifactMove_SingleFileKindsAndHookDirectory(t *testing.T) {
 
 func TestArtifactMove_RefusalsChangeNothing(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/query-rete/SKILL.md", []byte(amSkillMD), 0o644)
 	amWriteBytes(t, f.a, "agents/helper.md", []byte("---\nname: helper\ndescription: Helps\n---\nbody\n"), 0o644)
 	amWriteBytes(t, f.a, "instructions.md", []byte("# i\n"), 0o644)
@@ -201,7 +187,7 @@ func TestArtifactMove_RefusalsChangeNothing(t *testing.T) {
 
 func TestArtifactMove_RefusesIgnoredFiles(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	if err := os.WriteFile(filepath.Join(f.a.Root, ".gitignore"), []byte("*.dec\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -219,35 +205,8 @@ func TestArtifactMove_RefusesIgnoredFiles(t *testing.T) {
 	}
 }
 
-// The target must opt in to artifact writes exactly as artifact_write requires,
-// and a template-only KB takes templates/ and nothing else.
-func TestArtifactMove_TargetNeedsTheArtifactWriteRight(t *testing.T) {
-	t.Parallel()
-	f := newArtifactMoveFixture(t)
-	amWriteBytes(t, f.a, "skills/query-rete/SKILL.md", []byte(amSkillMD), 0o644)
-	amWriteBytes(t, f.a, "templates/note.md", []byte("---\ntype: Note\ntitle: \"{{title}}\"\nvariables: [title]\n---\n{{title}}\n"), 0o644)
-	xferCommit(t, f.a)
-
-	setPolicy(f.b, func(p *kb.Policy) { p.AllowArtifactWrite, p.AllowTemplateWrite = false, false })
-	res := f.move(t, `{"target_kb":"kb-b","paths":["skills/query-rete"]}`)
-	if !res.IsError || !strings.Contains(xferText(res), "does not accept artifact writes") {
-		t.Errorf("target without the right: got %q", xferText(res))
-	}
-
-	setPolicy(f.b, func(p *kb.Policy) { p.AllowTemplateWrite = true })
-	res = f.move(t, `{"target_kb":"kb-b","paths":["skills/query-rete"]}`)
-	if !res.IsError || !strings.Contains(xferText(res), "only templates/ is writable on kb-b") {
-		t.Errorf("template-only target, skill: got %q", xferText(res))
-	}
-	if res = f.move(t, `{"target_kb":"kb-b","paths":["templates/note.md"]}`); res.IsError {
-		t.Errorf("template-only target, template: %s", xferText(res))
-	}
-	xferClean(t, f.a)
-	xferClean(t, f.b)
-}
-
 func TestArtifactMove_SourceFailureRevertsTarget(t *testing.T) {
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/query-rete/SKILL.md", []byte(amSkillMD), 0o644)
 	xferCommit(t, f.a)
 	headA, headB := xferHead(t, f.a), xferHead(t, f.b)
@@ -274,7 +233,7 @@ func TestArtifactMove_SourceFailureRevertsTarget(t *testing.T) {
 
 func TestArtifactMove_Policy(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/query-rete/SKILL.md", []byte(amSkillMD), 0o644)
 	xferCommit(t, f.a)
 	args := json.RawMessage(`{"target_kb":"kb-b","paths":["skills/query-rete"]}`)
@@ -307,7 +266,7 @@ func TestArtifactMove_Policy(t *testing.T) {
 
 func TestArtifactMove_RoutedSetMustHoldTheTarget(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/query-rete/SKILL.md", []byte(amSkillMD), 0o644)
 	xferCommit(t, f.a)
 	ctx := withRoutedSet(authLocalContext(), []string{"kb-a"})
@@ -320,7 +279,6 @@ func TestArtifactMove_RoutedSetMustHoldTheTarget(t *testing.T) {
 func TestArtifactMove_NeedsAServerMountingBothKBs(t *testing.T) {
 	t.Parallel()
 	a, _ := setupGitKB(t)
-	setPolicy(a, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, a, Deps{})
 	res := s.callTool(authLocalContext(), "artifact_move", json.RawMessage(`{"target_kb":"kb-b","paths":["skills/x"]}`))
@@ -329,19 +287,9 @@ func TestArtifactMove_NeedsAServerMountingBothKBs(t *testing.T) {
 	}
 }
 
-// The tool is gated like artifact_write: a KB without the right never registers it.
-func TestArtifactMove_NotRegisteredWithoutTheArtifactWriteRight(t *testing.T) {
-	t.Parallel()
-	f := newTransferFixture(t)
-	res := f.srvA.callTool(authLocalContext(), "artifact_move", json.RawMessage(`{"target_kb":"kb-b","paths":["skills/x"]}`))
-	if !res.IsError || !strings.Contains(xferText(res), "kbs[].allow_artifact_write") {
-		t.Errorf("got %q", xferText(res))
-	}
-}
-
 func TestArtifactMove_OppositeDirectionsDoNotDeadlock(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	srvB := New("test")
 	RegisterKBTools(srvB, f.b, Deps{KBByName: func(n string) (*kb.KB, bool) { k, ok := f.byName[n]; return k, ok }})
 	amWriteBytes(t, f.a, "skills/query-rete/SKILL.md", []byte(amSkillMD), 0o644)
@@ -372,7 +320,7 @@ func TestArtifactMove_OppositeDirectionsDoNotDeadlock(t *testing.T) {
 // moved, and the caller learns what to fix on the other side.
 func TestArtifactMove_ReportsWhatTravelsBadly(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	skill := "---\nname: query-rete\ndescription: Query the network\n---\nUse {{repo:declared}} and {{repo:missing}}.\n"
 	amWriteBytes(t, f.a, "skills/query-rete/SKILL.md", []byte(skill), 0o644)
 	amWriteBytes(t, f.a, "skills/query-rete/creds.sops.yaml", []byte("sops: {mac: ENC[AES256_GCM,data:abc]}\n"), 0o644)
@@ -427,7 +375,7 @@ func TestArtifactMove_ReportsWhatTravelsBadly(t *testing.T) {
 // target commit while the source removal went ahead, so the move is refused.
 func TestArtifactMove_RefusesWhatTheTargetIgnores(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "hooks/guard/hook.json", []byte(`{"event":"SessionStart","command":"./run.sh"}`), 0o644)
 	amWriteBytes(t, f.a, "hooks/guard/run.sh", []byte("#!/bin/sh\n"), 0o755)
 	xferCommit(t, f.a)

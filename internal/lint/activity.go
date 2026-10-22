@@ -48,21 +48,9 @@ func Inactive(k *kb.KB) map[string]string {
 	}
 
 	// Templates (D352): per map, strict by default once it declares templates.
-	declares := any(func(c kb.MapContract) bool { return c.HasTemplateKeys() })
-	strict := any(func(c kb.MapContract) bool { return c.StrictTemplates() })
-	switch {
-	case strict:
-	case declares:
-		set("every map that declares templates sets require_template: false", templateStrictChecks...)
-	default:
-		set("no map declares templates (map_without_templates lists the maps that could)", templateStrictChecks...)
-	}
-	if !strict && !any(func(c kb.MapContract) bool { return c.TemplateSections }) {
-		if declares {
-			set("every map that declares templates sets require_template: false", "template_section_missing")
-		} else {
-			set("no map declares templates (map_without_templates lists the maps that could)", "template_section_missing")
-		}
+	if !any(func(c kb.MapContract) bool { return c.StrictTemplates() }) {
+		set("no map declares templates (kb_review template_proposal lists the maps that could)", templateStrictChecks...)
+		set("no map declares templates (kb_review template_proposal lists the maps that could)", "template_section_missing")
 	}
 
 	if len(newDriftData(k, nil, contracts).palette) == 0 {
@@ -80,8 +68,8 @@ func Inactive(k *kb.KB) map[string]string {
 	if !any(func(c kb.MapContract) bool { return len(c.ForbiddenFields) > 0 }) {
 		set("no map declares forbidden_fields", "forbidden_field")
 	}
-	if !any(func(c kb.MapContract) bool { return c.RequireIndexEntry && c.Index != kb.IndexGenerated }) {
-		set("no map keeps a curated index it requires complete (require_index_entry; index: generated maps need no entries)", "index_incomplete")
+	if !any(func(c kb.MapContract) bool { return c.Index != kb.IndexGenerated }) {
+		set("no map keeps a curated index (every map has index: generated, which needs no entries)", "index_incomplete")
 	}
 	if !any(func(c kb.MapContract) bool { return c.Index == kb.IndexGenerated }) {
 		set("no map has a generated index (index: generated)", "index_stale")

@@ -67,8 +67,7 @@ type Artifact struct {
 // BuildOptions controls manifest construction. Signers is keyed by mounted KB
 // name; a missing signer leaves that KB's artifacts unsigned.
 type BuildOptions struct {
-	Signers       map[string]ed25519.PrivateKey
-	MCPAllowlists map[string][]MCPAllowlistEntry
+	Signers map[string]ed25519.PrivateKey
 	// RoutedMount reports that this server serves its KBs through a single
 	// routed endpoint (D187): the tools are advertised once, unprefixed, and
 	// every call carries the KB as a `kb` argument. The generated instructions
@@ -76,9 +75,6 @@ type BuildOptions struct {
 	// the agent will see them and say which `kb` value to pass — a wrong name
 	// there is worse than the duplication routing removes.
 	RoutedMount bool
-	// MCPDiagnostic receives non-fatal denied/stale allow-list diagnostics.
-	// It never contains descriptor headers or environment references.
-	MCPDiagnostic func(string)
 	// SkillDiagnostic receives one message per skill excluded from the
 	// manifest because it failed validation (D191). Excluding it is what keeps
 	// the rest of the KB syncing; saying so is what keeps the exclusion from
@@ -270,9 +266,6 @@ type ApplyOptions struct {
 	Provider configurator.Provider // destination provider
 	BaseDir  string                // base directory where artifacts are materialized
 	DryRun   bool                  // if true, writes nothing
-	// AutoTrust explicitly authorizes eligible unsigned KB artifacts. It does
-	// not alter Artifact.Signed.
-	AutoTrust bool
 	// ApprovedMCP holds exact local approvals keyed as "kb:<source>\x00<name>".
 	// It is authorization, not verification; Signed is never mutated by it.
 	ApprovedMCP map[string]string
@@ -304,10 +297,7 @@ type ApplyOptions struct {
 	// its own local filesystem.
 	ExpandPlaceholders bool
 	SearchRoots        []string
-	// SearchDepth bounds how deep repoindex descends from each search root when
-	// resolving a {{repo:<key>}} placeholder (D162). Zero means the default.
-	SearchDepth int
-	Paths       map[string]string
+	Paths              map[string]string
 	// Placeholders are the keys to pre-resolve before anything is expanded,
 	// "kind:key" -> the KBs citing it (D262): the ones the server listed for
 	// the KBs bound to this projection, concept-only keys included. Apply
@@ -491,6 +481,13 @@ func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest
 		a.Signed = false
 		a.BuiltIn = a.Source == "bundle"
 		if a.Signature == nil {
+			// A pinned KB signs every artifact it ships (BuildManifest signs each
+			// kb: artifact, instructions and mcp included), so an unsigned one
+			// under a pin is a stripped signature, not a legacy artifact: fail
+			// closed (D906).
+			if strings.HasPrefix(a.Source, "kb:") && len(pins[strings.TrimPrefix(a.Source, "kb:")]) > 0 {
+				return Manifest{}, fmt.Errorf("provisioning: KB %q has a pinned signing key but %s/%s carries no signature", strings.TrimPrefix(a.Source, "kb:"), a.Kind, a.Name)
+			}
 			continue
 		}
 		kbName := strings.TrimPrefix(a.Source, "kb:")
@@ -595,7 +592,6 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 
 	for _, kbName := range kbNames {
 		kbRoot := kbRoots[kbName]
-		matchedMCPAllowlist := make(map[string]bool)
 
 		// 2. Skill (skills/<name>/SKILL.md, several files per artifact). A KB with
 		// no skills/ folder or an unreadable directory: kbSkills is empty,
@@ -700,8 +696,8 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// (backward compat). Parse+validation here (parseMCPServerSpec): a
 		// malformed file, or one with a headers/env value that looks like a
 		// literal secret, fails BuildManifest, not Apply (WP2). An unsigned MCP
-		// descriptor needs its own hash-bound approval: generic AutoTrust never
-		// authorizes it. A D114 signature remains independently verifiable.
+		// descriptor needs its own hash-bound approval, signed or not (D906). A
+		// D114 signature remains independently verifiable.
 		mcpDir := filepath.Join(kbRoot, "mcp")
 		mcpEntries, err := os.ReadDir(mcpDir)
 		if err == nil {
@@ -715,17 +711,10 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				if readErr != nil {
 					return Manifest{}, fmt.Errorf("provisioning: read kb:%s/mcp/%s: %w", kbName, name, readErr)
 				}
-				spec, specErr := parseMCPServerSpec(name, data)
+				_, specErr := parseMCPServerSpec(name, data)
 				if specErr != nil {
 					return Manifest{}, fmt.Errorf("provisioning: %w", specErr)
 				}
-				if !MCPAllowed(opts.MCPAllowlists[kbName], name, spec) {
-					if opts.MCPDiagnostic != nil {
-						opts.MCPDiagnostic(fmt.Sprintf("KB %q omits MCP artifact %q: add mcp_allowlist entry with transport http and target %q", kbName, name, normalizedMCPURL(spec.URL)))
-					}
-					continue
-				}
-				matchedMCPAllowlist[name] = true
 				hash, hashErr := contentHashFile(mcpPath)
 				if hashErr != nil {
 					return Manifest{}, fmt.Errorf("provisioning: hash kb:%s/mcp/%s: %w", kbName, name, hashErr)
@@ -739,12 +728,6 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				})
 			}
 		}
-		for _, entry := range opts.MCPAllowlists[kbName] {
-			if !matchedMCPAllowlist[entry.Name] && opts.MCPDiagnostic != nil {
-				opts.MCPDiagnostic(fmt.Sprintf("KB %q MCP allow-list entry %q has no matching descriptor", kbName, entry.Name))
-			}
-		}
-
 		// 6. Instructions (kind "instructions", D56): an "imprinting" artifact
 		// per KB, always present (unlike skill/agent/hook it doesn't depend on
 		// an optional folder) — tells the LLM agent that this KB exists and how
@@ -903,7 +886,8 @@ func generateKBInstructions(kbName, kbRoot string, routed bool) string {
 		// this line names; nothing else in the session says when to use it.
 		sb.WriteString("- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n")
 		sb.WriteString("- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n")
-		sb.WriteString("- a write is done when its response has no findings (broken links, missing index entry, orphan): fix them, or `lint_ignore` them with a reason;\n")
+		// D907: the write gate is always on and nothing accepts a finding.
+		sb.WriteString("- a write that would introduce an avoidable finding (broken link, missing index entry, orphan) is refused with each finding's fix and nothing is committed: write the target, the index entry and the link in the same `concept_batch`;\n")
 		// D321: one meaning for `active`, said once, true for every KB.
 		sb.WriteString("- status convention: `active` means the page is valid and current; open work uses `open`, `in-progress` or `blocked`, and a wait is declared with `waiting_on` and `review_after`;\n")
 		sb.WriteString("- every write is a git commit, revertible.\n")
@@ -1613,13 +1597,15 @@ func KindCounts(m Manifest, lock Lock) map[string]KindCount {
 
 // --- Apply ---
 
-// Apply materializes verified, built-in, or explicitly authorized artifacts into BaseDir, prunes stale managed
+// Apply materializes built-in and KB artifacts into BaseDir, prunes stale managed
 // entries and writes the updated lockfile.
 //
 // Safety rules:
-//   - Signed:true or BuiltIn:true → copy/update into BaseDir for the given provider.
-//   - AutoTrust:true explicitly authorizes eligible unsigned KB artifacts.
-//   - all other artifacts → NeedsApproval.
+//   - BuiltIn:true or a KB-sourced artifact, signed or not → copy/update into
+//     BaseDir for the given provider (D906: the client has no trust switch; what
+//     a KB ships is installed, after the pull's signature and path checks).
+//   - an MCP descriptor → only with a local approval bound to its content hash
+//     (ApprovedMCP), signed or not; otherwise NeedsApproval.
 //
 // Providers supported for direct materialization:
 //   - claude: skill in .claude/skills/<name>/, agent in .claude/agents/<name>.md,
@@ -2723,16 +2709,19 @@ func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 }
 
 func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
-	if a.Signed || a.BuiltIn {
+	if a.BuiltIn {
 		return true
 	}
+	// An MCP server receives the agent's data, so a KB descriptor always needs
+	// the client's hash-bound approval: a signature proves only which server it
+	// came from, and since D906 any rw token on the KB can write one.
 	if a.Kind == "mcp" {
 		return opts.ApprovedMCP[a.Source+"\x00"+a.Name] == a.ContentHash
 	}
-	// MCP descriptors retain their pre-existing stricter explicit approval
-	// boundary; generic trust only preserves compatibility for ordinary KB
-	// provisioning artifacts.
-	return opts.AutoTrust && a.Kind != "mcp" && strings.HasPrefix(a.Source, "kb:")
+	// Everything else a KB ships is installed (D906): the pull has already
+	// rejected a path that escapes its directory and an artifact whose signature
+	// fails against a pinned key (D40, D114), so Signed does not gate this.
+	return a.Signed || strings.HasPrefix(a.Source, "kb:")
 }
 
 // PreflightStdioMCP verifies locally runnable commands without executing them.
@@ -2773,14 +2762,6 @@ func PreflightStdioMCP(m Manifest, opts ApplyOptions) error {
 		}
 	}
 	return nil
-}
-
-func normalizedMCPURL(raw string) string {
-	normalized, err := NormalizeMCPHTTPURL(raw)
-	if err != nil {
-		return "<invalid>"
-	}
-	return normalized
 }
 
 // writeInstructionsBlock creates or rewrites the managed block delimited by
@@ -2916,6 +2897,11 @@ func pruneEmptyDirs(baseDir, relPath string) {
 	dir := filepath.Dir(relPath)
 	for dir != "." && dir != string(filepath.Separator) {
 		if provisioningRootDirs[dir] {
+			return
+		}
+		// A symlinked directory is someone else's: os.Remove would unlink it
+		// even when its target is not empty.
+		if fi, err := os.Lstat(filepath.Join(baseDir, dir)); err == nil && !fi.IsDir() {
 			return
 		}
 		err := os.Remove(filepath.Join(baseDir, dir))

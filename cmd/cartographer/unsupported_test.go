@@ -33,7 +33,7 @@ func TestSyncSkipsAProviderTheRegistryNoLongerKnows(t *testing.T) {
 
 	cfg := &clientconfig.Config{
 		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
-		Agents: []string{"claude", "hermes"}, KnownKBs: []string{"one"}, Trust: true,
+		Agents: []string{"claude", "hermes"}, KnownKBs: []string{"one"},
 		Clients: map[string]clientconfig.ClientBinding{
 			"claude": {KBs: []string{"one"}},
 			"hermes": {KBs: []string{"one"}},
@@ -140,7 +140,7 @@ func TestSyncSkipsAProviderTheRegistryNoLongerKnows(t *testing.T) {
 // A dry run reports the dropped client but rewrites nothing.
 func TestDryRunReportsAnUnsupportedProviderWithoutWriting(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &clientconfig.Config{ServerURL: "http://127.0.0.1:1/mcp", ServerName: "cartographer", Agents: []string{"claude", "hermes"}, Trust: true}
+	cfg := &clientconfig.Config{ServerURL: "http://127.0.0.1:1/mcp", ServerName: "cartographer", Agents: []string{"claude", "hermes"}}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestDisconnectAllCleansARemovedProviderSection(t *testing.T) {
 	if err := os.WriteFile(oldFile, []byte("delivered earlier\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &clientconfig.Config{ServerURL: "http://127.0.0.1:1/mcp", ServerName: "cartographer", Agents: []string{"claude", "hermes"}, Trust: true}
+	cfg := &clientconfig.Config{ServerURL: "http://127.0.0.1:1/mcp", ServerName: "cartographer", Agents: []string{"claude", "hermes"}}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}

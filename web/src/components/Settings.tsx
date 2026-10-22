@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Icon } from "./Icon";
 import { fetchPlaceholders, fetchSettings, fetchWhoami } from "../api/client";
 import type {
-  ClientPlaceholder,
-  ClientProvider,
   PlaceholderList,
   SettingEntry,
   SettingOrigin,
@@ -12,21 +11,68 @@ import type {
   Whoami,
   WhoamiRule,
 } from "../api/types";
-import { Page, PageHeader, Segmented } from "./Page";
-import { ErrorState, Skeleton } from "./States";
+import { Page, PageHeader, Segmented, SettingsSkeleton, TitleBone } from "./Page";
+import { ErrorState } from "./States";
 
-/** A value as a person reads it: lists joined, empty said out loud. */
+/** A value as a person reads it: lists joined, maps as `key: value`, empty said out loud. */
 export function formatValue(value: unknown): string {
-  if (Array.isArray(value)) return value.length === 0 ? "(none)" : value.join(", ");
+  if (Array.isArray(value)) return value.length === 0 ? "(none)" : value.map(formatValue).join(", ");
   if (value === "" || value === null || value === undefined) return "(empty)";
+  if (typeof value === "object") {
+    const entries = Object.entries(value);
+    return entries.length === 0 ? "(none)" : entries.map(([k, v]) => `${k}: ${formatValue(v)}`).join(" · ");
+  }
   return String(value);
 }
 
-/** A schema default (a YAML literal) as a person reads it. */
-function formatDefault(literal: string): string {
-  if (!literal || literal === '""') return "(empty)";
-  if (literal === "[]" || literal === "{}") return "(none)";
-  return literal;
+/** The items a list or a map shows as chips: a map's entries read `key: value`. */
+function items(value: unknown): string[] | null {
+  if (Array.isArray(value)) return value.map(formatValue);
+  if (value && typeof value === "object") return Object.entries(value).map(([k, v]) => `${k}: ${formatValue(v)}`);
+  return null;
+}
+
+/** A home directory shown as `~`: the page names this machine's paths, and the
+ *  user's own home adds nothing but width. */
+export function tildify(text: string): string {
+  return text
+    .replace(/(^|[\s:→])(?:\/Users|\/home)\/[^/\s]+(?=\/|$|\s)/g, "$1~")
+    .replace(/(^|[\s:→])C:\\Users\\[^\\\s]+/gi, "$1~");
+}
+
+/** Whether the values on screen are this machine's (a client's report): only
+ *  then is a home directory the viewer's own, and shown as `~`. */
+const ClientValues = createContext(false);
+function useHome(): (text: string) => string {
+  return useContext(ClientValues) ? tildify : (text) => text;
+}
+
+/** Past this many characters an item, or past this many items a list, no
+ *  longer fits beside the description: the row puts its values on their own
+ *  full-width lines under it. */
+const WIDE_ITEM = 36;
+const TALL_LIST = 4;
+function isWide(list: readonly string[] | null): boolean {
+  return !!list && (list.length > TALL_LIST || list.some((v) => tildify(v).length > WIDE_ITEM));
+}
+
+/** One item of a list: a `key: value` or `key → value` entry shows its key
+ *  muted before the value, so a long path wraps under itself. */
+function Item({ text }: { text: string }) {
+  const t = useHome()(text);
+  const m = /^([^\s:→]+(?::[^\s:→]+)?)(: | → )(.+)$/.exec(t);
+  return (
+    <span className="settings__item">
+      {m ? (
+        <>
+          <span className="settings__item-key">{`${m[1]}${(m[2] ?? "").trimEnd()}`}</span>{" "}
+          <span className="settings__item-val">{m[3]}</span>
+        </>
+      ) : (
+        t
+      )}
+    </span>
+  );
 }
 
 /** Where a value comes from, in words. */
@@ -51,8 +97,6 @@ const SERVER_GROUPS: Record<string, Group> = {
   git: { title: "Git", intro: "How every write becomes a commit, and how commits reach the remotes." },
   audit: { title: "Audit", intro: "The tamper-evident log of every call the server answers." },
   sops: { title: "Secrets", intro: "How the server decrypts the KBs' sops-encrypted secrets." },
-  tools: { title: "Tools", intro: "Which MCP tools an agent is shown." },
-  mcp: { title: "MCP endpoint", intro: "Which browser origins may call the MCP endpoint." },
   web: { title: "Atlas", intro: "The web UI this page is part of." },
 };
 
@@ -66,36 +110,21 @@ const KB_GROUPS: [Group, (key: string) => boolean][] = [
     { title: "Git", intro: "How this KB's commits are authored and where they land." },
     (k) => /^(ssh_key|known_hosts|author_|committer_|git_|github_)/.test(k),
   ],
-  [
-    { title: "Writes & tools", intro: "What agents may write here, and which tools they see." },
-    (k) => /^(allow_|write_gate|mcp_allowlist)/.test(k),
-  ],
-  [
-    { title: "Maintenance", intro: "What the server repairs on its own, and when it proposes a doctor session." },
-    (k) => /^(auto_repair|repair_on_write|doctor_|usage_stale_days)/.test(k),
-  ],
+  [{ title: "Maintenance", intro: "When an unused skill or agent is reported." }, (k) => /^usage_stale_days/.test(k)],
   [{ title: "Secrets & signing", intro: "How this KB's secrets are decrypted and its artifacts signed." }, () => true],
 ];
 
 /** The client's keys (.cartographer.yaml), grouped by what they govern. */
+/** The client keys that are set per KB: shown in each KB's section, not in the groups. */
+// The keys read per KB in the client's Knowledge bases section. `clients` stays
+// in Agents as well: besides the KBs it holds each agent's config_dirs.
+const PER_KB = ["identities", "workspaces", "signing_keys", "mcp_approvals"];
+
 const CLIENT_GROUPS: [Group, (key: string) => boolean][] = [
-  [
-    { title: "Connection", intro: "Which server this machine talks to, how it authenticates, and whose name its writes carry." },
-    (k) => ["server_url", "server_name", "auth", "token_env", "identities"].includes(k),
-  ],
-  [
-    { title: "Agents & KBs", intro: "The agent clients connected, and which KBs each one receives where." },
-    (k) => ["agents", "trust", "clients", "scopes", "workspaces"].includes(k),
-  ],
-  [
-    { title: "Local paths", intro: "How {{repo:…}} and {{path:…}} placeholders resolve on this machine." },
-    (k) => ["search_roots", "search_depth", "paths", "ignored_paths"].includes(k),
-  ],
-  [
-    { title: "Trust", intro: "The signing keys pinned and the MCP descriptors approved on this machine." },
-    (k) => ["signing_keys", "mcp_approvals"].includes(k),
-  ],
-  [{ title: "Updates & sync", intro: "Release checks, usage reports, hooks and the sync timer." }, () => true],
+  [{ title: "Connection", intro: "" }, (k) => ["server_url", "server_name", "auth", "token"].includes(k)],
+  [{ title: "Agents", intro: "" }, (k) => k === "scopes" || k === "clients"],
+  [{ title: "Local paths", intro: "" }, (k) => ["search_roots", "paths", "ignored_paths"].includes(k)],
+  [{ title: "Updates & sync", intro: "" }, () => true],
 ];
 
 type Mode = "readable" | "yaml";
@@ -113,14 +142,11 @@ type Mode = "readable" | "yaml";
 export function Settings({
   reloadKey,
   activeKB,
-  onOpenReleases,
   onRetry,
   onFailure,
 }: {
   /** Changes when the server moves under the page: the settings are read again. */
   reloadKey: string;
-  /** The version in the title opens the release history (D862). */
-  onOpenReleases?(): void;
   /** The KB picked in the top bar: its tab comes first after the server's. */
   activeKB?: string;
   onRetry(): void;
@@ -129,7 +155,7 @@ export function Settings({
   const [view, setView] = useState<SettingsView | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("server");
+  const [tab, setTab] = useState("client");
   const [mode, setMode] = useState<Mode>("readable");
   const [query, setQuery] = useState("");
 
@@ -162,7 +188,13 @@ export function Settings({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadKey]);
 
-  if (loading && !view) return <Skeleton lines={6} label="Loading settings" />;
+  if (loading && !view)
+    return (
+      <Page label="Settings" busy className="settings">
+        <PageHeader eyebrow="Settings" title={<TitleBone label="Loading settings" />} />
+        <SettingsSkeleton label="Loading settings" />
+      </Page>
+    );
   if (error) return <ErrorState error={error} onRetry={onRetry} />;
   if (!view) return null;
 
@@ -171,31 +203,24 @@ export function Settings({
   const selected = view.kbs.find((k) => k.name === activeKB) ?? view.kbs[0];
   const kb = tab === "kb" ? selected : undefined;
   const clients = view.clients ?? [];
-  const client = tab.startsWith("client") ? (clients.find((c) => `client:${c.machine}` === tab) ?? null) : undefined;
-  const current = client !== undefined ? tab : kb ? "kb" : "server";
+  // The page opens on the viewer's own client: the first machine that reported, else the template.
+  const client = tab.startsWith("client")
+    ? (clients.find((c) => `client:${c.machine}` === tab) ?? clients[0] ?? null)
+    : undefined;
+  const current = client !== undefined ? (client ? `client:${client.machine}` : "client") : kb ? "kb" : "server";
 
   return (
     <Page label="Settings" className="settings">
       <PageHeader
         eyebrow="Settings"
-        title={
-          <>
-            Cartographer{" "}
-            <button
-              type="button"
-              className="page__version"
-              title="Release history"
-              aria-haspopup="dialog"
-              onClick={onOpenReleases}
-            >
-              {view.version}
-            </button>
-            {view.latest_version ? ` · ${view.latest_version} available` : ""}
-          </>
-        }
+        title={client !== undefined ? (client?.machine ?? "Client") : kb ? kb.name : "Server"}
         subtitle={
           <>
-            The configuration this server runs with, read-only
+            {client
+              ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
+              : kb
+                ? "This Knowledge Base's configuration, read-only"
+                : "The configuration this server runs with, read-only"}
             {who && (
               <>
                 {" · "}
@@ -232,7 +257,7 @@ export function Settings({
       <div className="settings__bar">
         <div className="inspector__tabs settings__tabs" role="tablist" aria-label="Settings of">
           {clients.length === 0 ? (
-            <Tab id="client" current={current === "client"} onSelect={setTab} entries={[]}>
+            <Tab id="client" current={current === "client"} onSelect={setTab}>
               Client
             </Tab>
           ) : (
@@ -242,17 +267,16 @@ export function Settings({
                 id={`client:${c.machine}`}
                 current={current === `client:${c.machine}`}
                 onSelect={setTab}
-                entries={c.entries}
               >
                 {clients.length === 1 ? "Client" : `Client · ${c.machine}`}
               </Tab>
             ))
           )}
-          <Tab id="server" current={current === "server"} onSelect={setTab} entries={view.server}>
+          <Tab id="server" current={current === "server"} onSelect={setTab}>
             Server
           </Tab>
           {selected && (
-            <Tab id="kb" current={current === "kb"} onSelect={setTab} entries={selected.entries}>
+            <Tab id="kb" current={current === "kb"} onSelect={setTab}>
               Knowledge Base
             </Tab>
           )}
@@ -261,7 +285,16 @@ export function Settings({
 
       <div role="tabpanel" aria-labelledby={`settings-tab-${current}`}>
         {client !== undefined ? (
-          <ClientPanel client={client} mode={mode} query={query} activeKB={selected?.name} />
+          <ClientValues.Provider value={true}>
+            <ClientPanel
+              client={client}
+              template={view.client_template}
+              kbs={view.kbs.map((k) => k.name)}
+              mode={mode}
+              query={query}
+              activeKB={selected?.name}
+            />
+          </ClientValues.Provider>
         ) : kb ? (
           <KBPanel kb={kb} mode={mode} query={query} />
         ) : (
@@ -277,13 +310,11 @@ function Tab({
   id,
   current,
   onSelect,
-  entries,
   children,
 }: {
   id: string;
   current: boolean;
   onSelect(id: string): void;
-  entries: SettingEntry[];
   children: React.ReactNode;
 }) {
   return (
@@ -296,7 +327,6 @@ function Tab({
       onClick={() => onSelect(id)}
     >
       {children}
-      {entries.length > 0 && <span className="settings__tab-count">{entries.length}</span>}
     </button>
   );
 }
@@ -327,7 +357,6 @@ function ServerPanel({
         [...groups].map(([g, rows]) => (
           <Rows
             key={g}
-            open={!!query}
             group={SERVER_GROUPS[g] ?? { title: g, intro: "" }}
             entries={rows}
             label={`${SERVER_GROUPS[g]?.title ?? g} settings`}
@@ -347,7 +376,7 @@ function KBPanel({ kb, mode, query }: { kb: SettingsKB; mode: Mode; query: strin
   }
   return (
     <>
-      {mode === "readable" && <Placeholders kb={kb.name} open={!!query} query={query} />}
+      {mode === "readable" && <Placeholders kb={kb.name} query={query} />}
       {mode === "yaml" ? (
         <Yaml name={`${kb.name}/settings.yaml`} text={kb.yaml} />
       ) : groups.every((g) => g.rows.length === 0) ? (
@@ -356,13 +385,7 @@ function KBPanel({ kb, mode, query }: { kb: SettingsKB; mode: Mode; query: strin
         groups
           .filter((g) => g.rows.length > 0)
           .map(({ group, rows }) => (
-            <Rows
-              key={group.title}
-              open={!!query}
-              group={group}
-              entries={rows}
-              label={`KB ${kb.name} ${group.title} settings`}
-            />
+            <Rows key={group.title} group={group} entries={rows} label={`KB ${kb.name} ${group.title} settings`} />
           ))
       )}
     </>
@@ -376,32 +399,49 @@ function KBPanel({ kb, mode, query }: { kb: SettingsKB; mode: Mode; query: strin
  */
 function ClientPanel({
   client,
+  template,
+  kbs,
   mode,
   query,
   activeKB,
 }: {
   client: SettingsClient | null;
+  template?: { entries: SettingEntry[]; yaml?: string };
+  kbs: string[];
   mode: Mode;
   query: string;
   activeKB?: string;
 }) {
   if (!client) {
+    if (!template) return null;
+    const groups = CLIENT_GROUPS.map(([group]) => ({ group, rows: [] as SettingEntry[] }));
+    for (const e of template.entries.filter((e) => !PER_KB.includes(e.key) && matches(e, query))) {
+      groups[CLIENT_GROUPS.findIndex(([, match]) => match(e.key))]!.rows.push(e);
+    }
     return (
-      <p className="page-note settings__nomatch">
-        Your client has not reported its settings to this server yet. They arrive with its next{" "}
-        <code>cartographer sync</code>, which the sync timer runs every half hour.
-      </p>
+      <>
+        {mode === "yaml" ? (
+          <Yaml name=".cartographer.yaml" text={template.yaml} />
+        ) : (
+          <>
+            {groups
+              .filter((g) => g.rows.length > 0)
+              .map(({ group, rows }) => (
+                <Rows key={group.title} group={group} entries={rows} label={`Client ${group.title} settings`} />
+              ))}
+            <ClientKBs kbs={kbs} client={null} entries={template.entries} activeKB={activeKB} query={query} />
+            {nothingMatches(groups, kbs, query) && <NoMatch query={query} />}
+          </>
+        )}
+      </>
     );
   }
   const groups = CLIENT_GROUPS.map(([group]) => ({ group, rows: [] as SettingEntry[] }));
-  for (const e of client.entries.filter((e) => matches(e, query))) {
+  for (const e of client.entries.filter((e) => !PER_KB.includes(e.key) && matches(e, query))) {
     groups[CLIENT_GROUPS.findIndex(([, match]) => match(e.key))]!.rows.push(e);
   }
   return (
     <>
-      <p className="page-note settings__reported">
-        {client.machine} · client {client.version} · reported {new Date(client.received_at).toLocaleString("en")}
-      </p>
       {mode === "yaml" ? (
         client.yaml ? (
           <Yaml name=".cartographer.yaml" text={client.yaml} />
@@ -410,153 +450,191 @@ function ClientPanel({
         )
       ) : (
         <>
-          {client.providers && <Workspaces providers={client.providers} activeKB={activeKB} open={!!query} />}
-          {client.placeholders && (
-            <MachinePaths placeholders={client.placeholders} activeKB={activeKB} open={!!query} query={query} />
-          )}
-          {groups.every((g) => g.rows.length === 0) ? (
-            <NoMatch query={query} />
-          ) : (
-            groups
-              .filter((g) => g.rows.length > 0)
-              .map(({ group, rows }) => (
-                <Rows
-                  key={group.title}
-                  open={!!query}
-                  group={group}
-                  entries={rows}
-                  label={`Client ${group.title} settings`}
-                />
-              ))
-          )}
+          {groups
+            .filter((g) => g.rows.length > 0)
+            .map(({ group, rows }) => (
+              <Rows key={group.title} group={group} entries={rows} label={`Client ${group.title} settings`} />
+            ))}
+          <ClientKBs kbs={kbs} client={client} entries={client.entries} activeKB={activeKB} query={query} />
+          {nothingMatches(groups, kbs, query) && <NoMatch query={query} />}
         </>
       )}
     </>
   );
 }
 
-/** A KB name, set apart when it is the one picked in the top bar. */
-function KBName({ name, activeKB }: { name: string; activeKB?: string }) {
-  return <span className={name === activeKB ? "settings__kb settings__kb--active" : "settings__kb"}>{name}</span>;
+/** A search that matches no client key and no KB name. */
+function nothingMatches(groups: { rows: SettingEntry[] }[], kbs: string[], query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return !!q && groups.every((g) => g.rows.length === 0) && !kbs.some((kb) => kb.toLowerCase().includes(q));
+}
+
+/** A client key's map value, or an empty map. */
+function mapOf(entries: SettingEntry[], key: string): Record<string, unknown> {
+  const v = entries.find((e) => e.key === key)?.value;
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+/** One client setting of one KB: the YAML key it lives under, what it does, its value. */
+function KBSetting({ yamlKey, about, value }: { yamlKey: string; about: string; value: string[] | string | null }) {
+  const home = useHome();
+  const empty = value === null || (Array.isArray(value) && value.length === 0);
+  return (
+    <li className="settings__row" data-wide={(Array.isArray(value) && isWide(value)) || undefined}>
+      <div className="settings__row-head settings__row-head--static">
+        <span className="settings__what">
+          <code className="settings__key">{yamlKey}</code>
+          <span className="settings__desc">{about}</span>
+        </span>
+        <span className="settings__val">
+          {empty ? (
+            <span className="settings__value" data-empty aria-label={`Value of ${yamlKey}`}>
+              (none)
+            </span>
+          ) : Array.isArray(value) ? (
+            <span className="settings__value settings__value--list" aria-label={`Value of ${yamlKey}`}>
+              {value.map((v) => (
+                <Item key={v} text={v} />
+              ))}
+            </span>
+          ) : (
+            <span className="settings__value" aria-label={`Value of ${yamlKey}`}>
+              {home(value)}
+            </span>
+          )}
+        </span>
+      </div>
+    </li>
+  );
 }
 
 /**
- * Where each agent client receives its KBs: everywhere (provider scope) or per
- * bound folder (workspace scope), and which global MCP entry the client has:
- * the local bridge that narrows a session to its folder's KBs, or the plain
- * HTTP URL (D737). A scope filter, not a security boundary.
+ * The client side of every KB (D948). In .cartographer.yaml the settings that
+ * concern one KB sit under the setting first and the KB second (identities,
+ * clients, workspaces, signing_keys, mcp_approvals); here each KB gathers its
+ * own, each named by the YAML key it lives under, so the section explains the
+ * file without its comments.
  */
-function Workspaces({ providers, activeKB, open }: { providers: ClientProvider[]; activeKB?: string; open: boolean }) {
+function ClientKBs({
+  kbs,
+  client,
+  entries,
+  activeKB,
+  query,
+}: {
+  kbs: string[];
+  client: SettingsClient | null;
+  entries: SettingEntry[];
+  activeKB?: string;
+  query: string;
+}) {
+  const identities = mapOf(entries, "identities");
+  const clientsMap = mapOf(entries, "clients") as Record<string, { kbs?: string[] }>;
+  const workspaces = mapOf(entries, "workspaces") as Record<string, { path: string; kbs?: string[] }[]>;
+  const signing = mapOf(entries, "signing_keys");
+  const approvals = mapOf(entries, "mcp_approvals");
+  const providers = client?.providers ?? [];
+  const names = [...kbs];
+  for (const list of Object.values(workspaces))
+    for (const w of list ?? []) for (const k of w.kbs ?? []) if (!names.includes(k)) names.push(k);
+  names.sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+  const q = query.trim().toLowerCase();
+  const shown = names.filter((kb) => !q || kb.toLowerCase().includes(q));
+  const [picked, setPicked] = useState<string | undefined>(activeKB);
+  if (shown.length === 0) return null;
+  const kb = picked && shown.includes(picked) ? picked : shown[0]!;
+
+  const settingsOf = (kb: string) => {
+    const own = identities[kb];
+    const identity =
+      typeof own === "string" && own
+        ? own
+        : typeof identities.default === "string" && identities.default
+          ? `${identities.default} (default)`
+          : null;
+    // An agent with no clients entry, or one without kbs, receives every KB.
+    const agentNames = providers.length ? providers.map((p) => p.name) : Object.keys(clientsMap);
+    const agents = agentNames.filter((a) => {
+      const ks = clientsMap[a]?.kbs;
+      return !ks?.length || ks.includes(kb);
+    });
+    const where: string[] = [];
+    for (const p of providers.filter((p) => agents.includes(p.name))) {
+      if (p.scope === "workspace") {
+        for (const w of p.workspaces ?? []) if (w.kbs.includes(kb)) where.push(`${p.name}: ${w.path}`);
+      } else where.push(`${p.name}: everywhere`);
+    }
+    if (!providers.length) {
+      for (const [agent, list] of Object.entries(workspaces))
+        for (const w of list ?? []) if (w.kbs?.includes(kb)) where.push(`${agent}: ${w.path}`);
+    }
+    const keys = signing[kb];
+    const approved = approvals[kb];
+    const paths = (client?.placeholders ?? [])
+      .filter((ph) => ph.kbs?.includes(kb))
+      .map((ph) => `${ph.key} → ${ph.path ?? (ph.ignored ? "ignored" : "unresolved")}`);
+    return {
+      identity,
+      agents,
+      where,
+      keys: Array.isArray(keys) ? keys.length : 0,
+      approved: approved && typeof approved === "object" ? Object.keys(approved) : [],
+      paths,
+    };
+  };
+
+  const k = settingsOf(kb);
   return (
-    <Folded
-      title="Workspaces"
-      intro="Which KBs each agent client receives, and in which folders."
-      count={`${providers.length} client${providers.length === 1 ? "" : "s"}`}
-      open={open}
-    >
-      <ul className="settings__rows" aria-label="Workspaces">
-        {providers.map((p) => (
-          <li key={p.name} className="settings__row settings__ws">
-            <span className="settings__line">
-              <code className="settings__key">{p.name}</code>
-              <span className="settings__chip-row">
-                <span className="pill">{p.scope === "workspace" ? "per workspace" : "every KB, everywhere"}</span>
-                {p.isolation === "workspace" && (
-                  <span
-                    className="pill pill--ok"
-                    title="This client starts the Cartographer bridge: a session sees only the KBs bound to its folder."
-                  >
-                    bridge
-                  </span>
-                )}
-                {p.isolation === "none" && (
-                  <span className="pill" title="This client uses the server URL: a session reaches every KB the client is bound to.">
-                    http
-                  </span>
-                )}
-              </span>
-            </span>
-            {(p.scope === "workspace" || !!p.workspaces?.length) &&
-              (p.workspaces?.length ? (
-                <ul className="settings__ws-list">
-                  {p.workspaces.map((w) => (
-                    <li key={w.path}>
-                      <code className="settings__ws-path" title={w.remote}>
-                        {w.path}
-                      </code>
-                      <span className="settings__ws-kbs">
-                        {w.kbs.length ? w.kbs.map((k) => <KBName key={k} name={k} activeKB={activeKB} />) : "no KB"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <span className="settings__desc">
-                  No folder is bound yet: a session receives only the transversal bundle.
-                </span>
-              ))}
-          </li>
+    <Folded title="Knowledge bases" count={`${names.length} KB${names.length === 1 ? "" : "s"}`}>
+      <div className="client-kbs" role="group" aria-label="Knowledge bases on this machine">
+        {shown.map((name) => (
+          <button
+            key={name}
+            type="button"
+            className="chip client-kbs__pick"
+            aria-pressed={name === kb}
+            onClick={() => setPicked(name)}
+          >
+            {name}
+          </button>
         ))}
+      </div>
+      <ul className="settings__rows" aria-label={`Client settings of ${kb}`}>
+        <KBSetting
+          yamlKey={`identities.${kb}`}
+          about="The git author of your writes to this KB."
+          value={k.identity ?? "the repository's git identity"}
+        />
+        <KBSetting
+          yamlKey="clients.<agent>.kbs"
+          about="The agents that receive it: all of them unless their list names other KBs."
+          value={client ? k.agents : "every connected agent"}
+        />
+        <KBSetting
+          yamlKey="workspaces"
+          about="Where each agent gives it to a session: everywhere, or only in the folders bound to it."
+          value={k.where.length ? k.where : client ? null : "everywhere"}
+        />
+        {(client?.placeholders ?? []).length > 0 && (
+          <KBSetting
+            yamlKey="paths"
+            about="Where its {{repo:…}} and {{path:…}} placeholders resolve here."
+            value={k.paths}
+          />
+        )}
+        <KBSetting
+          yamlKey={`signing_keys.${kb}`}
+          about="Public keys pinned to verify the artifacts it signs."
+          value={k.keys ? `${k.keys} pinned` : null}
+        />
+        <KBSetting yamlKey={`mcp_approvals.${kb}`} about="Its MCP servers you approved." value={k.approved} />
       </ul>
     </Folded>
   );
 }
 
-/** Where each placeholder the connected KBs cite resolves on this machine. */
-function MachinePaths({
-  placeholders,
-  activeKB,
-  open,
-  query,
-}: {
-  placeholders: ClientPlaceholder[];
-  activeKB?: string;
-  open: boolean;
-  query: string;
-}) {
-  const q = query.trim().toLowerCase();
-  const shown = placeholders.filter(
-    (p) => !q || [p.key, p.path, p.description].some((t) => t?.toLowerCase().includes(q)),
-  );
-  if (q && shown.length === 0) return null;
-  const unresolved = placeholders.filter((p) => !p.path && !p.ignored).length;
-  return (
-    <Folded
-      title="Paths on this machine"
-      intro="Where the {{repo:…}} and {{path:…}} placeholders of the connected KBs resolve here."
-      count={unresolved ? `${unresolved} unresolved · ${placeholders.length}` : `${placeholders.length}`}
-      open={open}
-    >
-      {shown.length === 0 ? (
-        <p className="page-note">No placeholder recorded: the connected KBs cite none, or no sync ran yet.</p>
-      ) : (
-        <ul className="settings__rows" aria-label="Paths on this machine">
-          {shown.map((p) => (
-            <li key={p.key} className="settings__row" data-set={p.path ? true : undefined}>
-              <span className="settings__line">
-                <code className="settings__key">{`{{${p.key}}}`}</code>
-                <span className="settings__val">
-                  <span className="settings__value">{p.path ?? (p.ignored ? "ignored" : "unresolved")}</span>
-                  <span className="settings__origin">
-                    {(p.kbs ?? []).map((k) => (
-                      <KBName key={k} name={k} activeKB={activeKB} />
-                    ))}
-                  </span>
-                </span>
-              </span>
-              {(p.description || (!p.path && p.reason)) && (
-                <span className="settings__desc">{!p.path && p.reason ? p.reason : p.description}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Folded>
-  );
-}
-
 /** The placeholder keys this KB declares in paths.yaml or cites. */
-function Placeholders({ kb, open, query }: { kb: string; open: boolean; query: string }) {
+function Placeholders({ kb, query }: { kb: string; query: string }) {
   const [list, setList] = useState<PlaceholderList | null>(null);
   useEffect(() => {
     const controller = new AbortController();
@@ -573,30 +651,27 @@ function Placeholders({ kb, open, query }: { kb: string; open: boolean; query: s
   );
   if (q && keys.length === 0) return null;
   return (
-    <Folded
-      title="Placeholders"
-      intro="The {{repo:…}} and {{path:…}} keys this KB declares in paths.yaml or cites; each machine resolves them on its own."
-      count={`${list.keys.length}`}
-      open={open}
-    >
+    <Folded title="Placeholders" count={`${list.keys.length}`}>
       <ul className="settings__rows" aria-label={`Placeholders of ${kb}`}>
         {keys.map((k) => {
           const uses = k.concepts.length + k.artifacts.length;
           return (
-            <li key={`${k.kind}:${k.key}`} className="settings__row" data-set={k.declared ? true : undefined}>
-              <span className="settings__line">
-                <code className="settings__key">{`{{${k.kind}:${k.key}}}`}</code>
-                <span className="settings__val">
-                  <span className="settings__value">
-                    {k.default ?? k.remote ?? (k.declared ? "(no default)" : "not declared")}
-                  </span>
-                  <span className="settings__origin">
+            <li key={`${k.kind}:${k.key}`} className="settings__row">
+              <div className="settings__row-head settings__row-head--static">
+                <span className="settings__what">
+                  <code className="settings__key">{`{{${k.kind}:${k.key}}}`}</code>
+                  {k.description && <span className="settings__desc">{k.description}</span>}
+                  <span className="settings__note">
                     {uses ? `cited ${uses} time${uses === 1 ? "" : "s"}` : "cited nowhere"}
                     {k.conflicts?.length ? ` · ${k.conflicts.map((c) => `${c.kb} says ${c.default}`).join(", ")}` : ""}
                   </span>
                 </span>
-              </span>
-              {k.description && <span className="settings__desc">{k.description}</span>}
+                <span className="settings__val">
+                  <span className="settings__value" data-empty={!(k.default ?? k.remote) || undefined}>
+                    {k.default ?? k.remote ?? (k.declared ? "no default" : "not declared")}
+                  </span>
+                </span>
+              </div>
             </li>
           );
         })}
@@ -605,31 +680,42 @@ function Placeholders({ kb, open, query }: { kb: string; open: boolean; query: s
   );
 }
 
-/** A folded section with a title, a sentence and a count: the shape of every group. */
-function Folded({
-  title,
-  intro,
-  count,
-  open,
-  children,
-}: {
-  title: string;
-  intro: string;
-  count: string;
-  open: boolean;
-  children: React.ReactNode;
-}) {
+/** Each group's mark, in the glyph-and-hue language of the artifact kinds. */
+const GROUP_MARK: Record<string, [string, string]> = {
+  General: ["◎", "var(--hue-1)"],
+  Access: ["◈", "var(--hue-3)"],
+  Git: ["⇅", "var(--hue-2)"],
+  Audit: ["▦", "var(--hue-8)"],
+  Secrets: ["✦", "var(--hue-6)"],
+  "Secrets & signing": ["✦", "var(--hue-6)"],
+  Atlas: ["◍", "var(--hue-5)"],
+  Mount: ["⌂", "var(--hue-4)"],
+  Maintenance: ["↻", "var(--hue-7)"],
+  Placeholders: ["{}", "var(--hue-9)"],
+  "Knowledge bases": ["▣", "var(--hue-10)"],
+  Connection: ["⇄", "var(--hue-3)"],
+  Agents: ["◉", "var(--hue-1)"],
+  "Local paths": ["↳", "var(--hue-9)"],
+  Trust: ["✓", "var(--hue-5)"],
+  "Updates & sync": ["↻", "var(--hue-7)"],
+};
+
+/** A group, always open: its mark and title, what it governs, how many keys it holds. */
+function Folded({ title, count, children }: { title: string; count: string; children: React.ReactNode }) {
+  const [glyph, hue] = GROUP_MARK[title] ?? ["•", "var(--text-muted)"];
   return (
-    <details className="settings__group" open={open}>
-      <summary className="settings__group-head">
-        <span className="settings__group-text">
-          <h2 className="settings__heading">{title}</h2>
-          <span className="settings__intro">{intro}</span>
-        </span>
+    <section className="settings__group" aria-label={title}>
+      <header className="settings__group-head">
+        <h2 className="settings__heading">
+          <span className="kind-mark" aria-hidden="true" style={{ "--kind": hue } as CSSProperties}>
+            {glyph}
+          </span>
+          {title}
+        </h2>
         <span className="settings__group-count">{count}</span>
-      </summary>
+      </header>
       {children}
-    </details>
+    </section>
   );
 }
 
@@ -648,65 +734,91 @@ function NoMatch({ query }: { query: string }) {
   return <p className="page-note settings__nomatch">No setting matches “{query.trim()}”.</p>;
 }
 
-/** One group, folded until it is opened or a search finds keys in it. Folded,
- *  it still says what it governs and how many keys it holds. */
-function Rows({
-  group,
-  entries,
-  label,
-  open,
-}: {
-  group: Group;
-  entries: SettingEntry[];
-  label: string;
-  open: boolean;
-}) {
+/** One group of keys. */
+function Rows({ group, entries, label }: { group: Group; entries: SettingEntry[]; label: string }) {
   return (
-    <details className="settings__group" open={open}>
-      <summary className="settings__group-head">
-        <span className="settings__group-text">
-          <h2 className="settings__heading">{group.title}</h2>
-          {group.intro && <span className="settings__intro">{group.intro}</span>}
-        </span>
-        <span className="settings__group-count">
-          {entries.length} key{entries.length === 1 ? "" : "s"}
-        </span>
-      </summary>
+    <Folded title={group.title} count={`${entries.length} key${entries.length === 1 ? "" : "s"}`}>
       <ul className="settings__rows" aria-label={label}>
         {entries.map((e) => (
           <Row key={e.key} entry={e} />
         ))}
       </ul>
-    </details>
+    </Folded>
+  );
+}
+
+/** A boolean setting reads as a switch. */
+function asBool(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return null;
+}
+
+/** The value as a chip: a switch for a boolean, chips for a list, a muted word for nothing. */
+function Value({ entry: e }: { entry: SettingEntry }) {
+  const home = useHome();
+  const label = `Value of ${e.key}`;
+  const b = asBool(e.value);
+  if (b !== null) {
+    return (
+      <span
+        className="settings__value settings__value--bool"
+        data-on={b || undefined}
+        aria-label={label}
+        title={String(b)}
+      >
+        <span className="settings__switch" aria-hidden="true" />
+        {b ? "on" : "off"}
+      </span>
+    );
+  }
+  const list = items(e.value);
+  if (list && list.length > 0) {
+    const shown = list.slice(0, 3);
+    return (
+      <span className="settings__value settings__value--list" aria-label={label}>
+        {shown.map((v, i) => (
+          <Item key={i} text={v} />
+        ))}
+        {list.length > shown.length && <span className="settings__item">+{list.length - shown.length}</span>}
+      </span>
+    );
+  }
+  const text = formatValue(e.value);
+  return (
+    <span className="settings__value" data-empty={text.startsWith("(") || undefined} aria-label={label}>
+      {home(text)}
+    </span>
   );
 }
 
 /**
- * One key, on one line: its name, and at the end its value and where the
- * value comes from; under them what it does. Opening the row says the rest:
- * the default, the accepted values, how to override it, and whether a change
- * waits for a restart.
+ * One key: its name and what it does, and at the end its value. Opening the
+ * row shows its table: the default, who set it, the values it accepts, how to
+ * override it, and whether a change waits for a restart.
  */
 function Row({ entry: e }: { entry: SettingEntry }) {
+  const [open, setOpen] = useState(false);
   const key = shortKey(e.key);
   const set = e.origin !== "default";
   return (
-    <li className="settings__row" data-set={set || undefined}>
-      <details>
-        <summary className="settings__row-head">
-          <span className="settings__line">
-            <code className="settings__key">{key}</code>
-            <span className="settings__val">
-              <span className="settings__value" aria-label={`Value of ${e.key}`}>
-                {formatValue(e.value)}
-              </span>
-              <span className={`settings__origin settings__origin--${e.origin}`}>
-                {set ? `set by ${ORIGIN_LABEL[e.origin] ?? e.origin} · default ${formatDefault(e.default)}` : "default"}
-              </span>
-            </span>
-          </span>
+    <li
+      className="settings__row"
+      data-set={set || undefined}
+      data-open={open || undefined}
+      data-wide={isWide(items(e.value)) || undefined}
+    >
+      <button type="button" className="settings__row-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="settings__what">
+          <code className="settings__key">{key}</code>
           {e.description && <span className="settings__desc">{e.description}</span>}
-        </summary>
+        </span>
+        <span className="settings__val">
+          <Value entry={e} />
+        </span>
+      </button>
+      {open && (
         <dl className="settings__meta">
           <div>
             <dt>Default</dt>
@@ -714,6 +826,12 @@ function Row({ entry: e }: { entry: SettingEntry }) {
               <code>{e.default || '""'}</code>
             </dd>
           </div>
+          {set && (
+            <div>
+              <dt>Set by</dt>
+              <dd>{ORIGIN_LABEL[e.origin] ?? e.origin}</dd>
+            </div>
+          )}
           {e.values && (
             <div>
               <dt>Accepts</dt>
@@ -743,19 +861,24 @@ function Row({ entry: e }: { entry: SettingEntry }) {
             </div>
           )}
         </dl>
-      </details>
+      )}
     </li>
   );
 }
 
+/** The line a rendered settings file puts between the keys in force and the ones it documents. */
+const AVAILABLE = /^#\s*-+\s*available settings\b.*-+\s*$/i;
+
 /**
- * A settings file, highlighted: comments muted, keys set apart from values.
- * Select-all (Cmd/Ctrl+A) with the pointer over it, or with it focused,
- * selects the file alone and not the whole page.
+ * A settings file, as an editor shows it: its name and a copy button above,
+ * line numbers, keys set apart from values, comments muted, and the keys left
+ * at their default dimmed under a divider. Select-all (Cmd/Ctrl+A) with the
+ * pointer over it, or with it focused, selects the file alone.
  */
 function Yaml({ name, text }: { name: string; text?: string }) {
   const ref = useRef<HTMLPreElement>(null);
   const hovered = useRef(false);
+  const [copied, setCopied] = useState(false);
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => {
       const pre = ref.current;
@@ -774,32 +897,72 @@ function Yaml({ name, text }: { name: string; text?: string }) {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
   if (!text) return <p className="page-note">This server does not return the YAML view.</p>;
+  const lines = text.replace(/\n$/, "").split("\n");
+  const cut = lines.findIndex((l) => AVAILABLE.test(l.trim()));
+  const inForce = (cut < 0 ? lines : lines.slice(0, cut)).filter((l) => /^[^\s#][^:#]*:/.test(l)).length;
+  // The divider is the file's marker for the realignment, not something to read:
+  // the view leaves it out, with the blank line under it.
+  const shown = lines.filter(
+    (l, i) => !AVAILABLE.test(l.trim()) && !(l.trim() === "" && AVAILABLE.test(lines[i - 1]?.trim() ?? "")),
+  );
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable: the file can still be selected */
+    }
+  };
   return (
-    <pre
-      ref={ref}
-      className="settings__yaml"
-      aria-label={name}
-      tabIndex={0}
-      onMouseEnter={() => (hovered.current = true)}
-      onMouseLeave={() => (hovered.current = false)}
-    >
-      <code>
-        {text
-          .replace(/\n$/, "")
-          .split("\n")
-          .map((line, i) => (
+    <figure className="settings__file">
+      <figcaption className="settings__file-head">
+        <span className="settings__file-name">{name}</span>
+        <span className="settings__file-note">
+          {inForce} key{inForce === 1 ? "" : "s"} set
+        </span>
+        <button
+          type="button"
+          className="button button--icon"
+          aria-label={`Copy ${name}`}
+          title={copied ? "Copied" : "Copy the file"}
+          onClick={() => void copy()}
+        >
+          <Icon name={copied ? "check" : "copy"} size={14} />
+        </button>
+      </figcaption>
+      <pre
+        ref={ref}
+        className="settings__yaml"
+        aria-label={name}
+        tabIndex={0}
+        onMouseEnter={() => (hovered.current = true)}
+        onMouseLeave={() => (hovered.current = false)}
+      >
+        <code>
+          {shown.map((line, i) => (
             <YamlLine key={i} line={line} />
           ))}
-      </code>
-    </pre>
+        </code>
+      </pre>
+    </figure>
   );
 }
 
+/** A scalar's class: a literal (number, boolean, null) or a string. */
+function scalarClass(v: string): string {
+  const t = v.trim();
+  if (/^(true|false|null|~|-?\d+(\.\d+)?)$/.test(t)) return "yaml__lit";
+  return "yaml__value";
+}
+
 function YamlLine({ line }: { line: string }) {
+  const cls = "yaml__line";
   const trimmed = line.trimStart();
+  // A comment is a comment, a commented-out key included: one colour for all of them.
   if (trimmed.startsWith("#")) {
     return (
-      <span className="yaml__line">
+      <span className={cls}>
         <span className="yaml__comment">{line}</span>
         {"\n"}
       </span>
@@ -809,17 +972,17 @@ function YamlLine({ line }: { line: string }) {
   const m = /^(\s*(?:- )?)([^:#]+?:)(\s.*?)?(\s+#.*)?$/.exec(line);
   if (!m) {
     return (
-      <span className="yaml__line">
+      <span className={cls}>
         {line}
         {"\n"}
       </span>
     );
   }
   return (
-    <span className="yaml__line">
+    <span className={cls}>
       {m[1]}
       <span className="yaml__key">{m[2]}</span>
-      {m[3] && <span className="yaml__value">{m[3]}</span>}
+      {m[3] && <span className={scalarClass(m[3])}>{m[3]}</span>}
       {m[4] && <span className="yaml__comment">{m[4]}</span>}
       {"\n"}
     </span>

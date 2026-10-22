@@ -2,7 +2,6 @@ package lint
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -18,11 +17,8 @@ type conceptCtx struct {
 	// are evaluated, and the run-only inputs below are never read.
 	Write bool
 
-	// Oversize is the byte threshold of concept_oversize for the page's map
-	// (the contract's oversize_bytes, D301, or the default). Run only.
-	Oversize int
 	// KBRoot, HasSecretsDir and LegacyPaths drive the artifact-flavoured
-	// body checks (D316). Run only.
+	// body checks (D316).
 	KBRoot        string
 	HasSecretsDir bool
 	LegacyPaths   []legacyPath
@@ -45,29 +41,11 @@ func (c conceptCtx) wants(checks ...string) bool {
 // conceptFindings is the one evaluator of the LevelConcept checks (D354): the
 // ones one page's own frontmatter, body and map contract decide. Run calls it
 // for every page and CheckConcept for the written one, so the two cannot
-// disagree about a page (TestCheckConceptAgreesWithRun). It applies no
-// lint_ignore: the caller does. A check added here must be registered; one the
+// disagree about a page (TestCheckConceptAgreesWithRun). A check added here must be registered; one the
 // write path should report is registered OnWrite.
 func conceptFindings(c conceptCtx) []Finding {
 	var out []Finding
 	in := c.In
-	parts := strings.Split(string(c.ID), "/")
-
-	// --- concept_oversize (info) ---
-	if c.wants("concept_oversize") && len(in.Body) > c.Oversize {
-		// concept_expand requires exactly two segments and the write path caps
-		// depth at three, so for a satellite the remedy this check used to
-		// advise is structurally unavailable — and the two largest concepts in
-		// the reporting KB were satellites (D159).
-		remedy := "consider concept_expand to split it into a dossier"
-		if len(parts) > 2 {
-			remedy = "this is a satellite, so concept_expand does not apply: split it into sibling satellites of the same expanded concept and link them from its index"
-		}
-		out = append(out, newFinding("concept_oversize", Finding{
-			Path:    string(c.ID),
-			Message: fmt.Sprintf("%d bytes in one concept (threshold %d; concept_read returns an outline instead of the body above %d) — %s", len(in.Body), c.Oversize, okf.ConceptReadSizeGuard, remedy),
-		}))
-	}
 
 	// --- sops_format_mismatch / sops_missing_file / legacy_path (D316) ---
 	if c.wants("sops_format_mismatch", "sops_missing_file") {
@@ -91,11 +69,12 @@ func conceptFindings(c conceptCtx) []Finding {
 			}
 		}
 
-		// --- secrets_on_non_service (info, D158, D313) ---
+		// --- secrets_on_non_service (D158, D313) ---
 		// service_list/service_get match type Service (case-insensitively
 		// since D158): a concept declaring secrets under any other type is
-		// not listed there. Info, not warning: a dossier with a legitimate
-		// bundle is resolved by concept ID with secret_resolve.
+		// not listed there. A dossier is resolved by concept ID with
+		// secret_resolve; the write gate refuses the declaration all the same
+		// (D907), and the fix is the type Service or a dedicated Service.
 		if c.wants("secrets_on_non_service") && !kb.IsServiceType(parsed.Type()) {
 			for _, field := range []string{"secrets_source", "secret_refs"} {
 				if v, ok := parsed.Get(field); ok && !emptyFrontmatterValue(v) {

@@ -13,16 +13,9 @@ func structPaths(t reflect.Type, prefix string, out *[]string) {
 		if tag == "" || tag == "-" {
 			continue
 		}
+		// Every key is a leaf, described by one entry: the maps and lists of
+		// structs are not descended into.
 		*out = append(*out, prefix+tag)
-		ft := f.Type
-		for ft.Kind() == reflect.Ptr {
-			ft = ft.Elem()
-		}
-		// The one nested block of user settings; the maps and lists of structs
-		// are leaves, described by one entry.
-		if ft.Kind() == reflect.Struct && ft.Name() == "UpdateSettings" {
-			structPaths(ft, prefix+tag+".", out)
-		}
 	}
 }
 
@@ -36,12 +29,9 @@ func TestSchemaMatchesYAMLStruct(t *testing.T) {
 	for _, k := range Schema.Keys {
 		have[k.Path] = true
 	}
-	real := map[string]bool{"update": true}
+	real := map[string]bool{}
 	for _, p := range want {
 		real[p] = true
-		if p == "update" {
-			continue // a group: its keys carry the entries
-		}
 		if !have[p] {
 			t.Errorf("YAML key %s is in the client file but has no entry in Schema (internal/clientconfig/schema.go)", p)
 		}
@@ -52,7 +42,7 @@ func TestSchemaMatchesYAMLStruct(t *testing.T) {
 		}
 	}
 	// The caches are not settings: they must never come back into the user file.
-	for _, cache := range []string{"known_kbs", "server_mount_mode", "server_routed_path"} {
+	for _, cache := range []string{"known_kbs", "server_mount_mode", "server_routed_path", "agents", "sync_timer_opt_out"} {
 		if have[cache] || real[cache] {
 			t.Errorf("%s is a server-owned cache; it belongs to the state file", cache)
 		}

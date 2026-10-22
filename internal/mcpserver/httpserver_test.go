@@ -277,12 +277,20 @@ func TestServer_Ready(t *testing.T) {
 	}
 }
 
+// asAdmin runs a bare handler (no auth middleware) as the local admin: /clients
+// is fail-closed for the zero principal, which a bare handler carries.
+func asAdmin(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.LocalAdminPrincipal())))
+	})
+}
+
 // TestClients_EmptyRoster verifies a fresh server returns {"clients": []} with
 // HTTP 200, never 404 and never a null array.
 func TestClients_EmptyRoster(t *testing.T) {
 	t.Parallel()
 	s := New("test")
-	handler := s.HTTPHandler()
+	handler := asAdmin(s.HTTPHandler())
 
 	req := httptest.NewRequest(http.MethodGet, "/clients", nil)
 	rr := httptest.NewRecorder()
@@ -364,7 +372,7 @@ func TestClients_HandlerConstructors(t *testing.T) {
 		desc string
 		h    http.Handler
 	}{
-		{"HTTPHandler", s.HTTPHandler()},
+		{"HTTPHandler", asAdmin(s.HTTPHandler())},
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/clients", nil)
 		rr := httptest.NewRecorder()
@@ -414,7 +422,7 @@ func TestClients_HandlerConstructors(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/clients", nil)
 	rr := httptest.NewRecorder()
-	multi.Handler().ServeHTTP(rr, req)
+	asAdmin(multi.Handler()).ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("MultiKB /clients: status = %d, want 200; body=%s", rr.Code, rr.Body.String())
 	}
@@ -442,7 +450,7 @@ func TestClients_HandlerConstructors(t *testing.T) {
 func TestClients_NoOverflow(t *testing.T) {
 	t.Parallel()
 	s := New("test")
-	handler := s.HTTPHandler()
+	handler := asAdmin(s.HTTPHandler())
 	req := httptest.NewRequest(http.MethodGet, "/clients", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)

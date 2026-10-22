@@ -31,10 +31,9 @@ const (
 	kindString
 	kindEnum
 	kindDays      // "<n>d", "<n>" or an integer; 0 disables
-	kindInt0      // integer >= 0
+	kindStaleDays // integer >= 1; below MinUsageStaleDays it is raised at resolution
 	kindInt1      // integer >= 1
 	kindStringSeq // sequence of scalars; empty allowed
-	kindMCPList   // sequence of {name, transport, target}
 	kindBranch    // a git branch name
 )
 
@@ -43,22 +42,9 @@ type settingSpec struct {
 	values []string // kindEnum
 }
 
-// settingsKeys are the keys a KB carries. auto_repair names are checked by
-// whoever applies them (they need lint.FixableChecks); mcp_allowlist entries
-// are checked by provisioning.ValidateMCPAllowlist at apply time.
+// settingsKeys are the keys a KB carries.
 var settingsKeys = map[string]settingSpec{
-	"allow_artifact_write": {kind: kindBool},
-	"allow_template_write": {kind: kindBool},
-	"write_gate":           {kind: kindEnum, values: []string{"off", "error", "warning"}},
-	"auto_repair":          {kind: kindStringSeq},
-	"repair_on_write":      {kind: kindBool},
-	"doctor_mode":          {kind: kindEnum, values: []string{"unattended", "assisted"}},
-	"doctor_interval":      {kind: kindDays},
-	"doctor_auto_interval": {kind: kindDays},
-	"doctor_budget":        {kind: kindInt1},
-	"usage_stale_days":     {kind: kindInt0},
-	"mcp_allowlist":        {kind: kindMCPList},
-	"secrets":              {kind: kindBool},
+	"usage_stale_days": {kind: kindStaleDays},
 	// branch is read from the remote's default branch only (D903): see
 	// KB.branchSettingAt. The working copy's value is parsed and shown, and
 	// changes nothing until it reaches the default branch.
@@ -74,11 +60,16 @@ var settingsServerOnly = map[string]bool{
 // SettingsRetired is the registry of the keys a settings.yaml used to carry and
 // no longer does: the server git profile and its forge, whose pull-request
 // boundary is gone, and git_branch, which became branch (D903); the author and
-// committer keys, which were server-only and are gone everywhere (D904); and
+// committer keys, which were server-only and are gone everywhere (D904);
 // the machine secrets a KB's file should never have carried, which are files of
-// the server's credentials directory now (D905). Parsing a file that still has
-// one leaves it out with a finding that names what to use; realigning the file
-// drops it.
+// the server's credentials directory now (D905); and allow_artifact_write and
+// allow_template_write, because artifact writes are always allowed, mcp_allowlist,
+// because a KB's MCP descriptors are always distributable, and secrets, which
+// is derived from the sops files under secrets/ (D906); and write_gate, auto_repair,
+// repair_on_write and the doctor_* keys, because the gate and the safe repairs
+// are fixed behaviour (D907).
+// Parsing a file that still has one leaves it out with a finding that names what
+// to use; realigning the file drops it.
 var SettingsRetired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "git_profile", Plan: 903, Refuse: "server", Note: ServerProfileRemoved},
 	{Path: "git_base_branch", Plan: 903, Note: ServerProfileRemoved},
@@ -97,11 +88,62 @@ var SettingsRetired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "known_hosts", Plan: 905, Replacement: "known_hosts in the server's credentials_dir"},
 	{Path: "sops_age_key_file", Plan: 905, Replacement: "<kb>.age in the server's credentials_dir"},
 	{Path: "artifact_signing_seed", Plan: 905, Replacement: "<kb>.signing in the server's credentials_dir", Note: "a secret never belongs in the KB"},
+	{Path: "allow_artifact_write", Plan: 906, Note: ArtifactWriteAlwaysOn},
+	{Path: "allow_template_write", Plan: 906, Note: ArtifactWriteAlwaysOn},
+	{Path: "mcp_allowlist", Plan: 906, Note: MCPAllowlistRemoved},
+	{Path: "secrets", Plan: 906, Note: SecretsDerived},
+	{Path: "write_gate", Plan: 907, Note: WriteGateRemoved},
+	{Path: "auto_repair", Plan: 907, Note: DoctorKeysRemoved},
+	{Path: "repair_on_write", Plan: 907, Note: DoctorKeysRemoved},
+	{Path: "doctor_auto_interval", Plan: 907, Note: DoctorKeysRemoved},
+	{Path: "doctor_interval", Plan: 907, Note: DoctorKeysRemoved},
+	{Path: "doctor_mode", Plan: 907, Note: DoctorKeysRemoved},
+	{Path: "doctor_budget", Plan: 907, Note: DoctorKeysRemoved},
+}, Off: []settingschema.Off{
+	// usage_stale_days: 0 switched the stale-artifact signal off (D906).
+	{Path: "usage_stale_days", Value: "0", Plan: 906},
 }}
 
 // ServerProfileRemoved is the reason given wherever the server git profile
 // (D117, removed by D903) is met again, and what to do instead.
 const ServerProfileRemoved = "the server git profile (a pull request per write) was removed: unprotect the branch Cartographer writes to, or set `branch` in settings.yaml on the default branch to write to another one"
+
+// ArtifactWriteAlwaysOn is the reason given wherever allow_artifact_write or
+// allow_template_write (removed by D906) is met again.
+const ArtifactWriteAlwaysOn = "artifact writes are always allowed (D906): a token with rw scope on the KB may write its skills, agents, hooks, MCP descriptors, instructions and templates"
+
+// MinUsageStaleDays is the least a KB's usage_stale_days may be (D906): a
+// shorter window reports a skill nobody had time to use. A smaller positive
+// value is raised to it with a warning.
+const MinUsageStaleDays = 7
+
+// DefaultUsageStaleDays is the usage_stale_days of a KB that does not set one.
+const DefaultUsageStaleDays = 42
+
+// MCPAllowlistRemoved is the reason given wherever mcp_allowlist (removed by
+// D906) is met again.
+const MCPAllowlistRemoved = "a KB's MCP descriptors (mcp/<name>.json) are always distributed to its clients (D906); each client still approves a descriptor before installing it"
+
+// WriteGateRemoved is the reason given wherever write_gate (removed by D907) is
+// met again.
+const WriteGateRemoved = "the write gate is always on (D907): a write that introduces a finding it could have avoided is refused and rolled back, whatever the KB sets"
+
+// DoctorKeysRemoved is the reason given wherever auto_repair, repair_on_write or
+// a doctor_* key (removed by D907) is met again.
+const DoctorKeysRemoved = "every safe fix is always applied (D907): in the write's own commit, by the server's background repair every day, and by `kb repair --apply`; a kb-doctor session is proposed 14 days after the last one, and its budget is a parameter of the session (default 10)"
+
+// AutoRepairIntervalDays is how often the server runs the safe repairs by
+// itself (D907): the default the removed doctor_auto_interval had.
+const AutoRepairIntervalDays = 1
+
+// DoctorSuggestionDays is how long after the last kb-doctor session kb_status
+// and the nudge propose the next one (D907): the default the removed
+// doctor_interval had. A session never starts by itself.
+const DoctorSuggestionDays = 14
+
+// SecretsDerived is the reason given wherever the secrets key (removed by D906)
+// is met again.
+const SecretsDerived = "a KB declares secrets by holding a sops-encrypted file under secrets/ (D906); the age key stays per machine in credentials_dir"
 
 // SettingsKeyNames returns the keys the KB file accepts, sorted.
 func SettingsKeyNames() []string {
@@ -261,14 +303,15 @@ func checkSetting(spec settingSpec, v *yaml.Node) string {
 		if n, err := strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(v.Value), "d")); err != nil || n < 0 {
 			return fmt.Sprintf(`%q is not a number of days ("14d", "14", or 0 to disable)`, v.Value)
 		}
-	case kindInt0, kindInt1:
-		min := 0
-		if spec.kind == kindInt1 {
-			min = 1
-		}
+	case kindInt1:
 		n, err := strconv.Atoi(v.Value)
-		if !scalar || err != nil || n < min {
-			return fmt.Sprintf("must be an integer, %d or more", min)
+		if !scalar || err != nil || n < 1 {
+			return "must be an integer, 1 or more"
+		}
+	case kindStaleDays:
+		n, err := strconv.Atoi(v.Value)
+		if !scalar || err != nil || n < 1 {
+			return fmt.Sprintf("must be an integer, %d or more (0 no longer turns the finding off); the default %d is used", MinUsageStaleDays, DefaultUsageStaleDays)
 		}
 	case kindBranch:
 		if !scalar {
@@ -284,20 +327,6 @@ func checkSetting(spec settingSpec, v *yaml.Node) string {
 		for _, it := range v.Content {
 			if it.Kind != yaml.ScalarNode || it.Tag == "!!null" {
 				return "must be a list of names"
-			}
-		}
-	case kindMCPList:
-		if v.Kind != yaml.SequenceNode {
-			return "must be a list of {name, transport, target} entries"
-		}
-		for _, it := range v.Content {
-			if it.Kind != yaml.MappingNode {
-				return "must be a list of {name, transport, target} entries"
-			}
-			for j := 0; j+1 < len(it.Content); j += 2 {
-				if f := it.Content[j].Value; f != "name" && f != "transport" && f != "target" {
-					return fmt.Sprintf("entry field %q is not name, transport or target", f)
-				}
 			}
 		}
 	}
@@ -353,27 +382,14 @@ func (k *KB) ReadSettings() (SettingsState, error) {
 	return SettingsState{Present: true, Settings: s, Malformed: bad}, nil
 }
 
-// IgnoredSetting is a server value that a KB's settings.yaml beat while the two
-// differed (D746): the KB is authoritative, the server value changes nothing.
-type IgnoredSetting struct {
-	Key         string `json:"key"`
-	ServerValue string `json:"server_value"`
-	KBValue     string `json:"kb_value"`
-}
-
 // SettingsInfo is what the last resolution of a KB's settings found, for
 // kb_status and the startup log. The zero value is a KB with no settings.yaml.
 type SettingsInfo struct {
 	Present bool
 	// FromKB are the keys whose effective value comes from settings.yaml.
 	FromKB []string
-	// Ignored are the server values the file beat.
-	Ignored []IgnoredSetting
 	// Findings are the entries of the file that were left out, and why.
 	Findings []string
-	// SecretsDeclared is the effective `secrets` value: the KB says it uses
-	// secrets, so a mount without an age key is a defect and not a choice.
-	SecretsDeclared bool
 }
 
 // FromKBHas reports whether key's effective value comes from settings.yaml.
@@ -384,16 +400,6 @@ func (i SettingsInfo) FromKBHas(key string) bool {
 		}
 	}
 	return false
-}
-
-// IgnoredFor returns the ignored server value of key, if the file beat one.
-func (i SettingsInfo) IgnoredFor(key string) (IgnoredSetting, bool) {
-	for _, g := range i.Ignored {
-		if g.Key == key {
-			return g, true
-		}
-	}
-	return IgnoredSetting{}, false
 }
 
 // SettingsInfo returns the last resolution's result.

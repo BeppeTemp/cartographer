@@ -33,7 +33,9 @@ describe("the ported panels", () => {
       stubApi();
       render(<App />);
       const panel = await screen.findByRole("region", { name: "Health" });
-      await within(panel).findByText(/No open contradictions/);
+      const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+      await waitFor(() => expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/conflicts"))).toBe(true));
+      await within(panel).findByRole("heading", { level: 1 });
       expect(within(panel).queryByText("Git conflicts")).not.toBeInTheDocument();
     });
   });

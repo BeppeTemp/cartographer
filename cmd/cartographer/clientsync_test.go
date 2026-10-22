@@ -160,7 +160,7 @@ func TestFetchMergedManifestVerifiesPinnedSignatureAndRejectsTampering(t *testin
 	}
 
 	target := t.TempDir()
-	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, target), target, "", false, false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, target), target, "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materialize valid manifest: %v", err)
 	}
 	lockPath := filepath.Join(target, provisioning.LockFileName)
@@ -196,7 +196,7 @@ func TestFetchMergedManifestVerifiesPinnedSignatureAndRejectsTampering(t *testin
 			fetched, fetchErr := fetchMergedManifest(cfg)
 			srv.Close()
 			if fetchErr == nil {
-				_, fetchErr = materializeForProviders(uniformManifests(fetched, []string{"claude"}), globalProjections([]string{"claude"}, target), target, "", false, false, false, portabilityOptions{}, nil)
+				_, fetchErr = materializeForProviders(uniformManifests(fetched, []string{"claude"}), globalProjections([]string{"claude"}, target), target, "", false, false, portabilityOptions{}, nil)
 			}
 			if fetchErr == nil {
 				t.Fatal("tampered sync unexpectedly succeeded")
@@ -287,7 +287,7 @@ func TestAuthorizationDoesNotSetSigned(t *testing.T) {
 	if m.Artifacts[0].Signed {
 		t.Fatal("test fixture must be unsigned")
 	}
-	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, t.TempDir()), t.TempDir(), "", true, true, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, t.TempDir()), t.TempDir(), "", true, false, portabilityOptions{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if m.Artifacts[0].Signed {
@@ -295,37 +295,58 @@ func TestAuthorizationDoesNotSetSigned(t *testing.T) {
 	}
 }
 
-func TestMaterializeForProviders_TrustAvoidsNeedsApproval(t *testing.T) {
+func TestMaterializeForProviders_UnsignedKBSkillIsInstalled(t *testing.T) {
 	dir := t.TempDir()
 	m := kbSkillManifest()
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", true, true /* dryRun */, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", true /* dryRun */, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
 	r := results["claude"]
 	if len(r.NeedsApproval) != 0 {
-		t.Errorf("expected 0 needs-approval with trust=true, got %d: %+v", len(r.NeedsApproval), r.NeedsApproval)
+		t.Errorf("expected 0 needs-approval (D906: no trust switch), got %d: %+v", len(r.NeedsApproval), r.NeedsApproval)
 	}
 	if len(r.Written) != 1 {
-		t.Errorf("expected 1 written artifact with trust=true, got %d", len(r.Written))
+		t.Errorf("expected 1 written artifact (D906: no trust switch), got %d", len(r.Written))
 	}
 }
 
-func TestMaterializeForProviders_NoTrustNeedsApproval(t *testing.T) {
-	dir := t.TempDir()
-	m := kbSkillManifest()
+// D906 keeps the client's MCP approval: the same unattended pass that installs
+// an unsigned skill leaves a KB's MCP descriptor alone, signed or not, until a
+// hash-bound approval exists.
+func TestMaterializeForProviders_MCPDescriptorStillNeedsApproval(t *testing.T) {
+	content := []byte(`{"type":"http","url":"https://tools.example.com/mcp"}`)
+	hash := "mcp-hash-1"
+	for _, signed := range []bool{false, true} {
+		dir := t.TempDir()
+		m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{{
+			Kind: "mcp", Name: "tools", Source: "kb:kb-a", Signed: signed, ContentHash: hash,
+			Files: []provisioning.ArtifactFile{{Path: "tools.json", Content: content}},
+		}}}
+		results, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", false, false, portabilityOptions{}, nil)
+		if err != nil {
+			t.Fatalf("signed=%v: %v", signed, err)
+		}
+		r := results["claude"]
+		if len(r.NeedsApproval) != 1 || r.NeedsApproval[0].Kind != "mcp" {
+			t.Errorf("signed=%v: want the descriptor in NeedsApproval, got %+v", signed, r.NeedsApproval)
+		}
+		for _, w := range r.Written {
+			if w.Kind == "mcp" {
+				t.Errorf("signed=%v: an unapproved descriptor was written: %+v", signed, w)
+			}
+		}
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", false, true /* dryRun */, false, portabilityOptions{}, nil)
-	if err != nil {
-		t.Fatalf("materializeForProviders: %v", err)
-	}
-	r := results["claude"]
-	if len(r.NeedsApproval) != 1 {
-		t.Errorf("expected 1 needs-approval with trust=false, got %d", len(r.NeedsApproval))
-	}
-	if len(r.Written) != 0 {
-		t.Errorf("expected 0 written artifacts with trust=false, got %d", len(r.Written))
+		// With the approval for this exact hash, it installs.
+		approved := map[string]string{"kb:kb-a\x00tools": hash}
+		results, err = materializeForProviders(uniformManifests(m, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", false, false, portabilityOptions{}, nil, approved)
+		if err != nil {
+			t.Fatalf("signed=%v approved: %v", signed, err)
+		}
+		if n := len(results["claude"].NeedsApproval); n != 0 {
+			t.Errorf("signed=%v: an approved descriptor still needs approval: %+v", signed, results["claude"].NeedsApproval)
+		}
 	}
 }
 
@@ -357,7 +378,7 @@ func TestMaterializeForProviders_Instructions_ClaudeEKiro(t *testing.T) {
 	dir := t.TempDir()
 	m := instructionsManifest("homelab", "Contenuto di imprinting per homelab.\n")
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"claude", "kiro"}), globalProjections([]string{"claude", "kiro"}, dir), dir, "", true, false /* dryRun */, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"claude", "kiro"}), globalProjections([]string{"claude", "kiro"}, dir), dir, "", false /* dryRun */, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
@@ -395,7 +416,9 @@ func TestMaterializeForProviders_Instructions_ClaudeEKiro(t *testing.T) {
 	}
 }
 
-func TestDiffWithTrustKeepsVerificationState(t *testing.T) {
+// D906: an unsigned KB skill is installed, so a diff holding one reports no
+// pending approval and the artifact keeps its (absent) signature.
+func TestDiffUnsignedKBSkillNeedsNoApproval(t *testing.T) {
 	m := kbSkillManifest()
 	pm := provisioning.FilterForProvider(m, configurator.ProviderClaudeCode)
 	d := provisioning.ComputeDiff(pm, provisioning.Lock{})
@@ -404,29 +427,26 @@ func TestDiffWithTrustKeepsVerificationState(t *testing.T) {
 		t.Fatalf("expected 1 added artifact, got %d", len(d.Added))
 	}
 	if d.Added[0].Signed {
-		t.Error("trust must not change cryptographic verification state")
+		t.Error("the absence of a trust switch must not change the verification state")
 	}
-	if got := formatDiffStatus(d); got != "drift +1 ~0 -0 (1 needs approval, use CLI --auto-trust)" {
+	if got := formatDiffStatus(d); got != "drift +1 ~0 -0" {
 		t.Errorf("formatDiffStatus = %q", got)
 	}
 }
 
-func TestDiffWithoutTrust_NeedsApproval(t *testing.T) {
-	m := kbSkillManifest()
-	pm := provisioning.FilterForProvider(m, configurator.ProviderClaudeCode)
-	d := provisioning.ComputeDiff(pm, provisioning.Lock{})
-
-	got := formatDiffStatus(d)
-	if got == "drift +1 ~0 -0" {
-		t.Errorf("formatDiffStatus = %q, expected a needs-approval hint without trust", got)
+// An MCP descriptor is the one artifact that still waits for an approval.
+func TestDiffMCPDescriptorNeedsApproval(t *testing.T) {
+	d := provisioning.Diff{Added: []provisioning.Artifact{{Kind: "mcp", Name: "tools", Source: "kb:x", Signed: true}}}
+	if got := formatDiffStatus(d); !strings.Contains(got, "1 needs approval") || strings.Contains(got, "--auto-trust") {
+		t.Errorf("formatDiffStatus = %q", got)
 	}
 }
 
-// TestDoConnect_PersistsTrust exercises doConnect against an unreachable
+// TestDoConnect_PersistsToken exercises doConnect against an unreachable
 // server (so skill materialization is deferred, not fatal — see doConnect's
-// doc comment) and checks that the chosen Trust value still ends up in
-// .cartographer.yaml (step 3 of doConnect persists it unconditionally).
-func TestDoConnect_PersistsTrust(t *testing.T) {
+// doc comment) and checks that the token spec ends up in .cartographer.yaml as
+// `token`, with no trust key (step 3 of doConnect persists it unconditionally).
+func TestDoConnect_PersistsToken(t *testing.T) {
 	dir := t.TempDir()
 
 	opts := connectOptions{
@@ -434,8 +454,7 @@ func TestDoConnect_PersistsTrust(t *testing.T) {
 		Dir:       dir,
 		ServerURL: "http://127.0.0.1:1/mcp", // nobody listens here: connection refused
 		Name:      "cartographer",
-		TokenEnv:  "CARTOGRAPHER_TOKENS",
-		Trust:     false,
+		Token:     "${CARTOGRAPHER_TOKENS}",
 	}
 
 	res, err := doConnect(opts)
@@ -446,25 +465,19 @@ func TestDoConnect_PersistsTrust(t *testing.T) {
 		t.Fatal("expected sync to be deferred (unreachable server)")
 	}
 
+	raw, err := os.ReadFile(clientconfig.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "token: ${CARTOGRAPHER_TOKENS}") || strings.Contains(string(raw), "trust") || strings.Contains(string(raw), "token_env") {
+		t.Errorf("unexpected client file:\n%s", raw)
+	}
 	cfg, err := clientconfig.Load(dir)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
+	if err != nil || !cfg.HasAgent("claude") {
+		t.Fatalf("agents must be readable from the state file: %+v, %v", cfg, err)
 	}
-	if cfg.Trust {
-		t.Error("expected persisted Trust=false")
-	}
-
-	// Now reconnect choosing Trust=true and confirm it flips.
-	opts.Trust = true
-	if _, err := doConnect(opts); err != nil {
-		t.Fatalf("doConnect (2nd): %v", err)
-	}
-	cfg, err = clientconfig.Load(dir)
-	if err != nil {
-		t.Fatalf("Load (2nd): %v", err)
-	}
-	if !cfg.Trust {
-		t.Error("expected persisted Trust=true after reconnecting with Trust=true")
+	if st, err := os.ReadFile(clientconfig.StatePath(dir)); err != nil || !strings.Contains(string(st), "claude") {
+		t.Errorf("the state file must hold the agents: %q, %v", st, err)
 	}
 }
 
@@ -476,11 +489,13 @@ func TestMaterializeForProviders_StdioPreflightIsAtomic(t *testing.T) {
 	dir := t.TempDir()
 	content := []byte(`{"type":"stdio","command":"cartographer-definitely-missing-command"}`)
 	file := provisioning.ArtifactFile{Path: "missing.json", Content: content}
+	hash := provisioning.ContentHashFiles([]provisioning.ArtifactFile{file})
 	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{{
 		Kind: "mcp", Name: "missing", Source: "kb:kb", Signed: true,
-		ContentHash: provisioning.ContentHashFiles([]provisioning.ArtifactFile{file}), Files: []provisioning.ArtifactFile{file},
+		ContentHash: hash, Files: []provisioning.ArtifactFile{file},
 	}}}
-	_, err := materializeForProviders(uniformManifests(m, []string{"claude", "codex"}), globalProjections([]string{"claude", "codex"}, dir), dir, "", false, false, false, portabilityOptions{}, nil)
+	approved := map[string]string{"kb:kb\x00missing": hash}
+	_, err := materializeForProviders(uniformManifests(m, []string{"claude", "codex"}), globalProjections([]string{"claude", "codex"}, dir), dir, "", false, false, portabilityOptions{}, nil, approved)
 	if err == nil || !strings.Contains(err.Error(), "not found on PATH") || !strings.Contains(err.Error(), "for claude") {
 		t.Fatalf("preflight error = %v", err)
 	}
@@ -686,7 +701,7 @@ func TestSyncFailsBeforeMaterializing(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &clientconfig.Config{
 		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
-		Agents: []string{"claude"}, KnownKBs: []string{"one", "two"}, Trust: true,
+		Agents: []string{"claude"}, KnownKBs: []string{"one", "two"},
 	}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -857,14 +872,14 @@ func TestUnbindingRemovesItsArtifacts(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &clientconfig.Config{
 		ServerURL: srv.URL + "/mcp", KnownKBs: []string{"one", "two"},
-		Agents: []string{"claude"}, Trust: true,
+		Agents: []string{"claude"},
 	}
 
 	both, err := manifestsForProviders(cfg, cfg.Agents)
 	if err != nil {
 		t.Fatalf("manifestsForProviders: %v", err)
 	}
-	if _, err := materializeForProviders(both, globalProjections(cfg.Agents, dir), dir, "", true, false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(both, globalProjections(cfg.Agents, dir), dir, "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materialize: %v", err)
 	}
 	twoPath := filepath.Join(dir, ".claude", "skills", "skill-two", "SKILL.md")
@@ -880,7 +895,7 @@ func TestUnbindingRemovesItsArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manifestsForProviders (narrowed): %v", err)
 	}
-	if _, err := materializeForProviders(narrowed, globalProjections(cfg.Agents, dir), dir, "", true, false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(narrowed, globalProjections(cfg.Agents, dir), dir, "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("materialize (narrowed): %v", err)
 	}
 	if _, err := os.Stat(twoPath); !os.IsNotExist(err) {
@@ -957,7 +972,7 @@ func TestPrintSyncRevisions_UnsupportedKindReportsRecordedRevision(t *testing.T)
 		t.Fatal("test fixture is broken: filtering the agent out must change the revision")
 	}
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"crush"}), globalProjections([]string{"crush"}, t.TempDir()), t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"crush"}), globalProjections([]string{"crush"}, t.TempDir()), t.TempDir(), "", false, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
@@ -983,7 +998,7 @@ func TestPrintSyncRevisions_DryRunMatchesReal(t *testing.T) {
 	m := skillAndAgentManifest()
 	filtered := provisioning.FilterForProvider(m, configurator.ProviderCrush)
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"crush"}), globalProjections([]string{"crush"}, t.TempDir()), t.TempDir(), "", true, true /* dryRun */, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"crush"}), globalProjections([]string{"crush"}, t.TempDir()), t.TempDir(), "", true /* dryRun */, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders (dry-run): %v", err)
 	}
@@ -1007,7 +1022,7 @@ func TestPrintSyncRevisions_MultiProviderDivergence(t *testing.T) {
 		t.Fatal("test fixture is broken: claude and crush must diverge")
 	}
 
-	results, err := materializeForProviders(uniformManifests(m, []string{"claude", "crush"}), globalProjections([]string{"claude", "crush"}, t.TempDir()), t.TempDir(), "", true, false, false, portabilityOptions{}, nil)
+	results, err := materializeForProviders(uniformManifests(m, []string{"claude", "crush"}), globalProjections([]string{"claude", "crush"}, t.TempDir()), t.TempDir(), "", false, false, portabilityOptions{}, nil)
 	if err != nil {
 		t.Fatalf("materializeForProviders: %v", err)
 	}
@@ -1058,7 +1073,7 @@ func TestSyncWritesNothingWhenPullFails(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &clientconfig.Config{
 		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
-		Agents: []string{"claude"}, KnownKBs: []string{"gone"}, Trust: true,
+		Agents: []string{"claude"}, KnownKBs: []string{"gone"},
 	}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
@@ -1120,7 +1135,7 @@ func TestMaterializeCheckpointsPerProvider(t *testing.T) {
 	// Learn where opencode materializes, by letting it succeed once in a
 	// throwaway directory, then sabotage that exact path in the real one.
 	probe := t.TempDir()
-	if _, err := materializeForProviders(map[string]provisioning.Manifest{"opencode": agentManifest}, globalProjections([]string{"opencode"}, probe), probe, "", true, false, false, portabilityOptions{}, nil); err != nil {
+	if _, err := materializeForProviders(map[string]provisioning.Manifest{"opencode": agentManifest}, globalProjections([]string{"opencode"}, probe), probe, "", false, false, portabilityOptions{}, nil); err != nil {
 		t.Fatalf("probe run: %v", err)
 	}
 	probeLock, err := provisioning.ReadLockFile(lockFilePath(probe))
@@ -1138,7 +1153,7 @@ func TestMaterializeCheckpointsPerProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = materializeForProviders(manifests, globalProjections(providers, dir), dir, "", true, false, false, portabilityOptions{}, nil)
+	_, err = materializeForProviders(manifests, globalProjections(providers, dir), dir, "", false, false, portabilityOptions{}, nil)
 	if err == nil {
 		t.Fatal("materialize should fail: opencode's destination file is a directory")
 	}
@@ -1172,7 +1187,7 @@ func TestDryRunPlanCoversRemovalsAndKnownKBs(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &clientconfig.Config{
 		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
-		Agents: []string{"claude"}, KnownKBs: []string{"one", "gone"}, Trust: true,
+		Agents: []string{"claude"}, KnownKBs: []string{"one", "gone"},
 	}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
@@ -1243,7 +1258,7 @@ func TestSyncContinuesPastAKBThatCannotBePulled(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &clientconfig.Config{
 		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
-		Agents: []string{"claude", "codex"}, KnownKBs: []string{"one", "two"}, Trust: true,
+		Agents: []string{"claude", "codex"}, KnownKBs: []string{"one", "two"},
 		Clients: map[string]clientconfig.ClientBinding{
 			"claude": {KBs: []string{"one"}},
 			"codex":  {KBs: []string{"two"}},
@@ -1300,7 +1315,7 @@ func TestSyncWritesNothingWhenEveryProviderNeedsAFailedKB(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &clientconfig.Config{
 		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
-		Agents: []string{"claude"}, KnownKBs: []string{"one", "two"}, Trust: true,
+		Agents: []string{"claude"}, KnownKBs: []string{"one", "two"},
 		Clients: map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"one", "two"}}},
 	}
 	if err := clientconfig.Save(dir, cfg); err != nil {

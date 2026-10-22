@@ -82,11 +82,10 @@ func TestApply_Hook_RegistraSettingsJSON(t *testing.T) {
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -127,11 +126,10 @@ func TestApply_Hook_ReApply_NessunDuplicato(t *testing.T) {
 
 	baseDir := t.TempDir()
 	opts := provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	}
 
 	if _, err := provisioning.Apply(m, opts); err != nil {
@@ -170,11 +168,10 @@ func TestApply_Hook_ScriptMaterializzatoEseguibile(t *testing.T) {
 
 	baseDir := t.TempDir()
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -211,11 +208,10 @@ func TestApply_Hook_ComandoBare_VerbatimConMarkerCommento(t *testing.T) {
 
 	baseDir := t.TempDir()
 	opts := provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	}
 	if _, err := provisioning.Apply(m, opts); err != nil {
 		t.Fatalf("Apply (1): %v", err)
@@ -264,11 +260,10 @@ func TestApply_Hook_PreservaChiaviUtenteESettingsPreesistente(t *testing.T) {
 	}
 
 	_, err = provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -328,11 +323,10 @@ func TestApply_Hook_Removed_RimuoveEntrySettings(t *testing.T) {
 	}
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply (materialize): %v", err)
@@ -349,11 +343,10 @@ func TestApply_Hook_Removed_RimuoveEntrySettings(t *testing.T) {
 	}
 
 	res2, err := provisioning.Apply(m2, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		Lock:      res.NewLock,
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		Lock:     res.NewLock,
 	})
 	if err != nil {
 		t.Fatalf("Apply (removal): %v", err)
@@ -482,7 +475,7 @@ func TestApplyAndPrune_AntigravityHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Lock: provisioning.Lock{},
 	}
 	res, err := provisioning.Apply(m, opts)

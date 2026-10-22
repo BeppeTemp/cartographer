@@ -46,21 +46,11 @@ const pushFlushTimeout = 5 * time.Second
 func gitWrap(k *kb.KB, t Tool) Tool {
 	orig := t
 	t.InputSchema = withReasonProperty(t.Name, t.InputSchema)
-	gated := acceptsFindings(t.Name) && writeGateActive(k)
-	if gated {
-		t.InputSchema = withAcceptFindingsProperty(t.Name, t.InputSchema)
-	}
+	gated := gatedTool(t.Name)
 	t.GitWrapped = true
 	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		var res ToolResult
 		var handlerErr error
-		var accepts []acceptedFinding
-		if gated {
-			var perr error
-			if accepts, perr = parseAcceptFindings(args); perr != nil {
-				return errorResult(perr.Error()), nil
-			}
-		}
 		var syncInDur, handlerDur, commitDur, pushDur time.Duration
 		var pushAsync bool
 		start := time.Now()
@@ -96,32 +86,29 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				if _, regenErr := k.RegenerateIndexes(); regenErr != nil {
 					fmt.Fprintf(os.Stderr, "cartographer: generated index (%s): %v\n", orig.Name, regenErr)
 				}
-				// Write gate (D350): after the regeneration above and the
-				// handler's own repair-on-write (D349), before anything is
-				// committed. A refusal has already rolled the tree back.
-				var trailers []string
+				// Write gate (D350, D907): after the regeneration above and
+				// the handler's own repair-on-write (D349), before anything
+				// is committed. A refusal has already rolled the tree back.
 				if gateOn {
-					out := judgeWrite(k, orig.Name, accepts)
-					if out.Refusal != nil {
-						res = *out.Refusal
+					if refusal := judgeWrite(k, orig.Name, newCallerView(ctx, k)); refusal != nil {
+						res = *refusal
 						return nil
 					}
-					trailers = out.Trailers
 				}
 				msg := commitMessage(orig.Name, args)
 				if res.CommitSubject != "" {
 					msg = res.CommitSubject
 				}
-				// One trailer paragraph, in order: Reason, Agent, the write
-				// gate's Accepted-Finding lines, then Cartographer-Token (git
-				// only parses the last contiguous block). The subject comes
-				// from tool arguments: no copy of the token trailer survives it.
+				// One trailer paragraph, in order: Reason, Agent, then
+				// Cartographer-Token (git only parses the last contiguous
+				// block). The subject comes from tool arguments: no copy of
+				// the token trailer survives it.
 				msg = stripTokenTrailers(msg)
-				if block := commitTrailerBlock(ctx, args, trailers...); block != "" {
+				if block := commitTrailerBlock(ctx, args); block != "" {
 					msg += "\n\n" + block
 				}
 				commitStart := time.Now()
-				authorName, authorEmail := writerAuthor(ctx)
+				authorName, authorEmail := writerAuthor(ctx, k)
 				sha, commitErr := k.CommitOpAs(msg, authorName, authorEmail)
 				commitDur = time.Since(commitStart)
 				if commitErr == nil {
@@ -142,7 +129,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				// sync or async — is non-fatal; Step 3 surfaces rebase
 				// conflicts as degraded concepts.
 				pushDur, pushAsync = pushAfterCommit(k, orig.Name, &res)
-				appendAuthorWarning(ctx, &res)
+				appendAuthorWarning(ctx, k, &res)
 			}
 			return nil
 		})
@@ -170,11 +157,11 @@ func syncInForWrite(k *kb.KB) (ToolResult, bool) {
 }
 
 // commitTrailerBlock builds the one trailer paragraph of a write's commit, in
-// order: Reason, Agent, extra (the write gate's Accepted-Finding lines, or the
-// transfer's Moved-* lines), then Cartographer-Token (D904). Git only parses
-// the last contiguous block. The token trailer is last and any copy in extra is
-// dropped, so the one gitx reads is the server's. Empty when there is nothing
-// to say.
+// order: Reason, Agent, extra (the transfer's Moved-* lines), then
+// Cartographer-Host (D950) and Cartographer-Token (D904). Git only parses the
+// last contiguous block. The host and token trailers are last and any copy in
+// extra is dropped, so the ones gitx reads are the server's. Empty when there
+// is nothing to say.
 func commitTrailerBlock(ctx context.Context, args json.RawMessage, extra ...string) string {
 	var block []string
 	if reason := commitReason(args); reason != "" {
@@ -189,6 +176,9 @@ func commitTrailerBlock(ctx context.Context, args json.RawMessage, extra ...stri
 		}
 	}
 	if token := commitToken(ctx); token != "" {
+		if host := kb.ServerHost(); host != "" {
+			block = append(block, commitHostKey+": "+host)
+		}
 		block = append(block, commitTokenKey+": "+token)
 	}
 	return strings.Join(block, "\n")
@@ -323,7 +313,7 @@ func commitReason(args json.RawMessage) string {
 
 // normalizeReason is the shared normalisation of a free-text reason: whitespace
 // collapsed, cut to maxCommitReasonBytes at a rune boundary with an ellipsis
-// (the Reason trailer, D272, and accept_findings reasons, D350).
+// (the Reason trailer, D272).
 func normalizeReason(raw string) string {
 	reason := strings.Join(strings.Fields(raw), " ")
 	if len(reason) > maxCommitReasonBytes {

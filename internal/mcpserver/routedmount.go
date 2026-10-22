@@ -294,10 +294,9 @@ func (m *MultiKBServer) mountedNames() []string {
 // point rather than in fifty schema literals.
 //
 // The exposed set is the **union**, not the intersection. An intersection would
-// silently hide artifact_write from a KB that allows it because a sibling KB
-// does not; the union registers it once and refuses it per KB at dispatch, with
-// an error naming the KB and the setting that would enable it — which is the
-// answer a caller can act on.
+// silently hide a tool from a KB that registers it because a sibling KB does
+// not; the union registers it once and refuses it per KB at dispatch, with an
+// error naming the KB — which is the answer a caller can act on.
 func (m *MultiKBServer) unionTools(set []string) []Tool {
 	seen := map[string]bool{}
 	var out []Tool
@@ -378,7 +377,7 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 			// The union exposed it because a sibling KB has it. Attribute the
 			// refusal: the caller must learn which KB refused and why, not that
 			// a tool it can see does not exist.
-			return errorResult(fmt.Sprintf("kb %q: %s", kbName, unknownToolMessage(toolName))), nil
+			return errorResult(fmt.Sprintf("kb %q: tool not found: %s", kbName, toolName)), nil
 		}
 		res := srv.callTool(withRoutedSet(ctx, set), toolName, rest)
 		if toolName == "kb_status" && !res.IsError {

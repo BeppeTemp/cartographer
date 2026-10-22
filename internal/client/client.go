@@ -113,7 +113,9 @@ func classifyDialErr(err error) string {
 // MCPClient is a minimal JSON-RPC 2.0 client for the MCP `tools/call` method.
 type MCPClient struct {
 	ServerURL string // e.g. "http://127.0.0.1:39273/mcp"
-	Token     string // bearer token, empty = no Authorization header
+	// AllowInsecureHTTP lets requests go to a non-loopback http:// URL (see CheckServerURL).
+	AllowInsecureHTTP bool
+	Token             string // bearer token, empty = no Authorization header
 	// TokenEnv names the environment variable Token was read from, so a 401
 	// can say which variable to look at (D222). Empty when the caller has no
 	// such variable, and the 401 message is then exactly what it was before.
@@ -218,6 +220,14 @@ func New(serverURL, token string) *MCPClient {
 func (c *MCPClient) WithKB(name string) *MCPClient {
 	cp := *c
 	cp.KB = name
+	return &cp
+}
+
+// WithInsecureHTTP returns a copy of the client that does (or does not) accept
+// a non-loopback http:// server URL. The default refuses it (CheckServerURL).
+func (c *MCPClient) WithInsecureHTTP(allow bool) *MCPClient {
+	cp := *c
+	cp.AllowInsecureHTTP = allow
 	return &cp
 }
 
@@ -349,6 +359,9 @@ func (c *MCPClient) withProtocolMeta(params any) any {
 
 // do sends a single JSON-RPC 2.0 request and returns the raw "result" field.
 func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
+	if err := CheckServerURL(c.ServerURL, c.AllowInsecureHTTP); err != nil {
+		return nil, err
+	}
 	reqURL, err := c.requestURL()
 	if err != nil {
 		return nil, err
@@ -392,7 +405,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 		httpReq.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
-	resp, err := c.HTTP.Do(httpReq)
+	resp, err := HTTPClient(c.HTTP, c.AllowInsecureHTTP).Do(httpReq)
 	if err != nil {
 		return nil, &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
 			Message: unreachableMessage(reqURL, err), Cause: err}
@@ -453,7 +466,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 // unknown method.
 func (c *MCPClient) Ping(timeout time.Duration) error {
 	cp := *c
-	hc := *c.HTTP
+	hc := *HTTPClient(c.HTTP, c.AllowInsecureHTTP)
 	hc.Timeout = timeout
 	cp.HTTP = &hc
 	_, err := cp.do("server/discover", nil)
@@ -466,6 +479,9 @@ func (c *MCPClient) Ping(timeout time.Duration) error {
 // applies only to this call and does not mutate the client shared by later
 // sync_pull requests.
 func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
+	if err := CheckServerURL(c.ServerURL, c.AllowInsecureHTTP); err != nil {
+		return nil, err
+	}
 	u, err := url.Parse(c.ServerURL)
 	if err != nil {
 		return nil, fmt.Errorf("client: invalid server URL %q: %w", c.ServerURL, err)
@@ -475,7 +491,7 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 	u.Fragment = ""
 	u.Path = strings.TrimRight(u.Path, "/") + "/health"
 
-	hc := *c.HTTP
+	hc := *HTTPClient(c.HTTP, c.AllowInsecureHTTP)
 	hc.Timeout = timeout
 	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -558,6 +574,9 @@ func (c *MCPClient) WithdrawDoctorSchedule(kbName string, timeout time.Duration)
 // apiCall sends one request to a server /api route (client-to-server metadata,
 // not an MCP call) with the same auth and error mapping for every caller.
 func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time.Duration) error {
+	if err := CheckServerURL(c.ServerURL, c.AllowInsecureHTTP); err != nil {
+		return err
+	}
 	u, err := url.Parse(c.ServerURL)
 	if err != nil {
 		return fmt.Errorf("client: invalid server URL %q: %w", c.ServerURL, err)
@@ -578,7 +597,7 @@ func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time
 		}
 		reader = bytes.NewReader(raw)
 	}
-	hc := *c.HTTP
+	hc := *HTTPClient(c.HTTP, c.AllowInsecureHTTP)
 	hc.Timeout = timeout
 	req, err := http.NewRequest(method, u.String(), reader)
 	if err != nil {

@@ -4,6 +4,8 @@ topic: data-plane
 
 # D746 — A KB carries its own policy in `settings.yaml`, and it wins over the server
 
+> **Amended by [D906](D906-settings-cleanup.md)**: the KB's `settings.yaml` is the only home of a KB's policy (the `kbs[]` twins and the "ignored server value" report are gone), `mcp_allowlist` and `allow_artifact_write` are removed, and `secrets` is derived from the sops files under `secrets/`.
+
 **Decision.** The per-KB keys that describe how a KB behaves (the schema's `kb` scope: artifact and
 template writes, write gate, auto-repair, doctor cadence, MCP allow-list, how changes land, and the
 new `secrets` declaration) can be set in `settings.yaml` at the KB root, next to `paths.yaml`. The

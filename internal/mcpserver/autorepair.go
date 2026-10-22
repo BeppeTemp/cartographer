@@ -18,8 +18,9 @@ import (
 )
 
 // The background repair (D323): a KB that is never visited by a kb-doctor
-// session still drifts, so the server applies the KB's auto_repair checks
-// itself, once per doctor_auto_interval. It is a heartbeat, not a doctor
+// session still drifts, so the server applies every safe fix (lint.AutoRepairChecks)
+// itself, once per autoRepairInterval (D907: no setting turns it off or moves
+// it). It is a heartbeat, not a doctor
 // session: it never writes the kb-doctor log marker (D290), so it does not
 // move last_doctor and does not silence the doctor proposal for the
 // judgement work it cannot do.
@@ -41,6 +42,9 @@ const (
 	// autoRepairPullGap is the least time between a run and the next one
 	// that a git pull asks for (D355).
 	autoRepairPullGap = 10 * time.Minute
+	// autoRepairInterval is the heartbeat's period: the default of the removed
+	// doctor_auto_interval (D323), now fixed (D907).
+	autoRepairInterval = kb.AutoRepairIntervalDays * 24 * time.Hour
 	// autoRepairStartupDelay keeps the first run off the boot path.
 	autoRepairStartupDelay = time.Minute
 )
@@ -140,47 +144,15 @@ func lastAutoRepairRun(k *kb.KB) (autoRepairRun, bool) {
 	return last, found
 }
 
-// autoRepairSplit divides the KB's auto_repair list into the checks the
-// background repair and repair-on-write run, and the ones they ignore (D355):
-// only a check whose registered fix is safe to run with no person (D354) runs
-// unattended; the operator's own kb_repair is unchanged.
-func autoRepairSplit(k *kb.KB) (safe, ignored []string) {
-	return splitAutoRepair(k.Policy().AutoRepair)
-}
-
-// splitAutoRepair is autoRepairSplit over a list the caller already holds.
-func splitAutoRepair(checks []string) (safe, ignored []string) {
-	for _, c := range checks {
-		if lint.AutoRepairSafe(c) {
-			safe = append(safe, c)
-		} else {
-			ignored = append(ignored, c)
-		}
-	}
-	return safe, ignored
-}
-
 // StartAutoRepair starts the heartbeat for the KB this server serves and
-// returns at once. It does nothing when the KB has no runnable auto_repair
-// checks or doctor_auto_interval is 0. Cancelling ctx stops it: the goroutine
-// ends at the next wait, and no run starts after cancellation.
+// returns at once. Cancelling ctx stops it: the goroutine ends at the next
+// wait, and no run starts after cancellation.
 func (s *Server) StartAutoRepair(ctx context.Context) {
 	k := s.kbRef
 	if k == nil {
 		return
 	}
-	pol := k.Policy()
-	if pol.DoctorAutoIntervalDays <= 0 || len(pol.AutoRepair) == 0 {
-		return
-	}
-	safe, ignored := splitAutoRepair(pol.AutoRepair)
-	if len(ignored) > 0 {
-		fmt.Fprintf(os.Stderr, "cartographer: auto_repair for %s ignores %s: not safe to run unattended (kb_repair still applies them on request)\n", kbName(k), strings.Join(ignored, ", "))
-	}
-	if len(safe) == 0 {
-		return
-	}
-	interval := time.Duration(pol.DoctorAutoIntervalDays) * 24 * time.Hour
+	interval := autoRepairInterval
 	// Every start runs once, shortly after boot (D704): a start is an
 	// upgrade, a config change or a fresh clone, each of which can make pages
 	// nobody wrote fixable, and a fix waiting a day is a queue the Atlas would
@@ -279,7 +251,7 @@ func (r *stagedRepair) total() int {
 // seeded names the checks the concept was selected for, charged with the skip
 // when the concept is left alone.
 func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed []lint.Finding, seeded []string) bool {
-	out, skip := repairConceptFixpoint(k, id, local, seed)
+	out, skip := repairConceptFixpointOnly(k, id, local, seed, nil)
 	if skip != nil {
 		for _, c := range seeded {
 			r.skipped[c]++
@@ -309,8 +281,7 @@ func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed
 //  3. if stage 2 changed anything, stage 1 runs once more on the concepts it
 //     touched: a rebased link can expose a duplicate.
 //
-// Artifact checks run last, and only where the KB allows artifact writes. The
-// caller holds the KB lock.
+// Artifact checks run last. The caller holds the KB lock.
 func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int) *stagedRepair {
 	r := newStagedRepair()
 	var local, cross, artifact, folders []string
@@ -447,26 +418,24 @@ func stagedAutoRepair(ctx context.Context, k *kb.KB, checks []string, quota int)
 		}
 	}
 
-	if k.Policy().AllowArtifactWrite {
-		for _, check := range artifact {
-			if ctx.Err() != nil {
-				return r
-			}
-			targets, _, err := planArtifactRepair(k, check, "")
-			if err != nil {
-				r.errs = append(r.errs, check+": "+err.Error())
-				continue
-			}
-			if len(targets) > quota {
-				targets = targets[:quota]
-			}
-			if len(targets) == 0 {
-				continue
-			}
-			applied, skipped := applyArtifactRepair(k, targets)
-			r.applied[check] += len(applied)
-			r.skipped[check] += len(skipped)
+	for _, check := range artifact {
+		if ctx.Err() != nil {
+			return r
 		}
+		targets, _, err := planArtifactRepair(k, check, "")
+		if err != nil {
+			r.errs = append(r.errs, check+": "+err.Error())
+			continue
+		}
+		if len(targets) > quota {
+			targets = targets[:quota]
+		}
+		if len(targets) == 0 {
+			continue
+		}
+		applied, skipped := applyArtifactRepair(k, targets)
+		r.applied[check] += len(applied)
+		r.skipped[check] += len(skipped)
 	}
 	return r
 }
@@ -493,10 +462,7 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 		_ = appendAutoRepairRun(k, run)
 		return run
 	}
-	checks, _ := autoRepairSplit(k)
-	if len(checks) == 0 {
-		return run
-	}
+	checks := lint.AutoRepairChecks()
 	var stats *stagedRepair
 	// Named kb_repair so the commit, audit and authorization treat it as the
 	// repair it is; it is not registered, so tools/list does not change.
@@ -541,6 +507,10 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 		}
 		if entry.Applied > 0 {
 			entry.Commit = res.CommitSHA
+		}
+		// A check that found nothing is not reported.
+		if entry.Applied == 0 && entry.Skipped == 0 && entry.Error == "" {
+			continue
 		}
 		run.Checks = append(run.Checks, entry)
 		if entry.Applied > 0 {

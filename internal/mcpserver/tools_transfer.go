@@ -215,7 +215,7 @@ func runTransfer(ctx context.Context, args json.RawMessage, src *kb.KB, srcName 
 		TargetFiles: func() []string { return plan.targetFiles(dst) },
 		ApplyTarget: func() error {
 			var err error
-			tgt, err = applyTransferTarget(src, dst, plan)
+			tgt, err = applyTransferTarget(src, dst, plan, newCallerView(ctx, dst))
 			if err == nil {
 				err = dst.AppendLog(fmt.Sprintf("concept_transfer (%d concept(s) from %s):\n%s", len(plan.items), srcName, strings.Join(plan.logLines(srcName, dstName, false), "\n")), time.Now())
 			}
@@ -344,6 +344,26 @@ func transferSubject(pl *transferPlan, dir, other string) string {
 	return fmt.Sprintf("concept_transfer: %s %s %s", strings.Join(ids, ", "), dir, other)
 }
 
+// transferTypeViolation refuses a move into a target-KB map that is strict and
+// does not admit the concept's type: the page would only fail the next validate
+// of the target KB, so the transfer is refused before either KB is written
+// (#940, the same rule as concept_move's #921). A typeless page is not judged.
+func transferTypeViolation(dst *kb.KB, m conceptMoveEntry, fm *okf.Frontmatter) error {
+	dstMap, ok := conceptMapName(m.TargetID)
+	conceptType := fm.Type()
+	if !ok || conceptType == "" {
+		return nil
+	}
+	meta, err := dst.ReadArchiveMeta(dstMap)
+	if err != nil || strictTypeViolation(meta, dstMap, conceptType) == nil {
+		return nil
+	}
+	admitted, _ := meta.Get("concept_types")
+	return fmt.Errorf("concept_transfer: %q has type %q, which map %s of the target KB (strict) does not admit; admitted types: %s. "+
+		"Nothing was transferred — extend the map's concept_types with map_update, or pick a map that admits the type",
+		m.SourceID, conceptType, dstMap, strings.Join(admitted.([]string), ", "))
+}
+
 // planTransfer validates every move before any write. Nothing here mutates
 // either KB.
 func planTransfer(src, dst *kb.KB, p transferParams) (*transferPlan, *ToolResult) {
@@ -386,6 +406,9 @@ func planTransfer(src, dst *kb.KB, p transferParams) (*transferPlan, *ToolResult
 		fm, err := okf.ParseFrontmatter(data.FrontmatterRaw)
 		if err != nil {
 			return nil, errRes(errorResult(fmt.Sprintf("concept_transfer: parse frontmatter %q: %v", m.SourceID, err)))
+		}
+		if err := transferTypeViolation(dst, m, fm); err != nil {
+			return nil, errRes(errorResult(err.Error()))
 		}
 		it := transferItem{fromID: m.SourceID, toID: m.TargetID, srcLoc: srcLoc, dstLoc: dstLoc, expanded: srcLoc.Expanded, fm: fm, body: data.Body,
 			mappings: map[string]string{m.SourceID: m.TargetID}}
@@ -652,7 +675,9 @@ type transferTargetOut struct {
 
 // applyTransferTarget writes the moved concepts into dst. Any error leaves a
 // half-written tree for the caller to discard.
-func applyTransferTarget(src, dst *kb.KB, pl *transferPlan) (transferTargetOut, error) {
+// view is the caller's on dst: the source needs whole-KB write, the target
+// only write on the destination slots, so its findings are filtered (D907).
+func applyTransferTarget(src, dst *kb.KB, pl *transferPlan, view *callerView) (transferTargetOut, error) {
 	var out transferTargetOut
 	for _, it := range pl.items {
 		if err := os.MkdirAll(filepath.Dir(it.dstLoc.Dir), 0o755); err != nil {
@@ -707,13 +732,13 @@ func applyTransferTarget(src, dst *kb.KB, pl *transferPlan) (transferTargetOut, 
 		}
 	}
 
-	// Curated index of each destination map that asked for one.
+	// Curated index of each destination map (every non-generated one, D907).
 	for _, it := range pl.items {
 		mapName, ok := conceptMapName(it.toID)
 		if !ok {
 			continue
 		}
-		if contract, err := dst.ReadMapContract(mapName); err == nil && contract.Index != kb.IndexGenerated && contract.RequireIndexEntry {
+		if contract, err := dst.ReadMapContract(mapName); err == nil && contract.Index != kb.IndexGenerated {
 			if err := appendCuratedEntry(dst, mapName, okf.ConceptID(it.toID)); err != nil {
 				out.notes = append(out.notes, fmt.Sprintf("curated index %s/index.md: %v", mapName, err))
 			} else {
@@ -727,7 +752,7 @@ func applyTransferTarget(src, dst *kb.KB, pl *transferPlan) (transferTargetOut, 
 		written = append(written, nw)
 	}
 	sort.Strings(written)
-	out.findings, _, _ = repairWritten(dst, written, nil)
+	out.findings, _, _ = repairWritten(dst, written, nil, view)
 	return out, nil
 }
 
@@ -919,6 +944,6 @@ func applyTransferSource(src *kb.KB, pl *transferPlan) (transferSourceOut, error
 	}
 	sort.Strings(goneList)
 	sort.Strings(touched)
-	out.findings, _, _ = repairWritten(src, touched, goneList)
+	out.findings, _, _ = repairWritten(src, touched, goneList, nil)
 	return out, nil
 }

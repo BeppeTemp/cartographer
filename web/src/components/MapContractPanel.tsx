@@ -9,14 +9,18 @@ export const MAP_PANEL_WIDTH = 420;
  *  resizes along, so the graph never jumps. The CSS animation uses the same token. */
 export const MAP_PANEL_SLIDE: MotionToken = "--motion-deliberate";
 
-/** What the server does with an ontology mode (docs/data-plane.md §Maps and Journals). */
+/** What the server does with the ontology mode it derives from concept_types
+ *  (docs/data-plane.md §Maps and Journals). */
 const ONTOLOGY_NOTE: Record<string, string> = {
   strict: "only these types are accepted",
-  emergent: "a new type is accepted and registered",
-  off: "types are not checked",
+  flexible: "any type is accepted",
 };
 
 const days = (n: number) => `${n} day${n === 1 ? "" : "s"}`;
+
+/** The `*` entry (every type) first, then the types in name order. */
+const byType = <T,>(o?: Record<string, T>): [string, T][] =>
+  Object.entries(o ?? {}).sort(([a], [b]) => (a === "*" ? -1 : b === "*" ? 1 : a.localeCompare(b)));
 
 /**
  * A Map's contract, read off the `_map.md` descriptor `map_list` returns: the
@@ -68,6 +72,24 @@ export function MapContractPanel({
             ))}
           </ul>
           <p className="mapcontract__note">Lint reports each as contract_malformed until it is fixed.</p>
+        </div>
+      )}
+      {!!m.legacy_keys?.length && (
+        <div className="mapcontract__warn" role="alert">
+          <p className="mapcontract__warn-title">
+            <code>_map.md</code> still carries removed keys
+          </p>
+          <ul>
+            {m.legacy_keys.map((key) => (
+              <li key={key}>
+                <code>{key}</code>
+              </li>
+            ))}
+          </ul>
+          <p className="mapcontract__note">
+            They take no part in the contract. Lint reports them as contract_legacy_key; kb_repair rewrites the
+            descriptor without them.
+          </p>
         </div>
       )}
       {sections(m, concepts).map((s) => (
@@ -134,7 +156,6 @@ interface Section {
 
 /** The sections that have something to say, in reading order. */
 function sections(m: MapContract, concepts: number): Section[] {
-  const t = m.thresholds;
   const all: Section[] = [
     {
       title: "About",
@@ -175,30 +196,23 @@ function sections(m: MapContract, concepts: number): Section[] {
           <Row
             key="ontology"
             label="Ontology"
-            k="ontology_mode"
             note={ONTOLOGY_NOTE[m.ontology_mode]}
-            hint="How strictly the Map's concept types are enforced: strict, emergent or off."
+            hint="Derived from the types: strict when the Map lists them, flexible when it lists none."
           >
             {m.ontology_mode}
           </Row>
         ),
-        has(m.required_fields) && (
-          <Row
-            key="required"
-            label="Required fields"
-            k="required_fields"
-            hint="Frontmatter fields every concept here must carry: lint flags a page that lacks one."
-          >
-            <Chips items={m.required_fields!} code />
-          </Row>
-        ),
-        ...Object.entries(m.required_fields_by_type ?? {}).map(([type, fields]) => (
+        ...byType(m.required_fields).map(([type, fields]) => (
           <Row
             key={`required.${type}`}
             label="Required fields"
             k={`required_fields.${type}`}
-            note={`on ${type} pages, on top of the list above`}
-            hint="Fields required of one exact type, on top of the map-wide list."
+            note={type === "*" ? "on every page" : `on ${type} pages, on top of the * list`}
+            hint={
+              type === "*"
+                ? "Frontmatter fields every concept here must carry: lint flags a page that lacks one."
+                : "Fields required of one exact type, on top of the list for every type."
+            }
           >
             <Chips items={fields} code />
           </Row>
@@ -234,7 +248,8 @@ function sections(m: MapContract, concepts: number): Section[] {
             key="templates"
             label="Templates"
             k="templates"
-            hint="The page shapes this Map accepts; a page names its own in its shape field."
+            note="every page follows one, with its required sections"
+            hint="The page shapes this Map accepts: a page names its own in its shape field, or follows the default."
           >
             <Chips items={m.templates!} code />
           </Row>
@@ -250,54 +265,25 @@ function sections(m: MapContract, concepts: number): Section[] {
             <code>{m.default_template}</code>
           </Row>
         ),
-        !!m.require_template && (
-          <Row
-            key="require"
-            label="Binding"
-            k="require_template"
-            note="every page must follow one of the templates"
-            hint="Every page here must follow one of the Map's templates; lint checks the binding."
-          >
-            <Flag>required</Flag>
-          </Row>
-        ),
-        !!m.template_sections && (
-          <Row
-            key="sections"
-            label="Sections"
-            k="template_sections"
-            note="a page carries its template's H2 sections"
-            hint="A page must carry the required H2 sections of its template."
-          >
-            <Flag>required</Flag>
-          </Row>
-        ),
       ],
     },
     {
       title: "Allowed values",
       intro: "A field listed here takes only these values; lint flags any other.",
       rows: [
-        ...Object.entries(m.field_values ?? {}).map(([field, values]) => (
-          <Row
-            key={`values.${field}`}
-            label={field}
-            code
-            k={`field_values.${field}`}
-            hint={`The values ${field} accepts on any concept in this Map.`}
-          >
-            <Chips items={values} />
-          </Row>
-        )),
-        ...Object.entries(m.field_values_by_type ?? {}).flatMap(([type, fields]) =>
+        ...byType(m.field_values).flatMap(([type, fields]) =>
           Object.entries(fields).map(([field, values]) => (
             <Row
               key={`values.${type}.${field}`}
               label={field}
               code
               k={`field_values.${type}.${field}`}
-              note={`on ${type} pages only`}
-              hint={`The values ${field} accepts on ${type} pages; it replaces the map-wide list for that field.`}
+              note={type === "*" ? undefined : `on ${type} pages only`}
+              hint={
+                type === "*"
+                  ? `The values ${field} accepts on any concept in this Map.`
+                  : `The values ${field} accepts on ${type} pages; it replaces the * list for that field.`
+              }
             >
               <Chips items={values} />
             </Row>
@@ -359,13 +345,13 @@ function sections(m: MapContract, concepts: number): Section[] {
             label="Stale after"
             k="stale_after"
             note="an open page not updated for this long is flagged"
-            hint="An open concept not updated for this long is flagged stale; 0 turns it off."
+            hint="An open concept not updated for this long is flagged stale."
           >
-            {m.stale_after === 0 ? "off" : days(m.stale_after)}
+            {days(m.stale_after)}
             {m.stale_after_defaulted && <Default />}
           </Row>
         ),
-        (m.harvest_after !== undefined || m.harvest_off) && (
+        m.harvest_after !== undefined && (
           <Row
             key="harvest"
             label="Harvest after"
@@ -373,7 +359,7 @@ function sections(m: MapContract, concepts: number): Section[] {
             note="a closed entry this old is proposed for harvest"
             hint="A closed journal entry this old is proposed for harvest: its lasting facts move to live pages."
           >
-            {m.harvest_off || !m.harvest_after ? "off" : days(m.harvest_after)}
+            {days(m.harvest_after)}
             {m.harvest_after_defaulted && <Default />}
           </Row>
         ),
@@ -444,119 +430,20 @@ function sections(m: MapContract, concepts: number): Section[] {
             {m.index}
           </Row>
         ),
-        !!m.require_index_entry && (
-          <Row
-            key="entry"
-            label="Index entry"
-            k="require_index_entry"
-            note="every concept must be listed in index.md"
-            hint="Every concept here must be listed in the Map's index.md."
-          >
-            <Flag>required</Flag>
-          </Row>
-        ),
       ],
     },
     {
-      title: "Lint",
-      intro: "Checks this Map relaxes or tunes; anything unset keeps the built-in default.",
+      title: "Titles",
+      intro: "What a page title in this Map may not carry.",
       rows: [
-        has(m.lint_ignore) && (
-          <Row
-            key="ignore"
-            label="Accepted checks"
-            k="lint_ignore"
-            note="raise no findings in this Map"
-            hint="Checks accepted for the whole Map: they raise no findings here."
-          >
-            <Chips items={m.lint_ignore!} code />
-          </Row>
-        ),
-        t?.repeated_fact_min !== undefined && (
-          <Row
-            key="repeated"
-            label="Repeated fact"
-            k="repeated_fact_min"
-            note="pages sharing a line before it is reported (default 3)"
-            hint="Concepts that must carry the same line before it is reported as a repeated fact."
-          >
-            {t.repeated_fact_min} pages
-          </Row>
-        ),
-        t?.hotspot_in_degree !== undefined && (
-          <Row
-            key="hot_links"
-            label="Hotspot links"
-            k="hotspot_in_degree"
-            note="inbound links of a read hotspot (default 50)"
-            hint="Inbound links that, with hotspot_bytes, make a concept a read hotspot."
-          >
-            {t.hotspot_in_degree}
-          </Row>
-        ),
-        t?.hotspot_bytes !== undefined && (
-          <Row
-            key="hot_bytes"
-            label="Hotspot size"
-            k="hotspot_bytes"
-            note="body size of a read hotspot (default 16384)"
-            hint="Body size that, with hotspot_in_degree, makes a concept a read hotspot."
-          >
-            {t.hotspot_bytes} bytes
-          </Row>
-        ),
-        t?.oversize_bytes !== undefined && (
-          <Row
-            key="over_bytes"
-            label="Oversize page"
-            k="oversize_bytes"
-            note="a body above this is flagged"
-            hint="A concept body above this size is flagged as oversize (default: half the 60 KB read guard)."
-          >
-            {t.oversize_bytes} bytes
-          </Row>
-        ),
-        t?.oversize_concepts !== undefined && (
-          <Row
-            key="over_concepts"
-            label="Oversize Map"
-            k="oversize_concepts"
-            note="top-level concepts above which the Map is flagged (default 50)"
-            hint="Top-level concepts above which the Map itself is flagged as oversize."
-          >
-            {t.oversize_concepts}
-          </Row>
-        ),
-        t?.title_max_length !== undefined && (
-          <Row
-            key="title_len"
-            label="Title length"
-            k="title_max_length"
-            note="longer titles are flagged (default 100)"
-            hint="A title longer than this many characters is flagged; 0 turns the rule off."
-          >
-            {t.title_max_length === 0 ? "off" : `${t.title_max_length} characters`}
-          </Row>
-        ),
-        has(t?.forbidden_title_terms) && (
+        has(m.forbidden_title_terms) && (
           <Row
             key="title_terms"
             label="Not in titles"
             k="forbidden_title_terms"
             hint="Substrings no title here may carry, matched ignoring case."
           >
-            <Chips items={t!.forbidden_title_terms!} code />
-          </Row>
-        ),
-        has(m.machine_path_allow_prefixes) && (
-          <Row
-            key="paths"
-            label="Machine paths"
-            k="machine_path_allow_prefixes"
-            note="read as this Map's own paths, not a client's"
-            hint="Absolute path prefixes read as this Map's operational paths, not client-local ones."
-          >
-            <Chips items={m.machine_path_allow_prefixes!} code />
+            <Chips items={m.forbidden_title_terms!} code />
           </Row>
         ),
       ],

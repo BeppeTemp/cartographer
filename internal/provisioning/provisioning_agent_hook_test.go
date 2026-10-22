@@ -187,7 +187,7 @@ func TestHookEffectiveModes_HardFloorAndHashStability(t *testing.T) {
 	}
 	base := t.TempDir()
 	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: roots, Provider: configurator.ProviderClaudeCode, BaseDir: base}); err != nil {
+		KBRoots: roots, Provider: configurator.ProviderClaudeCode, BaseDir: base}); err != nil {
 		t.Fatal(err)
 	}
 	for name, wantExec := range map[string]bool{"hook.json": false, "run.sh": true} {
@@ -287,10 +287,9 @@ func TestApply_DestDir_Matrix(t *testing.T) {
 		m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 		baseDir := t.TempDir()
 		res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-			AutoTrust: true,
-			Provider:  c.provider,
-			BaseDir:   baseDir,
-			Lock:      provisioning.Lock{},
+			Provider: c.provider,
+			BaseDir:  baseDir,
+			Lock:     provisioning.Lock{},
 		})
 		if err != nil {
 			t.Fatalf("%s/%s: Apply: %v", c.kind, c.provider, err)
@@ -346,11 +345,10 @@ func TestApply_MaterializzaAgent(t *testing.T) {
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -389,10 +387,9 @@ func TestApply_OpenCode_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		Provider:  configurator.ProviderOpenCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		Provider: configurator.ProviderOpenCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -425,7 +422,7 @@ func TestApply_Antigravity_MaterializzaAgentNativo(t *testing.T) {
 	}
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true, Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Lock: provisioning.Lock{},
+		Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Lock: provisioning.Lock{},
 	}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -466,10 +463,9 @@ func TestApply_OpenCode_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
 	_, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		Provider:  configurator.ProviderOpenCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		Provider: configurator.ProviderOpenCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -499,10 +495,9 @@ func TestApply_OpenCode_MaterializzaAgent_DescriptionQuotataConDuePunti(t *testi
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
 	_, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		Provider:  configurator.ProviderOpenCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		Provider: configurator.ProviderOpenCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -551,11 +546,10 @@ func TestApply_MaterializzaHook(t *testing.T) {
 
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		KBRoots:   map[string]string{"kb": kbRoot},
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		Lock:      provisioning.Lock{},
+		KBRoots:  map[string]string{"kb": kbRoot},
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		Lock:     provisioning.Lock{},
 	})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -617,10 +611,9 @@ func TestApply_Prune_AgentHook(t *testing.T) {
 	}
 
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true,
-		Provider:  configurator.ProviderClaudeCode,
-		BaseDir:   baseDir,
-		Lock:      lock,
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		Lock:     lock,
 	})
 	if err != nil {
 		t.Fatalf("Apply prune: %v", err)
@@ -652,10 +645,9 @@ func TestApply_RifiutaPathTraversal_AgentHook(t *testing.T) {
 	for i, a := range cases {
 		m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 		_, err := provisioning.Apply(m, provisioning.ApplyOptions{
-			AutoTrust: true,
-			Provider:  configurator.ProviderClaudeCode,
-			BaseDir:   baseDir,
-			Lock:      provisioning.Lock{},
+			Provider: configurator.ProviderClaudeCode,
+			BaseDir:  baseDir,
+			Lock:     provisioning.Lock{},
 		})
 		if err == nil {
 			t.Errorf("case %d (kind=%s name=%q): Apply should have rejected the malicious name", i, a.Kind, a.Name)

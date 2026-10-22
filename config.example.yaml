@@ -4,113 +4,133 @@
 
 # Listen address of the HTTP transport, for example :39273. Empty serves MCP
 # over stdio.
-# Default: "". Env: CARTOGRAPHER_HTTP. Flag: --http. Needs a restart.
+# Default: none · Env CARTOGRAPHER_HTTP · flag --http · needs a restart
 http: ":39273"
-# Initialize a KB that does not exist yet instead of failing.
-# Default: false. Flag: --init. Needs a restart.
-init: true
+
 # Directory whose direct subdirectories are discovered as KBs, and where
 # remote KBs are cloned. The name credentials is the server's own and is never
 # discovered.
-# Default: "". Env: CARTOGRAPHER_DATA. Flag: --data. Needs a restart.
+# Default: none · Env CARTOGRAPHER_DATA · flag --data · needs a restart
 data: /data
+
 # Directory with every secret file, looked up by KB name: <kb>.ssh, <kb>.token
 # and <kb>.age (each with a default.* for the KBs without their own),
 # <kb>.signing (the artifact signing seed, no default) and known_hosts (one
 # file for every remote). On Kubernetes it is one mounted Secret (defaultMode
 # 0440 with the pod's fsGroup). A file readable by other users, or by the
 # group when it is the server's own, is warned about once at start.
-# Default: <data>/credentials. Env: CARTOGRAPHER_CREDENTIALS_DIR. Needs a
-# restart.
+# Default: <data>/credentials · Env CARTOGRAPHER_CREDENTIALS_DIR ·
+# needs a restart
 credentials_dir: /etc/cartographer/credentials
+
 auth:
   # Bearer-token authentication of the HTTP transport. auto turns it on when at
   # least one token is configured.
-  # Values: on | off | auto
-  # Default: auto. Env: CARTOGRAPHER_AUTH. Needs a restart.
+  # Values: on | off | auto · Default: auto · Env CARTOGRAPHER_AUTH ·
+  # needs a restart
   mode: auto
-  # --- available settings ---
+
+  # --- available settings: uncomment a key to set it ---
+
   # Bearer tokens: a bare string (admin, every KB) or a mapping with token,
   # scopes (kb:<name>:r or kb:<name>:rw), roles and id. A token may be written
   # ${NAME} to read it from the environment.
-  # Default: []. Env: CARTOGRAPHER_TOKENS. Flag: --tokens. Needs a restart.
-  # Secret: keep it out of version control.
-  # tokens: []
+  # Env CARTOGRAPHER_TOKENS · flag --tokens · needs a restart ·
+  # secret: keep it out of version control
+  # tokens:
+  #   - token: ${CARTOGRAPHER_TOKEN_CI}
+  #     id: ci
+  #     scopes: [kb:kb-a:rw]
+  #   - ${CARTOGRAPHER_TOKEN_ADMIN}
+
   # Named permission sets that tokens reference by name; each has a name and
   # rules (kb, access r or rw, and optional maps, journals, types).
-  # Default: []. Needs a restart.
-  # roles: []
+  # Needs a restart
+  # roles:
+  #   - name: runbook-editor
+  #     rules:
+  #       - kb: kb-a
+  #         access: rw
+  #         maps: [infra]
+  #         types: [Runbook]
+
 # The KBs to clone and mount: each entry has a remote. A KB that is a folder
 # under data is discovered and needs no entry. KBs from
 # CARTOGRAPHER_KB_REMOTES are added to this list.
-# Default: []. Env: CARTOGRAPHER_KB_REMOTES. Needs a restart.
+# Env CARTOGRAPHER_KB_REMOTES · needs a restart
 kbs:
   # Git remote a KB is cloned from, under data. A KB with a remote syncs with
   # it; one without never contacts anything.
-  # Default: "".
+  # Default: none
   - remote: https://git.example.com/user/kb-a.git
+
     # KB name, in place of the one derived from the remote. It drives the
     # endpoint, the token scopes, the clone directory and the names of the KB's
     # files in credentials_dir.
-    # Default: "".
+    # Default: none
     name: kb-a
+
+git:
+  # The git identity, Name <email>, the server commits as in every KB without
+  # its own entry in git.identities: the author and the committer of the commits
+  # it makes with no writer of their own (the unattended repair, merges,
+  # conflict resolution) and of a write whose client sends no valid
+  # Cartographer-Author. Set it when the remote's forge rejects commits whose
+  # author or committer is not one of its accounts. Empty keeps the server
+  # identity, Cartographer <cartographer@host>.
+  # Default: none · needs a restart
+  identity: "Ada Example <ada@example.com>"
+
+  # --- available settings: uncomment a key to set it ---
+
+  # The identity of git.identity, per KB name; the key default stands for every
+  # KB without an entry. A present empty entry means that KB has none and
+  # commits as the server identity.
+  # Needs a restart
+  # identities:
+  #   kb-a: Ada Example <ada@work.example.com>
+  #   default: Ada Example <ada@example.com>
+
 web:
   # Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode.
   # false removes both routes.
-  # Default: true. Env: CARTOGRAPHER_WEB_ENABLED. Flag: --web-enabled. Needs a
-  # restart.
+  # Default: true · Env CARTOGRAPHER_WEB_ENABLED · flag --web-enabled ·
+  # needs a restart
   enabled: true
 
-# --- available settings ---
+# --- available settings: uncomment a key to set it ---
+
 # Look up the latest release once a day and report it in /health and kb_status
 # when it is newer; the Atlas reads the release history from the same GitHub
 # list when someone opens it. Off, the server makes neither call. A dev build
 # never checks.
-# Default: true. Env: CARTOGRAPHER_UPDATE_CHECK. Flag: --update-check. Needs a
-# restart.
+# Env CARTOGRAPHER_UPDATE_CHECK · flag --update-check · needs a restart
 # update_check: true
-# Old names of renamed KBs: each item has a from (the old name) and a to (the
-# KB now mounted), so a routed ?kbs=<from> still reaches it. `kb rename`
-# writes it. One step only, and a mounted name wins over an alias.
-# Default: []. Needs a restart.
-# kb_aliases: []
+
 # audit:
 #   Path of the append-only operation log, which is always on and signed with
 #   audit.key from credentials_dir (generated at the first start). Empty keeps
 #   it at <data>/audit/audit.log.
-#   Default: "". Env: CARTOGRAPHER_AUDIT_LOG. Needs a restart.
+#   Env CARTOGRAPHER_AUDIT_LOG · needs a restart
 #   log: ""
+#
 #   With best_effort a failed append is logged and the call carries on, and a
 #   log or key the server cannot open is a warning at start; with required the
 #   call is rejected before the tool runs, and the server does not start without
 #   its signed log.
-#   Values: best_effort | required
-#   Default: best_effort. Needs a restart.
+#   Values: best_effort | required · needs a restart
 #   mode: best_effort
+#
 #   Size after which the active log segment is rotated (64 MiB by default), so
 #   retention has segments to delete.
-#   Values: bytes; 0 keeps the default
-#   Default: 67108864. Needs a restart.
+#   Values: bytes; 0 keeps the default · needs a restart
 #   max_segment_bytes: 67108864
+#
 #   Directory of rotated segments; empty keeps them beside the log.
-#   Default: "". Needs a restart.
+#   Needs a restart
 #   archive_dir: ""
+#
 #   Rotated segments older than this are deleted once their checkpoint is
 #   written.
-#   Values: days; 0 keeps everything
-#   Default: 90. Needs a restart.
+#   Values: days; 0 keeps everything · needs a restart
 #   retention_days: 90
-# tools:
-#   Which tools tools/list advertises. agent is the core set; full advertises
-#   every tool. Hidden tools stay callable.
-#   Values: agent | full
-#   Default: agent. Env: CARTOGRAPHER_TOOLS_PROFILE. Flag: --tools-profile.
-#   Needs a restart.
-#   profile: agent
-# mcp:
-#   Browser origins allowed to reach the MCP endpoint. Empty accepts only an
-#   Origin matching the request's own Host; * accepts any. A request with no
-#   Origin header is unaffected.
-#   Values: origins with scheme and port, or *
-#   Default: []. Env: CARTOGRAPHER_MCP_ALLOWED_ORIGINS. Needs a restart.
-#   allowed_origins: []

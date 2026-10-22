@@ -24,17 +24,16 @@ const scopedNeighbourCap = 200
 // On each existing ID it runs broken_link, duplicate_link, bare_link_list,
 // reciprocal_link_item, unknown_placeholder, forbidden_term, orphan,
 // broken_relation, link_to_retired (when the concept is retired) and
-// index_incomplete (its map or expanded concept opted into a curated index).
+// index_incomplete (its map or expanded concept keeps a curated index).
 // On the neighbours it reports only what the write introduced: a broken_link
 // on a page that links an ID that does not exist (a moved or deleted
 // concept), and link_to_retired on a retired concept the given ID links. A
 // neighbour's own pre-existing findings are never returned.
 //
-// The whole-KB structural analysis stays out: cut_concept, island,
-// map_misfit, facet_sprawl and missing_value_contract need the whole graph and
-// are left to lint and gate_check. map_oversize needs a "before" state and the
-// whole created set, so it reaches writes through MapOversizeCrossings (D716). lint_ignore applies, on the
-// concept and on its map. The cost is one cached graph read, the written
+// The whole-KB structural analysis stays out: the whole-graph checks are left
+// to lint and gate_check. The graph-shape and map-size observations (D947) are
+// not findings and reach no write: only kb_review lists them.
+// Nothing silences a finding (D907). The cost is one cached graph read, the written
 // concepts' own files and at most scopedNeighbourCap neighbours per direction.
 // Nil when there is nothing to report.
 func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
@@ -73,21 +72,6 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		return err == nil
 	}
 
-	ignoreCache := map[okf.ConceptID]map[string]bool{}
-	ignoresOf := func(id okf.ConceptID) map[string]bool {
-		if set, ok := ignoreCache[id]; ok {
-			return set
-		}
-		var set map[string]bool
-		if data, err := k.ReadConcept(id); err == nil {
-			if fm, _ := okf.ParseFrontmatter(data.FrontmatterRaw); fm != nil {
-				set = lintIgnoreSet(fm)
-			}
-		}
-		ignoreCache[id] = set
-		return set
-	}
-
 	// Provenance citations need every concept's frontmatter: read once, and
 	// only when an orphan candidate asks.
 	var citedSet map[string][]string
@@ -105,12 +89,8 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 	}
 
 	var findings []Finding
-	emitFor := func(id okf.ConceptID) func(Finding) {
-		return func(f Finding) {
-			if !suppressed(f, ignoresOf(id)) {
-				findings = append(findings, f)
-			}
-		}
+	emitFor := func(okf.ConceptID) func(Finding) {
+		return func(f Finding) { findings = append(findings, f) }
 	}
 
 	registry, _ := loadRegistryLint(k)
@@ -239,22 +219,13 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 	for _, folder := range folders {
 		mapName, _, _ := strings.Cut(folder, "/")
 		contract, ok := contractOf(mapName)
-		if !ok || contract.Index == kb.IndexGenerated || !contract.RequireIndexEntry {
+		if !ok || contract.Index == kb.IndexGenerated {
 			continue
 		}
 		checkCuratedIndex(k, folder, folder+"/index.md", curated[folder], false, &findings, exists, retiredOf(lg))
 	}
 
-	findings, _ = applyMapIgnores(k, findings, nil, nil)
-	out := findings[:0]
-	for _, f := range findings {
-		// A map naming a check it cannot accept is the map's own finding, not
-		// something this write did.
-		if f.Check == "lint_ignore_invalid" && strings.HasSuffix(f.Path, "/_map.md") {
-			continue
-		}
-		out = append(out, f)
-	}
+	out := findings
 	if len(out) == 0 {
 		return nil
 	}

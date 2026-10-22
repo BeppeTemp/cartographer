@@ -34,7 +34,14 @@ server_start() {
     local auth="${E2E_AUTH:-false}"
     local tokens="${E2E_TOKENS:-}"
 
-	local args=(serve --kb "$kb_paths" --init --http ":${E2E_HTTP_PORT}")
+	# Loopback: a server with auth off refuses any other address (D906). The KBs
+	# are made before the start: serve never creates one.
+	local p
+	IFS=',' read -ra _kb_list <<< "$kb_paths"
+	for p in ${_kb_list[@]+"${_kb_list[@]}"}; do
+		[[ -n "$p" ]] && { kb_bootstrap "$p" || return 1; }
+	done
+	local args=(serve --kb "$kb_paths" --http "127.0.0.1:${E2E_HTTP_PORT}")
 	if [[ -n "${E2E_CONFIG:-}" ]]; then
 		# The KBs are folders mounted from the command line: a kbs[] entry of the
 		# config names a remote (D903), and the config carries the rest.

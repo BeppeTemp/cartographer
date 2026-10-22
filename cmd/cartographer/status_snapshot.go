@@ -37,6 +37,10 @@ type providerStatus struct {
 	Revision     string `json:"revision,omitempty"`
 	LockRevision string `json:"lock_revision,omitempty"`
 	Kinds        string `json:"kind_status,omitempty"`
+	// Problem is why sync would refuse this provider before projecting it: a
+	// bound workspace that is gone, or a provider that cannot be scoped to a
+	// workspace. Empty otherwise.
+	Problem string `json:"problem,omitempty"`
 	// ShadowedInstructions names the provider-owned file that takes precedence
 	// over the instructions file Cartographer manages, when one exists (D189).
 	// A block written correctly into a file the provider does not read is not
@@ -286,7 +290,28 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			connectedProviders = append(connectedProviders, s.Providers[i].Name)
 		}
 	}
-	manifests, err := statusManifestsFn(cfg, connectedProviders)
+	// D193: every provider is judged projection by projection, built in ONE
+	// call exactly as sync builds them (a bundle-only projection gets the bundle
+	// depending on what the whole run pulls, so splitting the call would make
+	// status disagree with sync). A workspace-scoped provider has the
+	// bundle-only global projection plus one per bound workspace; a default one
+	// has the single global projection.
+	provProjections := map[string][]syncProjection{}
+	projectionErr := map[string]error{}
+	var allProjs []syncProjection
+	for _, name := range connectedProviders {
+		ps, perr := projectionsFor(cfg, name, dir)
+		if perr != nil {
+			projectionErr[name] = perr
+			continue
+		}
+		provProjections[name] = ps
+		allProjs = append(allProjs, ps...)
+	}
+	var manifests map[string]provisioning.Manifest
+	if len(allProjs) > 0 || len(connectedProviders) == 0 {
+		manifests, err = statusManifestsFn(cfg, allProjs)
+	}
 	if err != nil {
 		s.State = "unavailable"
 		e := classifyNetworkError(cfg.ServerURL, err)
@@ -298,8 +323,16 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		return s
 	}
-	for _, p := range connectedProviders {
-		s.Artifacts += len(manifests[p].Artifacts)
+	// The count keeps its meaning: distinct artifacts per provider, summed. An
+	// artifact in two workspaces of one provider is one artifact.
+	for _, name := range connectedProviders {
+		distinct := map[string]bool{}
+		for _, sp := range provProjections[name] {
+			for _, a := range manifests[projectionKey(sp)].Artifacts {
+				distinct[a.Kind+"\x00"+a.Name] = true
+			}
+		}
+		s.Artifacts += len(distinct)
 	}
 	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
 	if err != nil {
@@ -311,9 +344,25 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		if !s.Providers[i].Connected {
 			continue
 		}
-		pm := provisioning.FilterForProvider(manifests[s.Providers[i].Name], configurator.Provider(s.Providers[i].Name))
-		d := provisioning.ComputeDiff(pm, lockFile.ForProvider(s.Providers[i].Name))
 		p := &s.Providers[i]
+		var pm provisioning.Manifest
+		var d provisioning.Diff
+		var wsDiverged []provisioning.DriftFinding
+		if perr := projectionErr[p.Name]; perr != nil {
+			// Sync would refuse this provider (a bound workspace is gone, or
+			// the provider cannot be scoped to a workspace): not in sync, and
+			// the cause belongs on the card.
+			p.State = "drift"
+			p.Problem = perr.Error()
+			s.State = "drift"
+			continue
+		}
+		if cfg.WorkspaceScope(p.Name) == clientconfig.ScopeWorkspace {
+			pm, d, wsDiverged = workspaceProviderDiff(provProjections[p.Name], manifests, lockFile, dir)
+		} else {
+			pm = provisioning.FilterForProvider(manifests[p.Name], configurator.Provider(p.Name))
+			d = provisioning.ComputeDiff(pm, lockFile.ForProvider(p.Name))
+		}
 		p.Revision = pm.Revision
 		p.LockRevision = lockFile.ForProvider(p.Name).AppliedRevision
 		if shadowing, _, ok := configurator.ShadowedInstructions(
@@ -338,7 +387,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			p.BindingOrigin = "explicit"
 		}
 		p.KBCounts = countBySource(lock)
-		p.Diverged = snapshotDiverged(provisioning.VerifyManaged(lock, configurator.Provider(p.Name), provisioning.LockBaseDir(lock, dir)))
+		p.Diverged = snapshotDiverged(append(provisioning.VerifyManaged(lock, configurator.Provider(p.Name), provisioning.LockBaseDir(lock, dir)), wsDiverged...))
 		if d.InSync && len(p.Diverged) == 0 {
 			p.State = "in_sync"
 			continue
@@ -351,6 +400,33 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		s.State = "version_skew"
 	}
 	return s
+}
+
+// workspaceProviderDiff judges a workspace-scoped provider the way sync applies
+// it (D193): the global projection against the bundle only, each workspace
+// against its own manifest and lock. It returns the global manifest (for the
+// revision and the kind counts), one merged Diff, and the on-disk findings of
+// the workspace locks.
+func workspaceProviderDiff(ps []syncProjection, manifests map[string]provisioning.Manifest, lockFile provisioning.LockFile, dir string) (provisioning.Manifest, provisioning.Diff, []provisioning.DriftFinding) {
+	var global provisioning.Manifest
+	merged := provisioning.Diff{InSync: true}
+	var diverged []provisioning.DriftFinding
+	for _, sp := range ps {
+		provider := configurator.Provider(sp.Provider)
+		pm := provisioning.FilterForProviderScoped(manifests[projectionKey(sp)], provider, sp.Scope)
+		lock := lockFile.ForProjection(sp.Key())
+		d := provisioning.ComputeDiff(pm, lock)
+		merged.Added = append(merged.Added, d.Added...)
+		merged.Updated = append(merged.Updated, d.Updated...)
+		merged.Removed = append(merged.Removed, d.Removed...)
+		merged.InSync = merged.InSync && d.InSync
+		if sp.Workspace == "" {
+			global = pm
+			continue
+		}
+		diverged = append(diverged, provisioning.VerifyManaged(lock, provider, provisioning.LockBaseDir(lock, dir))...)
+	}
+	return global, merged, diverged
 }
 
 // snapshotDiverged renders the healable on-disk findings (D139). "unknown"
@@ -373,9 +449,9 @@ func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Conf
 		trust := "needs_approval"
 		if a.BuiltIn {
 			trust = "built_in"
-		} else if a.Signed {
-			trust = "verified"
 		} else if a.Kind == "mcp" {
+			// A signature never installs an MCP descriptor (D906): only the
+			// hash-bound approval does, so it is checked before Signed.
 			source := strings.TrimPrefix(a.Source, "kb:")
 			if approval, ok := cfg.MCPApprovals[source][a.Name]; ok {
 				if approval.ContentHash == a.ContentHash {
@@ -384,7 +460,10 @@ func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Conf
 					trust = "approval_stale"
 				}
 			}
-		} else if cfg.Trust && strings.HasPrefix(a.Source, "kb:") {
+		} else if a.Signed {
+			trust = "verified"
+		} else if strings.HasPrefix(a.Source, "kb:") {
+			// Unsigned but installed (D906): there is no trust switch.
 			trust = "trusted"
 		}
 		out[i] = statusArtifact{Kind: a.Kind, Name: a.Name, Source: a.Source, Signed: a.Signed, Trust: trust}

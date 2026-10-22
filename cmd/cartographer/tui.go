@@ -399,7 +399,7 @@ func loadRemoteStatusCmd(dir string) tea.Cmd {
 }
 
 // formatTUIProviderStatus retains the compact dashboard state while making
-// the MCP approval outcome visible without suggesting generic auto-trust.
+// the MCP approval outcome visible and only an MCP descriptor waits for it.
 func formatTUIProviderStatus(p providerStatus) string {
 	base := strings.ReplaceAll(p.State, "_", "-")
 	counts := map[string]int{}
@@ -432,7 +432,7 @@ func probeCmd(provider string, opts connectOptions) tea.Cmd {
 
 // connectCmd runs doConnect for a single provider (the shared logic behind the
 // `connect` subcommand) and reports the outcome.
-func connectCmd(provider, dir, serverURL, name, tokenEnv string, auth, trust bool) tea.Cmd {
+func connectCmd(provider, dir, serverURL, name, token string, auth bool) tea.Cmd {
 	return func() tea.Msg {
 		res, err := doConnect(connectOptions{
 			Providers: []string{provider},
@@ -440,8 +440,7 @@ func connectCmd(provider, dir, serverURL, name, tokenEnv string, auth, trust boo
 			ServerURL: serverURL,
 			Name:      name,
 			Auth:      auth,
-			TokenEnv:  tokenEnv,
-			Trust:     trust,
+			Token:     token,
 		})
 		return connectDoneMsg{provider: provider, res: res, err: err}
 	}
@@ -449,8 +448,8 @@ func connectCmd(provider, dir, serverURL, name, tokenEnv string, auth, trust boo
 
 // syncCmd re-fetches the manifest and re-applies it for a single provider (the
 // shared logic behind the `sync` subcommand). The dashboard never exposes
-// --dry-run/--auto-trust — that subset is CLI-only (see mandate) — but does
-// honor the persisted cfg.Trust (D54), same as `cartographer sync`.
+// --dry-run — that is CLI-only (see mandate) — and otherwise does what
+// `cartographer sync` does.
 func syncCmd(provider, dir string) tea.Cmd {
 	return func() tea.Msg {
 		release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
@@ -532,8 +531,8 @@ func syncOneProvider(provider, dir string) syncDoneMsg {
 	// The server version recorded in the lockfile (D142). A failed probe
 	// leaves it empty, which preserves the previously recorded value
 	// instead of erasing it.
-	facts, _ := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.TokenEnv)
-	applied, err := materializeForProviders(manifests, projections, dir, facts.Version, cfg.Trust, false, false /* noHeal */, portabilityOptions{SearchRoots: cfg.SearchRoots, SearchDepth: cfg.SearchDepth, Paths: cfg.Paths}, kbOrderForProviders(cfg, []string{provider}), cfg.ApprovedMCPHashes())
+	facts, _ := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
+	applied, err := materializeForProviders(manifests, projections, dir, facts.Version, false, false /* noHeal */, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths}, kbOrderForProviders(cfg, []string{provider}), cfg.ApprovedMCPHashes())
 	if err != nil {
 		return syncDoneMsg{provider: provider, err: err}
 	}
@@ -559,18 +558,18 @@ func formatDiffStatus(d provisioning.Diff) string {
 	}
 	needsApproval := 0
 	for _, a := range d.Added {
-		if !a.Signed {
+		if a.Kind == "mcp" { // only an MCP descriptor waits for an approval (D906)
 			needsApproval++
 		}
 	}
 	for _, a := range d.Updated {
-		if !a.Signed {
+		if a.Kind == "mcp" {
 			needsApproval++
 		}
 	}
 	base := fmt.Sprintf("drift +%d ~%d -%d", len(d.Added), len(d.Updated), len(d.Removed))
 	if needsApproval > 0 {
-		return fmt.Sprintf("%s (%d needs approval, use CLI --auto-trust)", base, needsApproval)
+		return fmt.Sprintf("%s (%d needs approval, use CLI `cartographer approve mcp`)", base, needsApproval)
 	}
 	return base
 }
@@ -646,7 +645,7 @@ func summarizeApplied(r provisioning.AppliedResult) string {
 		parts = append(parts, fmt.Sprintf("%d pruned", n))
 	}
 	if n := len(r.NeedsApproval); n > 0 {
-		parts = append(parts, fmt.Sprintf("%d needs approval — run: %s", n, autoTrustCommand()))
+		parts = append(parts, fmt.Sprintf("%d needs approval — run: cartographer approve mcp <name> --kb <kb>", n))
 	}
 	if n := len(r.Unsupported); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d not supported by provider", n))
@@ -749,7 +748,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.submitting = true
 		m.message = fmt.Sprintf("connecting %s…", msg.provider)
-		return m, connectCmd(msg.provider, m.dir, msg.opts.ServerURL, msg.opts.Name, msg.opts.TokenEnv, msg.opts.Auth, msg.opts.Trust)
+		return m, connectCmd(msg.provider, m.dir, msg.opts.ServerURL, msg.opts.Name, msg.opts.Token, msg.opts.Auth)
 
 	case connectDoneMsg:
 		m.submitting = false
@@ -974,7 +973,7 @@ func (m Model) openConnectForm(row dashboardAgent) Model {
 	if err != nil {
 		cfg = clientconfig.Default()
 	}
-	prefill := connectOptions{Providers: []string{string(row.Provider)}, ServerURL: cfg.ServerURL, Name: cfg.ServerName, TokenEnv: cfg.TokenEnv, Auth: cfg.Auth, Trust: cfg.Trust}
+	prefill := connectOptions{Providers: []string{string(row.Provider)}, ServerURL: cfg.ServerURL, Name: cfg.ServerName, Token: cfg.Token, Auth: cfg.Auth}
 
 	m.screen = screenConnect
 	m.formProvider = string(row.Provider)
@@ -1025,7 +1024,7 @@ func (m Model) updateConnectForm(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// touched in between: the user chose to force — skip the probe.
 			m.submitting = true
 			m.message = fmt.Sprintf("connecting %s…", m.formProvider)
-			return m, connectCmd(m.formProvider, m.dir, opts.ServerURL, opts.Name, opts.TokenEnv, opts.Auth, opts.Trust)
+			return m, connectCmd(m.formProvider, m.dir, opts.ServerURL, opts.Name, opts.Token, opts.Auth)
 		}
 		m.probing = true
 		return m, probeCmd(m.formProvider, opts)
@@ -1068,7 +1067,7 @@ func (m Model) View() string {
 
 	switch m.screen {
 	case screenConnect:
-		b.WriteString(styleFooter.Render(wrapForWidth("tab/shift+tab move · space toggle auth/trust · enter next/submit · esc cancel · ctrl+c quit", m.width-6)))
+		b.WriteString(styleFooter.Render(wrapForWidth("tab/shift+tab move · space toggle auth · enter next/submit · esc cancel · ctrl+c quit", m.width-6)))
 	case screenConfirmDisconnect:
 		b.WriteString(styleFooter.Render(wrapForWidth("←/→ select · enter confirm · y/n shortcut · esc cancel · ctrl+c quit", m.width-6)))
 	default:

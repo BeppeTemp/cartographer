@@ -12,9 +12,9 @@ bundled skill into the KB.
 
 The bundled catalog (`internal/skillbundle/bundled/`) is `cartographer-ops`, `kb-create`,
 `kb-import`, `kb-conflict-resolve`, `kb-doctor` and `kb-ingest`. `kb-doctor` (D290) aligns a
-drifted KB in budgeted sessions; it ships two read-only POSIX shell scripts under `scripts/`
-(`suppression_inventory.sh`, `section_freq.sh`) that answer aggregate questions from a local
-clone, guarded by `internal/skillbundle/scripts_test.go`. `kb-ingest` (D279) ingests **one** primary
+drifted KB in budgeted sessions; it ships one read-only POSIX shell script under `scripts/`
+(`section_freq.sh`) that answers an aggregate question from a local clone, guarded by
+`internal/skillbundle/scripts_test.go`. `kb-ingest` (D279) ingests **one** primary
 source (document, transcript, thread, ticket, incident timeline, email, web page, dataset) into
 existing pages through the source ledger of D278: register, distil, patch rather than create,
 cite via `provenance`, open a `Contradiction` instead of overwriting, record gaps, verify with
@@ -52,8 +52,8 @@ re-reads the block with a strict parser and refuses it. Quote the value, or use 
 em dash:
 
 ```yaml
-description: "Sibling of the plan-issue skill: it writes the issues"
-description: Sibling of the plan-issue skill — it writes the issues
+description: "Sibling of the cartographer-propose-plan skill: it writes the issues"
+description: Sibling of the cartographer-propose-plan skill — it writes the issues
 ```
 
 An error excludes that skill from the manifest and nothing else: the KB's other
@@ -105,7 +105,7 @@ match it **case-insensitively** (D158): a KB whose type vocabulary is lowercase 
 a likely outcome of an import, or of a non-English domain vocabulary — used to
 get zero services and unusable secret resolution with no error anywhere. A
 near-miss such as `services` is still not a service. Lint reports
-`secrets_on_non_service` (info, D313: such a concept is resolved by `secret_resolve` on its ID, or the bundle moves to a Service) when a concept declares `secrets_source` or
+`secrets_on_non_service` (D313: such a concept is resolved by `secret_resolve` on its ID, or the bundle moves to a Service) when a concept declares `secrets_source` or
 `secret_refs` under any other type, so the mistake surfaces from the KB instead
 of from a source read.
 

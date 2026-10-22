@@ -11,12 +11,18 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
-// rowKB is a git KB with repair on write (D349): ops/a holds a
-// bare links-section item for ops/b, ops/c is a plain page.
-func rowKB(t *testing.T, checks ...string) (*kb.KB, *Server) {
+// rowKB is a git KB whose writes repair what they wrote (D349, always since
+// D907): ops/a holds a bare links-section item for ops/b, ops/c is a plain
+// page. ops generates its index, so a new page needs no index entry to pass
+// the write gate.
+func rowKB(t *testing.T) (*kb.KB, *Server) {
 	t.Helper()
 	k, _ := setupGitKB(t)
-	if err := k.CreateMap("ops", "Ops", "map", nil, ""); err != nil {
+	if err := k.CreateMap("ops", "Ops", "map", nil); err != nil {
+		t.Fatal(err)
+	}
+	gen := kb.IndexGenerated
+	if _, err := k.UpdateMapContract("ops", kb.MapContractUpdate{Index: &gen}); err != nil {
 		t.Fatal(err)
 	}
 	seed := map[string]string{
@@ -33,8 +39,6 @@ func rowKB(t *testing.T, checks ...string) (*kb.KB, *Server) {
 	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = checks })
-	setPolicy(k, func(p *kb.Policy) { p.RepairOnWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	return k, s
@@ -75,7 +79,7 @@ func patchDup(t *testing.T, k *kb.KB) string {
 
 func TestRepairOnWrite_PatchDropsDuplicateInOneCommit(t *testing.T) {
 	t.Parallel()
-	k, s := rowKB(t, "duplicate_link", "nonstandard_field")
+	k, s := rowKB(t)
 	before := commitCount(t, k)
 	out := decodeJSON(t, mustText(t, s, "concept_patch", patchDup(t, k)))
 	if got := repairedMap(out); got["duplicate_link"] != 1 || len(got) != 1 {
@@ -101,9 +105,9 @@ func TestRepairOnWrite_PatchDropsDuplicateInOneCommit(t *testing.T) {
 
 func TestRepairOnWrite_ConceptWriteRenamesNonstandardField(t *testing.T) {
 	t.Parallel()
-	k, s := rowKB(t, "nonstandard_field")
+	k, s := rowKB(t)
 	out := decodeJSON(t, mustText(t, s, "concept_write",
-		`{"id":"ops/n","frontmatter":{"type":"Note","title":"N","keywords":["x"]},"body":"# N\n"}`))
+		`{"id":"ops/n","frontmatter":{"type":"Note","title":"N","keywords":["x"]},"body":"# N\n\nSee [A](a.md).\n"}`))
 	if got := repairedMap(out); got["nonstandard_field"] != 1 {
 		t.Fatalf("repaired = %v", out["repaired"])
 	}
@@ -116,43 +120,44 @@ func TestRepairOnWrite_ConceptWriteRenamesNonstandardField(t *testing.T) {
 	}
 }
 
-func TestRepairOnWrite_OffLeavesTheWrite(t *testing.T) {
+// Repair on write has no setting (D907): a write always applies the safe fixes
+// to what it wrote, in its own commit.
+func TestRepairOnWrite_IsAlwaysOn(t *testing.T) {
 	t.Parallel()
-	for name, set := range map[string]func(k *kb.KB){
-		"opt-out":    func(k *kb.KB) { setPolicy(k, func(p *kb.Policy) { p.RepairOnWrite = false }) },
-		"empty-list": func(k *kb.KB) { setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{} }) },
-		"only-linkdp": func(k *kb.KB) {
-			setPolicy(k, func(p *kb.Policy) { p.AutoRepair = []string{"broken_link", "reciprocal_link_item"} })
-		},
-	} {
-		k, s := rowKB(t, "duplicate_link")
-		set(k)
-		out := decodeJSON(t, mustText(t, s, "concept_patch", patchDup(t, k)))
-		if out["repaired"] != nil || !findingChecks(out)["ops/a.md duplicate_link"] {
-			t.Errorf("%s: out = %v", name, out)
-		}
-		if !strings.Contains(readBody(t, k, "ops/a"), "- [B](b.md)") {
-			t.Errorf("%s: file was repaired", name)
-		}
+	k, s := rowKB(t)
+	out := decodeJSON(t, mustText(t, s, "concept_patch", patchDup(t, k)))
+	if got := repairedMap(out); got["duplicate_link"] != 1 {
+		t.Errorf("repaired = %v", out["repaired"])
+	}
+	if strings.Contains(readBody(t, k, "ops/a"), "- [B](b.md)") {
+		t.Errorf("the duplicate survived")
 	}
 }
 
-// A neighbour reported by the scoped check is never rewritten, and a listed
-// link-dropping check is not applied on write.
+// A neighbour reported by the scoped check is never rewritten, and a
+// link-dropping check is not applied on write: the broken link stays for the
+// gate to refuse (a write never gets that far) and kb_repair to judge.
 func TestRepairOnWrite_NeighboursAndLinkDroppingChecksUntouched(t *testing.T) {
 	t.Parallel()
-	k, s := rowKB(t, "duplicate_link", "broken_link", "reciprocal_link_item")
+	k, s := rowKB(t)
 	aBefore := readBody(t, k, "ops/a")
-	out := decodeJSON(t, mustText(t, s, "concept_write",
-		`{"id":"ops/d","frontmatter":{"type":"Note","title":"D"},"body":"See [gone](gone.md) and [A](a.md).\n"}`))
-	if !findingChecks(out)["ops/d.md broken_link"] {
-		t.Fatalf("findings = %v", out["findings"])
+	p := filepath.Join(k.DataRoot(), "ops", "d.md")
+	if err := os.WriteFile(p, []byte("---\ntype: Note\ntitle: D\n---\n# D\n\nSee [gone](gone.md) and [A](a.md).\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if out["repaired"] != nil || readBody(t, k, "ops/a") != aBefore {
-		t.Fatalf("repaired = %v", out["repaired"])
+	findings, repaired, _ := repairWritten(k, []string{"ops/d"}, nil, nil)
+	broken := false
+	for _, f := range findings {
+		broken = broken || (f.Path == "ops/d.md" && f.Check == "broken_link")
+	}
+	if !broken || repaired != nil || readBody(t, k, "ops/a") != aBefore {
+		t.Fatalf("findings = %v, repaired = %v", findings, repaired)
 	}
 	if !strings.Contains(readBody(t, k, "ops/d"), "[gone](gone.md)") {
 		t.Fatal("broken link was dropped")
+	}
+	if err := os.Remove(p); err != nil {
+		t.Fatal(err)
 	}
 	// ops/a carries a duplicate-prone item, but the write did not name it.
 	mustText(t, s, "concept_patch", patchJSON(t, k, "ops/c", "# C\n", "# C\n\nSee [A](a.md).\n"))
@@ -163,9 +168,9 @@ func TestRepairOnWrite_NeighboursAndLinkDroppingChecksUntouched(t *testing.T) {
 
 func TestRepairOnWrite_BatchMoveSupersede(t *testing.T) {
 	t.Parallel()
-	k, s := rowKB(t, "duplicate_link")
+	k, s := rowKB(t)
 	out := decodeJSON(t, mustText(t, s, "concept_batch",
-		`{"operations":[{"op":"patch",`+patchDup(t, k)[1:]+`,{"op":"patch",`+patchJSON(t, k, "ops/c", "# C\n", "# C2\n")[1:]+`]}`))
+		`{"operations":[{"op":"patch",`+patchDup(t, k)[1:]+`,{"op":"patch",`+patchJSON(t, k, "ops/c", "# C\n", "# C\n\nMore.\n")[1:]+`]}`))
 	res := out["results"].([]interface{})
 	first := res[0].(map[string]interface{})
 	if got := repairedMap(first); got["duplicate_link"] != 1 {
@@ -202,23 +207,11 @@ func TestRepairOnWrite_BatchMoveSupersede(t *testing.T) {
 	}
 }
 
-func TestRepairOnWrite_CapabilityAndConfig(t *testing.T) {
-	t.Parallel()
-	k, _ := rowKB(t, "duplicate_link")
-	if c := kbCapabilities(k)["repair_on_write"]; c.State != "enabled" {
-		t.Fatalf("capability = %+v", c)
-	}
-	setPolicy(k, func(p *kb.Policy) { p.AutoRepair = nil })
-	if c := kbCapabilities(k)["repair_on_write"]; c.State == "enabled" {
-		t.Fatalf("capability with no checks = %+v", c)
-	}
-}
-
 // A repair that cannot be written never fails the call: the content stays as
 // written and the finding stays in the report.
 func TestRepairOnWrite_WriteErrorKeepsOriginal(t *testing.T) {
 	t.Parallel()
-	k, _ := rowKB(t, "duplicate_link")
+	k, _ := rowKB(t)
 	p := filepath.Join(k.DataRoot(), "ops", "a.md")
 	data, _ := os.ReadFile(p)
 	dup := strings.Replace(string(data), "# A\n", "# A\n\nSee [B](b.md).\n", 1)
@@ -234,7 +227,7 @@ func TestRepairOnWrite_WriteErrorKeepsOriginal(t *testing.T) {
 		f.Close()
 		t.Skip("directory permissions are not enforced here")
 	}
-	findings, repaired, hashes := repairWritten(k, []string{"ops/a"}, nil)
+	findings, repaired, hashes := repairWritten(k, []string{"ops/a"}, nil, nil)
 	if repaired != nil || hashes != nil {
 		t.Fatalf("repaired = %v, hashes = %v", repaired, hashes)
 	}

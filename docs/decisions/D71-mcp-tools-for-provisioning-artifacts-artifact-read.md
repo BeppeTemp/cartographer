@@ -4,6 +4,8 @@ topic: control-plane
 
 # D71 — MCP tools for provisioning artifacts: `artifact_read`/`artifact_write`/`artifact_list`/`artifact_delete`
 
+> **Amended by [D906](D906-settings-cleanup.md)**: `kbs[].allow_artifact_write` is removed; `artifact_write` and `artifact_delete` are registered on every KB, and a token's `rw` scope is their only gate.
+
 **Status: implemented (2026-07-09).** Delta versus the plan below: (a) the `if_match` is the
 "pure" sha256 of the single file's raw content, not the aggregate hash of
 `provisioning.ContentHashDir` (which concatenates multiple files and includes paths — unsuitable for a

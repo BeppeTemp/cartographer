@@ -1,11 +1,11 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
 # gofmt takes paths, and `gofmt -l .` walks every hidden directory — including
 # .worktrees/, where a sibling plan's subagent is working. That made `make gate`
 # fail on someone else's unfinished code and `make fmt` rewrite it, which is
-# exactly what the implement-issue mandate forbids. Naming the two directories
+# exactly what the cartographer-implement-plan mandate forbids. Naming the two directories
 # that hold this module's Go code scopes both targets correctly, and unlike
 # `git ls-files` it still sees a file that has been written but not yet staged —
 # a gate that passes locally and fails in CI is worse than no gate (D209).
@@ -44,21 +44,24 @@ fmt-check: ## Fail if anything is not gofmt-clean (part of the gate)
 	fi
 	@echo "gofmt: clean"
 
-run: build ## Start the stdio server with a demo KB
-	./bin/cartographer serve --kb ./demo-kb --init
+run: build demo-kb ## Start the stdio server with a demo KB
+	./bin/cartographer serve --kb ./demo-kb
 
-run-http: build ## Start the HTTP server on :39273 with a demo KB
-	./bin/cartographer serve --kb ./demo-kb --init --http :39273
+run-http: build demo-kb ## Start the HTTP server on 127.0.0.1:39273 with a demo KB
+	./bin/cartographer serve --kb ./demo-kb --http 127.0.0.1:39273
+
+demo-kb: ## Create the demo KB `run`, `run-http` and `smoke` serve (serve never creates one, D906)
+	@test -d demo-kb || ./bin/cartographer kb create demo-kb --no-remote --local --data . >/dev/null
 
 smoke-http: build ## HTTP flow smoke test: creates KB, archives, dossiers via MCP
 	@./test/smoke/http.sh
 
-smoke: build ## Build + quick stdio test
+smoke: build demo-kb ## Build + quick stdio test
 	@# stdin is held open past the request: in MCP stdio the client owns the
 	@# pipe's lifetime, and the server tears the session down on EOF. Closing
 	@# it immediately (a bare `echo |`) races the response out of existence.
 	@{ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0"}}}'; sleep 1; } | \
-		./bin/cartographer serve --kb ./demo-kb --init 2>/dev/null | \
+		./bin/cartographer serve --kb ./demo-kb 2>/dev/null | \
 		grep -q '"protocolVersion"' && echo "smoke: OK" || (echo "smoke: FAIL" && exit 1)
 
 web: ## Build the embedded Atlas UI bundle into internal/webui/dist (needs Node, see web/.nvmrc)
@@ -102,6 +105,9 @@ hero: ## Record the README's Atlas animation to ./hero.webp (needs Node, Chromiu
 docker: ## Build the Docker image
 	docker build -t cartographer .
 
+docker-smoke: docker ## Build the image, then check its tools, user and a served write (test/smoke/image.sh, D995)
+	test/smoke/image.sh cartographer
+
 DEMO_IMAGE ?= cartographer-demo
 # Override with BASE=cartographer (after `make docker`) to test the working tree.
 DEMO_BASE ?= ghcr.io/beppetemp/cartographer:latest
@@ -132,11 +138,12 @@ test-install: ## Run the network-free install.sh/Cask upgrade-repair suite and t
 # Isolated worktree for one plan branch. Every agent client shares the
 # filesystem with its own subagents, so isolation is not free anywhere: these
 # two targets are the single client-neutral way to get it, and they are why the
-# implement-issue skill no longer carries four copies of the same git commands.
-worktree-add: ## Isolated worktree for a plan branch: make worktree-add SLUG=my-change
+# cartographer-implement-plan skill no longer carries four copies of the same git commands.
+worktree-add: ## Isolated worktree for a plan branch (from upstream/main when that remote exists, else origin/main): make worktree-add SLUG=my-change
 	@test -n "$(SLUG)" || (echo "worktree-add: SLUG is required" && exit 1)
-	@git fetch origin
-	@git worktree add -b "feat/$(SLUG)" ".worktrees/$(SLUG)" origin/main
+	@./scripts/upstream-repo.sh --require-remote >/dev/null
+	@base=origin; git remote get-url upstream >/dev/null 2>&1 && base=upstream; \
+	git fetch $$base && git worktree add -b "feat/$(SLUG)" ".worktrees/$(SLUG)" $$base/main
 	@echo "worktree: $(CURDIR)/.worktrees/$(SLUG) on feat/$(SLUG)"
 
 worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree-rm SLUG=my-change
@@ -146,7 +153,7 @@ worktree-rm: ## Remove a plan worktree and its stale local branch: make worktree
 	@git branch -D "feat/$(SLUG)" 2>/dev/null || true
 	@echo "worktree removed: .worktrees/$(SLUG)"
 
-# The live session's instance (the live-dev skill): Go rebuilt and restarted on
+# The live session's instance (the cartographer-develop-live skill): Go rebuilt and restarted on
 # change, the UI hot-reloaded by Vite. DATA is copied, never served in place.
 dev: ## Live instance from this worktree: make dev [DATA=<data dir>] [API_PORT=39280] [UI_PORT=5173]
 	@DATA="$(DATA)" API_PORT="$(API_PORT)" UI_PORT="$(UI_PORT)" ./scripts/dev.sh

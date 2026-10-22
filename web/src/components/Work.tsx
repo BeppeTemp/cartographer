@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { fetchPendingSources, fetchWork } from "../api/client";
-import type { CollectionSummary, SourceEntry, WorkEntry, WorkResponse } from "../api/types";
+import { Fragment, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { fetchMaintenanceReview, fetchPendingSources, fetchStatus, fetchWork } from "../api/client";
+import type { CollectionSummary, KBStatus, ReviewItem, SourceEntry, WorkEntry, WorkResponse } from "../api/types";
+import { reviewInfo } from "../lib/review";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
 import {
@@ -15,7 +16,8 @@ import {
   PageHeader,
   Quiet,
   Segmented,
-  SkeletonRows,
+  TitleBone,
+  WorkSkeleton,
 } from "./Page";
 
 type Layout = "status" | "map";
@@ -23,6 +25,21 @@ const LAYOUTS = [
   ["status", "By status"],
   ["map", "By map"],
 ] as const;
+
+type SearchMiss = NonNullable<KBStatus["search_misses"]>[number];
+
+/** What a card stands for when it is not a concept. */
+type Pseudo = { kind: "miss"; query: string; count: number; lastSeen?: string } | { kind: "review"; item: ReviewItem };
+
+/** A work entry, or a card with no page behind it (a search miss, a proposal). */
+export type BoardEntry = WorkEntry & { pseudo?: Pseudo };
+
+/** The board's cards that do not come from `work_list`, and the searches closed since. */
+interface Extra {
+  entries: BoardEntry[];
+  found: string[];
+}
+const NO_EXTRA: Extra = { entries: [], found: [] };
 
 /**
  * A concept listed only for its unchecked items is grouped apart: its own
@@ -34,8 +51,36 @@ const ITEMS_ONLY = "unchecked items";
 /** The column of the sources registered and not ingested yet (D818). */
 const TO_INGEST = "to ingest";
 
+/** The column of the doctor's proposals (D704): each one waits for a decision. */
+const TO_DECIDE = "to decide";
+
+/** A proposal names at most this many pages on its card; the rest are counted. */
+const MAX_REFS = 4;
+
+/**
+ * Work a concept carries by what it is rather than by its status: each reason
+ * has its own column, named for what a person does about it.
+ */
+const REASON_COLUMN: Record<NonNullable<WorkEntry["reason"]>, string> = {
+  contradiction: "to resolve",
+  gap: "to answer",
+  review: "to review",
+};
+
 /** Columns in the order work moves through them; anything else follows, sorted. */
-const STATUS_ORDER = ["decision-needed", "blocked", "in-progress", "open", "proposed", TO_INGEST, ITEMS_ONLY];
+const STATUS_ORDER = [
+  REASON_COLUMN.contradiction,
+  "decision-needed",
+  "blocked",
+  "in-progress",
+  "open",
+  REASON_COLUMN.gap,
+  "proposed",
+  REASON_COLUMN.review,
+  TO_DECIDE,
+  TO_INGEST,
+  ITEMS_ONLY,
+];
 
 /**
  * Open work (D302): concepts in an open status for their map, of any type,
@@ -43,6 +88,12 @@ const STATUS_ORDER = ["decision-needed", "blocked", "in-progress", "open", "prop
  * changes through the agents' ordinary write tools, so there is no drag here.
  * The band counts it and filters it by Map and by status; the board below
  * lays it out as columns by status, or as one card per Map.
+ *
+ * Everything the KB still has to do is here, and Health keeps the lint
+ * problems. Two things are work without being a concept, and join the board
+ * client-side: the searches that found nothing (a page to write: "to answer")
+ * and the doctor's proposals (a choice to make: "to decide"). Neither has a
+ * page of its own, so a card for a search opens nothing.
  */
 export function Work({
   kb,
@@ -56,6 +107,7 @@ export function Work({
   onOpen(conceptId: string): void;
 }) {
   const [data, setData] = useState<WorkResponse | null>(null);
+  const [extra, setExtra] = useState<Extra>(NO_EXTRA);
   const [error, setError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
   const [layout, setLayout] = useState<Layout>("status");
@@ -68,17 +120,26 @@ export function Work({
   // until the fresh answer replaces it.
   useEffect(() => {
     setData(null);
+    setExtra(NO_EXTRA);
     setError(null);
   }, [kb]);
 
   useEffect(() => {
     const controller = new AbortController();
     // The pending sources join the open work: ingesting them is work like
-    // any other. Without them (an older server, no ledger) the list is the
-    // work list alone.
-    Promise.all([fetchWork(kb, controller.signal), fetchPendingSources(kb, controller.signal).catch(() => null)])
-      .then(([res, pending]) => {
+    // any other. So do the searches nothing answered and the doctor's
+    // proposals. Each is optional: without one (an older server, no ledger, a
+    // principal that cannot see the whole KB: kb_status answers 404) the list
+    // is the work list alone.
+    Promise.all([
+      fetchWork(kb, controller.signal),
+      fetchPendingSources(kb, controller.signal).catch(() => null),
+      fetchStatus(kb, controller.signal).catch(() => null),
+      fetchMaintenanceReview(kb, controller.signal).catch(() => null),
+    ])
+      .then(([res, pending, status, review]) => {
         setData(withPendingSources(res, pending?.sources ?? []));
+        setExtra(extraWork(status?.search_misses ?? [], review?.items ?? []));
         setError(null);
       })
       .catch((err: unknown) => {
@@ -91,7 +152,7 @@ export function Work({
   const mapTitles = useMemo(() => new Map(collections.map((c) => [c.name, c.title || c.name])), [collections]);
   const titleOfMap = (m: string) => (m ? (mapTitles.get(m) ?? m) : "(root)");
 
-  const all = useMemo(() => data?.entries ?? [], [data]);
+  const all = useMemo<BoardEntry[]>(() => [...(data?.entries ?? []), ...extra.entries], [data, extra]);
   const entries = useMemo(() => {
     const needle = text.trim().toLowerCase();
     return all.filter(
@@ -101,18 +162,19 @@ export function Work({
         (!staleOnly || e.stale) &&
         (!needle ||
           (e.title ?? e.id).toLowerCase().includes(needle) ||
+          (e.pseudo?.kind === "review" && e.pseudo.item.suggested_action.toLowerCase().includes(needle)) ||
           e.items.some((i) => i.text.toLowerCase().includes(needle))),
     );
   }, [all, map, status, staleOnly, text]);
 
   const groups = useMemo(() => {
-    const out = new Map<string, WorkEntry[]>();
+    const out = new Map<string, BoardEntry[]>();
     for (const e of entries) {
       const key = layout === "status" ? groupOf(e) : e.map || "";
       out.set(key, [...(out.get(key) ?? []), e]);
     }
     // Statuses in the order work moves through them; Maps busiest first.
-    const order = ([k, list]: [string, WorkEntry[]]) => (layout === "status" ? rankStatus(k) : -list.length);
+    const order = ([k, list]: [string, BoardEntry[]]) => (layout === "status" ? rankStatus(k) : -list.length);
     return [...out.entries()].sort((a, b) => order(a) - order(b) || a[0].localeCompare(b[0]));
   }, [entries, layout]);
 
@@ -123,21 +185,31 @@ export function Work({
     [all],
   );
   const stale = all.filter((e) => e.stale).length;
+  const misses = extra.entries.filter((e) => e.pseudo?.kind === "miss").length;
+  const decisions = extra.entries.length - misses;
+  const empty = data !== null && data.total === 0 && extra.entries.length === 0;
 
   return (
     <Page label="Open work" className="work">
       <PageHeader
         eyebrow="Work"
-        title={<Headline data={data} failed={error !== null} />}
+        title={<Headline data={data} misses={misses} decisions={decisions} failed={error !== null} />}
         help={
-          <p>
-            A concept is open work when its status is listed in the map&apos;s open_statuses, or is one of the default
-            open statuses (open, in-progress, blocked, decision-needed, proposed). &quot;active&quot; means the page is
-            valid, not that work is pending.
-          </p>
+          <>
+            <p>
+              A concept is open work when its status is listed in the map&apos;s open_statuses, or is one of the default
+              open statuses (open, in-progress, blocked, decision-needed, proposed). &quot;active&quot; means the page
+              is valid, not that work is pending.
+            </p>
+            <p>
+              Two more things are work without being a page. A search that found nothing is &quot;to answer&quot;: a
+              page to write, or a question to record, so ask your agent. A proposal from the doctor is &quot;to
+              decide&quot;: adopt it or dismiss it.
+            </p>
+          </>
         }
         actions={
-          data && data.total > 0 ? (
+          data && !empty ? (
             <>
               <input
                 className="page-search"
@@ -153,7 +225,7 @@ export function Work({
         }
       />
 
-      {data && data.total > 0 && (
+      {data && !empty && (
         <Hero label="Summary and filters">
           <HeroRow label="Where">
             <MapBar maps={maps} active={map} />
@@ -198,8 +270,8 @@ export function Work({
       {error ? (
         <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
       ) : !data ? (
-        <SkeletonRows label="Reading the work list" />
-      ) : data.total === 0 ? (
+        <WorkSkeleton label="Reading the work list" />
+      ) : empty ? (
         <Quiet>No open work: no concept in an open status and no unchecked item.</Quiet>
       ) : entries.length === 0 ? (
         <Quiet tone="neutral">Nothing matches these filters.</Quiet>
@@ -234,6 +306,17 @@ export function Work({
           ))}
         </div>
       )}
+      {data && extra.found.length > 0 && (
+        <p className="page-note">
+          Found since:{" "}
+          {extra.found.map((q, i) => (
+            <span key={q}>
+              {i > 0 && ", "}&ldquo;{q}&rdquo;
+            </span>
+          ))}
+          .
+        </p>
+      )}
       {data && data.next_offset !== undefined && (
         <p className="page-note">
           Showing the first {data.entries.length} of {data.total}.
@@ -250,13 +333,25 @@ function WorkCard({
   showStatus,
   onOpen,
 }: {
-  entry: WorkEntry;
+  entry: BoardEntry;
   mapTitle: string;
   showMap: boolean;
   showStatus: boolean;
   onOpen(id: string): void;
 }) {
   const [open, setOpen] = useState(false);
+  if (entry.pseudo) {
+    return (
+      <PseudoCard
+        entry={entry}
+        pseudo={entry.pseudo}
+        mapTitle={mapTitle}
+        showMap={showMap}
+        showStatus={showStatus}
+        onOpen={onOpen}
+      />
+    );
+  }
   const n = entry.items.length;
   return (
     <div className="work__card" style={{ "--map": collectionVar(entry.map || "(root)") } as CSSProperties}>
@@ -269,7 +364,11 @@ function WorkCard({
         )}
         <span className="work__card-title">{entry.title || entry.id}</span>
         <span className="work__card-meta">
-          {entry.type && <span className="pill">{entry.type}</span>}
+          {entry.reason && entry.reason !== "review" ? (
+            <span className="pill">{(entry.fields?.contradiction_kind || entry.reason).replace(/_/g, " ")}</span>
+          ) : (
+            entry.type && <span className="pill">{entry.type}</span>
+          )}
           {showStatus && (
             <span className="pill">
               <StatusDot status={groupOf(entry)} />
@@ -310,6 +409,92 @@ function WorkCard({
   );
 }
 
+/**
+ * A card with no page behind it. A search nobody answered opens nothing: its
+ * row says how often it was asked and the page header says what to do. A
+ * proposal opens the page it names when it names one, and lists them when it
+ * names several.
+ */
+function PseudoCard({
+  entry,
+  pseudo,
+  mapTitle,
+  showMap,
+  showStatus,
+  onOpen,
+}: {
+  entry: BoardEntry;
+  pseudo: Pseudo;
+  mapTitle: string;
+  showMap: boolean;
+  showStatus: boolean;
+  onOpen(id: string): void;
+}) {
+  const miss = pseudo.kind === "miss" ? pseudo : null;
+  const item = pseudo.kind === "review" ? pseudo.item : null;
+  // A map's contract (`<map>/_map`) is no page to open: its evidence names the map.
+  const pages = (item?.concepts ?? []).filter((c) => !c.endsWith("/_map"));
+  const target = pages.length === 1 ? pages[0]! : null;
+  const title = miss ? `\u201c${miss.query}\u201d` : (entry.title ?? entry.id);
+  const body = (
+    <>
+      {showMap && entry.map && (
+        <span className="work__card-map">
+          <MapDot map={entry.map} />
+          {mapTitle}
+        </span>
+      )}
+      <span className="work__card-title" title={title}>
+        {title}
+      </span>
+      <span className="work__card-meta">
+        <span className="pill">{item ? reviewInfo(item.kind).label : "searched, not found"}</span>
+        {showStatus && (
+          <span className="pill">
+            <StatusDot status={groupOf(entry)} />
+            {groupOf(entry)}
+          </span>
+        )}
+        {miss && (
+          <span className="work__age">
+            searched {miss.count === 1 ? "once" : `${miss.count} times`}
+            {miss.lastSeen ? `, last on ${miss.lastSeen.slice(0, 10)}` : ""}
+          </span>
+        )}
+      </span>
+      {item?.suggested_action && (
+        <span className="work__card-note" title={item.suggested_action}>
+          {item.suggested_action}
+        </span>
+      )}
+    </>
+  );
+  const refs = target ? [] : pages;
+  return (
+    <div className="work__card" style={{ "--map": collectionVar(entry.map || "(root)") } as CSSProperties}>
+      {target ? (
+        <button type="button" className="work__card-main" onClick={() => onOpen(target)}>
+          {body}
+        </button>
+      ) : (
+        <div className="work__card-main work__card-main--static">{body}</div>
+      )}
+      {refs.length > 0 && (
+        <ul className="work__refs" aria-label="Pages concerned">
+          {refs.slice(0, MAX_REFS).map((c) => (
+            <li key={c}>
+              <button type="button" className="ref-link" onClick={() => onOpen(c)}>
+                {c}
+              </button>
+            </li>
+          ))}
+          {refs.length > MAX_REFS && <li className="work__refs-more">+{refs.length - MAX_REFS} more</li>}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** A status as a coloured dot; the word beside it carries the meaning. */
 function StatusDot({ status }: { status: string }) {
   return <span className="status-dot" data-status={statusTone(status)} aria-hidden="true" />;
@@ -320,10 +505,12 @@ function statusTone(status: string): string {
     case "blocked":
       return "error";
     case "decision-needed":
+    case REASON_COLUMN.contradiction:
       return "warning";
     case "in-progress":
       return "active";
     case "open":
+    case REASON_COLUMN.gap:
       return "info";
     case ITEMS_ONLY:
       return "items";
@@ -347,19 +534,95 @@ function statusOf(e: WorkEntry): string {
   return e.status || "none";
 }
 
-function groupOf(e: WorkEntry): string {
+function groupOf(e: BoardEntry): string {
+  if (e.reason) return REASON_COLUMN[e.reason];
   return e.open_phase ? statusOf(e) : ITEMS_ONLY;
 }
 
-function Headline({ data, failed }: { data: WorkResponse | null; failed: boolean }) {
-  if (!data) return <>{failed ? "Work list unavailable" : "Reading the work list…"}</>;
-  if (data.total === 0) return <>Nothing is open.</>;
+function Headline({
+  data,
+  misses,
+  decisions,
+  failed,
+}: {
+  data: WorkResponse | null;
+  misses: number;
+  decisions: number;
+  failed: boolean;
+}) {
+  if (!data) return <>{failed ? "Work list unavailable" : <TitleBone label="Reading the work list" />}</>;
+  if (data.total === 0 && misses + decisions === 0) return <>Nothing is open.</>;
+  // One clause per kind of work that exists, so none is named when it is zero.
+  const parts: ReactNode[] = [];
+  if (data.total > 0) {
+    parts.push(
+      <>
+        <Count>{data.total}</Count> {data.total === 1 ? "concept carries" : "concepts carry"} open work
+      </>,
+      <>
+        <Count>{data.open_items}</Count> unchecked item{data.open_items === 1 ? "" : "s"}
+      </>,
+    );
+  }
+  if (misses > 0) {
+    parts.push(
+      <>
+        <Count>{misses}</Count> {misses === 1 ? "search" : "searches"} to answer
+      </>,
+    );
+  }
+  if (decisions > 0) {
+    parts.push(
+      <>
+        <Count>{decisions}</Count> {decisions === 1 ? "proposal" : "proposals"} to decide
+      </>,
+    );
+  }
   return (
     <>
-      <Count>{data.total}</Count> {data.total === 1 ? "concept carries" : "concepts carry"} open work,{" "}
-      <Count>{data.open_items}</Count> unchecked item{data.open_items === 1 ? "" : "s"}.
+      {parts.map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 && ", "}
+          {p}
+        </Fragment>
+      ))}
+      .
     </>
   );
+}
+
+/**
+ * What agents searched for and the KB could not answer (D247) becomes work "to
+ * answer", beside the open gaps; the doctor's proposals (D704) become work "to
+ * decide". A search that finds something now is no work: it is only named, so
+ * the gap it showed is seen to have closed.
+ */
+export function extraWork(misses: SearchMiss[], review: ReviewItem[]): Extra {
+  const asked: BoardEntry[] = misses
+    .filter((m) => !m.resolved)
+    .map((m) => ({
+      id: `search:${m.query}`,
+      title: m.query,
+      map: "",
+      reason: "gap",
+      open_phase: true,
+      stale: false,
+      items: [],
+      pseudo: { kind: "miss", query: m.query, count: m.count, lastSeen: m.last_seen },
+    }));
+  const proposed: BoardEntry[] = review.map((item, i) => ({
+    id: `review:${i}:${item.kind}`,
+    // The evidence names the term of a glossary gap and says how often it is used.
+    title: item.evidence,
+    // The map of the first page named, a map's contract (`<map>/_map`) included.
+    map: item.concepts[0]?.includes("/") ? item.concepts[0].slice(0, item.concepts[0].indexOf("/")) : "",
+    status: TO_DECIDE,
+    open_phase: true,
+    stale: false,
+    items: [],
+    pseudo: { kind: "review", item },
+  }));
+  return { entries: [...asked, ...proposed], found: misses.filter((m) => m.resolved).map((m) => m.query) };
 }
 
 /** The work list with each pending source added as a "to ingest" entry. */

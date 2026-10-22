@@ -28,9 +28,9 @@ import (
 // so they are intentionally not flagged.
 //
 // A candidate match here is not automatically a finding (D124): it can still
-// be inside a URL (urlRe below) or covered by the concept's Map
-// machine_path_allow_prefixes contract, both of which make it an
-// operational/target path rather than a client-local one.
+// be inside a URL (urlRe below) or under a built-in tool path (D313), both of
+// which make it an operational/target path rather than a client-local one. No
+// map adds its own prefixes (D907).
 var machinePathRe = regexp.MustCompile(`(?:/Users/|/home/|~/|C:\\Users\\)[^\s` + "`" + `'"()]*`)
 
 // urlRe matches a URL with an explicit scheme (e.g. "https://", "s3://"). A
@@ -38,60 +38,39 @@ var machinePathRe = regexp.MustCompile(`(?:/Users/|/home/|~/|C:\\Users\\)[^\s` +
 // component, not a filesystem path on the machine that wrote it (D124).
 var urlRe = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://[^\s` + "`" + `'"()]*`)
 
-// Severity levels.
-const (
-	SevInfo    = "info"
-	SevWarning = "warning"
-	SevError   = "error"
-)
-
-// Severities lists the accepted severity names, ordered from least to most
-// severe. Exposed so a caller rejecting an invalid input can name the valid
-// ones instead of hardcoding a list that drifts from this one.
-var Severities = []string{SevInfo, SevWarning, SevError}
-
-// severityRank orders the three levels. -1 marks a string that is not a
-// severity at all, which is how callers tell "below the floor" from "not a
-// severity" without a second lookup.
-func severityRank(severity string) int {
-	switch severity {
-	case SevInfo:
-		return 0
-	case SevWarning:
-		return 1
-	case SevError:
-		return 2
+// categoryRank is the position of a check's category in Categories, the order
+// findings are listed in. A name the registry does not know comes last.
+func categoryRank(check string) int {
+	s, ok := Spec(check)
+	if !ok {
+		return len(Categories)
 	}
-	return -1
-}
-
-// ValidSeverity reports whether severity names one of the three levels.
-func ValidSeverity(severity string) bool { return severityRank(severity) >= 0 }
-
-// Filter returns the findings at or above floor, together with the counts by
-// check and by severity computed on the **input** slice — deliberately before
-// filtering. Omitting findings silently would make a response lie about the
-// state of the KB: a caller always gets to know the shape of what it is not
-// being shown. A finding whose severity is unrecognized is kept, since dropping
-// it would hide a check whose severity was mistyped.
-func Filter(findings []Finding, floor string) (kept []Finding, byCheck, bySeverity map[string]int) {
-	byCheck, bySeverity = map[string]int{}, map[string]int{}
-	min := severityRank(floor)
-	for _, f := range findings {
-		byCheck[f.Check]++
-		bySeverity[f.Severity]++
-		if rank := severityRank(f.Severity); rank < 0 || rank >= min {
-			kept = append(kept, f)
+	for i, c := range Categories {
+		if c == s.Category {
+			return i
 		}
 	}
-	// Deterministic order (D324): lint.Run walks a map, so without this two
-	// calls on the same KB disagree and offset pagination is meaningless. The
-	// sort lives here, not in Run, so the Run cache (D294) stays untouched.
-	// Errors first, then grouped by check, then by path.
-	sort.SliceStable(kept, func(i, j int) bool {
-		a, b := kept[i], kept[j]
-		if ra, rb := severityRank(a.Severity), severityRank(b.Severity); ra != rb {
-			return ra > rb
+	return len(Categories)
+}
+
+// Order returns the findings sorted into the order every reader lists them in
+// (D324): the registry's category order, then check, then path, then message.
+// lint.Run walks a map, so without this two calls on the same KB disagree and
+// offset pagination is meaningless. The sort lives here, not in Run, so the Run
+// cache (D294) stays untouched. The order is where a reader starts, never a
+// judgement of gravity: every finding is a problem (D947).
+func Order(findings []Finding) []Finding {
+	out := append([]Finding(nil), findings...)
+	rank := map[string]int{}
+	for _, f := range out {
+		if _, ok := rank[f.Check]; !ok {
+			rank[f.Check] = categoryRank(f.Check)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if ra, rb := rank[a.Check], rank[b.Check]; ra != rb {
+			return ra < rb
 		}
 		if a.Check != b.Check {
 			return a.Check < b.Check
@@ -101,7 +80,18 @@ func Filter(findings []Finding, floor string) (kept []Finding, byCheck, bySeveri
 		}
 		return a.Message < b.Message
 	})
-	return kept, byCheck, bySeverity
+	return out
+}
+
+// CountsByCheck counts the findings per check. Callers compute it on the full
+// set before narrowing a view, so a response never hides the shape of what it is
+// not showing.
+func CountsByCheck(findings []Finding) map[string]int {
+	out := map[string]int{}
+	for _, f := range findings {
+		out[f.Check]++
+	}
+	return out
 }
 
 // Thresholds for the D77 WP4 structural guardrails. Deterministic by design
@@ -127,54 +117,12 @@ const (
 	conceptOversizeThreshold = okf.ConceptReadSizeGuard / 2
 )
 
-// perConceptChecks (derived from the registry, D354: Accept concept) are the
-// checks a concept may silence with lint_ignore, i.e.
-// the warning/info ones driven by that concept's own body or frontmatter. Kept in
-// one place so an unknown name in lint_ignore can be reported rather than
-// silently suppressing nothing.
-//
-// Deliberately excluded: every SevError check. missing_required_field and
-// expanded_ambiguous are contract violations, not judgements — letting a concept
-// declare its own contract void is not an escape hatch, it is a hole. Also
-// excluded: the directory-based checks (map_oversize, index_incomplete,
-// expanded_*), which belong to a map or a directory and have no concept
-// frontmatter to read.
-var perConceptChecks = checkSet(func(s CheckSpec) bool { return s.Accept == AcceptConcept })
-
-// lintIgnoreSet reads a concept's lint_ignore frontmatter key (D159). A bare
-// string is accepted as a one-element list: the frontmatter parser distinguishes
-// the two and a bare string is the obvious authoring mistake.
-func lintIgnoreSet(fm *okf.Frontmatter) map[string]bool {
-	if fm == nil {
-		return nil
-	}
-	v, ok := fm.Get("lint_ignore")
-	if !ok {
-		return nil
-	}
-	out := map[string]bool{}
-	switch value := v.(type) {
-	case string:
-		if strings.TrimSpace(value) != "" {
-			out[strings.TrimSpace(value)] = true
-		}
-	case []string:
-		for _, item := range value {
-			if strings.TrimSpace(item) != "" {
-				out[strings.TrimSpace(item)] = true
-			}
-		}
-	}
-	return out
-}
-
 // Finding represents a single lint finding.
 type Finding struct {
-	Path     string // concept path relative to KB (e.g. "arch/runbook.md")
-	Check    string // check name (e.g. "broken_link", "stale_claim")
-	Severity string // "warning" or "error"
-	Message  string
-	Fix      *Fix // optional mechanical remedy (D289)
+	Path    string // concept path relative to KB (e.g. "arch/runbook.md")
+	Check   string // check name (e.g. "broken_link", "stale_claim")
+	Message string
+	Fix     *Fix // optional mechanical remedy (D289)
 	// Proposal is the structured vocabulary a missing_value_contract
 	// finding suggests (D296).
 	Proposal *Proposal
@@ -207,8 +155,7 @@ func pastDay(day time.Time) bool {
 //
 // The sibling KB roots for cross_kb_path come from k.SiblingRoots (D316), so
 // every caller — the lint tool, the cached kb_status/Atlas findings, the gate
-// — reports the same findings for the same KB. The same holds for the usage
-// store (D326) behind artifact_unused, read here from the KB's local state.
+// — reports the same findings for the same KB.
 func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 	return RunWithOptions(k, scope, scopeNeighbors, runOptions(k))
 }
@@ -216,15 +163,7 @@ func Run(k *kb.KB, scope string, scopeNeighbors bool) ([]Finding, error) {
 // runOptions is the injected, non-KB input of a lint run, read the same way for
 // every caller.
 func runOptions(k *kb.KB) Options {
-	staleDays := k.Policy().UsageStaleDays
-	opts := Options{CrossKBRoots: k.SiblingRoots, UsageStaleDays: staleDays}
-	if staleDays > 0 {
-		// A store that cannot be read is no data, not a lint failure.
-		if entries, err := k.LoadUsage(); err == nil && len(entries) > 0 {
-			opts.Usage = kb.SummarizeUsage(entries)
-		}
-	}
-	return opts
+	return Options{CrossKBRoots: k.SiblingRoots}
 }
 
 // ArtifactFindings runs the artifact checks of an unscoped Run (D316: skills,
@@ -235,7 +174,7 @@ func runOptions(k *kb.KB) Options {
 // the files given (KB-root-relative), which Run finds by listing the whole git
 // tree. missing_instructions is never reported: it needs the concept count.
 func ArtifactFindings(k *kb.KB, files []string) []Finding {
-	findings, _ := checkArtifacts(k, runOptions(k), readInstructions(k), 0, secretsDirExists(k))
+	findings := checkArtifacts(k, runOptions(k), readInstructions(k), 0, secretsDirExists(k))
 	return append(findings, junkFindings(files, nil)...)
 }
 
@@ -246,150 +185,7 @@ func secretsDirExists(k *kb.KB) bool {
 
 // RunWithOptions is Run with the injected, non-KB inputs explicit.
 func RunWithOptions(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Finding, error) {
-	findings, _, err := RunWithSuppressions(k, scope, scopeNeighbors, opts)
-	return findings, err
-}
-
-// RunWithSuppressions is RunWithOptions that also returns the suppression
-// inventory (D834): every lint_ignore / lint_accept entry the run evaluated and
-// how many findings it hid. On a whole-KB run (scope "") an entry that hides
-// nothing is also reported as lint_ignore_invalid and marked Stale.
-func RunWithSuppressions(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Finding, []Suppression, error) {
-	findings, sups, dropped, err := runChecks(k, scope, scopeNeighbors, opts)
-	if err != nil {
-		return nil, nil, err
-	}
-	findings, sups = applyMapIgnores(k, findings, sups, dropped)
-	if scope == "" {
-		findings, sups = reportStale(findings, sups)
-	}
-	sortSuppressions(sups)
-	return findings, sups, nil
-}
-
-// mapOnlyIgnorable are the checks a map's _map.md may accept that no single
-// concept owns: they are reported on the map, or on one member of a graph
-// component, so lint_ignore on a concept could never reach them.
-var mapOnlyIgnorable = checkSet(func(s CheckSpec) bool { return s.Accept == AcceptMap })
-
-// Acceptability levels (D313): who can accept a check with lint_ignore.
-const (
-	AcceptConcept  = "concept"  // lint_ignore on the concept (or on its map's _map.md)
-	AcceptMap      = "map"      // lint_ignore on the map's _map.md only
-	AcceptArtifact = "artifact" // lint_accept in instructions.md, keyed by path (D332)
-	AcceptNone     = "none"     // cannot be accepted: fix it
-)
-
-// CheckAcceptability says where a finding of this check can be accepted:
-// "concept", "map", "artifact" or "none". Errors and unknown checks are "none"; the answer
-// comes from the same tables lint_ignore is validated against, so it cannot
-// drift from what lint_ignore_invalid enforces.
-func CheckAcceptability(check string) string {
-	switch {
-	case perConceptChecks[check]:
-		return AcceptConcept
-	case mapOnlyIgnorable[check]:
-		return AcceptMap
-	case artifactAcceptable(check):
-		return AcceptArtifact
-	}
-	return AcceptNone
-}
-
-// applyMapIgnores drops the findings a map accepts as a whole with
-// lint_ignore in its _map.md (D306): a KB's style choice (a "See also" that
-// says why, services linking the infrastructure they run on) is one decision
-// for the map, not one write per concept. Every concept-suppressible check
-// may be named, plus mapOnlyIgnorable; errors never go. An island goes when
-// any member's concept or map accepts it. A name that suppresses nothing is
-// itself reported, on the _map.md.
-//
-// dropped are the findings concept-level lint_ignore already dropped (D834):
-// an entry is credited with every finding it would hide on its own, so a map
-// entry that overlaps a concept entry is not reported stale for it.
-func applyMapIgnores(k *kb.KB, findings []Finding, sups []Suppression, dropped []Finding) ([]Finding, []Suppression) {
-	archives, err := k.ListArchives()
-	if err != nil {
-		return findings, sups
-	}
-	mapSup := map[[2]string]int{} // (map, check) → index in sups
-	conceptSup := map[conceptCheck]int{}
-	for i, sp := range sups {
-		if sp.Source == SourceConcept {
-			conceptSup[conceptCheck{sp.id, sp.Check}] = i
-		}
-	}
-	ignores := map[string]map[string]bool{}
-	var invalid []Finding
-	for _, a := range archives {
-		meta, err := k.ReadArchiveMeta(a)
-		if err != nil {
-			continue
-		}
-		set := lintIgnoreSet(meta)
-		if len(set) == 0 {
-			continue
-		}
-		ignores[a] = set
-		names := make([]string, 0, len(set))
-		for name := range set {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
-			mapSup[[2]string{a, name}] = len(sups)
-			sups = append(sups, Suppression{Source: SourceMap, Path: a + "/_map.md", Check: name})
-			if mapCanAccept(name) {
-				continue
-			}
-			invalid = append(invalid, newFinding("lint_ignore_invalid", Finding{
-				Path:    a + "/_map.md",
-				Message: fmt.Sprintf("lint_ignore names %q, which a map cannot accept (unknown, an error, a never-suppressed check, or a directory-level check), so nothing is suppressed", name),
-			}))
-		}
-	}
-	accepts := func(mapName, check string) bool {
-		return mapAcceptsCheck(ignores[mapName], check)
-	}
-	credit := func(m, check string) {
-		if i, ok := mapSup[[2]string{m, check}]; ok {
-			sups[i].Hidden++
-		}
-	}
-	for _, f := range dropped {
-		if m := owningMap(f.Path); mapSuppresses(ignores[m], f) {
-			credit(m, f.Check)
-		}
-	}
-	out := findings[:0]
-	for _, f := range findings {
-		m := owningMap(f.Path)
-		mapDrops := mapSuppresses(ignores[m], f)
-		if mapDrops {
-			credit(m, f.Check)
-		}
-		if f.Check == "island" {
-			// Every entry that accepts the island is credited, not only the first.
-			byMaps, byConcepts := islandAcceptors(k, f, accepts)
-			for _, bm := range byMaps {
-				if mapDrops && bm == m {
-					continue // credited above
-				}
-				credit(bm, "island")
-			}
-			for _, id := range byConcepts {
-				if i, ok := conceptSup[conceptCheck{id, "island"}]; ok {
-					sups[i].Hidden++
-				}
-			}
-			mapDrops = mapDrops || len(byMaps) > 0 || len(byConcepts) > 0
-		}
-		if mapDrops {
-			continue
-		}
-		out = append(out, f)
-	}
-	return append(out, invalid...), sups
+	return runChecks(k, scope, scopeNeighbors, opts)
 }
 
 // owningMap is the map a finding path or concept ID belongs to: its first path
@@ -401,54 +197,9 @@ func owningMap(path string) string {
 	return ""
 }
 
-// mapCanAccept reports whether a map's lint_ignore may name a check: one a
-// concept can silence or one only a map owns. A NeverSuppress check is in
-// perConceptChecks (its Accept is "concept"), so it is excluded here as the
-// concept path excludes it, or a map would silence what no page can.
-func mapCanAccept(check string) bool {
-	if spec, _ := Spec(check); spec.NeverSuppress {
-		return false
-	}
-	return perConceptChecks[check] || mapOnlyIgnorable[check]
-}
-
-// mapAcceptsCheck reports whether a map's lint_ignore set takes effect for a
-// check: named in the set, and one a map may accept (an unknown name, an
-// error or a never-suppressed check suppresses nothing).
-func mapAcceptsCheck(set map[string]bool, check string) bool {
-	return set[check] && mapCanAccept(check)
-}
-
-// mapSuppresses is the one rule that drops a finding on a map's lint_ignore,
-// shared by applyMapIgnores (lint, gate_check, kb_status) and CheckConcept
-// (the write path): errors are never suppressed.
-func mapSuppresses(set map[string]bool, f Finding) bool {
-	return f.Severity != SevError && mapAcceptsCheck(set, f.Check)
-}
-
-// islandAcceptors lists everything that accepts an island: the maps of its
-// members that accept it and the member concepts whose own lint_ignore does.
-// The finding is reported on one member, but the island is the whole
-// component's (D306); the inventory credits each acceptor (D834).
-func islandAcceptors(k *kb.KB, f Finding, accepts func(mapName, check string) bool) (maps []string, concepts []okf.ConceptID) {
-	seen := map[string]bool{}
-	for _, id := range f.members {
-		m, _, _ := strings.Cut(string(id), "/")
-		if accepts(m, "island") && !seen[m] {
-			seen[m] = true
-			maps = append(maps, m)
-		}
-		if cd, err := k.ReadConcept(id); err == nil {
-			if fm, _ := okf.ParseFrontmatter(cd.FrontmatterRaw); fm != nil && lintIgnoreSet(fm)["island"] {
-				concepts = append(concepts, id)
-			}
-		}
-	}
-	return maps, concepts
-}
-
-// runChecks is Run before the map-level lint_ignore pass.
-func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Finding, []Suppression, []Finding, error) {
+// runChecks is the whole of Run: no setting, no frontmatter field and no map
+// key silences a finding (D907).
+func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Finding, error) {
 	// Collect all non-reserved concepts and their physical paths.
 	// relPathOf mirrors resolveConceptRelPath on the read path: for a plain
 	// concept it holds "<id>.md", for an expanded one "<id>/index.md".  When
@@ -464,7 +215,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		}
 		return nil
 	}); err != nil {
-		return nil, nil, nil, fmt.Errorf("lint.Run: walk: %w", err)
+		return nil, fmt.Errorf("lint.Run: walk: %w", err)
 	}
 	// exists answers "is target a concept" from the walk, falling back to the
 	// filesystem only on a miss: a link may name an expanded concept by its
@@ -507,7 +258,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// validated the whole KB each time.
 	lg, err := k.LinkGraph(nil)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("lint.Run: link graph: %w", err)
+		return nil, fmt.Errorf("lint.Run: link graph: %w", err)
 	}
 	graph := lg.Links
 	isRetired := retiredOf(lg)
@@ -542,7 +293,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// Archive name set for orphan skip rule.
 	archives, err := k.ListArchives()
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("lint.Run: list archives: %w", err)
+		return nil, fmt.Errorf("lint.Run: list archives: %w", err)
 	}
 	archiveSet := make(map[string]bool, len(archives))
 	for _, a := range archives {
@@ -599,7 +350,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		}
 		artifactIDs, artErr := k.ArtifactPlaceholders()
 		if artErr != nil {
-			return nil, nil, nil, fmt.Errorf("lint.Run: artifact placeholders: %w", artErr)
+			return nil, fmt.Errorf("lint.Run: artifact placeholders: %w", artErr)
 		}
 		for _, id := range artifactIDs {
 			cited[id] = true
@@ -642,23 +393,17 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// and also drives the per-concept legacy_path check below.
 	instr := readInstructions(k)
 	hasSecretsDir := secretsDirExists(k)
-	var sups []Suppression // D834: what each lint_ignore / lint_accept entry hid
 	if scopeNorm == "" {
-		artifactFindings, acceptSups := checkArtifacts(k, opts, instr, len(allConcepts), hasSecretsDir)
-		findings = append(findings, artifactFindings...)
-		sups = append(sups, acceptSups...)
+		findings = append(findings, checkArtifacts(k, opts, instr, len(allConcepts), hasSecretsDir)...)
 	}
 	// junkAssets are the junk files the expanded-concept pass reported as
 	// junk_asset, so the whole-tree junk_file pass does not report them twice.
 	junkAssets := map[string]bool{}
 
-	// The structural analysis runs on the whole graph whatever the scope, so
-	// a scoped lint gives a concept the verdict a whole-KB lint gives it;
-	// scope only decides which findings are emitted (D243).
-	st, err := analyseStructure(k, lg, archives, contracts)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("lint.Run: structure: %w", err)
-	}
+	// The graph-shape observations (cut_concept, island, map_misfit) are not
+	// findings (D947): only kb_review computes them, so the cheap structure
+	// (collection kinds and the successor resolver) is all a lint needs.
+	st := newStructure(k, lg, archives, contracts)
 
 	// readTargetBody serves reciprocal_link_item the body of a link target
 	// (D309): the target's text, not its links section, must link back. The
@@ -679,8 +424,8 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// Each concept's checks read the run's shared data and write only their
 	// own findings, so they run on every core: on a KB of a thousand pages
 	// this is most of a whole-KB lint (the Atlas waits on it).
-	checkOne := func(id okf.ConceptID, content string) ([]Finding, []Suppression, []Finding) {
-		var findings, dropped []Finding
+	checkOne := func(id okf.ConceptID, content string) []Finding {
+		var findings []Finding
 		relPath := okf.IDToPath(id)
 		// Relative links resolve against the file that contains them, which for
 		// an expanded concept is "<id>/index.md", not "<id>.md" (D149). relPath
@@ -688,61 +433,14 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		// sort on. The two coincide for a plain concept.
 		linkBase := relPathOf[id]
 		fmRaw, body, hasFM := okf.SplitFrontmatter(content)
-		// lint_ignore (D159): a concept that documents a false positive — a
-		// ~/.ssh/config in prose, a deliberately-broken example link — could not
-		// be written without generating the findings it describes. One closure
-		// rather than a condition at each site, and errors are never suppressible:
-		// they route around emit on purpose.
-		var conceptIgnores map[string]bool
-		if hasFM {
-			if parsedForIgnore, _ := okf.ParseFrontmatter(fmRaw); parsedForIgnore != nil {
-				conceptIgnores = lintIgnoreSet(parsedForIgnore)
-			}
-		}
-		hidden := map[string]int{} // D834: findings each lint_ignore name dropped
-		emit := func(f Finding) {
-			if suppressed(f, conceptIgnores) {
-				hidden[f.Check]++
-				dropped = append(dropped, f)
-				return
-			}
-			findings = append(findings, f)
-		}
-		for name := range conceptIgnores {
-			spec, _ := Spec(name)
-			if perConceptChecks[name] && !spec.NeverSuppress {
-				continue
-			}
-			reason := "not a known lint check"
-			if perConceptChecks[name] {
-				reason = "a check lint_ignore cannot suppress"
-			} else if name == "missing_required_field" || name == "invalid_field_value" || name == "forbidden_field" || name == "expanded_ambiguous" {
-				reason = "an error-severity contract violation, which lint_ignore cannot silence"
-			} else if name == "tool_param_field" {
-				reason = "a tool argument is never a legitimate field, so it cannot be declared one"
-			} else if artifactChecks[name] {
-				reason = "a KB-level check (artifacts, junk files), not a per-concept one: accept it with lint_accept in instructions.md"
-			} else if name == "index_incomplete" || name == "index_stale" || name == "orphan_asset" || name == "oversized_asset" || name == "unlistable_assets" || name == "unused_placeholder" || name == "missing_registry" || strings.HasPrefix(name, "expanded_") {
-				// orphan_asset belongs to an expanded concept's asset set, reported
-				// in the directory pass: there is no single concept frontmatter that
-				// owns it, so listing it as suppressible would be a promise the
-				// implementation does not keep.
-				reason = "a directory-level check, not a per-concept one"
-			}
-			findings = append(findings, newFinding("lint_ignore_invalid", Finding{
-				Path:    relPath,
-				Message: fmt.Sprintf("lint_ignore names %q: %s, so nothing is suppressed", name, reason),
-			}))
-		}
+		// Nothing silences a finding (D907): a page that documents a false
+		// positive rewrites the text that trips the check.
+		emit := func(f Finding) { findings = append(findings, f) }
 		parts := strings.Split(string(id), "/")
-		var allowPrefixes []string
-		if len(parts) > 1 && archiveSet[parts[0]] {
-			allowPrefixes = contracts[parts[0]].MachinePathAllowPrefixes
-		}
 
 		linkFindings(k, id, relPath, linkBase, body, exists, graph.Out, readTargetBody, emit)
 
-		// --- unknown_placeholder (warning, D263) ---
+		// --- unknown_placeholder (D263) ---
 		// The keys come from the graph cache's facet (D262), the same parse
 		// sync_pull lists them from — not a second regex here.
 		if i, ok := lg.Index[id]; ok {
@@ -751,12 +449,12 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			}
 		}
 
-		// --- forbidden_term (warning, D276) ---
+		// --- forbidden_term (D276) ---
 		for _, f := range forbiddenTermFindings(relPath, body, glossary) {
 			emit(f)
 		}
 
-		// --- source_uncited (warning, D278) ---
+		// --- source_uncited (D278) ---
 		if f, ok := uncitedSourceFinding(relPath, id, content, sourceCited); ok {
 			emit(f)
 		}
@@ -768,12 +466,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		if hasFM {
 			parsed, _ = okf.ParseFrontmatter(fmRaw)
 		}
-		// A map's contract may set its own threshold (oversize_bytes, D301).
-		oversize := conceptOversizeThreshold
-		if len(parts) > 1 && contracts[parts[0]].OversizeBytes > 0 {
-			oversize = contracts[parts[0]].OversizeBytes
-		}
-		in := conceptInput{RelPath: relPath, Body: body, FrontmatterRaw: fmRaw, Parsed: parsed, AllowPrefixes: allowPrefixes, Registry: registry}
+		in := conceptInput{RelPath: relPath, Body: body, FrontmatterRaw: fmRaw, Parsed: parsed, Registry: registry}
 		if len(parts) > 1 && archiveSet[parts[0]] {
 			c := contracts[parts[0]]
 			in.MapName, in.Contract = parts[0], &c
@@ -783,7 +476,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			}
 		}
 		for _, f := range conceptFindings(conceptCtx{
-			ID: id, In: in, Oversize: oversize,
+			ID: id, In: in,
 			KBRoot: k.Root, HasSecretsDir: hasSecretsDir, LegacyPaths: instr.legacyPaths,
 		}) {
 			emit(f)
@@ -795,28 +488,22 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			emit(f)
 		}
 
-		// --- orphan (warning) ---
+		// --- orphan ---
 		if f, ok := orphanFinding(id, relPath, isRetired(id), incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }, func(t okf.ConceptID) bool { return len(sourceCited[string(t)]) > 0 }); ok {
 			emit(f)
 		}
 
-		// --- cut_concept, broken_relation, link_to_retired, map_misfit ---
+		// --- broken_relation, link_to_retired ---
 		for _, f := range st.conceptChecks(id, relPath) {
 			emit(f)
 		}
-		var sups []Suppression
-		for name := range conceptIgnores {
-			sups = append(sups, Suppression{Source: SourceConcept, Path: relPathOf[id], Check: name, id: id, Hidden: hidden[name]})
-		}
-		return findings, sups, dropped
+		return findings
 	}
 	ids := make([]okf.ConceptID, 0, len(toCheck))
 	for id := range toCheck {
 		ids = append(ids, id)
 	}
 	perConcept := make([][]Finding, len(ids))
-	perConceptSups := make([][]Suppression, len(ids))
-	perConceptDropped := make([][]Finding, len(ids))
 	var next atomic.Int64
 	var wg sync.WaitGroup
 	// A panic in a check is re-raised on the caller's goroutine, where the
@@ -833,7 +520,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}
 			}()
 			for i := int(next.Add(1)) - 1; i < len(ids); i = int(next.Add(1)) - 1 {
-				perConcept[i], perConceptSups[i], perConceptDropped[i] = checkOne(ids[i], toCheck[ids[i]])
+				perConcept[i] = checkOne(ids[i], toCheck[ids[i]])
 			}
 		}()
 	}
@@ -841,22 +528,15 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	if r := panicked.Load(); r != nil {
 		panic(fmt.Sprintf("lint: concept check: %v", r))
 	}
-	var droppedAll []Finding
-	for i, f := range perConcept {
+	for _, f := range perConcept {
 		findings = append(findings, f...)
-		sups = append(sups, perConceptSups[i]...)
-		droppedAll = append(droppedAll, perConceptDropped[i]...)
 	}
-	findings = append(findings, st.islandFindings(func(id okf.ConceptID) bool {
-		_, ok := toCheck[id]
-		return ok
-	})...)
 
 	// --- structural checks on maps and expanded concepts (D77 WP4) ---
 	// Directory-based (unlike the checks above, not driven by toCheck).
 	for _, archiveName := range archives {
 		if scopeMatchesDir(scopeNorm, archiveName) {
-			// --- legacy_archive_descriptor (warning) ---
+			// --- legacy_archive_descriptor ---
 			// A map still described by the pre-D77 _archive.md shape. Read-compat
 			// keeps it working; the finding is the migration backlog.
 			if _, mapErr := k.ReadRaw(archiveName + "/_map.md"); errors.Is(mapErr, okf.ErrNotFound) {
@@ -868,37 +548,23 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}
 			}
 
-			// --- missing_value_contract (info, D289) ---
-			if c, ok := contracts[archiveName]; ok {
-				findings = append(findings, valueContractFindings(archiveName, c, allConcepts)...)
-			}
-			// --- facet_sprawl (info, D297) ---
-			if _, ok := contracts[archiveName]; ok {
-				findings = append(findings, facetSprawlFindings(archiveName, allConcepts)...)
+			// --- contract_legacy_key (D907) ---
+			// A key the contract no longer has (it switched a check off or
+			// loosened it): the repair rewrites the descriptor.
+			if c, ok := contracts[archiveName]; ok && len(c.LegacyKeys) > 0 {
+				findings = append(findings, newFinding("contract_legacy_key", Finding{
+					Path:    archiveName + "/_map.md",
+					Message: fmt.Sprintf("removed contract key(s) %s (D907): no key switches a check off or loosens it — the repair rewrites the descriptor to the current shape", strings.Join(c.LegacyKeys, ", ")),
+					Fix:     &Fix{Kind: FixRewriteContract, Field: strings.Join(c.LegacyKeys, ",")},
+				}))
 			}
 
-			// --- map_without_templates, and templates against the map's values (D352) ---
+			// --- templates against the map's values (D352) ---
 			if c, ok := contracts[archiveName]; ok {
-				topLevel := 0
-				for id := range allConcepts {
-					if rest, ok := strings.CutPrefix(string(id), archiveName+"/"); ok && !strings.Contains(rest, "/") {
-						if i, ok := st.lg.Index[id]; ok && st.lg.Facets[i].Status == kb.StatusArchived {
-							continue
-						}
-						topLevel++
-					}
-				}
 				if len(c.Templates) > 0 {
 					catalogOnce.Do(func() { catalog = k.TemplateCatalog() })
 				}
-				findings = append(findings, mapTemplateFindings(archiveName+"/_map.md", archiveName, c, topLevel, catalog)...)
-			}
-
-			// --- map_oversize (info, D313) ---
-			// The count, the journal exemption and the threshold live in
-			// mapOversizeFinding, shared with the write path (D716).
-			if f, ok := mapOversizeFinding(archiveName, contracts[archiveName], mapOversizeCount(st.lg, archiveName)); ok {
-				findings = append(findings, f)
+				findings = append(findings, mapTemplateFindings(archiveName+"/_map.md", archiveName, c, catalog)...)
 			}
 		}
 
@@ -907,7 +573,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		// actionable instead of reporting unrelated map siblings.
 		contract, hasContract := contracts[archiveName]
 		if hasContract && contract.Index == kb.IndexGenerated {
-			// --- index_stale (info, D301) ---
+			// --- index_stale (D301) ---
 			// The server owns the concept list of a generated index, so
 			// completeness is not the agent's to check: only whether the
 			// block still matches what the next write would put there.
@@ -924,7 +590,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 					checkIndexLinks(k, archiveName+"/index.md", body, &findings, exists)
 				}
 			}
-		} else if hasContract && contract.RequireIndexEntry {
+		} else if hasContract {
 			var direct []okf.ConceptID
 			for id := range toCheck {
 				parts := strings.Split(string(id), "/")
@@ -934,16 +600,19 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			}
 			// A full lint or an explicit map scope also validates the map index
 			// when it has no direct concepts. A scope inside an expanded concept
-			// must not surface unrelated map-index content.
-			if len(direct) > 0 || scopeNorm == "" || scopeNorm == archiveName {
-				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, true, &findings, exists, isRetired)
+			// must not surface unrelated map-index content, and a concept scope
+			// gets only its own entries: the index's dead links are the map's.
+			wholeMap := scopeNorm == "" || scopeNorm == archiveName
+			if len(direct) > 0 || wholeMap {
+				checkCuratedIndex(k, archiveName, archiveName+"/index.md", direct, wholeMap, &findings, exists, isRetired)
 			}
 		} else if scopeNorm == "" || scopeNorm == archiveName {
-			// A dead link is dead whether or not the map promised completeness:
-			// without this, a map created before its contract kept every stale
-			// [[id]] a concept_move left behind and lint reported none (#320).
-			// Completeness stays opt-in; only the links are checked here. A
-			// missing index is not reported: nothing required one.
+			// A folder with no readable descriptor has no contract to say
+			// what its index is, so only the links are checked: a dead link
+			// is dead either way, and a concept_move's stale [[id]] would
+			// otherwise go unreported (#320). Completeness is checked on
+			// every map (the branch above); the folder itself is
+			// unmapped_folder's.
 			if content, err := k.ReadIndex(archiveName); err == nil {
 				_, body, _ := okf.SplitFrontmatter(content)
 				checkIndexLinks(k, archiveName+"/index.md", body, &findings, exists)
@@ -963,7 +632,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 			if !scopeMatchesDir(scopeNorm, string(expandedID)) {
 				continue
 			}
-			if contract, ok := contracts[archiveName]; ok && contract.RequireIndexEntry {
+			if _, ok := contracts[archiveName]; ok {
 				var satellites []okf.ConceptID
 				for id := range toCheck {
 					if strings.HasPrefix(string(id), string(expandedID)+"/") {
@@ -977,7 +646,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}
 			}
 
-			// --- expanded_missing_index (warning) ---
+			// --- expanded_missing_index ---
 			// WriteConcept (D72 WP4) stubs index.md on every implicitly created
 			// directory and ExpandConcept always produces one, so this only
 			// fires for directories predating those fixes.
@@ -989,7 +658,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}))
 			}
 
-			// --- expanded_ambiguous (error) ---
+			// --- expanded_ambiguous ---
 			// Both "<id>.md" and "<id>/index.md" exist: reads silently prefer
 			// the direct form and writes are rejected (resolveConceptRelPath),
 			// so this is the place that surfaces the conflict.
@@ -1002,7 +671,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}
 			}
 
-			// --- expanded_as_category (warning) ---
+			// --- expanded_as_category ---
 			// Many children, mostly not linked from (or to) the concept's own
 			// index: the directory is being used as a taxonomy bucket.
 			var children []okf.ConceptID
@@ -1041,7 +710,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 				}
 			}
 
-			// --- orphan_asset (info) ---
+			// --- orphan_asset ---
 			// Assets are intentionally outside WalkConcepts and the graph. They
 			// still need a lightweight provenance signal: an asset should be
 			// cited by its owner's index or one of that expanded concept's
@@ -1110,13 +779,14 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 
 	if scopeNorm == "" {
 		findings = append(findings, checkJunkFiles(k, junkAssets)...)
+		findings = append(findings, checkSymlinkedPaths(k)...)
 	}
 
 	// --- unmapped_folder, stray_file (D357) ---
 	findings = append(findings, unmappedFolderFindings(k, archives, allConcepts, func(name string) bool { return scopeMatchesDir(scopeNorm, name) })...)
 	findings = append(findings, strayFileFindings(k, scopeNorm)...)
 
-	return findings, sups, droppedAll, nil
+	return findings, nil
 }
 
 // linkFindings are the checks one concept's body links drive: broken_link,
@@ -1125,7 +795,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 // response and a whole-KB lint report the same finding for the same body.
 // out is the link graph's out-edges (reciprocal_link_item reads it).
 func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, exists func(okf.ConceptID) bool, out map[okf.ConceptID]map[okf.ConceptID]struct{}, readTargetBody func(okf.ConceptID) (string, string), emit func(Finding)) {
-	// --- broken_link (warning) ---
+	// --- broken_link ---
 	// For expanded concepts, detect links broken by past expansions:
 	// if the same href resolves from the pre-expansion base "<id>.md",
 	// the fix is a rebase (D295 WP2).
@@ -1153,13 +823,13 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 		}
 	}
 
-	// --- index_link_form (info, D310) ---
+	// --- index_link_form (D310) ---
 	for _, f := range indexLinkForms(body, linkBase, exists) {
 		f.Path = relPath
 		emit(f)
 	}
 
-	// --- duplicate_link / bare_link_list (info): the trailing links
+	// --- duplicate_link / bare_link_list: the trailing links
 	// section (linksection.go) ---
 	if heading, dups, fixableDups, bare, n := linksSectionIssues(body, linkBase, k.AssetExists); heading != "" {
 		if len(dups) > 0 {
@@ -1174,7 +844,7 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 				emit(f)
 			}
 		}
-		// --- reciprocal_link_item (info, D301): an opt-in efficiency
+		// --- reciprocal_link_item (D301): an opt-in efficiency
 		// fix, never conformance debt; the target's own link keeps the
 		// edge navigable both ways through backlinks. ---
 		recips := reciprocalLinkItems(body, linkBase, id, out, dups, k.AssetExists, readTargetBody)
@@ -1243,20 +913,19 @@ func orphanFinding(id okf.ConceptID, relPath string, isRetired bool, in, out map
 }
 
 // firstDisallowedMachinePath scans body for machine_path candidates in order
-// and returns the first one that is neither inside a URL nor covered by
-// allowPrefixes (the concept's Map machine_path_allow_prefixes contract,
-// D124). Scanning continues past an allowed match so a later disallowed
-// match still surfaces. Returns "" when every candidate is allowed or there
-// is none.
-func firstDisallowedMachinePath(body string, allowPrefixes []string) string {
-	if all := disallowedMachinePaths(body, allowPrefixes); len(all) > 0 {
+// and returns the first one that is neither inside a URL nor under a
+// conventional tool path (builtinAllowPrefixes). Scanning continues past an
+// allowed match so a later disallowed match still surfaces. Returns "" when
+// every candidate is allowed or there is none.
+func firstDisallowedMachinePath(body string) string {
+	if all := disallowedMachinePaths(body); len(all) > 0 {
 		return all[0]
 	}
 	return ""
 }
 
 // disallowedMachinePaths is every distinct disallowed candidate, in order.
-func disallowedMachinePaths(body string, allowPrefixes []string) []string {
+func disallowedMachinePaths(body string) []string {
 	candidates := machinePathRe.FindAllStringIndex(body, -1)
 	if len(candidates) == 0 {
 		return nil
@@ -1270,7 +939,7 @@ func disallowedMachinePaths(body string, allowPrefixes []string) []string {
 		}
 		// Prose punctuation after a path is not part of it.
 		candidate := strings.TrimRight(body[span[0]:span[1]], ",;:.)")
-		if candidate == "" || matchesAllowedPrefix(candidate, allowPrefixes) || seen[candidate] {
+		if candidate == "" || matchesAllowedPrefix(candidate) || seen[candidate] {
 			continue
 		}
 		seen[candidate] = true
@@ -1290,16 +959,13 @@ func withinAnySpan(span []int, spans [][]int) bool {
 	return false
 }
 
-// matchesAllowedPrefix reports whether candidate is covered by one of the
-// Map's machine_path_allow_prefixes (D124), using literal segment-boundary
-// prefix matching: "/home/nonroot" covers "/home/nonroot/.headroom" but not
-// "/home/nonroot2" (prefix-boundary collision).
-func matchesAllowedPrefix(candidate string, allowPrefixes []string) bool {
-	for _, prefixes := range [][]string{builtinAllowPrefixes, allowPrefixes} {
-		for _, prefix := range prefixes {
-			if pathHasPrefix(candidate, prefix) {
-				return true
-			}
+// matchesAllowedPrefix reports whether candidate is under one of the
+// conventional tool paths (D313), using literal segment-boundary prefix
+// matching: "~/.ssh/" covers "~/.ssh/config" but not "~/.sshx".
+func matchesAllowedPrefix(candidate string) bool {
+	for _, prefix := range builtinAllowPrefixes {
+		if pathHasPrefix(candidate, prefix) {
+			return true
 		}
 	}
 	return false
@@ -1307,9 +973,8 @@ func matchesAllowedPrefix(candidate string, allowPrefixes []string) bool {
 
 // builtinAllowPrefixes are the conventional tool paths every reader's machine
 // agrees on (D313): citing ~/.ssh/config or ~/.kube/config is documentation,
-// not a client-local path, so no map has to list them. Applied in
-// matchesAllowedPrefix, the one place both Run and CheckConcept go through; a
-// map's machine_path_allow_prefixes only adds to them.
+// not a client-local path. No map adds to them (D907): any other path is
+// written as {{repo:<key>}}, {{path:<name>}} or $HOME.
 var builtinAllowPrefixes = []string{"~/.ssh/", "~/.kube/", "~/.m2/", "~/.config/", "~/.cache/", "~/.local/", "~/.gnupg/"}
 
 var (
@@ -1495,7 +1160,7 @@ func retiredOf(lg *kb.LinkGraph) func(okf.ConceptID) bool {
 	}
 }
 
-// checkCuratedIndex verifies both directions of an opted-in curated index.
+// checkCuratedIndex verifies both directions of a curated index (D907).
 // folder is passed to ReadIndex; indexPath is the exact physical base used by
 // ExtractLinks so relative Markdown links resolve from the right directory.
 // A retired candidate is never reported missing: index_lists_retired (and its
@@ -1569,8 +1234,8 @@ func scopeMatchesDir(scopeNorm, dir string) bool {
 }
 
 // mapFieldContractFindings applies the value and forbidden-field parts of a
-// map contract (D275) to one concept's frontmatter. Both checks are error
-// severity and not suppressible with lint_ignore. An absent field is never an
+// map contract (D275) to one concept's frontmatter. Nothing silences either
+// check (D907). An absent field is never an
 // invalid value: presence is required_fields' job.
 func mapFieldContractFindings(relPath, mapName string, contract kb.MapContract, parsed *okf.Frontmatter) []Finding {
 	if parsed == nil {
@@ -1652,7 +1317,7 @@ func fieldValueAllowed(allowed []string, v string) bool {
 // indexListsRetired is the index_lists_retired check (D344): the curated index of
 // a live map still links a retired concept, which is what a hand-made retirement
 // (status patch, move, no index edit) leaves behind. One finding per retired
-// concept listed (D366: each carries its own fix), whether or not the map declared require_index_entry. Exempt: journals, a
+// concept listed (D366: each carries its own fix). Exempt: journals, a
 // generated index (the server owns it), and a map where at least half of the
 // top-level concepts are retired, which lists them by design (an archive map,
 // including its "Moved here" entries). Not a write-path check: it is not tied
@@ -1701,7 +1366,7 @@ func indexListsRetired(k *kb.KB, mapName string, contract kb.MapContract, concep
 	for _, h := range hits {
 		f := newFinding("index_lists_retired", Finding{
 			Path:    mapName + "/index.md",
-			Message: fmt.Sprintf("the index lists 1 retired concept(s): %s — retire pages with concept_archive (it drops the entry), remove the lines, or accept with lint_ignore: [index_lists_retired] in _map.md", h),
+			Message: fmt.Sprintf("the index lists 1 retired concept(s): %s — retire pages with concept_archive (it drops the entry), or remove the lines", h),
 		})
 		if alone[h] {
 			f.Fix = &Fix{Kind: FixDropIndexEntry, Field: string(h)}

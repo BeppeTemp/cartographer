@@ -25,29 +25,12 @@ func TestRun_ForbiddenTerm(t *testing.T) {
 		t.Fatalf("forbidden_term = %+v, want two findings on arch/prose.md", got)
 	}
 	for _, f := range got {
-		if f.Path != "arch/prose.md" || f.Severity != SevWarning {
+		if f.Path != "arch/prose.md" {
 			t.Errorf("finding %+v", f)
 		}
 	}
 	if !strings.Contains(got[0].Message, `uses "ZephyrController" — the glossary's canonical term is "Zephyr Controller"`) {
 		t.Errorf("message = %q", got[0].Message)
-	}
-}
-
-func TestRun_ForbiddenTerm_Suppressible(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.Root, "glossary.yaml", lintGlossary)
-	writeFile(t, k.DataRoot(), "arch/migration.md", "---\ntype: Note\ntitle: Migration\nlint_ignore: [forbidden_term]\n---\nZephyrController was renamed.\n")
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := findingsOf(findings, "forbidden_term"); len(got) != 0 {
-		t.Errorf("lint_ignore did not silence it: %v", got)
-	}
-	if got := findingsOf(findings, "lint_ignore_invalid"); len(got) != 0 {
-		t.Errorf("forbidden_term must be a valid lint_ignore name: %v", got)
 	}
 }
 

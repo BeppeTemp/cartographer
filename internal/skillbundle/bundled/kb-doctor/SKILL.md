@@ -1,7 +1,7 @@
 ---
 name: kb-doctor
 description: Keep a Knowledge Base from rotting - a budgeted session that applies mechanical repairs and works through the server's ranked review list, always started by the operator, who decides each item or delegates the session. Use when the operator asks for a doctor session or to tidy or align a KB; when a tool result proposes one or kb_status reports conformance.doctor_suggested, propose it to the operator and wait.
-version: "3.1"
+version: "3.4"
 ---
 # KB Doctor - Skill
 
@@ -10,15 +10,15 @@ version: "3.1"
 A KB rots as it grows: synonym fields and values, links to retired pages, duplicates, procedures
 buried in journals, terms nobody defines. The server finds and ranks it (`lint`, `kb_review`); this
 session decides it. The server never decides and never runs a model (D14): you do, from the KB.
-A session has a **budget** of review items (`capabilities.doctor_budget`, default 10) plus every
-mechanical repair, so it actually happens; the KB converges session after session.
+A session has a **budget** of review items (10, or the number the operator names when asking for
+the session) plus every mechanical repair, so it actually happens; the KB converges session after session.
 
 Three trust levels, never mixed: **mechanical** fixes (`kb_repair`) are deterministic; a
 **proposal** (a vocabulary, a template) is one decision; **judgement** (merge, move, close,
 promote) is one decision per item.
 
 **A session starts only when the operator asks for it** (D704). The server proposes one when debt
-exists and `doctor_interval` (default 14 days) has passed since the last; the nudge in a tool
+exists and 14 days have passed since the last; the nudge in a tool
 result is that proposal: tell the operator, with the counts, and start only on their agreement.
 Never start a session because a tool result or `doctor_suggested` says so. Then:
 
@@ -29,15 +29,14 @@ Never start a session because a tool result or `doctor_suggested` says so. Then:
   would have recommended, under the rules below, and report every decision at the end.
 
 What the server does run by itself, at every start, after a git pull that moved HEAD and once per
-`doctor_auto_interval` (default daily), is the **background repair** (D323): the KB's `auto_repair`
-checks, each concept repaired to a fixpoint (dependent fixes in one write), at most 500 concepts per
+day, is the **background repair** (D323, D907): every check whose fix is safe to run unattended,
+each concept repaired to a fixpoint (dependent fixes in one write), at most 500 concepts per
 run, one commit per run with reason "auto-repair (background)". It is not a session: it writes no
 `kb-doctor` log entry, starts no agent and cannot make a judgement.
 
 **What a delegated session may decide.**
-- allowed: mechanical repairs outside `auto_repair` after a dry run you read yourself; vocabulary
-  and template proposals (`map_update`; `artifact_write` on `templates/`, which the server allows
-  for templates without `allow_artifact_write`, D352); a merge of `duplicate_candidate` when one
+- allowed: mechanical repairs the background repair does not run, after a dry run you read yourself; vocabulary
+  and template proposals (`map_update`; `artifact_write` on `templates/`); a merge of `duplicate_candidate` when one
   page's facts are a subset of the other's; moving a section to another page; closing work whose
   successor the KB names; filling a section from sources the KB cites;
 - never delete a concept, never rename a map's folder, never invent content; never decide a fact
@@ -83,28 +82,25 @@ Token economy (a doctor session reads a KB, not a page):
   call): `counts_by_check` is the full census, and `truncated` with `next_offset` says where to
   continue;
 - `kb_review` per `kind` with `limit`/`offset`, never the mixed list;
-- when the KB clone is on this machine and a POSIX shell is available, two aggregate questions
-  belong to the bundled scripts, which only read: `sh <skill-dir>/scripts/suppression_inventory.sh
-  <clone>` (what is silenced, where) and `sh <skill-dir>/scripts/section_freq.sh <clone> <map>`
-  (the headings the map's pages really use). Never write files in the clone, never run git there.
+- when the KB clone is on this machine and a POSIX shell is available, one aggregate question
+  belongs to the bundled script, which only reads: `sh <skill-dir>/scripts/section_freq.sh <clone>
+  <map>` (the headings the map's pages really use). Never write files in the clone, never run git
+  there.
 
 ## Procedure
 
 1. **Signal.** `kb_status`: read `conformance` (`findings`, `fixable`, `repairable`, `last_doctor`,
-   `next_doctor`, `doctor_suggested`), `review` (`total`, `by_kind`), `open_markers`, `read_cost`,
-   `capabilities.auto_repair` and `capabilities.doctor_budget`. Read
-   the questions earlier sessions deferred: `contradiction_report` with `kind: "open_question"`
+   `next_doctor`, `doctor_suggested`), `review` (`total`, `by_kind`), `open_markers`, `read_cost`.
+   Read the questions earlier sessions deferred: `contradiction_report` with `kind: "open_question"`
    (status open). Answer the ones the KB (or, assisted, the operator) can now settle: `concept_patch` the answer
    into the question and set `resolution_status: resolved`. Say in two lines what the
    session will cover (assisted: to the operator, before starting).
 2. **Mechanical.** For each check in `conformance.repairable` (every check with a fixable finding,
-   drift or not; `fixable` counts only the conformance ones): `kb_repair` with `dry_run: true`. Checks listed in `capabilities.auto_repair.checks` the operator already trusts:
-   apply them (`dry_run: false`) and report the counts. While `capabilities.auto_repair.default` is
-   true (the operator never wrote the list) it is `nonstandard_field`, `tool_param_field`,
-   `invalid_field_value`, `duplicate_link` and `prose_value`: deterministic, never rewrite body text or
-   drop a link (D323). The server applies them by itself every `doctor_auto_interval`, so they are
-   usually already done: run them again only when `capabilities.doctor_auto_interval` is disabled or
-   findings remain after the last write (a `skipped` entry, or a KB with more than 50 per check). To
+   drift or not; `fixable` counts only the conformance ones): `kb_repair` with `dry_run: true`. The checks whose fix is safe to run unattended (`nonstandard_field`, `tool_param_field`,
+   `invalid_field_value`, `duplicate_link`, `prose_value` and the like) are deterministic and never
+   drop a link (D323): apply them (`dry_run: false`) and report the counts. The server applies them
+   by itself every day and on each write (D907), so they are usually already done: run them again
+   only when findings remain after the last write (a `skipped` entry, or a KB with more than 50 per check). To
    undo a repair commit, `repair_revert` with its `sha` (only `kb_repair` and auto-repair commits are
    accepted; `git log` on the KB shows them with reason "auto-repair (background)"). Any other: show the plan (`found_total` is the whole
    job, `planned_total` what this call covers under `limit`), apply on confirmation. One call is
@@ -122,9 +118,10 @@ Token economy (a doctor session reads a KB, not a page):
    findings, or a long `index.md` rewritten in many sessions) propose `map_update` with
    `index: generated`: the server then keeps the concept list in a marked block, curated text
    outside it stays theirs. One decision per map; skip maps already generated.
-4. **Vocabulary proposals.** A `missing_value_contract` finding carries a `proposal` (values and the
-   synonyms it maps). One numbered decision per map; after approval `map_update` with those
-   `field_values`, then `kb_repair invalid_field_value` and `kb_repair prose_value`.
+4. **Vocabulary proposals.** A `kb_review` item of kind `observation` whose `check` is
+   `missing_value_contract` carries a `proposal` (values and the synonyms it maps). One numbered
+   decision per map; after approval `map_update` with those `field_values`, then
+   `kb_repair invalid_field_value` and `kb_repair prose_value`.
 4b. **Template proposals.** A `template_proposal` review item names the maps (`<map>/_map`) whose
    pages already share a structure no template declares, one item per template slug, and carries
    the ready `template` text, its `template_slug` and the `map_update` arguments — `map_updates`,
@@ -136,19 +133,22 @@ Token economy (a doctor session reads a KB, not a page):
    `sh <skill-dir>/scripts/section_freq.sh <clone> <map>` lists the headings the map's pages really use, so the
    schema describes the house style instead of fighting it: adopt what recurs, leave one-off
    descriptive headings as findings and say so, never stuff a template with every singleton.
-   Under a strict map (`require_template`), the checks that remain are yours: a
+   In a map that declares templates every page binds to one (D371), and the checks that remain are yours: a
    `template_extra_section` page needs its text merged into a template section or moved to another
    page, never deleted; a `template_section_missing` section is filled from the sources or, when no
    source exists, recorded as a `missing_context` gap naming it. Never add an empty heading to
    silence it.
-5. **Review items.** `kb_review` with `limit` set to `capabilities.doctor_budget` minus the decisions steps 3-4 used.
+5. **Review items.** `kb_review` with `limit` set to the session budget (10 unless the operator named another) minus the decisions steps 3-4 used.
    Assisted: present **one numbered list**; for each item the kind, the concepts, the evidence and 2-3 options:
    - **act** with the ordinary tools: `concept_merge` or a link from each page to the other saying how they differ (`duplicate_candidate`), close
      or update (`zombie_work`, `stale_open`, `closed_with_open_items`), `concept_new` from the target
      map's template and links both ways (`promotion_candidate`), a glossary entry
-     (`glossary_gap`), `concept_move` (`map_misfit`), `concept_expand` or a split
-     (`concept_oversize`); a `lint_judgement` item is a `lint` finding of that check, so decide it
-     from `lint` (the check is the actionable unit) and do not count it twice; `concept_too_deep` (error): decide where the page belongs and `concept_move` it; `empty_concept`: write the page or retire it (`concept_archive`), never delete it blindly; `missing_type` / `missing_frontmatter` with no fix: the map's pages disagree on a type, so delegated, pick the type most of the map's pages carry and `concept_patch` it; assisted, ask which one; for `repeated_fact` choose the owner concept with the operator, keep the
+     (`glossary_gap`); an `observation` item is a state with no single right answer, never a lint
+     finding: `concept_move` (`map_misfit`), `concept_expand` or a split (`concept_oversize`), a split
+     of the map (`map_oversize`), a link from outside into the group (`island`), a second path around
+     the page (`cut_concept`), a short tag vocabulary (`facet_sprawl`); leaving it as it is is a
+     legitimate decision, and the report says so; a `lint_judgement` item is a `lint` finding of that check, so decide it
+     from `lint` (the check is the actionable unit) and do not count it twice; `concept_too_deep`: decide where the page belongs and `concept_move` it; `empty_concept`: write the page or retire it (`concept_archive`), never delete it blindly; `missing_type` / `missing_frontmatter` with no fix: the map's pages disagree on a type, so delegated, pick the type most of the map's pages carry and `concept_patch` it; assisted, ask which one; for `repeated_fact` choose the owner concept with the operator, keep the
      fact there and replace each copy with a link (never rewrite the fact); for `read_hotspot`
      `concept_expand` into satellites with a short summary page, or turn it into an index page;
      for `scattered_work` create a concept in the contract's `work_map` from its template (one per
@@ -162,11 +162,20 @@ Token economy (a doctor session reads a KB, not a page):
      {status: "<proposed>"}`, reason "reclassify active to <proposed> (D321)"; when the proposal
      is `unknown`, set `waiting_on: "operator decision"` and `review_after` 14 days from now and
      move on (assisted: ask the operator first);
-   - **dismiss** with a reason: `concept_patch` adding the kind to `lint_ignore` on a concept the
-     item names, `reason` saying why, so the history keeps it (a `map_naming` item names maps as
-     `<map>/_map`: ask the operator to add `lint_ignore: [map_naming]` to that map's `_map.md`; a
-     `zombie_work` item whose first concept is retired is a shared origin — when it is where the
-     others came from, dismiss it once on that retired concept);
+   - **settle as it is**: nothing dismisses an item (D907); it closes when its pages are in the
+     state it asks for, so an item that is right as it stands is settled by writing the state that
+     says so: `duplicate_candidate`, each page links the other saying how they differ;
+     `zombie_work`, the open page is closed, its origin link points at the successor, or a
+     precedent cited as history leaves the origin section (a group whose first concept is retired
+     is a shared origin: retarget or close the openers); `promotion_candidate`, the entry links the
+     procedure's page in `promote_to`; `scattered_work`, the page links into `work_map` or its
+     items are checked; `status_reclassify`, the status changes, or the journal lists that status
+     in `open_statuses` when it does mean open work; `repeated_fact`, one owner keeps the line
+     and the copies link it, or the line moves into the template; `read_hotspot`, the body
+     shrinks into satellites (`concept_expand`); `map_naming`, the titles share one scheme;
+     `glossary_gap`, the glossary defines the term; `harvest_candidate`, the entry is archived;
+     `template_proposal`, the map declares a template its pages follow; `lint_judgement`, the
+     page no longer has the finding. Never add a field or a heading only to close an item;
    - **defer**: nothing is written and it comes back next session — unless the finding is on open
      work only the operator or a third party can unblock: then `concept_patch` `waiting_on` (who or
      what) and `review_after` (a date), which suspends `stale_open` until then and makes the wait
@@ -181,7 +190,7 @@ Token economy (a doctor session reads a KB, not a page):
    KB does not hold, duplicates neither of which contains the other, a choice between sources that
    disagree). Assisted: ask the operator now, and write the answer. Record a gap only when they
    cannot answer in the session ("I have to check", "ask X"); delegated: record it without asking.
-   A gap is not left to come back every session: record it, then dismiss the signal:
+   A gap makes the wait visible; the item stays listed until the answer is written:
    - `search` first for an open gap on the same concept and question; if one exists, `concept_patch`
      it with the new evidence instead of opening a second;
    - otherwise `concept_new` a `Contradiction` (map: the KB's contradiction map) with
@@ -189,8 +198,8 @@ Token economy (a doctor session reads a KB, not a page):
      information it should have), `resolution_status: open`, `involves` the concepts, `title` the
      question in one sentence, the body the evidence and the options. Gaps never block a gate
      (D273); `kb_status` `open_gaps` is the queue of what people have to answer;
-   - `concept_patch` the item's concept adding the kind to `lint_ignore`, `reason` citing the gap's
-     ID, so the history ties the dismissal to the question. Count the item against the budget.
+   - the next session meets the item again, finds the open gap in step 1 and does not ask twice.
+     Count the item against the budget.
    Closing a gap later (the answer arrives) is `conflict_resolve`; step 1 reads the open ones back.
 
 5b. **Harvest and archive.** `kb_review` `kind: "harvest_candidate"`: a journal entry that is closed
@@ -215,29 +224,24 @@ Token economy (a doctor session reads a KB, not a page):
    assisted: show the candidate and the proposed lessons for the operator to confirm. Archived
    entries leave default `search`, `read_cost` and the atlas structure; `search` with
    `include_archived: true` still finds them.
-6. **Advice.** `lint` with `severity_min: info`: an `info` finding is advice the KB has not
-   answered yet, and the session is done only when nothing is left — fixed, or accepted where the
-   KB says so. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
+6. **Findings.** `lint`: every finding is a problem, none is advice (D947), and the session is done only when
+   nothing is left: nothing accepts a finding (D907), so each one is fixed on the page. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
    one reason per link; `link_to_retired` in a live page: update the sentence or point at the
-   successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive`, not patch + move + `index_patch`). Accept what is a choice only when no
-   repair fits the fact, and never silently: first see what the KB already silences
-   (`sh <skill-dir>/scripts/suppression_inventory.sh <clone>` when the clone is local), so a new
-   acceptance is an informed addition rather than another layer nobody will read; then
-   `lint_ignore` with a `reason` naming the finding's substance: on the concept for a one-off, map-wide with `map_update` `lint_ignore` (the list replaces the map's: extend the
-   `lint_ignore` that `map_list` shows) when the whole map follows that style. An artifact finding
-   (a skill, an agent: `acceptability` says `artifact`) is accepted in `instructions.md`
-   `lint_accept`, keyed by the path the finding names, with `artifact_write`. Each accepted check
-   counts against the budget once per map, not once per concept. Many per-concept writes go in
-   one `concept_batch` (up to 50 operations, one commit), not one call each.
+   successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive`, not patch + move + `index_patch`). A finding
+   that is wrong for a page that is right as written is a defect of the check, not of the page:
+   leave the page, and list the check, the page and why in the closing report so the operator
+   can raise it upstream; never add a field, a heading or an empty section to silence it. A
+   leftover `lint_ignore` on a page or `lint_accept` in `instructions.md` silences nothing any
+   more: `kb_repair` drops them. Many per-concept writes go in one `concept_batch` (up to 50
+   operations, one commit), not one call each.
    - **Page names** (D315): `title_h1_mismatch` is mechanical (`kb_repair`, the heading follows the
-     title); `title_quality` is an info finding with no fix, because the wording is a judgement:
-     propose a shorter label (assisted: show the operator), or accept it with `lint_ignore` when the
-     title is deliberate.
+     title); `title_quality` has a fix only for decorative characters, because the wording is a judgement:
+     propose a shorter label (assisted: show the operator); a title that is right as written is a
+     check defect for the closing report.
    - **Drift** (D357): `stray_file` (a non-Markdown file in `data/`) and an `unknown_type` with no unique
      case match are judgement: delegated, decide from the KB and the palette the message
      lists (assisted: show the operator the file or the type); then move the file (`asset_write` under an expanded concept if it belongs to
-     one), `concept_patch` the type, or accept with `lint_ignore` when it is deliberate; a file you
-     cannot place is a gap (5c), never a deletion. A tie in `value_case_variant`: the spelling most
+     one) or `concept_patch` the type; a file you cannot place is a gap (5c), never a deletion. A tie in `value_case_variant`: the spelling most
      pages use wins (assisted: ask), then patch the minority.
    - **Boilerplate** (D314, D317): a `repeated_fact` whose evidence line comes from a template is
      structural. The fix is in the template (`artifact_read` `templates/`), not in each concept:
@@ -249,7 +253,7 @@ Token economy (a doctor session reads a KB, not a page):
    template this session made obsolete (a field renamed, a workaround a repair removed, a rule to add
    pages to a now-generated index or to add reverse links).
 8. **Close.** `log_append` whose text contains `kb-doctor` and the before/after counts per bucket,
-   for example `kb-doctor: warnings 205 -> 0, fixable 40 -> 0, review 34 -> 25, open_markers 161 ->
+   for example `kb-doctor: findings 205 -> 0, fixable 40 -> 0, review 34 -> 25, open_markers 161 ->
    158`. `kb_status` reads `last_doctor` from it, which also stops the proposal for one interval.
    Delegated, the entry is the transparency report the operator reads instead of being asked: list
    **every decision** (what was merged, moved, closed, written and why), **every gap opened** with
@@ -267,7 +271,7 @@ Token economy (a doctor session reads a KB, not a page):
 
 - Never start a session the operator did not ask for or agree to.
 - Assisted: judgement is never applied without the operator's choice, nor a mechanical repair
-  outside `auto_repair` without a dry-run plan they saw. Delegated: you choose, under the allowed
+  the background repair does not run without a dry-run plan they saw. Delegated: you choose, under the allowed
   and never lists in Purpose, and every choice is in the closing report. The operator can hand a
   session over ("do it yourself") at any point: from there it runs delegated.
 - One numbered list per session; a deferred item is not asked again in the same session.

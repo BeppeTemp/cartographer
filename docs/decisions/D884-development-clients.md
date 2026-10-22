@@ -4,6 +4,8 @@ topic: project-governance
 
 # D884 — Cartographer is developed with Claude Code, Kiro, OpenCode and Copilot CLI, on Claude models, with five subagents
 
+> **Superseded by [D992](D992-claude-code-only-dev-tooling.md)**: the repository is developed with Claude Code only; the Kiro, OpenCode and Copilot CLI surfaces and the `.agents/skills/` tree are removed.
+
 **Decision.** The clients this repository is equipped to be developed with are
 Claude Code, Kiro, OpenCode and Copilot CLI, and any of the four runs the whole
 workflow (`plan-issue`, `implement-issue`, `live-dev`, `review-pr`,

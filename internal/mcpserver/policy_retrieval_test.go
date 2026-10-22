@@ -14,10 +14,10 @@ func policyFixture(t *testing.T) (*Server, requestContext) {
 	t.Helper()
 	k := setupTestKB(t)
 	k.AuthName = "docs"
-	if err := k.CreateMap("visible", "Visible", "map", nil, ""); err != nil {
+	if err := k.CreateMap("visible", "Visible", "map", nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := k.CreateMap("hidden", "Hidden", "journal", nil, ""); err != nil {
+	if err := k.CreateMap("hidden", "Hidden", "journal", nil); err != nil {
 		t.Fatal(err)
 	}
 	write := func(id, typ, title string) {

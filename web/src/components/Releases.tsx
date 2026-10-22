@@ -4,7 +4,8 @@ import type { ReleaseEntry, ReleasesView } from "../api/types";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { Sheet } from "./Sheet";
-import { ErrorState, Skeleton } from "./States";
+import { EntriesSkeleton } from "./Page";
+import { ErrorState } from "./States";
 
 /** Versions are shown with their v, whichever way the server spelled them. */
 const tag = (version: string) => (/^\d/.test(version) ? `v${version}` : version);
@@ -74,7 +75,7 @@ export function Releases({ onClose }: { onClose(): void }) {
         {error ? (
           <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
         ) : !view ? (
-          <Skeleton lines={6} label="Loading releases" />
+          <EntriesSkeleton label="Loading releases" rows={5} />
         ) : (
           <>
             {view.upgrade_command && view.latest && (

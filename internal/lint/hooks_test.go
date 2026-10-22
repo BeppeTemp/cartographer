@@ -21,9 +21,6 @@ func TestLint_HookInvalid(t *testing.T) {
 	for _, f := range findings {
 		if f.Check == "hook_invalid" {
 			got[f.Path] = f.Message
-			if f.Severity != SevWarning {
-				t.Errorf("%s: severity %s, want warning", f.Path, f.Severity)
-			}
 		}
 	}
 	if len(got) != 3 {

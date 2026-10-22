@@ -31,7 +31,7 @@ func syntheticKB(b *testing.B) *kb.KB {
 		if i == len(collections)-1 {
 			kind = "journal"
 		}
-		if err := k.CreateMap(name, strings.ToUpper(name[:1])+name[1:], kind, nil, ""); err != nil {
+		if err := k.CreateMap(name, strings.ToUpper(name[:1])+name[1:], kind, nil); err != nil {
 			b.Fatal(err)
 		}
 	}

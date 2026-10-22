@@ -54,13 +54,11 @@ end-to-end (D123, → `control-plane.md` §MCP API).
 - `lint(scope, scope_neighbors)` runs deterministic checks over a scope and,
   optionally, its graph neighbors, including any declarative map contract for
   required frontmatter and curated-index membership.
-- `gate_check(changed_ids, [severity_min], [scope])` combines the repository's
-  deterministic validation checks; lint errors (including missing required
-  fields) make it fail. By default it reports lint findings from `warning` up:
-  the `info` checks cannot fail a gate, so they are not in the way of reading
-  the ones that can (D186). Pass `severity_min: "info"` to see them, and `scope`
-  to gate one prefix instead of the whole archive — the verdict is computed on
-  the unfiltered results either way. `changed_ids` may be empty: the gate then
+- `gate_check(changed_ids, [scope])` combines the repository's
+  deterministic validation checks; any lint finding (including missing required
+  fields) makes it fail, because a finding is a problem and has no severity
+  (D947). Pass `scope` to gate one prefix instead of the whole archive.
+  `changed_ids` may be empty: the gate then
   runs validate and lint over the scope and skips the commit gate, which is the
   session-end check of the whole KB (D318).
 
@@ -97,27 +95,32 @@ The server finds the problems; an agent works on them only when the operator ask
 is deterministic (`lint`, `kb_review`) and never runs a model on the server (D14). Four layers,
 cheapest first:
 
-1. **Write-time repair** (D349, D355): a write applies the mechanical
-   `auto_repair` fixes to the concepts it just wrote, to a fixpoint, and the
-   write gate (D350) refuses what introduces findings.
-2. **Background repair** (D323): the server applies `auto_repair` over the KB, in one commit, with
+1. **Write-time repair** (D349, D355): a write applies the safe mechanical
+   fixes to the concepts it just wrote, to a fixpoint, and the write gate
+   (D350) refuses what introduces a finding the write could have avoided;
+   both are fixed behaviour, with no setting to turn them off (D907).
+2. **Background repair** (D323): the server applies every safe fix over the KB, in one commit, with
    no agent: at every start (an upgrade or a config change can make untouched pages fixable), after
-   a pull that moved HEAD, and once per `doctor_auto_interval`.
+   a pull that moved HEAD, and once a day. No setting changes the list or the period (D907).
 3. **Doctor session**: what needs judgement. The server proposes one: the first tool result of an
    MCP session that starts while debt exists and the last `kb-doctor` log entry is older than
-   `doctor_interval` (14 days) carries a notice asking the agent to propose a `kb-doctor` session
+   14 days (a constant since D907) carries a notice asking the agent to propose a `kb-doctor` session
    to the operator. The agent never starts it without their agreement. In the session the
    operator decides each item (assisted) or hands it over ("do it yourself", delegated), up to
-   `doctor_budget` review items (10) plus every mechanical repair; the session closes with a
+   10 review items (or the number the operator names when asking for the session) plus every mechanical repair; the session closes with a
    `log_append` listing every decision.
 4. **What the KB does not know**: a fact nobody in the session can supply yet becomes a
    `Contradiction` of kind `missing_context` or `open_question` naming the concept and the
-   question, and the review item is dismissed with `lint_ignore` citing the gap. Ingest and any
-   other session record gaps the same way. Gaps never block a gate (D273); `kb_status.open_gaps`
-   and the Atlas Health panel list them.
+   question; the review item stays listed until the answer is written (nothing dismisses an item,
+   D907), and the next session finds the gap instead of asking again. Ingest and any other session
+   record gaps the same way. Gaps never block a gate (D273); `kb_status.open_gaps`
+   and the Atlas Work panel (*to answer*) list them.
 
-The Atlas Health panel lists what layer 3 has to decide, by kind (lint findings and `kb_review`
-proposals), and layer 4 apart, under *What the KB doesn't know*.
+The Atlas keeps the two apart (D948). Its Health panel lists the lint's findings, which are
+problems to fix (layers 1 and 2 repair the mechanical ones). Its Work panel lists what a person
+answers or decides: layer 3's `kb_review` proposals, observations included (*to decide*);
+layer 4's gaps, with the searches that found nothing (*to answer*); the open contradictions
+(*to resolve*); and the pages past their `review_after` (*to review*).
 
 ## Compound useful results
 

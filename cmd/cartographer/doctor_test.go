@@ -51,7 +51,7 @@ func doctorFixture(t *testing.T, provider string) string {
 	srv := multiKBServer(t, `{"status":"ok","version":"dev","kbs":[{"name":"alpha"}]}`)
 	t.Cleanup(srv.Close)
 	dir := t.TempDir()
-	if _, err := doConnect(connectOptions{Providers: []string{provider}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Trust: true}); err != nil {
+	if _, err := doConnect(connectOptions{Providers: []string{provider}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer"}); err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
 	return dir
@@ -477,13 +477,13 @@ func TestCheckCapabilities(t *testing.T) {
 	}
 
 	t.Run("reports a disabled gate with its setting", func(t *testing.T) {
-		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb","capabilities":{"artifact_write":{"state":"disabled","setting":"kbs[].allow_artifact_write"},"git_sync":{"state":"enabled","setting":"git.sync"}}}]}`)
+		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb","capabilities":{"secrets":{"state":"disabled","setting":"credentials_dir"},"git_sync":{"state":"enabled","setting":"git.sync"}}}]}`)
 		defer srv.Close()
 		findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: srv.URL})
 		if len(findings) != 1 {
 			t.Fatalf("findings = %+v, want exactly one", findings)
 		}
-		if !strings.Contains(findings[0].Message, "artifact_write") || !strings.Contains(findings[0].Fix, "allow_artifact_write") {
+		if !strings.Contains(findings[0].Message, "secrets") || !strings.Contains(findings[0].Fix, "credentials_dir") {
 			t.Errorf("finding = %+v, want it to name the gate and its setting", findings[0])
 		}
 	})
@@ -498,7 +498,7 @@ func TestCheckCapabilities(t *testing.T) {
 	})
 
 	t.Run("silent when everything is on", func(t *testing.T) {
-		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb","capabilities":{"artifact_write":{"state":"enabled","setting":"kbs[].allow_artifact_write"},"mount":{"state":"configured","setting":"kbs[]"}}}]}`)
+		srv := newServer(`{"status":"ok","version":"0.8.3","kbs":[{"name":"kb","capabilities":{"secrets":{"state":"enabled","setting":"credentials_dir"},"mount":{"state":"configured","setting":"kbs[]"}}}]}`)
 		defer srv.Close()
 		if findings := checkCapabilities(t.TempDir(), &clientconfig.Config{ServerURL: srv.URL}); len(findings) != 0 {
 			t.Errorf("findings = %+v, want none", findings)

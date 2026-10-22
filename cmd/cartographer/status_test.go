@@ -64,7 +64,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
 			setHome(t, home)
-			if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: tc.serverURL, Agents: []string{"claude"}, Trust: true}); err != nil {
+			if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: tc.serverURL, Agents: []string{"claude"}}); err != nil {
 				t.Fatalf("save config: %v", err)
 			}
 			// Since D170 the lock records the revision of the manifest a
@@ -83,8 +83,8 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 			statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
 				return &client.Health{Version: tc.serverVersion}, nil
 			}
-			statusManifestsFn = func(_ *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
-				return uniformManifests(served, providers), nil
+			statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+				return uniformManifests(served, projectionProviders(ps)), nil
 			}
 			statusServiceFn = func() (service.Status, error) { return service.Status{Installed: tc.serviceInstalled}, nil }
 			t.Cleanup(func() {
@@ -115,7 +115,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
-	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}, Trust: true}); err != nil {
+	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
 
@@ -148,8 +148,8 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
-		return uniformManifests(served, providers), nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -187,7 +187,7 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 func TestStatus_ShadowedInstructionsNotCountedAsInstalled(t *testing.T) {
 	home := t.TempDir()
 	setHome(t, home)
-	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"codex"}, Trust: true}); err != nil {
+	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"codex"}}); err != nil {
 		t.Fatalf("save config: %v", err)
 	}
 
@@ -214,8 +214,8 @@ func TestStatus_ShadowedInstructionsNotCountedAsInstalled(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, providers []string) (map[string]provisioning.Manifest, error) {
-		return uniformManifests(served, providers), nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -243,5 +243,202 @@ func TestStatus_ShadowedInstructionsNotCountedAsInstalled(t *testing.T) {
 	}
 	if !strings.Contains(out, "not active") || !strings.Contains(out, "AGENTS.override.md") {
 		t.Errorf("status must name the shadowing file: %q", out)
+	}
+}
+
+// #1011: a provider in workspace scope (D193) is judged the way sync applies
+// it: the global projection against the bundle only, each workspace against
+// its own projection. The provider-wide manifest of every bound KB used to be
+// compared with the bundle-only global lock, so a clean sync reported drift
+// (exit 1) with every KB artifact listed as missing.
+func TestStatus_WorkspaceScopedProviderInSyncAfterCleanSync(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	ws := t.TempDir()
+	cfg := &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace("claude", ws, []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	canon := cfg.WorkspaceBindings("claude")[0].Path
+
+	bundle := provisioning.Artifact{Kind: "skill", Name: "cartographer-ops", Source: "bundle", ContentHash: "bundle-hash", Signed: true}
+	kbSkill := provisioning.Artifact{Kind: "skill", Name: "runbooks", Source: "kb:kb-a", ContentHash: "kb-hash", Signed: true}
+	claude := configurator.ProviderClaudeCode
+	globalM := provisioning.Manifest{Artifacts: []provisioning.Artifact{bundle}}
+	wsM := provisioning.Manifest{Artifacts: []provisioning.Artifact{kbSkill}}
+	globalM.Revision = provisioning.FilterForProviderScoped(globalM, claude, provisioning.ScopeGlobal).Revision
+	wsM.Revision = provisioning.FilterForProviderScoped(wsM, claude, provisioning.ScopeProject).Revision
+
+	var lf provisioning.LockFile
+	lf.SetProjection(provisioning.Projection{Provider: "claude"}, provisioning.Lock{AppliedRevision: globalM.Revision, Managed: []provisioning.ManagedFile{
+		{Kind: "skill", Name: "cartographer-ops", Path: ".claude/skills/cartographer-ops/SKILL.md", ContentHash: "bundle-hash"},
+	}}, "")
+	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{AppliedRevision: wsM.Revision, Managed: []provisioning.ManagedFile{
+		{Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md", ContentHash: "kb-hash"},
+	}}, "")
+	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+		out := map[string]provisioning.Manifest{}
+		for _, p := range ps {
+			if p.BundleOnly {
+				out[projectionKey(p)] = globalM
+			} else {
+				out[projectionKey(p)] = wsM
+			}
+		}
+		return out, nil
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() {
+		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+	})
+
+	// The files the lock names are absent on disk: the on-disk check reports
+	// them, so write them (content is irrelevant without a materialized hash).
+	for _, f := range []string{
+		filepath.Join(home, ".claude/skills/cartographer-ops/SKILL.md"),
+		filepath.Join(canon, ".claude/skills/runbooks/SKILL.md"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	out := withStdout(t, func() {
+		if code := cmdStatus(nil); code != 0 {
+			t.Errorf("cmdStatus after a clean sync = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(out, "in-sync") || strings.Contains(out, "+ skill/") {
+		t.Errorf("output = %q, want in-sync with no KB artifact listed as missing", out)
+	}
+
+	// A workspace artifact the sync has not materialized yet is real drift.
+	lf.Workspaces[canon] = provisioning.WorkspaceLocks{Providers: map[string]provisioning.Lock{"claude": {BaseDir: canon, ProjectScope: true}}}
+	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
+		t.Fatal(err)
+	}
+	out = withStdout(t, func() {
+		if code := cmdStatus(nil); code != 1 {
+			t.Errorf("cmdStatus with a missing workspace artifact = %d, want 1", code)
+		}
+	})
+	if !strings.Contains(out, "+ skill/runbooks") {
+		t.Errorf("output = %q, want the missing workspace artifact", out)
+	}
+}
+
+// projectionProviders lists the providers a set of projections belongs to, for
+// the stubs of statusManifestsFn that serve one manifest per provider.
+func projectionProviders(ps []syncProjection) []string {
+	var out []string
+	for _, p := range ps {
+		if p.Workspace == "" {
+			out = append(out, p.Provider)
+		}
+	}
+	return out
+}
+
+// #1011 review: sync builds every projection of the run in ONE call, because a
+// bundle-only projection receives the bundle depending on what the whole run
+// pulls (buildProjectionManifests). status must do the same, or a
+// workspace-scoped provider with no KB bindings next to a default-bound one is
+// judged against an empty bundle and reported as drift.
+func TestStatus_BuildsAllProjectionsInOneCall(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	cfg := &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude", "codex"}}
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
+	var calls [][]syncProjection
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+		calls = append(calls, ps)
+		out := map[string]provisioning.Manifest{}
+		for _, p := range ps {
+			out[projectionKey(p)] = provisioning.Manifest{}
+		}
+		return out, nil
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() {
+		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+	})
+
+	withStdout(t, func() { cmdStatus(nil) })
+	if len(calls) != 1 {
+		t.Fatalf("manifests built in %d calls, want 1 (as sync does)", len(calls))
+	}
+	var bundleOnly, codexGlobal bool
+	for _, p := range calls[0] {
+		bundleOnly = bundleOnly || (p.Provider == "claude" && p.BundleOnly)
+		codexGlobal = codexGlobal || (p.Provider == "codex" && p.Workspace == "" && !p.BundleOnly)
+	}
+	if !bundleOnly || !codexGlobal {
+		t.Errorf("the single call must carry the bundle-only claude projection and the default codex one: %+v", calls[0])
+	}
+}
+
+// #1011 review: when sync would refuse a provider before projecting it, the
+// status card says why instead of a bare "drift".
+func TestStatus_WorkspaceProblemNamesTheCause(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	ws := t.TempDir()
+	cfg := &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace("claude", ws, []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(ws); err != nil {
+		t.Fatal(err)
+	}
+
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+		return map[string]provisioning.Manifest{}, nil
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() {
+		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+	})
+
+	out := withStdout(t, func() {
+		if code := cmdStatus(nil); code != 1 {
+			t.Errorf("cmdStatus with a gone workspace = %d, want 1", code)
+		}
+	})
+	if !strings.Contains(out, "cannot sync:") || !strings.Contains(out, "is gone") {
+		t.Errorf("output = %q, want the cause named", out)
 	}
 }

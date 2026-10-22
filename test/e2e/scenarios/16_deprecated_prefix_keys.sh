@@ -44,8 +44,7 @@ mkdir -p "$DIR"
 for name in plainkb prefixedkb routed; do kb_make "${DIR}/${name}"; done
 
 cat > "$CONFIG" <<YAML
-http: ":${E2E_HTTP_PORT}"
-init: true
+http: "127.0.0.1:${E2E_HTTP_PORT}"
 mcp:
   mount_mode: per-kb
   tool_prefix_mode: kb-name

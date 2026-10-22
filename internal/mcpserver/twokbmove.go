@@ -187,7 +187,7 @@ func (m *twoKBMove) runLocked(ctx context.Context) ToolResult {
 	out, _ := json.MarshalIndent(m.Report(srcSHA, dstSHA), "", "  ")
 	res.Content = append([]ContentBlock{{Type: "text", Text: string(out)}}, res.Content...)
 	res.CommitSHA = srcSHA
-	appendAuthorWarning(ctx, &res)
+	appendAuthorWarning(ctx, src, &res)
 	return res
 }
 
@@ -208,7 +208,7 @@ func commitTransfer(ctx context.Context, args json.RawMessage, k *kb.KB, subject
 		msg += "\n\n" + block
 	}
 	before, _ := gitx.HeadSHA(k.Root)
-	authorName, authorEmail := writerAuthor(ctx)
+	authorName, authorEmail := writerAuthor(ctx, k)
 	sha, err := k.CommitOpAs(msg, authorName, authorEmail)
 	if err != nil {
 		return "", fmt.Errorf("commit: %w", err)
@@ -237,7 +237,7 @@ func revertTransferTarget(ctx context.Context, tool string, dst *kb.KB, sha, src
 	msg := fmt.Sprintf("%s: revert %.7s (%s)", tool, sha, cause)
 	// nil args: the caller's Reason belongs to the transfer, the revert states its own.
 	msg += "\n\n" + commitTrailerBlock(ctx, nil, commitReasonKey+": the transfer from "+strings.Join(strings.Fields(srcName), " ")+" failed after this KB was written")
-	authorName, authorEmail := writerAuthor(ctx)
+	authorName, authorEmail := writerAuthor(ctx, dst)
 	if _, err := dst.CommitOpAs(msg, authorName, authorEmail); err != nil {
 		_ = gitx.DiscardChanges(dst.Root)
 		return err

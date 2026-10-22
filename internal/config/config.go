@@ -10,15 +10,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/BeppeTemp/cartographer/internal/lint"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"gopkg.in/yaml.v3"
 )
 
 // Config is the fully resolved server configuration.
 type Config struct {
 	HTTP string     // listen address; empty = stdio transport
-	Init bool       // initialize missing KBs
 	Auth AuthConfig // HTTP bearer-token auth
 	Data string     // directory whose direct subdirs are auto-discovered KBs
 	// CredentialsDir holds every secret file the server reads: SSH keys, the
@@ -28,13 +26,6 @@ type Config struct {
 	CredentialsDir string
 	KBs            []KBSpec    // KBs to clone from a git remote, or mounted from a folder by --kb
 	Audit          AuditConfig // append-only audit log
-	// ToolsProfile selects which tools tools/list advertises: "agent"
-	// (default) hides the advanced/operator tools, "full" advertises all.
-	// Hidden tools stay callable via tools/call (D65).
-	ToolsProfile string
-	// MCP controls MCP-protocol-level server behaviour that isn't specific
-	// to a single KB (currently: the tool-name prefix default, D102).
-	MCP MCPConfig
 	// Web controls the embedded read-only Atlas UI (D227).
 	Web WebConfig
 	// UpdateCheck makes the server look up the latest release once a day and
@@ -42,9 +33,16 @@ type Config struct {
 	// YAML `update_check`, env CARTOGRAPHER_UPDATE_CHECK, flag --update-check.
 	// A dev build never checks, whatever this says.
 	UpdateCheck bool
-	// KBAliases maps the old name of a renamed KB to its new one, so a routed
-	// `?kbs=<old>` still reaches it (D772). `kb rename` writes it.
-	KBAliases []KBAlias
+	// GitIdentity is the git identity ("Name <email>") the server commits as in
+	// every KB without an entry of its own in GitIdentities, and GitIdentities
+	// one per KB name, "default" included (D950). Read them through IdentityFor.
+	// Empty means the server identity.
+	GitIdentity   string
+	GitIdentities map[string]string
+	// legacyAliases are the kb_aliases the server YAML still carries (D906):
+	// the list moved to the server state file, and the realignment moves
+	// what the file holds. Until it has, they still resolve (KBAliases).
+	legacyAliases []KBAlias
 	// Origins records which layer set each setting (D743), keyed by schema
 	// path; read it through OriginOf. A key no layer set is absent: default.
 	Origins map[string]Origin
@@ -70,17 +68,6 @@ type WebConfig struct {
 	// server is for, and an operator who does not want the extra surface turns
 	// it off in one place. Stdio mode never serves it, whatever this says.
 	Enabled bool
-}
-
-// MCPConfig controls MCP-protocol-level server behaviour.
-type MCPConfig struct {
-	// AllowedOrigins lists the browser origins allowed to reach the MCP
-	// endpoint, scheme and port included ("https://app.example.com"). Empty
-	// (the default) accepts only an Origin matching the request's own Host;
-	// "*" accepts any, restoring the pre-D128 behaviour. A request with no
-	// Origin header at all — every non-browser client — is unaffected either
-	// way. See mcpserver.OriginGuard.
-	AllowedOrigins []string
 }
 
 // AuthConfig controls HTTP bearer-token authentication.
@@ -180,13 +167,11 @@ func (t *TokenSpec) UnmarshalYAML(node *yaml.Node) error {
 
 // KBSpec identifies a single KB: one to be cloned from a git remote (Remote)
 // into Config.Data before opening, or, from the command line only, a folder
-// already on disk (Path). The remaining fields are optional per-KB overrides for
-// the KB's policy. Its secrets (SSH key, token, age key, artifact signing seed)
+// already on disk (Path). Only Remote and Name are keys of the server file
+// (rawKB); the remaining fields are the KB's own policy, read from its
+// settings.yaml only (D906). Its secrets (SSH key, token, age key, artifact signing seed)
 // are files named after it in the credentials directory (D905).
 type KBSpec struct {
-	// MCPAllowlist is the per-KB operator policy for third-party HTTP MCP
-	// descriptors. An absent or empty list intentionally denies every one.
-	MCPAllowlist []provisioning.MCPAllowlistEntry `yaml:"mcp_allowlist,omitempty"`
 	// Path is a folder mounted from the command line: --kb and CARTOGRAPHER_KB
 	// (dev and tests; no remote, so no sync). It is not a key of the YAML file:
 	// a KB without a remote is a folder under data, which is discovered (D903).
@@ -205,74 +190,11 @@ type KBSpec struct {
 	// <name>.token, <name>.age, <name>.signing) (D905).
 	Name string `yaml:"name,omitempty"`
 
-	// AllowArtifactWrite enables the artifact_write/artifact_delete MCP tools
-	// (D71) for this KB — writing a provisioning artifact (skill/agent/hook/
-	// mcp) injects instructions a client agent will execute, so the
-	// capability is opt-in per-KB rather than implied by an rw token alone.
-	// Default false. Propagated to kb.KB.AllowArtifactWrite (see serve.go).
-	AllowArtifactWrite bool `yaml:"allow_artifact_write,omitempty"`
-
-	// AllowTemplateWrite (D352) lets artifact_write/artifact_delete write
-	// templates/<slug>.md and nothing else when AllowArtifactWrite is off.
-	// Absent means on: templates are KB-only and never provisioned to a client.
-	// A pointer so absent and false differ. Read it through TemplateWriteEnabled.
-	AllowTemplateWrite *bool `yaml:"allow_template_write,omitempty"`
-
-	// AutoRepair lists the lint checks whose mechanical fix
-	// `cartographer kb repair --apply` may apply without a human reviewing
-	// the plan (D299). Each name must be in lint.FixableChecks. There is
-	// deliberately no "all": a fixable check added by a later release must be
-	// seen as a dry-run plan before it runs unattended. Absent means
-	// DefaultAutoRepair; an explicit empty list ("auto_repair: []") means
-	// none, so nil and empty are different values here (D323). Read it
-	// through AutoRepairChecks.
-	AutoRepair []string `yaml:"auto_repair,omitempty"`
-
-	// RepairOnWrite makes a write tool apply the mechanical auto_repair fixes
-	// to the concepts it just wrote, in the same commit (D349). Absent follows
-	// auto_repair (on when it resolves non-empty); false = timer-only. A
-	// pointer so absent and false differ. Read it through RepairOnWriteEnabled.
-	RepairOnWrite *bool `yaml:"repair_on_write,omitempty"`
-
-	// WriteGate makes a content write refuse, and roll back, when it
-	// introduces a finding at or above the floor (D350): "off" (default,
-	// also empty), "error" (findings of severity error) or "warning" (error
-	// and warning). Read it through WriteGateMode.
-	WriteGate string `yaml:"write_gate,omitempty"`
-
-	// DoctorAutoInterval is how often the server runs the auto_repair checks
-	// by itself, with no agent session (D323): "<n>d" or "<n>" days, "0"
-	// turns the heartbeat off, empty means DefaultDoctorAutoIntervalDays.
-	// Read it through DoctorAutoIntervalDays.
-	DoctorAutoInterval string `yaml:"doctor_auto_interval,omitempty"`
-
-	// DoctorInterval is how long after the last kb-doctor session the server
-	// starts proposing the next one (D299): "<n>d" or "<n>" days, "0"
-	// disables it, empty means DefaultDoctorIntervalDays. Read it through
-	// DoctorIntervalDays.
-	DoctorInterval string `yaml:"doctor_interval,omitempty"`
-
-	// DoctorMode is accepted and ignored (D704): a kb-doctor session starts
-	// only when the operator asks for one, so the old "unattended" mode (D358),
-	// in which the nudge told the agent to start it by itself, is gone. Still
-	// validated, so a typo in a config that sets it keeps failing loudly.
-	DoctorMode string `yaml:"doctor_mode,omitempty"`
-
-	// DoctorBudget is how many review items one kb-doctor session decides
-	// before it closes (D358): nil means DefaultDoctorBudget. Read it through
-	// DoctorBudgetItems.
-	DoctorBudget *int `yaml:"doctor_budget,omitempty"`
-
 	// UsageStaleDays is how many days without a client activating a skill or
-	// agent before the artifact_unused lint reports it (D326): nil means
-	// DefaultUsageStaleDays, 0 disables the finding. Read it through
-	// UsageStale.
+	// agent before kb_status.usage counts it as stale (D326): nil means
+	// DefaultUsageStaleDays, and a value under kb.MinUsageStaleDays is read as
+	// that minimum (D906). Read it through UsageStale.
 	UsageStaleDays *int `yaml:"usage_stale_days,omitempty"`
-
-	// Secrets says the KB uses secrets (D746): a mount of it without an age key
-	// reports secrets as missing key. It enables nothing by itself, the key is
-	// the KB's age file in the credentials directory.
-	Secrets bool `yaml:"secrets,omitempty"`
 }
 
 // AuditConfig controls the append-only audit log.
@@ -320,12 +242,10 @@ const DefaultAuditMaxSegmentBytes int64 = 64 << 20
 // Default returns the configuration used when no YAML file is provided.
 func Default() *Config {
 	return &Config{
-		Auth:         AuthConfig{Mode: "auto"},
-		Audit:        AuditConfig{RetentionDays: DefaultAuditRetentionDays, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
-		ToolsProfile: "agent",
-		MCP:          MCPConfig{},
-		Web:          WebConfig{Enabled: true},
-		UpdateCheck:  true,
+		Auth:        AuthConfig{Mode: "auto"},
+		Audit:       AuditConfig{RetentionDays: DefaultAuditRetentionDays, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
+		Web:         WebConfig{Enabled: true},
+		UpdateCheck: true,
 	}
 }
 
@@ -334,21 +254,32 @@ func Default() *Config {
 // Load can distinguish "absent from YAML" from "explicitly false".
 type rawConfig struct {
 	HTTP           string   `yaml:"http"`
-	Init           bool     `yaml:"init"`
 	Auth           rawAuth  `yaml:"auth"`
 	Data           string   `yaml:"data"`
 	CredentialsDir string   `yaml:"credentials_dir"`
-	KBs            []KBSpec `yaml:"kbs"`
+	KBs            []rawKB  `yaml:"kbs"`
 	Audit          rawAudit `yaml:"audit"`
-	Tools          rawTools `yaml:"tools"`
-	MCP            rawMCP   `yaml:"mcp"`
+	Git            rawGit   `yaml:"git"`
 	Web            rawWeb   `yaml:"web"`
 	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
 	// default is true.
 	UpdateCheck *bool `yaml:"update_check"`
-	// KBAliases is a list, like kbs and auth.roles: every structured setting
-	// of the schema is one (D772).
-	KBAliases []KBAlias `yaml:"kb_aliases"`
+}
+
+// rawGit mirrors the `git:` block: the identity the server commits as (D950).
+// Every other key it once held is retired.
+type rawGit struct {
+	Identity   string            `yaml:"identity"`
+	Identities map[string]string `yaml:"identities"`
+}
+
+// rawKB is a kbs[] entry of the server file: the machine's side of a KB, its
+// remote and its name (D906). Every other key of a KB lives in the KB's own
+// settings.yaml; one met here is a retired key, warned about and dropped by the
+// realignment.
+type rawKB struct {
+	Remote string `yaml:"remote"`
+	Name   string `yaml:"name"`
 }
 
 // rawWeb mirrors the `web:` block. Enabled is a pointer because the zero value
@@ -356,14 +287,6 @@ type rawConfig struct {
 // false".
 type rawWeb struct {
 	Enabled *bool `yaml:"enabled"`
-}
-
-type rawTools struct {
-	Profile string `yaml:"profile"`
-}
-
-type rawMCP struct {
-	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 type rawAuth struct {
@@ -384,43 +307,30 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg := Default()
-	cfg.markFile(data, raw.KBs)
-	cfg.noteRetired(data, raw.KBs)
+	var specs []KBSpec
+	for _, r := range raw.KBs {
+		specs = append(specs, KBSpec{Remote: r.Remote, Name: r.Name})
+	}
+	cfg.markFile(data, specs)
+	cfg.noteRetired(data, specs)
 	cfg.HTTP = raw.HTTP
-	cfg.Init = raw.Init
 	cfg.Data = raw.Data
 	cfg.CredentialsDir = raw.CredentialsDir
-	cfg.KBs = raw.KBs
-	if err := ValidateKBAliases(raw.KBAliases); err != nil {
-		return nil, fmt.Errorf("config: %w", err)
+	cfg.KBs = specs
+	// kb_aliases left the server file for the state file (D906): the list a
+	// file still holds keeps resolving until the realignment has moved it. A
+	// removed key never stops a start, so a bad list is dropped, said.
+	var legacy struct {
+		KBAliases []KBAlias `yaml:"kb_aliases"`
 	}
-	cfg.KBAliases = raw.KBAliases
-	for _, spec := range cfg.KBs {
-		if err := provisioning.ValidateMCPAllowlist(spec.MCPAllowlist); err != nil {
-			return nil, fmt.Errorf("config: mcp_allowlist: %w", err)
-		}
-		if err := ValidateAutoRepair(spec.AutoRepair); err != nil {
-			return nil, fmt.Errorf("config: auto_repair: %w", err)
-		}
-		if err := ValidateWriteGate(spec.WriteGate); err != nil {
-			return nil, err
-		}
-		if err := ValidateDoctorMode(spec.DoctorMode); err != nil {
-			return nil, err
-		}
-		if spec.DoctorBudget != nil && *spec.DoctorBudget < 1 {
-			return nil, fmt.Errorf("config: doctor_budget: %d: must be at least 1", *spec.DoctorBudget)
-		}
-		if _, err := spec.DoctorIntervalDays(); err != nil {
-			return nil, fmt.Errorf("config: doctor_interval: %w", err)
-		}
-		if _, err := spec.DoctorAutoIntervalDays(); err != nil {
-			return nil, fmt.Errorf("config: doctor_auto_interval: %w", err)
-		}
-		if spec.UsageStaleDays != nil && *spec.UsageStaleDays < 0 {
-			return nil, fmt.Errorf("config: usage_stale_days: %d is negative (a number of days, or 0 to disable)", *spec.UsageStaleDays)
+	if yaml.Unmarshal(data, &legacy) == nil {
+		if err := ValidateKBAliases(legacy.KBAliases); err != nil {
+			cfg.Warnings = append(cfg.Warnings, fmt.Sprintf("kb_aliases is ignored: %v", err))
+		} else {
+			cfg.legacyAliases = legacy.KBAliases
 		}
 	}
+	cfg.loadGitIdentities(data, raw.Git)
 	cfg.Audit.Log = raw.Audit.Log
 	cfg.Audit.Mode = raw.Audit.Mode
 	if raw.Audit.MaxSegmentBytes > 0 {
@@ -453,14 +363,6 @@ func Load(path string) (*Config, error) {
 	if raw.UpdateCheck != nil {
 		cfg.UpdateCheck = *raw.UpdateCheck
 	}
-	if raw.Tools.Profile != "" {
-		cfg.ToolsProfile = normalizeToolsProfile(raw.Tools.Profile)
-	}
-
-	if len(raw.MCP.AllowedOrigins) > 0 {
-		cfg.MCP.AllowedOrigins = raw.MCP.AllowedOrigins
-	}
-
 	return cfg, nil
 }
 
@@ -515,28 +417,18 @@ func FromEnv(cfg *Config) {
 		cfg.mark(OriginEnv, "audit.log")
 		cfg.Audit.Log = v
 	}
-	if v := os.Getenv("CARTOGRAPHER_TOOLS_PROFILE"); v != "" {
-		cfg.mark(OriginEnv, "tools.profile")
-		cfg.ToolsProfile = normalizeToolsProfile(v)
-	}
-	if v := os.Getenv("CARTOGRAPHER_MCP_ALLOWED_ORIGINS"); v != "" {
-		cfg.mark(OriginEnv, "mcp.allowed_origins")
-		cfg.MCP.AllowedOrigins = splitCSV(v)
-	}
 }
 
 // FlagOverrides carries the `cartographer serve` flag values that were
 // explicitly passed on the command line (nil = not passed). Applying it via
 // ApplyFlags is the last, highest-precedence layer of the merge.
 type FlagOverrides struct {
-	HTTP         *string
-	Init         *bool
-	KB           *string // comma-separated folders, mounted as KBSpec{Path: ...} (no remote, so no sync)
-	Data         *string
-	Tokens       *string // comma-separated, replaces Auth.Tokens
-	ToolsProfile *string // "agent" | "full"
-	WebEnabled   *bool
-	UpdateCheck  *bool
+	HTTP        *string
+	KB          *string // comma-separated folders, mounted as KBSpec{Path: ...} (no remote, so no sync)
+	Data        *string
+	Tokens      *string // comma-separated, replaces Auth.Tokens
+	WebEnabled  *bool
+	UpdateCheck *bool
 }
 
 // ApplyFlags layers the explicitly-passed serve flags on top of cfg.
@@ -549,10 +441,6 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	if o.HTTP != nil {
 		cfg.mark(OriginFlag, "http")
 		cfg.HTTP = *o.HTTP
-	}
-	if o.Init != nil {
-		cfg.mark(OriginFlag, "init")
-		cfg.Init = *o.Init
 	}
 	if o.KB != nil {
 		for _, p := range splitCSV(*o.KB) {
@@ -569,10 +457,6 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 		cfg.mark(OriginFlag, "auth.tokens")
 		cfg.Auth.Tokens = parseTokenSpecs(*o.Tokens)
 	}
-	if o.ToolsProfile != nil {
-		cfg.mark(OriginFlag, "tools.profile")
-		cfg.ToolsProfile = normalizeToolsProfile(*o.ToolsProfile)
-	}
 	if o.WebEnabled != nil {
 		cfg.mark(OriginFlag, "web.enabled")
 		cfg.Web.Enabled = *o.WebEnabled
@@ -581,16 +465,6 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 		cfg.mark(OriginFlag, "update_check")
 		cfg.UpdateCheck = *o.UpdateCheck
 	}
-}
-
-// normalizeToolsProfile maps a tools-profile spelling onto the canonical
-// "agent"/"full". Anything unrecognized falls back to "agent" (fail-closed:
-// the smaller surface).
-func normalizeToolsProfile(v string) string {
-	if strings.ToLower(strings.TrimSpace(v)) == "full" {
-		return "full"
-	}
-	return "agent"
 }
 
 // normalizeAuthMode maps the legacy boolean-ish spellings (accepted by both
@@ -740,48 +614,6 @@ func validateRule(role string, i int, rule RuleSpec) error {
 	return nil
 }
 
-// DefaultDoctorIntervalDays is how long after the last kb-doctor session the
-// server proposes the next one when doctor_interval is not set (D299).
-const DefaultDoctorIntervalDays = 14
-
-// DefaultDoctorBudget is the review items one kb-doctor session decides before
-// it closes (D358): the operator's attention is the limit, not the backlog.
-const DefaultDoctorBudget = 10
-
-// ValidateDoctorMode rejects a doctor_mode other than the two values 0.23
-// accepted; either is then ignored (D704).
-func ValidateDoctorMode(v string) error {
-	switch v {
-	case "", "unattended", "assisted":
-		return nil
-	}
-	return fmt.Errorf("config: doctor_mode: %s: must be unattended or assisted (ignored since D704)", v)
-}
-
-// DoctorBudgetItems resolves DoctorBudget.
-func (s KBSpec) DoctorBudgetItems() int {
-	if s.DoctorBudget != nil {
-		return *s.DoctorBudget
-	}
-	return DefaultDoctorBudget
-}
-
-// DoctorIntervalDays resolves DoctorInterval: DefaultDoctorIntervalDays when
-// empty, 0 when disabled.
-func (s KBSpec) DoctorIntervalDays() (int, error) {
-	return parseDays(s.DoctorInterval, DefaultDoctorIntervalDays)
-}
-
-// DefaultDoctorAutoIntervalDays is how often the server runs a KB's
-// auto_repair checks when doctor_auto_interval is not set: daily (D323).
-const DefaultDoctorAutoIntervalDays = 1
-
-// DoctorAutoIntervalDays resolves DoctorAutoInterval: the default when empty,
-// 0 when the heartbeat is off.
-func (s KBSpec) DoctorAutoIntervalDays() (int, error) {
-	return parseDays(s.DoctorAutoInterval, DefaultDoctorAutoIntervalDays)
-}
-
 // parseDays reads "<n>d" or "<n>" as a number of days, def when empty.
 func parseDays(v string, def int) (int, error) {
 	raw := v
@@ -796,98 +628,16 @@ func parseDays(v string, def int) (int, error) {
 	return n, nil
 }
 
-// DefaultAutoRepair is the auto_repair of a KB that does not set one (D323,
-// D355): every check whose registered fix may run with no person
-// (AutoRepairSafe, D354). Each is mechanical and already guarded; leaving one
-// off by default is what keeps imported KBs drifting. broken_link and
-// reciprocal_link_item are deliberately absent: they rewrite or drop links,
-// and D309 showed a mutual-pair drop can lose hundreds of edges in one commit.
-// The list is a literal, pinned equal to the AutoRepairSafe set by a test, so
-// a check added to the registry as safe fails that test until someone decides
-// it belongs here. Do not mutate the returned slice: use AutoRepairChecks.
-var DefaultAutoRepair = []string{
-	"nonstandard_field", "tool_param_field", "prose_value", "invalid_field_value",
-	"stringified_list", "title_h1_mismatch", "legacy_path", "duplicate_link",
-	"index_link_form", "legacy_tool_name", "missing_frontmatter", "unparseable_frontmatter",
-	"missing_type", "nonslug_file_name", "missing_title", "repeated_link",
-	"value_case_variant", "unmapped_folder",
-	// D366: the unambiguous part of three doctor-only checks.
-	"index_lists_retired", "link_to_retired", "title_quality",
-	// D352, in the order a page needs them: bind it, set its type, its values,
-	// reorder its sections, then rename the aliases (a reorder lists headings
-	// as written, so it runs before the rename changes them).
-	"template_missing", "template_type_mismatch", "template_field_value",
-	"template_section_order", "template_section_alias",
-}
-
-// AutoRepairChecks resolves AutoRepair: DefaultAutoRepair when the key is
-// absent (nil), the operator's list when set, none when it is an explicit
-// empty list. isDefault says which, so a status line can tell a customised
-// KB from one that never chose.
-func (s KBSpec) AutoRepairChecks() (checks []string, isDefault bool) {
-	if s.AutoRepair == nil {
-		return append([]string{}, DefaultAutoRepair...), true
-	}
-	return s.AutoRepair, false
-}
-
-// TemplateWriteEnabled resolves AllowTemplateWrite (D352): on unless set false.
-func (s KBSpec) TemplateWriteEnabled() bool {
-	return s.AllowTemplateWrite == nil || *s.AllowTemplateWrite
-}
-
-// RepairOnWriteEnabled resolves RepairOnWrite (D349): the explicit value when
-// set, otherwise on exactly when auto_repair resolves to a non-empty list.
-func (s KBSpec) RepairOnWriteEnabled() bool {
-	if s.RepairOnWrite != nil {
-		return *s.RepairOnWrite
-	}
-	checks, _ := s.AutoRepairChecks()
-	return len(checks) > 0
-}
-
-// ValidateWriteGate rejects a write_gate value other than off, error or
-// warning (empty is off) (D350).
-func ValidateWriteGate(v string) error {
-	switch v {
-	case "", "off", "error", "warning":
-		return nil
-	}
-	return fmt.Errorf("config: write_gate: %s: must be off, error or warning", v)
-}
-
-// WriteGateMode resolves WriteGate: "off" when unset.
-func (s KBSpec) WriteGateMode() string {
-	if s.WriteGate == "" {
-		return "off"
-	}
-	return s.WriteGate
-}
-
-// DefaultUsageStaleDays is the artifact_unused threshold of a KB that does not
+// DefaultUsageStaleDays is the stale-artifact threshold of a KB that does not
 // set usage_stale_days: six weeks (D326).
-const DefaultUsageStaleDays = 42
+const DefaultUsageStaleDays = kb.DefaultUsageStaleDays
 
-// UsageStale resolves UsageStaleDays: the default when unset, 0 when disabled.
+// UsageStale resolves UsageStaleDays: the default when unset, and never less
+// than kb.MinUsageStaleDays (D906). There is no value that turns the finding
+// off.
 func (s KBSpec) UsageStale() int {
-	if s.UsageStaleDays == nil {
+	if s.UsageStaleDays == nil || *s.UsageStaleDays <= 0 {
 		return DefaultUsageStaleDays
 	}
-	return *s.UsageStaleDays
-}
-
-// ValidateAutoRepair rejects a auto_repair entry that is not a
-// check with a mechanical fix, naming it.
-func ValidateAutoRepair(checks []string) error {
-	for _, c := range checks {
-		known := false
-		for _, f := range lint.FixableChecks {
-			known = known || c == f
-		}
-		if !known {
-			return fmt.Errorf("%q is not a check with a mechanical fix (one of: %s; list them by name, there is no \"all\")",
-				c, strings.Join(lint.FixableChecks, ", "))
-		}
-	}
-	return nil
+	return max(*s.UsageStaleDays, kb.MinUsageStaleDays)
 }

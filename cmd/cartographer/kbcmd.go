@@ -50,6 +50,10 @@ var printPostCreateGuidanceFn = printPostCreateGuidance
 
 // cmdKB dispatches `cartographer kb <subcommand>`.
 func cmdKB(args []string) int {
+	if len(args) == 1 && isHelpArg(args[0]) {
+		printKBUsage(os.Stdout)
+		return 0
+	}
 	target, rest := splitPositional(args, "")
 	switch target {
 	case "create":
@@ -65,20 +69,24 @@ func cmdKB(args []string) int {
 	case "unmount":
 		return cmdKBUnmount(rest)
 	default:
-		fmt.Fprintln(os.Stderr, "Error: usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--artifact-write] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--artifact-write] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
+		fmt.Fprint(os.Stderr, "Error: ")
+		printKBUsage(os.Stderr)
 		return 2
 	}
 }
 
+func printKBUsage(w io.Writer) {
+	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
+}
+
 // validateKBName returns an error describing why name is not a usable KB
 // name, or nil if it is. The rule lives in internal/config, which also checks
-// the names of kb_aliases (D772).
+// the names of the server state file's aliases (D772, D906).
 func validateKBName(name string) error { return config.ValidateKBName(name) }
 
 // cmdKBCreate implements `cartographer kb create <name> (--remote <url> |
 // --no-remote) [--data <dir>] [--restart]`: scaffolds a new KB at
-// <data>/<name> via the same kb.Init bootstrap used by `serve --kb <path>
-// --init` (git init + OKF layout), attaches its git remote, then prints
+// <data>/<name> via kb.Init (git init + OKF layout), attaches its git remote, then prints
 // guidance on how to get the server to pick it up (WP2, D85). The remote is
 // not optional (D134): a KB without an origin is neither durable nor
 // syncable, and nothing downstream surfaces that state — `--no-remote` is the
@@ -100,11 +108,10 @@ func cmdKBCreate(args []string) int {
 	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository, or one holding only a forge's initial commit (README/LICENSE/.gitignore), which is kept: attached as origin and pushed to")
 	noRemoteFlag := fs.Bool("no-remote", false, "Create a local-only KB with no origin (not durable, never synced)")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after creating the KB")
-	artifactWriteFlag := fs.Bool("artifact-write", false, "Turn artifact writes on for the KB (artifacts reach client machines via sync): a kbs[] entry with allow_artifact_write: true in the server config, or, with --no-remote, in the new KB's settings.yaml")
 	fs.Parse(rest)
 
 	if name == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--artifact-write] [--restart]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]")
 		return 2
 	}
 	if err := validateKBName(name); err != nil {
@@ -114,6 +121,14 @@ func cmdKBCreate(args []string) int {
 	remote := strings.TrimSpace(*remoteFlag)
 	if code := checkRemoteChoice(remote, *noRemoteFlag); code != 0 {
 		return code
+	}
+	// Refuse an option-like or transport-helper remote before the scaffold
+	// exists, so nothing is left behind.
+	if remote != "" {
+		if err := gitx.ValidateRemote(remote); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
 	}
 
 	if code := checkLocalTarget(*dataFlag, *localFlag); code != 0 {
@@ -133,20 +148,7 @@ func cmdKBCreate(args []string) int {
 		return 1
 	}
 
-	var entryPlan *kbEntryPlan
 	settingsFile := newKBSettingsFile()
-	if *artifactWriteFlag {
-		if remote == "" {
-			// A kbs[] entry names a remote (D903): a KB without one carries
-			// the setting in its own settings.yaml, in its first commit.
-			settingsFile = newKBSettingsFileWith("allow_artifact_write: true\n")
-		} else {
-			var code int
-			if entryPlan, code = preflightArtifactWrite(name, path, remote, *configFlag); code != 0 {
-				return code
-			}
-		}
-	}
 
 	// The author has to be right before the initial commit exists: it is the
 	// commit a forge with an author-membership push rule rejects (D156).
@@ -193,11 +195,6 @@ func cmdKBCreate(args []string) int {
 		printNoRemoteWarning(path)
 	}
 
-	if entryPlan != nil {
-		if code := finishArtifactWrite(entryPlan); code != 0 {
-			return code
-		}
-	}
 	printPostCreateGuidanceFn(*configFlag, *restartFlag)
 	return 0
 }
@@ -206,7 +203,7 @@ func cmdKBCreate(args []string) int {
 // local KB at path (a new KB's initial commit, import --commit): the operator
 // running it is its writer, so git's own resolution for that path (the
 // per-folder identity included), then the server identity on a machine with
-// none (D904, D156).
+// none (D904, D156). It is the committer of those commits too (D950).
 func operatorIdentity(path string) (name, email string) {
 	if n, e, err := gitx.AuthorIdent(path); err == nil && n != "" && e != "" {
 		return n, e
@@ -368,8 +365,9 @@ func adoptForgeCommit(path, remote, branch string, refs gitx.RemoteRefs, authorN
 	}
 
 	// The rebased commit is created by this git, so its committer must be the
-	// server identity (D904, D265), not whatever git would guess.
-	if err := gitx.RebaseOntoAutostash(path, "origin", target, kb.ServerGitEnv()...); err != nil {
+	// operator who authors it (D950, D265), not whatever git would guess: a
+	// forge with a membership rule checks the committer too.
+	if err := gitx.RebaseOntoAutostash(path, "origin", target, kb.IdentityGitEnv(authorName, authorEmail)...); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return refuse()
 	}
@@ -405,11 +403,10 @@ func cmdKBClone(args []string) int {
 	localFlag := fs.Bool("local", false, "Act on the local data dir even though the client points at a remote server")
 	timeoutFlag := fs.Duration("timeout", defaultCloneTimeout, "Time budget for the whole clone")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after mounting the KB")
-	artifactWriteFlag := fs.Bool("artifact-write", false, "Record a kbs[] entry with allow_artifact_write: true in the server config, so the KB mounts configured with artifact writes on (artifacts reach client machines via sync)")
 	fs.Parse(rest)
 
 	if remote == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb clone <remote> [name] [--data <dir>] [--artifact-write] [--restart]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb clone <remote> [name] [--data <dir>] [--restart]")
 		return 2
 	}
 	if name == "" {
@@ -434,13 +431,6 @@ func cmdKBClone(args []string) int {
 	} else if !os.IsNotExist(err) {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
-	}
-	var entryPlan *kbEntryPlan
-	if *artifactWriteFlag {
-		var code int
-		if entryPlan, code = preflightArtifactWrite(name, path, remote, *configFlag); code != 0 {
-			return code
-		}
 	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -486,11 +476,6 @@ func cmdKBClone(args []string) int {
 
 	cloned = true
 	fmt.Printf("KB %q mounted at %s\n", name, path)
-	if entryPlan != nil {
-		if code := finishArtifactWrite(entryPlan); code != 0 {
-			return code
-		}
-	}
 	printPostCreateGuidanceFn(*configFlag, *restartFlag)
 	return 0
 }

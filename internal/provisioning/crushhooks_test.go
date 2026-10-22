@@ -54,7 +54,7 @@ func TestApplyAndPrune_CrushGlobalHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	opts := provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderCrush, BaseDir: baseDir, Lock: provisioning.Lock{},
 	}
 	res, err := provisioning.Apply(m, opts)
@@ -109,7 +109,7 @@ func TestPruneManaged_CrushHookDropsEmptiedContainers(t *testing.T) {
 	}
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderCrush, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
 	if err != nil {
@@ -139,7 +139,7 @@ func TestApply_CrushHookOtherEventWarnsAndRegistersNothing(t *testing.T) {
 	}
 	baseDir := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderCrush, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
 	if err != nil {
@@ -180,14 +180,14 @@ func TestApplyAndPrune_CrushProjectScope(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeHookKB(t, kbRoot, "guard", "PreToolUse", "bash", "./notify.sh")
 	writeMCPFixture(t, kbRoot, "docs", `{"type":"http","url":"https://example.com/mcp"}`)
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow("docs", "https://example.com/mcp"))
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	baseDir := t.TempDir()
 	mcp := findMCPArtifact(t, m, "docs")
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		KBRoots:     map[string]string{"kb": kbRoot},
 		ApprovedMCP: map[string]string{mcp.Source + "\x00docs": mcp.ContentHash},
 		Provider:    configurator.ProviderCrush, BaseDir: baseDir, Scope: provisioning.ScopeProject,
 		Lock: provisioning.Lock{},

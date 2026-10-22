@@ -113,7 +113,7 @@ func TestTwoKBMove_ConceptTransferTargetIgnoreRuleLosesNoFile(t *testing.T) {
 // target yet, so it cannot see it.
 func TestTwoKBMove_ArtifactMoveIgnoreFileInTheUnitLosesNoFile(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: S\n---\n# S\n"), 0o644)
 	amWriteBytes(t, f.a, "skills/s/model.bin", []byte{0, 1, 2, 0xff}, 0o644)
 	xferCommit(t, f.a)

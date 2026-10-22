@@ -130,8 +130,10 @@ you can open in any editor or in Obsidian.
 
 > **Running it by hand instead.** For development you can skip the service and
 > run a one-off server on a KB of your choice:
-> `cartographer serve --kb ~/my-kb --init --http :39273` (`--init` scaffolds
-> it). The service path above is the one to use daily.
+> `cartographer kb create my-kb --no-remote --data ~` then
+> `cartographer serve --kb ~/my-kb --http 127.0.0.1:39273` (`serve` never creates
+> a KB, and off-loopback it refuses to start without a token). The service path
+> above is the one to use daily.
 
 ## 3. First session
 

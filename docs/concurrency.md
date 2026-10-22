@@ -105,14 +105,16 @@ audit trail, with every write a revertible commit. Repository review policy belo
 hosting workflow, and a remote that protects the branch Cartographer writes to is answered in
 §Remote synchronization.
 
-Each commit names two parties (D904). The author of a write is the writer: the request's
-`Cartographer-Author` header, else the token (`<token id> <cartographer@<host>>`). The committer
-is always the server, `Cartographer <cartographer@<host>>`, and a write's message ends with a
-`Cartographer-Token: <token id>` trailer the server appends itself. A call that commits to two KBs
-(`concept_transfer`, `artifact_move`) gives both commits the same author. A commit that is not a
-write (the `external changes` commit, a sync merge, conflict resolution) is authored by the server.
-A sync that rebases local writes onto the remote keeps their authors and makes the server their
-committer. Format and validation: [control plane](control-plane.md).
+Each commit names the writer as author and committer (D904, D950): the request's
+`Cartographer-Author` header, else the identity configured for the KB in the server file
+(`git.identity`, `git.identities`), else the token (`<token id> <cartographer@<host>>`). A forge with a membership push rule checks the
+committer too, so it is the writer, not the server; the instance that recorded the commit is in a
+`Cartographer-Host` trailer, and a write's message ends with a `Cartographer-Token: <token id>`
+trailer, both appended by the server. A call that commits to two KBs (`concept_transfer`,
+`artifact_move`) gives both commits the writer of its header; without one each KB's own configured identity applies. A commit that is not a write (the `external
+changes` commit, a sync merge, conflict resolution) is by the KB's configured identity, else the
+server. A sync that rebases local commits onto the remote gives each its author back as committer
+(`gitx.RealignCommitters`). Format and validation: [control plane](control-plane.md).
 
 A KB syncs exactly when it has a remote, and that branch must be the KB's **canonical branch**:
 the `branch` of the `settings.yaml` committed on the remote's default branch when it sets one
@@ -127,8 +129,8 @@ a self-hosted bare repository initialised with `master` and then pushed `main` �
 the canonical branch is `main` if the remote has it, and unknown otherwise. Cartographer never
 deletes or force-pushes a branch on the remote and never checks out a different branch in the
 clone. The single exception to creating none is the first push of a KB to an **empty** remote,
-which creates `main` with upstream tracking. A clone of an empty remote (server bootstrap with
-`--init`) is pinned to `main` and given its initial commit, exactly like `kb create`.
+which creates `main` with upstream tracking. A KB made for an empty remote by
+`kb create --remote` is pinned to `main` and given its initial commit; a server never does that by itself (D906).
 
 With `branch` set, the remote's default branch plays no part for that KB beyond holding the
 file: the configured branch is the only one pulled and pushed, and the first push creates it on
@@ -162,8 +164,12 @@ below are constants, not settings: a 30s freshness window and a 3s push debounce
    never waits for it (D258): when the window has expired it is served at once from the
    local clone and starts the same refresh in the background, one per KB at a time, under
    the same KB lock; what that refresh pulls is visible from the next call on, and a
-   failure there is non-fatal. Every fetch is bounded (15s, the whole git process group
-   killed on expiry), and after a failed one reads skip the fetch for 60s, so a remote
+   failure there is non-fatal. Every fetch is bounded (15s; on Unix the whole git process
+   group is killed on expiry, on Windows git is killed and `WaitDelay` bounds the pipes).
+   A push is bounded the same way (60s, `gitx.PushTimeout`) and a timed-out push is not
+   retried: `SyncOut` fails at once and the commit waits locally for the next write. No
+   git command prompts for a credential (`GIT_TERMINAL_PROMPT=0`, ssh in batch mode,
+   D1004). After a failed fetch reads skip the fetch for 60s, so a remote
    that is down costs one bounded fetch rather than one per call; a write still fetches,
    synchronously (D237). When that fetch fails, the write proceeds only if `HEAD` has no
    commit missing from `origin/<branch>` — the base is as current as the last successful

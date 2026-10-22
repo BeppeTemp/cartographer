@@ -1,5 +1,5 @@
 // connectform.go implements the connect form as a standalone bubbletea
-// component: server URL, server name, token env var, auth toggle, and trust
+// component: server URL, server name, token env var and auth toggle
 // toggle. It only
 // collects and validates input — it never performs the connect itself (see
 // doConnect in connect.go) — so the exact same component is reused two ways:
@@ -19,6 +19,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 )
 
@@ -36,7 +37,6 @@ const (
 	fieldAgentCopilot
 	fieldTokenEnv
 	fieldAuth
-	fieldTrust
 	fieldSubmit
 )
 
@@ -72,11 +72,11 @@ type connectFormModel struct {
 	// from one selected row and must not show controls it does not apply.
 	selectAgents bool
 	auth         bool
-	// trust is the "trust KB artifacts" toggle (see connectOptions.Trust):
-	// prefilled from .cartographer.yaml when it exists, defaults to true
-	// otherwise (see clientconfig.Default). Persisted at connect time by
-	// doConnect — see docs/sync.md §Sicurezza.
-	trust bool
+	// literalToken is a literal `token` already in .cartographer.yaml. The field
+	// shows only a variable name, so a literal is kept as long as that text is
+	// left as it was (initialEnv); typing another name replaces it (D906).
+	literalToken string
+	initialEnv   string
 
 	// serverName is carried through from the prefill, not collected by the
 	// form: the server is always registered as "cartographer" (the project
@@ -125,7 +125,7 @@ type connectFormModel struct {
 }
 
 // newConnectFormModel builds a connectFormModel titled title (e.g. "Connect
-// claude"), prefilled from prefill's ServerURL/Name/TokenEnv/Auth, with focus
+// claude"), prefilled from prefill's ServerURL/Name/Token/Auth, with focus
 // on the first field. standalone controls whether submit/cancel quit their
 // own tea.Program (see the standalone field doc).
 func newConnectFormModel(title string, prefill connectOptions, standalone bool) connectFormModel {
@@ -135,7 +135,9 @@ func newConnectFormModel(title string, prefill connectOptions, standalone bool) 
 
 	tokenEnv := textinput.New()
 	tokenEnv.Placeholder = "CARTOGRAPHER_TOKENS"
-	tokenEnv.SetValue(prefill.TokenEnv)
+	prefillCfg := &clientconfig.Config{Token: prefill.Token}
+	initialEnv := prefillCfg.TokenEnv()
+	tokenEnv.SetValue(initialEnv)
 
 	m := connectFormModel{
 		title:        title,
@@ -143,7 +145,8 @@ func newConnectFormModel(title string, prefill connectOptions, standalone bool) 
 		serverName:   prefill.Name,
 		tokenEnv:     tokenEnv,
 		auth:         prefill.Auth,
-		trust:        prefill.Trust,
+		literalToken: prefillCfg.LiteralToken(),
+		initialEnv:   initialEnv,
 		providers:    make(map[string]bool),
 		selectAgents: true,
 		standalone:   standalone,
@@ -160,7 +163,7 @@ func (m connectFormModel) focusOrder() []connectField {
 	if m.selectAgents {
 		fields = append(fields, fieldAgentClaude, fieldAgentOpenCode, fieldAgentCodex, fieldAgentKiro, fieldAgentAntigravity, fieldAgentCrush, fieldAgentCopilot)
 	}
-	return append(fields, fieldTokenEnv, fieldAuth, fieldTrust, fieldSubmit)
+	return append(fields, fieldTokenEnv, fieldAuth, fieldSubmit)
 }
 
 func (m *connectFormModel) moveFocus(delta int) {
@@ -206,7 +209,7 @@ func (m connectFormModel) Submitted() bool { return m.submitted }
 func (m connectFormModel) Cancelled() bool { return m.cancelled }
 
 // Values returns the collected connectOptions, with the same blank-field
-// defaults `cartographer connect` uses today. Providers/Dir/DryRun/AutoTrust
+// defaults `cartographer connect` uses today. Providers/Dir/DryRun
 // are left zero-valued — the caller (cmdConnect or the TUI) fills those in
 // from context the form never had.
 func (m connectFormModel) Values() connectOptions {
@@ -228,7 +231,11 @@ func (m connectFormModel) Values() connectOptions {
 			providers = append(providers, provider)
 		}
 	}
-	return connectOptions{Providers: providers, ServerURL: url, Name: name, Auth: m.auth, TokenEnv: tokenEnv, Trust: m.trust}
+	token := clientconfig.EnvRefToken(tokenEnv)
+	if m.literalToken != "" && tokenEnv == m.initialEnv {
+		token = m.literalToken
+	}
+	return connectOptions{Providers: providers, ServerURL: url, Name: name, Auth: m.auth, Token: token}
 }
 
 // --- tea.Model ---
@@ -274,10 +281,6 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.auth = !m.auth
 			m.clearProbeState()
 			return m, nil
-		case fieldTrust:
-			m.trust = !m.trust
-			m.clearProbeState()
-			return m, nil
 		}
 
 	case "enter":
@@ -292,10 +295,6 @@ func (m connectFormModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case fieldAuth:
 			m.auth = !m.auth
-			m.clearProbeState()
-			return m, nil
-		case fieldTrust:
-			m.trust = !m.trust
 			m.clearProbeState()
 			return m, nil
 		case fieldSubmit:
@@ -351,10 +350,6 @@ func (m connectFormModel) View() string {
 	if m.auth {
 		auth = "[x] enabled"
 	}
-	trust := "[ ] disabled"
-	if m.trust {
-		trust = "[x] enabled"
-	}
 
 	tokenLabel := "Token env var"
 	if m.Width > 0 && m.Width < 80 {
@@ -385,11 +380,7 @@ func (m connectFormModel) View() string {
 			formProviderLine("copilot", m.providers["copilot"], m.focus == fieldAgentCopilot),
 		)
 	}
-	trustLabel := "Trust KB artifacts"
-	if m.Width > 0 && m.Width < 80 {
-		trustLabel = "Trust"
-	}
-	fields = append(fields, tokenEnvLine, formFieldLine("Auth", auth, m.focus == fieldAuth), formFieldLine(trustLabel, trust, m.focus == fieldTrust))
+	fields = append(fields, tokenEnvLine, formFieldLine("Auth", auth, m.focus == fieldAuth))
 
 	submit := "  Connect"
 	if m.focus == fieldSubmit {
@@ -436,9 +427,8 @@ func formProviderLine(provider string, selected bool, focused bool) string {
 // the currently focused field f (empty for fieldSubmit, which needs none).
 // authEnabled changes the Token env hint: the variable is read from the
 // environment only when Auth is on (see resolveToken/probeServer), so when
-// it's off the hint says so instead of repeating the "never written to disk"
-// promise that would otherwise read as misleading reassurance about a field
-// that isn't even consulted.
+// it's off the hint says so instead of describing a field that isn't even
+// consulted.
 func fieldHint(f connectField, authEnabled bool) string {
 	switch f {
 	case fieldServerURL:
@@ -449,11 +439,9 @@ func fieldHint(f connectField, authEnabled bool) string {
 		if !authEnabled {
 			return "name of the environment variable with the token — ignored while Auth is disabled"
 		}
-		return "name of the environment variable that holds the bearer token — the token itself is never written to disk"
+		return "name of the environment variable that holds the bearer token — this form saves only the name (a literal token is set in .cartographer.yaml, not here)"
 	case fieldAuth:
 		return "when enabled, every call to the server carries the bearer token read from Token env var"
-	case fieldTrust:
-		return "trust kb: artifacts without requiring --auto-trust on every sync"
 	default:
 		return ""
 	}

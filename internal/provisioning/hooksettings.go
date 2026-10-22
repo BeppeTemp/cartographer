@@ -617,9 +617,11 @@ func antigravityHooksPath(baseDir, hookRel string) string {
 }
 
 // removeAntigravityHook strips hookName's entry from the file that matches
-// hookRel (the managed path of one of its files). A workspace hooks.json the
-// removal leaves empty is deleted: it holds nothing but what Cartographer
-// wrote. The global file is never deleted, it is the user's shared one.
+// hookRel (the managed path of one of its files). A hooks.json the removal
+// leaves with no entry at all is deleted, the global one included, and so is the
+// directory it leaves empty (the same empty-shell rule as an MCP config, D63):
+// the file is a JSON object keyed by hook, so an empty one holds nothing of
+// anybody's. One that still holds another entry is only rewritten.
 func removeAntigravityHook(baseDir, hookName, hookRel string) error {
 	path := antigravityHooksPath(baseDir, hookRel)
 	settings, err := loadJSONObject(path)
@@ -631,11 +633,17 @@ func removeAntigravityHook(baseDir, hookName, hookRel string) error {
 		return nil
 	}
 	delete(settings, key)
-	if len(settings) == 0 && strings.HasPrefix(filepath.ToSlash(hookRel), antigravityProjectHooksPrefix) {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
+	// Only a regular file reached through real directories is deleted: a
+	// hooks.json that is, or sits under, a symlink (a dotfiles checkout) is
+	// someone else's, so it keeps its link and gets the emptied object instead.
+	if rel, relErr := filepath.Rel(baseDir, path); len(settings) == 0 && relErr == nil && ensureSafeDir(baseDir, filepath.Dir(rel)) == nil {
+		if fi, statErr := os.Lstat(path); statErr == nil && fi.Mode().IsRegular() {
+			if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			pruneEmptyDirs(baseDir, rel)
+			return nil
 		}
-		return nil
 	}
 	return saveJSONObject(path, settings)
 }

@@ -46,142 +46,203 @@ func names(items []ReviewItem, id string) bool {
 	return false
 }
 
-// ignoreLine is the frontmatter line that dismisses kind, or "" when off.
-func ignoreLine(kind string, on bool) string {
-	if !on {
-		return ""
-	}
-	return "lint_ignore: [" + kind + "]\n"
-}
-
 // sharedFact is a prose line long enough to count as a fact (D301).
 const sharedFact = "The backup job runs nightly at 02:00 and keeps fourteen copies."
 
-// reviewFixtures build, per kind, a KB with one positive item whose first
-// concept carries lint_ignore: [kind] when dismiss is true. The trap test
-// iterates ReviewKinds over this map, so a new kind without a fixture fails.
-var reviewFixtures = map[string]func(t *testing.T, dismiss bool) (*kb.KB, string){
-	ReviewDuplicate: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+// reviewFixtures build, per kind, a KB with one positive item and name the
+// concept it is about. The trap test iterates ReviewKinds over this map, so a
+// new kind without a fixture fails.
+var reviewFixtures = map[string]func(t *testing.T) (*kb.KB, string){
+	ReviewDuplicate: func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
-		writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Service\ntitle: Alpha gateway\nresource: https://example.com/x\n"+ignoreLine(ReviewDuplicate, dismiss)+"---\n# A\n")
+		writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Service\ntitle: Alpha gateway\nresource: https://example.com/x\n---\n# A\n")
 		writeFile(t, k.DataRoot(), "m/b.md", "---\ntype: Service\ntitle: Beta gateway\nresource: https://example.com/x\n---\n# B\n")
 		return k, "m/a"
 	},
-	ReviewZombie: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+	ReviewZombie: func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "b/_map.md", "---\ntype: Map\ntitle: B\n---\n")
 		writeFile(t, k.DataRoot(), "b/old.md", "---\ntype: Service\ntitle: Old\nstatus: deprecated\n---\n# Old\n")
-		writeFile(t, k.DataRoot(), "b/task.md", "---\ntype: Task\ntitle: Task\nstatus: open\n"+ignoreLine(ReviewZombie, dismiss)+"---\n# Task\n\n## Origin\n\nSee [old](old.md).\n")
+		writeFile(t, k.DataRoot(), "b/task.md", "---\ntype: Task\ntitle: Task\nstatus: open\n---\n# Task\n\n## Origin\n\nSee [old](old.md).\n")
 		return k, "b/task"
 	},
-	ReviewPromotion: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+	ReviewPromotion: func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "p/_map.md", "---\ntype: Map\ntitle: P\n---\n")
 		writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\npromote_to: p\n---\n")
-		writeFile(t, k.DataRoot(), "j/e1.md", "---\ntype: Note\ntitle: E1\n"+ignoreLine(ReviewPromotion, dismiss)+"---\n# E1\n\n1. one\n2. two\n\n   detail\n3. three\n4. four\n5. five\n")
+		writeFile(t, k.DataRoot(), "j/e1.md", "---\ntype: Note\ntitle: E1\n---\n# E1\n\n1. one\n2. two\n\n   detail\n3. three\n4. four\n5. five\n")
 		return k, "j/e1"
 	},
-	ReviewGlossary: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+	ReviewGlossary: func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 		for i := 0; i < glossaryMinConcepts; i++ {
-			ign := ""
-			if i == 0 {
-				ign = ignoreLine(ReviewGlossary, dismiss)
-			}
-			writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%02d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: C%d\n%s---\n# C\n\nThe ZFS pool.\n", i, ign))
+			writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%02d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: C%d\n---\n# C\n\nThe ZFS pool.\n", i))
 		}
 		return k, "m/c00"
 	},
-	ReviewRepeatedFact: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+	ReviewRepeatedFact: func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 		for i := 0; i < repeatedFactMinConcepts; i++ {
-			ign := ""
-			if i == 0 {
-				ign = ignoreLine(ReviewRepeatedFact, dismiss)
-			}
-			writeFile(t, k.DataRoot(), fmt.Sprintf("m/r%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: R%d\n%s---\n# R\n\n%s\n", i, ign, sharedFact))
+			writeFile(t, k.DataRoot(), fmt.Sprintf("m/r%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: R%d\n---\n# R\n\n%s\n", i, sharedFact))
 		}
 		return k, "m/r0"
 	},
-	ReviewReadHotspot: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+	ReviewReadHotspot: func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
-		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\nhotspot_in_degree: 3\nhotspot_bytes: 100\n---\n")
-		writeFile(t, k.DataRoot(), "m/hub.md", "---\ntype: Note\ntitle: Hub\n"+ignoreLine(ReviewReadHotspot, dismiss)+"---\n# Hub\n\n"+strings.Repeat("word ", 40)+"\n")
-		for i := 0; i < 3; i++ {
+		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+		writeFile(t, k.DataRoot(), "m/hub.md", "---\ntype: Note\ntitle: Hub\n---\n# Hub\n\n"+strings.Repeat("word ", hotspotMinBytes/5+1)+"\n")
+		for i := 0; i < hotspotMinInDegree; i++ {
 			writeFile(t, k.DataRoot(), fmt.Sprintf("m/l%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: L%d\n---\n# L\n\n[hub](hub.md)\n", i))
 		}
 		return k, "m/hub"
 	},
-	ReviewScatteredWork: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+	ReviewScatteredWork: func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "backlog/_map.md", "---\ntype: Map\ntitle: Backlog\n---\n")
 		writeFile(t, k.DataRoot(), "ref/_map.md", "---\ntype: Map\ntitle: Ref\nwork_map: backlog\n---\n")
-		writeFile(t, k.DataRoot(), "ref/page.md", "---\ntype: Topic\ntitle: Page\n"+ignoreLine(ReviewScatteredWork, dismiss)+"---\n# Page\n\n## Follow-up\n\n- [ ] migrate the host\n")
+		writeFile(t, k.DataRoot(), "ref/page.md", "---\ntype: Topic\ntitle: Page\n---\n# Page\n\n## Follow-up\n\n- [ ] migrate the host\n")
 		return k, "ref/page"
 	},
-	ReviewHarvestCandidate: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+	ReviewHarvestCandidate: func(t *testing.T) (*kb.KB, string) {
 		withNow(t, "2026-10-01")
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
-		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: done\ntimestamp: 2026-07-01\n"+ignoreLine(ReviewHarvestCandidate, dismiss)+"---\n# E\n")
+		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: done\ntimestamp: 2026-07-01\n---\n# E\n")
 		return k, "j/e"
 	},
-	ReviewStatusReclassify: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+	ReviewStatusReclassify: func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
-		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: active\n"+ignoreLine(ReviewStatusReclassify, dismiss)+"---\n# E\n")
+		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: active\n---\n# E\n")
 		return k, "j/e"
 	},
-	ReviewMapNaming: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+	ReviewMapNaming: func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
-		writeFile(t, k.DataRoot(), "a/_map.md", "---\ntype: Map\ntitle: Alpha — first notes\n"+ignoreLine(ReviewMapNaming, dismiss)+"---\n")
+		writeFile(t, k.DataRoot(), "a/_map.md", "---\ntype: Map\ntitle: Alpha — first notes\n---\n")
 		writeFile(t, k.DataRoot(), "b/_map.md", "---\ntype: Map\ntitle: Beta\n---\n")
 		writeFile(t, k.DataRoot(), "c/_map.md", "---\ntype: Map\ntitle: Gamma\n---\n")
 		return k, "a/_map"
 	},
-	ReviewTemplateProposal: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+	ReviewTemplateProposal: func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
-		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n"+ignoreLine(ReviewTemplateProposal, dismiss)+"---\n")
+		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
 		for _, n := range []string{"a", "b", "c"} {
 			writeFile(t, k.DataRoot(), "m/"+n+".md", "---\ntype: Note\ntitle: "+n+"\n---\n# "+n+"\n\n## Purpose\n\ntext\n")
 		}
 		return k, "m/_map"
 	},
-	ReviewLintJudgement: func(t *testing.T, dismiss bool) (*kb.KB, string) {
+	ReviewLintJudgement: func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
-		writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n"+ignoreLine(ReviewLintJudgement, dismiss)+"---\n# A\n\nSee [gone](gone.md).\n")
+		writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nSee [gone](gone.md).\n")
 		return k, "m/a"
 	},
+	// One page over the size threshold; the other observations have their own
+	// fixtures and closers in observations_test.go.
+	ReviewObservation: func(t *testing.T) (*kb.KB, string) { return obsFixtures["concept_oversize"](t) },
 }
 
-// TestReviewKindsDismissible is the D298 trap: every review kind is a
-// lint_ignore name (lint does not call it invalid) and lint_ignore on a
-// concept the item names dismisses the item.
-func TestReviewKindsDismissible(t *testing.T) {
+// TestReviewKindsHaveFixture is the D298 trap: every review kind has a
+// fixture, and the fixture yields an item of that kind naming its concept.
+func TestReviewKindsHaveFixture(t *testing.T) {
 	for _, kind := range ReviewKinds {
 		t.Run(kind, func(t *testing.T) {
-			if !perConceptChecks[kind] {
-				t.Fatalf("%s is not in perConceptChecks: lint_ignore cannot dismiss it", kind)
-			}
 			fixture, ok := reviewFixtures[kind]
 			if !ok {
 				t.Fatalf("no review fixture for %s", kind)
 			}
-			k, id := fixture(t, false)
+			k, id := fixture(t)
 			if got := itemsOf(review(t, k), kind); !names(got, id) {
 				t.Fatalf("fixture produced no %s item naming %s: %+v", kind, id, got)
 			}
-			k, id = fixture(t, true)
-			f, _ := Run(k, "", false)
-			if hasCheck(f, id+".md", "lint_ignore_invalid") {
-				t.Fatalf("lint_ignore: [%s] reported invalid", kind)
+		})
+	}
+}
+
+// reviewClosers write, per kind, the page state that closes its fixture's
+// item (D907, docs/data-plane.md §Nothing dismisses a review item): nothing
+// dismisses an item, so each kind needs a state the pages can express. The
+// trap test iterates ReviewKinds over this map, so a new kind without one
+// fails.
+var reviewClosers = map[string]func(t *testing.T, k *kb.KB){
+	// Link each page to the other (D854).
+	ReviewDuplicate: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Service\ntitle: Alpha gateway\nresource: https://example.com/x\n---\n# A\n\nThe public one; [Beta](b.md) is internal.\n")
+		writeFile(t, k.DataRoot(), "m/b.md", "---\ntype: Service\ntitle: Beta gateway\nresource: https://example.com/x\n---\n# B\n\nThe internal one; [Alpha](a.md) is public.\n")
+	},
+	// Close the page.
+	ReviewZombie: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "b/task.md", "---\ntype: Task\ntitle: Task\nstatus: done\n---\n# Task\n\n## Origin\n\nSee [old](old.md).\n")
+	},
+	// Create the procedure in promote_to and link it.
+	ReviewPromotion: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "p/steps.md", "---\ntype: Procedure\ntitle: Steps\n---\n# Steps\n\n1. one\n2. two\n3. three\n4. four\n5. five\n")
+		writeFile(t, k.DataRoot(), "j/e1.md", "---\ntype: Note\ntitle: E1\n---\n# E1\n\nFollowed [the procedure](../p/steps.md).\n")
+	},
+	// Define the term in glossary.yaml.
+	ReviewGlossary: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.Root, "glossary.yaml", "terms:\n  - canonical: ZFS\n")
+	},
+	// Keep the fact in one concept and link to it.
+	ReviewRepeatedFact: func(t *testing.T, k *kb.KB) {
+		for i := 1; i < repeatedFactMinConcepts; i++ {
+			writeFile(t, k.DataRoot(), fmt.Sprintf("m/r%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: R%d\n---\n# R\n\nBackups: see [R0](r0.md).\n", i))
+		}
+	},
+	// Split the page: the hub keeps a short summary.
+	ReviewReadHotspot: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "m/hub.md", "---\ntype: Note\ntitle: Hub\n---\n# Hub\n\nA short summary.\n")
+	},
+	// Create the concept in the work_map and link the page to it.
+	ReviewScatteredWork: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "backlog/migrate-host.md", "---\ntype: Task\ntitle: Migrate the host\nstatus: open\n---\n# Migrate the host\n\nFrom [Page](../ref/page.md).\n")
+		writeFile(t, k.DataRoot(), "ref/page.md", "---\ntype: Topic\ntitle: Page\n---\n# Page\n\n## Follow-up\n\nTracked in [Migrate the host](../backlog/migrate-host.md).\n")
+	},
+	// Harvest the entry, then archive it (D322).
+	ReviewHarvestCandidate: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: archived\ntimestamp: 2026-07-01\n---\n# E\n")
+	},
+	// Set the status the item proposes.
+	ReviewStatusReclassify: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: done\n---\n# E\n")
+	},
+	// Give the maps' titles one shape.
+	ReviewMapNaming: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "a/_map.md", "---\ntype: Map\ntitle: Alpha\n---\n")
+	},
+	// Declare the template in the map.
+	ReviewTemplateProposal: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.Root, "templates/note.md", "---\ntype: Note\ntitle: \"{{title}}\"\n---\n# {{title}}\n\n## Purpose\n")
+		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\ntemplates: [note]\n---\n")
+	},
+	// Fix the page until the check no longer reports it.
+	ReviewLintJudgement: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n\nThe link was dropped.\n")
+	},
+	// Split the page (the others: observations_test.go).
+	ReviewObservation: func(t *testing.T, k *kb.KB) { obsClosers["concept_oversize"](t, k) },
+}
+
+// TestReviewKindsCloseOnPageState is the D907 trap: every review kind's
+// fixture item disappears once its closing state is written, with nothing kept
+// outside the pages.
+func TestReviewKindsCloseOnPageState(t *testing.T) {
+	for _, kind := range ReviewKinds {
+		t.Run(kind, func(t *testing.T) {
+			closer, ok := reviewClosers[kind]
+			if !ok {
+				t.Fatalf("no closing page state for %s", kind)
 			}
-			if got := itemsOf(review(t, k), kind); names(got, id) {
-				t.Fatalf("lint_ignore: [%s] did not dismiss: %+v", kind, got)
+			k, id := reviewFixtures[kind](t)
+			if !names(itemsOf(review(t, k), kind), id) {
+				t.Fatalf("fixture produced no %s item naming %s", kind, id)
+			}
+			closer(t, k)
+			if got := itemsOf(review(t, k), kind); len(got) != 0 {
+				t.Fatalf("%s still listed after its closing state: %+v", kind, got)
 			}
 		})
 	}
@@ -247,7 +308,7 @@ func TestReviewDuplicateActionSatellite(t *testing.T) {
 
 func TestReviewZombieWork(t *testing.T) {
 	t.Parallel()
-	k, _ := reviewFixtures[ReviewZombie](t, false)
+	k, _ := reviewFixtures[ReviewZombie](t)
 	writeFile(t, k.DataRoot(), "b/closed.md", "---\ntype: Task\ntitle: Closed\nstatus: done\n---\n# Closed\n\n## Origin\n\nSee [old](old.md).\n")
 	items := itemsOf(review(t, k), ReviewZombie)
 	if !names(items, "b/task") || names(items, "b/closed") {
@@ -257,7 +318,7 @@ func TestReviewZombieWork(t *testing.T) {
 
 func TestReviewPromotionCandidate(t *testing.T) {
 	t.Parallel()
-	k, _ := reviewFixtures[ReviewPromotion](t, false)
+	k, _ := reviewFixtures[ReviewPromotion](t)
 	writeFile(t, k.DataRoot(), "p/x.md", "---\ntype: Procedure\ntitle: X\n---\n# X\n")
 	writeFile(t, k.DataRoot(), "j/linked.md", "---\ntype: Note\ntitle: L\n---\n# L\n\n1. a\n2. b\n3. c\n4. d\n5. e\n\nNow in [x](../p/x.md).\n")
 	writeFile(t, k.DataRoot(), "j/heading.md", "---\ntype: Note\ntitle: H\n---\n# H\n\n## How to restart the gateway\n\nText.\n")
@@ -285,7 +346,7 @@ func TestReviewPromotionCandidate(t *testing.T) {
 
 func TestReviewGlossaryGap(t *testing.T) {
 	t.Parallel()
-	k, _ := reviewFixtures[ReviewGlossary](t, false)
+	k, _ := reviewFixtures[ReviewGlossary](t)
 	for i := 0; i < glossaryMinConcepts; i++ {
 		// API and JSON are common terms; NON is "non" shouted (D307); HA,
 		// two letters, stays a term even though "ha" is an ordinary word.
@@ -307,7 +368,7 @@ func TestReviewGlossaryGap(t *testing.T) {
 
 func TestReviewLintJudgement(t *testing.T) {
 	t.Parallel()
-	k, _ := reviewFixtures[ReviewLintJudgement](t, false)
+	k, _ := reviewFixtures[ReviewLintJudgement](t)
 	items := itemsOf(review(t, k), ReviewLintJudgement)
 	if len(items) != 1 || items[0].Check != "broken_link" || items[0].Concepts[0] != "m/a" {
 		t.Fatalf("lint_judgement items: %+v", items)
@@ -429,11 +490,6 @@ func TestReviewRepeatedFact(t *testing.T) {
 	if len(got) != 1 || !strings.Contains(got[0].Evidence, "backup-host | nightly at 02:00") || got[0].Weight != 3 {
 		t.Fatalf("want only the table row: %+v", got)
 	}
-	// A map may lower the threshold: two copies are then an item.
-	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\nrepeated_fact_min: 2\n---\n")
-	if got := itemsOf(review(t, k), ReviewRepeatedFact); !names(got, "m/d0") {
-		t.Fatalf("repeated_fact_min: 2 ignored: %+v", got)
-	}
 }
 
 // TestReviewReadHotspot: both conditions are needed (D301).
@@ -462,25 +518,6 @@ func TestReviewReadHotspot(t *testing.T) {
 	}
 	if vis := FilterReview(got, func(string) bool { return true }, false); len(vis) != 0 {
 		t.Fatal("a whole-graph item reached a narrowed caller")
-	}
-}
-
-// TestConceptOversizePerMap: oversize_bytes lowers the threshold for its own
-// map only (D301); the default stays tied to the read guard.
-func TestConceptOversizePerMap(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.DataRoot(), "small/_map.md", "---\ntype: Map\ntitle: S\noversize_bytes: 100\n---\n")
-	writeFile(t, k.DataRoot(), "other/_map.md", "---\ntype: Map\ntitle: O\n---\n")
-	body := strings.Repeat("word ", 60)
-	writeFile(t, k.DataRoot(), "small/a.md", "---\ntype: Note\ntitle: A\n---\n"+body+"\n")
-	writeFile(t, k.DataRoot(), "other/a.md", "---\ntype: Note\ntitle: A\n---\n"+body+"\n")
-	f, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !hasCheck(f, "small/a", "concept_oversize") || hasCheck(f, "other/a", "concept_oversize") {
-		t.Fatalf("per-map oversize: %+v", f)
 	}
 }
 
@@ -594,10 +631,12 @@ func TestReviewMapNamingIndividual(t *testing.T) {
 		folders, titles []string
 		want            string
 	}{
-		"clean":           {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", "Notes"}, ""},
-		"long title":      {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", long}, "50 characters; map titles are 1-3 words"},
-		"long subtitles":  {[]string{"infra", "clients", "notes"}, []string{"Infra — the cluster and its nodes", "Clients — who we work for here", "Notes — whatever comes to mind"}, "subtitle is a description, not a qualifier"},
-		"folder mismatch": {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", "Ricerche"}, `does not match folder "notes"`},
+		"clean":          {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", "Notes"}, ""},
+		"long title":     {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", long}, "50 characters; map titles are 1-3 words"},
+		"long subtitles": {[]string{"infra", "clients", "notes"}, []string{"Infra — the cluster and its nodes", "Clients — who we work for here", "Notes — whatever comes to mind"}, "subtitle is a description, not a qualifier"},
+		// A title its folder does not echo is the write's warning only
+		// (MapTitleIssues): no page state could close it (D907).
+		"folder mismatch": {[]string{"infra", "clients", "notes"}, []string{"Infra", "Clients", "Ricerche"}, ""},
 		"folder prefix":   {[]string{"managed-services", "clients", "notes"}, []string{"Managed", "Clients", "Notes"}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -620,8 +659,8 @@ func TestReviewMapNamingIndividual(t *testing.T) {
 }
 
 // TestReviewZombieSharedOrigin: a retired concept three open ones link is
-// their origin. They get one item naming it first, which lint_ignore on it
-// dismisses, while a concept's own retired subject still gets its own item.
+// their origin. They get one item naming it first, while a concept's own
+// retired subject still gets its own item.
 func TestReviewZombieSharedOrigin(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
@@ -652,16 +691,6 @@ func TestReviewZombieSharedOrigin(t *testing.T) {
 	}
 	if own.Concepts[0] != "b/t1" || !strings.Contains(own.Evidence, "b/gone") || strings.Contains(own.Evidence, "oldlist") {
 		t.Fatalf("own subject item: %+v", own)
-	}
-	// A member dismissing zombie_work on itself does not dismiss the group
-	// (found on a real KB: two members' own dismissals hid the group item).
-	writeFile(t, k.DataRoot(), "b/t2.md", "---\ntype: Task\ntitle: t2\nstatus: open\nlint_ignore: [zombie_work]\n---\n# t2\n\n## Origin\n\nFrom [the old list](oldlist.md).\n")
-	if got := itemsOf(review(t, k), ReviewZombie); len(got) != 2 {
-		t.Fatalf("a member's dismissal hid the group: %+v", got)
-	}
-	writeFile(t, k.DataRoot(), "b/oldlist.md", "---\ntype: Topic\ntitle: Old list\nstatus: deprecated\nlint_ignore: [zombie_work]\n---\n# Old list\n")
-	if got := itemsOf(review(t, k), ReviewZombie); len(got) != 1 || got[0].Concepts[0] != "b/t1" {
-		t.Fatalf("dismissing the origin once: %+v", got)
 	}
 }
 

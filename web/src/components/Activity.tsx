@@ -5,22 +5,7 @@ import { changedAt, changeKind, mostWorked, shownReasons, type ChangeKind } from
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
 import { Markdown } from "./Markdown";
-import {
-  Avatar,
-  Count,
-  Figures,
-  FilterChip,
-  FilterChips,
-  Hero,
-  HeroRow,
-  MapBar,
-  MapDot,
-  Page,
-  PageHeader,
-  PageSection,
-  Segmented,
-  SkeletonRows,
-} from "./Page";
+import { Avatar, Count, Hero, MapBar, MapDot, Page, PageHeader, PageSection, Segmented, TitleBone, ActivitySkeleton } from "./Page";
 
 const WINDOWS = [
   ["1d", "1d"],
@@ -203,83 +188,88 @@ export function Activity({
 
       <div className="page__body" data-loading={loading && data !== null}>
         {data && all.length > 0 && (
-          <Hero label="Summary and filters">
-            <div className="timeline__summary">
-              <Figures
-                items={[
-                  {
-                    label: "edited",
-                    value: count("edited"),
-                    tone: count("edited") ? undefined : "muted",
-                  },
-                  {
-                    label: "new",
-                    value: count("new"),
-                    sign: count("new") ? "+" : undefined,
-                    tone: count("new") ? "ok" : "muted",
-                  },
-                  {
-                    label: "reorganised",
-                    value: count("reorganised"),
-                    tone: count("reorganised") ? undefined : "muted",
-                  },
-                  ...(authors.length > 1 ? [{ label: "authors", value: authors.length }] : []),
-                ]}
-              />
-              {top && (
-                <button type="button" className="activity-top" onClick={() => onOpen(top.change.id)}>
-                  <span className="activity-top__label">Most worked on</span>
-                  <span className="activity-top__title">{titles.get(top.change.id) ?? top.change.id}</span>
-                  <span className="activity-top__count">
-                    {top.count} {top.count === 1 ? "change" : "changes"}
-                  </span>
-                </button>
-              )}
-              {upkeep > 0 && (
-                <button
-                  type="button"
-                  className="activity-upkeep"
-                  aria-pressed={showUpkeep}
-                  onClick={() => setShowUpkeep((v) => !v)}
-                >
-                  + {upkeep} touched by automatic maintenance · {showUpkeep ? "hide" : "show"}
-                </button>
-              )}
+          <Hero label="Summary and filters" className="activity-hero">
+            <div className="activity-sum">
+              <div className="activity-sum__lead">
+                <ul className="activity-stats" aria-label="Changes in the window">
+                  <Stat n={count("edited")} label="edited" />
+                  <Stat n={count("new")} label="new" tone="ok" />
+                  <Stat n={count("reorganised")} label="reorganised" />
+                  {authors.length > 1 && <Stat n={authors.length} label="authors" />}
+                </ul>
+                {top && top.count > 1 && (
+                  <button type="button" className="activity-top" onClick={() => onOpen(top.change.id)}>
+                    <span className="activity-top__label">Most worked on</span>
+                    <span className="activity-top__title">{titles.get(top.change.id) ?? top.change.id}</span>
+                    <span className="activity-top__count">{top.count} changes</span>
+                  </button>
+                )}
+              </div>
               {histogram.length > 1 && <ActivityBars bars={histogram} />}
             </div>
-            {maps.length > 0 && (
-              <HeroRow label="Where">
-                <MapBar maps={maps} active={map} />
-                <FilterChips label="Filter by Map">
-                  {maps.map(([name, count]) => (
-                    <FilterChip
-                      key={name}
-                      label={mapTitles.get(name) ?? name}
-                      count={count}
-                      pressed={map === name}
-                      hue={collectionVar(name)}
-                      mark={<MapDot map={name} />}
-                      onToggle={() => setMap(map === name ? null : name)}
-                    />
-                  ))}
-                </FilterChips>
-              </HeroRow>
-            )}
-            {authors.length > 1 && (
-              <HeroRow label="Who">
-                <FilterChips label="Filter by author">
-                  {authors.map(([name, count]) => (
-                    <FilterChip
-                      key={name}
-                      label={name}
-                      count={count}
-                      pressed={author === name}
-                      mark={<Avatar name={name} size="small" />}
-                      onToggle={() => setAuthor(author === name ? null : name)}
-                    />
-                  ))}
-                </FilterChips>
-              </HeroRow>
+            {(maps.length > 0 || authors.length > 1 || upkeep > 0) && (
+              <div className="activity-facets">
+                {maps.length > 0 && (
+                  <div className="activity-facet activity-where">
+                    <span className="activity-facet__label">Where</span>
+                    <div className="activity-where__body">
+                      <MapBar maps={maps} active={map} />
+                      <ul className="activity-legend" aria-label="Filter by Map">
+                        {maps.map(([name, n]) => (
+                          <li key={name}>
+                            <button
+                              type="button"
+                              className="activity-legend__item"
+                              aria-pressed={map === name}
+                              style={{ "--map": collectionVar(name || "(root)") } as CSSProperties}
+                              onClick={() => setMap(map === name ? null : name)}
+                            >
+                              <MapDot map={name} />
+                              <span>{mapTitles.get(name) ?? name}</span>
+                              <span className="activity-legend__count">{n}</span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+                {authors.length > 1 && (
+                  <div className="activity-facet activity-who">
+                    <span className="activity-facet__label">Who</span>
+                    <ul className="activity-people" aria-label="Filter by author">
+                      {authors.map(([name, n]) => {
+                        const label = `${name}: ${n} ${n === 1 ? "change" : "changes"}`;
+                        return (
+                          <li key={name}>
+                            <button
+                              type="button"
+                              className="activity-person"
+                              aria-pressed={author === name}
+                              aria-label={label}
+                              title={label}
+                              style={{ "--map": collectionVar(name) } as CSSProperties}
+                              onClick={() => setAuthor(author === name ? null : name)}
+                            >
+                              <Avatar name={name} />
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+                {upkeep > 0 && (
+                  <button
+                    type="button"
+                    className="activity-upkeep"
+                    aria-pressed={showUpkeep}
+                    onClick={() => setShowUpkeep((v) => !v)}
+                  >
+                    + {upkeep} touched by automatic maintenance · {showUpkeep ? "hide" : "show"}
+                  </button>
+                )}
+              </div>
             )}
           </Hero>
         )}
@@ -287,7 +277,7 @@ export function Activity({
         {error ? (
           <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
         ) : !data ? (
-          <SkeletonRows label="Reading the history" />
+          <ActivitySkeleton label="Reading the history" />
         ) : rows.length === 0 ? (
           <div className="timeline__empty">
             <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
@@ -322,7 +312,7 @@ export function Activity({
         {data?.truncated && (
           <p className="page-note">Showing the {all.length} most recent changes: narrow the window to see the rest.</p>
         )}
-        {journal !== null && (
+        {journal !== null && (data !== null || error !== null) && (
           <PageSection title="Journal" id="activity-journal">
             {journal.trim() === "" ? (
               <p className="page-note">
@@ -331,13 +321,15 @@ export function Activity({
               </p>
             ) : (
               <>
-                <p className="page-note">The last entries of the KB&apos;s log, written by agents with <code>log_append</code>.</p>
+                <p className="page-note">
+                  The last entries of the KB&apos;s log, written by agents with <code>log_append</code>.
+                </p>
                 <Markdown>{journal}</Markdown>
               </>
             )}
           </PageSection>
         )}
-        {audit !== null && <AuditSection audit={audit} />}
+        {audit !== null && (data !== null || error !== null) && <AuditSection audit={audit} />}
       </div>
     </Page>
   );
@@ -352,10 +344,14 @@ function AuditSection({ audit }: { audit: AuditLog }) {
       {!audit.enabled ? (
         <p className="page-note">This server keeps no audit log.</p>
       ) : entries.length === 0 ? (
-        <p className="page-note">Nothing recorded yet. The audit log lists every tool call: who made it, and how it ended.</p>
+        <p className="page-note">
+          Nothing recorded yet. The audit log lists every tool call: who made it, and how it ended.
+        </p>
       ) : (
         <>
-          <p className="page-note">The most recent tool calls on this KB, with the principal that made each one. Visible to admins only.</p>
+          <p className="page-note">
+            The most recent tool calls on this KB, with the principal that made each one. Visible to admins only.
+          </p>
           <ul className="rows">
             {entries.map((e, i) => (
               <li key={`${e.at}-${i}`} className="row audit__row">
@@ -397,7 +393,11 @@ function Entry({
   return (
     <li className="timeline__entry" style={{ "--map": collectionVar(mapOf(c)) } as CSSProperties}>
       <button type="button" className="timeline__item" onClick={() => onOpen(c.id)} disabled={c.change === "deleted"}>
-        <time className="timeline__time" dateTime={changedAt(c)} title={new Date(changedAt(c)).toLocaleString("en", { dateStyle: "medium", timeStyle: "medium" })}>
+        <time
+          className="timeline__time"
+          dateTime={changedAt(c)}
+          title={new Date(changedAt(c)).toLocaleString("en", { dateStyle: "medium", timeStyle: "medium" })}
+        >
           {clock(changedAt(c))}
         </time>
         <span className="timeline__track" aria-hidden="true">
@@ -453,24 +453,48 @@ function ChangePill({ change }: { change: string }) {
   );
 }
 
+/** One figure of the summary line: a bold number and its word. A zero fades;
+ *  the new concepts, when there are any, are the one good-news tone. */
+function Stat({ n, label, tone }: { n: number; label: string; tone?: "ok" }) {
+  return (
+    <li className="activity-stat" data-tone={n === 0 ? "muted" : tone}>
+      <strong>{n}</strong> {label}
+    </li>
+  );
+}
+
 type DayBar = { day: number; label: string; work: number; upkeep: number };
 
 /**
- * Concepts last touched per day, as a bar per day placed by real time -- the
- * look of the growth replay's timeline. A bar's lower part is the reader's
- * changes, its upper part the server's upkeep; heights follow the square root
- * of the count, so a quiet day still shows beside a busy one. Every bar is a
- * labelled hit target, so the numbers reach a keyboard and a screen reader.
+ * Concepts last touched per day (per week or month over a long window), as a
+ * bar per stretch placed by real time -- the look of the growth replay's
+ * timeline. The bar is the reader's changes, scaled on their own peak with
+ * the square root, so a quiet day still shows beside a busy one; the server's
+ * upkeep is a faint tick under the baseline, so a maintenance sweep never
+ * dwarfs the work. Bars widen when there are few. Every bar is a labelled hit
+ * target, so the numbers reach a keyboard and a screen reader. The caption
+ * beside the track reads the hovered bar (the latest, at rest) and keeps a
+ * fixed width, so it never moves the bars under the pointer.
  */
 function ActivityBars({ bars }: { bars: DayBar[] }) {
   const [hover, setHover] = useState<number | null>(null);
-  const peak = Math.max(1, ...bars.map((b) => b.work + b.upkeep));
-  const height = (n: number) => (n === 0 ? 0 : Math.max(8, Math.sqrt(n / peak) * 100));
+  const peak = Math.max(1, ...bars.map((b) => b.work));
+  const upPeak = Math.max(1, ...bars.map((b) => b.upkeep));
+  const height = (n: number) => (n === 0 ? 0 : Math.max(10, Math.sqrt(n / peak) * 100));
   const shown = bars[hover ?? bars.length - 1]!;
   const at = (i: number) => `${((i + 0.5) / bars.length) * 100}%`;
+  const width = Math.max(2, Math.min(10, Math.floor(300 / bars.length) - 2));
+  const daily = bars.length < 2 || bars[1]!.day - bars[0]!.day <= DAY_MS;
   return (
-    <figure className="activity-bars" onMouseLeave={() => setHover(null)}>
-      <ol className="activity-bars__track" aria-label="Changes per day">
+    <figure
+      className="activity-bars"
+      style={{ "--bar-w": `${width}px` } as CSSProperties}
+      onMouseLeave={() => setHover(null)}
+    >
+      <ol
+        className="activity-bars__track"
+        aria-label={`Changes per ${daily ? "day" : "stretch"}, ${bars[0]!.label} to today`}
+      >
         {bars.map((b, i) => (
           <li key={b.day} style={{ left: at(i) }}>
             <button
@@ -483,27 +507,20 @@ function ActivityBars({ bars }: { bars: DayBar[] }) {
               onBlur={() => setHover(null)}
               tabIndex={-1}
             >
-              <span className="activity-bars__bar" style={{ height: `${height(b.work + b.upkeep)}%` }}>
-                {b.upkeep > 0 && (
-                  <span
-                    className="activity-bars__upkeep"
-                    style={{
-                      height: `${(b.upkeep / (b.work + b.upkeep)) * 100}%`,
-                    }}
-                  />
-                )}
-              </span>
+              <span className="activity-bars__bar" style={{ height: `${height(b.work)}%` }} />
+              {b.upkeep > 0 && (
+                <span
+                  className="activity-bars__upkeep"
+                  style={{ opacity: 0.25 + 0.6 * Math.sqrt(b.upkeep / upPeak) }}
+                />
+              )}
             </button>
           </li>
         ))}
       </ol>
-      <figcaption className="activity-bars__axis">
-        <span aria-hidden="true">{bars[0]!.label}</span>
-        <span className="activity-bars__caption" aria-live="polite">
-          {hover === null ? "today" : shown.label} · <strong>{shown.work}</strong> changed
-          {shown.upkeep > 0 && <> · {shown.upkeep} maintenance</>}
-        </span>
-        <span aria-hidden="true">today</span>
+      <figcaption className="activity-bars__caption" aria-live="polite" title={`${bars[0]!.label} – today`}>
+        {hover === null ? (daily ? "today" : "latest") : shown.label} · <strong>{shown.work}</strong> changed
+        {shown.upkeep > 0 && <> · {shown.upkeep} maintenance</>}
       </figcaption>
     </figure>
   );
@@ -594,7 +611,28 @@ function perDay(rows: ConceptChange[], kinds: Map<ConceptChange, ChangeKind>, da
     if (kinds.get(c) === "maintenance") bars[i]!.upkeep++;
     else bars[i]!.work++;
   }
-  return bars;
+  return bucket(bars);
+}
+
+/** Past six weeks a bar per day is a comb too thin to read: the days are
+ *  summed into weeks, past a year into 30-day stretches, the last one ending
+ *  today. A bar then says its range. */
+function bucket(days: DayBar[]): DayBar[] {
+  const step = days.length <= 45 ? 1 : days.length <= 400 ? 7 : 30;
+  if (step === 1) return days;
+  const out: DayBar[] = [];
+  for (let end = days.length; end > 0; end -= step) {
+    const part = days.slice(Math.max(0, end - step), end);
+    const first = part[0]!;
+    const last = part[part.length - 1]!;
+    out.unshift({
+      day: first.day,
+      label: part.length === 1 ? first.label : `${first.label} – ${last.label}`,
+      work: part.reduce((n, d) => n + d.work, 0),
+      upkeep: part.reduce((n, d) => n + d.upkeep, 0),
+    });
+  }
+  return out;
 }
 
 function when(since: Window): string {
@@ -620,7 +658,7 @@ function Headline({
   author: string | null;
   mapTitle: string | null | undefined;
 }) {
-  if (!data) return <>{failed ? "History unavailable" : "Reading the history…"}</>;
+  if (!data) return <>{failed ? "History unavailable" : <TitleBone label="Reading the history" />}</>;
   const who = author ? ` by ${author}` : "";
   const where = mapTitle ? ` in ${mapTitle}` : "";
   if (n === 0) return <>{`Nothing edited${where}${who} ${when(since)}.`}</>;

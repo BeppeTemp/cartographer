@@ -6,15 +6,13 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 // The log AppendLog writes is data/log.md: a line of an earlier move names the
 // skill, and is history, not a reference that a move leaves dangling.
 func TestArtifactMove_ReferencesIgnoreTheLogOfTheDataLayout(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	amWriteBytes(t, f.a, "skills/s/SKILL.md", []byte("---\nname: s\ndescription: A skill\n---\nbody\n"), 0o644)
 	if err := f.a.AppendLog("artifact_move (1 artifact(s) from kb-b):\n- kb-b:skills/s → skills/s", time.Now()); err != nil {
 		t.Fatal(err)
@@ -37,7 +35,7 @@ func TestArtifactMove_ReferencesIgnoreTheLogOfTheDataLayout(t *testing.T) {
 // whatever the filesystem the server runs on.
 func TestArtifactMove_RefusesATargetNameThatDiffersOnlyByCase(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	hook := []byte(`{"event":"SessionStart","command":"./run.sh"}`)
 	amWriteBytes(t, f.a, "hooks/guard/hook.json", hook, 0o644)
 	amWriteBytes(t, f.a, "hooks/guard/run.sh", []byte("#!/bin/sh\n"), 0o755)
@@ -60,7 +58,7 @@ func TestArtifactMove_RefusesATargetNameThatDiffersOnlyByCase(t *testing.T) {
 // A single-file artifact is the other shape of the same slot.
 func TestArtifactMove_RefusesAFileNameThatDiffersOnlyByCase(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	body := []byte("---\nname: helper\ndescription: Helps\n---\nbody\n")
 	amWriteBytes(t, f.a, "agents/helper.md", body, 0o644)
 	amWriteBytes(t, f.b, "agents/Helper.md", []byte("---\nname: Helper\ndescription: Helps\n---\nbody\n"), 0o644)
@@ -78,7 +76,7 @@ func TestArtifactMove_RefusesAFileNameThatDiffersOnlyByCase(t *testing.T) {
 // KB with no hooks/ still works.
 func TestArtifactMove_NoTwinWhenTheParentIsMissing(t *testing.T) {
 	t.Parallel()
-	f := newArtifactMoveFixture(t)
+	f := newTransferFixture(t)
 	if err := os.RemoveAll(filepath.Join(f.b.Root, "hooks")); err != nil {
 		t.Fatal(err)
 	}
@@ -87,36 +85,6 @@ func TestArtifactMove_NoTwinWhenTheParentIsMissing(t *testing.T) {
 	xferCommit(t, f.a)
 	if res := f.move(t, `{"target_kb":"kb-b","paths":["hooks/guard"]}`); res.IsError {
 		t.Fatalf("artifact_move: %s", xferText(res))
-	}
-	xferClean(t, f.a)
-	xferClean(t, f.b)
-}
-
-// templates/ needs only the template right (allow_template_write), and the
-// description the agent reads must say so rather than demand the full right.
-func TestArtifactMove_DescriptionStatesTheTemplateRight(t *testing.T) {
-	t.Parallel()
-	f := newArtifactMoveFixture(t)
-	desc := f.srvA.Tools()["artifact_move"].Description
-	if !strings.Contains(desc, "allow_artifact_write") || !strings.Contains(desc, "allow_template_write") || !strings.Contains(desc, "templates/") {
-		t.Errorf("the description does not state both rights: %q", desc)
-	}
-}
-
-func TestArtifactMove_TemplatesNeedOnlyTheTemplateRight(t *testing.T) {
-	t.Parallel()
-	f := newArtifactMoveFixture(t)
-	for _, k := range []*kb.KB{f.a, f.b} {
-		setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite, p.AllowTemplateWrite = false, true })
-	}
-	amWriteBytes(t, f.a, "templates/note.md", []byte("---\ntype: Note\ntitle: \"{{title}}\"\nvariables: [title]\n---\n{{title}}\n"), 0o644)
-	amWriteBytes(t, f.a, "agents/helper.md", []byte("---\nname: helper\ndescription: Helps\n---\nbody\n"), 0o644)
-	xferCommit(t, f.a)
-	if res := f.move(t, `{"target_kb":"kb-b","paths":["agents/helper.md"]}`); !res.IsError {
-		t.Errorf("an agent needs the full right, got %s", xferText(res))
-	}
-	if res := f.move(t, `{"target_kb":"kb-b","paths":["templates/note.md"]}`); res.IsError {
-		t.Errorf("a template needs the template right only: %s", xferText(res))
 	}
 	xferClean(t, f.a)
 	xferClean(t, f.b)

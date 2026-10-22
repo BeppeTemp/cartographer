@@ -3,7 +3,6 @@ package lint
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,8 +32,8 @@ func TestLint_SkillInvalid(t *testing.T) {
 	paths := map[string]bool{}
 	for _, f := range got {
 		paths[f.Path] = true
-		if f.Severity != SevWarning || !f.Artifact {
-			t.Errorf("%s: severity %s artifact %v", f.Path, f.Severity, f.Artifact)
+		if !f.Artifact {
+			t.Errorf("%s: artifact %v", f.Path, f.Artifact)
 		}
 	}
 	if !paths["skills/mismatch/SKILL.md"] || !paths["skills/empty"] {
@@ -50,7 +49,7 @@ func TestLint_SkillWarning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := findingsOf(findings, "skill_warning"); len(got) != 1 || got[0].Severity != SevInfo {
+	if got := findingsOf(findings, "skill_warning"); len(got) != 1 {
 		t.Fatalf("want 1 info skill_warning, got %v", got)
 	}
 }
@@ -64,7 +63,7 @@ func TestLint_SkillNotInScopedRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range findings {
-		if artifactChecks[f.Check] {
+		if spec, ok := Spec(f.Check); ok && spec.Level == LevelArtifact {
 			t.Errorf("a scoped lint must not report artifact findings: %v", f)
 		}
 	}
@@ -213,6 +212,55 @@ func TestLint_JunkFile(t *testing.T) {
 	}
 }
 
+func TestLint_SymlinkedPath(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "f.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, k.Root, "data/ops/real.md", "---\ntype: Note\ntitle: R\n---\n# R\n")
+	writeFile(t, k.Root, "data/ops/dossier/index.md", "---\ntype: Note\ntitle: D\n---\n# D\n")
+
+	clean, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(clean, "symlinked_path"); len(got) != 0 {
+		t.Fatalf("clean KB: want none, got %v", got)
+	}
+
+	links := map[string]string{
+		"data/linkedmap":           outside,
+		"data/ops/linked.md":       filepath.Join(outside, "f.md"),
+		"data/ops/dossier/lnk.csv": filepath.Join(outside, "f.md"),
+	}
+	for rel, target := range links {
+		if err := os.Symlink(target, filepath.Join(k.Root, rel)); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+	}
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(findings, "symlinked_path"); len(got) != 3 {
+		t.Fatalf("want 3 symlinked_path, got %v", got)
+	}
+	for rel := range links {
+		if !hasCheck(findings, rel, "symlinked_path") {
+			t.Errorf("want symlinked_path on %s", rel)
+		}
+	}
+	scoped, err := Run(k, "ops", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(scoped, "symlinked_path"); len(got) != 0 {
+		t.Errorf("a scoped lint does not report it: %v", got)
+	}
+}
+
 func TestLint_JunkIgnoredByDataGitignore(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
@@ -232,39 +280,16 @@ func TestLint_SkillGitCommand(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.Root, "skills/committer/SKILL.md", skillMD("committer", "c", "Then `git commit -m \"save\"`.\n"))
 	writeFile(t, k.Root, "skills/cloner/SKILL.md", skillMD("cloner", "c", "```\ngit clone <url>\ngit status\n```\n"))
+	// The step that names another repository is how the finding closes, now
+	// that nothing accepts it (D907).
+	writeFile(t, k.Root, "skills/deployer/SKILL.md", skillMD("deployer", "d", "```\ngit -C /srv/app pull\n```\n"))
 	findings, err := Run(k, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := findingsOf(findings, "skill_git_command")
-	if len(got) != 1 || got[0].Path != "skills/committer/SKILL.md" || got[0].Severity != SevInfo || !strings.Contains(got[0].Message, "git commit") {
+	if len(got) != 1 || got[0].Path != "skills/committer/SKILL.md" || !strings.Contains(got[0].Message, "git commit") || !strings.Contains(got[0].Message, "git -C <that repository> commit") {
 		t.Fatalf("want 1 skill_git_command on committer, got %v", got)
-	}
-}
-
-// D332: instructions.md lint_accept accepts an artifact finding by path; a
-// directory key covers the files under it, and a name that cannot be accepted
-// or matches nothing is reported.
-func TestLint_LintAccept(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.Root, "skills/committer/SKILL.md", skillMD("committer", "c", "Then `git commit -m \"save\"`.\n"))
-	writeFile(t, k.Root, "skills/pusher/SKILL.md", skillMD("pusher", "c", "Then `git push`.\n"))
-	writeFile(t, k.Root, "skills/other/SKILL.md", skillMD("other", "c", "Then `git pull`.\n"))
-	writeFile(t, k.Root, "instructions.md", "---\nlint_accept:\n  \"skills/committer/SKILL.md\": [skill_git_command]  # a code repo, not the KB\n  skills/pusher/: skill_git_command\n  skills/other/SKILL.md: [junk_file, artifact_unused]\n---\n# I\n")
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := findingsOf(findings, "skill_git_command")
-	if len(got) != 1 || got[0].Path != "skills/other/SKILL.md" {
-		t.Fatalf("want only other's skill_git_command left, got %v", got)
-	}
-	inv := findingsOf(findings, "lint_ignore_invalid")
-	if len(inv) != 2 || inv[0].Path != "instructions.md" ||
-		!strings.Contains(inv[0].Message, `"artifact_unused"`) || !strings.Contains(inv[0].Message, "stale") ||
-		!strings.Contains(inv[1].Message, `"junk_file"`) || !strings.Contains(inv[1].Message, "cannot accept") {
-		t.Fatalf("lint_ignore_invalid = %v", inv)
 	}
 }
 
@@ -286,12 +311,6 @@ func TestLint_SopsFormatMismatch(t *testing.T) {
 	}
 	if !hasCheck(findings, "skills/vault/SKILL.md", "sops_format_mismatch") {
 		t.Errorf("want sops_format_mismatch on the skill: %v", findingsOf(findings, "sops_format_mismatch"))
-	}
-	// Dismissible on the concept that shows the wrong way on purpose.
-	writeFile(t, k.Root, "data/ops/bad.md", "---\ntype: Note\ntitle: B\nlint_ignore: [sops_format_mismatch]\n---\n# B\n\n`sops decrypt secrets/db.sops.yaml | jq .password`\n")
-	findings, _ = Run(k, "", false)
-	if hasCheck(findings, "ops/bad.md", "sops_format_mismatch") {
-		t.Error("lint_ignore must suppress sops_format_mismatch")
 	}
 }
 
@@ -377,7 +396,7 @@ func TestLint_SkillMissingPerimeter(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := findingsOf(findings, "skill_missing_perimeter")
-	if len(got) != 1 || got[0].Path != "skills/build/SKILL.md" || got[0].Severity != SevInfo {
+	if len(got) != 1 || got[0].Path != "skills/build/SKILL.md" {
 		t.Fatalf("want 1 skill_missing_perimeter on build, got %v", got)
 	}
 }
@@ -444,166 +463,28 @@ func TestParseLegacyPaths_LongestFirst(t *testing.T) {
 	}
 }
 
-func TestLint_ArtifactCheckNotConceptIgnorable(t *testing.T) {
-	t.Parallel()
-	k := tempKB(t)
-	writeFile(t, k.Root, "data/ops/a.md", "---\ntype: Note\ntitle: A\nlint_ignore: [skill_invalid]\n---\n# A\n")
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !hasCheck(findings, "ops/a.md", "lint_ignore_invalid") {
-		t.Error("lint_ignore naming an artifact check must be reported as invalid")
-	}
-}
-
-// usageKB is a KB with one skill ("ops-tool") and one agent ("helper").
-func usageKB(t *testing.T) *kb.KB {
-	t.Helper()
-	k := tempKB(t)
-	writeFile(t, k.Root, "skills/ops-tool/SKILL.md", skillMD("ops-tool", "Ops things", "# Ops\n"))
-	writeFile(t, k.Root, "agents/helper.md", "---\nname: helper\ndescription: Helps\n---\nHelp.\n")
-	return k
-}
-
-func unusedFindings(t *testing.T, k *kb.KB, usage map[string]kb.UsageSummary, staleDays int) []Finding {
-	t.Helper()
-	findings, err := RunWithOptions(k, "", false, Options{Usage: usage, UsageStaleDays: staleDays})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return findingsOf(findings, "artifact_unused")
-}
-
 func agoDays(d int) time.Time { return time.Now().Add(-time.Duration(d) * 24 * time.Hour) }
 
-func TestLint_ArtifactUnused_NeverUsed(t *testing.T) {
+// UsageState is the one classifier of a skill's or agent's usage: kb_status
+// counts by it and the Artifacts panel shows it. artifact_unused is gone as a
+// finding (D947): a usage signal ages with no page state to fix.
+func TestUsageState(t *testing.T) {
 	t.Parallel()
-	k := usageKB(t)
-	// Data exists (the agent was used), the skill is absent from it.
-	got := unusedFindings(t, k, map[string]kb.UsageSummary{
-		kb.UsageKey("agent", "helper"): {LastUsed: agoDays(1), Provider: "claude", Count: 3},
-	}, 42)
-	if len(got) != 1 || got[0].Path != "skills/ops-tool/SKILL.md" || got[0].Severity != SevInfo || !got[0].Artifact ||
-		!strings.Contains(got[0].Message, "has never been activated") {
-		t.Fatalf("got %v", got)
-	}
-}
-
-func TestLint_ArtifactUnused_Stale(t *testing.T) {
-	t.Parallel()
-	k := usageKB(t)
-	got := unusedFindings(t, k, map[string]kb.UsageSummary{
-		kb.UsageKey("skill", "ops-tool"): {LastUsed: agoDays(50), Provider: "claude", Count: 4},
-		kb.UsageKey("agent", "helper"):   {LastUsed: agoDays(1), Provider: "claude", Count: 1},
-	}, 42)
-	if len(got) != 1 || !strings.Contains(got[0].Message, "last activated 50 days ago (by claude)") {
-		t.Fatalf("got %v", got)
-	}
-}
-
-func TestLint_ArtifactUnused_Recent(t *testing.T) {
-	t.Parallel()
-	k := usageKB(t)
-	got := unusedFindings(t, k, map[string]kb.UsageSummary{
-		kb.UsageKey("skill", "ops-tool"): {LastUsed: agoDays(5), Provider: "claude", Count: 1},
-		kb.UsageKey("agent", "helper"):   {LastUsed: agoDays(5), Provider: "kiro", Count: 1},
-	}, 42)
-	if len(got) != 0 {
-		t.Fatalf("got %v", got)
-	}
-}
-
-func TestLint_ArtifactUnused_NoUsageData(t *testing.T) {
-	t.Parallel()
-	k := usageKB(t)
-	if got := unusedFindings(t, k, nil, 42); len(got) != 0 {
-		t.Fatalf("no data must stay silent, got %v", got)
-	}
-	// Run itself, on a KB nothing reported to, is silent too.
-	setPolicy(k, func(p *kb.Policy) { p.UsageStaleDays = 42 })
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := findingsOf(findings, "artifact_unused"); len(got) != 0 {
-		t.Fatalf("got %v", got)
-	}
-}
-
-func TestLint_ArtifactUnused_CatalogOnlyIsNotUse(t *testing.T) {
-	t.Parallel()
-	k := usageKB(t)
-	got := unusedFindings(t, k, map[string]kb.UsageSummary{
-		kb.UsageKey("skill", "ops-tool"): {LastUsed: agoDays(1), Provider: "codex", Count: 0},
-		kb.UsageKey("agent", "helper"):   {LastUsed: agoDays(1), Provider: "claude", Count: 1},
-	}, 42)
-	if len(got) != 1 || !strings.Contains(got[0].Message, "never been seen activated") || !strings.Contains(got[0].Message, "catalogue 1 days ago (codex)") {
-		t.Fatalf("got %v", got)
-	}
-}
-
-func TestLint_ArtifactUnused_CustomThreshold(t *testing.T) {
-	t.Parallel()
-	k := usageKB(t)
-	usage := map[string]kb.UsageSummary{
-		kb.UsageKey("skill", "ops-tool"): {LastUsed: agoDays(20), Provider: "claude", Count: 1},
-		kb.UsageKey("agent", "helper"):   {LastUsed: agoDays(20), Provider: "claude", Count: 1},
-	}
-	if got := unusedFindings(t, k, usage, 14); len(got) != 2 {
-		t.Fatalf("threshold 14: got %v", got)
-	}
-	if got := unusedFindings(t, k, usage, 0); len(got) != 0 {
-		t.Fatalf("threshold 0 disables the check, got %v", got)
-	}
-}
-
-// Run reads the store the server wrote (D326): the whole chain from
-// usage.json to a finding, with the threshold taken from the KB.
-func TestLint_ArtifactUnused_ReadsTheKBStore(t *testing.T) {
-	t.Parallel()
-	k := usageKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.UsageStaleDays = 42 })
-	if _, err := k.MergeUsage([]kb.UsageEntry{
-		{Name: "ops-tool", Kind: "skill", Provider: "claude", LastUsed: agoDays(60), Count: 2},
-		{Name: "helper", Kind: "agent", Provider: "claude", LastUsed: agoDays(2), Count: 2},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	findings, err := Run(k, "", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := findingsOf(findings, "artifact_unused"); len(got) != 1 || got[0].Path != "skills/ops-tool/SKILL.md" {
-		t.Fatalf("got %v", got)
-	}
-}
-
-// D336: an artifact added inside the threshold is not reported as never used
-// — it has not had the time to be — while one added before it still is.
-func TestLint_ArtifactUnused_NewArtifactHasGrace(t *testing.T) {
-	t.Parallel()
-	k := usageKB(t)
-	git := func(date string, args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = k.Root
-		cmd.Env = append(os.Environ(), "GIT_AUTHOR_DATE="+date, "GIT_COMMITTER_DATE="+date,
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
+	now := time.Now()
+	for _, tc := range []struct {
+		name string
+		u    kb.UsageSummary
+		seen bool
+		want string
+	}{
+		{"absent", kb.UsageSummary{}, false, UsageNever},
+		{"zero time", kb.UsageSummary{Count: 3}, true, UsageNever},
+		{"catalogue only", kb.UsageSummary{LastUsed: agoDays(1), Count: 0, Provider: "codex"}, true, UsageCatalog},
+		{"stale", kb.UsageSummary{LastUsed: agoDays(50), Count: 4, Provider: "claude"}, true, UsageStale},
+		{"active", kb.UsageSummary{LastUsed: agoDays(5), Count: 1, Provider: "claude"}, true, UsageActive},
+	} {
+		if got := UsageState(tc.u, tc.seen, 42, now); got != tc.want {
+			t.Errorf("%s: UsageState = %q, want %q", tc.name, got, tc.want)
 		}
-	}
-	git("", "init", "-q")
-	git(agoDays(100).Format(time.RFC3339), "add", "skills")
-	git(agoDays(100).Format(time.RFC3339), "commit", "-qm", "old skill")
-	git(agoDays(3).Format(time.RFC3339), "add", "-A")
-	git(agoDays(3).Format(time.RFC3339), "commit", "-qm", "new agent")
-	// Some data exists, about neither artifact.
-	got := unusedFindings(t, k, map[string]kb.UsageSummary{
-		kb.UsageKey("skill", "other"): {LastUsed: agoDays(1), Provider: "claude", Count: 1},
-	}, 42)
-	if len(got) != 1 || got[0].Path != "skills/ops-tool/SKILL.md" {
-		t.Fatalf("only the skill added 100 days ago is reported, got %v", got)
 	}
 }

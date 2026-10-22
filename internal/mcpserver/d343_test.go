@@ -90,11 +90,10 @@ func TestMapListExposesFieldValues(t *testing.T) {
 	k.AuthName = "docs"
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
-	callOK(t, s, "map_create", `{"name":"fv-map","title":"FV","field_values":{"tags":["a","b"]},"field_values_by_type":{"Incident":{"tags":["c"]}}}`)
+	callOK(t, s, "map_create", `{"name":"fv-map","title":"FV","field_values":{"*":{"tags":["a","b"]},"Incident":{"tags":["c"]}}}`)
 	var infos []struct {
-		Name              string                         `json:"name"`
-		FieldValues       map[string][]string            `json:"field_values"`
-		FieldValuesByType map[string]map[string][]string `json:"field_values_by_type"`
+		Name        string                         `json:"name"`
+		FieldValues map[string]map[string][]string `json:"field_values"`
 	}
 	if err := json.Unmarshal([]byte(callOK(t, s, "map_list", `{}`)), &infos); err != nil {
 		t.Fatal(err)
@@ -104,12 +103,12 @@ func TestMapListExposesFieldValues(t *testing.T) {
 		switch i.Name {
 		case "fv-map":
 			seen++
-			if strings.Join(i.FieldValues["tags"], ",") != "a,b" || strings.Join(i.FieldValuesByType["Incident"]["tags"], ",") != "c" {
+			if strings.Join(i.FieldValues["*"]["tags"], ",") != "a,b" || strings.Join(i.FieldValues["Incident"]["tags"], ",") != "c" {
 				t.Errorf("fv-map vocabularies: %+v", i)
 			}
 		case "manutenzione":
 			seen++
-			if i.FieldValues != nil || i.FieldValuesByType != nil {
+			if i.FieldValues != nil {
 				t.Errorf("map without contract carries vocabularies: %+v", i)
 			}
 		}

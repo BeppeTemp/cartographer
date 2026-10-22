@@ -163,6 +163,7 @@ func TestConceptWriteSimilarOnCreation(t *testing.T) {
 	k := setupTestKB(t)
 	writeKBFile(t, k, "manutenzione/restore-backup.md", "---\ntype: Runbook\ntitle: Restore backup procedure\n---\n# R\n\nSteps to restore a backup.\n")
 	writeKBFile(t, k, "manutenzione/backup-schedule.md", "---\ntype: Runbook\ntitle: Backup schedule\n---\n# S\n\nWhen backups run.\n")
+	forwardLinks(t, k, "manutenzione/backup-restore", "manutenzione/backup-encryption-keys")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 
@@ -188,6 +189,7 @@ func TestConceptNewSimilarOnCreation(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
 	writeKBFile(t, k, "manutenzione/restore-backup.md", "---\ntype: Runbook\ntitle: Restore backup procedure\n---\n# R\n")
+	forwardLinks(t, k, "manutenzione/backup-restore")
 	tpl := filepath.Join(k.Root, "templates", "runbook.md")
 	if err := os.MkdirAll(filepath.Dir(tpl), 0o755); err != nil {
 		t.Fatal(err)
@@ -231,6 +233,7 @@ func TestConceptWriteSimilarSkipsSeriesPages(t *testing.T) {
 	k := setupTestKB(t)
 	writeKBFile(t, k, "manutenzione/archive-2026-q2.md", "---\ntype: Runbook\ntitle: Archived incidents — 2026 Q2\n---\n# A\n")
 	writeKBFile(t, k, "manutenzione/restore-backup.md", "---\ntype: Runbook\ntitle: Restore backup procedure\n---\n# R\n")
+	forwardLinks(t, k, "manutenzione/archive-2026-q3", "manutenzione/backup-restore")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	write := func(id, title string) similarOut {

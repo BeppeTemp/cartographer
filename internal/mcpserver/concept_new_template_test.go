@@ -34,11 +34,16 @@ func conceptNewTemplateKB(t *testing.T, templates map[string]string) (*Server, *
 		}
 		slugs = append(slugs, slug)
 	}
-	if err := k.CreateMapWithContract("notes", "Notes", "map", nil, "", kb.MapContract{Templates: slugs, RequireTemplate: true}); err != nil {
+	if err := k.CreateMapWithContract("notes", "Notes", "map", nil, kb.MapContract{Templates: slugs}); err != nil {
 		t.Fatal(err)
 	}
+	forwardLinks(t, k, "notes/x", "notes/y", "notes/a", "notes/b", "notes/c", "notes/outside", "notes/no-section", "notes/several")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
+	// A generated index lists the new page itself (D907).
+	if res := callTool(t, s, "map_update", `{"map":"notes","index":"generated"}`); res.IsError {
+		t.Fatalf("map_update: %+v", res.Content)
+	}
 	return s, k
 }
 

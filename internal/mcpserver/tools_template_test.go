@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/BeppeTemp/cartographer/internal/kb"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +17,6 @@ const testTemplate = "---\ntype: Runbook\ntitle: {{title}}\ntags: [{{tag}}, stab
 func TestTemplateArtifactLifecycleAndList(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	call := func(name string, args map[string]any) ToolResult {
@@ -64,7 +62,6 @@ func TestTemplateArtifactLifecycleAndList(t *testing.T) {
 func TestTemplateArtifactRejectsInvalidSyntax(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	setPolicy(k, func(p *kb.Policy) { p.AllowArtifactWrite = true })
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	for name, content := range map[string]string{
@@ -97,12 +94,15 @@ func TestConceptNewRendersLiterallyAndUpdatesIndex(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(k.Root, "templates", "runbook.md"), []byte(testTemplate), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	forwardLinks(t, k, "notes/rendered", "notes/static")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	call := func(name string, args map[string]any) ToolResult {
 		return decodeToolResult(t, runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, name, args)})[1])
 	}
 	value := "cash $5 {{not_reparsed}}: yes\nnew_key: no"
+	// The write syncs the H1 to the title (title_h1_mismatch), so the page's
+	// one section is named like its title.
 	tr := call("concept_new", map[string]any{"template": "runbook", "id": "notes/rendered", "vars": map[string]string{"title": "A: title\nnot_a_key", "tag": "a,b", "value": value}})
 	if tr.IsError {
 		t.Fatalf("concept_new: %+v", tr.Content)
@@ -130,7 +130,7 @@ func TestConceptNewRendersLiterallyAndUpdatesIndex(t *testing.T) {
 	if tr = call("search", map[string]any{"query": "cash"}); tr.IsError || !containsText(tr, "notes/rendered") {
 		t.Fatalf("immediate search: %+v", tr.Content)
 	}
-	if tr = call("concept_read", map[string]any{"id": "notes/rendered", "section": "Procedure"}); tr.IsError || !containsText(tr, "cash") {
+	if tr = call("concept_read", map[string]any{"id": "notes/rendered", "section": "A: title not_a_key"}); tr.IsError || !containsText(tr, "cash") {
 		t.Fatalf("section read: %+v", tr.Content)
 	}
 	if tr = call("concept_new", map[string]any{"template": "runbook", "id": "notes/rendered", "vars": map[string]string{"title": "x", "tag": "x", "value": "x"}}); !tr.IsError || !containsText(tr, "concept_write") {
@@ -230,6 +230,7 @@ func TestConceptNewListVars(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	forwardLinks(t, k, "n/whole", "n/flow", "n/block", "n/empty-whole", "n/empty-flow", "n/string")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	call := func(args map[string]any) ToolResult {

@@ -59,7 +59,7 @@ func TestOpenAuditLogGeneratesTheKeyAndSigns(t *testing.T) {
 	if err != nil || generated {
 		t.Fatalf("second load: generated=%v err=%v, want the key already there", generated, err)
 	}
-	sum, err := audit.VerifyAudit(cfg.AuditLogPath(), "", kp.Public)
+	sum, err := audit.VerifyAudit(cfg.AuditLogPath(), "", kp.Public, audit.VerifyOptions{})
 	if err != nil || sum.Valid != 1 || sum.Unsigned != 0 {
 		t.Errorf("verify = %+v, %v; want one signed entry", sum, err)
 	}
@@ -103,7 +103,7 @@ func TestOpenAuditLogWithoutAWritableCredentialsDir(t *testing.T) {
 			if err := l.Close(); err != nil {
 				t.Fatal(err)
 			}
-			if sum, err := audit.VerifyAudit(cfg.AuditLogPath(), "", nil); err != nil || sum.Unsigned != 1 {
+			if sum, err := audit.VerifyAudit(cfg.AuditLogPath(), "", nil, audit.VerifyOptions{}); err != nil || sum.Unsigned != 1 {
 				t.Errorf("verify = %+v, %v; want one unsigned entry", sum, err)
 			}
 			if out := logs.String(); !strings.Contains(out, "NOT signed") || !strings.Contains(out, keyPath) {

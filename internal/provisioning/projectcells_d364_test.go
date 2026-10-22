@@ -44,14 +44,14 @@ func TestApplyAndPrune_AntigravityProjectScope(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(kbRoot, "agents", "reviewer.md"), []byte("---\nname: reviewer\ndescription: Reviews\n---\nBody.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, mcpAllow("docs", "https://example.com/mcp"))
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	baseDir := t.TempDir()
 	mcp := findMCPArtifact(t, m, "docs")
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		KBRoots:     map[string]string{"kb": kbRoot},
 		ApprovedMCP: map[string]string{mcp.Source + "\x00docs": mcp.ContentHash},
 		Provider:    configurator.ProviderAntigravity, BaseDir: baseDir, Scope: provisioning.ScopeProject,
 		Lock: provisioning.Lock{},
@@ -109,7 +109,7 @@ func TestAntigravityProjectHooksFileKeepsTheUsersEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-		AutoTrust: true, KBRoots: map[string]string{"kb": kbRoot},
+		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Scope: provisioning.ScopeProject, Lock: provisioning.Lock{},
 	})
 	if err != nil {
@@ -134,7 +134,7 @@ func TestApply_CoOwnedSkillSurvivesTheOtherProvidersPrune(t *testing.T) {
 	var lf provisioning.LockFile
 	for _, p := range []configurator.Provider{configurator.ProviderCodex, configurator.ProviderAntigravity} {
 		res, err := provisioning.Apply(m, provisioning.ApplyOptions{
-			AutoTrust: true, Provider: p, BaseDir: ws, Scope: provisioning.ScopeProject, Lock: provisioning.Lock{},
+			Provider: p, BaseDir: ws, Scope: provisioning.ScopeProject, Lock: provisioning.Lock{},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -150,7 +150,7 @@ func TestApply_CoOwnedSkillSurvivesTheOtherProvidersPrune(t *testing.T) {
 	}
 	// The skill leaves the KB: codex's sync would prune it.
 	if _, err := provisioning.Apply(provisioning.Manifest{}, provisioning.ApplyOptions{
-		AutoTrust: true, Provider: configurator.ProviderCodex, BaseDir: ws, Scope: provisioning.ScopeProject,
+		Provider: configurator.ProviderCodex, BaseDir: ws, Scope: provisioning.ScopeProject,
 		Lock: lf.ForProjection(codex), CoOwnedPaths: co,
 	}); err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestApply_CoOwnedSkillSurvivesTheOtherProvidersPrune(t *testing.T) {
 	}
 	// Control: with nobody else recording it, the same prune removes it.
 	if _, err := provisioning.Apply(provisioning.Manifest{}, provisioning.ApplyOptions{
-		AutoTrust: true, Provider: configurator.ProviderCodex, BaseDir: ws, Scope: provisioning.ScopeProject,
+		Provider: configurator.ProviderCodex, BaseDir: ws, Scope: provisioning.ScopeProject,
 		Lock: lf.ForProjection(codex),
 	}); err != nil {
 		t.Fatal(err)

@@ -184,16 +184,27 @@ func (c *Config) Settings(kbNames []string) View {
 		}
 		fields := kbFields(spec)
 		section := KBEntries{Name: name, Entries: []Entry{}}
-		for _, k := range Schema.Keys {
-			key, ok := strings.CutPrefix(k.Path, "kbs[].")
-			if !ok {
-				continue
-			}
+		add := func(k settingschema.Key, key string) {
 			val, set := fields[key]
 			if !set {
 				val = k.Default
 			}
 			section.Entries = append(section.Entries, c.entry(k, KBOriginKey(name, key), val, set))
+		}
+		// The machine's side of the KB (remote, name), then the KB's own keys,
+		// which the view keeps in the "kbs[]." form (D746).
+		for _, k := range Schema.Keys {
+			if key, ok := strings.CutPrefix(k.Path, "kbs[]."); ok {
+				add(k, key)
+			}
+		}
+		for _, k := range KBKeys {
+			key := k.Path
+			if key == "branch" {
+				continue // not in the view before D906 either: it is the remote's to say
+			}
+			k.Path = "kbs[]." + key
+			add(k, key)
 		}
 		v.KBs = append(v.KBs, section)
 	}
@@ -231,8 +242,6 @@ func (c *Config) serverValue(path string) (any, bool) {
 	switch path {
 	case "http":
 		return str(c.HTTP)
-	case "init":
-		return c.Init, c.Init
 	case "data":
 		return str(c.Data)
 	case "credentials_dir":
@@ -255,12 +264,10 @@ func (c *Config) serverValue(path string) (any, bool) {
 			names = append(names, s.MountName())
 		}
 		return names, len(names) > 0
-	case "kb_aliases":
-		pairs := []string{}
-		for _, a := range c.KBAliases {
-			pairs = append(pairs, a.From+" -> "+a.To)
-		}
-		return pairs, len(pairs) > 0
+	case "git.identity":
+		return str(c.GitIdentity)
+	case "git.identities":
+		return c.GitIdentities, len(c.GitIdentities) > 0
 	case "audit.log":
 		return str(c.Audit.Log)
 	case "audit.mode":
@@ -271,14 +278,6 @@ func (c *Config) serverValue(path string) (any, bool) {
 		return str(c.Audit.ArchiveDir)
 	case "audit.retention_days":
 		return c.Audit.RetentionDays, true
-	case "tools.profile":
-		return str(c.ToolsProfile)
-	case "mcp.allowed_origins":
-		o := c.MCP.AllowedOrigins
-		if o == nil {
-			o = []string{}
-		}
-		return o, len(o) > 0
 	case "web.enabled":
 		return c.Web.Enabled, true
 	}

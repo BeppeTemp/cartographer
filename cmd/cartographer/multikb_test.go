@@ -52,7 +52,7 @@ func TestEnumerateKBs_HealthShapes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			srv := multiKBServer(t, tc.health)
 			defer srv.Close()
-			facts, err := enumerateKBs(srv.URL+"/mcp", false, "")
+			facts, err := enumerateKBs(srv.URL+"/mcp", false, "", false)
 			if err != nil || facts.Listed != tc.present || strings.Join(facts.Names, ",") != strings.Join(tc.want, ",") {
 				t.Fatalf("enumerateKBs = (%v, %v, %v), want (%v, %v, nil)", facts.Names, facts.Listed, err, tc.want, tc.present)
 			}
@@ -67,7 +67,7 @@ func TestDoConnect_PerKBEntries_AllProviders(t *testing.T) {
 	providers := []string{"claude", "codex", "kiro", "opencode"}
 	// D190: a first multi-KB connect must name its KBs; "all" is the explicit
 	// way to say "every mounted one", which is what this case is about.
-	res, err := doConnect(connectOptions{Providers: providers, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true, KBs: []string{"all"}})
+	res, err := doConnect(connectOptions{Providers: providers, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}", KBs: []string{"all"}})
 	if err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
@@ -236,7 +236,7 @@ func TestDoConnect_Kiro_MultiKB_WarnsFlatNamespace(t *testing.T) {
 	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta"}]}`)
 	defer srv.Close()
 	dir := t.TempDir()
-	res, err := doConnect(connectOptions{Providers: []string{"kiro"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true, KBs: []string{"all"}})
+	res, err := doConnect(connectOptions{Providers: []string{"kiro"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}", KBs: []string{"all"}})
 	if err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestDoConnect_SingleKB_BareEntry_AllProviders(t *testing.T) {
 	defer srv.Close()
 	dir := t.TempDir()
 	providers := []string{"claude", "codex", "kiro", "opencode"}
-	res, err := doConnect(connectOptions{Providers: providers, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true})
+	res, err := doConnect(connectOptions{Providers: providers, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +313,7 @@ func TestCmdSync_ReconcilesOneToManyAndBack(t *testing.T) {
 	dir := t.TempDir()
 	setHome(t, dir)
 
-	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "wiki", TokenEnv: "TOKEN", Agents: []string{"claude"}, KnownKBs: []string{"alpha"}, Trust: true}
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "wiki", Token: "${TOKEN}", Agents: []string{"claude"}, KnownKBs: []string{"alpha"}}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +353,7 @@ func TestCmdSync_ReconcilesOneToManyAndBack(t *testing.T) {
 
 func TestDoDisconnect_RemovesPersistedPerKBEntries(t *testing.T) {
 	dir := t.TempDir()
-	cfg := &clientconfig.Config{ServerURL: "https://example.test/mcp", ServerName: "wiki", Agents: []string{"claude"}, KnownKBs: []string{"alpha", "beta"}, Trust: true}
+	cfg := &clientconfig.Config{ServerURL: "https://example.test/mcp", ServerName: "wiki", Agents: []string{"claude"}, KnownKBs: []string{"alpha", "beta"}}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +376,7 @@ func TestDoDisconnect_RemovesPersistedPerKBEntries(t *testing.T) {
 func TestCmdSync_ServerDownKeepsMCPEntriesAndKBs(t *testing.T) {
 	dir := t.TempDir()
 	setHome(t, dir)
-	cfg := &clientconfig.Config{ServerURL: "http://127.0.0.1:1/mcp", ServerName: "wiki", Agents: []string{"claude"}, KnownKBs: []string{"alpha", "beta"}, Trust: true}
+	cfg := &clientconfig.Config{ServerURL: "http://127.0.0.1:1/mcp", ServerName: "wiki", Agents: []string{"claude"}, KnownKBs: []string{"alpha", "beta"}}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +431,7 @@ bearer_token_env_var = "CARTOGRAPHER_TOKENS"
 		t.Fatal(err)
 	}
 
-	res, err := doConnect(connectOptions{Providers: []string{"codex"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true})
+	res, err := doConnect(connectOptions{Providers: []string{"codex"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -620,7 +620,7 @@ func TestDoConnect_MultiKB_WithoutSelection_FailsAndWritesNothing(t *testing.T) 
 	defer srv.Close()
 	dir := t.TempDir()
 
-	_, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true})
+	_, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}"})
 	if err == nil {
 		t.Fatal("a first multi-KB connect with no --kb must fail")
 	}
@@ -648,7 +648,7 @@ func TestDoConnect_KBSelection_BindsOnlyWhatWasNamed(t *testing.T) {
 	defer srv.Close()
 	dir := t.TempDir()
 
-	res, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true, KBs: []string{"beta"}})
+	res, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}", KBs: []string{"beta"}})
 	if err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
@@ -676,7 +676,7 @@ func TestDoConnect_KBSelectionAll_IsExplicit(t *testing.T) {
 	defer srv.Close()
 	dir := t.TempDir()
 
-	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true, KBs: []string{"all"}}); err != nil {
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}", KBs: []string{"all"}}); err != nil {
 		t.Fatalf("doConnect: %v", err)
 	}
 	cfg, err := clientconfig.Load(dir)
@@ -695,7 +695,7 @@ func TestDoConnect_SingleKB_NeedsNoSelection(t *testing.T) {
 	defer srv.Close()
 	dir := t.TempDir()
 
-	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true}); err != nil {
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}"}); err != nil {
 		t.Fatalf("doConnect on a single-KB server: %v", err)
 	}
 	cfg, err := clientconfig.Load(dir)
@@ -714,11 +714,11 @@ func TestDoConnect_ExistingBinding_IsPreserved(t *testing.T) {
 	defer srv.Close()
 	dir := t.TempDir()
 
-	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true, KBs: []string{"beta"}}); err != nil {
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}", KBs: []string{"beta"}}); err != nil {
 		t.Fatalf("first doConnect: %v", err)
 	}
 	// The same command again, with no --kb: it must neither fail nor widen.
-	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true}); err != nil {
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}"}); err != nil {
 		t.Fatalf("second doConnect: %v", err)
 	}
 	cfg, err := clientconfig.Load(dir)
@@ -735,7 +735,7 @@ func TestDoConnect_UnknownKB_FailsBeforeAnyWrite(t *testing.T) {
 	defer srv.Close()
 	dir := t.TempDir()
 
-	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", TokenEnv: "TOKEN", Trust: true, KBs: []string{"delta"}}); err == nil {
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}", KBs: []string{"delta"}}); err == nil {
 		t.Fatal("an unmounted KB name must fail")
 	}
 	entries, err := os.ReadDir(dir)

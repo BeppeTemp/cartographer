@@ -122,7 +122,7 @@ func closedPhase(fm *okf.Frontmatter, contract *kb.MapContract) bool {
 
 var openCheckbox = regexp.MustCompile(`(?m)^\s*[-*+]\s+\[ \]\s`)
 
-// decayFindings are the per-concept lifecycle checks (D297), all info.
+// decayFindings are the per-concept lifecycle checks (D297).
 func decayFindings(in conceptInput) []Finding {
 	if in.Parsed == nil {
 		return nil
@@ -291,7 +291,7 @@ func markerRegexp(markers []string) *regexp.Regexp {
 }
 
 // facetSprawlFindings reports, on a map's _map.md, a tags facet that stopped
-// being one (D297, info, directory-level): at least 30 distinct values and at
+// being one (D297, an observation since D947, directory-level): at least 30 distinct values and at
 // least half of them used once.
 func facetSprawlFindings(mapName string, concepts map[okf.ConceptID]string) []Finding {
 	counts := map[string]int{}
@@ -339,6 +339,6 @@ func facetSprawlFindings(mapName string, concepts map[okf.ConceptID]string) []Fi
 	if len(tags) > 10 {
 		tags = tags[:10]
 	}
-	return []Finding{newFinding("facet_sprawl", Finding{Path: mapName + "/_map.md",
+	return []Finding{newObservation("facet_sprawl", Finding{Path: mapName + "/_map.md",
 		Message: fmt.Sprintf("tags: %d distinct values, %d used once — a facet nobody can filter on; the most used, a likely vocabulary: %s", len(counts), single, strings.Join(tags, ", "))})}
 }

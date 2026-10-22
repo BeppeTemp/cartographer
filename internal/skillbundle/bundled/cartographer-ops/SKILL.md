@@ -19,7 +19,7 @@ around writes.
 | `cartographer setup` | First-time setup of this machine: service, first KB and agents, verified (see below). |
 | `cartographer serve` | Starting the server directly, for development or a custom deployment. |
 | `cartographer service install\|status\|restart` | Installing, checking, or restarting the native local service. |
-| `cartographer kb create <name> --remote <url>` | Creating the first local KB in the service data directory, pushed to an empty repository (or one holding only a forge's initial README/LICENSE/.gitignore commit, which is adopted) that becomes its `origin`; any other non-empty remote is refused before the push. `--no-remote` opts out into a local-only KB that is neither durable nor synced; the choice is mandatory. `--artifact-write` (also on `kb clone`) turns on `allow_artifact_write: true` for the KB: in a `kbs[]` entry of the server config, or in the new KB's own `settings.yaml` with `--no-remote`; it is the alternative to hand-editing for a KB that would otherwise mount discovered with artifact writes off. |
+| `cartographer kb create <name> --remote <url>` | Creating the first local KB in the service data directory, pushed to an empty repository (or one holding only a forge's initial README/LICENSE/.gitignore commit, which is adopted) that becomes its `origin`; any other non-empty remote is refused before the push. `--no-remote` opts out into a local-only KB that is neither durable nor synced; the choice is mandatory. |
 | `cartographer kb clone <remote> [name]` | Mounting an existing OKF KB remote in the service data directory. |
 | `cartographer connect [provider\|all] [--agents a,b]` | Connecting one or more detected agent clients to a server. |
 | `cartographer status` | Checking client configuration and provisioning drift. |
@@ -111,7 +111,8 @@ A KB syncs exactly when it has a remote, and every write is one commit: neither 
    `.cartographer.yaml` first, then (repo keys) from a clone under `search_roots`, found by the
    declared `remote` when there is one, then from the declared default if it exists on this
    machine. Fix it with `cartographer paths set <kind>:<key> <path>` — or, for a repo, add a closer
-   `search_roots` entry or raise `search_depth` (max 8) — then `cartographer sync`. A key missing
+   `search_roots` entry (the scan goes 4 levels down from each root; the defaults are `~/Documents`,
+   `~/src`, `~/code`, `~/projects`) — then `cartographer sync`. A key missing
    from the KB's `paths.yaml` is fixed in the KB, not on the client: declare it there with a
    `~/`-anchored default so every machine resolves it with no configuration.
 
@@ -164,9 +165,8 @@ or `cartographer status` / `kb_status` can report one (`update available`, `late
   their agent sessions.
 - A remote or cluster server is not yours to upgrade from a client: propose the procedure
   (Kubernetes, above) to whoever operates it.
-- `cartographer client update --check=false` turns the check off; `--policy auto-patch` lets
-  patch releases install themselves (Homebrew, `install.sh`, `install.ps1` only). Change either
-  only when the user asks.
+- `cartographer client update --check=false` turns the check off (`update_check: false`). The
+  client never installs a release by itself. Change it only when the user asks.
 
 ## Never do
 

@@ -25,13 +25,19 @@ const SETTINGS = {
   kbs: [
     {
       name: "kb-a",
-      entries: [{ key: "kbs[].write_gate", value: "error", origin: "file", description: "Refuse a write.", default: "off" }],
-      yaml: "write_gate: error # from the server's kbs[] entry\n\n# --- available settings ---\n",
+      entries: [{ key: "kbs[].usage_stale_days", value: 30, origin: "file", description: "Days before an unused skill is reported.", default: "42" }],
+      yaml: "usage_stale_days: 30 # from the server's kbs[] entry\n\n# --- available settings ---\n",
       git: { has_remote: true, sync: true, push_state: "idle" },
     },
   ],
   server_yaml: "git:\n  sync: false # from CARTOGRAPHER_GIT_SYNC\n  # --- available settings ---\n  # autocommit: true\n",
 };
+
+/** The page opens on the viewer's client: the server's keys are one tab away. */
+async function openServer(user: ReturnType<typeof userEvent.setup>) {
+  const tabs = await screen.findByRole("tablist", { name: "Settings of" });
+  await user.click(within(tabs).getByRole("tab", { name: /^Server/ }));
+}
 
 describe("the Settings panel", () => {
   beforeEach(() => {
@@ -46,35 +52,33 @@ describe("the Settings panel", () => {
     stubApi({ "/settings": () => json(SETTINGS) });
     const user = userEvent.setup();
     render(<App />);
+    await openServer(user);
+    // Every group is open: its keys are read without a click.
     const git = await screen.findByRole("list", { name: "Git settings" });
-    // Every group starts folded.
-    expect(git.closest("details")).not.toHaveAttribute("open");
-    await user.click(screen.getByRole("heading", { name: "Git" }));
+    expect(screen.getByRole("heading", { name: "Git" })).toBeVisible();
     const sync = within(git).getByText("git.sync").closest("li")!;
-    expect(within(sync).getByText(/^set by environment · default true$/)).toBeVisible();
-    expect(within(sync).getByLabelText("Value of git.sync")).toHaveTextContent("false");
+    // A boolean reads as a switch.
+    expect(within(sync).getByLabelText("Value of git.sync")).toHaveTextContent("off");
     // What it does is on the row; the default, the override and the restart open with it.
     expect(within(sync).getByText(/fetch and pull before/)).toBeVisible();
-    expect(within(sync).getByText("CARTOGRAPHER_GIT_SYNC")).not.toBeVisible();
+    expect(within(sync).queryByText("CARTOGRAPHER_GIT_SYNC")).toBeNull();
     await user.click(within(sync).getByText("git.sync"));
+    // The table says the default and who set it.
+    expect(within(sync).getByText("environment")).toBeVisible();
     expect(within(sync).getByText("CARTOGRAPHER_GIT_SYNC")).toBeVisible();
     expect(within(sync).getByText(/after the server restarts/)).toBeVisible();
-    const auto = within(git).getByText("git.autocommit").closest("li")!;
-    expect(within(auto).getByText("default")).toBeInTheDocument();
     const tokens = within(screen.getByRole("list", { name: "Access settings" })).getByText("auth.tokens").closest("li")!;
     expect(within(tokens).getByLabelText("Value of auth.tokens")).toHaveTextContent("(set)");
-    expect(within(tokens).getByText(/^set by config file · default/)).toBeInTheDocument();
-    expect(screen.getByText(/v1\.3\.0 available/)).toBeInTheDocument();
   });
 
   it("finds a key by name, description, value or override, opening the groups that hold it", async () => {
     stubApi({ "/settings": () => json(SETTINGS) });
     const user = userEvent.setup();
     render(<App />);
+    await openServer(user);
     await screen.findByRole("list", { name: "Git settings" });
     await user.type(screen.getByRole("searchbox", { name: "Search settings" }), "bearer");
     const access = screen.getByRole("list", { name: "Access settings" });
-    expect(access.closest("details")).toHaveAttribute("open");
     expect(within(access).getByText("auth.tokens")).toBeVisible();
     expect(screen.queryByRole("list", { name: "Git settings" })).toBeNull();
     await user.clear(screen.getByRole("searchbox", { name: "Search settings" }));
@@ -87,15 +91,16 @@ describe("the Settings panel", () => {
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    // Each tab says how many keys it holds.
-    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Client", "Server3", "Knowledge Base1"]);
+    // The page opens on the viewer's client; a tab names what it holds, no count.
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Client", "Server", "Knowledge Base"]);
+    expect(within(tabs).getByRole("tab", { name: "Client" })).toHaveAttribute("aria-selected", "true");
     await user.click(within(tabs).getByRole("tab", { name: /Knowledge Base/ }));
-    const writes = screen.getByRole("list", { name: "KB kb-a Writes & tools settings" });
-    expect(within(writes).getByText("write_gate")).toBeInTheDocument();
+    const writes = screen.getByRole("list", { name: "KB kb-a Maintenance settings" });
+    expect(within(writes).getByText("usage_stale_days")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "YAML" }));
     const file = screen.getByLabelText("kb-a/settings.yaml");
-    expect(file).toHaveTextContent("write_gate: error # from the server's kbs[] entry");
+    expect(file).toHaveTextContent("usage_stale_days: 30 # from the server's kbs[] entry");
     await user.click(within(tabs).getByRole("tab", { name: /^Server/ }));
     const server = screen.getByLabelText("config.yaml");
     expect(server).toHaveTextContent("sync: false # from CARTOGRAPHER_GIT_SYNC");
@@ -117,9 +122,18 @@ describe("the Settings panel", () => {
               server_url: "http://example.com/mcp",
               received_at: "2026-10-16T10:00:00Z",
               yaml: "server_url: http://example.com/mcp\n",
+              providers: [
+                {
+                  name: "claude",
+                  scope: "workspace",
+                  isolation: "workspace",
+                  workspaces: [{ path: "$HOME/work", kbs: ["kb-a"] }],
+                },
+              ],
+              placeholders: [{ key: "repo:infra", kbs: ["kb-a"], path: "$HOME/src/infra" }],
               entries: [
                 { key: "server_url", value: "http://example.com/mcp", origin: "file", description: "MCP endpoint.", default: "x" },
-                { key: "update.check", value: true, origin: "default", description: "Look up releases.", default: "true" },
+                { key: "update_check", value: true, origin: "default", description: "Look up releases.", default: "true" },
               ],
             },
           ],
@@ -129,20 +143,39 @@ describe("the Settings panel", () => {
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     await user.click(within(tabs).getByRole("tab", { name: /^Client/ }));
-    expect(screen.getByText(/laptop · client v-client · reported/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "laptop" })).toBeInTheDocument();
+    expect(screen.getByText(/Client v-client · reported/)).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Client Connection settings" })).toHaveTextContent("server_url");
-    expect(screen.getByRole("list", { name: "Client Updates & sync settings" })).toHaveTextContent("update.check");
+    expect(screen.getByRole("list", { name: "Client Updates & sync settings" })).toHaveTextContent("update_check");
+    // Below the settings, one section per KB with its own client settings, named by their YAML key.
+    const kbA = screen.getByRole("list", { name: "Client settings of kb-a" });
+    expect(within(kbA).getByLabelText("Value of clients.<agent>.kbs")).toHaveTextContent("claude");
+    expect(within(kbA).getByLabelText("Value of workspaces")).toHaveTextContent("claude: $HOME/work");
+    expect(within(kbA).getByLabelText("Value of paths")).toHaveTextContent("repo:infra → $HOME/src/infra");
+    // the KBs are pills, the active one picked
+    const picker = screen.getByRole("group", { name: "Knowledge bases on this machine" });
+    expect(within(picker).getByRole("button", { name: "kb-a" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "YAML" }));
     expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("server_url: http://example.com/mcp");
   });
 
-  it("says when the viewer's client has not reported yet", async () => {
-    stubApi({ "/settings": () => json(SETTINGS) });
+  it("shows what a client can set before any client of the viewer has reported", async () => {
+    const template = {
+      entries: [{ key: "workspaces", value: {}, origin: "default", description: "Which KBs a provider receives.", default: "{}" }],
+      yaml: "# --- available settings: uncomment a key to set it ---\n# workspaces:\n#   claude: []\n",
+    };
+    stubApi({ "/settings": () => json({ ...SETTINGS, client_template: template }) });
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     await user.click(within(tabs).getByRole("tab", { name: "Client" }));
-    expect(screen.getByText(/has not reported its settings/)).toBeInTheDocument();
+    // workspaces is set per KB: it reads in each KB's section, under its YAML key.
+    expect(screen.queryByRole("list", { name: "Client Agents settings" })).toBeNull();
+    expect(
+      within(screen.getByRole("list", { name: "Client settings of kb-a" })).getByLabelText("Value of workspaces"),
+    ).toHaveTextContent("everywhere");
+    await user.click(screen.getByRole("button", { name: "YAML" }));
+    expect(screen.getByLabelText(".cartographer.yaml")).toHaveTextContent("# workspaces:");
   });
 
   it("reaches the panel from the rail", async () => {
@@ -151,7 +184,8 @@ describe("the Settings panel", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Settings" }));
-    expect(await screen.findByRole("list", { name: "Git settings" })).toBeInTheDocument();
+    const tabs = await screen.findByRole("tablist", { name: "Settings of" });
+    expect(within(tabs).getByRole("tab", { name: "Client" })).toHaveAttribute("aria-selected", "true");
     expect(window.location.search).toContain("panel=settings");
   });
 

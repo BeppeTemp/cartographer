@@ -1,19 +1,26 @@
 // Package testkbs generates the synthetic test Knowledge Bases `make dev`
-// serves (D818): ten KBs from 5,000 concepts down to 30, the scale the Atlas
-// has to handle well, each built to put every Atlas view in a state worth
-// looking at — Maps with every contract key, work in every status, sources,
-// contradictions, services, secrets, artifacts, placeholders, planted lint
-// defects, a git history with revisions, moves and repairs, and the local
+// serves (D818, D1032): eleven KBs, built to put every Atlas view in a state
+// worth looking at — Maps with every contract key, work in every status,
+// sources, contradictions, services, secrets, artifacts, placeholders, planted
+// lint defects, a git history with revisions, moves and repairs, and the local
 // state (lint trend, search misses, conflicts, usage) the server keeps beside
-// the repository. The smallest KB has no git and no artifacts, for the empty
-// states.
+// the repository.
+//
+// Nine of them take the shape of KBs that have been used for months: the
+// numbers of a Profile (profiles.go: Maps and journals, expanded concepts,
+// concept sizes, links and hubs, status mix, history), the words of an invented
+// theme (themes.go). One is the scale KB (5,000 concepts, every Map built by the
+// same formulas) and one the bare KB (30 concepts, no git and no artifacts, for
+// the empty states).
 //
 // The output is a pure function of the spec and the day it is generated for:
 // a seeded generator, no clock read here. The content is invented and neutral,
-// so nothing in it names a real system or person.
+// so nothing in it names a real system or person; the history goes in through
+// one `git fast-import` per KB.
 package testkbs
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -36,25 +43,30 @@ type Spec struct {
 	Bare bool
 	// Conflicts plants unresolved git conflicts in the local state.
 	Conflicts bool
+	// Profile and Theme, when set, shape the KB after a measured one with
+	// invented content (profiles.go, themes.go) and Concepts is their sum; a
+	// spec without them is built by the formulas of plan() from Concepts.
+	Profile *Profile
+	Theme   string
 }
 
-// Sizes are the concept counts of the fleet, largest first.
-var Sizes = []int{5000, 3000, 2000, 1200, 800, 500, 300, 150, 80, 30}
+// profiled are the nine profiled KBs of the fleet, largest first; each is
+// named after its theme.
+var profiled = []string{"seed-bank", "ferry-line", "observatory", "library-consortium", "mountain-rescue",
+	"vineyard-coop", "choir-season", "museum-restoration", "bike-share-pilot"}
 
-// Fleet returns the ten test KBs.
+// Fleet returns the eleven test KBs: the scale KB, the nine profiled ones and
+// the bare KB.
 func Fleet() []Spec {
-	out := make([]Spec, 0, len(Sizes))
-	for i, n := range Sizes {
-		s := Spec{Name: fmt.Sprintf("test-%d", n), Concepts: n, Seed: uint32(7 + i*31)}
-		switch n {
-		case 2000:
-			s.Conflicts = true
-		case 30:
-			s.Bare = true
-		}
+	out := []Spec{{Name: "test-5000", Concepts: 5000, Seed: 7}}
+	for i, name := range profiled {
+		p := profiles[name]
+		s := Spec{Name: name, Concepts: p.Concepts(), Seed: uint32(38 + i*31), Profile: p, Theme: name}
+		// Conflicts are planted on the second profile (D1032).
+		s.Conflicts = name == "ferry-line"
 		out = append(out, s)
 	}
-	return out
+	return append(out, Spec{Name: "test-30", Concepts: 30, Seed: 317, Bare: true})
 }
 
 // GenerateFleet writes every KB of the fleet under dataDir, one directory
@@ -142,6 +154,9 @@ type file struct {
 type commit struct {
 	subject, reason, agent, author string
 	at                             time.Time
+	// frac orders the commits of a profiled KB in time (0 oldest, 1 newest); the
+	// times themselves are dealt out afterwards from the profile's span.
+	frac float64
 }
 
 // unborn marks a file whose birth commit history() has not chosen yet.
@@ -157,6 +172,8 @@ type kbgen struct {
 	maps    []mapInfo
 	ids     []string // every topical concept id
 	retired []string
+	// referenced are the ids something links to or points at (a profiled KB).
+	referenced map[string]bool
 }
 
 type mapInfo struct {
@@ -199,7 +216,7 @@ func (g *kbgen) commitAt(subject, reason string, frac float64) int {
 	if g.r.chance(0.6) {
 		c.agent = agents[g.r.n(len(agents))]
 	}
-	c.at = at
+	c.at, c.frac = at, frac
 	g.commits = append(g.commits, c)
 	return len(g.commits) - 1
 }
@@ -238,6 +255,10 @@ func (g *kbgen) date(daysAgo int) string {
 
 // plan lays out every file and every commit.
 func (g *kbgen) plan() {
+	if g.spec.Profile != nil {
+		g.planProfile()
+		return
+	}
 	n := g.spec.Concepts
 	nMaps := n / 250
 	if nMaps < 3 {
@@ -298,6 +319,13 @@ func (g *kbgen) plan() {
 
 // scaffold writes the root files and the Map contracts.
 func (g *kbgen) scaffold(c, nMaps int) {
+	g.scaffoldRoot(c)
+	g.scaffoldMaps(c, nMaps)
+}
+
+// scaffoldRoot writes the files every KB has: the index, the log, and (but the
+// bare KB) the instructions, settings, glossary and templates.
+func (g *kbgen) scaffoldRoot(c int) {
 	g.add("data/index.md", fm("type", "Index", "title", "Test KB "+g.spec.Name)+"\n# Test KB "+g.spec.Name+"\n\nA synthetic knowledge base generated to exercise every view of the Atlas.\n", c)
 	var log strings.Builder
 	log.WriteString("# Log\n")
@@ -313,13 +341,16 @@ func (g *kbgen) scaffold(c, nMaps int) {
 	g.add("data/log.md", log.String(), c)
 	if !g.spec.Bare {
 		g.add("instructions.md", "# House rules\n\nFile every finding under the Map that owns its subject, and cite its source.\n", c)
-		g.add("settings.yaml", "write_gate: warning\ndoctor_interval: 7d\nusage_stale_days: 21\n", c)
+		g.add("settings.yaml", "usage_stale_days: 21\n", c)
 		g.add("glossary.yaml", "terms:\n  - canonical: knowledge base\n    aliases: [KB]\n  - canonical: field survey\n    aliases: [survey trip]\n    forbidden: [site walk]\n", c)
 		g.add("templates/task.md", fm("type", "Task", "title", `"{{title}}"`, "status", "open", "x-template.description", "A piece of work with an owner and a definition of done", "x-template.required_fields", list("status"))+"\n# {{title}}\n\n## Context\n\n## Definition of done\n", c)
 		g.add("templates/note.md", fm("type", "Note", "title", `"{{title}}"`, "x-template.description", "A dated journal note")+"\n# {{title}}\n\n## What happened\n\n## Follow-ups\n", c)
 		g.add("templates/topic.md", fm("type", "Topic", "title", `"{{title}}"`, "description", `"{{description}}"`, "x-template.description", "A subject explained once", "x-template.required_fields", list("description"))+"\n# {{title}}\n\n## Overview\n\n## Details\n\n## See also\n", c)
 	}
+}
 
+// scaffoldMaps writes the Map contracts of the scale and bare KBs.
+func (g *kbgen) scaffoldMaps(c, nMaps int) {
 	// The topical Maps, each with a different part of the contract, so the
 	// contract panel has every key to show somewhere.
 	for i, m := range g.maps {
@@ -327,42 +358,39 @@ func (g *kbgen) scaffold(c, nMaps int) {
 		// The malformed contract comes second, so even the smallest KB has it.
 		switch []int{0, 4, 1, 2, 3, 5}[i%6] {
 		case 0:
-			f = append(f, "concept_types", list("Topic", "Entity", "Note"), "ontology_mode", "strict",
-				"required_fields", list("description"), "field_values.status", list("active", "draft", "deprecated", "superseded", "archived"),
-				"templates", list("topic"), "default_template", "topic", "require_template", "false", "template_sections", "true",
-				"title_max_length", "60", "forbidden_title_terms", list("misc", "untitled"))
+			f = append(f, "concept_types", list("Topic", "Entity", "Note"),
+				"required_fields.*", list("description"), "field_values.*.status", list("active", "draft", "deprecated", "superseded", "archived"),
+				"templates", list("topic"), "default_template", "topic",
+				"forbidden_title_terms", list("misc", "untitled"))
 		case 1:
-			f = append(f, "ontology_mode", "flexible", "open_statuses", list("open", "draft"), "open_markers", list("TODO", "FIXME"),
-				"stale_after", "45", "work_map", "work", "lint_ignore", list("map_without_templates"))
+			f = append(f, "open_statuses", list("open", "draft"), "open_markers", list("TODO", "FIXME"),
+				"stale_after", "45", "work_map", "work")
 		case 2:
-			f = append(f, "ontology_mode", "flexible", "hotspot_in_degree", "40", "oversize_bytes", "60000", "repeated_fact_min", "4",
-				"value_synonyms.active", list("live", "current"), "machine_path_allow_prefixes", list("/srv/shared"), "index", "generated")
+			f = append(f, "value_synonyms.active", list("live", "current"), "index", "generated")
 		case 3:
-			f = append(f, "ontology_mode", "flexible", "forbidden_fields", list("owner_email"), "required_fields.Entity", list("description"),
-				"field_values.Entity.status", list("active", "deprecated"), "require_index_entry", "true", "procedure_headings", list("Steps", "Rollback"))
+			f = append(f, "forbidden_fields", list("owner_email"), "required_fields.Entity", list("description"),
+				"field_values.Entity.status", list("active", "deprecated"), "procedure_headings", list("Steps", "Rollback"))
 		case 4:
 			// One malformed key: the panel's malformed row and contract_malformed.
-			f = append(f, "ontology_mode", "flexible", "stale_after", "soon", "oversize_concepts", "400", "hotspot_bytes", "20000")
-		default:
-			f = append(f, "ontology_mode", "flexible")
+			f = append(f, "stale_after", "soon")
 		}
 		f = append(f, "timestamp", g.date(180))
 		g.add("data/"+m.slug+"/_map.md", fm(f...)+"\n# "+m.title+"\n", c)
 	}
 	g.add("data/work/_map.md", fm("type", "Map", "title", "Work", "description", "Tasks and decisions, with their status.", "kind", "map",
-		"concept_types", list("Task", "Decision"), "ontology_mode", "strict",
-		"field_values.status", list(taskStates[0], "in-progress", "blocked", "decision-needed", "proposed", "done"),
+		"concept_types", list("Task", "Decision"),
+		"field_values.*.status", list(taskStates[0], "in-progress", "blocked", "decision-needed", "proposed", "done"),
 		"open_statuses", list("open", "in-progress", "blocked", "decision-needed", "proposed"),
-		"templates", list("task"), "default_template", "task", "require_template", "true", "stale_after", "30", "timestamp", g.date(180))+"\n# Work\n", c)
+		"templates", list("task"), "default_template", "task", "stale_after", "30", "timestamp", g.date(180))+"\n# Work\n", c)
 	g.add("data/journal/_map.md", fm("type", "Map", "title", "Journal", "description", "Dated notes from working sessions.", "kind", "journal",
 		"concept_types", list("Note"), "promote_to", g.maps[0].slug, "harvest_after", "30", "open_markers", list("TODO"),
 		"templates", list("note"), "timestamp", g.date(180))+"\n# Journal\n", c)
 	g.add("data/sources/_map.md", fm("type", "Map", "title", "Sources", "description", "The source ledger.", "kind", "journal",
-		"concept_types", list("Source"), "ontology_mode", "strict",
-		"field_values.ingest_status", list("pending", "ingested", "skipped"), "field_values.source_kind", list(sourceKinds...),
-		"lint_ignore", list("map_without_templates"), "timestamp", g.date(180))+"\n# Sources\n", c)
+		"concept_types", list("Source"),
+		"field_values.*.ingest_status", list("pending", "ingested", "skipped"), "field_values.*.source_kind", list(sourceKinds...),
+		"timestamp", g.date(180))+"\n# Sources\n", c)
 	g.add("data/questions/_map.md", fm("type", "Map", "title", "Open Questions", "description", "Where the sources disagree, and what is not known yet.", "kind", "map",
-		"concept_types", list("Contradiction"), "lint_ignore", list("map_without_templates"), "timestamp", g.date(180))+"\n# Open Questions\n", c)
+		"concept_types", list("Contradiction"), "timestamp", g.date(180))+"\n# Open Questions\n", c)
 	_ = nMaps
 }
 
@@ -576,8 +604,15 @@ func (g *kbgen) questions(n int) {
 }
 
 // defects plants one of each lint finding the Health view groups.
-func (g *kbgen) defects() {
-	m0, m1 := g.maps[0], g.maps[1%len(g.maps)]
+func (g *kbgen) defects() { g.defectsIn(0, 1) }
+
+// defectPaths are the files defectsIn plants; they say things the vocabulary
+// of a theme does not, on purpose.
+var defectPaths = []string{"no-description", "bad-status", "wrong-type", "Mixed_Case_Name", "untitled", "points-at-retired", "notes.txt", "loose-note"}
+
+// defectsIn plants the defects in the Maps at indexes a and b.
+func (g *kbgen) defectsIn(a, b int) {
+	m0, m1 := g.maps[a], g.maps[b%len(g.maps)]
 	g.add("data/"+m0.slug+"/no-description.md", fm("type", "Topic", "title", "No description", "status", "active")+"\n# No description\n\nMissing a required field. Mentions a site walk, a forbidden term.\n", unborn)
 	g.add("data/"+m0.slug+"/bad-status.md", fm("type", "Topic", "title", "Bad status", "description", "Has a status outside the contract.", "status", "wip")+"\n# Bad status\n", unborn)
 	g.add("data/"+m0.slug+"/wrong-type.md", fm("type", "Recipe", "title", "Wrong type", "description", "A type the strict Map does not allow.")+"\n# Wrong type\n", unborn)
@@ -594,6 +629,12 @@ func (g *kbgen) defects() {
 func (g *kbgen) indexes(c int) {
 	byDir := map[string][]string{}
 	titles := map[string]string{}
+	retired := map[string]bool{}
+	if g.spec.Profile != nil {
+		for _, id := range g.retired { // a curated index leaves retired concepts out
+			retired[id] = true
+		}
+	}
 	for _, f := range g.files {
 		p := f.path
 		if !strings.HasPrefix(p, "data/") || !strings.HasSuffix(p, ".md") || strings.HasSuffix(p, "/_map.md") || p == "data/index.md" || p == "data/log.md" {
@@ -602,7 +643,7 @@ func (g *kbgen) indexes(c int) {
 		id := strings.TrimSuffix(strings.TrimPrefix(p, "data/"), ".md")
 		id = strings.TrimSuffix(id, "/index")
 		dir := id[:strings.Index(id, "/")]
-		if dir == "scratch" {
+		if dir == "scratch" || retired[id] {
 			continue
 		}
 		byDir[dir] = append(byDir[dir], id)
@@ -622,7 +663,7 @@ func (g *kbgen) indexes(c int) {
 		var b strings.Builder
 		b.WriteString(fm("type", "Index", "title", d) + "\n# " + d + "\n\n")
 		for i, id := range ids {
-			if i == 3 && d == g.maps[0].slug {
+			if i == 3 && d == g.incompleteIndex() {
 				continue // index_incomplete
 			}
 			fmt.Fprintf(&b, "- [[%s]] — %s\n", id, title(titles[id]))
@@ -630,6 +671,18 @@ func (g *kbgen) indexes(c int) {
 		g.add("data/"+d+"/index.md", b.String(), c)
 	}
 	g.byPath["data/index.md"].versions[0] = root.String()
+}
+
+// incompleteIndex is the Map whose index leaves a concept out
+// (index_incomplete), when the KB plants findings.
+func (g *kbgen) incompleteIndex() string {
+	switch {
+	case g.spec.Profile == nil:
+		return g.maps[0].slug
+	case g.spec.Profile.Plant:
+		return g.maps[1].slug
+	}
+	return "\x00"
 }
 
 // artifacts writes skills, agents, hooks and MCP descriptors that read
@@ -665,14 +718,10 @@ func (g *kbgen) artifacts(c int) {
 	g.add("services/legacy-wiki.md", fm("type", "Service", "title", "Legacy wiki", "description", "The wiki this KB replaced.", "kind", "web", "base_url", "https://wiki.example.com/", "status", "deprecated")+"\n# Legacy wiki\n", c)
 }
 
-// sharedDefault differs between two KBs, so the Paths view shows a key two
-// KBs declare with different defaults.
-func (g *kbgen) sharedDefault() string {
-	if g.spec.Concepts == 3000 {
-		return "~/Shared Files"
-	}
-	return "~/shared"
-}
+// sharedDefault is the default of the scale KB's shared-drive key; one profiled
+// KB declares the same key with another, so the Paths view shows a key two KBs
+// declare with different defaults.
+func (g *kbgen) sharedDefault() string { return "~/shared" }
 
 func enc(s string) string {
 	return "ENC[AES256_GCM,data:" + s + "dGVzdA==,iv:dGVzdGl2dGVzdGl2dGVzdGl2,tag:dGVzdHRhZ3Rlc3R0YWc=,type:str]"
@@ -791,7 +840,80 @@ func write(root, rel, content string) error {
 	return os.WriteFile(p, []byte(content), 0o644)
 }
 
-// replay creates the repository and plays the commits in time order.
+// finalizeCommits puts the commits in time order and gives the profiled ones
+// their times: the profile's span, with the share it puts in the last 30 days.
+// The indexes the files hold (born, revisions, move, delete) follow the new
+// order.
+func (g *kbgen) finalizeCommits() {
+	n := len(g.commits)
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	if p := g.spec.Profile; p != nil {
+		sort.SliceStable(order, func(a, b int) bool { return g.commits[order[a]].frac < g.commits[order[b]].frac })
+		sorted := make([]commit, n)
+		for r, o := range order {
+			sorted[r] = g.commits[o]
+		}
+		g.commits = sorted
+		g.dealTimes(p)
+	} else {
+		sort.SliceStable(order, func(a, b int) bool { return g.commits[order[a]].at.Before(g.commits[order[b]].at) })
+		sorted := make([]commit, n)
+		for r, o := range order {
+			sorted[r] = g.commits[o]
+		}
+		g.commits = sorted
+		// Time order is kept strictly: each commit lands after the previous one.
+		for i := 1; i < n; i++ {
+			if !g.commits[i].at.After(g.commits[i-1].at) {
+				g.commits[i].at = g.commits[i-1].at.Add(time.Minute)
+			}
+		}
+	}
+	newIdx := make([]int, n)
+	for r, o := range order {
+		newIdx[o] = r
+	}
+	for _, f := range g.files {
+		f.born = newIdx[f.born]
+		for i, c := range f.revs {
+			f.revs[i] = newIdx[c]
+		}
+		if f.movedFrom != "" {
+			f.moveAt = newIdx[f.moveAt]
+		}
+		if f.deleteAt > 0 {
+			f.deleteAt = newIdx[f.deleteAt]
+		}
+	}
+}
+
+// dealTimes spreads the commits, oldest first, over the profile's span; the
+// newest Last30 of them fall in the last 30 days.
+func (g *kbgen) dealTimes(p *Profile) {
+	n := len(g.commits)
+	start := g.day.AddDate(0, 0, -p.SpanDays)
+	cut := g.day.AddDate(0, 0, -30)
+	recent := min(p.Last30, n-1)
+	if p.SpanDays <= 30 || recent <= 0 {
+		recent, cut = 0, g.day
+	}
+	older := n - recent
+	for r := range g.commits {
+		lo, hi, k, cnt := start, cut, r, older
+		if r >= older {
+			lo, hi, k, cnt = cut, g.day, r-older, recent
+		}
+		step := hi.Sub(lo) / time.Duration(cnt)
+		g.commits[r].at = lo.Add(step * time.Duration(k)).Add(time.Duration(float64(step) * 0.8 * g.r.f()))
+	}
+}
+
+// replay creates the repository and writes the whole history through one
+// `git fast-import`, then checks main out. A git process per operation would
+// not scale to thousands of commits.
 func (g *kbgen) replay(root string) error {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return err
@@ -799,6 +921,37 @@ func (g *kbgen) replay(root string) error {
 	if err := gitRun(root, nil, "init", "-q", "-b", "main"); err != nil {
 		return err
 	}
+	g.finalizeCommits()
+	cmd := exec.Command("git", "-c", "core.compression=1", "-c", "pack.compression=1", "-c", "gc.auto=0", "-c", "core.hooksPath=/dev/null", "fast-import", "--quiet", "--done")
+	cmd.Dir = root
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	w := bufio.NewWriterSize(in, 1<<20)
+	werr := g.writeStream(w)
+	if werr == nil {
+		werr = w.Flush()
+	}
+	in.Close()
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("git fast-import: %w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	if werr != nil {
+		return werr
+	}
+	return gitRun(root, nil, "checkout", "-q", "-f", "main")
+}
+
+// writeStream writes the fast-import stream: for each commit, in time order,
+// the blobs of the files it touches, then the commit. A commit with nothing in
+// it is skipped.
+func (g *kbgen) writeStream(w *bufio.Writer) error {
 	type op struct {
 		f       *file
 		version int // -1 move, -2 delete
@@ -816,45 +969,30 @@ func (g *kbgen) replay(root string) error {
 			ops[f.deleteAt] = append(ops[f.deleteAt], op{f, -2})
 		}
 	}
-	order := make([]int, len(g.commits))
-	for i := range order {
-		order[i] = i
-	}
-	sort.SliceStable(order, func(a, b int) bool { return g.commits[order[a]].at.Before(g.commits[order[b]].at) })
-	// A commit with nothing in it is skipped; time order is kept by
-	// clamping each commit to after the previous one.
-	var prev time.Time
-	for _, ci := range order {
-		c := g.commits[ci]
+	mark, prev := 0, 0
+	for ci, c := range g.commits {
 		if len(ops[ci]) == 0 {
 			continue
 		}
+		var lines []string
 		for _, o := range ops[ci] {
 			f := o.f
 			switch o.version {
 			case -1:
-				if err := gitRun(root, nil, "mv", f.movedFrom, f.path); err != nil {
-					return err
-				}
+				lines = append(lines, "R "+f.movedFrom+" "+f.path)
 			case -2:
-				if err := gitRun(root, nil, "rm", "-q", f.path); err != nil {
-					return err
-				}
+				lines = append(lines, "D "+f.path)
 			default:
 				path := f.path
 				if f.movedFrom != "" && ci < f.moveAt {
 					path = f.movedFrom
 				}
-				if err := write(root, path, f.versions[o.version]); err != nil {
-					return err
-				}
+				mark++
+				content := f.versions[o.version]
+				fmt.Fprintf(w, "blob\nmark :%d\ndata %d\n%s\n", mark, len(content), content)
+				lines = append(lines, fmt.Sprintf("M 100644 :%d %s", mark, path))
 			}
 		}
-		at := c.at
-		if !at.After(prev) {
-			at = prev.Add(time.Minute)
-		}
-		prev = at
 		msg := c.subject
 		if c.reason != "" || c.agent != "" {
 			msg += "\n"
@@ -865,19 +1003,20 @@ func (g *kbgen) replay(root string) error {
 				msg += "\nAgent: " + c.agent
 			}
 		}
-		env := []string{
-			"GIT_AUTHOR_DATE=" + at.Format(time.RFC3339), "GIT_COMMITTER_DATE=" + at.Format(time.RFC3339),
-			"GIT_AUTHOR_NAME=" + c.author, "GIT_AUTHOR_EMAIL=" + c.author + "@example.com",
-			"GIT_COMMITTER_NAME=" + c.author, "GIT_COMMITTER_EMAIL=" + c.author + "@example.com",
+		mark++
+		ident := fmt.Sprintf("%s <%s@example.com> %d +0000", c.author, c.author, c.at.Unix())
+		fmt.Fprintf(w, "commit refs/heads/main\nmark :%d\nauthor %s\ncommitter %s\ndata %d\n%s\n", mark, ident, ident, len(msg), msg)
+		if prev != 0 {
+			fmt.Fprintf(w, "from :%d\n", prev)
 		}
-		if err := gitRun(root, nil, "add", "-A"); err != nil {
-			return err
+		for _, l := range lines {
+			w.WriteString(l + "\n")
 		}
-		if err := gitRun(root, env, "commit", "-q", "--no-verify", "--allow-empty", "-m", msg); err != nil {
-			return err
-		}
+		w.WriteString("\n")
+		prev = mark
 	}
-	return nil
+	_, err := w.WriteString("done\n")
+	return err
 }
 
 func gitRun(dir string, env []string, args ...string) error {
@@ -910,8 +1049,7 @@ func (g *kbgen) localState(root string) error {
 	for d := 89; d >= 1; d-- {
 		total := base + d/3 + g.r.n(6)
 		enc(&hist, map[string]any{"at": g.day.AddDate(0, 0, -d).Add(6 * time.Hour).Format(time.RFC3339), "total": total,
-			"by_severity": map[string]int{"error": total / 10, "warning": total / 3, "info": total - total/10 - total/3},
-			"by_handler":  map[string]int{"auto": total / 4, "agent": total / 2, "human": total - total/4 - total/2}})
+			"by_handler": map[string]int{"auto": total / 4, "agent": total / 2, "human": total - total/4 - total/2}})
 	}
 	for i, q := range []string{"glacier retreat", "kiln temperature", "how to file a source", "budget 2026", "onboarding", "glacier retreat"} {
 		enc(&misses, map[string]string{"at": g.day.AddDate(0, 0, -i*3-1).Format(time.RFC3339), "query": q})

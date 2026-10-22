@@ -4,6 +4,8 @@ topic: control-plane
 
 # D349 — A write repairs the mechanical findings of the concepts it wrote
 
+> **Amended by [D907](D907-the-lint-cannot-be-escaped.md)**: repair on write always applies every auto-repair-safe fix of the registry that stays inside the concept; `repair_on_write` and the KB's `auto_repair` list no longer turn it off or narrow it.
+
 **Decision.** After a content write, inside the same handler and so the same
 commit, the server applies the KB's `auto_repair` fixes to the concepts the call
 left on disk, and reports `repaired: [{check, count}]`. Per-KB `repair_on_write`

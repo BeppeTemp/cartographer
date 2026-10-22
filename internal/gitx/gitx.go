@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -24,8 +25,56 @@ var ErrNothingToCommit = errors.New("nothing to commit")
 // gettext — Homebrew's, most Linux distributions' — prints them in the user's
 // locale, where those checks silently stopped matching. Appended last, so it
 // wins over both the process environment and extra.
+//
+// GIT_TERMINAL_PROMPT=0 sits before extra, so it holds for every command and
+// still yields to a caller that says otherwise: a server started from a
+// terminal must never leave git blocked on /dev/tty for a username or password
+// nobody is there to type (#1004). The ssh counterpart is netEnv.
 func gitEnv(extra []string) []string {
-	return append(append(os.Environ(), extra...), "LC_ALL=C")
+	return append(append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), extra...), "LC_ALL=C")
+}
+
+// sshBatchCommand is the ssh invocation that never asks: no password or
+// passphrase prompt, and a bounded connect.
+const sshBatchCommand = "ssh -o BatchMode=yes -o ConnectTimeout=10"
+
+// netEnv is gitEnv for a command that talks to the remote. On top of it, ssh
+// runs in batch mode — unless GIT_SSH_COMMAND or GIT_SSH is already set by the caller or
+// the process, or the repository configures core.sshCommand: GIT_SSH_COMMAND
+// would override that, and an operator's proxy command or identity file is not
+// ours to replace (the rule cloneEnv follows).
+func netEnv(dir string, extra []string) []string {
+	env := gitEnv(extra)
+	if hasEnv(env, "GIT_SSH_COMMAND") || hasEnv(env, "GIT_SSH") {
+		return env
+	}
+	// Bounded: this runs before every fetch and push, and must not become the
+	// thing that hangs.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cfg := exec.CommandContext(ctx, "git", "-C", dir, "config", "--get", "core.sshCommand")
+	cfg.Env = env
+	if out, err := cfg.Output(); err == nil && strings.TrimSpace(string(out)) != "" {
+		return env
+	}
+	return append(env, "GIT_SSH_COMMAND="+sshBatchCommand)
+}
+
+// runGitNet runs a git command that talks to the remote, bounded by timeout
+// with a process-group kill (the way Fetch is), under netEnv. A deadline hit
+// comes back as a RemoteTimeoutError.
+func runGitNet(dir, remote string, timeout time.Duration, env []string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = netEnv(dir, env)
+	killGroupOnCancel(cmd)
+	cmd.WaitDelay = time.Second
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return string(out), &RemoteTimeoutError{Remote: remote, After: timeout}
+	}
+	return string(out), err
 }
 
 // IsRepo checks whether the directory is a valid git repository.
@@ -56,7 +105,10 @@ var ErrCloneTimeout = errors.New("git clone timed out")
 // indistinguishable from a hang — while a copy is kept to translate a failure
 // into something actionable.
 func Clone(ctx context.Context, remote, dest string, env ...string) error {
-	cmd := exec.CommandContext(ctx, "git", "clone", "--progress", remote, dest)
+	if err := ValidateRemote(remote); err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, "git", "clone", "--progress", "--", remote, dest)
 	cmd.Env = cloneEnv(remote, env)
 	var stderr strings.Builder
 	cmd.Stderr = io.MultiWriter(os.Stderr, &stderr)
@@ -75,11 +127,53 @@ func Clone(ctx context.Context, remote, dest string, env ...string) error {
 // or a jump host has said how to reach their forge, and overwriting that
 // breaks a working setup to prevent a hypothetical one.
 func cloneEnv(remote string, extra []string) []string {
-	env := append(gitEnv(extra), "GIT_TERMINAL_PROMPT=0")
+	env := gitEnv(extra)
+	// A redirect or a submodule must not reintroduce a transport helper
+	// (ext::, fd::) the allow-list in ValidateRemote refused up front.
+	if !hasEnv(env, "GIT_ALLOW_PROTOCOL") {
+		env = append(env, "GIT_ALLOW_PROTOCOL="+strings.Join(allowedRemoteSchemes, ":"))
+	}
 	if !isSSHRemote(remote) || hasEnv(env, "GIT_SSH_COMMAND") {
 		return env
 	}
 	return append(env, "GIT_SSH_COMMAND=ssh -o BatchMode=yes -o ConnectTimeout=10")
+}
+
+// allowedRemoteSchemes are the URL schemes a remote may use.
+var allowedRemoteSchemes = []string{"https", "http", "ssh", "git", "file"}
+
+var bracketedRE = regexp.MustCompile(`\[[^\]]*\]`)
+
+// ValidateRemote refuses an operator-supplied remote that git would read as an
+// option (leading "-") or run as a transport helper ("ext::<command>"). It is
+// an allow-list of forms, not a deny-list: scp-like (git@host:path), a URL
+// with one of allowedRemoteSchemes, or a plain local path.
+func ValidateRemote(remote string) error {
+	if remote == "" {
+		return errors.New("remote must not be empty")
+	}
+	for _, r := range remote {
+		if r < 0x20 || r == 0x7f {
+			return errors.New("remote must not contain control characters")
+		}
+	}
+	if strings.HasPrefix(remote, "-") {
+		return errors.New("remote must not start with '-'")
+	}
+	head, _, _ := strings.Cut(remote, "/")
+	// "::" inside [...] is an IPv6 literal (git@[::1]:repo.git), not a helper.
+	if strings.Contains(bracketedRE.ReplaceAllString(head, "[]"), "::") {
+		return fmt.Errorf("remote %q uses git's <transport>::<address> helper syntax, which is not accepted", remote)
+	}
+	if scheme, _, found := strings.Cut(remote, "://"); found {
+		for _, ok := range allowedRemoteSchemes {
+			if strings.EqualFold(scheme, ok) {
+				return nil
+			}
+		}
+		return fmt.Errorf("remote scheme %q is not accepted: use one of %s", scheme, strings.Join(allowedRemoteSchemes, ", "))
+	}
+	return nil
 }
 
 // hasEnv reports whether key is assigned anywhere in env.
@@ -152,7 +246,10 @@ var ErrProbeTimeout = errors.New("git ls-remote timed out")
 // empty answer is what distinguishes a repository to create a KB in from one
 // that already holds something to clone.
 func ProbeRemote(ctx context.Context, remote string) (hasRefs bool, err error) {
-	cmd := exec.CommandContext(ctx, "git", "ls-remote", remote)
+	if err := ValidateRemote(remote); err != nil {
+		return false, err
+	}
+	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--", remote)
 	cmd.Env = cloneEnv(remote, nil)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -416,7 +513,7 @@ func LsRemote(dir, remote string, env ...string) (RemoteRefs, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "ls-remote", "--symref", remote)
-	cmd.Env = gitEnv(env)
+	cmd.Env = netEnv(dir, env)
 	killGroupOnCancel(cmd)
 	cmd.WaitDelay = time.Second
 	var stderr strings.Builder
@@ -660,7 +757,7 @@ func Fetch(dir, remote string, env ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "fetch", remote)
-	cmd.Env = gitEnv(env)
+	cmd.Env = netEnv(dir, env)
 	killGroupOnCancel(cmd)
 	cmd.WaitDelay = time.Second
 	out, err := cmd.CombinedOutput()
@@ -846,12 +943,31 @@ func ResetHardTo(dir, ref string, env ...string) error {
 // Returns error on non-fast-forward (caller should rebase and retry).
 // env carries extra per-KB variables (e.g. GIT_SSH_COMMAND) — see runGitEnv.
 func Push(dir, remote, branch string, env ...string) error {
-	out, err := runGitEnv(dir, env, "push", remote, branch)
+	out, err := runGitNet(dir, remote, PushTimeout, env, "push", remote, branch)
 	if err != nil {
-		return fmt.Errorf("git push %s %s: %w: %s", remote, branch, err, out)
+		return pushError(fmt.Sprintf("git push %s %s", remote, branch), err, out)
 	}
 	return nil
 }
+
+// pushError words a failed push: a timeout as is, a known remote failure with
+// its remedy (the raw output kept), anything else as the bare status.
+func pushError(what string, err error, out string) error {
+	var rte *RemoteTimeoutError
+	if errors.As(err, &rte) {
+		return fmt.Errorf("%s: %w", what, err)
+	}
+	if remedy := remoteRemedy(out); remedy != "" {
+		return fmt.Errorf("%s: %s\n%s: %w", what, remedy, strings.TrimSpace(out), err)
+	}
+	return fmt.Errorf("%s: %w: %s", what, err, out)
+}
+
+// PushTimeout bounds one git push. A push carries data, so it gets a longer
+// bound than FetchTimeout, but it is bounded all the same: an unbounded push
+// holds the KB's git lock, and every tool call behind it, for as long as the
+// remote stalls. A variable so tests can shorten it.
+var PushTimeout = 60 * time.Second
 
 // PushSetUpstream pushes branch to remote and sets it as the branch's
 // upstream ("git push -u"). Used once per KB: when its origin is first
@@ -860,9 +976,9 @@ func Push(dir, remote, branch string, env ...string) error {
 // in internal/kb uses Push, which must not touch tracking configuration.
 // env carries extra per-KB variables (e.g. GIT_SSH_COMMAND) — see runGitEnv.
 func PushSetUpstream(dir, remote, branch string, env ...string) error {
-	out, err := runGitEnv(dir, env, "push", "-u", remote, branch)
+	out, err := runGitNet(dir, remote, PushTimeout, env, "push", "-u", remote, branch)
 	if err != nil {
-		return fmt.Errorf("git push -u %s %s: %w: %s", remote, branch, err, out)
+		return pushError(fmt.Sprintf("git push -u %s %s", remote, branch), err, out)
 	}
 	return nil
 }
@@ -1244,7 +1360,10 @@ func RemoteURL(dir, remote string) (string, error) {
 
 // AddRemote adds a remote with the given name and URL.
 func AddRemote(dir, name, url string) error {
-	out, err := runGit(dir, "remote", "add", name, url)
+	if err := ValidateRemote(url); err != nil {
+		return err
+	}
+	out, err := runGit(dir, "remote", "add", "--", name, url)
 	if err != nil {
 		return fmt.Errorf("git remote add %s: %w: %s", name, err, out)
 	}
@@ -1257,9 +1376,22 @@ func BranchExists(dir, branch string) bool {
 	return err == nil
 }
 
+// noEOL keeps a stash round trip byte for byte: with core.autocrlf=true (the
+// Git for Windows default) a pop checks the stashed files out with CRLF, so a
+// write the gate stashed and restored came back rewritten.
+var noEOL = []string{"-c", "core.autocrlf=false"}
+
 // StashPush stashes uncommitted changes.
 func StashPush(dir string) error {
-	out, err := runGit(dir, "stash", "push")
+	return StashPushEnv(dir)
+}
+
+// StashPushEnv is StashPush with env layered on the git process environment.
+// git stash creates commits, so a host with no git identity needs the caller
+// to pass one (kb.ServerGitEnv) or the stash fails with "Committer identity
+// unknown".
+func StashPushEnv(dir string, env ...string) error {
+	out, err := runGitEnv(dir, env, append(noEOL, "stash", "push")...)
 	if err != nil {
 		return fmt.Errorf("git stash push: %w: %s", err, out)
 	}
@@ -1268,7 +1400,7 @@ func StashPush(dir string) error {
 
 // StashPop pops the last stash. Returns error if nothing to pop.
 func StashPop(dir string) error {
-	out, err := runGit(dir, "stash", "pop")
+	out, err := runGit(dir, append(noEOL, "stash", "pop")...)
 	if err != nil {
 		return fmt.Errorf("git stash pop: %w: %s", err, out)
 	}
@@ -1421,7 +1553,13 @@ func DiscardChanges(dir string) error {
 // StashPushAll stashes every uncommitted change including untracked files, so
 // the tree is at HEAD until StashPop (StashPush leaves untracked files behind).
 func StashPushAll(dir string) error {
-	out, err := runGit(dir, "stash", "push", "--include-untracked")
+	return StashPushAllEnv(dir)
+}
+
+// StashPushAllEnv is StashPushAll with env layered on the git process
+// environment. See StashPushEnv for why a caller passes the server identity.
+func StashPushAllEnv(dir string, env ...string) error {
+	out, err := runGitEnv(dir, env, append(noEOL, "stash", "push", "--include-untracked")...)
 	if err != nil {
 		return fmt.Errorf("git stash push --include-untracked: %w: %s", err, out)
 	}

@@ -60,7 +60,7 @@ describe("the Secrets panel", () => {
         : route(url),
     );
     render(<App />);
-    expect(await screen.findByText("This KB keeps no secrets")).toBeInTheDocument();
+    expect(await screen.findByText("This KB keeps no secrets.")).toBeInTheDocument();
     expect(screen.getByText("secrets/<name>.sops.yaml").tagName).toBe("CODE");
     const link = screen.getByRole("link", { name: "Docs" });
     expect(link).toHaveAttribute(
@@ -79,7 +79,7 @@ describe("the Secrets panel", () => {
         : route(url),
     );
     render(<App />);
-    expect(await screen.findByText("This KB keeps no secrets")).toBeInTheDocument();
+    expect(await screen.findByText("This KB keeps no secrets.")).toBeInTheDocument();
     expect(screen.getByText(/Files named secrets\/\*\.sops\.yaml appear here/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Docs" })).not.toBeInTheDocument();
   });
@@ -88,6 +88,8 @@ describe("the Secrets panel", () => {
     const requested = stub(true);
     const user = userEvent.setup();
     render(<App />);
+    // The values open in the file's detail, as an artifact's files do.
+    await user.click(await screen.findByRole("button", { name: /demo\.sops\.yaml/ }));
     expect(await screen.findByText("secrets/demo.sops.yaml")).toBeInTheDocument();
     expect(screen.getByLabelText("Value of /demo/ports/1")).toHaveTextContent("••••••••");
     expect(screen.getByText(/^used by/)).toBeInTheDocument();

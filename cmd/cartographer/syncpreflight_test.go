@@ -16,7 +16,7 @@ func TestPreflightEnvironment_MissingTokenOnly(t *testing.T) {
 	cfg := &clientconfig.Config{
 		ServerURL: "https://example.test/mcp",
 		Auth:      true,
-		TokenEnv:  "CARTOGRAPHER_TEST_TOKEN",
+		Token:     "${CARTOGRAPHER_TEST_TOKEN}",
 		Agents:    []string{"claude"},
 	}
 	err := preflightEnvironment(cfg)
@@ -37,7 +37,7 @@ func TestPreflightEnvironment_AuthDisabled_IgnoresToken(t *testing.T) {
 	cfg := &clientconfig.Config{
 		ServerURL: "https://example.test/mcp",
 		Auth:      false,
-		TokenEnv:  "CARTOGRAPHER_TEST_TOKEN",
+		Token:     "${CARTOGRAPHER_TEST_TOKEN}",
 		Agents:    []string{"claude"},
 	}
 	if err := preflightEnvironment(cfg); err != nil {
@@ -57,7 +57,7 @@ func TestRunSync_DryRun_StopsOnPreflight(t *testing.T) {
 	cfg := &clientconfig.Config{
 		ServerURL: "http://127.0.0.1:1/mcp",
 		Auth:      true,
-		TokenEnv:  "CARTOGRAPHER_TEST_TOKEN",
+		Token:     "${CARTOGRAPHER_TEST_TOKEN}",
 		Agents:    []string{"claude"},
 	}
 	_, err := runSync(t.TempDir(), cfg, syncOptions{DryRun: true})

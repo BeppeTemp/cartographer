@@ -354,8 +354,8 @@ func TestResolveEveryCloneGoneNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected not-found error")
 	}
-	if !strings.Contains(err.Error(), "search_depth") {
-		t.Errorf("error missing search_depth guidance: %v", err)
+	if !strings.Contains(err.Error(), "search_roots") || strings.Contains(err.Error(), "search_depth") {
+		t.Errorf("error must point at search_roots, not at the removed search_depth: %v", err)
 	}
 }
 

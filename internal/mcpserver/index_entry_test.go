@@ -66,7 +66,8 @@ func runBatch(t *testing.T, s *Server, ops []map[string]any) (ToolResult, map[st
 func TestConceptBatch_IndexEntry_AddsOrderedEntriesInOneCommit(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKB(t)
-	seedIndexMaps(t, k, mapFiles("docs", "require_index_entry: true\n"))
+	seedIndexMaps(t, k, mapFiles("docs", ""))
+	forwardLinks(t, k, "docs/beta", "docs/alpha", "docs/skipped")
 	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}
@@ -74,9 +75,20 @@ func TestConceptBatch_IndexEntry_AddsOrderedEntriesInOneCommit(t *testing.T) {
 	RegisterKBTools(s, k, Deps{})
 	before := commitCount(t, k)
 
-	tr, out := runBatch(t, s, []map[string]any{
+	// A page without index_entry in a curated map is refused whole (D907).
+	tr, _ := runBatch(t, s, []map[string]any{
 		batchWrite("docs/beta", "Beta", map[string]any{"index_entry": true}),
 		batchWrite("docs/skipped", "Skipped", nil),
+	})
+	if !tr.IsError || !containsText(tr, "index_incomplete") || !containsText(tr, "docs/skipped") {
+		t.Fatalf("batch with an unlisted page was not refused: %+v", tr.Content)
+	}
+	if got := commitCount(t, k) - before; got != 0 {
+		t.Fatalf("a refused batch committed %d times", got)
+	}
+
+	tr, out := runBatch(t, s, []map[string]any{
+		batchWrite("docs/beta", "Beta", map[string]any{"index_entry": true}),
 		batchWrite("docs/alpha", "Alpha", map[string]any{"index_entry": true}),
 	})
 	if tr.IsError {
@@ -97,30 +109,12 @@ func TestConceptBatch_IndexEntry_AddsOrderedEntriesInOneCommit(t *testing.T) {
 	if !strings.Contains(log, "- docs/beta (+ index entry)") || strings.Contains(log, "- docs/skipped (+") {
 		t.Fatalf("log:\n%s", log)
 	}
-	// The indexed pages carry no index_incomplete; the skipped one does.
+	// The indexed pages carry no index_incomplete.
 	for _, r := range out["results"].([]any) {
 		entry := r.(map[string]any)
-		hasIncomplete := strings.Contains(fmt.Sprint(entry["findings"]), "index_incomplete")
-		if entry["id"] == "docs/skipped" && !hasIncomplete {
-			t.Errorf("skipped page should report index_incomplete: %v", entry)
-		}
-		if entry["id"] != "docs/skipped" && hasIncomplete {
+		if strings.Contains(fmt.Sprint(entry["findings"]), "index_incomplete") {
 			t.Errorf("indexed page reports index_incomplete: %v", entry)
 		}
-	}
-}
-
-func TestConceptBatch_IndexEntry_CuratedMapWithoutRequireIndexEntry(t *testing.T) {
-	t.Parallel()
-	k := setupTestKB(t)
-	seedIndexMaps(t, k, mapFiles("plain", ""))
-	s := New("test")
-	RegisterKBTools(s, k, Deps{})
-	if tr, _ := runBatch(t, s, []map[string]any{batchWrite("plain/new", "New", map[string]any{"index_entry": true})}); tr.IsError {
-		t.Fatalf("%+v", tr.Content)
-	}
-	if !strings.Contains(readIdx(t, k, "plain"), "- [New](new.md)") {
-		t.Fatal("explicit index_entry must edit a curated index without require_index_entry")
 	}
 }
 
@@ -162,6 +156,7 @@ func TestConceptBatch_IndexEntry_GeneratedAndAlreadyLinked(t *testing.T) {
 	k := setupTestKB(t)
 	seedIndexMaps(t, k, mapFiles("gen", "index: generated\n"))
 	seedIndexMaps(t, k, mapFiles("docs", ""))
+	forwardLinks(t, k, "gen/new", "docs/old")
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	// "old" is linked by the seeded index already.
@@ -229,8 +224,9 @@ func TestConceptNew_IndexEntry(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(k.Root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: {{title}}\n---\n# Details\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	seedIndexMaps(t, k, mapFiles("docs", "require_index_entry: true\n"))
+	seedIndexMaps(t, k, mapFiles("docs", ""))
 	seedIndexMaps(t, k, mapFiles("gen", "index: generated\n"))
+	forwardLinks(t, k, "docs/fresh", "gen/fresh")
 	if _, err := k.CommitOp("test: seed"); err != nil {
 		t.Fatal(err)
 	}

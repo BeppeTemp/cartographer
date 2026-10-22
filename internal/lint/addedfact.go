@@ -39,8 +39,8 @@ const RepeatedFactLookupCap = repeatedFactLookupCap
 // re-read and kept only when factLines of its body holds the same key.
 //
 // budget is the number of lookups this call may still spend (shared across a
-// batch); the second result is the number it used. Advice only: severity info,
-// no Fix (judgement, D14), nothing on any error. It needs the previous body
+// batch); the second result is the number it used. Advice only: no Fix
+// (judgement, D14), nothing on any error. It needs the previous body
 // and an index, so it is not part of ScopedCheck and not of gate_check.
 func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, budget int, lookup func(line string) []okf.ConceptID) ([]Finding, int) {
 	if lookup == nil || budget <= 0 {
@@ -52,31 +52,7 @@ func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, bu
 	if len(cur) == 0 {
 		return nil, 0
 	}
-	mapName, _, _ := strings.Cut(string(id), "/")
 	min := repeatedFactMinConcepts
-	if contract, err := k.ReadMapContract(mapName); err == nil && contract.RepeatedFactMin > 0 {
-		min = contract.RepeatedFactMin
-	}
-	if min < 2 {
-		min = 2
-	}
-	var ignores map[string]bool
-	if data, err := k.ReadConcept(id); err == nil {
-		if fm, _ := okf.ParseFrontmatter(data.FrontmatterRaw); fm != nil {
-			ignores = lintIgnoreSet(fm)
-		}
-	}
-	if meta, err := k.ReadArchiveMeta(mapName); err == nil {
-		for c := range lintIgnoreSet(meta) {
-			if ignores == nil {
-				ignores = map[string]bool{}
-			}
-			ignores[c] = true
-		}
-	}
-	if ignores[ReviewRepeatedFact] {
-		return nil, 0
-	}
 	path := okf.IDToPath(id)
 
 	// Added lines in order of appearance in the new body.

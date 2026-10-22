@@ -48,10 +48,16 @@ run on every push to `main`, on the release-please PR, and on a feature PR that
 touches a package with platform-specific code — `cmd/`, `internal/{service,provisioning,configurator,clientconfig,agents,execbit,gitx,kb,repoindex,defaults}`,
 the installers, any `*_windows.go` (D672). A regression elsewhere still shows
 on `main` right after the merge. The `web` legs run after every push to `main`
-and on a PR that touches their paths (D672, D255); the Playwright browser is
-cached by version. A `changes` job decides both, failing open, and the
+and on a PR that touches the frontend, `test/lib/`, the build files, or a
+non-test file of a package `bin/cartographer` imports: `internal/{changelog,repodocs,testkbs,webui/gen}`
+and every `_test.go` cannot change what the browser sees (D672, D255, D994); the
+Playwright browser is cached by version. A `demo-edge` job runs the demo
+Worker's tests (`make demo-worker-test`) and, for Terraform changes, `make demo-tf-check`
+when `deploy/demo/` changes. A `changes` job decides all of these with
+`scripts/ci-filters.sh` (a table pinned by `internal/repodocs/ci_filters_test.go`,
+which also compares the excluded packages with `go list -deps`), failing open, and the
 release-please PR always runs everything. `test`, `test-windows`, `web` and
-`pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) are required checks; a job skipped by its path condition reports as
+`pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the approved-plan, size and next-train rules, D955) are required checks; a job skipped by its path condition reports as
 passed. On `main` every push gets its own run (the concurrency group is the
 commit), and the `main-status` job opens a `ci-red` issue on the first
 failing push, comments on later ones, and closes it on the next green push. `docs/decisions.md`'s
@@ -79,7 +85,8 @@ test that stubs only the home directory writes task definitions into the
 `test-windows` runner's real user profile — `withTestHome` neutralises both. And
 the recorded commands are asserted, not merely the absence of an error: no test
 stubs `os.Getuid`, which returns `-1` on Windows, so a branch that built
-`gui/-1/com.cartographer.serve` would otherwise pass. What the gate cannot check
+`gui/-1/com.cartographer.serve` would otherwise pass. The launchd branch is the one that
+is also run for real, on a macOS runner (§Real macOS, D997). What the gate cannot check
 is the *schema validity* of the two generated task XML documents — nothing
 registers a task, since `make gate` stays side-effect-free — so their element
 order follows Task Scheduler's own export, and the first real
@@ -98,11 +105,67 @@ tampering rejection before `Apply`.
 Git write coverage (D903) uses local bare remotes: a KB with a remote syncs and one
 without never contacts anything, every write commits, the branch named by `branch` counts
 only when committed on the remote's default branch, and a push the remote refuses
-because the branch is protected (a `pre-receive` hook standing in for the forge) is
-reported as such and not retried. Realignment of the three settings files (server YAML,
+because the branch is protected is reported as such and not retried. The forge's
+push rules are one portable `pre-receive` hook, `test/forge/pre-receive.sh` (D996),
+shared by the Go tests and the e2e scenarios and configured by files next to it in the
+bare repository's `hooks/`: `allowed-identities` (one email glob per line, GitLab's
+member check on the author and the committer of every new commit, a merge or a new
+branch included) and `protected-branch` (a glob, with the GH006 wording). It is POSIX
+sh and LF, so it runs under git's bundled sh on the Windows shards too. The writer
+path is tested against it: a write that names its author (`Cartographer-Author`)
+reaches a remote that checks membership, one that does not is refused with the hook's
+message and stays committed locally, a KB with `git.identity` publishes, and a commit
+made with no writer is re-committed by that identity (`gitwrap_author_test.go`,
+`memberrule_test.go`). Authentication is tested against the real `git http-backend`
+behind basic auth, in process (`internal/gitx/gitxtest`): clone, fetch and push with
+the token helper, a wrong token (the "credentials were rejected" remedy), no token
+(terminal prompts disabled, never a hang), `SyncOut`/`SyncIn` of a KB and a hook's
+rejection reaching the caller through HTTP. `smoke-http` and `e2e` run with **no git
+identity** on the host (`GIT_CONFIG_GLOBAL` points at a file holding only
+`init.defaultBranch`): a scenario that commits by hand passes its identity with `-c`;
+scenario 21 serves a KB whose remote enforces membership. Realignment of the three settings files (server YAML,
 client file, a KB's `settings.yaml`) is tested for what it drops, what it resets, what
 it keeps, its report, its backup (or, for a KB, its commit) and that a second run
-changes nothing. CI never calls a forge.
+changes nothing. An ordinary CI run never calls a forge; the real ones are below.
+
+### Real forges (D996)
+
+`test/forge/run.sh forgejo|gitlab` starts a pinned container (Forgejo, GitLab CE),
+creates a user, a project and an access token through the REST API, then drives the
+binary against it: `kb create` over HTTPS with the token, a write with and one
+without `Cartographer-Author`, a second clone publishing and the next write pulling
+it in, a protected branch (reported as such, the remote unmoved), and on Forgejo SSH
+with the KB's own `<kb>.ssh`. Everything is asserted through the forge's API. GitLab's
+member-check push rule is a Premium feature: where the edition answers that it is
+not there the script says so and the rule stays covered by the hook tests above. It
+runs in the `forge` CI job only on the release PR, on a PR that touches `test/forge/`,
+and on `workflow_dispatch` (`gh workflow run ci.yml --ref <branch>`), never on `main`
+and never as a required check. By hand, from the repository root, with Docker:
+`make build && test/forge/run.sh forgejo` (`FORGE_KEEP=1` leaves the container up;
+`FORGE_PORT`, `FORGE_SSH_PORT` and `FORGE_SERVER_PORT` move the ports).
+
+### Real macOS (D997)
+
+The `test-macos` CI job (`macos-latest`) runs three scripts under `test/macos/`
+(shared helpers in `lib.sh`, bash 3.2 as macOS ships it), against two real binaries
+built with `-X main.version=v9.9.8` and `v9.9.9`. `service.sh` installs the service
+under the real launchd (`plutil -lint`, `launchctl print` state, `/health` ready,
+`restart --wait` with a new pid, `stop` (nothing serves) then `start`, `uninstall` then status
+exit 4, the sync timer plist). `install.sh` runs `install.sh install` and `update`
+(the fake curl of `test/install/lib/`, no network) over a real running service and
+asserts `/health` reports the new version after `upgrade-repair`, that a checksum
+mismatch leaves the old binary and the same pid, and that `uninstall` refuses while
+the units exist. `cask.sh` installs the Cask a `goreleaser release --snapshot
+--skip=publish` renders from a local tap (`brew tap-new local/cart-test`, only the
+`url` rewritten to the snapshot binary), and checks the version, the absent
+quarantine attribute (the `postflight_steps`), the caveats and the uninstall.
+The scripts register a real job under the account's own `$HOME` (the home guard,
+`internal/service/homeguard.go`, refuses a sandbox one) so they refuse to run
+outside CI unless `CARTOGRAPHER_MACOS_E2E=1`: never on a Mac that runs its own
+Cartographer service, which carries the same label. The job runs on the release PR,
+on a PR touching `internal/service/`, `install.sh`, `.goreleaser.yaml`,
+`test/install/`, `test/macos/` or the service commands, on `main` and on
+`workflow_dispatch`; it is not a required check, `main-status` watches it.
 
 CLI JSON tests decode stdout as JSON and assert that diagnostics remain on
 stderr. Golden help is limited to 80 columns. Bubble Tea view/update tests use
@@ -132,11 +195,10 @@ otherwise silent — no client, compiler or linter reports any of them:
 - every relative link in every tracked markdown file resolves, and none uses the
   retired `#d<n>` anchor form;
 - each skill's frontmatter parses with the same spec-compliant YAML parser a
-  client uses, and satisfies the strictest client's rules (D207);
-- the skill bridges are symlinks **in the git index**, so the answer is the same
-  on a Windows checkout as on CI;
-- `CONTRIBUTING.md`'s per-client table agrees with the provider matrix in
-  `internal/provisioning` (D207);
+  client uses, and satisfies the strictest client's rules (D207), the skills being real directories in
+  `.claude/skills/`;
+- each subagent in `.claude/agents/` pins a Claude model, and the read-only ones
+  (reviewers, source reader) carry no `Edit` or `Write` tool (D992);
 - `CLAUDE.md` is exactly `@AGENTS.md` and nothing else, and the corpus these
   checks read actually contains the files they exist to read — a corpus definition
   fails by matching nothing and passing.
@@ -151,8 +213,28 @@ stdio the client owns the pipe's lifetime and the server tears the session down
 on EOF, so closing it immediately races the response out of existence
 ([D168](decisions/D168-the-mcp-wire-format-comes-from-the-official-sdk.md)).
 
-This is a fast local check and is not currently a separate CI step; the Go
-server tests cover the same protocol path more precisely.
+`make smoke` runs in the `test` job after `make smoke-http` (D994). A test in
+`internal/repodocs` fails when a Makefile target is run by no workflow and is not
+in its list of local-only targets.
+
+### Image smoke
+
+`make docker-smoke` builds the server image and runs
+[`test/smoke/image.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/smoke/image.sh)
+on it (D995): `git`, `sops`, `age` and `ssh` are in the image, `version` prints
+the `VERSION` build-arg, the user is not root, a KB created on a data volume is
+served over HTTP with a token (no token is a 401), and a `map_create` plus a
+`concept_batch` write read back through `concept_read` and leave one more commit in
+the KB's repository. It runs on the runner's architecture only.
+
+CI runs it in the `docker` job of `ci.yml`, after the Dockerfile's `test` stage
+(`docker build --target test .`: vet and test in a clean alpine) and before
+`make demo-smoke DEMO_BASE=cartographer:ci`, on a PR that touches the image's inputs
+and always on the release PR and on `main`. `preview.yml` runs the same script on
+the release candidate before it pushes. `mcp_call` is shared with the HTTP smoke
+through `test/lib/mcp.sh`. Run `docker build --target test .` from a clone, not from
+a git worktree: the worktree's `.git` file is copied into the image and breaks
+`git config`.
 
 ### HTTP smoke
 
@@ -169,7 +251,10 @@ says "tool not found", which the script would otherwise print and count as a
 pass.
 
 `15_operational_audit` closes the loop end-to-end by tampering with a recorded
-entry and requiring `audit verify` and `audit export` to fail on it.
+entry and requiring `audit verify` and `audit export` to fail on it. It also
+strips every signature from a copy of the log (the chain stays valid, the
+signature is not hashed) and requires both commands to fail with
+`--public-key` while `verify` without a key still passes.
 
 **Removed topology keys are exercised as a real upgrade.** `16_deprecated_prefix_keys` starts a
 server whose config still carries `mcp.mount_mode`, `mcp.tool_prefix_mode` and an explicit
@@ -290,10 +375,16 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 `web/src/test/locale.test.ts` scans the sources and rejects any `toLocale*String` call without `"en"` as first argument, and any `Intl.` or `navigator.language`: the UI is English in every browser locale, and a value test of a formatter would pass on an English runner even with the bug back.
 
 To work on the UI live, `make dev` from a worktree runs both halves and rebuilds
-the server on every Go change (`CONTRIBUTING.md` §Live sessions). Without `DATA` it serves a throwaway copy of ten
-generated test KBs (`internal/testkbs`, 5,000 concepts down to 30, every Atlas state planted; D818), cached per day in
-`$TMPDIR/cartographer-testkbs`, with the audit log on; `internal/testkbs/testkbs_test.go` checks the planted states, the
-bare KB and the fleet's scale. By hand: run a
+the server on every Go change (with `DATA`, the installed client reports to it through `sync --report-to`, D1044) (`CONTRIBUTING.md` §Live sessions). Without `DATA` it serves a throwaway copy of ten
+generated test KBs (`internal/testkbs`; D818, D1032): the 5,000-concept scale KB, the bare 30-concept KB, and nine KBs that
+take the shape of measured real ones (Maps and journals, expanded concepts with up to a hundred satellites, pages past
+90 KB, hubs with a hundred backlinks, a status mix, thousands of commits) with invented content, named after their themes
+(`seed-bank`, `ferry-line`, …). The shapes are a table of numbers (`profiles.go`), the words invented per theme
+(`themes.go`); the history is written through one `git fast-import` per KB. Every Atlas state is planted somewhere in
+the fleet, the conflicts on `ferry-line`. The fleet is cached per day in
+`$TMPDIR/cartographer-testkbs`, with the audit log on; `internal/testkbs` tests check the planted states, the bare KB, the
+fleet, each profile (`profiles_test.go`) and that no generated page holds a word outside the package's vocabulary. Beside the KBs it posts the settings report of an imaginary client (`client-report.json`,
+built by `clientconfig.Save` and `Report`) after every server start, so Settings → Client has a machine to show. By hand: run a
 server (`cartographer serve --http :39273 --kb …`) and `cd web && npm run dev`: Vite serves the UI with hot reload on
 `http://localhost:5173/ui/` and proxies `/api` and `/health` (the version beside the theme switch) to the server
 (`CARTOGRAPHER_DEV_API` for another address); the Atlas follows the KB live
@@ -347,10 +438,9 @@ toolchain (D227). What they hold:
 - the live refresh bumps only when the KB revision changes, stops for good on a
   `404` (a narrowed principal has no revision) and never polls while disabled
   (D337);
-- Health (D338, D365): findings grouped by check with who acts on each,
-  info findings counted as the doctor's improvements, the verdict for a doctor that never ran and one
-  that keeps up, revealing a concept or saying there is none, scoped by its own Map chips so a
-  clean Map never reads as a clean KB; the lint trend (shown from two samples, absent with one), the upkeep, questions and repairs, each
+- Health (D338, D365, D947): lint problems grouped by check with who acts on each (one list, no
+  suggestions band, the doctor's review items left out), revealing a concept or saying there is none, scoped by its own Map chips so a
+  clean Map never reads as a clean KB; the upkeep, questions and repairs, each
   copy action a clipboard write and every request a `GET`; a whole-KB `404`
   left out silently while another failure is reported; the old
   `panel=observatory` and `panel=maintenance` links landing on Health;
@@ -373,7 +463,7 @@ toolchain (D227). What they hold:
   p95, and paused motion dies out; a non-finite node is repaired at its
   neighbours' centroid;
 - the 3D motion and camera policy (`src/test/motion.test.ts`): the panorama
-  turns only after quiet time with nothing selected; signals run only on the
+  turns only after quiet time with nothing selected; the drift runs at half rate past the tick budget and rests only past 12 ms (D1044); signals run only on the
   selection's links, in their data direction, within 48 and a finite span;
   focus centres the node in the strip the inspector leaves visible;
 - the no-WebGL state: the shell names why there is no graph and keeps the
@@ -406,7 +496,7 @@ toolchain (D227). What they hold:
   rail, an archive map badged and listed after the live ones.
   saying so when the server fell back to them, and starting each opening unpressed.
 - the release history (D862, `src/test/releases.test.tsx`): the version in the
-  top bar and in the Settings title opens a sheet that fetches only then;
+  top bar opens a sheet that fetches only then;
   newest first, one `Current` badge, scrolled to only when newer releases
   precede it; the upgrade block only with a command; the disabled, unreachable
   and stale notices; a cut changelog pointing at GitHub; a changelog with
@@ -455,8 +545,10 @@ of a relationship — the inspector lists every link.
   few percent. Reference measurement for 2,000 nodes / ~3,900 edges: the 3D
   warm-up (300 ticks) takes ~2.2 s on an Apple M5 and ~5.4 s on a
   GitHub-hosted runner.
-- **Scale target** (#861: ten KBs, the largest at 5,000 concepts, the fleet
-  `make dev` serves). Measured by hand, not in CI, headed on the GPU (Apple M5,
+- **Scale target** (#861: ten KBs, the largest at 5,000 concepts). **Historical
+  measurement, on the fleet before D1032**: `test-800` and the other mid-size KBs
+  no longer exist, so the table below cannot be reproduced with `bench.mjs`; the
+  nearest KB today is `ferry-line`. Measured by hand, not in CI, headed on the GPU (Apple M5,
   ANGLE Metal, 144 Hz display) with `web/scripts/bench.mjs --gpu` and
   `web/scripts/idle.mjs --gpu`, from `web/` after `make build`:
 
@@ -530,7 +622,7 @@ What it holds, beyond the component tests:
 
 - the flows — local mode with no prompt; the bearer prompt, and "remember for
   this tab" surviving a reload but not a new tab; KB switching; Map drill-in;
-  type/status filters and Health's severity floor; the command
+  type/status filters; the command
   palette; URL state with Back/Forward and deep links; backlink chips;
   Health findings revealing their concept or saying there is no node;
   Health's findings scoped by its Map chips (`hmap`), the rail's Maps opening the Atlas, and the node filters stepping aside;
@@ -620,6 +712,8 @@ scripts against a scratch bare repository.
 - Provider/model quality comparisons.
 - Tests requiring production credentials or external private infrastructure.
 - Manual UI appearance checks, and screenshot baselines of the Atlas UI (D228).
+- The macOS scripts on any other host: `test/macos/` runs only on a macOS runner (or a
+  throwaway Mac with `CARTOGRAPHER_MACOS_E2E=1`).
 - The shell harnesses on Windows: `make smoke-http`, `make e2e` and
   `make test-install` are POSIX `sh` scripts (`test/smoke/`, `test/e2e/`,
   `test/install/`) driving a launchd/systemd install path, so they run on the
@@ -657,6 +751,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 
 ## Before a release
 
+- The Saturday release candidate (`release-train.yml` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D956) has passed the image smoke before its push (D995) and has run on a real deployment; only then is the `rc-ok` label added to the release PR.
 - CI is green on the release commit, including `make e2e-web` in the `web` job.
 - `make smoke` succeeds for the packaged/local stdio path.
 - Installation and upgrade are verified on the target platform.

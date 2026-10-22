@@ -4,8 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -15,7 +13,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/lint"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 var update = flag.Bool("update", false, "rewrite the generated blocks instead of checking them")
@@ -166,142 +163,6 @@ func TestContextFileBudgets(t *testing.T) {
 		t.Errorf("AGENTS.md is %d characters, over the %d this repository allows for a file a "+
 			"client loads whole (see MaxRootChars)", chars, MaxRootChars)
 	}
-}
-
-// One skill, one copy. Every other location is a symlink into .agents/skills,
-// because the way this degrades is that someone replaces a link with a copy and
-// two clients start reading different procedures without any warning.
-//
-// The check is on the **git index**, not on the working tree, and that is the
-// point: a Windows checkout without Developer Mode gets core.symlinks=false and
-// materialises every link as a text file containing its target, so a working-tree
-// check would either fail for that contributor or have to skip and prove nothing.
-// The index records mode 120000 regardless of the platform that checked it out,
-// so this runs identically everywhere. Verified empirically (Kiro CLI 2.21.4, 45
-// runs with negative controls): a client does follow the symlink, and given the
-// materialised-text-file variant it loads nothing at all, silently — which is
-// exactly why the mode has to be asserted rather than assumed.
-func TestSkillBridgesAreSymlinksInTheIndex(t *testing.T) {
-	root := repoRoot(t)
-
-	skills, err := os.ReadDir(filepath.Join(root, CanonicalSkillDir))
-	if err != nil {
-		t.Fatalf("reading %s: %v", CanonicalSkillDir, err)
-	}
-	var names []string
-	for _, s := range skills {
-		if s.IsDir() {
-			names = append(names, s.Name())
-		}
-	}
-	if len(names) == 0 {
-		t.Fatalf("%s is empty: the parity check is not doing anything", CanonicalSkillDir)
-	}
-
-	bridges := SupportedClients()
-	if len(bridges) == 0 {
-		t.Fatal("no client needs a bridge: the parity check is not doing anything")
-	}
-
-	for _, client := range bridges {
-		out, err := gitIndex(root, client.SkillDir)
-		if err != nil {
-			t.Fatalf("git ls-files %s: %v", client.SkillDir, err)
-		}
-
-		for _, name := range names {
-			want := client.SkillDir + "/" + name
-			mode, tracked := out[want]
-			switch {
-			case !tracked:
-				t.Errorf("%s is not in the git index, so %s will not see the %q skill:\n"+
-					"  ln -s ../../%s/%s %s && git add %s",
-					want, client.Name, name, CanonicalSkillDir, name, want, want)
-			case mode != "120000":
-				t.Errorf("%s is recorded in the git index with mode %s instead of 120000 "+
-					"(symlink): it is a copy, and it will drift from %s/%s.\n"+
-					"  git rm -r --cached %s && rm -rf %s && ln -s ../../%s/%s %s && git add %s",
-					want, mode, CanonicalSkillDir, name, want, want, CanonicalSkillDir, name, want, want)
-			}
-		}
-	}
-}
-
-// gitIndex maps every path tracked under dir to its index mode.
-func gitIndex(root, dir string) (map[string]string, error) {
-	cmd := exec.Command("git", "ls-files", "-s", "--", dir)
-	cmd.Dir = root
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	modes := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		// <mode> <sha> <stage>\t<path>
-		meta, path, ok := strings.Cut(line, "\t")
-		if !ok {
-			continue
-		}
-		fields := strings.Fields(meta)
-		if len(fields) == 0 {
-			continue
-		}
-		modes[path] = fields[0]
-	}
-	return modes, nil
-}
-
-// Where a client reads its instructions and its skills is a fact this repository
-// already owns, in internal/provisioning's provider matrix. CONTRIBUTING.md's
-// per-client table restates it for a human, and a restatement drifts: it did,
-// for the whole row of a client. This checks the restatement against the matrix.
-func TestClientSkillSurfacesMatchTheProviderRegistry(t *testing.T) {
-	root := repoRoot(t)
-	contributing := readFile(t, root, "CONTRIBUTING.md")
-
-	const probe = "probe-skill"
-	for _, c := range ClientSurfaces {
-		got := provisioning.ProjectDestination("skill", probe, c.Provider)
-		want := ""
-		if c.SkillDir != "" {
-			want = path.Join(c.SkillDir, probe)
-		}
-		if got != want {
-			t.Errorf("%s: ClientSurfaces says a project-local skill goes to %q, but "+
-				"provisioning.ProjectDestination says %q.\nOne of the two is wrong — the matrix in "+
-				"internal/provisioning/workspacescope.go is the audited source (D193), so change "+
-				"ClientSurfaces and CONTRIBUTING.md unless you are re-auditing the client.",
-				c.Name, want, got)
-		}
-
-		row := tableRow(contributing, "| **"+c.Name+"**")
-		switch {
-		case row == "":
-			t.Errorf("CONTRIBUTING.md §Working with an agent client has no row for %s", c.Name)
-		case !strings.Contains(row, c.RowMustSay):
-			t.Errorf("CONTRIBUTING.md's %s row does not mention %q:\n  %s\n"+
-				"A client with no project-local scope must name its real, global location rather "+
-				"than leaving the reader to assume there is a repo-local one.",
-				c.Name, c.RowMustSay, strings.TrimSpace(row))
-		}
-
-		if c.SkillDir == "" && strings.Contains(row, CanonicalSkillDir) {
-			t.Errorf("CONTRIBUTING.md's %s row claims %s, but the provider matrix gives that "+
-				"client no project-local skill scope at all:\n  %s",
-				c.Name, CanonicalSkillDir, strings.TrimSpace(row))
-		}
-	}
-}
-
-// tableRow returns the first line starting with prefix, or "".
-func tableRow(text, prefix string) string {
-	for _, line := range strings.Split(text, "\n") {
-		if strings.HasPrefix(line, prefix) {
-			return line
-		}
-	}
-	return ""
 }
 
 // The code map in AGENTS.md is generated from the package doc comments, so it
@@ -483,17 +344,17 @@ func TestEveryAgentsMdHasAClaudeImport(t *testing.T) {
 	}
 }
 
-// Written to Kiro's rules, the strictest of the clients in ClientSurfaces, so
-// the same file is valid on every client — and parsed with the same YAML parser a client uses, because
+// Written to Kiro's rules, the strictest of the clients that read
+// agentskills.io files, so the same file is valid on every client — and parsed with the same YAML parser a client uses, because
 // the defect that actually loses a skill is a frontmatter no strict parser
 // accepts, and a lenient reader of our own cannot see it.
 func TestSkillFrontmatterMatchesTheStrictestClient(t *testing.T) {
 	root := repoRoot(t)
 	kebab := regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
-	dirs, err := os.ReadDir(filepath.Join(root, CanonicalSkillDir))
+	dirs, err := os.ReadDir(filepath.Join(root, SkillDir))
 	if err != nil {
-		t.Fatalf("reading %s: %v", CanonicalSkillDir, err)
+		t.Fatalf("reading %s: %v", SkillDir, err)
 	}
 
 	checked := 0
@@ -502,9 +363,9 @@ func TestSkillFrontmatterMatchesTheStrictestClient(t *testing.T) {
 			continue
 		}
 		name := d.Name()
-		fm, err := ParseSkillFrontmatter(filepath.Join(root, CanonicalSkillDir, name, "SKILL.md"))
+		fm, err := ParseSkillFrontmatter(filepath.Join(root, SkillDir, name, "SKILL.md"))
 		if err != nil {
-			t.Errorf("%s/%s: %v", CanonicalSkillDir, name, err)
+			t.Errorf("%s/%s: %v", SkillDir, name, err)
 			continue
 		}
 		checked++
@@ -527,7 +388,7 @@ func TestSkillFrontmatterMatchesTheStrictestClient(t *testing.T) {
 		}
 	}
 	if checked == 0 {
-		t.Fatalf("no SKILL.md parsed under %s: the check is not doing anything", CanonicalSkillDir)
+		t.Fatalf("no SKILL.md parsed under %s: the check is not doing anything", SkillDir)
 	}
 }
 
@@ -700,7 +561,7 @@ func TestReferenceCorpusIsSane(t *testing.T) {
 		"docs/decisions/D206-d163-was-a-copied-off-by-one-not-a-missing-record.md",
 		"internal/mcpserver/AGENTS.md",
 		"internal/provisioning/provisioning.go",
-		".agents/skills/implement-issue/SKILL.md",
+		".claude/skills/cartographer-implement-plan/SKILL.md",
 		".github/ISSUE_TEMPLATE/plan.md",
 		"test/e2e/scenarios/03_config_opencode.sh",
 		"config.example.yaml",
@@ -721,7 +582,7 @@ func TestReferenceCorpusIsSane(t *testing.T) {
 	}
 }
 
-// docs/harnesses.md is the ledger the harness-watch skill reads as its baseline
+// docs/harnesses.md is the ledger the cartographer-audit-clients skill reads as its baseline
 // (D292). It has one `## <provider-id>` section per client, so adding a client to
 // the registry without a ledger entry — and therefore without anyone ever being
 // told to re-align with it — fails here, and so does a section for a client the
@@ -767,17 +628,53 @@ func renderLintCatalogue() string {
 		return "-"
 	}
 	var b strings.Builder
-	b.WriteString("| Check | Severity | Level | Accept | Fix | Auto-repair safe | On write |\n")
-	b.WriteString("|---|---|---|---|---|---|---|\n")
+	b.WriteString("| Check | Level | Avoidable at write | Fix | Auto-repair safe | On write |\n")
+	b.WriteString("|---|---|---|---|---|---|\n")
 	for _, c := range lint.Checks() {
 		fix := "-"
 		if len(c.FixKinds) > 0 {
 			fix = "`" + strings.Join(c.FixKinds, "`, `") + "`"
 		}
-		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %s | %s |\n",
-			c.Name, c.Severity, c.Level, c.Accept, fix, yes(c.AutoRepairSafe), yes(c.OnWrite))
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s | %s |\n",
+			c.Name, c.Level, yes(c.AvoidableAtWrite), fix, yes(c.AutoRepairSafe), yes(c.OnWrite))
 	}
 	return b.String()
+}
+
+const (
+	lintObservationsBegin = "<!-- lint:observations:begin — generated from internal/lint/observations.go; run `go test ./internal/repodocs -run TestLintObservationsAreUpToDate -args -update` -->"
+	lintObservationsEnd   = "<!-- lint:observations:end -->"
+)
+
+// renderLintObservations is the table of every observation (D947): the states
+// of a KB that only kb_review lists. Generated, like the catalogue.
+func renderLintObservations() string {
+	var b strings.Builder
+	b.WriteString("| Observation | Category | Whole KB only | Why it is not a problem | The item closes when |\n")
+	b.WriteString("|---|---|---|---|---|\n")
+	for _, o := range lint.Observations() {
+		whole := "-"
+		if o.WholeGraph {
+			whole = "yes"
+		}
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s | %s |\n", o.Name, o.Category, whole, o.Why, o.Closes)
+	}
+	return b.String()
+}
+
+// The observation table in docs/data-plane.md is generated from the list in
+// internal/lint/observations.go, and no name in it is also a lint check (D947):
+// a state is a problem to fix or an observation to decide, never both.
+func TestLintObservationsAreUpToDate(t *testing.T) {
+	root := repoRoot(t)
+	checkGeneratedBlock(t, root, "docs/data-plane.md",
+		lintObservationsBegin, lintObservationsEnd, renderLintObservations(),
+		"go test ./internal/repodocs -run TestLintObservationsAreUpToDate -args -update")
+	for _, o := range lint.Observations() {
+		if _, ok := lint.Spec(o.Name); ok {
+			t.Errorf("%q is an observation and a lint check", o.Name)
+		}
+	}
 }
 
 // The check catalogue in docs/data-plane.md is generated from the registry, so
@@ -808,5 +705,49 @@ func TestLintCatalogueIsUpToDate(t *testing.T) {
 	}
 	for name := range documented {
 		t.Errorf("docs/data-plane.md catalogue lists %q, which is not registered", name)
+	}
+}
+
+// unavoidableTableLead opens the docs/data-plane.md table of the checks no
+// write can avoid, one row per reason.
+const unavoidableTableLead = "these are the checks it is false for, grouped by why no write can avoid them:"
+
+// AvoidableAtWrite defaults to false, which the write gate reads as "no write
+// could avoid this". A check is only false on purpose when the table says why
+// (D907), so a new check left unclassified fails here until it is classified:
+// true in the registry, or a row with its reason.
+func TestUnavoidableChecksSayWhy(t *testing.T) {
+	doc := readFile(t, repoRoot(t), "docs/data-plane.md")
+	i := strings.Index(doc, unavoidableTableLead)
+	if i < 0 {
+		t.Fatalf("docs/data-plane.md: the table of unavoidable checks (%q) is missing", unavoidableTableLead)
+	}
+	documented := map[string]bool{}
+	for _, line := range strings.Split(doc[i+len(unavoidableTableLead):], "\n")[1:] {
+		if !strings.HasPrefix(line, "|") {
+			if len(documented) > 0 || strings.TrimSpace(line) != "" {
+				break
+			}
+			continue
+		}
+		if cells := strings.Split(line, "|"); len(cells) > 3 {
+			for _, m := range regexp.MustCompile("`([a-z_]+)`").FindAllStringSubmatch(cells[2], -1) {
+				documented[m[1]] = true
+			}
+		}
+	}
+	for _, c := range lint.Checks() {
+		if !c.AvoidableAtWrite && !documented[c.Name] {
+			t.Errorf("check %q is not AvoidableAtWrite and the docs/data-plane.md table does not say why no write can avoid it", c.Name)
+		}
+	}
+	for name := range documented {
+		c, ok := lint.Spec(name)
+		switch {
+		case !ok:
+			t.Errorf("the docs/data-plane.md table of unavoidable checks lists %q, which is not registered", name)
+		case c.AvoidableAtWrite:
+			t.Errorf("the docs/data-plane.md table lists %q as unavoidable, but the registry marks it AvoidableAtWrite", name)
+		}
 	}
 }

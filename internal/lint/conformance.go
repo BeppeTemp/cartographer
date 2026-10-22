@@ -14,8 +14,7 @@ import (
 )
 
 // Conformance checks (D289): lint compares a KB with the standard fields the
-// server reads, not only with the contracts the KB declared for itself. They
-// are all warning or info, so no gate turns red on a KB that predates them.
+// server reads, not only with the contracts the KB declared for itself.
 
 // Fix kinds a Finding may carry. A fix is mechanical: applying it needs no
 // judgement, so a repair tool never parses the message.
@@ -67,6 +66,10 @@ const (
 	// index line whose only link is Field; the path is the index's, not a
 	// concept's.
 	FixDropIndexEntry = "drop_index_entry"
+	// FixRewriteContract: a removed key of a map's contract (D907). Field = the
+	// key found (for a `_map.md`), or "lint_accept" on instructions.md; the
+	// repair rewrites the descriptor to the current shape, or drops the key.
+	FixRewriteContract = "rewrite_contract"
 	// FixRenameHeading and FixReorderSections (D352) are declared with the
 	// template checks, in template.go.
 )
@@ -150,7 +153,6 @@ type conceptInput struct {
 	Body           string
 	FrontmatterRaw string           // raw frontmatter block (between ---), for malformed detection
 	Parsed         *okf.Frontmatter // nil when the concept has no readable frontmatter
-	AllowPrefixes  []string
 	Registry       registryLint
 	MapName        string          // "" outside a map
 	Contract       *kb.MapContract // nil outside a map
@@ -162,25 +164,24 @@ type conceptInput struct {
 // frontmatterFindings computes the checks that depend only on one concept's
 // own frontmatter, body and map contract: stale_claim, machine_path,
 // missing_title, the map field contract and the two conformance checks. Run and
-// CheckConcept both call it, so there is one implementation. It applies no
-// lint_ignore: the caller does.
+// CheckConcept both call it, so there is one implementation.
 func frontmatterFindings(in conceptInput) []Finding {
 	var out []Finding
 	parsed := in.Parsed
 
-	// --- malformed_frontmatter (warning, D295 WP5) ---
+	// --- malformed_frontmatter (D295 WP5) ---
 	// A scalar value followed by indented lines that look like block-list
 	// continuations: the stdlib-only parser (D8) silently truncates the value.
 	if in.FrontmatterRaw != "" {
 		out = append(out, detectMalformedFrontmatter(in.RelPath, in.FrontmatterRaw)...)
 	}
 
-	// --- stringified_list (warning, D314) ---
+	// --- stringified_list (D314) ---
 	if parsed != nil {
 		out = append(out, detectStringifiedLists(in.RelPath, parsed)...)
 	}
 
-	// --- stale_claim (warning) ---
+	// --- stale_claim ---
 	if parsed != nil {
 		if raVal, ok := parsed.Get("review_after"); ok {
 			if dateStr, ok := raVal.(string); ok {
@@ -195,7 +196,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 		}
 	}
 
-	// --- status_semantics (warning, D321) ---
+	// --- status_semantics (D321) ---
 	if parsed != nil {
 		if status, _ := frontmatterValue(parsed, "status").(string); activeNotOpen(parsed, in.Contract) {
 			out = append(out, newFinding("status_semantics", Finding{Path: in.RelPath,
@@ -203,8 +204,8 @@ func frontmatterFindings(in conceptInput) []Finding {
 		}
 	}
 
-	// --- machine_path (warning, D75 WP6 / D124) ---
-	if all := disallowedMachinePaths(in.Body, in.AllowPrefixes); len(all) > 0 {
+	// --- machine_path (D75 WP6 / D124) ---
+	if all := disallowedMachinePaths(in.Body); len(all) > 0 {
 		disallowed := all[0]
 		msg := fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<nome>}} instead (D75); operational paths on containers/remote hosts are not client-local (D124)", disallowed)
 		// One finding per concept, but naming every path: fixing the first
@@ -224,12 +225,12 @@ func frontmatterFindings(in conceptInput) []Finding {
 		out = append(out, newFinding("machine_path", Finding{Path: in.RelPath, Message: msg}))
 	}
 
-	// --- mangled_placeholder (warning, D314) ---
+	// --- mangled_placeholder (D314) ---
 	if f, ok := detectMangledPlaceholders(in.RelPath, in.Body); ok {
 		out = append(out, f)
 	}
 
-	// --- missing_title (warning) ---
+	// --- missing_title ---
 	// validate only requires a type, yet the title is the label concept_list,
 	// search results and curated indexes show: an untitled concept is listed
 	// with an empty one. The first H1 is the value an author almost always
@@ -247,7 +248,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 		out = append(out, newFinding("missing_title", f))
 	}
 
-	// --- title_h1_mismatch (warning, D315, D357) ---
+	// --- title_h1_mismatch (D315, D357) ---
 	// Both exist and differ. The title is what listings, search and the Atlas
 	// show, so the heading is normally the one that is wrong; but when the
 	// title is the one title_quality rejects and the heading is not, the
@@ -276,7 +277,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 		out = append(out, titleQualityFindings(in, parsed, title)...)
 	}
 
-	// --- repeated_link (info, D357) ---
+	// --- repeated_link (D357) ---
 	out = append(out, repeatedLinkFindings(in.RelPath, in.Body)...)
 
 	// --- missing_required_field / invalid_field_value / forbidden_field ---
@@ -311,14 +312,42 @@ func frontmatterFindings(in conceptInput) []Finding {
 	return out
 }
 
+// contractNamesField says whether the contract requires the field or lists
+// allowed values for it, for the concept type or for every type.
+func contractNamesField(c kb.MapContract, conceptType, field string) bool {
+	for _, f := range c.RequiredFor(conceptType) {
+		if strings.EqualFold(f, field) {
+			return true
+		}
+	}
+	_, ok := c.AllowedValues(conceptType, field)
+	return ok
+}
+
 // nonstandardFieldFindings reports each frontmatter key that is a known
 // synonym of a standard field (nonstandard_field, warning).
 func nonstandardFieldFindings(in conceptInput) []Finding {
 	var out []Finding
 	conceptType := in.Parsed.Type()
 	for _, key := range in.Parsed.Keys() {
+		// lint_ignore was a field (D159) until D907 removed every way to
+		// silence a finding: the key does nothing now, and the repair drops it.
+		if key == "lint_ignore" {
+			out = append(out, newFinding("nonstandard_field", Finding{
+				Path:    in.RelPath,
+				Message: `frontmatter key "lint_ignore" was removed (D907): nothing silences a finding, so fix the page instead — the repair drops the key`,
+				Fix:     &Fix{Kind: FixDropField, Field: key},
+			}))
+			continue
+		}
 		std, ok := synonymOf[strings.ToLower(key)]
 		if !ok {
+			continue
+		}
+		// A field the page's own map contract names (required_fields or
+		// field_values, for the page's type or "*") is the name the map asks
+		// for: the page keeps it, the contract being explicit.
+		if in.Contract != nil && contractNamesField(*in.Contract, conceptType, key) {
 			continue
 		}
 		// A timestamp synonym such as "data" or "date" is an ordinary English
@@ -335,21 +364,13 @@ func nonstandardFieldFindings(in conceptInput) []Finding {
 			f.Message = fmt.Sprintf("uses %q for the standard field %q — rename it, so the tools that read %q see it", key, std, std)
 			f.Fix = &Fix{Kind: FixRenameField, Field: key, To: std}
 		}
-		if in.Contract != nil {
-			for _, req := range in.Contract.RequiredFor(conceptType) {
-				if req == key {
-					f.Message += fmt.Sprintf("; map %q requires %q in its contract too", in.MapName, key)
-					break
-				}
-			}
-		}
 		out = append(out, f)
 	}
 	return out
 }
 
 // toolParamFieldFindings reports each frontmatter key named like a concept-write
-// tool parameter (tool_param_field, warning, drop_field). Not suppressible.
+// tool parameter (tool_param_field, warning, drop_field).
 func toolParamFieldFindings(relPath string, parsed *okf.Frontmatter) []Finding {
 	var out []Finding
 	for _, key := range parsed.Keys() {
@@ -367,9 +388,8 @@ func toolParamFieldFindings(relPath string, parsed *okf.Frontmatter) []Finding {
 
 // CheckConcept computes the page-level checks for one concept without walking
 // the KB (D289): conceptFindings restricted to the OnWrite checks (D354), the
-// ones a write response can return. lint_ignore is applied, the concept's and
-// its map's (as lint does, D306); errors are never suppressed. Graph checks are
-// out of scope, they need the whole KB.
+// ones a write response can return. Nothing silences a finding (D907). Graph
+// checks are out of scope, they need the whole KB.
 func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(content)
 	var parsed *okf.Frontmatter
@@ -381,31 +401,19 @@ func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 	if parts := strings.Split(string(id), "/"); len(parts) > 1 {
 		if contract, err := k.ReadMapContract(parts[0]); err == nil {
 			in.MapName, in.Contract = parts[0], &contract
-			in.AllowPrefixes = contract.MachinePathAllowPrefixes
 			if contract.HasTemplateKeys() {
 				in.Catalog = k.TemplateCatalog()
 			}
 		}
 	}
-	ignores := lintIgnoreSet(parsed)
-	var mapIgnores map[string]bool
-	if m := owningMap(string(id)); m != "" {
-		if meta, err := k.ReadArchiveMeta(m); err == nil {
-			mapIgnores = lintIgnoreSet(meta)
-		}
-	}
-	var out []Finding
-	for _, f := range conceptFindings(conceptCtx{ID: id, In: in, Write: true}) {
-		if suppressed(f, ignores) || mapSuppresses(mapIgnores, f) {
-			continue
-		}
-		out = append(out, f)
-	}
-	return out
+	return conceptFindings(conceptCtx{
+		ID: id, In: in, Write: true,
+		KBRoot: k.Root, HasSecretsDir: secretsDirExists(k), LegacyPaths: readInstructions(k).legacyPaths,
+	})
 }
 
 // valueContractFindings reports, per map, the scalar fields that look like a
-// vocabulary and have no field_values contract (missing_value_contract, info).
+// vocabulary and have no field_values contract (the missing_value_contract observation, D947).
 func valueContractFindings(mapName string, contract kb.MapContract, concepts map[okf.ConceptID]string) []Finding {
 	type carrier struct{ typ, value string }
 	byField := map[string][]carrier{}
@@ -430,7 +438,7 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 	}
 	skip := map[string]bool{
 		"title": true, "type": true, "description": true, "timestamp": true,
-		"review_after": true, "superseded_by": true, "lint_ignore": true,
+		"review_after": true, "superseded_by": true,
 		"waiting_on": true, // free text (D321)
 		// D295 WP3: free-form, source-like and list-valued fields are never
 		// vocabulary candidates.
@@ -552,7 +560,7 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 		if typed {
 			p.Type = dominant
 		}
-		out = append(out, newFinding("missing_value_contract", Finding{
+		out = append(out, newObservation("missing_value_contract", Finding{
 			Path:     mapName + "/_map.md",
 			Message:  msg,
 			Proposal: p,
@@ -560,10 +568,6 @@ func valueContractFindings(mapName string, contract kb.MapContract, concepts map
 	}
 	return out
 }
-
-// suppressed reports whether a concept's lint_ignore silences f. Errors never
-// are, and neither is tool_param_field: a concept cannot declare a tool
-// argument a legitimate field.
 
 // detectMalformedFrontmatter checks for a scalar value followed by indented
 // block-list-like lines that the OKF parser (D8) silently ignores, truncating
@@ -609,14 +613,6 @@ func detectMalformedFrontmatter(relPath, fmRaw string) []Finding {
 		}
 	}
 	return out
-}
-
-func suppressed(f Finding, ignores map[string]bool) bool {
-	if f.Severity == SevError || !ignores[f.Check] {
-		return false
-	}
-	spec, _ := Spec(f.Check)
-	return !spec.NeverSuppress
 }
 
 // identifierMinCarriers is the fewest carriers for "every value distinct" to
@@ -669,12 +665,12 @@ func dateShaped(v interface{}) bool {
 // string stored under one of them is the shape stringified_list reports.
 var listFields = map[string]bool{
 	"provenance": true, "tags": true, "related": true,
-	"lint_ignore": true, "open": true, "secrets_source": true,
+	"open": true, "secrets_source": true,
 }
 
 // listFieldOrder fixes the order findings are emitted in (map iteration is
 // random, and lint output is compared by tests and diffed by people).
-var listFieldOrder = []string{"provenance", "tags", "related", "lint_ignore", "open", "secrets_source"}
+var listFieldOrder = []string{"provenance", "tags", "related", "open", "secrets_source"}
 
 // listLike reports whether a string value is written as a list: a bracketed
 // flow list, several of them joined by "; " ("[a]; [b]"), or a block-list item
@@ -700,7 +696,7 @@ func looksStringified(v string) bool { return strings.TrimSpace(v) != "" }
 // splitFields are the list fields whose items are identifiers, so a bare
 // "x, y" is two items. provenance and secrets_source hold citations, which may
 // contain commas ("Talk, 2024"): a bare string there is one item (D357).
-var splitFields = map[string]bool{"tags": true, "related": true, "lint_ignore": true, "open": true}
+var splitFields = map[string]bool{"tags": true, "related": true, "open": true}
 
 // ListItems extracts the items of a string stored under the list field
 // `field`. A written list ("[a, b]", "[a]; [b]", "- a") gives its elements,
@@ -812,24 +808,15 @@ func titleOf(fm *okf.Frontmatter) string {
 }
 
 // defaultTitleMaxLength is the length above which a title is a sentence, not
-// a label (title_quality). A map overrides it with title_max_length.
+// a label (title_quality). No key changes it (D907).
 const defaultTitleMaxLength = 100
-
-// EffectiveTitleMaxLength is the title length limit of a map: its
-// title_max_length, else the default. 0 or less means no limit.
-func EffectiveTitleMaxLength(contract *kb.MapContract) int {
-	if contract != nil && contract.TitleMaxLength != nil {
-		return *contract.TitleMaxLength
-	}
-	return defaultTitleMaxLength
-}
 
 // titleStatusWords are lifecycle words that decay when embedded in a title.
 var titleStatusWords = []string{"attivo", "active", "dismesso", "deprecated", "draft", "superseded", "preparazione", "archiviato", "archived", "declassato"}
 
 var datePrefixedSlug = regexp.MustCompile(`^\d{4}-\d{2}`)
 
-// titleQualityFindings implements title_quality (info, D315): decorative
+// titleQualityFindings implements title_quality (D315): decorative
 // characters, over-long titles, a status word where the status field already
 // says it, a term the map forbids, and a date-prefixed slug outside a
 // journal. Only the decorative-characters case has a fix (D366): stripping
@@ -882,9 +869,8 @@ func titleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []s
 	if len(deco) > 0 {
 		out = append(out, fmt.Sprintf(decorativeTitleMsg+" (%s); titles are labels shown in listings and the Atlas: prefer plain text", strings.Join(deco, " ")))
 	}
-	limit := EffectiveTitleMaxLength(contract)
-	if n := len([]rune(title)); limit > 0 && n > limit {
-		out = append(out, fmt.Sprintf("title is %d characters (limit %d for this map); a title is a label, not a sentence", n, limit))
+	if n := len([]rune(title)); n > defaultTitleMaxLength {
+		out = append(out, fmt.Sprintf("title is %d characters (limit %d); a title is a label, not a sentence", n, defaultTitleMaxLength))
 	}
 	lower := strings.ToLower(title)
 	if hasStatus {
@@ -982,8 +968,35 @@ func TitleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []s
 	return titleTextIssues(contract, hasStatus, title)
 }
 
-// MapIgnoresCheck reports whether a map descriptor's lint_ignore (D306)
-// silences check for the whole map.
-func MapIgnoresCheck(meta *okf.Frontmatter, check string) bool {
-	return lintIgnoreSet(meta)[check]
+// AutoRepairOrder is the checks the server repairs by itself (D323,
+// D355, D907): every check whose registered fix may run with no person
+// (AutoRepairSafe, D354). Each is mechanical and already guarded; leaving one
+// off is what keeps imported KBs drifting. broken_link and
+// reciprocal_link_item are deliberately absent: they rewrite or drop links,
+// and D309 showed a mutual-pair drop can lose hundreds of edges in one commit.
+// The list is a literal, pinned equal to the AutoRepairSafe set by a test, so
+// a check added to the registry as safe fails that test until someone decides
+// it belongs here. Read it through AutoRepairChecks.
+var AutoRepairOrder = []string{
+	"nonstandard_field", "tool_param_field", "prose_value", "invalid_field_value",
+	"stringified_list", "title_h1_mismatch", "legacy_path", "duplicate_link",
+	"index_link_form", "legacy_tool_name", "missing_frontmatter", "unparseable_frontmatter",
+	"missing_type", "nonslug_file_name", "missing_title", "repeated_link",
+	"value_case_variant", "unmapped_folder",
+	// D366: the unambiguous part of three doctor-only checks.
+	"index_lists_retired", "link_to_retired", "title_quality",
+	// D907: a removed contract key is realigned by one unattended commit.
+	"contract_legacy_key",
+	// D352, in the order a page needs them: bind it, set its type, its values,
+	// reorder its sections, then rename the aliases (a reorder lists headings
+	// as written, so it runs before the rename changes them).
+	"template_missing", "template_type_mismatch", "template_field_value",
+	"template_section_order", "template_section_alias",
+}
+
+// AutoRepairChecks returns the checks whose safe fix the server always applies:
+// in the write's own commit, by the background repair and by `kb repair
+// --apply`. No setting narrows the list (D907). The slice is a copy.
+func AutoRepairChecks() []string {
+	return append([]string(nil), AutoRepairOrder...)
 }

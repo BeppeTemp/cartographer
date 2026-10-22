@@ -61,12 +61,13 @@ func xferHead(t *testing.T, k *kb.KB) string {
 	return sha
 }
 
+// xferText is the tool's answer: its first block. A later one is the doctor's
+// nudge, which a KB with debt gets since the interval is fixed (D907).
 func xferText(res ToolResult) string {
-	var b strings.Builder
-	for _, c := range res.Content {
-		b.WriteString(c.Text)
+	if len(res.Content) == 0 {
+		return ""
 	}
-	return b.String()
+	return res.Content[0].Text
 }
 
 func xferClean(t *testing.T, k *kb.KB) {
@@ -211,6 +212,45 @@ func TestConceptTransfer_TargetOccupiedChangesNothing(t *testing.T) {
 	}
 	xferClean(t, f.a)
 	xferClean(t, f.b)
+}
+
+// TestConceptTransfer_RefusesATypeTheStrictTargetDoesNotAdmit: a transfer into a
+// strict map of the target KB that does not list the type used to succeed and
+// leave the page failing the target's next validate (#940). It is refused
+// before either KB is written; one refused entry aborts the batch.
+func TestConceptTransfer_RefusesATypeTheStrictTargetDoesNotAdmit(t *testing.T) {
+	t.Parallel()
+	f := newTransferFixture(t)
+	if err := f.b.CreateMapWithContract("jr", "Journal", "journal", []string{"Note"}, kb.MapContract{}); err != nil {
+		t.Fatal(err)
+	}
+	xferCommit(t, f.b)
+	xferWrite(t, f.a, "notes/client.md", "---\ntype: Client\ntitle: C\n---\nc\n")
+	xferWrite(t, f.a, "notes/n.md", "---\ntype: Note\ntitle: N\n---\nn\n")
+	xferCommit(t, f.a)
+	headA, headB := xferHead(t, f.a), xferHead(t, f.b)
+
+	res := f.transfer(t, `{"target_kb":"kb-b","moves":[{"source_id":"notes/n","target_id":"jr/n"},{"source_id":"notes/client","target_id":"jr/client"}]}`)
+	if !res.IsError {
+		t.Fatal("a Client page must not move into a map that admits only Note")
+	}
+	for _, want := range []string{`"Client"`, "map jr", "Note", "Nothing was transferred"} {
+		if !strings.Contains(xferText(res), want) {
+			t.Errorf("refusal lacks %q: %s", want, xferText(res))
+		}
+	}
+	if xferHead(t, f.a) != headA || xferHead(t, f.b) != headB {
+		t.Error("a refused transfer must not commit")
+	}
+	if _, err := os.Stat(filepath.Join(f.b.DataRoot(), "jr", "n.md")); !os.IsNotExist(err) {
+		t.Error("the admitted page was written although the batch was refused")
+	}
+	xferClean(t, f.a)
+	xferClean(t, f.b)
+
+	if res := f.transfer(t, `{"target_kb":"kb-b","moves":[{"source_id":"notes/n","target_id":"jr/n"}]}`); res.IsError {
+		t.Fatalf("an admitted type must transfer: %s", xferText(res))
+	}
 }
 
 func TestConceptTransfer_SourceFailureRevertsTarget(t *testing.T) {

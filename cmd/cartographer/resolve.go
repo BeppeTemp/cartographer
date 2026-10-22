@@ -52,7 +52,7 @@ func cmdResolve(args []string) int {
 	switch kind {
 	case "repo":
 		var warnings []string
-		resolved, warnings, err = repoindex.Resolve(key, cfg.Paths, cfg.SearchRoots, cfg.SearchDepth)
+		resolved, warnings, err = repoindex.Resolve(key, cfg.Paths, cfg.ScanRoots(), repoindex.DefaultDepth)
 		for _, w := range warnings {
 			fmt.Fprintln(os.Stderr, w)
 		}

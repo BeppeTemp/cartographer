@@ -115,6 +115,34 @@ func TestCmdClientBindAnnouncesTheReduction(t *testing.T) {
 	}
 }
 
+// TestCmdClientBindSaysItAdds: bind adds to the binding, and both the usage and
+// the output say so (#924): the resulting list, and what this call added.
+func TestCmdClientBindSaysItAdds(t *testing.T) {
+	writeClientCfg(t, []string{"claude"}, []string{"alpha", "beta", "gamma"}, nil)
+
+	run := func(kbs string) string {
+		return withStdout(t, func() {
+			if code := cmdClient([]string{"bind", "claude", kbs}); code != 0 {
+				t.Errorf("cmdClient bind %s = %d, want 0", kbs, code)
+			}
+		})
+	}
+	if out := run("alpha"); !strings.Contains(out, "claude bound to alpha (added: alpha)") {
+		t.Errorf("the first bind should name what it added:\n%s", out)
+	}
+	if out := run("beta,alpha"); !strings.Contains(out, "claude bound to alpha, beta (added: beta)") {
+		t.Errorf("a bind should show the whole list and only what is new:\n%s", out)
+	}
+	if out := run("beta"); !strings.Contains(out, "(added: none, already bound)") {
+		t.Errorf("binding a KB already bound should read as a no-op:\n%s", out)
+	}
+
+	usage := withStderr(t, func() { cmdClient([]string{"bogus"}) })
+	if !strings.Contains(usage, "adds KBs to the provider's binding") {
+		t.Errorf("the usage should say that bind adds:\n%s", usage)
+	}
+}
+
 // TestCmdClientBindWarnsOnUnadvertisedKB: binding a KB the server has not
 // advertised is deliberately allowed — it may be mounted later — but warned.
 func TestCmdClientBindWarnsOnUnadvertisedKB(t *testing.T) {
@@ -277,5 +305,52 @@ func TestCmdClientBindUnreachableServerKeepsWarning(t *testing.T) {
 		!strings.Contains(errOut, "could not read the server's KB list") ||
 		!strings.Contains(errOut, "using the cached list") {
 		t.Errorf("expected the cached-list warning, got:\n%s", errOut)
+	}
+}
+
+// TestHelpPrintsUsageToStdout: `kb`, `client` and `workspace` answered help
+// with a usage error on stderr and exit 2, and `client`/`workspace` could not
+// be asked at all on a machine with no client config (#793). HOME is empty
+// here on purpose.
+func TestHelpPrintsUsageToStdout(t *testing.T) {
+	setHome(t, t.TempDir())
+	cmds := []struct {
+		name string
+		run  func([]string) int
+		want string
+	}{
+		{"kb", cmdKB, "cartographer kb create"},
+		{"client", cmdClient, "cartographer client bind"},
+		{"workspace", cmdWorkspace, "cartographer workspace bind"},
+	}
+	for _, c := range cmds {
+		for _, arg := range []string{"help", "-h", "--help"} {
+			t.Run(c.name+" "+arg, func(t *testing.T) {
+				var code int
+				var errOut string
+				out := withStdout(t, func() {
+					errOut = withStderr(t, func() { code = c.run([]string{arg}) })
+				})
+				if code != 0 {
+					t.Errorf("exit = %d, want 0", code)
+				}
+				if !strings.Contains(out, c.want) {
+					t.Errorf("stdout lacks %q:\n%s", c.want, out)
+				}
+				if errOut != "" {
+					t.Errorf("stderr = %q, want empty", errOut)
+				}
+			})
+		}
+		t.Run(c.name+" no argument and unknown subcommand keep exit 2", func(t *testing.T) {
+			withStderr(t, func() {
+				if code := c.run(nil); code != 2 {
+					t.Errorf("no argument = %d, want 2", code)
+				}
+				if code := c.run([]string{"frobnicate"}); code != 2 {
+					t.Errorf("unknown subcommand = %d, want 2", code)
+				}
+			})
+		})
 	}
 }

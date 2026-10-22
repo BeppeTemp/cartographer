@@ -29,8 +29,6 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
 
 // Budgets. These are not style preferences: each one is a limit something real
@@ -56,11 +54,14 @@ const (
 	// column width instead (D209).
 	MaxRootLines = 120
 
-	// Skill frontmatter, per Kiro's rules — the strictest of the clients in ClientSurfaces,
-	// so a skill written to them is valid everywhere.
+	// Skill frontmatter, per Kiro's rules — the strictest of the clients that read
+	// agentskills.io files, so a skill written to them is valid everywhere.
 	MaxSkillNameChars        = 64
 	MaxSkillDescriptionChars = 1024
 )
+
+// SkillDir holds the repository's own skills, as real directories (D992).
+const SkillDir = ".claude/skills"
 
 // Markers for the generated block inside the hand-curated docs/decisions.md.
 const (
@@ -90,57 +91,6 @@ var TopicOrder = []struct {
 	{"client-configurator", "CLI, TUI and providers"},
 	{"deployment-release", "Configuration, deployment and releases"},
 	{"project-governance", "Repository and documentation policy"},
-}
-
-// CanonicalSkillDir is the one copy of each skill. Copilot CLI reads it
-// natively, so a client that does needs no bridge; every other client gets a
-// symlink into it (D203, D884).
-const CanonicalSkillDir = ".agents/skills"
-
-// ClientSurfaces is what CONTRIBUTING.md §Working with an agent client claims,
-// as data, for the clients this repository is developed with: Claude Code, Kiro,
-// OpenCode and Copilot CLI (D884).
-//
-// It exists because that table was written from assumption once already and
-// contradicted this repository's own audited provider matrix for a whole client:
-// a client was claimed to read `AGENTS.md` and `.agents/skills` natively and to
-// take a project MCP config under `.agents/`, while
-// internal/provisioning/workspacescope.go records that its configuration root is
-// global, with no project-local cell of any kind (D193, D207).
-// TestClientSkillSurfacesMatchTheProviderRegistry checks each row against
-// provisioning.ProjectDestination, so the prose cannot drift from the matrix
-// again without failing.
-//
-// SkillDir is the repository-relative directory a skill of ours lands in for that
-// client, empty when the client has no project-local skill scope at all.
-// RowMustSay is a substring the client's row in CONTRIBUTING.md has to contain:
-// for a client with no project-local scope it is the global location, so the row
-// cannot say nothing and leave the reader to assume.
-var ClientSurfaces = []struct {
-	Provider   configurator.Provider
-	Name       string
-	SkillDir   string
-	RowMustSay string
-}{
-	{configurator.ProviderKiro, "Kiro", ".kiro/skills", ".kiro/skills"},
-	{configurator.ProviderClaudeCode, "Claude Code", ".claude/skills", ".claude/skills"},
-	{configurator.ProviderOpenCode, "OpenCode", ".opencode/skills", ".opencode/skills"},
-	{configurator.ProviderCopilot, "Copilot CLI", CanonicalSkillDir, CanonicalSkillDir},
-}
-
-// SupportedClients are the clients that need a *bridge* to reach the canonical
-// copy of each skill: they have a project-local skill directory and it is not
-// CanonicalSkillDir. Derived from ClientSurfaces, and checked against it, so the
-// symlink gate covers exactly the clients that need one.
-func SupportedClients() []struct{ Name, SkillDir string } {
-	var out []struct{ Name, SkillDir string }
-	for _, c := range ClientSurfaces {
-		if c.SkillDir == "" || c.SkillDir == CanonicalSkillDir {
-			continue
-		}
-		out = append(out, struct{ Name, SkillDir string }{c.Name, c.SkillDir})
-	}
-	return out
 }
 
 // GapDecisions are numbers that deliberately have no record and must never be
@@ -631,8 +581,9 @@ func CitedDecisions(root string) (map[int][]string, error) {
 // docPathRef matches a repository-relative path into the documentation surface.
 // The character class excludes `<` and `>`, so the placeholder forms this
 // repository writes on purpose — `docs/decisions/D<n>-<slug>.md` — are not
-// mistaken for pointers.
-var docPathRef = regexp.MustCompile(`(?:docs|\.agents/skills)/[A-Za-z0-9._/-]+\.md`)
+// mistaken for pointers. Only this repository's own skills are named: the
+// product's tests use `.claude/skills/<fixture>` paths that are not ours.
+var docPathRef = regexp.MustCompile(`(?:docs|\.claude/skills/cartographer-(?:audit-clients|develop-live|implement-plan|propose-plan|review-pr))/[A-Za-z0-9._/-]+\.md`)
 
 // CitedDocPaths returns every documentation path cited anywhere in the corpus,
 // with the files citing it. Unlike the markdown-link check this reads *any* text,
