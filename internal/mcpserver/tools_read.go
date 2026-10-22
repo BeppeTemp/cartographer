@@ -193,7 +193,7 @@ func headingsToOutline(headings []okf.Heading) []map[string]interface{} {
 func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 	return Tool{
 		Name:        "concept_read",
-		Description: "Reads a concept: content_hash, frontmatter (parsed) and _raw, body. with_content: true returns content (exact bytes) instead of body. section returns one section; outline: true only the headings; match greps body lines (with context).",
+		Description: "Reads a concept: content_hash, frontmatter (parsed) and _raw, body. with_content: true returns content (exact bytes) instead of body. section returns one section; outline: true only the headings; match greps lines.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -218,7 +218,7 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 				},
 				"match": {
 					"type": "string",
-					"description": "Grep body lines, case-insensitive"
+					"description": "Grep body (or section) lines, case-insensitive"
 				},
 				"context": {
 					"type": "integer",
@@ -254,10 +254,13 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 				if params.Match == "" {
 					return errorResult("'match' must not be empty"), nil
 				}
+				// match now narrows a single section too (#835): only
+				// outline and with_content stay exclusive, since both return a
+				// different shape than a list of line matches.
 				for _, pair := range []struct {
 					name string
 					set  bool
-				}{{"section", params.Section != ""}, {"outline", params.Outline}, {"with_content", params.WithContent}} {
+				}{{"outline", params.Outline}, {"with_content", params.WithContent}} {
 					if pair.set {
 						return errorResult(fmt.Sprintf("'match' is exclusive with '%s'", pair.name)), nil
 					}
@@ -290,16 +293,30 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 			}
 
 			if hasMatch {
-				matches, omitted := matchBodyLines(data.Body, params.Match, params.Context)
+				// A section narrows match to that part of the page (#835): grep
+				// one section of a large concept instead of the whole body.
+				body := data.Body
+				if params.Section != "" {
+					section, found := okf.ExtractSection(data.Body, params.Section)
+					if !found {
+						return errorResult(sectionNotFoundMsg(data.Body, params.Section, params.ID)), nil
+					}
+					body = section
+				}
+				matches, omitted := matchBodyLines(body, params.Match, params.Context)
 				result := withRev(map[string]interface{}{
 					"id":           params.ID,
 					"content_hash": data.ContentHash,
 					"match":        params.Match,
 					"matches":      matches,
 				})
+				if params.Section != "" {
+					result["section"] = params.Section
+				}
 				if omitted > 0 {
 					result["matches_omitted"] = omitted
 				}
+				addFrontmatter(result, data.FrontmatterRaw)
 				out, _ := json.MarshalIndent(result, "", "  ")
 				return textResult(string(out)), nil
 			}
@@ -311,6 +328,7 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 					"outline":      headingsToOutline(okf.ListHeadings(data.Body)),
 					"body_bytes":   len(data.Body),
 				})
+				addFrontmatter(result, data.FrontmatterRaw)
 				out, _ := json.MarshalIndent(result, "", "  ")
 				return textResult(string(out)), nil
 			}
@@ -318,21 +336,7 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 			if params.Section != "" {
 				section, found := okf.ExtractSection(data.Body, params.Section)
 				if !found {
-					headings := okf.ListHeadings(data.Body)
-					if len(headings) > maxSectionNotFoundHeadings {
-						headings = headings[:maxSectionNotFoundHeadings]
-					}
-					available := make([]string, 0, len(headings))
-					for _, h := range headings {
-						available = append(available, strings.Repeat("#", h.Level)+" "+h.Title)
-					}
-					msg := fmt.Sprintf("section %q not found in %q", params.Section, params.ID)
-					if len(available) > 0 {
-						msg += "; available headings: " + strings.Join(available, " | ")
-					} else {
-						msg += "; concept has no headings"
-					}
-					return errorResult(msg), nil
+					return errorResult(sectionNotFoundMsg(data.Body, params.Section, params.ID)), nil
 				}
 				result := withRev(map[string]interface{}{
 					"id":           params.ID,
@@ -340,6 +344,7 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 					"content":      section,
 					"content_hash": data.ContentHash,
 				})
+				addFrontmatter(result, data.FrontmatterRaw)
 				out, _ := json.MarshalIndent(result, "", "  ")
 				return textResult(string(out)), nil
 			}
@@ -353,6 +358,7 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 					"note": fmt.Sprintf("body is %d bytes (over the %d byte guard) — use 'section' to read "+
 						"a specific part, or 'full: true' to force the full content", len(data.Body), conceptReadSizeGuard),
 				})
+				addFrontmatter(result, data.FrontmatterRaw)
 				out, _ := json.MarshalIndent(result, "", "  ")
 				return textResult(string(out)), nil
 			}
@@ -389,6 +395,38 @@ const (
 	matchMaxContext = 20
 	matchMaxEntries = 50
 )
+
+// sectionNotFoundMsg is the error a missing section yields: it lists the
+// concept's available headings (capped) so a caller can correct the name. Used
+// by both the section read and the match-within-section form (#835).
+func sectionNotFoundMsg(body, section, id string) string {
+	headings := okf.ListHeadings(body)
+	if len(headings) > maxSectionNotFoundHeadings {
+		headings = headings[:maxSectionNotFoundHeadings]
+	}
+	available := make([]string, 0, len(headings))
+	for _, h := range headings {
+		available = append(available, strings.Repeat("#", h.Level)+" "+h.Title)
+	}
+	msg := fmt.Sprintf("section %q not found in %q", section, id)
+	if len(available) > 0 {
+		msg += "; available headings: " + strings.Join(available, " | ")
+	} else {
+		msg += "; concept has no headings"
+	}
+	return msg
+}
+
+// addFrontmatter adds the parsed frontmatter to a partial-read response
+// (outline, section, size-guard and match, #835), so reading a field of a
+// large page no longer needs a second full read. Parsed (D309) like the full
+// read's, omitted when the raw text does not parse. The raw form is not
+// repeated here: these responses already omit the body to stay small.
+func addFrontmatter(result map[string]interface{}, raw string) {
+	if fm, err := okf.ParseFrontmatter(raw); err == nil {
+		result["frontmatter"] = frontmatterToMap(fm)
+	}
+}
 
 // matchEntry is one merged window of lines around a hit.
 type matchEntry struct {
@@ -1209,7 +1247,7 @@ func parseConceptListTimestamp(value string) (time.Time, error) {
 func toolConceptList(k *kb.KB) Tool {
 	return Tool{
 		Name:        "concept_list",
-		Description: "Exhaustive inventory (id, title, type, status; fields adds keys) under a scope prefix, sorted by id; empty = whole KB. where and timestamp filters apply before limit. For curated navigation use index_get.",
+		Description: "Exhaustive inventory (id, title, type, status; fields adds keys, content_hash too) under a scope prefix, sorted by id; empty = whole KB. where and timestamp filters apply before limit. For curated navigation use index_get.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -1248,6 +1286,20 @@ func toolConceptList(k *kb.KB) Tool {
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
+			// content_hash is a pseudo-field (#835): not a frontmatter key but
+			// the concept's hash, so an agent that lists then patches gets each
+			// if_match without a read apiece. Pulled out of fields before the
+			// 8-key cap, which counts frontmatter keys.
+			withContentHash := false
+			frontmatterFields := params.Fields[:0:0]
+			for _, f := range params.Fields {
+				if f == "content_hash" {
+					withContentHash = true
+					continue
+				}
+				frontmatterFields = append(frontmatterFields, f)
+			}
+			params.Fields = frontmatterFields
 			if len(params.Fields) > maxConceptListFields {
 				return errorResult("concept_list: fields: at most 8 non-empty keys"), nil
 			}
@@ -1288,26 +1340,28 @@ func toolConceptList(k *kb.KB) Tool {
 				after = &parsed
 			}
 			type conceptEntry struct {
-				ID     string         `json:"id"`
-				Title  string         `json:"title,omitempty"`
-				Type   string         `json:"type,omitempty"`
-				Status string         `json:"status,omitempty"`
-				Fields map[string]any `json:"fields,omitempty"`
+				ID          string         `json:"id"`
+				Title       string         `json:"title,omitempty"`
+				Type        string         `json:"type,omitempty"`
+				Status      string         `json:"status,omitempty"`
+				Fields      map[string]any `json:"fields,omitempty"`
+				ContentHash string         `json:"content_hash,omitempty"`
 			}
 			res, err := queryConcepts(k, ConceptQuery{
-				Fields:  params.Fields,
-				Scope:   scope,
-				Filters: filters,
-				Before:  before,
-				After:   after,
-				Include: func(id string) bool { return Visible(ctx, k, id) },
+				Fields:          params.Fields,
+				WithContentHash: withContentHash,
+				Scope:           scope,
+				Filters:         filters,
+				Before:          before,
+				After:           after,
+				Include:         func(id string) bool { return Visible(ctx, k, id) },
 			})
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_list: %v", err)), nil
 			}
 			entries := make([]conceptEntry, 0, len(res.Entries))
 			for _, e := range res.Entries {
-				entries = append(entries, conceptEntry{ID: e.ID, Title: e.Title, Type: e.Type, Status: e.Status, Fields: e.Fields})
+				entries = append(entries, conceptEntry{ID: e.ID, Title: e.Title, Type: e.Type, Status: e.Status, Fields: e.Fields, ContentHash: e.ContentHash})
 			}
 			filtersApplied := len(filters) > 0 || before != nil || after != nil
 			timestampFilter := before != nil || after != nil
