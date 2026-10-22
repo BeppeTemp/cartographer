@@ -346,16 +346,21 @@ export function Bone({
   w,
   h,
   round,
+  line,
   className,
 }: {
   w?: string | number;
   h?: string | number;
   round?: boolean;
+  /** A line of text: placed inside the element whose text it stands for, it
+   *  takes that element's font and line height, so the shape is the height of
+   *  the content it gives way to. */
+  line?: boolean;
   className?: string;
 }) {
   return (
     <span
-      className={`skeleton bone${round ? " bone--round" : ""}${className ? ` ${className}` : ""}`}
+      className={`skeleton bone${round ? " bone--round" : ""}${line ? " bone--line" : ""}${className ? ` ${className}` : ""}`}
       aria-hidden="true"
       style={{ width: w, height: h }}
     />
@@ -380,37 +385,50 @@ export function ActivitySkeleton({ label }: { label: string }) {
         <div className="activity-sum">
           <div className="activity-sum__lead">
             <div className="activity-stats">
-              <Bone w={220} h={22} />
+              <Bone line w={280} />
             </div>
+            <span className="activity-top">
+              <span className="activity-top__label">
+                <Bone line w={260} />
+              </span>
+            </span>
           </div>
           <div className="activity-bars">
             <div className="activity-bars__track">
               <Bone w="100%" h="100%" />
             </div>
-            <Bone w="80%" h={14} />
+            <span className="activity-bars__caption">
+              <Bone line w="60%" />
+            </span>
           </div>
         </div>
       </div>
       {[4, 3].map((n, d) => (
         <div key={d} className="timeline__day">
           <h2 className="timeline__date">
-            <Bone w={96} h={14} />
+            <span>
+              <Bone line w={96} />
+            </span>
           </h2>
           <ol className="timeline__entries">
             {Array.from({ length: n }, (_, i) => (
               <li key={i} className="timeline__entry">
                 <div className="timeline__item">
                   <span className="timeline__time">
-                    <Bone w={36} h={12} />
+                    <Bone line w="5ch" />
                   </span>
                   <span className="timeline__track">
-                    <span className="timeline__node skeleton" />
+                    <span className="timeline__node" />
                   </span>
                   <span className="timeline__item-body">
                     <span className="timeline__item-head">
-                      <Bone w={`${38 + ((i * 17 + d * 9) % 30)}%`} h={16} />
+                      <span className="timeline__title" style={{ width: `${38 + ((i * 17 + d * 9) % 30)}%` }}>
+                        <Bone line w="100%" />
+                      </span>
                     </span>
-                    <Bone w={`${22 + ((i * 11) % 25)}%`} h={12} />
+                    <span className="timeline__reason">
+                      <Bone line w={`${22 + ((i * 11) % 25)}%`} />
+                    </span>
                   </span>
                   <span className="timeline__authors">
                     <Bone w={22} h={22} round />
@@ -429,21 +447,45 @@ export function ActivitySkeleton({ label }: { label: string }) {
 export function WorkSkeleton({ label }: { label: string }) {
   return (
     <LoadingRegion label={label}>
+      <div className="hero">
+        {[9, 8].map((chips, r) => (
+          <div key={r} className="hero__row">
+            <span className="hero__label">
+              <Bone line w={44} />
+            </span>
+            <div className="hero__content">
+              {r === 0 && <Bone w="100%" h={4} />}
+              <span className="chips">
+                {Array.from({ length: chips }, (_, i) => (
+                  <Bone key={i} w={70 + ((i * 23 + r * 11) % 50)} h={26} round />
+                ))}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
       <div className="work__board">
-        {[3, 2, 2].map((n, c) => (
+        {[4, 3, 4, 2, 3].map((n, c) => (
           <section key={c} className="work__column">
             <h2 className="work__column-title">
-              <Bone w={110} h={14} />
+              <Bone line w={90} />
             </h2>
             <ul className="work__cards">
               {Array.from({ length: n }, (_, i) => (
                 <li key={i}>
                   <div className="work__card">
                     <div className="work__card-main">
-                      <Bone w={`${55 + ((i * 13 + c * 7) % 35)}%`} h={16} />
+                      <span className="work__card-map">
+                        <Bone line w={64} />
+                      </span>
+                      <span className="work__card-title">
+                        <Bone line w="92%" />
+                        <br />
+                        <Bone line w={`${40 + ((i * 13 + c * 7) % 40)}%`} />
+                      </span>
                       <span className="work__card-meta">
-                        <Bone w={54} h={18} />
-                        <Bone w={30} h={14} />
+                        <Bone w={44} h={20} round />
+                        <Bone line w={28} />
                       </span>
                     </div>
                   </div>

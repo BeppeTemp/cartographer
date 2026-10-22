@@ -73,15 +73,24 @@ describe("the reference panels", () => {
     }
   });
 
-  it("shows the KB journal in Activity, rendered, and explains an empty one", async () => {
+  it("shows the KB journal in Activity, as rows, and explains an empty one", async () => {
     open("activity");
     stubApi({
       "/changes": () => json({ since: "x", concepts: [], truncated: false }),
-      "/journal": () => json({ text: "## 2026-10-01 closing\n\nMerged the **plan**.\n" }),
+      "/journal": () =>
+        json({
+          text:
+            "## 2026-10-01T09:00:00Z\n\nMerged the **plan**.\nSecond line.\n\n## 2026-10-02T10:30:00Z\n\nOne line.\n",
+        }),
     });
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Journal" })).toBeInTheDocument();
-    expect(await screen.findByText("plan")).toBeInTheDocument();
+    // One row per entry; the body is kept as written, not rendered as Markdown.
+    const rows = await screen.findAllByRole("listitem").then((all) => all.filter((li) => li.className === "journal__entry"));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.querySelector(".journal__body")!.textContent).toBe("Merged the **plan**.\nSecond line.");
+    expect(rows[1]!.querySelector(".journal__body")!.textContent).toBe("One line.");
+    expect(rows[0]!.querySelector("time")).toHaveAttribute("datetime", "2026-10-01T09:00:00Z");
   });
 
   it("says how the journal fills when it is empty", async () => {

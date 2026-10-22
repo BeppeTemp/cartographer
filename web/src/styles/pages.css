@@ -990,19 +990,19 @@ button.row {
 /* An end with more cards past it fades out: the cut reads as "more here",
    not as a card broken in half. */
 .work__cards[data-more-below] {
-  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade)), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - var(--fade)), transparent);
 }
 
 .work__cards[data-more-above] {
-  mask-image: linear-gradient(to top, #000 calc(100% - var(--fade)), transparent);
+  mask-image: linear-gradient(to top, black calc(100% - var(--fade)), transparent);
 }
 
 .work__cards[data-more-above][data-more-below] {
   mask-image: linear-gradient(
     to bottom,
     transparent,
-    #000 var(--fade),
-    #000 calc(100% - var(--fade)),
+    black var(--fade),
+    black calc(100% - var(--fade)),
     transparent
   );
 }

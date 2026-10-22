@@ -3899,7 +3899,8 @@ code.mapcontract__label {
 /* The headline line of a page, in bar form: the h1 keeps its height. */
 .skel-title {
   display: inline-block;
-  width: min(26ch, 70%);
+  width: 26ch;
+  max-width: 100%;
   height: 0.9em;
   vertical-align: middle;
 }
@@ -3913,6 +3914,16 @@ code.mapcontract__label {
 .loading-shape .timeline__node {
   width: 10px;
   height: 10px;
+  background: var(--surface-3);
+}
+
+/* A bone standing for a line of text: inline, so the line box around it is
+   the element's own and the row keeps the height the text will have. */
+.bone--line {
+  display: inline-block;
+  height: 0.75em;
+  vertical-align: middle;
+  border-radius: var(--radius-small);
 }
 
 .loading-shape .catalog__tile:hover {

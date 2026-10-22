@@ -164,8 +164,6 @@ test("the Artifacts panel lists what the KB ships and opens a skill", async ({ p
     /Subagents/,
     /Hooks/,
     /MCP servers/,
-    /Instructions/,
-    /Templates/,
   ]);
   // Every kind is listed, even the one this KB has none of (D864): the empty
   // section says where its files go.

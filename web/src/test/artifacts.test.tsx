@@ -37,7 +37,7 @@ describe("the Artifacts panel", () => {
     expect(requested.some((url) => url.includes("/artifact"))).toBe(false);
   });
 
-  it("groups by kind, filters, and keeps the selection in the URL", async () => {
+  it("groups the agent kit by kind and keeps the selection in the URL (D1057)", async () => {
     stubApi();
     const user = userEvent.setup();
     render(<App />);
@@ -48,27 +48,24 @@ describe("the Artifacts panel", () => {
     const nav = within(panel).getByRole("navigation", { name: "Artifacts by kind" });
     // Each heading carries its kind's mark (aria-hidden) before the words.
     const heads = () => within(nav).getAllByRole("heading", { level: 2 }).map((h) => h.textContent?.slice(1));
-    // Every kind a KB can hold, the empty ones too (D864).
-    expect(heads()).toEqual([
-      "Skills 1",
-      "Subagents 1",
-      "Hooks 0",
-      "MCP servers 0",
-      "Instructions 0",
-      "Templates 1",
+    // The kinds of the agent kit, the empty ones too (D864); the instructions
+    // and the templates have tabs of their own (D1057).
+    expect(heads()).toEqual(["Skills 1", "Subagents 1", "Hooks 0", "MCP servers 0"]);
+    expect(within(panel).getByRole("tab", { name: "Agent kit" })).toHaveAttribute("aria-selected", "true");
+    expect(within(panel).getAllByRole("tab").map((t) => t.textContent)).toEqual([
+      "Agent kit",
+      "Instructions",
+      "Templates",
     ]);
+    expect(within(panel).getByText(/artifacts? ships? to agent clients\./)).toBeInTheDocument();
+    expect(within(panel).queryByRole("searchbox")).not.toBeInTheDocument();
 
     // One kind at a time, without scrolling past the others; pressed again, all.
     const kinds = within(panel).getByRole("list", { name: "Show kind" });
     await user.click(within(kinds).getByRole("button", { name: /Subagents/ }));
     expect(heads()).toEqual(["Subagents 1"]);
     await user.click(within(kinds).getByRole("button", { name: /Subagents/ }));
-    expect(heads()).toHaveLength(6);
-
-    await user.type(within(panel).getByRole("searchbox", { name: "Filter artifacts" }), "sorts");
-    expect(within(nav).queryByRole("button", { name: /review/ })).not.toBeInTheDocument();
-    expect(within(nav).getByRole("button", { name: /triage/ })).toBeInTheDocument();
-    await user.clear(within(panel).getByRole("searchbox", { name: "Filter artifacts" }));
+    expect(heads()).toHaveLength(4);
 
     await user.click(within(nav).getByRole("button", { name: /review/ }));
     await waitFor(() => expect(window.location.search).toContain("artifact=skill%2Freview"));
@@ -93,7 +90,7 @@ describe("the Artifacts panel", () => {
     stubApi();
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Artifacts" });
-    expect(within(panel).getByText(/2 findings across artifacts/)).toBeInTheDocument();
+    expect(within(panel).getByText(/1 finding across artifacts/)).toBeInTheDocument();
     const item = within(panel).getByRole("button", { name: /review/ });
     expect(within(item).getByText("problem")).toBeInTheDocument();
     expect(within(panel).getByRole("button", { name: /triage/ }).querySelector(".finding-badge")).toBeNull();
@@ -136,14 +133,14 @@ describe("the Artifacts panel", () => {
     const triage = within(panel).getByRole("button", { name: /triage/ });
     expect(within(triage).getByText("never used").className).toBe("artifacts__used");
     // Used and Idle partition the artifacts the usage scanner follows (the
-    // tiles with a last-use cell): a template is in neither.
+    // tiles with a last-use cell): the kit's hooks and MCP servers are in neither.
     const num = (name: RegExp) =>
       Number(within(panel).getByRole("button", { name }).textContent!.match(/(\d+)\s*$/)![1]);
     const tracked = [...panel.querySelectorAll(".artifacts__used")].filter((e) => e.closest("button")).length;
     expect(num(/Recently used/) + num(/Idle/)).toBe(tracked);
-    expect(num(/Recently used/) + num(/Idle/)).toBeLessThan(num(/^All/));
-    // A template is not followed by the scanner: no cell at all.
-    expect(within(panel).getByRole("button", { name: /runbook/ }).querySelector(".artifacts__used")).toBeNull();
+    expect(num(/Recently used/) + num(/Idle/)).toBeLessThanOrEqual(num(/^All/));
+    // A template lives on its own tab and has no last-use cell at all.
+    expect(within(panel).queryByRole("button", { name: /runbook/ })).not.toBeInTheDocument();
     // The detail carries the exact timestamp.
     const detail = await screen.findByRole("article", { name: "Artifact skill/review" });
     expect(within(detail).getByText("Last used")).toBeInTheDocument();
@@ -197,15 +194,13 @@ describe("the Artifacts panel", () => {
     await user.click(await screen.findByRole("button", { name: "Artifacts" }));
     const panel = await screen.findByRole("region", { name: "Artifacts" });
 
-    expect(within(panel).queryByText("This KB ships no artifacts")).not.toBeInTheDocument();
+    expect(within(panel).queryByText("This KB ships no agent kit")).not.toBeInTheDocument();
     const nav = within(panel).getByRole("navigation", { name: "Artifacts by kind" });
     expect(within(nav).getAllByRole("heading", { level: 2 }).map((h) => h.textContent?.slice(1))).toEqual([
       "Skills 0",
       "Subagents 0",
       "Hooks 0",
       "MCP servers 0",
-      "Instructions 0",
-      "Templates 0",
     ]);
 
     const hooks = within(nav).getByRole("region", { name: "Hooks" });
@@ -215,9 +210,6 @@ describe("the Artifacts panel", () => {
     // An empty section says where the files go.
     const mcp = within(nav).getByRole("region", { name: "MCP servers" });
     expect(within(mcp).getByText("mcp/<name>.json").tagName).toBe("CODE");
-    const templates = within(nav).getByRole("region", { name: "Templates" });
-    expect(within(templates).getByText(/Stays in the KB: no client receives it\./)).toBeInTheDocument();
-    expect(within(templates).queryByText(/Synced to/)).not.toBeInTheDocument();
 
     // The path names a folder: text, never a link.
     expect(within(nav).queryByRole("link", { name: /hooks\/<name>/ })).not.toBeInTheDocument();
@@ -229,6 +221,19 @@ describe("the Artifacts panel", () => {
       "MCP servers 0",
     ]);
     expect(within(nav).getByText("mcp/<name>.json")).toBeInTheDocument();
+  });
+
+  it("lists the empty templates kind on its own tab, with its path and no clients (D864, D1057)", async () => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=templates");
+    stubApi({ "/artifacts": () => json(emptyList) });
+    render(<App />);
+    const nav = await screen.findByRole("navigation", { name: "Artifacts by kind" });
+    expect(within(nav).getAllByRole("heading", { level: 2 }).map((h) => h.textContent?.slice(1))).toEqual([
+      "Templates 0",
+    ]);
+    const templates = within(nav).getByRole("region", { name: "Templates" });
+    expect(within(templates).getByText(/Stays in the KB: no client receives it\./)).toBeInTheDocument();
+    expect(within(templates).queryByText(/Synced to/)).not.toBeInTheDocument();
   });
 
   it("links the docs to the repository on main, in a new tab, without opener or referrer (D864)", async () => {
@@ -248,19 +253,19 @@ describe("the Artifacts panel", () => {
       ...emptyList,
       kinds: emptyList.kinds!.map((k, i) => ({
         ...k,
-        doc: ["https://evil.example/x#y", "docs/../../other/repo/blob/main/x.md#y", "javascript:alert(1)#x", "docs/sync.md", "/docs/sync.md#a", "docs/sync.md#ok"][i]!,
+        doc: ["https://evil.example/x#y", "docs/../../other/repo/blob/main/x.md#y", "javascript:alert(1)#x", "docs/sync.md#ok", "/docs/sync.md#a", "docs/sync.md"][i]!,
       })),
     };
     stubApi({ "/artifacts": () => json(hostile) });
     render(<App />);
     const nav = within(await screen.findByRole("navigation", { name: "Artifacts by kind" }));
-    // Only the last kind, whose path is one of ours, gets a link.
+    // Only the kit's last kind (MCP servers), whose path is one of ours, gets a link.
     const links = nav.getAllByRole("link", { name: "Docs" });
     expect(links).toHaveLength(1);
     expect(links[0]).toHaveAttribute("href", "https://github.com/BeppeTemp/cartographer/blob/main/docs/sync.md#ok");
   });
 
-  it("hides the empty kinds while a filter or a slice narrows the list (D864)", async () => {
+  it("hides the empty kinds while a slice narrows the list (D864)", async () => {
     stubApi();
     const user = userEvent.setup();
     render(<App />);
@@ -268,18 +273,7 @@ describe("the Artifacts panel", () => {
     const panel = await screen.findByRole("region", { name: "Artifacts" });
     const nav = within(panel).getByRole("navigation", { name: "Artifacts by kind" });
     const heads = () => within(nav).getAllByRole("heading", { level: 2 }).map((h) => h.textContent?.slice(1));
-    expect(heads()).toHaveLength(6);
-
-    await user.type(within(panel).getByRole("searchbox", { name: "Filter artifacts" }), "sorts");
-    expect(heads()).toEqual(["Subagents 1"]);
-    await user.clear(within(panel).getByRole("searchbox", { name: "Filter artifacts" }));
-    expect(heads()).toHaveLength(6);
-
-    // A filter nothing matches reads as no match, not as six empty kinds.
-    await user.type(within(panel).getByRole("searchbox", { name: "Filter artifacts" }), "zzz");
-    expect(within(nav).queryAllByRole("heading", { level: 2 })).toHaveLength(0);
-    expect(within(nav).getByText("No artifact matches these filters.")).toBeInTheDocument();
-    await user.clear(within(panel).getByRole("searchbox", { name: "Filter artifacts" }));
+    expect(heads()).toHaveLength(4);
 
     // A slice narrows the list too.
     await user.click(within(panel).getByRole("button", { name: /With findings/ }));
@@ -298,7 +292,6 @@ describe("the Artifacts panel", () => {
     expect(within(nav).getAllByRole("heading", { level: 2 }).map((h) => h.textContent?.slice(1))).toEqual([
       "Skills 1",
       "Subagents 1",
-      "Templates 1",
     ]);
     const chips = within(within(panel).getByRole("list", { name: "Show kind" }));
     expect(chips.queryByRole("button", { name: /Hooks/ })).not.toBeInTheDocument();
@@ -310,7 +303,7 @@ describe("the Artifacts panel", () => {
     const { kinds: _kinds, ...older } = emptyList;
     stubApi({ "/artifacts": () => json(older) });
     render(<App />);
-    expect(await screen.findByText("This KB ships no artifacts")).toBeInTheDocument();
+    expect(await screen.findByText("This KB ships no agent kit")).toBeInTheDocument();
   });
 
   it("renders a kind's path and name as text, never as markup (D864)", async () => {
@@ -330,6 +323,65 @@ describe("the Artifacts panel", () => {
     expect(nav.querySelector("script, img, [onerror]")).toBeNull();
     expect(within(nav).getAllByText(/<img src=x onerror/).length).toBeGreaterThan(0);
     expect((window as unknown as { __pwned?: boolean }).__pwned).toBeUndefined();
+  });
+
+  it("shows the instructions as a source file on their own tab (D1057)", async () => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=instructions");
+    const list: ArtifactList = {
+      ...artifactList,
+      artifacts: [
+        ...artifactList.artifacts,
+        {
+          kind: "instructions",
+          name: "instructions",
+          description: "",
+          clients: [{ id: "claude-code", name: "Claude Code" }],
+          files: [{ path: "instructions.md", sha256: "g", size: 40, executable: false }],
+        },
+      ],
+      counts: { ...artifactList.counts, instructions: 1 },
+    };
+    const fetchMock = stubApi({ "/artifacts": () => json(list) });
+    const route = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/artifact?")) {
+        return json({
+          ...list.artifacts[3]!,
+          files: [
+            {
+              path: "instructions.md",
+              sha256: "g",
+              size: 40,
+              executable: false,
+              content: "# Standing orders\n\nAlways cite concept IDs.\n",
+            },
+          ],
+        });
+      }
+      return route(url);
+    });
+    render(<App />);
+    const doc = await screen.findByRole("article", { name: "Instructions instructions" });
+    expect(within(doc).getByText("instructions.md")).toBeInTheDocument();
+    const source = within(doc).getByLabelText("instructions.md");
+    expect(source.tagName).toBe("PRE");
+    expect(within(source).getByText("# Standing orders")).toBeInTheDocument();
+    expect(within(source).getByText("Always cite concept IDs.")).toBeInTheDocument();
+    expect(within(doc).getByText("3 lines")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Instructions" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("opens the templates tab with the template tiles, and an old artifact link lands there (D864, D1057)", async () => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=artifacts&artifact=template%2Frunbook");
+    stubApi();
+    render(<App />);
+    expect(await screen.findByRole("tab", { name: "Templates" })).toHaveAttribute("aria-selected", "true");
+    const nav = await screen.findByRole("navigation", { name: "Artifacts by kind" });
+    expect(within(nav).getAllByRole("heading", { level: 2 }).map((h) => h.textContent?.slice(1))).toEqual([
+      "Templates 1",
+    ]);
+    expect(within(nav).getByRole("button", { name: /runbook/ })).toBeInTheDocument();
+    expect(within(nav).queryByRole("button", { name: /review/ })).not.toBeInTheDocument();
   });
 
   it("opens the artifact a shared link names", async () => {
