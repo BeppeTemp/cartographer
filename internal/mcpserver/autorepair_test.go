@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -108,7 +109,7 @@ func TestAutoRepairHeartbeatFiresAndStops(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { s.autoRepairLoop(ctx, 20*time.Millisecond, 5*time.Millisecond); close(done) }()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(gitxtest.Deadline(10 * time.Second))
 	for {
 		if run, ok := lastAutoRepairRun(k); ok && len(run.Checks) == 1 && run.Checks[0].Applied == 3 {
 			break
@@ -121,7 +122,7 @@ func TestAutoRepairHeartbeatFiresAndStops(t *testing.T) {
 	cancel()
 	select {
 	case <-done:
-	case <-time.After(10 * time.Second):
+	case <-time.After(gitxtest.Deadline(10 * time.Second)):
 		t.Fatal("the heartbeat outlived its context")
 	}
 	// Nothing runs after the stop.

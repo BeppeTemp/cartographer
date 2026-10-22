@@ -13,6 +13,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -310,7 +311,7 @@ func TestArtifactMove_OppositeDirectionsDoNotDeadlock(t *testing.T) {
 			if res.IsError {
 				t.Errorf("move failed: %s", xferText(res))
 			}
-		case <-time.After(30 * time.Second):
+		case <-time.After(gitxtest.Deadline(30 * time.Second)):
 			t.Fatal("deadlock: opposite moves did not finish")
 		}
 	}

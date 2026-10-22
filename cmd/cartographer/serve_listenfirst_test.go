@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/sqlindex"
 )
@@ -95,13 +96,13 @@ func TestServeHTTPListensBeforeBootstrap(t *testing.T) {
 		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
 		select {
 		case <-done:
-		case <-time.After(10 * time.Second):
+		case <-time.After(gitxtest.Deadline(10 * time.Second)):
 			t.Error("serveHTTP did not return after SIGTERM")
 		}
 	})
 
 	base := "http://" + addr
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(gitxtest.Deadline(5 * time.Second))
 	var code int
 	var health map[string]interface{}
 	for {
@@ -129,7 +130,7 @@ func TestServeHTTPListensBeforeBootstrap(t *testing.T) {
 	}
 
 	close(release)
-	for deadline := time.Now().Add(10 * time.Second); ; {
+	for deadline := time.Now().Add(gitxtest.Deadline(10 * time.Second)); ; {
 		code, _ := getJSON(t, base+"/ready")
 		if code == 200 {
 			break
