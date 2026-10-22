@@ -1,0 +1,90 @@
+# Renders the README's launch film (D807) and replaces it on the `readme-film`
+# branch (D1068): called by preview.yml, or run by hand. It renders only when the
+# film's inputs differ from the ones the film on the branch was rendered from
+# (film/film-needed.sh); a manual run always renders. Unlike the hero, a failed
+# render is meant to fail the caller: preview.yml runs it in the release
+# candidate, so a red film means no `rc-ok` train that week. The only credential
+# is GITHUB_TOKEN, and nothing is pushed to main: the `main-protection` ruleset
+# covers the default branch only.
+name: film
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to render
+        type: string
+        default: main
+
+permissions:
+  contents: write
+
+# Two renders never race for the branch; a newer one waits instead of
+# cancelling one that is half way through its force-push.
+concurrency:
+  group: film
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      # The commit on readme-film is written with the checkout's git.
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Is a render needed
+        id: needed
+        run: |
+          # Not github.event_name: in a called workflow it is the caller's, and preview.yml is itself
+          # dispatched. `ref` is set (default main) only on this workflow's own manual run.
+          if [ -n "${{ inputs.ref }}" ]; then
+            echo "manual run: rendering"
+            echo "render=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          rc=0
+          film/film-needed.sh HEAD || rc=$?
+          case "$rc" in
+            0) echo "render=true" >> "$GITHUB_OUTPUT" ;;
+            1) echo "render=false" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$rc" ;;
+          esac
+      - if: steps.needed.outputs.render == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - if: steps.needed.outputs.render == 'true'
+        run: cd web && npm ci --silent
+      # The browser binary is cached by Playwright version; the OS packages it
+      # needs are not cacheable and are installed every run (as in hero.yml).
+      - if: steps.needed.outputs.render == 'true'
+        id: playwright
+        run: echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - if: steps.needed.outputs.render == 'true'
+        uses: actions/cache@v6
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - if: steps.needed.outputs.render == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
+        run: cd web && npx playwright install --with-deps chromium
+      - if: steps.needed.outputs.render == 'true' && steps.pw-cache.outputs.cache-hit == 'true'
+        run: cd web && npx playwright install-deps chromium
+      - if: steps.needed.outputs.render == 'true'
+        run: sudo apt-get install -y ffmpeg webp
+      - if: steps.needed.outputs.render == 'true'
+        name: Render
+        run: film/render.sh --no-mp4
+      - if: steps.needed.outputs.render == 'true'
+        name: Publish to readme-film
+        run: film/publish.sh

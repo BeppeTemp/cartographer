@@ -264,7 +264,9 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
   candidate is not the current head of `main` (a fix landed after the build), the train
   is skipped with a comment (it says when the candidate build itself failed): run the
   candidate again by hand (`release-train`, `action: rc`), try it and add the label
-  again, or wait a week.
+  again, or wait a week. The same run renders the README film when its inputs changed
+  (`film.yml`, D1068): a red film job fails the candidate, so there is no `rc-ok` train that
+  week until it is fixed.
 - **Only the next train's work merges.** The next train is the open milestone due
   first. Work of a later milestone can be planned, implemented and reviewed at any
   time, but its PR waits, open, until the train before it has left: `plan-gate`

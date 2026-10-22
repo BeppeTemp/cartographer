@@ -18,6 +18,15 @@ permissions:
   packages: write
 
 jobs:
+  # The README film is rendered from the candidate's sources (the head of main on
+  # Saturday), and a failed render fails this run, so release-train.yml never
+  # merges the release PR on it (D1068). No `needs` either way: it runs in
+  # parallel with the image.
+  film:
+    permissions:
+      contents: write
+    uses: ./.github/workflows/film.yml
+
   docker:
     runs-on: ubuntu-latest
     steps:

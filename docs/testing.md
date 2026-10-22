@@ -733,6 +733,16 @@ of the branch's commit (`web/scripts/hero-needed.sh`); `gh workflow run hero.yml
 -f tag=<tag>` always records. The `19_hero_publish` e2e scenario drives both
 scripts against a scratch bare repository.
 
+The launch film follows the same pattern (D1068). `23_film_publish` runs `film/publish.sh` and
+`film/film-needed.sh` against a scratch repository and a bare origin: no branch means a render is
+needed; after a publish the same revision needs none; a change to a file of each class of input
+(`film/`, `graph3d/`, `palette.ts`, the lockfile) needs one and a change outside the set needs none;
+publishing twice leaves one commit carrying the `Film-Tree:` trailer; a missing input is exit 2.
+`internal/repodocs` fails when a relative import reachable from the film's entry points falls outside
+`film/inputs.sh`, and when `film.yml` or the `film` job of `preview.yml` could swallow a failure. The
+render itself (`film/render.sh`: headless Chromium, 3600 frames) is exercised only by `film.yml`, in the
+release candidate: there is no other test of it.
+
 ## What is deliberately not in CI
 
 - Whether a particular model interprets an instruction well.

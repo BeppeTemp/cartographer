@@ -126,3 +126,66 @@ func TestPreviewWorkflowSmokesBeforePush(t *testing.T) {
 		t.Errorf("preview.yml: the smoke (step %d) runs after the push (step %d): a candidate whose container does not start would be published", smoke, push)
 	}
 }
+
+// The README film is rendered inside the release candidate (D1068): a red film
+// fails the preview run, so release-train.yml never finds a successful candidate
+// and does not merge. Nothing in that path may swallow a failure, and film.yml
+// holds only the token scope it pushes with.
+func TestPreviewWorkflowRunsFilmWithoutSwallowingFailures(t *testing.T) {
+	root := repoRoot(t)
+	var preview struct {
+		Jobs map[string]struct {
+			Uses            string            `yaml:"uses"`
+			ContinueOnError interface{}       `yaml:"continue-on-error"`
+			Permissions     map[string]string `yaml:"permissions"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, root, ".github/workflows/preview.yml")), &preview); err != nil {
+		t.Fatalf("preview.yml: %v", err)
+	}
+	called := false
+	for name, job := range preview.Jobs {
+		if job.Uses != "./.github/workflows/film.yml" {
+			continue
+		}
+		called = true
+		if job.ContinueOnError != nil {
+			t.Errorf("preview.yml: job %s has continue-on-error: a film failure must fail the candidate", name)
+		}
+		if job.Permissions["contents"] != "write" {
+			t.Errorf("preview.yml: job %s needs job-level contents: write to push readme-film", name)
+		}
+	}
+	if !called {
+		t.Error("preview.yml: no job calls film.yml")
+	}
+
+	raw := readFile(t, root, ".github/workflows/film.yml")
+	var film struct {
+		Permissions map[string]string `yaml:"permissions"`
+		Jobs        map[string]struct {
+			ContinueOnError interface{} `yaml:"continue-on-error"`
+			Steps           []struct {
+				Name            string      `yaml:"name"`
+				Run             string      `yaml:"run"`
+				ContinueOnError interface{} `yaml:"continue-on-error"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(raw), &film); err != nil {
+		t.Fatalf("film.yml: %v", err)
+	}
+	if len(film.Permissions) != 1 || film.Permissions["contents"] != "write" {
+		t.Errorf("film.yml: permissions %v, want only contents: write", film.Permissions)
+	}
+	for name, job := range film.Jobs {
+		if job.ContinueOnError != nil {
+			t.Errorf("film.yml: job %s has continue-on-error", name)
+		}
+		for _, st := range job.Steps {
+			if st.ContinueOnError != nil || strings.Contains(st.Run, "|| true") {
+				t.Errorf("film.yml: job %s step %q swallows a failure (continue-on-error or `|| true`)", name, st.Name)
+			}
+		}
+	}
+}
