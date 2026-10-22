@@ -1047,6 +1047,9 @@ func ShowFile(dir, ref, path string) (string, error) {
 // merge produced conflicts. A clean merge (conflicted=false) is left staged but
 // uncommitted; a conflicting merge (conflicted=true) leaves the conflicting files
 // unmerged for the caller to resolve. Any other failure is returned as err.
+// A caller working inside a KB must use MergeNoCommitNoFFEnv with
+// kb.ServerGitEnv(), because this plain form needs a host git identity and
+// fails with "empty ident name" without one.
 func MergeNoCommitNoFF(dir, ref string) (conflicted bool, err error) {
 	return MergeNoCommitNoFFEnv(dir, ref)
 }

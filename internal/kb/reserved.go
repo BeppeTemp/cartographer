@@ -226,7 +226,7 @@ func (k *KB) autoResolveReserved(rce *gitx.RebaseConflictError) error {
 		}
 		contents[f] = c
 	}
-	if _, err := gitx.MergeNoCommitNoFF(k.Root, rce.RemoteSHA); err != nil {
+	if _, err := gitx.MergeNoCommitNoFFEnv(k.Root, rce.RemoteSHA, ServerGitEnv()...); err != nil {
 		return err
 	}
 	fail := func(err error) error {

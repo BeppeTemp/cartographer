@@ -121,6 +121,21 @@ func TestFinalizeConflictsTheirs(t *testing.T) {
 	}
 }
 
+// noHostGitIdentity removes the git identity from everywhere git looks (empty
+// home, no system or global config, no identity variables). t.Setenv forbids
+// t.Parallel, so the caller must not be parallel.
+func noHostGitIdentity(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "missing-gitconfig"))
+	for _, v := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL", "USER", "USERNAME"} {
+		t.Setenv(v, "")
+	}
+}
+
 // FinalizeConflicts stashes the degraded markers, and git stash creates
 // commits: on a host with no git identity it must use the server one
 // (ServerGitEnv). Not parallel: it sets the process environment.
@@ -134,15 +149,7 @@ func TestFinalizeConflictsTheirs_NoIdentityOnHost(t *testing.T) {
 		t.Fatalf("RecordResolution: %v", err)
 	}
 
-	// No identity anywhere git looks, after the fixture is built.
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "missing-gitconfig"))
-	for _, v := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL", "USER", "USERNAME"} {
-		t.Setenv(v, "")
-	}
+	noHostGitIdentity(t) // after the fixture is built
 
 	ids, err := k.FinalizeConflicts()
 	if err != nil {

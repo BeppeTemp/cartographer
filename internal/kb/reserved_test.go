@@ -169,6 +169,30 @@ func TestSyncIn_LogConflictWithoutAttributesAutoResolvedByUnion(t *testing.T) {
 	}
 }
 
+// The auto-resolution merges the remote SHA, and a merge needs a committer
+// identity even with --no-commit: on a host with no git identity it must use
+// the server one (ServerGitEnv). Not parallel: it sets the process environment.
+func TestSyncIn_LogConflictAutoResolvedOnHostWithoutGitIdentity(t *testing.T) {
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, other, branch := reservedSyncKB(t, false, nil)
+	colleaguePush(t, other, branch, map[string]string{"data/log.md": "# Log\n\n- remote entry\n"})
+	localCommit(t, k, map[string]string{"data/log.md": "# Log\n\n- local entry\n"})
+	noHostGitIdentity(t)
+
+	if _, err := k.SyncIn(); err != nil {
+		t.Fatalf("SyncIn: %v", err)
+	}
+	got := readRel(t, k.Root, "data/log.md")
+	if !strings.Contains(got, "- local entry") || !strings.Contains(got, "- remote entry") {
+		t.Fatalf("log.md lost an entry:\n%s", got)
+	}
+	if subject := tgit(t, k.Root, "log", "-1", "--format=%s"); !strings.HasPrefix(subject, "auto-resolve reserved file conflict") {
+		t.Fatalf("HEAD subject = %q", subject)
+	}
+}
+
 func TestSyncIn_StructuralReservedConflictTakesTheirs(t *testing.T) {
 	t.Parallel()
 	if !haveGit() {
