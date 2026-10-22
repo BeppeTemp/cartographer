@@ -1,0 +1,136 @@
+# Renders the README's launch film (D807) and replaces it on the `readme-film` branch (D1068): called by
+# preview.yml, so the release candidate carries the film of the code being released, or run by hand (a manual
+# run always renders). It renders only when the film's inputs differ from the ones the film on the branch shows
+# (film/film-needed.sh). A render failure is deliberately BLOCKING: preview.yml goes red and the release train
+# skips that week, unlike the hero (D790), which never blocks a release. Two jobs (D1068): `render` runs
+# the checked-out code with a read-only token that is not even left in .git/config, and hands the film over as an
+# artifact; `publish` holds contents: write, runs only film/publish.sh from main and never executes the render's
+# code. Nothing is pushed to main: the `main-protection` ruleset covers the default branch only.
+# Every action is pinned to a full commit SHA (supply chain).
+name: film
+
+on:
+  workflow_call:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Ref whose film to render (only main is published)
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+# Two renders never race for the branch; a newer one waits instead of cancelling one that is half way
+# through its force-push.
+concurrency:
+  group: film
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      render: ${{ steps.needed.outputs.render }}
+      sha: ${{ steps.needed.outputs.sha }}
+    # 3600 frames at 1920x1080, software rendered one by one; the first run on main sets the real figure.
+    timeout-minutes: 120
+    steps:
+      # No credential is left in .git/config: npm ci, Playwright, vite and record.mjs run the checked-out code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      # github.event_name is the caller's inside a workflow_call, and preview.yml is itself dispatched: only a
+      # direct run of this workflow has the `ref` input.
+      - name: Is a render needed
+        id: needed
+        env:
+          MANUAL_REF: ${{ inputs.ref }}
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # Caches are scoped to the ref the run started on (main): only main's own code may read or write them.
+          if [ -z "$MANUAL_REF" ] || [ "$MANUAL_REF" = main ]; then
+            echo "trusted=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "trusted=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$MANUAL_REF" ]; then
+            echo "manual run: rendering $MANUAL_REF"
+            echo "render=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          rc=0
+          film/film-needed.sh HEAD || rc=$?
+          case "$rc" in
+            0) echo "render=true" >> "$GITHUB_OUTPUT" ;;
+            1) echo "render=false" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$rc" ;;
+          esac
+      - if: steps.needed.outputs.render == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: web/.nvmrc
+          cache: ${{ steps.needed.outputs.trusted == 'true' && 'npm' || '' }}
+          cache-dependency-path: web/package-lock.json
+      - if: steps.needed.outputs.render == 'true'
+        run: cd web && npm ci --silent
+      # The browser binary is cached by Playwright version; the OS packages it
+      # needs are not cacheable and are installed every run (as in hero.yml).
+      - if: steps.needed.outputs.render == 'true'
+        id: playwright
+        run: echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - if: steps.needed.outputs.render == 'true' && steps.needed.outputs.trusted == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - if: steps.needed.outputs.render == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
+        run: cd web && npx playwright install --with-deps chromium
+      - if: steps.needed.outputs.render == 'true' && steps.pw-cache.outputs.cache-hit == 'true'
+        run: cd web && npx playwright install-deps chromium
+      - if: steps.needed.outputs.render == 'true'
+        run: sudo apt-get install -y ffmpeg webp
+      - if: steps.needed.outputs.render == 'true'
+        name: Render
+        run: time film/render.sh --no-mp4
+      - if: steps.needed.outputs.render == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: film
+          path: film/out/film.webp
+          if-no-files-found: error
+          retention-days: 1
+
+  # The only job with a write token. It runs film/publish.sh from main (never the code that was rendered) and
+  # only the main run publishes: a manual run of another ref renders, to check it, and stops there.
+  publish:
+    needs: render
+    if: >-
+      needs.render.outputs.render == 'true' && github.ref == 'refs/heads/main' &&
+      (inputs.ref == '' || inputs.ref == 'main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    steps:
+      # The commit that was rendered, not whatever main is by now: Film-Tree must describe the film.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.render.outputs.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: film
+          path: film/out
+      # The commit on readme-film needs an identity.
+      - name: Configure git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Publish to readme-film
+        run: film/publish.sh

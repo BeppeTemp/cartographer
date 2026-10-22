@@ -142,7 +142,7 @@ jobs:
               --json conclusion,displayTitle,url \
               --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}$"))][0] | select(.conclusion == "failure") | .url') || true
             if [ -n "${failed_url:-}" ]; then
-              skip "the last release candidate build failed (${failed_url}). Fix it, run \`release-train\` by hand with \`action: rc\`, try the new candidate, then remove and add \`rc-ok\` again."
+              skip "the last release candidate build (or the README film) failed (${failed_url}). Fix it, run \`release-train\` by hand with \`action: rc\`, try the new candidate, then remove and add \`rc-ok\` again."
             fi
             skip "the last candidate built (${rc_sha:-none}) is not the head of \`main\` (${head_sha:0:8}). $retry"
           fi

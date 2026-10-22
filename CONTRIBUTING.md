@@ -30,7 +30,8 @@ The Atlas UI has its own loop (Node, outside `make gate`): `make web-test` for
 the frontend tests, `make web` to rebuild the committed bundle, `make e2e-web`
 for the browser suite — see [`docs/testing.md`](docs/testing.md) §Frontend. The
 README animation needs nothing by hand: the release that changes `web/`
-re-records it (`make hero` previews it locally).
+re-records it (`make hero` previews it locally), and the release candidate re-renders the
+launch film when `film/` or what it imports changed (`film/README.md`).
 
 `make test` also runs the repository's own documentation gates
 (`internal/repodocs`): the size of `AGENTS.md`, the freshness of the generated
@@ -259,7 +260,9 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
 - **The release candidate.** On Saturday at 00:30 the workflow builds a server image
   `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. The
   image is started and smoked before it is published (tools, non-root user, a KB served
-  over HTTP with a write that commits), so a candidate that exists starts. A maintainer
+  over HTTP with a write that commits), so a candidate that exists starts. The same run
+  renders the README film when its sources changed (`film.yml`, D1068): a red film job
+  fails the candidate, so there is no `rc-ok` train that week. A maintainer
   runs it on a real deployment and adds the `rc-ok` label. Without the label, or if the
   candidate is not the current head of `main` (a fix landed after the build), the train
   is skipped with a comment (it says when the candidate build itself failed): run the

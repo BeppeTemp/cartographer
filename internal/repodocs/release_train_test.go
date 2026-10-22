@@ -126,3 +126,142 @@ func TestPreviewWorkflowSmokesBeforePush(t *testing.T) {
 		t.Errorf("preview.yml: the smoke (step %d) runs after the push (step %d): a candidate whose container does not start would be published", smoke, push)
 	}
 }
+
+// A film that cannot render blocks the release candidate and so the train (D1068): the film job of preview.yml
+// must not tolerate failure, film.yml must not swallow one anywhere in its path, the job that runs the checked-out code is read-only and
+// the one that writes (only on main) runs none of it.
+// Every action it uses is pinned to a full commit SHA (it holds a write token).
+func TestPreviewCallsTheFilmWithoutToleratingFailure(t *testing.T) {
+	root := repoRoot(t)
+	type step struct {
+		Uses            string            `yaml:"uses"`
+		Run             string            `yaml:"run"`
+		If              string            `yaml:"if"`
+		With            map[string]string `yaml:"with"`
+		ContinueOnError any               `yaml:"continue-on-error"`
+	}
+	var preview struct {
+		Jobs map[string]struct {
+			Uses            string            `yaml:"uses"`
+			Permissions     map[string]string `yaml:"permissions"`
+			ContinueOnError any               `yaml:"continue-on-error"`
+			Needs           any               `yaml:"needs"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, root, ".github/workflows/preview.yml")), &preview); err != nil {
+		t.Fatalf("preview.yml: %v", err)
+	}
+	calls := 0
+	for name, job := range preview.Jobs {
+		if job.Uses == "./.github/workflows/film.yml" {
+			calls++
+			if job.ContinueOnError != nil {
+				t.Errorf("preview.yml: job %s calls film.yml with continue-on-error: a film that fails must fail the candidate", name)
+			}
+			if job.Permissions["contents"] != "write" {
+				t.Errorf("preview.yml: job %s needs `permissions: contents: write` to call film.yml", name)
+			}
+		} else if strings.Contains(toString(job.Needs), "film") {
+			t.Errorf("preview.yml: job %s needs the film job: the film and the image run in parallel", name)
+		}
+		if job.Uses != "" && job.Needs != nil {
+			t.Errorf("preview.yml: job %s has needs: the film and the image run in parallel", name)
+		}
+	}
+	if calls != 1 {
+		t.Errorf("preview.yml: %d jobs call film.yml, want exactly one", calls)
+	}
+
+	raw := readFile(t, root, ".github/workflows/film.yml")
+	var film struct {
+		Permissions map[string]string `yaml:"permissions"`
+		Jobs        map[string]struct {
+			ContinueOnError any               `yaml:"continue-on-error"`
+			Permissions     map[string]string `yaml:"permissions"`
+			Needs           any               `yaml:"needs"`
+			If              string            `yaml:"if"`
+			Steps           []step            `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(raw), &film); err != nil {
+		t.Fatalf("film.yml: %v", err)
+	}
+	if len(film.Permissions) != 1 || film.Permissions["contents"] != "read" {
+		t.Errorf("film.yml: permissions %v, want exactly contents: read", film.Permissions)
+	}
+	// The job that runs the checked-out code never holds the write token, and does not leave one in .git/config.
+	render, publish := film.Jobs["render"], film.Jobs["publish"]
+	if len(render.Permissions) != 1 || render.Permissions["contents"] != "read" {
+		t.Errorf("film.yml: job render has permissions %v, want exactly contents: read", render.Permissions)
+	}
+	checkouts := 0
+	for _, st := range render.Steps {
+		switch {
+		case strings.HasPrefix(st.Uses, "actions/checkout@"):
+			checkouts++
+			if st.With["persist-credentials"] != "false" {
+				t.Errorf("film.yml: job render checks out with persist-credentials %q, want false", st.With["persist-credentials"])
+			}
+		// A manual run of another ref renders unreviewed code: it must neither read nor write the caches main uses.
+		case strings.HasPrefix(st.Uses, "actions/cache@"):
+			if !strings.Contains(st.If, "steps.needed.outputs.trusted == 'true'") {
+				t.Errorf("film.yml: render's cache step is not gated on trusted, if: %q", st.If)
+			}
+		case strings.HasPrefix(st.Uses, "actions/setup-node@"):
+			if c := st.With["cache"]; c != "" && !strings.Contains(c, "steps.needed.outputs.trusted == 'true'") {
+				t.Errorf("film.yml: render's setup-node cache %q is not gated on trusted", c)
+			}
+		}
+	}
+	if checkouts != 1 {
+		t.Errorf("film.yml: job render has %d checkouts, want 1", checkouts)
+	}
+	if len(publish.Permissions) != 1 || publish.Permissions["contents"] != "write" || !strings.Contains(toString(publish.Needs), "render") {
+		t.Errorf("film.yml: job publish must need render and hold exactly contents: write, got %v needs %v", publish.Permissions, publish.Needs)
+	}
+	if !strings.Contains(publish.If, "refs/heads/main") {
+		t.Errorf("film.yml: job publish must be gated on refs/heads/main, if: %q", publish.If)
+	}
+	for _, st := range publish.Steps {
+		if strings.HasPrefix(st.Uses, "actions/checkout@") && st.With["ref"] != "${{ needs.render.outputs.sha }}" {
+			t.Errorf("film.yml: job publish checks out ref %q, want the rendered sha", st.With["ref"])
+		}
+		if strings.HasPrefix(st.Uses, "actions/download-artifact@") && st.With["path"] != "film/out" {
+			t.Errorf("film.yml: job publish downloads to %q, want film/out only", st.With["path"])
+		}
+		if strings.Contains(st.Run, "npm ") || strings.Contains(st.Run, "npx ") || strings.Contains(st.Run, "render.sh") {
+			t.Errorf("film.yml: job publish holds the write token and must not run the film's code: %q", st.Run)
+		}
+	}
+	pinned := regexp.MustCompile(`^[^@\s]+@[0-9a-f]{40}$`)
+	for name, job := range film.Jobs {
+		if job.ContinueOnError != nil {
+			t.Errorf("film.yml: job %s has continue-on-error", name)
+		}
+		for i, st := range job.Steps {
+			if st.ContinueOnError != nil {
+				t.Errorf("film.yml: job %s step %d has continue-on-error", name, i)
+			}
+			if strings.Contains(st.Run, "|| true") {
+				t.Errorf("film.yml: job %s step %d swallows a failure with `|| true`", name, i)
+			}
+			if st.Uses != "" && !pinned.MatchString(st.Uses) {
+				t.Errorf("film.yml: `uses: %s` is not pinned to a 40-hex commit SHA", st.Uses)
+			}
+		}
+	}
+}
+
+func toString(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case []any:
+		parts := make([]string, 0, len(x))
+		for _, e := range x {
+			parts = append(parts, toString(e))
+		}
+		return strings.Join(parts, " ")
+	}
+	return ""
+}

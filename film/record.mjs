@@ -1,4 +1,7 @@
-// Renders the film frame by frame. The vite server must already be running (see README.md).
+// Renders the film frame by frame. The vite server must already be running (see README.md), or use film/render.sh.
+// Exits non-zero when the page raised an error or fewer frames than the film has were rendered (D1068): that is
+// what turns a broken import or camera in web/src/lib/graph3d into a red CI job.
+// --no-mp4 skips the MP4 (CI publishes only the WebP).
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -11,6 +14,7 @@ const { chromium } = createRequire(path.join(here, "../web/package.json"))("play
 const args = process.argv.slice(2);
 const opt = (name, dflt) => { const i = args.indexOf(`--${name}`); return i < 0 ? dflt : args[i + 1]; };
 const stills = new Set((opt("stills", "") || "").split(",").filter(Boolean).map(Number));
+const noMp4 = args.includes("--no-mp4");
 const fpsOpt = Number(opt("fps", 0)) || 0;
 const url = opt("url", "http://localhost:5180/?record");
 const out = path.join(here, "out");
@@ -24,7 +28,8 @@ const browser = await chromium.launch({
   args: ["--use-angle=swiftshader", "--use-gl=angle", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
 });
 const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
-page.on("pageerror", (e) => console.error("page error:", e.message));
+const pageErrors = [];
+page.on("pageerror", (e) => { pageErrors.push(e.message); console.error("page error:", e.message); });
 await page.goto(url);
 await page.waitForFunction(() => window.film, null, { timeout: 60000 });
 const { fps, frames } = await page.evaluate(() => ({ fps: window.film.fps, frames: window.film.frames }));
@@ -33,18 +38,30 @@ const rate = fpsOpt || fps;
 const stillFrames = new Map([...stills].map((s) => [Math.round(s * fps), s]));
 const last = stills.size ? Math.max(...stillFrames.keys()) : frames - 1;
 
+const fail = async (msg) => { console.error(`record: ${msg}`); await browser.close(); process.exit(1); };
 for (let n = 0; n <= last; n++) {
-  await page.evaluate((i) => window.film.frame(i), n);
+  try {
+    await page.evaluate((i) => window.film.frame(i), n);
+  } catch (e) {
+    await fail(`frame ${n} failed: ${e.message}`);
+  }
+  if (pageErrors.length) await fail(`the page raised ${pageErrors.length} error(s) at frame ${n}, the first: ${pageErrors[0]}`);
   if (stills.size) {
     if (stillFrames.has(n)) await page.screenshot({ path: path.join(out, `still-${stillFrames.get(n)}.png`) });
   } else await page.screenshot({ path: path.join(framesDir, `${String(n).padStart(5, "0")}.png`) });
   if (n % 60 === 0) console.log(`frame ${n}/${stills.size ? last : frames - 1}`);
 }
+if (pageErrors.length) await fail(`the page raised ${pageErrors.length} error(s), the first: ${pageErrors[0]}`);
+const rendered = await page.evaluate(() => window.film.rendered());
+if (rendered !== last + 1) await fail(`the page rendered ${rendered} frames, expected ${last + 1}`);
+if (!stills.size && rendered !== frames) await fail(`rendered ${rendered} frames, the film has ${frames}`);
 await browser.close();
 
 if (!stills.size) {
-  const input = ["-y", "-framerate", String(rate), "-i", path.join(framesDir, "%05d.png")];
-  execFileSync("ffmpeg", [...input, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-r", String(rate), path.join(out, "film.mp4")], { stdio: "inherit" });
+  if (!noMp4) {
+    const input = ["-y", "-framerate", String(rate), "-i", path.join(framesDir, "%05d.png")];
+    execFileSync("ffmpeg", [...input, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-r", String(rate), path.join(out, "film.mp4")], { stdio: "inherit" });
+  }
   // The README's WebP: 1120 px wide (the page shows it at ~900) and 30 fps, since browsers do not honour
   // animated-image frame delays much under 20 ms. A key frame every 15 frames (-kmin/-kmax) and -exact: between
   // key frames the lossy encoder treats near-identical pixels as unchanged, so whatever fades slowly (a card, its
