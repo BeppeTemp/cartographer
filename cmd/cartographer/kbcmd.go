@@ -78,7 +78,7 @@ func cmdKB(args []string) int {
 }
 
 func printKBUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>] [--json]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
+	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>] [--json]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
 }
 
 // validateKBName returns an error describing why name is not a usable KB
@@ -107,13 +107,14 @@ func cmdKBCreate(args []string) int {
 	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
 	configFlag := fs.String("config", "", "Server config YAML to read data: from (default: the standard path)")
 	localFlag := fs.Bool("local", false, "Act on the local data dir even though the client points at a remote server")
-	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository, or one holding only a forge's initial commit (README/LICENSE/.gitignore), which is kept: attached as origin and pushed to")
+	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository, or one holding only a forge's initial commit (README/LICENSE/.gitignore), whose files are kept (a recognised boilerplate README.md is replaced, see --readme): attached as origin and pushed to")
 	noRemoteFlag := fs.Bool("no-remote", false, "Create a local-only KB with no origin (not durable, never synced)")
+	readmeFlag := fs.String("readme", "", "What to do with the README.md of a forge's initial commit: generate (replace it with a short generated one) or keep (leave it); default replaces only a recognised forge boilerplate")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after creating the KB")
 	fs.Parse(rest)
 
 	if name == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> (--remote <url> | --no-remote) [--data <dir>] [--restart]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> (--remote <url> | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]")
 		return 2
 	}
 	if err := validateKBName(name); err != nil {
@@ -122,6 +123,10 @@ func cmdKBCreate(args []string) int {
 	}
 	remote := strings.TrimSpace(*remoteFlag)
 	if code := checkRemoteChoice(remote, *noRemoteFlag); code != 0 {
+		return code
+	}
+	readme := strings.TrimSpace(*readmeFlag)
+	if code := checkReadmeChoice(readme, *noRemoteFlag); code != 0 {
 		return code
 	}
 	// Refuse an option-like or transport-helper remote before the scaffold
@@ -160,6 +165,7 @@ func cmdKBCreate(args []string) int {
 	// no separate MkdirAll(dataDir) needed.
 	var originBranch string
 	var adopted []string
+	var replacedReadme bool
 	if _, err := kb.InitWithSettings(path, authorName, authorEmail, settingsFile); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		// A failed initial commit stops here, before the push: pushing an
@@ -171,7 +177,7 @@ func cmdKBCreate(args []string) int {
 		return 1
 	}
 	if remote != "" {
-		res := attachOrigin(path, remote, authorName, authorEmail)
+		res := attachOrigin(path, remote, name, readme, authorName, authorEmail)
 		if res.code != 0 {
 			if res.discard {
 				// Nothing was pushed and the next step is a rerun of this
@@ -184,12 +190,16 @@ func cmdKBCreate(args []string) int {
 			printUnpushedScaffoldGuidance(path, res.branch, authorName, authorEmail, dataDir)
 			return res.code
 		}
-		originBranch, adopted = res.branch, res.adopted
+		originBranch, adopted, replacedReadme = res.branch, res.adopted, res.replacedReadme
 	}
 	fmt.Printf("KB %q created at %s\n", name, path)
 	if remote != "" {
 		if len(adopted) > 0 {
-			fmt.Printf("origin: %s (adopted the forge's initial commit on %s: %s)\n", remote, originBranch, strings.Join(adopted, ", "))
+			replaced := ""
+			if replacedReadme {
+				replaced = "; replaced README.md"
+			}
+			fmt.Printf("origin: %s (adopted the forge's initial commit on %s: %s%s)\n", remote, originBranch, strings.Join(adopted, ", "), replaced)
 		} else {
 			fmt.Printf("origin: %s\n", remote)
 		}
@@ -258,6 +268,25 @@ func checkRemoteChoice(remote string, noRemote bool) int {
 	return 0
 }
 
+// checkReadmeChoice validates --readme: empty (automatic), "generate" or
+// "keep", and never together with --no-remote, which has no forge commit to
+// adopt. It returns 0 when the choice is valid and the usage exit code (2)
+// otherwise.
+func checkReadmeChoice(readme string, noRemote bool) int {
+	switch readme {
+	case "":
+		return 0
+	case readmeGenerate, readmeKeep:
+		if noRemote {
+			fmt.Fprintln(os.Stderr, "Error: --readme applies to the README of a forge's initial commit, which --no-remote never adopts")
+			return 2
+		}
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "Error: --readme %q is not valid; use %s (replace the forge's README.md with a generated one), %s (leave it) or omit the flag (replace it only when it is a known forge boilerplate)\n", readme, readmeGenerate, readmeKeep)
+	return 2
+}
+
 // originResult is what attachOrigin tells cmdKBCreate: the exit code, the
 // branch the KB ended up on, and what to do with the local KB on failure.
 type originResult struct {
@@ -271,6 +300,8 @@ type originResult struct {
 	branch string
 	// adopted lists the files of the forge's initial commit that were kept.
 	adopted []string
+	// replacedReadme: the adopted README.md was replaced by a generated one.
+	replacedReadme bool
 }
 
 // attachOrigin wires the freshly scaffolded KB at path to remote as "origin"
@@ -280,8 +311,9 @@ type originResult struct {
 // (README/LICENSE/.gitignore, D710) gets the scaffold rebuilt on top of it, on
 // the remote's own default branch (D264), by a fast-forward; any other
 // non-empty remote is refused before the push. An unreachable remote falls
-// through to the push, whose failure keeps the scaffold (D156).
-func attachOrigin(path, remote, authorName, authorEmail string) originResult {
+// through to the push, whose failure keeps the scaffold (D156). readme is the
+// --readme choice for the adopted forge README.md (replaceForgeReadme).
+func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string) originResult {
 	if err := gitx.AddRemote(path, "origin", remote); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return originResult{code: 1}
@@ -291,9 +323,10 @@ func attachOrigin(path, remote, authorName, authorEmail string) originResult {
 		branch = gitx.DefaultBranch
 	}
 	var adopted []string
+	var replaced bool
 	if refs, lsErr := gitx.LsRemote(path, "origin"); lsErr == nil && refs.HasRefs {
 		var res *originResult
-		if branch, adopted, res = adoptForgeCommit(path, remote, branch, refs, authorName, authorEmail); res != nil {
+		if branch, adopted, replaced, res = adoptForgeCommit(path, remote, kbName, readme, branch, refs, authorName, authorEmail); res != nil {
 			return *res
 		}
 	}
@@ -308,16 +341,17 @@ func attachOrigin(path, remote, authorName, authorEmail string) originResult {
 		fmt.Fprintf(os.Stderr, "Hint: if the remote already holds a KB, mount it instead: cartographer kb clone %s\n", remote)
 		return originResult{code: 1, branch: branch}
 	}
-	return originResult{branch: branch, adopted: adopted}
+	return originResult{branch: branch, adopted: adopted, replacedReadme: replaced}
 }
 
 // adoptForgeCommit handles a remote that already has refs. It returns the
 // branch to push and the adopted files, or a non-nil result when the create
 // must stop: a remote that holds content, a path collision, or a failed fetch
-// or rebase — all before anything was pushed, so the local KB is discarded.
-func adoptForgeCommit(path, remote, branch string, refs gitx.RemoteRefs, authorName, authorEmail string) (string, []string, *originResult) {
-	refuse := func() (string, []string, *originResult) {
-		return branch, nil, &originResult{code: 1, discard: true}
+// or rebase, or the README replacement — all before anything was pushed, so
+// the local KB is discarded. The bool reports a replaced README.md.
+func adoptForgeCommit(path, remote, kbName, readme, branch string, refs gitx.RemoteRefs, authorName, authorEmail string) (string, []string, bool, *originResult) {
+	refuse := func() (string, []string, bool, *originResult) {
+		return branch, nil, false, &originResult{code: 1, discard: true}
 	}
 	if err := gitx.Fetch(path, "origin"); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -379,7 +413,67 @@ func adoptForgeCommit(path, remote, branch string, refs gitx.RemoteRefs, authorN
 			return refuse()
 		}
 	}
-	return target, forgePaths, nil
+	replaced, err := replaceForgeReadme(path, "origin/"+target, remote, kbName, readme, forgePaths, authorName, authorEmail)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return refuse()
+	}
+	return target, forgePaths, replaced, nil
+}
+
+const (
+	readmeGenerate = "generate"
+	readmeKeep     = "keep"
+)
+
+// generatedReadme is the README of a KB that replaced its forge's README: the
+// title, the project description the forge carried when there was one (the
+// second %s, already followed by a blank line), and where the KB's rules and
+// content start.
+const generatedReadme = `# %s
+
+%sThis is a Cartographer knowledge base: it is read and written through the Cartographer MCP server, not edited by hand.
+The rules are in ` + "`instructions.md`" + ` and the content starts at ` + "`data/index.md`" + `.
+`
+
+// replaceForgeReadme applies the --readme choice to the README.md of the
+// adopted forge commit (forgePaths), as one commit on top of the rebased
+// scaffold so the forge's commit stays in the history. Automatic mode
+// replaces only a recognised boilerplate (gitx.ForgeBoilerplateReadme) and
+// tells the operator when it kept another README; "generate" replaces
+// whatever the README holds; "keep" never does. It reports whether it did.
+func replaceForgeReadme(path, forgeRef, remote, kbName, readme string, forgePaths []string, authorName, authorEmail string) (bool, error) {
+	readmePath, single := gitx.ForgeReadmePath(forgePaths)
+	if readmePath == "" || readme == readmeKeep {
+		return false, nil
+	}
+	var boilerplate bool
+	var description string
+	if single {
+		var err error
+		if boilerplate, description, err = gitx.ForgeReadmeBoilerplate(path, forgeRef, readmePath, remote); err != nil {
+			return false, err
+		}
+	}
+	if readme == "" && !boilerplate {
+		fmt.Fprintf(os.Stderr, "Hint: kept the remote's %s, which is not a known forge boilerplate; --readme %s replaces it with a generated one.\n", readmePath, readmeGenerate)
+		return false, nil
+	}
+	if description != "" {
+		description += "\n\n"
+	}
+	content := fmt.Sprintf(generatedReadme, kbName, description)
+	if err := os.WriteFile(filepath.Join(path, readmePath), []byte(content), 0o644); err != nil {
+		return false, err
+	}
+	subject := "docs: replace the forge's boilerplate README"
+	if readme == readmeGenerate {
+		subject = "docs: generate the README"
+	}
+	if err := gitx.CommitPaths(path, []string{readmePath}, subject, authorName, authorEmail, kb.IdentityGitEnv(authorName, authorEmail)...); err != nil {
+		return false, err
+	}
+	return true, gitx.ResetPaths(path, readmePath)
 }
 
 // printNoRemoteWarning states what --no-remote costs, on stderr: the KB is a

@@ -95,7 +95,7 @@ decides every step **before** running any:
 | verify | `/health` through `service status` | — |
 
 - **The remote decides create vs clone.** An empty `ls-remote` answer means an empty repository:
-  `kb create <name> --remote <url>`; any ref means content: `kb clone <url> <name>` — which, for a repository holding only a forge's initial commit (README/LICENSE/.gitignore), answers with `kb create <name> --remote <url>` instead, since that adopts it (D710). The name is
+  `kb create <name> --remote <url>`; any ref means content: `kb clone <url> <name>` — which, for a repository holding only a forge's initial commit (README/LICENSE/.gitignore), answers with `kb create <name> --remote <url>` instead, since that adopts it (D710). A README.md of that commit is replaced by a short generated one (a new commit on top, the forge's commit stays) only when it is a known forge boilerplate (the title and at most a description line of GitHub/Gitea/Forgejo, GitLab's "Getting started" template); any other README is kept and a hint names `--readme generate`, which replaces it whatever it holds, while `--readme keep` never replaces it (D1071). The name is
   `--name`, else the repository name. The same probe proves the remote is reachable with this
   machine's credentials, under the non-interactive git environment of `kb clone` (no prompts,
   SSH batch mode, host keys never auto-accepted — D173); a failure exits 2 **before anything is
