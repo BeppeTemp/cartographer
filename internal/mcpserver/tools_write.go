@@ -22,7 +22,7 @@ import (
 func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 	return Tool{
 		Name:        "concept_write",
-		Description: "Creates or updates a concept from frontmatter (YAML map, type required) and a markdown body. if_match (content hash) gives optimistic concurrency: stale_write if changed. Returns content_hash and structural findings too (links, orphan, index): fix them.",
+		Description: "Creates or updates a concept from frontmatter (YAML map, type required) and a markdown body. if_match (content hash) gives optimistic concurrency: stale_write if changed. index_entry (creation only) adds it to the map's curated index. Returns content_hash and structural findings too (links, orphan, index): fix them.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id", "frontmatter", "body"],
@@ -40,6 +40,9 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				"if_match": {
 					"type": "string",
 					"description": "Optional content hash"
+				},
+				"index_entry": {
+					"type": "boolean"
 				}
 			}
 		}`),
@@ -49,6 +52,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 				Frontmatter map[string]interface{} `json:"frontmatter"`
 				Body        string                 `json:"body"`
 				IfMatch     string                 `json:"if_match"`
+				IndexEntry  bool                   `json:"index_entry"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -71,6 +75,18 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			applyFrontmatterMap(fm, params.Frontmatter)
 
 			isNew := conceptIsNew(k, params.ID)
+			// index_entry is creation only, as in concept_new (D714, D1099):
+			// refused before anything is written.
+			var indexPlan pendingIndexEntry
+			if params.IndexEntry {
+				if !isNew || params.IfMatch != "" {
+					return errorResult(fmt.Sprintf("concept_write %q: 'index_entry' applies only to a creation", params.ID)), nil
+				}
+				var planErr error
+				if indexPlan, planErr = planIndexEntry(k, params.ID); planErr != nil {
+					return errorResult(fmt.Sprintf("concept_write %q: %v", params.ID, planErr)), nil
+				}
+			}
 			prev := priorBody(k, params.ID)
 			newHash, err := writeConceptAndLog(k, "concept_write", params.ID, fm, params.Body, params.IfMatch)
 			if err != nil {
@@ -83,6 +99,15 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			result := map[string]interface{}{
 				"id":           params.ID,
 				"content_hash": newHash,
+			}
+			if params.IndexEntry {
+				// Before repairWritten and the write gate, which judge the index
+				// as edited. A failure after the write is a note, as in
+				// concept_new.
+				if err := applyIndexEntries(k, []pendingIndexEntry{indexPlan}); err != nil {
+					indexPlan.note = fmt.Sprintf("curated index %s/index.md: %v", indexPlan.mapName, err)
+				}
+				result["curated_indexes"] = indexEntryNotes([]pendingIndexEntry{indexPlan})
 			}
 			view := newCallerView(ctx, k)
 			findings, repaired, hashes := repairWritten(k, []string{params.ID}, nil, view)

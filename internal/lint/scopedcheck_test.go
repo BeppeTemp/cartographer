@@ -48,6 +48,8 @@ func TestScopedCheck_Orphan(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
 	writeFile(t, k.DataRoot(), "notes/deep/x.md", noteHead+"---\nBody.\n")
+	// A second live concept of the archive: the only live one is exempt (D1099).
+	writeFile(t, k.DataRoot(), "notes/deep/z.md", noteHead+"---\nBody.\n")
 	got := ScopedCheck(k, ids("notes/deep/x"))
 	if !hasCheck(got, "notes/deep/x.md", "orphan") {
 		t.Fatalf("want orphan: %v", got)
@@ -146,6 +148,7 @@ func TestScopedCheck_Orphan_ProvenanceCited(t *testing.T) {
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\n---\n")
 	writeFile(t, k.DataRoot(), "notes/deep/src.md", noteHead+"---\nBody.\n")
+	writeFile(t, k.DataRoot(), "notes/deep/z.md", noteHead+"---\nBody.\n") // a second live concept (D1099)
 	if got := ScopedCheck(k, ids("notes/deep/src")); !hasCheck(got, "notes/deep/src.md", "orphan") {
 		t.Fatalf("want orphan before any citation: %v", got)
 	}

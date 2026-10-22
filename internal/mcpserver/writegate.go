@@ -192,7 +192,7 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 	}
 	body, _ := json.Marshal(findingsOut(introduced))
 	res := errorResult(fmt.Sprintf("write_gate: refused, nothing was written. This call introduced %d finding(s) a write can avoid (D907):\n%s\n"+
-		"Fix each one as its message and fix say, then retry; concept_batch is atomic, so a page and the link, index entry or target it needs can land in one call. A new page in a map with a curated index needs index_entry: true on its concept_new or creating concept_batch write (concept_write has no index_entry: create the page with concept_new, or list it in the map's index in the same concept_batch).",
+		"Fix each one as its message and fix say, then retry; concept_batch is atomic, so a page and the link, index entry or target it needs can land in one call. A new page in a map with a curated index needs index_entry: true on its concept_write, concept_new or creating concept_batch write.",
 		len(introduced), body))
 	return &res
 }

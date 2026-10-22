@@ -4,6 +4,8 @@ topic: data-plane
 
 # D306 — Every finding is fixed or accepted, and a map accepts a style once
 
+> **Amended by [D1099](D1099-lone-live-page-and-concept-write-index-entry.md)**: the `orphan` rule is not raised for the only live concept of an archive or of the KB.
+>
 > **Amended by [D907](D907-the-lint-cannot-be-escaped.md)**: a finding is fixed, never accepted; `lint_ignore` in `_map.md` is removed and `contract_legacy_key` drops it. The `orphan` rule for a map's unlinked top-level concept stays.
 
 **Decision.** `lint_ignore` in a map's `_map.md` accepts the named checks for

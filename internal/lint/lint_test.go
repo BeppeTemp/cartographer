@@ -485,6 +485,9 @@ func TestRun_Orphan_ArchiveTopLevel_Isolated(t *testing.T) {
 		"---\ntype: Map\ntitle: Arch\nkind: map\n---\n")
 	writeFile(t, k.DataRoot(), "arch/lonely.md",
 		"---\ntype: Note\n---\nNothing links here, and this links nowhere.\n")
+	// A second live page: the only live page of an archive is exempt (D1099).
+	writeFile(t, k.DataRoot(), "arch/other.md",
+		"---\ntype: Note\n---\nNothing links here either.\n")
 
 	findings, err := Run(k, "", false)
 	if err != nil {

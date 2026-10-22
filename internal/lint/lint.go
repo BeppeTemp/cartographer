@@ -262,6 +262,8 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	}
 	graph := lg.Links
 	isRetired := retiredOf(lg)
+	// Built once, read-only once the workers start (D1099).
+	census := newLiveCensus(lg)
 
 	// Expand scope with 1-hop graph neighbours when requested: out-links
 	// only, the concept itself excluded — GraphNeighbors(id, 1)'s semantics.
@@ -493,7 +495,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		}
 
 		// --- orphan ---
-		if f, ok := orphanFinding(id, relPath, isRetired(id), incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }, func(t okf.ConceptID) bool { return len(sourceCited[string(t)]) > 0 }); ok {
+		if f, ok := orphanFinding(id, relPath, isRetired(id), incomingLinks, graph.Out, archiveSet, func(t okf.ConceptID) bool { _, ok := relPathOf[t]; return ok }, func(t okf.ConceptID) bool { return len(sourceCited[string(t)]) > 0 }, func() bool { return census.only(id, archiveSet) }); ok {
 			emit(f)
 		}
 
@@ -873,11 +875,47 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 	}
 }
 
+// liveCensus counts the live (non-retired, kb.IsRetired) concepts of the whole
+// KB graph: in total and per first path segment. It is counted on the whole
+// graph whatever the scope of the call or the caller's visibility, so the
+// orphan verdict never depends on who asks (D1099).
+type liveCensus struct {
+	total   int
+	byFirst map[string]int
+}
+
+func newLiveCensus(lg *kb.LinkGraph) *liveCensus {
+	c := &liveCensus{byFirst: map[string]int{}}
+	for i, id := range lg.IDs {
+		if kb.IsRetired(lg.Facets[i].Status) {
+			continue
+		}
+		c.total++
+		first, _, _ := strings.Cut(string(id), "/")
+		c.byFirst[first]++
+	}
+	return c
+}
+
+// only reports whether id, a live concept, is the only live concept of its
+// archive (an id of two or more segments whose first one is in archiveSet) or
+// of the whole KB.
+func (c *liveCensus) only(id okf.ConceptID, archiveSet map[string]bool) bool {
+	if c.total == 1 {
+		return true
+	}
+	first, rest, hasRest := strings.Cut(string(id), "/")
+	return hasRest && rest != "" && archiveSet[first] && c.byFirst[first] == 1
+}
+
 // orphanFinding is the orphan check for one concept (shared with ScopedCheck,
 // D312). in and out are the link graph's edges; present says whether a link
 // target is an existing concept; isRetired is the concept's status, already
-// resolved by the caller.
-func orphanFinding(id okf.ConceptID, relPath string, isRetired bool, in, out map[okf.ConceptID]map[okf.ConceptID]struct{}, archiveSet map[string]bool, present func(okf.ConceptID) bool, cited func(okf.ConceptID) bool) (Finding, bool) {
+// resolved by the caller. loneLive says whether the concept is the only live
+// one of its archive or of the KB: the write that creates a first page cannot
+// link it to anything yet, and the map's index reaches it, so it is not an
+// orphan (D1099); the next page of the archive links as usual.
+func orphanFinding(id okf.ConceptID, relPath string, isRetired bool, in, out map[okf.ConceptID]map[okf.ConceptID]struct{}, archiveSet map[string]bool, present func(okf.ConceptID) bool, cited func(okf.ConceptID) bool, loneLive func() bool) (Finding, bool) {
 	// A retired concept is not asked to be linked: link_to_retired and
 	// index_lists_retired push links away from it, so an orphan finding would
 	// contradict them (D826).
@@ -887,6 +925,9 @@ func orphanFinding(id okf.ConceptID, relPath string, isRetired bool, in, out map
 	// A concept another cites in its frontmatter provenance (a Source in the
 	// sources journal) is reached, though no body link says so.
 	if len(in[id]) != 0 || (cited != nil && cited(id)) {
+		return Finding{}, false
+	}
+	if loneLive != nil && loneLive() {
 		return Finding{}, false
 	}
 	parts := strings.Split(string(id), "/")

@@ -159,7 +159,7 @@ func TestWriteGate_MissingIndexEntryRefusedEntryInBatchPasses(t *testing.T) {
 	if !strings.Contains(text, "missing curated index entry for ops/one") {
 		t.Fatalf("refusal = %s", text)
 	}
-	if !strings.Contains(text, "concept_new") || !strings.Contains(text, "concept_batch") || !strings.Contains(text, "index_entry: true") {
+	if !strings.Contains(text, "concept_write") || !strings.Contains(text, "concept_new") || !strings.Contains(text, "concept_batch") || !strings.Contains(text, "index_entry: true") {
 		t.Fatalf("the hint does not name the tools that add the entry: %s", text)
 	}
 	if text, isErr = callJSON(t, s, adminCtx, "concept_batch", pair(true)); isErr {

@@ -4,6 +4,8 @@ topic: control-plane
 
 # D312 — a write answers with the structural findings it caused, from a scoped lint
 
+> **Amended by [D1099](D1099-lone-live-page-and-concept-write-index-entry.md)**: the first-write sentence below holds for every page but the only live one of its archive or of the KB.
+
 **Decision.** `concept_write`, `concept_new`, `concept_patch`, `concept_batch`, `concept_move`,
 `supersede` and `index_patch` return, beside the frontmatter findings of D289, the body, link and
 light graph findings of `lint.ScopedCheck`: `broken_link`, `duplicate_link`, `bare_link_list`,
