@@ -10,7 +10,7 @@
 # Verifies:
 #   1. With no branch a render is needed (exit 0).
 #   2. After a publish the same revision needs none (exit 1).
-#   3. A change in each class of input (film/, graph3d/, palette.ts,
+#   3. A change in each class of input (film/, graph3d/, palette.ts, theme.ts,
 #      package-lock.json) needs a render.
 #   4. A change outside the set (README.md, another web/src file) needs none.
 #   5. Publishing twice leaves one commit with README.md, film.webp and the
@@ -66,6 +66,7 @@ cp "${REPO_ROOT}/film/publish.sh" "${REPO_ROOT}/film/film-needed.sh" "${REPO_ROO
 echo main > film/src/main.ts
 echo scene > web/src/lib/graph3d/scene.ts
 echo palette > web/src/lib/palette.ts
+echo theme > web/src/lib/theme.ts
 echo api > web/src/lib/api.ts
 echo tokens > web/src/styles/tokens.css
 echo brand > docs/brand/cartographer.css
@@ -87,11 +88,11 @@ echo ""
 echo "--- Phase 2: after a publish ---"
 check "publish" 0 "${PUBLISH[@]}"
 check "the same revision needs no render" 1 "${NEEDED[@]}"
-assert_file_contains "${DIR}/out.txt" "film tree $(git ls-tree -r --full-tree HEAD -- film web/src/lib/graph3d web/src/lib/palette.ts web/src/styles/tokens.css docs/brand/cartographer.css docs/brand/coordinate-pine.svg web/package-lock.json | git hash-object --stdin)"
+assert_file_contains "${DIR}/out.txt" "film tree $(git ls-tree -r --full-tree HEAD -- film web/src/lib/graph3d web/src/lib/palette.ts web/src/lib/theme.ts web/src/styles/tokens.css docs/brand/cartographer.css docs/brand/coordinate-pine.svg web/package-lock.json | git hash-object --stdin)"
 
 echo ""
 echo "--- Phase 3: a change in each class of input ---"
-for f in film/src/main.ts web/src/lib/graph3d/scene.ts web/src/lib/palette.ts web/src/styles/tokens.css docs/brand/cartographer.css docs/brand/coordinate-pine.svg web/package-lock.json; do
+for f in film/src/main.ts web/src/lib/graph3d/scene.ts web/src/lib/palette.ts web/src/lib/theme.ts web/src/styles/tokens.css docs/brand/cartographer.css docs/brand/coordinate-pine.svg web/package-lock.json; do
     change "$f"
     check "a change to ${f} needs a render" 0 "${NEEDED[@]}"
     git reset -q --hard HEAD~1
