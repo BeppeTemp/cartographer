@@ -3,11 +3,14 @@ package provisioning
 import (
 	"os"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 )
 
 // TestMain pins the OpenCode probe to "not installed" so no test depends on the
 // client present on the machine running it (D359).
 func TestMain(m *testing.M) {
+	gitxtest.QuietGit() // a detached git gc would break t.TempDir cleanup
 	openCodeVersionProbe = func() (string, error) { return "", os.ErrNotExist }
 	os.Exit(m.Run())
 }
