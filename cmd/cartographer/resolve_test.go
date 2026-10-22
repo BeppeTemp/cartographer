@@ -57,9 +57,7 @@ func TestCmdResolve_PathNotFound(t *testing.T) {
 	setHome(t, home)
 	writeClientConfig(t, home, "")
 
-	if code := cmdResolve([]string{"path:missing"}); code != 1 {
-		t.Errorf("cmdResolve = %d, want 1", code)
-	}
+	assertNotFoundHint(t, "path:missing")
 }
 
 func TestCmdResolve_RepoViaManualPathsOverride(t *testing.T) {
@@ -84,8 +82,45 @@ func TestCmdResolve_RepoNotFound(t *testing.T) {
 	// home: Scan finds nothing, Resolve must report a clean not-found error.
 	writeClientConfig(t, home, "")
 
-	if code := cmdResolve([]string{"repo:nonexistent"}); code != 1 {
+	assertNotFoundHint(t, "repo:nonexistent")
+}
+
+// assertNotFoundHint checks the not-found contract: exit 1, empty stdout, and
+// a stderr hint naming both fixing commands with the kind and key filled in.
+func assertNotFoundHint(t *testing.T, arg string) {
+	t.Helper()
+	var code int
+	var stderr string
+	stdout := withStdout(t, func() {
+		stderr = withStderr(t, func() { code = cmdResolve([]string{arg}) })
+	})
+	if code != 1 {
 		t.Errorf("cmdResolve = %d, want 1", code)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty", stdout)
+	}
+	for _, want := range []string{"cartographer paths set " + arg + " <path>", "cartographer paths suggest"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr missing %q:\n%s", want, stderr)
+		}
+	}
+}
+
+func TestCmdResolve_MalformedArgumentHasNoHint(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	writeClientConfig(t, home, "")
+
+	for _, arg := range []string{"foo:bar", "repo:"} {
+		var code int
+		stderr := withStderr(t, func() { code = cmdResolve([]string{arg}) })
+		if code != 2 {
+			t.Errorf("cmdResolve(%q) = %d, want 2", arg, code)
+		}
+		if strings.Contains(stderr, "paths set") || !strings.Contains(stderr, "expected repo:<key> or path:<name>") {
+			t.Errorf("stderr for %q = %q", arg, stderr)
+		}
 	}
 }
 
