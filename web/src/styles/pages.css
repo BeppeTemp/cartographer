@@ -913,12 +913,13 @@ button.row {
   gap: var(--space-4);
 }
 
-/* Every column the same height, its cards scrolling inside it: the board
-   reads as a grid of equal boxes however uneven the counts. */
+/* The columns of a row share its height (the grid stretches them), and a
+   column taller than the cap scrolls its cards inside it: a row of short
+   columns stays short, a long one stops at most a screen's worth. */
 .work__column {
   display: flex;
   flex-direction: column;
-  height: clamp(320px, 62vh, 640px);
+  max-height: clamp(320px, 66vh, 720px);
   min-width: 0;
   padding: var(--space-3);
   background: var(--surface-1);
@@ -952,8 +953,34 @@ button.row {
   padding: 0;
   list-style: none;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  scroll-snap-type: y proximity;
+  scroll-padding-block: var(--space-2);
   border-radius: var(--radius-control);
+  --fade: var(--space-12);
+}
+
+.work__cards > li {
+  scroll-snap-align: start;
+}
+
+/* An end with more cards past it fades out: the cut reads as "more here",
+   not as a card broken in half. */
+.work__cards[data-more-below] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--fade)), transparent);
+}
+
+.work__cards[data-more-above] {
+  mask-image: linear-gradient(to top, #000 calc(100% - var(--fade)), transparent);
+}
+
+.work__cards[data-more-above][data-more-below] {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--fade),
+    #000 calc(100% - var(--fade)),
+    transparent
+  );
 }
 
 .work__cards:focus-visible {

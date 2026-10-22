@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { fetchMaintenanceReview, fetchPendingSources, fetchStatus, fetchWork } from "../api/client";
 import type { CollectionSummary, KBStatus, ReviewItem, SourceEntry, WorkEntry, WorkResponse } from "../api/types";
 import { reviewInfo } from "../lib/review";
@@ -326,13 +326,40 @@ export function Work({
 }
 
 /**
- * A column's cards in a list that scrolls on its own: every column has the
- * same height, so a column of four hundred proposals no longer sets the
- * height of the whole board.
+ * A column's cards in a list that scrolls on its own: the columns of a row
+ * share its height, capped, so a column of four hundred proposals no longer
+ * sets the height of the whole board. The list says at which ends it has
+ * more to show, and the stylesheet fades those ends.
  */
 function ColumnCards({ list, render }: { list: BoardEntry[]; render(e: BoardEntry): ReactNode }) {
+  const ref = useRef<HTMLUListElement>(null);
+  const [more, setMore] = useState<{ above: boolean; below: boolean }>({ above: false, below: false });
+  const measure = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const above = el.scrollTop > 1;
+    const below = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+    setMore((m) => (m.above === above && m.below === below ? m : { above, below }));
+  }, []);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [measure, list]);
   return (
-    <ul className="work__cards" tabIndex={0} aria-label="Cards">
+    <ul
+      ref={ref}
+      className="work__cards"
+      tabIndex={0}
+      aria-label="Cards"
+      data-more-above={more.above || undefined}
+      data-more-below={more.below || undefined}
+      onScroll={measure}
+    >
       {list.map((e) => (
         <li key={e.id}>{render(e)}</li>
       ))}
