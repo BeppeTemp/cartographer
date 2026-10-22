@@ -121,7 +121,7 @@ func findingsOut(findings []lint.Finding) []findingOut {
 
 // compactFinding is the lint compact mode shape (#841): check and path only,
 // the two fields that locate the debt. It is a distinct type so the full
-// findingOut contract (severity, message always present, D342) is untouched.
+// findingOut contract (message always present, D342) is untouched.
 type compactFinding struct {
 	Check string `json:"check"`
 	Path  string `json:"path"`
@@ -143,7 +143,7 @@ func findingsOutMode(findings []lint.Finding, compact bool) interface{} {
 	return out
 }
 
-// findingMap is the map a finding belongs to, for the lint group_by=map
+// findingMap is the map a finding belongs to, for the lint digest=by_map
 // breakdown (#841): a concept path's first segment is its map (as
 // conceptMapName derives it from an id). An artifact finding (skills/…,
 // agents/…, instructions.md — never a concept, lint.Finding.Artifact) has no

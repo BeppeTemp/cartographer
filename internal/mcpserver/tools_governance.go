@@ -188,6 +188,7 @@ func toolLint(k *kb.KB) Tool {
 			total := len(findings)
 			countsByCheck := lint.CountsByCheck(findings)
 			findings = lint.Order(findings)
+			all := findings
 
 			if len(checks) > 0 {
 				want := make(map[string]bool, len(checks))
@@ -258,13 +259,13 @@ func toolLint(k *kb.KB) Tool {
 				result["limit_clamped"] = true
 			}
 			// digest=by_map breaks the KB-wide counts_by_check down per map, so
-			// "where is the debt" is one call. Built on the whole filtered set,
-			// not the page, like counts_by_check. The map is a path's first
+			// "where is the debt" is one call. Built on the whole unfiltered set,
+			// like counts_by_check (check never changes it), so the rows add up to it. The map is a path's first
 			// segment; an artifact finding (skills/…, agents/…) has no concept
 			// map and is grouped under "(root)".
 			if params.Digest == "by_map" {
 				byMap := map[string]map[string]int{}
-				for _, f := range findings {
+				for _, f := range all {
 					m := findingMap(f)
 					if byMap[m] == nil {
 						byMap[m] = map[string]int{}

@@ -140,12 +140,9 @@ func TestServer_Lint_DigestCompact(t *testing.T) {
 		if _, ok := m["path"]; !ok {
 			t.Errorf("compact finding must carry path: %v", m)
 		}
-		// Compact drops message and severity.
+		// Compact drops the message.
 		if _, ok := m["message"]; ok {
 			t.Errorf("compact finding must drop message: %v", m)
-		}
-		if _, ok := m["severity"]; ok {
-			t.Errorf("compact finding must drop severity: %v", m)
 		}
 	}
 }
