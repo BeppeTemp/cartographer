@@ -915,6 +915,105 @@ func isForgeInitPath(p string) bool {
 	return false
 }
 
+// RepoNameFromURL is the repository name of a git remote URL: its last path
+// segment without a trailing slash or ".git" suffix. It handles https://,
+// ssh:// and scp-style (git@host:group/sub/name.git) URLs, and a local path.
+func RepoNameFromURL(remote string) string {
+	s := strings.TrimRight(strings.TrimSpace(remote), "/")
+	s = strings.TrimSuffix(s, ".git")
+	s = strings.TrimRight(s, "/")
+	if i := strings.LastIndexAny(s, "/:"); i >= 0 {
+		s = s[i+1:]
+	}
+	return s
+}
+
+// ForgeReadmePath picks the README a forge's initial commit carries out of its
+// top-level paths: the one file named README.md (case-insensitive). ok is
+// false when there is none, or when another README file (README, README.rst,
+// a second README.md in another case) sits beside it, so nothing is ever
+// decided for an ambiguous tree.
+func ForgeReadmePath(paths []string) (path string, ok bool) {
+	n := 0
+	for _, p := range paths {
+		lower := strings.ToLower(p)
+		if lower == "readme" || strings.HasPrefix(lower, "readme.") {
+			n++
+			if lower == "readme.md" {
+				path = p
+			}
+		}
+	}
+	return path, n == 1 && path != ""
+}
+
+const (
+	gitlabIntro      = "To make it easy for you to get started with GitLab"
+	gitlabGettingHdr = "## Getting started"
+	gitlabAddHdr     = "## Add your files"
+)
+
+// ForgeBoilerplateReadme reports whether text, the README a forge's initial
+// commit holds in a repository called repoName, is that forge's untouched
+// boilerplate, and the one-line project description it carries when it has
+// one. Only two shapes are recognised, whole-file, after normalising a BOM,
+// CRLF line ends, trailing blanks and surrounding blank lines:
+//
+//   - `# <repoName>`, optionally followed by one description line (GitHub,
+//     Gitea and Forgejo), with or without a blank line between;
+//   - `# <repoName>` and GitLab's "Getting started" template, identified by
+//     its three fixed markers (no description is carried over).
+//
+// Anything else is the operator's text and reports false.
+func ForgeBoilerplateReadme(repoName, text string) (boilerplate bool, description string) {
+	lines := normalizeReadme(text)
+	if repoName == "" || len(lines) == 0 || !strings.EqualFold(lines[0], "# "+repoName) {
+		return false, ""
+	}
+	switch rest := lines[1:]; {
+	case len(rest) == 0:
+		return true, ""
+	case len(rest) == 1 && rest[0] != "":
+		return true, rest[0]
+	case len(rest) == 2 && rest[0] == "" && rest[1] != "":
+		return true, rest[1]
+	}
+	var intro, getting, add bool
+	for _, l := range lines[1:] {
+		intro = intro || strings.Contains(l, gitlabIntro)
+		getting = getting || l == gitlabGettingHdr
+		add = add || l == gitlabAddHdr
+	}
+	return intro && getting && add, ""
+}
+
+func normalizeReadme(text string) []string {
+	text = strings.TrimPrefix(text, "\ufeff")
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " \t\r")
+	}
+	for len(lines) > 0 && lines[0] == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+// ForgeReadmeBoilerplate reads the README at ref:path and applies
+// ForgeBoilerplateReadme with the repository name of remote.
+func ForgeReadmeBoilerplate(dir, ref, path, remote string) (boilerplate bool, description string, err error) {
+	text, err := ShowFile(dir, ref, path)
+	if err != nil {
+		return false, "", err
+	}
+	boilerplate, description = ForgeBoilerplateReadme(RepoNameFromURL(remote), text)
+	return boilerplate, description, nil
+}
+
 // RenameBranch renames the checked-out branch ("git branch -m <name>").
 func RenameBranch(dir, name string) error {
 	out, err := runGit(dir, "branch", "-m", name)

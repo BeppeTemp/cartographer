@@ -748,6 +748,87 @@ func TestForgeInitialized(t *testing.T) {
 	}
 }
 
+func TestForgeBoilerplateReadme(t *testing.T) {
+	fixture := func(name string) string {
+		b, err := os.ReadFile(filepath.Join("testdata", "forge-readmes", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	const desc = "A short project description."
+	cases := []struct {
+		name, repo, text string
+		want             bool
+		wantDesc         string
+	}{
+		{"github", "kb-a", fixture("github.md"), true, desc},
+		{"github title only", "kb-a", fixture("github-title-only.md"), true, ""},
+		{"gitea", "kb-a", fixture("gitea.md"), true, desc},
+		{"forgejo", "kb-a", fixture("forgejo.md"), true, desc},
+		{"gitlab", "kb-a", fixture("gitlab.md"), true, ""},
+		{"title case differs", "KB-A", fixture("gitea.md"), true, desc},
+		{"title differs from the repo", "kb-b", fixture("gitea.md"), false, ""},
+		{"gitlab title differs", "kb-b", fixture("gitlab.md"), false, ""},
+		{"two paragraphs", "kb-a", "# kb-a\n\nOne.\n\nTwo.\n", false, ""},
+		{"description and list", "kb-a", "# kb-a\n\nOne.\n- item\n", false, ""},
+		{"hand-written starting with the name", "kb-a", "# kb-a\n\nNotes on how we run kb-a.\n\n## Usage\n\nRead the index.\n", false, ""},
+		{"gitlab without a marker", "kb-a", strings.Replace(fixture("gitlab.md"), "## Add your files", "## Add files", 1), false, ""},
+		{"gitlab without the intro", "kb-a", strings.Replace(fixture("gitlab.md"), "get started with GitLab", "start", 1), false, ""},
+		{"empty", "kb-a", "\n\n", false, ""},
+		{"no repo name", "", "# \n", false, ""},
+	}
+	for _, c := range cases {
+		for variant, text := range map[string]string{
+			"lf":   c.text,
+			"crlf": strings.ReplaceAll(c.text, "\n", "\r\n"),
+			"bom":  "\ufeff" + c.text,
+		} {
+			got, gotDesc := ForgeBoilerplateReadme(c.repo, text)
+			if got != c.want || gotDesc != c.wantDesc {
+				t.Errorf("%s/%s: ForgeBoilerplateReadme = (%v, %q), want (%v, %q)", c.name, variant, got, gotDesc, c.want, c.wantDesc)
+			}
+		}
+	}
+}
+
+func TestForgeReadmePath(t *testing.T) {
+	for _, c := range []struct {
+		paths []string
+		want  string
+		ok    bool
+	}{
+		{[]string{"README.md", "LICENSE"}, "README.md", true},
+		{[]string{"readme.md"}, "readme.md", true},
+		{[]string{"README.rst", "LICENSE"}, "", false},
+		{[]string{"README"}, "", false},
+		{[]string{"README.md", "README.txt"}, "", false},
+		{[]string{"README.md", "readme.md"}, "", false},
+		{[]string{"LICENSE"}, "", false},
+	} {
+		got, ok := ForgeReadmePath(c.paths)
+		if ok != c.ok || (ok && got != c.want) {
+			t.Errorf("ForgeReadmePath(%v) = (%q, %v), want (%q, %v)", c.paths, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestRepoNameFromURL(t *testing.T) {
+	for url, want := range map[string]string{
+		"https://example.com/user/kb-a.git":         "kb-a",
+		"https://example.com/user/kb-a/":            "kb-a",
+		"https://example.com/user/kb-a":             "kb-a",
+		"ssh://git@example.com:2222/group/kb-a.git": "kb-a",
+		"git@example.com:group/sub/kb-a.git":        "kb-a",
+		"git@example.com:kb-a.git":                  "kb-a",
+		"file:///srv/forge/kb-a.git":                "kb-a",
+	} {
+		if got := RepoNameFromURL(url); got != want {
+			t.Errorf("RepoNameFromURL(%q) = %q, want %q", url, got, want)
+		}
+	}
+}
+
 func TestLogNameStatusAndFileHistory_Agent(t *testing.T) {
 	if !hasGit() {
 		t.Skip("git not in PATH, skipping gitx tests")
