@@ -904,14 +904,14 @@ button.row {
 /* --- Work: a board by status, or one card per Map --- */
 
 /* By status: columns side by side, scrolled sideways when they do not fit. */
+/* The columns wrap onto as many rows as the width needs instead of running
+   off the right edge: nothing is hidden behind a horizontal scroll, and a
+   narrow window gets fewer columns per row down to one. */
 .work__board {
   display: grid;
-  grid-auto-columns: minmax(280px, 1fr);
-  grid-auto-flow: column;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
   gap: var(--space-4);
   align-items: start;
-  padding-block-end: var(--space-2);
-  overflow-x: auto;
 }
 
 .work__column {
@@ -920,6 +920,39 @@ button.row {
   background: var(--surface-1);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
+}
+
+.work__column-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-block-start: var(--space-2);
+}
+
+.work__more {
+  padding: var(--space-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.work__more:hover {
+  color: var(--text-primary);
+  background: var(--surface-2);
+}
+
+.work__more:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.work__more-rest,
+.work__more--less {
+  color: var(--text-muted);
 }
 
 .work__column-title {
@@ -2420,19 +2453,10 @@ button.row {
 
 /* --- Instructions: one text, read as a page --- */
 
-/* Instructions are a reference read across the page, tables included: a wider
-   measure than a concept's, sans tables at the text's size. */
+/* Instructions are a file the clients receive as it is: shown as its source,
+   in the frame Settings shows its YAML in. */
 .instructions__doc {
   margin-block-start: var(--space-6);
-}
-
-.instructions__doc .markdown {
-  max-width: min(100%, 110ch);
-}
-
-.instructions__doc .markdown table {
-  font-family: var(--font-sans);
-  font-size: var(--text-sm);
 }
 
 .instructions__doc + .instructions__doc {

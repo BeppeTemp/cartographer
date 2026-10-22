@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Icon } from "./Icon";
+import { createContext, useContext, useEffect, useState, type CSSProperties } from "react";
+import { SourceFile } from "./SourceFile";
 import { fetchPlaceholders, fetchSettings, fetchWhoami } from "../api/client";
 import type {
   PlaceholderList,
@@ -876,26 +876,6 @@ const AVAILABLE = /^#\s*-+\s*available settings\b.*-+\s*$/i;
  * pointer over it, or with it focused, selects the file alone.
  */
 function Yaml({ name, text }: { name: string; text?: string }) {
-  const ref = useRef<HTMLPreElement>(null);
-  const hovered = useRef(false);
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    const onKey = (ev: KeyboardEvent) => {
-      const pre = ref.current;
-      if (!pre || ev.key.toLowerCase() !== "a" || !(ev.metaKey || ev.ctrlKey) || ev.altKey || ev.shiftKey) return;
-      if (!hovered.current && !pre.contains(document.activeElement)) return;
-      const target = ev.target as HTMLElement | null;
-      if (target && target !== pre && target.closest("input, textarea, [contenteditable='true']")) return;
-      ev.preventDefault();
-      const range = document.createRange();
-      range.selectNodeContents(pre);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
   if (!text) return <p className="page-note">This server does not return the YAML view.</p>;
   const lines = text.replace(/\n$/, "").split("\n");
   const cut = lines.findIndex((l) => AVAILABLE.test(l.trim()));
@@ -905,47 +885,14 @@ function Yaml({ name, text }: { name: string; text?: string }) {
   const shown = lines.filter(
     (l, i) => !AVAILABLE.test(l.trim()) && !(l.trim() === "" && AVAILABLE.test(lines[i - 1]?.trim() ?? "")),
   );
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard unavailable: the file can still be selected */
-    }
-  };
   return (
-    <figure className="settings__file">
-      <figcaption className="settings__file-head">
-        <span className="settings__file-name">{name}</span>
-        <span className="settings__file-note">
-          {inForce} key{inForce === 1 ? "" : "s"} set
-        </span>
-        <button
-          type="button"
-          className="button button--icon"
-          aria-label={`Copy ${name}`}
-          title={copied ? "Copied" : "Copy the file"}
-          onClick={() => void copy()}
-        >
-          <Icon name={copied ? "check" : "copy"} size={14} />
-        </button>
-      </figcaption>
-      <pre
-        ref={ref}
-        className="settings__yaml"
-        aria-label={name}
-        tabIndex={0}
-        onMouseEnter={() => (hovered.current = true)}
-        onMouseLeave={() => (hovered.current = false)}
-      >
-        <code>
-          {shown.map((line, i) => (
-            <YamlLine key={i} line={line} />
-          ))}
-        </code>
-      </pre>
-    </figure>
+    <SourceFile
+      name={name}
+      note={`${inForce} key${inForce === 1 ? "" : "s"} set`}
+      text={text}
+      lines={shown}
+      renderLine={(line, i) => <YamlLine key={i} line={line} />}
+    />
   );
 }
 

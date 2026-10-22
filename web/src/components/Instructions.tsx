@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { fetchArtifact } from "../api/client";
 import type { Artifact, ArtifactList } from "../api/types";
-import { EmptyKindTile, FindingSummary, splitFrontmatter } from "./Artifacts";
-import { Markdown } from "./Markdown";
+import { EmptyKindTile, FindingSummary } from "./Artifacts";
+import { MarkdownLine, SourceFile } from "./SourceFile";
 import { Page, PageHeader, TextSkeleton, TitleBone } from "./Page";
 import { ErrorState } from "./States";
 
@@ -96,16 +96,12 @@ export function Instructions({
               const text = f.content ?? "";
               return (
                 <section key={f.path} className="instructions__file">
-                  {a.files.length > 1 && (
-                    <p className="artifacts__path">
-                      <code>{f.path}</code>
-                    </p>
-                  )}
-                  {f.path.endsWith(".md") ? (
-                    <Markdown>{splitFrontmatter(text)?.body ?? text}</Markdown>
-                  ) : (
-                    <pre className="artifacts__pre">{text}</pre>
-                  )}
+                  <SourceFile
+                    name={f.path}
+                    note={`${text.replace(/\n$/, "").split("\n").length} lines`}
+                    text={text}
+                    renderLine={f.path.endsWith(".md") ? (line, i) => <MarkdownLine key={i} line={line} /> : undefined}
+                  />
                 </section>
               );
             })}
