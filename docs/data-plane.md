@@ -453,6 +453,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `symlinked_path` | artifact | - | - | - | - |
 | `junk_asset` | artifact | yes | - | - | - |
 | `missing_instructions` | artifact | - | - | - | - |
+| `artifact_unused` | artifact | - | - | - | - |
 | `hook_invalid` | kb | yes | - | - | - |
 | `missing_registry` | kb | - | - | - | - |
 | `unused_placeholder` | kb | - | - | - | - |
@@ -488,6 +489,7 @@ Every other check is avoidable at write, and the write gate refuses a write that
 | Work another tool does | `index_stale` | the generated index block differs from the graph: the server rewrites it after the write, in the same commit (§Generated indexes) |
 | Work another tool does | `orphan_asset` | an asset no page of its dossier cites: `asset_write` and the page that cites it are different calls |
 | Not created by a write | `symlinked_path` | a symlink arrives with a git checkout or a hand edit; no tool creates one, and concept and asset paths refuse it |
+| Appears with time, not with a write | `artifact_unused` | a skill or agent is flagged by the usage reports and the clock (D1043); adding one must never be refused for not having been used yet |
 | Refused by the write path before lint | `missing_frontmatter`, `unparseable_frontmatter`, `missing_type`, `concept_too_deep` | the write is refused before it is linted, so the refusal is already the gate; `lint` reports a page that reached disk another way |
 | Whole graph, map or KB, not evaluated by the write path | `unused_placeholder` | a `paths.yaml` key no page or artifact cites: it depends on every page |
 | Not a lint finding | the thirteen review kinds: `duplicate_candidate`, `zombie_work`, `promotion_candidate`, `glossary_gap`, `lint_judgement`, `repeated_fact`, `read_hotspot`, `scattered_work`, `status_reclassify`, `harvest_candidate`, `template_proposal`, `map_naming`, `observation` | a `kb_review` item of the doctor's list, not gated: each closes when the pages it names are in the state it asks for (§Review keys) |
@@ -496,7 +498,7 @@ Every other check is avoidable at write, and the write gate refuses a write that
 
 A lint finding is a problem: there is no severity, `gate_check` passes only with none, and a write that introduces an avoidable one is refused. A check therefore stays in the lint only if it has a **definite fix**: a state of the KB that makes the finding disappear and is always better than the current one. A state a reasonable maintainer could look at and decide "this is fine as it is" is an **observation**. It is not a finding: `lint`, `gate_check`, a write's response, the safe repairs and the Atlas Health problems never carry one. `kb_review` lists it, as an item of kind `observation` whose `check` names it, so the doctor session, where a person decides, is the only place it appears. Like every review item it closes on page state, never on a dismissal (D907): the generated table says which state, and a test writes it for each observation.
 
-An observation that no page state could close, or that another tool already reports, is not an observation but deleted: `map_without_templates` (the `template_proposal` kind proposes the templates a map's pages already follow), `artifact_unused` (the Artifacts panel and `kb_status.usage` already show when an artifact was last used), and the `unknown_type` finding in a map that has not adopted types (`template_proposal` again).
+An observation that no page state could close, or that another tool already reports, is not an observation but deleted: `map_without_templates` (the `template_proposal` kind proposes the templates a map's pages already follow), and the `unknown_type` finding in a map that has not adopted types (`template_proposal` again).
 
 <!-- lint:observations:begin — generated from internal/lint/observations.go; run `go test ./internal/repodocs -run TestLintObservationsAreUpToDate -args -update` -->
 | Observation | Category | Whole KB only | Why it is not a problem | The item closes when |
@@ -677,6 +679,13 @@ Lint also covers what a KB ships beside its concepts. The KB-level ones run
 only in a whole-KB lint, and their findings name the artifact file (`skills/<name>/SKILL.md`,
 `agents/<name>.md`, `instructions.md`), never a concept.
 
+- `artifact_unused` (D1043): a skill or agent never invoked since it was added, or last used more
+  than `usage_stale_days` ago, by the clients' usage reports (`.cartographer/usage.json`, below).
+  The fix is a person's (delete it, or fix its description so a client selects it), so there is no
+  fix kind and a write is never refused for it. A KB with no usage reports yields nothing; "never"
+  needs the artifact's first commit to be older than the threshold (no history, no finding); a
+  catalogue load is not a use. Whole-KB lint only, and the lint cache stamp includes `usage.json`
+  and the UTC date.
 - `skill_invalid`: `skill.Validate` would refuse the skill (unreadable frontmatter, name
   rules, name ≠ directory, no description), or a `skills/<dir>` has no `SKILL.md`.
 - `skill_warning`: `skill.Validate`'s warnings (description over 1024 characters, body over
@@ -723,7 +732,7 @@ machines. Losing it loses nothing durable; the next `sync` of each client rebuil
 dir that does not survive a restart, `kb_status.usage` reports `no_data` with `no_report_since`
 (the server's start) until then (D333, `docs/deployment.md` §State and volumes). It feeds
 the `usage` section of `kb_status` and the Atlas Artifacts panel's "Last used"
-column (there is no `artifact_unused` finding: a usage signal ages with no page to fix, D947). Written only by `POST /api/usage` (`docs/control-plane.md` §Usage reports).
+column, and lint reads it for `artifact_unused` (§Artifact checks, D1043). Written only by `POST /api/usage` (`docs/control-plane.md` §Usage reports).
 
 ## The path placeholder registry (`paths.yaml`)
 
@@ -771,7 +780,7 @@ mounting the same KB get the same behaviour. `settings.yaml` at the KB root, bes
 `name` and `remote`. It carries two keys, and the write gate, the safe repairs and the doctor's cadence are not among them (D907):
 
 - `usage_stale_days`: days a skill or agent may go unused by every client before `kb_status.usage` counts it as stale
-  (and the Artifacts panel flags it). Default 42, minimum 7, and no value turns the signal off: a value under 7 is raised
+  (and `artifact_unused` flags it in Health, D1043). Default 42, minimum 7, and no value turns the signal off: a value under 7 is raised
   to 7 with a finding (`kb_status` `settings_findings`, a startup warning), and `0` or a negative
   number is read as the default (the realignment resets a `0` by dropping the key);
 - how changes land: `branch`, the branch Cartographer commits and pushes to, in place of the

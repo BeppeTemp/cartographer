@@ -2747,23 +2747,21 @@ code.mapcontract__label {
   list-style: none;
 }
 
-/* Last used (D326): the words carry the meaning, the colour only echoes it. */
+/* Last used (D326): neutral, whether it is a problem is Health's to say (D1043). */
 .artifacts__used {
   font-size: var(--text-xs);
   color: var(--text-secondary);
 }
 
-.artifacts__used--active {
-  color: var(--sev-ok);
-}
-
-.artifacts__used--stale {
-  color: var(--sev-warning);
-}
-
-.artifacts__used--never {
-  color: var(--text-muted);
-  font-style: italic;
+.artifacts__health-link {
+  margin-top: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent, inherit);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .artifacts__detail {

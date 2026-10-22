@@ -899,6 +899,7 @@ export function App() {
               titleOf={(id) => nodeTitles.get(id)}
               typeCount={(type) => overview?.concepts.by_type[type] ?? 0}
               onOpenConcept={(id) => navigate({ panel: "atlas", concept: id, artifact: null })}
+              onOpenHealth={() => navigate({ panel: "health", artifact: null, hmap: null })}
               onFilterType={(type) => {
                 setTypeFilter(new Set([type]));
                 setStatusFilter(new Set());

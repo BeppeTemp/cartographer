@@ -190,6 +190,9 @@ var registry = []CheckSpec{
 	{Name: "symlinked_path", Level: LevelArtifact, Panel: true, Category: CategoryArtifacts},
 	{Name: "junk_asset", Level: LevelArtifact, Panel: true, AvoidableAtWrite: true, Category: CategoryArtifacts},
 	{Name: "missing_instructions", Level: LevelArtifact, Panel: true, Category: CategoryArtifacts},
+	// Unused skills and agents (D1043): the fix is a person's, so no FixKinds,
+	// and a write can't avoid it.
+	{Name: "artifact_unused", Level: LevelArtifact, Panel: true, Category: CategoryArtifacts},
 
 	// KB-level files.
 	{Name: "hook_invalid", Level: LevelKB, Panel: true, AvoidableAtWrite: true, Category: CategoryKB},

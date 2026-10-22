@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -466,8 +467,7 @@ func TestParseLegacyPaths_LongestFirst(t *testing.T) {
 func agoDays(d int) time.Time { return time.Now().Add(-time.Duration(d) * 24 * time.Hour) }
 
 // UsageState is the one classifier of a skill's or agent's usage: kb_status
-// counts by it and the Artifacts panel shows it. artifact_unused is gone as a
-// finding (D947): a usage signal ages with no page state to fix.
+// counts by it, the Artifacts panel shows it and artifact_unused (D1043) reports by it.
 func TestUsageState(t *testing.T) {
 	t.Parallel()
 	now := time.Now()
@@ -486,5 +486,133 @@ func TestUsageState(t *testing.T) {
 		if got := UsageState(tc.u, tc.seen, 42, now); got != tc.want {
 			t.Errorf("%s: UsageState = %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// commitAt commits everything in the KB with the given author date.
+func commitAt(t *testing.T, k *kb.KB, at time.Time, msg string) {
+	t.Helper()
+	d := at.UTC().Format(time.RFC3339)
+	if err := gitx.Commit(k.Root, msg, "user", "user@example.com", "GIT_AUTHOR_DATE="+d, "GIT_COMMITTER_DATE="+d); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func unusedFindings(t *testing.T, k *kb.KB) []Finding {
+	t.Helper()
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return findingsOf(findings, "artifact_unused")
+}
+
+func reportUsage(t *testing.T, k *kb.KB, entries ...kb.UsageEntry) {
+	t.Helper()
+	if _, err := k.MergeUsage(entries); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// artifact_unused (D1043): the guards are the point of the test: an empty store,
+// a fresh artifact and an artifact with no history all report nothing.
+func TestLint_ArtifactUnused(t *testing.T) {
+	t.Parallel()
+	anchor := kb.UsageEntry{Name: "anchor", Kind: "skill", Provider: "claude", LastUsed: agoDays(1), Count: 3}
+	setup := func(t *testing.T, bornDaysAgo int, commit bool) *kb.KB {
+		k := tempKB(t)
+		writeFile(t, k.Root, "skills/anchor/SKILL.md", skillMD("anchor", "Anchor", "# A\n"))
+		writeFile(t, k.Root, "skills/idle/SKILL.md", skillMD("idle", "Idle", "# I\n"))
+		writeFile(t, k.Root, "agents/helper.md", "# helper\n")
+		if commit {
+			commitAt(t, k, agoDays(bornDaysAgo), "add artifacts")
+		}
+		return k
+	}
+	paths := func(fs []Finding) string {
+		var p []string
+		for _, f := range fs {
+			if !f.Artifact || f.Fix != nil {
+				t.Errorf("%s: want an artifact finding with no fix, got %+v", f.Path, f)
+			}
+			p = append(p, f.Path)
+		}
+		return strings.Join(p, ",")
+	}
+
+	t.Run("empty store reports nothing", func(t *testing.T) {
+		t.Parallel()
+		if got := unusedFindings(t, setup(t, 200, true)); len(got) != 0 {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("never used and old", func(t *testing.T) {
+		t.Parallel()
+		k := setup(t, 200, true)
+		reportUsage(t, k, anchor)
+		got := unusedFindings(t, k)
+		if p := paths(got); p != "agents/helper.md,skills/idle/SKILL.md" {
+			t.Fatalf("paths = %s", p)
+		}
+		if !strings.Contains(got[1].Message, "never invoked since it was added on") || !strings.Contains(got[1].Message, "delete it") {
+			t.Errorf("message = %q", got[1].Message)
+		}
+	})
+	t.Run("never used but fresh", func(t *testing.T) {
+		t.Parallel()
+		k := setup(t, 2, true)
+		reportUsage(t, k, anchor)
+		if got := unusedFindings(t, k); len(got) != 0 {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("no git history", func(t *testing.T) {
+		t.Parallel()
+		k := setup(t, 0, false)
+		reportUsage(t, k, anchor)
+		if got := unusedFindings(t, k); len(got) != 0 {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("stale", func(t *testing.T) {
+		t.Parallel()
+		k := setup(t, 200, true)
+		reportUsage(t, k, anchor,
+			kb.UsageEntry{Name: "idle", Kind: "skill", Provider: "codex", LastUsed: agoDays(90), Count: 2},
+			kb.UsageEntry{Name: "helper", Kind: "agent", Provider: "claude", LastUsed: agoDays(1), Count: 1})
+		got := unusedFindings(t, k)
+		if len(got) != 1 || got[0].Path != "skills/idle/SKILL.md" || !strings.Contains(got[0].Message, "last used 90 days ago by codex") {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("active", func(t *testing.T) {
+		t.Parallel()
+		k := setup(t, 200, true)
+		reportUsage(t, k, anchor,
+			kb.UsageEntry{Name: "idle", Kind: "skill", Provider: "claude", LastUsed: agoDays(3), Count: 1},
+			kb.UsageEntry{Name: "helper", Kind: "agent", Provider: "claude", LastUsed: agoDays(3), Count: 1})
+		if got := unusedFindings(t, k); len(got) != 0 {
+			t.Fatalf("got %v", got)
+		}
+	})
+	t.Run("catalogue only counts as never", func(t *testing.T) {
+		t.Parallel()
+		k := setup(t, 200, true)
+		reportUsage(t, k, anchor,
+			kb.UsageEntry{Name: "idle", Kind: "skill", Provider: "codex", LastUsed: agoDays(1), Count: 0},
+			kb.UsageEntry{Name: "helper", Kind: "agent", Provider: "claude", LastUsed: agoDays(1), Count: 1})
+		got := unusedFindings(t, k)
+		if len(got) != 1 || got[0].Path != "skills/idle/SKILL.md" || !strings.Contains(got[0].Message, "never invoked") {
+			t.Fatalf("got %v", got)
+		}
+	})
+}
+
+// The write gate never refuses a write over artifact_unused (D1043).
+func TestArtifactUnusedNotAvoidableAtWrite(t *testing.T) {
+	t.Parallel()
+	spec, ok := Spec("artifact_unused")
+	if !ok || spec.AvoidableAtWrite || len(spec.FixKinds) != 0 || !spec.Panel {
+		t.Fatalf("spec = %+v ok=%v", spec, ok)
 	}
 }

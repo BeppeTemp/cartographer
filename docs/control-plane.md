@@ -383,7 +383,7 @@ is **replaced, never summed** (the client already aggregated its whole window). 
 artifact, a row with no `last_used`, an unknown kind are dropped; a `last_used` more than a
 day ahead is clamped to now. It needs the whole KB in write scope; any other caller gets the
 `404` of an unknown KB (no existence oracle), a missing token `401`, a non-POST `405`. The
-store is `.cartographer/usage.json` (`docs/data-plane.md`).
+store is `.cartographer/usage.json` (`docs/data-plane.md`), which the `artifact_unused` lint check reads (D1043).
 
 ### Client settings reports (`POST /api/client-settings`, D818)
 

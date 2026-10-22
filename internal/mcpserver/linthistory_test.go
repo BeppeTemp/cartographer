@@ -2,8 +2,6 @@ package mcpserver
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -151,9 +149,8 @@ func TestKBStatusLintTrend(t *testing.T) {
 	}
 }
 
-// Nothing in .cartographer invalidates the lint cache: the history is written
-// from it, and the usage reports are no input of the lint since artifact_unused
-// went (D947).
+// The lint history, written from the lint, does not invalidate its cache.
+// The usage reports do, being an input of artifact_unused (D1043).
 func TestLocalStateIsOutsideTheLintStamp(t *testing.T) {
 	t.Parallel()
 	k := cacheTestKB(t)
@@ -164,12 +161,5 @@ func TestLocalStateIsOutsideTheLintStamp(t *testing.T) {
 	}
 	if got := lintInputsStamp(k); got != before {
 		t.Fatal("writing the lint history changed the lint inputs stamp")
-	}
-	usage := filepath.Join(k.Root, ".cartographer", "usage.json")
-	if err := os.WriteFile(usage, []byte("[]"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if got := lintInputsStamp(k); got != before {
-		t.Fatal("writing usage.json changed the lint inputs stamp: lint reads no usage")
 	}
 }

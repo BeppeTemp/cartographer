@@ -1601,3 +1601,41 @@ func IsProtectedBranchRejection(output string) bool {
 		strings.Contains(l, "protected branch") ||
 		strings.Contains(l, "pre-receive hook declined")
 }
+
+// Births replays commits (newest first, as LogNameStatus returns them) from
+// the oldest and returns when each key first entered the repository: the
+// commit that added its file, carried across renames. key maps a file path to
+// the identity being tracked; a path it rejects is ignored. A file deleted and
+// added again is born again; one with no history is absent.
+func Births(commits []CommitChanges, key func(path string) (string, bool)) map[string]time.Time {
+	born := map[string]time.Time{}
+	for i := len(commits) - 1; i >= 0; i-- {
+		for _, file := range commits[i].Files {
+			id, ok := key(file.Path)
+			switch file.Status {
+			case "A":
+				if ok {
+					if _, seen := born[id]; !seen {
+						born[id] = commits[i].At
+					}
+				}
+			case "R":
+				at := commits[i].At
+				if oldID, oldOK := key(file.OldPath); oldOK {
+					if prev, seen := born[oldID]; seen {
+						at = prev
+					}
+					delete(born, oldID)
+				}
+				if ok {
+					born[id] = at
+				}
+			case "D":
+				if ok {
+					delete(born, id)
+				}
+			}
+		}
+	}
+	return born
+}

@@ -63,27 +63,26 @@ type Slice = "used" | "idle" | "flagged" | null;
 
 export const artifactId = (a: Pick<Artifact, "kind" | "name">) => `${a.kind}/${a.name}`;
 
-/** Past this many days without a use, an artifact is flagged (the server's default, D326). */
-const STALE_DAYS = 42;
-const ACTIVE_DAYS = 7;
+/** The lint check that flags a skill or agent nobody uses (D1043). */
+const UNUSED_CHECK = "artifact_unused";
+const isUnused = (a: Artifact) => !!a.findings?.some((f) => f.check === UNUSED_CHECK);
 
 /**
- * The "Last used" cell of a skill or agent (D326): a label that says it in
- * words — colour only reinforces it — and its tone. Null for kinds the scanner
- * does not follow (hooks, MCP descriptors, instructions, templates).
+ * The "Last used" cell of a skill or agent (D326): a neutral label. Whether an
+ * artifact goes unused is the server's verdict, shown in Health (D1043); the
+ * card never judges by thresholds of its own. Null for kinds the scanner does
+ * not follow (hooks, MCP descriptors, instructions, templates).
  */
-export function lastUsed(a: Artifact): { text: string; tone: "active" | "normal" | "stale" | "never" } | null {
+export function lastUsed(a: Artifact): { text: string } | null {
   if (a.kind !== "skill" && a.kind !== "agent") return null;
   if (a.last_used === undefined) return null; // an older server: say nothing rather than "never"
   const provider = a.last_used_provider ? ` (${a.last_used_provider})` : "";
-  if (!a.last_used || a.last_used_days_ago == null) return { text: "never used", tone: "never" };
+  if (!a.last_used || a.last_used_days_ago == null) return { text: "never used" };
   const days = a.last_used_days_ago;
   const when = days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
-  // Listed in a client's catalogue but never invoked is no use: it reads as
-  // one, and whether an artifact goes unused is a Health matter, not a card's.
-  if (a.last_used_catalog_only) return { text: "never used", tone: "never" };
-  const tone = days <= ACTIVE_DAYS ? "active" : days > STALE_DAYS ? "stale" : "normal";
-  return { text: `${when}${provider}`, tone };
+  // Listed in a client's catalogue but never invoked is no use: it reads as one.
+  if (a.last_used_catalog_only) return { text: "never used" };
+  return { text: `${when}${provider}` };
 }
 
 function formatBytes(n: number): string {
@@ -112,6 +111,7 @@ export function Artifacts({
   typeCount = () => 0,
   onOpenConcept,
   onFilterType,
+  onOpenHealth,
   tabs,
 }: {
   /** The section tabs (Artifacts · Secrets), drawn under the header. */
@@ -122,6 +122,8 @@ export function Artifacts({
   onOpenConcept?(id: string): void;
   /** Opens the atlas filtered to one concept type. */
   onFilterType?(type: string): void;
+  /** Opens Health, where an unused skill or agent is listed as a problem (D1043). */
+  onOpenHealth?(): void;
   kb: string;
   list: ArtifactList | null;
   loading: boolean;
@@ -144,9 +146,13 @@ export function Artifacts({
   // (no client scanner): the subtitle says it once instead.
   const anyUse = all.some((a) => !!a.last_used);
   const inSlice = (a: Artifact, sl: Slice) => {
-    const tone = lastUsed(a)?.tone;
-    if (sl === "used") return tone === "active" || tone === "normal";
-    if (sl === "idle") return tone === "never" || tone === "stale";
+    const used = !!a.last_used && !a.last_used_catalog_only && !isUnused(a);
+    if (sl === "used") return used;
+    // Idle is every skill or agent not Used, so the two slices add up to the
+    // kinds the usage scanner follows: a never-used artifact still inside the
+    // threshold has no finding yet. Hooks, MCP servers, instructions and
+    // templates are never used in that sense, so they are in neither.
+    if (sl === "idle") return (a.kind === "skill" || a.kind === "agent") && !used;
     if (sl === "flagged") return !!a.findings?.length;
     return true;
   };
@@ -367,6 +373,7 @@ export function Artifacts({
       typeCount={typeCount}
       onOpenConcept={onOpenConcept}
       onFilterType={onFilterType}
+      onOpenHealth={onOpenHealth}
     />
   ) : null;
 
@@ -427,6 +434,7 @@ function ArtifactDetail({
   typeCount,
   onOpenConcept,
   onFilterType,
+  onOpenHealth,
 }: {
   kb: string;
   id: string;
@@ -437,6 +445,7 @@ function ArtifactDetail({
   typeCount(type: string): number;
   onOpenConcept?(id: string): void;
   onFilterType?(type: string): void;
+  onOpenHealth?(): void;
 }) {
   const [artifact, setArtifact] = useState<Artifact | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -607,6 +616,11 @@ function ArtifactDetail({
               </li>
             ))}
           </ul>
+          {onOpenHealth && isUnused(artifact) && (
+            <button type="button" className="artifacts__health-link" onClick={onOpenHealth}>
+              See it in Health
+            </button>
+          )}
         </details>
       )}
     </article>
@@ -616,7 +630,7 @@ function ArtifactDetail({
 function LastUsed({ artifact }: { artifact: Artifact }) {
   const used = lastUsed(artifact);
   if (!used) return null;
-  return <span className={`artifacts__used artifacts__used--${used.tone}`}>{used.text}</span>;
+  return <span className="artifacts__used">{used.text}</span>;
 }
 
 /** Frontmatter as key/value rows, never rendered as Markdown. */

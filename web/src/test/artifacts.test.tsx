@@ -131,15 +131,54 @@ describe("the Artifacts panel", () => {
     render(<App />);
     const panel = await screen.findByRole("region", { name: "Artifacts" });
     const review = within(panel).getByRole("button", { name: /review/ });
-    expect(within(review).getByText("3 days ago (claude)")).toHaveClass("artifacts__used--active");
+    // Neutral: the card never judges by a threshold of its own (D1043).
+    expect(within(review).getByText("3 days ago (claude)").className).toBe("artifacts__used");
     const triage = within(panel).getByRole("button", { name: /triage/ });
-    expect(within(triage).getByText("never used")).toHaveClass("artifacts__used--never");
+    expect(within(triage).getByText("never used").className).toBe("artifacts__used");
+    // Used and Idle partition the artifacts the usage scanner follows (the
+    // tiles with a last-use cell): a template is in neither.
+    const num = (name: RegExp) =>
+      Number(within(panel).getByRole("button", { name }).textContent!.match(/(\d+)\s*$/)![1]);
+    const tracked = [...panel.querySelectorAll(".artifacts__used")].filter((e) => e.closest("button")).length;
+    expect(num(/Recently used/) + num(/Idle/)).toBe(tracked);
+    expect(num(/Recently used/) + num(/Idle/)).toBeLessThan(num(/^All/));
     // A template is not followed by the scanner: no cell at all.
     expect(within(panel).getByRole("button", { name: /runbook/ }).querySelector(".artifacts__used")).toBeNull();
     // The detail carries the exact timestamp.
     const detail = await screen.findByRole("article", { name: "Artifact skill/review" });
     expect(within(detail).getByText("Last used")).toBeInTheDocument();
     expect(within(detail).getByText("2026-10-03T08:00:00Z")).toBeInTheDocument();
+  });
+
+  it("links an unused artifact to Health and paints no stale tone (D1043)", async () => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=artifacts&artifact=skill%2Freview");
+    const fetchMock = stubApi();
+    const route = fetchMock.getMockImplementation()!;
+    const stale = {
+      last_used: "2026-08-01T08:00:00Z",
+      last_used_provider: "claude",
+      last_used_days_ago: 90,
+      findings: [{ path: "skills/review/SKILL.md", check: "artifact_unused", message: "last used 90 days ago" }],
+    };
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/kbs/") && url.includes("/artifacts")) {
+        const list = await ((await route(url)) as Response).json();
+        for (const a of list.artifacts) if (a.name === "review") Object.assign(a, stale);
+        return json(list);
+      }
+      if (url.includes("/kbs/") && url.includes("/artifact?")) {
+        return json({ ...(await ((await route(url)) as Response).json()), ...stale });
+      }
+      return route(url);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    const panel = await screen.findByRole("region", { name: "Artifacts" });
+    const review = within(panel).getByRole("button", { name: /review/ });
+    expect(within(review).getByText("90 days ago (claude)").className).toBe("artifacts__used");
+    const detail = await screen.findByRole("article", { name: "Artifact skill/review" });
+    await user.click(within(detail).getByRole("button", { name: "See it in Health" }));
+    await waitFor(() => expect(window.location.search).toContain("panel=health"));
   });
 
   /** The list a KB with nothing in it gets: every kind, none shipped. */

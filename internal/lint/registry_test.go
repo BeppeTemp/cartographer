@@ -161,8 +161,9 @@ func TestEveryCheckIsLintOrObservation(t *testing.T) {
 		}
 	}
 	// What D947 moved out of the lint, by reason: an observation, or covered
-	// by a kb_review kind that already existed. None is a check any more.
-	for _, gone := range []string{"cut_concept", "island", "map_misfit", "concept_oversize", "map_oversize", "facet_sprawl", "missing_value_contract", "map_without_templates", "artifact_unused"} {
+	// by a kb_review kind that already existed. None is a check any more
+	// (artifact_unused came back as a check in D1043).
+	for _, gone := range []string{"cut_concept", "island", "map_misfit", "concept_oversize", "map_oversize", "facet_sprawl", "missing_value_contract", "map_without_templates"} {
 		if _, ok := Spec(gone); ok {
 			t.Errorf("%s left the lint in D947 but is registered as a check", gone)
 		}
