@@ -146,8 +146,11 @@ export function Artifacts({
   // (no client scanner): the subtitle says it once instead.
   const anyUse = all.some((a) => !!a.last_used);
   const inSlice = (a: Artifact, sl: Slice) => {
-    if (sl === "used") return !!a.last_used && !a.last_used_catalog_only && !isUnused(a);
-    if (sl === "idle") return isUnused(a);
+    const used = !!a.last_used && !a.last_used_catalog_only && !isUnused(a);
+    if (sl === "used") return used;
+    // Idle is everything not Used, so the two slices add up to the total: a
+    // never-used artifact still inside the threshold has no finding yet.
+    if (sl === "idle") return !used;
     if (sl === "flagged") return !!a.findings?.length;
     return true;
   };
