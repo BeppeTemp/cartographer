@@ -16,14 +16,28 @@ export interface TemplateShape {
 
 export function templateShape(text: string): TemplateShape {
   const fm = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
-  const fields = fm
+  const pairs = fm
     ? fm[1]!
         .split(/\r?\n/)
-        .map((l) => /^([A-Za-z_][\w-]*)\s*:/.exec(l)?.[1])
-        .filter((k): k is string => !!k && !COMMON_KEYS.has(k))
+        .map((l) => /^([A-Za-z_][\w.-]*)\s*:\s*(.*)$/.exec(l))
+        .filter((m): m is RegExpExecArray => !!m)
+        .map((m) => [m[1]!, m[2]!.trim()] as const)
     : [];
+  // A template generated from a map (D352) states its shape in x-template.* keys:
+  // its description, and the fields every page of the type must carry.
+  const meta = new Map(pairs.filter(([k]) => k.startsWith("x-template.")).map(([k, v]) => [k.slice(11), v]));
+  const required = (meta.get("required_fields") ?? "")
+    .replace(/^\[|\]$/g, "")
+    .split(",")
+    .map((f) => f.trim())
+    .filter(Boolean);
+  const fields = [
+    ...pairs.map(([k]) => k).filter((k) => !k.startsWith("x-template.") && !COMMON_KEYS.has(k)),
+    ...required.filter((f) => !COMMON_KEYS.has(f)),
+  ].filter((f, i, all) => all.indexOf(f) === i);
   const body = fm ? text.slice(fm[0].length) : text;
-  const brief = /^>\s*(.+)$/m.exec(body)?.[1]?.trim() ?? null;
+  const brief =
+    /^>\s*(.+)$/m.exec(body)?.[1]?.trim() ?? (meta.get("description")?.replace(/^"|"$/g, "") || null);
   const sections = [...body.matchAll(/^##\s+(.+?)\s*$/gm)].map((m) => m[1]!);
   return { fields, brief, sections };
 }
@@ -112,6 +126,9 @@ export function TemplateCards({
                         </li>
                       ))}
                     </ul>
+                  )}
+                  {shape.sections.length === 0 && (
+                    <p className="tpl-card__bare">Only a title: a new page starts empty.</p>
                   )}
                   {shape.sections.length > 0 && (
                     <ol className="tpl-card__sections" aria-label="Sections a new page starts with">

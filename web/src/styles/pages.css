@@ -2699,6 +2699,13 @@ button.row {
   border-radius: var(--radius-small);
 }
 
+.tpl-card__bare {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-style: italic;
+  color: var(--text-muted);
+}
+
 .tpl-card__sections {
   display: grid;
   gap: 2px;

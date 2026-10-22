@@ -11,6 +11,12 @@ describe("templateShape", () => {
     });
   });
 
+  it("reads a generated template's x-template keys (D352)", () => {
+    const text =
+      '---\ntype: task\ntitle: "{{title}}"\nx-template.description: Proposed from 23 task pages\nx-template.required_fields: [provenance, owner, status]\n---\n# {{title}}\n';
+    expect(templateShape(text)).toEqual({ fields: ["owner"], brief: "Proposed from 23 task pages", sections: [] });
+  });
+
   it("copes with a template without frontmatter or brief", () => {
     expect(templateShape("## Only\n")).toEqual({ fields: [], brief: null, sections: ["Only"] });
   });
