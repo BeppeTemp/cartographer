@@ -358,7 +358,8 @@ artifact whose source did not change. Each client's lockfile records what every 
 to (`resolved_placeholders`); on the next `sync`, an artifact citing a key whose resolution differs
 from the recorded one (or that stopped or started resolving) is rewritten, in each client
 separately. An unchanged resolution rewrites nothing, and a lockfile with no recorded placeholder
-state never reports drift.
+state never reports drift. `cartographer status` runs the same check (`ComputeDiffResolved`), so it
+lists such an artifact under drift until `sync` rewrites it.
 
 ## Order of operations, and what a failure leaves behind (D172)
 
