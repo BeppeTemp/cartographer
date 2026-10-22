@@ -79,11 +79,11 @@ For each piece of feedback:
 4. When the user accepts a step, commit it on `feat/<slug>` (`wip:` messages are
    fine, the merge squashes them): every accepted step is a point to go back to.
 
-**Open the PR as a draft after the first accepted commit**: `git push -u origin
-feat/<slug>` + `gh pr create --draft`. Its number is the decision number (D672):
-run `make decisions-new N=<pr> SLUG=<slug> TOPIC=<topic>` then and fill it as the choices are made. Never
-guess the next number from the issue and PR lists: another session can take it
-first (D703).
+**No PR while iterating.** The commits stay local on `feat/<slug>`; nothing is
+pushed and no PR is opened until the user says the session is over (§3): a PR
+opened mid-session is reviewed, rebuilt by CI and read by others while its scope
+is still moving. Keep the choices made, and why, in your notes for the decision
+file; cite no `D<n>` in code or docs before the PR has its number.
 
 ### Mandate (self-contained: the subagent never sees the conversation)
 
@@ -101,6 +101,9 @@ first (D703).
 ## 3 — Close
 
 1. Agree the scope with the user: what is in this PR, what becomes a Discussion (idea) or a bug issue.
+   Only then open the PR, as a draft: `git push -u origin feat/<slug>` + `gh pr create --draft`.
+   Its number is the decision number (D672): `make decisions-new N=<pr> SLUG=<slug> TOPIC=<topic>`,
+   never guessed from the issue and PR lists (another session can take it first, D703).
 2. Closing mandate to one `cartographer-live-implementer` (or yourself): the docs named in
    `docs/index.md` §Documentation maintenance rules for what changed, the tests
    still missing, `make web` if `web/` changed (the bundle is committed), then
@@ -150,7 +153,7 @@ release-please reads both.
 ## Traps
 
 - A `D<n>` cited in code or docs before `docs/decisions/D<n>-*.md` exists fails
-  `TestEveryDecisionCitedResolves`: create the file as soon as the draft PR has a number.
+  `TestEveryDecisionCitedResolves`: cite it only once the draft PR exists (§3 step 1) and the file with it.
 - A test that passes in CI and fails on your machine is reading your real home
   (a token file, a client config): isolate it with `setHome(t, t.TempDir())`.
 - Removing a feature that has shipped is a migration: what it installed on users'
