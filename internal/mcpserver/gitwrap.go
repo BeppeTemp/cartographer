@@ -189,9 +189,11 @@ func commitTrailerBlock(ctx context.Context, args json.RawMessage, extra ...stri
 // runs under the same WithGitLock and surfaces conflicts via k.OnPushConflict);
 // otherwise it is done inline. A push failure, sync or async, is non-fatal;
 // Step 3 surfaces rebase conflicts as degraded concepts. It returns the inline
-// push duration and whether the push was left to the worker.
+// push duration and whether the push was left to the worker. A KB without a
+// remote has nothing to defer: SyncOut records no_remote without a network
+// call, so the write never reports a push pending that cannot happen.
 func pushAfterCommit(k *kb.KB, tool string, res *ToolResult) (dur time.Duration, async bool) {
-	if k.SyncOutDebounce > 0 {
+	if _, hasRemote := k.HasRemote(); k.SyncOutDebounce > 0 && hasRemote {
 		k.SchedulePush()
 		k.MarkPushPending()
 		appendSyncWarning(res, k)
