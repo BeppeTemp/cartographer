@@ -49,7 +49,7 @@ touches a package with platform-specific code — `cmd/`, `internal/{service,pro
 the installers, any `*_windows.go` (D672). A regression elsewhere still shows
 on `main` right after the merge. The `web` legs run after every push to `main`
 and on a PR that touches the frontend, `test/lib/`, the build files, or a
-non-test file of a package `bin/cartographer` imports: `internal/{changelog,repodocs,testkbs,webui/gen}`
+non-test file of a package `bin/cartographer` imports: `internal/{changelog,kbtest,repodocs,testkbs,testtree,webui/gen}`
 and every `_test.go` cannot change what the browser sees (D672, D255, D994); the
 Playwright browser is cached by version. A `demo-edge` job runs the demo
 Worker's tests (`make demo-worker-test`) and, for Terraform changes, `make demo-tf-check`

@@ -80,7 +80,7 @@ internal/gitx           provides a git wrapper via os/exec for the Agentic Wiki
 internal/gitx/gitxtest  is a git smart-HTTP server for tests (D996)
 internal/graphalgo      holds the graph algorithms behind the retrieval tools (D242)
 internal/kb             implements the data plane of the OKF knowledge base
-internal/kbtest         builds the KB fixtures of tests outside internal/kb, the way net/http/httptest builds servers
+internal/kbtest         copies a pre-built KB into a test directory
 internal/lint           implements deterministic lint checks on a KB scope
 internal/mcpbridge      is the local stdio MCP server that scopes one agent session to the KBs of the folder it was started in…
 internal/mcpserver      implements the control plane
@@ -97,7 +97,7 @@ internal/sops           decrypts sops-encrypted KB secrets and resolves the refe
 internal/sqlindex       implements a persistent SQLite-backed keyword index
 internal/testkbs        generates the synthetic test Knowledge Bases `make dev` serves (D818, D1032)
 internal/testkbs/gen    Command gen writes the test KB fleet of package testkbs into a data directory, one subdirectory per KB
-internal/testtree       snapshots a directory tree in memory and writes it back elsewhere, so a test fixture that is expensive…
+internal/testtree       snapshots a directory tree in memory and restores it elsewhere
 internal/updatecheck    answers whether a newer Cartographer release exists and how this binary is upgraded (D254)
 internal/webui          serves the embedded read-only Atlas UI (D227)
 internal/webui/gen      Command webui-provenance writes internal/webui/dist/provenance.json with the hash of the web/ source…

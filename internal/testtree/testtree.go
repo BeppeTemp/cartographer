@@ -1,6 +1,6 @@
-// Package testtree snapshots a directory tree in memory and writes it back
-// elsewhere, so a test fixture that is expensive to build (a git repository
-// takes a dozen processes) is built once and copied per test.
+// Package testtree snapshots a directory tree in memory and restores it
+// elsewhere. A test fixture that is expensive to build (a git repository takes
+// a dozen processes) is built once and copied per test.
 //
 // It is test support: production code never imports it (a test in
 // internal/repodocs enforces that), and it imports neither internal/kb nor

@@ -1,6 +1,6 @@
-// Package kbtest builds the KB fixtures of tests outside internal/kb, the way
-// net/http/httptest builds servers: test support, imported by _test.go files
-// only (a test in internal/repodocs enforces that).
+// Package kbtest copies a pre-built KB into a test directory. It is test
+// support, like net/http/httptest: imported by _test.go files only (a test in
+// internal/repodocs enforces that).
 //
 // A fixture is a copy of a template, not a new kb.Init: Init spawns about ten git
 // processes, and a test binary with hundreds of fixtures spent most of its

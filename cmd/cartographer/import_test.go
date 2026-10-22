@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/kbtest"
 )
 
