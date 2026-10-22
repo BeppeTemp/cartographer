@@ -377,10 +377,10 @@ describe("the Artifacts panel", () => {
     render(<App />);
     expect(await screen.findByRole("tab", { name: "Templates" })).toHaveAttribute("aria-selected", "true");
     const nav = await screen.findByRole("navigation", { name: "Artifacts by kind" });
-    expect(within(nav).getAllByRole("heading", { level: 2 }).map((h) => h.textContent?.slice(1))).toEqual([
-      "Templates 1",
-    ]);
-    expect(within(nav).getByRole("button", { name: /runbook/ })).toBeInTheDocument();
+    // A template is a card of its own, not a tile under a kind heading.
+    expect(within(nav).queryAllByRole("heading", { level: 2 })).toEqual([]);
+    expect(within(nav).getByRole("button", { name: "runbook" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: /concepts?$/ })).toBeInTheDocument();
     expect(within(nav).queryByRole("button", { name: /review/ })).not.toBeInTheDocument();
   });
 

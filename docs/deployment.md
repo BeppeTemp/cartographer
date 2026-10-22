@@ -767,10 +767,12 @@ one last changed, newest first, one row each on a rail in its Map's colour:
 time, title, Map, the kind of change when it is not a plain edit, the first
 recorded reason (upkeep reasons dropped when there is another) and the
 authors. Changing the window keeps the current answer on screen, dimmed,
-until the new one arrives. A row opens the concept on the atlas.
+until the new one arrives. A row opens the concept on the atlas. A window
+with no change says so in one box, with a button to the next wider window.
 Under the timeline, the *Journal* section shows the tail of the KB's log
-(`log_append`) as rows, one per `## <timestamp>` entry: a time column and the
-entry's body kept as written, line breaks included, not rendered as Markdown.
+(`log_append`) grouped by day under the same day headings, one row per
+`## <timestamp>` entry: its time, and the entry's body kept as written, line
+breaks included, not rendered as Markdown.
 
 The **Work** panel is where a person answers or decides (D302, D948). It is `work_list` for the reader:
 the concepts in an open phase, the concepts that are work by their `reason` (open contradictions, open gaps,
@@ -838,12 +840,13 @@ The **Artifacts** section, last in the rail, shows what the KB ships to agent
 clients. It has four tabs, each its own panel in the URL (D1057): **Agent kit**
 (`panel=artifacts`: skills, subagents, hooks and MCP descriptors, as tiles with
 a detail beside them), **Instructions** (`panel=instructions`: the curated
-`instructions.md` shown as its source), **Templates** (`panel=templates`) and
-**Secrets**. The agent kit and the templates are catalog pages built like the
+`instructions.md` shown as its source), **Templates** (`panel=templates`: one
+card per type, busiest first, with how many concepts carry it — a button that
+opens the atlas filtered to the type — the one-line brief its template asks
+for, the frontmatter fields it adds beyond the common ones and the sections a
+new page starts with) and **Secrets**. The agent kit and the templates are catalog pages built like the
 others (D339): the title counts the artifacts of the tab, the line under it
-gives their findings ("No artifact findings" when clean, from the artifacts'
-own `findings`, plus `finding_counts` in `GET …/artifacts` counting those no
-listed artifact owns) and says when no client has reported a use yet. There is
+gives the findings of the tab's artifacts ("No artifact findings" when clean) and says when no client has reported a use yet. There is
 no text filter: the hero filters the agent kit by kind (each with its own mark
 and colour) and, when there is something to show, to the recently used, the
 idle (never used, or not in the last 42 days) or those with findings. Below,
