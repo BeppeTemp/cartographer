@@ -1,0 +1,15 @@
+# zizmor suppressions (D1020). Every entry says why; a new finding is fixed, not
+# added here, unless it is the same kind of accepted exception.
+rules:
+  dangerous-triggers:
+    ignore:
+      # Documented invariants and a test (docs/decisions): it reads the issue
+      # label and PR metadata only, and never checks out or runs PR code.
+      - plan-gate.yml
+      # Runs a guard scoped to actors with write access; no PR code is involved.
+      - privacy.yml
+  self-repository:
+    ignore:
+      # Help-level style hint: the local ./ reusable-workflow path is what the
+      # release workflow wants (it runs the tag's own copy).
+      - release.yml

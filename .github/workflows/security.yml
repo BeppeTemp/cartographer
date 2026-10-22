@@ -1,0 +1,139 @@
+# Security scans (D1020). None of these jobs is a required check: a new advisory
+# against an old dependency must not block an unrelated PR, so a failure here is
+# reported (the `vuln-scan` issue, the Security tab) and never merged-blocking.
+#
+#   - vulncheck: govulncheck (Go) and npm audit (web/ production dependencies).
+#   - workflows: actionlint and zizmor over .github/workflows.
+#   - codeql:    CodeQL for Go, JavaScript/TypeScript and the workflows.
+#
+# CodeQL here replaces GitHub's "default setup": keep the default setup disabled
+# in Settings -> Code security, or the two upload the same analysis twice.
+name: security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+      - web/src/**
+      - web/package.json
+      - web/package-lock.json
+      - .github/workflows/**
+      - .github/zizmor.yml
+      - Makefile
+  schedule:
+    - cron: "17 3 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  vulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The latest toolchain, not go.mod's: the scan is about our code and our
+      # dependencies, and a stale patch release would flag the standard library
+      # of a compiler nobody should be running.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+      - run: make vulncheck
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+      # The audit reads the lockfile: no install, no package scripts run.
+      - name: npm audit (production dependencies)
+        working-directory: web
+        run: npm audit --package-lock-only --omit=dev --audit-level=high
+
+  workflows:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: pipx install "zizmor==1.31.1"
+      - run: make lint-workflows
+
+  # Fork PRs get a read-only token: they cannot upload SARIF, so they skip this
+  # job; the push to main and the weekly run still analyse the merged code.
+  codeql:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: autobuild
+          - language: javascript-typescript
+            build-mode: none
+          - language: actions
+            build-mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: /language:${{ matrix.language }}
+
+  # Like main-status in ci.yml: the first red scan on main (or the weekly run)
+  # opens one `vuln-scan` issue, later ones comment on it, the first green run
+  # closes it. The issue carries the run link only, never the finding: a
+  # reachable vulnerability in our own code goes through a private advisory.
+  report:
+    needs: [vulncheck, workflows]
+    if: (github.event_name == 'push' || github.event_name == 'schedule') && !cancelled()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RED: ${{ contains(needs.*.result, 'failure') }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          open=$(gh issue list -R "$REPO" --label vuln-scan --state open --json number -q '.[0].number')
+          if [ "$RED" = true ]; then
+            body="The security scan failed at $SHA: $RUN"
+            if [ -n "$open" ]; then
+              gh issue comment "$open" -R "$REPO" -b "$body"
+            else
+              gh label create vuln-scan -R "$REPO" -c B60205 -d "a security scan failed" 2>/dev/null || true
+              gh issue create -R "$REPO" -t "Security scan failed" -l vuln-scan -b "$body"
+            fi
+          elif [ -n "$open" ]; then
+            gh issue close "$open" -R "$REPO" -c "Green again at $SHA: $RUN"
+          fi

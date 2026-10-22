@@ -744,8 +744,21 @@ of the branch's commit (`web/scripts/hero-needed.sh`); `gh workflow run hero.yml
 -f tag=<tag>` always records. The `19_hero_publish` e2e scenario drives both
 scripts against a scratch bare repository.
 
+### Security scans (D1020)
+
+`security.yml` is the one workflow that tests nothing of ours: `make vulncheck`
+(govulncheck) and `npm audit` over the `web/` production dependencies,
+`make lint-workflows` (actionlint and zizmor) and CodeQL. It runs on push to
+`main`, on a PR touching code, dependencies or workflows, and weekly, and **none
+of it is a required check**: an advisory published against an old dependency must
+not block an unrelated PR. A red scan on `main` opens a `vuln-scan` issue with
+the run link. `TestWorkflowActionsArePinnedBySHA` is the part that does gate: it
+fails when a `uses:` in `.github/workflows/` is not a full commit SHA followed by
+a `# vX.Y.Z` comment.
+
 ## What is deliberately not in CI
 
+- Blocking a PR on a security advisory (D1020): the scans report, they do not gate.
 - Whether a particular model interprets an instruction well.
 - Provider/model quality comparisons.
 - Tests requiring production credentials or external private infrastructure.

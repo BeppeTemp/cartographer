@@ -40,11 +40,14 @@ jobs:
       # outgrows the timeout, lower it to the highest of 24 or 20 that fits.
       HERO_FPS: "30"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The UI, the tour and the scripts of the tag being shown.
+          # The UI, the tour and the scripts of the tag being shown. No credential
+          # is kept: the tag's own code runs below, and the publish step sets the
+          # remote's credential itself, last (D1020).
           ref: ${{ inputs.tag }}
           fetch-depth: 0
+          persist-credentials: false
       # The demo KB the tour walks is a git repository (the server commits to it)
       # and so is the commit on readme-assets: both need an identity.
       - name: Configure git
@@ -67,11 +70,11 @@ jobs:
             *) exit "$rc" ;;
           esac
       - if: steps.needed.outputs.record == 'true'
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - if: steps.needed.outputs.record == 'true'
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: web/.nvmrc
           cache: npm
@@ -84,7 +87,7 @@ jobs:
         id: playwright
         run: echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
       - if: steps.needed.outputs.record == 'true'
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         id: pw-cache
         with:
           path: ~/.cache/ms-playwright
@@ -100,4 +103,8 @@ jobs:
         run: make hero
       - if: steps.needed.outputs.record == 'true'
         name: Publish to readme-assets
-        run: web/scripts/publish-hero.sh hero.webp "$TAG"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          web/scripts/publish-hero.sh hero.webp "$TAG"
