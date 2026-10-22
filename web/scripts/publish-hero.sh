@@ -13,9 +13,8 @@
 #
 # Run it inside a clone, pushes to its `origin`. The commit is built with
 # plumbing in the clone's own object store, not in a scratch repository, because
-# the credential (the hero workflow sets it on `origin` just before running this)
-# belongs to that clone's git config: a fresh `git init` pushing to the same URL
-# would have none.
+# the checkout's credentials (actions/checkout) belong to that clone's git dir:
+# a fresh `git init` pushing to the same URL would have none.
 # bash 3.2 compatible: it runs on macOS too.
 
 set -euo pipefail

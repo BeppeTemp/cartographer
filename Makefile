@@ -136,9 +136,11 @@ vulncheck: ## Known-vulnerability scan of the Go module graph (govulncheck; need
 	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 # zizmor runs through pipx (preinstalled on the GitHub runners); it reads
-# .github/zizmor.yml, where every suppression carries its reason.
+# .github/zizmor.yml, where every suppression carries its reason. actionlint runs
+# without its shellcheck integration: the result must not depend on whether the
+# host has shellcheck, and the scripts' info-level notes predate this target.
 lint-workflows: ## Lint .github/workflows with actionlint and zizmor (needs network and pipx)
-	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
+	go run github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION) -shellcheck=
 	pipx run zizmor==$(ZIZMOR_VERSION) --min-severity low .github/workflows
 
 clean: ## Remove bin/ and demo-kb/

@@ -66,10 +66,6 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.13"
-      - run: pipx install "zizmor==1.31.1"
       - run: make lint-workflows
 
   # Fork PRs get a read-only token: they cannot upload SARIF, so they skip this
