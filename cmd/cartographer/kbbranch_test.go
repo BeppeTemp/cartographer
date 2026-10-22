@@ -253,3 +253,56 @@ func TestCmdKBCloneBranchRefusals(t *testing.T) {
 		}
 	})
 }
+
+// A value valid for git but another YAML value unquoted is written as a string.
+func TestNewKBSettingsFileQuotesTheBranch(t *testing.T) {
+	for _, b := range []string{"true", "123", "&a", "!t", "'x", "null"} {
+		s, _, err := kb.ParseSettings(newKBSettingsFile(b))
+		if err != nil {
+			t.Fatalf("%q: %v", b, err)
+		}
+		if got, _ := s.String("branch"); got != b {
+			t.Errorf("branch %q read back as %q", b, got)
+		}
+	}
+}
+
+// D1093: a fresh clone is checked out on the server's override, not on the
+// branch the KB's settings.yaml names (which is not read, and not created).
+func TestEnsureClonedKBOnOverride(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	tmp := t.TempDir()
+	bare, branch := bareWithKB(t, tmp)
+	work := filepath.Join(tmp, "work")
+	mustRunGit(t, "", "clone", "-q", bare, work)
+	if err := os.WriteFile(filepath.Join(work, kb.SettingsFile), []byte("branch: team-kb\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustRunGit(t, work, "add", kb.SettingsFile)
+	mustRunGit(t, work, "-c", "user.name=user", "-c", "user.email=user@example.com", "commit", "-q", "-m", "settings")
+	mustRunGit(t, work, "push", "-q", "origin", branch)
+
+	dest, err := ensureClonedKBOn(fileURL(bare), "kb-o", filepath.Join(tmp, "data"), "mine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gitOut(t, dest, "symbolic-ref", "--short", "HEAD"); got != "mine" {
+		t.Fatalf("clone on %q, want mine", got)
+	}
+	if gitOut(t, dest, "branch", "--list", "team-kb") != "" {
+		t.Error("the team branch was created locally")
+	}
+	k, err := kb.Open(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k.SetBranchOverride("mine")
+	if _, err := k.SyncIn(); err != nil {
+		t.Fatalf("SyncIn: %v", err)
+	}
+	if s := k.GitStatusSnapshot(); s.State == "degraded" || s.BranchSource != "server" {
+		t.Fatalf("status = %+v", s)
+	}
+}

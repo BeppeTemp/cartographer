@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 // newKBSettingsFile is the settings.yaml a new KB starts with (D746): every
@@ -19,7 +20,9 @@ func newKBSettingsFile(branch string) []byte {
 	if branch != "" {
 		// kb create --branch (D1093): the team's branch, committed with the
 		// scaffold on the remote's default branch, where it is read from.
-		set = []byte("branch: " + branch + "\n")
+		// Marshalled, not concatenated: a valid git name such as `true`, `123`,
+		// `&a` or `!t` would otherwise parse as another YAML value.
+		set, _ = yaml.Marshal(map[string]string{"branch": branch})
 	}
 	body, err := config.KBSettingsSchema().Format(set)
 	if err != nil {

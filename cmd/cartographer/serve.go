@@ -186,7 +186,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	for _, spec := range cfg.KBs {
 		if spec.Remote != "" {
 			name := resolveKBName(spec, "")
-			dest, err := ensureClonedKB(spec.Remote, name, cfg.Data, gitEnvForKB(name, credDir)...)
+			dest, err := ensureClonedKBOn(spec.Remote, name, cfg.Data, spec.BranchOverride, gitEnvForKB(name, credDir)...)
 			if err != nil {
 				if hint := credentialHint(spec.Remote, name, credDir); hint != "" {
 					err = fmt.Errorf("%w\n%s", err, hint)

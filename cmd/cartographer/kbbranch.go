@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
@@ -188,5 +189,27 @@ func appendBranchEntry(configPath, remote, name, branch string) error {
 	if fi, err := os.Stat(configPath); err == nil {
 		mode = fi.Mode().Perm()
 	}
-	return os.WriteFile(configPath, out, mode)
+	return writeFileAtomic(configPath, out, mode)
+}
+
+// writeFileAtomic replaces path with data through a temporary file in the same
+// directory and a rename, so a crash never leaves the server file half written.
+func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(mode); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
