@@ -1048,7 +1048,15 @@ func ShowFile(dir, ref, path string) (string, error) {
 // uncommitted; a conflicting merge (conflicted=true) leaves the conflicting files
 // unmerged for the caller to resolve. Any other failure is returned as err.
 func MergeNoCommitNoFF(dir, ref string) (conflicted bool, err error) {
-	out, gerr := runGit(dir, "merge", "--no-commit", "--no-ff", ref)
+	return MergeNoCommitNoFFEnv(dir, ref)
+}
+
+// MergeNoCommitNoFFEnv is MergeNoCommitNoFF with env layered on the git
+// process environment. A merge needs a committer identity even with
+// --no-commit, so a caller inside a KB passes kb.ServerGitEnv() or it fails
+// with "empty ident name" on a host with no git identity.
+func MergeNoCommitNoFFEnv(dir, ref string, env ...string) (conflicted bool, err error) {
+	out, gerr := runGitEnv(dir, env, "merge", "--no-commit", "--no-ff", ref)
 	if gerr == nil {
 		return false, nil
 	}

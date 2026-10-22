@@ -146,15 +146,7 @@ func TestFinalizeConflictsTheirs_NoIdentityOnHost(t *testing.T) {
 
 	ids, err := k.FinalizeConflicts()
 	if err != nil {
-		// Known gap, reported on the plan issue (#991): the later `git merge
-		// --no-commit` runs without the server identity and fails on such a host
-		// ("empty ident name"). This test pins the stash call site only: the
-		// stash precedes the merge, so a stash error is the regression.
-		if strings.Contains(err.Error(), "stash") {
-			t.Fatalf("the stash needs the server identity: %v", err)
-		}
-		t.Logf("FinalizeConflicts failed after the stash, past what this test pins: %v", err)
-		return
+		t.Fatalf("FinalizeConflicts: %v", err)
 	}
 	if len(ids) != 1 || ids[0] != "foo" {
 		t.Fatalf("expected ids=[foo], got %v", ids)
