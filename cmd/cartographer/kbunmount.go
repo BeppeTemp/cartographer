@@ -369,6 +369,11 @@ func removeBindings(name string) error {
 		}
 		cfg.Workspaces[p] = ws
 	}
+	if cfg.RenameDerivedKB(name, "") {
+		if err := clientconfig.SaveDerived(dir, cfg.Derived()); err != nil {
+			return err
+		}
+	}
 	return clientconfig.Save(dir, cfg)
 }
 

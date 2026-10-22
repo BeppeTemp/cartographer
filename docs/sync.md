@@ -465,6 +465,50 @@ is the one found on `PATH`, never the path of the running binary (a versioned Ce
 first `sync` after upgrading removes the project entries that D717 wrote into repositories.
 `cartographer workspace resolve [<path>]` prints which binding wins for a folder.
 
+**A repository a KB declares is bound to it (D1019).** A KB's `paths.yaml` already declares the
+repositories it works on (`repos:`), and each resolves to a local clone like any `{{repo:<key>}}`.
+For every provider in workspace scope, `sync` binds that clone to the KB, with no `workspace bind`
+run there: the KB's skills and agents are projected into the repository (a folder binding above it
+cannot do that, for most clients look for project skills only up to the repository root,
+`harnesses.md`) and the bridge started in it serves the KB. A provider in provider scope is
+unchanged.
+
+- **Opt out per entry**: `bind: false` on a `repos:` entry keeps the placeholder without binding
+  the repository (a repository the KB only cites). `bind: true` and no `bind` are the same.
+- **Several KBs** declaring one clone bind it to all of them, as `workspace bind --kb kb-a,kb-b`
+  would; a same-named artifact in two of them is refused for that projection (D171).
+- **By path, the remote is the guard, and it is required.** `paths.yaml` is unsigned KB content, so a
+  declared `remote:` matched by the clone's origin is what makes binding safe: an entry without a
+  `remote:`, and a clone with no origin or another one, is not bound and is listed as unresolved.
+  Otherwise editing one KB's `paths.yaml` could project skills, agents and hooks into an unrelated
+  checkout.
+- **By path.** The binding is the clone the placeholder resolves to (the
+  `paths:` entry, else the repo index by the declared remote, else the declared default), never
+  every clone of the remote. Another clone, or a `git worktree`, of the same repository is not
+  bound: `workspace bind` covers it. A clone whose origin is not the declared remote is not bound
+  either, and the recorded remote guards it afterwards as for an explicit binding.
+- **An explicit binding wins on its path**, `--no-kb` included: that is the local opt-out.
+  Otherwise the deepest binding wins across explicit and derived ones together, so a declared
+  repository inside a bound folder gets its own set.
+- **Derived state, not a preference.** The list is recomputed by every `sync` from the registries
+  it pulls and stored apart from `.cartographer.yaml`, next to the repo index cache
+  (`workspace-derived.json`). A repository that stops being declared, gets `bind: false` or
+  loses its clone is dropped on the next `sync` and its projection pruned like an unbound
+  workspace. A KB that could not be pulled leaves its providers' list as it was. A declared key with
+  no clone is listed by `status` and `workspace list` as `declared, no local clone`.
+- **A derived binding never edits a file git tracks.** An explicit bind writes the instructions
+  block inside a tracked `CLAUDE.md`/`AGENTS.md` (above); a derived one would do it in every
+  declared repository with no command run there, and a KB name in a tracked file of a public
+  repository is a leak. Where the client's instructions file is tracked it writes none, and
+  `status`/`doctor` say so, naming the file and the explicit-bind alternative; Claude Code instead
+  gets its block in `CLAUDE.local.md`, which it reads beside `CLAUDE.md`, owned whole and excluded
+  in `.git/info/exclude`. Skills, agents and hooks are paths Cartographer owns and excludes, so
+  they are projected as for an explicit bind. Codex keeps its caveat: an untrusted project
+  ignores `.codex/`, reported `inactive`.
+
+`workspace list` shows a derived binding with its source (`derived: paths.yaml of kb-a`) and
+`workspace resolve` says which one won.
+
 **Who a session's writes are authored as (D904).** On each `tools/call`, and on nothing else, the
 bridge sends the `Cartographer-Author` header for the KB the server will pick: the `kb` argument,
 else the session's only KB; with several reachable and none named it sends none, and the server

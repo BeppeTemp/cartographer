@@ -4,6 +4,7 @@ package provisioning
 // repo index, and before "unresolved".
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -298,4 +299,15 @@ func setTestHome(t *testing.T, dir string) {
 	t.Helper()
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+}
+
+// D1019: `bind` travels in sync_pull's path_registry and defaults to binding.
+func TestPathDecl_BindDecodesFromTheWireFormat(t *testing.T) {
+	var reg PathRegistry
+	if err := json.Unmarshal([]byte(`{"repos":{"a":{"description":"d"},"b":{"description":"d","bind":false},"c":{"description":"d","bind":true}}}`), &reg); err != nil {
+		t.Fatal(err)
+	}
+	if !reg.Repos["a"].BindsRepo() || reg.Repos["b"].BindsRepo() || !reg.Repos["c"].BindsRepo() {
+		t.Errorf("BindsRepo: a=%v b=%v c=%v, want true false true", reg.Repos["a"].BindsRepo(), reg.Repos["b"].BindsRepo(), reg.Repos["c"].BindsRepo())
+	}
 }

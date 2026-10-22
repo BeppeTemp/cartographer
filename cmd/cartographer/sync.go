@@ -214,11 +214,19 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// has exactly one — the global catalogue, byte-identical to before — and a
 	// workspace-scoped one has a bundle-only global projection plus one per
 	// bound workspace.
+	// D1019: a repository a KB declares in its paths.yaml is bound to it for a
+	// provider in workspace scope. The derivation pulls the KBs once, the
+	// manifests below reuse the pulls, and the derived list is only persisted
+	// with the rest of the state, after the manifests are in hand.
+	pre, commitDerived, err := deriveWorkspaceBindings(cfg, targets, dir, opts.DryRun)
+	if err != nil {
+		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
+	}
 	projections, err := allProjections(cfg, targets, dir)
 	if err != nil {
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
 	}
-	manifests, pullFailures, err := manifestsForProjectionsPartial(cfg, projections)
+	manifests, pullFailures, err := manifestsForProjectionsPartial(cfg, projections, pre)
 	if err != nil {
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
 	}
@@ -276,6 +284,10 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// Do not write even the local bootstrap hook until the complete remote
 	// manifest has passed its content and signature checks.
 	if err := ensureBootstrapForProviders(targets, dir, opts.DryRun); err != nil {
+		return syncResult{}, err
+	}
+
+	if err := commitDerived(); err != nil {
 		return syncResult{}, err
 	}
 

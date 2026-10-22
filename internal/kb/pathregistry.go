@@ -31,7 +31,16 @@ type PathDecl struct {
 	Description string `json:"description"`
 	Default     string `json:"default,omitempty"`
 	Remote      string `json:"remote,omitempty"`
+	// Bind is a repo key's opt-out of automatic binding (D1019): nil (absent)
+	// and true bind the repository to the declaring KB for every provider in
+	// workspace scope, false keeps the placeholder without binding. A pointer
+	// so that absent stays distinguishable on the wire; only `repos:` accepts it.
+	Bind *bool `json:"bind,omitempty"`
 }
+
+// BindsRepo reports whether a declared repository is bound to its KB: the
+// default, unless the entry says `bind: false`.
+func (d PathDecl) BindsRepo() bool { return d.Bind == nil || *d.Bind }
 
 // PathRegistry is the parsed content of paths.yaml: `paths:` declares
 // {{path:<key>}} keys, `repos:` declares {{repo:<key>}} keys.
@@ -95,7 +104,7 @@ var pathRegistryKeyPattern = regexp.MustCompile(`^[a-z0-9]+(-{1,2}[a-z0-9]+)*$`)
 // missing default.
 var pathRegistryFields = map[string]map[string]bool{
 	"paths": {"description": true, "default": true},
-	"repos": {"description": true, "default": true, "remote": true},
+	"repos": {"description": true, "default": true, "remote": true, "bind": true},
 }
 
 // ParsePathRegistry parses paths.yaml tolerantly: every well-formed entry is
@@ -189,6 +198,14 @@ func parsePathDecl(section, key string, entry *yaml.Node, fields map[string]bool
 			return PathDecl{}, fmt.Sprintf("field %q declared twice", f)
 		}
 		seen[f] = true
+		if f == "bind" {
+			if v.Kind != yaml.ScalarNode || v.Tag != "!!bool" {
+				return PathDecl{}, `field "bind" must be true or false`
+			}
+			b := v.Value == "true" || v.Value == "True" || v.Value == "TRUE"
+			d.Bind = &b
+			continue
+		}
 		if v.Kind != yaml.ScalarNode || (v.Tag != "!!str" && v.Tag != "!!null") {
 			return PathDecl{}, fmt.Sprintf("field %q must be a string", f)
 		}
