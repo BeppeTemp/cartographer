@@ -46,9 +46,14 @@ func seededMembershipKB(t *testing.T) (*KB, string) {
 	return k, bare
 }
 
-func remoteHeadIdent(t *testing.T, bare string) string {
+// remoteHeadIdent reads the KB's own branch on the remote: the bare
+// repository's HEAD may name another branch than the one the KB pushes.
+func remoteHeadIdent(t *testing.T, k *KB, bare string) string {
 	t.Helper()
-	branch := gitHere(t, bare, "symbolic-ref", "--short", "HEAD")
+	branch, err := gitx.Branch(k.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return gitHere(t, bare, "log", "-1", "--format=%an <%ae> | %cn <%ce>", branch)
 }
 
@@ -164,7 +169,7 @@ func TestSyncOut_ServerIdentityCommitPublishesOnceIdentityIsConfigured(t *testin
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("SyncOut after configuring the identity: %v", err)
 	}
-	if got := remoteHeadIdent(t, bare); got != "Ada Example <ada@example.test> | Ada Example <ada@example.test>" {
+	if got := remoteHeadIdent(t, k, bare); got != "Ada Example <ada@example.test> | Ada Example <ada@example.test>" {
 		t.Errorf("remote head = %s", got)
 	}
 }
@@ -193,7 +198,7 @@ func TestSyncOut_TokenAuthoredCommitNeedsReauthor(t *testing.T) {
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("SyncOut after reauthor: %v", err)
 	}
-	if got := remoteHeadIdent(t, bare); got != "Ada Example <ada@example.test> | Ada Example <ada@example.test>" {
+	if got := remoteHeadIdent(t, k, bare); got != "Ada Example <ada@example.test> | Ada Example <ada@example.test>" {
 		t.Errorf("remote head = %s", got)
 	}
 }
