@@ -1,7 +1,7 @@
 ---
 name: cartographer-kb-ingest
 description: Ingest ONE primary source of any kind (document, meeting transcript or notes, chat thread, ticket or issue, incident timeline, email, web page, dataset) into an existing Cartographer KB - register it, merge its content into the pages that own the subject, record unknowns and contradictions, and leave a trace of which pages came from which source.
-version: "1.1"
+version: "1.2"
 ---
 # KB Ingest — Skill
 
@@ -95,7 +95,7 @@ left for the operator: they block the gate on purpose.
 - **Never delete or rewrite an existing claim because a source disagrees.** Open a
   `Contradiction` whose `contradiction_kind` is a real contradiction kind (not a gap kind), with
   `involves` listing both sides, and leave the page as it is. It blocks the gate until an operator
-  resolves it (`conflict_resolve`).
+  resolves it (`conflict_resolve`, or `concept_patch` of `resolution_status: resolved` with `resolution` when the client cannot call tools that `tools/list` does not show).
 - **Never write secrets** into a page, the Source body or a `reason`.
 - **Stop and ask** when the source's ownership or confidentiality is unclear, before registering.
 
@@ -103,7 +103,7 @@ left for the operator: they block the gate on purpose.
 
 - Tools: `source_register`, `source_list`, `search`, `graph_context`, `link_suggest`,
   `concept_read`, `concept_history`, `concept_patch`, `concept_new`, `concept_write`,
-  `concept_batch`, `gate_check`, `log_append`, `secret_set`, `conflict_resolve`.
+  `concept_batch`, `gate_check`, `log_append`, `secret_set`, `conflict_resolve` (not in `tools/list`, callable by name).
 - Per-kind guidance: `references/source-kinds.md`.
 - Rationale: decisions D278 (source ledger), D272 (`reason`), D273 (gaps), D274
   (`concept_history`), D279 (this skill), D907 (the write gate), found with

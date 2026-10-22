@@ -1370,7 +1370,7 @@ func indexListsRetired(k *kb.KB, mapName string, contract kb.MapContract, concep
 	for _, h := range hits {
 		f := newFinding("index_lists_retired", Finding{
 			Path:    mapName + "/index.md",
-			Message: fmt.Sprintf("the index lists 1 retired concept(s): %s — retire pages with concept_archive (it drops the entry), or remove the lines", h),
+			Message: fmt.Sprintf("the index lists 1 retired concept(s): %s — retire pages with concept_archive (it drops the entry; not in tools/list, callable by name), or run kb_repair for index_lists_retired, or remove the lines with index_patch", h),
 		})
 		if alone[h] {
 			f.Fix = &Fix{Kind: FixDropIndexEntry, Field: string(h)}

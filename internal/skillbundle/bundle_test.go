@@ -3,6 +3,7 @@ package skillbundle
 import (
 	"io/fs"
 	"path"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -164,5 +165,41 @@ func TestOpsSkillCarriesTheSetupInterview(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Errorf("the first-time setup section lost %q (D253)", want)
 		}
+	}
+}
+
+// advancedTools mirrors advancedToolNames in internal/mcpserver/visibility.go
+// (skillbundle does not import mcpserver): the tools tools/list does not show.
+var advancedTools = []string{"concept_merge", "concept_archive", "contradiction_report", "conflict_resolve", "repair_revert"}
+
+// The section anchor of the doctor skill that every skill citing an advanced
+// tool must carry, and the stale prerequisite no skill may state (#833, D906).
+const advancedAnchor = "not in `tools/list`"
+
+func TestBundledSkillsDoNotStrandOnAdvancedTools(t *testing.T) {
+	t.Parallel()
+	err := fs.WalkDir(FS, "bundled", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || path.Base(p) != "SKILL.md" {
+			return err
+		}
+		data, rerr := fs.ReadFile(FS, p)
+		if rerr != nil {
+			return rerr
+		}
+		text := string(data)
+		if strings.Contains(text, "tools.profile") || strings.Contains(text, "profile: full") {
+			t.Errorf("%s names the removed tools.profile setting (D906)", p)
+		}
+		for _, tool := range advancedTools {
+			// git_conflict_resolve is a core tool: match the name as a whole word.
+			re := regexp.MustCompile("(^|[^_a-z])" + tool + "([^_a-z]|$)")
+			if re.MatchString(text) && !strings.Contains(text, advancedAnchor) {
+				t.Errorf("%s cites %s without saying it is %s", p, tool, advancedAnchor)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
