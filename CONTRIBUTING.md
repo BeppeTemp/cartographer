@@ -133,6 +133,8 @@ Working on more than one plan at a time? A subagent shares your working copy, so
 ```bash
 make worktree-add SLUG=my-change    # branches feat/my-change from origin/main
 make worktree-rm  SLUG=my-change    # after the PR is merged; --force, so check first
+make worktree-clean DRY=1           # or: list what a merged PR left behind (worktree, local and fork branch) ...
+make worktree-clean                 # ... and remove it, each only after its PR is verified MERGED
 ```
 
 ## Adding a lint check
