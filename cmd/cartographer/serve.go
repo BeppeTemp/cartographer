@@ -130,9 +130,10 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 		return nil, fmt.Errorf("config: auth: %w", err)
 	}
 	// A configuration that asks for the server git profile, or still names a
-	// kbs[].git_branch (both removed, D903), stops here, before anything is
-	// realigned or mounted: ignoring either would send writes to another
-	// branch, the one the operator had protected or the remote's default.
+	// kbs[].git_branch (both removed, D903; the second is now spelled
+	// kbs[].branch, D1093), stops here, before anything is realigned or
+	// mounted: ignoring either would send writes to another branch, the one the
+	// operator had protected or the remote's default. The refusal says to rename.
 	if err := cfg.RefusalError(); err != nil {
 		return nil, err
 	}
@@ -250,6 +251,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		if n, e, ok := cfg.IdentityFor(m.Name); ok {
 			k.SetDefaultIdentity(n, e)
 		}
+		k.SetBranchOverride(m.Spec.BranchOverride)
 		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(credDir, m.Name)
 		// The KB's settings.yaml is brought up to date first (D903): a retired
 		// key is dropped, in one commit of its own, and a KB that still asks for

@@ -108,12 +108,15 @@ func TestConfiguredBranch_OnlyTheDefaultBranchCounts(t *testing.T) {
 
 	// The same setting, once it reaches the default branch, is the one that counts.
 	commitBranchSetting(t, bare, "main", "elsewhere")
-	_, err := k.SyncIn()
-	if !errors.Is(err, ErrBranchDiverged) {
-		t.Fatalf("SyncIn err = %v, want ErrBranchDiverged: the KB sits on main and the default branch now says elsewhere", err)
+	// The clone is clean and fully pushed, so it follows the setting (D1093).
+	if _, err := k.SyncIn(); err != nil {
+		t.Fatalf("SyncIn: %v", err)
 	}
 	if got := k.ConfiguredBranch(); got != "elsewhere" {
 		t.Fatalf("ConfiguredBranch = %q, want elsewhere", got)
+	}
+	if got := currentBranch(t, k); got != "elsewhere" {
+		t.Fatalf("branch = %q, want elsewhere", got)
 	}
 }
 
@@ -126,6 +129,9 @@ func TestConfiguredBranch_OtherBranchRefused(t *testing.T) {
 	}
 	k, bare := remoteWithDefault(t)
 	commitBranchSetting(t, bare, "main", "kb-data")
+	// An unpushed commit on main: a clean, fully pushed clone would be switched
+	// to kb-data by itself (D1093), this one would lose track of it.
+	writeAndCommit(t, k, "data/unpushed.md")
 
 	_, err := k.SyncIn()
 	if !errors.Is(err, ErrBranchDiverged) {

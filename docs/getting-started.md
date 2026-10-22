@@ -120,7 +120,7 @@ cartographer connect claude                                # one agent client
 `data/index.md` and `data/log.md`, plus a local search index under
 `.cartographer/` (never committed), pushed to `--remote`, which becomes its
 `origin` (`--no-remote` for a throwaway local trial). A forge's boilerplate README in that
-repository is replaced by a short generated one (`--readme keep` leaves it). `--restart` makes the
+repository is replaced by a short generated one (`--readme keep` leaves it). `--branch <name>` makes the KB live on that branch instead of the remote's default one. `--restart` makes the
 running server pick it up. `connect` registers the `cartographer` MCP server in
 the client's configuration (`~/.claude.json` for Claude Code), materializes the
 bundled skills and writes a managed instructions block so the agent knows the

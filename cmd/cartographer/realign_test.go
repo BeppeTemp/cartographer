@@ -80,7 +80,8 @@ func TestLoadServeConfigRefusesTheServerGitProfile(t *testing.T) {
 }
 
 // D903: a kbs[].git_branch still set does not start either: ignoring it would
-// move the KB's writes to the remote's default branch. The message names the
+// move the KB's writes to the remote's default branch; the message says to
+// rename it kbs[].branch (D1093). The message names the
 // value and where it goes, and the file keeps its evidence. An empty one is just
 // a removed key.
 func TestLoadServeConfigRefusesAPerKBGitBranch(t *testing.T) {
@@ -95,7 +96,7 @@ func TestLoadServeConfigRefusesAPerKBGitBranch(t *testing.T) {
 	if err == nil {
 		t.Fatal("a configuration with a per KB git_branch was accepted")
 	}
-	for _, want := range []string{"refusing to start", "kbs[0].git_branch: team/kb-data", "branch in the KB's settings.yaml"} {
+	for _, want := range []string{"refusing to start", "kbs[0].git_branch: team/kb-data", "kbs[].branch", "branch in the KB's settings.yaml"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q lacks %q", err, want)
 		}

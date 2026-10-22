@@ -141,7 +141,7 @@ line, for development and tests: it is not a key of the YAML file, and a folder 
 remote, so it never syncs. Scalar fields (`http`, `data`, tokens, ...) follow flag > env > YAML
 precedence: the last explicitly set level wins.
 
-**Git: one way to write (D903).** Cartographer has no git settings of its own: the SSH key and the token that reach a remote are files of the credentials directory (D905). Every write is one commit on the KB's branch, and that is not configurable; a KB syncs exactly
+**Git: one way to write (D903).** Cartographer has no git settings of its own: the SSH key and the token that reach a remote are files of the credentials directory (D905). Every write is one commit on the KB's branch: the remote's default branch, or the one the KB's `settings.yaml` names with `branch` (the team's choice), or, for one server alone, the one its `kbs[].branch` names (below); a KB syncs exactly
 when it has a remote (fetch and pull-rebase before a read or write, push after a write) and a KB without one
 never contacts anything. The freshness window of the pull (30s) and the debounce of the background push (3s)
 are constants. There is no pull-request boundary and no forge: the server git profile (D117) and its keys
@@ -151,7 +151,7 @@ are gone with the `pr_status` and `pr_finalize` tools, and so are `git.autocommi
 starts pushing to it after the upgrade (the start only warns): remove the remote from the clone to keep it local.
 Cartographer pushes to the KB's branch itself; if the remote refuses
 because the branch is protected, the push is reported as that (`sync_status` `failed`, `last_error` naming the
-way out: unprotect the branch, or set `branch` in the KB's `settings.yaml`), the change stays committed in the
+way out: unprotect the branch, or set `branch` in the KB's `settings.yaml`, or `kbs[].branch` for this server), the change stays committed in the
 clone, and the push is not retried.
 
 **Upgrading: realignment (D903).** The first start of a version that removed keys rewrites the server YAML into
@@ -168,8 +168,8 @@ not ignored, because ignoring them would change where writes go. The server prof
 `kbs[].git_profile: server`, `CARTOGRAPHER_GIT_PROFILE=server`, or `git_profile: server` in a KB's
 `settings.yaml`) would write straight to the branch it protected: the server does not start (or, for a KB's own
 file, that KB does not mount) and says what to do. A `kbs[].git_branch` still set would move the KB's writes to
-the remote's default branch: the server does not start until that value is set as `branch` in the KB's
-`settings.yaml` (committed on the default branch) and the key is removed. A refused file is not rewritten. The
+the remote's default branch: the server does not start until the key is renamed `kbs[].branch` (this server only) or its value set
+as `branch` in the KB's `settings.yaml` (committed on the default branch, the team's) and the key removed; it is not honoured as an alias (D1093). A refused file is not rewritten. The
 registry of removed keys sits next to each schema
 (`config.Retired`, `kb.SettingsRetired`, `clientconfig.Retired`).
 
@@ -237,7 +237,15 @@ fails naming `cartographer kb create`. `kb create <name> --remote <url>` is what
 pinned to `main` and given its initial commit, which it pushes as the remote's first branch. From then on writes follow the remote's
 default branch (`concurrency.md` §How changes land, D264), unless the `settings.yaml` committed on that
 default branch sets `branch` (D335, D903): a fresh clone is then checked out on that branch, and the first
-push creates it on the remote if it is missing. An existing clone is never switched.
+push creates it on the remote if it is missing. A server can override it for itself with `kbs[].branch`
+(D1093), which wins over the KB's `branch` (then not read at all), is validated like it (an invalid value stops the start,
+naming `kbs[N].branch`), and is YAML only: `CARTOGRAPHER_KB_REMOTES` is a list of bare URLs and has no branch form.
+Precedence, highest first: `kbs[].branch`, the KB's `branch`, the remote's default branch. A discovered KB (`kb clone`
+writes no entry) needs an entry with `remote:` and `branch:` for it. An existing clone on another branch is switched
+to the effective one by the first sync when that loses nothing (HEAD on a branch, clean tree, nothing unpushed there);
+otherwise it stays `degraded` and `last_error` says why (`concurrency.md`).
+`kb clone <url> --branch X` checks `X` out and adds that entry to the server file (`--config`, which must exist);
+`kb create <name> --remote <url> --branch X` writes `branch: X` in the KB's own `settings.yaml` instead (D1093).
 
 The clone is atomic (D348): it lands in `<data>/.<name>.cloning` and is renamed to `<data>/<name>` only when complete, so a process killed mid-clone leaves no half-clone that the next start would take for a finished one. A half-clone left at `<data>/<name>` by an older binary is not detected (an existing clone is never touched): remove that directory.
 
@@ -349,8 +357,8 @@ cartographer service install                 # generates config + plist/unit, st
 cartographer service status                  # binary, config, and the observable state of the local service
 cartographer service start|stop|restart
 cartographer service uninstall               # removes the service; config and data remain
-cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, pushes it to <url> (D85, D134)
-cartographer kb clone <remote>               # mounts an existing remote KB in that data dir (D97)
+cartographer kb create <name> --remote <url> # scaffolds a KB in the data dir, pushes it to <url> (D85, D134); --branch X makes X the KB's branch (D1093)
+cartographer kb clone <remote>               # mounts an existing remote KB in that data dir (D97); --branch X: this server writes to X (kbs[].branch, D1093)
 cartographer kb list                         # what is on disk, and what the server actually serves (D173)
 cartographer kb rename <old> <new>           # renames the mount point: directory + kbs[] entry + alias in the server state file + client bindings (D177, D754, D772, D906)
 cartographer kb unmount <name>               # retires a KB locally: kbs[] entry + state-file aliases pointing at it + client bindings, clone parked or deleted (D761, D772)

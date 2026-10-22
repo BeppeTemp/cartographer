@@ -809,7 +809,7 @@ servers).
 
 Names, values and defaults are in `config.example.yaml`'s KB sections and in the file `kb create`
 writes (`cartographer config --all` lists them). The keys bound to one machine (`remote`, `name`) stay in the server's `kbs[]`; naming one in
-`settings.yaml` is a finding. So is a removed key: the server git profile's `git_profile`,
+`settings.yaml` is a finding. `branch` has both homes: the KB's is the team's, and the server's `kbs[].branch` overrides it for that server alone (D1093). So is a removed key: the server git profile's `git_profile`,
 `git_base_branch`, `git_forge`, `github_*`, `git_working_branch`, and `git_branch`, which became
 `branch` (D903); `author_*` and `committer_*`, since the writer is the author and the committer, and the
 server file names the identity of what has no writer (D904, D950); `ssh_key`, `known_hosts`, `sops_age_key_file` and `artifact_signing_seed`, whose

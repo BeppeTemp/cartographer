@@ -78,7 +78,7 @@ func cmdKB(args []string) int {
 }
 
 func printKBUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--data <dir>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
+	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> [--branch <name>] | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--branch <name>] [--data <dir>] [--config <path>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
 }
 
 // validateKBName returns an error describing why name is not a usable KB
@@ -110,11 +110,12 @@ func cmdKBCreate(args []string) int {
 	remoteFlag := fs.String("remote", "", "Git remote URL of an empty repository, or one holding only a forge's initial commit (README/LICENSE/.gitignore), whose files are kept (a recognised boilerplate README.md is replaced, see --readme): attached as origin and pushed to")
 	noRemoteFlag := fs.Bool("no-remote", false, "Create a local-only KB with no origin (not durable, never synced)")
 	readmeFlag := fs.String("readme", "", "What to do with the README.md of a forge's initial commit: generate (replace it with a short generated one) or keep (leave it); default replaces only a recognised forge boilerplate")
+	branchFlag := fs.String("branch", "", "Branch the KB lives on, written as `branch` in its settings.yaml (the team's default, read from the remote's default branch) and pushed after it; needs --remote")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after creating the KB")
 	fs.Parse(rest)
 
 	if name == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> (--remote <url> | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> (--remote <url> [--branch <name>] | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]")
 		return 2
 	}
 	if err := validateKBName(name); err != nil {
@@ -128,6 +129,14 @@ func cmdKBCreate(args []string) int {
 	readme := strings.TrimSpace(*readmeFlag)
 	if code := checkReadmeChoice(readme, *noRemoteFlag); code != 0 {
 		return code
+	}
+	branch, code := checkBranchFlag(fs, *branchFlag)
+	if code != 0 {
+		return code
+	}
+	if branch != "" && *noRemoteFlag {
+		fmt.Fprintln(os.Stderr, "Error: --branch needs --remote: a local-only KB never syncs, so the branch it writes to means nothing")
+		return 2
 	}
 	// Refuse an option-like or transport-helper remote before the scaffold
 	// exists, so nothing is left behind.
@@ -155,7 +164,14 @@ func cmdKBCreate(args []string) int {
 		return 1
 	}
 
-	settingsFile := newKBSettingsFile()
+	// `branch` counts only in the settings.yaml committed on the remote's
+	// default branch (D903), so the scaffold carries it and the default branch
+	// is pushed first; the branch itself is created from it afterwards. A branch
+	// that is the one the first push lands on needs no key at all.
+	if branch != "" && branch == remoteTargetBranch(remote) {
+		branch = ""
+	}
+	settingsFile := newKBSettingsFile(branch)
 
 	// The author has to be right before the initial commit exists: it is the
 	// commit a forge with an author-membership push rule rejects (D156).
@@ -191,6 +207,14 @@ func cmdKBCreate(args []string) int {
 			return res.code
 		}
 		originBranch, adopted, replacedReadme = res.branch, res.adopted, res.replacedReadme
+		if branch != "" && branch != originBranch {
+			if err := pushKBBranch(path, branch); err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				printUnpushedScaffoldGuidance(path, originBranch, authorName, authorEmail, dataDir)
+				fmt.Fprintf(os.Stderr, "The default branch %s is on the remote with settings.yaml; then create and push the KB's branch:\n  git -C %s checkout -b %s && git -C %s push -u origin %s\n", originBranch, path, branch, path, branch)
+				return 1
+			}
+		}
 	}
 	fmt.Printf("KB %q created at %s\n", name, path)
 	if remote != "" {
@@ -202,6 +226,9 @@ func cmdKBCreate(args []string) int {
 			fmt.Printf("origin: %s (adopted the forge's initial commit on %s: %s%s)\n", remote, originBranch, strings.Join(adopted, ", "), replaced)
 		} else {
 			fmt.Printf("origin: %s\n", remote)
+		}
+		if branch != "" {
+			fmt.Printf("branch: %s (the KB's own setting; the default branch %s carries the settings.yaml that names it)\n", branch, originBranch)
 		}
 	} else {
 		printNoRemoteWarning(path)
@@ -513,11 +540,12 @@ func cmdKBClone(args []string) int {
 	configFlag := fs.String("config", "", "Server config YAML to read data: from (default: the standard path)")
 	localFlag := fs.Bool("local", false, "Act on the local data dir even though the client points at a remote server")
 	timeoutFlag := fs.Duration("timeout", defaultCloneTimeout, "Time budget for the whole clone")
+	branchFlag := fs.String("branch", "", "Branch this server alone commits and pushes to: checked out in the clone and written as kbs[].branch in the server config (--config), which must exist")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after mounting the KB")
 	fs.Parse(rest)
 
 	if remote == "" || fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb clone <remote> [name] [--data <dir>] [--restart]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb clone <remote> [name] [--branch <name>] [--data <dir>] [--config <path>] [--restart]")
 		return 2
 	}
 	if name == "" {
@@ -527,6 +555,10 @@ func cmdKBClone(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
+	branch, code := checkBranchFlag(fs, *branchFlag)
+	if code != 0 {
+		return code
+	}
 
 	if code := checkLocalTarget(*dataFlag, *localFlag); code != 0 {
 		return code
@@ -534,6 +566,19 @@ func cmdKBClone(args []string) int {
 	dataDir := *dataFlag
 	if dataDir == "" {
 		dataDir = resolveServerDataDir(*configFlag)
+	}
+	// The server file is checked before anything is cloned: a --branch that
+	// cannot be recorded would leave a clone the server then refuses to write.
+	var configPath string
+	if branch != "" {
+		var err error
+		if configPath, err = serverConfigFile(*configFlag); err == nil {
+			err = checkBranchEntryFree(configPath, remote, name)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 1
+		}
 	}
 	path := filepath.Join(dataDir, name)
 	if _, err := os.Stat(path); err == nil {
@@ -583,6 +628,26 @@ func cmdKBClone(args []string) int {
 		}
 		fmt.Fprintln(os.Stderr, "Error: not an OKF KB — import it with the cartographer-kb-import skill, push, then retry")
 		return 1
+	}
+
+	if branch != "" {
+		teamBranch := committedBranchSetting(path)
+		if err := checkoutConfiguredBranch(path, branch); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 1
+		}
+		if err := appendBranchEntry(configPath, remote, name, branch); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 1
+		}
+		cloned = true
+		fmt.Printf("KB %q mounted at %s\n", name, path)
+		fmt.Printf("branch: %s (kbs[].branch in %s; this server only)\n", branch, configPath)
+		if teamBranch != "" && teamBranch != branch {
+			fmt.Printf("note: the KB's own settings.yaml names branch %s; the server override wins, and the KB's setting is not read here\n", teamBranch)
+		}
+		printPostCreateGuidanceFn(*configFlag, *restartFlag)
+		return 0
 	}
 
 	cloned = true

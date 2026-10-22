@@ -203,7 +203,7 @@ func TestRealignSettingsDoesNotPushToTheDefaultBranchBeforeResolvingIt(t *testin
 	}
 	branch, _ := gitx.Branch(k.Root)
 	pushed := gitHere(t, bare, "rev-parse", branch)
-	k.setCanonical("", false) // as after a restart, before the first sync
+	k.setCanonical("", "") // as after a restart, before the first sync
 	if _, _, err := k.RealignSettings(realignBytes, "x"); err != nil {
 		t.Fatal(err)
 	}

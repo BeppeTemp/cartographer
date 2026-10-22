@@ -56,7 +56,8 @@ auth:
 
 # The KBs to clone and mount: each entry has a remote. A KB that is a folder
 # under data is discovered and needs no entry. KBs from
-# CARTOGRAPHER_KB_REMOTES are added to this list.
+# CARTOGRAPHER_KB_REMOTES are added to this list (bare remotes: name and
+# branch need the file).
 # Env CARTOGRAPHER_KB_REMOTES · needs a restart
 kbs:
   # Git remote a KB is cloned from, under data. A KB with a remote syncs with
@@ -69,6 +70,13 @@ kbs:
     # files in credentials_dir.
     # Default: none
     name: kb-a
+
+    # Branch this server alone commits and pushes to, in place of the KB's own
+    # branch setting (which is then not read); the first push creates it. Empty
+    # keeps the KB's setting, and without one the remote's default branch. Only
+    # here, in the file: CARTOGRAPHER_KB_REMOTES has no per-entry option.
+    # Default: none · needs a restart
+    branch: try-cartographer
 
 git:
   # The git identity, Name <email>, the server commits as in every KB without

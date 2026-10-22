@@ -3,8 +3,10 @@ package kb
 import (
 	"errors"
 	"fmt"
+	"log"
 	neturl "net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -43,10 +45,18 @@ func (e *ErrRebaseStatePresent) Error() string {
 }
 
 // ErrBranchDiverged is the sentinel for a KB whose checked-out branch is not its
-// canonical branch: the remote's default branch (D264), or the `branch` of the
-// settings.yaml committed on it when it sets one (D335, D903). errors.Is matches
-// every *BranchDivergedError.
+// canonical branch: the server's `kbs[].branch` override (D1093), else the
+// `branch` of the settings.yaml committed on the remote's default branch (D335,
+// D903), else the remote's default branch (D264). errors.Is matches every
+// *BranchDivergedError.
 var ErrBranchDiverged = errors.New("KB branch diverges from the remote default branch")
+
+// Where the canonical branch comes from (GitStatus.BranchSource).
+const (
+	BranchSourceRemote   = "remote"   // the remote's default branch (D264)
+	BranchSourceSettings = "settings" // `branch` of settings.yaml on the default branch (D335, D903)
+	BranchSourceServer   = "server"   // `kbs[].branch` of the server file (D1093)
+)
 
 // BranchDivergedError refuses a write that would commit or push on a branch
 // other than the KB's canonical one: the remote's default branch.
@@ -58,37 +68,49 @@ type BranchDivergedError struct {
 	Root string
 	// Branch is the checked-out branch.
 	Branch string
-	// Default is the remote's default branch; "" when the remote has none
+	// Default is the canonical branch; "" when the remote has none
 	// Cartographer can determine (see RemoteEmpty).
 	Default string
 	// RemoteEmpty is true when the remote has no refs at all: the only push
-	// allowed then is the first one of gitx.DefaultBranch.
+	// allowed then is the first one, which creates gitx.DefaultBranch.
 	RemoteEmpty bool
-	// Configured is true when Default comes from the `branch` setting of the
-	// settings.yaml on the remote's default branch (D335, D903) rather than from
-	// the remote's HEAD.
-	Configured bool
+	// Source is where Default comes from (BranchSource*): the server's
+	// override, the `branch` setting of the settings.yaml on the remote's
+	// default branch (D335, D903) or the remote's HEAD. "" reads as the remote.
+	Source string
+	// Reason is why the clone was not switched to Default by itself (D1093):
+	// what stands in the way. "" when no switch was tried.
+	Reason string
 }
 
 func (e *BranchDivergedError) Error() string {
+	var msg string
 	switch {
-	case e.Configured:
-		return fmt.Sprintf("%s: %s is checked out on branch %q but the KB's configured branch (`branch` in settings.yaml on the remote's default branch) is %q, so writes are refused to keep the KB from forking on the remote. "+
+	case e.Source == BranchSourceServer:
+		msg = fmt.Sprintf("%s: %s is checked out on branch %q but `kbs[].branch` of the server file is %q, so writes are refused to keep the KB from forking on the remote. "+
+			"Check out %q in %s (`git -C %s checkout %s`, or `checkout -b %s` if it does not exist locally), or change or remove `kbs[].branch` in the server file, then restart the server",
+			ErrBranchDiverged, e.Root, e.Branch, e.Default, e.Default, e.Root, e.Root, e.Default, e.Default)
+	case e.Source == BranchSourceSettings:
+		msg = fmt.Sprintf("%s: %s is checked out on branch %q but the KB's configured branch (`branch` in settings.yaml on the remote's default branch) is %q, so writes are refused to keep the KB from forking on the remote. "+
 			"Check out %q in %s (`git -C %s checkout %s`, or `checkout -b %s` if it does not exist locally), or change `branch` on the default branch, then restart the server",
 			ErrBranchDiverged, e.Root, e.Branch, e.Default, e.Default, e.Root, e.Root, e.Default, e.Default)
 	case e.Default != "":
-		return fmt.Sprintf("%s: %s is checked out on branch %q but the remote's default branch is %q, so writes are refused to keep the KB from forking on the remote. "+
+		msg = fmt.Sprintf("%s: %s is checked out on branch %q but the remote's default branch is %q, so writes are refused to keep the KB from forking on the remote. "+
 			"Merge %q into %q on the remote, or check out %q in %s, then restart the server",
 			ErrBranchDiverged, e.Root, e.Branch, e.Default, e.Branch, e.Default, e.Default, e.Root)
 	case e.RemoteEmpty:
-		return fmt.Sprintf("%s: the remote is empty and %s is checked out on branch %q; the first push of a KB only creates %q. "+
+		msg = fmt.Sprintf("%s: the remote is empty and %s is checked out on branch %q; the first push of a KB only creates %q, or `kbs[].branch` of the server file when it is set. "+
 			"Rename the branch with `git -C %s branch -m %s`, then restart the server",
 			ErrBranchDiverged, e.Root, e.Branch, gitx.DefaultBranch, e.Root, gitx.DefaultBranch)
 	default:
-		return fmt.Sprintf("%s: %s is checked out on branch %q, which the remote does not have, and the remote names no default branch; Cartographer never creates a branch on the remote. "+
+		msg = fmt.Sprintf("%s: %s is checked out on branch %q, which the remote does not have, and the remote names no default branch; Cartographer never creates a branch on the remote. "+
 			"Set the remote's default branch (HEAD) to the KB's branch, or check out that branch in %s, then restart the server",
 			ErrBranchDiverged, e.Root, e.Branch, e.Root)
 	}
+	if e.Reason != "" {
+		msg += ". The clone was not switched by itself: " + e.Reason
+	}
+	return msg
 }
 
 // Is makes errors.Is(err, ErrBranchDiverged) hold.
@@ -110,26 +132,54 @@ func canonicalBranch(refs gitx.RemoteRefs) string {
 	return ""
 }
 
-// setCanonical records what a sync resolved: the branch writes go to, and
-// whether it comes from the `branch` setting (configured) or is the remote's
-// default.
-func (k *KB) setCanonical(branch string, configured bool) {
+// setCanonical records what a sync resolved: the branch writes go to, and where
+// it comes from (BranchSource*).
+func (k *KB) setCanonical(branch, source string) {
 	k.lastSyncInMu.Lock()
 	k.remoteDefault = branch
-	k.branchConfigured = configured
+	k.branchSource = source
 	k.lastSyncInMu.Unlock()
 }
 
-// ConfiguredBranch is the `branch` of the settings.yaml committed on the
-// remote's default branch, as the last sync resolved it (D903); "" when the
-// setting is absent, or when no sync has run yet.
+// SetBranchOverride sets `kbs[].branch` of the server file for this KB (D1093):
+// the branch this server alone commits and pushes to. It wins over the KB's own
+// `branch`, which is then not read; "" removes it. The server calls it once,
+// when it mounts the KB, before any sync, so the branch is known before the
+// first one resolves anything.
+func (k *KB) SetBranchOverride(branch string) {
+	k.lastSyncInMu.Lock()
+	k.branchOverride = branch
+	k.lastSyncInMu.Unlock()
+}
+
+// ConfiguredBranch is the branch the operator chose for this KB, ok or not on
+// the remote yet: the server's override from the moment it is set, else the
+// `branch` of the settings.yaml committed on the remote's default branch as the
+// last sync resolved it (D903). "" when neither is set, or when no sync has
+// run yet and there is no override.
 func (k *KB) ConfiguredBranch() string {
 	k.lastSyncInMu.RLock()
 	defer k.lastSyncInMu.RUnlock()
-	if k.branchConfigured {
+	if k.branchOverride != "" {
+		return k.branchOverride
+	}
+	if k.branchSource == BranchSourceSettings {
 		return k.remoteDefault
 	}
 	return ""
+}
+
+// BranchSource says where the canonical branch comes from (BranchSource*).
+func (k *KB) BranchSource() string {
+	k.lastSyncInMu.RLock()
+	defer k.lastSyncInMu.RUnlock()
+	if k.branchOverride != "" {
+		return BranchSourceServer
+	}
+	if k.branchSource == BranchSourceSettings {
+		return BranchSourceSettings
+	}
+	return BranchSourceRemote
 }
 
 // branchSettingAt reads the `branch` key of settings.yaml as committed on ref,
@@ -159,21 +209,73 @@ func (k *KB) branchSettingAt(ref string) (string, error) {
 }
 
 // resolveCanonical is the branch writes go to, given what the remote advertises
-// (after a fetch): the `branch` setting committed on the default branch, else
-// the default branch itself.
-func (k *KB) resolveCanonical(remote string, refs gitx.RemoteRefs) (branch string, configured bool, err error) {
+// (after a fetch): the server's override when it sets one (D1093, resolved
+// before anything is read, so it also holds on an empty remote and a malformed
+// KB `branch` cannot refuse it), else the `branch` setting committed on the
+// default branch, else the default branch itself. source is BranchSource*.
+func (k *KB) resolveCanonical(remote string, refs gitx.RemoteRefs) (branch, source string, err error) {
+	k.lastSyncInMu.RLock()
+	override := k.branchOverride
+	k.lastSyncInMu.RUnlock()
+	if override != "" {
+		return override, BranchSourceServer, nil
+	}
 	def := canonicalBranch(refs)
 	if def == "" || !gitx.RemoteBranchExists(k.Root, remote, def) {
-		return def, false, nil
+		return def, BranchSourceRemote, nil
 	}
 	b, err := k.branchSettingAt(remote + "/" + def)
 	if err != nil {
-		return def, false, err
+		return def, BranchSourceRemote, err
 	}
 	if b != "" {
-		return b, true, nil
+		return b, BranchSourceSettings, nil
 	}
-	return def, false, nil
+	return def, BranchSourceRemote, nil
+}
+
+// switchToCanonical puts a clone that sits on another branch onto target, the
+// branch writes go to, when that loses nothing (D1093): HEAD is on a named
+// branch, the tree is clean, nothing is unpushed on it, and target can be built
+// without merging, resetting or deleting anything. It returns the reason when
+// it cannot, for BranchDivergedError.Reason. remoteDefault is the remote's
+// default branch ("" when unknown): a target the remote does not have yet is
+// created from it, never from the branch the clone happens to be on.
+func (k *KB) switchToCanonical(remote, current, target, remoteDefault string) (switched bool, reason string) {
+	if current == "" {
+		return false, "HEAD is detached"
+	}
+	status, err := gitx.Status(k.Root)
+	if err != nil {
+		return false, err.Error()
+	}
+	if strings.TrimSpace(status) != "" {
+		return false, fmt.Sprintf("uncommitted changes in %s", k.Root)
+	}
+	ahead, _, known, err := gitx.AheadBehind(k.Root, remote, current)
+	switch {
+	case err != nil:
+		return false, err.Error()
+	case !known:
+		return false, fmt.Sprintf("branch %q was never pushed, so its commits exist only in %s", current, k.Root)
+	case ahead > 0:
+		return false, fmt.Sprintf("%d commits unpushed on %q", ahead, current)
+	}
+	switch {
+	case gitx.BranchExists(k.Root, target):
+		err = gitx.Checkout(k.Root, target)
+	case gitx.RemoteBranchExists(k.Root, remote, target):
+		err = gitx.CheckoutNewBranch(k.Root, target, remote+"/"+target, k.GitEnv...)
+	case remoteDefault != "" && gitx.RemoteBranchExists(k.Root, remote, remoteDefault):
+		err = gitx.CheckoutNewBranch(k.Root, target, remote+"/"+remoteDefault, k.GitEnv...)
+	default:
+		return false, fmt.Sprintf("%q exists neither here nor on the remote, and the remote has no default branch to create it from", target)
+	}
+	if err != nil {
+		return false, err.Error()
+	}
+	log.Printf("KB %s: switched branch %s -> %s", filepath.Base(k.Root), current, target)
+	return true, ""
 }
 
 // RemoteDefaultBranch returns the canonical branch last resolved from the
@@ -370,11 +472,11 @@ func (k *KB) SyncIn() (bool, error) {
 	if err != nil {
 		return true, fmt.Errorf("SyncIn remote default branch: %w", err)
 	}
-	canonical, configured, rerr := k.resolveCanonical(remote, refs)
+	canonical, source, rerr := k.resolveCanonical(remote, refs)
 	if rerr != nil {
 		return true, rerr
 	}
-	k.setCanonical(canonical, configured)
+	k.setCanonical(canonical, source)
 	if !refs.HasRefs {
 		// An empty remote has nothing to pull (pulling it fails on the missing
 		// ref); SyncOut makes the first push of main.
@@ -383,9 +485,15 @@ func (k *KB) SyncIn() (bool, error) {
 		return true, nil
 	}
 	if canonical != "" && branch != canonical {
-		return true, k.divergedError(&BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical, Configured: configured}, 0)
+		// A clone that can be moved without losing anything follows the
+		// effective branch (D1093); otherwise it stays refused, with the reason.
+		switched, reason := k.switchToCanonical(remote, branch, canonical, canonicalBranch(refs))
+		if !switched {
+			return true, k.divergedError(&BranchDivergedError{Root: k.Root, Branch: branch, Default: canonical, Source: source, Reason: reason}, 0)
+		}
+		branch = canonical
 	}
-	if configured && !gitx.RemoteBranchExists(k.Root, remote, branch) {
+	if source != BranchSourceRemote && !gitx.RemoteBranchExists(k.Root, remote, branch) {
 		// Not on the remote yet (the fetch above refreshed the tracking refs):
 		// nothing to pull; SyncOut's first push creates it.
 		k.clearDivergedStatus()
@@ -583,12 +691,12 @@ func (k *KB) pushLocal(remote, branch string) (pushErr error, diverged *BranchDi
 	if err != nil {
 		return err, nil
 	}
-	canonical, configured, rerr := k.resolveCanonical(remote, refs)
+	canonical, source, rerr := k.resolveCanonical(remote, refs)
 	if rerr != nil {
 		return rerr, nil
 	}
-	k.setCanonical(canonical, configured)
-	if configured {
+	k.setCanonical(canonical, source)
+	if source != BranchSourceRemote {
 		return k.pushConfigured(remote, branch, canonical)
 	}
 	switch {
@@ -605,10 +713,11 @@ func (k *KB) pushLocal(remote, branch string) (pushErr error, diverged *BranchDi
 	}
 }
 
-// pushConfigured is pushLocal for a KB whose settings.yaml names its branch.
+// pushConfigured is pushLocal for a KB whose branch the operator chose: the
+// server's override or the settings.yaml's `branch`.
 func (k *KB) pushConfigured(remote, branch, configured string) (pushErr error, diverged *BranchDivergedError) {
 	if branch != configured {
-		return nil, &BranchDivergedError{Root: k.Root, Branch: branch, Default: configured, Configured: true}
+		return nil, &BranchDivergedError{Root: k.Root, Branch: branch, Default: configured, Source: k.BranchSource()}
 	}
 	if gitx.RemoteBranchExists(k.Root, remote, branch) {
 		return gitx.Push(k.Root, remote, branch, k.GitEnv...), nil

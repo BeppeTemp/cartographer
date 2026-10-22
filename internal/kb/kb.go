@@ -167,11 +167,17 @@ type KB struct {
 	// one bounded fetch, not one per queued call (#348).
 	lastFetchFail time.Time
 	// remoteDefault is the canonical branch last resolved by a sync (same
-	// lock): the `branch` setting of the default branch when it sets one
-	// (branchConfigured, D335, D903), otherwise the remote's default branch,
-	// "" when unknown (D264).
-	remoteDefault    string
-	branchConfigured bool
+	// lock): the server's override when it sets one (branchOverride, D1093),
+	// else the `branch` setting of the default branch when it sets one
+	// (branchSource, D335, D903), otherwise the remote's default branch, "" when
+	// unknown (D264).
+	remoteDefault string
+	// branchSource is where remoteDefault came from at the last sync
+	// (BranchSource*); "" before the first one.
+	branchSource string
+	// branchOverride is `kbs[].branch` of the server file (SetBranchOverride,
+	// D1093); "" when the server does not override. Same lock.
+	branchOverride string
 	// gitattrsChecked records that ensureGitAttributes ran in this process
 	// (D311). Guarded by mu, the git-operation lock.
 	gitattrsChecked bool
@@ -251,9 +257,10 @@ type GitStatus struct {
 	// RemoteDefaultBranch is the KB's canonical branch as last resolved from
 	// the remote ("" when unknown); a Branch that differs blocks writes (D264).
 	RemoteDefaultBranch string `json:"remote_default_branch,omitempty"`
-	// BranchSource says where the canonical branch comes from: "settings"
-	// (the `branch` of settings.yaml on the default branch, D335, D903) or
-	// "remote" (the remote's default, D264).
+	// BranchSource says where the canonical branch comes from: "server"
+	// (`kbs[].branch` of the server file, D1093), "settings" (the `branch` of
+	// settings.yaml on the default branch, D335, D903) or "remote" (the remote's
+	// default, D264).
 	BranchSource string `json:"branch_source,omitempty"`
 }
 
@@ -325,10 +332,7 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 	}
 	s.Branch, _ = gitx.Branch(k.Root)
 	s.RemoteDefaultBranch = k.RemoteDefaultBranch()
-	s.BranchSource = "remote"
-	if k.ConfiguredBranch() != "" {
-		s.BranchSource = "settings"
-	}
+	s.BranchSource = k.BranchSource()
 	return s
 }
 

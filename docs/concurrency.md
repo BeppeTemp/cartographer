@@ -128,7 +128,7 @@ refreshed by a fetch); when the remote's `HEAD` names a branch it does not have 
 a self-hosted bare repository initialised with `master` and then pushed `main` —
 the canonical branch is `main` if the remote has it, and unknown otherwise. Cartographer never
 deletes or force-pushes a branch on the remote and never checks out a different branch in the
-clone. The single exception to creating none is the first push of a KB to an **empty** remote,
+clone, except the lossless switch of `SyncIn` (below). The single exception to creating none is the first push of a KB to an **empty** remote,
 which creates `main` with upstream tracking. A KB made for an empty remote by
 `kb create --remote` is pinned to `main` and given its initial commit; a server never does that by itself (D906).
 
@@ -137,7 +137,8 @@ file: the configured branch is the only one pulled and pushed, and the first pus
 the remote, with upstream tracking, when it is missing — on an empty remote as on one that already
 has other branches. No other branch is ever created. A fresh clone is checked out on it (tracking
 it when the remote has it, branched from the remote's default branch otherwise); an existing clone
-is never switched. A name git would not accept is a finding in the file and never a branch.
+is switched only by the sync, and only when that loses nothing (below). A server's `kbs[].branch` takes the place
+of `branch` for that server (D1093). A name git would not accept is a finding in the file and never a branch.
 
 Each commit subject is `<tool_name>: <resource>`, so the history of a KB is
 readable as an audit trail. The resource is built from the arguments that
@@ -207,16 +208,23 @@ the write is not performed, and `last_error` names the clone, both branches and 
 recovery — merge the stray branch into the default branch on the remote, or check
 out the default branch in the clone, then restart. With `branch` the
 recovery is to check out the configured branch in the clone, or change the key on the
-default branch; a configured branch the remote does not have yet is not a divergence,
-there is just nothing to pull. Divergence is never repaired
+default branch; with the server's `kbs[].branch` (D1093), which wins over the KB's `branch`,
+to check it out, or change or remove that key; a configured branch the remote does not have yet is not a divergence,
+there is just nothing to pull. Before refusing, `SyncIn` tries to switch the clone to the
+effective branch itself (D1093), whichever the source: it does when HEAD is on a named
+branch, the working tree is clean and nothing is unpushed on it (a branch never pushed counts as
+unpushed), and the target can be built without merging, resetting or deleting anything: the local
+branch, else `origin/<branch>`, else a new branch from the remote's default branch. It logs one line and goes on with
+its pull. When it cannot, the state is `degraded` and `last_error` ends with the reason
+(uncommitted changes, N commits unpushed, no branch to create it from). Other divergence is never repaired
 automatically, since merging two histories is the operator's decision. Reads keep
 working from the local clone (their background refresh logs the error). `SyncOut`
 repeats the guard for anything that bypassed `SyncIn` (the freshness window, a
 checkout changed in between): it pushes only a branch the remote already has, or
-`main` to an empty remote (or the configured branch, which it creates), and
+`main` to an empty remote (or the configured branch, `kbs[].branch` included, which it creates), and
 otherwise leaves the commit local and reports the same error. `sync_status` shows
 `branch` and `remote_default_branch` side by side, with `branch_source` saying
-whether the canonical branch comes from `settings` (the `branch` key) or from the `remote`;
+whether the canonical branch comes from `server` (`kbs[].branch`), `settings` (the KB's `branch` key) or from the `remote`;
 the next sync that finds the clone back on the canonical branch clears the
 `degraded` state.
 

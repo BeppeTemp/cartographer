@@ -39,11 +39,14 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 
 	{Path: "kbs", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Env: "CARTOGRAPHER_KB_REMOTES", Restart: true,
 		Example:     "- remote: https://git.example.com/user/kb-a.git\n  name: kb-a",
-		Description: "The KBs to clone and mount: each entry has a remote. A KB that is a folder under data is discovered and needs no entry. KBs from CARTOGRAPHER_KB_REMOTES are added to this list."},
+		Description: "The KBs to clone and mount: each entry has a remote. A KB that is a folder under data is discovered and needs no entry. KBs from CARTOGRAPHER_KB_REMOTES are added to this list (bare remotes: name and branch need the file)."},
 	{Path: "kbs[].remote", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Example: "https://git.example.com/user/kb-a.git",
 		Description: "Git remote a KB is cloned from, under data. A KB with a remote syncs with it; one without never contacts anything."},
 	{Path: "kbs[].name", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Example: "kb-a",
 		Description: "KB name, in place of the one derived from the remote. It drives the endpoint, the token scopes, the clone directory and the names of the KB's files in credentials_dir."},
+
+	{Path: "kbs[].branch", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true, Example: "try-cartographer",
+		Description: "Branch this server alone commits and pushes to, in place of the KB's own branch setting (which is then not read); the first push creates it. Empty keeps the KB's setting, and without one the remote's default branch. Only here, in the file: CARTOGRAPHER_KB_REMOTES has no per-entry option."},
 
 	{Path: "git.identity", Scope: settingschema.ScopeServer, Type: "string", Default: `""`, Restart: true, Example: `"Ada Example <ada@example.com>"`,
 		Description: "The git identity, Name <email>, the server commits as in every KB without its own entry in git.identities: the author and the committer of the commits it makes with no writer of their own (the unattended repair, merges, conflict resolution) and of a write whose client sends no valid Cartographer-Author. Set it when the remote's forge rejects commits whose author or committer is not one of its accounts. Empty keeps the server identity, Cartographer <cartographer@host>."},
@@ -84,7 +87,7 @@ var KBKeys = []settingschema.Key{
 }
 
 // kbKeyHome is the reason given for a KB-scope key met in kbs[] (D906).
-const kbKeyHome = "a KB's behaviour is carried by the KB, the same on every server that mounts it; the server file keeps only name and remote"
+const kbKeyHome = "a KB's behaviour is carried by the KB, the same on every server that mounts it; the server file keeps name, remote and, for this server alone, a branch override (kbs[].branch)"
 
 // Retired is the registry of the server config.yaml keys that were removed
 // (D903): each is ignored with a warning that names what to use, and dropped
@@ -111,7 +114,7 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "kbs[].github_repository", Plan: 903, Note: kb.ServerProfileRemoved},
 	{Path: "kbs[].github_api_url", Plan: 903, Note: kb.ServerProfileRemoved},
 	{Path: "kbs[].github_token_env", Plan: 903, Note: kb.ServerProfileRemoved},
-	{Path: "kbs[].git_branch", Plan: 903, Replacement: "branch in the KB's settings.yaml", Note: "committed on the remote's default branch", RefuseAny: true},
+	{Path: "kbs[].git_branch", Plan: 903, Replacement: "kbs[].branch (this server only) or branch in the KB's settings.yaml (the team's, committed on the default branch)", RefuseAny: true},
 	{Path: "git.author_name", Plan: 904, Replacement: "git.identity", Note: kb.AuthorSettingRemoved + "; the realignment writes git.identity from git.author_name and git.author_email"},
 	{Path: "git.author_email", Plan: 904, Replacement: "git.identity", Note: kb.AuthorSettingRemoved + "; the realignment writes git.identity from git.author_name and git.author_email"},
 	{Path: "git.committer_name", Plan: 904, Note: kb.AuthorSettingRemoved},
