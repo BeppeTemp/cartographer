@@ -30,3 +30,6 @@ modern schema.
 **Consequences.**
 - `cartographer connect antigravity` and `cartographer sync` emit `"url"` in `mcp_config.json`.
 - Non-destructive `mergeJSON` continues preserving pre-existing user configurations.
+- An entry written before this decision is upgraded in place: when the emitted entry carries
+  `"url"`, `mergeJSON` drops a `"serverUrl"` left in that same entry, so the old address does not
+  linger beside the new one. Other servers in the file are untouched.
