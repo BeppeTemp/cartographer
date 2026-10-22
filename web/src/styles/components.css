@@ -1679,29 +1679,28 @@ body.is-resizing {
 
 /* The growth replay's trigger, in the legend card's head: a quiet text action
    beside the counts it will replay. */
-/* The replay is a sprout in a round, borderless button: a quiet mark in the
-   legend's head, which lights in the accent when pointed at or running. */
+/* The replay is a pill in the accent's tint, no border: it reads as the
+   legend's one action without the weight of a framed button. */
 .legend__grow {
-  display: inline-grid;
+  display: inline-flex;
   flex: none;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  color: var(--text-muted);
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 var(--space-3) 0 var(--space-2);
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
   cursor: pointer;
-  background: none;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
   border: 0;
   border-radius: var(--radius-pill);
-  transition:
-    color var(--motion-fast) var(--ease-out),
-    background-color var(--motion-fast) var(--ease-out);
+  transition: background-color var(--motion-fast) var(--ease-out);
 }
 
 .legend__grow:hover,
 .legend__grow[aria-pressed="true"] {
-  color: var(--accent);
-  background: var(--surface-2);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .legend__grow:focus-visible {
@@ -3657,6 +3656,67 @@ code.mapcontract__label {
   background: var(--surface-2);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-small);
+}
+/* A map setting's table, under its row: keys in a column of their own, each
+   value's chips wrapping in its cell. */
+.settings__map {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 0 var(--space-4);
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-3);
+  font-size: var(--text-xs);
+}
+.settings__map-row {
+  display: contents;
+}
+.settings__map dt,
+.settings__map dd {
+  margin: 0;
+  padding-block: 6px;
+  border-block-start: 1px solid var(--border-subtle);
+}
+.settings__map-row:first-child dt,
+.settings__map-row:first-child dd {
+  border-block-start: 0;
+}
+.settings__map dt {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.settings__map-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+.settings__map-sub {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-small);
+}
+.settings__map-text {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.settings__map-none {
+  font-style: italic;
+  color: var(--text-muted);
+}
+@media (max-width: 640px) {
+  .settings__map {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings__map dd {
+    padding-block-start: 0;
+    border-block-start: 0;
+  }
 }
 /* A list too long to sit beside the description (paths, KB lists) takes its
    own full-width line under it, read left to right like the YAML. */

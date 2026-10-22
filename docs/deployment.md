@@ -658,9 +658,9 @@ more than a quarter of a 60 Hz frame per tick (on an Apple M5, from about 1,500
 concepts) drifts at half rate, which still breathes at half the CPU; only a tick
 past 12 ms (about 5,000 concepts) rests the drift: it settles and stops, as with
 motion off, while the panorama and the signals still run; a smaller Map opened in
-its place breathes again (D889, D1044). With a concept open the network stops
-breathing and, after the same quiet as the panorama, the camera circles the
-concept at a third of the panorama's pace. While the panorama turns with nobody at
+its place breathes again (D889, D1044). With a concept open the network's
+breathing eases down to a fifth over about two seconds and, after the same quiet
+as the panorama, the camera circles the concept at a third of the panorama's pace. While the panorama turns with nobody at
 the controls, the camera eases slowly onto the fit, so hours of drift never carry
 the network off screen. The view draws only when something moves or changes, at most about 60
 times a second whatever the display's refresh, so an untouched graph at rest

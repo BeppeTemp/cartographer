@@ -19,6 +19,8 @@ export const AUTO_ROTATE_SPEED = 2 * (1 / 12);
 /** While a concept is open the camera circles it at a third of that: the
  *  scene keeps moving, slowly enough to read beside it. */
 export const READING_ROTATE_SPEED = AUTO_ROTATE_SPEED / 3;
+/** The share of its amplitude the drift keeps while a concept is open. */
+export const READING_DRIFT = 0.2;
 /** Quiet time after the last input before the panorama may turn again. */
 export const IDLE_RESUME_MS = 10_000;
 

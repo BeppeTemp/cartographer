@@ -773,6 +773,66 @@ function asBool(value: unknown): boolean | null {
   return null;
 }
 
+/** A map with entries: shown as a table under the row, not as chips beside it. */
+function asMap(value: unknown): [string, unknown][] | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value);
+  return entries.length > 0 ? entries : null;
+}
+
+/**
+ * A map setting as a table under its row: one line per key, the key muted on
+ * the left and its value on the right — a list as chips, a `{kbs: [...]}` as
+ * its KBs, a nested map as `key: value` chips, text as itself. The chips of
+ * one value wrap within its cell, so `clients` reads as provider → KBs instead
+ * of one line of everything.
+ */
+function MapTable({ entries, label }: { entries: [string, unknown][]; label: string }) {
+  const home = useHome();
+  const cell = (v: unknown) => {
+    const map = asMap(v);
+    const kbs = map && map.length === 1 && map[0]![0] === "kbs" && Array.isArray(map[0]![1]) ? (map[0]![1] as unknown[]) : null;
+    const list = kbs ?? (Array.isArray(v) ? v : null);
+    if (list)
+      return list.length === 0 ? (
+        <span className="settings__map-none">(none)</span>
+      ) : (
+        <span className="settings__map-chips">
+          {list.map((x, i) =>
+            asMap(x) ? (
+              <span key={i} className="settings__map-sub">
+                {asMap(x)!.map(([k, y]) => (
+                  <Item key={k} text={`${k}: ${formatValue(y)}`} />
+                ))}
+              </span>
+            ) : (
+              <Item key={i} text={formatValue(x)} />
+            ),
+          )}
+        </span>
+      );
+    if (map)
+      return (
+        <span className="settings__map-chips">
+          {map.map(([k, y]) => (
+            <Item key={k} text={`${k}: ${formatValue(y)}`} />
+          ))}
+        </span>
+      );
+    return <span className="settings__map-text">{home(formatValue(v))}</span>;
+  };
+  return (
+    <dl className="settings__map" aria-label={label}>
+      {entries.map(([k, v]) => (
+        <div key={k} className="settings__map-row">
+          <dt>{k}</dt>
+          <dd>{cell(v)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 /** The value as a chip: a switch for a boolean, chips for a list, a muted word for nothing. */
 function Value({ entry: e }: { entry: SettingEntry }) {
   const home = useHome();
@@ -791,9 +851,18 @@ function Value({ entry: e }: { entry: SettingEntry }) {
       </span>
     );
   }
+  // A map is drawn as a table under the row (Row): beside the key, its size.
+  const map = asMap(e.value);
+  if (map)
+    return (
+      <span className="settings__value" aria-label={label}>
+        {map.length} {map.length === 1 ? "entry" : "entries"}
+      </span>
+    );
   const list = items(e.value);
   if (list && list.length > 0) {
-    const shown = list.slice(0, 3);
+    // A list that drops under the description has the width to show all of it.
+    const shown = isWide(list) ? list : list.slice(0, 3);
     return (
       <span className="settings__value settings__value--list" aria-label={label}>
         {shown.map((v, i) => (
@@ -825,7 +894,7 @@ function Row({ entry: e }: { entry: SettingEntry }) {
       className="settings__row"
       data-set={set || undefined}
       data-open={open || undefined}
-      data-wide={isWide(items(e.value)) || undefined}
+      data-wide={(!asMap(e.value) && isWide(items(e.value))) || undefined}
     >
       <button type="button" className="settings__row-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="settings__what">
@@ -836,6 +905,7 @@ function Row({ entry: e }: { entry: SettingEntry }) {
           <Value entry={e} />
         </span>
       </button>
+      {asMap(e.value) && <MapTable entries={asMap(e.value)!} label={`Entries of ${e.key}`} />}
       {open && (
         <dl className="settings__meta">
           <div>

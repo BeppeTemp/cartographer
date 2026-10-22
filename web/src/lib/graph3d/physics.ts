@@ -90,7 +90,14 @@ export function seedPosition(id: string, nodeCount: number, dimensions: 2 | 3 = 
 export interface DriftForce<N extends PhysicsNode> extends Force<N> {
   enabled(on: boolean): DriftForce<N>;
   isEnabled(): boolean;
+  /** The share of the full amplitude the drift eases towards (1 = full), a
+   *  little every tick: a change of pace never jolts the network. */
+  calm(target: number): DriftForce<N>;
 }
+
+/** How much of the way to its target the drift's gain moves each tick: about
+ *  two seconds at 60 Hz to settle. */
+const DRIFT_GAIN_EASE = 0.025;
 
 /**
  * drift is the residual motion of live mode, as a force. Each node gets a
@@ -105,17 +112,21 @@ export function drift<N extends PhysicsNode>(dimensions: 2 | 3 = 3): DriftForce<
   let phases: Float64Array = new Float64Array(0);
   let on = true;
   let tick = 0;
+  let gain = 1;
+  let target = 1;
   const force = ((() => {
     if (!on) return;
     tick++;
+    gain += (target - gain) * DRIFT_GAIN_EASE;
+    const a = DRIFT_AMPLITUDE * gain;
     const t = tick * DRIFT_SPEED;
     for (let i = 0; i < nodes.length; i++) {
       const node = nodes[i]!;
       if (node.fx != null) continue;
       const p = phases[i]!;
-      node.vx = (node.vx ?? 0) + DRIFT_AMPLITUDE * Math.sin(t + p);
-      node.vy = (node.vy ?? 0) + DRIFT_AMPLITUDE * Math.cos(t * 0.87 + p * 1.3);
-      if (dimensions === 3) node.vz = (node.vz ?? 0) + DRIFT_AMPLITUDE * Math.sin(t * 0.71 + p * 0.7);
+      node.vx = (node.vx ?? 0) + a * Math.sin(t + p);
+      node.vy = (node.vy ?? 0) + a * Math.cos(t * 0.87 + p * 1.3);
+      if (dimensions === 3) node.vz = (node.vz ?? 0) + a * Math.sin(t * 0.71 + p * 0.7);
     }
   }) as unknown) as DriftForce<N>;
   force.initialize = (next: N[]) => {
@@ -128,6 +139,10 @@ export function drift<N extends PhysicsNode>(dimensions: 2 | 3 = 3): DriftForce<
     return force;
   };
   force.isEnabled = () => on;
+  force.calm = (value: number) => {
+    target = value;
+    return force;
+  };
   return force;
 }
 

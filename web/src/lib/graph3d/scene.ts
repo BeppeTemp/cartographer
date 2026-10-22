@@ -29,6 +29,7 @@ import { MOTION_MS, motionMs, type MotionToken } from "../theme";
 import { smooth } from "./transition";
 import {
   AUTO_ROTATE_SPEED,
+  READING_DRIFT,
   READING_ROTATE_SPEED,
   IdleRotation,
   DRIFT_REST_MS,
@@ -715,12 +716,15 @@ export class LivingScene {
     }
   }
 
-  /** Drift and the live simulation follow the motion toggle, and rest while
-   *  a concept is open: the camera circles it slowly instead, and labels that
-   *  breathe around a still point are hard to read beside the inspector. */
+  /** Drift and the live simulation follow the motion toggle. With a concept
+   *  open the drift eases down to a fifth (calm(), over about two seconds, so
+   *  the click never jolts the network): labels that breathe around a still
+   *  point are hard to read beside the inspector, and the camera circles the
+   *  concept slowly instead. */
   private applyMotion(): void {
-    const drifting = this.live && !this.resting && !this.selected;
+    const drifting = this.live && !this.resting;
     this.driftForce.enabled(drifting);
+    this.driftForce.calm(this.selected ? READING_DRIFT : 1);
     const target = drifting ? LIVE_ALPHA : 0;
     this.sim?.alphaTarget(this.bloom ? Math.max(target, BLOOM_WARMTH) : target);
   }

@@ -872,9 +872,10 @@ export function GrowthButton() {
       onClick={control.start}
       aria-label="Replay growth"
       aria-pressed={control.active}
-      title="Replay: watch the KB grow from its first concept"
+      title="Watch the KB grow from its first concept"
     >
-      <Icon name="grow" size={16} />
+      <Icon name="grow" size={14} />
+      <span aria-hidden="true">Replay</span>
     </button>
   );
 }
