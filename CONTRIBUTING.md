@@ -294,7 +294,9 @@ change who acts:
 | `dependencies`, `autorelease: pending`, `autorelease: tagged` | Set by Dependabot and release-please, never by hand |
 
 Milestones are the roadmap: one per weekly release, `vX.Y.0`; an issue in a
-milestone is accepted work. **Every accepted issue has a milestone**, approved plans
+milestone is accepted work, and a PR sits in the milestone of the issues it closes
+(the `pr-milestone` job of `plan-gate` sets it, and moves it with the issue), so a
+train's milestone lists its PRs too. **Every accepted issue has a milestone**, approved plans
 included: an open issue without one is not triaged yet, and the weekly triage puts
 it in a train, moves it to Discussions or closes it. Keep two or three milestones
 open: the non-trivial work of the next two is written as approved plans, ready to
