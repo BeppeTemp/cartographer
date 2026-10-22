@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Icon } from "./Icon";
 import { fetchPlaceholders, fetchSettings, fetchWhoami } from "../api/client";
 import type {
@@ -11,8 +11,8 @@ import type {
   Whoami,
   WhoamiRule,
 } from "../api/types";
-import { Page, PageHeader, Segmented } from "./Page";
-import { ErrorState, Skeleton } from "./States";
+import { Page, PageHeader, Segmented, SettingsSkeleton, TitleBone } from "./Page";
+import { ErrorState } from "./States";
 
 /** A value as a person reads it: lists joined, maps as `key: value`, empty said out loud. */
 export function formatValue(value: unknown): string {
@@ -30,6 +30,49 @@ function items(value: unknown): string[] | null {
   if (Array.isArray(value)) return value.map(formatValue);
   if (value && typeof value === "object") return Object.entries(value).map(([k, v]) => `${k}: ${formatValue(v)}`);
   return null;
+}
+
+/** A home directory shown as `~`: the page names this machine's paths, and the
+ *  user's own home adds nothing but width. */
+export function tildify(text: string): string {
+  return text
+    .replace(/(^|[\s:→])(?:\/Users|\/home)\/[^/\s]+(?=\/|$|\s)/g, "$1~")
+    .replace(/(^|[\s:→])C:\\Users\\[^\\\s]+/gi, "$1~");
+}
+
+/** Whether the values on screen are this machine's (a client's report): only
+ *  then is a home directory the viewer's own, and shown as `~`. */
+const ClientValues = createContext(false);
+function useHome(): (text: string) => string {
+  return useContext(ClientValues) ? tildify : (text) => text;
+}
+
+/** Past this many characters an item, or past this many items a list, no
+ *  longer fits beside the description: the row puts its values on their own
+ *  full-width lines under it. */
+const WIDE_ITEM = 36;
+const TALL_LIST = 4;
+function isWide(list: readonly string[] | null): boolean {
+  return !!list && (list.length > TALL_LIST || list.some((v) => tildify(v).length > WIDE_ITEM));
+}
+
+/** One item of a list: a `key: value` or `key → value` entry shows its key
+ *  muted before the value, so a long path wraps under itself. */
+function Item({ text }: { text: string }) {
+  const t = useHome()(text);
+  const m = /^([^\s:→]+(?::[^\s:→]+)?)(: | → )(.+)$/.exec(t);
+  return (
+    <span className="settings__item">
+      {m ? (
+        <>
+          <span className="settings__item-key">{`${m[1]}${(m[2] ?? "").trimEnd()}`}</span>{" "}
+          <span className="settings__item-val">{m[3]}</span>
+        </>
+      ) : (
+        t
+      )}
+    </span>
+  );
 }
 
 /** Where a value comes from, in words. */
@@ -145,7 +188,13 @@ export function Settings({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadKey]);
 
-  if (loading && !view) return <Skeleton lines={6} label="Loading settings" />;
+  if (loading && !view)
+    return (
+      <Page label="Settings" busy className="settings">
+        <PageHeader eyebrow="Settings" title={<TitleBone label="Loading settings" />} />
+        <SettingsSkeleton label="Loading settings" />
+      </Page>
+    );
   if (error) return <ErrorState error={error} onRetry={onRetry} />;
   if (!view) return null;
 
@@ -164,9 +213,14 @@ export function Settings({
     <Page label="Settings" className="settings">
       <PageHeader
         eyebrow="Settings"
+        title={client !== undefined ? (client?.machine ?? "Client") : kb ? kb.name : "Server"}
         subtitle={
           <>
-            The configuration this server runs with, read-only
+            {client
+              ? `Client ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
+              : kb
+                ? "This Knowledge Base's configuration, read-only"
+                : "The configuration this server runs with, read-only"}
             {who && (
               <>
                 {" · "}
@@ -231,14 +285,16 @@ export function Settings({
 
       <div role="tabpanel" aria-labelledby={`settings-tab-${current}`}>
         {client !== undefined ? (
-          <ClientPanel
-            client={client}
-            template={view.client_template}
-            kbs={view.kbs.map((k) => k.name)}
-            mode={mode}
-            query={query}
-            activeKB={selected?.name}
-          />
+          <ClientValues.Provider value={true}>
+            <ClientPanel
+              client={client}
+              template={view.client_template}
+              kbs={view.kbs.map((k) => k.name)}
+              mode={mode}
+              query={query}
+              activeKB={selected?.name}
+            />
+          </ClientValues.Provider>
         ) : kb ? (
           <KBPanel kb={kb} mode={mode} query={query} />
         ) : (
@@ -386,9 +442,6 @@ function ClientPanel({
   }
   return (
     <>
-      <p className="page-note settings__reported">
-        {client.machine} · client {client.version} · reported {new Date(client.received_at).toLocaleString("en")}
-      </p>
       {mode === "yaml" ? (
         client.yaml ? (
           <Yaml name=".cartographer.yaml" text={client.yaml} />
@@ -424,9 +477,10 @@ function mapOf(entries: SettingEntry[], key: string): Record<string, unknown> {
 
 /** One client setting of one KB: the YAML key it lives under, what it does, its value. */
 function KBSetting({ yamlKey, about, value }: { yamlKey: string; about: string; value: string[] | string | null }) {
+  const home = useHome();
   const empty = value === null || (Array.isArray(value) && value.length === 0);
   return (
-    <li className="settings__row">
+    <li className="settings__row" data-wide={(Array.isArray(value) && isWide(value)) || undefined}>
       <div className="settings__row-head settings__row-head--static">
         <span className="settings__what">
           <code className="settings__key">{yamlKey}</code>
@@ -440,14 +494,12 @@ function KBSetting({ yamlKey, about, value }: { yamlKey: string; about: string; 
           ) : Array.isArray(value) ? (
             <span className="settings__value settings__value--list" aria-label={`Value of ${yamlKey}`}>
               {value.map((v) => (
-                <span key={v} className="settings__item">
-                  {v}
-                </span>
+                <Item key={v} text={v} />
               ))}
             </span>
           ) : (
             <span className="settings__value" aria-label={`Value of ${yamlKey}`}>
-              {value}
+              {home(value)}
             </span>
           )}
         </span>
@@ -548,34 +600,34 @@ function ClientKBs({
         ))}
       </div>
       <ul className="settings__rows" aria-label={`Client settings of ${kb}`}>
-                  <KBSetting
-                    yamlKey={`identities.${kb}`}
-                    about="The git author of your writes to this KB."
-                    value={k.identity ?? "the repository's git identity"}
-                  />
-                  <KBSetting
-                    yamlKey="clients.<agent>.kbs"
-                    about="The agents that receive it: all of them unless their list names other KBs."
-                    value={client ? k.agents : "every connected agent"}
-                  />
-                  <KBSetting
-                    yamlKey="workspaces"
-                    about="Where each agent gives it to a session: everywhere, or only in the folders bound to it."
-                    value={k.where.length ? k.where : client ? null : "everywhere"}
-                  />
-                  {(client?.placeholders ?? []).length > 0 && (
-                    <KBSetting
-                      yamlKey="paths"
-                      about="Where its {{repo:…}} and {{path:…}} placeholders resolve here."
-                      value={k.paths}
-                    />
-                  )}
-                  <KBSetting
-                    yamlKey={`signing_keys.${kb}`}
-                    about="Public keys pinned to verify the artifacts it signs."
-                    value={k.keys ? `${k.keys} pinned` : null}
-                  />
-                  <KBSetting yamlKey={`mcp_approvals.${kb}`} about="Its MCP servers you approved." value={k.approved} />
+        <KBSetting
+          yamlKey={`identities.${kb}`}
+          about="The git author of your writes to this KB."
+          value={k.identity ?? "the repository's git identity"}
+        />
+        <KBSetting
+          yamlKey="clients.<agent>.kbs"
+          about="The agents that receive it: all of them unless their list names other KBs."
+          value={client ? k.agents : "every connected agent"}
+        />
+        <KBSetting
+          yamlKey="workspaces"
+          about="Where each agent gives it to a session: everywhere, or only in the folders bound to it."
+          value={k.where.length ? k.where : client ? null : "everywhere"}
+        />
+        {(client?.placeholders ?? []).length > 0 && (
+          <KBSetting
+            yamlKey="paths"
+            about="Where its {{repo:…}} and {{path:…}} placeholders resolve here."
+            value={k.paths}
+          />
+        )}
+        <KBSetting
+          yamlKey={`signing_keys.${kb}`}
+          about="Public keys pinned to verify the artifacts it signs."
+          value={k.keys ? `${k.keys} pinned` : null}
+        />
+        <KBSetting yamlKey={`mcp_approvals.${kb}`} about="Its MCP servers you approved." value={k.approved} />
       </ul>
     </Folded>
   );
@@ -705,6 +757,7 @@ function asBool(value: unknown): boolean | null {
 
 /** The value as a chip: a switch for a boolean, chips for a list, a muted word for nothing. */
 function Value({ entry: e }: { entry: SettingEntry }) {
+  const home = useHome();
   const label = `Value of ${e.key}`;
   const b = asBool(e.value);
   if (b !== null) {
@@ -726,9 +779,7 @@ function Value({ entry: e }: { entry: SettingEntry }) {
     return (
       <span className="settings__value settings__value--list" aria-label={label}>
         {shown.map((v, i) => (
-          <span key={i} className="settings__item">
-            {v}
-          </span>
+          <Item key={i} text={v} />
         ))}
         {list.length > shown.length && <span className="settings__item">+{list.length - shown.length}</span>}
       </span>
@@ -737,7 +788,7 @@ function Value({ entry: e }: { entry: SettingEntry }) {
   const text = formatValue(e.value);
   return (
     <span className="settings__value" data-empty={text.startsWith("(") || undefined} aria-label={label}>
-      {text}
+      {home(text)}
     </span>
   );
 }
@@ -752,7 +803,12 @@ function Row({ entry: e }: { entry: SettingEntry }) {
   const key = shortKey(e.key);
   const set = e.origin !== "default";
   return (
-    <li className="settings__row" data-set={set || undefined} data-open={open || undefined}>
+    <li
+      className="settings__row"
+      data-set={set || undefined}
+      data-open={open || undefined}
+      data-wide={isWide(items(e.value)) || undefined}
+    >
       <button type="button" className="settings__row-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="settings__what">
           <code className="settings__key">{key}</code>

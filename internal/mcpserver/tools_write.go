@@ -2194,6 +2194,13 @@ func toolConceptCollapse(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, err)), nil
 			}
+			// A dangling <id>.md link reads as absent to os.Stat and the
+			// rename would write through it (D1025).
+			for _, rel := range []string{params.ID, okf.IDToPath(id)} {
+				if err := k.RejectSymlinkedConceptPath(rel); err != nil {
+					return errorResult(fmt.Sprintf("concept_collapse %q: %v", params.ID, err)), nil
+				}
+			}
 			if _, statErr := os.Stat(flatAbs); statErr == nil {
 				return errorResult(fmt.Sprintf("concept_collapse %q: %s.md already exists (expanded_ambiguous) — remove one form first", params.ID, params.ID)), nil
 			}

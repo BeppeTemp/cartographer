@@ -263,16 +263,17 @@ func TestIsLoopbackURL(t *testing.T) {
 
 func TestShouldOfferServiceInstall(t *testing.T) {
 	cases := []struct {
-		loopback, running, want bool
+		loopback, installed, want bool
 	}{
-		{loopback: true, running: false, want: true},
-		{loopback: true, running: true, want: false},
-		{loopback: false, running: false, want: false},
-		{loopback: false, running: true, want: false},
+		{loopback: true, installed: false, want: true},
+		// Installed, running or deliberately stopped: no fresh install.
+		{loopback: true, installed: true, want: false},
+		{loopback: false, installed: false, want: false},
+		{loopback: false, installed: true, want: false},
 	}
 	for _, tc := range cases {
-		if got := shouldOfferServiceInstall(tc.loopback, tc.running); got != tc.want {
-			t.Errorf("shouldOfferServiceInstall(%v, %v) = %v, want %v", tc.loopback, tc.running, got, tc.want)
+		if got := shouldOfferServiceInstall(tc.loopback, tc.installed); got != tc.want {
+			t.Errorf("shouldOfferServiceInstall(%v, %v) = %v, want %v", tc.loopback, tc.installed, got, tc.want)
 		}
 	}
 }

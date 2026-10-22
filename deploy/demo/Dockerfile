@@ -6,7 +6,7 @@
 #   docker build -f deploy/demo/Dockerfile --build-arg BASE=<server image> .
 ARG BASE=ghcr.io/beppetemp/cartographer:latest
 
-FROM alpine:3.21 AS kb
+FROM alpine:3.24 AS kb
 RUN apk add --no-cache bash git
 COPY demo/astronomy /src/demo/astronomy
 COPY demo/replay.sh /src/demo/replay.sh

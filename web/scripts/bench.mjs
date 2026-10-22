@@ -1,7 +1,7 @@
 // Benchmark of the Atlas at the scale it has to handle (#861) -- not part of CI.
 //
-// It serves the ten test KBs `make dev` serves (internal/testkbs, 5,000
-// concepts down to 30) with bin/cartographer, opens the Atlas in Chromium and
+// It serves the eleven test KBs `make dev` serves (internal/testkbs, the
+// 5,000-concept scale KB, nine profiled ones, the bare 30) with bin/cartographer, opens the Atlas in Chromium and
 // measures, for each KB:
 //   - graph: navigation to the first drawn frame (cold, then warm), frame time
 //     at rest and while orbiting, p50/p95 over 5 s, JS heap;
@@ -17,9 +17,9 @@
 // docs/testing.md §Atlas UI budgets.
 //
 // Usage (from web/, after `make build` at the repo root):
-//   node scripts/bench.mjs [--data <dir>] [--kbs test-5000,test-800] [--gpu] [--skip-frames]
+//   node scripts/bench.mjs [--data <dir>] [--kbs test-5000,ferry-line] [--gpu] [--skip-frames]
 //   --data   a data directory (one KB per subdirectory), copied before serving;
-//            without it the fleet is generated (about a minute)
+//            without it the fleet is generated (a few seconds)
 //   --gpu    headed Chromium on the machine's GPU; without it the run is
 //            headless, on whatever the browser falls back to
 

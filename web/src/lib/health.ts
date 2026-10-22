@@ -125,6 +125,7 @@ const LABELS: Record<string, string> = {
   broken_relation: "Fields pointing to a missing page",
   orphan: "Pages nothing links to",
   junk_file: "Junk files",
+  symlinked_path: "Symlinks in the KB",
   machine_path: "Paths of one machine in the text",
   nonstandard_field: "Non-standard field names",
   tool_param_field: "Tool parameters saved as fields",
@@ -289,6 +290,7 @@ const HELP: Record<string, string> = {
   hook_invalid: "A hook definition that does not parse.",
   // KB files
   junk_file: "A system or editor file tracked in git (.DS_Store, backups).",
+  symlinked_path: "A symlink under data/ or services/. Concepts and assets never follow it, so what it points to is invisible.",
   junk_asset: "A system or editor file among the assets.",
   missing_instructions: "No instructions.md telling agents how to work on this KB.",
   missing_registry: "Placeholders are cited but paths.yaml does not exist.",
@@ -313,6 +315,7 @@ const DECIDE: Record<string, string> = {
   title_quality: "Shorten the title or drop the status word.",
   machine_path: "Replace the path with a {{repo:…}} or {{path:…}} placeholder, or $HOME.",
   junk_file: "Remove the file from git.",
+  symlinked_path: "Remove the link from git (git rm); commit the real file instead.",
   junk_asset: "Remove the file.",
   missing_registry: "Create paths.yaml declaring the placeholders the pages cite.",
   skill_git_command: "Rewrite the step to use the tools.",

@@ -925,3 +925,37 @@ func TestPrintPostCreateGuidance_NamesOpenSessions(t *testing.T) {
 		}
 	}
 }
+
+// TestKBRemoteHelperRefused: an option-like or transport-helper remote is
+// refused by kb create and kb clone, and no KB directory is left behind.
+func TestKBRemoteHelperRefused(t *testing.T) {
+	for _, remote := range []string{"ext::sh -c id", "--upload-pack=x"} {
+		dataDir := filepath.Join(t.TempDir(), "data")
+		var code int
+		withNoGuidance(t, func() {
+			code = cmdKBCreate([]string{"alpha", "--data", dataDir, "--remote", remote})
+		})
+		if code == 0 {
+			t.Errorf("kb create --remote %q = 0, want non-zero", remote)
+		}
+		if _, err := os.Stat(filepath.Join(dataDir, "alpha")); err == nil {
+			t.Errorf("kb create --remote %q left a directory", remote)
+		}
+		if strings.HasPrefix(remote, "-") {
+			continue // the flag parser takes it before gitx sees it
+		}
+		var cloneCode int
+		stderr := withStderr(t, func() {
+			cloneCode = cmdKBClone([]string{remote, "beta", "--data", dataDir})
+		})
+		if cloneCode == 0 {
+			t.Errorf("kb clone %q = 0, want non-zero", remote)
+		}
+		if !strings.Contains(stderr, "transport>::<address> helper syntax") {
+			t.Errorf("kb clone %q: validation message missing from stderr: %q", remote, stderr)
+		}
+		if _, err := os.Stat(filepath.Join(dataDir, "beta")); err == nil {
+			t.Errorf("kb clone %q left a directory", remote)
+		}
+	}
+}

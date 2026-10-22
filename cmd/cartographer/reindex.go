@@ -51,14 +51,14 @@ func cmdReindex(args []string) int {
 	}
 
 	token := resolveToken(cfg)
-	if health, err := client.New(cfg.ServerURL, token).Health(probeTimeout); err == nil {
+	if health, err := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).Health(probeTimeout); err == nil {
 		targets, err := resolveKBTargets(health, selected)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "reindex:", err)
 			return 1
 		}
 		for _, target := range targets {
-			raw, err := callTool(client.New(cfg.ServerURL, token).WithKB(target.Name), target, "reindex", map[string]any{"full": *fullFlag})
+			raw, err := callTool(client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithKB(target.Name), target, "reindex", map[string]any{"full": *fullFlag})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "reindex %s: %v\n", displayKBName(target.Name), err)
 				return 1

@@ -202,12 +202,23 @@ func (s *Server) handleClients(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	stats, overflow := s.ClientStats()
 	by := s.PolicyKB()
-	rows := make([]ClientStat, 0, len(stats))
-	for _, st := range stats {
-		st.KB = by
-		rows = append(rows, st)
+	if by == "" && s.kbRef != nil {
+		// Same fallback as installPolicy: a server without SetPolicyKB is
+		// named by its KB.
+		by = kbName(s.kbRef)
+	}
+	rows := make([]ClientStat, 0)
+	var overflow int64
+	// An invisible KB answers the same 200 with an empty roster, not 403: the
+	// answer must not confirm that the KB exists.
+	if kbRosterVisible(r.Context(), by) {
+		var stats []ClientStat
+		stats, overflow = s.ClientStats()
+		for _, st := range stats {
+			st.KB = by
+			rows = append(rows, st)
+		}
 	}
 	result := map[string]interface{}{
 		"clients": rows,
@@ -488,6 +499,11 @@ func (m *MultiKBServer) Handler() http.Handler {
 			var overflow int64
 			allRows := make([]ClientStat, 0)
 			for _, name := range names {
+				// Rows of a KB the token cannot read are skipped before
+				// ClientStats, so they add nothing to overflow either.
+				if !kbRosterVisible(r.Context(), name) {
+					continue
+				}
 				srv := m.servers[name]
 				stats, o := srv.ClientStats()
 				overflow += o

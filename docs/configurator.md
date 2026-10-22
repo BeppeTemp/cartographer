@@ -33,7 +33,7 @@ client/server facts, provider states and artifact counts; when relevant it also
 contains native-service facts. State and error `code` fields are stable for
 automation; a wrapped low-level `cause` is retained in JSON only. `status`
 keeps exit 0 for in-sync, 1 for drift and 2 for configuration or operational
-errors. `service status` retains 0 running, 3 stopped and 4 not installed.
+errors. `service status` retains 0 running, 3 stopped (on every platform, a Windows task left `Disabled` or `Ready` by `stop` included) and 4 not installed.
 
 ### `cartographer hook write-findings [--channel stderr|context]` (internal)
 
@@ -308,7 +308,25 @@ cartographer connect all --dry-run
 | `--auth` | `false` | Enables the Bearer header in generated configs |
 | `--token-env` | `CARTOGRAPHER_TOKENS` | Name of the env var holding the Bearer token; written as `token: ${NAME}` |
 | `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)) |
+| `--allow-insecure-http` | `false` | Accepts a plain `http://` server URL that is not loopback and records `allow_insecure_http: true`; without it `connect` refuses such a URL (§Transport security, D1023) |
 | `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
+
+### Transport security (D1023)
+
+The bearer token and the responses must not cross the network in clear. Every
+client request goes through `client.CheckServerURL`: `https://` is always
+accepted; `http://` only when the host is loopback (`localhost`, or an IP for
+which `net.ParseIP(host).IsLoopback()` holds: `127.0.0.0/8`, `::1`, IPv4-mapped
+`::ffff:127.0.0.1`; a name such as `127.0.0.1.example.com` is not); any other
+scheme is refused. The check is in the client transport, so `connect`, `sync`,
+`status`, `doctor`, `kb repair`, `reindex`, the usage sync and the stdio bridge
+all obey it, and `connect` and `sync` fail before writing anything.
+
+The explicit opt-in is the `allow_insecure_http: true` key, set by
+`connect --allow-insecure-http` (re-run `connect` with the same flags; it only
+adds the key), or `CARTOGRAPHER_ALLOW_INSECURE_HTTP=1` for one run. A machine
+already connected to a plain-http remote is refused at its next `sync` with an
+error that names both fixes. Nothing upgrades `http` to `https` by itself.
 
 `signing_keys` in `.cartographer.yaml` stores public-key pins per KB. Pins are
 operator-supplied and are never learned from `sync_pull`; multiple pins permit
@@ -449,7 +467,7 @@ Re-runs `sync_pull` and reapplies the manifest for every connected provider: mat
 add/update, prunes obsolete artifacts, updates the lockfile. Idempotent.
 
 ```bash
-cartographer sync [--client <provider>]... [--dry-run] [--no-heal]
+cartographer sync [--client <provider>]... [--dry-run] [--no-heal] [--report-to <url>]
 ```
 
 | Flag | Default | Effect |
@@ -457,6 +475,7 @@ cartographer sync [--client <provider>]... [--dry-run] [--no-heal]
 | `--client` | *(all)* | Syncs only this provider (repeatable). A provider left out is not touched at all: not its MCP entries, not its artifacts, not its lockfile entry |
 | `--dry-run` | `false` | Prints without writing |
 | `--no-heal` | `false` | Reports managed artifacts that diverged on disk instead of restoring them from the server (D139) |
+| `--report-to` | *(none)* | Only sends this machine's usage and client-settings reports (D326, D818) to that MCP endpoint, and changes nothing: the config is read, never saved, nothing is provisioned, the configured server is not contacted. It is how `make dev DATA=<dir>` shows the real client on a live instance (D1044). The configured token goes with the reports, so the URL must name a server on this machine (`localhost`, `127.0.0.1`, `::1`): any other host is refused with exit 2 |
 
 For Claude Code the `cartographer` MCP entries are written to `$HOME/.claude.json` and to
 `<dir>/.claude.json` for every `clients.claude.config_dirs` (D755), and removed from all of them.
@@ -1155,6 +1174,7 @@ ignored_paths: []               # placeholder ids known to be absent on this mac
 identities:                     # D904; the git author of this machine's writes, by KB name or default; without an entry, the identity git resolves in the session's repository (an HTTP entry: the global one)
   default: Ada Lovelace <ada@example.com>
   work-kb: Ada Lovelace <ada@corp.example>   # an entry decides: "" sends no author (the server names the token), an invalid one sends none and `sync` warns
+allow_insecure_http: false      # D1023; written only when true. true: accept a plain http:// server_url that is not loopback (the token then travels in clear); set by `connect --allow-insecure-http`
 update_check: true              # D254, D906; written only when false. false: no update lookup at all. The client never installs a release by itself
 usage_scan: true                # D326; written only when false. false: sync reads no session transcript and reports no skill usage (docs/sync.md §Usage scan)
 ```

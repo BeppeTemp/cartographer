@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -190,7 +192,7 @@ func TestSetupGitSSHSetsCommand(t *testing.T) {
 		t.Fatalf("setupGitSSH: %v", err)
 	}
 	got := os.Getenv("GIT_SSH_COMMAND")
-	want := "ssh -i '" + key + "' -o 'UserKnownHostsFile=\"" + hosts + "\"' -o StrictHostKeyChecking=yes"
+	want := "ssh -i '" + key + "' -o BatchMode=yes -o ConnectTimeout=10 -o 'UserKnownHostsFile=\"" + hosts + "\"' -o StrictHostKeyChecking=yes"
 	if got != want {
 		t.Errorf("GIT_SSH_COMMAND = %q, want %q", got, want)
 	}
@@ -214,7 +216,7 @@ func TestSSHCommandQuotesPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sh -c %q: %v", cmd, err)
 	}
-	want := "-i\n" + key + "\n-o\nUserKnownHostsFile=\"" + hosts + "\"\n-o\nStrictHostKeyChecking=yes\n"
+	want := "-i\n" + key + "\n-o\nBatchMode=yes\n-o\nConnectTimeout=10\n-o\nUserKnownHostsFile=\"" + hosts + "\"\n-o\nStrictHostKeyChecking=yes\n"
 	if string(out) != want {
 		t.Errorf("ssh received\n%s\nwant\n%s", out, want)
 	}
@@ -249,7 +251,7 @@ func TestGitEnvForKB_OwnSSHKey(t *testing.T) {
 
 	got := gitEnvForKB("wiki-kb", dir)
 	want := []string{
-		"GIT_SSH_COMMAND=ssh -i '" + key + "' -o 'UserKnownHostsFile=\"" + hosts + "\"' -o StrictHostKeyChecking=yes",
+		"GIT_SSH_COMMAND=ssh -i '" + key + "' -o BatchMode=yes -o ConnectTimeout=10 -o 'UserKnownHostsFile=\"" + hosts + "\"' -o StrictHostKeyChecking=yes",
 	}
 	if !equalStringSlices(got, want) {
 		t.Errorf("gitEnvForKB(own key) = %v, want %v", got, want)
@@ -524,5 +526,36 @@ func TestEnsureClonedKBIsAtomic(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(bad); len(entries) != 0 {
 		t.Errorf("failed clone left %v", entries)
+	}
+}
+
+// The environment gitEnvForKB builds for a KB with a token file works against
+// a server that asks for basic auth (D996), and is the one gitxtest.TokenEnv
+// stands for in the packages below this one: the right token clones, a wrong
+// one is refused with the remedy for rejected credentials.
+func TestGitEnvForKB_TokenAuthenticatesAgainstHTTPRemote(t *testing.T) {
+	t.Parallel()
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	url, _ := gitxtest.HTTPRemote(t, "token", "s3cret-token")
+	credDir := t.TempDir()
+	tokenPath := filepath.Join(credDir, "wiki-kb.token")
+	if err := os.WriteFile(tokenPath, []byte("s3cret-token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := gitEnvForKB("wiki-kb", credDir)
+	if want := gitxtest.TokenEnv(tokenPath); strings.Join(env, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("gitEnvForKB = %q, gitxtest.TokenEnv = %q: keep them in step", env, want)
+	}
+	if err := gitx.Clone(context.Background(), url, filepath.Join(t.TempDir(), "clone"), append(gitxtest.IsolatedEnv(), env...)...); err != nil {
+		t.Fatalf("Clone with the KB's token: %v", err)
+	}
+	if err := os.WriteFile(tokenPath, []byte("wrong\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := gitx.Clone(context.Background(), url, filepath.Join(t.TempDir(), "clone2"), append(gitxtest.IsolatedEnv(), gitEnvForKB("wiki-kb", credDir)...)...)
+	if err == nil || !strings.Contains(err.Error(), "the credentials were rejected") {
+		t.Fatalf("Clone with a wrong token: %v, want the rejected-credentials remedy", err)
 	}
 }

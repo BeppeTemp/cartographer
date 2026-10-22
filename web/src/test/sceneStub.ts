@@ -88,6 +88,7 @@ export class LivingScene {
     this.focused = true;
     sceneStub.calls.focus.push(id);
   }
+  centreIn(_occluded: unknown): void {}
   unfocus(pose?: unknown): void {
     sceneStub.calls.unfocus++;
     sceneStub.calls.unfocusArgs.push(pose);

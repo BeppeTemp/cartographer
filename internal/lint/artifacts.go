@@ -706,6 +706,43 @@ func junkFindings(files []string, junkAssets map[string]bool) []Finding {
 	return findings
 }
 
+// checkSymlinkedPaths reports every symlink under data/ and services/ (D1025).
+// Concept and asset paths never follow one, so the operator needs to see why a
+// concept or asset "does not exist". It walks the disk, not git: a link that
+// is not committed yet is refused just the same.
+func checkSymlinkedPaths(k *kb.KB) []Finding {
+	var findings []Finding
+	for _, top := range []string{"data", "services"} {
+		start := filepath.Join(k.Root, top)
+		// data/ itself may be a mount point; walk through it.
+		if resolved, err := filepath.EvalSymlinks(start); err == nil {
+			start = resolved
+		} else {
+			continue
+		}
+		_ = filepath.WalkDir(start, func(abs string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.Type()&fs.ModeSymlink == 0 {
+				return nil
+			}
+			rel, relErr := filepath.Rel(start, abs)
+			if relErr != nil {
+				return nil
+			}
+			findings = append(findings, newFinding("symlinked_path", Finding{
+				Path:     top + "/" + filepath.ToSlash(rel),
+				Message:  "symlink in the KB; concepts and assets never follow it, remove it with git rm",
+				Artifact: true,
+			}))
+			return nil
+		})
+	}
+	sort.Slice(findings, func(i, j int) bool { return findings[i].Path < findings[j].Path })
+	return findings
+}
+
 // walkFiles lists every regular file under root, slash-relative, outside .git
 // and the server's own .cartographer state.
 func walkFiles(root string) []string {

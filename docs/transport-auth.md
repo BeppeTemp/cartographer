@@ -262,6 +262,12 @@ mode.
 
 Send a token only in `Authorization: Bearer <token>`, never in a URL.
 
+**The client refuses cleartext (D1023).** A client never sends the bearer token to
+a non-loopback `http://` URL: every request fails before dialing unless the
+operator opted in with `allow_insecure_http` or `CARTOGRAPHER_ALLOW_INSECURE_HTTP=1`
+(see [configurator.md](configurator.md) §Transport security). Serve a remote
+deployment over `https://`. The client also refuses to follow a redirect to a URL that fails the same check, and any https to http downgrade, even to loopback.
+
 ### What a 401 tells the client
 
 The client reads its token from the variable `.cartographer.yaml` names in
@@ -498,7 +504,7 @@ The operator commands are offline by design — they read the files, not a
 running server, because an audit trail is most needed when the server is down:
 
 ```
-cartographer audit verify --log /var/lib/cartographer/audit.jsonl [--public-key <hex>]
+cartographer audit verify --log /var/lib/cartographer/audit.jsonl [--public-key <hex> [--signed-since <RFC3339>]]
 cartographer audit export --log /var/lib/cartographer/audit.jsonl --out report.json
 ```
 
@@ -507,6 +513,15 @@ for a chain it cannot verify, so an exported document is never
 authoritative-looking without being authoritative. Without `--public-key` the
 chain is checked but signatures are not, and the unsigned count is reported so
 the two situations stay distinguishable.
+
+With a key the log must be signed from a start: `--signed-since`, else the
+first checkpoint written with a key loaded, else the first signed entry. A log
+with entries and none of the three has no signature at all, so a rewrite that
+recomputed the chain and dropped every signature would pass for the original:
+verification (and `export`) fails with `no signed entry`. `--signed-since`
+asserts that every entry at or after that time is signed (it needs
+`--public-key`, otherwise exit 2); an operator whose log was never signed
+passes a time after its last entry, or drops the key.
 
 ## Stateless behavior
 
@@ -532,7 +547,11 @@ One row per distinct (KB, client name, client version, protocol version, era)
 combination, with a request count and a last-seen timestamp; rows are sorted by
 KB, then client name, then version, so consecutive polls are diffable. A
 multi-KB server answers with one flat array across every mounted KB, each row
-naming its `kb`. An `overflow` counter appears only when it is non-zero.
+naming its `kb`. Rows are limited to the KBs the token can read (any read grant
+on the KB, whatever its map, journal or type selectors; an admin sees all): a
+token with no grant on a KB gets neither its rows nor its activity, and an empty
+roster is a 200, not a 403, so the answer does not confirm the KB exists. An
+`overflow` counter appears only when it is non-zero and counts visible KBs only.
 
 ```json
 {"clients":[{"kb":"homelab-wiki","client_name":"claude-code","client_version":"2.1.0",

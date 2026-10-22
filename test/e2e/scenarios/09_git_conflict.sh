@@ -128,7 +128,7 @@ echo "[09] A: direct commit of body3 (local divergence, no push)"
 CONCEPT_A="${KBA}/data/shared/notes/c.md"
 printf -- '---\ntype: note\ntitle: Shared Note C\n---\nbody3: rewritten directly by A (no MCP).\n' > "$CONCEPT_A"
 git -C "$KBA" add -A >/dev/null 2>&1
-git -C "$KBA" commit -m "A: body3 direct commit" >/dev/null 2>&1
+git -C "$KBA" -c user.name="Wiki Test" -c user.email=test@wiki.local commit -m "A: body3 direct commit" >/dev/null 2>&1
 
 # --- A performs any MCP operation: SyncIn must detect the conflict ---
 echo "[09] A: MCP operation that triggers SyncIn (must detect the conflict)"
