@@ -4,6 +4,7 @@ import type { CollectionSummary, KBStatus, ReviewItem, SourceEntry, WorkEntry, W
 import { reviewInfo } from "../lib/review";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
+import { Icon } from "./Icon";
 import {
   Count,
   FilterChip,
@@ -306,15 +307,22 @@ export function Work({
         </div>
       )}
       {data && extra.found.length > 0 && (
-        <p className="page-note">
-          Found since:{" "}
-          {extra.found.map((q, i) => (
-            <span key={q}>
-              {i > 0 && ", "}&ldquo;{q}&rdquo;
-            </span>
-          ))}
-          .
-        </p>
+        // A search that found nothing and now finds a page closed by itself
+        // (D319): no longer work, named so the reader sees the gap was filled.
+        <section className="work__answered" aria-label="Searches answered since">
+          <p className="page-note">
+            <Icon name="check" size={14} /> Answered since: {extra.found.length}{" "}
+            {extra.found.length === 1 ? "search" : "searches"} that found nothing before now{" "}
+            {extra.found.length === 1 ? "finds" : "find"} a page.
+          </p>
+          <ul className="work__answered-list">
+            {extra.found.map((q) => (
+              <li key={q} className="chip work__answered-chip">
+                &ldquo;{q}&rdquo;
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
       {data && data.next_offset !== undefined && (
         <p className="page-note">
