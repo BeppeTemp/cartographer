@@ -79,6 +79,25 @@ func TestInit_DefaultInstructions(t *testing.T) {
 	if strings.Contains(string(first), "preamble") {
 		t.Error("the default instructions.md must not carry a preamble directive: it would drop the operational bullets")
 	}
+	for _, want := range []string{"`in-progress`: execution has started; set it in the same write that records the first progress", "`waiting_on`", "`review_after`"} {
+		if !strings.Contains(string(first), want) {
+			t.Errorf("instructions.md lacks the transition rule %q:\n%s", want, first)
+		}
+	}
+	// The statuses the file teaches are the ones the default journal treats as
+	// open, plus the closing and non-work ones.
+	allowed := map[string]bool{"active": true, "done": true, "reference": true}
+	for _, st := range DefaultJournalOpenStatuses {
+		allowed[st] = true
+	}
+	for _, line := range strings.Split(string(first), "\n") {
+		if !strings.HasPrefix(line, "- `") {
+			continue
+		}
+		if word := strings.SplitN(strings.TrimPrefix(line, "- `"), "`", 2)[0]; !allowed[word] {
+			t.Errorf("instructions.md teaches status %q, which DefaultJournalOpenStatuses does not include", word)
+		}
+	}
 	// Idempotent, and never overwrites what the operator wrote.
 	custom := []byte("# mine\n")
 	if err := os.WriteFile(path, custom, 0o644); err != nil {
