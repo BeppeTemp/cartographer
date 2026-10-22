@@ -30,7 +30,7 @@ func fiveArchives() provisioning.GuideKB {
 func TestRenderGuide_Budget(t *testing.T) {
 	const (
 		sectionBudget = 1640 // bytes: measured 1491, plus at most 10 %
-		routingBudget = 340 // bytes: measured 308 (five archives), plus at most 10 %
+		routingBudget = 340  // bytes: measured 308 (five archives), plus at most 10 %
 	)
 	section := provisioning.GuideOperational(false)
 	t.Logf("operational section: %d bytes", len(section))
