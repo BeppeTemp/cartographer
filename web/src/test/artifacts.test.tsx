@@ -135,10 +135,13 @@ describe("the Artifacts panel", () => {
     expect(within(review).getByText("3 days ago (claude)").className).toBe("artifacts__used");
     const triage = within(panel).getByRole("button", { name: /triage/ });
     expect(within(triage).getByText("never used").className).toBe("artifacts__used");
-    // Used and Idle partition the artifacts: their counts add up to the total.
+    // Used and Idle partition the artifacts the usage scanner follows (the
+    // tiles with a last-use cell): a template is in neither.
     const num = (name: RegExp) =>
       Number(within(panel).getByRole("button", { name }).textContent!.match(/(\d+)\s*$/)![1]);
-    expect(num(/Recently used/) + num(/Idle/)).toBe(num(/^All/));
+    const tracked = [...panel.querySelectorAll(".artifacts__used")].filter((e) => e.closest("button")).length;
+    expect(num(/Recently used/) + num(/Idle/)).toBe(tracked);
+    expect(num(/Recently used/) + num(/Idle/)).toBeLessThan(num(/^All/));
     // A template is not followed by the scanner: no cell at all.
     expect(within(panel).getByRole("button", { name: /runbook/ }).querySelector(".artifacts__used")).toBeNull();
     // The detail carries the exact timestamp.

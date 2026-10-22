@@ -148,9 +148,11 @@ export function Artifacts({
   const inSlice = (a: Artifact, sl: Slice) => {
     const used = !!a.last_used && !a.last_used_catalog_only && !isUnused(a);
     if (sl === "used") return used;
-    // Idle is everything not Used, so the two slices add up to the total: a
-    // never-used artifact still inside the threshold has no finding yet.
-    if (sl === "idle") return !used;
+    // Idle is every skill or agent not Used, so the two slices add up to the
+    // kinds the usage scanner follows: a never-used artifact still inside the
+    // threshold has no finding yet. Hooks, MCP servers, instructions and
+    // templates are never used in that sense, so they are in neither.
+    if (sl === "idle") return (a.kind === "skill" || a.kind === "agent") && !used;
     if (sl === "flagged") return !!a.findings?.length;
     return true;
   };
