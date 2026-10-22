@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -883,6 +884,65 @@ func TestCmdKBList_IsReadOnly(t *testing.T) {
 	if after := treeFingerprint(t, dataDir); after != before {
 		t.Errorf("kb list modified the scanned tree:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
+
+	out = withStdout(t, func() { code = cmdKBList([]string{"--data", dataDir, "--json"}) })
+	if code != 0 {
+		t.Fatalf("--json exit = %d, want 0", code)
+	}
+	if after := treeFingerprint(t, dataDir); after != before {
+		t.Errorf("kb list --json modified the scanned tree:\nbefore:\n%s\nafter:\n%s", before, after)
+	}
+}
+
+// TestCmdKBList_JSON: with --json stdout is exactly one JSON document, and an
+// unreachable server reads as mounted:null plus the reason, not as false.
+func TestCmdKBList_JSON(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	withClientServerURL(t, closed.URL)
+	dataDir := seedKBListDir(t)
+
+	var code int
+	out := withStdout(t, func() {
+		code = cmdKBList([]string{"--data", dataDir, "--config", filepath.Join(t.TempDir(), "none.yaml"), "--json"})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	var doc struct {
+		DataDir      string `json:"data_dir"`
+		MountedError string `json:"mounted_error"`
+		KBs          []struct {
+			Name    string `json:"name"`
+			OKF     bool   `json:"okf"`
+			Git     bool   `json:"git"`
+			Mounted *bool  `json:"mounted"`
+		} `json:"kbs"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("stdout is not a single JSON document: %v\n%s", err, out)
+	}
+	if doc.DataDir != dataDir || doc.MountedError == "" {
+		t.Errorf("data_dir = %q, mounted_error = %q", doc.DataDir, doc.MountedError)
+	}
+	flags := map[string][2]bool{"notes": {false, true}, "scratch": {false, false}, "wiki": {true, true}}
+	if len(doc.KBs) != len(flags) {
+		t.Fatalf("kbs = %+v, want %d entries", doc.KBs, len(flags))
+	}
+	for _, r := range doc.KBs {
+		if want, ok := flags[r.Name]; !ok || r.OKF != want[0] || r.Git != want[1] {
+			t.Errorf("unexpected row %+v", r)
+		}
+		if r.Mounted != nil {
+			t.Errorf("%s: mounted = %v, want null when the server could not be asked", r.Name, *r.Mounted)
+		}
+	}
+	if !strings.Contains(out, `"mounted": null`) {
+		t.Errorf("mounted must be an explicit null:\n%s", out)
+	}
 }
 
 // treeFingerprint records every file path, size and mtime under root,
@@ -936,6 +996,38 @@ func TestPrintKBRows_UnreachableServer(t *testing.T) {
 	printKBRows(&sb, "/data", rows, nil)
 	if out := sb.String(); !strings.Contains(out, "MOUNTED") {
 		t.Errorf("MOUNTED column expected when the server answered:\n%s", out)
+	}
+}
+
+// TestPrintKBRowsJSON: the document carries Mounted as true/false when the
+// server answered, and an empty data dir is `[]`, never null.
+func TestPrintKBRowsJSON(t *testing.T) {
+	yes, no := true, false
+	rows := []kbRow{
+		{Name: "kb-a", IsRepo: true, IsKB: true, Origin: "git@example.com:team/kb-a.git", Mounted: &yes},
+		{Name: "kb-b", Mounted: &no},
+	}
+	var sb strings.Builder
+	if err := printKBRowsJSON(&sb, "/data", rows, nil); err != nil {
+		t.Fatal(err)
+	}
+	var doc kbListJSON
+	if err := json.Unmarshal([]byte(sb.String()), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.KBs) != 2 || doc.KBs[0].Mounted == nil || !*doc.KBs[0].Mounted || doc.KBs[1].Mounted == nil || *doc.KBs[1].Mounted {
+		t.Errorf("mounted should be true then false: %+v", doc.KBs)
+	}
+	if doc.KBs[0].Origin != "git@example.com:team/kb-a.git" || doc.MountedError != "" || strings.Contains(sb.String(), "mounted_error") {
+		t.Errorf("unexpected document:\n%s", sb.String())
+	}
+
+	sb.Reset()
+	if err := printKBRowsJSON(&sb, "/data", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sb.String(), `"kbs": []`) {
+		t.Errorf("an empty data dir must give kbs: []:\n%s", sb.String())
 	}
 }
 

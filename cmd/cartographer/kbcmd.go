@@ -78,7 +78,7 @@ func cmdKB(args []string) int {
 }
 
 func printKBUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> [--branch <name>] | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--branch <name>] [--data <dir>] [--config <path>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
+	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> [--branch <name>] | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--branch <name>] [--data <dir>] [--config <path>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>] [--json]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
 }
 
 // validateKBName returns an error describing why name is not a usable KB
@@ -680,7 +680,7 @@ type kbRow struct {
 }
 
 // cmdKBList implements `cartographer kb list [--data <dir>] [--config
-// <path>]`: what is on disk, and which of it the server actually serves.
+// <path>] [--json]`: what is on disk, and which of it the server actually serves.
 // Those are different questions and nothing else on the CLI answers either.
 //
 // The command writes NOTHING — no directory creation (unlike `serve`, a
@@ -691,9 +691,10 @@ func cmdKBList(args []string) int {
 	fs := flag.NewFlagSet("kb list", flag.ExitOnError)
 	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
 	configFlag := fs.String("config", "", "Server config YAML to read data: and http: from (default: the standard path)")
+	jsonFlag := fs.Bool("json", false, "Print the listing as a JSON document on stdout")
 	fs.Parse(args)
 	if fs.NArg() != 0 {
-		fmt.Fprintln(os.Stderr, "Usage: cartographer kb list [--data <dir>] [--config <path>]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer kb list [--data <dir>] [--config <path>] [--json]")
 		return 2
 	}
 
@@ -715,8 +716,49 @@ func cmdKBList(args []string) int {
 		}
 	}
 
+	if *jsonFlag {
+		if err := printKBRowsJSON(os.Stdout, dataDir, rows, mountErr); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 1
+		}
+		return 0
+	}
 	printKBRows(os.Stdout, dataDir, rows, mountErr)
 	return 0
+}
+
+// kbListJSONRow and kbListJSON are the `kb list --json` document. Mounted is
+// null when the server could not be asked, and MountedError then says why.
+type kbListJSONRow struct {
+	Name    string `json:"name"`
+	OKF     bool   `json:"okf"`
+	Git     bool   `json:"git"`
+	Origin  string `json:"origin"`
+	Mounted *bool  `json:"mounted"`
+}
+
+type kbListJSON struct {
+	DataDir      string          `json:"data_dir"`
+	KBs          []kbListJSONRow `json:"kbs"`
+	MountedError string          `json:"mounted_error,omitempty"`
+}
+
+// printKBRowsJSON renders the same data as printKBRows as one indented JSON
+// document, and nothing else.
+func printKBRowsJSON(w io.Writer, dataDir string, rows []kbRow, mountErr error) error {
+	doc := kbListJSON{DataDir: dataDir, KBs: make([]kbListJSONRow, 0, len(rows))}
+	for _, r := range rows {
+		doc.KBs = append(doc.KBs, kbListJSONRow{Name: r.Name, OKF: r.IsKB, Git: r.IsRepo, Origin: r.Origin, Mounted: r.Mounted})
+	}
+	if mountErr != nil {
+		doc.MountedError = mountErr.Error()
+	}
+	data, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(w, string(data))
+	return err
 }
 
 // scanDataDir reads one level of dataDir, describing each subdirectory
