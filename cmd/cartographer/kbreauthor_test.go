@@ -225,3 +225,39 @@ func TestKBReauthorRefusals(t *testing.T) {
 		refused(t, e, "locked")
 	})
 }
+
+// Commits that already carry the identity are not rewritten, but --apply still
+// pushes them; the preview says so instead of "nothing to re-author".
+func TestKBReauthorPushesCommitsThatAlreadyCarryTheIdentity(t *testing.T) {
+	e := newReauthorEnv(t, true)
+	commitInKB(t, e.root, "a.md", "Ada Example", "ada@example.test")
+	out, _, code := e.run(t, false, false)
+	if code != 0 || strings.Contains(out, "nothing to re-author") || !strings.Contains(out, "already carry the configured identity") {
+		t.Errorf("preview code=%d out=%q", code, out)
+	}
+	if _, errOut, code := e.run(t, true, false); code != 0 {
+		t.Fatalf("apply code=%d stderr=%s", code, errOut)
+	}
+	if got := e.remoteHead(t); got != reauthorAda+" | "+reauthorAda {
+		t.Errorf("remote head = %s", got)
+	}
+}
+
+// --apply --json with a push that fails still reports the rewrite on stdout,
+// with pushed false and the error.
+func TestKBReauthorJSONReportsRewriteWhenPushFails(t *testing.T) {
+	e := newReauthorEnv(t, true)
+	commitInKB(t, e.root, "a.md", "tok-1", "cartographer@host.example.test")
+	// A rule that refuses ada too: the rewrite works, the push cannot.
+	if err := os.WriteFile(filepath.Join(e.bare, "hooks", "allowed-identities"), []byte("nobody@example.test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, _, code := e.run(t, true, true)
+	var rep map[string]any
+	if code != 2 || json.Unmarshal([]byte(out), &rep) != nil {
+		t.Fatalf("code=%d out=%s", code, out)
+	}
+	if rep["rewritten"] != float64(1) || rep["pushed"] != false || rep["error"] == "" || rep["error"] == nil {
+		t.Errorf("report = %v", rep)
+	}
+}

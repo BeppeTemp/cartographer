@@ -141,6 +141,8 @@ func TestIsIdentityRejection(t *testing.T) {
 		"! [remote rejected] main -> main (pre-receive hook declined)",
 		"! [rejected] main -> main (non-fast-forward)",
 		"Permission denied (publickey).",
+		"remote: You are not a member of the project",
+		"remote: error: you are not allowed to push to this repository (committer email check disabled)",
 		// A protected-branch refusal that happens to mention a member.
 		"remote: error: GH006: Protected branch update failed. author is not a member of team",
 	}

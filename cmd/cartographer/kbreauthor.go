@@ -37,8 +37,12 @@ type reauthorReport struct {
 	Identity string           `json:"identity"`
 	Commits  []reauthorCommit `json:"commits"`
 	Applied  bool             `json:"apply"`
-	// Pushed is set after --apply: the push that followed the rewrite succeeded.
-	Pushed bool `json:"pushed,omitempty"`
+	// Rewritten is how many commits --apply replaced; Pushed says whether the
+	// push that followed succeeded, and Error is why not (both explicit, so
+	// stdout alone tells a rewrite that worked from a push that did not).
+	Rewritten int    `json:"rewritten"`
+	Pushed    bool   `json:"pushed"`
+	Error     string `json:"error,omitempty"`
 }
 
 // cmdKBReauthor implements `cartographer kb reauthor <kb> [--apply] [--json]
@@ -114,15 +118,25 @@ func runKBReauthor(name, dataDir, configPath string, apply, asJSON bool, out, er
 		}
 	}
 
-	if apply && rewrites > 0 {
-		done, err := gitx.ReauthorCommits(root, rep.Upstream, idName, idEmail, k.GitEnv...)
-		if err != nil {
-			return fail("the rewrite changed nothing: %v", err)
+	if apply && len(rep.Commits) > 0 {
+		if rewrites > 0 {
+			done, err := gitx.ReauthorCommits(root, rep.Upstream, idName, idEmail, k.GitEnv...)
+			if err != nil {
+				return fail("the rewrite changed nothing: %v", err)
+			}
+			rep.Rewritten = len(done)
+			fmt.Fprintf(errOut, "re-authored %d commit(s) as %s (recorded in the branch reflog)\n", len(done), rep.Identity)
 		}
-		fmt.Fprintf(errOut, "re-authored %d commit(s) as %s (recorded in the branch reflog)\n", len(done), rep.Identity)
+		// Commits that already carry the identity are pushed too: the push
+		// may be what still fails, and the next write would not retry it
+		// before this command's answer is read.
 		if err := k.SyncOut(); err != nil {
+			rep.Error = err.Error()
 			printReauthorReport(out, rep, asJSON)
-			return fail("the commits were re-authored but the push failed: %v", err)
+			if rewrites > 0 {
+				return fail("the commits were re-authored but the push failed: %v", err)
+			}
+			return fail("the push failed: %v", err)
 		}
 		rep.Pushed = true
 	}
@@ -131,8 +145,10 @@ func runKBReauthor(name, dataDir, configPath string, apply, asJSON bool, out, er
 		return 0
 	}
 	switch {
-	case rewrites == 0:
-		fmt.Fprintln(out, "nothing to re-author")
+	case len(rep.Commits) == 0:
+		fmt.Fprintln(out, "nothing to re-author: no commit is ahead of the upstream")
+	case !apply && rewrites == 0:
+		fmt.Fprintf(out, "%s ahead already carry the configured identity: --apply will push them without rewriting anything\n", plural(len(rep.Commits), "commit"))
 	case !apply:
 		fmt.Fprintf(out, "%d commit(s) would be re-authored: run again with --apply to rewrite them and push\n", rewrites)
 	default:

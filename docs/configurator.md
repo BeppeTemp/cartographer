@@ -677,7 +677,7 @@ rewrite fail instead of being lost. The working tree and index are never touched
 
 Without `--apply` it is a preview: every commit ahead of the upstream with its author, committer and
 subject, marked `*` when it would change; nothing is written. `--json` prints
-`{kb, branch, upstream, identity, commits:[{sha, author, committer, subject, rewrite}], apply, pushed}`.
+`{kb, branch, upstream, identity, commits:[{sha, author, committer, subject, rewrite}], apply, rewritten, pushed, error?}` (after a failed push, `rewritten` says the rewrite worked, `pushed` is `false` and `error` says why). With `--apply`, commits that already carry the identity are pushed without being rewritten.
 `--apply` replaces author and committer, keeping message (so the `Cartographer-Author`,
 `Cartographer-Token` and `Cartographer-Host` trailers stay as the record of who really wrote), tree and
 dates, logs the old → new count on stderr (the branch reflog records the command), and pushes through the

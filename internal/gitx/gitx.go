@@ -1619,15 +1619,13 @@ func IsIdentityRejection(output string) bool {
 	if strings.Contains(l, "gh006") || strings.Contains(l, "protected branch") {
 		return false
 	}
-	for _, phrase := range []string{
-		"is not a member of team",
-		"is not a member of the",
-		"gh007",
-		"private email address",
-		"committer email",
-		"author email",
-	} {
-		if strings.Contains(l, phrase) {
+	if strings.Contains(l, "gh007") || strings.Contains(l, "private email address") ||
+		strings.Contains(l, "is not a member of team") {
+		return true
+	}
+	// GitLab's variants: "Author 'x' is not a member of team", "Committer 'x' ...".
+	for _, who := range []string{"author '", "committer '"} {
+		if i := strings.Index(l, who); i >= 0 && strings.Contains(l[i:], "' is not a member") {
 			return true
 		}
 	}
