@@ -206,9 +206,16 @@ func toolLint(k *kb.KB) Tool {
 
 			afterFilter := len(findings)
 
+			offset := max(params.Offset, 0)
+			limit := params.Limit
+			// The clamp to lintMaxPage used to be silent (D324): a caller asking
+			// for 500 got 200 with no word. limit_clamped says so below.
+			limitClamped := params.Limit > lintMaxPage
+
 			// digest=paths collapses a check's findings to its unique paths,
-			// sorted (Filter already ordered them): "which pages", not "how
-			// many findings". It needs exactly one check to be unambiguous.
+			// sorted: "which pages", not "how many findings". It needs exactly one
+			// check to be unambiguous, and pages like the findings do (count is the
+			// total of distinct paths, so the caller knows to page).
 			if params.Digest == "paths" {
 				if len(checks) != 1 {
 					return errorResult("lint: 'digest=paths' needs exactly one 'check'"), nil
@@ -222,23 +229,36 @@ func toolLint(k *kb.KB) Tool {
 					}
 				}
 				sort.Strings(paths)
+				n := len(paths)
+				pl := params.Limit
+				if pl <= 0 {
+					pl = n
+				}
+				pl = min(pl, lintMaxPage)
+				page := []string{}
+				if offset < n {
+					page = paths[offset:min(offset+pl, n)]
+				}
 				result := map[string]interface{}{
 					"check":          checks[0],
-					"distinct_paths": paths,
-					"count":          len(paths),
+					"distinct_paths": page,
+					"count":          n,
+					"offset":         offset,
+				}
+				if limitClamped {
+					result["limit_clamped"] = true
+				}
+				if next := offset + len(page); next < n {
+					result["next_offset"] = next
+					result["truncated"] = true
 				}
 				out, _ := json.MarshalIndent(result, "", "  ")
 				return textResult(string(out)), nil
 			}
 
-			offset := max(params.Offset, 0)
-			limit := params.Limit
 			if limit <= 0 {
 				limit = afterFilter
 			}
-			// The clamp to lintMaxPage used to be silent (D324): a caller asking
-			// for 500 got 200 with no word. limit_clamped says so below.
-			limitClamped := params.Limit > lintMaxPage
 			limit = min(limit, lintMaxPage)
 			var page []lint.Finding
 			if offset < afterFilter {

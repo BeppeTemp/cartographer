@@ -180,3 +180,29 @@ func TestServer_Lint_DigestRejectsUnknown(t *testing.T) {
 		t.Errorf("an unknown digest must error, got %v", tr.Content)
 	}
 }
+
+func TestServer_Lint_DigestPathsPages(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	setupTwoMapKB(t, k)
+
+	out := lintDigest(t, k, map[string]any{"digest": "paths", "check": "broken_link", "limit": 2})
+	if got := len(out["distinct_paths"].([]any)); got != 2 {
+		t.Errorf("limit 2: want 2 paths, got %d", got)
+	}
+	if out["count"] != float64(3) || out["next_offset"] != float64(2) || out["truncated"] != true {
+		t.Errorf("first page must report count 3 and next_offset 2: %v", out)
+	}
+	out = lintDigest(t, k, map[string]any{"digest": "paths", "check": "broken_link", "limit": 2, "offset": 2})
+	p := out["distinct_paths"].([]any)
+	if len(p) != 1 || p[0] != "manutenzione/broken-a.md" {
+		t.Errorf("second page: %v", p)
+	}
+	if _, ok := out["truncated"]; ok {
+		t.Errorf("last page must not be truncated: %v", out)
+	}
+	out = lintDigest(t, k, map[string]any{"digest": "paths", "check": "broken_link", "limit": 500})
+	if out["limit_clamped"] != true {
+		t.Errorf("limit over the cap must set limit_clamped: %v", out)
+	}
+}
