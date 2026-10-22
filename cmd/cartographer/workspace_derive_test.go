@@ -270,7 +270,7 @@ func TestDerivedProjection_NeverEditsATrackedFile(t *testing.T) {
 // until the next sync.
 func TestRenameAndUnmountRewriteTheDerivedList(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setHome(t, home)
 	cfg := workspaceScoped("claude", "kb-a")
 	if err := clientconfig.Save(home, cfg); err != nil {
 		t.Fatal(err)
