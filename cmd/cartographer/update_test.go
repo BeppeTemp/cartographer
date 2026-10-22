@@ -17,6 +17,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"github.com/BeppeTemp/cartographer/internal/updatecheck"
@@ -28,6 +29,7 @@ import (
 // the opt-out is set as a second line of defence for anything that reaches
 // the real updatecheck.Check.
 func TestMain(m *testing.M) {
+	gitxtest.QuietGit() // a detached git gc would break t.TempDir cleanup
 	os.Setenv(updatecheck.EnvDisable, "1")
 	cache, err := os.MkdirTemp("", "cartographer-update-cache-")
 	if err != nil {

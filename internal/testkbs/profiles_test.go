@@ -11,6 +11,7 @@ import (
 	"testing"
 	"unicode"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -23,6 +24,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	gitxtest.QuietGit() // a detached git gc would break t.TempDir cleanup
 	dir, err := os.MkdirTemp("", "testkbs-")
 	if err != nil {
 		panic(err)
