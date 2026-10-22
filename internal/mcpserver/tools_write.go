@@ -1255,6 +1255,11 @@ func toolMapUpdate(k *kb.KB) Tool {
 			if len(loosened) > 0 {
 				result["loosened"] = loosened
 			}
+			if params.Templates != nil || params.DefaultTemplate != nil {
+				if hints := templateNarrowingHints(contract, k.TemplateCatalog()); len(hints) > 0 {
+					result["hints"] = hints
+				}
+			}
 			if params.Title != nil {
 				if w := mapTitleWarning(params.Map, title); w != "" {
 					result["warnings"] = []string{w}
@@ -3174,4 +3179,64 @@ func formatIDList(ids []string) string {
 		return strings.Join(ids, ", ")
 	}
 	return strings.Join(ids[:maxListedLinkers], ", ") + fmt.Sprintf(", and %d more", len(ids)-maxListedLinkers)
+}
+
+// maxMapUpdateHints caps the hints of a map_update response.
+const maxMapUpdateHints = 5
+
+// templateNarrowingHints says what D352 allows by design: a template whose
+// value list for a field is a proper subset of the map's own. It is
+// information, never an error: the pages with the other values get
+// template_field_value, which the operator may want to know before it happens.
+func templateNarrowingHints(contract kb.MapContract, catalog kb.TemplateCatalog) []string {
+	slugs := append([]string(nil), contract.Templates...)
+	if contract.DefaultTemplate != "" {
+		slugs = append(slugs, contract.DefaultTemplate)
+	}
+	sort.Strings(slugs)
+	slugs = slices.Compact(slugs)
+	var hints []string
+	for _, slug := range slugs {
+		tpl, ok := catalog[slug]
+		if !ok {
+			continue
+		}
+		fields := make([]string, 0, len(tpl.FieldValues))
+		for f := range tpl.FieldValues {
+			fields = append(fields, f)
+		}
+		sort.Strings(fields)
+		for _, f := range fields {
+			allowed, constrained := contract.AllowedValues(tpl.Type, f)
+			if !constrained {
+				continue
+			}
+			own := sortedUnique(tpl.FieldValues[f])
+			wide := sortedUnique(allowed)
+			if len(own) == 0 || len(own) >= len(wide) {
+				continue
+			}
+			inside := true
+			for _, v := range own {
+				if !slices.Contains(wide, v) {
+					inside = false
+					break
+				}
+			}
+			if inside {
+				hints = append(hints, fmt.Sprintf("template %q allows only [%s] for %q while map allows [%s]: pages with the other values get template_field_value",
+					slug, strings.Join(own, ", "), f, strings.Join(wide, ", ")))
+			}
+		}
+	}
+	if len(hints) > maxMapUpdateHints {
+		hints = hints[:maxMapUpdateHints]
+	}
+	return hints
+}
+
+func sortedUnique(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return slices.Compact(out)
 }

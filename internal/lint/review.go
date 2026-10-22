@@ -203,10 +203,27 @@ type ReviewItem struct {
 	// several maps (#687): one map_update per map, each declaring the slugs
 	// that map binds to.
 	MapUpdates []map[string]interface{} `json:"map_updates,omitempty"`
+	// Impact previews, per map, what declaring the proposed template does to the
+	// pages already there: the template findings they would gain.
+	Impact []TemplateImpact `json:"impact,omitempty"`
 	// wholeGraph marks an item derived from a check that reads the whole
 	// graph (WholeGraphChecks): a caller who cannot see the whole KB must not
 	// receive it.
 	wholeGraph bool
+	// publicEvidence is Evidence without the impact clause: Impact reads every
+	// page of a map, so a caller who cannot see the whole KB gets this instead.
+	publicEvidence string
+}
+
+// TemplateImpact is the preview of a template_proposal on one map: the template
+// findings its pages gain, over those they already have, once the map_update is
+// applied (D352). Examples are at most five page ids, sorted.
+type TemplateImpact struct {
+	Map         string         `json:"map"`
+	Pages       int            `json:"pages"`
+	NewFindings int            `json:"new_findings"`
+	ByCheck     map[string]int `json:"by_check,omitempty"`
+	Examples    []string       `json:"examples,omitempty"`
 }
 
 type reviewConcept struct {
@@ -352,6 +369,10 @@ func FilterReview(items []ReviewItem, visible func(id string) bool, whole bool) 
 	for _, it := range items {
 		if it.wholeGraph && !whole {
 			continue
+		}
+		if len(it.Impact) > 0 && !whole {
+			it.Impact = nil
+			it.Evidence = it.publicEvidence
 		}
 		if it.Kind == ReviewGlossary {
 			var vis []string

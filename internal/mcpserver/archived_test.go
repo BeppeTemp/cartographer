@@ -457,3 +457,47 @@ func TestConceptMove_RefusesATypeTheStrictTargetDoesNotAdmit(t *testing.T) {
 		t.Errorf("an admitted type must move: %v", err)
 	}
 }
+
+// A template narrower than its map is allowed by design (D352): map_update says
+// so in "hints", and stays silent when the lists agree.
+func TestMapUpdate_HintsWhenATemplateNarrowsTheVocabulary(t *testing.T) {
+	t.Parallel()
+	k, s := repairKB(t, 0)
+	callOK(t, s, "map_update", `{"map":"ops","field_values":{"*":{"state":["up","down","parked"]}}}`)
+	tpl := func(values string) {
+		t.Helper()
+		abs := filepath.Join(k.Root, "templates", "server.md")
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		content := "---\ntype: Host\ntitle: \"{{title}}\"\nx-template.field_values.state: " + values + "\n---\n# {{title}}\n"
+		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hints := func(out string) []string {
+		t.Helper()
+		var r struct {
+			Hints []string `json:"hints"`
+		}
+		if err := json.Unmarshal([]byte(out), &r); err != nil {
+			t.Fatal(err)
+		}
+		return r.Hints
+	}
+
+	tpl("[up, down]")
+	got := hints(callOK(t, s, "map_update", `{"map":"ops","templates":["server"]}`))
+	want := `template "server" allows only [down, up] for "state" while map allows [down, parked, up]: pages with the other values get template_field_value`
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("hints = %q, want [%q]", got, want)
+	}
+
+	tpl("[up, down, parked]")
+	if got := hints(callOK(t, s, "map_update", `{"map":"ops","templates":["server"]}`)); len(got) != 0 {
+		t.Fatalf("equal lists: no hint, got %q", got)
+	}
+	if got := hints(callOK(t, s, "map_update", `{"map":"ops","title":"Ops"}`)); len(got) != 0 {
+		t.Fatalf("an update that sets no template key: no hint, got %q", got)
+	}
+}
