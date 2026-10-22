@@ -336,9 +336,9 @@ trailer; a tag that changes only files outside `web/` needs none.
 means a render is needed; after a publish the same revision needs none; a change to a file in each class of the
 film's inputs (`film/inputs.sh`) needs one and a change outside them (`README.md`, another `web/src` file) none;
 publishing twice leaves one commit with `README.md`, `film.webp` and the `Film-Tree:` trailer; an input missing
-at the revision is exit 2. `TestFilmImportsStayInsideTheHashedInputs` (`internal/repodocs`) fails when an import
-of `film/src` resolves outside that list, and `TestPreviewCallsTheFilmWithoutToleratingFailure` pins the workflow
-shape (no `continue-on-error`, `contents: write` only, actions pinned). The render itself needs a browser,
+at the revision is exit 2. `TestFilmImportsStayInsideTheHashedInputs` (`internal/repodocs`) fails when a file reached
+from `film/` by imports (followed transitively: multi-line, side-effect, dynamic and `?raw`/`?url` forms) is outside that list, and `TestPreviewCallsTheFilmWithoutToleratingFailure` pins the workflow (read-only `render`, `publish` on main only)
+shape (no `continue-on-error`, write only in `publish`, actions pinned). The render itself needs a browser,
 ffmpeg and minutes of software WebGL, so it is exercised only by `film.yml`: no test or pull-request check
 renders it.
 

@@ -8,7 +8,7 @@ topic: deployment-release
 launch film on `ubuntu-latest` (software WebGL, no GPU) and force-pushes it as the single commit of the orphan
 branch `readme-film`, with the push model of the hero (D790): `GITHUB_TOKEN` only, nothing pushed to `main`.
 `preview.yml`, the Saturday release candidate, calls it in a `film` job that runs in parallel with the image build.
-The film renders only when the hash of its inputs (`film/inputs.sh`: `film/`, `web/src/lib/graph3d/`, the palette,
+The film renders only when the hash of its inputs (`film/inputs.sh`: `film/`, `web/src/lib/graph3d/`, the palette and theme modules,
 the tokens, the brand CSS and logo, and `web/package-lock.json`) differs from the `Film-Tree:` trailer of the
 branch's commit (`film/film-needed.sh`); a manual run always renders. **A render failure is blocking**: the job
 goes red, the candidate run fails, and `release-train.yml` finds no successful candidate and skips the train.
@@ -30,7 +30,10 @@ one. The price is a longer Saturday run and a candidate that can now fail on som
 - *Rendering on every push to `main`.* Minutes of software rendering for a film that rarely changes.
 - *Recording after the tag, like the hero.* A failure could then never block anything, which is the requirement.
 
-**Consequences.** Every file `film/src/main.ts` imports must be in `film/inputs.sh` (a test checks it). The render
+**Consequences.** Every file reachable from `film/` by imports must be in `film/inputs.sh` (a test follows them). The render
 is exercised only by `film.yml`: it is not run on pull requests, so the first real run after a change to the
-machinery is the Saturday candidate or a manual `gh workflow run film.yml`. `film.yml` grants only
-`contents: write`, only the `film` job of `preview.yml` gets it, and nothing in its path may tolerate failure.
+machinery is the Saturday candidate or a manual `gh workflow run film.yml`. `film.yml` has two jobs: `render`, which runs the checked-out code (`npm ci`, Playwright, vite), holds
+`contents: read` and leaves no credential in `.git/config`, and `publish`, which holds `contents: write`, downloads
+the film as an artifact and runs only `film/publish.sh`, and only on `main`. Only the `film` job of `preview.yml`
+gets the write permission, and nothing in the path may tolerate failure. Every file reached from `film/` through
+imports, transitively, must be in `film/inputs.sh`.
