@@ -1067,7 +1067,7 @@ the next `blocktext.Write` cannot destroy it; each relocation is reported as its
 {
   "mcpServers": {
     "cartographer": {
-      "serverUrl": "http://127.0.0.1:39273/mcp",
+      "url": "http://127.0.0.1:39273/mcp",
       "headers": {
         "Authorization": "Bearer ${CARTOGRAPHER_TOKENS}"
       }

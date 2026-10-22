@@ -304,7 +304,7 @@ func TestApply_MCP_AllProviders(t *testing.T) {
 				t.Fatalf("invalid JSON: %v", err)
 			}
 			entry := root["mcpServers"].(map[string]any)["wiki-tools"].(map[string]any)
-			if entry["serverUrl"] != "https://tools.example.com/mcp" {
+			if entry["url"] != "https://tools.example.com/mcp" {
 				t.Errorf("unexpected entry: %+v", entry)
 			}
 			headers := entry["headers"].(map[string]any)
