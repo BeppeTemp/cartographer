@@ -130,6 +130,74 @@ func (c *Config) SetDerived(s DerivedState) { c.derived = s }
 // Derived returns the derived bindings this configuration reads.
 func (c *Config) Derived() DerivedState { return c.derived }
 
+// RenameDerivedKB renames a KB in the derived bindings. With newName empty the
+// KB is removed instead: it leaves every binding's KBs and sources, a binding
+// left with no KB is dropped (an empty derived binding would read as an opt-out),
+// and its unresolved entries go. It reports whether anything changed; the caller
+// persists with SaveDerived.
+func (c *Config) RenameDerivedKB(old, newName string) bool {
+	changed := false
+	rename := func(kbs []string) []string {
+		out := make([]string, 0, len(kbs))
+		for _, k := range kbs {
+			if k == old {
+				changed = true
+				if newName == "" || containsString(kbs, newName) || containsString(out, newName) {
+					continue
+				}
+				k = newName
+			}
+			out = append(out, k)
+		}
+		return out
+	}
+	for p, list := range c.derived.Bindings {
+		kept := list[:0:0]
+		for _, b := range list {
+			b.KBs = rename(b.KBs)
+			var src []DerivedSource
+			for _, s := range b.Sources {
+				if s.KB == old {
+					changed = true
+					if newName == "" {
+						continue
+					}
+					s.KB = newName
+				}
+				src = append(src, s)
+			}
+			b.Sources = src
+			if len(b.KBs) > 0 {
+				kept = append(kept, b)
+			}
+		}
+		if len(kept) == 0 {
+			delete(c.derived.Bindings, p)
+		} else {
+			c.derived.Bindings[p] = kept
+		}
+	}
+	for p, list := range c.derived.Unresolved {
+		var kept []DerivedUnresolved
+		for _, u := range list {
+			if u.KB == old {
+				changed = true
+				if newName == "" {
+					continue
+				}
+				u.KB = newName
+			}
+			kept = append(kept, u)
+		}
+		if len(kept) == 0 {
+			delete(c.derived.Unresolved, p)
+		} else {
+			c.derived.Unresolved[p] = kept
+		}
+	}
+	return changed
+}
+
 // DerivedUnresolved returns, for provider, the declared repositories that
 // resolved to no usable clone. Empty unless provider is in workspace scope.
 func (c *Config) DerivedUnresolved(provider string) []DerivedUnresolved {
@@ -176,8 +244,9 @@ type DeclaredRepo struct {
 // it unbound and listed. Declarations that resolve to the same canonical path
 // merge into one binding with the union of their KBs, in decls order.
 //
-// The binding is by path and the remote is the guard (D193): a clone whose
-// origin is not the declared remote is not bound. The recorded Remote is the
+// The binding is by path and the remote is the guard (D193): an entry without
+// a remote, and a clone whose origin is empty or not the declared remote, are
+// not bound. The recorded Remote is the
 // one found at the path, in the form ResolveWorkspace compares.
 func DeriveBindings(decls []DeclaredRepo, resolve func(DeclaredRepo) (string, error)) ([]DerivedBinding, []DerivedUnresolved) {
 	var out []DerivedBinding
@@ -186,6 +255,12 @@ func DeriveBindings(decls []DeclaredRepo, resolve func(DeclaredRepo) (string, er
 	for _, d := range decls {
 		unresolved := func(reason string) {
 			bad = append(bad, DerivedUnresolved{KB: d.KB, Key: d.Key, Reason: reason})
+		}
+		// paths.yaml is unsigned KB content: the remote is the only thing that
+		// makes binding a clone safe, so an entry without one binds nothing.
+		if d.Remote == "" {
+			unresolved("declared without a remote: not bound (the remote is the guard)")
+			continue
 		}
 		raw, err := resolve(d)
 		if err != nil {
@@ -202,8 +277,8 @@ func DeriveBindings(decls []DeclaredRepo, resolve func(DeclaredRepo) (string, er
 			continue
 		}
 		actual := gitRemoteFn(path)
-		if d.Remote != "" && remoteHostPath(actual) != remoteHostPath(d.Remote) {
-			unresolved(fmt.Sprintf("declared, but the clone at %s has another remote", path))
+		if actual == "" || remoteHostPath(actual) != remoteHostPath(d.Remote) {
+			unresolved(fmt.Sprintf("declared, but the clone at %s has no origin or another remote", path))
 			continue
 		}
 		src := DerivedSource{KB: d.KB, Key: d.Key}

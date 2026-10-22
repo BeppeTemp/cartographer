@@ -73,7 +73,7 @@ func TestDeriveBindings_MergesByPathAndGuardsByRemote(t *testing.T) {
 }
 
 func TestDeriveBindings_ResolverErrorLeavesItUnbound(t *testing.T) {
-	got, bad := DeriveBindings([]DeclaredRepo{{KB: "kb-a", Key: "x"}},
+	got, bad := DeriveBindings([]DeclaredRepo{{KB: "kb-a", Key: "x", Remote: "example.com/o/x"}},
 		func(DeclaredRepo) (string, error) { return "", errors.New("no clone") })
 	if len(got) != 0 || len(bad) != 1 || bad[0].Reason != "declared, no local clone" {
 		t.Errorf("got %+v / %+v", got, bad)
@@ -165,5 +165,49 @@ func TestDerivedState_RoundTripIsPerConfigDir(t *testing.T) {
 	// Derived for another configuration directory is not this one's.
 	if got := LoadDerived(t.TempDir()); len(got.Bindings) != 0 {
 		t.Errorf("a foreign config dir read %+v", got)
+	}
+}
+
+// paths.yaml is unsigned KB content: the declared remote, matched by the
+// clone's origin, is what makes binding a clone safe.
+func TestDeriveBindings_RemoteIsRequiredAndMustMatch(t *testing.T) {
+	root := t.TempDir()
+	repo := canonDir(t, root, "repo")
+	noOrigin := canonDir(t, root, "no-origin")
+	withFakeRemote(t, map[string]string{repo: "example.com/owner/repo"})
+	paths := map[string]string{"no-remote": repo, "no-origin": noOrigin}
+	got, bad := DeriveBindings([]DeclaredRepo{
+		{KB: "kb-a", Key: "no-remote"},
+		{KB: "kb-a", Key: "no-origin", Remote: "example.com/owner/repo"},
+	}, func(d DeclaredRepo) (string, error) { return paths[d.Key], nil })
+	if len(got) != 0 || len(bad) != 2 {
+		t.Fatalf("bound %+v, unresolved %+v: want both left unbound", got, bad)
+	}
+	if bad[0].Reason != "declared without a remote: not bound (the remote is the guard)" {
+		t.Errorf("reason = %q", bad[0].Reason)
+	}
+}
+
+func TestRenameDerivedKB(t *testing.T) {
+	cfg := workspaceCfg(t,
+		DerivedBinding{Path: "/a", KBs: []string{"kb-a"}, Sources: []DerivedSource{{KB: "kb-a", Key: "r"}}},
+		DerivedBinding{Path: "/b", KBs: []string{"kb-a", "kb-b"}, Sources: []DerivedSource{{KB: "kb-a", Key: "r"}, {KB: "kb-b", Key: "r"}}})
+	cfg.derived.Unresolved = map[string][]DerivedUnresolved{"claude": {{KB: "kb-a", Key: "x"}}}
+
+	if !cfg.RenameDerivedKB("kb-a", "kb-z") {
+		t.Fatal("rename reported no change")
+	}
+	got := cfg.derived.Bindings["claude"]
+	if got[0].KBs[0] != "kb-z" || got[0].Sources[0].KB != "kb-z" || got[1].KBs[0] != "kb-z" || cfg.derived.Unresolved["claude"][0].KB != "kb-z" {
+		t.Errorf("rename incomplete: %+v %+v", got, cfg.derived.Unresolved)
+	}
+
+	cfg.RenameDerivedKB("kb-z", "")
+	got = cfg.derived.Bindings["claude"]
+	if len(got) != 1 || got[0].Path != "/b" || len(got[0].KBs) != 1 || got[0].KBs[0] != "kb-b" || len(got[0].Sources) != 1 {
+		t.Errorf("removal must drop the KB, and a binding left with none: %+v", got)
+	}
+	if len(cfg.derived.Unresolved) != 0 {
+		t.Errorf("unresolved kept: %+v", cfg.derived.Unresolved)
 	}
 }

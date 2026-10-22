@@ -20,6 +20,11 @@ projection writes no instructions and `status`/`doctor` say so; Claude Code gets
 `CLAUDE.local.md`, owned and excluded. Probe, 2026-10-22, Claude Code 2.1.304: in a repository with a
 tracked `CLAUDE.md`, an untracked `CLAUDE.local.md` holding a unique token is repeated by `claude -p`.
 
+Trust: `paths.yaml` is unsigned KB content, so a binding needs a declared `remote:` and a clone whose
+origin is non-empty and matches it; an entry without `remote:` binds nothing and is listed as
+unresolved. Without that, a `default:` pointing at any `$HOME` clone would let one edit of a KB project
+files into an unrelated checkout.
+
 **Why.** Declaring a repository is the strongest statement a KB makes about it, yet activating the KB
 there took a `workspace bind` per provider and per repository. Binding a folder that contains the
 repositories is no substitute: probed on five clients, four look for project skills only up to the

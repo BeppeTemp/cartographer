@@ -265,3 +265,32 @@ func TestDerivedProjection_NeverEditsATrackedFile(t *testing.T) {
 		assertCleanTree(t, repo)
 	})
 }
+
+// A rename or an unmount must not leave the old KB name in the derived list
+// until the next sync.
+func TestRenameAndUnmountRewriteTheDerivedList(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := workspaceScoped("claude", "kb-a")
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	state := clientconfig.DerivedState{Bindings: map[string][]clientconfig.DerivedBinding{
+		"claude": {{Path: "/r", KBs: []string{"kb-a"}, Sources: []clientconfig.DerivedSource{{KB: "kb-a", Key: "r"}}}},
+	}}
+	if err := clientconfig.SaveDerived(home, state); err != nil {
+		t.Fatal(err)
+	}
+	if err := rewriteBindings("kb-a", "kb-z"); err != nil {
+		t.Fatal(err)
+	}
+	if got := clientconfig.LoadDerived(home).Bindings["claude"]; len(got) != 1 || got[0].KBs[0] != "kb-z" {
+		t.Fatalf("after rename: %+v", got)
+	}
+	if err := removeBindings("kb-z"); err != nil {
+		t.Fatal(err)
+	}
+	if got := clientconfig.LoadDerived(home).Bindings; len(got) != 0 {
+		t.Errorf("after unmount: %+v", got)
+	}
+}

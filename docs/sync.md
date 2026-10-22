@@ -477,7 +477,12 @@ unchanged.
   the repository (a repository the KB only cites). `bind: true` and no `bind` are the same.
 - **Several KBs** declaring one clone bind it to all of them, as `workspace bind --kb kb-a,kb-b`
   would; a same-named artifact in two of them is refused for that projection (D171).
-- **By path, the remote is the guard.** The binding is the clone the placeholder resolves to (the
+- **By path, the remote is the guard, and it is required.** `paths.yaml` is unsigned KB content, so a
+  declared `remote:` matched by the clone's origin is what makes binding safe: an entry without a
+  `remote:`, and a clone with no origin or another one, is not bound and is listed as unresolved.
+  Otherwise editing one KB's `paths.yaml` could project skills, agents and hooks into an unrelated
+  checkout.
+- **By path.** The binding is the clone the placeholder resolves to (the
   `paths:` entry, else the repo index by the declared remote, else the declared default), never
   every clone of the remote. Another clone, or a `git worktree`, of the same repository is not
   bound: `workspace bind` covers it. A clone whose origin is not the declared remote is not bound
