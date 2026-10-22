@@ -363,10 +363,10 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			continue
 		}
 		if cfg.WorkspaceScope(p.Name) == clientconfig.ScopeWorkspace {
-			pm, d, wsDiverged = workspaceProviderDiff(provProjections[p.Name], manifests, lockFile, dir)
+			pm, d, wsDiverged = workspaceProviderDiff(cfg, provProjections[p.Name], manifests, lockFile, dir)
 		} else {
 			pm = provisioning.FilterForProvider(manifests[p.Name], configurator.Provider(p.Name))
-			d = provisioning.ComputeDiff(pm, lockFile.ForProvider(p.Name))
+			d = provisioning.ComputeDiffResolved(pm, lockFile.ForProvider(p.Name), statusResolveOptions(cfg, p.Name, manifests[p.Name]))
 		}
 		p.Revision = pm.Revision
 		p.LockRevision = lockFile.ForProvider(p.Name).AppliedRevision
@@ -407,12 +407,28 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 	return s
 }
 
+// statusResolveOptions is what sync resolves placeholders with for one
+// provider (materializeForProviders), so status reports the same resolution
+// drift sync would rewrite (#967). The manifest is the unfiltered one: the
+// filtered copy does not carry the placeholder lists and registries.
+func statusResolveOptions(cfg *clientconfig.Config, provider string, m provisioning.Manifest) provisioning.ApplyOptions {
+	return provisioning.ApplyOptions{
+		Provider:           configurator.Provider(provider),
+		ExpandPlaceholders: true,
+		SearchRoots:        cfg.ScanRoots(),
+		Paths:              cfg.Paths,
+		Placeholders:       m.Placeholders,
+		PathRegistries:     m.PathRegistries,
+		KBOrder:            kbOrderForProviders(cfg, []string{provider})[provider],
+	}
+}
+
 // workspaceProviderDiff judges a workspace-scoped provider the way sync applies
 // it (D193): the global projection against the bundle only, each workspace
 // against its own manifest and lock. It returns the global manifest (for the
 // revision and the kind counts), one merged Diff, and the on-disk findings of
 // the workspace locks.
-func workspaceProviderDiff(ps []syncProjection, manifests map[string]provisioning.Manifest, lockFile provisioning.LockFile, dir string) (provisioning.Manifest, provisioning.Diff, []provisioning.DriftFinding) {
+func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manifests map[string]provisioning.Manifest, lockFile provisioning.LockFile, dir string) (provisioning.Manifest, provisioning.Diff, []provisioning.DriftFinding) {
 	var global provisioning.Manifest
 	merged := provisioning.Diff{InSync: true}
 	var diverged []provisioning.DriftFinding
@@ -420,7 +436,7 @@ func workspaceProviderDiff(ps []syncProjection, manifests map[string]provisionin
 		provider := configurator.Provider(sp.Provider)
 		pm := provisioning.FilterForProviderScoped(manifests[projectionKey(sp)], provider, sp.Scope)
 		lock := lockFile.ForProjection(sp.Key())
-		d := provisioning.ComputeDiff(pm, lock)
+		d := provisioning.ComputeDiffResolved(pm, lock, statusResolveOptions(cfg, sp.Provider, manifests[projectionKey(sp)]))
 		merged.Added = append(merged.Added, d.Added...)
 		merged.Updated = append(merged.Updated, d.Updated...)
 		merged.Removed = append(merged.Removed, d.Removed...)

@@ -118,3 +118,40 @@ func TestApply_ChangedResolutionRewritesSkillInEveryClient(t *testing.T) {
 		}
 	}
 }
+
+// A drifted artifact that is not written keeps its previous resolution in the
+// new lock, so the drift is reported again instead of being forgotten (#967).
+func TestApply_UnwrittenDriftKeepsPreviousResolution(t *testing.T) {
+	m, kbRoot := rerenderFixture(t)
+	base := t.TempDir()
+	opts := clientApplyOptions(kbRoot, base, Lock{})
+	opts.Paths = map[string]string{"tools": "/srv/old"}
+	first, err := Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The skill's destination is now a symlink: the write is refused.
+	skillDir := filepath.Dir(skillPath(t, base, opts.Provider))
+	if err := os.RemoveAll(skillDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), skillDir); err != nil {
+		t.Fatal(err)
+	}
+	opts = clientApplyOptions(kbRoot, base, first.NewLock)
+	opts.Paths = map[string]string{"tools": "/srv/new"}
+	res, err := Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wroteSkill(res) {
+		t.Skip("write was not refused on this platform")
+	}
+	if got := res.NewLock.ResolvedPlaceholders["path:tools"]; got != "/srv/old" {
+		t.Errorf("lock records %q for a key whose artifact was not rewritten, want /srv/old", got)
+	}
+	// The refused artifact left the managed set, so it stays pending.
+	if d := ComputeDiffResolved(m, res.NewLock, opts); d.InSync {
+		t.Errorf("a refused artifact must not read as in sync: %+v", d)
+	}
+}

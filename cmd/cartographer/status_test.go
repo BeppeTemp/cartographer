@@ -442,3 +442,73 @@ func TestStatus_WorkspaceProblemNamesTheCause(t *testing.T) {
 		t.Errorf("output = %q, want the cause named", out)
 	}
 }
+
+// #967: a placeholder that now resolves elsewhere than the lockfile recorded
+// leaves the materialized artifact stale; status must say so, as sync rewrites it.
+func TestStatus_PlaceholderResolutionDriftIsDrift(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	save := func(path string) {
+		t.Helper()
+		if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}, Paths: map[string]string{"tools": path}}); err != nil {
+			t.Fatalf("save config: %v", err)
+		}
+	}
+	skillDir := filepath.Join(home, ".claude", "skills", "runbooks")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: runbooks\ndescription: d\n---\nTools: /srv/old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	onDisk, err := provisioning.ContentHashDirOSForKind(skillDir, "skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := []byte("---\nname: runbooks\ndescription: d\n---\nTools: {{path:tools}}\n")
+	served := provisioning.Manifest{Revision: "rev1", Artifacts: []provisioning.Artifact{{
+		Kind: "skill", Name: "runbooks", Source: "kb:wiki", ContentHash: "source-hash", Signed: true,
+		Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: src}},
+	}}}
+	lock := provisioning.Lock{
+		Provider: "claude", AppliedRevision: provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision,
+		Managed: []provisioning.ManagedFile{{
+			Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md",
+			ContentHash: "source-hash", MaterializedHash: onDisk,
+		}},
+		ResolvedPlaceholders: map[string]string{"path:tools": "/srv/old"},
+	}
+	if err := provisioning.WriteLockFile(lockFilePath(home), provisioning.LockFile{Providers: map[string]provisioning.Lock{"claude": lock}}); err != nil {
+		t.Fatal(err)
+	}
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() {
+		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+	})
+
+	save("/srv/old")
+	out := withStdout(t, func() {
+		if code := cmdStatus(nil); code != 0 {
+			t.Errorf("unchanged resolution: cmdStatus = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(out, "in-sync") {
+		t.Errorf("output = %q, want in-sync", out)
+	}
+
+	save("/srv/new")
+	out = withStdout(t, func() {
+		if code := cmdStatus(nil); code != 1 {
+			t.Errorf("changed resolution: cmdStatus = %d, want 1", code)
+		}
+	})
+	if !strings.Contains(out, "runbooks") || strings.Contains(out, "in-sync") {
+		t.Errorf("output = %q, want the stale skill reported as drift", out)
+	}
+}
