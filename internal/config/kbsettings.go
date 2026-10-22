@@ -87,7 +87,7 @@ func ResolveKBSettings(server KBSpec, st kb.SettingsState) (KBSpec, kb.SettingsI
 	for _, m := range st.Malformed {
 		info.Findings = append(info.Findings, m.String())
 	}
-	eff := KBSpec{Path: server.Path, Remote: server.Remote, Name: server.Name}
+	eff := KBSpec{Path: server.Path, Remote: server.Remote, Name: server.Name, BranchOverride: server.BranchOverride}
 	if !st.Present || st.Unparseable {
 		return eff, info
 	}

@@ -4,6 +4,8 @@ topic: concurrency-git
 
 # D264 — KB writes follow the remote default branch
 
+> **Amended by [D1093](D1093-branch-server-override.md)**: a clone that sits on another branch is no longer always left there: when it is clean and fully pushed the first sync switches it to the effective branch; otherwise it stays `degraded` with the reason.
+
 **Decision.** In the local Git profile, a KB with a remote and `git.sync` on
 writes only to its canonical branch: the remote's default branch, asked of the
 remote on every sync (`git ls-remote --symref`). A clone checked out on any

@@ -6,15 +6,25 @@ import (
 	"os"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"gopkg.in/yaml.v3"
 )
 
 // newKBSettingsFile is the settings.yaml a new KB starts with (D746): every
 // key it may carry, documented and commented out, rendered from the kb scope of
 // the config schema. Nothing is set, so the KB behaves as it would without the
-// file until someone uncomments a line. nil on a render failure: the KB is
+// file until someone uncomments a line (or, with kb create --branch, until it
+// names the branch). nil on a render failure: the KB is
 // created without the file rather than not at all.
-func newKBSettingsFile() []byte {
-	body, err := config.KBSettingsSchema().Format(nil)
+func newKBSettingsFile(branch string) []byte {
+	var set []byte
+	if branch != "" {
+		// kb create --branch (D1093): the team's branch, committed with the
+		// scaffold on the remote's default branch, where it is read from.
+		// Marshalled, not concatenated: a valid git name such as `true`, `123`,
+		// `&a` or `!t` would otherwise parse as another YAML value.
+		set, _ = yaml.Marshal(map[string]string{"branch": branch})
+	}
+	body, err := config.KBSettingsSchema().Format(set)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: settings.yaml not written: %v\n", err)
 		return nil

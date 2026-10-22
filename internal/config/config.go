@@ -180,7 +180,14 @@ type KBSpec struct {
 	// Branch is the effective `branch` of the KB's settings.yaml in the working
 	// copy, for the settings view. Sync does not read it: the branch writes go
 	// to is the one committed on the remote's default branch (KB.ConfiguredBranch).
+	// It is not BranchOverride: that one is a key of the server file.
 	Branch string `yaml:"-"`
+	// BranchOverride is `branch` of this kbs[] entry in the server file: the
+	// branch this server alone commits and pushes to, in place of the KB's own
+	// `branch` (D1093). It is not Branch above, which is the KB's setting as the
+	// settings view shows it. "" means no override. YAML only: the
+	// CARTOGRAPHER_KB_REMOTES form has no per-entry option.
+	BranchOverride string `yaml:"-"`
 
 	// Name overrides the KB name that would otherwise be derived from the
 	// basename of Remote/Path (see cmd/cartographer.resolveKBName). If set,
@@ -280,6 +287,7 @@ type rawGit struct {
 type rawKB struct {
 	Remote string `yaml:"remote"`
 	Name   string `yaml:"name"`
+	Branch string `yaml:"branch"`
 }
 
 // rawWeb mirrors the `web:` block. Enabled is a pointer because the zero value
@@ -308,8 +316,20 @@ func Load(path string) (*Config, error) {
 
 	cfg := Default()
 	var specs []KBSpec
-	for _, r := range raw.KBs {
-		specs = append(specs, KBSpec{Remote: r.Remote, Name: r.Name})
+	for i, r := range raw.KBs {
+		override := ""
+		if r.Branch != "" {
+			// Whitespace only is a mistake, not "unset": it must not quietly
+			// hand writes back to the KB's own branch.
+			override = strings.TrimSpace(r.Branch)
+			if override == "" {
+				return nil, fmt.Errorf("config: kbs[%d].branch: %q is not a valid branch name: blank", i, r.Branch)
+			}
+			if err := kb.ValidateBranchName(override); err != nil {
+				return nil, fmt.Errorf("config: kbs[%d].branch: %w", i, err)
+			}
+		}
+		specs = append(specs, KBSpec{Remote: r.Remote, Name: r.Name, BranchOverride: override})
 	}
 	cfg.markFile(data, specs)
 	cfg.noteRetired(data, specs)

@@ -26,6 +26,7 @@ web:
 kbs:
   - remote: https://git.example.com/user/kb-a.git
     git_branch: team/kb-data
+    branch: mine
     write_gate: error
     allow_artifact_write: true
     allow_template_write: false
@@ -61,7 +62,7 @@ func TestRealignServerFile(t *testing.T) {
 		"removed git.sync:",
 		"removed git.in_window:",
 		"removed git.ssh_key: replaced by default.ssh in credentials_dir",
-		"removed kbs[0].git_branch: replaced by branch in the KB's settings.yaml",
+		"removed kbs[0].git_branch: replaced by kbs[].branch (this server only) or branch in the KB's settings.yaml",
 		"removed kbs[0].allow_artifact_write: artifact writes are always allowed",
 		"removed kbs[0].allow_template_write: artifact writes are always allowed",
 		"removed kbs[0].write_gate: the write gate is always on (D907)",
@@ -103,8 +104,8 @@ func TestRealignServerFile(t *testing.T) {
 	if doc.Web != nil {
 		t.Errorf("web = %v, want the reset mapping gone", doc.Web)
 	}
-	if len(doc.KBs) != 1 || len(doc.KBs[0]) != 1 {
-		t.Errorf("kbs = %v, want the one entry with only its remote (D906)", doc.KBs)
+	if len(doc.KBs) != 1 || len(doc.KBs[0]) != 2 || doc.KBs[0]["branch"] != "mine" {
+		t.Errorf("kbs = %v, want the one entry with only its remote and its branch override (D906, D1093)", doc.KBs)
 	}
 	for _, kept := range []string{"# my server", `http: ":9090" # kept as written`, "credentials_dir: /etc/kb/credentials", "remote: https://git.example.com/user/kb-a.git"} {
 		if !strings.Contains(text, kept) {
@@ -122,6 +123,9 @@ func TestRealignServerFile(t *testing.T) {
 	}
 	if len(cfg.Warnings) != 0 || cfg.HTTP != ":9090" || !cfg.Web.Enabled {
 		t.Errorf("realigned config = %+v warnings=%v", cfg, cfg.Warnings)
+	}
+	if len(cfg.KBs) != 1 || cfg.KBs[0].BranchOverride != "mine" {
+		t.Errorf("kbs[].branch did not survive the realignment: %+v", cfg.KBs)
 	}
 	if cfg.CredentialsDir != "/etc/kb/credentials" {
 		t.Errorf("credentials_dir = %q", cfg.CredentialsDir)

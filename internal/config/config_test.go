@@ -258,7 +258,7 @@ func TestLoadRetiredGitKeysWarnAndTheProfileRefuses(t *testing.T) {
 		"git.profile: removed setting, ignored: the server git profile",
 		"git.base_branch: removed setting, ignored",
 		"kbs[0].git_profile: removed setting, ignored",
-		"kbs[0].git_branch: removed setting, ignored; use branch in the KB's settings.yaml",
+		"kbs[0].git_branch: removed setting, ignored; use kbs[].branch (this server only) or branch in the KB's settings.yaml",
 		"kbs[1].path: removed setting, ignored: a KB without a remote is a folder under data",
 		"kbs[1]: no remote",
 	} {
@@ -270,7 +270,7 @@ func TestLoadRetiredGitKeysWarnAndTheProfileRefuses(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "git.profile") || !strings.Contains(err.Error(), "unprotect the branch") {
 		t.Fatalf("RefusalError = %v, want the profile named with what to do", err)
 	}
-	if !strings.Contains(err.Error(), "kbs[0].git_branch: team/kb-data is still set") || !strings.Contains(err.Error(), "set branch in the KB's settings.yaml") {
+	if !strings.Contains(err.Error(), "kbs[0].git_branch: team/kb-data is still set") || !strings.Contains(err.Error(), "set kbs[].branch (this server only) or branch in the KB's settings.yaml") {
 		t.Errorf("RefusalError = %v, want kbs[0].git_branch named with where its value goes", err)
 	}
 	if strings.Contains(err.Error(), "kbs[0].git_profile") {

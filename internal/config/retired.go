@@ -13,7 +13,8 @@ import (
 // noteRetired records, as warnings, the removed keys the file still carries
 // (D903): each is ignored, and the line names what to use instead. A removed
 // key that cannot be ignored without changing where writes go (the server git
-// profile, a kbs[].git_branch) is a refusal as well. An entry of kbs[] with no
+// profile; a kbs[].git_branch, which is renamed kbs[].branch) is a refusal as
+// well. An entry of kbs[] with no
 // remote, which names nothing to clone, is only a warning.
 func (c *Config) noteRetired(data []byte, specs []KBSpec) {
 	var doc yaml.Node

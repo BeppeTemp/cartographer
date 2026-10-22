@@ -94,13 +94,17 @@ A KB syncs exactly when it has a remote, and every write is one commit: neither 
 6. If writes fail and `sync_status` reports `degraded` with `branch` different from
    `remote_default_branch`, the KB's clone is on a branch other than its canonical one — the
    remote's default, or the `branch` of the `settings.yaml` committed on that default branch
-   when `branch_source` is `settings` (D335, D903) — and Cartographer refuses to write rather
-   than fork the KB on the remote (D264). Reads keep working. Show the user `last_error`, which
-   names both branches and the clone path; recovery is theirs to choose: merge the stray branch
-   into the default branch on the remote (a pull or merge request), or check out the default
-   branch in the clone — with `branch_source: settings`, check out the configured branch or
-   change `branch` on the default branch. Then `cartographer service restart`. Never merge,
-   rebase, push or delete a branch yourself.
+   when `branch_source` is `settings` (D335, D903), or the server file's `kbs[].branch` when it
+   is `server` (D1093) — and Cartographer refuses to write rather than fork the KB on the
+   remote (D264). Reads keep working. A clean clone with nothing unpushed is switched to the
+   canonical branch by the first sync on its own; when it is not, `last_error` ends with why
+   (uncommitted changes, N commits unpushed, branch never pushed). Show the user `last_error`,
+   which names both branches and the clone path; recovery is theirs to choose: merge the stray
+   branch into the default branch on the remote (a pull or merge request), or check out the
+   default branch in the clone — with `branch_source: settings`, check out the configured branch
+   or change `branch` on the default branch; with `server`, check it out or change or remove
+   `kbs[].branch`. Then `cartographer service restart`. Never merge, rebase, push or delete a
+   branch yourself.
 7. If `sync_status` is `failed` and `last_error` says the remote refused the push because the
    branch is protected (D903), Cartographer pushes to the branch itself and never opens a pull
    request: the commit is safe in the clone, and the way out is the user's — unprotect the

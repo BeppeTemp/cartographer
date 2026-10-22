@@ -139,10 +139,18 @@ func gitEnvForKB(name, credDir string) []string {
 // A fresh clone is checked out on the `branch` its settings.yaml sets (D335,
 // D903) — tracking it when the remote has it, created from the remote's default
 // branch otherwise — read from the default branch the clone has just checked
-// out. The clone of an empty remote is left unborn: serve cannot mount it and says to create the KB with `kb create` (D906). An existing
-// clone is never switched: SyncIn refuses its writes if it sits on another
-// branch.
+// out; the server's `kbs[].branch` override (D1093) takes its place when set,
+// and then the KB's own setting is not read. The clone of an empty remote is
+// left unborn: serve cannot mount it and says to create the KB with `kb create`
+// (D906). This function never switches an existing clone: the first SyncIn does,
+// when that loses nothing (D1093), and refuses its writes otherwise.
 func ensureClonedKB(remote, name, dataDir string, env ...string) (string, error) {
+	return ensureClonedKBOn(remote, name, dataDir, "", env...)
+}
+
+// ensureClonedKBOn is ensureClonedKB with the server's branch override: a fresh
+// clone is checked out on it instead of on the committed `branch` setting.
+func ensureClonedKBOn(remote, name, dataDir, override string, env ...string) (string, error) {
 	if dataDir == "" {
 		return "", fmt.Errorf("remote KB %q requires a data directory to clone into (--data, CARTOGRAPHER_DATA, or data: in the YAML config)", remote)
 	}
@@ -169,7 +177,11 @@ func ensureClonedKB(remote, name, dataDir string, env ...string) (string, error)
 			_ = os.RemoveAll(tmp)
 			return "", fmt.Errorf("clone %s: %w", remote, err)
 		}
-		if err := checkoutConfiguredBranch(tmp, committedBranchSetting(tmp), env...); err != nil {
+		target := override
+		if target == "" {
+			target = committedBranchSetting(tmp)
+		}
+		if err := checkoutConfiguredBranch(tmp, target, env...); err != nil {
 			_ = os.RemoveAll(tmp)
 			return "", fmt.Errorf("clone %s: %w", remote, err)
 		}

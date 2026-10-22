@@ -141,7 +141,7 @@ func TestApplyKBPolicy_RefreshPicksUpAChangedFile(t *testing.T) {
 }
 
 func TestNewKBSettingsFileIsCommentsOnly(t *testing.T) {
-	data := newKBSettingsFile()
+	data := newKBSettingsFile("")
 	s, bad, err := kb.ParseSettings(data)
 	if err != nil || len(bad) != 0 || len(s.Keys()) != 0 {
 		t.Fatalf("keys=%v bad=%v err=%v\n%s", s.Keys(), bad, err, data)

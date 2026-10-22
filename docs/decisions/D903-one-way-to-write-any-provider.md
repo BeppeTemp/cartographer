@@ -4,6 +4,8 @@ topic: concurrency-git
 
 # D903 — Git has one way to write, on any provider, and old settings files are realigned
 
+> **Amended by [D1093](D1093-branch-server-override.md)**: `kbs[].git_branch` stays removed, but `kbs[].branch` exists as a machine-local override of the KB's `branch`; the KB's is the team's, the server's is one machine's, so P2 is read per meaning and not per key name.
+
 **Decision.** The server git profile (D117) is removed with its forge, its keys and the `pr_status` and
 `pr_finalize` tools: Cartographer commits every write to the KB's branch and pushes it itself, never opens a
 pull request, and names no provider. `git.autocommit` and `git.sync` are removed (every write is a commit; a KB
@@ -40,7 +42,7 @@ random. Three principles decide what stays: the lint cannot be escaped (P1), a k
 Cartographer is not tied to one git provider (P3). The profile broke the third and fought the agent's write loop
 (a pull request per write); it was GitHub only. Cartographer's own gates already review every write: the lint
 gate, `commit_gate`, the token roles, the audit trail and signed artifacts, with every write a revertible commit.
-`branch` is a team decision, the same for every server that mounts the KB, hence its only home is the KB, read
+`branch` is a team decision, the same for every server that mounts the KB, hence its home is the KB ([D1093](D1093-branch-server-override.md) adds a machine-local override beside it), read
 from the default branch so a stray commit on a feature branch cannot redirect writes. The realignment is a
 mechanism and not a one-off script because the plans that follow remove and reset keys,
 and each only adds entries to the registries (#904, #905 and the rest of #890).
@@ -69,7 +71,7 @@ and each only adds entries to the registries (#904, #905 and the rest of #890).
 
 **Consequences.** Breaking: `pr_status` and `pr_finalize` are gone, the keys above are gone, the `git_workflow`,
 `git_profile` and `git_sync` fields and the pull-request fields of `kb_status` and `sync_status` are gone, and
-`branch_source` reads `settings` where it read `config`. A server whose `kbs[]` still names a `git_branch` does not
+`branch_source` reads `settings` where it read `config` (and `server` for the override of D1093). A server whose `kbs[]` still names a `git_branch` does not
 start until that value is the KB's `branch`. The first start of a new version rewrites the server YAML
 (backup kept) and commits a realigned `settings.yaml` to each KB that holds a removed key or lacks the comments;
 a file that cannot be written (a read-only mount) keeps working. `kb create --no-remote --artifact-write` writes

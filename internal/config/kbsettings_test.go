@@ -26,6 +26,11 @@ func TestKBSettingsKeysMatchSchema(t *testing.T) {
 		if k.Scope == settingschema.ScopeKB {
 			t.Errorf("%s is a KB key in the server schema: a KB's behaviour lives in its settings.yaml only (D906)", k.Path)
 		}
+		if name == "branch" {
+			// Both homes (D1093): the KB's own, and this server's override. It is
+			// a KB key, so the kb package does not list it as server-only.
+			continue
+		}
 		serverKeys = append(serverKeys, name)
 	}
 	sort.Strings(kbKeys)
