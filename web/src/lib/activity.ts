@@ -63,3 +63,34 @@ export function mostWorked<C extends Pick<ConceptChange, "id" | "ops" | "change"
   }
   return best;
 }
+
+/** One entry of the KB's log: the time `log_append` stamped it with, and what it says. */
+export interface JournalEntry {
+  at: string | null;
+  body: string;
+}
+
+/**
+ * The entries of a journal tail. log_append heads each entry with a
+ * `## <timestamp>` line and writes its body as plain lines, not as prose: a
+ * Markdown renderer would join them into one paragraph. Text before the first
+ * heading is an entry without a time.
+ */
+export function parseJournal(text: string): JournalEntry[] {
+  const entries: JournalEntry[] = [];
+  let current: JournalEntry | null = null;
+  for (const line of text.split("\n")) {
+    const head = /^##\s+(.+?)\s*$/.exec(line);
+    if (head) {
+      if (current) entries.push(current);
+      current = { at: head[1]!, body: "" };
+      continue;
+    }
+    current ??= { at: null, body: "" };
+    current.body += `${line}\n`;
+  }
+  if (current) entries.push(current);
+  return entries
+    .map((e) => ({ at: e.at, body: e.body.replace(/^\n+|\s+$/g, "") }))
+    .filter((e) => e.at !== null || e.body !== "");
+}

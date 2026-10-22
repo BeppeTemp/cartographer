@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { fetchAudit, fetchChanges, fetchJournal } from "../api/client";
 import type { AuditLog, ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot } from "../api/types";
-import { changedAt, changeKind, mostWorked, shownReasons, type ChangeKind } from "../lib/activity";
+import { changedAt, changeKind, mostWorked, parseJournal, shownReasons, type ChangeKind } from "../lib/activity";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
-import { Markdown } from "./Markdown";
 import { Avatar, Count, Hero, MapBar, MapDot, Page, PageHeader, PageSection, Segmented, TitleBone, ActivitySkeleton } from "./Page";
 
 const WINDOWS = [
@@ -324,7 +323,7 @@ export function Activity({
                 <p className="page-note">
                   The last entries of the KB&apos;s log, written by agents with <code>log_append</code>.
                 </p>
-                <Markdown>{journal}</Markdown>
+                <JournalEntries text={journal} />
               </>
             )}
           </PageSection>
@@ -332,6 +331,35 @@ export function Activity({
         {audit !== null && (data !== null || error !== null) && <AuditSection audit={audit} />}
       </div>
     </Page>
+  );
+}
+
+/** The journal tail as a log: one row per entry, its time beside its lines. */
+function JournalEntries({ text }: { text: string }) {
+  const entries = useMemo(() => parseJournal(text), [text]);
+  return (
+    <ol className="journal">
+      {entries.map((e, i) => {
+        const t = e.at ? Date.parse(e.at) : NaN;
+        return (
+          <li key={`${e.at}-${i}`} className="journal__entry">
+            {Number.isFinite(t) ? (
+              <time
+                className="journal__time"
+                dateTime={e.at!}
+                title={new Date(t).toLocaleString("en", { dateStyle: "medium", timeStyle: "medium" })}
+              >
+                <span>{dayLabel(t)}</span>
+                <span>{clock(e.at!)}</span>
+              </time>
+            ) : (
+              <span className="journal__time">{e.at}</span>
+            )}
+            <p className="journal__body">{e.body}</p>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
