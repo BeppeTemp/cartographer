@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
@@ -1706,6 +1707,26 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		toWriteKeys[key] = true
 		relocated[key] = true
 	}
+	// Resolution drift (#967): placeholders are expanded when an artifact is
+	// written, so a changed resolution (clone moved, `paths set`) leaves an
+	// artifact whose source did not change with the old expansion on disk. The
+	// provider's own lock records what each key resolved to when it last
+	// applied, so a cited key that now resolves differently is a rewrite,
+	// decided per client like a source change.
+	driftedIDs := make(map[string][]string)
+	for _, a := range m.Artifacts {
+		key := a.Kind + "\x00" + a.Name
+		if toWriteKeys[key] || !artifactAuthorized(a, opts) {
+			continue
+		}
+		ids := resolutionDriftIDs(a, opts, tracker)
+		if len(ids) == 0 {
+			continue
+		}
+		toWrite = append(toWrite, a)
+		toWriteKeys[key] = true
+		driftedIDs[key] = ids
+	}
 	healed := make(map[string]bool)
 	for _, f := range VerifyManaged(opts.Lock, opts.Provider, opts.BaseDir) {
 		if !f.Healable() || relocated[f.Kind+"\x00"+f.Name] {
@@ -2061,11 +2082,37 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				sources[id] = nil
 			}
 		}
-		if len(tracker.resolved) > 0 {
-			result.NewLock.ResolvedPlaceholders = tracker.resolved
+		recResolved, recUnresolved := tracker.resolved, tracker.unresolved
+		// An artifact that drifted but was not written (refused, unauthorized
+		// or unsupported here) still shows the old expansion: its keys keep
+		// the previous record, so the drift is reported again next time.
+		if len(driftedIDs) > 0 {
+			written := make(map[string]bool, len(result.Written))
+			for _, w := range result.Written {
+				written[w.Kind+"\x00"+w.Name] = true
+			}
+			recResolved, recUnresolved = maps.Clone(recResolved), maps.Clone(recUnresolved)
+			for key, ids := range driftedIDs {
+				if written[key] {
+					continue
+				}
+				for _, id := range ids {
+					delete(recResolved, id)
+					delete(recUnresolved, id)
+					if v, ok := opts.Lock.ResolvedPlaceholders[id]; ok {
+						recResolved[id] = v
+					}
+					if v, ok := opts.Lock.UnresolvedPlaceholders[id]; ok {
+						recUnresolved[id] = v
+					}
+				}
+			}
 		}
-		if len(tracker.unresolved) > 0 {
-			result.NewLock.UnresolvedPlaceholders = tracker.unresolved
+		if len(recResolved) > 0 {
+			result.NewLock.ResolvedPlaceholders = recResolved
+		}
+		if len(recUnresolved) > 0 {
+			result.NewLock.UnresolvedPlaceholders = recUnresolved
 		}
 		if len(sources) > 0 {
 			result.NewLock.PlaceholderSources = sources
@@ -3625,6 +3672,88 @@ func yamlQuoteScalar(s string) string {
 	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
 	escaped = strings.ReplaceAll(escaped, "\n", `\n`)
 	return `"` + escaped + `"`
+}
+
+// resolutionDriftIDs returns the placeholders cited by a (a file-expanded
+// kind) that resolve, in this Apply, to something other than what the lock
+// recorded when it was last applied (#967); nil when none does. A lock that
+// recorded no placeholder state at all (written before D262, or by a
+// server-side Apply) knows nothing to compare against, so it never reports
+// drift. A file that cannot be read is reported as a warning, never fatal.
+func resolutionDriftIDs(a Artifact, opts ApplyOptions, tracker *expansionTracker) []string {
+	if !opts.ExpandPlaceholders || a.Kind == "instructions" || a.Kind == "mcp" {
+		return nil
+	}
+	if opts.Lock.ResolvedPlaceholders == nil && opts.Lock.UnresolvedPlaceholders == nil {
+		return nil
+	}
+	files := a.Files
+	if len(files) == 0 {
+		var err error
+		if files, err = ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots); err != nil {
+			tracker.warnings = append(tracker.warnings, fmt.Sprintf(
+				"%s %q: could not read its files to check placeholder resolutions: %v", a.Kind, a.Name, err))
+			return nil
+		}
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, f := range files {
+		for _, id := range okf.Placeholders(string(f.Content)) {
+			kind, key, ok := okf.SplitPlaceholderID(id)
+			if !ok || seen[id] {
+				continue
+			}
+			seen[id] = true
+			cur, resolved := tracker.resolve(kind, key, opts)
+			if resolved {
+				if cur != opts.Lock.ResolvedPlaceholders[id] {
+					out = append(out, id)
+				}
+			} else if _, was := opts.Lock.UnresolvedPlaceholders[id]; !was {
+				out = append(out, id)
+			}
+		}
+	}
+	return out
+}
+
+// ComputeDiffResolved is ComputeDiff plus resolution drift (#967): an artifact
+// whose cited placeholders resolve differently from what lock recorded joins
+// Updated and the diff is no longer in sync. opts carries what Apply would
+// resolve with (Paths, SearchRoots, Placeholders, PathRegistries, KBOrder,
+// KBRoots, BundleFS, ExpandPlaceholders); status uses it to agree with sync.
+func ComputeDiffResolved(m Manifest, lock Lock, opts ApplyOptions) Diff {
+	d := ComputeDiff(m, lock)
+	if !opts.ExpandPlaceholders {
+		return d
+	}
+	opts.Lock = lock
+	tracker := newExpansionTracker()
+	var declaredBy map[string][]string
+	tracker.decls, declaredBy, _ = MergePathRegistries(opts.KBOrder, opts.PathRegistries)
+	sources := placeholderSources(m, opts)
+	ids := make([]string, 0, len(sources))
+	for id := range sources {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	tracker.preResolve(ids, opts)
+	tracker.resolveDeclared(sources, declaredBy, opts)
+	queued := make(map[string]bool, len(d.Added)+len(d.Updated))
+	for _, a := range append(append([]Artifact(nil), d.Added...), d.Updated...) {
+		queued[a.Kind+"\x00"+a.Name] = true
+	}
+	for _, a := range m.Artifacts {
+		if queued[a.Kind+"\x00"+a.Name] || !artifactAuthorized(a, opts) {
+			continue
+		}
+		if len(resolutionDriftIDs(a, opts, tracker)) > 0 {
+			d.Updated = append(d.Updated, a)
+			d.InSync = false
+		}
+	}
+	return d
 }
 
 // singleArtifactContent returns the content of a single-file artifact (kind
