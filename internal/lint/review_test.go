@@ -310,8 +310,11 @@ func TestReviewDuplicateActionSatellite(t *testing.T) {
 // D1101: a suggested action reaches every connection, so it names no
 // `cartographer <command>` and none of the operator/assisted-session wordings
 // of a provisioned client; the items come from the review fixtures.
+//
+// Not parallel: the fixtures pin the package-level Now (withNow), and a parallel
+// test would move the clock under every other parallel test that reads it
+// (CheckConcept vs Run, artifact_unused ages), failing them intermittently (#1116).
 func TestReviewSuggestedActionsAreNeutral(t *testing.T) {
-	t.Parallel()
 	old := []string{"assisted session only", "the operator decides", "with the operator:", "after the operator's choice", "harvest and archive)"}
 	cli := regexp.MustCompile(`cartographer (serve|setup|kb|sync|doctor|connect|client|workspace|service|config)\b|kb repair|kb reauthor`)
 	for _, kind := range ReviewKinds {
