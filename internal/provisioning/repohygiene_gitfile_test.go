@@ -144,6 +144,7 @@ func TestEnsureWorkspaceExcluded_HandWrittenGitFile(t *testing.T) {
 	parent := filepath.Join(root, "parent")
 	mkGitDir(t, filepath.Join(parent, ".git"))
 	subGit := mkGitDir(t, filepath.Join(parent, ".git", "modules", "sub"))
+	writeTestFile(t, filepath.Join(subGit, "config"), "[core]\n\tbare = false\n\tworktree = ../../../sub\n")
 	sub := filepath.Join(parent, "sub")
 	writeTestFile(t, filepath.Join(sub, ".git"), "gitdir: ../.git/modules/sub\r\n")
 	if err := EnsureWorkspaceExcluded(sub, []string{".mcp.json"}); err != nil {
@@ -472,5 +473,124 @@ func TestStripExcludeBlock_OnlyItsOwnKey(t *testing.T) {
 	}
 	if got, want := stripExcludeBlock(content, ""), "mine\n"+ba+"\n/a\n"+ea+"\n"+bb+"\n/b\n"+eb+"\n"; got != want {
 		t.Errorf("strip main = %q, want %q", got, want)
+	}
+}
+
+// A submodule's git directory is trusted only when it is the one git keeps for
+// this workspace: resolved, inside the resolved modules/ of an enclosing
+// repository, and with core.worktree naming this workspace.
+func TestEnsureWorkspaceExcluded_SubmoduleTargetMustBeTheWorkspacesOwn(t *testing.T) {
+	cases := map[string]func(root, ws, parentGit string) string{
+		"symlinked modules entry": func(root, ws, parentGit string) string {
+			skipWithoutSymlinks(t)
+			// A git directory elsewhere that even claims this workspace.
+			other := mkGitDir(t, filepath.Join(root, "elsewhere"))
+			writeTestFile(t, filepath.Join(other, "config"), "[core]\n\tworktree = "+filepath.ToSlash(ws)+"\n")
+			if err := os.MkdirAll(filepath.Join(parentGit, "modules"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(other, filepath.Join(parentGit, "modules", "m")); err != nil {
+				t.Fatal(err)
+			}
+			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+filepath.Join(parentGit, "modules", "m")+"\n")
+			return other
+		},
+		"sibling submodule git directory": func(root, ws, parentGit string) string {
+			sibling := mkGitDir(t, filepath.Join(parentGit, "modules", "sibling"))
+			writeTestFile(t, filepath.Join(sibling, "config"), "[core]\n\tworktree = ../../../sibling\n")
+			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+sibling+"\n")
+			return sibling
+		},
+		"submodule git directory without core.worktree": func(root, ws, parentGit string) string {
+			own := mkGitDir(t, filepath.Join(parentGit, "modules", "sub"))
+			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+own+"\n")
+			return own
+		},
+	}
+	for name, build := range cases {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			parentGit := mkGitDir(t, filepath.Join(root, "parent", ".git"))
+			ws := filepath.Join(root, "parent", "sub")
+			if err := os.MkdirAll(ws, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			victim := build(root, ws, parentGit)
+			before := treeOf(t, victim)
+			for _, err := range []error{
+				EnsureWorkspaceExcluded(ws, []string{".mcp.json"}),
+				RemoveWorkspaceExclusions(ws),
+			} {
+				if !errors.Is(err, ErrGitDirUnresolvable) {
+					t.Fatalf("err = %v, want ErrGitDirUnresolvable", err)
+				}
+			}
+			sameTree(t, "target", before, treeOf(t, victim))
+		})
+	}
+}
+
+// `git init --separate-git-dir` leaves a `.git` file whose target nothing ties to
+// the workspace (no back-link, no commondir, no modules/): it is a documented
+// limit, a warning and no exclude block, never an error that fails the sync.
+func TestEnsureWorkspaceExcluded_SeparateGitDirIsAWarning(t *testing.T) {
+	ws := filepath.Join(t.TempDir(), "ws")
+	store := filepath.Join(t.TempDir(), "store.git")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git(t, ws, "init", "-q", "--separate-git-dir", store)
+	if st, err := os.Stat(filepath.Join(ws, ".git")); err != nil || !st.Mode().IsRegular() {
+		t.Fatalf(".git is not a file: %v", err)
+	}
+	before := treeOf(t, store)
+	for _, err := range []error{
+		EnsureWorkspaceExcluded(ws, []string{".mcp.json"}),
+		RemoveWorkspaceExclusions(ws),
+	} {
+		if !errors.Is(err, ErrGitDirUnresolvable) || !ExcludeWarning(err) {
+			t.Errorf("err = %v, want the ErrGitDirUnresolvable warning", err)
+		}
+	}
+	sameTree(t, "separate git dir", before, treeOf(t, store))
+}
+
+// `git worktree remove` does not run anything of ours: the next Ensure or Remove,
+// from the main checkout or any worktree, drops the blocks of worktrees that are
+// gone and keeps the live ones.
+func TestEnsureWorkspaceExcluded_BlocksOfRemovedWorktreesAreDropped(t *testing.T) {
+	for _, via := range []string{"ensure from main", "remove from a sibling", "ensure from a sibling"} {
+		t.Run(via, func(t *testing.T) {
+			repo := commitedRepo(t)
+			wtA := filepath.Join(t.TempDir(), "a")
+			wtB := filepath.Join(t.TempDir(), "b")
+			git(t, repo, "worktree", "add", "-q", "-b", "side-a", wtA)
+			git(t, repo, "worktree", "add", "-q", "-b", "side-b", wtB)
+			for ws, p := range map[string]string{wtA: ".a-dir", wtB: ".b-dir", repo: ".main-dir"} {
+				if err := EnsureWorkspaceExcluded(ws, []string{p}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			git(t, repo, "worktree", "remove", "--force", wtA)
+
+			var err error
+			switch via {
+			case "ensure from main":
+				err = EnsureWorkspaceExcluded(repo, []string{".main-dir"})
+			case "remove from a sibling":
+				err = RemoveWorkspaceExclusions(wtB)
+			default:
+				err = EnsureWorkspaceExcluded(wtB, []string{".b-dir"})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]bool{".a-dir/f": false, ".b-dir/f": via != "remove from a sibling", ".main-dir/f": true}
+			for p, w := range want {
+				if got := gitIgnores(t, repo, p); got != w {
+					t.Errorf("%s ignored = %v, want %v\n%s", p, got, w, readFile(t, filepath.Join(repo, ".git", "info", "exclude")))
+				}
+			}
+		})
 	}
 }

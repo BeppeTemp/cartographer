@@ -146,7 +146,7 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("provisioning: read %s: %w", path, err)
 	}
-	kept := stripExcludeBlock(string(existing), key)
+	kept := stripStaleBlocks(stripExcludeBlock(string(existing), key), target.commonDir)
 
 	var lines []string
 	if len(ownedPaths) > 0 {
@@ -259,3 +259,52 @@ func dedupe(in []string) []string {
 // tell a shared file the repository owns from one Cartographer created itself:
 // the first must not be excluded, the second must.
 func TrackedPaths(dir string) (map[string]bool, error) { return gitTrackedFn(dir) }
+
+// keyedBlockKey returns the worktree name a keyed block's begin line carries.
+func keyedBlockKey(line string) (string, bool) {
+	const prefix, suffix = "# >>> cartographer (managed: ", ") >>>"
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, suffix) || len(line) <= len(prefix)+len(suffix) {
+		return "", false
+	}
+	return line[len(prefix) : len(line)-len(suffix)], true
+}
+
+// stripStaleBlocks drops the keyed blocks of worktrees that no longer exist, so
+// `git worktree remove` does not leave its paths excluded for good in the file it
+// shared: a block is stale when <commonDir>/worktrees/<name> is gone. Every
+// Ensure and Remove does it, from the main checkout or any worktree. Everything
+// else stays byte-identical, and so does the whole content when nothing is stale.
+func stripStaleBlocks(content, commonDir string) string {
+	if commonDir == "" || !strings.Contains(content, "# >>> cartographer (managed: ") {
+		return content
+	}
+	var out []string
+	dropEnd := ""
+	dropped := false
+	for _, line := range strings.Split(strings.TrimSuffix(content, "\n"), "\n") {
+		switch {
+		case dropEnd != "":
+			if strings.TrimSpace(line) == dropEnd {
+				dropEnd = ""
+			}
+			continue
+		default:
+			if key, ok := keyedBlockKey(line); ok {
+				if _, err := os.Lstat(filepath.Join(commonDir, "worktrees", key)); os.IsNotExist(err) {
+					_, dropEnd = blockMarkers(key)
+					dropped = true
+					continue
+				}
+			}
+		}
+		out = append(out, line)
+	}
+	if !dropped {
+		return content
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return strings.Join(out, "\n") + "\n"
+}

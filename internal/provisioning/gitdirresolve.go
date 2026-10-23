@@ -60,7 +60,7 @@ func excludeFile(workspaceDir string) (t excludeTarget, isRepo bool, err error) 
 	if lerr != nil {
 		return t, false, nil
 	}
-	plain := excludeTarget{baseDir: workspaceDir, path: filepath.Join(dotGit, "info", "exclude")}
+	plain := excludeTarget{baseDir: workspaceDir, path: filepath.Join(dotGit, "info", "exclude"), commonDir: dotGit}
 	switch {
 	case info.Mode().IsDir():
 		return plain, true, nil
@@ -118,14 +118,25 @@ func resolveGitFile(workspaceDir string) (excludeTarget, error) {
 	if hasCommon {
 		return resolveWorktree(abs, gitDir, bad)
 	}
-	// No commondir: a submodule, whose git directory is its own and lies under
-	// the modules directory of a repository that contains the workspace.
-	if !underAncestorModules(abs, gitDir) {
+	// No commondir: a submodule, whose git directory is its own. It must be one of
+	// the directories git keeps under the modules directory of a repository that
+	// contains the workspace, and say so itself: its core.worktree is this
+	// workspace. Both are checked on the resolved path, so a link under modules/
+	// cannot stand in for another git directory and a sibling submodule's
+	// directory is not this workspace's.
+	resolved, err := filepath.EvalSymlinks(gitDir)
+	if err != nil || !isGitDir(resolved) {
+		return bad("target is not a git directory")
+	}
+	if !underAncestorModules(abs, resolved) {
 		return bad("target is not a submodule git directory of an enclosing repository")
 	}
+	if wt, ok := coreWorktree(resolved); !ok || !samePath(resolveFrom(resolved, wt), abs) {
+		return bad("submodule git directory belongs to another workspace")
+	}
 	return excludeTarget{
-		baseDir: gitDir, path: filepath.Join(gitDir, "info", "exclude"),
-		gitDir: gitDir, commonDir: gitDir,
+		baseDir: resolved, path: filepath.Join(resolved, "info", "exclude"),
+		gitDir: resolved, commonDir: resolved,
 	}, nil
 }
 
@@ -166,14 +177,14 @@ func resolveWorktree(abs, gitDir string, bad func(string) (excludeTarget, error)
 	}, nil
 }
 
-// underAncestorModules reports whether gitDir lies under the modules directory of
-// the git directory of a repository that contains abs, which is where git puts a
-// submodule's git directory.
+// underAncestorModules reports whether gitDir, already resolved, lies under the
+// resolved modules directory of the git directory of a repository that contains
+// abs, which is where git puts a submodule's git directory.
 func underAncestorModules(abs, gitDir string) bool {
 	for dir := filepath.Dir(abs); ; dir = filepath.Dir(dir) {
 		if parents, ok := ancestorGitDirs(dir); ok {
 			for _, p := range parents {
-				if within(filepath.Join(p, "modules"), gitDir) {
+				if modules, err := filepath.EvalSymlinks(filepath.Join(p, "modules")); err == nil && within(modules, gitDir) {
 					return true
 				}
 			}
@@ -266,24 +277,43 @@ func pathEq(a, b string) bool {
 	return a == b
 }
 
-// within reports whether child lies strictly below parent.
+// within reports whether child lies strictly below parent, both resolved.
 func within(parent, child string) bool {
-	in := func(p, c string) bool {
-		rel, err := filepath.Rel(p, c)
-		return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	rel, err := filepath.Rel(filepath.Clean(parent), filepath.Clean(child))
+	return err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
+}
+
+// coreWorktree returns the core.worktree a git directory's config declares.
+func coreWorktree(gitDir string) (string, bool) {
+	content, err := readCapped(filepath.Join(gitDir, "config"), maxGitConfigSize)
+	if err != nil {
+		return "", false
 	}
-	parent, child = filepath.Clean(parent), filepath.Clean(child)
-	if in(parent, child) {
-		return true
+	var value string
+	inCore := false
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case line == "" || line[0] == '#' || line[0] == ';':
+		case line[0] == '[':
+			inCore = strings.EqualFold(strings.TrimSpace(strings.Trim(line, "[]")), "core")
+		case inCore:
+			k, v, ok := strings.Cut(line, "=")
+			if ok && strings.EqualFold(strings.TrimSpace(k), "worktree") {
+				value = strings.Trim(strings.TrimSpace(v), `"`)
+			}
+		}
 	}
-	rp, errP := filepath.EvalSymlinks(parent)
-	rc, errC := filepath.EvalSymlinks(child)
-	return errP == nil && errC == nil && in(rp, rc)
+	return value, value != ""
 }
 
 // maxGitPointerSize bounds the pointer files read (`.git`, `commondir`, the
 // worktree back-link): a real one is a line, so a larger file is not one.
-const maxGitPointerSize = 64 * 1024
+// maxGitConfigSize bounds a submodule's config, read for core.worktree.
+const (
+	maxGitPointerSize = 64 * 1024
+	maxGitConfigSize  = 1024 * 1024
+)
 
 // pointerExists reports whether path exists at all (a link counts: readPointer
 // then refuses it).
@@ -298,14 +328,17 @@ func pointerExists(path string) (bool, error) {
 	return false, err
 }
 
-// readPointer reads a small regular file without following a link. Its errors
+// readPointer reads a pointer file: readCapped at the pointer size.
+func readPointer(path string) (string, error) { return readCapped(path, maxGitPointerSize) }
+
+// readCapped reads a small regular file without following a link. Its errors
 // carry no content.
-func readPointer(path string) (string, error) {
+func readCapped(path string, limit int64) (string, error) {
 	st, err := os.Lstat(path)
 	if err != nil {
 		return "", err
 	}
-	if !st.Mode().IsRegular() || st.Size() > maxGitPointerSize {
+	if !st.Mode().IsRegular() || st.Size() > limit {
 		return "", errors.New("not a small regular file")
 	}
 	f, err := os.Open(path)
@@ -313,6 +346,6 @@ func readPointer(path string) (string, error) {
 		return "", err
 	}
 	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, maxGitPointerSize))
+	b, err := io.ReadAll(io.LimitReader(f, limit))
 	return string(b), err
 }

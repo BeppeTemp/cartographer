@@ -599,14 +599,19 @@ A projection writes into a directory the user version-controls, so two rules hol
   directory has one. A linked worktree shares `info/exclude` with the main checkout and every other
   worktree, so its block is its own, keyed by the worktree's name in the markers
   (`# >>> cartographer (managed: <name>) >>>`): ensuring or removing it never touches the main
-  checkout's plain block or another worktree's. A submodule's git directory is its own, so it keeps
-  the plain block.
+  checkout's plain block or another worktree's. For the same reason the file is shared, a
+  worktree's paths are also excluded in the main checkout and in its sibling worktrees. The blocks
+  of worktrees that `git worktree remove` has deleted are dropped by the next ensure or removal
+  from any of them. A submodule's git directory is its own, so it keeps the plain block.
   A `.git` file is the repository's content, not the user's, so its target is trusted only when it
   is this workspace's own git directory: a worktree's must hold `HEAD`, link back to this
-  workspace's `.git` and sit at `<commondir>/worktrees/<name>`; a submodule's must hold `HEAD` and
-  lie under the `modules/` directory of an enclosing repository. Anything else (another directory,
-  `../` traversal, a UNC path on Windows, a symlinked pointer file) is a warning and writes
-  nothing, and the warning never repeats what the file says.
+  workspace's `.git` and sit at `<commondir>/worktrees/<name>`; a submodule's must hold `HEAD`,
+  lie (once symlinks are resolved) under the `modules/` directory of an enclosing repository and
+  name this workspace as its `core.worktree`. Anything else (another directory, `../` traversal,
+  a sibling submodule's directory, a UNC path on Windows, a symlinked pointer file) is a warning
+  and writes nothing, and the warning never repeats what the file says. A layout nothing ties to
+  the workspace, such as `git init --separate-git-dir`, is such a case: it gets the warning and
+  no exclude block, so the projected paths show up in `git status` until they are ignored by hand.
 - A path Cartographer would own **entirely** that git already tracks is a **refusal**, before
   anything is written. Overwriting a versioned file destroys work under version control, and there
   is no safe silent answer.
