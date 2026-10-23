@@ -21,6 +21,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // mcpServerKey is the top-level JSON key the provider uses to hold its map of
@@ -63,7 +64,7 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 
 	if filepath.Ext(r.FilePath) == ".toml" {
 		begin, end := mcpServerMarkers(name)
-		if err := blocktext.Write(filepath.Join(baseDir, r.FilePath), begin, end, string(r.Content)); err != nil {
+		if err := blocktext.Write(baseDir, filepath.Join(baseDir, r.FilePath), begin, end, string(r.Content)); err != nil {
 			return "", nil, fmt.Errorf("provisioning: write mcp %s into %s: %w", name, r.FilePath, err)
 		}
 		return r.FilePath, r.Warnings, nil
@@ -96,7 +97,7 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 		}
 	}
 
-	if err := saveJSONObject(settingsPath, settings); err != nil {
+	if err := saveJSONObject(baseDir, settingsPath, settings); err != nil {
 		return "", nil, err
 	}
 	return r.FilePath, r.Warnings, nil
@@ -121,7 +122,7 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 
 	if filepath.Ext(fullPath) == ".toml" {
 		begin, end := mcpServerMarkers(name)
-		_, err := blocktext.Remove(fullPath, begin, end, false)
+		_, err := blocktext.Remove(baseDir, fullPath, begin, end, false)
 		return err
 	}
 
@@ -153,13 +154,13 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 	}
 
 	if d, ok := configurator.Lookup(provider); ok && d.DeletableWhenEmpty && isEmptyMCPProviderShell(settings) {
-		if err := os.Remove(fullPath); err != nil {
+		if err := safewrite.Remove(baseDir, fullPath); err != nil {
 			return fmt.Errorf("provisioning: remove %s: %w", fullPath, err)
 		}
 		pruneEmptyDirs(baseDir, filePath)
 		return nil
 	}
-	return saveJSONObject(fullPath, settings)
+	return saveJSONObject(baseDir, fullPath, settings)
 }
 
 // isEmptyMCPProviderShell reports whether settings has nothing left worth

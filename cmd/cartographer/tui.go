@@ -674,6 +674,9 @@ func summarizeDisconnect(res disconnectResult) string {
 	if n := len(pr.Pruned); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d skill file(s) pruned", n))
 	}
+	if len(pr.Refused) > 0 {
+		parts = append(parts, "kept connected: "+strings.Join(pr.Refused, "; "))
+	}
 	if len(parts) == 0 {
 		return "already disconnected"
 	}
@@ -820,7 +823,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = nil
-		m.message = fmt.Sprintf("disconnected %s: %s", msg.provider, summarizeDisconnect(msg.res))
+		if len(msg.res.Providers) > 0 && len(msg.res.Providers[0].Refused) > 0 {
+			m.message = fmt.Sprintf("kept %s connected: %s", msg.provider, strings.Join(msg.res.Providers[0].Refused, "; "))
+		} else {
+			m.message = fmt.Sprintf("disconnected %s: %s", msg.provider, summarizeDisconnect(msg.res))
+		}
 		m.rows = buildRows(m.dir)
 		m.loading = hasConnectedAgent(m.rows)
 		if m.loading {

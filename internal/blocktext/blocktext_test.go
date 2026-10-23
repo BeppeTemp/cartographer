@@ -1,12 +1,15 @@
 package blocktext_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 const (
@@ -16,7 +19,7 @@ const (
 
 func TestWrite_CreatesFileIfAbsent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sub", "cfg.toml")
-	if err := blocktext.Write(path, begin, end, "body\n"); err != nil {
+	if err := blocktext.Write(filepath.Dir(path), path, begin, end, "body\n"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -35,7 +38,7 @@ func TestWrite_ReplacesExistingBlock_PreservesRest(t *testing.T) {
 	if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := blocktext.Write(path, begin, end, "new body"); err != nil {
+	if err := blocktext.Write(filepath.Dir(path), path, begin, end, "new body"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -54,7 +57,7 @@ func TestWrite_AppendsIfMarkersAbsent(t *testing.T) {
 	if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := blocktext.Write(path, begin, end, "body"); err != nil {
+	if err := blocktext.Write(filepath.Dir(path), path, begin, end, "body"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -70,7 +73,7 @@ func TestWrite_AppendsIfMarkersAbsent(t *testing.T) {
 func TestWrite_Idempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cfg.toml")
 	for i := 0; i < 3; i++ {
-		if err := blocktext.Write(path, begin, end, "body"); err != nil {
+		if err := blocktext.Write(filepath.Dir(path), path, begin, end, "body"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -90,7 +93,7 @@ func TestRemove_StripsBlock_KeepsRest(t *testing.T) {
 	if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := blocktext.Remove(path, begin, end, false)
+	removed, err := blocktext.Remove(filepath.Dir(path), path, begin, end, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +118,7 @@ func TestRemove_DeletesFileIfLeftEmpty(t *testing.T) {
 	if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := blocktext.Remove(path, begin, end, false); err != nil {
+	if _, err := blocktext.Remove(filepath.Dir(path), path, begin, end, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -125,7 +128,7 @@ func TestRemove_DeletesFileIfLeftEmpty(t *testing.T) {
 
 func TestRemove_NoFile_NoOp(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing.toml")
-	removed, err := blocktext.Remove(path, begin, end, false)
+	removed, err := blocktext.Remove(filepath.Dir(path), path, begin, end, false)
 	if err != nil || removed {
 		t.Errorf("removed=%v err=%v, want false/nil", removed, err)
 	}
@@ -136,7 +139,7 @@ func TestRemove_NoMarkers_NoOp(t *testing.T) {
 	if err := os.WriteFile(path, []byte("key = 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := blocktext.Remove(path, begin, end, false)
+	removed, err := blocktext.Remove(filepath.Dir(path), path, begin, end, false)
 	if err != nil || removed {
 		t.Errorf("removed=%v err=%v, want false/nil", removed, err)
 	}
@@ -152,7 +155,7 @@ func TestRemove_DryRun_DoesNotWrite(t *testing.T) {
 	if err := os.WriteFile(path, []byte(initial), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	removed, err := blocktext.Remove(path, begin, end, true)
+	removed, err := blocktext.Remove(filepath.Dir(path), path, begin, end, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +181,7 @@ func TestWrite_ReplacesLegacyLocalizedBeginMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 	newBegin := "# begin — new english tail"
-	if err := blocktext.Write(path, newBegin, end, "new body"); err != nil {
+	if err := blocktext.Write(filepath.Dir(path), path, newBegin, end, "new body"); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(path)
@@ -191,5 +194,114 @@ func TestWrite_ReplacesLegacyLocalizedBeginMarker(t *testing.T) {
 	}
 	if strings.Count(string(data), "# begin") != 1 {
 		t.Errorf("begin marker duplicated:\n%s", data)
+	}
+}
+
+// --- symlinked destinations are refused (D148) ---
+
+func TestWriteAndRemove_RefuseASymlinkedFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	base := t.TempDir()
+	elsewhere := t.TempDir()
+	target := filepath.Join(elsewhere, "target.toml")
+	const content = "# begin\nold\n# end\nkey = 1\n"
+	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "cfg.toml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := blocktext.Write(base, link, begin, end, "new"); !errors.Is(err, safewrite.ErrSymlinkDestination) {
+		t.Errorf("Write = %v, want ErrSymlinkDestination", err)
+	}
+	for _, dry := range []bool{false, true} {
+		if _, err := blocktext.Remove(base, link, begin, end, dry); !errors.Is(err, safewrite.ErrSymlinkDestination) {
+			t.Errorf("Remove(dry=%v) = %v, want ErrSymlinkDestination", dry, err)
+		}
+	}
+	if b, _ := os.ReadFile(target); string(b) != content {
+		t.Errorf("target changed: %q", b)
+	}
+}
+
+func TestWriteAndRemove_RefuseASymlinkedDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	base := t.TempDir()
+	elsewhere := t.TempDir()
+	const content = "# begin\nold\n# end\nkey = 1\n"
+	if err := os.WriteFile(filepath.Join(elsewhere, "cfg.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(base, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{filepath.Join(".codex", "cfg.toml"), filepath.Join(".codex", "sub", "new.toml")} {
+		path := filepath.Join(base, rel)
+		if err := blocktext.Write(base, path, begin, end, "new"); !errors.Is(err, safewrite.ErrSymlinkDestination) {
+			t.Errorf("Write(%s) = %v, want ErrSymlinkDestination", rel, err)
+		}
+		// Removing from a file that is not there, or that holds no block, is a
+		// no-op and never a refusal.
+		_, err := blocktext.Remove(base, path, begin, end, false)
+		if strings.HasSuffix(rel, "new.toml") {
+			if err != nil {
+				t.Errorf("Remove(%s) of an absent file = %v, want nil", rel, err)
+			}
+		} else if !errors.Is(err, safewrite.ErrSymlinkDestination) {
+			t.Errorf("Remove(%s) = %v, want ErrSymlinkDestination", rel, err)
+		}
+	}
+	if b, _ := os.ReadFile(filepath.Join(elsewhere, "cfg.toml")); string(b) != content {
+		t.Errorf("target changed: %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(elsewhere, "sub")); err == nil {
+		t.Error("a directory was created through the link")
+	}
+}
+
+func TestWrite_AllowsASymlinkedBaseDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "home")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(link, ".codex", "config.toml")
+	if err := blocktext.Write(link, path, begin, end, "body"); err != nil {
+		t.Fatalf("Write under a symlinked base dir = %v, want nil", err)
+	}
+	if _, err := blocktext.Remove(link, path, begin, end, false); err != nil {
+		t.Fatalf("Remove under a symlinked base dir = %v, want nil", err)
+	}
+}
+
+func TestRemove_NothingToRemoveNeverRefuses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	base := t.TempDir()
+	elsewhere := t.TempDir()
+	const content = "key = 1\n"
+	if err := os.WriteFile(filepath.Join(elsewhere, "cfg.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(base, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(elsewhere, "cfg.toml"), filepath.Join(base, "link.toml")); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Join(base, ".codex", "cfg.toml"), filepath.Join(base, "link.toml")} {
+		removed, err := blocktext.Remove(base, p, begin, end, false)
+		if err != nil || removed {
+			t.Errorf("Remove(%s) = %v, %v; want false, nil: the file holds no block", p, removed, err)
+		}
 	}
 }

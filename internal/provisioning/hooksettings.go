@@ -19,6 +19,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // hookSpec is the hook.json format (KB, hooks/<name>/hook.json): the Claude
@@ -67,7 +68,7 @@ func registerHookSettings(baseDir, hookName, fullDestDir string) (string, error)
 		return "", err
 	}
 	upsertHookEntry(settings, hookOwnershipMarker(hookName), spec.Event, spec.Matcher, command)
-	return warning, saveJSONObject(settingsPath, settings)
+	return warning, saveJSONObject(baseDir, settingsPath, settings)
 }
 
 // removeHookEntries strips every settings.json hooks entry owned by hookName
@@ -85,7 +86,7 @@ func removeHookEntries(baseDir, hookName string) error {
 	if !stripHookEntries(settings, hookOwnershipMarker(hookName)) {
 		return nil
 	}
-	return saveJSONObject(settingsPath, settings)
+	return saveJSONObject(baseDir, settingsPath, settings)
 }
 
 // claudeSettingsPath returns the path to Claude Code's settings.json under baseDir.
@@ -442,7 +443,7 @@ func registerCodexHook(baseDir, hookName, fullDestDir string) (string, error) {
 		return "", err
 	}
 	upsertHookEntry(settings, marker, codexHookEvent(spec.Event), spec.Matcher, command)
-	if err := saveJSONObject(path, settings); err != nil {
+	if err := saveJSONObject(baseDir, path, settings); err != nil {
 		return "", err
 	}
 	if migrated == 0 {
@@ -477,12 +478,12 @@ func removeCodexHook(baseDir, hookName string) error {
 	// empty object is no configuration at all, so the file goes rather than
 	// staying behind as `{}` after a disconnect. Any other key keeps it.
 	if len(settings) == 0 {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := safewrite.Remove(baseDir, path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("provisioning: remove %s: %w", path, err)
 		}
 		return nil
 	}
-	return saveJSONObject(path, settings)
+	return saveJSONObject(baseDir, path, settings)
 }
 
 // removeLegacyCodexHookTOML removes a D58 registration of hookName from
@@ -500,17 +501,19 @@ func removeCodexHook(baseDir, hookName string) error {
 // hook's own block only its [[hooks.<Event>]] registrations are ours.
 func removeLegacyCodexHookTOML(baseDir, hookName, command string) (int, error) {
 	path := codexConfigTOMLPath(baseDir)
-	adopted, err := configurator.AdoptCodexOrphanTables(path, codexHookTableOwner(hookName, command))
+	// Each step refuses (D148) only when it has something to write or remove, so
+	// a config.toml with no registration of ours is a no-op under a link too.
+	adopted, err := configurator.AdoptCodexOrphanTablesUnder(baseDir, path, codexHookTableOwner(hookName, command))
 	if err != nil {
 		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
 	}
 	begin, end := codexHookMarkers(hookName)
-	if _, err := configurator.EvictTablesFromBlock(path, begin, end, func(key []string) bool {
+	if _, err := configurator.EvictTablesFromBlockUnder(baseDir, path, begin, end, func(key []string) bool {
 		return len(key) >= 2 && key[0] == "hooks" && key[1] != "state"
 	}); err != nil {
 		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
 	}
-	removed, err := blocktext.Remove(path, begin, end, false)
+	removed, err := blocktext.Remove(baseDir, path, begin, end, false)
 	if err != nil {
 		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
 	}
@@ -584,7 +587,7 @@ func registerAntigravityHook(baseDir, hookName, fullDestDir string) (string, err
 		definition[spec.Event] = []interface{}{handler}
 	}
 	settings[antigravityHookKey(hookName)] = definition
-	return "", saveJSONObject(path, settings)
+	return "", saveJSONObject(baseDir, path, settings)
 }
 
 var antigravityHookEvents = map[string]bool{
@@ -646,7 +649,7 @@ func removeAntigravityHook(baseDir, hookName, hookRel string) error {
 			return nil
 		}
 	}
-	return saveJSONObject(path, settings)
+	return saveJSONObject(baseDir, path, settings)
 }
 
 // --- OpenCode (D59) ---
@@ -762,7 +765,7 @@ func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, war
 	}
 
 	fullPath := filepath.Join(baseDir, openCodePluginRelPath(hookName))
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+	if err := mkdirAllNoFollow(baseDir, filepath.Dir(fullPath), 0o755); err != nil {
 		return "", "", fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(fullPath), err)
 	}
 	if err := writeFileNoFollow(fullPath, []byte(content), 0o644); err != nil {
@@ -778,7 +781,7 @@ func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, war
 // wrote a file for in the first place).
 func removeOpenCodePlugin(baseDir, hookName string) error {
 	fullPath := filepath.Join(baseDir, openCodePluginRelPath(hookName))
-	if err := os.Remove(fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := safewrite.Remove(baseDir, fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
@@ -984,13 +987,14 @@ func loadJSONObject(path string) (map[string]interface{}, error) {
 }
 
 // saveJSONObject serializes m as indented JSON to path, creating parent directories
-// as needed.
-func saveJSONObject(path string, m map[string]interface{}) error {
+// as needed. baseDir is the client directory path lives under: a file or a
+// directory component below it that is a symlink is refused (D148).
+func saveJSONObject(baseDir, path string, m map[string]interface{}) error {
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("provisioning: serialize %s: %w", path, err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := mkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(path), err)
 	}
 	if err := writeFileNoFollow(path, data, 0o644); err != nil {

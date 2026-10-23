@@ -64,7 +64,15 @@ func cmdReconnect(args []string) int {
 		fmt.Println("no connected provider matches; nothing to reconnect (name a provider explicitly to rebuild it anyway)")
 		return 0
 	}
-	printConnectResult(dir, res.Providers, res.ConnectOptions, *res.Connected)
+	if res.Connected != nil {
+		printConnectResult(dir, res.ConnectOptions.Providers, res.ConnectOptions, *res.Connected)
+	}
+	if res.Disconnected != nil {
+		if kept := res.Disconnected.keptConnected(); len(kept) > 0 {
+			fmt.Fprintf(os.Stderr, "Error: kept connected because a destination is a symlink, not rebuilt: %s (replace the link with a regular file or directory, then run reconnect again)\n", strings.Join(kept, ", "))
+			return 1
+		}
+	}
 	return 0
 }
 
@@ -130,8 +138,19 @@ func doReconnect(opts reconnectOptions) (reconnectResult, error) {
 	}
 	res.Disconnected = &disconnected
 
+	// A provider the disconnect half kept because its config or managed files
+	// sit behind a symlink (D148) is not rebuilt: it is still connected as it
+	// was, and the caller exits 1 like `disconnect` does.
+	rebuild := providers
+	if kept := disconnected.keptConnected(); len(kept) > 0 {
+		rebuild = removeStrings(providers, kept)
+		if len(rebuild) == 0 {
+			return res, nil
+		}
+	}
+
 	res.ConnectOptions = connectOptions{
-		Providers: providers,
+		Providers: rebuild,
 		Dir:       opts.Dir,
 		ServerURL: cfg.ServerURL,
 		Name:      cfg.ServerName,
@@ -145,7 +164,7 @@ func doReconnect(opts reconnectOptions) (reconnectResult, error) {
 	if err != nil {
 		// A dry run wrote nothing, so nothing was left disconnected either.
 		if !opts.DryRun {
-			res.LeftDisconnected = providers
+			res.LeftDisconnected = rebuild
 		}
 		return res, err
 	}

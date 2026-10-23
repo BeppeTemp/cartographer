@@ -23,6 +23,7 @@ import (
 	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // kiroHooksRelPath is the Cartographer-owned standalone hook file, relative to
@@ -84,7 +85,7 @@ func registerKiroHook(baseDir, hookName, fullDestDir string) (string, error) {
 	if err := mkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
 		return "", fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(path), err)
 	}
-	return warning, saveJSONObject(path, doc)
+	return warning, saveJSONObject(baseDir, path, doc)
 }
 
 // removeKiroHook strips hookName's entry from cartographer.json — the inverse of
@@ -104,14 +105,14 @@ func removeKiroHook(baseDir, hookName string) error {
 		return nil
 	}
 	if len(hooks) == 0 {
-		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		if err := safewrite.Remove(baseDir, path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("provisioning: remove %s: %w", path, err)
 		}
 		pruneEmptyDirs(baseDir, filepath.Join(kiroHooksRelPath...))
 		return nil
 	}
 	doc["hooks"] = hooks
-	return saveJSONObject(path, doc)
+	return saveJSONObject(baseDir, path, doc)
 }
 
 // stripKiroHookEntries returns doc's hooks list without the entries named

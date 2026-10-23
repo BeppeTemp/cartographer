@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // Write creates or rewrites the block delimited by begin/end (each marker on
@@ -28,9 +30,18 @@ import (
 //
 // Idempotent: calling Write twice in a row with the same body produces the
 // same file.
-func Write(path, begin, end, body string) error {
+//
+// baseDir is the client directory path lives under (home, or the project dir in
+// workspace scope). Write refuses — with an error matching
+// safewrite.ErrSymlinkDestination, before reading or writing anything — a path
+// whose file, or any directory component below baseDir, is a symlink or
+// otherwise not a plain file or directory. baseDir itself may be a link.
+func Write(baseDir, path, begin, end, body string) error {
 	block := begin + "\n" + strings.TrimRight(body, "\n") + "\n" + end + "\n"
 
+	if err := safewrite.CheckPath(baseDir, path); err != nil {
+		return err
+	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -55,7 +66,12 @@ func Write(path, begin, end, body string) error {
 // Returns whether a block was found (and, unless dryRun, removed); (false,
 // nil) if the file doesn't exist or doesn't contain the markers. If dryRun is
 // true, computes and returns what would happen without writing anything.
-func Remove(path, begin, end string, dryRun bool) (bool, error) {
+//
+// baseDir and the refusal are those of Write, but the refusal applies only when
+// a block was found: a file with nothing of ours in it is a no-op and never an
+// error. A dry run refuses too when it would have changed something, so it
+// reports what the real run would do.
+func Remove(baseDir, path, begin, end string, dryRun bool) (bool, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -66,8 +82,14 @@ func Remove(path, begin, end string, dryRun bool) (bool, error) {
 
 	content := string(data)
 	stripped, ok := ReplaceBetween(content, begin, end, "")
-	if !ok || dryRun {
-		return ok, nil
+	if !ok {
+		return false, nil
+	}
+	if err := safewrite.CheckPath(baseDir, path); err != nil {
+		return false, err
+	}
+	if dryRun {
+		return true, nil
 	}
 	if strings.TrimSpace(stripped) == "" {
 		return true, os.Remove(path)

@@ -15,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // ServerConfig holds the MCP server configuration. The client always talks to the
@@ -204,9 +205,18 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 	if err != nil {
 		return written, fmt.Errorf("resolve base directory %s: %w", baseDir, err)
 	}
+	// A destination that is a symlink, or has a symlinked directory component
+	// under baseDir, is refused for that result only (safewrite.ErrSymlinkDestination,
+	// D148): the others are still written, and the refusals come back joined
+	// after them. A dry run refuses too, so it reports what the real run does.
+	var refused []error
 	for _, r := range results {
 		fullPath := filepath.Join(absoluteBaseDir, r.FilePath)
 		r.AbsolutePath = fullPath
+		if err := safewrite.CheckPath(absoluteBaseDir, fullPath); err != nil {
+			refused = append(refused, err)
+			continue
+		}
 		if dryRun {
 			written = append(written, r.AbsolutePath)
 			continue
@@ -244,7 +254,7 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 				r.Warnings = append(r.Warnings, fmt.Sprintf(
 					"codex: removed a stale [%s] table left outside the managed block by Codex's own config.toml rewrite (it would have been a duplicate key)", key))
 			}
-			if err := blocktext.Write(fullPath, codexMCPBlockBegin, codexMCPBlockEnd, string(r.Content)); err != nil {
+			if err := blocktext.Write(absoluteBaseDir, fullPath, codexMCPBlockBegin, codexMCPBlockEnd, string(r.Content)); err != nil {
 				return written, fmt.Errorf("write %s: %w", fullPath, err)
 			}
 			written = append(written, r.AbsolutePath)
@@ -264,12 +274,12 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 			}
 		}
 
-		if err := os.WriteFile(fullPath, content, 0o644); err != nil {
+		if err := safewrite.WriteFileNoFollow(fullPath, content, 0o644); err != nil {
 			return written, fmt.Errorf("write %s: %w", fullPath, err)
 		}
 		written = append(written, r.AbsolutePath)
 	}
-	return written, nil
+	return written, errors.Join(refused...)
 }
 
 // mcpServerKeys are the top-level JSON keys used by provider config files to hold
@@ -295,8 +305,20 @@ func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (
 	}
 	fullPath := filepath.Join(baseDir, r.FilePath)
 
+	// A destination that is a symlink, or under one, is refused (D148) only
+	// when something would be written or removed there: a config with nothing
+	// of ours in it is a no-op and never an error, so a dotfile-managed file
+	// that needs no change stays a clean disconnect. A dry run refuses too
+	// when it would have changed something.
 	if filepath.Ext(fullPath) == ".toml" {
-		removed, err := blocktext.Remove(fullPath, codexMCPBlockBegin, codexMCPBlockEnd, dryRun)
+		if provider == ProviderCodex && !dryRun {
+			// Both files or neither: a refusal on the legacy file must not
+			// leave the block already removed from config.toml.
+			if _, err := removeLegacyCodexJSON(cfg.Name, baseDir, true); err != nil {
+				return false, err
+			}
+		}
+		removed, err := blocktext.Remove(baseDir, fullPath, codexMCPBlockBegin, codexMCPBlockEnd, dryRun)
 		if err != nil {
 			return false, fmt.Errorf("remove block %s: %w", fullPath, err)
 		}
@@ -307,7 +329,7 @@ func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (
 			// entry (or the file, if that empties it) too.
 			legacyRemoved, err := removeLegacyCodexJSON(cfg.Name, baseDir, dryRun)
 			if err != nil {
-				return false, err
+				return removed, err
 			}
 			removed = removed || legacyRemoved
 		}
@@ -351,8 +373,14 @@ func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (
 			}
 		}
 	}
-	if !found || dryRun {
-		return found, nil
+	if !found {
+		return false, nil
+	}
+	if err := safewrite.CheckPath(baseDir, fullPath); err != nil {
+		return false, err
+	}
+	if dryRun {
+		return true, nil
 	}
 
 	// File-level cleanup (D63): .claude.json is Claude Code's own shared state
@@ -364,7 +392,7 @@ func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (
 	// "$schema" hint, there is nothing worth keeping — delete the file outright
 	// instead of leaving an empty shell nobody reads.
 	if d, ok := Lookup(provider); ok && d.DeletableWhenEmpty && isEmptyProviderShell(root) {
-		if err := os.Remove(fullPath); err != nil {
+		if err := safewrite.Remove(baseDir, fullPath); err != nil {
 			return false, fmt.Errorf("remove %s: %w", fullPath, err)
 		}
 		// Best-effort (D63): also drop the file's own parent directory if that
@@ -385,7 +413,7 @@ func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (
 	if err != nil {
 		return false, err
 	}
-	if err := os.WriteFile(fullPath, out, 0o644); err != nil {
+	if err := safewrite.WriteFileNoFollow(fullPath, out, 0o644); err != nil {
 		return false, fmt.Errorf("write %s: %w", fullPath, err)
 	}
 	return true, nil
@@ -436,6 +464,9 @@ func removeLegacyCodexJSON(name, baseDir string, dryRun bool) (bool, error) {
 	if _, ok := servers[name]; !ok {
 		return false, nil
 	}
+	if err := safewrite.CheckPath(baseDir, legacyPath); err != nil {
+		return false, err
+	}
 	if dryRun {
 		return true, nil
 	}
@@ -444,14 +475,14 @@ func removeLegacyCodexJSON(name, baseDir string, dryRun bool) (bool, error) {
 	if len(servers) == 0 && len(root) == 1 {
 		// The legacy file held nothing but an (now empty) mcpServers map:
 		// remove it outright rather than leave an empty shell nobody reads.
-		return true, os.Remove(legacyPath)
+		return true, safewrite.Remove(baseDir, legacyPath)
 	}
 	root["mcpServers"] = servers
 	out, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return false, err
 	}
-	if err := os.WriteFile(legacyPath, out, 0o644); err != nil {
+	if err := safewrite.WriteFileNoFollow(legacyPath, out, 0o644); err != nil {
 		return false, err
 	}
 	return true, nil

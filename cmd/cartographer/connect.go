@@ -19,6 +19,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -877,7 +878,14 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		return connectResult{}, err
 	}
 	claudeDirs, claudeDirWarnings := claudeConfigDirs(opts.Dir, existing)
-	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun); err != nil {
+	// A symlinked config file or directory is refused for its provider only
+	// (D148): the refusal is a warning, the other providers proceed.
+	var refusalNotes, retainedKBs []string
+	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun); errors.Is(err, safewrite.ErrSymlinkDestination) {
+		refusalNotes = refusalWarnings(err)
+		// Their stale entries stay, so these KBs stay in known_kbs (as in sync).
+		retainedKBs = refusedEntryKBs(err, opts.Name, existing.KnownKBs)
+	} else if err != nil {
 		return connectResult{}, err
 	}
 	authorWarnings := setEntryAuthors(existing, entriesByProvider, globalIdentFn)
@@ -885,7 +893,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	if err != nil {
 		return connectResult{}, err
 	}
-	configWarnings = append(configWarnings, authorWarnings...)
+	configWarnings = appendUnique(append(configWarnings, authorWarnings...), refusalNotes...)
 	// A routed server writes one entry per provider, and one entry cannot
 	// collide with itself: the flat-namespace warning (D102) has nothing to
 	// warn about and firing it would be noise.
@@ -973,7 +981,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	existing.ServerURL, existing.ServerName, existing.Auth, existing.Token = opts.ServerURL, opts.Name, opts.Auth, opts.Token
 	existing.AllowInsecureHTTP = opts.AllowInsecureHTTP
 	if healthErr == nil {
-		existing.KnownKBs = kbs
+		existing.KnownKBs = withRetainedKBs(kbs, retainedKBs)
 	}
 	for _, p := range opts.Providers {
 		existing.AddAgent(p)

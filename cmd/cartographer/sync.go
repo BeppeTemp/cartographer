@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // cmdSync re-fetches the manifest from the configured server (sync_pull) and
@@ -168,6 +170,10 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// for. Reconciliation compares it against what the server mounts now, so
 	// it must be read before cfg.KnownKBs is refreshed in memory.
 	previousKnownKBs := cfg.KnownKBs
+	// retainedKBs are the KBs whose stale per-KB entry could not be removed
+	// because its config sits behind a symlink (D148): they stay in known_kbs,
+	// or the next sync would no longer know the entry is ours to remove.
+	var retainedKBs []string
 
 	// Nothing is written before the manifest is fetched and verified (D172).
 	// The previous order rewrote the providers' MCP entries and
@@ -253,6 +259,14 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		// its entries untouched.
 		claudeDirs, claudeDirWarnings := claudeConfigDirs(dir, cfg)
 		removedNames, _, err := removeMCPEntries(cfg.ServerName, previousKnownKBs, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
+		// A symlinked config file or directory is refused for its provider
+		// only (D148): a warning, and the other providers proceed.
+		var refusalNotes []string
+		if errors.Is(err, safewrite.ErrSymlinkDestination) {
+			refusalNotes = refusalWarnings(err)
+			retainedKBs = refusedEntryKBs(err, cfg.ServerName, previousKnownKBs)
+			err = nil
+		}
 		if err != nil {
 			return syncResult{}, err
 		}
@@ -261,7 +275,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		if err != nil {
 			return syncResult{}, err
 		}
-		warnings = append(warnings, authorWarnings...)
+		warnings = appendUnique(append(warnings, authorWarnings...), refusalNotes...)
 		if w := literalTokenWarning(cfg.Auth, cfg.Token); w != "" {
 			warnings = append(warnings, w)
 		}
@@ -294,7 +308,11 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	if healthErr == nil {
 		printKnownKBsChange(previousKnownKBs, kbs, opts.DryRun)
 		if !opts.DryRun {
-			if err := clientconfig.Save(dir, cfg); err != nil {
+			mounted := cfg.KnownKBs
+			cfg.KnownKBs = withRetainedKBs(mounted, retainedKBs)
+			err := clientconfig.Save(dir, cfg)
+			cfg.KnownKBs = mounted
+			if err != nil {
 				return syncResult{}, err
 			}
 		}

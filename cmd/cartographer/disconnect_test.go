@@ -2,14 +2,17 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // testSkillDir mirrors provisioning.skillDestDir's (unexported) provider →
@@ -346,5 +349,286 @@ func TestDisconnect_KeepsTimerWhileAClientNeedsIt(t *testing.T) {
 	}
 	if c.uninstalls != 0 {
 		t.Error("kiro still needs the timer: it must stay (an installed timer must not read as 'nobody needs it')")
+	}
+}
+
+// --- a symlinked client config is refused for its provider only (D148) ---
+
+// linkCodexDir replaces dir/.codex with a link to a directory holding the same
+// files, and returns that directory.
+func linkCodexDir(t *testing.T, dir string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	elsewhere := filepath.Join(t.TempDir(), "codex-elsewhere")
+	if err := os.Rename(filepath.Join(dir, ".codex"), elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(dir, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	return elsewhere
+}
+
+func readTree(t *testing.T, root string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		rel, _ := filepath.Rel(root, p)
+		out[rel] = string(b)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestDoDisconnect_ASymlinkedConfigKeepsThatProviderConnectedAndTheRestProceeds(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude", "codex")
+	elsewhere := linkCodexDir(t, dir)
+	before := readTree(t, elsewhere)
+
+	res, err := doDisconnect(disconnectOptions{Providers: []string{"claude", "codex"}, Dir: dir})
+	if err != nil {
+		t.Fatalf("doDisconnect = %v, want the refusal reported per provider, not fatal", err)
+	}
+	var codex, claude *disconnectProviderResult
+	for i := range res.Providers {
+		switch res.Providers[i].Provider {
+		case "codex":
+			codex = &res.Providers[i]
+		case "claude":
+			claude = &res.Providers[i]
+		}
+	}
+	if codex == nil || len(codex.Refused) == 0 || codex.ConfigRemoved {
+		t.Fatalf("codex result = %+v, want a refusal", codex)
+	}
+	if claude == nil || !claude.ConfigRemoved || len(claude.Refused) != 0 {
+		t.Fatalf("claude result = %+v, want its entry removed", claude)
+	}
+	if after := readTree(t, elsewhere); len(after) != len(before) {
+		t.Errorf("link target changed: %v -> %v", before, after)
+	} else {
+		for k, v := range before {
+			if after[k] != v {
+				t.Errorf("link target file %s changed", k)
+			}
+		}
+	}
+
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HasAgent("codex") || cfg.HasAgent("claude") {
+		t.Errorf("agents = %v, want codex kept and claude gone", cfg.Agents)
+	}
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := lf.Providers["codex"]; !ok {
+		t.Error("codex lock entry should remain so the next disconnect retries")
+	}
+	if _, ok := lf.Providers["claude"]; ok {
+		t.Error("claude lock entry should be gone")
+	}
+}
+
+func TestApplyMCPEntries_ASymlinkedConfigIsAWarningAndOtherProvidersAreWritten(t *testing.T) {
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(dir, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a"}, []string{"a"}, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := []string{"codex", "claude", "opencode"}
+	written, warnings, err := applyMCPEntries(sameEntriesFor(providers, entries), providers, dir, nil, false, "", false)
+	if err != nil {
+		t.Fatalf("applyMCPEntries = %v, want the refusal as a warning", err)
+	}
+	if len(written) != 2 {
+		t.Errorf("written = %v, want claude and opencode", written)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], filepath.Join(dir, ".codex")) {
+		t.Errorf("warnings = %v, want one naming the .codex link", warnings)
+	}
+	if got, _ := os.ReadDir(elsewhere); len(got) != 0 {
+		t.Errorf("the link target gained %d entries", len(got))
+	}
+	for _, f := range []string{".claude.json", "opencode.json"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("%s was not written: %v", f, err)
+		}
+	}
+}
+
+func TestRemoveMCPEntries_ASymlinkedConfigIsReportedAfterTheOtherProvidersAreProcessed(t *testing.T) {
+	dir := setupDisconnectFixture(t, "codex", "claude")
+	elsewhere := linkCodexDir(t, dir)
+	before := readTree(t, elsewhere)
+
+	_, removed, err := removeMCPEntries("wiki", nil, []string{"codex", "claude"}, dir, nil, false, "", false)
+	if !errors.Is(err, safewrite.ErrSymlinkDestination) {
+		t.Fatalf("removeMCPEntries = %v, want ErrSymlinkDestination", err)
+	}
+	if !removed["claude"] {
+		t.Error("claude's entry should still have been removed")
+	}
+	if removed["codex"] {
+		t.Error("codex's entry cannot have been removed through the link")
+	}
+	for k, v := range readTree(t, elsewhere) {
+		if before[k] != v {
+			t.Errorf("link target file %s changed", k)
+		}
+	}
+}
+
+// Managed files behind a symlink are refused by the prune as well: what can be
+// pruned is, the provider stays connected with its lockfile section, and the
+// command exits 1 (D148).
+func TestDoDisconnect_APrunedFileBehindASymlinkKeepsTheProviderConnected(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude", "opencode")
+	elsewhere := linkOpencodeDir(t, dir)
+	before := readTree(t, elsewhere)
+
+	res, err := doDisconnect(disconnectOptions{Providers: []string{"opencode", "claude"}, Dir: dir})
+	if err != nil {
+		t.Fatalf("doDisconnect = %v, want the refusal reported per provider", err)
+	}
+	var oc, cl *disconnectProviderResult
+	for i := range res.Providers {
+		switch res.Providers[i].Provider {
+		case "opencode":
+			oc = &res.Providers[i]
+		case "claude":
+			cl = &res.Providers[i]
+		}
+	}
+	if oc == nil || len(oc.Refused) == 0 || !oc.ConfigRemoved {
+		t.Fatalf("opencode result = %+v, want its entry removed and its managed files refused", oc)
+	}
+	if cl == nil || len(cl.Refused) != 0 {
+		t.Fatalf("claude result = %+v, want a clean disconnect", cl)
+	}
+	if kept := res.keptConnected(); len(kept) != 1 || kept[0] != "opencode" {
+		t.Errorf("keptConnected = %v, want [opencode]", kept)
+	}
+	for k, v := range readTree(t, elsewhere) {
+		if before[k] != v {
+			t.Errorf("link target file %s changed", k)
+		}
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HasAgent("opencode") || cfg.HasAgent("claude") {
+		t.Errorf("agents = %v, want opencode kept and claude gone", cfg.Agents)
+	}
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := lf.Providers["opencode"]; !ok {
+		t.Error("opencode lock entry should remain so the next disconnect retries")
+	}
+	if got := summarizeDisconnect(disconnectResult{Providers: []disconnectProviderResult{*oc}}); !strings.Contains(got, "kept connected") || strings.Contains(got, "already disconnected") {
+		t.Errorf("TUI summary = %q, want the refusal reported", got)
+	}
+}
+
+func TestCmdDisconnect_ExitsNonZeroWhenAProviderWasKeptConnected(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude", "opencode")
+	setHome(t, dir)
+	linkOpencodeDir(t, dir)
+	if code := cmdDisconnect(nil); code != 1 {
+		t.Errorf("cmdDisconnect = %d, want 1", code)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || !cfg.HasAgent("opencode") || cfg.HasAgent("claude") {
+		t.Errorf("agents = %v, %v; want opencode kept and claude gone", cfg.Agents, err)
+	}
+}
+
+func TestSummarizeDisconnect_ReportsARefusalInsteadOfAlreadyDisconnected(t *testing.T) {
+	got := summarizeDisconnect(disconnectResult{Providers: []disconnectProviderResult{{Provider: "codex", Refused: []string{"destination is a symlink: /x"}}}})
+	if !strings.Contains(got, "kept connected: destination is a symlink: /x") {
+		t.Errorf("summary = %q", got)
+	}
+}
+
+// linkOpencodeDir replaces dir/.opencode (where the fixture put opencode's
+// managed skill) with a link to a directory holding the same files.
+func linkOpencodeDir(t *testing.T, dir string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	elsewhere := filepath.Join(t.TempDir(), "opencode-elsewhere")
+	if err := os.Rename(filepath.Join(dir, ".opencode"), elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(dir, ".opencode")); err != nil {
+		t.Fatal(err)
+	}
+	return elsewhere
+}
+
+// reconnect honours the disconnect half's refusal: a provider that was kept
+// connected is not rebuilt, the others are, and the exit status is 1.
+func TestDoReconnect_AProviderKeptConnectedIsNotRebuilt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	srv := multiKBServer(t, `{"status":"ok","version":"1.4.0","kbs":[{"name":"alpha"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	setHome(t, dir)
+	if _, err := doConnect(connectOptions{Providers: []string{"claude", "opencode"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer"}); err != nil {
+		t.Fatalf("doConnect: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "opencode.json")
+	if err := os.Rename(filepath.Join(dir, "opencode.json"), target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(target)
+
+	res, err := doReconnect(reconnectOptions{Target: "all", Dir: dir})
+	if err != nil {
+		t.Fatalf("doReconnect = %v", err)
+	}
+	if kept := res.Disconnected.keptConnected(); len(kept) != 1 || kept[0] != "opencode" {
+		t.Fatalf("keptConnected = %v, want [opencode]", kept)
+	}
+	if res.Connected == nil || strings.Join(res.ConnectOptions.Providers, ",") != "claude" {
+		t.Errorf("connect half ran for %v, want only claude", res.ConnectOptions.Providers)
+	}
+	if after, _ := os.ReadFile(target); string(after) != string(before) {
+		t.Errorf("the link target changed:\n%s", after)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || !cfg.HasAgent("opencode") || !cfg.HasAgent("claude") {
+		t.Errorf("agents = %v, %v; want both still connected", cfg.Agents, err)
+	}
+	if code := cmdReconnect(nil); code != 1 {
+		t.Errorf("cmdReconnect = %d, want 1", code)
 	}
 }
