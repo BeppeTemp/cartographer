@@ -916,9 +916,11 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	// server manifest fetched in step 2 below — must be in place even when that
 	// fetch is deferred (server down at connect time), since it's exactly what
 	// lets a later session self-heal once the server comes back.
-	if err := ensureBootstrapForProviders(opts.Providers, opts.Dir, opts.DryRun); err != nil {
+	hookWarnings, err := ensureBootstrapForProviders(opts.Providers, opts.Dir, opts.DryRun)
+	if err != nil {
 		return connectResult{}, fmt.Errorf("ensure bootstrap hook: %w", err)
 	}
+	configWarnings = appendUnique(configWarnings, hookWarnings...)
 
 	// 2. Materialize skills via sync_pull (best-effort: a deferred sync is not fatal).
 	pullKBs := existing.KnownKBs

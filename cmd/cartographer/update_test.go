@@ -360,7 +360,7 @@ func TestServerUpdateCheck(t *testing.T) {
 // runSync, and EnsureBootstrapHook rewrites unconditionally).
 func TestSyncBootstrapRewritesAnOutdatedScript(t *testing.T) {
 	dir := t.TempDir()
-	if err := ensureBootstrapForProviders([]string{string(configurator.ProviderClaudeCode)}, dir, false); err != nil {
+	if _, err := ensureBootstrapForProviders([]string{string(configurator.ProviderClaudeCode)}, dir, false); err != nil {
 		t.Fatal(err)
 	}
 	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
@@ -379,7 +379,7 @@ func TestSyncBootstrapRewritesAnOutdatedScript(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\ncartographer sync --auto-trust >/dev/null 2>&1 || true\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := ensureBootstrapForProviders([]string{string(configurator.ProviderClaudeCode)}, dir, false); err != nil {
+	if _, err := ensureBootstrapForProviders([]string{string(configurator.ProviderClaudeCode)}, dir, false); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(script)
@@ -452,7 +452,7 @@ func TestEnsureBootstrapForProviders_WriteFindingsAlwaysInstalled(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	if err := ensureBootstrapForProviders(claude, dir, false); err != nil {
+	if _, err := ensureBootstrapForProviders(claude, dir, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(hookDir); err != nil {

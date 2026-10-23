@@ -1184,3 +1184,83 @@ func TestPrepareWorkspace_ALinkedGitDirIsAWarning(t *testing.T) {
 		t.Errorf("the exclude file changed through the link:\n%s", after)
 	}
 }
+
+// A provider whose client directory is a symlink (D148) has its bootstrap hook
+// refused; the plain provider still gets its hook and lockfile entry, and the
+// refused one is a warning naming the path, not a fatal error.
+func symlinkedCodexDir(t *testing.T, dir string) string {
+	t.Helper()
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(dir, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	return elsewhere
+}
+
+func assertBootstrapOnlyForClaude(t *testing.T, dir, elsewhere string) {
+	t.Helper()
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var claude bool
+	for _, mf := range lf.ForProvider("claude").Managed {
+		if mf.Name == provisioning.BootstrapHookName {
+			claude = true
+		}
+	}
+	if !claude {
+		t.Errorf("the plain provider got no bootstrap hook: %+v", lf.ForProvider("claude").Managed)
+	}
+	for _, mf := range lf.ForProvider("codex").Managed {
+		if mf.Name == provisioning.BootstrapHookName {
+			t.Errorf("the refused provider is recorded as installed: %+v", mf)
+		}
+	}
+	if entries, _ := os.ReadDir(elsewhere); len(entries) != 0 {
+		t.Errorf("a write went through the link: %v", entries)
+	}
+}
+
+func TestDoConnect_ARefusedProviderDirectoryDoesNotStopTheBootstrapOfTheOthers(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	elsewhere := symlinkedCodexDir(t, dir)
+	res, err := doConnect(connectOptions{Providers: []string{"codex", "claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}"})
+	if err != nil {
+		t.Fatalf("doConnect = %v, want the refusal as a warning", err)
+	}
+	var named bool
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "bootstrap hook not installed") && strings.Contains(w, filepath.Join(dir, ".codex")) {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("warnings = %v, want one naming the .codex link", res.Warnings)
+	}
+	assertBootstrapOnlyForClaude(t, dir, elsewhere)
+}
+
+func TestCmdSync_ARefusedProviderDirectoryDoesNotStopTheBootstrapOfTheOthers(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	setHome(t, dir)
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "wiki", Token: "${TOKEN}", Agents: []string{"codex", "claude"}, KnownKBs: []string{"alpha"}}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := symlinkedCodexDir(t, dir)
+	if code := cmdSync(nil); code != 0 {
+		t.Fatalf("sync = %d, want the refusal as a warning", code)
+	}
+	assertBootstrapOnlyForClaude(t, dir, elsewhere)
+}
