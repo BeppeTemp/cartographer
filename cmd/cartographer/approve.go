@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -21,9 +24,12 @@ var (
 	approveInteractive = isInteractive
 )
 
-const approveUsage = "Usage: cartographer approve [revoke] <kind> <name> [--kb <kb>] [--yes]   (kind: mcp, hook, skill, agent)"
+const approveUsage = "Usage: cartographer approve [revoke] <kind> <name> [--kb <kb>] [--yes]   (kind: mcp, hook, skill, agent)\n       cartographer approve --pending [--kb <kb>] [--yes]"
 
 func cmdApprove(args []string) int {
+	if i := slices.Index(args, "--pending"); i >= 0 {
+		return cmdApprovePending(slices.Delete(slices.Clone(args), i, i+1))
+	}
 	revoke := false
 	if len(args) > 0 && args[0] == "revoke" {
 		revoke, args = true, args[1:]
@@ -94,35 +100,9 @@ func cmdApprove(args []string) int {
 		fmt.Fprintf(os.Stderr, "Error: %s %s is installed without approval\n", kind, name)
 		return 2
 	}
-	if kind == "mcp" {
-		files, err := provisioning.ReadArtifactFiles(a, nil, nil)
-		if err != nil || len(files) != 1 {
-			fmt.Fprintln(os.Stderr, "Error: invalid MCP descriptor")
-			return 2
-		}
-		spec, err := provisioning.ParseMCPServerSpec(a.Name, files[0].Content)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error:", err)
-			return 2
-		}
-		// The approved identity is transport-specific: the normalized endpoint for
-		// http, the local command for stdio (D116).
-		target, err := provisioning.MCPDescriptorTarget(spec)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error:", err)
-			return 2
-		}
-		fmt.Printf("Approve MCP %s from KB %s\ntransport: %s\ntarget: %s\nhash: %s\n", name, source, spec.Type, target, shortHash(a.ContentHash))
-	} else {
-		// What is approved is what will run here: list every file, flag the
-		// ones that are executable, so the person sees the scripts (D1141).
-		files, err := provisioning.ReadArtifactFiles(a, nil, nil)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error: cannot read the artifact files:", err)
-			return 2
-		}
-		fmt.Printf("Approve %s %s from KB %s\nhash: %s\n", kind, name, source, shortHash(a.ContentHash))
-		printApprovalContent(os.Stdout, a, files)
+	if err := printApprovalPreview(os.Stdout, a); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
 	}
 	if !yes {
 		if !approveInteractive() {
@@ -145,7 +125,7 @@ func cmdApprove(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
-	fmt.Printf("approved %s %s from KB %s; run cartographer sync to materialize it\n", kind, name, source)
+	fmt.Printf("approved %s %s from KB %s; run cartographer sync to materialize it\n", kind, escapeControl(name), escapeControl(source))
 	return 0
 }
 
@@ -208,6 +188,59 @@ func approvalEntryName(kind, name string) string {
 	return provisioning.ApprovalName(provisioning.Artifact{Kind: kind, Name: name})
 }
 
+// printApprovalPreview prints what approving a would let run, the one thing both
+// the single and the --pending forms show before they ask (D1141): for an MCP
+// descriptor its transport and target, for anything else every file with its
+// size and execute bit and the content of the files that decide what runs.
+// Everything the server chose (names, source, paths, target) goes through
+// escapeControl.
+func printApprovalPreview(w io.Writer, a provisioning.Artifact) error {
+	source := escapeControl(strings.TrimPrefix(a.Source, "kb:"))
+	name := escapeControl(a.Name)
+	files, err := provisioning.ReadArtifactFiles(a, nil, nil)
+	if a.Kind == "mcp" {
+		if err != nil || len(files) != 1 {
+			return fmt.Errorf("invalid MCP descriptor")
+		}
+		spec, err := provisioning.ParseMCPServerSpec(a.Name, files[0].Content)
+		if err != nil {
+			return err
+		}
+		// The approved identity is transport-specific: the normalized endpoint for
+		// http, the local command for stdio (D116).
+		target, err := provisioning.MCPDescriptorTarget(spec)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(w, "Approve MCP %s from KB %s\ntransport: %s\ntarget: %s\nhash: %s\n", name, source, escapeControl(string(spec.Type)), escapeControl(target), shortHash(a.ContentHash))
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("cannot read the artifact files: %w", err)
+	}
+	fmt.Fprintf(w, "Approve %s %s from KB %s\nhash: %s\n", escapeControl(a.Kind), name, source, shortHash(a.ContentHash))
+	printApprovalContent(w, a, files)
+	return nil
+}
+
+// escapeControl makes text the server chose safe to print on a terminal: any
+// rune that is not printable (a newline that forges a line, an ESC that
+// rewrites the screen, a bidi override or zero-width character that makes a
+// command read as another) is shown as its escape, tab excepted. Printable
+// text, accented letters included, is untouched.
+func escapeControl(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if !unicode.IsPrint(r) && r != '\t' {
+			q := strconv.QuoteToASCII(string(r))
+			b.WriteString(q[1 : len(q)-1])
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
 // maxApprovalLines caps what is printed per file; the rest is counted, never hidden.
 const maxApprovalLines = 200
 
@@ -222,20 +255,115 @@ func printApprovalContent(w io.Writer, a provisioning.Artifact, files []provisio
 		if f.Executable {
 			mark = " (executable)"
 		}
-		fmt.Fprintf(w, "  %s  %d bytes%s\n", f.Path, len(f.Content), mark)
+		fmt.Fprintf(w, "  %s  %d bytes%s\n", escapeControl(f.Path), len(f.Content), mark)
 	}
 	for _, f := range files {
 		if !(f.Executable || (a.Kind == "hook" && f.Path == "hook.json") || provisioning.FrontmatterDeclaresCommands(f.Content)) {
 			continue
 		}
 		lines := strings.Split(strings.TrimRight(string(f.Content), "\n"), "\n")
-		fmt.Fprintf(w, "--- %s ---\n", f.Path)
+		fmt.Fprintf(w, "--- %s ---\n", escapeControl(f.Path))
 		for i, l := range lines {
 			if i == maxApprovalLines {
 				fmt.Fprintf(w, "... %d more line(s) not shown; read the whole file before approving\n", len(lines)-i)
 				break
 			}
-			fmt.Fprintln(w, l)
+			fmt.Fprintln(w, escapeControl(l))
 		}
 	}
+}
+
+// cmdApprovePending lists every artifact sync would report as needs_approval and
+// approves them all after one confirmation (D1166). Each one is shown exactly as
+// the single form shows it (printApprovalPreview, D1141). An MCP descriptor is
+// left out and named: it receives the agent's data and is approved one by one.
+func cmdApprovePending(args []string) int {
+	var kbName string
+	yes := false
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--yes":
+			yes = true
+		case args[i] == "--kb" && i+1 < len(args) && args[i+1] != "":
+			i++
+			kbName = args[i]
+		case strings.HasPrefix(args[i], "--kb=") && len(args[i]) > len("--kb="):
+			kbName = strings.TrimPrefix(args[i], "--kb=")
+		default:
+			fmt.Fprintln(os.Stderr, approveUsage)
+			return 2
+		}
+	}
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	m, err := approveManifest(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	opts := provisioning.ApplyOptions{ApprovedMCP: cfg.ApprovedMCPHashes()}
+	var pending, mcps []provisioning.Artifact
+	for _, a := range m.Artifacts {
+		if kbName != "" && a.Source != "kb:"+kbName {
+			continue
+		}
+		if !provisioning.PendingApproval(a, opts) {
+			continue
+		}
+		if a.Kind == "mcp" {
+			mcps = append(mcps, a)
+		} else {
+			pending = append(pending, a)
+		}
+	}
+	for _, a := range mcps {
+		fmt.Printf("MCP %s [%s] is not approved by --pending: run `cartographer approve mcp %s --kb %s` to review and approve it\n",
+			escapeControl(a.Name), escapeControl(a.Source), escapeControl(a.Name), escapeControl(strings.TrimPrefix(a.Source, "kb:")))
+	}
+	if len(pending) == 0 {
+		fmt.Println("nothing is waiting for approval")
+		return 0
+	}
+	fmt.Printf("%d artifact(s) waiting for approval:\n\n", len(pending))
+	for _, a := range pending {
+		if err := printApprovalPreview(os.Stdout, a); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s %s: %v\n", escapeControl(a.Kind), escapeControl(a.Name), err)
+			return 2
+		}
+		fmt.Println()
+	}
+	if !yes {
+		if !approveInteractive() {
+			fmt.Fprintln(os.Stderr, "Error: non-interactive approval requires --yes")
+			return 2
+		}
+		fmt.Print("Approve all of them, exactly as shown above? [y/N] ")
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		answer := strings.ToLower(strings.TrimSpace(line))
+		if answer != "y" && answer != "yes" {
+			fmt.Println("not approved")
+			return 0
+		}
+	}
+	now := time.Now()
+	for _, a := range pending {
+		if err := cfg.ApproveMCP(strings.TrimPrefix(a.Source, "kb:"), provisioning.ApprovalName(a), a.ContentHash, now); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	fmt.Printf("approved %d artifact(s); run cartographer sync to materialize them\n", len(pending))
+	return 0
 }

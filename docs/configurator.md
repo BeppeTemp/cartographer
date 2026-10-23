@@ -1201,8 +1201,25 @@ artifact name (`<kind>/<name>` for everything but an MCP descriptor), content ha
 `.cartographer.yaml`; a content change requires reapproval. `cartographer approve revoke <kind> <name> --kb <kb>`
 is idempotent and takes effect on the next `cartographer sync`: for an MCP descriptor it prunes the managed
 provider config; for a hook or an executable file it stops refreshing what is installed, which is left in
-place, registered and running (the command says how to remove it). A hook installed before approval existed is reported as pending on its first sync and is not
+place, registered and running (the command says how to remove it). A hook or executable file that is waiting is reported as pending on every sync and is not
 refreshed, registered anew or removed until approved.
+
+`cartographer approve --pending [--kb <kb>] [--yes]` approves every hook, skill or agent `sync` would report as
+`needs_approval` after one confirmation, and before it prints each of them exactly as the single form does
+(the files with their size and execute bit, the `hook.json`, the content of every executable file and of a
+frontmatter that declares hooks or MCP servers), so the confirmation covers what will run. An MCP descriptor is
+never approved this way: it is named with its own `cartographer approve mcp <name> --kb <kb>` command. Without a
+terminal it needs `--yes`, like the single form. Names, paths and targets chosen by the server are printed with
+every non-printable character escaped (`\n`, `\x1b`, `\u202e`), so a name cannot forge a line, rewrite the screen or read as another command. Then run
+`cartographer sync`.
+
+**One-time migration (D1166).** The first `sync` of a client configuration that has never run it approves,
+by itself, a hook, skill or agent that needs approval, has no approval recorded and is already installed
+with the same content hash the KB serves now (the lockfile entry says so), and prints one line per artifact:
+`approved <kind>/<name> [kb:<kb>]: installed before approvals existed, unchanged`. An artifact whose hash differs
+from its lock entry, or that is not in the lockfile, stays `needs_approval`. The migration runs once: its
+marker, `approvals_migrated`, is a key of `.cartographer.yaml` beside `mcp_approvals` (so losing the state file cannot re-arm it), is never cleared, and is not set by a dry run or
+by a sync that could not pull every KB, so a later `approve revoke` is never undone.
 
 Written/updated by `connect` in the user's home directory (`~/.cartographer.yaml`, machine-wide —
 `clientconfig.TargetDir`, D52): it records which server the machine is connected to (the connected providers are in the client state file, below). One file per machine, not per project: this avoids drift with a provider
@@ -1230,6 +1247,7 @@ scopes: {}                      # per-provider scope, provider | workspace (D193
 workspaces: {}                  # per-provider explicit workspace bindings, [{path, kbs}] (D193); set by `cartographer workspace bind`
 signing_keys: {}                # Ed25519 public keys pinned per source KB (`connect --pin-key`); never learned from a sync
 mcp_approvals: {}               # local approvals of MCP descriptors, bound to the content hash; written by `cartographer approve`, not edited by hand
+approvals_migrated: false       # set by the first sync once it has approved what was already installed unchanged (D1166); never cleared, do not edit
 ```
 
 Every key, with its values and default, is the `Schema` table in `internal/clientconfig/schema.go`.
