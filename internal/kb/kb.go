@@ -642,6 +642,14 @@ const ServicesNamespace = "services"
 // services/ tree is a first-class concept root included in WalkConcepts but
 // lives as a sibling of data/ under Root, so it is anchored at Root.
 func (kb *KB) ResolvePath(relPath string, writeMode bool) (string, error) {
+	// Defence in depth: a path that is not canonical is refused here too, so a
+	// caller that skipped okf.ValidateID cannot reach a different file than the
+	// one the authorizer judged. "." (the data root itself) is the one exception.
+	if relPath != "." {
+		if err := okf.ValidateID(relPath); err != nil {
+			return "", fmt.Errorf("%w: %s", err, relPath)
+		}
+	}
 	return safeJoin(kb.baseFor(relPath), relPath)
 }
 
