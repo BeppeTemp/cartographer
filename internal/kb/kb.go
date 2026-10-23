@@ -645,8 +645,11 @@ func (kb *KB) ResolvePath(relPath string, writeMode bool) (string, error) {
 	// Defence in depth: a path that is not canonical is refused here too, so a
 	// caller that skipped okf.ValidateID cannot reach a different file than the
 	// one the authorizer judged. "." (the data root itself) is the one exception.
+	// Internal callers build relPath with filepath.Join, so on Windows it carries
+	// backslashes: the check runs on its slash form. A tool's id never reaches
+	// here with a backslash, since okf.ValidateID refuses it on the id first.
 	if relPath != "." {
-		if err := okf.ValidateID(relPath); err != nil {
+		if err := okf.ValidateID(filepath.ToSlash(relPath)); err != nil {
 			return "", fmt.Errorf("%w: %s", err, relPath)
 		}
 	}
