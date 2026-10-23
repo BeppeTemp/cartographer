@@ -297,8 +297,12 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 
 	// Do not write even the local bootstrap hook until the complete remote
 	// manifest has passed its content and signature checks.
-	if err := ensureBootstrapForProviders(targets, dir, opts.DryRun); err != nil {
+	hookWarnings, err := ensureBootstrapForProviders(targets, dir, opts.DryRun)
+	if err != nil {
 		return syncResult{}, err
+	}
+	for _, w := range hookWarnings {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 	}
 
 	if err := commitDerived(); err != nil {

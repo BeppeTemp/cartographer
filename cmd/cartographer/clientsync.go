@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -804,32 +805,46 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 // local, and it's exactly what lets a session self-heal via `cartographer sync`
 // once the server becomes reachable, so it must be ensured even when connect's own
 // manifest fetch is deferred (server down at connect time).
-func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bool) error {
+//
+// A provider whose client directory the write guard refuses (a symlinked
+// $HOME/.codex, D148) does not stop the others: it is returned as a warning
+// naming the refused path, left out of the lockfile so the next run retries it,
+// and the loop goes on. Any other error stays fatal.
+func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bool) ([]string, error) {
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
-		return fmt.Errorf("read lockfile: %w", err)
+		return nil, fmt.Errorf("read lockfile: %w", err)
 	}
 
+	var warnings []string
 	for _, p := range providers {
 		lock := lockFile.ForProvider(p)
 		newLock, err := provisioning.EnsureBootstrapHook(targetDir, configurator.Provider(p), lock, dryRun)
-		if err != nil {
-			return fmt.Errorf("ensure bootstrap hook (%s): %w", p, err)
+		if errors.Is(err, provisioning.ErrSymlinkDestination) {
+			warnings = append(warnings, fmt.Sprintf("%s: bootstrap hook not installed: %v", p, err))
+			continue
 		}
-		newLock, err = provisioning.EnsureWriteFindingsHook(targetDir, configurator.Provider(p), newLock, true, dryRun)
 		if err != nil {
-			return fmt.Errorf("ensure write-findings hook (%s): %w", p, err)
+			return nil, fmt.Errorf("ensure bootstrap hook (%s): %w", p, err)
+		}
+		withFindings, err := provisioning.EnsureWriteFindingsHook(targetDir, configurator.Provider(p), newLock, true, dryRun)
+		if errors.Is(err, provisioning.ErrSymlinkDestination) {
+			warnings = append(warnings, fmt.Sprintf("%s: write-findings hook not installed: %v", p, err))
+		} else if err != nil {
+			return nil, fmt.Errorf("ensure write-findings hook (%s): %w", p, err)
+		} else {
+			newLock = withFindings
 		}
 		lockFile.SetProvider(p, newLock)
 	}
 
 	if !dryRun {
 		if err := provisioning.WriteLockFile(lockPath, lockFile); err != nil {
-			return fmt.Errorf("write lockfile: %w", err)
+			return nil, fmt.Errorf("write lockfile: %w", err)
 		}
 	}
-	return nil
+	return warnings, nil
 }
 
 // printApplySummary prints a one-line-per-file summary of a materialization pass.

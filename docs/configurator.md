@@ -1438,8 +1438,9 @@ The refusal is **per provider** (and, in a sync, per artifact):
 - `connect` and `sync` report it as a warning (`mcp config left unchanged: …`, or
   `<kind>/<name> not installed: …` / `not removed: …` for a provisioned artifact: a skill, an MCP
   entry, the instructions block, a hook and its registration) and still write every other provider and
-  artifact. The exception is the bootstrap and write-findings hooks: a link over their destination
-  still stops `connect` and `sync` for every provider. An artifact whose write was refused is not recorded as installed, and one whose removal was
+  artifact. The bootstrap and write-findings hooks are no exception: a provider whose
+  destination for them is behind a link gets a `<provider>: bootstrap hook not installed: …` warning and the
+  others are still set up. An artifact whose write was refused is not recorded as installed, and one whose removal was
   refused stays in the lockfile, so the next sync retries both. A hook's script is only removed once its
   registration is. When a stale per-KB entry could not be removed, that KB (only) stays in
   `known_kbs` until the entry is gone. A workspace's `.git/info/exclude` behind a link is a warning, not
