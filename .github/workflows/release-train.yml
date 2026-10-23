@@ -181,8 +181,8 @@ jobs:
       # no draft advisory with an open fix PR in its private fork. github.token reads none
       # of the three, so SECURITY_GATE_TOKEN (read-only PAT, see TRAPS) does; a missing
       # token or a failed call counts as not clear. The repository is public, so the
-      # comment and the log never say which check failed or how many: that would
-      # announce an unpublished advisory.
+      # comment and the log never say which check failed, how many, or even that it is
+      # about security: a public alert would explain it, so naming it announces a private one.
       - name: Security gate
         id: security
         if: steps.gate.outputs.number != ''
@@ -193,8 +193,8 @@ jobs:
           PR: ${{ steps.gate.outputs.number }}
         run: |
           skip() {
-            echo "train skipped: security gate not clear"
-            gh pr comment "$PR" --body "Release train skipped: the security gate is not clear (see the Security tab). Clear it, then run \`release-train\` by hand with \`action: release\`."
+            echo "train skipped: a maintainer check is not clear"
+            gh pr comment "$PR" --body "Release train skipped: a maintainer check is not clear. Clear it, then run \`release-train\` by hand with \`action: release\`."
             exit 0
           }
           sec() { GH_TOKEN="$SEC_TOKEN" gh api --paginate "$@" 2>/dev/null; }
