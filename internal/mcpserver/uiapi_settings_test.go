@@ -260,7 +260,7 @@ func TestUIAPI_SettingsNarrowedCallerSeesOnlyItsKBs(t *testing.T) {
 func TestUIAPI_SettingsIdentitiesFollowWholeVisibility(t *testing.T) {
 	t.Parallel()
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
-		{Token: "partial", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Maps: []string{"ops"}}}}},
+		{Token: "partial", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Maps: []string{"visible"}}}}},
 		{Token: "whole", Scopes: []auth.KBScope{{KB: "kb-b"}}},
 	})
 	cfg := config.Default()
