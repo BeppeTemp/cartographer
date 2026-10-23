@@ -9,7 +9,7 @@ You need **git**, and an empty git repository you own to be the first KB's
 remote — a KB is a git repository, and that remote is what makes it durable and
 syncable (D134). `sops` is needed only if the KB will hold encrypted values, and
 Go 1.26+ only for the from-source install. What each installation method puts on
-the machine, and how to remove it, is in the README under §Install.
+the machine, and how to remove it, is in §What gets installed and §How to remove it below.
 
 ## 1. Install the client/server binary
 

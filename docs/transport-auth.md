@@ -41,8 +41,8 @@ validation; configured tokens are opaque static bearer values.
 public path: it passes through the same origin check and token middleware as
 `/mcp`, is filtered with the same principal, and answers `404` — never `403` —
 for a KB or concept the principal cannot see, so it cannot be used to probe for
-existence. Only `/health` and the RFC 9728 metadata are exempt from
-requiring a token; with auth on the middleware still reads one there, and attaches
+existence. Only `/health`, the RFC 9728 metadata and the embedded UI's static bundle (`/ui`, `/ui/*`) are exempt from
+requiring a token (`/ready` is not); with auth on the middleware still reads one there, and attaches
 the principal of a valid bearer and no principal otherwise, never the local admin (D1096).
 
 ### One routed topology (D288)
@@ -50,10 +50,10 @@ the principal of a valid bearer and no principal otherwise, never the local admi
 A multi-KB HTTP server always serves `/mcp/routed`, and that is the only endpoint
 `cartographer connect`/`sync` write into an agent client. The per-KB endpoints
 (`/mcp?kb=<name>`, `/mcp/<name>`) stay as **plumbing**: the routed mount
-dispatches into the per-KB servers, and a client not yet re-synced keeps working.
-`mcp.mount_mode` ([D187](decisions/D187-one-tool-surface-for-a-multi-kb-server-a-routed-mount.md)
-opt-in) no longer exists as a choice: the key, `CARTOGRAPHER_MCP_MOUNT_MODE` and
-`--mount-mode` were deprecated by D288 and removed by D325 (a leftover key in YAML is silently ignored).
+dispatches into the per-KB servers, and a client whose entries were written earlier keeps working.
+The routed mount ([D187](decisions/D187-one-tool-surface-for-a-multi-kb-server-a-routed-mount.md))
+is not a choice: `mcp.mount_mode`, `CARTOGRAPHER_MCP_MOUNT_MODE` and `--mount-mode` do not
+exist (D325; a leftover key in YAML is silently ignored).
 
 | Endpoint | Role | `tools/list` | Selecting the KB |
 |---|---|---|---|
@@ -61,10 +61,9 @@ opt-in) no longer exists as a choice: the key, `CARTOGRAPHER_MCP_MOUNT_MODE` and
 | `/mcp?kb=<name>`, `/mcp/<name>` | plumbing, older clients | one full copy per KB | in the URL |
 
 **Why one topology.** A client using N KBs on per-KB entries carries N copies of
-the same tool schemas in its fixed context, on every model round-trip: a real
-five-KB server advertises about 33 KB (about 8.3k tokens) of `tools/list` per
-mount, so a provider bound to all five pays about 41k tokens against about 10k
-routed. Everything a per-KB entry gave an agent client is available on the routed
+the same tool schemas in its fixed context, on every model round-trip: each
+per-KB mount advertises a full `tools/list`, so a provider bound to N KBs pays
+N times what the one routed copy costs. Everything a per-KB entry gave an agent client is available on the routed
 mount, except client-side permission rules that match a tool *name* per KB —
 those match names, not arguments, and are lost by design. Real authorization is
 per-KB scopes (D44/D45), and read auto-approval through `readOnlyHint` (D76) is
@@ -142,8 +141,8 @@ is exactly as true of the old per-KB entries (a client can add any `/mcp/<name>`
 entry). Isolation between providers needs per-provider tokens with per-KB scopes.
 
 `GET /health` always reports `mount_mode: "routed"` and `routed_path` in HTTP
-mode (a server with no KB mounted yet has nothing to route and omits both); it no
-longer carries a per-KB `tool_prefix`. `cartographer connect`/`sync` read it and
+mode (a server with no KB mounted yet has nothing to route and omits both), and
+carries no per-KB `tool_prefix`. `cartographer connect`/`sync` read it and
 write **one** entry per provider; against an older server that does not report
 `routed_path` the client keeps writing per-KB entries. **`cartographer sync`
 heals a topology change** — it rewrites the entries to the single routed one and
@@ -319,8 +318,8 @@ token by index or `id` and never contain a token value or a raw scope string.
 When authentication is required, enforcement is carried explicitly: a
 configuration that asked for it and produced no usable credential fails startup,
 and a store that somehow reached the middleware empty refuses every request
-instead of serving them as a local admin. `/health` and the RFC 9728 metadata
-path stay public either way, so probes keep working.
+instead of serving them as a local admin. `/health`, the RFC 9728 metadata
+path and the UI's static bundle stay public either way, so a liveness probe keeps working.
 
 ## Per-KB scopes
 
@@ -438,7 +437,7 @@ strength of a stale decision. Policies are cloned when handed out: no caller
 holds a mutable alias of another principal's permissions.
 
 A token with no scopes and no roles keeps full access, and `admin` bypasses the
-resolver — pre-D118 deployments are unaffected.
+resolver.
 
 ## Identity and audit boundaries
 
@@ -550,7 +549,7 @@ request and discarded with its response.
 
 `GET /clients` reports which clients are talking to this server and on which
 protocol era. It requires a bearer token whenever auth is enabled — unlike
-`/health` and `/ready` it is deliberately **not** on the public-path list
+`/health` it is deliberately **not** on the public-path list
 (`internal/auth`), because client names and versions describe deployment
 topology.
 
@@ -570,7 +569,7 @@ roster is a 200, not a 403, so the answer does not confirm the KB exists. An
              "last_seen":"2026-08-14T21:40:00Z"}]}
 ```
 
-Three properties bound what the roster is good for:
+Four properties bound what the roster is good for:
 
 - **Identity is self-reported and unverified.** It comes from the client's own
   `clientInfo` — `_meta.io.modelcontextprotocol/clientInfo` in the
@@ -589,14 +588,11 @@ Three properties bound what the roster is good for:
   rather than growing the map. Recording happens only after authorization
   succeeds, and never affects the `/mcp` response.
 
-The roster is also the go/no-go evidence for retiring the handshake era: it is
-what tells an operator whether every client of a given deployment has moved.
+The roster also tells an operator whether every client of a given deployment
+has moved to the current protocol era.
 
 ## Tool namespace discovery
 
-Since D288 a server never prefixes tool names, so there is no namespace to
-discover: `GET /health` no longer carries a per-KB `tool_prefix`. A client that
-talks to a **pre-D288** server still reads it (D120), because such a server can
-have prefixes configured: it is the authoritative source there, it is read live
-per operation and never persisted, and on a prefixed KB the bare tool name does
-not resolve. Clients must not re-derive a prefix from the KB name.
+A server never prefixes tool names (D288), so there is no namespace to
+discover: `GET /health` carries no per-KB `tool_prefix`, and clients use the bare
+tool name. Clients must not derive a prefix from the KB name.

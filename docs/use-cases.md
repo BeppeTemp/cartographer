@@ -48,7 +48,7 @@ before any write. The agent reads the source; the server never does.
 
 ## Keep an old KB aligned with the current standard
 
-A KB written on earlier releases, or by agents that never saw today's conventions, drifts: synonym
+A KB whose pages predate the conventions, or were written by agents that never saw them, drifts: synonym
 fields (`updated` for `timestamp`), tool parameters stored as fields, links to retired pages.
 `kb_status` reports it as `conformance` and sets `doctor_suggested`; the bundled `cartographer-kb-doctor` skill
 then runs `kb_repair` as a dry run per check, applies it after the operator confirms (one commit per
@@ -56,24 +56,25 @@ check, however many concepts), and walks the judgement fixes with the agent. Not
 
 ## Share one KB with different agent clients
 
-Run the HTTP server, then use `cartographer connect` for Claude Code, Codex,
-Kiro or OpenCode. The client installs one MCP entry per KB and materializes
-the KB's managed skills, agents, hooks and instructions. `cartographer status`
+Run the HTTP server, then use `cartographer connect` for any supported client
+(the matrix is in the README and [synchronization](sync.md)). The client installs
+one MCP entry for the server (`/mcp/routed`, which serves every KB it mounts) and
+materializes the KB's managed skills, agents, hooks and instructions. `cartographer status`
 shows drift; `cartographer sync` reconciles it.
 
 Providers differ in what they can represent. See [configurator](configurator.md)
 and [synchronization](sync.md) for the exact mappings and limitations. A
 descriptor-bound host such as Codex can only call tools `tools/list`
-advertises; the default `agent` profile's core set (→ `control-plane.md` §MCP
+advertises; the core set (→ `control-plane.md` §MCP
 API) includes `validate`, `lint`, `gate_check`, and `kb_status` for exactly
 this reason (D123).
 
 ## Separate domains into multiple KBs
 
 Mount independent git repositories under one HTTP server and give tokens
-`kb:<name>:r` or `kb:<name>:rw` scopes. A client connects to a specific KB
-through its query/path route, and each KB has independent indexes, commits,
-sync state and conflict registry.
+`kb:<name>:r` or `kb:<name>:rw` scopes. A client's entry is the routed
+mount (`/mcp/routed`), narrowed to the KBs it should reach with `?kbs=`, and each
+KB has independent indexes, commits, sync state and conflict registry.
 
 Authorization is per KB, not per concept. Use separate KBs when data needs
 different access boundaries.
