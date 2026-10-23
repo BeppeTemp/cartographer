@@ -344,3 +344,26 @@ func TestEnsureWorkspaceExcluded_RefusesALinkedGitDirOnlyWhenItWouldWrite(t *tes
 	}
 	sameTree(t, "git exclude", before, treeOf(t, gitdir))
 }
+
+// Entries sharing one instructions file are all refused, not only the first.
+func TestPruneManaged_EveryEntrySharingARefusedPathIsRefused(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	base, elsewhere := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(elsewhere, "CLAUDE.md"), []byte(instructionsBlockBegin+"\nx\n"+instructionsBlockEnd+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(base, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(".claude", "CLAUDE.md")
+	managed := []ManagedFile{{Kind: "instructions", Name: "a", Path: p}, {Kind: "instructions", Name: "b", Path: p}}
+	for _, dry := range []bool{false, true} {
+		pruned, err := PruneManaged(managed, base, dry)
+		refused, ok := err.(*PruneRefusedError)
+		if !ok || len(refused.Refusals) != 2 || len(pruned) != 0 {
+			t.Errorf("dry=%v: pruned = %v, err = %v; want both entries refused", dry, pruned, err)
+		}
+	}
+}

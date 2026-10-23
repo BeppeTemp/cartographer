@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 // multiKBServer supplies the two client endpoints exercised by connect: /health
@@ -1075,5 +1077,110 @@ func TestCmdSync_ARefusedStaleEntryRemovalKeepsItsKBInKnownKBs(t *testing.T) {
 	}
 	if strings.Join(got.KnownKBs, ",") != "alpha,beta" {
 		t.Errorf("known_kbs = %v, want beta kept so the next sync retries its removal", got.KnownKBs)
+	}
+}
+
+// Only the KBs whose stale entry was refused stay in known_kbs; one whose entry
+// was removed from the providers that hold it goes.
+func TestCmdSync_OnlyTheKBsWhoseEntryWasRefusedAreRetained(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	setHome(t, dir)
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "wiki", Token: "${TOKEN}", Agents: []string{"opencode", "claude"}, KnownKBs: []string{"alpha", "beta", "gamma"}}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	entries := func(kbs ...string) []mcpEntry {
+		e, _ := entriesForKBs("wiki", cfg.ServerURL, kbs, kbs, "", false)
+		return e
+	}
+	// opencode holds beta (and alpha), claude holds gamma (and alpha).
+	if _, _, err := applyMCPEntries(map[string][]mcpEntry{"opencode": entries("alpha", "beta"), "claude": entries("alpha", "gamma")}, cfg.Agents, dir, nil, false, "", false); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "opencode.json")
+	if err := os.Rename(filepath.Join(dir, "opencode.json"), target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := cmdSync(nil); code != 0 {
+		t.Fatalf("sync = %d, want the refusal as a warning", code)
+	}
+	got, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got.KnownKBs, ",") != "alpha,beta" {
+		t.Errorf("known_kbs = %v, want alpha and beta (refused) but not gamma (removed)", got.KnownKBs)
+	}
+}
+
+func TestDoConnect_ARefusedStaleEntryRemovalKeepsItsKBInKnownKBs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "cartographer", Agents: []string{"opencode"}, KnownKBs: []string{"alpha", "beta"}}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	both, _ := entriesForKBs("cartographer", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "", false)
+	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, both), cfg.Agents, dir, nil, false, "", false); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "opencode.json")
+	if err := os.Rename(filepath.Join(dir, "opencode.json"), target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(target)
+
+	if _, err := doConnect(connectOptions{Providers: []string{"opencode"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", KBs: []string{"alpha"}}); err != nil {
+		t.Fatalf("doConnect = %v, want the refusal as a warning", err)
+	}
+	if after, _ := os.ReadFile(target); string(after) != string(before) {
+		t.Errorf("the link target changed:\n%s", after)
+	}
+	got, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got.KnownKBs, ",") != "alpha,beta" {
+		t.Errorf("known_kbs = %v, want beta kept so the stale entry is still recognised as ours", got.KnownKBs)
+	}
+}
+
+// A linked .git costs the exclude block a warning, not the projection.
+func TestPrepareWorkspace_ALinkedGitDirIsAWarning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	real := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", real).CombinedOutput(); err != nil {
+		t.Skipf("git init: %v %s", err, out)
+	}
+	ws := t.TempDir()
+	if err := os.Symlink(filepath.Join(real, ".git"), filepath.Join(ws, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	exclude := filepath.Join(real, ".git", "info", "exclude")
+	before, _ := os.ReadFile(exclude)
+	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject}
+	if err := prepareWorkspace(p, []string{"claude"}, false); err != nil {
+		t.Fatalf("prepareWorkspace = %v, want the refusal as a warning", err)
+	}
+	if after, _ := os.ReadFile(exclude); string(after) != string(before) {
+		t.Errorf("the exclude file changed through the link:\n%s", after)
 	}
 }

@@ -588,3 +588,47 @@ func linkOpencodeDir(t *testing.T, dir string) string {
 	}
 	return elsewhere
 }
+
+// reconnect honours the disconnect half's refusal: a provider that was kept
+// connected is not rebuilt, the others are, and the exit status is 1.
+func TestDoReconnect_AProviderKeptConnectedIsNotRebuilt(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	srv := multiKBServer(t, `{"status":"ok","version":"1.4.0","kbs":[{"name":"alpha"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	setHome(t, dir)
+	if _, err := doConnect(connectOptions{Providers: []string{"claude", "opencode"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer"}); err != nil {
+		t.Fatalf("doConnect: %v", err)
+	}
+	target := filepath.Join(t.TempDir(), "opencode.json")
+	if err := os.Rename(filepath.Join(dir, "opencode.json"), target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(target)
+
+	res, err := doReconnect(reconnectOptions{Target: "all", Dir: dir})
+	if err != nil {
+		t.Fatalf("doReconnect = %v", err)
+	}
+	if kept := res.Disconnected.keptConnected(); len(kept) != 1 || kept[0] != "opencode" {
+		t.Fatalf("keptConnected = %v, want [opencode]", kept)
+	}
+	if res.Connected == nil || strings.Join(res.ConnectOptions.Providers, ",") != "claude" {
+		t.Errorf("connect half ran for %v, want only claude", res.ConnectOptions.Providers)
+	}
+	if after, _ := os.ReadFile(target); string(after) != string(before) {
+		t.Errorf("the link target changed:\n%s", after)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || !cfg.HasAgent("opencode") || !cfg.HasAgent("claude") {
+		t.Errorf("agents = %v, %v; want both still connected", cfg.Agents, err)
+	}
+	if code := cmdReconnect(nil); code != 1 {
+		t.Errorf("cmdReconnect = %d, want 1", code)
+	}
+}

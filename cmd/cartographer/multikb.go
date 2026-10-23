@@ -424,12 +424,50 @@ func managedEntryNames(baseName string, kbs []string) []string {
 	return names
 }
 
-// withRetainedKBs is current followed by the KBs of previous it does not hold:
-// the persisted list of a sync that could not remove every stale per-KB entry,
-// so that managedEntryNames still names them next time.
-func withRetainedKBs(current, previous []string) []string {
+// entryRefusal is the refusal of removeMCPEntries for one MCP entry, which
+// remembers the entry's name so a caller can tell which KBs it was written for.
+// Its text is the refusal's own.
+type entryRefusal struct {
+	Name string
+	Err  error
+}
+
+func (e *entryRefusal) Error() string { return e.Err.Error() }
+func (e *entryRefusal) Unwrap() error { return e.Err }
+
+// refusedEntryKBs are the KBs, among kbs, whose per-KB entry removeMCPEntries
+// refused to remove (err is its error). Those KBs must stay in known_kbs: the
+// entry is only recognised as ours through them (managedEntryNames).
+func refusedEntryKBs(err error, baseName string, kbs []string) []string {
+	var names []string
+	var walk func(error)
+	walk = func(e error) {
+		if j, ok := e.(interface{ Unwrap() []error }); ok {
+			for _, inner := range j.Unwrap() {
+				walk(inner)
+			}
+			return
+		}
+		var r *entryRefusal
+		if errors.As(e, &r) {
+			names = append(names, r.Name)
+		}
+	}
+	walk(err)
+	var out []string
+	for _, kb := range kbs {
+		if slices.Contains(names, baseName+"-"+kb) {
+			out = append(out, kb)
+		}
+	}
+	return out
+}
+
+// withRetainedKBs is current followed by the KBs of retained it does not hold:
+// the persisted list of a run that could not remove every stale per-KB entry.
+func withRetainedKBs(current, retained []string) []string {
 	out := append([]string(nil), current...)
-	for _, kb := range previous {
+	for _, kb := range retained {
 		if !slices.Contains(out, kb) {
 			out = append(out, kb)
 		}
@@ -738,7 +776,7 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 			for _, base := range providerBaseDirs(provider, dir, claudeDirs) {
 				ok, err := configurator.Remove(&configurator.ServerConfig{Name: name, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider), base, dryRun)
 				if errors.Is(err, safewrite.ErrSymlinkDestination) {
-					refused = append(refused, err)
+					refused = append(refused, &entryRefusal{Name: name, Err: err})
 					continue
 				}
 				if err != nil {

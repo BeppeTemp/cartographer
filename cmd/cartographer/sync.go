@@ -170,11 +170,10 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// for. Reconciliation compares it against what the server mounts now, so
 	// it must be read before cfg.KnownKBs is refreshed in memory.
 	previousKnownKBs := cfg.KnownKBs
-	// removalRefused is set when a stale per-KB entry could not be removed
-	// because its config sits behind a symlink (D148): the KBs that entry was
-	// written for stay in known_kbs, or the next sync would no longer know the
-	// entry is ours to remove.
-	removalRefused := false
+	// retainedKBs are the KBs whose stale per-KB entry could not be removed
+	// because its config sits behind a symlink (D148): they stay in known_kbs,
+	// or the next sync would no longer know the entry is ours to remove.
+	var retainedKBs []string
 
 	// Nothing is written before the manifest is fetched and verified (D172).
 	// The previous order rewrote the providers' MCP entries and
@@ -265,7 +264,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		var refusalNotes []string
 		if errors.Is(err, safewrite.ErrSymlinkDestination) {
 			refusalNotes = refusalWarnings(err)
-			removalRefused = true
+			retainedKBs = refusedEntryKBs(err, cfg.ServerName, previousKnownKBs)
 			err = nil
 		}
 		if err != nil {
@@ -310,9 +309,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		printKnownKBsChange(previousKnownKBs, kbs, opts.DryRun)
 		if !opts.DryRun {
 			mounted := cfg.KnownKBs
-			if removalRefused {
-				cfg.KnownKBs = withRetainedKBs(mounted, previousKnownKBs)
-			}
+			cfg.KnownKBs = withRetainedKBs(mounted, retainedKBs)
 			err := clientconfig.Save(dir, cfg)
 			cfg.KnownKBs = mounted
 			if err != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -691,7 +692,17 @@ func prepareWorkspace(p syncProjection, providers []string, dryRun bool) error {
 	if dryRun {
 		return nil
 	}
-	return writeWorkspaceExclusions(p.Workspace, providers, p.InstructionsRel)
+	if err := writeWorkspaceExclusions(p.Workspace, providers, p.InstructionsRel); err != nil {
+		if errors.Is(err, provisioning.ErrSymlinkDestination) {
+			// The exclude block is a convenience, not what the sync is for: a
+			// linked .git (D148) costs a warning and a dirty working tree, not
+			// the projection.
+			fmt.Fprintf(os.Stderr, "warning: workspace %s: git exclude left unchanged: %v\n", p.Workspace, err)
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // workspaceBlockFiles are the files Cartographer writes a marker-delimited
@@ -955,13 +966,22 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 		// records (D364): .agents/skills/<n>/ is Codex's and Antigravity's.
 		keep := lockFile.CoOwnedPaths(key)
 		if _, err := provisioning.PruneManaged(provisioning.WithoutCoOwned(lock.Managed, keep), base, false); err != nil {
+			if errors.Is(err, provisioning.ErrSymlinkDestination) {
+				// Refused (D148): the projection stays in the lockfile, so the
+				// next sync retries it; the other projections are still pruned.
+				fmt.Fprintf(os.Stderr, "warning: %s not pruned: %v\n", key.String(), err)
+				continue
+			}
 			return nil, fmt.Errorf("prune %s: %w", key.String(), err)
 		}
 		// The exclusions go with the files, but only this provider's: another
 		// provider still bound to the workspace keeps its paths excluded (#656).
 		lockFile.RemoveProjection(key)
 		if err := writeWorkspaceExclusions(key.Workspace, workspaceProviders(*lockFile, declared, key.Workspace)); err != nil {
-			return nil, fmt.Errorf("prune %s: %w", key.String(), err)
+			if !errors.Is(err, provisioning.ErrSymlinkDestination) {
+				return nil, fmt.Errorf("prune %s: %w", key.String(), err)
+			}
+			fmt.Fprintf(os.Stderr, "warning: workspace %s: git exclude left unchanged: %v\n", key.Workspace, err)
 		}
 		pruned = append(pruned, key.String())
 		fmt.Printf("[%s] pruned the projection in %s\n", key.Provider, key.Workspace)

@@ -1975,6 +1975,9 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				}
 				rp, warnings, regErr := registerMCPServer(opts.BaseDir, a.Name, spec, opts.Provider, opts.Scope)
 				if regErr != nil {
+					if refuse(&result, a, regErr) {
+						continue
+					}
 					return AppliedResult{}, fmt.Errorf("provisioning: register mcp %s: %w", a.Name, regErr)
 				}
 				result.Warnings = append(result.Warnings, warnings...)
@@ -2050,6 +2053,11 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 					if mechanism, ok := hookMechanisms[opts.Provider]; ok {
 						pluginRel, warning, regErr := mechanism.register(opts.BaseDir, a.Name, fullDestDir)
 						if regErr != nil {
+							// Refused (D148): the hook is not registered, so it is
+							// not recorded as installed; the next sync retries.
+							if refuse(&result, a, regErr) {
+								continue
+							}
 							return AppliedResult{}, regErr
 						}
 						if warning != "" {
@@ -2611,7 +2619,23 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 
 	if !opts.DryRun {
 		if err := writeInstructionsBlock(opts.BaseDir, fullPath, body); err != nil {
-			return fmt.Errorf("provisioning: write instructions block %s: %w", destRel, err)
+			if !errors.Is(err, ErrSymlinkDestination) {
+				return fmt.Errorf("provisioning: write instructions block %s: %w", destRel, err)
+			}
+			// Refused (D148): per artifact, like a skill. None of the sections is
+			// recorded as written or as managed, so the next sync retries them.
+			for _, a := range signed {
+				refuse(result, a, err)
+			}
+			dropped := (*newManaged)[:0]
+			for _, mf := range *newManaged {
+				if mf.Kind != "instructions" {
+					dropped = append(dropped, mf)
+				}
+			}
+			*newManaged = dropped
+			*pathsHash = ""
+			return nil
 		}
 	}
 
@@ -3296,9 +3320,13 @@ func pruneEmptyDirs(baseDir, relPath string) {
 // hooks directory), see hookProviderFromPath.
 func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]ManagedFile, error) {
 	pruned := make([]ManagedFile, 0, len(managed))
-	blockDone := make(map[string]bool)
-	hookSettingsDone := make(map[string]bool)
-	mcpDone := make(map[string]bool)
+	// What each shared target (an instructions file, an MCP server, a hook's
+	// registration) came to: present with a nil error once removed, with the
+	// refusal if it was refused — so a later entry sharing the target is
+	// reported as refused too, never as pruned.
+	blockResult := make(map[string]error)
+	hookResult := make(map[string]error)
+	mcpResult := make(map[string]error)
 	var refusals []PruneRefusal
 	// refused records a symlink refusal against one managed file and reports
 	// whether the pass carries on with the next one. The file is left out of
@@ -3312,16 +3340,31 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 	}
 	for _, mf := range managed {
 		fullPath := filepath.Join(baseDir, mf.Path)
+		if dryRun {
+			// A preview refuses what the real run would: a managed file, or the
+			// shared file holding our block or entry, that sits behind a link.
+			if err := dryRunPruneCheck(baseDir, mf); err != nil && refused(mf, err) {
+				continue
+			}
+			pruned = append(pruned, mf)
+			continue
+		}
 		if mf.Kind == "instructions" {
-			if !dryRun && !blockDone[fullPath] {
-				blockDone[fullPath] = true
-				if err := removeInstructionsBlock(baseDir, fullPath); err != nil {
-					if refused(mf, err) {
-						continue
-					}
-					return nil, fmt.Errorf("provisioning: prune blocco instructions %s: %w", mf.Path, err)
+			err, seen := blockResult[fullPath]
+			if !seen {
+				err = removeInstructionsBlock(baseDir, fullPath)
+				if err == nil || errors.Is(err, ErrSymlinkDestination) {
+					blockResult[fullPath] = err
 				}
-				pruneEmptyDirs(baseDir, mf.Path)
+				if err == nil {
+					pruneEmptyDirs(baseDir, mf.Path)
+				}
+			}
+			if err != nil {
+				if refused(mf, err) {
+					continue
+				}
+				return nil, fmt.Errorf("provisioning: prune blocco instructions %s: %w", mf.Path, err)
 			}
 			pruned = append(pruned, mf)
 			continue
@@ -3332,75 +3375,111 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 			// entry/block for this server (removeMCPServer, D69 WP4). A server
 			// can have a single ManagedFile (unlike hook/instructions),
 			// but the dedup by name stays for consistency with the same pattern.
-			if !dryRun && !mcpDone[mf.Name] {
-				mcpDone[mf.Name] = true
+			err, seen := mcpResult[mf.Name]
+			if !seen {
 				if provider := mcpProviderFromPath(mf.Path); provider != "" {
-					if err := removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path)); err != nil {
-						if refused(mf, err) {
-							continue
-						}
-						return nil, fmt.Errorf("provisioning: prune mcp %s: %w", mf.Name, err)
-					}
+					err = removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path))
 				}
+				if err == nil || errors.Is(err, ErrSymlinkDestination) {
+					mcpResult[mf.Name] = err
+				}
+			}
+			if err != nil {
+				if refused(mf, err) {
+					continue
+				}
+				return nil, fmt.Errorf("provisioning: prune mcp %s: %w", mf.Name, err)
 			}
 			pruned = append(pruned, mf)
 			continue
 		}
-		if !dryRun {
-			if err := safewrite.Remove(baseDir, fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		// A hook's registration goes before its files: a refused registration
+		// must leave the script it points at in place.
+		if mf.Kind == "hook" {
+			err, seen := hookResult[mf.Name]
+			if !seen {
+				err = removeHookRegistration(baseDir, mf)
+				if err == nil || errors.Is(err, ErrSymlinkDestination) {
+					hookResult[mf.Name] = err
+				}
+			}
+			if err != nil {
 				if refused(mf, err) {
 					continue
 				}
-				return nil, fmt.Errorf("provisioning: prune %s: %w", mf.Path, err)
-			}
-			pruneEmptyDirs(baseDir, mf.Path)
-			if mf.Kind == "hook" && !hookSettingsDone[mf.Name] {
-				hookSettingsDone[mf.Name] = true
-				var err error
-				switch hookProviderFromPath(mf.Path) {
-				case "claude":
-					if err = removeHookEntries(baseDir, mf.Name); err != nil {
-						err = fmt.Errorf("provisioning: prune entry settings.json hook %s: %w", mf.Name, err)
-					}
-				case "codex":
-					if err = removeCodexHook(baseDir, mf.Name); err != nil {
-						err = fmt.Errorf("provisioning: prune entry hooks.json hook %s: %w", mf.Name, err)
-					}
-				case "opencode":
-					if err = removeOpenCodePlugin(baseDir, mf.Name); err != nil {
-						err = fmt.Errorf("provisioning: prune plugin opencode hook %s: %w", mf.Name, err)
-					}
-				case "antigravity":
-					if err = removeAntigravityHook(baseDir, mf.Name, mf.Path); err != nil {
-						err = fmt.Errorf("provisioning: prune entry Antigravity hooks.json hook %s: %w", mf.Name, err)
-					}
-				case "copilot":
-					if err = removeCopilotHook(baseDir, mf.Name); err != nil {
-						err = fmt.Errorf("provisioning: prune Copilot hook file %s: %w", mf.Name, err)
-					}
-				case "crush":
-					if err = removeCrushHook(baseDir, mf.Name, mf.Path); err != nil {
-						err = fmt.Errorf("provisioning: prune entry Crush hook %s: %w", mf.Name, err)
-					}
-				case "kiro":
-					if err = removeKiroHook(baseDir, mf.Name); err != nil {
-						err = fmt.Errorf("provisioning: prune entry Kiro cartographer.json hook %s: %w", mf.Name, err)
-					}
-				}
-				if err != nil {
-					if refused(mf, err) {
-						continue
-					}
-					return nil, err
-				}
+				return nil, err
 			}
 		}
+		if err := safewrite.Remove(baseDir, fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if refused(mf, err) {
+				continue
+			}
+			return nil, fmt.Errorf("provisioning: prune %s: %w", mf.Path, err)
+		}
+		pruneEmptyDirs(baseDir, mf.Path)
 		pruned = append(pruned, mf)
 	}
 	if len(refusals) > 0 {
 		return pruned, &PruneRefusedError{Refusals: refusals}
 	}
 	return pruned, nil
+}
+
+// removeHookRegistration strips mf's hook from the provider-native mechanism
+// that registered it (settings.json, hooks.json, a plugin, ...). Providers with
+// no registration to strip return nil.
+func removeHookRegistration(baseDir string, mf ManagedFile) error {
+	var err error
+	switch hookProviderFromPath(mf.Path) {
+	case "claude":
+		if err = removeHookEntries(baseDir, mf.Name); err != nil {
+			err = fmt.Errorf("provisioning: prune entry settings.json hook %s: %w", mf.Name, err)
+		}
+	case "codex":
+		if err = removeCodexHook(baseDir, mf.Name); err != nil {
+			err = fmt.Errorf("provisioning: prune entry hooks.json hook %s: %w", mf.Name, err)
+		}
+	case "opencode":
+		if err = removeOpenCodePlugin(baseDir, mf.Name); err != nil {
+			err = fmt.Errorf("provisioning: prune plugin opencode hook %s: %w", mf.Name, err)
+		}
+	case "antigravity":
+		if err = removeAntigravityHook(baseDir, mf.Name, mf.Path); err != nil {
+			err = fmt.Errorf("provisioning: prune entry Antigravity hooks.json hook %s: %w", mf.Name, err)
+		}
+	case "copilot":
+		if err = removeCopilotHook(baseDir, mf.Name); err != nil {
+			err = fmt.Errorf("provisioning: prune Copilot hook file %s: %w", mf.Name, err)
+		}
+	case "crush":
+		if err = removeCrushHook(baseDir, mf.Name, mf.Path); err != nil {
+			err = fmt.Errorf("provisioning: prune entry Crush hook %s: %w", mf.Name, err)
+		}
+	case "kiro":
+		if err = removeKiroHook(baseDir, mf.Name); err != nil {
+			err = fmt.Errorf("provisioning: prune entry Kiro cartographer.json hook %s: %w", mf.Name, err)
+		}
+	}
+	return err
+}
+
+// dryRunPruneCheck is the refusal a real prune of mf would meet, without
+// changing anything: nil when there is nothing there to change (an absent file,
+// an instructions file with no block of ours), which a prune never refuses.
+func dryRunPruneCheck(baseDir string, mf ManagedFile) error {
+	fullPath := filepath.Join(baseDir, mf.Path)
+	if mf.Kind == "instructions" {
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			return nil
+		}
+		if _, ok := replaceBetweenMarkers(string(data), ""); !ok {
+			return nil
+		}
+	} else if _, err := os.Lstat(fullPath); err != nil {
+		return nil
+	}
+	return safewrite.CheckPath(baseDir, fullPath)
 }
 
 // PruneRefusal is one managed file PruneManaged left in place because removing

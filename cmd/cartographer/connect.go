@@ -880,9 +880,11 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	claudeDirs, claudeDirWarnings := claudeConfigDirs(opts.Dir, existing)
 	// A symlinked config file or directory is refused for its provider only
 	// (D148): the refusal is a warning, the other providers proceed.
-	var refusalNotes []string
+	var refusalNotes, retainedKBs []string
 	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun); errors.Is(err, safewrite.ErrSymlinkDestination) {
 		refusalNotes = refusalWarnings(err)
+		// Their stale entries stay, so these KBs stay in known_kbs (as in sync).
+		retainedKBs = refusedEntryKBs(err, opts.Name, existing.KnownKBs)
 	} else if err != nil {
 		return connectResult{}, err
 	}
@@ -979,7 +981,7 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	existing.ServerURL, existing.ServerName, existing.Auth, existing.Token = opts.ServerURL, opts.Name, opts.Auth, opts.Token
 	existing.AllowInsecureHTTP = opts.AllowInsecureHTTP
 	if healthErr == nil {
-		existing.KnownKBs = kbs
+		existing.KnownKBs = withRetainedKBs(kbs, retainedKBs)
 	}
 	for _, p := range opts.Providers {
 		existing.AddAgent(p)

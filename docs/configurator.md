@@ -1430,16 +1430,22 @@ workspace scope) may be a link, and a path that does not exist yet is created.
 
 A refusal needs something to write or remove: a config with no entry or block of ours in it is a
 no-op under a link too, never an error, so a dotfile-managed `~/.codex/config.toml` that needs no
-change stays quiet. `--dry-run` refuses when the real run would have changed something.
+change stays quiet. `--dry-run` refuses when the real run would have changed something, a prune
+included (it previews a link over any managed file or shared config it would touch).
 
 The refusal is **per provider** (and, in a sync, per artifact):
 - `connect` and `sync` report it as a warning (`mcp config left unchanged: …`, or
-  `<kind>/<name> not removed: …` for a pruned artifact) and still write every other provider. An
-  artifact whose removal was refused stays in the lockfile, so the next sync retries it. When a stale
-  per-KB entry could not be removed, its KB stays in `known_kbs` until the entry is gone.
+  `<kind>/<name> not installed: …` / `not removed: …` for a provisioned artifact: a skill, an MCP
+  entry, the instructions block, a hook and its registration) and still write every other provider and
+  artifact. An artifact whose write was refused is not recorded as installed, and one whose removal was
+  refused stays in the lockfile, so the next sync retries both. A hook's script is only removed once its
+  registration is. When a stale per-KB entry could not be removed, that KB (only) stays in
+  `known_kbs` until the entry is gone. A workspace's `.git/info/exclude` behind a link is a warning, not
+  an error.
 - `disconnect` prints `kept connected: …` for the provider, leaves its lockfile section,
   `.cartographer.yaml` entry and managed files (whatever could be pruned is) in place so the next
-  `disconnect` retries, removes the others, and **exits 1**. The TUI shows the same line.
+  `disconnect` retries, removes the others, and **exits 1**. The TUI shows the same line. `reconnect`
+  does not rebuild a provider its disconnect half kept, rebuilds the others, and also exits 1.
 
 Nothing is written through the link until the operator replaces it. The legacy `.codex/config.json`
 that `disconnect` cleans up is checked before `config.toml`, so a refusal there leaves both untouched.
