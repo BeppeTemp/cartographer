@@ -44,10 +44,11 @@ func silentRemote(t *testing.T) string {
 }
 
 // removeWhenFree is t.TempDir for a directory a killed git may leave a child
-// in: on Windows cancelling Fetch kills git.exe but not git-remote-http
-// (killGroupOnCancel is a no-op there), which keeps its working directory open
-// until the silent remote's connection closes (#784). Registered before
-// silentRemote, the removal runs after it and retries until the child is gone.
+// in: before the Windows tree kill (#1163), cancelling Fetch killed git.exe but
+// not git-remote-http, which kept its working directory open until the silent
+// remote's connection closed (#784). A child the kill tree misses still exits
+// late on a loaded runner, so the removal still retries: registered before
+// silentRemote, it runs after it and retries until the child is gone.
 func removeWhenFree(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "gitx-fetch-timeout-*")
