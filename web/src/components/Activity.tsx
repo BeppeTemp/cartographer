@@ -27,6 +27,9 @@ const DAYS: Record<Window, number | null> = {
 };
 /** What changes_since is asked: it takes <N>d, and "all" reaches further
  *  back than any KB has existed. */
+/** How many of the newest earlier changes an empty window shows. */
+const EARLIER = 20;
+
 const SINCE: Record<Window, string> = {
   "1d": "1d",
   "7d": "7d",
@@ -65,6 +68,7 @@ export function Activity({
   const [author, setAuthor] = useState<string | null>(null);
   const [map, setMap] = useState<string | null>(null);
   const [data, setData] = useState<ChangesResponse | null>(null);
+  const [earlier, setEarlier] = useState<ConceptChange[] | null>(null);
   // The window the data on screen answers: while a new window loads, the
   // old answer stays (dimmed) and keeps describing itself correctly.
   const [shown, setShown] = useState<Window>(since);
@@ -79,6 +83,7 @@ export function Activity({
   // is on screen until the fresh answer replaces it: no flash of skeleton.
   useEffect(() => {
     setData(null);
+    setEarlier(null);
     setError(null);
   }, [kb]);
 
@@ -86,8 +91,24 @@ export function Activity({
     const controller = new AbortController();
     setLoading(true);
     fetchChanges(kb, SINCE[since], controller.signal)
-      .then((res) => {
+      // An empty window still shows the KB's latest work: the newest changes
+      // from before it, on the same timeline. They are read before anything
+      // is replaced, so the page never shows the notice without them.
+      .then(async (res) => {
+        const quiet = since !== "all" && (res.concepts ?? []).every((c) => changeKind(c) === "maintenance");
+        const before = quiet ? await fetchChanges(kb, SINCE.all, controller.signal).catch(() => null) : null;
+        return { res, before };
+      })
+      .then(({ res, before }) => {
         setData(res);
+        setEarlier(
+          before
+            ? (before.concepts ?? [])
+                .filter((c) => changeKind(c) !== "maintenance")
+                .sort((a, b) => Date.parse(changedAt(b)) - Date.parse(changedAt(a)))
+                .slice(0, EARLIER)
+            : null,
+        );
         setShown(since);
         setError(null);
       })
@@ -114,6 +135,12 @@ export function Activity({
       .catch(() => undefined);
     return () => controller.abort();
   }, [kb, live, attempt]);
+
+  // Whether the window on screen holds nothing but upkeep: the quiet notice
+  // takes the summary's place, and the earlier changes follow it.
+  const windowEmpty =
+    data !== null && (data.concepts ?? []).every((c) => changeKind(c) === "maintenance") && shown !== "all";
+  const earlierDays = useMemo(() => groupByDay(earlier ?? []), [earlier]);
 
   // The audit log (admin only): any other principal's 404 leaves it out.
   const [audit, setAudit] = useState<AuditLog | null>(null);
@@ -195,7 +222,7 @@ export function Activity({
       {tabs}
 
       <div className="page__body" data-loading={loading && data !== null}>
-        {data && (
+        {data && !windowEmpty && (
           <Hero label="Summary and filters" className="activity-hero">
             <div className="activity-sum">
               <div className="activity-sum__lead">
@@ -287,53 +314,41 @@ export function Activity({
         ) : !data ? (
           <ActivitySkeleton label="Reading the history" />
         ) : rows.length === 0 ? (
-          <div className="timeline__empty">
-            <span className="timeline__empty-icon" aria-hidden="true">
-              <Icon name="moon" size={18} />
-            </span>
-            <div className="timeline__empty-text">
-              <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
-              <p className="timeline__empty-note">
-                No concept edited {when(shown)}
-                {author ? ` by ${author}` : ""}.
-              </p>
+          <>
+            <div className="timeline__empty">
+              <span className="timeline__empty-icon" aria-hidden="true">
+                <Icon name="moon" size={18} />
+              </span>
+              <div className="timeline__empty-text">
+                <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
+                <p className="timeline__empty-note">
+                  No concept edited {when(shown)}
+                  {author ? ` by ${author}` : ""}.
+                </p>
+              </div>
+              {/* An empty window offers the next wider one rather than leaving the reader to guess. */}
+              {(() => {
+                const next = WINDOWS[WINDOWS.findIndex(([w]) => w === shown) + 1];
+                return next ? (
+                  <button type="button" className="button timeline__empty-action" onClick={() => setSince(next[0])}>
+                    {next[0] === "all"
+                      ? "Show the whole history"
+                      : next[0] === "1y"
+                        ? "Show the last year"
+                        : `Show the last ${DAYS[next[0]]} days`}
+                  </button>
+                ) : null;
+              })()}
             </div>
-            {/* An empty window offers the next wider one rather than leaving the reader to guess. */}
-            {(() => {
-              const next = WINDOWS[WINDOWS.findIndex(([w]) => w === shown) + 1];
-              return next ? (
-                <button type="button" className="button timeline__empty-action" onClick={() => setSince(next[0])}>
-                  {next[0] === "all"
-                    ? "Show the whole history"
-                    : next[0] === "1y"
-                      ? "Show the last year"
-                      : `Show the last ${DAYS[next[0]]} days`}
-                </button>
-              ) : null;
-            })()}
-          </div>
+            {windowEmpty && earlierDays.length > 0 && (
+              <>
+                <h2 className="timeline__earlier">Earlier</h2>
+                <TimelineDays days={earlierDays} titles={titles} mapTitles={mapTitles} onOpen={onOpen} />
+              </>
+            )}
+          </>
         ) : (
-          <ol className="timeline__days">
-            {days.map((day) => (
-              <li key={day.key} className="timeline__day">
-                <h2 className="timeline__date">
-                  <span>{day.label}</span>
-                  <span className="timeline__date-count">{day.items.length}</span>
-                </h2>
-                <ol className="timeline__entries">
-                  {day.items.map((c) => (
-                    <Entry
-                      key={c.id}
-                      change={c}
-                      title={titles.get(c.id) ?? c.id}
-                      mapTitle={mapTitles.get(mapOf(c)) ?? mapOf(c)}
-                      onOpen={onOpen}
-                    />
-                  ))}
-                </ol>
-              </li>
-            ))}
-          </ol>
+          <TimelineDays days={days} titles={titles} mapTitles={mapTitles} onOpen={onOpen} />
         )}
         {data?.truncated && (
           <p className="page-note">Showing the {all.length} most recent changes: narrow the window to see the rest.</p>
@@ -358,6 +373,43 @@ export function Activity({
         {audit !== null && (data !== null || error !== null) && <AuditSection audit={audit} />}
       </div>
     </Page>
+  );
+}
+
+/** The concept changes grouped by day: a day heading with its count, then one row per change. */
+function TimelineDays({
+  days,
+  titles,
+  mapTitles,
+  onOpen,
+}: {
+  days: { key: string; label: string; items: ConceptChange[] }[];
+  titles: ReadonlyMap<string, string>;
+  mapTitles: ReadonlyMap<string, string>;
+  onOpen(conceptId: string): void;
+}) {
+  return (
+    <ol className="timeline__days">
+      {days.map((day) => (
+        <li key={day.key} className="timeline__day">
+          <h2 className="timeline__date">
+            <span>{day.label}</span>
+            <span className="timeline__date-count">{day.items.length}</span>
+          </h2>
+          <ol className="timeline__entries">
+            {day.items.map((c) => (
+              <Entry
+                key={c.id}
+                change={c}
+                title={titles.get(c.id) ?? c.id}
+                mapTitle={mapTitles.get(mapOf(c)) ?? mapOf(c)}
+                onOpen={onOpen}
+              />
+            ))}
+          </ol>
+        </li>
+      ))}
+    </ol>
   );
 }
 

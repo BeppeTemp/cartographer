@@ -129,14 +129,19 @@ export function SyncIndicator({ kb, live }: Props) {
                 <dt>Branch</dt>
                 <dd>
                   {status.branch || "Detached HEAD"}
-                  {status.branch_source && <span className="sync__note"> ({status.branch_source})</span>}
+                  {counted && status.branch_source && <span className="sync__note"> ({status.branch_source})</span>}
                 </dd>
               </>
             )}
-            <dt>Last push</dt>
-            <dd>{status.last_push_at ? formatWhen(status.last_push_at) : "Unknown since the server restarted"}</dd>
-            <dt>Last fetch</dt>
-            <dd>{status.last_sync_in_at ? formatWhen(status.last_sync_in_at) : "Not fetched since the server started"}</dd>
+            {/* With no remote there is nothing to push to or fetch from. */}
+            {counted && (
+              <>
+                <dt>Last push</dt>
+                <dd>{status.last_push_at ? formatWhen(status.last_push_at) : "Unknown since the server restarted"}</dd>
+                <dt>Last fetch</dt>
+                <dd>{status.last_sync_in_at ? formatWhen(status.last_sync_in_at) : "Not fetched since the server started"}</dd>
+              </>
+            )}
           </dl>
           {status.remote_url && (
             <div className="sync__remote">
@@ -144,14 +149,31 @@ export function SyncIndicator({ kb, live }: Props) {
               <code className="sync__url">{status.remote_url}</code>
             </div>
           )}
-          {status.push_last_error && (
-            <div className="sync__error" role="note">
-              <span className="sync__remote-label">Last error</span>
-              <p>{status.push_last_error}</p>
-            </div>
-          )}
+          {status.push_last_error && <SyncError text={status.push_last_error} />}
         </div>
       )}
     </div>
   );
+}
+
+/** The last push error: git's first fatal line, the whole text on request. */
+function SyncError({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const short = errorSummary(text);
+  return (
+    <div className="sync__error" role="note">
+      <span className="sync__remote-label">Last error</span>
+      <p>{open ? text : short}</p>
+      {short !== text && (
+        <button type="button" className="sync__more" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {open ? "Show less" : "Show the whole error"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function errorSummary(text: string): string {
+  const fatal = /fatal:\s*(.+?)(?=\s*fatal:|$)/s.exec(text);
+  return (fatal ? fatal[1]! : text).trim().replace(/\s+/g, " ");
 }
