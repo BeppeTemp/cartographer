@@ -80,8 +80,8 @@ const STATUS_ORDER = [
  * Open work (D302): concepts in an open status for their map, of any type,
  * and unchecked items in any concept. A read-only view of `work_list`: work
  * changes through the agents' ordinary write tools, so there is no drag here.
- * The band counts it and filters it by Map and by status; the board below
- * lays it out as columns by status, or as one card per Map.
+ * The band counts it and filters it by Map, by status and by staleness; the
+ * board below lays it out as columns by status.
  *
  * Everything the KB still has to do is here, and Health keeps the lint
  * problems. Two things are work without being a concept, and join the board

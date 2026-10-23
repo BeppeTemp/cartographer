@@ -142,7 +142,7 @@ export function App() {
   const narrow = useMediaQuery(NARROW_QUERY);
   const [sheet, setSheet] = useState<SheetName>(null);
   // The release history (D862) is a sheet on every viewport, opened from the
-  // top bar's version; it is not one of the narrow layout's panels, so leaving the narrow layout does not close it.
+  // rail's version; it is not one of the narrow layout's panels, so leaving the narrow layout does not close it.
   const [releasesOpen, setReleasesOpen] = useState(false);
 
   // The reading panel's width (D239): the viewer's preference, clamped to what

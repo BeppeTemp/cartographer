@@ -32,3 +32,10 @@ describe("the Artifacts section's panels (D1057)", () => {
     expect(skill.artifact).toBe("skill/review");
   });
 });
+
+describe("links from removed panels", () => {
+  it("reads the retired panel as Activity, where retirements are on the timeline (D1146)", () => {
+    expect(readViewState("?kb=kb-a&panel=retired").panel).toBe("activity");
+    expect(viewStateToSearch(readViewState("?kb=kb-a&panel=retired"))).toBe("?kb=kb-a&panel=activity");
+  });
+});

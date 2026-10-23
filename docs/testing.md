@@ -438,7 +438,7 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 `web/src/test/locale.test.ts` scans the sources and rejects any `toLocale*String` call without `"en"` as first argument, and any `Intl.` or `navigator.language`: the UI is English in every browser locale, and a value test of a formatter would pass on an English runner even with the bug back.
 
 To work on the UI live, `make dev` from a worktree runs both halves and rebuilds
-the server on every Go change (with `DATA`, the installed client reports to it through `sync --report-to`, D1044) (`CONTRIBUTING.md` §Live sessions). Without `DATA` it serves a throwaway copy of the
+the server on every Go change (with `DATA`, the installed client reports to it through `sync --report-to`, D1044, and each KB copy keeps its remote's fetch URL, so the sync badge shows the real state, with an unreachable push URL, so a push fails and nothing leaves the machine) (`CONTRIBUTING.md` §Live sessions). Without `DATA` it serves a throwaway copy of the
 generated test KBs (`internal/testkbs`; D818, D1032): the 5,000-concept scale KB, the bare 30-concept KB, and the KBs that
 take the shape of measured real ones (Maps and journals, expanded concepts with up to a hundred satellites, pages past
 90 KB, hubs with a hundred backlinks, a status mix, thousands of commits) with invented content, named after their themes
@@ -551,13 +551,13 @@ toolchain (D227). What they hold:
 - the palette and archived pages (D820, `src/test/palette-archived.test.tsx`): the
   "Include archived" toggle sending `include_archived=1`, badging archived hits and
   saying so when the server fell back to them, and starting each opening unpressed;
-- the Retired tab of Activity (D820, `src/test/retired.test.tsx`): a row with its
-  recorded story (from, date, reason, successor) and one with none, the status and
-  text filters, a journal's harvest line, the empty and the unavailable state, the
-  tab round-tripping through the URL and Back with Activity staying current in the
-  rail, an archive map badged and listed after the live ones.
-- the release history (D862, `src/test/releases.test.tsx`): the version in the
-  top bar opens a sheet that fetches only then;
+- retirements on Activity's timeline (D1146, `src/test/activity.test.tsx`): a retired
+  concept's row with its status pill and "Replaced by …", the "retired" stat, the
+  empty window's quiet notice with the earlier changes under it, and
+  `?panel=retired` reading as Activity (`src/test/viewstate.test.ts`); an archive map
+  stays badged and listed after the live ones.
+- the release history (D862, `src/test/releases.test.tsx`): the version at the
+  foot of the rail opens a sheet that fetches only then;
   newest first, one `Current` badge, scrolled to only when newer releases
   precede it; the upgrade block only with a command; the disabled, unreachable
   and stale notices; a cut changelog pointing at GitHub; a changelog with

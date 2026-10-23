@@ -60,7 +60,7 @@ export function Activity({
   snapshot: GraphSnapshot | null;
   collections?: CollectionSummary[];
   live?: number;
-  /** The section tabs (Activity · Retired), drawn under the header. */
+  /** The section tabs, drawn under the header. */
   tabs?: ReactNode;
   onOpen(conceptId: string): void;
 }) {

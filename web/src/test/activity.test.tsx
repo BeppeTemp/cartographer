@@ -177,3 +177,58 @@ describe("the Activity summary", () => {
     expect(screen.queryByRole("region", { name: "Summary and filters" })).not.toBeInTheDocument();
   });
 });
+
+/** An empty window and retirements, on the one timeline (D1146). */
+describe("the Activity timeline's empty window and retirements", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const collections = [
+    { name: "infra", title: "Infrastructure", kind: "map", concepts: 2, expanded_concepts: 0 },
+    { name: "notes", title: "Notes", kind: "map", concepts: 3, expanded_concepts: 0 },
+  ];
+
+  it("shows a quiet notice, then the newest earlier changes under Earlier", async () => {
+    stubApi({
+      // The whole-history read asks for 36500 days; the window itself is empty.
+      "since=36500d": () =>
+        json(response([change("infra/old", { last_at: ago(40), last_edit_at: ago(40) }), change("notes/older", { last_at: ago(60), last_edit_at: ago(60) })])),
+      "/changes": () => json(response([])),
+    });
+    render(<Activity kb="kb-a" snapshot={null} collections={collections} onOpen={() => {}} />);
+    await screen.findByText("Quiet stretch.");
+    expect(screen.queryByRole("region", { name: "Summary and filters" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Earlier" })).toBeInTheDocument();
+    expect(entries()).toBe(2);
+    expect(document.body).toHaveTextContent("old");
+  });
+
+  it("marks a retired concept's row with its status and where it went", async () => {
+    stubApi({
+      "/changes": () => json(response([change("infra/alpha"), change("notes/gamma")])),
+      "/retired": () =>
+        json({
+          concepts: [
+            {
+              id: "infra/alpha",
+              status: "superseded",
+              superseded_by: "infra/beta",
+              superseded_by_title: "Beta",
+              supersede_reason: "split in two",
+            },
+          ],
+        }),
+    });
+    render(<Activity kb="kb-a" snapshot={null} collections={collections} onOpen={() => {}} />);
+    // The first reason is on the row, the rest in its tooltip.
+    const reason = await screen.findByText(/^Replaced by Beta/);
+    expect(reason).toHaveTextContent("Replaced by Beta +1");
+    expect(reason).toHaveAttribute("title", "Replaced by Beta\nsplit in two");
+    expect(document.querySelector(".timeline__retired--superseded")).toHaveTextContent("superseded");
+    expect(document.querySelectorAll(".timeline__retired")).toHaveLength(1);
+    expect(await within(await summary()).findByText("retired")).toBeInTheDocument();
+  });
+});

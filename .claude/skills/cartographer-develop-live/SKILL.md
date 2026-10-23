@@ -63,7 +63,7 @@ user waits to see the result.
 1. `git pull --ff-only` on `main`, then `make worktree-add SLUG=<slug>` and work
    from `.worktrees/<slug>`.
 2. `make dev` from the worktree, in the background. `DATA=<data dir>` serves a
-   copy of real KBs (remotes removed, git sync off, deleted on exit); without it
+   copy of real KBs (remotes keep their fetch URL but a push fails, deleted on exit); without it
    the synthetic test KBs `make dev` generates (D818). Another live session on the machine → pick other ports:
    `API_PORT=39281 UI_PORT=5174`.
 3. Give the user the UI address: `http://localhost:<UI_PORT>/ui/` — `localhost`,

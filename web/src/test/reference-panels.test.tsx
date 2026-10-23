@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
@@ -85,11 +85,12 @@ describe("the reference panels", () => {
     });
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Journal" })).toBeInTheDocument();
-    // One row per entry; the body is kept as written, not rendered as Markdown.
-    const rows = await screen.findAllByRole("listitem").then((all) => all.filter((li) => li.className === "journal__entry"));
-    expect(rows).toHaveLength(2);
-    expect(rows[0]!.querySelector(".journal__body")!.textContent).toBe("Merged the **plan**.\nSecond line.");
-    expect(rows[1]!.querySelector(".journal__body")!.textContent).toBe("One line.");
+    // One row per entry on the timeline's rail; the note is plain text, its first line the lead.
+    await waitFor(() => expect(document.querySelectorAll(".journal__entry")).toHaveLength(2));
+    const rows = [...document.querySelectorAll(".journal__entry")];
+    expect(rows[0]!.textContent).toContain("Merged the **plan**.");
+    expect(rows[0]!.textContent).toContain("Second line.");
+    expect(rows[1]!.textContent).toContain("One line.");
     expect(rows[0]!.querySelector("time")).toHaveAttribute("datetime", "2026-10-01T09:00:00Z");
   });
 
