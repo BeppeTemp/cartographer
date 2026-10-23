@@ -44,6 +44,8 @@ In maintainer mode nothing changes.
   its mandate.
 - **`cartographer-contract-reviewer`** — read-only, on a cheaper model, spawned once at closing
   (§3) on the draft PR, at most three rounds (`cartographer-review-pr` §5).
+- **`cartographer-security-reviewer`** — read-only, spawned in parallel with the contract reviewer
+  when the PR is full tier (`cartographer-review-pr` §1).
 - **`cartographer-source-reader`** — read-only, on a cheaper model, spawned when a check of the
   session's PR is red: it reads the failed log and returns the failed jobs, test
   names and first error lines, so the log never enters the conversation.

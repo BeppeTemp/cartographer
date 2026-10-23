@@ -66,7 +66,7 @@ D292.
      trigger fired **and** the follow-up plan exists.
    - Ledger → bump **Aligned with** to the reviewed version and date, update
      sources and watch items, never replace a version with a guess. One docs-only
-     PR (`docs(harnesses): …`) for the whole pass.
+     PR (`docs: …`, a scope other than the canonical ones fails `pr-title`) for the whole pass.
 
 A dry run (no PR) prints the report table and the ledger diff and touches no
 other file.

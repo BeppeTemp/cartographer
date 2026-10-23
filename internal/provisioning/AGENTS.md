@@ -8,10 +8,10 @@ modifies files a user did not ask about.
 
 - **Never write to a path without `Lstat`ing every component first.**
   `os.WriteFile` on a symlinked path opens the *target* with `O_WRONLY|O_TRUNC`:
-  it does not replace the link. This is not hypothetical — one `cartographer sync`
-  modified **23 files** inside an unrelated git checkout, each stamped with a
-  provenance footer naming Cartographer as their source (D148). The KB side had
-  always guarded this; the client side had 21 unguarded calls.
+  it does not replace the link, so a symlinked client directory diverts the write
+  into an unrelated git checkout, stamped with a provenance footer naming
+  Cartographer as its source (D148). In this package the guard is `ensureSafeDir`
+  and `writeFileNoFollow` (`safepath.go`): a new write uses them.
 - **A hand-curated user file is never rewritten, only its managed block is.**
   `internal/blocktext` does marker-delimited substring replacement and nothing
   format-aware, on purpose: comments, ordering and every other byte survive

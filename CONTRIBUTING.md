@@ -12,11 +12,11 @@ response-time SLA.
 ## Building and testing
 
 ```bash
-make gate     # gofmt + vet + test — everything that must be green before a PR
+make gate     # gofmt + vet + test + race — everything that must be green before a PR
 make build    # → bin/cartographer
 make test     # go test ./...
 make vet      # go vet ./..., also GOOS=windows
-make fmt      # gofmt -w .
+make fmt      # gofmt -w cmd internal
 make smoke    # quick stdio smoke test
 ```
 
@@ -24,7 +24,7 @@ The deterministic E2E suite (`make e2e`) exercises the built HTTP server, CLI
 client and temporary git remotes without model credentials; see
 [`test/e2e/README.md`](test/e2e/README.md). CI runs `make gate` — the same
 command, so there is one answer to "what must be green" — followed by
-`make smoke-http`, `make e2e` and `make test-install`.
+`make smoke-http`, `make smoke`, `make e2e` and `make test-install`.
 
 The Atlas UI has its own loop (Node, outside `make gate`): `make web-test` for
 the frontend tests, `make web` to rebuild the committed bundle, `make e2e-web`
@@ -34,9 +34,10 @@ re-records it (`make hero` previews it locally), and the release candidate re-re
 launch film when `film/` or what it imports changed (`film/README.md`).
 
 `make test` also runs the repository's own documentation gates
-(`internal/repodocs`): the size of `AGENTS.md`, the freshness of the generated
-decision index, the fact that every relative documentation link resolves, and
-that the skill directories have not drifted apart. They live in `make test`
+(`internal/repodocs`): the size of `AGENTS.md`, the fact that every relative
+documentation link resolves, and that every skill's frontmatter is valid for the
+strictest client. (The freshness of the generated decision index is checked on
+the release PR only.) They live in `make test`
 rather than in a separate command on purpose — a gate you have to remember to
 run is not a gate.
 
@@ -110,15 +111,14 @@ fit its listing budget, starting from the end.
 **Keep the frontmatter valid YAML, and mind `": "` in particular.** An unquoted
 value containing a colon followed by a space is a YAML syntax error, and what a
 client does with it is drop the skill and list the others — no message, nothing
-in a log. `cartographer-implement-plan` shipped that way and was invisible to a client until a
-gate caught it; `make test` now parses every `SKILL.md` with the same
+in a log. `make test` parses every `SKILL.md` with the same
 spec-compliant parser a client uses (D207).
 
 MCP configuration is **not** in the repository: it is machine-local and git-ignored
 (`.mcp.json`). If you are pointing a client at a Cartographer server, use
 `cartographer connect`, not a hand-written file.
 
-The repository ships eight subagents in `.claude/agents/`: `cartographer-plan-writer`, the read-only drafter the
+The repository ships its subagents in `.claude/agents/` (`ls .claude/agents`): `cartographer-plan-writer`, the read-only drafter the
 `cartographer-propose-plan` skill spawns per plan once the maintainer has taken its design decisions,
 `cartographer-plan-implementer`, the worker the
 `cartographer-implement-plan` skill spawns per plan, `cartographer-live-implementer`, the one the
@@ -129,15 +129,15 @@ the `cartographer-review-pr`, `cartographer-implement-plan` and `cartographer-de
 red CI run, a client's release notes) that returns a digest instead of the text, and the two a
 maintainer spawns for the fixes of §Fixes without a plan: `cartographer-fix-implementer` and
 `cartographer-advisory-fixer`.
-Each pins a Claude model (`cartographer-source-reader` runs on Haiku 5.5, the other seven on Sonnet 5.5:
+Each pins a Claude model (`cartographer-source-reader` runs on Haiku 5.5, the others on Sonnet 5.5:
 the plan writer drafts after the design decisions are taken, so its work is verification and pointers),
-and the four read-only ones carry `tools: Read, Grep, Glob, Bash`;
+and the read-only ones (the reviewers, the plan writer and the source reader) carry `tools: Read, Grep, Glob, Bash`;
 `TestClaudeSubagentsPinAModelAndReadOnlyOnesCannotEdit` checks both. The procedure itself stays in the skill (D327).
 
 Working on more than one plan at a time? A subagent shares your working copy, so use a worktree per plan:
 
 ```bash
-make worktree-add SLUG=my-change    # branches feat/my-change from origin/main
+make worktree-add SLUG=my-change    # branches feat/my-change from upstream/main (origin/main without an upstream remote)
 make worktree-rm  SLUG=my-change    # after the PR is merged; --force, so check first
 make worktree-clean DRY=1           # or: list what a merged PR left behind (worktree, local and fork branch) ...
 make worktree-clean                 # ... and remove it, each only after its PR is verified MERGED
@@ -191,8 +191,9 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   with the next-train rule of §Releases (a PR that closes an issue of a later
   milestone waits):
   - a contributor's change over **150 production lines** (tests, docs and
-    generated files excluded), or one that changes a public contract (MCP tool
-    schema, CLI flag, config key, on-disk format), closes a **plan issue the
+    generated files excluded) — or one that changes a public contract (MCP tool
+    schema, CLI flag, config key, on-disk format), which a reviewer applies, the
+    script does not — closes a **plan issue the
     maintainer approved** — labelled `plan` and `approved` — **and assigned to
     you** (comment on the plan to claim it; the maintainer assigns it, so nobody
     ships against a plan someone else holds — or assigns your PR to you, since GitHub
@@ -225,8 +226,8 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     `lint` **Lint & repair**, `client` **Client & CLI**, `kb` **Server & KB**;
     an unscoped entry is **General**. `dev`, `demo`, `deploy` and `ci` entries
     do not appear in the changelog (they are not changes a user installs). The
-    older spellings (`webui`, `mcpserver`, `skills`, `gitx`, …) still group
-    correctly on `main`, but a title can no longer use them.
+    older spellings (`webui`, `mcpserver`, `skills`, `gitx`, …) group
+    correctly in the history of `main`; a title may use only the scopes above.
   - **Body lines**: a line of the PR body that starts like a conventional commit
     (`feat(mcp): ...`) becomes a changelog entry of its own, and release-please
     keeps only its **first physical line**: write it as one unwrapped line, never
@@ -311,6 +312,8 @@ change who acts:
 | `size-exception` | Maintainer-granted exception to the 500-line cap |
 | `good first issue` | Small, self-contained, suitable for a first contribution: set at triage on the easiest issues of the next milestones, and dropped when nobody claims one by the Wednesday of its train week (the maintainer takes it or moves it to the next train) |
 | `ci-red` | Opened by CI when `main` is red |
+| `rc-ok` | Set by a maintainer after trying the release candidate: the Monday train merges the release PR only with it (§Releases) |
+| `vuln-scan` | Created by `security.yml` when a vulnerability scan fails; never set by hand |
 | `dependencies`, `autorelease: pending`, `autorelease: tagged` | Set by Dependabot and release-please, never by hand |
 
 Milestones are the roadmap: one per weekly release, `vX.Y.0`; an issue in a

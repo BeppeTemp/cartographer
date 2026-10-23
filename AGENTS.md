@@ -5,11 +5,11 @@ Go MCP server for the *Agentic Wiki* (Karpathy pattern + OKF). The agent never t
 ## Commands
 
 ```
-make gate            # gofmt + vet + test: everything green before a PR (and what CI runs)
+make gate            # gofmt + vet + test + race: everything green before a PR (and what CI runs)
 make build           # → bin/cartographer
 make test            # go test ./...
 make vet             # go vet ./..., also GOOS=windows
-make fmt             # gofmt -w .
+make fmt             # gofmt -w cmd internal
 make run             # stdio with demo KB
 make run-http        # HTTP on :39273 with demo KB
 make smoke           # build + quick stdio test
@@ -114,7 +114,7 @@ Not duplicated here:
 | Project status and planned work | GitHub issues, pull requests and releases (links in `docs/index.md`) |
 | Why behind a choice (`D<n>`) | One file per decision: `ls docs/decisions/D<n>-*`. The generated list is `docs/decisions.md` |
 | Working with an agent client (this repo is developed with Claude Code, D992) | `CONTRIBUTING.md` §Working with an agent client |
-| List of MCP tools | `docs/control-plane.md` §API MCP |
+| List of MCP tools | `docs/control-plane.md` §MCP API |
 | `CARTOGRAPHER_*` env vars, YAML config, deploy | `docs/deployment.md` |
 | Client subcommands / TUI | `docs/configurator.md` |
 | Test strategy and pre-release checklist | `docs/testing.md` |

@@ -20,9 +20,11 @@ materialization logic (`internal/provisioning`) are the same used server-side by
 
 Root help groups commands into Get started, Client, Server, Knowledge base and
 Diagnostics. `cartographer version` and `cartographer --version` are aliases;
-root, `service`, `paths`, `kb`, `client` and `workspace` help (`help`, `-h` or
-`--help` as the only argument) write to stdout and exit 0, with no client config
-needed; no argument or an unknown subcommand still fails on stderr with exit 2.
+the help of root, `paths`, `kb`, `client` and `workspace` (`help`, `-h` or
+`--help` as the only argument) and of `service` (`-h` or `--help` only) writes to
+stdout and exits 0, with no client config needed; no argument outside a terminal
+prints the usage on stdout and exits 0, and an unknown subcommand fails on
+stderr with exit 2.
 Unknown commands only offer a correction for one command within edit distance
 two.
 
@@ -35,10 +37,10 @@ automation; a wrapped low-level `cause` is retained in JSON only. `status`
 keeps exit 0 for in-sync, 1 for drift and 2 for configuration or operational
 errors. `service status` retains 0 running, 3 stopped (on every platform, a Windows task left `Disabled` or `Ready` by `stop` included) and 4 not installed.
 
-### `cartographer hook write-findings [--channel stderr|context]` (internal)
+### `cartographer hook write-findings [--channel stderr|context|copilot]` (internal)
 
 Not in the usage text. The logic of the client-generated `cartographer-write-findings` hook
-([D353](decisions/D353-write-findings-hook.md), `docs/sync.md` §Layer 1): reads a Claude Code, Codex or OpenCode 2.x
+([D353](decisions/D353-write-findings-hook.md), `docs/sync.md` §Layer 1): reads a Claude Code, Codex, Copilot CLI or OpenCode 2.x
 `PostToolUse` payload on stdin and looks in `tool_response` (the result object, a content-block
 array, or JSON in a `text` block, or a string of several JSON values as OpenCode joins them; `supersede` appends `findings:` as plain text) for a `findings`
 array or `results[].findings` (`concept_batch`). With at least one finding it writes a fixed English
@@ -46,9 +48,11 @@ message (a header with the count, up to 10 `<check> <path>: <message>` lines, `+
 instruction to fix them: nothing accepts a finding, D907). `--channel stderr` (default, Claude Code) writes it to stderr
 and exits 2; `--channel context` (Codex, [D361](decisions/D361-codex-write-findings-context.md))
 prints `{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"<message>"}}` on
-stdout and exits 0, never 2. Anything else (no findings, an unknown shape, a parse error, a panic,
+stdout and exits 0, never 2; `--channel copilot` (Copilot CLI, D676) prints
+`{"additionalContext":"<message>"}` on stdout and exits 0, reading Copilot's camelCase payload
+(`toolName`, `toolResult.textResultForLlm`, the tool named `<server>-<tool>`). Anything else (no findings, an unknown shape, a parse error, a panic,
 an unknown flag or channel) is silent exit 0; with the stderr channel stdout is always empty. A wrong
-subcommand name exits 2. `tool_name` may be `mcp__<server>__<tool>`, `<server>_<tool>` (OpenCode, [D362](decisions/D362-opencode-write-findings-plugin.md)) or the bare tool name.
+subcommand name exits 2. `tool_name` may be `mcp__<server>__<tool>`, `<server>_<tool>` (OpenCode, [D362](decisions/D362-opencode-write-findings-plugin.md)), `<server>-<tool>` (Copilot) or the bare tool name.
 
 ### `cartographer update check|notice`
 
@@ -76,8 +80,7 @@ names the image tag or the releases page.
 
 The client **never installs a release by itself** (D906): there is no auto-patch, only this notice and the
 command above. A file that still says `update.policy: auto-patch` loads with a warning, and the
-realignment turns it into `update_check: true`; `cartographer update apply`, the internal command that
-setting started, is gone.
+realignment turns it into `update_check: true`.
 
 ### `cartographer setup`
 
@@ -100,6 +103,8 @@ decides every step **before** running any:
   machine's credentials, under the non-interactive git environment of `kb clone` (no prompts,
   SSH batch mode, host keys never auto-accepted — D173); a failure exits 2 **before anything is
   written**, with the remedy for the recognised git errors.
+- **Workspace.** `--workspace <repo>` is passed through to `connect --workspace` (D193): the KBs are
+  confined to that repository instead of every directory.
 - **KB binding (D190).** `--kb` is passed through. Without it: one KB binds itself; agents that
   already carry a binding keep it; a KB this run adds next to existing ones is bound alone (the
   narrowest choice); otherwise, with two or more KBs and nothing to go on, an interactive run
@@ -111,8 +116,8 @@ decides every step **before** running any:
   configures reach the local server with no token, so a service answering 401 would fail them one
   by one (`sync_pull: … unauthorized (401)`). That happens when a `CARTOGRAPHER_TOKENS` exported
   for another server reaches the service's environment under a `server.yaml` without `auth.mode`
-  — one generated before D268; a config `service install` generates now pins `mode: "off"` for a
-  loopback address. The error names the variable (saying whether it is set in the current shell,
+  under a `server.yaml` that does not pin it; a config `service install` generates pins `mode: "off"` for a
+  loopback address (D268). The error names the variable (saying whether it is set in the current shell,
   and `CARTOGRAPHER_AUTH` if that forces auth on), the config file to add `auth: {mode: "off"}`
   to, and `service restart`; exit 1, and the rerun resumes at the agents.
 - **Interactive** (a TTY, no `--no-input`): asks for the remote when none is mounted — blank means
@@ -139,7 +144,7 @@ behind it or answers with no KB mounted.
 ### `cartographer agents`
 
 Lists the supported providers, whether they are installed on the machine and whether they are
-connected (present in the machine-wide `.cartographer.yaml`, `~/.cartographer.yaml`).
+connected (recorded in the client state file `.cartographer-state.json`, beside the machine-wide `~/.cartographer.yaml`).
 
 `internal/agents.Detect` probes, in this order, and stops at the first match; the heuristic that
 matched is reported in the DETECTION column, and as `detected_by` in JSON
@@ -184,9 +189,9 @@ is **deferred** (warning, exit 0) — it must be completed with `cartographer sy
 server is up. Materialized hooks are also **automatically registered** in the
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
 hooks); `connect`/`sync` print an info line for each one. `connect`, `sync` and `upgrade-repair` also remove the
-scheduled headless doctor job 0.22 and 0.23 installed, printing one line when there was one:
-Cartographer no longer starts an agent by itself (D704). `sync` matters after a Homebrew upgrade, which
-runs neither of the others; `doctor run|schedule|unschedule|status` now fail as unknown arguments.
+scheduled headless doctor job an earlier release installed, printing one line when there was one:
+Cartographer never starts an agent by itself (D704). `sync` matters after a Homebrew upgrade, which
+runs neither of the others; `doctor run|schedule|unschedule|status` fail as unknown arguments.
 
 **Token file (D699).** With `auth: true` and a `token: ${NAME}` reference (the default is `${CARTOGRAPHER_TOKENS}`),
 `connect` (so `reconnect` and `setup`) also copies the token to a `.cartographer-token` file next to `.cartographer.yaml` (`0600`, atomic, never through a symlink), because the sync
@@ -229,17 +234,16 @@ hooks).
 
 **Workspace scope (D193).** `cartographer workspace bind <provider> <path> --kb <name>…` moves a
 provider from one machine-wide catalogue to one projection per bound repository: the KBs land in
-that repository's own project-local directories and nothing KB-sourced is written under `$HOME` any
-more. `connect --workspace <repo>` makes the same choice at connect time, which is the only moment
+that repository's own project-local directories and nothing KB-sourced is written under `$HOME`. `connect --workspace <repo>` makes the same choice at connect time, which is the only moment
 it is free — a provider-global connect materializes every selected KB into `$HOME` first, and moving
 them afterwards is a migration. `workspace unbind` removes the declaration and the next `sync`
 prunes what was projected there. A binding also scopes the **tools** in every client, with no file
 written into the workspace: `sync` writes the provider's global MCP entry as a local stdio bridge,
-`cartographer mcp --provider <p>`, which serves only the KBs of the folder the session runs in
+`cartographer mcp --provider <p> [--dir <folder>]` (the folder defaults to the working directory), which serves only the KBs of the folder the session runs in
 (deepest binding wins; an unbound folder, `$HOME` included, gets the provider's default set
 **read-only** and no KB artifact (D1018); `--no-kb` means no KB, never every KB). It is a scope filter, not a security boundary: hard isolation needs a per-workspace
-token (D44/D45). Artifacts stay opt-in per scope (above). `workspace resolve [<path>]` shows which
-binding wins for a folder, says when it is derived from a KB's `paths.yaml` (D1019), and prints `read-only` for one that no binding covers. `workspace list` shows the bindings, with `[gone]` next to a
+token (D44/D45). Artifacts stay opt-in per scope (above). `workspace resolve [<path>] [--provider <p>]` shows which
+binding wins for a folder (for one provider, or each), says when it is derived from a KB's `paths.yaml` (D1019), and prints `read-only` for one that no binding covers. `workspace list` shows the bindings, with `[gone]` next to a
 directory that is not there any more and `[derived: paths.yaml of kb-a]` next to one a KB's declared repository implies, then the declared repositories with no local clone (D737, `sync.md` §Workspace scope). Limits: the bridge opens no
 server-push stream; if `cartographer` is not on `PATH` when `sync` runs, the provider keeps its HTTP
 entry with a warning; a client with `roots` in an unbound folder gets a handshake naming no KB.
@@ -313,6 +317,9 @@ cartographer connect all --dry-run
 | `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)) |
 | `--allow-insecure-http` | `false` | Accepts a plain `http://` server URL that is not loopback and records `allow_insecure_http: true`; without it `connect` refuses such a URL (§Transport security, D1023) |
 | `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
+| `--no-input` | `false` | Never opens the interactive form, even in a TTY |
+| `--workspace` | *(unset)* | Projects the selected KBs into this repository instead of the global catalogue (D193) |
+| `--auto-trust` | `false` | Accepted and ignored, with a warning (D906) |
 
 ### Transport security (D1023)
 
@@ -343,7 +350,7 @@ If no provider is detected and no explicit name is passed, the command exits wit
 TUI opens (`connectform.go`): each field shows a contextual hint below it when focused
 ("Token env var" is the **name** of the environment variable holding the bearer token — the token
 itself is not entered here, the form saves only the name; with Auth off the field is rendered secondary and the hint says it is
-ignored). In the standalone `connect` form, the four provider checkboxes are pre-selected from the
+ignored). In the standalone `connect` form, one checkbox per provider is pre-selected from the
 installed-agent set; select one or more with Space or Enter. The Server URL prefill follows the precedence existing `.cartographer.yaml` >
 `CARTOGRAPHER_SERVER_URL` (client env) > `http://127.0.0.1:39273/mcp` — the loopback literal the local service listens on, never `localhost`, which Windows resolves to `::1` first, where nothing listens (D231). A `.cartographer.yaml` still carrying the old default `http://localhost:39273/...` is read back on `127.0.0.1` (path kept), so the next `connect` or `sync` rewrites every client's MCP entry; any other URL is left as written. On submit a **probe** runs
 (`client.Health`, `GET /health`, 5s timeout, token from env only if Auth is enabled) before writing
@@ -379,13 +386,13 @@ agent sessions to load the MCP tools.
 ### `cartographer disconnect [provider|all]`
 
 The inverse of `connect`: for each target provider — default `all` = every provider **connected**
-in `.cartographer.yaml` — it surgically removes every managed MCP server entry (the bare name and
+in the client state — it surgically removes every managed MCP server entry (the bare name and
 any persisted per-KB suffixed names) from that provider's
 config file (`internal/configurator.Remove`, the inverse non-destructive merge: the rest of the
-file is left intact; if the `mcpServers`/`mcp` map ends up empty it is not deleted), prunes the
+file is left intact; an emptied `mcpServers`/`mcp` map is dropped, and the file itself is deleted only when it is left an empty shell and the provider's registry entry sets `DeletableWhenEmpty`, never `.claude.json`), prunes the
 managed artifacts registered for that provider in the lockfile (`provisioning.PruneManaged` — only
 managed files, never untracked ones), then removes the provider from the lockfile and from
-`.cartographer.yaml`. If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
+the client state. If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with an empty agent list in the state file,
 preserving `server_url`/`server_name`/`auth`/`token`/`clients` as defaults for the next
 `connect` (a disconnect→connect restarts from the previous server, not from `http://127.0.0.1:39273/mcp`).
@@ -470,7 +477,7 @@ Re-runs `sync_pull` and reapplies the manifest for every connected provider: mat
 add/update, prunes obsolete artifacts, updates the lockfile. Idempotent.
 
 ```bash
-cartographer sync [--client <provider>]... [--dry-run] [--no-heal] [--report-to <url>]
+cartographer sync [--client <provider>]... [--dry-run] [--no-heal] [--log-file <path>] [--report-to <url>]
 ```
 
 | Flag | Default | Effect |
@@ -478,6 +485,8 @@ cartographer sync [--client <provider>]... [--dry-run] [--no-heal] [--report-to 
 | `--client` | *(all)* | Syncs only this provider (repeatable). A provider left out is not touched at all: not its MCP entries, not its artifacts, not its lockfile entry |
 | `--dry-run` | `false` | Prints without writing |
 | `--no-heal` | `false` | Reports managed artifacts that diverged on disk instead of restoring them from the server (D139) |
+| `--log-file` | *(none)* | Appends this run's output to that file instead of stdout/stderr (created if absent, never rotated); the Windows sync task uses it, where nothing else records a failing background run (D217) |
+| `--auto-trust` | `false` | Accepted and ignored, with a warning (D906): session-start hooks written by older versions still pass it |
 | `--report-to` | *(none)* | Only sends this machine's usage and client-settings reports (D326, D818) to that MCP endpoint, and changes nothing: the config is read, never saved, nothing is provisioned, the configured server is not contacted. It is how `make dev DATA=<dir>` shows the real client on a live instance (D1044). The configured token goes with the reports, so the URL must name a server on this machine (`localhost`, `127.0.0.1`, `::1`): any other host is refused with exit 2 |
 
 For Claude Code the `cartographer` MCP entries are written to `$HOME/.claude.json` and to
@@ -591,7 +600,7 @@ cartographer doctor [--json] [--provider claude]
 | `--provider` | *(unset)* | Narrow the run to one provider — inspected even if it is not connected |
 
 **It never repairs, and never writes** — no lockfile migration, no directory creation, no cache
-refresh. Every finding names a real path on this machine and the command that fixes it (`sync`,
+refresh — except `--repair-hashes` below, the one flag that rewrites the lockfile. Every finding names a real path on this machine and the command that fixes it (`sync`,
 `reconnect`, `connect`, `service sync-timer install`), because a diagnosis nobody can act on is
 noise and a doctor that silently fixes things is a doctor nobody can predict.
 
@@ -620,7 +629,7 @@ version difference); `info` — context that cannot be acted on by itself and ne
 code (managed entries recorded before content hashes existed, which nothing can verify). Findings
 are printed errors first.
 
-**`doctor --repair-hashes`** re-records the materialized hash of every managed entry that has none, computing it from the bytes already on disk (D157). It exists because the previous remedy for that narrow gap was `reconnect`, which prunes and rewrites **every** managed artifact on every client — in the field ~150 file operations to backfill six hashes, with a partial failure leaving both clients without skills. A backfilled entry is marked `adopted_at` in the lockfile: it is **adopted, not verified** — nothing was compared against the server, so drift is detectable only from the next server-side change onward. An entry whose file is *missing* is left alone: that is real drift for `sync` to fix, not something to paper over.
+**`doctor --repair-hashes`** re-records the materialized hash of every managed entry that has none, computing it from the bytes already on disk, under the client-state lock (D157). It exists because the alternative for that narrow gap, `reconnect`, prunes and rewrites **every** managed artifact on every client. A backfilled entry is marked `adopted_at` in the lockfile: it is **adopted, not verified** — nothing was compared against the server, so drift is detectable only from the next server-side change onward. An entry whose file is *missing* is left alone: that is real drift for `sync` to fix, not something to paper over.
 
 **Exit codes**: `0` clean, `1` findings (error or warning), `2` an error running the command — the
 same convention `status` uses. An unreachable server is one `warning` finding, not a failure:
@@ -630,7 +639,7 @@ same convention `status` uses. An unreachable server is one `warning` finding, n
 `{check, severity, message, path, fix}`. Flat and stable — it ends up in someone's monitoring.
 
 The bootstrap hook and the scheduled timer deliberately do **not** run it: it is an operator command,
-and eight checks on every session start is exactly the background cost D60 avoided by keeping
+and running every check on every session start is exactly the background cost D60 avoided by keeping
 the bootstrap script silent and deterministic.
 
 ### `cartographer kb repair <kb> [--apply] [--json | --revert <sha> [--reason <text>]]`
@@ -713,8 +722,8 @@ cartographer service sync-timer status   # exit: 0 active, 3 installed but inact
 
 `install` is idempotent (it overwrites and re-registers); uninstalling a timer that is not
 installed is a success. The per-user scheduler belongs to the account, not to `$HOME`: when
-`$HOME` is not the account's home directory (a sandboxed run, the e2e suite), the server service,
-the sync timer and the doctor timer write their unit files under `$HOME` and register nothing,
+`$HOME` is not the account's home directory (a sandboxed run, the e2e suite), the server service
+and the sync timer write their unit files under `$HOME` and register nothing,
 so a sandbox never replaces the account's own jobs (#683). The timer runs plain `cartographer sync`: there is no trust flag to give it (D906),
 and an MCP descriptor still needs the local approval an unattended job cannot give. `setup` and `connect` install the timer themselves when a connected provider has no
 session hook, or one limited to some sessions (D325); `setup` lists it in its plan. `uninstall` is
@@ -745,7 +754,7 @@ cartographer service restart --wait [--config <path>]   # graceful, version-gate
 cartographer service status        # exit: 0 running, 3 installed but stopped, 4 not installed
 ```
 
-Plain `restart` keeps its previous behavior. `restart --wait` gracefully replaces the process
+Plain `restart` restarts the unit and returns. `restart --wait` gracefully replaces the process
 (`SIGTERM`, so in-flight requests drain) and only prints success once `/health` proves the
 installed binary version is serving from a new process (its `started_at` differs from the one
 read before the restart, D266); `--config` selects the config used for that verification,
@@ -788,7 +797,7 @@ cartographer import --source ./docs --kb ./kb-clone \
 |------|---------|-------------|
 | `--source` | *(required)* | Source directory to import |
 | `--kb` | *(required)* | Local clone of the destination KB (already initialized) |
-| `--default-map` | `""` | Default map for source directories with no `--map` (D77: used to be `--archive`) |
+| `--default-map` | `""` | Default map for source directories with no `--map` (D77) |
 | `--map` | *(repeatable)* | Per-directory mapping `<srcdir>=<map>` (`srcdir` relative to `--source`, `.` for the root) |
 | `--dry-run` | `false` | Prints the mapping plan (source → concept id) without writing |
 | `--commit` | `false` | Makes one final commit containing only import-written paths; pre-existing dirty work is untouched. Its author and committer are the operator, the identity git resolves for the KB's folder, else the server (D904, D950) |
@@ -798,9 +807,8 @@ cartographer import --source ./docs --kb ./kb-clone \
 **`--map` covers a subtree.** Resolution is longest matching prefix, then `--default-map`, then the
 unmapped error (D162): `--map a/b=m` covers `a/b`, `a/b/c` and below, a more specific `--map a/b/c=n`
 wins for its own subtree, and matching is at **segment boundaries**, so `a/b` never covers `a/bc`. `.`
-is a legal source and covers everything. Before this the lookup was keyed on the exact directory, so a
-corpus with 58 source directories needed 58 flags — the only choices were one map for everything or one
-flag per directory, with nothing in between.
+is a legal source and covers everything, so a corpus with many source directories needs one flag per
+subtree, not one per directory.
 
 **The matched prefix is replaced, not appended to**: `--map a/b=m` sends `a/b/c/page.md` to `m`, not to
 `m/c`. The destination is a *map* (or `map/expanded-concept`) and the write path caps concept depth at
@@ -816,9 +824,8 @@ server's sync loop manages, and the two interleaving corrupted the git index. `-
 nothing and never contends for it.
 
 **The search index is not updated by this process.** `import` writes through the KB write path but
-from outside the server, so the server's FTS index knows nothing about it — `search` returned zero
-results while `concept_list` saw everything, and the natural conclusion was that the import had
-failed. On completion the command rebuilds the index when a configured server is reachable, and
+from outside the server, so the server's FTS index knows nothing about it: until it is rebuilt `search` returns nothing
+while `concept_list` sees everything. On completion the command rebuilds the index when a configured server is reachable, and
 otherwise prints the `cartographer reindex` instruction. It never changes the exit code: the import
 itself succeeded.
 
@@ -875,9 +882,8 @@ not expanded — another user's home is not something a config entry means.
 A configured search root that does not exist, is not a directory, or cannot be listed produces a
 **warning on stderr naming it and the OS error**, and the remaining roots are still scanned. It is a
 warning, not a failure: a machine-local config may legitimately name a root that only exists on
-another machine. Before this the root was silently skipped and the only message on offer was the
-one below, which talks about directory depth — so a typo in a root looked like a depth
-problem ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md)). The same warnings
+another machine. The warning is separate from the depth message below, so a typo in a root is not
+mistaken for a depth problem ([D216](decisions/D216-the-client-half-reaches-parity-on-windows.md)). The same warnings
 surface in `AppliedResult.Warnings` when a `{{repo:…}}` placeholder is resolved during `sync`.
 
 Exit code: `0` resolved (path on stdout), `1` not resolved (no `paths:` entry, no clone
@@ -958,7 +964,10 @@ Every supported provider is one descriptor in `internal/configurator/registry.go
 name, native MCP config file and format (`FormatJSON` with its server key, or `FormatTOMLBlock`),
 whether that file may be deleted once emptied (never for Claude Code — `.claude.json` is Claude's
 own shared state), whether it can carry MCP auth headers, whether its MCP tool namespace is flat
-across servers, the detection evidence (binary names, config directories in probe order, optional
+across servers, the longest tool identifier it accepts (`ToolIdentifierLimit`, which `connect`
+and `sync` check), the client majors whose hook plugin shape is known (`HookPluginMajors`, which
+`doctor` checks), the global instructions files that shadow the managed one
+(`InstructionsPrecedence`, which `doctor` checks), the detection evidence (binary names, config directories in probe order, optional
 env-anchored config directories, optional per-GOOS application directories), and its emitter
 function.
 
@@ -970,8 +979,7 @@ Adding a provider therefore means: one descriptor, one emitter (provider output 
 differ, so that stays code), its cells in the kind × provider matrix (`internal/provisioning`, see
 [`sync.md`](sync.md) §Kind × provider matrix), and — if it has a native hook mechanism — one entry
 in `hookMechanisms`. A missing matrix cell fails a completeness test; nothing else needs editing.
-Every provider declares a config file and an emitter, and materializes under the shared base dir:
-the two mechanisms only Hermes used (`ManagesMCPConfig`, `BaseDirEnv`) went with it
+Every provider declares a config file and an emitter, and materializes under the shared base dir
 ([D898](decisions/D898-hermes-support-is-removed.md)).
 
 A configuration that still names a client the registry no longer knows keeps working: `Load` drops the
@@ -1095,7 +1103,7 @@ the next `blocktext.Write` cannot destroy it; each relocation is reported as its
 ```
 
 > **Known risk**: OpenCode is SSE-first and support for custom headers on a remote MCP
-> may require `mcp-remote`/`mcp-auth.json`; see `docs/interoperability.md` §Known risks.
+> may require `mcp-remote`/`mcp-auth.json`.
 
 **Google Antigravity** — with auth (Antigravity natively resolves `${VAR}` in headers):
 ```json
@@ -1165,7 +1173,7 @@ KB hook that declares one is installed but not registered, with a warning. Carto
 `$HOME/.copilot` like every other provider and ignores `COPILOT_HOME`. The project-local MCP, agent and
 hook locations are gated on folder trust and are unsupported ([D676](decisions/D676-github-copilot-cli-is-a-provider.md)).
 
-The seven formats above are generated from the same provider-neutral core,
+The formats above are generated from the same provider-neutral core,
 `configurator.EmitServer(name, spec ServerSpec, provider)` (D69): `Emit(cfg, provider)` is a
 thin wrapper around `EmitServer(cfg.Name, cfg.toSpec(), provider)`. The same `EmitServer` is
 reused by `internal/provisioning` to materialize the third-party MCP servers a KB
@@ -1190,13 +1198,12 @@ and takes effect on the next `cartographer sync`, which prunes managed provider
 config.
 
 Written/updated by `connect` in the user's home directory (`~/.cartographer.yaml`, machine-wide —
-`clientconfig.TargetDir`, D52): it records which server the machine is connected to and which
-providers are connected. One file per machine, not per project: this avoids drift with a provider
+`clientconfig.TargetDir`, D52): it records which server the machine is connected to (the connected providers are in the client state file, below). One file per machine, not per project: this avoids drift with a provider
 connected in one repo but not another.
 
 ```yaml
 server_url: http://127.0.0.1:39273/mcp
-server_name: cartographer  # name under which the server is registered in the MCP configs (no longer a flag: always "cartographer", override only by editing this file)
+server_name: cartographer  # name under which the server is registered in the MCP configs (always "cartographer", overridden only by editing this file)
 auth: false
 token: ${CARTOGRAPHER_TOKENS}   # a literal token or ${ENV}; a literal keeps this file at mode 0600 (D906). Unattended runs fall back to the private token file
 clients:         # per-provider KB binding (D169); absent provider = every known KB
@@ -1212,7 +1219,13 @@ identities:                     # D904; the git author of this machine's writes,
 allow_insecure_http: false      # D1023; written only when true. true: accept a plain http:// server_url that is not loopback (the token then travels in clear); set by `connect --allow-insecure-http`
 update_check: true              # D254, D906; written only when false. false: no update lookup at all. The client never installs a release by itself
 usage_scan: true                # D326; written only when false. false: sync reads no session transcript and reports no skill usage (docs/sync.md §Usage scan)
+scopes: {}                      # per-provider scope, provider | workspace (D193); set by `cartographer workspace bind`
+workspaces: {}                  # per-provider explicit workspace bindings, [{path, kbs}] (D193); set by `cartographer workspace bind`
+signing_keys: {}                # Ed25519 public keys pinned per source KB (`connect --pin-key`); never learned from a sync
+mcp_approvals: {}               # local approvals of MCP descriptors, bound to the content hash; written by `cartographer approve`, not edited by hand
 ```
+
+Every key, with its values and default, is the `Schema` table in `internal/clientconfig/schema.go`.
 
 The write-findings hook (D353) is always installed (Claude Code, Codex, ...); `docs/sync.md` §Layer 1.
 
@@ -1239,7 +1252,7 @@ backup, and `sync --dry-run` writes nothing. The registry of removed keys is `Re
 `internal/clientconfig/realign.go`, next to the schema. A removed key met later, edited back in by hand,
 is ignored with a warning that names its replacement; it is never an error.
 
-D906 added the client keys to that registry: `token_env` (rewritten as `token: ${NAME}`, comments kept),
+The registry holds the client keys `token_env` (rewritten as `token: ${NAME}`, comments kept),
 `trust`, `write_findings_hook`, `search_depth`, `update.check` and `update.policy` (`update_check`, which an
 `auto-patch` policy turns into `true`), and `agents` and `sync_timer_opt_out`, whose **values move** to the
 client state file before the YAML drops them. A realignment that cannot write the state file stops and
@@ -1252,13 +1265,12 @@ leaves the keys where they are. Until a file is realigned (a read-only mount), `
 sync, which is why they left the file you edit; since D906 it also holds `agents` (the connected clients,
 maintained by `connect` and `disconnect`) and `sync_timer_opt_out` (a record of `service sync-timer
 uninstall`), for the same reason: they are written by commands, never by a person. Because of them it is
-**no longer disposable**: a deleted state file means no connected client until the next `connect`. a sync that only refreshes them writes the state file
+**not disposable**: a deleted state file means no connected client until the next `connect`. A sync that only refreshes them writes the state file
 and leaves `.cartographer.yaml` byte-identical, mtime included. The state file is JSON, never
 hand-edited. An installation from before keeps these keys in `.cartographer.yaml`; `Load` reads them
 from there while the state file is absent, and the next save moves them (the legacy `kbs` key, read
 since D169, goes the same way). An unreadable or corrupt state file is treated as absent, with one
-line on stderr: the caches in it are rebuilt by the next `sync`, the connected clients by `connect`. `clients` is user-owned and is never
-written by `connect`/`sync` — it is maintained with `cartographer client` (below).
+line on stderr: the caches in it are rebuilt by the next `sync`, the connected clients by `connect`. `clients` is user-owned: `sync` never writes it, and `connect` writes a provider's binding only on its first connect, when it has none (the KB selection, `--kb`); it is otherwise maintained with `cartographer client` (below).
 
 ### `cartographer client`
 
@@ -1314,16 +1326,21 @@ been materialized:
 ```jsonc
 {
   "providers": {
-    "claude": { "applied_revision": "sha256:…", "server_version": "1.4.0", "managed": [ /* ManagedFile[] */ ],
+    "claude": { "applied_revision": "9f86d081…", "server_version": "1.4.0", "managed": [ /* ManagedFile[] */ ],
                 "resolved_placeholders": { "repo:tool": "/home/user/src/tool" },
                 "unresolved_placeholders": { "path:kubeconfig": "no \"kubeconfig\" entry under paths: (.cartographer.yaml)" },
                 "placeholder_sources": { "repo:tool": ["kb-a"], "path:kubeconfig": ["kb-a"] },
                 "placeholder_decls": { "path:kubeconfig": { "description": "kubectl config" } },
                 "paths_section_hash": "…" },
-    "opencode": { "applied_revision": "sha256:…", "server_version": "1.4.0", "managed": [ /* ManagedFile[] */ ] }
-  }
+    "opencode": { "applied_revision": "9f86d081…", "server_version": "1.4.0", "managed": [ /* ManagedFile[] */ ] }
+  },
+  "workspaces": { "/path/to/repo": { /* provider → Lock: a separate namespace */ } }
 }
 ```
+
+`applied_revision` is the bare hex sha256 of the manifest. A lock also carries `base_dir` and
+`project_scope` for a workspace projection, and `session_hook_limit_acked` (field by field in
+`docs/sync.md` §Client lockfile).
 
 The old v1 format (`{"applied_revision", "provider", "managed"}`, single provider) is
 automatically migrated on read (`provisioning.ReadLockFile`) into `{"providers": {<provider>:
@@ -1367,14 +1384,16 @@ Main keys:
 
 | Key | Action |
 |---|---|
-| `enter` / `s` | Connect (if not connected) or resync the **selected** provider |
+| `enter` | Connect (if not connected) or resync the **selected** provider |
+| `s` | Resync the **selected** connected provider (no-op on a disconnected one) |
 | `S` | Sync every connected provider, one at a time under a single client lock (D172) |
 | `d` | Disconnect (if connected) — opens an inline `y`/`n` confirmation naming its KBs |
 | `r` | Refresh status |
-| `q` / `Esc` | Quit |
+| `q` / `ctrl+c` | Quit |
 
-`d` on a connected agent opens a confirmation screen (`y` confirms, any other key,
-including `n`/`Esc`, cancels and returns to the list); on a non-connected agent it's a no-op. The TUI is a
+`d` on a connected agent opens a confirmation screen (`y` confirms; the arrows, `tab`, `h` and `l`
+toggle Yes/No and `enter` confirms only when Yes is selected; `n`, `Esc` and `q` cancel and return to the
+list; any other key is ignored); on a non-connected agent it's a no-op. The TUI is a
 subset of the CLI: it uses the same `doConnect`/`doDisconnect` logic as `cartographer
 connect`/`disconnect`, but doesn't expose `--dry-run`. Outside a TTY, `cartographer`
 with no arguments prints the usage (like `cartographer help`).
