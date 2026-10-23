@@ -1,11 +1,39 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { fetchAudit, fetchChanges, fetchJournal, fetchRetired } from "../api/client";
-import type { AuditLog, ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot, RetiredConcept } from "../api/types";
-import { changedAt, changeKind, journalMap, journalShape, mostWorked, parseJournal, shownReasons, type ChangeKind } from "../lib/activity";
+import type {
+  AuditLog,
+  ChangesResponse,
+  CollectionSummary,
+  ConceptChange,
+  GraphSnapshot,
+  RetiredConcept,
+} from "../api/types";
+import {
+  changedAt,
+  changeKind,
+  journalMap,
+  journalShape,
+  mostWorked,
+  parseJournal,
+  shownReasons,
+  type ChangeKind,
+} from "../lib/activity";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
 import { Icon } from "./Icon";
-import { Avatar, Count, Hero, MapBar, MapDot, Page, PageHeader, PageSection, Segmented, TitleBone, ActivitySkeleton } from "./Page";
+import {
+  Avatar,
+  Count,
+  Hero,
+  MapBar,
+  MapDot,
+  Page,
+  PageHeader,
+  PageSection,
+  Segmented,
+  TitleBone,
+  ActivitySkeleton,
+} from "./Page";
 
 const WINDOWS = [
   ["1d", "1d"],
@@ -202,9 +230,11 @@ export function Activity({
   const kinds = useMemo(() => new Map(filtered.map((c) => [c, changeKind(c)])), [filtered]);
   const count = (k: ChangeKind) => filtered.filter((c) => kinds.get(c) === k).length;
   const upkeep = count("maintenance");
+  // A window of nothing but upkeep is quiet whatever the upkeep toggle says:
+  // its toggle is in the summary, which the quiet notice replaces.
   const rows = useMemo(
-    () => (showUpkeep ? filtered : filtered.filter((c) => kinds.get(c) !== "maintenance")),
-    [filtered, kinds, showUpkeep],
+    () => (windowEmpty ? [] : showUpkeep ? filtered : filtered.filter((c) => kinds.get(c) !== "maintenance")),
+    [filtered, kinds, showUpkeep, windowEmpty],
   );
   const days = useMemo(() => groupByDay(rows), [rows]);
   // The server's day series counts every change of the window; the concepts
@@ -212,12 +242,12 @@ export function Activity({
   // filter narrows the page (the series cannot be filtered) or the server is
   // older than the series (D1057).
   const byDay = map === null && author === null ? data?.changes_by_day : undefined;
-  const histogram = useMemo(
-    () => perDay(filtered, kinds, DAYS[shown], byDay),
-    [filtered, kinds, shown, byDay],
-  );
+  const histogram = useMemo(() => perDay(filtered, kinds, DAYS[shown], byDay), [filtered, kinds, shown, byDay]);
   const top = useMemo(() => mostWorked(filtered), [filtered]);
-  const retiredCount = useMemo(() => filtered.filter((c) => retired.has(c.id)).length, [filtered, retired]);
+  const retiredCount = useMemo(
+    () => filtered.filter((c) => kinds.get(c) !== "maintenance" && retired.has(c.id)).length,
+    [filtered, kinds, retired],
+  );
 
   return (
     <Page label="Recent activity" busy={loading} className="timeline">
@@ -360,7 +390,13 @@ export function Activity({
             {windowEmpty && earlierDays.length > 0 && (
               <>
                 <h2 className="timeline__earlier">Earlier</h2>
-                <TimelineDays days={earlierDays} titles={titles} mapTitles={mapTitles} retired={retired} onOpen={onOpen} />
+                <TimelineDays
+                  days={earlierDays}
+                  titles={titles}
+                  mapTitles={mapTitles}
+                  retired={retired}
+                  onOpen={onOpen}
+                />
               </>
             )}
           </>
@@ -516,8 +552,7 @@ function JournalEntry({
   useLayoutEffect(() => {
     const el = noteRef.current;
     if (!el || open) return;
-    const measure = () =>
-      setClamped([...el.querySelectorAll("p")].some((p) => p.scrollHeight > p.clientHeight + 1));
+    const measure = () => setClamped([...el.querySelectorAll("p")].some((p) => p.scrollHeight > p.clientHeight + 1));
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(measure);

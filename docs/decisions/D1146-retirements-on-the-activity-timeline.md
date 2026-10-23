@@ -4,7 +4,7 @@ topic: architecture
 
 # D1146 — Retirements are rows of the Activity timeline, not a tab of their own
 
-**Decision.** The Retired tab of Activity (D820) is gone: a concept that is
+**Decision.** This amends D820, whose route and archive rules stand: the Retired tab of Activity is gone, and a concept that is
 archived, deprecated or superseded shows on the Activity timeline as the row of
 its change, with a pill naming its status in place of the change pill and, under
 the title, what replaced it, why and where it was. The summary counts the
@@ -12,7 +12,8 @@ retired rows of the window. `GET /api/ui/v1/kbs/{kb}/retired` stays and is what
 the timeline reads; `?panel=retired` opens Activity. A window with no change
 shows a quiet notice in place of the summary and, under it, the newest earlier
 changes on the same timeline, read in the same round as the window so the page
-never shows the notice alone.
+never shows the notice alone while they load (a failed read leaves the notice
+without them).
 
 **Why.** Activity is a timeline bounded by the window the reader picks; Retired
 was an inventory with no window under the same header, so the two tabs read as
