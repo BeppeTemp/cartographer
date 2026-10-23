@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -90,26 +91,53 @@ func TestMigratePreApprovalInstalls_KeepsExistingApprovalAndWaitsForACompletePul
 	}
 }
 
-func TestApprovalsMigratedMarkerPersistsInTheStateFile(t *testing.T) {
+func TestApprovalsMigratedMarkerLivesWithTheApprovals(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", ApprovalsMigrated: true}
 	if err := clientconfig.Save(dir, cfg); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := clientconfig.Load(dir)
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !loaded.ApprovalsMigrated {
+		t.Fatalf("marker lost across Save/Load: %v", err)
 	}
-	if !loaded.ApprovalsMigrated {
-		t.Fatal("marker lost across Save/Load")
-	}
-	// Any later save of a loaded config keeps it.
 	if err := clientconfig.Save(dir, loaded); err != nil {
 		t.Fatal(err)
 	}
 	again, _ := clientconfig.Load(dir)
 	if !again.ApprovalsMigrated {
 		t.Fatal("marker cleared by a later save")
+	}
+}
+
+// The state file is a cache and may be deleted or corrupt: that must not re-arm
+// the migration over a revoke (D1166).
+func TestMigratePreApprovalInstalls_StateFileLossDoesNotUndoARevoke(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}
+	_, lf, manifests, projs := migrationFixture("h1", "h1")
+	migratePreApprovalInstalls(&bytes.Buffer{}, cfg, lf, manifests, projs, true)
+	cfg.RevokeMCP("kb-a", "hook/guard")
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, corrupt := range []bool{false, true} {
+		if corrupt {
+			if err := os.WriteFile(clientconfig.StatePath(dir), []byte("{not json"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := os.Remove(clientconfig.StatePath(dir)); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		loaded, err := clientconfig.Load(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		migratePreApprovalInstalls(&out, loaded, lf, manifests, projs, true)
+		if len(loaded.MCPApprovals) != 0 || out.Len() != 0 {
+			t.Errorf("corrupt=%v: revoke undone: %+v %q", corrupt, loaded.MCPApprovals, out.String())
+		}
 	}
 }
 

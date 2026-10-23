@@ -30,10 +30,6 @@ type stateFile struct {
 	Agents *[]string `json:"agents,omitempty"`
 	// SyncTimerOptOut is the operator's `service sync-timer uninstall` (D325).
 	SyncTimerOptOut bool `json:"sync_timer_opt_out,omitempty"`
-	// ApprovalsMigrated records that the one-time migration of artifacts
-	// installed before D1141 has run (D1166). Never cleared: it is what keeps a
-	// later revoke from being undone.
-	ApprovalsMigrated bool `json:"approvals_migrated,omitempty"`
 }
 
 // StatePath returns the full path to the state file inside dir.
@@ -65,7 +61,7 @@ func writeState(dir string, cfg *Config) error {
 
 // writeStateChanged is writeState and says whether it wrote anything.
 func writeStateChanged(dir string, cfg *Config) (bool, error) {
-	s := stateFile{KnownKBs: cfg.KnownKBs, ServerMountMode: cfg.ServerMountMode, ServerRoutedPath: cfg.ServerRoutedPath, SyncTimerOptOut: cfg.SyncTimerOptOut, ApprovalsMigrated: cfg.ApprovalsMigrated}
+	s := stateFile{KnownKBs: cfg.KnownKBs, ServerMountMode: cfg.ServerMountMode, ServerRoutedPath: cfg.ServerRoutedPath, SyncTimerOptOut: cfg.SyncTimerOptOut}
 	if cfg.Agents != nil {
 		agents := cfg.Agents
 		s.Agents = &agents
@@ -79,7 +75,7 @@ func writeStateChanged(dir string, cfg *Config) (bool, error) {
 	}
 	data = append(data, '\n')
 	old, readErr := os.ReadFile(StatePath(dir))
-	if readErr != nil && len(s.KnownKBs) == 0 && s.ServerMountMode == "" && s.ServerRoutedPath == "" && s.Agents == nil && !s.SyncTimerOptOut && !s.ApprovalsMigrated {
+	if readErr != nil && len(s.KnownKBs) == 0 && s.ServerMountMode == "" && s.ServerRoutedPath == "" && s.Agents == nil && !s.SyncTimerOptOut {
 		return false, nil
 	}
 	if bytes.Equal(old, data) {

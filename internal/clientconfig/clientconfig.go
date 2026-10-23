@@ -135,8 +135,10 @@ type Config struct {
 	// state file with Agents (D906).
 	SyncTimerOptOut bool `yaml:"-"`
 	// ApprovalsMigrated is set once the sync that approves what a pre-D1141
-	// client had installed has run (D1166). It lives in the state file and is
-	// never cleared, so the migration cannot be re-armed and undo a revoke.
+	// client had installed has run (D1166). It is the YAML key
+	// `approvals_migrated`, beside mcp_approvals: the marker and the approvals
+	// it protects live and die together, so it cannot be lost alone and re-arm
+	// the migration over a revoke. Never cleared.
 	ApprovalsMigrated bool `yaml:"-"`
 	// UpdateCheckOff is the `update_check: false` opt-out of the daily release
 	// lookup (D254, D906). Held as the negation so a Config built from the zero
@@ -251,6 +253,8 @@ type yamlConfig struct {
 	MCPApprovals map[string]map[string]MCPApproval `yaml:"mcp_approvals,omitempty"`
 	UpdateCheck  *bool                             `yaml:"update_check,omitempty"`
 	UsageScan    *bool                             `yaml:"usage_scan,omitempty"`
+
+	ApprovalsMigrated bool `yaml:"approvals_migrated,omitempty"`
 
 	AllowInsecureHTTP bool `yaml:"allow_insecure_http,omitempty"`
 }
@@ -441,13 +445,14 @@ func Load(dir string) (*Config, error) {
 		AllowInsecureHTTP: y.AllowInsecureHTTP,
 		UsageScan:         true, // absent `usage_scan` key defaults to true
 
-		SearchRoots:  y.SearchRoots,
-		Paths:        y.Paths,
-		IgnoredPaths: y.IgnoredPaths,
-		SigningKeys:  y.SigningKeys,
-		Identities:   y.Identities,
-		MCPApprovals: y.MCPApprovals,
-		Extra:        extra,
+		SearchRoots:       y.SearchRoots,
+		Paths:             y.Paths,
+		IgnoredPaths:      y.IgnoredPaths,
+		SigningKeys:       y.SigningKeys,
+		Identities:        y.Identities,
+		MCPApprovals:      y.MCPApprovals,
+		ApprovalsMigrated: y.ApprovalsMigrated,
+		Extra:             extra,
 	}
 	// token_env (removed, D906) is honoured as the token it became until the
 	// file is realigned, so a read-only file does not lose its credentials.
@@ -465,7 +470,6 @@ func Load(dir string) (*Config, error) {
 		cfg.ServerMountMode = state.ServerMountMode
 		cfg.ServerRoutedPath = state.ServerRoutedPath
 		cfg.SyncTimerOptOut = state.SyncTimerOptOut
-		cfg.ApprovalsMigrated = state.ApprovalsMigrated
 		if state.Agents != nil {
 			cfg.Agents = *state.Agents
 		}
@@ -538,6 +542,7 @@ func Save(dir string, cfg *Config) error {
 		Identities:   cfg.Identities,
 		MCPApprovals: cfg.MCPApprovals,
 
+		ApprovalsMigrated: cfg.ApprovalsMigrated,
 		AllowInsecureHTTP: cfg.AllowInsecureHTTP,
 	}
 	// The defaults are not written: a file that never set search_roots keeps

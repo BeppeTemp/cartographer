@@ -8,7 +8,7 @@ topic: sync-provisioning
 `cartographer approve` would, every hook, skill or agent that needs approval (D1141), has no approval recorded
 under any hash, and is installed according to the lockfile with the same source and content hash the KB serves
 now. It prints one line per artifact. The migration runs once: its marker (`approvals_migrated`) lives in the client
-state file, is set by the same run, is never cleared, and is not set by a dry run or by a sync that did not pull
+YAML config beside `mcp_approvals`, is set by the same run, is never cleared, and is not set by a dry run or by a sync that did not pull
 every KB. `cartographer approve --pending [--kb <kb>] [--yes]` lists everything `sync` would report as
 `needs_approval` and approves it after one confirmation, for the artifacts the migration does not cover.
 
@@ -21,13 +21,13 @@ the lockfile, not the person, vouches for the artifact on that one run.
 **Alternatives rejected.**
 - Grandfathering with no marker, on every sync (D1141 ruled it out): an `approve revoke` would be undone by the
   next sync, since the lockfile keeps the entry.
-- Keeping the marker in `.cartographer.yaml`: a person edits that file and a copy of it between machines would carry
-  the marker to a client that never migrated; the state file is machine-written.
+- Keeping the marker in the state file: that file is a cache, read as absent when deleted or corrupt, so losing it
+  alone would re-arm the migration and re-approve a revoked artifact (its lock entry and hash are unchanged).
 - Approving by file name on disk instead of the lock hash: the file may have been edited since, and the lock is the
   record of what the client applied.
 - Only the bulk command: every client with a KB hook would still need a manual step after upgrading.
 
 **Consequences.** A future change here must keep: approval only for a hash-identical, lock-recorded artifact; one
 run per client state, never re-armed, and a revoke never undone; no approval for an MCP descriptor (it was always gated);
-and the printed line per artifact. Deleting the state file re-arms the migration, as it also forgets the connected
-clients: it is not disposable (`docs/configurator.md`).
+and the printed line per artifact. The marker lives and dies with `mcp_approvals`: deleting the config forgets the
+approvals too, so re-arming there undoes nothing. Losing the state file does not re-arm it.
