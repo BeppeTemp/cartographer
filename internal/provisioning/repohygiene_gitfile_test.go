@@ -210,23 +210,23 @@ func TestEnsureWorkspaceExcluded_UnparseableGitFileIsAWarning(t *testing.T) {
 // directory is refused before anything is written (it is the repository's
 // content, not the user's).
 func TestEnsureWorkspaceExcluded_RefusesATargetThatIsNotTheWorkspacesOwn(t *testing.T) {
-	setup := func(t *testing.T, build func(root, ws string) string) (ws, victim string) {
+	setup := func(t *testing.T, build func(t *testing.T, root, ws string) string) (ws, victim string) {
 		t.Helper()
 		root := t.TempDir()
 		ws = filepath.Join(root, "ws")
 		if err := os.MkdirAll(ws, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		victim = build(root, ws)
+		victim = build(t, root, ws)
 		return ws, victim
 	}
-	cases := map[string]func(root, ws string) string{
-		"absolute outside dir that is a git dir": func(root, ws string) string {
+	cases := map[string]func(t *testing.T, root, ws string) string{
+		"absolute outside dir that is a git dir": func(t *testing.T, root, ws string) string {
 			v := mkGitDir(t, filepath.Join(root, "elsewhere"))
 			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+v+"\n")
 			return v
 		},
-		"traversal": func(root, ws string) string {
+		"traversal": func(t *testing.T, root, ws string) string {
 			v := mkGitDir(t, filepath.Join(root, "elsewhere"))
 			rel, err := filepath.Rel(ws, v)
 			if err != nil || !strings.HasPrefix(rel, "..") {
@@ -235,7 +235,7 @@ func TestEnsureWorkspaceExcluded_RefusesATargetThatIsNotTheWorkspacesOwn(t *test
 			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+filepath.ToSlash(rel)+"\n")
 			return v
 		},
-		"plain directory without HEAD": func(root, ws string) string {
+		"plain directory without HEAD": func(t *testing.T, root, ws string) string {
 			v := filepath.Join(root, "dir")
 			if err := os.MkdirAll(filepath.Join(v, "info"), 0o755); err != nil {
 				t.Fatal(err)
@@ -243,7 +243,7 @@ func TestEnsureWorkspaceExcluded_RefusesATargetThatIsNotTheWorkspacesOwn(t *test
 			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+v+"\n")
 			return v
 		},
-		"worktree whose back-link names another workspace": func(root, ws string) string {
+		"worktree whose back-link names another workspace": func(t *testing.T, root, ws string) string {
 			common := mkGitDir(t, filepath.Join(root, "store"))
 			wt := mkGitDir(t, filepath.Join(common, "worktrees", "wt"))
 			writeTestFile(t, filepath.Join(wt, "commondir"), "../..\n")
@@ -251,7 +251,7 @@ func TestEnsureWorkspaceExcluded_RefusesATargetThatIsNotTheWorkspacesOwn(t *test
 			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+wt+"\n")
 			return common
 		},
-		"worktree whose commondir is not a git dir": func(root, ws string) string {
+		"worktree whose commondir is not a git dir": func(t *testing.T, root, ws string) string {
 			wt := mkGitDir(t, filepath.Join(root, "store", "worktrees", "wt"))
 			victim := filepath.Join(root, "victim")
 			if err := os.MkdirAll(filepath.Join(victim, "worktrees"), 0o755); err != nil {
@@ -262,7 +262,7 @@ func TestEnsureWorkspaceExcluded_RefusesATargetThatIsNotTheWorkspacesOwn(t *test
 			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+wt+"\n")
 			return victim
 		},
-		"worktree whose commondir is a git dir that does not own it": func(root, ws string) string {
+		"worktree whose commondir is a git dir that does not own it": func(t *testing.T, root, ws string) string {
 			wt := mkGitDir(t, filepath.Join(root, "store", "worktrees", "wt"))
 			other := mkGitDir(t, filepath.Join(root, "other"))
 			writeTestFile(t, filepath.Join(wt, "commondir"), other+"\n")
@@ -270,13 +270,13 @@ func TestEnsureWorkspaceExcluded_RefusesATargetThatIsNotTheWorkspacesOwn(t *test
 			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+wt+"\n")
 			return other
 		},
-		"submodule-looking dir under modules of a repository that does not contain the workspace": func(root, ws string) string {
+		"submodule-looking dir under modules of a repository that does not contain the workspace": func(t *testing.T, root, ws string) string {
 			other := mkGitDir(t, filepath.Join(root, "unrelated", ".git"))
 			sub := mkGitDir(t, filepath.Join(other, "modules", "sub"))
 			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+sub+"\n")
 			return sub
 		},
-		"commondir that is a symlink": func(root, ws string) string {
+		"commondir that is a symlink": func(t *testing.T, root, ws string) string {
 			skipWithoutSymlinks(t)
 			common := mkGitDir(t, filepath.Join(root, "store"))
 			wt := mkGitDir(t, filepath.Join(common, "worktrees", "wt"))
@@ -480,8 +480,8 @@ func TestStripExcludeBlock_OnlyItsOwnKey(t *testing.T) {
 // this workspace: resolved, inside the resolved modules/ of an enclosing
 // repository, and with core.worktree naming this workspace.
 func TestEnsureWorkspaceExcluded_SubmoduleTargetMustBeTheWorkspacesOwn(t *testing.T) {
-	cases := map[string]func(root, ws, parentGit string) string{
-		"symlinked modules entry": func(root, ws, parentGit string) string {
+	cases := map[string]func(t *testing.T, root, ws, parentGit string) string{
+		"symlinked modules entry": func(t *testing.T, root, ws, parentGit string) string {
 			skipWithoutSymlinks(t)
 			// A git directory elsewhere that even claims this workspace.
 			other := mkGitDir(t, filepath.Join(root, "elsewhere"))
@@ -495,13 +495,13 @@ func TestEnsureWorkspaceExcluded_SubmoduleTargetMustBeTheWorkspacesOwn(t *testin
 			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+filepath.Join(parentGit, "modules", "m")+"\n")
 			return other
 		},
-		"sibling submodule git directory": func(root, ws, parentGit string) string {
+		"sibling submodule git directory": func(t *testing.T, root, ws, parentGit string) string {
 			sibling := mkGitDir(t, filepath.Join(parentGit, "modules", "sibling"))
 			writeTestFile(t, filepath.Join(sibling, "config"), "[core]\n\tworktree = ../../../sibling\n")
 			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+sibling+"\n")
 			return sibling
 		},
-		"submodule git directory without core.worktree": func(root, ws, parentGit string) string {
+		"submodule git directory without core.worktree": func(t *testing.T, root, ws, parentGit string) string {
 			own := mkGitDir(t, filepath.Join(parentGit, "modules", "sub"))
 			writeTestFile(t, filepath.Join(ws, ".git"), "gitdir: "+own+"\n")
 			return own
@@ -515,7 +515,7 @@ func TestEnsureWorkspaceExcluded_SubmoduleTargetMustBeTheWorkspacesOwn(t *testin
 			if err := os.MkdirAll(ws, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			victim := build(root, ws, parentGit)
+			victim := build(t, root, ws, parentGit)
 			before := treeOf(t, victim)
 			for _, err := range []error{
 				EnsureWorkspaceExcluded(ws, []string{".mcp.json"}),
