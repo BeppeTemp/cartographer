@@ -16,115 +16,141 @@ KB histories with commits authored as `cartographer <cartographer@localhost>` ma
 * bundled skills get the cartographer- prefix, old names keep working ([#1059](https://github.com/BeppeTemp/cartographer/issues/1059))
 * **client:** a non-loopback `http://` `server_url` is refused at the next `sync`/`connect`; use `https://` or `connect --allow-insecure-http`.
 
-### Features
+### Atlas
 
-* **atlas:** an empty Activity window shows a quiet notice in place of ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
-* **atlas:** an open concept calms the network's breathing gradually and ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
-* **atlas:** Artifacts in four tabs, Work and Activity reworked, history by day, loading shapes and settings polished ([#1057](https://github.com/BeppeTemp/cartographer/issues/1057)) ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
-* **atlas:** loading shapes keep each page's header, controls, hero and ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
-* **atlas:** retirements on the Activity timeline, quieter empty windows and a real sync badge ([#1146](https://github.com/BeppeTemp/cartographer/issues/1146)) ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
-* **atlas:** Settings shows map values as tables, long values under ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
-* **atlas:** the Activity journal is a log grouped by day, with line ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
-* **atlas:** the Activity journal is drawn on the timeline rail, ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
-* **atlas:** the Artifacts section has four tabs — Agent kit, ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
-* **atlas:** the Atlas top bar shows whether the KB is all on its remote ([#1095](https://github.com/BeppeTemp/cartographer/issues/1095)) ([9cb3a8e](https://github.com/BeppeTemp/cartographer/commit/9cb3a8eb19fdbf8c17690a5b47b1b2a232fe8ca7))
-* **atlas:** the server version moves from the top bar to the foot of ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
-* **atlas:** the sync badge is tinted when it needs attention, and its ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
-* **atlas:** the two easter eggs are removed ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
-* **atlas:** the Work board drops its text filter and its by-Map ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
-* **atlas:** the Work board wraps its columns instead of scrolling ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
+#### Features
+
+* an empty Activity window shows a quiet notice in place of ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
+* an open concept calms the network's breathing gradually and ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
+* Artifacts in four tabs, Work and Activity reworked, history by day, loading shapes and settings polished ([#1057](https://github.com/BeppeTemp/cartographer/issues/1057)) ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
+* loading shapes keep each page's header, controls, hero and ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
+* retirements on the Activity timeline, quieter empty windows and a real sync badge ([#1146](https://github.com/BeppeTemp/cartographer/issues/1146)) ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
+* Settings shows map values as tables, long values under ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
+* the Activity journal is a log grouped by day, with line ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
+* the Activity journal is drawn on the timeline rail, ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
+* the Artifacts section has four tabs — Agent kit, ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
+* the Atlas top bar shows whether the KB is all on its remote ([#1095](https://github.com/BeppeTemp/cartographer/issues/1095)) ([9cb3a8e](https://github.com/BeppeTemp/cartographer/commit/9cb3a8eb19fdbf8c17690a5b47b1b2a232fe8ca7))
+* the server version moves from the top bar to the foot of ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
+* the sync badge is tinted when it needs attention, and its ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
+* the two easter eggs are removed ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
+* the Work board drops its text filter and its by-Map ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
+* the Work board wraps its columns instead of scrolling ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
+
+#### Bug Fixes
+
+* loading states take the shape of the page they load, with no ([56438ed](https://github.com/BeppeTemp/cartographer/commit/56438ed36a4f34c394d797a640efe0dbb1500869))
+* loading, framing and settings layout polished on real KBs ([#1044](https://github.com/BeppeTemp/cartographer/issues/1044)) ([56438ed](https://github.com/BeppeTemp/cartographer/commit/56438ed36a4f34c394d797a640efe0dbb1500869))
+* pages use wide screens (1680px) and scroll at the window's ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
+* the graph's drift no longer stops on a large KB: it slows to ([56438ed](https://github.com/BeppeTemp/cartographer/commit/56438ed36a4f34c394d797a640efe0dbb1500869))
+* the Settings page names the client machine in its header, ([56438ed](https://github.com/BeppeTemp/cartographer/commit/56438ed36a4f34c394d797a640efe0dbb1500869))
+* the settings view redacts remote credentials and shows server values to admins only ([#1131](https://github.com/BeppeTemp/cartographer/issues/1131)) ([d96ef33](https://github.com/BeppeTemp/cartographer/commit/d96ef33a33cf938d7ee27380462cb91b21d387fa))
+* Work cards with long concept ids no longer overflow under ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
+
+
+### MCP tools
+
+#### Features
+
+* changes_since returns changes_by_day, every change of the ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
+* close three read-tool round trips ([#910](https://github.com/BeppeTemp/cartographer/issues/910)) ([47913a3](https://github.com/BeppeTemp/cartographer/commit/47913a3391db18d2629d5fc2c2e0ede428aa4d73))
+* concept_write takes index_entry and the first page of an archive is accepted ([#1105](https://github.com/BeppeTemp/cartographer/issues/1105)) ([d4ff112](https://github.com/BeppeTemp/cartographer/commit/d4ff112a43424a828086662911f5e04cd938055c))
+* every connection gets its operating guide in `initialize`, ([608107b](https://github.com/BeppeTemp/cartographer/commit/608107b8d27e7cee76bcf6b715f2e93e71b37b3f))
+* initialize carries the operating guide and provisioned clients mark themselves ([#1108](https://github.com/BeppeTemp/cartographer/issues/1108)) ([608107b](https://github.com/BeppeTemp/cartographer/commit/608107b8d27e7cee76bcf6b715f2e93e71b37b3f))
+* kb_guide serves the guide and the bundled procedures ([#1113](https://github.com/BeppeTemp/cartographer/issues/1113)) ([ae42a1a](https://github.com/BeppeTemp/cartographer/commit/ae42a1a235fd17eb8e31ee40bbda54a072a76595))
+* serve a folder under no workspace binding read-only ([3cd1f74](https://github.com/BeppeTemp/cartographer/commit/3cd1f7466d2af123633b3f75f75bdef831f9c327))
+* serve a folder under no workspace binding read-only ([#1046](https://github.com/BeppeTemp/cartographer/issues/1046)) ([3cd1f74](https://github.com/BeppeTemp/cartographer/commit/3cd1f7466d2af123633b3f75f75bdef831f9c327))
+* the routed surface and /health follow the caller's token ([#1107](https://github.com/BeppeTemp/cartographer/issues/1107)) ([49a9c6d](https://github.com/BeppeTemp/cartographer/commit/49a9c6d915e8d16694cbb487d12ed7c596a96082))
+* write-tool errors name the cause, the hash to retry with and ([ee7e498](https://github.com/BeppeTemp/cartographer/commit/ee7e498c6d428618d3c83937932faa789e50db29)), closes [#838](https://github.com/BeppeTemp/cartographer/issues/838)
+* write-tool errors name the cause, the hash to retry with and the way to undo ([#1083](https://github.com/BeppeTemp/cartographer/issues/1083)) ([ee7e498](https://github.com/BeppeTemp/cartographer/commit/ee7e498c6d428618d3c83937932faa789e50db29))
+
+#### Bug Fixes
+
+* /clients lists only the KBs the token can read ([#1035](https://github.com/BeppeTemp/cartographer/issues/1035)) ([c35d18f](https://github.com/BeppeTemp/cartographer/commit/c35d18fe61b22c2c4df7a9423c8c581204f3589c))
+* /ready counts and names only the KBs the caller's token reads ([#1111](https://github.com/BeppeTemp/cartographer/issues/1111)) ([574a824](https://github.com/BeppeTemp/cartographer/commit/574a8240d580a01763142f64eba42fdab01ec0f3))
+* a non-canonical concept id is refused before authorization ([#1136](https://github.com/BeppeTemp/cartographer/issues/1136)) ([6e6cd78](https://github.com/BeppeTemp/cartographer/commit/6e6cd7890bbcfc52faff22e5744ac8d3cb434099))
+* a role narrowed to a map and a type reaches its own collection ([#1104](https://github.com/BeppeTemp/cartographer/issues/1104)) ([2afe5b8](https://github.com/BeppeTemp/cartographer/commit/2afe5b8123a3d70781fe39e75814f38041ef3123))
+* a write to a KB without a remote no longer reports a pending push ([#1091](https://github.com/BeppeTemp/cartographer/issues/1091)) ([365ca5b](https://github.com/BeppeTemp/cartographer/commit/365ca5b60a1f968d23adc23e225ce54271c53563))
+* concept_move refuses a type the strict target map does not admit ([#938](https://github.com/BeppeTemp/cartographer/issues/938)) ([fb560df](https://github.com/BeppeTemp/cartographer/commit/fb560df201338afbdce37266b3f4a49ee682647b))
+* concept_transfer refuses a type the strict target map does not admit ([#952](https://github.com/BeppeTemp/cartographer/issues/952)) ([f5aa238](https://github.com/BeppeTemp/cartographer/commit/f5aa23813440e9e52d3b0ee1a69730f2bbc8a46d))
+* every state-changing HTTP request passes the Origin check, takes JSON only and has a size cap ([#1134](https://github.com/BeppeTemp/cartographer/issues/1134)) ([2bd2ac4](https://github.com/BeppeTemp/cartographer/commit/2bd2ac454b4399a9cad92594399f10fdc7dd95c0))
+* instructions.md is capped at 64 KiB in the guide and the managed block, and artifact_write refuses a larger one ([#1112](https://github.com/BeppeTemp/cartographer/issues/1112)) ([6baa736](https://github.com/BeppeTemp/cartographer/commit/6baa736c5be8946e5b4d07251503ff2d63b94355))
+* operator-directed text reaches only provisioned connections, and no static text points at a dead end ([#1115](https://github.com/BeppeTemp/cartographer/issues/1115)) ([5fceefe](https://github.com/BeppeTemp/cartographer/commit/5fceefe689d0e5de4c16839b4ad439ddf3d12a0c))
+* sync_apply runs only for the local operator ([#1135](https://github.com/BeppeTemp/cartographer/issues/1135)) ([373cf68](https://github.com/BeppeTemp/cartographer/commit/373cf682fed70153c57e62acdc900a7cf2af833e))
+
+
+### Lint & repair
+
+#### Features
+
+* fold a large KB's lint output with a digest mode ([#909](https://github.com/BeppeTemp/cartographer/issues/909)) ([c89828a](https://github.com/BeppeTemp/cartographer/commit/c89828a7ebf82f0f6497066a83790e9da779ff6a))
+* template proposals work per map, with the map's own values and an impact preview ([#1089](https://github.com/BeppeTemp/cartographer/issues/1089)) ([add3882](https://github.com/BeppeTemp/cartographer/commit/add38829504b3e03dbf9a69572cd77259210da82))
+* unused skills and agents are a Health problem, the Artifacts cards go neutral ([#1053](https://github.com/BeppeTemp/cartographer/issues/1053)) ([18ae41d](https://github.com/BeppeTemp/cartographer/commit/18ae41d4af73113f2189c688f3760d734b4679fd))
+
+#### Bug Fixes
+
+* advanced tools cited by kb-doctor and lint messages come with a core route ([#1076](https://github.com/BeppeTemp/cartographer/issues/1076)) ([358e233](https://github.com/BeppeTemp/cartographer/commit/358e233c00585c4c2a9a3b30468564e3f605964a))
+* expand slug ligatures ([#792](https://github.com/BeppeTemp/cartographer/issues/792)) ([#935](https://github.com/BeppeTemp/cartographer/issues/935)) ([5a9949f](https://github.com/BeppeTemp/cartographer/commit/5a9949f57d705649c4395727d9eac3db40ff2041))
+* glossary_gap no longer asks for the HTTP methods ([#1061](https://github.com/BeppeTemp/cartographer/issues/1061)) ([246a642](https://github.com/BeppeTemp/cartographer/commit/246a64205934b49b81f4590264e3a6e6c8ce35cc))
+
+
+### Client & CLI
+
+#### Features
+
+* `cartographer sync --report-to <url>` sends this machine's ([56438ed](https://github.com/BeppeTemp/cartographer/commit/56438ed36a4f34c394d797a640efe0dbb1500869))
+* Antigravity emits canonical url key for MCP HTTP (D1030) ([#1031](https://github.com/BeppeTemp/cartographer/issues/1031)) ([2a7dc0b](https://github.com/BeppeTemp/cartographer/commit/2a7dc0b7bb72b8f42ec8ac40aac9c0737a2bf7eb))
+* Antigravity receives session-start bootstrap hook (D1007) ([#1029](https://github.com/BeppeTemp/cartographer/issues/1029)) ([83ef012](https://github.com/BeppeTemp/cartographer/commit/83ef012f0e8edff11a6f2ece0f2e8a9907ef2752))
+* bind a repository a KB declares in paths.yaml to that KB ([#1052](https://github.com/BeppeTemp/cartographer/issues/1052)) ([b5eabfb](https://github.com/BeppeTemp/cartographer/commit/b5eabfbf68f33b54c596973fad50d375ba0d4d66))
+* kb create replaces a forge's boilerplate README, --readme overrides it ([#1094](https://github.com/BeppeTemp/cartographer/issues/1094)) ([d309b63](https://github.com/BeppeTemp/cartographer/commit/d309b632f6d94ddd7230e681e552e0551a59249d))
+* kb list --json prints the listing as a JSON document ([#1079](https://github.com/BeppeTemp/cartographer/issues/1079)) ([2099c93](https://github.com/BeppeTemp/cartographer/commit/2099c93466a2447bd427bf272e95f701890079c5))
+* resolve names the commands that fix an unresolved key ([#1064](https://github.com/BeppeTemp/cartographer/issues/1064)) ([18f359c](https://github.com/BeppeTemp/cartographer/commit/18f359cfff4e4cbc4e9fd7a7815f44914161e9b3))
+
+#### Bug Fixes
+
+* a bundle artifact is trusted only as the copy embedded in this client ([#1133](https://github.com/BeppeTemp/cartographer/issues/1133)) ([2d262e3](https://github.com/BeppeTemp/cartographer/commit/2d262e32490f9f130a68a1082c386659328e94a3))
+* a hook update keeps its registration unless the registrar skips it, and a refused update keeps its lock entry ([#1161](https://github.com/BeppeTemp/cartographer/issues/1161)) ([8425b44](https://github.com/BeppeTemp/cartographer/commit/8425b44e66520bf753f5ef897afc0d1e2086ea11))
+* a KB hook or executable file is installed only after approval ([#1141](https://github.com/BeppeTemp/cartographer/issues/1141)) ([c0b1897](https://github.com/BeppeTemp/cartographer/commit/c0b1897017437c8d6cd6aab408df8e1c6fde232a))
+* a refused provider directory is skipped with a warning, the others are still set up ([#1159](https://github.com/BeppeTemp/cartographer/issues/1159)) ([40467a6](https://github.com/BeppeTemp/cartographer/commit/40467a6f65875153d00a9bb3a0e1efbe51896daa))
+* client bind says that it adds, and shows the resulting binding ([#951](https://github.com/BeppeTemp/cartographer/issues/951)) ([56776d1](https://github.com/BeppeTemp/cartographer/commit/56776d1702058658a2e6a8b2a27f65051c8cddec))
+* every client-side config write refuses a symlinked destination ([#1154](https://github.com/BeppeTemp/cartographer/issues/1154)) ([b12db2c](https://github.com/BeppeTemp/cartographer/commit/b12db2c5b22f589a95fc2260731e8412b2dd3f4b))
+* every provider root is a prune boundary, .copilot included ([#1142](https://github.com/BeppeTemp/cartographer/issues/1142)) ([b7fe4be](https://github.com/BeppeTemp/cartographer/commit/b7fe4be5376fde6c315bfce0d87378d02f4a8098))
+* hooks installed before approvals existed are approved once, unchanged, and approve --pending clears the rest ([#1167](https://github.com/BeppeTemp/cartographer/issues/1167)) ([ae360e0](https://github.com/BeppeTemp/cartographer/commit/ae360e04ef9b6cf6b6a6910db205d49a7bfc399f))
+* kb, client and workspace help print the usage to stdout and exit 0 ([#937](https://github.com/BeppeTemp/cartographer/issues/937)) ([76b4af3](https://github.com/BeppeTemp/cartographer/commit/76b4af33fc69f395e40f0b438a0f3ee959fe5aec))
+* on macOS a stopped service reports stopped and upgrade-repair leaves it stopped ([#1009](https://github.com/BeppeTemp/cartographer/issues/1009)) ([9a59a9a](https://github.com/BeppeTemp/cartographer/commit/9a59a9a6866160b6de2970d351df1e3b1d269d2e))
+* re-render artifacts when a placeholder resolution changes ([#1055](https://github.com/BeppeTemp/cartographer/issues/1055)) ([fa91afb](https://github.com/BeppeTemp/cartographer/commit/fa91afb18b8c5b2dec24684d12c05ad8ccdf7e8f))
+* refuse a plain http:// server URL that is not loopback ([#1039](https://github.com/BeppeTemp/cartographer/issues/1039)) ([ca764fc](https://github.com/BeppeTemp/cartographer/commit/ca764fc2c6f01d32ba0349671162c26a5f564ea2))
+* say when work moves from open to in-progress ([b0191e0](https://github.com/BeppeTemp/cartographer/commit/b0191e0a6304e8bf70c3f35dd1e651efbf876a1d)), closes [#1073](https://github.com/BeppeTemp/cartographer/issues/1073)
+* say when work moves from open to in-progress ([#1080](https://github.com/BeppeTemp/cartographer/issues/1080)) ([b0191e0](https://github.com/BeppeTemp/cartographer/commit/b0191e0a6304e8bf70c3f35dd1e651efbf876a1d))
+* status gives each provider its own hook registration hint ([#1015](https://github.com/BeppeTemp/cartographer/issues/1015)) ([74e5fff](https://github.com/BeppeTemp/cartographer/commit/74e5fff6a3867814e5bcef3474cdc3246bbfc7e6))
+* status judges a workspace-scoped provider against the bundle and its workspaces ([#1016](https://github.com/BeppeTemp/cartographer/issues/1016)) ([29f8130](https://github.com/BeppeTemp/cartographer/commit/29f8130fa00f040354e3c6ffc28b1d40d119a18a))
+* the workspace git exclude works in a linked worktree or submodule ([#1160](https://github.com/BeppeTemp/cartographer/issues/1160)) ([585e35d](https://github.com/BeppeTemp/cartographer/commit/585e35dff11409f4fbc933ca37919f4e8b27fcec))
+
+
+### Server & KB
+
+#### Features
+
+* a server can override the KB's branch with kbs[].branch, and a clean clone follows the effective branch ([#1098](https://github.com/BeppeTemp/cartographer/issues/1098)) ([c4810cf](https://github.com/BeppeTemp/cartographer/commit/c4810cfc72e7e739869e236ba163237acc291d95))
+
+#### Bug Fixes
+
+* a cancelled git command takes its whole process tree with it on Windows ([#1164](https://github.com/BeppeTemp/cartographer/issues/1164)) ([afe1e4a](https://github.com/BeppeTemp/cartographer/commit/afe1e4a383eafc84b6e9fe5802576dc5b85ced11))
+* concept paths refuse symlinks, and lint reports them ([#1040](https://github.com/BeppeTemp/cartographer/issues/1040)) ([49d977a](https://github.com/BeppeTemp/cartographer/commit/49d977a253c3f9466076633b17bbd65bc18d2d1c))
+* git push and fetch never block on a credential prompt ([#1010](https://github.com/BeppeTemp/cartographer/issues/1010)) ([84a30ba](https://github.com/BeppeTemp/cartographer/commit/84a30ba4ec1aaba60335bc90a893ef7beb147e5f))
+* pin and fix the server git identity at the write gate and FinalizeConflicts ([#1065](https://github.com/BeppeTemp/cartographer/issues/1065)) ([19d44a3](https://github.com/BeppeTemp/cartographer/commit/19d44a3a0486c80dac1d6396ab8b87eb4c34da37))
+* refuse option-like and transport-helper remotes in clone, probe and remote add ([#1037](https://github.com/BeppeTemp/cartographer/issues/1037)) ([d1f62f4](https://github.com/BeppeTemp/cartographer/commit/d1f62f4820ee188f92cd251cec0f7d9f2f16d2b6))
+* stash with the server identity so a host without git identity can gate writes ([#934](https://github.com/BeppeTemp/cartographer/issues/934)) ([88d3c87](https://github.com/BeppeTemp/cartographer/commit/88d3c87bb3c7b649ba7b2c7caf476e77094663e3))
+
+
+### General
+
+#### Features
+
 * bundled skills get the cartographer- prefix, old names keep working ([#1059](https://github.com/BeppeTemp/cartographer/issues/1059)) ([e3e19d0](https://github.com/BeppeTemp/cartographer/commit/e3e19d0a756cfaef839efe6b837338921ff84fa0))
-* **ci:** add security scans and pin workflow actions by SHA ([#1084](https://github.com/BeppeTemp/cartographer/issues/1084)) ([c07ab3d](https://github.com/BeppeTemp/cartographer/commit/c07ab3db4b2b25db01460b8a4762e401a551d9be))
-* **ci:** releases carry build provenance and SBOMs ([#1086](https://github.com/BeppeTemp/cartographer/issues/1086)) ([68364c1](https://github.com/BeppeTemp/cartographer/commit/68364c1b426edd58b4419ace63f0cbd75fca46cc))
-* **ci:** the triage warns when a mapped docs page is left untouched ([#1157](https://github.com/BeppeTemp/cartographer/issues/1157)) ([d921fe5](https://github.com/BeppeTemp/cartographer/commit/d921fe5aee1f6a8a0f3399cb3e5b3385d9e474f0))
-* **ci:** weekly release train, Monday 08:30 gated on rc-ok ([#983](https://github.com/BeppeTemp/cartographer/issues/983)) ([b834e9e](https://github.com/BeppeTemp/cartographer/commit/b834e9e22525532ecf77d89ed99396efdca092b7))
-* **client:** `cartographer sync --report-to <url>` sends this machine's ([56438ed](https://github.com/BeppeTemp/cartographer/commit/56438ed36a4f34c394d797a640efe0dbb1500869))
-* **client:** Antigravity emits canonical url key for MCP HTTP (D1030) ([#1031](https://github.com/BeppeTemp/cartographer/issues/1031)) ([2a7dc0b](https://github.com/BeppeTemp/cartographer/commit/2a7dc0b7bb72b8f42ec8ac40aac9c0737a2bf7eb))
-* **client:** Antigravity receives session-start bootstrap hook (D1007) ([#1029](https://github.com/BeppeTemp/cartographer/issues/1029)) ([83ef012](https://github.com/BeppeTemp/cartographer/commit/83ef012f0e8edff11a6f2ece0f2e8a9907ef2752))
-* **client:** bind a repository a KB declares in paths.yaml to that KB ([#1052](https://github.com/BeppeTemp/cartographer/issues/1052)) ([b5eabfb](https://github.com/BeppeTemp/cartographer/commit/b5eabfbf68f33b54c596973fad50d375ba0d4d66))
-* **client:** kb create replaces a forge's boilerplate README, --readme overrides it ([#1094](https://github.com/BeppeTemp/cartographer/issues/1094)) ([d309b63](https://github.com/BeppeTemp/cartographer/commit/d309b632f6d94ddd7230e681e552e0551a59249d))
-* **client:** kb list --json prints the listing as a JSON document ([#1079](https://github.com/BeppeTemp/cartographer/issues/1079)) ([2099c93](https://github.com/BeppeTemp/cartographer/commit/2099c93466a2447bd427bf272e95f701890079c5))
-* **client:** resolve names the commands that fix an unresolved key ([#1064](https://github.com/BeppeTemp/cartographer/issues/1064)) ([18f359c](https://github.com/BeppeTemp/cartographer/commit/18f359cfff4e4cbc4e9fd7a7815f44914161e9b3))
-* **dev:** `make dev DATA=<dir>` shows this machine's real client on the ([56438ed](https://github.com/BeppeTemp/cartographer/commit/56438ed36a4f34c394d797a640efe0dbb1500869))
-* **dev:** a cartographer-plan-writer subagent drafts plan bodies after the design decisions ([#1077](https://github.com/BeppeTemp/cartographer/issues/1077)) ([a0a57e8](https://github.com/BeppeTemp/cartographer/commit/a0a57e8ab63df46e351a5bd7e0e7362e21f8286a))
-* **dev:** contributor and maintainer roles — the approved gate enforced in CI, role-aware agent skills ([#981](https://github.com/BeppeTemp/cartographer/issues/981)) ([0f7e464](https://github.com/BeppeTemp/cartographer/commit/0f7e4648c2ebee07d3182b768ef87b6d9d470e3d))
-* **dev:** make dev with DATA keeps each KB copy's fetch URL and blocks ([64f88d2](https://github.com/BeppeTemp/cartographer/commit/64f88d258455a043b1ae5d48eb09eafa6763893d))
-* **dev:** only the next train's work merges, and every accepted issue has a milestone ([#987](https://github.com/BeppeTemp/cartographer/issues/987)) ([1e2706b](https://github.com/BeppeTemp/cartographer/commit/1e2706beeb05b78053eedfcde7089d067135ab77))
-* **kb:** a server can override the KB's branch with kbs[].branch, and a clean clone follows the effective branch ([#1098](https://github.com/BeppeTemp/cartographer/issues/1098)) ([c4810cf](https://github.com/BeppeTemp/cartographer/commit/c4810cfc72e7e739869e236ba163237acc291d95))
-* **lint:** fold a large KB's lint output with a digest mode ([#909](https://github.com/BeppeTemp/cartographer/issues/909)) ([c89828a](https://github.com/BeppeTemp/cartographer/commit/c89828a7ebf82f0f6497066a83790e9da779ff6a))
-* **lint:** template proposals work per map, with the map's own values and an impact preview ([#1089](https://github.com/BeppeTemp/cartographer/issues/1089)) ([add3882](https://github.com/BeppeTemp/cartographer/commit/add38829504b3e03dbf9a69572cd77259210da82))
-* **lint:** unused skills and agents are a Health problem, the Artifacts cards go neutral ([#1053](https://github.com/BeppeTemp/cartographer/issues/1053)) ([18ae41d](https://github.com/BeppeTemp/cartographer/commit/18ae41d4af73113f2189c688f3760d734b4679fd))
-* **mcp:** changes_since returns changes_by_day, every change of the ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
-* **mcp:** close three read-tool round trips ([#910](https://github.com/BeppeTemp/cartographer/issues/910)) ([47913a3](https://github.com/BeppeTemp/cartographer/commit/47913a3391db18d2629d5fc2c2e0ede428aa4d73))
-* **mcp:** concept_write takes index_entry and the first page of an archive is accepted ([#1105](https://github.com/BeppeTemp/cartographer/issues/1105)) ([d4ff112](https://github.com/BeppeTemp/cartographer/commit/d4ff112a43424a828086662911f5e04cd938055c))
-* **mcp:** every connection gets its operating guide in `initialize`, ([608107b](https://github.com/BeppeTemp/cartographer/commit/608107b8d27e7cee76bcf6b715f2e93e71b37b3f))
-* **mcp:** initialize carries the operating guide and provisioned clients mark themselves ([#1108](https://github.com/BeppeTemp/cartographer/issues/1108)) ([608107b](https://github.com/BeppeTemp/cartographer/commit/608107b8d27e7cee76bcf6b715f2e93e71b37b3f))
-* **mcp:** kb_guide serves the guide and the bundled procedures ([#1113](https://github.com/BeppeTemp/cartographer/issues/1113)) ([ae42a1a](https://github.com/BeppeTemp/cartographer/commit/ae42a1a235fd17eb8e31ee40bbda54a072a76595))
-* **mcp:** serve a folder under no workspace binding read-only ([3cd1f74](https://github.com/BeppeTemp/cartographer/commit/3cd1f7466d2af123633b3f75f75bdef831f9c327))
-* **mcp:** serve a folder under no workspace binding read-only ([#1046](https://github.com/BeppeTemp/cartographer/issues/1046)) ([3cd1f74](https://github.com/BeppeTemp/cartographer/commit/3cd1f7466d2af123633b3f75f75bdef831f9c327))
-* **mcp:** the routed surface and /health follow the caller's token ([#1107](https://github.com/BeppeTemp/cartographer/issues/1107)) ([49a9c6d](https://github.com/BeppeTemp/cartographer/commit/49a9c6d915e8d16694cbb487d12ed7c596a96082))
-* **mcp:** write-tool errors name the cause, the hash to retry with and ([ee7e498](https://github.com/BeppeTemp/cartographer/commit/ee7e498c6d428618d3c83937932faa789e50db29)), closes [#838](https://github.com/BeppeTemp/cartographer/issues/838)
-* **mcp:** write-tool errors name the cause, the hash to retry with and the way to undo ([#1083](https://github.com/BeppeTemp/cartographer/issues/1083)) ([ee7e498](https://github.com/BeppeTemp/cartographer/commit/ee7e498c6d428618d3c83937932faa789e50db29))
 
+#### Bug Fixes
 
-### Bug Fixes
-
-* **atlas:** loading states take the shape of the page they load, with no ([56438ed](https://github.com/BeppeTemp/cartographer/commit/56438ed36a4f34c394d797a640efe0dbb1500869))
-* **atlas:** loading, framing and settings layout polished on real KBs ([#1044](https://github.com/BeppeTemp/cartographer/issues/1044)) ([56438ed](https://github.com/BeppeTemp/cartographer/commit/56438ed36a4f34c394d797a640efe0dbb1500869))
-* **atlas:** pages use wide screens (1680px) and scroll at the window's ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
-* **atlas:** the graph's drift no longer stops on a large KB: it slows to ([56438ed](https://github.com/BeppeTemp/cartographer/commit/56438ed36a4f34c394d797a640efe0dbb1500869))
-* **atlas:** the Settings page names the client machine in its header, ([56438ed](https://github.com/BeppeTemp/cartographer/commit/56438ed36a4f34c394d797a640efe0dbb1500869))
-* **atlas:** the settings view redacts remote credentials and shows server values to admins only ([#1131](https://github.com/BeppeTemp/cartographer/issues/1131)) ([d96ef33](https://github.com/BeppeTemp/cartographer/commit/d96ef33a33cf938d7ee27380462cb91b21d387fa))
-* **atlas:** Work cards with long concept ids no longer overflow under ([1788f7d](https://github.com/BeppeTemp/cartographer/commit/1788f7d776d65799541e49ecbc084e1cebb34a83))
-* **ci:** a runner whose Defender is down no longer fails the Windows legs ([#939](https://github.com/BeppeTemp/cartographer/issues/939)) ([3f4a32d](https://github.com/BeppeTemp/cartographer/commit/3f4a32d07221d300a1811843eb25e26171446f75))
-* **ci:** accept a PR assigned to its author in place of an assigned plan ([#1058](https://github.com/BeppeTemp/cartographer/issues/1058)) ([337dc2c](https://github.com/BeppeTemp/cartographer/commit/337dc2c2aed327740c36a8d89edb441a8d5b7a36))
-* **ci:** plan-gate checks out the base branch tip, the commit its workflow is read from ([#988](https://github.com/BeppeTemp/cartographer/issues/988)) ([1304db1](https://github.com/BeppeTemp/cartographer/commit/1304db14a9452aa2769ae8e46c0196a94a666474))
-* **ci:** the film render drops img2webp -exact where the runner's webp lacks it ([#1165](https://github.com/BeppeTemp/cartographer/issues/1165)) ([4faf368](https://github.com/BeppeTemp/cartographer/commit/4faf36856dbce0b2e3a1f7508c22cd4c4c950947))
-* **ci:** the PR triage reads every changed file, not the first 100 ([#1162](https://github.com/BeppeTemp/cartographer/issues/1162)) ([6271ddb](https://github.com/BeppeTemp/cartographer/commit/6271ddb87ae3e3188ef5402d74a3e2d962cce697))
-* **client:** a bundle artifact is trusted only as the copy embedded in this client ([#1133](https://github.com/BeppeTemp/cartographer/issues/1133)) ([2d262e3](https://github.com/BeppeTemp/cartographer/commit/2d262e32490f9f130a68a1082c386659328e94a3))
-* **client:** a hook update keeps its registration unless the registrar skips it, and a refused update keeps its lock entry ([#1161](https://github.com/BeppeTemp/cartographer/issues/1161)) ([8425b44](https://github.com/BeppeTemp/cartographer/commit/8425b44e66520bf753f5ef897afc0d1e2086ea11))
-* **client:** a KB hook or executable file is installed only after approval ([#1141](https://github.com/BeppeTemp/cartographer/issues/1141)) ([c0b1897](https://github.com/BeppeTemp/cartographer/commit/c0b1897017437c8d6cd6aab408df8e1c6fde232a))
-* **client:** a refused provider directory is skipped with a warning, the others are still set up ([#1159](https://github.com/BeppeTemp/cartographer/issues/1159)) ([40467a6](https://github.com/BeppeTemp/cartographer/commit/40467a6f65875153d00a9bb3a0e1efbe51896daa))
-* **client:** client bind says that it adds, and shows the resulting binding ([#951](https://github.com/BeppeTemp/cartographer/issues/951)) ([56776d1](https://github.com/BeppeTemp/cartographer/commit/56776d1702058658a2e6a8b2a27f65051c8cddec))
-* **client:** every client-side config write refuses a symlinked destination ([#1154](https://github.com/BeppeTemp/cartographer/issues/1154)) ([b12db2c](https://github.com/BeppeTemp/cartographer/commit/b12db2c5b22f589a95fc2260731e8412b2dd3f4b))
-* **client:** every provider root is a prune boundary, .copilot included ([#1142](https://github.com/BeppeTemp/cartographer/issues/1142)) ([b7fe4be](https://github.com/BeppeTemp/cartographer/commit/b7fe4be5376fde6c315bfce0d87378d02f4a8098))
-* **client:** hooks installed before approvals existed are approved once, unchanged, and approve --pending clears the rest ([#1167](https://github.com/BeppeTemp/cartographer/issues/1167)) ([ae360e0](https://github.com/BeppeTemp/cartographer/commit/ae360e04ef9b6cf6b6a6910db205d49a7bfc399f))
-* **client:** kb, client and workspace help print the usage to stdout and exit 0 ([#937](https://github.com/BeppeTemp/cartographer/issues/937)) ([76b4af3](https://github.com/BeppeTemp/cartographer/commit/76b4af33fc69f395e40f0b438a0f3ee959fe5aec))
-* **client:** on macOS a stopped service reports stopped and upgrade-repair leaves it stopped ([#1009](https://github.com/BeppeTemp/cartographer/issues/1009)) ([9a59a9a](https://github.com/BeppeTemp/cartographer/commit/9a59a9a6866160b6de2970d351df1e3b1d269d2e))
-* **client:** re-render artifacts when a placeholder resolution changes ([#1055](https://github.com/BeppeTemp/cartographer/issues/1055)) ([fa91afb](https://github.com/BeppeTemp/cartographer/commit/fa91afb18b8c5b2dec24684d12c05ad8ccdf7e8f))
-* **client:** refuse a plain http:// server URL that is not loopback ([#1039](https://github.com/BeppeTemp/cartographer/issues/1039)) ([ca764fc](https://github.com/BeppeTemp/cartographer/commit/ca764fc2c6f01d32ba0349671162c26a5f564ea2))
-* **client:** say when work moves from open to in-progress ([b0191e0](https://github.com/BeppeTemp/cartographer/commit/b0191e0a6304e8bf70c3f35dd1e651efbf876a1d)), closes [#1073](https://github.com/BeppeTemp/cartographer/issues/1073)
-* **client:** say when work moves from open to in-progress ([#1080](https://github.com/BeppeTemp/cartographer/issues/1080)) ([b0191e0](https://github.com/BeppeTemp/cartographer/commit/b0191e0a6304e8bf70c3f35dd1e651efbf876a1d))
-* **client:** status gives each provider its own hook registration hint ([#1015](https://github.com/BeppeTemp/cartographer/issues/1015)) ([74e5fff](https://github.com/BeppeTemp/cartographer/commit/74e5fff6a3867814e5bcef3474cdc3246bbfc7e6))
-* **client:** status judges a workspace-scoped provider against the bundle and its workspaces ([#1016](https://github.com/BeppeTemp/cartographer/issues/1016)) ([29f8130](https://github.com/BeppeTemp/cartographer/commit/29f8130fa00f040354e3c6ffc28b1d40d119a18a))
-* **client:** the workspace git exclude works in a linked worktree or submodule ([#1160](https://github.com/BeppeTemp/cartographer/issues/1160)) ([585e35d](https://github.com/BeppeTemp/cartographer/commit/585e35dff11409f4fbc933ca37919f4e8b27fcec))
-* **deploy:** audit verify with --public-key refuses a log with no signed entry ([#1038](https://github.com/BeppeTemp/cartographer/issues/1038)) ([fe2f831](https://github.com/BeppeTemp/cartographer/commit/fe2f831e58e93d73c040698781e890f21195b3ad))
-* **deploy:** base images move to Alpine 3.24 before 3.21 reaches end of life ([#1028](https://github.com/BeppeTemp/cartographer/issues/1028)) ([68c8533](https://github.com/BeppeTemp/cartographer/commit/68c85333b80c0513af72e5fcec4510de11d28023))
-* **deploy:** the auth section of the server config is parsed strictly ([#1132](https://github.com/BeppeTemp/cartographer/issues/1132)) ([835c498](https://github.com/BeppeTemp/cartographer/commit/835c4980bd358d0f1278654a1b011ac675d2752a))
-* **deploy:** Windows status reads the scheduled task state, so a stopped service reports stopped ([#1036](https://github.com/BeppeTemp/cartographer/issues/1036)) ([49ecdef](https://github.com/BeppeTemp/cartographer/commit/49ecdef7cc7655d0cefdca1eeb4568ecef2700f5))
-* **dev:** pr-triage flags a PR title scope the pr-title check refuses ([#1129](https://github.com/BeppeTemp/cartographer/issues/1129)) ([8a0ede8](https://github.com/BeppeTemp/cartographer/commit/8a0ede8308bdae7e44baa6c090ef4eedee215c4b))
-* **dev:** upstream-repo.sh checks for a fork through the REST API ([#1047](https://github.com/BeppeTemp/cartographer/issues/1047)) ([fef16d8](https://github.com/BeppeTemp/cartographer/commit/fef16d8b75375a6ea2edbef708412d5ff0c4469d))
 * identity-rejected pushes are diagnosed as such, and unpushed commits can be re-authored with kb reauthor ([#1075](https://github.com/BeppeTemp/cartographer/issues/1075)) ([992b716](https://github.com/BeppeTemp/cartographer/commit/992b716478a0315c4fe6e3e426847cf8b7303951))
-* **kb:** a cancelled git command takes its whole process tree with it on Windows ([#1164](https://github.com/BeppeTemp/cartographer/issues/1164)) ([afe1e4a](https://github.com/BeppeTemp/cartographer/commit/afe1e4a383eafc84b6e9fe5802576dc5b85ced11))
-* **kb:** concept paths refuse symlinks, and lint reports them ([#1040](https://github.com/BeppeTemp/cartographer/issues/1040)) ([49d977a](https://github.com/BeppeTemp/cartographer/commit/49d977a253c3f9466076633b17bbd65bc18d2d1c))
-* **kb:** git push and fetch never block on a credential prompt ([#1010](https://github.com/BeppeTemp/cartographer/issues/1010)) ([84a30ba](https://github.com/BeppeTemp/cartographer/commit/84a30ba4ec1aaba60335bc90a893ef7beb147e5f))
-* **kb:** pin and fix the server git identity at the write gate and FinalizeConflicts ([#1065](https://github.com/BeppeTemp/cartographer/issues/1065)) ([19d44a3](https://github.com/BeppeTemp/cartographer/commit/19d44a3a0486c80dac1d6396ab8b87eb4c34da37))
-* **kb:** refuse option-like and transport-helper remotes in clone, probe and remote add ([#1037](https://github.com/BeppeTemp/cartographer/issues/1037)) ([d1f62f4](https://github.com/BeppeTemp/cartographer/commit/d1f62f4820ee188f92cd251cec0f7d9f2f16d2b6))
-* **kb:** stash with the server identity so a host without git identity can gate writes ([#934](https://github.com/BeppeTemp/cartographer/issues/934)) ([88d3c87](https://github.com/BeppeTemp/cartographer/commit/88d3c87bb3c7b649ba7b2c7caf476e77094663e3))
-* **lint:** advanced tools cited by kb-doctor and lint messages come with a core route ([#1076](https://github.com/BeppeTemp/cartographer/issues/1076)) ([358e233](https://github.com/BeppeTemp/cartographer/commit/358e233c00585c4c2a9a3b30468564e3f605964a))
-* **lint:** expand slug ligatures ([#792](https://github.com/BeppeTemp/cartographer/issues/792)) ([#935](https://github.com/BeppeTemp/cartographer/issues/935)) ([5a9949f](https://github.com/BeppeTemp/cartographer/commit/5a9949f57d705649c4395727d9eac3db40ff2041))
-* **lint:** glossary_gap no longer asks for the HTTP methods ([#1061](https://github.com/BeppeTemp/cartographer/issues/1061)) ([246a642](https://github.com/BeppeTemp/cartographer/commit/246a64205934b49b81f4590264e3a6e6c8ce35cc))
-* **mcp:** /clients lists only the KBs the token can read ([#1035](https://github.com/BeppeTemp/cartographer/issues/1035)) ([c35d18f](https://github.com/BeppeTemp/cartographer/commit/c35d18fe61b22c2c4df7a9423c8c581204f3589c))
-* **mcp:** /ready counts and names only the KBs the caller's token reads ([#1111](https://github.com/BeppeTemp/cartographer/issues/1111)) ([574a824](https://github.com/BeppeTemp/cartographer/commit/574a8240d580a01763142f64eba42fdab01ec0f3))
-* **mcp:** a non-canonical concept id is refused before authorization ([#1136](https://github.com/BeppeTemp/cartographer/issues/1136)) ([6e6cd78](https://github.com/BeppeTemp/cartographer/commit/6e6cd7890bbcfc52faff22e5744ac8d3cb434099))
-* **mcp:** a role narrowed to a map and a type reaches its own collection ([#1104](https://github.com/BeppeTemp/cartographer/issues/1104)) ([2afe5b8](https://github.com/BeppeTemp/cartographer/commit/2afe5b8123a3d70781fe39e75814f38041ef3123))
-* **mcp:** a write to a KB without a remote no longer reports a pending push ([#1091](https://github.com/BeppeTemp/cartographer/issues/1091)) ([365ca5b](https://github.com/BeppeTemp/cartographer/commit/365ca5b60a1f968d23adc23e225ce54271c53563))
-* **mcp:** concept_move refuses a type the strict target map does not admit ([#938](https://github.com/BeppeTemp/cartographer/issues/938)) ([fb560df](https://github.com/BeppeTemp/cartographer/commit/fb560df201338afbdce37266b3f4a49ee682647b))
-* **mcp:** concept_transfer refuses a type the strict target map does not admit ([#952](https://github.com/BeppeTemp/cartographer/issues/952)) ([f5aa238](https://github.com/BeppeTemp/cartographer/commit/f5aa23813440e9e52d3b0ee1a69730f2bbc8a46d))
-* **mcp:** every state-changing HTTP request passes the Origin check, takes JSON only and has a size cap ([#1134](https://github.com/BeppeTemp/cartographer/issues/1134)) ([2bd2ac4](https://github.com/BeppeTemp/cartographer/commit/2bd2ac454b4399a9cad92594399f10fdc7dd95c0))
-* **mcp:** instructions.md is capped at 64 KiB in the guide and the managed block, and artifact_write refuses a larger one ([#1112](https://github.com/BeppeTemp/cartographer/issues/1112)) ([6baa736](https://github.com/BeppeTemp/cartographer/commit/6baa736c5be8946e5b4d07251503ff2d63b94355))
-* **mcp:** operator-directed text reaches only provisioned connections, and no static text points at a dead end ([#1115](https://github.com/BeppeTemp/cartographer/issues/1115)) ([5fceefe](https://github.com/BeppeTemp/cartographer/commit/5fceefe689d0e5de4c16839b4ad439ddf3d12a0c))
-* **mcp:** sync_apply runs only for the local operator ([#1135](https://github.com/BeppeTemp/cartographer/issues/1135)) ([373cf68](https://github.com/BeppeTemp/cartographer/commit/373cf682fed70153c57e62acdc900a7cf2af833e))
 
 ## [0.25.1](https://github.com/BeppeTemp/cartographer/compare/v0.25.0...v0.25.1) (2026-10-20)
 
