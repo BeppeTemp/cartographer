@@ -1172,7 +1172,7 @@ Dependency updates (Go modules, action versions and Docker base images) come fro
 
 **The Windows assets** ([D252](decisions/D252-windows-installs-through-install-ps1-not-winget.md)). The darwin and linux assets stay raw per-platform binaries, because that is what `install.sh` downloads and verifies against its line in `sha256sums.txt`; the two Windows assets are **zips** (`cartographer-windows-{amd64,arm64}.zip`, each containing `cartographer.exe`), which is what `install.ps1` downloads, verifies and extracts. Renaming them breaks every existing Windows `install.ps1 update`, the same way a rename breaks `install.sh`; `test/install/goreleaser_guard.sh` pins the shape. There is no package-manager submission for Windows: nothing in the release depends on a third-party review.
 
-Secrets required in the GitHub repo: `RELEASE_PLEASE_TOKEN`, `HOMEBREW_TAP_TOKEN`. `GITHUB_TOKEN` is provided automatically by Actions (for ghcr.io the `packages: write` permission declared in the workflow is enough).
+Secrets required in the GitHub repo: `RELEASE_PLEASE_TOKEN`, `HOMEBREW_TAP_TOKEN`, `SECURITY_GATE_TOKEN` (read-only fine-grained PAT on all the owner's repositories: Dependabot alerts, Code scanning alerts, Repository security advisories, Pull requests; without it every train skips, D1123). `GITHUB_TOKEN` is provided automatically by Actions (for ghcr.io the `packages: write` permission declared in the workflow is enough).
 
 The end-to-end operator procedure (release, rollout verification, local client update) lives outside the repo, in the maintainer's local tooling: it contains details of the private deployment infrastructure.
 

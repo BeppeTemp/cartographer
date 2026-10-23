@@ -769,7 +769,7 @@ a `# vX.Y.Z` comment.
 
 ## What is deliberately not in CI
 
-- Blocking a PR on a security advisory (D1020): the scans report, they do not gate.
+- Blocking a PR on a security advisory (D1020): the scans report, they do not gate a PR. They gate the release instead: the train skips while an alert is open (D1123).
 - Whether a particular model interprets an instruction well.
 - Provider/model quality comparisons.
 - Tests requiring production credentials or external private infrastructure.
