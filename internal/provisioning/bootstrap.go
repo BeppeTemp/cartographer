@@ -22,6 +22,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // BootstrapHookName is the reserved hook name for the client-generated bootstrap
@@ -157,7 +158,7 @@ func ensureSyntheticHook(baseDir string, provider configurator.Provider, lock Lo
 		// D57/D58/D59 primitives — the very same code Apply uses for KB
 		// hooks, with the hook.json just written above acting as the bridge.
 		if mechanism, ok := hookMechanisms[provider]; ok {
-			pluginRel, warning, err := mechanism.register(baseDir, h.name, fullDestDir)
+			pluginRel, warning, _, err := mechanism.register(baseDir, h.name, fullDestDir)
 			if err != nil {
 				return Lock{}, err
 			}
@@ -254,20 +255,23 @@ type hookMechanism struct {
 	writeFindingsHook bool
 	// register performs the registration, returning the relative path of any
 	// generated artifact (so it is tracked as a managed file) plus any
-	// non-fatal warning for the caller to surface.
-	register func(baseDir, name, fullDestDir string) (relPath, warning string, err error)
+	// non-fatal warning for the caller to surface. registered is false when
+	// the registrar skipped the hook (no usable hook.json, an event the client
+	// never fires): nothing was written, so a registration left by an earlier
+	// version of the hook is stale and the caller strips it.
+	register func(baseDir, name, fullDestDir string) (relPath, warning string, registered bool, err error)
 }
 
 var hookMechanisms = map[configurator.Provider]hookMechanism{
 	configurator.ProviderClaudeCode: {
 		settingsFile:      []string{".claude", "settings.json"},
 		writeFindingsHook: true,
-		register: func(baseDir, name, fullDestDir string) (string, string, error) {
-			warning, err := registerHookSettings(baseDir, name, fullDestDir)
+		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+			warning, registered, err := registerHookSettings(baseDir, name, fullDestDir)
 			if err != nil {
-				return "", "", fmt.Errorf("provisioning: register hook %s in settings.json: %w", name, err)
+				return "", "", false, fmt.Errorf("provisioning: register hook %s in settings.json: %w", name, err)
 			}
-			return "", warning, nil
+			return "", warning, registered, nil
 		},
 	},
 	configurator.ProviderCodex: {
@@ -277,12 +281,12 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		// agent, reading a failed call, repeats the write and loses its
 		// content_hash. The hook uses `--channel context` (additionalContext).
 		writeFindingsHook: true,
-		register: func(baseDir, name, fullDestDir string) (string, string, error) {
-			warning, err := registerCodexHook(baseDir, name, fullDestDir)
+		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+			warning, registered, err := registerCodexHook(baseDir, name, fullDestDir)
 			if err != nil {
-				return "", "", fmt.Errorf("provisioning: register hook %s in hooks.json: %w", name, err)
+				return "", "", false, fmt.Errorf("provisioning: register hook %s in hooks.json: %w", name, err)
 			}
-			return "", warning, nil
+			return "", warning, registered, nil
 		},
 	},
 	configurator.ProviderOpenCode: {
@@ -290,7 +294,7 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		warningBlocksBootstrap: true,
 		// writeFindingsHook stays false: support depends on the installed major
 		// (SupportsWriteFindingsHook, D362) and the hook is a dedicated plugin.
-		register: func(baseDir, name, fullDestDir string) (string, string, error) {
+		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
 			// Unlike claude/codex (patching an existing shared file), here the
 			// registration produces a NEW dedicated file (the generated
 			// plugin, D59) — the caller appends it to the managed files so it
@@ -303,21 +307,21 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 			// reusing the shared helper verbatim keeps registration and
 			// removal (removeOpenCodePlugin, driven by PruneManaged/mf.Name)
 			// on the exact same path-derivation logic.
-			pluginRel, warning, err := registerOpenCodePlugin(baseDir, name, fullDestDir)
+			pluginRel, warning, registered, err := registerOpenCodePlugin(baseDir, name, fullDestDir)
 			if err != nil {
-				return "", "", fmt.Errorf("provisioning: register hook %s as opencode plugin: %w", name, err)
+				return "", "", false, fmt.Errorf("provisioning: register hook %s as opencode plugin: %w", name, err)
 			}
-			return pluginRel, warning, nil
+			return pluginRel, warning, registered, nil
 		},
 	},
 	configurator.ProviderAntigravity: {
 		settingsFile: []string{".gemini", "config", "hooks.json"},
-		register: func(baseDir, name, fullDestDir string) (string, string, error) {
-			warning, err := registerAntigravityHook(baseDir, name, fullDestDir)
+		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+			warning, registered, err := registerAntigravityHook(baseDir, name, fullDestDir)
 			if err != nil {
-				return "", "", fmt.Errorf("provisioning: register hook %s in Antigravity hooks.json: %w", name, err)
+				return "", "", false, fmt.Errorf("provisioning: register hook %s in Antigravity hooks.json: %w", name, err)
 			}
-			return "", warning, nil
+			return "", warning, registered, nil
 		},
 	},
 	configurator.ProviderCrush: {
@@ -325,12 +329,12 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		// Probed on v0.98.0 (D363): of six events only PreToolUse fires, so there
 		// is no session-start event, and no PostToolUse for the write-findings hook.
 		noSessionStartEvent: true,
-		register: func(baseDir, name, fullDestDir string) (string, string, error) {
-			warning, err := registerCrushHook(baseDir, name, fullDestDir)
+		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+			warning, registered, err := registerCrushHook(baseDir, name, fullDestDir)
 			if err != nil {
-				return "", "", fmt.Errorf("provisioning: register hook %s in crush.json: %w", name, err)
+				return "", "", false, fmt.Errorf("provisioning: register hook %s in crush.json: %w", name, err)
 			}
-			return "", warning, nil
+			return "", warning, registered, nil
 		},
 	},
 	configurator.ProviderCopilot: {
@@ -339,12 +343,12 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		// generated plugin.
 		pluginPath:        copilotHookRelPath,
 		writeFindingsHook: true,
-		register: func(baseDir, name, fullDestDir string) (string, string, error) {
-			rel, warning, err := registerCopilotHook(baseDir, name, fullDestDir)
+		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+			rel, warning, registered, err := registerCopilotHook(baseDir, name, fullDestDir)
 			if err != nil {
-				return "", "", fmt.Errorf("provisioning: register hook %s as a Copilot hook file: %w", name, err)
+				return "", "", false, fmt.Errorf("provisioning: register hook %s as a Copilot hook file: %w", name, err)
 			}
-			return rel, warning, nil
+			return rel, warning, registered, nil
 		},
 	},
 	configurator.ProviderKiro: {
@@ -354,14 +358,57 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		// new TUI since 2.27.0, over the v2 engine) and every
 		// --no-interactive run never build the hook cache.
 		sessionHookLimit: "kiro-cli chat --v3 --tui",
-		register: func(baseDir, name, fullDestDir string) (string, string, error) {
-			warning, err := registerKiroHook(baseDir, name, fullDestDir)
+		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+			warning, registered, err := registerKiroHook(baseDir, name, fullDestDir)
 			if err != nil {
-				return "", "", fmt.Errorf("provisioning: register hook %s in Kiro cartographer.json: %w", name, err)
+				return "", "", false, fmt.Errorf("provisioning: register hook %s in Kiro cartographer.json: %w", name, err)
 			}
-			return "", warning, nil
+			return "", warning, registered, nil
 		},
 	},
+}
+
+// checkHookRegistrationTarget refuses, before anything is written for a hook,
+// a registration target (the provider's shared settings file, or its generated
+// plugin file) that sits behind a symlink or any other non-plain path, with the
+// ErrSymlinkDestination the registrar itself would return. destRel is the
+// hook's destination directory: a workspace hook registers elsewhere than a
+// global one (Antigravity's .agents/hooks.json, Crush's .crush.json), and the
+// registrars pick the file from that same path. A provider with no mechanism
+// has nothing to check.
+func checkHookRegistrationTarget(baseDir string, provider configurator.Provider, name, destRel string) error {
+	m, ok := hookMechanisms[provider]
+	if !ok {
+		return nil
+	}
+	var targets []string
+	switch {
+	case provider == configurator.ProviderAntigravity:
+		targets = append(targets, antigravityHooksPath(baseDir, destRel))
+	case provider == configurator.ProviderCrush:
+		targets = append(targets, crushSettingsPath(baseDir, destRel))
+	case len(m.settingsFile) > 0:
+		targets = append(targets, filepath.Join(baseDir, filepath.Join(m.settingsFile...)))
+	}
+	if m.pluginPath != nil {
+		targets = append(targets, filepath.Join(baseDir, filepath.FromSlash(m.pluginPath(name))))
+	}
+	for _, full := range targets {
+		if err := safewrite.CheckPath(baseDir, full); err != nil {
+			return fmt.Errorf("provisioning: register hook %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// hookInLock reports whether the previous lock owns a file of the hook name.
+func hookInLock(managed []ManagedFile, name string) bool {
+	for _, mf := range managed {
+		if mf.Kind == "hook" && mf.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // SupportsSessionHook reports whether the bootstrap hook (D60) can run at

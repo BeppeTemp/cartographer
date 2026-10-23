@@ -11,9 +11,10 @@ import (
 // refuse records a symlink refusal against one artifact and reports whether the
 // caller should skip it and carry on. Anything else is a real error and stays
 // fatal to the pass. One symlinked skill directory must not abort a whole sync —
-// same treatment Apply already gives an unsupported kind — and the artifact is
-// deliberately left out of Written and out of the lockfile, so the next sync
-// retries and reports again.
+// same treatment Apply already gives an unsupported kind. The artifact is left
+// out of Written; a refused write of a new artifact is not recorded in the
+// lockfile, while Apply's refuseArtifact keeps the previous entry of a refused
+// update, so the next sync retries and reports again either way.
 func refuse(result *AppliedResult, a Artifact, err error) bool {
 	if !errors.Is(err, ErrSymlinkDestination) {
 		return false
