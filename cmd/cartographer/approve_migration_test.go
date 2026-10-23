@@ -250,3 +250,20 @@ func TestCmdApprovePending_EscapesWhatTheServerChose(t *testing.T) {
 		t.Errorf("single form prints raw server text:\n%q", out)
 	}
 }
+
+// Text a KB serves can only read as what it is: a bidi override or a zero-width
+// character would make a previewed command read as another.
+func TestEscapeControl_NonPrintableRunesAreEscaped(t *testing.T) {
+	for in, want := range map[string]string{
+		"rm -rf /\u202e":        `rm -rf /\u202e`,
+		"a\u200bb":              `a\u200bb`,
+		"\ufeffx":               `\ufeffx`,
+		"line\nforged":          `line\nforged`,
+		"\x1b[2J":               `\x1b[2J`,
+		"tab\tkept, caff\u00e8": "tab\tkept, caff\u00e8",
+	} {
+		if got := escapeControl(in); got != want {
+			t.Errorf("escapeControl(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

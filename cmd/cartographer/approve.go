@@ -223,13 +223,15 @@ func printApprovalPreview(w io.Writer, a provisioning.Artifact) error {
 	return nil
 }
 
-// escapeControl makes text the server chose safe to print on a terminal: a
-// control character (a newline that forges a line, an ESC that rewrites the
-// screen) is shown as its escape, tab excepted. Printable text is untouched.
+// escapeControl makes text the server chose safe to print on a terminal: any
+// rune that is not printable (a newline that forges a line, an ESC that
+// rewrites the screen, a bidi override or zero-width character that makes a
+// command read as another) is shown as its escape, tab excepted. Printable
+// text, accented letters included, is untouched.
 func escapeControl(s string) string {
 	var b strings.Builder
 	for _, r := range s {
-		if (unicode.IsControl(r) && r != '\t') || r == '\u2028' || r == '\u2029' {
+		if !unicode.IsPrint(r) && r != '\t' {
 			q := strconv.QuoteToASCII(string(r))
 			b.WriteString(q[1 : len(q)-1])
 			continue

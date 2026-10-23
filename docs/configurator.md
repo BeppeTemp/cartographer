@@ -1210,7 +1210,7 @@ refreshed, registered anew or removed until approved.
 frontmatter that declares hooks or MCP servers), so the confirmation covers what will run. An MCP descriptor is
 never approved this way: it is named with its own `cartographer approve mcp <name> --kb <kb>` command. Without a
 terminal it needs `--yes`, like the single form. Names, paths and targets chosen by the server are printed with
-their control characters escaped (`\n`, `\x1b`), so a name cannot forge a line or rewrite the screen. Then run
+every non-printable character escaped (`\n`, `\x1b`, `\u202e`), so a name cannot forge a line, rewrite the screen or read as another command. Then run
 `cartographer sync`.
 
 **One-time migration (D1166).** The first `sync` of a client configuration that has never run it approves,
