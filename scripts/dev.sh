@@ -4,9 +4,11 @@
 # hot reload against it. Run from the worktree being edited: `make dev`.
 #
 # DATA is a data directory (one subdirectory per KB). It is copied into a
-# temporary directory with every git remote removed (a KB syncs exactly when it
-# has one), so what the session writes never leaves the machine and the source
-# is never touched.
+# temporary directory where every git remote keeps its fetch URL, so the sync
+# badge shows the KB's real state against its remote, and gets a push URL
+# that cannot be reached, so what the session writes never leaves the machine
+# (a push fails, and the badge shows that failure too). The source is never
+# touched.
 # Without DATA it runs on a throwaway copy of the generated test KBs.
 #
 # Polling rather than a file watcher: no watcher is a dependency of this
@@ -39,18 +41,18 @@ trap 'exit 143' TERM
 
 if [ -n "${DATA:-}" ]; then
 	# The contents, not the path: a DATA that is a symlink must not be copied as
-	# a link, or the server and the remote removal below would act on the source.
+	# a link, or the server and the push URL change below would act on the source.
 	mkdir "$work/data"
 	cp -R "$DATA/." "$work/data/"
 	find "$work/data" -name .git -prune -print | while read -r g; do
 		repo=$(dirname "$g")
 		# A .git file points at a repository elsewhere (a worktree, a submodule):
-		# removing its remotes would edit that repository's shared config.
+		# changing its push URL would edit that repository's shared config.
 		if [ ! -d "$g" ]; then
 			echo "dev: $repo is a linked checkout (.git is a file); copy a standalone clone instead" >&2
 			exit 1
 		fi
-		for r in $(git -C "$repo" remote); do git -C "$repo" remote remove "$r"; done
+		for r in $(git -C "$repo" remote); do git -C "$repo" remote set-url --push "$r" "$work/no-push"; done
 	done
 	kbargs=(--data "$work/data")
 else

@@ -96,3 +96,28 @@ export function parseJournal(text: string): JournalEntry[] {
     .map((e) => ({ at: e.at, body: e.body.replace(/^\n+|\s+$/g, "") }))
     .filter((e) => e.at !== null || e.body !== "");
 }
+
+/** A journal entry as the page draws it: a tool call recorded by the server
+ *  (`concept_patch: map/concept`) is one muted line; anything an agent wrote
+ *  is a note, its first line the lead and the rest its details. */
+export type JournalShape =
+  | { kind: "tool"; tool: string; target: string }
+  | { kind: "note"; lead: string; details: string };
+
+/** The Map of the first concept ID an entry names, among the KB's Maps: the
+ *  colour its node takes, as a concept's does on the timeline. */
+export function journalMap(body: string, maps: ReadonlySet<string>): string | null {
+  for (const m of body.matchAll(/(?<![\w/.-])([a-z0-9][a-z0-9_-]*)\/[a-z0-9]/g)) {
+    if (maps.has(m[1]!)) return m[1]!;
+  }
+  return null;
+}
+
+export function journalShape(body: string): JournalShape {
+  const tool = /^([a-z][a-z0-9_]*):\s+(\S+)$/.exec(body);
+  if (tool) return { kind: "tool", tool: tool[1]!, target: tool[2]! };
+  const [first = "", ...rest] = body.split("\n");
+  // The day heading already says the date an agent often opens with.
+  const lead = first.replace(/^\d{4}-\d{2}-\d{2}(\s*\([^)]*\))?\s*[—–-]\s*/, "");
+  return { kind: "note", lead: lead || first, details: rest.join("\n").replace(/^\n+|\s+$/g, "") };
+}

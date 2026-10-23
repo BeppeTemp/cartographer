@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { fetchAudit, fetchChanges, fetchJournal } from "../api/client";
 import type { AuditLog, ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot } from "../api/types";
-import { changedAt, changeKind, mostWorked, parseJournal, shownReasons, type ChangeKind } from "../lib/activity";
+import { changedAt, changeKind, journalMap, journalShape, mostWorked, parseJournal, shownReasons, type ChangeKind } from "../lib/activity";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
+import { Icon } from "./Icon";
 import { Avatar, Count, Hero, MapBar, MapDot, Page, PageHeader, PageSection, Segmented, TitleBone, ActivitySkeleton } from "./Page";
 
 const WINDOWS = [
@@ -194,7 +195,7 @@ export function Activity({
       {tabs}
 
       <div className="page__body" data-loading={loading && data !== null}>
-        {data && all.length > 0 && (
+        {data && (
           <Hero label="Summary and filters" className="activity-hero">
             <div className="activity-sum">
               <div className="activity-sum__lead">
@@ -287,16 +288,21 @@ export function Activity({
           <ActivitySkeleton label="Reading the history" />
         ) : rows.length === 0 ? (
           <div className="timeline__empty">
-            <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
-            <p className="page-note">
-              No concept edited {when(shown)}
-              {author ? ` by ${author}` : ""}.
-            </p>
+            <span className="timeline__empty-icon" aria-hidden="true">
+              <Icon name="moon" size={18} />
+            </span>
+            <div className="timeline__empty-text">
+              <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
+              <p className="timeline__empty-note">
+                No concept edited {when(shown)}
+                {author ? ` by ${author}` : ""}.
+              </p>
+            </div>
             {/* An empty window offers the next wider one rather than leaving the reader to guess. */}
             {(() => {
               const next = WINDOWS[WINDOWS.findIndex(([w]) => w === shown) + 1];
               return next ? (
-                <button type="button" className="button" onClick={() => setSince(next[0])}>
+                <button type="button" className="button timeline__empty-action" onClick={() => setSince(next[0])}>
                   {next[0] === "all"
                     ? "Show the whole history"
                     : next[0] === "1y"
@@ -344,7 +350,7 @@ export function Activity({
                 <p className="page-note">
                   The last entries of the KB&apos;s log, written by agents with <code>log_append</code>.
                 </p>
-                <JournalEntries text={journal} />
+                <JournalEntries text={journal} mapTitles={mapTitles} onOpen={onOpen} />
               </>
             )}
           </PageSection>
@@ -360,7 +366,16 @@ export function Activity({
  * day heading with its count, then one row per entry, its time beside its
  * lines. An entry whose heading is not a time keeps it as its label.
  */
-function JournalEntries({ text }: { text: string }) {
+function JournalEntries({
+  text,
+  mapTitles,
+  onOpen,
+}: {
+  text: string;
+  mapTitles: ReadonlyMap<string, string>;
+  onOpen(conceptId: string): void;
+}) {
+  const maps = useMemo(() => new Set(mapTitles.keys()), [mapTitles]);
   const days = useMemo(() => {
     const groups: { key: string; label: string; items: { at: string | null; t: number; body: string }[] }[] = [];
     for (const e of parseJournal(text)) {
@@ -383,27 +398,115 @@ function JournalEntries({ text }: { text: string }) {
             <span>{day.label}</span>
             <span className="timeline__date-count">{day.items.length}</span>
           </h3>
-          <ol className="journal__entries">
+          <ol className="timeline__entries">
             {day.items.map((e, i) => (
-              <li key={`${e.at}-${i}`} className="journal__entry">
-                {Number.isFinite(e.t) ? (
-                  <time
-                    className="journal__time"
-                    dateTime={e.at!}
-                    title={new Date(e.t).toLocaleString("en", { dateStyle: "medium", timeStyle: "medium" })}
-                  >
-                    {clock(e.at!)}
-                  </time>
-                ) : (
-                  <span className="journal__time">{e.at}</span>
-                )}
-                <p className="journal__body">{e.body}</p>
-              </li>
+              <JournalEntry
+                key={`${e.at}-${i}`}
+                at={e.at}
+                t={e.t}
+                body={e.body}
+                map={journalMap(e.body, maps)}
+                mapTitles={mapTitles}
+                onOpen={onOpen}
+              />
             ))}
           </ol>
         </li>
       ))}
     </ol>
+  );
+}
+
+/** One journal entry on the timeline's rail: time, a node in the colour of the
+ *  Map the entry names (the accent when it names none), then the note or the
+ *  tool call, whose concept opens like a timeline row. A long note is clamped
+ *  and opens in place. */
+function JournalEntry({
+  at,
+  t,
+  body,
+  map,
+  mapTitles,
+  onOpen,
+}: {
+  at: string | null;
+  t: number;
+  body: string;
+  map: string | null;
+  mapTitles: ReadonlyMap<string, string>;
+  onOpen(conceptId: string): void;
+}) {
+  const shape = journalShape(body);
+  const [open, setOpen] = useState(false);
+  // "Show more" only where the clamp actually cut something.
+  const noteRef = useRef<HTMLDivElement>(null);
+  const [clamped, setClamped] = useState(false);
+  useLayoutEffect(() => {
+    const el = noteRef.current;
+    if (!el || open) return;
+    const measure = () =>
+      setClamped([...el.querySelectorAll("p")].some((p) => p.scrollHeight > p.clientHeight + 1));
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, body]);
+  const time = Number.isFinite(t) ? (
+    <time
+      className="timeline__time"
+      dateTime={at!}
+      title={new Date(t).toLocaleString("en", { dateStyle: "medium", timeStyle: "medium" })}
+    >
+      {clock(at!)}
+    </time>
+  ) : (
+    <span className="timeline__time">{at}</span>
+  );
+  return (
+    <li
+      className={`timeline__entry journal__entry journal__entry--${shape.kind}`}
+      style={{ "--map": map ? collectionVar(map) : "var(--accent)" } as CSSProperties}
+    >
+      <div className="journal__item">
+        {time}
+        <span className="timeline__track" aria-hidden="true">
+          <span className="timeline__node" />
+        </span>
+        {shape.kind === "tool" ? (
+          <p className="journal__tool">
+            <span className="journal__tool-name">{shape.tool}</span>
+            {map ? (
+              <button type="button" className="journal__target" onClick={() => onOpen(shape.target)}>
+                <span className="timeline__map">
+                  <MapDot map={map} />
+                  {mapTitles.get(map) ?? map}
+                </span>
+                <span className="journal__target-id">{shape.target.slice(map.length + 1)}</span>
+              </button>
+            ) : (
+              <span className="journal__target-id">{shape.target}</span>
+            )}
+          </p>
+        ) : (
+          <div className="journal__note" ref={noteRef}>
+            <p className="journal__lead" data-open={open}>
+              {shape.lead}
+            </p>
+            {shape.details && (
+              <p className="journal__details" data-open={open}>
+                {shape.details}
+              </p>
+            )}
+            {(clamped || open) && (
+              <button type="button" className="journal__more" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+                {open ? "Show less" : "Show more"}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </li>
   );
 }
 

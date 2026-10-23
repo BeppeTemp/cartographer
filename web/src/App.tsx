@@ -729,6 +729,7 @@ export function App() {
   const rail = (inSheet: boolean) => (
     <LeftRail
       overview={overview}
+      onOpenReleases={() => setReleasesOpen(true)}
       overviewKB={snapshotKey.split("\u0000")[0]}
       scope={view.panel === "atlas" ? view.scope : null}
       panel={view.panel}
@@ -814,7 +815,6 @@ export function App() {
         onKBChange={(name) => navigate({ kb: name, scope: null, concept: null, artifact: null, hmap: null })}
         onThemeChange={setTheme}
         onOpenPalette={() => setPaletteOpen(true)}
-        onOpenReleases={() => setReleasesOpen(true)}
         onHome={() => navigate({ panel: "atlas", scope: null, concept: null, artifact: null })}
         onOpenNav={() => setSheet("nav")}
         onOpenInspector={() => setSheet("inspector")}

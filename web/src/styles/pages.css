@@ -775,74 +775,181 @@ button.row {
   border-radius: var(--radius-control);
 }
 
+/* An empty window: one calm row, not a hole in the page. */
 .timeline__empty {
-  display: grid;
-  justify-items: center;
-  gap: var(--space-2);
-  padding: var(--space-6);
-  text-align: center;
-  border: 1px dashed var(--border-subtle);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-block-start: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
 }
 
-/* The journal is a log, not a concept: grouped by day under the timeline's
-   own day heading, sans, its lines kept as written, the time in the column
-   the timeline uses for its own. */
-.journal,
-.journal__entries {
+.timeline__empty-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: var(--radius-pill);
+}
+
+.timeline__empty-text {
   display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.timeline__empty-note {
   margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.timeline__empty-action {
+  flex: none;
+  margin-inline-start: auto;
+  font-size: var(--text-sm);
+}
+
+/* The journal is a log, not a concept: grouped by day under the timeline's
+   own day heading, on the timeline's rail, with a hollow node because an
+   entry opens nothing. A note leads with its first line; a tool call the
+   server recorded is one muted line. */
+.journal {
+  display: grid;
+  gap: var(--space-4);
+  margin: var(--space-3) 0 0;
   padding: 0;
   list-style: none;
 }
 
-.journal {
-  gap: var(--space-4);
-  margin-block-start: var(--space-3);
-}
-
-.journal__entry {
+.journal__item {
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  gap: var(--space-4);
-  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-2);
-  border-radius: var(--radius-control);
+  grid-template-columns: 48px 20px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+  padding: 0 var(--space-3) 0 var(--space-2);
 }
 
-.journal__entry + .journal__entry {
-  border-block-start: 1px solid var(--border-subtle);
+.journal__entry--tool .timeline__node {
+  width: 6px;
+  height: 6px;
+  margin-block-start: calc(var(--space-3) + 5px);
+  opacity: 0.7;
 }
 
-.journal__time {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: var(--leading-relaxed);
-  color: var(--text-muted);
-  text-align: end;
+.journal__note {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 110ch;
+  padding-block: var(--space-2) var(--space-3);
+}
+
+.journal__lead,
+.journal__details,
+.journal__tool {
+  margin: 0;
   overflow-wrap: anywhere;
 }
 
-.journal__body {
-  max-width: 110ch;
-  margin: 0;
+.journal__lead {
+  display: -webkit-box;
+  overflow: hidden;
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.journal__details {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--text-muted);
   white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.journal__lead[data-open="true"],
+.journal__details[data-open="true"] {
+  display: block;
+}
+
+.journal__more {
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.journal__more:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.journal__tool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  padding-block: var(--space-2);
+  font-size: var(--text-xs);
+  line-height: var(--leading-normal);
+  color: var(--text-muted);
+}
+
+.journal__tool-name {
+  font-family: var(--font-mono);
+}
+
+.journal__target {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.journal__target:hover .journal__target-id {
+  color: var(--text-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.journal__target-id {
   overflow-wrap: anywhere;
 }
 
 @media (max-width: 640px) {
-  .journal__entry {
-    grid-template-columns: 40px minmax(0, 1fr);
-    gap: var(--space-3);
+  .journal__item {
+    grid-template-columns: 40px 16px minmax(0, 1fr);
   }
 }
 
 .timeline__empty-title {
   margin: 0;
-  font-size: var(--text-lg);
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: 500;
   color: var(--text-secondary);
 }
 

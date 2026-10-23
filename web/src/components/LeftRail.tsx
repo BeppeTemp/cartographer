@@ -1,4 +1,5 @@
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
+import { fetchServerVersion } from "../api/client";
 import type { Overview } from "../api/types";
 import { ARTIFACT_PANELS, type Panel } from "../lib/viewstate";
 import { collectionVar } from "../lib/palette";
@@ -28,6 +29,8 @@ interface Props {
   onToggleType(type: string): void;
   onToggleStatus(status: string): void;
   onClearFilters(): void;
+  /** The server version, at the foot of the rail, opens the release history (D862). */
+  onOpenReleases?(): void;
 }
 
 export function LeftRail({
@@ -47,7 +50,15 @@ export function LeftRail({
   onToggleType,
   onToggleStatus,
   onClearFilters,
+  onOpenReleases,
 }: Props) {
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchServerVersion(controller.signal).then(setVersion);
+    return () => controller.abort();
+  }, []);
+  const versionLabel = version && (/^\d/.test(version) ? `v${version}` : version);
   // Health's mark is "something is wrong", not a count: the page counts in
   // kinds of issue, the overview only knows findings, and two numbers for one
   // thing read as a contradiction (D704). A finding is a problem (D947).
@@ -250,18 +261,35 @@ export function LeftRail({
         </div>
       )}
 
-      {/* The collapse toggle sits at the foot of the rail: at the top it took a
-          whole row of its own above the navigation. */}
-      {collapsible && (
-        <button
-          type="button"
-          className="rail__collapse button button--icon"
-          onClick={onToggleCollapsed}
-          aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
-          aria-expanded={!collapsed}
-        >
-          <Icon name={collapsed ? "panel-open" : "panel-close"} />
-        </button>
+      {/* The foot of the rail: the collapse toggle (at the top it took a whole
+          row of its own above the navigation) and the server version, which is
+          about the install rather than the KB, so it stays out of the top bar. */}
+      {(collapsible || (versionLabel && !collapsed)) && (
+        <div className="rail__foot">
+          {collapsible && (
+            <button
+              type="button"
+              className="rail__collapse button button--icon"
+              onClick={onToggleCollapsed}
+              aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+              aria-expanded={!collapsed}
+            >
+              <Icon name={collapsed ? "panel-open" : "panel-close"} />
+            </button>
+          )}
+          {versionLabel && !collapsed && (
+            <button
+              type="button"
+              className="rail__version"
+              title="Release history"
+              aria-haspopup="dialog"
+              aria-label={`Server version ${versionLabel}: release history`}
+              onClick={onOpenReleases}
+            >
+              {versionLabel}
+            </button>
+          )}
+        </div>
       )}
     </nav>
   );
