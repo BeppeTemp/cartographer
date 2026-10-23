@@ -26,7 +26,7 @@ type rotRule struct {
 }
 
 const rotCountNouns = `providers|clients|tools|checks|kinds|subagents|agents|runners|skills|modes|tiers|workflows|jobs|errors`
-const rotNumbers = `three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|[3-9]|[0-9]{2,}`
+const rotNumbers = `three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|(?:twenty|thirty|forty|fifty)(?:[- ](?:one|two|three|four|five|six|seven|eight|nine))?|[3-9]|[0-9]{2,}`
 
 var rotRules = []rotRule{
 	{
@@ -312,6 +312,11 @@ func TestRotDetector(t *testing.T) {
 			if len(got) == 0 || !strings.HasPrefix(got[0], rule+"@") {
 				t.Errorf("rule %q should fire on %q, got %v", rule, text, got)
 			}
+		}
+	}
+	for _, compound := range []string{"It has twenty-five tools.", "It has twenty one tools."} {
+		if got := rotRules1(compound); len(got) == 0 || !strings.HasPrefix(got[0], "hand-kept count@") {
+			t.Errorf("a compound number is a count too: %q, got %v", compound, got)
 		}
 	}
 	quiet := []string{
