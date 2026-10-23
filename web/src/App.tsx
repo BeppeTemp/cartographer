@@ -44,7 +44,6 @@ import { LeftRail } from "./components/LeftRail";
 import { Sheet, useMediaQuery } from "./components/Sheet";
 import { Splitter } from "./components/Splitter";
 import { Activity } from "./components/Activity";
-import { Retired } from "./components/Retired";
 import { Work } from "./components/Work";
 import { NodeList } from "./components/NodeList";
 import { Health } from "./components/Health";
@@ -62,8 +61,6 @@ import {
 import { initialMotion } from "./lib/graph3d/motion";
 import { hasWebGL } from "./lib/webgl";
 import { useLiveRevision } from "./lib/live";
-import { toggleEggs, type Egg } from "./lib/eggs";
-import { Eggs } from "./components/Eggs";
 import { snapshotCommunities, type Communities } from "./lib/communities";
 import { readColorBy, writeColorBy, type ColorBy } from "./lib/palette";
 import { ARTIFACT_PANELS, artifactPanel, pushView, readViewState, replaceView, type ViewState } from "./lib/viewstate";
@@ -135,7 +132,6 @@ export function App() {
   const healthKB = useRef<string | null>(null);
   const [motion, setMotion] = useState(() => initialMotion(readPanel("motion", true), prefersReducedMotion()));
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [eggs, setEggs] = useState<Set<Egg>>(() => new Set());
   const [preview, setPreview] = useState<string | null>(null);
   const [notice, setNotice] = useState<string>("");
   const [offline, setOffline] = useState(false);
@@ -350,18 +346,6 @@ export function App() {
       ).filter(([tab]) => (tab === "secrets" ? secretsAllowed : artifactsAllowed))}
       current={(ARTIFACT_PANELS.includes(view.panel) ? view.panel : "artifacts") as ArtifactTab}
       onSelect={(panel) => navigate({ panel, artifact: null })}
-    />
-  );
-  // Retired concepts are what happened to the KB: a tab of Activity (D820).
-  const activityTabs = (
-    <PageTabs<"activity" | "retired">
-      label="Activity section"
-      tabs={[
-        ["activity", "Activity"],
-        ["retired", "Retired"],
-      ]}
-      current={view.panel === "retired" ? "retired" : "activity"}
-      onSelect={(panel) => navigate({ panel, artifact: null, hmap: null })}
     />
   );
   // The last view of every KB and Map this tab has opened: going back to one
@@ -847,14 +831,6 @@ export function App() {
               live={live}
               collections={overview?.collections}
               snapshot={snapshot}
-              tabs={activityTabs}
-              onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
-            />
-          ) : view.panel === "retired" && activeKB ? (
-            <Retired
-              kb={activeKB}
-              live={live}
-              tabs={activityTabs}
               onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
             />
           ) : view.panel === "work" && activeKB ? (
@@ -974,7 +950,6 @@ export function App() {
                 </div>
               ) : (
                 <GraphView
-                  tako={eggs.has("tako")}
                   snapshot={snapshot}
                   layoutKey={snapshotKey}
                   loadBirths={activeKB && !view.scope ? () => fetchBirths(activeKB).then((r) => r.births) : undefined}
@@ -1053,9 +1028,7 @@ export function App() {
         nodes={visibleNodes}
         onClose={() => setPaletteOpen(false)}
         onSelect={openFromPalette}
-        onEgg={(asked) => setEggs((on) => toggleEggs(on, asked))}
       />
-      <Eggs on={eggs} still={!motion} onOff={(egg) => setEggs((on) => toggleEggs(on, [egg]))} />
     </div>
   );
 }

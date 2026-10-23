@@ -3779,7 +3779,7 @@ code.mapcontract__label {
   align-items: center;
   gap: var(--space-4);
   width: 100%;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-2) var(--space-4);
   font: inherit;
   color: inherit;
   text-align: start;
@@ -3827,9 +3827,18 @@ code.mapcontract__label {
   overflow-wrap: anywhere;
 }
 .settings__desc {
+  max-width: 80ch;
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
   color: var(--text-muted);
+}
+/* A closed row keeps its description to two lines: the list reads as keys
+   and values, and opening the row gives the whole text with its default. */
+.settings__row:not([data-open]) .settings__desc {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 .settings__val {
   display: flex;

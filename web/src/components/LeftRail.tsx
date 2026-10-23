@@ -96,7 +96,7 @@ export function LeftRail({
             className="rail__panel"
             aria-label="Activity"
             title={collapsed ? "Activity" : undefined}
-            aria-current={panel === "activity" || panel === "retired" ? "page" : undefined}
+            aria-current={panel === "activity" ? "page" : undefined}
             onClick={() => onPanel("activity")}
           >
             <span className="rail__glyph">

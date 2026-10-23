@@ -9,16 +9,7 @@
  */
 
 export type Panel =
-  | "atlas"
-  | "activity"
-  | "retired"
-  | "work"
-  | "health"
-  | "artifacts"
-  | "instructions"
-  | "templates"
-  | "secrets"
-  | "settings";
+  "atlas" | "activity" | "work" | "health" | "artifacts" | "instructions" | "templates" | "secrets" | "settings";
 
 /** The panels of the Artifacts section, one tab each. */
 export const ARTIFACT_PANELS: Panel[] = ["artifacts", "instructions", "templates", "secrets"];
@@ -61,23 +52,25 @@ export function readViewState(search: string = window.location.search): ViewStat
   let panel: Panel =
     param === "maintenance" || param === "observatory"
       ? "health"
-      : param === "services"
-        ? "secrets"
-        : param === "sources"
-          ? "work"
-          : param === "paths"
-            ? "settings"
-            : param === "activity" ||
-                param === "retired" ||
-                param === "work" ||
-                param === "health" ||
-                param === "artifacts" ||
-                param === "instructions" ||
-                param === "templates" ||
-                param === "secrets" ||
-                param === "settings"
-              ? param
-              : "atlas";
+      : // Retired was a tab of Activity: its retirements are on the timeline now.
+        param === "retired"
+        ? "activity"
+        : param === "services"
+          ? "secrets"
+          : param === "sources"
+            ? "work"
+            : param === "paths"
+              ? "settings"
+              : param === "activity" ||
+                  param === "work" ||
+                  param === "health" ||
+                  param === "artifacts" ||
+                  param === "instructions" ||
+                  param === "templates" ||
+                  param === "secrets" ||
+                  param === "settings"
+                ? param
+                : "atlas";
   // An artifact link from before the section had tabs (D1057) opens the tab of its kind.
   const linked = panel === "artifacts" ? params.get("artifact") : null;
   if (linked) {

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { fetchAudit, fetchChanges, fetchJournal } from "../api/client";
-import type { AuditLog, ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot } from "../api/types";
+import { fetchAudit, fetchChanges, fetchJournal, fetchRetired } from "../api/client";
+import type { AuditLog, ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot, RetiredConcept } from "../api/types";
 import { changedAt, changeKind, journalMap, journalShape, mostWorked, parseJournal, shownReasons, type ChangeKind } from "../lib/activity";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
@@ -142,6 +142,21 @@ export function Activity({
     data !== null && (data.concepts ?? []).every((c) => changeKind(c) === "maintenance") && shown !== "all";
   const earlierDays = useMemo(() => groupByDay(earlier ?? []), [earlier]);
 
+  // What the KB retired (archived, deprecated, superseded), keyed by concept:
+  // a retired concept's row on the timeline says so, with where it went and
+  // why. A narrowed principal's 404 leaves the rows as plain changes.
+  const [retired, setRetired] = useState<ReadonlyMap<string, RetiredConcept>>(new Map());
+  useEffect(() => {
+    setRetired(new Map());
+  }, [kb]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchRetired(kb, controller.signal)
+      .then((res) => setRetired(new Map(res.concepts.map((r) => [r.id, r]))))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [kb, live, attempt]);
+
   // The audit log (admin only): any other principal's 404 leaves it out.
   const [audit, setAudit] = useState<AuditLog | null>(null);
   useEffect(() => {
@@ -202,6 +217,7 @@ export function Activity({
     [filtered, kinds, shown, byDay],
   );
   const top = useMemo(() => mostWorked(filtered), [filtered]);
+  const retiredCount = useMemo(() => filtered.filter((c) => retired.has(c.id)).length, [filtered, retired]);
 
   return (
     <Page label="Recent activity" busy={loading} className="timeline">
@@ -230,6 +246,7 @@ export function Activity({
                   <Stat n={count("edited")} label="edited" />
                   <Stat n={count("new")} label="new" tone="ok" />
                   <Stat n={count("reorganised")} label="reorganised" />
+                  {retiredCount > 0 && <Stat n={retiredCount} label="retired" />}
                   {authors.length > 1 && <Stat n={authors.length} label="authors" />}
                 </ul>
                 {top && top.count > 1 && (
@@ -343,12 +360,12 @@ export function Activity({
             {windowEmpty && earlierDays.length > 0 && (
               <>
                 <h2 className="timeline__earlier">Earlier</h2>
-                <TimelineDays days={earlierDays} titles={titles} mapTitles={mapTitles} onOpen={onOpen} />
+                <TimelineDays days={earlierDays} titles={titles} mapTitles={mapTitles} retired={retired} onOpen={onOpen} />
               </>
             )}
           </>
         ) : (
-          <TimelineDays days={days} titles={titles} mapTitles={mapTitles} onOpen={onOpen} />
+          <TimelineDays days={days} titles={titles} mapTitles={mapTitles} retired={retired} onOpen={onOpen} />
         )}
         {data?.truncated && (
           <p className="page-note">Showing the {all.length} most recent changes: narrow the window to see the rest.</p>
@@ -381,11 +398,13 @@ function TimelineDays({
   days,
   titles,
   mapTitles,
+  retired,
   onOpen,
 }: {
   days: { key: string; label: string; items: ConceptChange[] }[];
   titles: ReadonlyMap<string, string>;
   mapTitles: ReadonlyMap<string, string>;
+  retired: ReadonlyMap<string, RetiredConcept>;
   onOpen(conceptId: string): void;
 }) {
   return (
@@ -403,6 +422,7 @@ function TimelineDays({
                 change={c}
                 title={titles.get(c.id) ?? c.id}
                 mapTitle={mapTitles.get(mapOf(c)) ?? mapOf(c)}
+                retired={retired.get(c.id)}
                 onOpen={onOpen}
               />
             ))}
@@ -608,14 +628,17 @@ function Entry({
   change: c,
   title,
   mapTitle,
+  retired,
   onOpen,
 }: {
   change: ConceptChange;
   title: string;
   mapTitle: string;
+  /** Set when the concept is retired: the row says so, and where it went and why. */
+  retired?: RetiredConcept;
   onOpen(conceptId: string): void;
 }) {
-  const reasons = shownReasons(c);
+  const reasons = retired ? retiredReasons(retired) : shownReasons(c);
   const [first, ...more] = reasons;
   return (
     <li className="timeline__entry" style={{ "--map": collectionVar(mapOf(c)) } as CSSProperties}>
@@ -637,7 +660,7 @@ function Entry({
               <MapDot map={mapOf(c)} />
               {mapTitle}
             </span>
-            <ChangePill change={c.change} />
+            {retired ? <RetiredPill status={retired.status} /> : <ChangePill change={c.change} />}
           </span>
           {first && (
             <span className="timeline__reason" title={reasons.join("\n")}>
@@ -678,6 +701,21 @@ function ChangePill({ change }: { change: string }) {
       {change}
     </span>
   );
+}
+
+function RetiredPill({ status }: { status: string }) {
+  return <span className={`pill timeline__retired timeline__retired--${status}`}>{status}</span>;
+}
+
+/** What a retired row says under its title: what replaced it, why, where it was. */
+function retiredReasons(r: RetiredConcept): string[] {
+  const out: string[] = [];
+  if (r.superseded_by) out.push(`Replaced by ${r.superseded_by_title || r.superseded_by}`);
+  const why = r.supersede_reason || r.reason;
+  if (why) out.push(why);
+  if (r.from && r.from !== r.id) out.push(`Was ${r.from}`);
+  if (out.length === 0) out.push("No retirement recorded: the status was set by hand");
+  return out;
 }
 
 /** One figure of the summary line: a bold number and its word. A zero fades;
