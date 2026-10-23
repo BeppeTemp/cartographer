@@ -3,7 +3,7 @@
 // what turns a broken import or camera in web/src/lib/graph3d into a red CI job.
 // --no-mp4 skips the MP4 (CI publishes only the WebP).
 import { createRequire } from "node:module";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -73,5 +73,14 @@ if (!stills.size) {
   const step = Math.max(1, Math.round(rate / 30));
   execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", path.join(framesDir, "%05d.png"), "-vf", `select='not(mod(n\\,${step}))',scale=1120:-1:flags=lanczos`, "-fps_mode", "vfr", path.join(webpDir, "%05d.png")], { stdio: "inherit" });
   const pngs = fs.readdirSync(webpDir).filter((f) => f.endsWith(".png")).sort().map((f) => path.join(webpDir, f));
-  execFileSync("img2webp", ["-loop", "0", "-d", String(Math.round((1000 * step) / rate)), "-lossy", "-q", "85", "-m", "4", "-exact", "-kmin", "14", "-kmax", "15", ...pngs, "-o", path.join(out, "film.webp")], { stdio: "inherit" });
+  // -exact is img2webp 1.4+: the CI runner's Ubuntu ships 1.3, which refuses it. Without it the key frames still bound
+  // a ghost stripe to half a second.
+  const exact = img2webpHas("-exact") ? ["-exact"] : [];
+  execFileSync("img2webp", ["-loop", "0", "-d", String(Math.round((1000 * step) / rate)), "-lossy", "-q", "85", "-m", "4", ...exact, "-kmin", "14", "-kmax", "15", ...pngs, "-o", path.join(out, "film.webp")], { stdio: "inherit" });
+}
+
+// img2webpHas reports whether this img2webp lists an option in its help, where it reads " -exact, -noexact ...".
+function img2webpHas(option) {
+  const r = spawnSync("img2webp", ["-h"], { encoding: "utf8" });
+  return `${r.stdout}${r.stderr}`.split(/[\s,]+/).includes(option);
 }
