@@ -71,10 +71,7 @@ type rotAllow struct{ File, Fragment, Reason string }
 var rotAllowed = []rotAllow{
 	{"docs/configurator.md", "A provider that was not previously connected", "states the result of a probe a user meets on every upgrade, not a past state of the docs"},
 	{"docs/control-plane.md", "pages that became or stopped being orphans", "describes a field of the changes_since digest, which reports a transition"},
-	{"docs/deployment.md", "deprecated by D288 and **removed by D325**", "documents retired keys and flags that still load or fail on a leftover config"},
 	{"docs/deployment.md", "Removed in D906, each warned about and ignored", "documents retired variables and flags that a launcher can still pass"},
-	{"docs/deployment.md", `"Cartographer found 25 kinds`, "an example title of the UI, not a count the page keeps"},
-	{"docs/transport-auth.md", "were deprecated by D288 and removed by D325", "documents retired keys a leftover YAML can still carry"},
 	{"docs/transport-auth.md", "were removed by D325 the same way", "documents retired keys a leftover YAML can still carry"},
 }
 
