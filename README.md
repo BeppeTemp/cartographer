@@ -7,7 +7,7 @@
 <p align="center">
   <b>Shared memory for your team's AI agents — one wiki they all read and grow, and none of them can break.</b><br>
   What a colleague's agent works out on Monday, yours already knows on Tuesday — even on another client.<br>
-  Claude Code, Codex, OpenCode and any MCP client: one Go binary, git underneath.
+  Claude Code, Codex, OpenCode and [any MCP client](docs/mcp-clients.md): one Go binary, git underneath.
 </p>
 
 <p align="center">

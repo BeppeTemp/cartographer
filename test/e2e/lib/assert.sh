@@ -154,6 +154,18 @@ assert_mcp_not_discloses() {
     fi
 }
 
+# assert_mcp_contains <desc> <response_body> <needle>
+#   Verifies the response body contains the given substring: the positive twin
+#   of assert_mcp_not_discloses.
+assert_mcp_contains() {
+    local desc="$1" body="$2" needle="$3"
+    if echo "$body" | grep -qF -- "$needle"; then
+        _assert_pass "$desc"
+    else
+        _assert_fail "${desc} — response lacks '${needle}': ${body:0:400}"
+    fi
+}
+
 # assert_concept_exists <kb_dir> <pattern>
 #   Looks for a .md file under <kb_dir> that:
 #     1. Matches the pattern (passed to find -name)

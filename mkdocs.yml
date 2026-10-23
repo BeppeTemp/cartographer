@@ -69,6 +69,7 @@ nav:
   - Using Cartographer:
       - Getting started: getting-started.md
       - Agent install runbook: agent-install.md
+      - Using the server from any MCP client: mcp-clients.md
       - Deployment: deployment.md
       - Client (configurator): configurator.md
       - Control plane (MCP API): control-plane.md
