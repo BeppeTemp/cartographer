@@ -16,6 +16,7 @@ on:
       - go.sum
       - web/src/**
       - .github/workflows/**
+      - .github/codeql/**
   schedule:
     - cron: "17 3 * * 0"
   workflow_dispatch:
@@ -59,6 +60,7 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+          config-file: ./.github/codeql/codeql-config.yml
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           category: /language:${{ matrix.language }}
