@@ -475,8 +475,8 @@ the only search mode the server offers (D135).
 ## Provenance, history and audit
 
 Provenance and citation sections are KB conventions; the server does not
-require them on every concept. Every write tool appends its own `log.md` line
-(§Read/write boundary) and `log_append` adds a narrative entry. Git commits are the
+require them on every concept. Every concept write appends its own `log.md` line (asset
+and artifact writes do not, §Read/write boundary) and `log_append` adds a narrative entry. Git commits are the
 durable change history.
 
 `internal/audit` implements a JSONL hash-chain with Ed25519 signatures. The

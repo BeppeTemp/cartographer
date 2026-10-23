@@ -800,8 +800,9 @@ mounting the same KB get the same behaviour. `settings.yaml` at the KB root, bes
   to 7 with a finding (`kb_status` `settings_findings`, a startup warning), and `0` or a negative
   number is read as the default (the realignment resets a `0` by dropping the key);
 - how changes land: `branch`, the branch Cartographer commits and pushes to, in place of the
-  remote's default one (D335, D903). It has no `kbs[]` form: it is a decision of the team that
-  owns the KB, the same for every server that mounts it. It is read **only from the
+  remote's default one (D335, D903). It is a decision of the team that owns the KB, the same
+  for every server that mounts it, unless one server overrides it for itself with `kbs[].branch`
+  (D1093), and then the KB's `branch` is not read by that server. It is read **only from the
   `settings.yaml` committed on the remote's default branch** (the working copy's file is parsed
   and shown, but changes nothing until it reaches the default branch), the first push creates the
   branch when the remote lacks it, and a name git would not accept is a finding.
