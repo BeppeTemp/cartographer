@@ -184,3 +184,99 @@ func TestKBCapabilitySettingsExistInSchema(t *testing.T) {
 		}
 	}
 }
+
+// A remote written with credentials in its URL is shown without them, to every
+// caller and in every view of it.
+func TestUIAPI_SettingsRedactsRemoteUserinfo(t *testing.T) {
+	t.Parallel()
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "tok-admin", Policy: auth.Policy{Admin: true}},
+		{Token: "only-a", Scopes: []auth.KBScope{{KB: "kb-a", Write: false}}},
+	})
+	cfg := config.Default()
+	cfg.KBs = []config.KBSpec{
+		{Name: "kb-a", Remote: "https://bot:ghp_SECRET@git.example.com/x.git"},
+		{Name: "kb-b", Remote: "https://ghp_SECRET2@git.example.com/y.git"},
+	}
+	handler := settingsHandler(t, cfg, ts, "kb-a", "kb-b")
+	for _, token := range []string{"tok-admin", "only-a"} {
+		rr := getUI(t, handler, UIAPIPrefix+"/settings", token)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s: status %d", token, rr.Code)
+		}
+		if strings.Contains(rr.Body.String(), "ghp_SECRET") {
+			t.Errorf("%s: a remote credential is in the response: %s", token, rr.Body)
+		}
+	}
+	if body := getUI(t, handler, UIAPIPrefix+"/settings", "tok-admin").Body.String(); !strings.Contains(body, "git.example.com/x.git") {
+		t.Errorf("the remote itself is gone: %s", body)
+	}
+}
+
+// Server-wide values are an admin's; a narrowed token sees only what concerns
+// the KBs it sees.
+func TestUIAPI_SettingsNarrowedCallerSeesOnlyItsKBs(t *testing.T) {
+	t.Parallel()
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "tok-admin", Policy: auth.Policy{Admin: true}},
+		{Token: "only-a", Scopes: []auth.KBScope{{KB: "kb-a", Write: false}}},
+	})
+	cfg := config.Default()
+	cfg.Data = "/srv/private-data"
+	cfg.CredentialsDir = "/srv/private-credentials"
+	cfg.Audit.Log = "/srv/private-audit.log"
+	cfg.Auth.Roles = []config.RoleSpec{{Name: "private-role"}}
+	cfg.GitIdentity = "Default Person <default@example.com>"
+	cfg.GitIdentities = map[string]string{
+		"kb-a": "Person A <a@example.com>",
+		"kb-b": "Person B <b@example.com>",
+	}
+	cfg.KBs = []config.KBSpec{{Name: "kb-a"}, {Name: "kb-b"}}
+	handler := settingsHandler(t, cfg, ts, "kb-a", "kb-b")
+
+	narrow := getUI(t, handler, UIAPIPrefix+"/settings", "only-a").Body.String()
+	for _, leak := range []string{"kb-b", "b@example.com", "default@example.com", "private-data", "private-credentials", "private-audit", "private-role"} {
+		if strings.Contains(narrow, leak) {
+			t.Errorf("narrowed caller sees %q: %s", leak, narrow)
+		}
+	}
+	if !strings.Contains(narrow, "a@example.com") {
+		t.Errorf("narrowed caller lost its own KB's identity: %s", narrow)
+	}
+	if body := decodeUI(t, getUI(t, handler, UIAPIPrefix+"/settings", "only-a")); body["server_yaml"] != nil {
+		t.Errorf("narrowed caller got server_yaml: %v", body["server_yaml"])
+	}
+
+	admin := getUI(t, handler, UIAPIPrefix+"/settings", "tok-admin").Body.String()
+	for _, want := range []string{"kb-b", "b@example.com", "private-data", "private-credentials", "private-audit", "private-role"} {
+		if !strings.Contains(admin, want) {
+			t.Errorf("admin lost %q: %s", want, admin)
+		}
+	}
+}
+
+// A KB seen through one archive only is visible, not whole: its git identity
+// (a person's name and email) is not for that caller.
+func TestUIAPI_SettingsIdentitiesFollowWholeVisibility(t *testing.T) {
+	t.Parallel()
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "partial", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Maps: []string{"visible"}}}}},
+		{Token: "whole", Scopes: []auth.KBScope{{KB: "kb-b"}}},
+	})
+	cfg := config.Default()
+	cfg.GitIdentities = map[string]string{
+		"kb-a": "Person A <a@example.com>",
+		"kb-b": "Person B <b@example.com>",
+	}
+	cfg.KBs = []config.KBSpec{{Name: "kb-a"}, {Name: "kb-b"}}
+	handler := settingsHandler(t, cfg, ts, "kb-a", "kb-b")
+
+	partial := getUI(t, handler, UIAPIPrefix+"/settings", "partial").Body.String()
+	if strings.Contains(partial, "a@example.com") || strings.Contains(partial, "b@example.com") {
+		t.Errorf("a caller seeing no KB whole got an identity: %s", partial)
+	}
+	whole := getUI(t, handler, UIAPIPrefix+"/settings", "whole").Body.String()
+	if !strings.Contains(whole, "b@example.com") || strings.Contains(whole, "a@example.com") {
+		t.Errorf("whole-KB caller should see only its own identity: %s", whole)
+	}
+}
