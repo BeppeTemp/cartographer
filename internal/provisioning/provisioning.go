@@ -3030,6 +3030,8 @@ func appendBlock(content, block string) string {
 // hold user files — settings.json, config.toml, opencode.json — pruneEmptyDirs has
 // no business touching). Only the levels *created underneath* them (e.g.
 // ".claude/skills/<name>", then ".claude/skills") are ever removed (D63).
+// TestEveryDestinationRootIsAPruneBoundary derives the list from both destination
+// matrices: a provider or a workspace cell added later fails there until its root is here.
 var provisioningRootDirs = map[string]bool{
 	".claude":                            true,
 	".codex":                             true,
@@ -3037,7 +3039,12 @@ var provisioningRootDirs = map[string]bool{
 	".opencode":                          true,
 	".config":                            true,
 	filepath.Join(".config", "opencode"): true,
+	filepath.Join(".config", "crush"):    true,
 	".gemini":                            true,
+	".copilot":                           true,
+	// Workspace scope only (projectDestinationMatrix).
+	".agents": true,
+	".crush":  true,
 }
 
 // pruneEmptyDirs removes every directory left empty by the removal of the file at
