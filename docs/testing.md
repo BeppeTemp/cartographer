@@ -329,6 +329,17 @@ bare origin: no branch means a recording is needed; after a publish the same tag
 tag whose `web/` tree differs does; publishing twice leaves one commit carrying the `Web-Tree:`
 trailer; a tag that changes only files outside `web/` needs none.
 
+**A client with no Cartographer client side is asserted on the wire.** `24_generic_mcp_client` drives a real server
+with `curl` and `python3` only, as Open WebUI or a gateway would, and checks what that host receives
+([`mcp-clients.md`](mcp-clients.md)): `/health` and `tools/list` follow the token, `initialize` carries the guide
+and `kb_guide` serves it, the first page of a new map is accepted and authored by the token `id`, a KB the token
+cannot read is indistinguishable from an unmounted one, no generic response carries the doctor nudge or a
+`cartographer <subcommand>`. Three points are not obvious: a token `id` exists only in the YAML `auth.tokens`
+form, so the scenario starts the server with `E2E_AUTH=true` and `E2E_CONFIG`; a KB with no lint debt never
+nudges, so a seeded stray page makes "no nudge" non-vacuous and a provisioned control connection must receive
+it; and the nudge window is shared by every stateless connection of a KB, so the generic calls come first and
+the control last.
+
 **The film's branch is asserted the same way, and its render only in CI.** `23_film_publish` runs
 `film/publish.sh` and `film/film-needed.sh` (D1068) against a scratch repository and a bare origin: no branch
 means a render is needed; after a publish the same revision needs none; a change to a file in each class of the

@@ -9,6 +9,7 @@ only the pages relevant to your task.
 |---|---|
 | [getting-started.md](getting-started.md) | Zero-to-wiki tutorial: install, first KB, connect an agent, first session |
 | [agent-install.md](agent-install.md) | Command-by-command runbook for an agent to install Cartographer, mount a first KB, connect, and verify |
+| [mcp-clients.md](mcp-clients.md) | Using the server from a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop): connect, tokens with an `id`, what the model receives, limits |
 | [deployment.md](deployment.md) | Native/k8s topologies, server configuration, health, backup/DR, upgrades and CI/CD |
 | [configurator.md](configurator.md) | Multi-provider client (`cartographer agents/connect/disconnect/reconnect/status/sync/doctor` + TUI): flags, generated files per provider, `.cartographer.yaml`, lockfile v2, installation |
 | [control-plane.md](control-plane.md) | Go server, complete MCP tool API (source of truth for the list), search index and validation |
@@ -52,6 +53,7 @@ Mutable state does not live in narrative documentation:
 | Add a skill or external service | `skills-services-secrets.md` |
 | Deploy / production operations | `deployment.md` |
 | Understand an architectural choice | `decisions.md` for the generated list, or `ls docs/decisions/D<n>-*` if you already have the number |
+| Connect a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop) | `mcp-clients.md` |
 | Configure an LLM provider | `interoperability.md` |
 | Connect/disconnect an agent (`connect`/`disconnect`/`reconnect`/`status`/`sync`/`doctor`/TUI) | `configurator.md` |
 | Keep a client aligned with the KB skills | `sync.md` |
@@ -93,5 +95,6 @@ matching file **in the same session/PR** as the change:
 | What an agent client reads (instruction file, skill/agent/hook/MCP paths) | The provider matrix **first** (`destinationMatrix` in `internal/provisioning/provisioning.go`, `projectDestinationMatrix` in `internal/provisioning/workspacescope.go`, provider descriptors in `internal/configurator/registry.go`), then `docs/harnesses.md` and `docs/interoperability.md`, which restate it |
 | A client re-audit (version bump, new sources, watch items) | `harnesses.md` (via the `cartographer-audit-clients` skill); the matrix and docs above only if a cell changes |
 | User-facing install/onboarding flow | `getting-started.md` (+ README Quick start/Install, kept short: details live in `getting-started.md`) |
+| What a connection with no Cartographer client receives (the `initialize` guide, `kb_guide`, the surface shaped by the token, the limits) | `mcp-clients.md` (`control-plane.md` / `transport-auth.md` own the mechanics; scenario `24_generic_mcp_client` is the executable form) |
 | Agent-driven install/onboarding flow | `agent-install.md` + README |
 | Logo, banner, palette or typography | `brand/` assets + tokens, then `brand/index.md` |

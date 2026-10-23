@@ -40,6 +40,7 @@ overrides the default base port.
 | `21_forge_rules` | D996 a remote that enforces membership (`test/forge/pre-receive.sh`): a write naming its author lands as author and committer, one without is refused and stays local, `git.identity` publishes, a commit with no writer is re-committed by it; the whole suite runs with no git identity |
 | `22_workspace_derived_binding` | D1019 a repository a KB declares in its `paths.yaml` is bound to that KB: `sync` projects into it, a `bind: false` repository receives nothing, `workspace list` shows the source, the bridge serves write tools, tracked `CLAUDE.md` is untouched, an explicit `--no-kb` binding replaces the derived one |
 | `23_film_publish` | D1068 the README film's orphan branch: `film/publish.sh` leaves one commit with the `Film-Tree:` trailer, `film/film-needed.sh` answers by the hash of the film's inputs (`film/inputs.sh`) |
+| `24_generic_mcp_client` | D1102 a host with no Cartographer client side, with curl only: `/health` and the tool surface follow the token, the guide in `initialize` and `kb_guide`, a first page accepted, authorship, non-disclosure, no doctor nudge and no CLI command for a generic connection |
 
 The numbering is stable, so the gaps are intentional: model behavior is
 evaluated during real usage, not in the repository's deterministic CI.
@@ -75,6 +76,7 @@ test/e2e/
     21_forge_rules.sh
     22_workspace_derived_binding.sh
     23_film_publish.sh
+    24_generic_mcp_client.sh
 ```
 
 Each scenario creates its own directory under `E2E_TMP_DIR`, owns the server

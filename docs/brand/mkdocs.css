@@ -12,7 +12,9 @@
   --md-primary-fg-color--light: #2B352D;
   --md-primary-fg-color--dark: #191F1C;
   --md-accent-fg-color: #D6A68D;
-  --md-default-bg-color: #191F1C;
+  /* the header keeps the brand surface; the page sits on a neutral dark grey */
+  --md-default-bg-color: #1E1E1E;
+  --md-code-bg-color: #2A2A2A;
   --md-typeset-a-color: #91B9A0;
 }
 .md-typeset h1, .md-typeset h2, .md-typeset h3, .md-header__topic {
