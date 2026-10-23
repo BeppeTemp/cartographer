@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -891,7 +892,7 @@ var preambleNoneRe = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*preamble:\s
 // generated in every case — it is state, not prose, and no KB can write it for
 // itself — so the residual is one English line rather than none.
 func KBCuratedInstructions(kbRoot string) (body string, skipPreamble bool) {
-	data, err := os.ReadFile(filepath.Join(kbRoot, "instructions.md"))
+	data, cut, err := readInstructionsBounded(filepath.Join(kbRoot, "instructions.md"))
 	if err != nil {
 		return "", false
 	}
@@ -911,7 +912,44 @@ func KBCuratedInstructions(kbRoot string) (body string, skipPreamble bool) {
 		}
 		break
 	}
-	return strings.TrimSpace(content), skipPreamble
+	body = strings.TrimSpace(content)
+	if cut > 0 {
+		body += fmt.Sprintf("\n\n[instructions.md was cut at %d bytes: %d bytes left out. The operator must shorten the file.]", len(data), cut)
+	}
+	return body, skipPreamble
+}
+
+// MaxInstructionsBytes caps the curated instructions.md (D1110): the handshake
+// guide and the managed block read at most this much of it, and artifact_write
+// refuses a larger body. A push can still bring a bigger file into the KB; the
+// readers then truncate it.
+const MaxInstructionsBytes = 64 * 1024
+
+// readInstructionsBounded reads at most MaxInstructionsBytes+1 bytes of the
+// file. Past the cap it returns the text cut at the last line boundary within
+// the cap and the number of bytes left out (0 when nothing was cut).
+func readInstructionsBounded(path string) (data []byte, cut int64, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer f.Close()
+	data, err = io.ReadAll(io.LimitReader(f, MaxInstructionsBytes+1))
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(data) <= MaxInstructionsBytes {
+		return data, 0, nil
+	}
+	total := int64(len(data))
+	if fi, statErr := f.Stat(); statErr == nil && fi.Size() > total {
+		total = fi.Size()
+	}
+	data = data[:MaxInstructionsBytes]
+	if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
+		data = data[:i+1]
+	}
+	return data, total - int64(len(data)), nil
 }
 
 // directiveRe matches a session-global directive declaration line (D183):

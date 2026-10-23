@@ -282,3 +282,16 @@ func TestProvisionedContextCarrier(t *testing.T) {
 		t.Error("the marker must not touch the view cache")
 	}
 }
+
+func TestGuide_OversizeInstructionsAreCut(t *testing.T) {
+	t.Parallel()
+	f := newViewFixture(t, nil, "kb-a")
+	writeInstructions(t, f, "kb-a", "HEAD-RULE\n"+strings.Repeat("filler line of text\n", 20000)+"TAIL-RULE\n")
+	got := f.instructions(t, tokAdmin, RoutedMountPath)
+	if !strings.Contains(got, "HEAD-RULE") || strings.Contains(got, "TAIL-RULE") || !strings.Contains(got, "bytes left out") {
+		t.Errorf("an oversize instructions.md must be cut with a marker")
+	}
+	if len(got) > 70*1024 {
+		t.Errorf("guide is %d bytes, not bounded", len(got))
+	}
+}

@@ -1,6 +1,7 @@
 package provisioning_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -138,5 +139,41 @@ func TestKBCuratedInstructions_PreambleNone(t *testing.T) {
 	body, skip := provisioning.KBCuratedInstructions(root)
 	if body != "Body." || !skip {
 		t.Errorf("body=%q skip=%v", body, skip)
+	}
+}
+
+func writeInstr(t *testing.T, content string) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "instructions.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestKBCuratedInstructions_CutAtLineBoundaryWithMarker(t *testing.T) {
+	line := strings.Repeat("x", 99) + "\n"
+	content := strings.Repeat(line, 1000) // 100000 bytes, over the cap
+	body, _ := provisioning.KBCuratedInstructions(writeInstr(t, content))
+	kept := (provisioning.MaxInstructionsBytes / 100) * 100
+	if !strings.HasPrefix(body, strings.TrimSpace(content[:kept])) {
+		t.Fatalf("body is not the text cut at the last line boundary")
+	}
+	marker := body[len(strings.TrimSpace(content[:kept])):]
+	want := fmt.Sprintf("%d bytes left out", len(content)-kept)
+	if !strings.Contains(marker, "was cut") || !strings.Contains(marker, want) {
+		t.Errorf("marker %q lacks %q", marker, want)
+	}
+}
+
+func TestKBCuratedInstructions_ExactlyAtCapIsNotCut(t *testing.T) {
+	line := strings.Repeat("x", 63) + "\n"
+	content := strings.Repeat(line, provisioning.MaxInstructionsBytes/64)
+	if len(content) != provisioning.MaxInstructionsBytes {
+		t.Fatal("fixture is not at the cap")
+	}
+	body, _ := provisioning.KBCuratedInstructions(writeInstr(t, content))
+	if body != strings.TrimSpace(content) {
+		t.Errorf("a file exactly at the cap must be returned whole (len %d)", len(body))
 	}
 }

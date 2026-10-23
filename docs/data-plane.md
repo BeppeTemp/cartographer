@@ -74,7 +74,7 @@ discipline, English, no KB-specific names), only when it creates the KB and befo
 so a new KB never raises `missing_instructions`; an existing KB is left alone (D325). The file tells agents to set `in-progress` in the write that records the first progress of an `open` item; an existing KB's `instructions.md` is not rewritten, while the managed preamble carries the same rule and reaches every client on its next sync.
 It writes no README: a KB adopted from a forge's initial commit gets a short generated one only in place of that forge's boilerplate README (D1071).
 
-`instructions.md` is folded into the client instructions with its frontmatter discarded (D61). It also reaches a connection that has no managed block: the server sends it, behind its scope sentence, in `initialize` to any caller with access to the KB (D1097; a symlinked file is not read). Three
+`instructions.md` is folded into the client instructions with its frontmatter discarded (D61). It also reaches a connection that has no managed block: the server sends it, behind its scope sentence, in `initialize` to any caller with access to the KB (D1097; a symlinked file is not read). Both paths read at most 64 KiB of it: past that the text is cut at a line boundary and ends with a marker saying how many bytes were left out, and `artifact_write` refuses a larger body (D1110; a push can still bring one in). Three
 optional frontmatter keys are read by `lint` only (D316, D332):
 
 ```yaml
