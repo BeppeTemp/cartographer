@@ -28,8 +28,9 @@ the files and log are rolled back. It does
 not open a nested git commit; a rolled-back call also leaves no commit,
 since `gitWrap` only commits after the handler returns success.
 
-`concept_transfer` (D760) and `artifact_move` (D782) are the two writes that hold **two** KB locks, and the
-only write tools that do not go through `gitWrap`; both run the one transaction in `twokbmove.go`: it takes the git lock of the
+`concept_transfer` (D760) and `artifact_move` (D782) are the two writes that hold **two** KB locks, and with
+`git_conflict_resolve` (one KB: it takes the KB lock itself and finalizes merge, commit and push of the
+conflicts it settles) the only write tools that do not go through `gitWrap`; the first two run the one transaction in `twokbmove.go`: it takes the git lock of the
 source and of the target itself, in one global order (the KBs' root paths, whichever
 side is the source), so `A → B` and `B → A` running together cannot wait on each
 other. Inside both locks it syncs both KBs, writes and commits the target, then
@@ -41,9 +42,8 @@ for skills, hooks, agents, mcp servers and templates.
 
 Inside one server process, git operations are serialised by a per-KB mutex. That mutex is blind to
 any **other** process, and `cartographer import` is exactly that: a separate process writing into the
-same directory the sync loop manages. The two interleaving corrupted the git index — 617 staged
-deletions and 224 untracked entries for the same paths, with `HEAD` and the working tree verified
-byte-identical — so since D155 both take an **advisory lock file**, `.cartographer.lock` in the KB
+same directory the sync loop manages. Two processes interleaving git operations on one index corrupt
+it, so both take an **advisory lock file** (D155), `.cartographer.lock` in the KB
 root (dot-prefixed, so every walker already skips it, and excluded via `.git/info/exclude` so it can
 never dirty the working tree).
 
@@ -71,15 +71,14 @@ name the holder. `processAlive` follows the same asymmetry — on Windows a pid 
 be opened counts as **alive**, because honouring a stale lock only costs a message while reclaiming a
 live one is the corruption this section exists to prevent.
 
-**An in-progress rebase makes sync refuse.** An aborted `pull --rebase --autostash` left a
-`.git/rebase-merge` containing only an autostash, and from then on every MCP write failed with git's
-own *"there is already a rebase-merge directory"* — a message that names no way out — until the
-directory was removed by hand. `SyncIn`/`SyncOut` now detect the state first and return an error that
-names the remedy: `rebase --continue`/`--abort` for a real rebase, or the `stash list` inspection
-followed by removing the directory for an orphan autostash. **Detection plus instruction, never
-automatic deletion**: the directory may hold a real operator rebase, or an autostash holding the only
-copy of uncommitted work, and deleting another writer's state is the class of action that caused the
-incident in the first place.
+**An in-progress rebase makes sync refuse.** When `.git/rebase-merge` or `.git/rebase-apply` exists
+(a real rebase, or an orphan autostash an aborted `pull --rebase --autostash` left behind), `SyncIn`/`SyncOut`
+detect it first and return an error that names the remedy, where git's own *"there is already a
+rebase-merge directory"* names none: `rebase --continue`/`--abort` for a real rebase, or the
+`stash list` inspection followed by removing the directory for an orphan autostash. **Detection plus
+instruction, never automatic deletion**: the directory may hold a real operator rebase, or an
+autostash holding the only copy of uncommitted work, and deleting another writer's state is not the
+server's call.
 
 ## The advisory client lock
 
@@ -88,13 +87,14 @@ The client side has its own advisory lock, for the same reason and with a differ
 read-modify-writes the lockfile or `.cartographer.yaml` (`sync`, `disconnect`,
 `doctor --repair-hashes`, the TUI's sync actions). The concurrent writers are separate
 `cartographer sync` **processes** — the session-start bootstrap hook starts one per agent session —
-and before D172 the loser of that race silently dropped another provider's lockfile entry. It is an
+so the lock keeps one process from overwriting another provider's lockfile entry (D172). It is an
 `flock` on unix and a `LockFileEx` byte-range lock on Windows, released on every exit path, with a
 bounded 30s wait that fails naming the file rather than proceeding. Details and the surrounding order of operations: `sync.md` §The client lock.
 
 ## How changes land
 
-There is one way to write (D903): every successful write tool is wrapped by `gitWrap` and
+There is one way to write (D903): every successful write tool (all but the three that run their own
+transaction, above) is wrapped by `gitWrap` and
 produces one commit per logical operation, on the branch currently checked out in the KB clone,
 whatever the configuration. No setting turns the commit off; the only KB that does not commit is
 a folder that is not a git repository. Multi-file operations are committed together, individual
@@ -147,9 +147,9 @@ for the asset tools, and otherwise the first of `id`, `name`, `source_id`,
 `contradiction_id` present in the call. A tool invoked with none of them commits
 as the bare tool name.
 
-The server git profile that used to sit beside this one (D117: a dedicated working branch and a
-GitHub pull request per write, `pr_status`, `pr_finalize`) was removed by D903. A KB or a server still
-configured with it does not mount, and says to unprotect the branch or set `branch`.
+There is no pull-request flow: a `git_profile: server` (in a KB's `settings.yaml`, a `kbs[]` entry or the server's `git:`
+block) or a `kbs[]` entry that sets `git_branch` keeps the KB from mounting, and the message says to unprotect the
+branch or set `branch`.
 
 ## Remote synchronization
 
@@ -237,11 +237,11 @@ A rebase conflict is aborted immediately. Reserved files (`log.md`, `index.md`,
 (D311):
 
 - `data/log.md` carries `merge=union` in the KB's committed `.gitattributes`
-  (written by `Init`; a KB created earlier gets it in a separate
+  (written by `Init`; a KB that lacks it gets it in a separate
   `chore: set merge=union for data/log.md` commit after its first successful
   sync in a process), so two concurrent `log_append`s merge into both entries.
-- A conflict whose files are **all** reserved is settled in place by the local
-  profile's pull (in `SyncIn` and in `SyncOut`'s retry): one merge commit of the
+- A conflict whose files are **all** reserved is settled in place by the pull
+  (in `SyncIn` and in `SyncOut`'s retry): one merge commit of the
   remote SHA with `log.md` set to the union of both sides and the structural
   files to the remote's version — `index.md` is regenerated by the next write.
   The write goes on as if the pull had succeeded.

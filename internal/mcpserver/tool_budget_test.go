@@ -11,7 +11,7 @@ import (
 
 // Budget for what an agent-profile client pays on every round-trip (D285).
 // A new tool or a longer description that breaks it must be shortened (move
-// the detail to docs/control-plane.md §API MCP), not the budget raised
+// the detail to docs/control-plane.md §MCP API), not the budget raised
 // without a decision.
 const (
 	// 23 KiB since D302: work_list added 700 bytes (22490 → 23190) after
