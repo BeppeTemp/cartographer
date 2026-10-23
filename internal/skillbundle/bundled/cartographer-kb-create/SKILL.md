@@ -71,9 +71,10 @@ git -C <parent-dir>/<name> push -u origin <branch>
 ```
 
 Either way the standard layout is: `data/` (conceptual root, with its `index.md`, `log.md` and a
-`.gitignore` of editor junk, D316), `services/`, `skills/`, `agents/`, `hooks/`, and at the KB root
-`.gitattributes` (`data/log.md merge=union`), `settings.yaml` and a starter `instructions.md`
-(D325), all in the first commit. The KB carries no `AGENTS.md` (D62); the local `.cartographer/`
+`.gitignore` of editor junk, D316), the empty `services/`, `skills/`, `agents/`, `hooks/` (git
+keeps them only once they hold a file), and at the KB root `.gitattributes`
+(`data/log.md merge=union`), `settings.yaml` and a starter `instructions.md` (D325); the first
+commit holds those files. The KB carries no `AGENTS.md` (D62); the local `.cartographer/`
 index is excluded via `.git/info/exclude`.
 Edit the starter `instructions.md` (KB root, sibling of `data/`, `skills/`, `agents/`) with
 free-form orchestration directives (e.g. delegation routing, "large reads → explorer") — its body

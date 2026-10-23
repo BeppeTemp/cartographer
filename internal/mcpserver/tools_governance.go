@@ -1084,7 +1084,7 @@ func toolConflictsList(k *kb.KB) Tool {
 					Kind:       c.Kind,
 					// concept_write does not clear the registry: only git_conflict_resolve does.
 					Guidance: "Read the concept with concept_read, decide the reconciled content, " +
-						"then record it with git_conflict_resolve (strategy ours, theirs, or edit with the full file in body). " +
+						"then record it with git_conflict_resolve (its concept_id, and strategy ours, theirs, or edit with the full file in body). " +
 						"See kb_guide, procedure conflict-resolve, for the full procedure.",
 				}
 				if c.Kind == kb.ConflictKindReserved {

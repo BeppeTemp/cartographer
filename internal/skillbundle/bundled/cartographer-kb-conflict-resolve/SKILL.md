@@ -53,14 +53,15 @@ Call `git_conflict_resolve` once per record, with the record's `concept_id` and 
   `status: degraded`) in `body` — when you merged the two.
 
 A call records the decision and answers how many conflicts are still pending. When the last
-one is resolved, Cartographer merges the recorded remote commit, commits, pushes, clears the
-registry and removes the `degraded` markers in one transaction. A push that fails aborts the
-merge and keeps the registry, so the same calls can be retried.
+one is resolved, Cartographer merges the recorded remote commit, commits, clears the registry
+and removes the `degraded` markers. A git failure on the way (merge, write, commit) aborts the
+merge and keeps the registry, so the same calls can be retried. The push that follows is
+best-effort: if it fails, the resolution stays committed locally and the next write pushes it.
 
 ### 5. Confirm
 
 Call `conflicts_list` again: it answers "No open conflicts." once the transaction went
-through. If a record is still listed (the push failed, or a new conflict arrived), repeat
+through. If a record is still listed (the resolution failed, or a new conflict arrived), repeat
 from step 2.
 
 > **Note**: `status: degraded` is a soft marker set by Cartographer to signal that the
