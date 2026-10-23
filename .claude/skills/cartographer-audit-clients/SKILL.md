@@ -40,7 +40,7 @@ D292.
    its ledger section, the version range and the cells to look for (skills,
    agents, hooks, MCP, instruction paths, transcripts); the readers are read-only,
    so run them in parallel, and compare their digests against the matrix here.
-   Keep the entries that touch a Cartographer surface: the five kinds
+   Keep the entries that touch a Cartographer surface: the kinds
    (skill, agent, hook, instructions, mcp) and their destinations; file formats
    (agent fields, hook schema, MCP config keys); restriction keys (D291); session
    triggers (`docs/sync.md` §Layer 1); project-local scopes (D193); instruction

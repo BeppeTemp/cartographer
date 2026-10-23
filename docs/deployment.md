@@ -313,7 +313,7 @@ The options listed here have an environment variable (the CLI flag takes precede
 | `CARTOGRAPHER_INSTALL_DIR` | — | **Installer** (`install.sh`, `install.ps1`): the directory the binary is installed into (§Client installation). |
 | — | — | Removed in D906, each warned about and ignored: `CARTOGRAPHER_TOOLS_PROFILE` and `--tools-profile` (the core set is fixed), `CARTOGRAPHER_MCP_ALLOWED_ORIGINS` (the same-origin rule is fixed, → `transport-auth.md` §Origin) and `--init` (`serve` never creates a KB). |
 
-**`CARTOGRAPHER_AUTH`** — three modes:
+**`CARTOGRAPHER_AUTH`** — its modes:
 
 | Value | Behavior |
 |---|---|

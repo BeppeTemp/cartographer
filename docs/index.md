@@ -64,7 +64,7 @@ Mutable state does not live in narrative documentation:
 
 Docs describe the **current state**, not the history: no narration of how we
 got here (the *why* lives in `docs/decisions/`, the *how* in the git log) and
-no hardcoded counts (link the source of truth). Update the
+no hardcoded counts (link the source of truth). A gate checks the narrowest mechanical part of this rule (D1128); its allow-list lives in `internal/repodocs/doc_rot_test.go`. Update the
 matching file **in the same session/PR** as the change:
 
 | What changes | File to update |

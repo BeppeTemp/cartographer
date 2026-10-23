@@ -146,9 +146,8 @@ make worktree-clean                 # ... and remove it, each only after its PR 
 
 ## Adding a lint check
 
-A check is declared once, in `internal/lint/registry.go` (D354); every table that used to list
-checks by hand (who may accept it, whether `kb_repair` can fix it, whether the unattended repairs run it,
-the Artifacts panel, what a write response evaluates) is derived from that entry.
+A check is declared once, in `internal/lint/registry.go` (D354); every table (who may accept it, whether `kb_repair` can fix it, whether the unattended repairs run it,
+the Artifacts panel, what a write response evaluates) is derived from that entry, none is kept by hand.
 
 **First decide it is a check** (D947). A lint finding is a problem: it has no severity, and the gate
 passes only at zero. A check stays in the lint only if it has a definite fix, a state of the KB

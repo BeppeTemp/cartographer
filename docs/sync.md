@@ -568,7 +568,7 @@ same completeness rule: every kind × provider cell either names a destination o
 unsupported. Since [D364](decisions/D364-antigravity-and-hermes-project-cells.md) every provider
 has at least one project-local cell, so every provider can be bound to a workspace; one with no cell
 at all would be refused by `workspace bind` rather than degraded to the global catalogue. Antigravity
-projects all five kinds into its workspace `.agents/` layer and `AGENTS.md` (probed on CLI 1.3.2); a
+projects every kind into its workspace `.agents/` layer and `AGENTS.md` (probed on CLI 1.3.2); a
 rule file is not used for instructions because it is read only with `trigger: always_on`.
 
 **Shared paths.** `.agents/skills/` is Codex's project skill directory too, and `AGENTS.md` is shared

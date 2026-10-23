@@ -21,9 +21,9 @@ would flip a matrix cell is confirmed with a probe
 
 **Project skills and instructions below a bound folder (probe 2026-10-21, D1019).** A project
 skill and project instructions in a bound non-git folder `W`, asked back from `W`, from a git
-repository `W/repo` and from a plain subfolder `W/plain`. Four clients of five look for project
-skills only up to the repository root, so a folder binding gives the repositories below it the
-tools (through the bridge, D737) but not the skills or agents: a repository a KB declares in its
+repository `W/repo` and from a plain subfolder `W/plain`. A client that looks for project
+skills only up to the repository root gets, from a folder binding, the repositories below it as
+tools (through the bridge, D737) but not their skills or agents: a repository a KB declares in its
 `paths.yaml` is therefore bound itself and projected into (`sync.md` §Workspace scope).
 
 | Client (version) | skill in `W/repo` | instructions in `W/repo` |
