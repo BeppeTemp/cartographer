@@ -291,7 +291,7 @@ and the generated instructions block, not those. `cartographer kb rename` never 
 
 ### Environment variables
 
-Every startup option has a corresponding environment variable (the CLI flag takes precedence):
+The options listed here have an environment variable (the CLI flag takes precedence over it). The YAML-only options (`auth.roles`, `git.identity`, `git.identities`, the `audit.*` retention and segment keys, `kbs[].*`) have none: the Schema lists every key with its variable and flag (§Configuration: flags, env, YAML, and `config.example.yaml`):
 
 | Variable | Equivalent flag | Description |
 |---|---|---|

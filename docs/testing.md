@@ -192,7 +192,7 @@ disconnect confirmation states.
 
 ### Documentation gates
 
-`internal/repodocs` holds the deterministic checks on the repository's own
+`internal/repodocs` holds most of the deterministic checks on the repository's own
 documentation and agent-facing layout, and they are ordinary Go tests so
 `make test` runs them (D204). They exist because each of these failures is
 otherwise silent — no client, compiler or linter reports any of them:
@@ -228,6 +228,7 @@ otherwise silent — no client, compiler or linter reports any of them:
 - each subagent in `.claude/agents/` pins a Claude model, and the read-only ones
   (reviewers, plan writer, source reader) carry no `Edit` or `Write` tool (D992);
 - the tool table of `docs/control-plane.md` §MCP API agrees with the registry both ways, markers and parameters (D1125), and the tool-name scan reads the bundled skills, `.claude/` and the area `AGENTS.md` files too;
+- the `deployment.md` environment-variable table lists exactly the Schema's variables, plus the reasoned few that are not Schema keys, with the flag the Schema declares; every `CARTOGRAPHER_*` name in a string literal of non-test Go is documented in a current-state page, removed in `config.Retired`, or allow-listed with a reason (`internal/config/envdocs_test.go`, D1126);
 - `CLAUDE.md` is exactly `@AGENTS.md` and nothing else, and the corpus these
   checks read actually contains the files they exist to read — a corpus definition
   fails by matching nothing and passing.
