@@ -134,6 +134,10 @@ type Config struct {
 	// because no client needs the timer any more does not set it. Kept in the
 	// state file with Agents (D906).
 	SyncTimerOptOut bool `yaml:"-"`
+	// ApprovalsMigrated is set once the sync that approves what a pre-D1141
+	// client had installed has run (D1166). It lives in the state file and is
+	// never cleared, so the migration cannot be re-armed and undo a revoke.
+	ApprovalsMigrated bool `yaml:"-"`
 	// UpdateCheckOff is the `update_check: false` opt-out of the daily release
 	// lookup (D254, D906). Held as the negation so a Config built from the zero
 	// value checks, as the default is. Use UpdateCheckEnabled.
@@ -461,6 +465,7 @@ func Load(dir string) (*Config, error) {
 		cfg.ServerMountMode = state.ServerMountMode
 		cfg.ServerRoutedPath = state.ServerRoutedPath
 		cfg.SyncTimerOptOut = state.SyncTimerOptOut
+		cfg.ApprovalsMigrated = state.ApprovalsMigrated
 		if state.Agents != nil {
 			cfg.Agents = *state.Agents
 		}

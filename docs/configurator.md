@@ -1201,8 +1201,21 @@ artifact name (`<kind>/<name>` for everything but an MCP descriptor), content ha
 `.cartographer.yaml`; a content change requires reapproval. `cartographer approve revoke <kind> <name> --kb <kb>`
 is idempotent and takes effect on the next `cartographer sync`: for an MCP descriptor it prunes the managed
 provider config; for a hook or an executable file it stops refreshing what is installed, which is left in
-place, registered and running (the command says how to remove it). A hook installed before approval existed is reported as pending on its first sync and is not
+place, registered and running (the command says how to remove it). A hook or executable file that is waiting is reported as pending on every sync and is not
 refreshed, registered anew or removed until approved.
+
+`cartographer approve --pending [--kb <kb>] [--yes]` lists every artifact `sync` would report as
+`needs_approval` (kind, name, KB, why it needs approval, content hash) and approves them all after one
+confirmation; without a terminal it needs `--yes`, like the single form. It prints the hash, not the files:
+`cartographer approve <kind> <name>` is the form that shows them. Then run `cartographer sync`.
+
+**One-time migration (D1166).** The first `sync` of a client configuration that has never run it approves,
+by itself, a hook, skill or agent that needs approval, has no approval recorded and is already installed
+with the same content hash the KB serves now (the lockfile entry says so), and prints one line per artifact:
+`approved <kind>/<name> [kb:<kb>]: installed before approvals existed, unchanged`. An artifact whose hash differs
+from its lock entry, or that is not in the lockfile, stays `needs_approval`. The migration runs once: its
+marker, `approvals_migrated`, lives in the client state file, is never cleared, and is not set by a dry run or
+by a sync that could not pull every KB, so a later `approve revoke` is never undone.
 
 Written/updated by `connect` in the user's home directory (`~/.cartographer.yaml`, machine-wide —
 `clientconfig.TargetDir`, D52): it records which server the machine is connected to (the connected providers are in the client state file, below). One file per machine, not per project: this avoids drift with a provider
@@ -1271,7 +1284,7 @@ leaves the keys where they are. Until a file is realigned (a read-only mount), `
 `connect`/`sync`), `server_mount_mode` and `server_routed_path` are rewritten wholesale by every
 sync, which is why they left the file you edit; since D906 it also holds `agents` (the connected clients,
 maintained by `connect` and `disconnect`) and `sync_timer_opt_out` (a record of `service sync-timer
-uninstall`), for the same reason: they are written by commands, never by a person. Because of them it is
+uninstall`) and `approvals_migrated` (D1166, the marker of the one-time approval migration), for the same reason: they are written by commands, never by a person. Because of them it is
 **not disposable**: a deleted state file means no connected client until the next `connect`. A sync that only refreshes them writes the state file
 and leaves `.cartographer.yaml` byte-identical, mtime included. The state file is JSON, never
 hand-edited. An installation from before keeps these keys in `.cartographer.yaml`; `Load` reads them

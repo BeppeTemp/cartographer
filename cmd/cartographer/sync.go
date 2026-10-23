@@ -314,6 +314,11 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		if !opts.DryRun {
 			mounted := cfg.KnownKBs
 			cfg.KnownKBs = withRetainedKBs(mounted, retainedKBs)
+			// D1166: before the apply, so what a pre-D1141 client installed is
+			// approved by this very run instead of frozen by it.
+			if lockFile, lerr := provisioning.ReadLockFile(lockFilePath(dir)); lerr == nil {
+				migratePreApprovalInstalls(os.Stdout, cfg, lockFile, manifests, projections, len(pullFailures) == 0)
+			}
 			err := clientconfig.Save(dir, cfg)
 			cfg.KnownKBs = mounted
 			if err != nil {

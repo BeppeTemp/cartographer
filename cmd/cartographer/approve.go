@@ -21,9 +21,12 @@ var (
 	approveInteractive = isInteractive
 )
 
-const approveUsage = "Usage: cartographer approve [revoke] <kind> <name> [--kb <kb>] [--yes]   (kind: mcp, hook, skill, agent)"
+const approveUsage = "Usage: cartographer approve [revoke] <kind> <name> [--kb <kb>] [--yes]   (kind: mcp, hook, skill, agent)\n       cartographer approve --pending [--kb <kb>] [--yes]"
 
 func cmdApprove(args []string) int {
+	if len(args) > 0 && args[0] == "--pending" {
+		return cmdApprovePending(args[1:])
+	}
 	revoke := false
 	if len(args) > 0 && args[0] == "revoke" {
 		revoke, args = true, args[1:]
@@ -238,4 +241,87 @@ func printApprovalContent(w io.Writer, a provisioning.Artifact, files []provisio
 			fmt.Fprintln(w, l)
 		}
 	}
+}
+
+// cmdApprovePending lists every artifact sync would report as needs_approval and
+// approves them all after one confirmation (D1166). It shows the hash of each,
+// not its content: `cartographer approve <kind> <name>` is the form that prints
+// the files first.
+func cmdApprovePending(args []string) int {
+	var kbName string
+	yes := false
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--yes":
+			yes = true
+		case args[i] == "--kb" && i+1 < len(args) && args[i+1] != "":
+			i++
+			kbName = args[i]
+		case strings.HasPrefix(args[i], "--kb=") && len(args[i]) > len("--kb="):
+			kbName = strings.TrimPrefix(args[i], "--kb=")
+		default:
+			fmt.Fprintln(os.Stderr, approveUsage)
+			return 2
+		}
+	}
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	m, err := approveManifest(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	opts := provisioning.ApplyOptions{ApprovedMCP: cfg.ApprovedMCPHashes()}
+	var pending []provisioning.Artifact
+	for _, a := range m.Artifacts {
+		if kbName != "" && a.Source != "kb:"+kbName {
+			continue
+		}
+		if provisioning.PendingApproval(a, opts) {
+			pending = append(pending, a)
+		}
+	}
+	if len(pending) == 0 {
+		fmt.Println("nothing is waiting for approval")
+		return 0
+	}
+	fmt.Printf("%d artifact(s) waiting for approval:\n", len(pending))
+	for _, a := range pending {
+		files, _ := provisioning.ReadArtifactFiles(a, nil, nil)
+		fmt.Printf("  %s/%s [%s]  %s  hash %s\n", a.Kind, a.Name, a.Source, provisioning.ApprovalReason(a, files), shortHash(a.ContentHash))
+	}
+	if !yes {
+		if !approveInteractive() {
+			fmt.Fprintln(os.Stderr, "Error: non-interactive approval requires --yes")
+			return 2
+		}
+		fmt.Print("Approve all of them, exactly as listed? [y/N] ")
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		answer := strings.ToLower(strings.TrimSpace(line))
+		if answer != "y" && answer != "yes" {
+			fmt.Println("not approved")
+			return 0
+		}
+	}
+	now := time.Now()
+	for _, a := range pending {
+		if err := cfg.ApproveMCP(strings.TrimPrefix(a.Source, "kb:"), provisioning.ApprovalName(a), a.ContentHash, now); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	fmt.Printf("approved %d artifact(s); run cartographer sync to materialize them\n", len(pending))
+	return 0
 }

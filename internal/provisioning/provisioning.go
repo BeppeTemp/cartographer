@@ -1685,8 +1685,9 @@ func KindCounts(m Manifest, lock Lock) map[string]KindCount {
 //   - an MCP descriptor → only with a local approval bound to its content hash
 //     (ApprovedMCP), signed or not; otherwise NeedsApproval.
 //   - a KB hook, or any KB artifact shipping an executable file (D1141) → the
-//     same approval, except that a signature verified against a pinned key
-//     counts; otherwise NeedsApproval and what is installed stays untouched.
+//     same approval, and a signature does not count, pinned key or not (it
+//     proves the origin, never consent); otherwise NeedsApproval and what is
+//     installed stays untouched.
 //
 // Providers supported for direct materialization:
 //   - claude: skill in .claude/skills/<name>/, agent in .claude/agents/<name>.md,
