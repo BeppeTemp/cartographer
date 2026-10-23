@@ -196,10 +196,11 @@ func checkMakeTargets(t *testing.T, root string) {
 				continue
 			}
 			// Outside markdown only comments are read: a backtick in code is a
-			// raw string or a command substitution, not a quotation.
+			// raw string or a command substitution, not a quotation. A "* " line
+			// is the body of a /* */ block.
 			if !isMD {
 				trim := strings.TrimSpace(line)
-				if !strings.HasPrefix(trim, "//") && !strings.HasPrefix(trim, "#") {
+				if !strings.HasPrefix(trim, "//") && !strings.HasPrefix(trim, "#") && !strings.HasPrefix(trim, "* ") {
 					continue
 				}
 			}
