@@ -1430,14 +1430,16 @@ workspace scope) may be a link, and a path that does not exist yet is created.
 
 A refusal needs something to write or remove: a config with no entry or block of ours in it is a
 no-op under a link too, never an error, so a dotfile-managed `~/.codex/config.toml` that needs no
-change stays quiet. `--dry-run` refuses when the real run would have changed something, a prune
-included (it previews a link over any managed file or shared config it would touch).
+change stays quiet. `--dry-run` refuses too, and previews a prune's refusal for the managed file
+itself and for a shared config file that exists; it can flag a linked MCP config the real run would
+leave untouched, and it does not check the file that holds a hook's registration.
 
 The refusal is **per provider** (and, in a sync, per artifact):
 - `connect` and `sync` report it as a warning (`mcp config left unchanged: …`, or
   `<kind>/<name> not installed: …` / `not removed: …` for a provisioned artifact: a skill, an MCP
   entry, the instructions block, a hook and its registration) and still write every other provider and
-  artifact. An artifact whose write was refused is not recorded as installed, and one whose removal was
+  artifact. The exception is the bootstrap and write-findings hooks: a link over their destination
+  still stops `connect` and `sync` for every provider. An artifact whose write was refused is not recorded as installed, and one whose removal was
   refused stays in the lockfile, so the next sync retries both. A hook's script is only removed once its
   registration is. When a stale per-KB entry could not be removed, that KB (only) stays in
   `known_kbs` until the entry is gone. A workspace's `.git/info/exclude` behind a link is a warning, not
