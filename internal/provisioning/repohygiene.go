@@ -2,9 +2,7 @@ package provisioning
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,7 +24,8 @@ import (
 //     **refuses** with an attributed error. Overwriting a tracked file destroys
 //     work that is under version control, and there is no safe silent answer.
 
-// excludeMarkerBegin/End delimit Cartographer's block in .git/info/exclude, so
+// excludeMarkerBegin/End delimit Cartographer's block in .git/info/exclude (a
+// linked worktree's block has its own, keyed markers: blockMarkers), so
 // the block can be rewritten and removed without touching anything else in a
 // file the user also writes by hand.
 const (
@@ -133,20 +132,21 @@ func CheckWorkspaceHygiene(provider, workspaceDir string, ownedPaths, blockPaths
 // a user-owned file (CLAUDE.md, AGENTS.md) must NOT be excluded — that file is
 // the user's, and telling git to ignore it would hide their own edits.
 func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
-	baseDir, path, isRepo, err := excludeFile(workspaceDir)
+	target, isRepo, err := excludeFile(workspaceDir)
 	if err != nil {
 		return err
 	}
 	if !isRepo {
 		return nil
 	}
+	baseDir, path, key := target.baseDir, target.path, target.key
 	infoDir := filepath.Dir(path)
 
 	existing, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("provisioning: read %s: %w", path, err)
 	}
-	kept := stripExcludeBlock(string(existing))
+	kept := stripExcludeBlock(string(existing), key)
 
 	var lines []string
 	if len(ownedPaths) > 0 {
@@ -157,7 +157,7 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 		sort.Strings(lines)
 		lines = dedupe(lines)
 	}
-	out := renderExclude(kept, lines)
+	out := renderExclude(kept, lines, key)
 	if err == nil && out == string(existing) {
 		// Nothing to change: no write, so a linked .git/info never refuses it.
 		return nil
@@ -176,122 +176,48 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 	return writeFileNoFollow(path, []byte(out), 0o644)
 }
 
-// ErrGitDirUnresolvable is the refusal for a `.git` file that does not lead to a
-// git directory (no `gitdir:` line, a target that is missing or not a
-// directory). The exclude block is a convenience, so the callers warn and go on.
-var ErrGitDirUnresolvable = errors.New("provisioning: the .git file does not lead to a git directory")
-
-// ExcludeWarning reports whether err from EnsureWorkspaceExcluded or
-// RemoveWorkspaceExclusions is one the sync survives with a warning: the exclude
-// file sits behind a link (D148) or cannot be resolved.
-func ExcludeWarning(err error) bool {
-	return errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrGitDirUnresolvable)
-}
-
-// excludeFile resolves the exclude file of the repository at workspaceDir the way
-// git does, without running it. baseDir anchors the no-follow walk of the write:
-// the workspace for a `.git` directory (so a linked `.git` is refused), the
-// resolved git directory for a `.git` file.
-//
-// A `.git` file (a linked worktree or a submodule) holds `gitdir: <path>`,
-// relative to the workspace. That directory is the exclude's home, unless it has
-// a `commondir` file (a linked worktree): then it is the directory that file
-// names, relative to the git directory, because `info/exclude` is shared by all
-// the worktrees of a repository.
-func excludeFile(workspaceDir string) (baseDir, path string, isRepo bool, err error) {
-	dotGit := filepath.Join(workspaceDir, ".git")
-	info, lerr := os.Lstat(dotGit)
-	if lerr != nil {
-		return "", "", false, nil
-	}
-	if !info.Mode().IsRegular() {
-		// A directory, or a link or something else the writers below refuse
-		// when they would write: that stays their decision.
-		if _, serr := os.Stat(dotGit); serr != nil {
-			return "", "", false, nil
-		}
-		return workspaceDir, filepath.Join(dotGit, "info", "exclude"), true, nil
-	}
-	gitDir, err := readGitDirFile(dotGit, workspaceDir)
-	if err != nil {
-		return "", "", false, err
-	}
-	if rel, rerr := readSmallFile(filepath.Join(gitDir, "commondir")); rerr == nil {
-		if common := strings.TrimSpace(rel); common != "" {
-			gitDir = resolveFrom(gitDir, common)
-		}
-	}
-	if st, serr := os.Stat(gitDir); serr != nil || !st.IsDir() {
-		return "", "", false, fmt.Errorf("%w: %s", ErrGitDirUnresolvable, gitDir)
-	}
-	return gitDir, filepath.Join(gitDir, "info", "exclude"), true, nil
-}
-
-// readGitDirFile returns the directory a `.git` file points at.
-func readGitDirFile(dotGit, workspaceDir string) (string, error) {
-	content, err := readSmallFile(dotGit)
-	if err != nil {
-		return "", fmt.Errorf("%w: %s: %v", ErrGitDirUnresolvable, dotGit, err)
-	}
-	first, _, _ := strings.Cut(content, "\n")
-	target, ok := strings.CutPrefix(strings.TrimSpace(first), "gitdir:")
-	if target = strings.TrimSpace(target); !ok || target == "" {
-		return "", fmt.Errorf("%w: %s has no gitdir line", ErrGitDirUnresolvable, dotGit)
-	}
-	return resolveFrom(workspaceDir, target), nil
-}
-
-// resolveFrom joins a path git wrote (slashes, absolute or relative to base).
-func resolveFrom(base, p string) string {
-	p = filepath.FromSlash(p)
-	if filepath.IsAbs(p) {
-		return filepath.Clean(p)
-	}
-	return filepath.Join(base, p)
-}
-
-// maxGitPointerSize bounds the pointer files read (`.git`, `commondir`): a real
-// one is a line, so a larger file is not one.
-const maxGitPointerSize = 64 * 1024
-
-func readSmallFile(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, maxGitPointerSize))
-	return string(b), err
-}
-
 // RemoveWorkspaceExclusions drops Cartographer's block entirely, for an unbind
 // or a disconnect. The rest of the file is preserved verbatim.
 func RemoveWorkspaceExclusions(workspaceDir string) error {
 	return EnsureWorkspaceExcluded(workspaceDir, nil)
 }
 
-func renderExclude(kept string, lines []string) string {
+// blockMarkers returns the lines delimiting the block of key. The main checkout
+// and a submodule, whose git directory is their own, have no key and keep the
+// plain markers; a linked worktree shares info/exclude with the main checkout and
+// every other worktree, so its block carries the worktree's name and nobody
+// else's block is ever read, rewritten or removed by it.
+func blockMarkers(key string) (begin, end string) {
+	if key == "" {
+		return excludeMarkerBegin, excludeMarkerEnd
+	}
+	return "# >>> cartographer (managed: " + key + ") >>>", "# <<< cartographer (managed: " + key + ") <<<"
+}
+
+func renderExclude(kept string, lines []string, key string) string {
+	begin, end := blockMarkers(key)
 	var b strings.Builder
 	b.WriteString(kept)
 	if len(lines) > 0 {
 		if kept != "" && !strings.HasSuffix(kept, "\n") {
 			b.WriteString("\n")
 		}
-		b.WriteString(excludeMarkerBegin + "\n")
+		b.WriteString(begin + "\n")
 		b.WriteString("# Written by `cartographer sync`. Paths this workspace's projection owns.\n")
 		b.WriteString("# Remove the block, not the file: `cartographer workspace unbind` does it for you.\n")
 		for _, l := range lines {
 			b.WriteString(l + "\n")
 		}
-		b.WriteString(excludeMarkerEnd + "\n")
+		b.WriteString(end + "\n")
 	}
 	return b.String()
 }
 
-// stripExcludeBlock returns content with Cartographer's block removed, and
-// everything else byte-identical.
-func stripExcludeBlock(content string) string {
-	if !strings.Contains(content, excludeMarkerBegin) {
+// stripExcludeBlock returns content with Cartographer's block of key removed, and
+// everything else byte-identical, the blocks of other keys included.
+func stripExcludeBlock(content, key string) string {
+	begin, end := blockMarkers(key)
+	if !strings.Contains(content, begin) {
 		return content
 	}
 	var out []string
@@ -301,9 +227,9 @@ func stripExcludeBlock(content string) string {
 	for sc.Scan() {
 		line := sc.Text()
 		switch {
-		case strings.TrimSpace(line) == excludeMarkerBegin:
+		case strings.TrimSpace(line) == begin:
 			inBlock = true
-		case strings.TrimSpace(line) == excludeMarkerEnd:
+		case strings.TrimSpace(line) == end:
 			inBlock = false
 		case !inBlock:
 			out = append(out, line)
