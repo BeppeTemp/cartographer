@@ -107,11 +107,11 @@ var reviewFixtures = map[string]func(t *testing.T) (*kb.KB, string){
 		writeFile(t, k.DataRoot(), "ref/page.md", "---\ntype: Topic\ntitle: Page\n---\n# Page\n\n## Follow-up\n\n- [ ] migrate the host\n")
 		return k, "ref/page"
 	},
+	// Dated from the real clock, not withNow: parallel tests run these fixtures.
 	ReviewHarvestCandidate: func(t *testing.T) (*kb.KB, string) {
-		withNow(t, "2026-10-01")
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
-		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: done\ntimestamp: 2026-07-01\n---\n# E\n")
+		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: done\ntimestamp: "+agoDays(92).Format("2006-01-02")+"\n---\n# E\n")
 		return k, "j/e"
 	},
 	ReviewStatusReclassify: func(t *testing.T) (*kb.KB, string) {
@@ -310,6 +310,18 @@ func TestReviewDuplicateActionSatellite(t *testing.T) {
 // D1101: a suggested action reaches every connection, so it names no
 // `cartographer <command>` and none of the operator/assisted-session wordings
 // of a provisioned client; the items come from the review fixtures.
+// A fixture that pins the clock (withNow) changes the package-level Now under
+// every parallel test that reads it; the fixtures must leave it alone.
+func TestReviewFixturesDoNotPinTheClock(t *testing.T) {
+	before := reflect.ValueOf(Now).Pointer()
+	for _, kind := range ReviewKinds {
+		reviewFixtures[kind](t)
+		if reflect.ValueOf(Now).Pointer() != before {
+			t.Fatalf("the %s fixture replaces lint.Now: date it from the real clock (agoDays) instead", kind)
+		}
+	}
+}
+
 func TestReviewSuggestedActionsAreNeutral(t *testing.T) {
 	t.Parallel()
 	old := []string{"assisted session only", "the operator decides", "with the operator:", "after the operator's choice", "harvest and archive)"}

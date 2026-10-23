@@ -7,6 +7,9 @@ import (
 	"time"
 )
 
+// withNow pins the package-level Now for the rest of the test. Never call it from
+// a parallel test or from a fixture one runs: every parallel test that lints
+// reads Now, and would see the pinned day mid-run.
 func withNow(t *testing.T, day string) {
 	t.Helper()
 	prev := Now
