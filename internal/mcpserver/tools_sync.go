@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -124,7 +125,7 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 // --- sync_apply ---
 
 // toolSyncApply materializes the provisioning artifacts into the client's base_dir.
-// Intended for local deployment (stdio): server and client share the filesystem.
+// Local operator only (stdio, or HTTP with authentication off): server and client share the filesystem.
 // For remote deployment use `cartographer sync`/`cartographer connect` (via sync_pull) from the client machine.
 func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.PrivateKey) Tool {
 	return Tool{
@@ -132,7 +133,8 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 		Description: "Materializes the provisioning skills into the given base_dir, updates the lockfile and prunes " +
 			"stale artifacts. Intended for local deployment (stdio) where server and client share the FS. " +
 			"Built-in and KB artifacts are written; MCP descriptors need a local approval and go into needs_approval without one. " +
-			"Supports dry_run=true to show the diff without writing.",
+			"Supports dry_run=true to show the diff without writing. " +
+			"Local operator only (stdio, or HTTP with authentication off): any token is refused; remote clients use sync_pull.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["base_dir"],
@@ -148,6 +150,11 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+			// The authorizer refuses a non-local caller first; this repeats
+			// the decision so no wrapper can reach the filesystem without it.
+			if err := authorizeLocalOnly(auth.PrincipalFromContext(ctx), "sync_apply"); err != nil {
+				return errorResult(err.Error()), nil
+			}
 			flushPendingPush(k, "sync_apply")
 			var params struct {
 				BaseDir string `json:"base_dir"`

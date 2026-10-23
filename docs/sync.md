@@ -88,7 +88,7 @@ what diverged — see §On-disk verification and healing.
 | Tool | What it does |
 |---|---|
 | `sync_check` | Returns `manifest.revision`, status (`in-sync`/`drift`), and the diff against the supplied lockfile. Read-only. |
-| `sync_apply` | Materializes into `base_dir` **shared with the server's filesystem** (local/stdio deployment), updates the lockfile, prunes. Honors the signature gate. Supports `dry_run`. |
+| `sync_apply` | Materializes into `base_dir` **shared with the server's filesystem** (local/stdio deployment), updates the lockfile, prunes. Honors the signature gate. Supports `dry_run`. Refused, `dry_run` included, to every caller but the local operator (stdio, or HTTP with authentication off): a token never reaches the server's filesystem. |
 | `sync_pull` | Returns the manifest with file contents in base64: used by the remote HTTP client, which does not share the filesystem with the server. Also lists the path placeholders the KB cites (`placeholders`, outside `revision` and unsigned — §Path portability placeholders). Read-only. |
 
 ### Layer 3 — Push via MCP notifications (stdio only)

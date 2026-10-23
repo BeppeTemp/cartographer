@@ -43,12 +43,16 @@ type Policy struct {
 type Principal struct {
 	ID     string
 	Policy Policy
+	// Local marks the principal the server itself creates for a trusted local
+	// caller (stdio, or HTTP with authentication off). A token store never sets
+	// it, so no configured token, whatever its name or policy, can claim it.
+	Local bool
 }
 
 // LocalAdminPrincipal is used for auth-disabled HTTP and trusted stdio. It is
 // explicit so handlers never infer authority from a missing context value.
 func LocalAdminPrincipal() Principal {
-	return Principal{ID: "local-admin", Policy: Policy{Admin: true}}
+	return Principal{ID: "local-admin", Policy: Policy{Admin: true}, Local: true}
 }
 
 // Allows reports whether a policy allows an operation on a resource. mapName
