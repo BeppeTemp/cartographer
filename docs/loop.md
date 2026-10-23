@@ -37,8 +37,9 @@ of truth.
    trailer and `changes_since` shows it (D272).
 4. Pass `if_match` when updating existing content. A concurrent change fails
    with `stale_write` instead of being overwritten.
-5. The server validates the write, updates live indexes and—when enabled—
-   creates one local git commit for the logical operation.
+5. The server validates the write and, in a git KB, makes one local commit for
+   the logical operation. The keyword indexes follow the files: the next search
+   reconciles them (D245).
 
 Remote synchronization is handled around writes when configured. See
 [concurrency](concurrency.md) for freshness, asynchronous push and conflicts.
@@ -46,14 +47,16 @@ Remote synchronization is handled around writes when configured. See
 ## Validate and lint
 
 `validate`, `lint`, and `gate_check` are agent governance, not operator
-maintenance: they are part of the default `agent` tool profile precisely so a
+maintenance: they are part of the core tool set precisely so a
 descriptor-bound MCP host advertises them and this loop stays runnable
 end-to-end (D123, → `control-plane.md` §MCP API).
 
 - `validate` checks KB and frontmatter invariants.
-- `lint(scope, scope_neighbors)` runs deterministic checks over a scope and,
-  optionally, its graph neighbors, including any declarative map contract for
-  required frontmatter and curated-index membership.
+- `lint([scope], [scope_neighbors], [check], [limit], [offset], [digest])` runs
+  deterministic checks over a scope and, optionally, its graph neighbors,
+  including any declarative map contract for required frontmatter and
+  curated-index membership. `check`, `limit` and `offset` page the findings;
+  `digest` folds them on a large KB.
 - `gate_check(changed_ids, [scope])` combines the repository's
   deterministic validation checks; any lint finding (including missing required
   fields) makes it fail, because a finding is a problem and has no severity
@@ -73,8 +76,10 @@ tool can find: a `Contradiction` concept with `contradiction_kind:
 open_question` (a question raised, not answered) or `missing_context` (the KB
 lacks information it should have) and `resolution_status: open`. A gap never
 blocks a write, because writing is how it gets answered; `kb_status` lists open
-gaps (`open_gaps`) and `contradiction_report` with `kind: gap` lists them all.
-Once answered, close it with `conflict_resolve` (D273).
+gaps (`open_gaps`) and `work_list` lists them as work (reason `gap`). Once
+answered, close it with `concept_patch`, setting `resolution_status: resolved`
+and a `resolution` (D273). The advanced `contradiction_report` (`kind: gap`) and
+`conflict_resolve`, callable by name, list and close them too.
 
 ## Register what you ingest
 
@@ -92,19 +97,19 @@ distil, patch the owning pages, cite, record gaps, verify, close — for any new
 ## The maintenance loop
 
 The server finds the problems; an agent works on them only when the operator asks (D704). Discovery
-is deterministic (`lint`, `kb_review`) and never runs a model on the server (D14). Four layers,
+is deterministic (`lint`, `kb_review`) and never runs a model on the server (D14). The layers,
 cheapest first:
 
 1. **Write-time repair** (D349, D355): a write applies the safe mechanical
    fixes to the concepts it just wrote, to a fixpoint, and the write gate
    (D350) refuses what introduces a finding the write could have avoided;
-   both are fixed behaviour, with no setting to turn them off (D907).
+   both are fixed behaviour.
 2. **Background repair** (D323): the server applies every safe fix over the KB, in one commit, with
    no agent: at every start (an upgrade or a config change can make untouched pages fixable), after
-   a pull that moved HEAD, and once a day. No setting changes the list or the period (D907).
+   a pull that moved HEAD, and once a day. The list and the period are fixed.
 3. **Doctor session**: what needs judgement. The server proposes one: the first tool result of an
    MCP session that starts while debt exists and the last `kb-doctor` log entry is older than
-   14 days (a constant since D907) carries a notice (only on a connection that declared `provisioned=1`, D1101) asking the agent to propose a `cartographer-kb-doctor` session
+   `kb.DoctorSuggestionDays` days carries a notice (only on a connection that declared `provisioned=1`, D1101) asking the agent to propose a `cartographer-kb-doctor` session
    to the operator. The agent never starts it without their agreement. In the session the
    operator decides each item (assisted) or hands it over ("do it yourself", delegated), up to
    10 review items (or the number the operator names when asking for the session) plus every mechanical repair; the session closes with a
