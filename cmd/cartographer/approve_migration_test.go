@@ -154,7 +154,7 @@ func TestCmdApprovePending_NonInteractiveNeedsYes(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit %d, want 2", code)
 	}
-	if !strings.Contains(out, "hook/guard") || strings.Contains(out, "skill/plain") {
+	if !strings.Contains(out, "Approve hook guard") || strings.Contains(out, "plain") {
 		t.Errorf("listing wrong:\n%s", out)
 	}
 	cfg, _ := clientconfig.Load(home)
@@ -185,5 +185,68 @@ func TestCmdApprovePending_YesApprovesAllAndKBFilters(t *testing.T) {
 	out := withStdout(t, func() { cmdApprove([]string{"--pending", "--yes"}) })
 	if !strings.Contains(out, "nothing is waiting") {
 		t.Errorf("second run: %q", out)
+	}
+}
+
+func TestCmdApprovePending_ShowsWhatWillRun(t *testing.T) {
+	pendingFixture(t, false)
+	var code int
+	out := withStdout(t, func() { code = cmdApprove([]string{"--pending", "--yes"}) })
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, want := range []string{"Approve hook guard from KB kb-a", `"command":"./run.sh"`, "SCRIPT-BODY", "run.sh", "(executable)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--pending must show %q before approving:\n%s", want, out)
+		}
+	}
+}
+
+func TestCmdApprovePending_LeavesMCPDescriptorsToTheSingleForm(t *testing.T) {
+	home := pendingFixture(t, false)
+	approveManifest = func(*clientconfig.Config) (provisioning.Manifest, error) {
+		return provisioning.Manifest{Artifacts: []provisioning.Artifact{
+			{Kind: "mcp", Name: "tools", Source: "kb:kb-a", ContentHash: "mcp-hash-0123456789", Files: []provisioning.ArtifactFile{
+				{Path: "tools.json", Content: []byte(`{"type":"http","url":"https://mcp.example.com/mcp"}`)},
+			}},
+		}}, nil
+	}
+	var code int
+	out := withStdout(t, func() { code = cmdApprove([]string{"--pending", "--yes"}) })
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(out, "cartographer approve mcp tools --kb kb-a") {
+		t.Errorf("the MCP descriptor must be named with its own command:\n%s", out)
+	}
+	cfg, _ := clientconfig.Load(home)
+	if len(cfg.MCPApprovals) != 0 {
+		t.Errorf("--pending --yes approved an MCP descriptor: %+v", cfg.MCPApprovals)
+	}
+}
+
+func TestCmdApprovePending_EscapesWhatTheServerChose(t *testing.T) {
+	pendingFixture(t, false)
+	approveManifest = func(*clientconfig.Config) (provisioning.Manifest, error) {
+		return provisioning.Manifest{Artifacts: []provisioning.Artifact{
+			{Kind: "hook", Name: "evil\nApproved: all\x1b[2J", Source: "kb:kb-a", ContentHash: "h-0123456789ab", Files: []provisioning.ArtifactFile{
+				{Path: "hook.json", Content: []byte("{}")},
+				{Path: "run\n.sh", Content: []byte("echo hi\x1b[31m\n"), Executable: true},
+			}},
+		}}, nil
+	}
+	out := withStdout(t, func() { cmdApprove([]string{"--pending", "--yes"}) })
+	for _, raw := range []string{"\x1b", "evil\nApproved", "run\n.sh"} {
+		if strings.Contains(out, raw) {
+			t.Errorf("output carries raw %q:\n%q", raw, out)
+		}
+	}
+	if !strings.Contains(out, `evil\nApproved: all\x1b[2J`) {
+		t.Errorf("name not shown escaped:\n%s", out)
+	}
+	// The single form's header and file list go through the same path.
+	out = withStdout(t, func() { cmdApprove([]string{"hook", "evil\nApproved: all\x1b[2J", "--yes"}) })
+	if strings.Contains(out, "\x1b") || strings.Contains(out, "evil\nApproved") {
+		t.Errorf("single form prints raw server text:\n%q", out)
 	}
 }

@@ -1204,10 +1204,14 @@ provider config; for a hook or an executable file it stops refreshing what is in
 place, registered and running (the command says how to remove it). A hook or executable file that is waiting is reported as pending on every sync and is not
 refreshed, registered anew or removed until approved.
 
-`cartographer approve --pending [--kb <kb>] [--yes]` lists every artifact `sync` would report as
-`needs_approval` (kind, name, KB, why it needs approval, content hash) and approves them all after one
-confirmation; without a terminal it needs `--yes`, like the single form. It prints the hash, not the files:
-`cartographer approve <kind> <name>` is the form that shows them. Then run `cartographer sync`.
+`cartographer approve --pending [--kb <kb>] [--yes]` approves every hook, skill or agent `sync` would report as
+`needs_approval` after one confirmation, and before it prints each of them exactly as the single form does
+(the files with their size and execute bit, the `hook.json`, the content of every executable file and of a
+frontmatter that declares hooks or MCP servers), so the confirmation covers what will run. An MCP descriptor is
+never approved this way: it is named with its own `cartographer approve mcp <name> --kb <kb>` command. Without a
+terminal it needs `--yes`, like the single form. Names, paths and targets chosen by the server are printed with
+their control characters escaped (`\n`, `\x1b`), so a name cannot forge a line or rewrite the screen. Then run
+`cartographer sync`.
 
 **One-time migration (D1166).** The first `sync` of a client configuration that has never run it approves,
 by itself, a hook, skill or agent that needs approval, has no approval recorded and is already installed
