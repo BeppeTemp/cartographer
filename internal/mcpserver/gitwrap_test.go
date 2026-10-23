@@ -1371,11 +1371,15 @@ func TestGitWrap_EveryWrappedToolExposesReason(t *testing.T) {
 }
 
 // D713: after a push, kb_status reports behind 0 and a non-null last_push_at.
+// #1170: all timestamps in kb_status use UTC convention (...Z).
 func TestKBStatus_BehindAndLastPushAfterPush(t *testing.T) {
 	t.Parallel()
 	k, _ := setupGitKBWithRemote(t)
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("SyncOut: %v", err)
+	}
+	if _, err := k.SyncIn(); err != nil {
+		t.Fatalf("SyncIn: %v", err)
 	}
 	s := New("0.7.0")
 	RegisterKBTools(s, k, Deps{})
@@ -1383,11 +1387,25 @@ func TestKBStatus_BehindAndLastPushAfterPush(t *testing.T) {
 	if string(result["behind_commits"]) != "0" {
 		t.Errorf("behind_commits = %s, want 0", result["behind_commits"])
 	}
-	var at string
-	if err := json.Unmarshal(result["last_push_at"], &at); err != nil {
+	var pushAt string
+	if err := json.Unmarshal(result["last_push_at"], &pushAt); err != nil {
 		t.Fatalf("last_push_at = %s: %v", result["last_push_at"], err)
 	}
-	if _, err := time.Parse(time.RFC3339Nano, at); err != nil {
-		t.Errorf("last_push_at %q is not RFC 3339: %v", at, err)
+	if _, err := time.Parse(time.RFC3339Nano, pushAt); err != nil {
+		t.Errorf("last_push_at %q is not RFC 3339: %v", pushAt, err)
+	}
+	if !strings.HasSuffix(pushAt, "Z") {
+		t.Errorf("last_push_at %q is not UTC (missing Z suffix)", pushAt)
+	}
+
+	var syncInAt string
+	if err := json.Unmarshal(result["last_sync_in_at"], &syncInAt); err != nil {
+		t.Fatalf("last_sync_in_at = %s: %v", result["last_sync_in_at"], err)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, syncInAt); err != nil {
+		t.Errorf("last_sync_in_at %q is not RFC 3339: %v", syncInAt, err)
+	}
+	if !strings.HasSuffix(syncInAt, "Z") {
+		t.Errorf("last_sync_in_at %q is not UTC (missing Z suffix)", syncInAt)
 	}
 }

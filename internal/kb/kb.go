@@ -332,12 +332,14 @@ func (k *KB) GitStatusSnapshot() GitStatus {
 	}
 	k.gitStatusMu.RLock()
 	if p := k.lastPushAt; !p.IsZero() {
-		s.LastPushAt = &p
+		utc := p.UTC()
+		s.LastPushAt = &utc
 	}
 	k.gitStatusMu.RUnlock()
 	s.LastSyncInAt = nil
 	if t := k.lastSyncInAt(); !t.IsZero() {
-		s.LastSyncInAt = &t
+		utc := t.UTC()
+		s.LastSyncInAt = &utc
 	}
 	s.Branch, _ = gitx.Branch(k.Root)
 	s.RemoteDefaultBranch = k.RemoteDefaultBranch()
