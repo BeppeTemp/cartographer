@@ -122,7 +122,7 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 - Write the tests in the plan's "Tests" section.
 - **Same session**: update the docs in the "Closing" section per `docs/index.md` §Documentation maintenance rules, and, if the Closing section names one, add the decision file `docs/decisions/D<issue>-<slug>.md` (`make decisions-new`); never regenerate `docs/decisions.md` (the release PR does, D328). Every trap you hit is fixed where it bites: a test if it can be checked, a comment next to the code otherwise (D214).
 - `make gate` green — iterate until it is.
-- One commit for the implementation on `feat/<slug>` (the branch already exists in the worktree), message = PR title (conventional commit, the plan gives it), Co-Authored-By trailer. A review fix round **adds commits, it never amends**: the next round diffs `<reviewed commit>..HEAD`, and an amend rewrites the commit it names.
+- One commit for the implementation on `feat/<slug>` (the branch already exists in the worktree), message = PR title (conventional commit, the plan gives it; its scope is one `scripts/pr-triage.sh --title-scopes` prints, or none), Co-Authored-By trailer. A review fix round **adds commits, it never amends**: the next round diffs `<reviewed commit>..HEAD`, and an amend rewrites the commit it names.
 - `git push -u origin feat/<slug>` + `gh pr create` with a body ending `Closes #<n>`.
   The PR body, commit messages and any test fixture carry placeholder names only —
   never a KB, host, user or project from a real setup (D259, `AGENTS.md`).
