@@ -8,12 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
@@ -692,6 +694,118 @@ func appendUnique(list []string, extra ...string) []string {
 // written plus the non-fatal warnings Apply collected (a header the provider
 // cannot represent, D69; a duplicate table adopted from a Codex rewrite, D99),
 // for the caller to render.
+// emitMCPEntry generates the configurator.EmitResult for one MCP entry and provider.
+func emitMCPEntry(provider string, entry mcpEntry, auth bool, tokenEnv string) (*configurator.EmitResult, string, error) {
+	if entry.Bridge {
+		spec, err := bridgeServerSpec(provider, auth, tokenEnv)
+		if err == nil {
+			r, err := configurator.EmitServer(entry.Name, spec, configurator.Provider(provider))
+			return r, "", err
+		}
+		w := fmt.Sprintf("%s: %v; its workspace bindings do not narrow the tools until `cartographer` is on PATH and `cartographer sync` runs again", provider, err)
+		if entry.URL == "" {
+			return nil, w, nil
+		}
+		r, err := configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv, Author: entry.Author}, configurator.Provider(provider))
+		return r, w, err
+	}
+	r, err := configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv, Author: entry.Author}, configurator.Provider(provider))
+	return r, "", err
+}
+
+// snapshotMCPConfigFiles reads and records the raw bytes of every configuration
+// file the targeted providers manage, before any removal or rewrite.
+func snapshotMCPConfigFiles(targets []string, dir string, claudeDirs []string) map[string][]byte {
+	snap := make(map[string][]byte)
+	for _, p := range targets {
+		if d, ok := configurator.Lookup(configurator.Provider(p)); ok && d.MCPConfigPath != "" {
+			for _, base := range providerBaseDirs(p, dir, claudeDirs) {
+				fp := filepath.Join(base, d.ConfigPath())
+				if _, seen := snap[fp]; !seen {
+					data, _ := os.ReadFile(fp)
+					snap[fp] = data
+				}
+			}
+		}
+	}
+	return snap
+}
+
+// changedMCPEntries returns the names of the MCP entries that actually were
+// written (or under dry-run, would be written) because the provider's config
+// file either did not contain them, had them with different content, or was
+// created/modified. Entries already present with byte-identical content in every
+// destination file of the provider are not reported, so an unchanged sync is
+// quiet (D147).
+func changedMCPEntries(targets []string, entriesByProvider map[string][]mcpEntry, beforeSnap map[string][]byte, dir string, claudeDirs []string, auth bool, tokenEnv string) []string {
+	var changed []string
+	seen := map[string]bool{}
+	for _, p := range targets {
+		d, ok := configurator.Lookup(configurator.Provider(p))
+		if !ok || d.MCPConfigPath == "" {
+			continue
+		}
+		entries := entriesByProvider[p]
+		for _, e := range entries {
+			for _, base := range providerBaseDirs(p, dir, claudeDirs) {
+				fp := filepath.Join(base, d.ConfigPath())
+				if !isEntryUnchangedIn(p, d, entries, e, beforeSnap[fp], auth, tokenEnv) && !seen[e.Name] {
+					seen[e.Name] = true
+					changed = append(changed, e.Name)
+					break
+				}
+			}
+		}
+	}
+	sort.Strings(changed)
+	return changed
+}
+
+func isEntryUnchangedIn(provider string, d configurator.Descriptor, entries []mcpEntry, e mcpEntry, data []byte, auth bool, tokenEnv string) bool {
+	if len(data) == 0 {
+		return false
+	}
+	if d.MCPFormat == configurator.FormatTOMLBlock {
+		var parts []string
+		for _, ent := range entries {
+			if r, _, err := emitMCPEntry(provider, ent, auth, tokenEnv); err == nil && r != nil {
+				parts = append(parts, string(r.Content))
+			}
+		}
+		block := configurator.CodexMCPBlockBegin + "\n" + strings.TrimRight(strings.Join(parts, "\n"), "\n") + "\n" + configurator.CodexMCPBlockEnd + "\n"
+		rep, ok := blocktext.ReplaceBetween(string(data), configurator.CodexMCPBlockBegin, configurator.CodexMCPBlockEnd, block)
+		return ok && rep == string(data)
+	}
+	r, _, err := emitMCPEntry(provider, e, auth, tokenEnv)
+	if err != nil || r == nil {
+		return false
+	}
+	var existing, emit map[string]any
+	if json.Unmarshal(data, &existing) != nil || json.Unmarshal(r.Content, &emit) != nil {
+		return false
+	}
+	return reflect.DeepEqual(extractMCPServer(existing, e.Name), extractMCPServer(emit, e.Name))
+}
+
+func extractMCPServer(m map[string]any, name string) any {
+	for _, key := range []string{"mcpServers", "mcp"} {
+		if servers, ok := m[key].(map[string]any); ok {
+			if v, found := servers[name]; found {
+				return v
+			}
+		}
+	}
+	return nil
+}
+
+// applyMCPEntries applies every provider's MCP entries to its configuration
+// file. Providers with a JSON config (claude, opencode, kiro) non-destructively
+// merge their entry via configurator.Apply; codex puts all Cartographer MCP
+// entries in one marker-delimited TOML block, so its emitted bodies are joined
+// before Apply replaces that block. Returns the config paths written plus the
+// non-fatal warnings Apply collected (a header the provider cannot represent,
+// D69; a duplicate table adopted from a Codex rewrite, D99), for the caller to
+// render.
 func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string, dir string, claudeDirs []string, auth bool, tokenEnv string, dryRun bool) (written []string, warnings []string, err error) {
 	written = make([]string, 0, len(providers))
 	seenPaths := map[string]bool{}
@@ -699,30 +813,16 @@ func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string
 		entries := entriesByProvider[provider]
 		results := make([]*configurator.EmitResult, 0, len(entries))
 		for _, entry := range entries {
-			var r *configurator.EmitResult
-			var err error
-			if entry.Bridge {
-				var spec configurator.ServerSpec
-				if spec, err = bridgeServerSpec(provider, auth, tokenEnv); err == nil {
-					r, err = configurator.EmitServer(entry.Name, spec, configurator.Provider(provider))
-				} else {
-					// The bridge cannot be started here (a sync run by a hook
-					// with a minimal PATH, D300): keep the HTTP entry the
-					// provider had and say why, so no other provider stops.
-					warnings = append(warnings, fmt.Sprintf(
-						"%s: %v; its workspace bindings do not narrow the tools until `cartographer` is on PATH and `cartographer sync` runs again", provider, err))
-					if entry.URL == "" {
-						continue
-					}
-					r, err = configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv, Author: entry.Author}, configurator.Provider(provider))
-				}
-			} else {
-				r, err = configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv, Author: entry.Author}, configurator.Provider(provider))
+			r, w, err := emitMCPEntry(provider, entry, auth, tokenEnv)
+			if w != "" {
+				warnings = append(warnings, w)
 			}
 			if err != nil {
 				return nil, nil, fmt.Errorf("emit %s: %w", provider, err)
 			}
-			results = append(results, r)
+			if r != nil {
+				results = append(results, r)
+			}
 		}
 		// TOML providers merge one marker-delimited block per file, so several
 		// entries are concatenated into a single EmitResult.
