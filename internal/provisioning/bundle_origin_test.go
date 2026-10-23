@@ -48,7 +48,7 @@ func TestVerifiedManifest_BundleArtifactMustMatchEmbeddedBundle(t *testing.T) {
 func TestApply_BundleSkewSkippedKBArtifactInstalls(t *testing.T) {
 	kbFiles := []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("---\nname: kb-skill\ndescription: test\n---\n")}}
 	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{
-		{Kind: "skill", Name: "kb-create", Source: "bundle", ContentHash: "other-version"},
+		{Kind: "skill", Name: "cartographer-kb-create", Source: "bundle", ContentHash: "other-version"},
 		{Kind: "skill", Name: "kb-skill", Source: "kb:kb-a", ContentHash: provisioning.ContentHashFiles(kbFiles), Files: kbFiles},
 	}}
 	v, err := provisioning.VerifiedManifest(m, nil)
@@ -63,12 +63,12 @@ func TestApply_BundleSkewSkippedKBArtifactInstalls(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, ".claude/skills/kb-skill/SKILL.md")); err != nil {
 		t.Fatalf("kb skill not installed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".claude/skills/kb-create/SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".claude/skills/cartographer-kb-create/SKILL.md")); err != nil {
 		t.Fatalf("embedded version of the skewed skill not installed: %v", err)
 	}
 	found := false
 	for _, w := range res.Warnings {
-		if strings.Contains(w, "bundled skill kb-create") && strings.Contains(w, "installing this client's version") {
+		if strings.Contains(w, "bundled skill cartographer-kb-create") && strings.Contains(w, "installing this client's version") {
 			found = true
 		}
 	}

@@ -1599,6 +1599,9 @@ func FilterForProvider(m Manifest, provider configurator.Provider) Manifest {
 	// arrives sorted from MergeArtifacts, so computeRevision's precondition
 	// still holds.
 	out.Revision = computeRevision(out.Artifacts)
+	// Skipped carries the warnings VerifiedManifest left for Apply to
+	// print; a real sync applies the filtered manifest, so they must survive.
+	out.Skipped = m.Skipped
 	return out
 }
 
