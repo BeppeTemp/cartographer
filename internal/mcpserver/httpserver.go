@@ -488,11 +488,19 @@ func (m *MultiKBServer) Handler() http.Handler {
 			ready, _, degraded := m.readiness()
 			if !ready {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				body := map[string]interface{}{"ready": false, "kbs": len(m.servers)}
-				if len(degraded) > 0 {
+				// The count and the names follow the caller's token, as on
+				// /health (D1096): a token scoped to kb-a learns neither how
+				// many KBs are mounted nor which others are degraded. Admin
+				// and the auth-off local admin read every KB.
+				mounted := make([]string, 0, len(m.servers))
+				for name := range m.servers {
+					mounted = append(mounted, name)
+				}
+				body := map[string]interface{}{"ready": false, "kbs": len(readableKBs(r.Context(), mounted))}
+				if visible := readableKBs(r.Context(), degraded); len(visible) > 0 {
 					// Name them: a single boolean tells an operator that
 					// something is wrong and nothing about where to look.
-					body["degraded"] = degraded
+					body["degraded"] = visible
 				}
 				json.NewEncoder(w).Encode(body)
 				return

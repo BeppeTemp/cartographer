@@ -27,7 +27,7 @@ call, such as a full reindex or a git sync, and those are bounded per operation
 instead. Read them as protection against connections that never complete, not
 as a request budget.
 
-`GET /health` reports service readiness; it stays public (never a 401, an invalid token is read as anonymous), but its body depends on the token (D1096): without a valid one it carries no `kbs`, with one it lists the KBs that token reads. `GET /.well-known/oauth-protected-resource`
+`GET /health` reports service readiness; it stays public (never a 401, an invalid token is read as anonymous), but its body depends on the token (D1096): without a valid one it carries no `kbs`, with one it lists the KBs that token reads. `GET /ready` needs a valid token once auth is on, and its `503` body counts and names (`degraded`) only the KBs that token reads (#1109). `GET /.well-known/oauth-protected-resource`
 publishes RFC 9728 Protected Resource Metadata, unauthenticated, so clients can
 discover the protected resource; `resource` and `authorization_servers` both
 name this server's own externally-visible base URL (scheme + `Host`, from the
