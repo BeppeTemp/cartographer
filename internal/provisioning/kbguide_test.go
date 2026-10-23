@@ -1,11 +1,13 @@
 package provisioning_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
@@ -138,5 +140,71 @@ func TestKBCuratedInstructions_PreambleNone(t *testing.T) {
 	body, skip := provisioning.KBCuratedInstructions(root)
 	if body != "Body." || !skip {
 		t.Errorf("body=%q skip=%v", body, skip)
+	}
+}
+
+func writeInstr(t *testing.T, content string) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "instructions.md"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestKBCuratedInstructions_CutAtLineBoundaryWithMarker(t *testing.T) {
+	line := strings.Repeat("x", 99) + "\n"
+	content := strings.Repeat(line, 1000) // 100000 bytes, over the cap
+	body, _ := provisioning.KBCuratedInstructions(writeInstr(t, content))
+	kept := (provisioning.MaxInstructionsBytes / 100) * 100
+	if !strings.HasPrefix(body, strings.TrimSpace(content[:kept])) {
+		t.Fatalf("body is not the text cut at the last line boundary")
+	}
+	marker := body[len(strings.TrimSpace(content[:kept])):]
+	want := fmt.Sprintf("%d bytes left out", len(content)-kept)
+	if !strings.Contains(marker, "was cut") || !strings.Contains(marker, want) {
+		t.Errorf("marker %q lacks %q", marker, want)
+	}
+}
+
+func TestKBCuratedInstructions_ExactlyAtCapIsNotCut(t *testing.T) {
+	line := strings.Repeat("x", 63) + "\n"
+	content := strings.Repeat(line, provisioning.MaxInstructionsBytes/64)
+	if len(content) != provisioning.MaxInstructionsBytes {
+		t.Fatal("fixture is not at the cap")
+	}
+	body, _ := provisioning.KBCuratedInstructions(writeInstr(t, content))
+	if body != strings.TrimSpace(content) {
+		t.Errorf("a file exactly at the cap must be returned whole (len %d)", len(body))
+	}
+}
+
+func TestKBCuratedInstructions_CutNeverSplitsARune(t *testing.T) {
+	content := strings.Repeat("é", provisioning.MaxInstructionsBytes) // 2 bytes each, no newline
+	body, _ := provisioning.KBCuratedInstructions(writeInstr(t, content))
+	if !utf8.ValidString(body) || !strings.Contains(body, "was cut") {
+		t.Errorf("cut text must stay valid UTF-8 with a marker")
+	}
+}
+
+func TestKBCuratedInstructions_CutInsideFrontmatterKeepsOnlyMarker(t *testing.T) {
+	content := "---\nperimeter: " + strings.Repeat("k", provisioning.MaxInstructionsBytes) + "\n---\nBody.\n"
+	body, _ := provisioning.KBCuratedInstructions(writeInstr(t, content))
+	if strings.Contains(body, "perimeter") || !strings.HasPrefix(body, "[instructions.md was cut") {
+		t.Errorf("frontmatter must not pass as body: %.80q", body)
+	}
+}
+
+func TestKBCuratedInstructions_SymlinkRefused(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("OUTSIDE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "instructions.md")); err != nil {
+		t.Skipf("no symlinks: %v", err)
+	}
+	if body, _ := provisioning.KBCuratedInstructions(root); body != "" {
+		t.Errorf("a symlinked instructions.md must yield nothing, got %q", body)
 	}
 }

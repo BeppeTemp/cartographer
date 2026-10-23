@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"os"
 	"path/filepath"
 	"strings"
@@ -255,6 +256,13 @@ func TestArtifactTools_TextEncodingAndDecodedLimits(t *testing.T) {
 	over := base64.StdEncoding.EncodeToString(make([]byte, artifactMaxFileSize+1))
 	if tr := call(map[string]any{"path": "skills/text/assets/large", "content": over, "encoding": "base64"}); !tr.IsError || !containsText(tr, "decoded content") {
 		t.Fatalf("oversize: %+v", tr.Content)
+	}
+	big := strings.Repeat("a\n", provisioning.MaxInstructionsBytes/2+1)
+	if tr := call(map[string]any{"path": "instructions.md", "content": big}); !tr.IsError || !containsText(tr, "65536 bytes cap") || !containsText(tr, fmt.Sprint(len(big))) {
+		t.Fatalf("oversize instructions.md: %+v", tr.Content)
+	}
+	if tr := call(map[string]any{"path": "instructions.md", "content": big[:provisioning.MaxInstructionsBytes], "if_match": ""}); tr.IsError && containsText(tr, "cap of instructions.md") {
+		t.Fatalf("instructions.md at the cap must pass the size check: %+v", tr.Content)
 	}
 	if tr := call(map[string]any{"path": "skills/bad/SKILL.md", "content": base64.StdEncoding.EncodeToString([]byte{0xff}), "encoding": "base64"}); !tr.IsError || !containsText(tr, "UTF-8") {
 		t.Fatalf("structured binary: %+v", tr.Content)

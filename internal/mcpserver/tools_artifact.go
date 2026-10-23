@@ -477,6 +477,12 @@ func toolArtifactWrite(k *kb.KB) Tool {
 					params.Path, len(data), artifactMaxFileSize)), nil
 			}
 
+			if info.Kind == "instructions" && len(data) > provisioning.MaxInstructionsBytes {
+				return errorResult(fmt.Sprintf(
+					"artifact_write %q: content is %d bytes, exceeds the %d bytes cap of instructions.md (readers cut it there)",
+					params.Path, len(data), provisioning.MaxInstructionsBytes)), nil
+			}
+
 			abs, err := k.ResolveRootPath(params.Path)
 			if err != nil {
 				return errorResult(err.Error()), nil
