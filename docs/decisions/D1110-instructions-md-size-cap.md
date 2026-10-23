@@ -19,4 +19,8 @@ A cap on the guide only: a file one path accepts and the other refuses. Refusing
 into the KB's remote bypasses it, so the readers must bound the read anyway.
 
 **Consequences.** A push can still bring in a larger file; it is served truncated. The raw listing of
-`instructions.md` in the `sync_pull` artifact catalog is not part of the guide or the block and is unchanged.
+`instructions.md` in the artifact catalog (`sync_pull`) stays unbounded on purpose: it must carry the true
+content for the sha256 that `artifact_write` takes as `if_match`, like the templates and skills listed beside
+it, and it runs per call with read access, not per handshake. The reader refuses a symlinked
+`instructions.md` itself, so the guide and the managed block agree on it. A cut inside the frontmatter keeps
+the marker and no body; a cut with no line boundary backs off to a rune boundary.

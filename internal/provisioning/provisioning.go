@@ -28,6 +28,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -899,6 +900,11 @@ func KBCuratedInstructions(kbRoot string) (body string, skipPreamble bool) {
 	_, content, hasFM := okf.SplitFrontmatter(string(data))
 	if !hasFM {
 		content = string(data)
+		if cut > 0 && strings.HasPrefix(content, "---") {
+			// The cut fell inside the frontmatter: there is no body in the
+			// kept prefix, and the half-read keys must not pass as text.
+			content = ""
+		}
 	}
 	lines := strings.Split(content, "\n")
 	for i, l := range lines {
@@ -914,7 +920,11 @@ func KBCuratedInstructions(kbRoot string) (body string, skipPreamble bool) {
 	}
 	body = strings.TrimSpace(content)
 	if cut > 0 {
-		body += fmt.Sprintf("\n\n[instructions.md was cut at %d bytes: %d bytes left out. The operator must shorten the file.]", len(data), cut)
+		sep := "\n\n"
+		if body == "" {
+			sep = ""
+		}
+		body += fmt.Sprintf(sep+"[instructions.md was cut at %d bytes: %d bytes left out. The operator must shorten the file.]", len(data), cut)
 	}
 	return body, skipPreamble
 }
@@ -928,7 +938,15 @@ const MaxInstructionsBytes = 64 * 1024
 // readInstructionsBounded reads at most MaxInstructionsBytes+1 bytes of the
 // file. Past the cap it returns the text cut at the last line boundary within
 // the cap and the number of bytes left out (0 when nothing was cut).
+//
+// A symlinked instructions.md is refused (same outcome as a missing file): a
+// file outside the KB must reach neither the guide nor the managed block.
 func readInstructionsBounded(path string) (data []byte, cut int64, err error) {
+	if fi, lerr := os.Lstat(path); lerr != nil {
+		return nil, 0, lerr
+	} else if fi.Mode()&os.ModeSymlink != 0 {
+		return nil, 0, fmt.Errorf("instructions.md is a symlink")
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, 0, err
@@ -945,9 +963,15 @@ func readInstructionsBounded(path string) (data []byte, cut int64, err error) {
 	if fi, statErr := f.Stat(); statErr == nil && fi.Size() > total {
 		total = fi.Size()
 	}
-	data = data[:MaxInstructionsBytes]
-	if i := bytes.LastIndexByte(data, '\n'); i >= 0 {
+	if i := bytes.LastIndexByte(data[:MaxInstructionsBytes], '\n'); i >= 0 {
 		data = data[:i+1]
+	} else {
+		// No line boundary: back off to a rune boundary, never split one.
+		n := MaxInstructionsBytes
+		for n > 0 && !utf8.RuneStart(data[n]) {
+			n--
+		}
+		data = data[:n]
 	}
 	return data, total - int64(len(data)), nil
 }

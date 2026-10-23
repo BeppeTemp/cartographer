@@ -86,6 +86,11 @@ func listKBArtifacts(k *kb.KB, signer ed25519.PrivateKey) (kbArtifactCatalog, er
 			// generateKBInstructions) — not the raw curated file on
 			// disk. List the raw instructions.md instead, consistent
 			// with what artifact_read/artifact_write operate on.
+			// Deliberately unbounded (D1110): the listing must carry the true
+			// content for the sha256/if_match of artifact_write, like the
+			// templates and skills read here, and it runs per call with read
+			// access, not per handshake. The 64 KiB cap is on what reaches an
+			// agent's context (guide, managed block).
 			data, readErr := os.ReadFile(filepath.Join(k.Root, "instructions.md"))
 			if readErr != nil {
 				continue // no curated instructions.md: nothing to list

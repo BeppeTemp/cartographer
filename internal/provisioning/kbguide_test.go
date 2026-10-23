@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
@@ -175,5 +176,35 @@ func TestKBCuratedInstructions_ExactlyAtCapIsNotCut(t *testing.T) {
 	body, _ := provisioning.KBCuratedInstructions(writeInstr(t, content))
 	if body != strings.TrimSpace(content) {
 		t.Errorf("a file exactly at the cap must be returned whole (len %d)", len(body))
+	}
+}
+
+func TestKBCuratedInstructions_CutNeverSplitsARune(t *testing.T) {
+	content := strings.Repeat("é", provisioning.MaxInstructionsBytes) // 2 bytes each, no newline
+	body, _ := provisioning.KBCuratedInstructions(writeInstr(t, content))
+	if !utf8.ValidString(body) || !strings.Contains(body, "was cut") {
+		t.Errorf("cut text must stay valid UTF-8 with a marker")
+	}
+}
+
+func TestKBCuratedInstructions_CutInsideFrontmatterKeepsOnlyMarker(t *testing.T) {
+	content := "---\nperimeter: " + strings.Repeat("k", provisioning.MaxInstructionsBytes) + "\n---\nBody.\n"
+	body, _ := provisioning.KBCuratedInstructions(writeInstr(t, content))
+	if strings.Contains(body, "perimeter") || !strings.HasPrefix(body, "[instructions.md was cut") {
+		t.Errorf("frontmatter must not pass as body: %.80q", body)
+	}
+}
+
+func TestKBCuratedInstructions_SymlinkRefused(t *testing.T) {
+	outside := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(outside, []byte("OUTSIDE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "instructions.md")); err != nil {
+		t.Skipf("no symlinks: %v", err)
+	}
+	if body, _ := provisioning.KBCuratedInstructions(root); body != "" {
+		t.Errorf("a symlinked instructions.md must yield nothing, got %q", body)
 	}
 }
