@@ -69,7 +69,7 @@ with its fix. Write what the gate accepts:
 - **Link, don't copy**: a fact another page owns is a `[[id]]` link to that page, not a second copy.
 - Open work is a checkbox (`- [ ] …`) on the page that owns it, never a `TODO`/`TBD`/`FIXME`
   marker; an unknown is a `Contradiction` (step 7).
-- Credentials found in the source never go into a page: store them with `secret_set` (SOPS; see
+- Credentials found in the source never go into a page: store them with `secret_set` (not in `tools/list`; SOPS; see
   the `cartographer-kb-create` skill's `references/secrets.md`) or leave them out and flag them to the operator.
 
 ### 7. Record unknowns
@@ -78,8 +78,9 @@ not answered) or `missing_context` (the KB lacks something it should have), and 
 the pages concerned (D273). Gaps never block the gate.
 
 ### 8. Verify
-`gate_check` (with `scope`) on the changed IDs. The write responses already surfaced each concept's
-findings; `gate_check` catches the rest (whole-KB structural checks). Fix what is yours to fix. Open contradictions are
+`gate_check` with `changed_ids` set to the pages you wrote. The write responses already surfaced
+each concept's findings; `gate_check` re-checks those pages and the commit gate (whole-KB structure
+checks need an empty `changed_ids`). Fix what is yours to fix. Open contradictions are
 left for the operator: they block the gate on purpose.
 
 ### 9. Close
@@ -106,5 +107,5 @@ left for the operator: they block the gate on purpose.
   `concept_batch`, `gate_check`, `log_append`, `secret_set`, `conflict_resolve` (not in `tools/list`, callable by name).
 - Per-kind guidance: `references/source-kinds.md`.
 - Rationale: decisions D278 (source ledger), D272 (`reason`), D273 (gaps), D274
-  (`concept_history`), D279 (this skill), D907 (the write gate), found with
-  `ls docs/decisions/D279-*`.
+  (`concept_history`), D279 (this skill), D907 (the write gate), one file each under
+  <https://github.com/BeppeTemp/cartographer/tree/main/docs/decisions> (`D<n>-*`).

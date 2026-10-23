@@ -84,10 +84,9 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
     documented to the byte: the write-findings hook accepts the result object, a
     content-block array and JSON in a text block, and is silent on any other
     shape, so a change shows up as the hook going quiet.
-  - ~~[#476](https://github.com/BeppeTemp/cartographer/issues/476)~~: resolved by
-    [D293](decisions/D293-claude-md-imports-agents-md.md) — the project
-    `instructions` block prepends `@AGENTS.md` when the project root has one, so
-    creating `CLAUDE.md` no longer hides the repository's `AGENTS.md`.
+  - the project `instructions` block prepends `@AGENTS.md` when the project root
+    has one, because a project `CLAUDE.md` hides the repository's `AGENTS.md` from
+    the built-in plugin otherwise ([D293](decisions/D293-claude-md-imports-agents-md.md)).
   - claude.ai account-synced skills share `~/.claude/skills/` (2.1.275, 2.1.280);
     not a cell.
 - **Probe notes**: the AGENTS.md probe needs the plugin on: a machine can disable
@@ -271,8 +270,10 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   - `opencode --version` prints `opencode v2.0.25` (seen on both streams); the major parser reads it (D719). The no-`PATH` sync run and `session.created` delivery to `ctx.event.subscribe` are not yet probed.
   - 2.x `opencode.json` is translated on load (`mcp` → `mcp.servers`,
     `permission` map → `permissions` list), so the 1.x shape still works.
-- **Watch items**: the project skill cell (`.opencode/skills`) is documented, and
-  the project agent cell is `.opencode/agents` (probed on 2.0.30).
+- **Watch items**: the project skill cell (`.opencode/skills`) is documented. The
+  project agent cell in `projectDestinationMatrix` is `.opencode/agent`, while the
+  2.0.30 probe listed project agents from `.opencode/agents/`: the matrix cell and
+  the probe disagree.
 - **Probe notes**: 2.x has no `opencode agent list`: use `opencode debug agents`
   (JSON) and `opencode debug paths`. A background service caches the
   configuration: run `opencode reload` after changing a file. `opencode run -m
@@ -362,7 +363,7 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
     `.crush.json` fire (negative control: none); of six events tried only
     `PreToolUse` fires. Exit 2 blocks the tool and its stderr reaches the model.
     Payload: `cwd`, `event`, `session_id`, `tool_input`, `tool_name` (lowercase,
-    e.g. `bash`). D225's "no hook mechanism" no longer holds (D363); no session event.
+    e.g. `bash`). There is no session event (D363).
   - a project `.crush.json` `mcp` entry is used by the session (D363: project
     `mcp` and `hook` cells; `agent` and `instructions` not probed).
   - the global `crush.json` is still read when a `crushrc` exists.

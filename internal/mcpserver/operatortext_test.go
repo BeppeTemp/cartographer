@@ -91,7 +91,9 @@ func TestGenericConnectionIsNeverToldToRunACLICommand(t *testing.T) {
 	handleConflictError(k, &gitx.RebaseConflictError{Files: []string{"data/a.md"}, LocalSHA: sha, RemoteSHA: sha, Branch: "main"})
 	res, _ := toolConflictsList(k).Handler(authLocalContext(), nil)
 	assertNoCLICommand(t, "conflicts_list", res.Content[0].Text)
-	if !strings.Contains(res.Content[0].Text, "kb_guide") || strings.Contains(res.Content[0].Text, "cartographer-kb-conflict-resolve") {
+	// Only git_conflict_resolve clears the registry; a concept_write leaves the conflict open.
+	if !strings.Contains(res.Content[0].Text, "kb_guide") || !strings.Contains(res.Content[0].Text, "git_conflict_resolve") ||
+		strings.Contains(res.Content[0].Text, "cartographer-kb-conflict-resolve") {
 		t.Errorf("conflicts_list guidance = %s", res.Content[0].Text)
 	}
 	for _, msg := range []string{conflictMessage(1, nil), conflictMessage(0, []string{"data/log.md"}), conflictMessage(1, []string{"data/log.md"})} {

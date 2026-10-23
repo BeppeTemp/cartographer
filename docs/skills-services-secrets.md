@@ -62,10 +62,6 @@ An error excludes that skill from the manifest and nothing else: the KB's other
 artifacts still sync, and the reason is reported with the KB, the skill and the
 rule named. Warnings never exclude anything.
 
-The historical `<namespace>--<skill-name>` directory convention is **retired**
-(D191): it was unreachable from production code and incompatible with the `--`
-rule above.
-
 Skills may include executable `scripts/` files and binary `assets/`; provisioning
 preserves each source file's executable bit and transports auxiliary files as raw bytes.
 
@@ -73,7 +69,7 @@ Client provisioning materializes KB skills into each provider's native
 directory. See [synchronization](sync.md) for the manifest, trust and pruning
 rules.
 
-Authoring a KB's artifacts — the seven accepted `artifact_write` paths, the minimum
+Authoring a KB's artifacts — the accepted `artifact_write` paths, the minimum
 shape of each kind, the `if_match` protocol, and the manifest → trust →
 projection → materialization chain — is written out in the bundled `cartographer-kb-create`
 skill's `references/artifacts.md` (D196).
@@ -92,9 +88,12 @@ decide whether one is materialized, and they are not the same:
   (`VerifiedManifest`, local key pins) — see [sync](sync.md) for the trust chain.
   Cartographer does **not** verify signed git commits or Sigstore attestations;
   the signature covers the artifact's identity and content hash.
-- **Trust policy**, which the `signed` manifest field feeds into: bundled
-  artifacts are trusted by construction, and KB artifacts require the user's
-  persisted trust choice or an explicit one-shot override.
+- **Trust policy**, which the `signed` manifest field feeds into (D906): bundled
+  artifacts are trusted by construction. The client has no trust setting: everything a
+  KB ships is installed after the pull's own checks, an unsigned artifact is reported
+  as `trusted` rather than `verified`, and a KB pinned with `signing_keys` accepts only
+  signed artifacts. The exception is an MCP descriptor, which needs
+  `cartographer approve mcp` (see [sync](sync.md) §Security).
 
 Keep executable content reviewable, pin external dependencies inside the skill
 where appropriate and never store plaintext credentials in skill files.

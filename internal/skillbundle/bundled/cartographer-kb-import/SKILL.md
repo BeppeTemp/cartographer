@@ -74,7 +74,7 @@ source directories to a map, rewrites relative markdown links best-effort
 (`[[wiki-links]]` stay as-is — first-class since D72). Writes go through the KB write path
 (OKF invariants enforced), no per-file commits: make **one import commit** and push.
 
-*Fallback*: if the binary predates `cartographer import` or the source is not markdown, do the
+*Fallback*: if `cartographer import` is not available or the source is not markdown, do the
 scaffold agent-side with `concept_batch` (up to 50 operations per call), still marking each
 concept `status: imported`. Unlike the CLI scaffold, these writes go through the write gate
 (D907): a batch that introduces a finding a write can avoid (a broken link, an orphan, a missing
@@ -128,4 +128,4 @@ skill.
   (`references/secrets.md`); `cartographer-ops` for operations after the import.
 - Rationale and scope: decisions D74 (import), D28 (why no server-side ingest), D72
   (wiki-links, `concept_move` batch), D907 (the write gate) — one file each under
-  `docs/decisions/`, found with `ls docs/decisions/D74-*`.
+  <https://github.com/BeppeTemp/cartographer/tree/main/docs/decisions> (`D<n>-*`).

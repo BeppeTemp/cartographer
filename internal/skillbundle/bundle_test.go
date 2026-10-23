@@ -169,8 +169,16 @@ func TestOpsSkillCarriesTheSetupInterview(t *testing.T) {
 }
 
 // advancedTools mirrors advancedToolNames in internal/mcpserver/visibility.go
-// (skillbundle does not import mcpserver): the tools tools/list does not show.
-var advancedTools = []string{"concept_merge", "concept_archive", "contradiction_report", "conflict_resolve", "repair_revert"}
+// (skillbundle does not import mcpserver, and the map is unexported): the tools
+// tools/list does not show. A hand-kept copy: when a tool joins that map, add it here.
+var advancedTools = []string{
+	"concept_merge", "concept_collapse", "concept_archive", "concept_transfer",
+	"artifact_move", "artifact_list", "commit_gate", "contradiction_report",
+	"conflict_resolve", "repair_revert", "reindex", "graph_path",
+	"sync_check", "sync_apply", "sync_pull", "sync_status",
+	"skill_list", "skill_install",
+	"service_get", "service_list", "secret_resolve", "secret_set",
+}
 
 func TestBundledSkillsDoNotStrandOnAdvancedTools(t *testing.T) {
 	t.Parallel()

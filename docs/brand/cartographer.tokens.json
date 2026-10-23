@@ -83,10 +83,12 @@
   "expressive": {
     "light": {
       "surface-sand": "#E9E8DE",
+      "clay": "#B8785D",
       "clay-text": "#8C5237"
     },
     "dark": {
       "surface-forest": "#2B352D",
+      "clay": "#B8785D",
       "clay-text": "#D6A68D"
     }
   },
