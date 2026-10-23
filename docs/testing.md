@@ -229,6 +229,11 @@ otherwise silent — no client, compiler or linter reports any of them:
   (reviewers, plan writer, source reader) carry no `Edit` or `Write` tool (D992);
 - the tool table of `docs/control-plane.md` §MCP API agrees with the registry both ways, markers and parameters (D1125), and the tool-name scan reads the bundled skills, `.claude/` and the area `AGENTS.md` files too;
 - the `deployment.md` environment-variable table lists exactly the Schema's variables, plus the reasoned few that are not Schema keys, with the flag the Schema declares; every `CARTOGRAPHER_*` name in a string literal of non-test Go is documented in a current-state page, removed in `config.Retired`, or allow-listed with a reason (`internal/config/envdocs_test.go`, D1126);
+- current-state pages carry no history phrase (`used to`, `previously`, `removed by D<n>`,
+  `as of D<n>`, `became`) and no hand-kept count (a number before `tools`, `kinds`,
+  `providers`…): the rules live in `internal/repodocs/doc_rot_test.go`, and so does the
+  allow-list for text about a retired key a reader can still meet, which is pruned both ways
+  (D1128);
 - `CLAUDE.md` is exactly `@AGENTS.md` and nothing else, and the corpus these
   checks read actually contains the files they exist to read — a corpus definition
   fails by matching nothing and passing.
@@ -288,7 +293,7 @@ signature is not hashed) and requires both commands to fail with
 
 **Removed topology keys are exercised as a real upgrade.** `16_deprecated_prefix_keys` starts a
 server whose config still carries `mcp.mount_mode`, `mcp.tool_prefix_mode` and an explicit
-`kbs[].tool_prefix` (D288, removed by D325) plus a KB named like the routed endpoint. It asserts the server
+`kbs[].tool_prefix` (D288, D325) plus a KB named like the routed endpoint. It asserts the server
 starts and logs no deprecation warning, tools are bare on the per-KB endpoint and listed on `/mcp/routed`,
 `/health` carries no per-KB `tool_prefix` value, and the KB named `routed` is skipped with a warning
 to rename it while its siblings are unaffected.

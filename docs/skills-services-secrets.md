@@ -110,7 +110,7 @@ where appropriate and never store plaintext credentials in skill files.
 Service descriptors are regular concepts under `services/` with
 `type: Service`. **`Service` is a reserved type**, and `service_list`/`service_get`
 match it **case-insensitively** (D158): a KB whose type vocabulary is lowercase —
-a likely outcome of an import, or of a non-English domain vocabulary — used to
+a likely outcome of an import, or of a non-English domain vocabulary — would
 get zero services and unusable secret resolution with no error anywhere. A
 near-miss such as `services` is still not a service. Lint reports
 `secrets_on_non_service` (D313: such a concept is resolved by `secret_resolve` on its ID, or the bundle moves to a Service) when a concept declares `secrets_source` or

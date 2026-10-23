@@ -255,7 +255,7 @@ and a listen address beyond loopback with authentication off refuses to start
 ## Enabling bearer authentication
 
 Tokens can be configured through server YAML or
-`CARTOGRAPHER_TOKENS`/`--tokens`. `CARTOGRAPHER_AUTH` has three modes:
+`CARTOGRAPHER_TOKENS`/`--tokens`. `CARTOGRAPHER_AUTH` has these modes:
 
 - unset: enable authentication when tokens exist;
 - `true`: require authentication and fail startup if no token is configured;
