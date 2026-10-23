@@ -98,7 +98,7 @@ func TestApply_SkillWithoutPrincipalFile_WarnsAndMaterializes(t *testing.T) {
 	}}}
 
 	baseDir := t.TempDir()
-	res, err := Apply(m, ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: Lock{}})
+	res, err := Apply(m, ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: Lock{}, ApprovedMCP: approveAll(m)})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestApply_HookFilesAreByteIdentical(t *testing.T) {
 	}}}
 
 	baseDir := t.TempDir()
-	if _, err := Apply(m, ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: Lock{}}); err != nil {
+	if _, err := Apply(m, ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: Lock{}, ApprovedMCP: approveAll(m)}); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 	for name, want := range map[string]string{"run.sh": script, "hook.json": hookJSON} {
@@ -169,7 +169,7 @@ func TestApply_PlaceholderArtifact_NoDriftOnResync(t *testing.T) {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	baseDir := t.TempDir()
-	opts := ApplyOptions{
+	opts := ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,

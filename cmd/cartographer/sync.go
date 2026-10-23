@@ -492,6 +492,6 @@ func printSyncRevisions(results map[string]provisioning.AppliedResult, providers
 // stop the very sync that rewrites the hook.
 func warnRemovedAutoTrust(passed bool) {
 	if passed {
-		fmt.Fprintln(os.Stderr, "warning: --auto-trust is removed and ignored: everything a KB ships is installed, and an MCP descriptor needs `cartographer approve`")
+		fmt.Fprintln(os.Stderr, "warning: --auto-trust is removed and ignored: everything a KB ships is installed, and an MCP descriptor, a hook or an executable file needs `cartographer approve`")
 	}
 }

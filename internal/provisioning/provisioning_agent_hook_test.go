@@ -186,7 +186,7 @@ func TestHookEffectiveModes_HardFloorAndHashStability(t *testing.T) {
 		}
 	}
 	base := t.TempDir()
-	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{
+	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{ApprovedMCP: approveAll(m1),
 		KBRoots: roots, Provider: configurator.ProviderClaudeCode, BaseDir: base}); err != nil {
 		t.Fatal(err)
 	}
@@ -286,7 +286,7 @@ func TestApply_DestDir_Matrix(t *testing.T) {
 		}
 		m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 		baseDir := t.TempDir()
-		res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 			Provider: c.provider,
 			BaseDir:  baseDir,
 			Lock:     provisioning.Lock{},
@@ -344,7 +344,7 @@ func TestApply_MaterializzaAgent(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
@@ -386,7 +386,7 @@ func TestApply_OpenCode_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 	}
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderOpenCode,
 		BaseDir:  baseDir,
 		Lock:     provisioning.Lock{},
@@ -421,7 +421,7 @@ func TestApply_Antigravity_MaterializzaAgentNativo(t *testing.T) {
 		Files: []provisioning.ArtifactFile{{Path: "reviewer.md", Content: []byte(src)}},
 	}
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
-	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Lock: provisioning.Lock{},
 	}); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -462,7 +462,7 @@ func TestApply_OpenCode_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {
 	}
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
-	_, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	_, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderOpenCode,
 		BaseDir:  baseDir,
 		Lock:     provisioning.Lock{},
@@ -494,7 +494,7 @@ func TestApply_OpenCode_MaterializzaAgent_DescriptionQuotataConDuePunti(t *testi
 	}
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
-	_, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	_, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderOpenCode,
 		BaseDir:  baseDir,
 		Lock:     provisioning.Lock{},
@@ -545,7 +545,7 @@ func TestApply_MaterializzaHook(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
@@ -610,7 +610,7 @@ func TestApply_Prune_AgentHook(t *testing.T) {
 		},
 	}
 
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
 		Lock:     lock,
@@ -644,7 +644,7 @@ func TestApply_RifiutaPathTraversal_AgentHook(t *testing.T) {
 	}
 	for i, a := range cases {
 		m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
-		_, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		_, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 			Provider: configurator.ProviderClaudeCode,
 			BaseDir:  baseDir,
 			Lock:     provisioning.Lock{},
@@ -814,7 +814,7 @@ func TestTranslateAgentForKiro(t *testing.T) {
 		m.Artifacts[i].Signed = true
 	}
 	base := t.TempDir()
-	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderKiro, BaseDir: base,
 		Lock: provisioning.Lock{}, KBRoots: map[string]string{"homelab": kbRoot},
 	}); err != nil {
@@ -880,7 +880,7 @@ func TestTranslateAgentForKiro_NoFrontmatter(t *testing.T) {
 		m.Artifacts[i].Signed = true
 	}
 	base := t.TempDir()
-	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderKiro, BaseDir: base,
 		Lock: provisioning.Lock{}, KBRoots: map[string]string{"homelab": kbRoot},
 	}); err != nil {

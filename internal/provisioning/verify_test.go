@@ -38,7 +38,7 @@ func driftKB(t *testing.T, opts ...func(*ApplyOptions)) (baseDir string, m Manif
 	}
 
 	baseDir = t.TempDir()
-	applyOpts := ApplyOptions{
+	applyOpts := ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"wiki": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
@@ -184,7 +184,7 @@ func TestVerifyManaged_SharedFileEntriesArePresenceChecked(t *testing.T) {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	baseDir := t.TempDir()
-	applied, err := Apply(m, ApplyOptions{KBRoots: map[string]string{"wiki": kbRoot},
+	applied, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m), KBRoots: map[string]string{"wiki": kbRoot},
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: Lock{}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -216,7 +216,7 @@ func TestApply_HealsModifiedArtifact(t *testing.T) {
 	pristine, _ := os.ReadFile(skillFile)
 	os.WriteFile(skillFile, []byte("locally rewritten\n"), 0o644)
 
-	opts := ApplyOptions{KBRoots: map[string]string{"wiki": kbRoot},
+	opts := ApplyOptions{ApprovedMCP: approveAll(m), KBRoots: map[string]string{"wiki": kbRoot},
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: applied.NewLock}
 
 	// Dry run heals nothing.
@@ -281,7 +281,7 @@ func TestApply_HealsMissingAgentAndInstructionsBlock(t *testing.T) {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	baseDir := t.TempDir()
-	opts := ApplyOptions{KBRoots: map[string]string{"wiki": kbRoot},
+	opts := ApplyOptions{ApprovedMCP: approveAll(m), KBRoots: map[string]string{"wiki": kbRoot},
 		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Lock: Lock{}}
 	applied, err := Apply(m, opts)
 	if err != nil {

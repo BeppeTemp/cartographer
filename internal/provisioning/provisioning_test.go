@@ -225,7 +225,7 @@ func TestBuildManifest_ExecutableSkillChangesHashAndApplyMode(t *testing.T) {
 		t.Fatal("script executable bit was not read")
 	}
 	base := t.TempDir()
-	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: provisioning.Lock{}}); err != nil {
+	if _, err := provisioning.Apply(m1, provisioning.ApplyOptions{ApprovedMCP: approveAll(m1), KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: base, Lock: provisioning.Lock{}}); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(filepath.Join(base, ".claude", "skills", "run", "run.sh"))
@@ -267,9 +267,10 @@ func TestApply_CorrectsExecutableModeDriftWithoutDryRunMutation(t *testing.T) {
 	}
 	base := t.TempDir()
 	opts := provisioning.ApplyOptions{
-		Provider: configurator.ProviderClaudeCode,
-		BaseDir:  base,
-		Lock:     provisioning.Lock{},
+		Provider:    configurator.ProviderClaudeCode,
+		BaseDir:     base,
+		Lock:        provisioning.Lock{},
+		ApprovedMCP: approveAll(m),
 	}
 	first, err := provisioning.Apply(m, opts)
 	if err != nil {
@@ -1197,7 +1198,7 @@ func TestApply_RefusesSymlinkedSkillDirAndKeepsGoing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  base,
 		Lock:     provisioning.Lock{},
@@ -1682,7 +1683,7 @@ func TestManagedFileRecordsSource(t *testing.T) {
 		Kind: "skill", Name: "example", Source: "kb:homelab", ContentHash: "h",
 		Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("# example")}},
 	}}}
-	applied, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	applied, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderClaudeCode, BaseDir: t.TempDir(), SkipLockWrite: true,
 	})
 	if err != nil {

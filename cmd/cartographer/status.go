@@ -147,12 +147,12 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 				fmt.Printf("    %s\n", d.Detail)
 			}
 		}
-		mcpPending := false
+		approvalPending := false
 		for _, a := range p.Added {
 			trust := statusArtifactTrust(a)
 			fmt.Printf("  + %s/%s [%s] trust=%s\n", a.Kind, a.Name, a.Source, trust)
-			if a.Kind == "mcp" && (trust == "needs_approval" || trust == "approval_stale") {
-				mcpPending = true
+			if trust == "needs_approval" || trust == "approval_stale" {
+				approvalPending = true
 			}
 			if a.Kind == "hook" {
 				printHookRegistrationHint(p.Name, a.Name, "new hook")
@@ -161,8 +161,8 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		for _, a := range p.Updated {
 			trust := statusArtifactTrust(a)
 			fmt.Printf("  ~ %s/%s [%s] trust=%s\n", a.Kind, a.Name, a.Source, trust)
-			if a.Kind == "mcp" && (trust == "needs_approval" || trust == "approval_stale") {
-				mcpPending = true
+			if trust == "needs_approval" || trust == "approval_stale" {
+				approvalPending = true
 			}
 			if a.Kind == "hook" {
 				printHookRegistrationHint(p.Name, a.Name, "hook updated")
@@ -171,8 +171,8 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		for _, a := range p.Removed {
 			fmt.Printf("  - %s/%s (%s)\n", a.Kind, a.Name, a.Path)
 		}
-		if mcpPending {
-			fmt.Println("  MCP requires point approval: cartographer approve mcp <name> --kb <kb>")
+		if approvalPending {
+			fmt.Println("  approval required: cartographer approve <kind> <name> --kb <kb>")
 		}
 	}
 

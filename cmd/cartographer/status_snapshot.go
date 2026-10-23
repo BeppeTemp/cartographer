@@ -393,12 +393,14 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		p.KBCounts = countBySource(lock)
 		p.Diverged = snapshotDiverged(append(provisioning.VerifyManaged(lock, configurator.Provider(p.Name), provisioning.LockBaseDir(lock, dir)), wsDiverged...))
-		if d.InSync && len(p.Diverged) == 0 {
+		held := heldArtifacts(pm, d, cfg, configurator.Provider(p.Name))
+		if d.InSync && len(p.Diverged) == 0 && len(held) == 0 {
 			p.State = "in_sync"
 			continue
 		}
 		p.State = "drift"
 		p.Added, p.Updated, p.Removed = snapshotArtifacts(d.Added, cfg), snapshotArtifacts(d.Updated, cfg), snapshotRemoved(d.Removed)
+		p.Updated = append(p.Updated, snapshotArtifacts(held, cfg)...)
 		s.State = "drift"
 	}
 	if s.Server != "" && s.Client != "" && s.Client != "dev" && s.Server != "dev" && s.Client != s.Server && s.State == "in_sync" {
@@ -470,11 +472,12 @@ func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Conf
 		trust := "needs_approval"
 		if a.BuiltIn {
 			trust = "built_in"
-		} else if a.Kind == "mcp" {
-			// A signature never installs an MCP descriptor (D906): only the
-			// hash-bound approval does, so it is checked before Signed.
+		} else if provisioning.ArtifactRequiresApproval(a, provisioning.ApplyOptions{}) {
+			// A signature never installs an MCP descriptor, a hook or an
+			// executable file (D906, D1141): only the hash-bound approval does,
+			// so it is checked before Signed.
 			source := strings.TrimPrefix(a.Source, "kb:")
-			if approval, ok := cfg.MCPApprovals[source][a.Name]; ok {
+			if approval, ok := cfg.MCPApprovals[source][provisioning.ApprovalName(a)]; ok {
 				if approval.ContentHash == a.ContentHash {
 					trust = "approved"
 				} else {
@@ -488,6 +491,25 @@ func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Conf
 			trust = "trusted"
 		}
 		out[i] = statusArtifact{Kind: a.Kind, Name: a.Name, Source: a.Source, Signed: a.Signed, Trust: trust}
+	}
+	return out
+}
+
+// heldArtifacts are the artifacts of m that wait for an approval without being
+// in the diff: installed earlier (before D1141) and unchanged on the server, so
+// ComputeDiff calls them in sync while Apply holds them and reports them pending.
+func heldArtifacts(m provisioning.Manifest, d provisioning.Diff, cfg *clientconfig.Config, provider configurator.Provider) []provisioning.Artifact {
+	inDiff := map[string]bool{}
+	for _, a := range append(append([]provisioning.Artifact(nil), d.Added...), d.Updated...) {
+		inDiff[a.Kind+"\x00"+a.Name] = true
+	}
+	opts := provisioning.ApplyOptions{Provider: provider, ApprovedMCP: cfg.ApprovedMCPHashes()}
+	var out []provisioning.Artifact
+	for _, a := range m.Artifacts {
+		if a.Kind == "mcp" || a.Kind == "instructions" || inDiff[a.Kind+"\x00"+a.Name] || provisioning.ArtifactAuthorized(a, opts) {
+			continue
+		}
+		out = append(out, a)
 	}
 	return out
 }

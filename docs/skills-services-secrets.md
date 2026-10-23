@@ -88,12 +88,19 @@ decide whether one is materialized, and they are not the same:
   (`VerifiedManifest`, local key pins) — see [sync](sync.md) for the trust chain.
   Cartographer does **not** verify signed git commits or Sigstore attestations;
   the signature covers the artifact's identity and content hash.
-- **Trust policy**, which the `signed` manifest field feeds into (D906): bundled
-  artifacts are trusted by construction. The client has no trust setting: everything a
-  KB ships is installed after the pull's own checks, an unsigned artifact is reported
-  as `trusted` rather than `verified`, and a KB pinned with `signing_keys` accepts only
-  signed artifacts. The exception is an MCP descriptor, which needs
-  `cartographer approve mcp` (see [sync](sync.md) §Security).
+- **Trust policy and approval**, which the `signed` manifest field feeds into (D906,
+  D1141): bundled artifacts are trusted by construction. The client has no trust
+  setting: a KB artifact is installed after the pull's own checks, an unsigned one is
+  reported as `trusted` rather than `verified`, and a KB pinned with `signing_keys`
+  accepts only signed artifacts. The exceptions run on the machine and wait for a local
+  approval bound to their content hash (`cartographer approve`), signed or not (a
+  signature proves the origin, not consent): an MCP descriptor, a KB hook, any KB
+  artifact shipping an executable file, and a skill or agent declaring hooks or MCP
+  servers in its frontmatter; a content change needs a new approval. The frontmatter is
+  parsed as YAML and its keys compared after decoding (quoting, flow mappings, anchors
+  and merge keys included); frontmatter that does not parse or does not close also asks
+  for approval. See [configurator](configurator.md) §Approval of MCP descriptors, hooks
+  and executable files.
 
 Keep executable content reviewable, pin external dependencies inside the skill
 where appropriate and never store plaintext credentials in skill files.
