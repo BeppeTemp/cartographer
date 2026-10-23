@@ -158,12 +158,7 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 	}
 	// Prerequisites count: `make gate` runs test, vet, race and fmt-check.
 	mk := readFile(t, root, "Makefile")
-	deps := map[string][]string{}
-	var targets []string
-	for _, m := range regexp.MustCompile(`(?m)^([a-z][a-z0-9-]*):([^#\n=]*)`).FindAllStringSubmatch(mk, -1) {
-		targets = append(targets, m[1])
-		deps[m[1]] = strings.Fields(m[2])
-	}
+	targets, deps := makefileTargets(mk)
 	run := map[string]bool{}
 	var mark func(string)
 	mark = func(n string) {
@@ -186,6 +181,19 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 			t.Errorf("Makefile target %q is run by no workflow and is not in the local-only list: wire it into .github/workflows/ or add it to this test's list", n)
 		}
 	}
+}
+
+// makefileTargets returns the targets a Makefile defines, in file order, and
+// their prerequisites. Shared with the documentation structure gate, which checks
+// that every `make <target>` the text cites is one of them.
+func makefileTargets(mk string) ([]string, map[string][]string) {
+	deps := map[string][]string{}
+	var targets []string
+	for _, m := range regexp.MustCompile(`(?m)^([a-z][a-z0-9-]*):([^#\n=]*)`).FindAllStringSubmatch(mk, -1) {
+		targets = append(targets, m[1])
+		deps[m[1]] = strings.Fields(m[2])
+	}
+	return targets, deps
 }
 
 // makeInvokes reports whether some line runs `make ... <target>` with target as

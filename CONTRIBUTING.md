@@ -35,8 +35,9 @@ launch film when `film/` or what it imports changed (`film/README.md`).
 
 `make test` also runs the repository's own documentation gates
 (`internal/repodocs`): the size of `AGENTS.md`, the fact that every relative
-documentation link resolves, and that every skill's frontmatter is valid for the
-strictest client. (The freshness of the generated decision index is checked on
+documentation link and `#fragment` resolves, that every `<page>.md §Heading`
+citation names a heading of the page, and that every skill's frontmatter is valid
+for the strictest client. (The freshness of the generated decision index is checked on
 the release PR only.) They live in `make test`
 rather than in a separate command on purpose — a gate you have to remember to
 run is not a gate.

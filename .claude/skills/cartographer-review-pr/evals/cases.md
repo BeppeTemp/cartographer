@@ -1,7 +1,7 @@
 # Review evals — cases
 
 Past PRs the reviewers are scored against (`cartographer-review-pr` §Changing the reviewer).
-`scripts/eval-setup.sh` reads the two tables below and nothing else: one row per
+`.claude/skills/cartographer-review-pr/scripts/eval-setup.sh` reads the two tables below and nothing else: one row per
 case, cells separated by `|`, the first cell is the id. PR numbers and code only
 (D259).
 

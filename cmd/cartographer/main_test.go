@@ -1,11 +1,18 @@
 package main
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/repodocs"
 )
 
 func TestDiscoverKBPaths(t *testing.T) {
@@ -280,4 +287,134 @@ func fileURL(dir string) string {
 		s = "/" + s
 	}
 	return "file://" + s
+}
+
+// dispatchedCommands reads the string cases of `switch cmd` in run (main.go) with
+// go/parser, so the usage table and the dispatch cannot drift without a test
+// saying so (D1124). Flag-shaped cases are not commands.
+func dispatchedCommands(t *testing.T) []string {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "main.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parsing main.go: %v", err)
+	}
+	var out []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "run" {
+			return true
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			sw, ok := n.(*ast.SwitchStmt)
+			if !ok {
+				return true
+			}
+			if id, ok := sw.Tag.(*ast.Ident); !ok || id.Name != "cmd" {
+				return true
+			}
+			for _, st := range sw.Body.List {
+				cc, _ := st.(*ast.CaseClause)
+				for _, e := range cc.List {
+					lit, ok := e.(*ast.BasicLit)
+					if !ok {
+						continue
+					}
+					name, err := strconv.Unquote(lit.Value)
+					if err == nil && !strings.HasPrefix(name, "-") {
+						out = append(out, name)
+					}
+				}
+			}
+			return false
+		})
+		return false
+	})
+	if len(out) == 0 {
+		t.Fatal("no case found in the dispatch switch of run(): the check is not doing anything")
+	}
+	return out
+}
+
+// The usage table (subcommands), the dispatch switch of run() and the documented
+// commands are three lists kept by hand; this compares them (D1124).
+func TestCommandTableMatchesDispatchAndDocs(t *testing.T) {
+	const internal = "hook" // dispatched, deliberately absent from the table (D353)
+
+	dispatched := map[string]bool{}
+	for _, n := range dispatchedCommands(t) {
+		dispatched[n] = true
+	}
+	table := map[string]bool{}
+	for _, c := range subcommands {
+		table[c.name] = true
+		if !dispatched[c.name] {
+			t.Errorf("command %q is in the usage table but run() has no case for it", c.name)
+		}
+	}
+	for n := range dispatched {
+		if !table[n] && n != internal {
+			t.Errorf("run() dispatches %q but the usage table (main.go) does not list it: add it, "+
+				"or — if it is internal — document the exception next to hook", n)
+		}
+	}
+
+	root, err := repodocs.Root()
+	if err != nil {
+		t.Fatalf("locating the repository root: %v", err)
+	}
+	read := func(rel string) string {
+		data, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil {
+			t.Fatalf("reading %s: %v", rel, err)
+		}
+		return string(data)
+	}
+	docs := read("docs/configurator.md") + read("docs/deployment.md")
+	for _, c := range subcommands {
+		if !regexp.MustCompile(`cartographer ` + regexp.QuoteMeta(c.name) + `\b`).MatchString(docs) {
+			t.Errorf("command %q is documented nowhere in docs/configurator.md or docs/deployment.md", c.name)
+		}
+	}
+
+	files, err := repodocs.MarkdownFiles(root)
+	if err != nil {
+		t.Fatalf("collecting the markdown files: %v", err)
+	}
+	span := regexp.MustCompile("`([^`\n]+)`")
+	invoke := regexp.MustCompile(`(?:^|[\s(])(?:\./bin/)?cartographer\s+([a-z][a-z0-9-]*)`)
+	fenceLine := regexp.MustCompile(`^\s*(?:\$ )?(?:\./bin/)?cartographer\s+([a-z][a-z0-9-]*)`)
+	cited := 0
+	check := func(rel string, line int, word string) {
+		cited++
+		if !dispatched[word] {
+			t.Errorf("%s:%d cites \"cartographer %s\" which is not a command (the commands are the cases of run() in "+
+				"cmd/cartographer/main.go). Fix the text: reword a line that merely mentions the binary.", rel, line, word)
+		}
+	}
+	for _, rel := range files {
+		if strings.HasPrefix(rel, "docs/decisions/") { // history names commands since renamed
+			continue
+		}
+		fenced := false
+		for i, line := range strings.Split(read(rel), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "```") || strings.HasPrefix(strings.TrimSpace(line), "~~~") {
+				fenced = !fenced
+				continue
+			}
+			if fenced {
+				if m := fenceLine.FindStringSubmatch(line); m != nil {
+					check(rel, i+1, m[1])
+				}
+				continue
+			}
+			for _, sp := range span.FindAllStringSubmatch(line, -1) {
+				if m := invoke.FindStringSubmatch(sp[1]); m != nil {
+					check(rel, i+1, m[1])
+				}
+			}
+		}
+	}
+	if cited == 0 {
+		t.Fatal("no `cartographer <command>` cited anywhere: the check is not doing anything")
+	}
 }

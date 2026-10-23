@@ -228,7 +228,7 @@ with their files in `~/.kiro/hooks/cartographer/<name>/`. They fire only in
 `kiro-cli chat --v3 --tui`, so `status` reports `hook n/m (fires in kiro-cli chat --v3
 --tui only)`. `connect`, `status` and `doctor` keep advising the scheduled timer for
 Kiro, naming that limit rather than calling it hookless; `status` stops repeating it once
-`connect` or `reconnect` has shown it (D320, `sync.md` §Scheduled trigger). Nothing is written into a
+`connect` or `reconnect` has shown it (D320, `sync.md` §Detection and triggers). Nothing is written into a
 Kiro agent config and `chat.defaultAgent` is never set (`interoperability.md` §Kiro
 hooks).
 
@@ -1345,11 +1345,11 @@ been materialized:
 
 `applied_revision` is the bare hex sha256 of the manifest. A lock also carries `base_dir` and
 `project_scope` for a workspace projection, and `session_hook_limit_acked` (field by field in
-`docs/sync.md` §Client lockfile).
+`docs/sync.md` §Core concepts).
 
 The old v1 format (`{"applied_revision", "provider", "managed"}`, single provider) is
 automatically migrated on read (`provisioning.ReadLockFile`) into `{"providers": {<provider>:
-{...}}}`. See `docs/sync.md` §Client lockfile for the full model (drift, pruning).
+{...}}}`. See `docs/sync.md` §Core concepts for the full model (drift, pruning).
 
 ## TUI mode (interactive dashboard)
 

@@ -2,7 +2,7 @@ name: docs
 
 # Publishes docs/ to GitHub Pages via MkDocs Material. The source of truth
 # stays the markdown in docs/ (updated in the same PR as the code, see
-# docs/index.md §Maintenance rules); this only renders it.
+# docs/index.md §Documentation maintenance rules); this only renders it.
 #
 # The same site carries the static Atlas demo under /demo/ (D745), built from
 # demo/astronomy by demo/build.sh. CHANGELOG.md is among the paths because a

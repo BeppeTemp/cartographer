@@ -266,6 +266,11 @@ func RenderIndex(decisions []Decision) string {
 		if len(ds) == 0 {
 			continue
 		}
+		// mkdocs collects these ids with Python's html.parser, which on a recent
+		// Python treats a raw <title> or <textarea> tag as RCDATA and swallows
+		// everything after it: one such tag in an earlier line of the page hides
+		// every anchor below it from the anchors validation (D1124). Keep those
+		// words out of hand-written prose of docs/decisions.md.
 		fmt.Fprintf(&b, "\n<a id=%q></a>\n\n### %s\n\n", t.Slug, t.Title)
 		for _, d := range ds {
 			fmt.Fprintf(&b, "- [%s](decisions/%s)\n", d.Title, d.File)

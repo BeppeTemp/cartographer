@@ -523,9 +523,9 @@ An observation that no page state could close, or that another tool already repo
 
 ### Conformance checks (D289)
 
-Findings report on every write. In a git KB a write that introduces a finding it could have avoided is refused, and nothing switches that off or accepts the finding (D350, D907, `control-plane.md` §Commit per logical operation; the checks no write can avoid are listed above).
+Findings report on every write. In a git KB a write that introduces a finding it could have avoided is refused, and nothing switches that off or accepts the finding (D350, D907, `concurrency.md` §How changes land; the checks no write can avoid are listed above).
 
-A write response carries these checks for the concept it wrote, plus the body, link and light graph checks `lint.ScopedCheck` runs without walking the KB (D312, `control-plane.md` §`concept_write`); the whole-KB structural checks stay with `lint` and `gate_check`.
+A write response carries these checks for the concept it wrote, plus the body, link and light graph checks `lint.ScopedCheck` runs without walking the KB (D312, `control-plane.md` §Writing and ingest); the whole-KB structural checks stay with `lint` and `gate_check`.
 
 Lint also compares a KB with the standard fields the server reads, not only with the contracts the KB declared. Like every finding they are problems (D947), and a check fires only on a field the KB actually has.
 
@@ -819,12 +819,12 @@ writes (`cartographer config --all` lists them). The keys bound to one machine (
 `settings.yaml` is a finding. `branch` has both homes: the KB's is the team's, and the server's `kbs[].branch` overrides it for that server alone (D1093). A key that is not a setting any more is a removed key (`kb.SettingsRetired` lists each with what to use instead: the server git profile and its forge keys, the `author_*` and `committer_*` identity keys, the machine secrets of the server's credentials directory, the always-on artifact-write and MCP-allowlist keys, `secrets`, `write_gate`, `auto_repair`, `repair_on_write` and the `doctor_*` keys). Each is ignored with a finding that names what to use, and
 dropped when the server realigns the file; `git_profile: server`, which cannot be honoured, makes
 the KB refuse to mount. The realignment is one commit by the server, through the normal write
-path, so it is revertible (`docs/deployment.md` §Upgrading: realignment); a KB created by
+path, so it is revertible (`docs/deployment.md` §Upgrades, schema migration, and repo growth); a KB created by
 `kb create` starts with no key set.
 
 **One home (D906).** The effective value is the KB's `settings.yaml` if it sets the key, else the
 default. A key of the server's `kbs[]` that is a KB's setting (`usage_stale_days`, …) is a removed key there: it is ignored with a warning that names the KB file,
-and dropped when the server realigns its file (`docs/deployment.md` §Upgrading: realignment). The
+and dropped when the server realigns its file (`docs/deployment.md` §Upgrades, schema migration, and repo growth). The
 origin of a value that comes from the file is `kb` in `cartographer config` and the Atlas settings
 page. There is no local override: an operator who disagrees with a KB's policy changes the KB or
 does not mount it. A KB without the file runs on the defaults, on every server; a discovered KB

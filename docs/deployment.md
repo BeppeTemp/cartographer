@@ -1100,7 +1100,7 @@ The git remote is the primary copy: the push **debounce** determines how many co
 
 ### Lost SOPS key
 
-A truly unrecoverable scenario. Prevent it with multi-recipient escrow + restore testing (→ [`skills-services-secrets.md`](skills-services-secrets.md) §break-glass).
+A truly unrecoverable scenario. Prevent it with multi-recipient escrow + restore testing (→ [`skills-services-secrets.md`](skills-services-secrets.md) §Operational guidance).
 
 ### Working-tree crash recovery
 

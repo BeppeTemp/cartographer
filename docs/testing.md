@@ -211,6 +211,17 @@ otherwise silent — no client, compiler or linter reports any of them:
   which no other check reads;
 - every relative link in every tracked markdown file resolves, and none uses the
   retired `#d<n>` anchor form;
+- every `<page>.md §Heading` citation, in prose, comments and shipped skills (outside
+  `docs/decisions/`), names a heading of that page, and every `#fragment` of a relative
+  link names a heading or `<a id>` of its target (D1124). A cited text matches a heading
+  when the two are equal or one is a prefix of the other ending at a word boundary;
+  `sectionRefAllow` (reason mandatory, enforced both ways) holds what is not a pointer.
+  `mkdocs.yml` turns on `validation.links.anchors` as the published-site half;
+- the structure cross-lists agree (D1124): every page of `docs/` is in `docs/index.md`
+  and in the `mkdocs.yml` nav, every `make <target>` and `internal/`, `cmd/`, `scripts/`,
+  `deploy/`, `test/` path cited exists (`repoPathAllow` for the exceptions), and in
+  `cmd/cartographer` the usage table equals the dispatch switch of `run()` and every
+  `cartographer <command>` cited names one;
 - each skill's frontmatter parses with the same spec-compliant YAML parser a
   client uses, and satisfies the strictest client's rules (D207), the skills being real directories in
   `.claude/skills/`;

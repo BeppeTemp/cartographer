@@ -413,14 +413,19 @@ func TestEveryRelativeDocLinkResolves(t *testing.T) {
 		t.Fatal("no markdown file collected: the link check is not doing anything")
 	}
 
+	pages := map[string]string{} // markdown read so far, for the fragment check
 	for _, rel := range files {
 		text := stripCode(readFile(t, root, rel))
 		for _, m := range link.FindAllStringSubmatch(text, -1) {
 			target := m[1]
 			switch {
 			case strings.HasPrefix(target, "http://"), strings.HasPrefix(target, "https://"),
-				strings.HasPrefix(target, "mailto:"), strings.HasPrefix(target, "#"):
+				strings.HasPrefix(target, "mailto:"):
 				continue
+			}
+			// A link to a heading must name an anchor the page has (D1124).
+			if msg := fragmentProblem(root, rel, target, pages); msg != "" {
+				t.Error(msg)
 			}
 			if i := strings.IndexByte(target, '#'); i >= 0 {
 				target = target[:i]

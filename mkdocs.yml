@@ -61,6 +61,13 @@ extra_css:
 plugins:
   - search
 
+# A fragment link to a heading that does not exist is reported by mkdocs only at
+# INFO by default; `mkdocs build --strict` (.github/workflows/docs.yml) turns a
+# warning into a failure, so the published site cannot carry a dead anchor (D1124).
+validation:
+  links:
+    anchors: warn
+
 # Mirrors the grouping of docs/index.md — that page stays the canonical map,
 # this nav is only the sidebar rendering of it.
 nav:
