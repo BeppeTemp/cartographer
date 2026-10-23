@@ -155,8 +155,8 @@ type kbMount struct {
 	Name string
 	Spec config.KBSpec
 	// Discovered marks a KB found by scanning Data rather than declared in a
-	// kbs[] entry: it has no KBSpec, so every per-KB setting is at its zero
-	// value and nothing but adding the entry can change that (D151). Carried
+	// kbs[] entry: it has no KBSpec, so remote, name and branch are at their
+	// zero value and only an entry can set them (D151, D1093). Carried
 	// explicitly rather than inferred from an empty Spec, because an operator
 	// who writes kbs: [{path: ...}] with no options also has a zero Spec, and
 	// that KB is configured — it chose the defaults.
@@ -302,7 +302,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			// surface, which is how one deployment ran for a whole migration with
 			// artifact writes and tool prefixes silently off (D151).
 			// Its policy comes from its own settings.yaml (D746), when it has one.
-			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — its policy comes from its settings.yaml if it has one, and machine_path allow-prefixes are at their defaults", name)
+			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — its policy comes from its settings.yaml if it has one; a kbs[] entry would only set its remote, name or branch for this server", name)
 		}
 	}
 

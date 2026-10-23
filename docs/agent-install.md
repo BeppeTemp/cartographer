@@ -95,7 +95,7 @@ cartographer setup --remote <git-remote-url> --agents <agents> --dry-run --no-in
 Add `--workspace <repository path>` if the user chose to confine the KB (question 3); use
 `--no-remote --name <name>` instead of `--remote` only for an accepted local-only KB.
 
-Expected output: `Setup plan:` and four numbered lines — server, KB, agents, verify — then
+Expected output: `Setup plan:` and its numbered lines — server, KB, agents, a sync timer when an agent has no session-start hook, then verify — then
 `dry run — nothing was changed`. Check the KB line against what the user told you: `create … and
 push it to <url> (empty repository)` or `mount … (the repository already has content)`. If it says
 *mount* for a repository they called empty, or *create* for one they said holds their KB, stop and
@@ -122,7 +122,7 @@ skipped, so a rerun is always safe.
 
 `cartographer status` should report in-sync with exit code 0. Then confirm the instructions actually
 reach the model, not just the disk. `cartographer status` and
-`cartographer doctor` now check the provider's own precedence chain (D189), but the provider's own
+`cartographer doctor` check the provider's own precedence chain (D189), but the provider's own
 tooling is the ground truth — for Codex:
 
 ```bash
@@ -167,5 +167,5 @@ Omitting this is the single most common way a correct installation is reported a
 | `setup` says `git is not installed` | Install git (on macOS `xcode-select --install` or Homebrew; on Windows the installer from git-scm.com), open a new shell, rerun. |
 | `setup` says `no agent client detected` | Name the agent explicitly with `--agents`; if it is really absent, it has to be installed first. |
 | `setup` stops at the KB step with `not an OKF KB` | The repository holds content that is not a Cartographer KB. Use the `cartographer-kb-import` skill to import it into an OKF KB, push it, then rerun. |
-| `setup` stops at the KB step with `Init: initial commit` | Git refused the KB's first commit; the git message under it names why (a commit hook, commit signing with no usable key; `Committer identity unknown` on a Cartographer older than D265 — set `git config --global user.name`/`user.email`). Fix it, remove the partial scaffold the hint names, rerun. |
+| `setup` stops at the KB step with `Init: initial commit` | Git refused the KB's first commit; the git message under it names why (a commit hook, commit signing with no usable key). Fix it, remove the partial scaffold the hint names, rerun. |
 | `setup` stops at the KB step with a push failure | The repository was not empty after all, or the forge rejected the commit's author: the output names the fix. `src refspec main does not match any` is neither — the KB has no initial commit (see the row above; the hint prints the commit command). The scaffold is kept (D156). |

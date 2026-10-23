@@ -905,8 +905,8 @@ func checkCapabilities(dir string, cfg *clientconfig.Config) []doctorFinding {
 			case name == "mount" && c.State == "discovered":
 				out = append(out, doctorFinding{
 					Check: "capability", Severity: doctorInfo, Path: configPath,
-					Message: fmt.Sprintf("KB %q was discovered under data:, so no kbs[] entry governs it and every per-KB setting is at its default", kbInfo.Name),
-					Fix:     "add a kbs[] entry for it in the server config",
+					Message: fmt.Sprintf("KB %q was discovered under data:, so no kbs[] entry governs it; its policy is its own settings.yaml", kbInfo.Name),
+					Fix:     "add a kbs[] entry only to set its remote, name or branch for this server",
 				})
 			}
 		}

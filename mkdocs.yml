@@ -83,6 +83,7 @@ nav:
       - Transport and auth: transport-auth.md
       - Operating loop: loop.md
       - Interoperability: interoperability.md
+      - Harness ledger: harnesses.md
       - Decisions: decisions.md
       - Go conventions: conventions.md
       - Testing: testing.md
