@@ -55,7 +55,7 @@ them resolves.
    that each rewrote it conflicted with every merge. `make decisions-index`
    still regenerates it locally when you want to read it current. CI fails on a
    file that still carries a placeholder from the template — a half-written
-   record indexes as a blank entry, because `<title>` renders as an HTML tag.
+   record indexes as a blank entry, because angle brackets around a word render as an HTML tag.
 
 Do not add status tables, milestone lists or duplicate entries. A decision has
 exactly one file; other pages link to it.

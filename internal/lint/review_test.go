@@ -164,7 +164,7 @@ func TestReviewKindsHaveFixture(t *testing.T) {
 }
 
 // reviewClosers write, per kind, the page state that closes its fixture's
-// item (D907, docs/data-plane.md §Nothing dismisses a review item): nothing
+// item (D907, docs/data-plane.md §Review keys): nothing
 // dismisses an item, so each kind needs a state the pages can express. The
 // trap test iterates ReviewKinds over this map, so a new kind without one
 // fails.

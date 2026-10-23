@@ -3785,7 +3785,7 @@ func ManagedDestinationRoots(provider configurator.Provider, baseDir string) []s
 // hooksettings.go); on opencode it generates a whole plugin JS file instead
 // (D59, registerOpenCodePlugin) when the hook's event has an OpenCode
 // equivalent. All three are idempotent (re-apply never duplicates/drifts) and
-// prunable (removed on diff.Removed/PruneManaged); see docs/sync.md §Hook.
+// prunable (removed on diff.Removed/PruneManaged); see docs/sync.md §Agents and hooks.
 // Agent content is translated per provider (D55/D58, see
 // translateAgentForProvider); kiro never reaches that function because its
 // "agent" cell is unsupported.
@@ -3822,7 +3822,7 @@ func destDir(kind, name string, provider configurator.Provider) string {
 }
 
 // translateAgentForProvider adapts an "agent" artifact's content (a Claude Code
-// subagent .md, see docs/sync.md §Agent e hook) for materialization under a
+// subagent .md, see docs/sync.md §Agents and hooks) for materialization under a
 // specific provider (D55). Claude receives the content verbatim (native format).
 // OpenCode has its own native subagent format (.config/opencode/agents/<name>.md,
 // mode: subagent) which is *not* a superset of Claude's frontmatter: fields like

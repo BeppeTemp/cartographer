@@ -1304,7 +1304,7 @@ type ValidationError struct {
 
 // maxConceptDepth is the maximum number of ConceptID segments allowed for
 // concepts written under data/ (archivio/dossier/concept — see
-// docs/data-plane.md §Gerarchia). Enforced by WriteConcept (D72 WP4);
+// docs/data-plane.md §Hierarchy). Enforced by WriteConcept (D72 WP4);
 // concept_move inherits it because it writes via WriteConcept. Reads are
 // unaffected, so legacy KBs with deeper paths remain readable. The
 // services/ tree (a sibling of data/, resolved at kb.Root — see
