@@ -27,10 +27,19 @@
 #   E. The first page of a new map is accepted with index_entry, and the
 #      commit is authored by the token id (or by Cartographer-Author).
 #   F. Refusals do not disclose: a KB the token cannot read looks like one
-#      that is not mounted; the reader's write is a plain `forbidden`.
+#      that is not mounted, compared IN THE SAME POSITION (D1096: a ?kbs= name
+#      the token cannot read is `unknown`, like an unmounted one, so the name the
+#      caller put in its own URL is echoed back; what must hold is that
+#      ?kbs=kb-a,work-kb and ?kbs=kb-a,no-such-kb answer alike once the name is
+#      substituted); the reader's write is a plain `forbidden`.
 #   G. No doctor nudge on a generic connection, and the nudge IS sent to the
 #      provisioned control (so "no nudge" is not vacuous).
-#   H. No received text sends the agent to a `cartographer <subcommand>`.
+#   H. No received text sends the agent to a `cartographer <subcommand>`; the
+#      listings of the work-kb URL equal those of the no-such-kb URL after the
+#      name is substituted, and never carry work-kb's sentinel or page id.
+#
+# Comparisons (F2, F4, H) mask only the volatile fields: every key ending in
+# `_at`, `since` or `no_report_since`, and every key containing `sha` or `hash`.
 #
 # Traps:
 #   - A token with an `id` exists only in the YAML `auth.tokens` form (the flat
@@ -79,6 +88,7 @@ WRITER_TOKEN="writer-${TS}"
 READER_TOKEN="reader-${TS}"
 SENTINEL_A="Sentinel sentence for kb-a ${TS}."
 SENTINEL_W="Sentinel sentence for work-kb ${TS}."
+W_PAGE="notes/work-only-page-${TS}"
 NUDGE="Propose a cartographer-kb-doctor session"
 mkdir -p "$DIR"
 : > "$GENERIC_LOG"
@@ -102,6 +112,15 @@ title: Stray note
 # Stray note
 
 See [[notes/does-not-exist]].
+EOF
+# A page only work-kb holds: its id must never reach a token that cannot read it.
+mkdir -p "${KB_W}/data/notes"
+cat > "${KB_W}/data/${W_PAGE}.md" <<'EOF'
+---
+type: note
+title: Work-only page
+---
+# Work-only page
 EOF
 for kb in "$KB_A" "$KB_W"; do
     git -C "$kb" add -A
@@ -172,11 +191,48 @@ texts() { jx '"\n".join(c.get("text", "") for c in r.get("content", []))'; }
 blocks() { jx 'len(r.get("content", []))'; }
 tool_names() { jx 'sorted(t["name"] for t in r.get("tools", []))'; }
 is_error() { jx '"true" if r.get("isError") else "false"'; }
+# canon <name> reads a JSON-RPC response on stdin and prints it canonical: the
+# text blocks that are JSON are expanded, the volatile fields masked, and the
+# KB name the caller put in its URL replaced by NAME.
+canon() {
+    python3 -c '
+import json, sys
+name = sys.argv[1]
+def volatile(k):
+    return k.endswith("_at") or k in ("since", "no_report_since") or "sha" in k or "hash" in k
+def walk(o):
+    if isinstance(o, dict):
+        return {k: ("<volatile>" if volatile(k) else walk(v)) for k, v in o.items()}
+    if isinstance(o, list):
+        return [walk(v) for v in o]
+    if isinstance(o, str):
+        try:
+            j = json.loads(o)
+            if isinstance(j, (dict, list)):
+                return walk(j)
+        except ValueError:
+            pass
+    return o
+d = json.load(sys.stdin)
+print(json.dumps(walk(d), sort_keys=True, indent=1).replace(name, "NAME"))
+' "$1"
+}
+same_modulo_name() { # <desc> <body-with-work-kb> <body-with-no-such-kb>
+    local a b
+    a="$(printf '%s' "$2" | canon work-kb)"
+    b="$(printf '%s' "$3" | canon no-such-kb)"
+    if [[ -n "$a" && "$a" == "$b" ]]; then
+        _assert_pass "$1"
+    else
+        _assert_fail "$1 — work-kb: ${a:0:600} vs no-such-kb: ${b:0:600}"
+    fi
+}
 http_get() { # <token-or-empty> <path>
     curl -s --max-time 30 ${1:+-H "Authorization: Bearer ${1}"} "${HOST}${2}"
 }
 
 R_QUERY='?kbs=kb-a,work-kb'
+U_QUERY='?kbs=kb-a,no-such-kb'
 W_QUERY=''
 P_QUERY='?provisioned=1'
 
@@ -207,6 +263,7 @@ echo ""
 echo "--- B: the guide in initialize ---"
 
 INIT_R="$(lst "$(rpc "$READER_TOKEN" "$R_QUERY" "$INIT_BODY")")"
+INIT_U="$(lst "$(rpc "$READER_TOKEN" "$U_QUERY" "$INIT_BODY")")"
 INIT_W="$(lst "$(rpc "$WRITER_TOKEN" "$W_QUERY" "$INIT_BODY")")"
 for pair in "R:$INIT_R" "W:$INIT_W"; do
     who="${pair%%:*}"
@@ -264,6 +321,7 @@ echo "--- D: kb_guide ---"
 
 # The first tools/call of the run, by the reader: the one a nudge would hit.
 D1="$(lst "$(tcall "$READER_TOKEN" "$R_QUERY" kb_guide '{}')")"
+GUIDE_U="$(lst "$(tcall "$READER_TOKEN" "$U_QUERY" kb_guide '{}')")"
 assert_mcp_ok "D1 kb_guide with no argument" "$D1"
 D1T="$(printf '%s' "$D1" | texts)"
 for needle in 'kb-a' "$SENTINEL_A" 'ingest' 'conflict-resolve' 'import'; do
@@ -322,14 +380,13 @@ assert_mcp_error_text "F1 the reader's write is refused" "$F1" forbidden
 assert_mcp_not_discloses "F1 the refusal does not mention unbound_folder" "$F1" 'unbound_folder'
 assert_mcp_not_discloses "F1 the refusal does not mention workspace bind" "$F1" 'workspace bind'
 F2A="$(gen "$(tcall "$READER_TOKEN" "$R_QUERY" search '{"query":"sentinel","kb":"work-kb"}')")"
-F2B="$(gen "$(tcall "$READER_TOKEN" "$R_QUERY" search '{"query":"sentinel","kb":"no-such-kb"}')")"
-F2AT="$(printf '%s' "$F2A" | texts | sed 's/work-kb/NAME/g')"
-F2BT="$(printf '%s' "$F2B" | texts | sed 's/no-such-kb/NAME/g')"
-if [[ "$(printf '%s' "$F2A" | is_error)" == "true" && "$F2AT" == "$F2BT" ]]; then
-    _assert_pass "F2 a KB the token cannot read is indistinguishable from one that is not mounted"
+F2B="$(gen "$(tcall "$READER_TOKEN" "$U_QUERY" search '{"query":"sentinel","kb":"no-such-kb"}')")"
+if [[ "$(printf '%s' "$F2A" | is_error)" == "true" ]]; then
+    _assert_pass "F2 search on a KB the token cannot read is an error"
 else
-    _assert_fail "F2 work-kb: '${F2AT}' vs no-such-kb: '${F2BT}'"
+    _assert_fail "F2 search kb=work-kb was not refused: ${F2A:0:300}"
 fi
+same_modulo_name "F2 a KB the token cannot read answers like an unmounted one, in the same position" "$F2A" "$F2B"
 F3A="$(curl -s --max-time 30 -w '\n%{http_code}' -X POST "${HOST}/mcp/routed?kbs=work-kb" -H 'Content-Type: application/json' -H "Authorization: Bearer ${READER_TOKEN}" -d "$LIST_BODY")"
 F3B="$(curl -s --max-time 30 -w '\n%{http_code}' -X POST "${HOST}/mcp/routed?kbs=no-such-kb" -H 'Content-Type: application/json' -H "Authorization: Bearer ${READER_TOKEN}" -d "$LIST_BODY")"
 note "$GENERIC_LOG" "$F3A" "$F3B"
@@ -341,7 +398,8 @@ fi
 F4="$(lst "$(tcall "$READER_TOKEN" "$R_QUERY" kb_status '{}')")"
 assert_mcp_ok "F4 kb_status" "$F4"
 F4T="$(printf '%s' "$F4" | texts)"
-assert_mcp_not_discloses "F4 kb_status does not name work-kb" "$F4T" 'work-kb'
+F4U="$(lst "$(tcall "$READER_TOKEN" "$U_QUERY" kb_status '{}')")"
+same_modulo_name "F4 kb_status on ?kbs=kb-a,work-kb equals the one on ?kbs=kb-a,no-such-kb" "$F4" "$F4U"
 DEBT="$(printf '%s' "$F4T" | python3 -c 'import json,sys
 try:
     d = json.load(sys.stdin)
@@ -410,11 +468,20 @@ if [[ -z "$HITS" ]]; then
 else
     _assert_fail "H generic.log sends the agent to a CLI command:${HITS}"
 fi
-if grep -qF 'work-kb' "$LISTING_LOG"; then
-    _assert_fail "H the listings name work-kb, a KB no token reads"
-else
-    _assert_pass "H the listings never name work-kb"
-fi
+# The listings of the work-kb URL equal those of the no-such-kb URL.
+# (INIT_U and GUIDE_U were taken in B and D, before E created a map: the guide
+# lists the archives, so the two sides must be read at the same state.)
+LIST_U="$(lst "$(rpc "$READER_TOKEN" "$U_QUERY" "$LIST_BODY")")"
+same_modulo_name "H initialize: work-kb URL equals no-such-kb URL" "$INIT_R" "$INIT_U"
+same_modulo_name "H tools/list: work-kb URL equals no-such-kb URL" "$LIST_R" "$LIST_U"
+same_modulo_name "H kb_guide: work-kb URL equals no-such-kb URL" "$D1" "$GUIDE_U"
+for needle in "$SENTINEL_W" "$W_PAGE"; do
+    if grep -qF "$needle" "$LISTING_LOG" "$GENERIC_LOG"; then
+        _assert_fail "H a response carries work-kb's content: ${needle}"
+    else
+        _assert_pass "H no response carries work-kb's '${needle}'"
+    fi
+done
 
 # --- Report ---
 echo ""
