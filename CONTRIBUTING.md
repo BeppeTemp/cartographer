@@ -415,6 +415,13 @@ findings as its mandate. Everything else — tests that fail without the fix, do
 the same PR, `make gate`, the review tier of `cartographer-review-pr` — is the same
 as for a plan.
 
+A defect found on the way — a reviewer's `pre-existing` finding, a flaky or broken
+test, a doc that contradicts the code — does not wait in a backlog: it becomes a `bug`
+issue in the open milestone, the next train, and when it is bounded the session that
+found it fixes it the same day through this path. A rerun that turns a flaky test
+green is not a fix. A security one goes to a draft advisory instead, and the next
+paragraph applies.
+
 A vulnerability in released code is fixed in the temporary private fork of its draft
 advisory (`SECURITY.md`), by `cartographer-advisory-fixer`, and reviewed there with
 `cartographer-security-reviewer`. Nothing about it is public until the release: the
