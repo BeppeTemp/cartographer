@@ -1,0 +1,6 @@
+# CodeQL configuration for codeql.yml. internal/webui/dist is the generated,
+# minified Atlas bundle (vendored three.js included): its alerts are about code
+# we do not write, and they reopen on every bundle hash. web/src is analyzed.
+name: cartographer-codeql
+paths-ignore:
+  - internal/webui/dist

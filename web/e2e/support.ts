@@ -79,7 +79,7 @@ export async function openConcept(page: Page, id: string): Promise<void> {
 
 /** The URL names the selected concept. */
 export function selectedIn(id: string): RegExp {
-  return new RegExp("concept=" + encodeURIComponent(id).replace(/[.*()]/g, "\\$&"));
+  return new RegExp("concept=" + encodeURIComponent(id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 }
 
 /** Opens the atlas on the auth-on server and signs in with token. */

@@ -74,6 +74,7 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: web/.nvmrc
+          # The `trusted` output (set above, true only for main) is what keeps PR runs from reading or writing caches.
           cache: ${{ steps.needed.outputs.trusted == 'true' && 'npm' || '' }}
           cache-dependency-path: web/package-lock.json
       - if: steps.needed.outputs.render == 'true'
