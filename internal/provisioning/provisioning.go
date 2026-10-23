@@ -1882,6 +1882,26 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	// Files a rewritten artifact no longer declares, collected as the writes
 	// happen and pruned through the same path as any other removal (D178).
 	var orphaned []ManagedFile
+	// Hooks that stay installed while a file of theirs is dropped (D178): the
+	// prune below removes that file only and leaves the registration alone.
+	keepHooks := make(map[string]bool)
+
+	// refuseArtifact is refuse for a write that Apply skips: besides reporting
+	// it, the artifact's previous lock entries are carried forward unchanged. A
+	// refused update leaves the previous content on disk, so the lockfile must
+	// keep saying we own it; dropping the entries would leave a prune or a
+	// disconnect unaware of those files until a retry succeeds.
+	refuseArtifact := func(a Artifact, err error) bool {
+		if !refuse(&result, a, err) {
+			return false
+		}
+		for _, mf := range opts.Lock.Managed {
+			if mf.Kind == a.Kind && mf.Name == a.Name {
+				newManaged = append(newManaged, mf)
+			}
+		}
+		return true
+	}
 
 	// Materialize the authorized artifacts.
 	for _, a := range toWrite {
@@ -1975,7 +1995,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				}
 				rp, warnings, regErr := registerMCPServer(opts.BaseDir, a.Name, spec, opts.Provider, opts.Scope)
 				if regErr != nil {
-					if refuse(&result, a, regErr) {
+					if refuseArtifact(a, regErr) {
 						continue
 					}
 					return AppliedResult{}, fmt.Errorf("provisioning: register mcp %s: %w", a.Name, regErr)
@@ -1991,7 +2011,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			fullDestPath := filepath.Join(opts.BaseDir, destRel)
 			if !opts.DryRun {
 				if err := mkdirAllNoFollow(opts.BaseDir, filepath.Dir(fullDestPath), 0o755); err != nil {
-					if refuse(&result, a, err) {
+					if refuseArtifact(a, err) {
 						continue
 					}
 					return AppliedResult{}, fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(fullDestPath), err)
@@ -2014,7 +2034,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				// After the translation: this is the byte sequence on disk.
 				materializedHash = hashArtifactFiles([]ArtifactFile{{Path: a.Name + ".md", Content: content}})
 				if err := writeFileNoFollow(fullDestPath, content, 0o644); err != nil {
-					if refuse(&result, a, err) {
+					if refuseArtifact(a, err) {
 						continue
 					}
 					return AppliedResult{}, fmt.Errorf("provisioning: write agent %s: %w", a.Name, err)
@@ -2025,8 +2045,20 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			// skill/hook: destRel is a directory, one or more files inside it.
 			fullDestDir := filepath.Join(opts.BaseDir, destRel)
 			if !opts.DryRun {
+				// A hook whose registration target is refused is refused before
+				// its script is copied: the copy would overwrite the installed
+				// script while the registration, and so the lock entry, still
+				// describes the previous one.
+				if a.Kind == "hook" {
+					if err := checkHookRegistrationTarget(opts.BaseDir, opts.Provider, a.Name); err != nil {
+						if refuseArtifact(a, err) {
+							continue
+						}
+						return AppliedResult{}, err
+					}
+				}
 				if err := mkdirAllNoFollow(opts.BaseDir, fullDestDir, 0o755); err != nil {
-					if refuse(&result, a, err) {
+					if refuseArtifact(a, err) {
 						continue
 					}
 					return AppliedResult{}, fmt.Errorf("provisioning: mkdir %s: %w", fullDestDir, err)
@@ -2038,7 +2070,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 					result.Warnings = append(result.Warnings, stampWarning)
 				}
 				if err != nil {
-					if refuse(&result, a, err) {
+					if refuseArtifact(a, err) {
 						continue
 					}
 					return AppliedResult{}, fmt.Errorf("provisioning: copy %s %s: %w", a.Kind, a.Name, err)
@@ -2055,7 +2087,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 						if regErr != nil {
 							// Refused (D148): the hook is not registered, so it is
 							// not recorded as installed; the next sync retries.
-							if refuse(&result, a, regErr) {
+							if refuseArtifact(a, regErr) {
 								continue
 							}
 							return AppliedResult{}, regErr
@@ -2086,6 +2118,9 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 			written = declaredRelPaths(a, destRel)
 		}
 		orphaned = append(orphaned, droppedArtifactFiles(opts.Lock.Managed, a, destRel, written)...)
+		if a.Kind == "hook" {
+			keepHooks[a.Name] = true
+		}
 		if relocated[a.Kind+"\x00"+a.Name] {
 			orphaned = append(orphaned, movedArtifactFiles(opts.Lock.Managed, a, destRel)...)
 		}
@@ -2150,7 +2185,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	}
 	genericRemoved = append(genericRemoved, orphaned...)
 	genericRemoved = WithoutCoOwned(genericRemoved, opts.CoOwnedPaths)
-	pruned, err := PruneManaged(genericRemoved, opts.BaseDir, opts.DryRun)
+	pruned, err := pruneManaged(genericRemoved, opts.BaseDir, opts.DryRun, keepHooks)
 	var pruneRefused *PruneRefusedError
 	if errors.As(err, &pruneRefused) {
 		// A refused removal is per artifact, like a refused write: it is
@@ -3325,8 +3360,18 @@ func pruneEmptyDirs(baseDir, relPath string) {
 // entry is stripped once per distinct hook name, same dedup pattern as the
 // instructions block above. No provider parameter is needed — mf.Path already
 // encodes which provider materialized it (destDir gives each provider its own
-// hooks directory), see hookProviderFromPath.
+// hooks directory), see hookProviderFromPath. Apply removes a file dropped from
+// a hook that stays in the manifest without this strip (pruneManaged).
 func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]ManagedFile, error) {
+	return pruneManaged(managed, baseDir, dryRun, nil)
+}
+
+// pruneManaged is PruneManaged with the hooks that stay installed: a file of a
+// hook named in keepHooks leaves with its own entry only, because the hook is
+// still in the manifest and its registration must go on firing. The
+// registration is stripped when the hook itself is pruned (its name no longer
+// in the manifest, or a disconnect, which passes none).
+func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks map[string]bool) ([]ManagedFile, error) {
 	pruned := make([]ManagedFile, 0, len(managed))
 	// What each shared target (an instructions file, an MCP server, a hook's
 	// registration) came to: present with a nil error once removed, with the
@@ -3383,13 +3428,16 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 			// entry/block for this server (removeMCPServer, D69 WP4). A server
 			// can have a single ManagedFile (unlike hook/instructions),
 			// but the dedup by name stays for consistency with the same pattern.
-			err, seen := mcpResult[mf.Name]
+			// Keyed by name and target file: the same name registered in two
+			// config files (a relocated entry) is two removals.
+			mcpKey := mf.Name + "\x00" + filepath.ToSlash(mf.Path)
+			err, seen := mcpResult[mcpKey]
 			if !seen {
 				if provider := mcpProviderFromPath(mf.Path); provider != "" {
 					err = removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path))
 				}
 				if err == nil || errors.Is(err, ErrSymlinkDestination) {
-					mcpResult[mf.Name] = err
+					mcpResult[mcpKey] = err
 				}
 			}
 			if err != nil {
@@ -3403,7 +3451,7 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 		}
 		// A hook's registration goes before its files: a refused registration
 		// must leave the script it points at in place.
-		if mf.Kind == "hook" {
+		if mf.Kind == "hook" && !keepHooks[mf.Name] {
 			err, seen := hookResult[mf.Name]
 			if !seen {
 				err = removeHookRegistration(baseDir, mf)

@@ -22,6 +22,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // BootstrapHookName is the reserved hook name for the client-generated bootstrap
@@ -362,6 +363,31 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 			return "", warning, nil
 		},
 	},
+}
+
+// checkHookRegistrationTarget refuses, before anything is written for a hook,
+// a registration target (the provider's shared settings file, or its generated
+// plugin file) that sits behind a symlink or any other non-plain path, with the
+// ErrSymlinkDestination the registrar itself would return. A provider with no
+// mechanism has nothing to check.
+func checkHookRegistrationTarget(baseDir string, provider configurator.Provider, name string) error {
+	m, ok := hookMechanisms[provider]
+	if !ok {
+		return nil
+	}
+	var targets []string
+	if len(m.settingsFile) > 0 {
+		targets = append(targets, filepath.Join(m.settingsFile...))
+	}
+	if m.pluginPath != nil {
+		targets = append(targets, m.pluginPath(name))
+	}
+	for _, rel := range targets {
+		if err := safewrite.CheckPath(baseDir, filepath.Join(baseDir, rel)); err != nil {
+			return fmt.Errorf("provisioning: register hook %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // SupportsSessionHook reports whether the bootstrap hook (D60) can run at
