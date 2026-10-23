@@ -84,7 +84,7 @@ func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 				continue
 			}
 			merges++
-			// The merge waits for the security gate's output (D<n>): a gate that is
+			// The merge waits for the security gate's output (D1123): a gate that is
 			// skipped or removed must leave the release PR unmerged.
 			if st.If != "steps.security.outputs.clear == 'true'" {
 				t.Errorf("release-train.yml: job %s step %q merges with if=%q, want it gated on steps.security.outputs.clear", name, st.Name, st.If)

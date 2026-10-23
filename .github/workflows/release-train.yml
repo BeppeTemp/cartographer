@@ -177,7 +177,7 @@ jobs:
           echo "number=$PR" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
-      # No release with a known hole (D<n>): no open Dependabot or code scanning alert, and
+      # No release with a known hole (D1123): no open Dependabot or code scanning alert, and
       # no draft advisory with an open fix PR in its private fork. github.token reads none
       # of the three, so SECURITY_GATE_TOKEN (read-only PAT, see TRAPS) does; a missing
       # token or a failed call counts as not clear. The repository is public, so the
