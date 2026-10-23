@@ -424,6 +424,19 @@ func managedEntryNames(baseName string, kbs []string) []string {
 	return names
 }
 
+// withRetainedKBs is current followed by the KBs of previous it does not hold:
+// the persisted list of a sync that could not remove every stale per-KB entry,
+// so that managedEntryNames still names them next time.
+func withRetainedKBs(current, previous []string) []string {
+	out := append([]string(nil), current...)
+	for _, kb := range previous {
+		if !slices.Contains(out, kb) {
+			out = append(out, kb)
+		}
+	}
+	return out
+}
+
 // entriesByProviderForKBs builds each provider's own entry set from its binding
 // (D170). A provider explicitly bound to NO KBs gets no entry at all — that is
 // the one case where an empty list is a declaration rather than an absence.

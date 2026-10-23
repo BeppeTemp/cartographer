@@ -89,7 +89,7 @@ func registerCrushHook(baseDir, hookName, fullDestDir string) (string, error) {
 	list = withoutCrushHook(list, crushHookName(hookName))
 	hooks[spec.Event] = append(list, entry)
 	settings["hooks"] = hooks
-	return "", saveJSONObject(path, settings)
+	return "", saveJSONObject(baseDir, path, settings)
 }
 
 // removeCrushHook strips hookName's entry from the config file that matches
@@ -126,7 +126,7 @@ func removeCrushHook(baseDir, hookName, hookRel string) error {
 	if len(hooks) == 0 {
 		delete(settings, "hooks")
 	}
-	return saveJSONObject(path, settings)
+	return saveJSONObject(baseDir, path, settings)
 }
 
 func withoutCrushHook(list []interface{}, name string) []interface{} {

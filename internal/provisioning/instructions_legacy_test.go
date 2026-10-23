@@ -22,7 +22,7 @@ func TestWriteInstructionsBlock_ReplacesLegacyLocalizedMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := writeInstructionsBlock(path, "new body"); err != nil {
+	if err := writeInstructionsBlock(filepath.Dir(path), path, "new body"); err != nil {
 		t.Fatal(err)
 	}
 

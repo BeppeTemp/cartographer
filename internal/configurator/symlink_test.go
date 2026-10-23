@@ -269,3 +269,120 @@ func TestCodexTableHelpers_RefuseASymlinkedFile(t *testing.T) {
 		t.Errorf("target changed: %q", b)
 	}
 }
+
+// A refusal needs something to write or remove: a link over a config with
+// nothing of ours in it is a no-op, never an error.
+func TestRemove_NothingOfOursNeverRefuses(t *testing.T) {
+	for _, p := range symlinkProviders(t) {
+		t.Run(string(p), func(t *testing.T) {
+			rel, _ := seededConfig(t, p)
+			// A config that holds a different server, not ours.
+			other := &configurator.ServerConfig{Name: "other", URL: "https://mcp.example.test/other"}
+			r, err := configurator.Emit(other, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scratch := t.TempDir()
+			if filepath.Ext(rel) == ".toml" {
+				// The block is shared by every entry: "nothing of ours" is a
+				// file without it.
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(scratch, rel)), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(scratch, rel), []byte("key = 1\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := configurator.Apply([]*configurator.EmitResult{r}, scratch, false); err != nil {
+				t.Fatal(err)
+			}
+			parts := strings.Split(filepath.ToSlash(rel), "/")
+			home := t.TempDir()
+			if len(parts) == 1 {
+				if err := os.Symlink(filepath.Join(scratch, rel), filepath.Join(home, rel)); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.Symlink(filepath.Join(scratch, parts[0]), filepath.Join(home, parts[0])); err != nil {
+				t.Fatal(err)
+			}
+			before := snapshot(t, scratch)
+			for _, dry := range []bool{false, true} {
+				removed, err := configurator.Remove(symlinkCfg(), p, home, dry)
+				if err != nil || removed {
+					t.Errorf("Remove(dry=%v) = %v, %v; want false, nil", dry, removed, err)
+				}
+			}
+			sameSnapshot(t, "no-op remove", before, snapshot(t, scratch))
+		})
+	}
+}
+
+// Both files or neither: a refusal on the legacy config.json must not leave the
+// managed block already removed from config.toml.
+func TestRemove_CodexLegacyRefusalLeavesBothFilesUntouched(t *testing.T) {
+	symlinkProviders(t)
+	home := t.TempDir()
+	r, err := configurator.Emit(symlinkCfg(), configurator.ProviderCodex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, home, false); err != nil {
+		t.Fatal(err)
+	}
+	toml := filepath.Join(home, r.FilePath)
+	tomlBefore, _ := os.ReadFile(toml)
+
+	elsewhere := t.TempDir()
+	legacy := filepath.Join(elsewhere, "legacy.json")
+	const legacyBody = `{"mcpServers":{"wiki":{"url":"https://mcp.example.test/mcp"}},"other":1}`
+	if err := os.WriteFile(legacy, []byte(legacyBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(legacy, filepath.Join(home, ".codex", "config.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Remove(symlinkCfg(), configurator.ProviderCodex, home, false); !errors.Is(err, safewrite.ErrSymlinkDestination) {
+		t.Fatalf("Remove = %v, want ErrSymlinkDestination", err)
+	}
+	if b, _ := os.ReadFile(toml); string(b) != string(tomlBefore) {
+		t.Errorf("config.toml changed although the legacy file was refused:\n%s", b)
+	}
+	if b, _ := os.ReadFile(legacy); string(b) != legacyBody {
+		t.Errorf("legacy target changed: %s", b)
+	}
+}
+
+// The adopting and evicting rewrites check the directories above the file too,
+// but only when they have something to rewrite.
+func TestCodexTableHelpersUnder_RefuseALinkedDirectoryOnlyWhenRewriting(t *testing.T) {
+	symlinkProviders(t)
+	const begin = "# cartographer:x:begin — x"
+	const end = "# cartographer:x:end"
+	owned := func(key []string, _ string) bool { return len(key) == 2 && key[1] == "y" }
+
+	elsewhere := t.TempDir()
+	content := begin + "\n[mcp_servers.x]\nurl = \"u\"\n[notice]\nk = 1\n" + end + "\n[mcp_servers.y]\nurl = \"u\"\n"
+	if err := os.WriteFile(filepath.Join(elsewhere, "config.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(base, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(base, ".codex", "config.toml")
+	before := snapshot(t, elsewhere)
+
+	if _, err := configurator.AdoptCodexOrphanTablesUnder(base, path, owned); !errors.Is(err, safewrite.ErrSymlinkDestination) {
+		t.Errorf("AdoptCodexOrphanTablesUnder = %v, want ErrSymlinkDestination", err)
+	}
+	if _, err := configurator.EvictTablesFromBlockUnder(base, path, begin, end, func(key []string) bool { return false }); !errors.Is(err, safewrite.ErrSymlinkDestination) {
+		t.Errorf("EvictTablesFromBlockUnder = %v, want ErrSymlinkDestination", err)
+	}
+	// Nothing to adopt or evict: no rewrite, so no refusal.
+	if got, err := configurator.AdoptCodexOrphanTablesUnder(base, path, func([]string, string) bool { return false }); err != nil || got != nil {
+		t.Errorf("AdoptCodexOrphanTablesUnder with nothing to adopt = %v, %v; want nil, nil", got, err)
+	}
+	if got, err := configurator.EvictTablesFromBlockUnder(base, path, begin, end, func(key []string) bool { return true }); err != nil || got != nil {
+		t.Errorf("EvictTablesFromBlockUnder with nothing foreign = %v, %v; want nil, nil", got, err)
+	}
+	sameSnapshot(t, "codex tables", before, snapshot(t, elsewhere))
+}

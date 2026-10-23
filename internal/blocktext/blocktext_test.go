@@ -245,7 +245,14 @@ func TestWriteAndRemove_RefuseASymlinkedDirectory(t *testing.T) {
 		if err := blocktext.Write(base, path, begin, end, "new"); !errors.Is(err, safewrite.ErrSymlinkDestination) {
 			t.Errorf("Write(%s) = %v, want ErrSymlinkDestination", rel, err)
 		}
-		if _, err := blocktext.Remove(base, path, begin, end, false); !errors.Is(err, safewrite.ErrSymlinkDestination) {
+		// Removing from a file that is not there, or that holds no block, is a
+		// no-op and never a refusal.
+		_, err := blocktext.Remove(base, path, begin, end, false)
+		if strings.HasSuffix(rel, "new.toml") {
+			if err != nil {
+				t.Errorf("Remove(%s) of an absent file = %v, want nil", rel, err)
+			}
+		} else if !errors.Is(err, safewrite.ErrSymlinkDestination) {
 			t.Errorf("Remove(%s) = %v, want ErrSymlinkDestination", rel, err)
 		}
 	}
@@ -272,5 +279,29 @@ func TestWrite_AllowsASymlinkedBaseDir(t *testing.T) {
 	}
 	if _, err := blocktext.Remove(link, path, begin, end, false); err != nil {
 		t.Fatalf("Remove under a symlinked base dir = %v, want nil", err)
+	}
+}
+
+func TestRemove_NothingToRemoveNeverRefuses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	base := t.TempDir()
+	elsewhere := t.TempDir()
+	const content = "key = 1\n"
+	if err := os.WriteFile(filepath.Join(elsewhere, "cfg.toml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(base, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(elsewhere, "cfg.toml"), filepath.Join(base, "link.toml")); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Join(base, ".codex", "cfg.toml"), filepath.Join(base, "link.toml")} {
+		removed, err := blocktext.Remove(base, p, begin, end, false)
+		if err != nil || removed {
+			t.Errorf("Remove(%s) = %v, %v; want false, nil: the file holds no block", p, removed, err)
+		}
 	}
 }

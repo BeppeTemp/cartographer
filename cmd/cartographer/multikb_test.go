@@ -1034,3 +1034,46 @@ func TestCmdSync_ASymlinkedProviderConfigDoesNotStopTheOtherProviders(t *testing
 		t.Errorf("the link target changed: %s", b)
 	}
 }
+
+// A stale per-KB entry that could not be removed (its config is behind a
+// symlink) keeps its KB in known_kbs, or the next sync would no longer know the
+// entry is ours to remove.
+func TestCmdSync_ARefusedStaleEntryRemovalKeepsItsKBInKnownKBs(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	setHome(t, dir)
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "wiki", Token: "${TOKEN}", Agents: []string{"opencode"}, KnownKBs: []string{"alpha", "beta"}}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	both, _ := entriesForKBs("wiki", cfg.ServerURL, cfg.KnownKBs, cfg.KnownKBs, "", false)
+	if _, _, err := applyMCPEntries(sameEntriesFor(cfg.Agents, both), cfg.Agents, dir, nil, false, "", false); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "opencode.json")
+	if err := os.Rename(filepath.Join(dir, "opencode.json"), target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(target)
+
+	if code := cmdSync(nil); code != 0 {
+		t.Fatalf("sync = %d, want the refusal as a warning", code)
+	}
+	if after, _ := os.ReadFile(target); string(after) != string(before) {
+		t.Errorf("the link target changed:\n%s", after)
+	}
+	got, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got.KnownKBs, ",") != "alpha,beta" {
+		t.Errorf("known_kbs = %v, want beta kept so the next sync retries its removal", got.KnownKBs)
+	}
+}

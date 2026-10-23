@@ -497,3 +497,94 @@ func TestRemoveMCPEntries_ASymlinkedConfigIsReportedAfterTheOtherProvidersArePro
 		}
 	}
 }
+
+// Managed files behind a symlink are refused by the prune as well: what can be
+// pruned is, the provider stays connected with its lockfile section, and the
+// command exits 1 (D148).
+func TestDoDisconnect_APrunedFileBehindASymlinkKeepsTheProviderConnected(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude", "opencode")
+	elsewhere := linkOpencodeDir(t, dir)
+	before := readTree(t, elsewhere)
+
+	res, err := doDisconnect(disconnectOptions{Providers: []string{"opencode", "claude"}, Dir: dir})
+	if err != nil {
+		t.Fatalf("doDisconnect = %v, want the refusal reported per provider", err)
+	}
+	var oc, cl *disconnectProviderResult
+	for i := range res.Providers {
+		switch res.Providers[i].Provider {
+		case "opencode":
+			oc = &res.Providers[i]
+		case "claude":
+			cl = &res.Providers[i]
+		}
+	}
+	if oc == nil || len(oc.Refused) == 0 || !oc.ConfigRemoved {
+		t.Fatalf("opencode result = %+v, want its entry removed and its managed files refused", oc)
+	}
+	if cl == nil || len(cl.Refused) != 0 {
+		t.Fatalf("claude result = %+v, want a clean disconnect", cl)
+	}
+	if kept := res.keptConnected(); len(kept) != 1 || kept[0] != "opencode" {
+		t.Errorf("keptConnected = %v, want [opencode]", kept)
+	}
+	for k, v := range readTree(t, elsewhere) {
+		if before[k] != v {
+			t.Errorf("link target file %s changed", k)
+		}
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HasAgent("opencode") || cfg.HasAgent("claude") {
+		t.Errorf("agents = %v, want opencode kept and claude gone", cfg.Agents)
+	}
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := lf.Providers["opencode"]; !ok {
+		t.Error("opencode lock entry should remain so the next disconnect retries")
+	}
+	if got := summarizeDisconnect(disconnectResult{Providers: []disconnectProviderResult{*oc}}); !strings.Contains(got, "kept connected") || strings.Contains(got, "already disconnected") {
+		t.Errorf("TUI summary = %q, want the refusal reported", got)
+	}
+}
+
+func TestCmdDisconnect_ExitsNonZeroWhenAProviderWasKeptConnected(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude", "opencode")
+	setHome(t, dir)
+	linkOpencodeDir(t, dir)
+	if code := cmdDisconnect(nil); code != 1 {
+		t.Errorf("cmdDisconnect = %d, want 1", code)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || !cfg.HasAgent("opencode") || cfg.HasAgent("claude") {
+		t.Errorf("agents = %v, %v; want opencode kept and claude gone", cfg.Agents, err)
+	}
+}
+
+func TestSummarizeDisconnect_ReportsARefusalInsteadOfAlreadyDisconnected(t *testing.T) {
+	got := summarizeDisconnect(disconnectResult{Providers: []disconnectProviderResult{{Provider: "codex", Refused: []string{"destination is a symlink: /x"}}}})
+	if !strings.Contains(got, "kept connected: destination is a symlink: /x") {
+		t.Errorf("summary = %q", got)
+	}
+}
+
+// linkOpencodeDir replaces dir/.opencode (where the fixture put opencode's
+// managed skill) with a link to a directory holding the same files.
+func linkOpencodeDir(t *testing.T, dir string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	elsewhere := filepath.Join(t.TempDir(), "opencode-elsewhere")
+	if err := os.Rename(filepath.Join(dir, ".opencode"), elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(dir, ".opencode")); err != nil {
+		t.Fatal(err)
+	}
+	return elsewhere
+}

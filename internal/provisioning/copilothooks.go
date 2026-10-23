@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // Copilot CLI hooks (D676). Probed on copilot 1.0.94: a file
@@ -86,7 +87,7 @@ func registerCopilotHook(baseDir, hookName, fullDestDir string) (relPath, warnin
 
 	rel := copilotHookRelPath(hookName)
 	fullPath := filepath.Join(baseDir, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+	if err := mkdirAllNoFollow(baseDir, filepath.Dir(fullPath), 0o755); err != nil {
 		return "", "", fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(fullPath), err)
 	}
 	if err := writeFileNoFollow(fullPath, append(content, '\n'), 0o644); err != nil {
@@ -99,7 +100,7 @@ func registerCopilotHook(baseDir, hookName, fullDestDir string) (relPath, warnin
 // unregistered event or matcher never wrote one).
 func removeCopilotHook(baseDir, hookName string) error {
 	fullPath := filepath.Join(baseDir, filepath.FromSlash(copilotHookRelPath(hookName)))
-	if err := os.Remove(fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := safewrite.Remove(baseDir, fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil

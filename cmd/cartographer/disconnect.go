@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -17,7 +18,9 @@ import (
 // MCP server entry in the provider's config file, the skill files the lockfile
 // recorded as managed for it, and the provider's own entries in the lockfile and
 // .cartographer.yaml. Idempotent — disconnecting an already-disconnected
-// provider succeeds with exit 0.
+// provider succeeds with exit 0. A provider whose config or managed files sit
+// behind a symlink is kept connected (D148) and the exit status is 1, the
+// others being disconnected as usual.
 func cmdDisconnect(args []string) int {
 	target, rest := splitPositional(args, "")
 
@@ -54,6 +57,10 @@ func cmdDisconnect(args []string) int {
 	}
 
 	printDisconnectSummary(res, *dryRun)
+	if kept := res.keptConnected(); len(kept) > 0 {
+		fmt.Fprintf(os.Stderr, "Error: kept connected because a destination is a symlink: %s (replace the link with a regular file or directory, then run disconnect again)\n", strings.Join(kept, ", "))
+		return 1
+	}
 	return 0
 }
 
@@ -94,7 +101,9 @@ type disconnectProviderResult struct {
 	// Refused holds why the provider's MCP config entry was left in place: its
 	// config file, or a directory above it, is a symlink (D148). The provider
 	// then stays connected, with its managed files and its lockfile section, so
-	// the next disconnect retries and reports again.
+	// the next disconnect retries and reports again. The MCP entry may already
+	// have been removed (ConfigRemoved) when it is the managed files that were
+	// refused.
 	Refused []string
 }
 
@@ -104,6 +113,17 @@ type disconnectResult struct {
 	// TimerUninstalled is set when the sync timer was removed because no
 	// remaining client needs it (D325). It is not an operator opt-out.
 	TimerUninstalled bool
+}
+
+// keptConnected lists the providers a refusal (D148) left connected.
+func (r disconnectResult) keptConnected() []string {
+	var kept []string
+	for _, pr := range r.Providers {
+		if len(pr.Refused) > 0 {
+			kept = append(kept, pr.Provider)
+		}
+	}
+	return kept
 }
 
 // doDisconnect is the single source of truth for "disconnect" business logic,
@@ -176,6 +196,16 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 		// materialized under, which the Lock records when it is not opts.Dir
 		// (D141) — pruning against the wrong one silently no-ops.
 		pruned, err := provisioning.PruneManaged(lock.Managed, provisioning.LockBaseDir(lock, opts.Dir), opts.DryRun)
+		var pruneRefused *provisioning.PruneRefusedError
+		if errors.As(err, &pruneRefused) {
+			// Some managed files sit behind a symlink (D148): what could be
+			// pruned was, and the provider stays connected with its whole
+			// lockfile section so the next disconnect retries the rest.
+			pr.Pruned = pruned
+			pr.Refused = append(pr.Refused, pruneRefused.Error())
+			res.Providers = append(res.Providers, pr)
+			continue
+		}
 		if err != nil {
 			return disconnectResult{}, fmt.Errorf("prune skills for %s: %w", p, err)
 		}
@@ -243,6 +273,12 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 	}
 	for _, pr := range res.Providers {
 		if len(pr.Refused) > 0 {
+			if pr.ConfigRemoved {
+				fmt.Printf("%s[%s] removed mcp config entry\n", prefix, pr.Provider)
+			}
+			for _, mf := range pr.Pruned {
+				fmt.Printf("%s[%s] pruned %s\n", prefix, pr.Provider, filepath.ToSlash(mf.Path))
+			}
 			for _, w := range pr.Refused {
 				fmt.Printf("%s[%s] kept connected: %s\n", prefix, pr.Provider, w)
 			}

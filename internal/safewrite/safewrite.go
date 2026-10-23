@@ -144,8 +144,13 @@ func WriteFile(baseDir, path string, data []byte, perm os.FileMode) error {
 }
 
 // Remove removes path after checking the file and every directory component
-// between baseDir and it. A path that does not exist is os.Remove's own error.
+// between baseDir and it. A path that does not exist is os.Remove's own
+// not-exist error and is never a refusal: removing nothing needs no guard, so a
+// missing file stays the no-op callers expect even under a linked directory.
 func Remove(baseDir, path string) error {
+	if _, err := lstat(path); err != nil && errors.Is(err, os.ErrNotExist) {
+		return &os.PathError{Op: "remove", Path: path, Err: os.ErrNotExist}
+	}
 	if err := CheckPath(baseDir, path); err != nil {
 		return err
 	}

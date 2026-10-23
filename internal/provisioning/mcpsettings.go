@@ -21,6 +21,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // mcpServerKey is the top-level JSON key the provider uses to hold its map of
@@ -96,7 +97,7 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 		}
 	}
 
-	if err := saveJSONObject(settingsPath, settings); err != nil {
+	if err := saveJSONObject(baseDir, settingsPath, settings); err != nil {
 		return "", nil, err
 	}
 	return r.FilePath, r.Warnings, nil
@@ -153,13 +154,13 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 	}
 
 	if d, ok := configurator.Lookup(provider); ok && d.DeletableWhenEmpty && isEmptyMCPProviderShell(settings) {
-		if err := os.Remove(fullPath); err != nil {
+		if err := safewrite.Remove(baseDir, fullPath); err != nil {
 			return fmt.Errorf("provisioning: remove %s: %w", fullPath, err)
 		}
 		pruneEmptyDirs(baseDir, filePath)
 		return nil
 	}
-	return saveJSONObject(fullPath, settings)
+	return saveJSONObject(baseDir, fullPath, settings)
 }
 
 // isEmptyMCPProviderShell reports whether settings has nothing left worth

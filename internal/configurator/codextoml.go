@@ -20,6 +20,7 @@ package configurator
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -44,7 +45,18 @@ var codexManagedMarker = regexp.MustCompile(`^#\s*cartographer:(\S+):(begin|end)
 // text. Returns the keys removed (dotted, as segments joined) so the caller can
 // tell the user why the file changed; no-op, with no error, if the file does
 // not exist yet.
+//
+// The rewrite refuses a config.toml that is a symlink (safewrite.ErrSymlinkDestination);
+// AdoptCodexOrphanTablesUnder also refuses one under a symlinked directory.
 func AdoptCodexOrphanTables(path string, owned func(key []string, body string) bool) ([]string, error) {
+	return AdoptCodexOrphanTablesUnder(filepath.Dir(path), path, owned)
+}
+
+// AdoptCodexOrphanTablesUnder is AdoptCodexOrphanTables for a file under the
+// client base dir baseDir: the rewrite, which only happens when there is a
+// table to remove, is refused when the file or any directory between baseDir
+// and it is a symlink or not a plain file or directory.
+func AdoptCodexOrphanTablesUnder(baseDir, path string, owned func(key []string, body string) bool) ([]string, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -57,7 +69,7 @@ func AdoptCodexOrphanTables(path string, owned func(key []string, body string) b
 	if len(removed) == 0 {
 		return nil, nil
 	}
-	if err := safewrite.WriteFileNoFollow(path, []byte(stripped), 0o644); err != nil {
+	if err := safewrite.WriteFile(baseDir, path, []byte(stripped), 0o644); err != nil {
 		return nil, err
 	}
 	return removed, nil
@@ -574,6 +586,12 @@ func EvictForeignTablesFromBlock(path, begin, end, newBody string) ([]string, er
 // table Codex placed inside one, such as [notice], belongs to the user and
 // must outlive the block).
 func EvictTablesFromBlock(path, begin, end string, ours func(key []string) bool) ([]string, error) {
+	return EvictTablesFromBlockUnder(filepath.Dir(path), path, begin, end, ours)
+}
+
+// EvictTablesFromBlockUnder is EvictTablesFromBlock for a file under the client
+// base dir baseDir, with the refusal of AdoptCodexOrphanTablesUnder.
+func EvictTablesFromBlockUnder(baseDir, path, begin, end string, ours func(key []string) bool) ([]string, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -605,7 +623,7 @@ func EvictTablesFromBlock(path, begin, end string, ours func(key []string) bool)
 		return nil, nil
 	}
 
-	if err := safewrite.WriteFileNoFollow(path, []byte(evictGroupsFromSpan(content, target, foreign)), 0o644); err != nil {
+	if err := safewrite.WriteFile(baseDir, path, []byte(evictGroupsFromSpan(content, target, foreign)), 0o644); err != nil {
 		return nil, err
 	}
 

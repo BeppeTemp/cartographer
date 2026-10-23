@@ -134,9 +134,6 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 	if _, err := os.Stat(filepath.Join(workspaceDir, ".git")); err != nil {
 		return nil
 	}
-	if err := os.MkdirAll(infoDir, 0o755); err != nil {
-		return fmt.Errorf("provisioning: mkdir %s: %w", infoDir, err)
-	}
 	path := filepath.Join(infoDir, "exclude")
 
 	existing, err := os.ReadFile(path)
@@ -145,15 +142,31 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 	}
 	kept := stripExcludeBlock(string(existing))
 
-	if len(ownedPaths) == 0 {
-		return writeExclude(path, kept, nil)
+	var lines []string
+	if len(ownedPaths) > 0 {
+		lines = make([]string, 0, len(ownedPaths))
+		for _, p := range ownedPaths {
+			lines = append(lines, "/"+strings.TrimPrefix(filepath.ToSlash(p), "/"))
+		}
+		sort.Strings(lines)
+		lines = dedupe(lines)
 	}
-	lines := make([]string, 0, len(ownedPaths))
-	for _, p := range ownedPaths {
-		lines = append(lines, "/"+strings.TrimPrefix(filepath.ToSlash(p), "/"))
+	out := renderExclude(kept, lines)
+	if err == nil && out == string(existing) {
+		// Nothing to change: no write, so a linked .git/info never refuses it.
+		return nil
 	}
-	sort.Strings(lines)
-	return writeExclude(path, kept, dedupe(lines))
+	if strings.TrimSpace(out) == "" && os.IsNotExist(err) {
+		// Nothing of ours and nothing of theirs: leave the file as it was
+		// rather than creating an empty one.
+		return nil
+	}
+	// The write goes through every directory below the workspace (.git,
+	// .git/info) and the file itself: a symlink in that chain is refused (D148).
+	if err := mkdirAllNoFollow(workspaceDir, infoDir, 0o755); err != nil {
+		return fmt.Errorf("provisioning: mkdir %s: %w", infoDir, err)
+	}
+	return writeFileNoFollow(path, []byte(out), 0o644)
 }
 
 // RemoveWorkspaceExclusions drops Cartographer's block entirely, for an unbind
@@ -162,7 +175,7 @@ func RemoveWorkspaceExclusions(workspaceDir string) error {
 	return EnsureWorkspaceExcluded(workspaceDir, nil)
 }
 
-func writeExclude(path, kept string, lines []string) error {
+func renderExclude(kept string, lines []string) string {
 	var b strings.Builder
 	b.WriteString(kept)
 	if len(lines) > 0 {
@@ -177,15 +190,7 @@ func writeExclude(path, kept string, lines []string) error {
 		}
 		b.WriteString(excludeMarkerEnd + "\n")
 	}
-	out := b.String()
-	if strings.TrimSpace(out) == "" {
-		// Nothing of ours and nothing of theirs: leave the file as it was
-		// rather than creating an empty one.
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return nil
-		}
-	}
-	return writeFileNoFollow(path, []byte(out), 0o644)
+	return b.String()
 }
 
 // stripExcludeBlock returns content with Cartographer's block removed, and

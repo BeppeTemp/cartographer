@@ -412,7 +412,9 @@ cartographer disconnect all --dry-run  # preview without writing
 
 Idempotent: exit 0 even if there was nothing to remove (no `.cartographer.yaml`, provider
 already disconnected, MCP entry already absent, ...). Exit 2 only on an actual error (I/O, malformed
-provider config JSON, ...).
+provider config JSON, ...). Exit 1 when a provider was kept connected because its config or managed
+files sit behind a symlink (§Symlinked config files and directories are refused); the other providers
+are still disconnected.
 
 ### `cartographer status`
 
@@ -1413,22 +1415,34 @@ rewrites the file, leaving everything else intact (other MCP servers, other top-
 
 ### Symlinked config files and directories are refused
 
-`connect`, `sync` and `disconnect` write, create and remove a provider's config file (and the
-Codex `config.toml` block, `internal/blocktext`) only through `internal/safewrite`, the same
-guard that protects the provisioned artifacts (`sync.md` §Security). `os.WriteFile` on a symlink
-opens the link's *target*, so a config file that is a link, or a directory above it under the
-client base dir that is a link (a dotfile manager, a shared checkout), would send the write
-somewhere else. Both are refused, with an error that names the path and says to replace the link
-with a regular file or directory; so is any other non-regular file or non-directory (device,
+Every write, mkdir and remove under a client directory goes through `internal/safewrite`, the same
+guard that protects the provisioned artifacts (`sync.md` §Security): the provider's MCP config file
+and the Codex `config.toml` blocks `connect`, `sync` and `disconnect` edit (`internal/blocktext`),
+the instructions block, the hook registrations (`settings.json`, `hooks.json`, the Kiro, Copilot,
+Crush and OpenCode files), the files `disconnect` and a sync prune, and the workspace's
+`.git/info/exclude`. `os.WriteFile` on a symlink opens the link's *target*, and `os.Remove` or
+`os.MkdirAll` under a linked directory act in the target too, so a config file that is a link, or a
+directory above it under the client base dir that is one (a dotfile manager, a shared checkout), would send the
+operation somewhere else. Both are refused, with an error that names the path and says to replace the
+link with a regular file or directory; so is any other non-regular file or non-directory (device,
 socket, named pipe, Windows reparse point). The base dir itself (`$HOME`, or the project dir in
-workspace scope) may be a link, and a path that does not exist yet is created. The same goes for the
-legacy `.codex/config.json` that `disconnect` cleans up.
+workspace scope) may be a link, and a path that does not exist yet is created.
 
-The refusal is **per provider**: `connect` and `sync` report it as a warning
-(`mcp config left unchanged: …`) and still write every other provider; `disconnect` prints
-`kept connected: …` for that provider, leaves its lockfile section and `.cartographer.yaml` entry in
-place so the next `disconnect` retries, and removes the others. `--dry-run` refuses too, so the
-preview matches the real run. Nothing is written through the link until the operator replaces it.
+A refusal needs something to write or remove: a config with no entry or block of ours in it is a
+no-op under a link too, never an error, so a dotfile-managed `~/.codex/config.toml` that needs no
+change stays quiet. `--dry-run` refuses when the real run would have changed something.
+
+The refusal is **per provider** (and, in a sync, per artifact):
+- `connect` and `sync` report it as a warning (`mcp config left unchanged: …`, or
+  `<kind>/<name> not removed: …` for a pruned artifact) and still write every other provider. An
+  artifact whose removal was refused stays in the lockfile, so the next sync retries it. When a stale
+  per-KB entry could not be removed, its KB stays in `known_kbs` until the entry is gone.
+- `disconnect` prints `kept connected: …` for the provider, leaves its lockfile section,
+  `.cartographer.yaml` entry and managed files (whatever could be pruned is) in place so the next
+  `disconnect` retries, removes the others, and **exits 1**. The TUI shows the same line.
+
+Nothing is written through the link until the operator replaces it. The legacy `.codex/config.json`
+that `disconnect` cleans up is checked before `config.toml`, so a refusal there leaves both untouched.
 
 ## Installation
 

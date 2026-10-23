@@ -35,6 +35,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 	"github.com/BeppeTemp/cartographer/internal/skill"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 	"gopkg.in/yaml.v3"
@@ -2142,6 +2143,17 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	genericRemoved = append(genericRemoved, orphaned...)
 	genericRemoved = WithoutCoOwned(genericRemoved, opts.CoOwnedPaths)
 	pruned, err := PruneManaged(genericRemoved, opts.BaseDir, opts.DryRun)
+	var pruneRefused *PruneRefusedError
+	if errors.As(err, &pruneRefused) {
+		// A refused removal is per artifact, like a refused write: it is
+		// reported, the rest of the pass proceeds, and the file stays in the
+		// lockfile so the next sync retries.
+		for _, r := range pruneRefused.Refusals {
+			refusePrune(&result, r.File, r.Err)
+			newManaged = append(newManaged, r.File)
+		}
+		err = nil
+	}
 	if err != nil {
 		return AppliedResult{}, err
 	}
@@ -2543,8 +2555,23 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		// A block another projection of this workspace still renders into the
 		// same file stays (D364): Codex, OpenCode and Antigravity share AGENTS.md.
 		if !opts.DryRun && !opts.CoOwnedPaths[filepath.ToSlash(destRel)] {
-			if err := removeInstructionsBlock(fullPath); err != nil {
-				return fmt.Errorf("provisioning: remove instructions block %s: %w", destRel, err)
+			if err := removeInstructionsBlock(opts.BaseDir, fullPath); err != nil {
+				if !errors.Is(err, ErrSymlinkDestination) {
+					return fmt.Errorf("provisioning: remove instructions block %s: %w", destRel, err)
+				}
+				// Refused (D148): the sections stay in the lockfile and are
+				// reported, the next sync retries.
+				kept := result.Pruned[:0]
+				for _, mf := range result.Pruned {
+					if mf.Kind == "instructions" {
+						refusePrune(result, mf, err)
+						*newManaged = append(*newManaged, mf)
+						continue
+					}
+					kept = append(kept, mf)
+				}
+				result.Pruned = kept
+				return nil
 			}
 			pruneEmptyDirs(opts.BaseDir, destRel)
 		}
@@ -2583,7 +2610,7 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	}
 
 	if !opts.DryRun {
-		if err := writeInstructionsBlock(fullPath, body); err != nil {
+		if err := writeInstructionsBlock(opts.BaseDir, fullPath, body); err != nil {
 			return fmt.Errorf("provisioning: write instructions block %s: %w", destRel, err)
 		}
 	}
@@ -3084,12 +3111,15 @@ func PreflightStdioMCP(m Manifest, opts ApplyOptions) error {
 //     at the bottom, separated by a blank line from the existing content.
 //
 // Idempotent: two calls in a row with the same body produce the same file.
-func writeInstructionsBlock(path, body string) error {
+//
+// baseDir is the client directory path lives under: a file, or a directory
+// component below baseDir, that is a symlink is refused (D148).
+func writeInstructionsBlock(baseDir, path, body string) error {
 	block := instructionsBlockBegin + "\n" + body + "\n" + instructionsBlockEnd + "\n"
 
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := mkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
 		return writeFileNoFollow(path, []byte(block), 0o644)
@@ -3098,6 +3128,11 @@ func writeInstructionsBlock(path, body string) error {
 		return err
 	}
 
+	// An existing file is written through its directory chain too: the walk
+	// refuses a symlinked directory the read above went through.
+	if err := safewrite.CheckPath(baseDir, path); err != nil {
+		return err
+	}
 	content := string(data)
 	if replaced, ok := replaceBetweenMarkers(content, block); ok {
 		return writeFileNoFollow(path, []byte(replaced), 0o644)
@@ -3111,8 +3146,10 @@ func writeInstructionsBlock(path, body string) error {
 // file is empty or whitespace-only, the file itself is removed (covers the case
 // of a file dedicated to just the block, like .kiro/steering/cartographer.md);
 // otherwise the residual content (entirely unrelated to Cartographer) is kept.
-// Idempotent: if the block isn't present (already removed), no-op.
-func removeInstructionsBlock(path string) error {
+// Idempotent: if the block isn't present (already removed), no-op — and a no-op
+// never refuses. When the block is there, a file or directory component below
+// baseDir that is a symlink is refused (D148).
+func removeInstructionsBlock(baseDir, path string) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -3125,6 +3162,9 @@ func removeInstructionsBlock(path string) error {
 	stripped, ok := replaceBetweenMarkers(content, "")
 	if !ok {
 		return nil
+	}
+	if err := safewrite.CheckPath(baseDir, path); err != nil {
+		return err
 	}
 	if strings.TrimSpace(stripped) == "" {
 		return os.Remove(path)
@@ -3210,8 +3250,11 @@ func pruneEmptyDirs(baseDir, relPath string) {
 		if provisioningRootDirs[dir] {
 			return
 		}
-		// A symlinked directory is someone else's: os.Remove would unlink it
-		// even when its target is not empty.
+		// A symlinked directory, or one under a symlink, is someone else's:
+		// os.Remove would unlink the first and empty the target of the second.
+		if ensureSafeDir(baseDir, dir) != nil {
+			return
+		}
 		if fi, err := os.Lstat(filepath.Join(baseDir, dir)); err == nil && !fi.IsDir() {
 			return
 		}
@@ -3256,14 +3299,28 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 	blockDone := make(map[string]bool)
 	hookSettingsDone := make(map[string]bool)
 	mcpDone := make(map[string]bool)
+	var refusals []PruneRefusal
+	// refused records a symlink refusal against one managed file and reports
+	// whether the pass carries on with the next one. The file is left out of
+	// the returned list; anything else is a real error and stays fatal.
+	refused := func(mf ManagedFile, err error) bool {
+		if !errors.Is(err, ErrSymlinkDestination) {
+			return false
+		}
+		refusals = append(refusals, PruneRefusal{File: mf, Err: err})
+		return true
+	}
 	for _, mf := range managed {
 		fullPath := filepath.Join(baseDir, mf.Path)
 		if mf.Kind == "instructions" {
 			if !dryRun && !blockDone[fullPath] {
-				if err := removeInstructionsBlock(fullPath); err != nil {
+				blockDone[fullPath] = true
+				if err := removeInstructionsBlock(baseDir, fullPath); err != nil {
+					if refused(mf, err) {
+						continue
+					}
 					return nil, fmt.Errorf("provisioning: prune blocco instructions %s: %w", mf.Path, err)
 				}
-				blockDone[fullPath] = true
 				pruneEmptyDirs(baseDir, mf.Path)
 			}
 			pruned = append(pruned, mf)
@@ -3276,58 +3333,107 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 			// can have a single ManagedFile (unlike hook/instructions),
 			// but the dedup by name stays for consistency with the same pattern.
 			if !dryRun && !mcpDone[mf.Name] {
+				mcpDone[mf.Name] = true
 				if provider := mcpProviderFromPath(mf.Path); provider != "" {
 					if err := removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path)); err != nil {
+						if refused(mf, err) {
+							continue
+						}
 						return nil, fmt.Errorf("provisioning: prune mcp %s: %w", mf.Name, err)
 					}
 				}
-				mcpDone[mf.Name] = true
 			}
 			pruned = append(pruned, mf)
 			continue
 		}
 		if !dryRun {
-			if err := os.Remove(fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if err := safewrite.Remove(baseDir, fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				if refused(mf, err) {
+					continue
+				}
 				return nil, fmt.Errorf("provisioning: prune %s: %w", mf.Path, err)
 			}
 			pruneEmptyDirs(baseDir, mf.Path)
 			if mf.Kind == "hook" && !hookSettingsDone[mf.Name] {
+				hookSettingsDone[mf.Name] = true
+				var err error
 				switch hookProviderFromPath(mf.Path) {
 				case "claude":
-					if err := removeHookEntries(baseDir, mf.Name); err != nil {
-						return nil, fmt.Errorf("provisioning: prune entry settings.json hook %s: %w", mf.Name, err)
+					if err = removeHookEntries(baseDir, mf.Name); err != nil {
+						err = fmt.Errorf("provisioning: prune entry settings.json hook %s: %w", mf.Name, err)
 					}
 				case "codex":
-					if err := removeCodexHook(baseDir, mf.Name); err != nil {
-						return nil, fmt.Errorf("provisioning: prune entry hooks.json hook %s: %w", mf.Name, err)
+					if err = removeCodexHook(baseDir, mf.Name); err != nil {
+						err = fmt.Errorf("provisioning: prune entry hooks.json hook %s: %w", mf.Name, err)
 					}
 				case "opencode":
-					if err := removeOpenCodePlugin(baseDir, mf.Name); err != nil {
-						return nil, fmt.Errorf("provisioning: prune plugin opencode hook %s: %w", mf.Name, err)
+					if err = removeOpenCodePlugin(baseDir, mf.Name); err != nil {
+						err = fmt.Errorf("provisioning: prune plugin opencode hook %s: %w", mf.Name, err)
 					}
 				case "antigravity":
-					if err := removeAntigravityHook(baseDir, mf.Name, mf.Path); err != nil {
-						return nil, fmt.Errorf("provisioning: prune entry Antigravity hooks.json hook %s: %w", mf.Name, err)
+					if err = removeAntigravityHook(baseDir, mf.Name, mf.Path); err != nil {
+						err = fmt.Errorf("provisioning: prune entry Antigravity hooks.json hook %s: %w", mf.Name, err)
 					}
 				case "copilot":
-					if err := removeCopilotHook(baseDir, mf.Name); err != nil {
-						return nil, fmt.Errorf("provisioning: prune Copilot hook file %s: %w", mf.Name, err)
+					if err = removeCopilotHook(baseDir, mf.Name); err != nil {
+						err = fmt.Errorf("provisioning: prune Copilot hook file %s: %w", mf.Name, err)
 					}
 				case "crush":
-					if err := removeCrushHook(baseDir, mf.Name, mf.Path); err != nil {
-						return nil, fmt.Errorf("provisioning: prune entry Crush hook %s: %w", mf.Name, err)
+					if err = removeCrushHook(baseDir, mf.Name, mf.Path); err != nil {
+						err = fmt.Errorf("provisioning: prune entry Crush hook %s: %w", mf.Name, err)
 					}
 				case "kiro":
-					if err := removeKiroHook(baseDir, mf.Name); err != nil {
-						return nil, fmt.Errorf("provisioning: prune entry Kiro cartographer.json hook %s: %w", mf.Name, err)
+					if err = removeKiroHook(baseDir, mf.Name); err != nil {
+						err = fmt.Errorf("provisioning: prune entry Kiro cartographer.json hook %s: %w", mf.Name, err)
 					}
 				}
-				hookSettingsDone[mf.Name] = true
+				if err != nil {
+					if refused(mf, err) {
+						continue
+					}
+					return nil, err
+				}
 			}
 		}
 		pruned = append(pruned, mf)
 	}
+	if len(refusals) > 0 {
+		return pruned, &PruneRefusedError{Refusals: refusals}
+	}
 	return pruned, nil
+}
+
+// PruneRefusal is one managed file PruneManaged left in place because removing
+// it, or its registration in a shared config file, would have gone through a
+// symlink (ErrSymlinkDestination).
+type PruneRefusal struct {
+	File ManagedFile
+	Err  error
+}
+
+// PruneRefusedError is what PruneManaged returns, next to the list of what it
+// did prune, when it refused one or more files. The refusal is per file and the
+// pass carries on, like a refused write: the caller keeps the refused files in
+// its lockfile so that the next run retries, and reports them.
+type PruneRefusedError struct {
+	Refusals []PruneRefusal
+}
+
+func (e *PruneRefusedError) Error() string {
+	msgs := make([]string, 0, len(e.Refusals))
+	for _, r := range e.Refusals {
+		msgs = append(msgs, fmt.Sprintf("%s/%s not removed: %v", r.File.Kind, r.File.Name, r.Err))
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// Unwrap exposes every refusal, so errors.Is(err, ErrSymlinkDestination) holds.
+func (e *PruneRefusedError) Unwrap() []error {
+	errs := make([]error, 0, len(e.Refusals))
+	for _, r := range e.Refusals {
+		errs = append(errs, r.Err)
+	}
+	return errs
 }
 
 // principalFile returns the conventional "main" file name of an artifact of the

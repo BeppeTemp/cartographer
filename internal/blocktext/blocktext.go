@@ -67,12 +67,11 @@ func Write(baseDir, path, begin, end, body string) error {
 // nil) if the file doesn't exist or doesn't contain the markers. If dryRun is
 // true, computes and returns what would happen without writing anything.
 //
-// baseDir and the refusal are those of Write; a dry run refuses too, so it
+// baseDir and the refusal are those of Write, but the refusal applies only when
+// a block was found: a file with nothing of ours in it is a no-op and never an
+// error. A dry run refuses too when it would have changed something, so it
 // reports what the real run would do.
 func Remove(baseDir, path, begin, end string, dryRun bool) (bool, error) {
-	if err := safewrite.CheckPath(baseDir, path); err != nil {
-		return false, err
-	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -83,8 +82,14 @@ func Remove(baseDir, path, begin, end string, dryRun bool) (bool, error) {
 
 	content := string(data)
 	stripped, ok := ReplaceBetween(content, begin, end, "")
-	if !ok || dryRun {
-		return ok, nil
+	if !ok {
+		return false, nil
+	}
+	if err := safewrite.CheckPath(baseDir, path); err != nil {
+		return false, err
+	}
+	if dryRun {
+		return true, nil
 	}
 	if strings.TrimSpace(stripped) == "" {
 		return true, os.Remove(path)

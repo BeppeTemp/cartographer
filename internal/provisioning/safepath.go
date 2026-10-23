@@ -45,3 +45,18 @@ func writeFileNoFollow(path string, data []byte, perm os.FileMode) error {
 func mkdirAllNoFollow(baseDir, dir string, perm os.FileMode) error {
 	return safewrite.MkdirAllNoFollow(baseDir, dir, perm)
 }
+
+// refusePrune is refuse for the removal side: a managed file that could not be
+// pruned because it, or its registration, sits behind a symlink. It is left out
+// of the pruned list and kept in the lockfile by the caller, so the next sync
+// retries and reports again; one artifact is reported once however many of its
+// files were refused.
+func refusePrune(result *AppliedResult, mf ManagedFile, err error) {
+	for _, a := range result.Refused {
+		if a.Kind == mf.Kind && a.Name == mf.Name {
+			return
+		}
+	}
+	result.Refused = append(result.Refused, Artifact{Kind: mf.Kind, Name: mf.Name, Source: mf.Source})
+	result.Warnings = append(result.Warnings, fmt.Sprintf("%s/%s not removed: %v", mf.Kind, mf.Name, err))
+}

@@ -304,11 +304,20 @@ func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (
 		return false, err
 	}
 	fullPath := filepath.Join(baseDir, r.FilePath)
-	if err := safewrite.CheckPath(baseDir, fullPath); err != nil {
-		return false, err
-	}
 
+	// A destination that is a symlink, or under one, is refused (D148) only
+	// when something would be written or removed there: a config with nothing
+	// of ours in it is a no-op and never an error, so a dotfile-managed file
+	// that needs no change stays a clean disconnect. A dry run refuses too
+	// when it would have changed something.
 	if filepath.Ext(fullPath) == ".toml" {
+		if provider == ProviderCodex && !dryRun {
+			// Both files or neither: a refusal on the legacy file must not
+			// leave the block already removed from config.toml.
+			if _, err := removeLegacyCodexJSON(cfg.Name, baseDir, true); err != nil {
+				return false, err
+			}
+		}
 		removed, err := blocktext.Remove(baseDir, fullPath, codexMCPBlockBegin, codexMCPBlockEnd, dryRun)
 		if err != nil {
 			return false, fmt.Errorf("remove block %s: %w", fullPath, err)
@@ -364,8 +373,14 @@ func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (
 			}
 		}
 	}
-	if !found || dryRun {
-		return found, nil
+	if !found {
+		return false, nil
+	}
+	if err := safewrite.CheckPath(baseDir, fullPath); err != nil {
+		return false, err
+	}
+	if dryRun {
+		return true, nil
 	}
 
 	// File-level cleanup (D63): .claude.json is Claude Code's own shared state
@@ -429,9 +444,6 @@ func isEmptyProviderShell(root map[string]any) bool {
 // No-op if the file is absent, malformed, or has no matching entry.
 func removeLegacyCodexJSON(name, baseDir string, dryRun bool) (bool, error) {
 	legacyPath := filepath.Join(baseDir, ".codex", "config.json")
-	if err := safewrite.CheckPath(baseDir, legacyPath); err != nil {
-		return false, err
-	}
 	data, err := os.ReadFile(legacyPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -451,6 +463,9 @@ func removeLegacyCodexJSON(name, baseDir string, dryRun bool) (bool, error) {
 	}
 	if _, ok := servers[name]; !ok {
 		return false, nil
+	}
+	if err := safewrite.CheckPath(baseDir, legacyPath); err != nil {
+		return false, err
 	}
 	if dryRun {
 		return true, nil
