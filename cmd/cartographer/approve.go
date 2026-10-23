@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,8 +25,8 @@ var (
 const approveUsage = "Usage: cartographer approve [revoke] <kind> <name> [--kb <kb>] [--yes]   (kind: mcp, hook, skill, agent)\n       cartographer approve --pending [--kb <kb>] [--yes]"
 
 func cmdApprove(args []string) int {
-	if len(args) > 0 && args[0] == "--pending" {
-		return cmdApprovePending(args[1:])
+	if i := slices.Index(args, "--pending"); i >= 0 {
+		return cmdApprovePending(slices.Delete(slices.Clone(args), i, i+1))
 	}
 	revoke := false
 	if len(args) > 0 && args[0] == "revoke" {

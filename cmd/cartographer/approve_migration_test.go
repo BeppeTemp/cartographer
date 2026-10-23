@@ -165,7 +165,7 @@ func TestCmdApprovePending_NonInteractiveNeedsYes(t *testing.T) {
 
 func TestCmdApprovePending_YesApprovesAllAndKBFilters(t *testing.T) {
 	home := pendingFixture(t, false)
-	if code := cmdApprove([]string{"--pending", "--kb", "other", "--yes"}); code != 0 {
+	if code := cmdApprove([]string{"--kb", "other", "--pending", "--yes"}); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
 	cfg, _ := clientconfig.Load(home)

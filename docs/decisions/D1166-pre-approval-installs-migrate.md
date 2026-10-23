@@ -31,3 +31,5 @@ the lockfile, not the person, vouches for the artifact on that one run.
 run per client state, never re-armed, and a revoke never undone; no approval for an MCP descriptor (it was always gated);
 and the printed line per artifact. The marker lives and dies with `mcp_approvals`: deleting the config forgets the
 approvals too, so re-arming there undoes nothing. Losing the state file does not re-arm it.
+D1141 and this migration ship together in v0.26.0, so no released client can hold a D1141-era revoke for the
+first sync to undo; only a development build of main between the two could, and that is accepted.
