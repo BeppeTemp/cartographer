@@ -185,7 +185,7 @@ func narrowSettingsView(view *config.View, visible, whole map[string]bool, admin
 		if ids, ok := e.Value.(map[string]string); ok {
 			shown := map[string]string{}
 			for name, id := range ids {
-				if visible[name] {
+				if whole[name] {
 					shown[name] = id
 				}
 			}

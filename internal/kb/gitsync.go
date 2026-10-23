@@ -893,16 +893,21 @@ func (k *KB) RemoteInfo() (url string, ok bool) {
 // (and any "+http"/"+https" transport such as git+https) the whole userinfo is
 // dropped: a token can sit in either half (https://token@host/... as well as
 // https://user:token@host/...). For other schemes only the password is dropped
-// — an ssh username is not a secret and identifies the remote. Query
-// parameters whose name contains token, key, secret or password are dropped.
+// — an ssh username is not a secret and identifies the remote. The query
+// string and the fragment are dropped whole: a credential parameter can have
+// any name (passwd, pat, jwt, a ";"-separated pair…).
 // A value with "://" that url.Parse rejects (a stray %, #, / or space in a
 // password) is never returned as it came: everything between "://" and the
-// last "@" of its authority is cut. Values without "://" (scp-style
-// git@host:owner/repo.git, local paths) carry no userinfo and are returned
-// unchanged.
+// last "@" of its authority is cut. Values without "://" lose any
+// "user:password@" prefix (scp-style bot:pw@host:owner/repo.git too); a plain
+// git@host:owner/repo.git (a username, no password) and local paths are
+// returned unchanged. A "helper::url" remote (ext::https://…) is redacted on
+// the url after the "::".
 func RedactRemoteURL(raw string) string {
-	if !strings.Contains(raw, "://") {
+	if i := strings.Index(raw, "://"); i < 0 {
 		return redactSchemeless(raw)
+	} else if j := strings.Index(raw[:i], "::"); j >= 0 {
+		return raw[:j+2] + RedactRemoteURL(raw[j+2:])
 	}
 	u, err := neturl.Parse(raw)
 	// An "@" left in the path means the parser took part of a password for the
@@ -918,7 +923,7 @@ func RedactRemoteURL(raw string) string {
 			u.User = neturl.User(u.User.Username())
 		}
 	}
-	u.RawQuery = dropSecretParams(u.RawQuery)
+	u.RawQuery, u.ForceQuery = "", false
 	u.Fragment, u.RawFragment = "", ""
 	return u.String()
 }
@@ -937,15 +942,23 @@ func redactSchemeless(raw string) string {
 		prefix = "//"
 	case schemePrefix.MatchString(v):
 		prefix = v[:strings.Index(v, ":")+1]
-	default:
+	}
+	if prefix != "" {
+		rest := v[len(prefix):]
+		if first := strings.Index(rest, "@"); first >= 0 && strings.Contains(rest[:first], ":") {
+			return prefix + stripFragment(afterUserinfo(rest))
+		}
+	}
+	// "user:password@host:path": the first colon comes before the first "@".
+	// A single letter before it is a drive ("C:\dir@x"), a "/" or "\\" a path.
+	at, colon := strings.Index(v, "@"), strings.Index(v, ":")
+	if at < 0 || colon < 1 || colon > at {
 		return raw
 	}
-	rest := v[len(prefix):]
-	first := strings.Index(rest, "@")
-	if first < 0 || !strings.Contains(rest[:first], ":") {
+	if name := v[:colon]; len(name) == 1 || strings.ContainsAny(name, `/\`) {
 		return raw
 	}
-	return prefix + stripFragment(afterUserinfo(rest))
+	return stripFragment(afterUserinfo(v))
 }
 
 // afterUserinfo drops what precedes the last "@" that comes before the query.
@@ -960,41 +973,12 @@ func afterUserinfo(rest string) string {
 	return rest
 }
 
+// stripFragment drops the fragment and the query string.
 func stripFragment(s string) string {
-	if h := strings.Index(s, "#"); h >= 0 {
-		return s[:h]
+	if i := strings.IndexAny(s, "#?"); i >= 0 {
+		return s[:i]
 	}
 	return s
-}
-
-// dropSecretParams removes the query parameters whose name looks like a credential.
-func dropSecretParams(query string) string {
-	if query == "" {
-		return ""
-	}
-	var kept []string
-	for _, part := range strings.Split(query, "&") {
-		name, _, _ := strings.Cut(part, "=")
-		if !secretQueryName(name) {
-			kept = append(kept, part)
-		}
-	}
-	return strings.Join(kept, "&")
-}
-
-// secretQueryName reports whether a query parameter name looks like it carries
-// a credential.
-func secretQueryName(name string) bool {
-	if dec, err := neturl.QueryUnescape(name); err == nil {
-		name = dec
-	}
-	name = strings.ToLower(name)
-	for _, w := range []string{"token", "key", "secret", "password", "pwd", "auth", "sig", "access"} {
-		if strings.Contains(name, w) {
-			return true
-		}
-	}
-	return false
 }
 
 // redactUnparsable handles a URL-looking value whose userinfo the parser cannot
@@ -1010,15 +994,7 @@ func redactUnparsable(raw string) string {
 		return raw
 	}
 	head, rest := raw[:i+3], afterUserinfo(raw[i+3:])
-	rest = stripFragment(rest)
-	if q := strings.Index(rest, "?"); q >= 0 {
-		query := dropSecretParams(rest[q+1:])
-		rest = rest[:q]
-		if query != "" {
-			rest += "?" + query
-		}
-	}
-	return head + rest
+	return head + stripFragment(rest)
 }
 
 // CommitOp creates a git commit if the KB root is a git repository and the

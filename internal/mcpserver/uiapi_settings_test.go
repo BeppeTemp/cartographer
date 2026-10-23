@@ -254,3 +254,29 @@ func TestUIAPI_SettingsNarrowedCallerSeesOnlyItsKBs(t *testing.T) {
 		}
 	}
 }
+
+// A KB seen through one archive only is visible, not whole: its git identity
+// (a person's name and email) is not for that caller.
+func TestUIAPI_SettingsIdentitiesFollowWholeVisibility(t *testing.T) {
+	t.Parallel()
+	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "partial", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Maps: []string{"ops"}}}}},
+		{Token: "whole", Scopes: []auth.KBScope{{KB: "kb-b"}}},
+	})
+	cfg := config.Default()
+	cfg.GitIdentities = map[string]string{
+		"kb-a": "Person A <a@example.com>",
+		"kb-b": "Person B <b@example.com>",
+	}
+	cfg.KBs = []config.KBSpec{{Name: "kb-a"}, {Name: "kb-b"}}
+	handler := settingsHandler(t, cfg, ts, "kb-a", "kb-b")
+
+	partial := getUI(t, handler, UIAPIPrefix+"/settings", "partial").Body.String()
+	if strings.Contains(partial, "a@example.com") || strings.Contains(partial, "b@example.com") {
+		t.Errorf("a caller seeing no KB whole got an identity: %s", partial)
+	}
+	whole := getUI(t, handler, UIAPIPrefix+"/settings", "whole").Body.String()
+	if !strings.Contains(whole, "b@example.com") || strings.Contains(whole, "a@example.com") {
+		t.Errorf("whole-KB caller should see only its own identity: %s", whole)
+	}
+}
