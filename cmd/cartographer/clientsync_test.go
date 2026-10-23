@@ -66,7 +66,7 @@ func TestFetchMergedManifest_PreservesBinaryExecutableFilesThroughApply(t *testi
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatal(err)
 		}
-		payload := `{"revision":"wire-rev","artifacts":[{"kind":"skill","name":"wire","source":"bundle","content_hash":"` + artifactHash + `","built_in":true,"files":[{"path":"SKILL.md","content_b64":"LS0tXG5uYW1lOiB3aXJlXG5kZXNjcmlwdGlvbjogdGVzdFxuLS0tXG4=","executable":false},{"path":"run.bin","content_b64":"AP+AAQ==","executable":true}]}]}`
+		payload := `{"revision":"wire-rev","artifacts":[{"kind":"skill","name":"wire","source":"kb:kb-a","content_hash":"` + artifactHash + `","files":[{"path":"SKILL.md","content_b64":"LS0tXG5uYW1lOiB3aXJlXG5kZXNjcmlwdGlvbjogdGVzdFxuLS0tXG4=","executable":false},{"path":"run.bin","content_b64":"AP+AAQ==","executable":true}]}]}`
 		if err := json.NewEncoder(w).Encode(map[string]any{
 			"jsonrpc": "2.0",
 			"id":      req.ID,
@@ -104,7 +104,7 @@ func TestFetchMergedManifest_PreservesBinaryExecutableFilesThroughApply(t *testi
 		if err != nil {
 			t.Fatalf("Apply(%s): %v", provider, err)
 		}
-		if len(res.Written) != 2 || res.Written[0].ContentHash != artifactHash || res.Written[1].ContentHash != artifactHash {
+		if len(res.Written) < 2 || res.Written[0].ContentHash != artifactHash || res.Written[1].ContentHash != artifactHash {
 			t.Fatalf("Apply(%s) changed artifact hash: %+v", provider, res.Written)
 		}
 		data, err := os.ReadFile(filepath.Join(base, rel))

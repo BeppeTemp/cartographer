@@ -28,6 +28,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
@@ -107,6 +108,10 @@ type Manifest struct {
 	// list that fed the hash would make a message edit look like a catalogue
 	// change.
 	Issues []string `json:"issues,omitempty"`
+	// Skipped is client-side only: the reasons VerifiedManifest dropped
+	// artifacts from this manifest (a "bundle" artifact that does not match the
+	// bundle embedded in this client). Apply reports them as warnings.
+	Skipped []string `json:"-"`
 	// Placeholders is client-side only: the {{repo:…}}/{{path:…}} keys the
 	// KBs feeding this manifest cite, "kind:key" -> KB names, as their
 	// sync_pull responses listed them (D262). Like Issues it is outside the
@@ -495,11 +500,42 @@ func VerifyArtifactSignature(a Artifact, keys map[string]ed25519.PublicKey) erro
 // VerifiedManifest returns a copy whose Signed flags are cryptographic
 // verification results only. Server-provided Signed values are never trusted.
 func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest, error) {
-	artifacts := append([]Artifact(nil), m.Artifacts...)
-	for i := range artifacts {
-		a := &artifacts[i]
+	artifacts := make([]Artifact, 0, len(m.Artifacts))
+	var skipped []string
+	for _, orig := range m.Artifacts {
+		artifacts = append(artifacts, orig)
+		a := &artifacts[len(artifacts)-1]
 		a.Signed = false
-		a.BuiltIn = a.Source == "bundle"
+		a.BuiltIn = false
+		if a.Source == "bundle" {
+			// Built-in means "embedded in this binary", verified locally: the
+			// server's source label alone proves nothing. A mismatch is normal
+			// version skew or a foreign artifact: skipped, not a failed sync.
+			if a.Signature != nil {
+				// A signature belongs to a KB artifact: this is a relabelled
+				// one, and stays a hard failure as it always was.
+				return Manifest{}, fmt.Errorf("provisioning: signature source mismatch for %s/%s", a.Kind, a.Name)
+			}
+			if !matchesEmbeddedBundle(*a) {
+				// Version skew: a bundled skill this client also embeds is
+				// replaced by the client's own copy, so it is not pruned.
+				if own, ok := embeddedBundleArtifact(a.Kind, a.Name); ok {
+					*a = own
+					a.BuiltIn = true
+					skipped = append(skipped, fmt.Sprintf("bundled skill %s: server and client bundles differ, installing this client's version", a.Name))
+					continue
+				}
+				skipped = append(skipped, fmt.Sprintf("bundle artifact %s/%s from the server does not match this client's embedded bundle: skipped", a.Kind, a.Name))
+				artifacts = artifacts[:len(artifacts)-1]
+				continue
+			}
+			// Even on a match the files installed are this client's own, never
+			// the ones the server carried (or fetches later).
+			own, _ := embeddedBundleArtifact(a.Kind, a.Name)
+			*a = own
+			a.BuiltIn = true
+			continue
+		}
 		if a.Signature == nil {
 			// A pinned KB signs every artifact it ships (BuildManifest signs each
 			// kb: artifact, instructions and mcp included), so an unsigned one
@@ -527,7 +563,48 @@ func VerifiedManifest(m Manifest, pins map[string][]ed25519.PublicKey) (Manifest
 		}
 		a.Signed = true
 	}
-	return Manifest{Revision: m.Revision, GeneratedAt: m.GeneratedAt, Artifacts: artifacts}, nil
+	return Manifest{Revision: m.Revision, GeneratedAt: m.GeneratedAt, Artifacts: artifacts, Skipped: skipped}, nil
+}
+
+var (
+	embeddedBundleOnce      sync.Once
+	embeddedBundleArtifacts map[string]Artifact
+)
+
+// embeddedBundleArtifact returns this client's own artifact for a bundled
+// skill, built by BuildManifest from the embedded bundle (files included).
+func embeddedBundleArtifact(kind, name string) (Artifact, bool) {
+	embeddedBundleOnce.Do(func() {
+		embeddedBundleArtifacts = map[string]Artifact{}
+		m, err := BuildManifest(skillbundle.FS, nil, BuildOptions{})
+		if err != nil {
+			return
+		}
+		for _, a := range m.Artifacts {
+			if a.Source != "bundle" {
+				continue
+			}
+			files, err := ReadArtifactFiles(a, skillbundle.FS, nil)
+			if err != nil {
+				continue
+			}
+			a.Files = files
+			embeddedBundleArtifacts[a.Kind+"\x00"+a.Name] = a
+		}
+	})
+	a, ok := embeddedBundleArtifacts[kind+"\x00"+name]
+	return a, ok
+}
+
+// matchesEmbeddedBundle reports whether an artifact labelled "bundle" is this
+// client's embedded artifact: same kind, name and content hash, and, when files
+// are carried, files that hash to it.
+func matchesEmbeddedBundle(a Artifact) bool {
+	own, ok := embeddedBundleArtifact(a.Kind, a.Name)
+	if !ok || own.ContentHash != a.ContentHash {
+		return false
+	}
+	return len(a.Files) == 0 || ContentHashFiles(a.Files) == a.ContentHash
 }
 
 // ContentHashDirOSForKind is contentHashDirOS exported for callers that must
@@ -1522,6 +1599,9 @@ func FilterForProvider(m Manifest, provider configurator.Provider) Manifest {
 	// arrives sorted from MergeArtifacts, so computeRevision's precondition
 	// still holds.
 	out.Revision = computeRevision(out.Artifacts)
+	// Skipped carries the warnings VerifiedManifest left for Apply to
+	// print; a real sync applies the filtered manifest, so they must survive.
+	out.Skipped = m.Skipped
 	return out
 }
 
@@ -2008,6 +2088,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		return AppliedResult{}, err
 	}
 
+	result.Warnings = append(result.Warnings, m.Skipped...)
 	result.Warnings = append(result.Warnings, tracker.warnings...)
 	result.Warnings = append(result.Warnings, unsupportedKindWarnings(m, opts.Provider)...)
 	result.Warnings = append(result.Warnings, legacySkillWarnings(m)...)

@@ -533,5 +533,8 @@ func FilterForProviderScoped(m Manifest, provider configurator.Provider, scope S
 		}
 	}
 	out.Revision = computeRevision(out.Artifacts)
+	// Skipped carries the warnings VerifiedManifest left for Apply to
+	// print; a real sync applies the filtered manifest, so they must survive.
+	out.Skipped = m.Skipped
 	return out
 }
