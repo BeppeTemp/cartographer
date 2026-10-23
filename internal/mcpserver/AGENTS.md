@@ -18,7 +18,8 @@ test or a decision record: none of them is a preference.
 - **A text a connection can receive carries no `cartographer <command>` unless it
   is chosen by connection kind** (`addressesOperator`, D1101). Add the generic
   wording beside it; `TestGenericConnectionIsNeverToldToRunACLICommand` fails
-  otherwise.
+  otherwise. Scenarios in `test/e2e/` grep these texts too, and `make gate`
+  does not run them: a wording change runs `make e2e` before the push.
 - **A tool's `ReadOnly` field and `readOnlyToolNames` are two halves of one fact.**
   `readonly.go` carries the source-of-truth list; `TestReadOnlyToolsGolden` builds
   a real registry and fails if they diverge. A new read-only tool that is not in

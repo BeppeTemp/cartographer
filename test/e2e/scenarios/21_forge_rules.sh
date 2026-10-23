@@ -98,7 +98,9 @@ if printf '%s' "$OUT" | grep -q 'is not a member of team' && printf '%s' "$OUT" 
 else
     _assert_fail "the tool result does not report the refusal: ${OUT}"
 fi
-if printf '%s' "$OUT" | grep -q 'local-admin' && printf '%s' "$OUT" | grep -q 'kb reauthor' && ! printf '%s' "$OUT" | grep -qi 'unprotect'; then
+# A generic connection gets the neutral recovery, with no CLI command (D1101).
+if printf '%s' "$OUT" | grep -q 'local-admin' && printf '%s' "$OUT" | grep -q "Tell the server's operator" \
+    && ! printf '%s' "$OUT" | grep -q 'cartographer kb' && ! printf '%s' "$OUT" | grep -qi 'unprotect'; then
     _assert_pass "the refusal names the identity and the recovery, and does not blame a protected branch"
 else
     _assert_fail "the refusal is not worded as an identity refusal: ${OUT}"
