@@ -368,26 +368,69 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 // checkHookRegistrationTarget refuses, before anything is written for a hook,
 // a registration target (the provider's shared settings file, or its generated
 // plugin file) that sits behind a symlink or any other non-plain path, with the
-// ErrSymlinkDestination the registrar itself would return. A provider with no
-// mechanism has nothing to check.
-func checkHookRegistrationTarget(baseDir string, provider configurator.Provider, name string) error {
+// ErrSymlinkDestination the registrar itself would return. destRel is the
+// hook's destination directory: a workspace hook registers elsewhere than a
+// global one (Antigravity's .agents/hooks.json, Crush's .crush.json), and the
+// registrars pick the file from that same path. A provider with no mechanism
+// has nothing to check.
+func checkHookRegistrationTarget(baseDir string, provider configurator.Provider, name, destRel string) error {
 	m, ok := hookMechanisms[provider]
 	if !ok {
 		return nil
 	}
 	var targets []string
-	if len(m.settingsFile) > 0 {
-		targets = append(targets, filepath.Join(m.settingsFile...))
+	switch {
+	case provider == configurator.ProviderAntigravity:
+		targets = append(targets, antigravityHooksPath(baseDir, destRel))
+	case provider == configurator.ProviderCrush:
+		targets = append(targets, crushSettingsPath(baseDir, destRel))
+	case len(m.settingsFile) > 0:
+		targets = append(targets, filepath.Join(baseDir, filepath.Join(m.settingsFile...)))
 	}
 	if m.pluginPath != nil {
-		targets = append(targets, m.pluginPath(name))
+		targets = append(targets, filepath.Join(baseDir, filepath.FromSlash(m.pluginPath(name))))
 	}
-	for _, rel := range targets {
-		if err := safewrite.CheckPath(baseDir, filepath.Join(baseDir, rel)); err != nil {
+	for _, full := range targets {
+		if err := safewrite.CheckPath(baseDir, full); err != nil {
 			return fmt.Errorf("provisioning: register hook %s: %w", name, err)
 		}
 	}
 	return nil
+}
+
+// registersAnything reports whether registering the hook now would write a
+// registration at all. The registrars skip silently on a hook.json they cannot
+// use (missing, invalid, an event the client never fires), and each decides on
+// its own, so the answer is asked of the registrar itself: it runs against a
+// scratch base dir, which stays empty when it skips. An error of the trial is
+// read as "registers", the conservative answer: nothing is stripped.
+func (m hookMechanism) registersAnything(name, fullDestDir string) bool {
+	scratch, err := os.MkdirTemp("", "cartographer-hook-trial-")
+	if err != nil {
+		return true
+	}
+	defer os.RemoveAll(scratch)
+	if _, _, err := m.register(scratch, name, fullDestDir); err != nil {
+		return true
+	}
+	wrote := false
+	_ = filepath.WalkDir(scratch, func(_ string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			wrote = true
+		}
+		return nil
+	})
+	return wrote
+}
+
+// hookInLock reports whether the previous lock owns a file of the hook name.
+func hookInLock(managed []ManagedFile, name string) bool {
+	for _, mf := range managed {
+		if mf.Kind == "hook" && mf.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // SupportsSessionHook reports whether the bootstrap hook (D60) can run at

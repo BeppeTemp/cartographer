@@ -1440,8 +1440,9 @@ The refusal is **per provider** (and, in a sync, per artifact):
   entry, the instructions block, a hook and its registration) and still write every other provider and
   artifact. The bootstrap and write-findings hooks are no exception: a provider whose
   destination for them is behind a link gets a `<provider>: bootstrap hook not installed: …` warning and the
-  others are still set up. An artifact whose write was refused is not recorded as installed, and one whose removal was
-  refused stays in the lockfile, so the next sync retries both. A hook's script is only removed once its
+  others are still set up. A refused write of a new artifact is not recorded as installed, a refused update keeps the previous
+  lockfile entry (its files on disk are still ours), and one whose removal was refused stays in the
+  lockfile, so the next sync retries each. A hook's script is only removed once its
   registration is. When a stale per-KB entry could not be removed, that KB (only) stays in
   `known_kbs` until the entry is gone. A workspace's `.git/info/exclude` behind a link is a warning, not
   an error.

@@ -1904,6 +1904,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	}
 
 	// Materialize the authorized artifacts.
+hookLoop:
 	for _, a := range toWrite {
 		if a.Kind == "instructions" {
 			// Handled as a group by applyInstructionsGroup below, not here.
@@ -2050,7 +2051,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				// script while the registration, and so the lock entry, still
 				// describes the previous one.
 				if a.Kind == "hook" {
-					if err := checkHookRegistrationTarget(opts.BaseDir, opts.Provider, a.Name); err != nil {
+					if err := checkHookRegistrationTarget(opts.BaseDir, opts.Provider, a.Name, destRel); err != nil {
 						if refuseArtifact(a, err) {
 							continue
 						}
@@ -2083,10 +2084,38 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 					// malformed hook.json (see registerHookSettings/
 					// registerCodexHook): doesn't fail materialization.
 					if mechanism, ok := hookMechanisms[opts.Provider]; ok {
+						// An update whose new spec the registrar will skip (no
+						// hook.json, an invalid one, an event the client never
+						// fires) must not leave the previous registration behind:
+						// it would keep firing the old entry. The files the update
+						// dropped are not pruned yet, so a dropped hook.json is
+						// removed first, or the registrar would read it again.
+						if hookInLock(opts.Lock.Managed, a.Name) {
+							for _, d := range droppedArtifactFiles(opts.Lock.Managed, a, destRel, relPaths) {
+								if filepath.Base(d.Path) == "hook.json" {
+									if err := safewrite.Remove(opts.BaseDir, filepath.Join(opts.BaseDir, d.Path)); err != nil && !errors.Is(err, os.ErrNotExist) {
+										if refuseArtifact(a, err) {
+											continue hookLoop
+										}
+										return AppliedResult{}, err
+									}
+								}
+							}
+							if !mechanism.registersAnything(a.Name, fullDestDir) {
+								stale := ManagedFile{Kind: "hook", Name: a.Name, Path: filepath.Join(destRel, "hook.json")}
+								if err := removeHookRegistration(opts.BaseDir, stale); err != nil {
+									if refuseArtifact(a, err) {
+										continue hookLoop
+									}
+									return AppliedResult{}, err
+								}
+							}
+						}
 						pluginRel, warning, regErr := mechanism.register(opts.BaseDir, a.Name, fullDestDir)
 						if regErr != nil {
-							// Refused (D148): the hook is not registered, so it is
-							// not recorded as installed; the next sync retries.
+							// Refused (D148): a new hook is not recorded as installed,
+							// an updated one keeps its previous lock entry; the next
+							// sync retries.
 							if refuseArtifact(a, regErr) {
 								continue
 							}
@@ -2658,18 +2687,25 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 				return fmt.Errorf("provisioning: write instructions block %s: %w", destRel, err)
 			}
 			// Refused (D148): per artifact, like a skill. None of the sections is
-			// recorded as written or as managed, so the next sync retries them.
+			// recorded as written. The old block is still on disk, so the
+			// previous instructions entries and the paths-section hash are
+			// carried forward unchanged and the next sync retries.
 			for _, a := range signed {
 				refuse(result, a, err)
 			}
-			dropped := (*newManaged)[:0]
+			kept := (*newManaged)[:0]
 			for _, mf := range *newManaged {
 				if mf.Kind != "instructions" {
-					dropped = append(dropped, mf)
+					kept = append(kept, mf)
 				}
 			}
-			*newManaged = dropped
-			*pathsHash = ""
+			for _, mf := range opts.Lock.Managed {
+				if mf.Kind == "instructions" {
+					kept = append(kept, mf)
+				}
+			}
+			*newManaged = kept
+			*pathsHash = opts.Lock.PathsSectionHash
 			return nil
 		}
 	}
@@ -4304,6 +4340,7 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		stampTarget = principalFile(a.Kind)
 	}
 	stamped := false
+	dstPaths := make([]string, 0, len(files))
 	for _, f := range files {
 		// Paths can arrive from a remote server via sync_pull: reject
 		// absolute paths and traversal outside the artifact's directory.
@@ -4329,7 +4366,18 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 			execPaths = append(execPaths, filepath.ToSlash(f.Path))
 		}
 
+		// Every destination is checked before the first one is written: a
+		// refusal part-way would leave the earlier files rewritten and the
+		// later ones unrecorded, so a refused delivery touches nothing.
 		dstPath := filepath.Join(fullDestDir, local)
+		if err := safewrite.CheckPath(opts.BaseDir, dstPath); err != nil {
+			return nil, nil, "", "", err
+		}
+		dstPaths = append(dstPaths, dstPath)
+	}
+
+	for i, f := range expanded {
+		dstPath := dstPaths[i]
 		if err := mkdirAllNoFollow(opts.BaseDir, filepath.Dir(dstPath), 0o755); err != nil {
 			return nil, nil, "", "", err
 		}
@@ -4339,10 +4387,10 @@ func copyArtifactFiles(a Artifact, opts ApplyOptions, fullDestDir string, tracke
 		// The explicit Chmod is needed for files that already exist: WriteFile only
 		// applies mode on creation.
 		mode := os.FileMode(0o644)
-		if executable {
+		if f.Executable {
 			mode = 0o755
 		}
-		if err := writeFileNoFollow(dstPath, content, mode); err != nil {
+		if err := writeFileNoFollow(dstPath, f.Content, mode); err != nil {
 			return nil, nil, "", "", err
 		}
 		if err := os.Chmod(dstPath, mode); err != nil {

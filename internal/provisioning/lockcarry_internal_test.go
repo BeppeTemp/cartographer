@@ -277,3 +277,248 @@ func TestPruneManaged_MCPEntryInTwoConfigFilesIsPrunedInBoth(t *testing.T) {
 		}
 	}
 }
+
+// registrationText is what the provider's registration files hold now; a file
+// that is gone holds nothing.
+func registrationText(base string, rels []string) string {
+	var sb strings.Builder
+	for _, rel := range rels {
+		if data, err := os.ReadFile(filepath.Join(base, rel)); err == nil {
+			sb.Write(data)
+		}
+	}
+	return sb.String()
+}
+
+// A registrar that skips a hook silently (no hook.json, an invalid one, an event
+// the client never fires) must not leave the previous registration firing: an
+// update that the registrar skips strips the old entry, and the warning stays.
+func TestApply_UpdateTheRegistrarSkipsStripsThePreviousRegistration(t *testing.T) {
+	for _, p := range Destinations("hook", "guard") {
+		unreached := ""
+		for _, ev := range HookEventNames() {
+			if !hookEventReaches(ev, p) {
+				unreached = ev
+				break
+			}
+		}
+		cases := map[string]string{
+			"hook.json dropped": "",
+			"invalid spec":      `{"event":"","command":"./extra.sh"}`,
+		}
+		if unreached != "" {
+			cases["event the client never fires"] = `{"event":"` + unreached + `","command":"./extra.sh"}`
+		}
+		for name, spec := range cases {
+			t.Run(string(p)+"/"+name, func(t *testing.T) {
+				base := t.TempDir()
+				first := Manifest{Revision: "r1", Artifacts: []Artifact{
+					builtInHook("guard", "h1", map[string]string{"hook.json": guardHookJSON(t, p), "extra.sh": "#!/bin/sh\n"}),
+				}}
+				res, err := Apply(first, ApplyOptions{Provider: p, BaseDir: base, SkipLockWrite: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				regs := registrationFiles(p, "guard")
+				if !strings.Contains(registrationText(base, regs), "guard") {
+					t.Fatalf("the first apply did not register the hook (warnings %v)", res.Warnings)
+				}
+
+				files := map[string]string{"extra.sh": "#!/bin/sh\n"}
+				if spec != "" {
+					files["hook.json"] = spec
+				}
+				second := Manifest{Revision: "r2", Artifacts: []Artifact{builtInHook("guard", "h2", files)}}
+				res2, err := Apply(second, ApplyOptions{Provider: p, BaseDir: base, SkipLockWrite: true, Lock: res.NewLock})
+				if err != nil {
+					t.Fatalf("second apply: %v", err)
+				}
+				if got := registrationText(base, regs); strings.Contains(got, "guard") {
+					t.Errorf("the previous registration survived an update the registrar skips: %s", got)
+				}
+				if w := warningsMentioning(res2, `hook "guard"`); len(w) == 0 {
+					t.Errorf("no warning for the skipped registration: %v", res2.Warnings)
+				}
+				if _, err := os.Stat(filepath.Join(base, destDirScoped("hook", "guard", p, ScopeGlobal), "extra.sh")); err != nil {
+					t.Errorf("the hook's remaining file is gone: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func warningsMentioning(res AppliedResult, sub string) []string {
+	var out []string
+	for _, w := range res.Warnings {
+		if strings.Contains(w, sub) {
+			out = append(out, w)
+		}
+	}
+	return out
+}
+
+// In a workspace the registration lives elsewhere than in the global config
+// (Antigravity's .agents/hooks.json, Crush's .crush.json): a refused update is
+// decided on that file, before the script is touched.
+func TestApply_RefusedWorkspaceHookUpdateKeepsThePreviousLockEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	for p, regRel := range map[configurator.Provider]string{
+		configurator.ProviderAntigravity: ".agents/hooks.json",
+		configurator.ProviderCrush:       ".crush.json",
+	} {
+		t.Run(string(p), func(t *testing.T) {
+			base, elsewhere := t.TempDir(), t.TempDir()
+			opts := func(lock Lock) ApplyOptions {
+				return ApplyOptions{Provider: p, Scope: ScopeProject, BaseDir: base, SkipLockWrite: true, Lock: lock}
+			}
+			hook := func(hash, script string) Manifest {
+				return Manifest{Revision: hash, Artifacts: []Artifact{
+					builtInHook("guard", hash, map[string]string{"hook.json": guardHookJSON(t, p), "extra.sh": script}),
+				}}
+			}
+			res, err := Apply(hook("h1", "old script\n"), opts(Lock{}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			reg := filepath.Join(base, filepath.FromSlash(regRel))
+			if _, err := os.Stat(reg); err != nil {
+				t.Fatalf("the workspace registration %s was not written: %v", regRel, err)
+			}
+			if err := os.Remove(reg); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(elsewhere, "target.json"), reg); err != nil {
+				t.Fatal(err)
+			}
+			res2, err := Apply(hook("h2", "new script\n"), opts(res.NewLock))
+			if err != nil {
+				t.Fatalf("second apply: %v", err)
+			}
+			if len(res2.Refused) != 1 {
+				t.Fatalf("Refused = %+v, want the hook", res2.Refused)
+			}
+			if len(res2.NewLock.Managed) != len(res.NewLock.Managed) || len(res.NewLock.Managed) == 0 {
+				t.Errorf("lock after the refusal = %+v, want %+v", res2.NewLock.Managed, res.NewLock.Managed)
+			}
+			for _, mf := range res2.NewLock.Managed {
+				if mf.ContentHash != "h1" {
+					t.Errorf("entry %s = %q, want the previous hash", mf.Path, mf.ContentHash)
+				}
+			}
+			data, err := os.ReadFile(filepath.Join(base, destDirScoped("hook", "guard", p, ScopeProject), "extra.sh"))
+			if err != nil || string(data) != "old script\n" {
+				t.Errorf("the script was overwritten by a refused update: %q, %v", data, err)
+			}
+			if entries, _ := os.ReadDir(elsewhere); len(entries) != 0 {
+				t.Errorf("the link target gained %d entries", len(entries))
+			}
+		})
+	}
+}
+
+// A refused instructions block leaves the old block on disk, so its lock
+// entries and the paths-section hash stay as they were.
+func TestApply_RefusedInstructionsBlockKeepsThePreviousLockEntries(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	base, elsewhere := t.TempDir(), t.TempDir()
+	instr := func(hash, body string) Manifest {
+		return Manifest{Revision: hash, Artifacts: []Artifact{{
+			Kind: "instructions", Name: "kb-a", ContentHash: hash, Source: "kb:kb-a",
+			Files: []ArtifactFile{{Path: "instructions.md", Content: []byte(body)}},
+		}}}
+	}
+	opts := func(lock Lock) ApplyOptions {
+		return ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, SkipLockWrite: true, Lock: lock}
+	}
+	res, err := Apply(instr("h1", "first\n"), opts(Lock{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.NewLock.PathsSectionHash = "paths-hash"
+	file := filepath.Join(base, ".claude", "CLAUDE.md")
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(elsewhere, "CLAUDE.md")
+	if err := os.WriteFile(target, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, file); err != nil {
+		t.Fatal(err)
+	}
+	res2, err := Apply(instr("h2", "second\n"), opts(res.NewLock))
+	if err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if len(res2.Refused) != 1 {
+		t.Fatalf("Refused = %+v, want the instructions", res2.Refused)
+	}
+	var got []ManagedFile
+	for _, mf := range res2.NewLock.Managed {
+		if mf.Kind == "instructions" {
+			got = append(got, mf)
+		}
+	}
+	if len(got) != 1 || got[0].ContentHash != "h1" {
+		t.Errorf("instructions entries after the refusal = %+v, want the previous one (h1)", got)
+	}
+	if res2.NewLock.PathsSectionHash != "paths-hash" {
+		t.Errorf("PathsSectionHash = %q, want the previous value kept", res2.NewLock.PathsSectionHash)
+	}
+}
+
+// A refusal part-way through a multi-file artifact touches nothing: every
+// destination is checked before the first file is written.
+func TestApply_RefusedMultiFileUpdateRewritesNoFile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	base, elsewhere := t.TempDir(), t.TempDir()
+	skill := func(hash, suffix string) Manifest {
+		return Manifest{Revision: hash, Artifacts: []Artifact{{
+			Kind: "skill", Name: "alpha", ContentHash: hash, Source: "bundle", BuiltIn: true,
+			Files: []ArtifactFile{
+				{Path: "SKILL.md", Content: []byte("# alpha " + suffix + "\n")},
+				{Path: "zz-reference.md", Content: []byte("reference " + suffix + "\n")},
+			},
+		}}}
+	}
+	opts := func(lock Lock) ApplyOptions {
+		return ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, SkipLockWrite: true, NoHeal: true, Lock: lock}
+	}
+	res, err := Apply(skill("h1", "v1"), opts(Lock{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(base, ".claude", "skills", "alpha")
+	if err := os.Remove(filepath.Join(dir, "zz-reference.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(elsewhere, "ref.md"), filepath.Join(dir, "zz-reference.md")); err != nil {
+		t.Fatal(err)
+	}
+	res2, err := Apply(skill("h2", "v2"), opts(res.NewLock))
+	if err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if len(res2.Refused) != 1 {
+		t.Fatalf("Refused = %+v, want the skill", res2.Refused)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "SKILL.md"))
+	if err != nil || !strings.Contains(string(data), "v1") || strings.Contains(string(data), "v2") {
+		t.Errorf("SKILL.md was rewritten by a refused update: %q, %v", data, err)
+	}
+	for _, mf := range res2.NewLock.Managed {
+		if mf.ContentHash != "h1" {
+			t.Errorf("entry %s = %q, want the previous hash", mf.Path, mf.ContentHash)
+		}
+	}
+}
