@@ -223,12 +223,28 @@ func TestNormalizeAuthMode(t *testing.T) {
 	cases := map[string]string{
 		"true": "on", "1": "on", "yes": "on", "on": "on", "ON": "on",
 		"false": "off", "0": "off", "no": "off", "off": "off",
-		"auto": "auto", "": "auto", "garbage": "auto",
+		"auto": "auto", "": "auto",
 	}
 	for in, want := range cases {
-		if got := normalizeAuthMode(in); got != want {
-			t.Errorf("normalizeAuthMode(%q) = %q, want %q", in, got, want)
+		got, err := normalizeAuthMode(in)
+		if err != nil || got != want {
+			t.Errorf("normalizeAuthMode(%q) = %q, %v, want %q", in, got, err, want)
 		}
+	}
+	for _, in := range []string{"onn", "garbage", "enabled"} {
+		if _, err := normalizeAuthMode(in); err == nil {
+			t.Errorf("normalizeAuthMode(%q) must be an error", in)
+		}
+	}
+}
+
+func TestUnknownAuthModeIsRefused(t *testing.T) {
+	if _, err := loadYAML(t, "auth:\n  mode: onn\n"); err == nil || !strings.Contains(err.Error(), "onn") {
+		t.Fatalf("auth.mode: onn must be refused naming the value, got %v", err)
+	}
+	t.Setenv("CARTOGRAPHER_AUTH", "onn")
+	if err := FromEnv(Default()); err == nil || !strings.Contains(err.Error(), "CARTOGRAPHER_AUTH") {
+		t.Fatalf("CARTOGRAPHER_AUTH=onn must be refused, got %v", err)
 	}
 }
 

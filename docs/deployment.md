@@ -134,7 +134,7 @@ audit:
   retention_days: 90           # (audit.retention_days) delete checkpointed segments older than N days; default 90; 0 = keep forever
 ```
 
-An unknown key anywhere under `auth` (a token's `scope:` for `scopes:`, `role:` for `roles:`, a rule's `map:` for `maps:`) stops the server at startup, naming the key and its line, and so does a top-level `Auth:` or a root `tokens:`/`roles:`: a dropped key would otherwise change who may do what. A token that declares a scope list which comes out empty (`scopes: []`, `roles: []`, `tok|`) is refused too; the admin token is the one that writes no `scopes` and no `roles` at all.
+An unknown key anywhere under `auth` (a token's `scope:` for `scopes:`, `role:` for `roles:`, a rule's `map:` for `maps:`) stops the server at startup, naming the key and its line, and so does a top-level `Auth:`, a root `tokens:`/`roles:` or any unknown top-level key that mentions `auth` or `token` or is within two edits of `auth` (`auht:`, `authentication:`, `token:`): a dropped key would otherwise change who may do what. A token that declares a scope list which comes out empty (`scopes: []`, `roles: []`, `tok|`) is refused too, and so is a rule whose `maps`, `journals` or `types` is written but empty (`maps: []`, a bare `maps:`): only an omitted key means all. The admin token is the one that writes no `scopes` and no `roles` at all.
 
 `kbs[]` (YAML) is additive to `CARTOGRAPHER_KB_REMOTES` (append, not replace) — all listed KBs get
 mounted — and every entry has a `remote`: a KB without one is a folder under `data`, which is discovered
@@ -348,7 +348,9 @@ Every startup option has a corresponding environment variable (the CLI flag take
 |---|---|
 | `false` / `0` / `no` / `off` | Auth disabled (e.g. a local service on loopback) |
 | `true` / `1` / `yes` / `on` | Auth mandatory — fatal error at startup if no token is configured |
-| unset | Auto: enabled if tokens are present, disabled otherwise |
+| unset / `auto` | Auto: enabled if tokens are present, disabled otherwise |
+
+Any other value (`onn`) stops the server at startup, from `CARTOGRAPHER_AUTH` and from `auth.mode` alike.
 
 #### Example: native local service (launchd/systemd/Scheduled Task, auth off, single client)
 
@@ -974,7 +976,7 @@ auth:
       rules:
         - kb: homelab
           access: rw            # r | rw
-          maps: [infra]         # empty = every map
+          maps: [infra]         # omit the key = every map; `maps: []` is refused
           types: [Runbook]      # empty = every type
         - kb: reference
           access: r

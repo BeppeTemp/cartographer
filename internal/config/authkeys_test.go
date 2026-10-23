@@ -157,3 +157,66 @@ func TestEmptyRoleListAndMergedEmptyListsAreNotAdmin(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadRefusesEmptyRoleSelectors(t *testing.T) {
+	for _, key := range []string{"maps", "journals", "types"} {
+		for name, val := range map[string]string{"empty list": " []", "bare key": ""} {
+			body := "auth:\n  roles:\n    - name: r\n      rules:\n        - kb: kb-a\n          access: r\n          " + key + ":" + val + "\n"
+			_, err := loadAuthYAML(t, body)
+			if err == nil {
+				t.Errorf("%s as %s: want an error", key, name)
+				continue
+			}
+			for _, want := range []string{`"r"`, "rule 0", key} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("%s as %s: error %q lacks %q", key, name, err, want)
+				}
+			}
+		}
+	}
+	// Omitted keys still mean "all"; a non-empty list is fine.
+	ok := "auth:\n  roles:\n    - name: r\n      rules:\n        - kb: kb-a\n          access: r\n        - kb: kb-b\n          access: rw\n          maps: [infra]\n"
+	if _, err := loadAuthYAML(t, ok); err != nil {
+		t.Fatalf("omitted selectors must load: %v", err)
+	}
+}
+
+func TestLoadRefusesMisspelledAuthSection(t *testing.T) {
+	for _, key := range []string{"auht", "authentication", "auth_tokens", "token", "Auth", "authz", "auths", "aut"} {
+		_, err := loadAuthYAML(t, key+":\n  mode: on\n")
+		if err == nil || !strings.Contains(err.Error(), `did you mean "auth"`) {
+			t.Errorf("top-level %q: want a did-you-mean error, got %v", key, err)
+		}
+	}
+	for _, key := range []string{"retired_key", "audit_extra", "web_ui"} {
+		if _, err := loadAuthYAML(t, key+": 1\n"); err != nil {
+			t.Errorf("top-level %q must stay lenient: %v", key, err)
+		}
+	}
+}
+
+func TestShippedAuthExamplesLoad(t *testing.T) {
+	t.Setenv("CARTOGRAPHER_TOKEN", "example-token")
+	if _, err := Load(filepath.Join("..", "..", "config.example.yaml")); err != nil {
+		t.Fatalf("config.example.yaml: %v", err)
+	}
+	doc, err := os.ReadFile(filepath.Join("..", "..", "docs", "deployment.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, blk := range strings.Split(string(doc), "```yaml\n")[1:] {
+		body, _, _ := strings.Cut(blk, "```")
+		if !strings.Contains(body, "\nauth:") && !strings.HasPrefix(body, "auth:") {
+			continue
+		}
+		n++
+		body = strings.NewReplacer("[...]", "[]").Replace(body)
+		if _, err := loadAuthYAML(t, body); err != nil {
+			t.Errorf("docs/deployment.md auth example %d does not load: %v\n%s", n, err, body)
+		}
+	}
+	if n == 0 {
+		t.Fatal("no auth example found in docs/deployment.md")
+	}
+}
