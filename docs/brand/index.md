@@ -52,6 +52,11 @@ The full set is in [`cartographer.css`](cartographer.css) (CSS custom properties
 [`cartographer.tokens.json`](cartographer.tokens.json) (same values plus graph
 categories, spacing, radii and motion durations).
 
+The docs site maps them onto MkDocs Material in [`mkdocs.css`](mkdocs.css),
+with one exception: in dark mode the header keeps the surface colour, but the
+page sits on a neutral `#1E1E1E` instead of the green-tinted background, which
+reads better under long text.
+
 ## Typography
 
 - Editorial / headings: `Georgia, serif`.
