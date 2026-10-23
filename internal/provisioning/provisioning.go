@@ -3030,8 +3030,9 @@ func appendBlock(content, block string) string {
 // hold user files — settings.json, config.toml, opencode.json — pruneEmptyDirs has
 // no business touching). Only the levels *created underneath* them (e.g.
 // ".claude/skills/<name>", then ".claude/skills") are ever removed (D63).
-// TestEveryDestinationRootIsAPruneBoundary derives the list from both destination
-// matrices: a provider or a workspace cell added later fails there until its root is here.
+// TestEveryDestinationRootIsAPruneBoundary checks it against both destination
+// matrices: a provider or a workspace cell added later fails there until its root is
+// here. Writers outside the matrix (hook registrations, bootstrap) sit under these too.
 var provisioningRootDirs = map[string]bool{
 	".claude":                            true,
 	".codex":                             true,
