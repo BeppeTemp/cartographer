@@ -693,7 +693,7 @@ func prepareWorkspace(p syncProjection, providers []string, dryRun bool) error {
 		return nil
 	}
 	if err := writeWorkspaceExclusions(p.Workspace, providers, p.InstructionsRel); err != nil {
-		if errors.Is(err, provisioning.ErrSymlinkDestination) {
+		if provisioning.ExcludeWarning(err) {
 			// The exclude block is a convenience, not what the sync is for: a
 			// linked .git (D148) costs a warning and a dirty working tree, not
 			// the projection.
@@ -978,7 +978,7 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 		// provider still bound to the workspace keeps its paths excluded (#656).
 		lockFile.RemoveProjection(key)
 		if err := writeWorkspaceExclusions(key.Workspace, workspaceProviders(*lockFile, declared, key.Workspace)); err != nil {
-			if !errors.Is(err, provisioning.ErrSymlinkDestination) {
+			if !provisioning.ExcludeWarning(err) {
 				return nil, fmt.Errorf("prune %s: %w", key.String(), err)
 			}
 			fmt.Fprintf(os.Stderr, "warning: workspace %s: git exclude left unchanged: %v\n", key.Workspace, err)

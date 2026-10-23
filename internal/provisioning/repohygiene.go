@@ -2,7 +2,9 @@ package provisioning
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,7 +18,7 @@ import (
 // rules follow, and neither is negotiable:
 //
 //  1. Cartographer excludes **only its own untracked paths**, and it does so in
-//     `.git/info/exclude` — the per-clone, unversioned ignore file. It never
+//     `info/exclude` of the git directory — the per-clone, unversioned ignore file. It never
 //     edits `.gitignore`: that file is the repository's, shared with everyone
 //     who clones it, and a tool that writes there commits an opinion on behalf
 //     of a team.
@@ -119,22 +121,26 @@ func CheckWorkspaceHygiene(provider, workspaceDir string, ownedPaths, blockPaths
 	return &TrackedCollisionError{Workspace: workspaceDir, Provider: provider, Paths: dedupe(hits)}
 }
 
-// EnsureWorkspaceExcluded writes Cartographer's owned paths into
-// `<workspaceDir>/.git/info/exclude`, inside its own marker block.
+// EnsureWorkspaceExcluded writes Cartographer's owned paths into the repository's
+// `info/exclude` (excludeFile says where that is), inside its own marker block.
 //
 // It is idempotent, it never touches a line outside the block, and it never
 // touches `.gitignore`. A workspaceDir that is not a git repository is a no-op:
-// there is nothing to keep clean.
+// there is nothing to keep clean. A `.git` file the exclude file cannot be
+// resolved from is ErrGitDirUnresolvable, which the callers report as a warning.
 //
 // Only paths Cartographer owns entirely are excluded. A block it writes inside
 // a user-owned file (CLAUDE.md, AGENTS.md) must NOT be excluded — that file is
 // the user's, and telling git to ignore it would hide their own edits.
 func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
-	infoDir := filepath.Join(workspaceDir, ".git", "info")
-	if _, err := os.Stat(filepath.Join(workspaceDir, ".git")); err != nil {
+	baseDir, path, isRepo, err := excludeFile(workspaceDir)
+	if err != nil {
+		return err
+	}
+	if !isRepo {
 		return nil
 	}
-	path := filepath.Join(infoDir, "exclude")
+	infoDir := filepath.Dir(path)
 
 	existing, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -161,12 +167,101 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 		// rather than creating an empty one.
 		return nil
 	}
-	// The write goes through every directory below the workspace (.git,
-	// .git/info) and the file itself: a symlink in that chain is refused (D148).
-	if err := mkdirAllNoFollow(workspaceDir, infoDir, 0o755); err != nil {
+	// The write goes through every directory below baseDir (for a plain
+	// repository .git and .git/info, for a linked one info) and the file itself:
+	// a symlink in that chain is refused (D148).
+	if err := mkdirAllNoFollow(baseDir, infoDir, 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir %s: %w", infoDir, err)
 	}
 	return writeFileNoFollow(path, []byte(out), 0o644)
+}
+
+// ErrGitDirUnresolvable is the refusal for a `.git` file that does not lead to a
+// git directory (no `gitdir:` line, a target that is missing or not a
+// directory). The exclude block is a convenience, so the callers warn and go on.
+var ErrGitDirUnresolvable = errors.New("provisioning: the .git file does not lead to a git directory")
+
+// ExcludeWarning reports whether err from EnsureWorkspaceExcluded or
+// RemoveWorkspaceExclusions is one the sync survives with a warning: the exclude
+// file sits behind a link (D148) or cannot be resolved.
+func ExcludeWarning(err error) bool {
+	return errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrGitDirUnresolvable)
+}
+
+// excludeFile resolves the exclude file of the repository at workspaceDir the way
+// git does, without running it. baseDir anchors the no-follow walk of the write:
+// the workspace for a `.git` directory (so a linked `.git` is refused), the
+// resolved git directory for a `.git` file.
+//
+// A `.git` file (a linked worktree or a submodule) holds `gitdir: <path>`,
+// relative to the workspace. That directory is the exclude's home, unless it has
+// a `commondir` file (a linked worktree): then it is the directory that file
+// names, relative to the git directory, because `info/exclude` is shared by all
+// the worktrees of a repository.
+func excludeFile(workspaceDir string) (baseDir, path string, isRepo bool, err error) {
+	dotGit := filepath.Join(workspaceDir, ".git")
+	info, lerr := os.Lstat(dotGit)
+	if lerr != nil {
+		return "", "", false, nil
+	}
+	if !info.Mode().IsRegular() {
+		// A directory, or a link or something else the writers below refuse
+		// when they would write: that stays their decision.
+		if _, serr := os.Stat(dotGit); serr != nil {
+			return "", "", false, nil
+		}
+		return workspaceDir, filepath.Join(dotGit, "info", "exclude"), true, nil
+	}
+	gitDir, err := readGitDirFile(dotGit, workspaceDir)
+	if err != nil {
+		return "", "", false, err
+	}
+	if rel, rerr := readSmallFile(filepath.Join(gitDir, "commondir")); rerr == nil {
+		if common := strings.TrimSpace(rel); common != "" {
+			gitDir = resolveFrom(gitDir, common)
+		}
+	}
+	if st, serr := os.Stat(gitDir); serr != nil || !st.IsDir() {
+		return "", "", false, fmt.Errorf("%w: %s", ErrGitDirUnresolvable, gitDir)
+	}
+	return gitDir, filepath.Join(gitDir, "info", "exclude"), true, nil
+}
+
+// readGitDirFile returns the directory a `.git` file points at.
+func readGitDirFile(dotGit, workspaceDir string) (string, error) {
+	content, err := readSmallFile(dotGit)
+	if err != nil {
+		return "", fmt.Errorf("%w: %s: %v", ErrGitDirUnresolvable, dotGit, err)
+	}
+	first, _, _ := strings.Cut(content, "\n")
+	target, ok := strings.CutPrefix(strings.TrimSpace(first), "gitdir:")
+	if target = strings.TrimSpace(target); !ok || target == "" {
+		return "", fmt.Errorf("%w: %s has no gitdir line", ErrGitDirUnresolvable, dotGit)
+	}
+	return resolveFrom(workspaceDir, target), nil
+}
+
+// resolveFrom joins a path git wrote (slashes, absolute or relative to base).
+func resolveFrom(base, p string) string {
+	p = filepath.FromSlash(p)
+	if filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+	return filepath.Join(base, p)
+}
+
+// maxGitPointerSize bounds the pointer files read (`.git`, `commondir`): a real
+// one is a line, so a larger file is not one.
+const maxGitPointerSize = 64 * 1024
+
+func readSmallFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxGitPointerSize))
+	return string(b), err
 }
 
 // RemoveWorkspaceExclusions drops Cartographer's block entirely, for an unbind

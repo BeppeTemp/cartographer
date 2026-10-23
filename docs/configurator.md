@@ -1442,7 +1442,7 @@ The refusal is **per provider** (and, in a sync, per artifact):
   still stops `connect` and `sync` for every provider. An artifact whose write was refused is not recorded as installed, and one whose removal was
   refused stays in the lockfile, so the next sync retries both. A hook's script is only removed once its
   registration is. When a stale per-KB entry could not be removed, that KB (only) stays in
-  `known_kbs` until the entry is gone. A workspace's `.git/info/exclude` behind a link is a warning, not
+  `known_kbs` until the entry is gone. A workspace's `info/exclude` behind a link, or a `.git` file that leads to no git directory, is a warning, not
   an error.
 - `disconnect` prints `kept connected: …` for the provider, leaves its lockfile section,
   `.cartographer.yaml` entry and managed files (whatever could be pruned is) in place so the next

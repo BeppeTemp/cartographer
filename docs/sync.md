@@ -586,8 +586,12 @@ Codex is the one provider where correct files are not the whole story: it ignore
 
 A projection writes into a directory the user version-controls, so two rules hold:
 
-- Cartographer excludes **only its own untracked paths**, and only in `.git/info/exclude`, inside a
-  marker-delimited block. It **never** edits `.gitignore`: that file is the repository's, shared
+- Cartographer excludes **only its own untracked paths**, and only in the repository's `info/exclude`
+  (`.git/info/exclude`), inside a marker-delimited block. Where `.git` is a file, as in a linked
+  worktree or a submodule, it resolves that file the way git does, without running git: the
+  `gitdir:` line, then the `commondir` file if the git directory has one (a worktree shares the
+  main repository's `info/exclude`). A `.git` file that leads nowhere is a warning, not an error.
+  It **never** edits `.gitignore`: that file is the repository's, shared
   with everyone who clones it. A shared file the repository already tracks — a `CLAUDE.md` the team
   wrote — is the user's: Cartographer writes its block inside it and does not exclude it.
   The block is one per workspace and lists the paths of **every** provider bound to it, including
