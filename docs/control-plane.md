@@ -41,7 +41,7 @@ For each mounted KB, the server keeps only a **rebuildable derived index** and a
 
 This list is the **source of truth** for the active tools (do not duplicate counts elsewhere).
 
-A row is `` `name(params)` `` then zero, one or two markers, always **[R]** before **[A]**, then the description. In `params`, `[x]` is optional, `x` required, `a \| b` alternatives and a trailing `[]` an array; `kb` (routed mount) and, for a tool that commits, `reason` (D272) are not listed. `TestToolTableMatchesRegistry` and `TestToolTableParametersMatchSchemas` (D1125) check every row against the registry in both directions: one row per registered tool, the markers, and the parameters against each tool's input schema.
+A row is `` `name(params)` `` then zero, one or two markers, always **[R]** before **[A]**, then the description. In `params`, `[x]` is optional, `x` required, `a \| b` alternatives and a trailing `[]` an array; `kb` (routed mount) and, for a git-wrapped tool, `reason` (D272; `concept_transfer` and `artifact_move` own their commits and list it) are not listed. `TestToolTableMatchesRegistry` and `TestToolTableParametersMatchSchemas` (D1125) check every row against the registry in both directions: one row per registered tool, the markers, and the parameters against each tool's input schema.
 
 Tools marked **[R]** have `Tool.ReadOnly=true` (`internal/mcpserver`): they never mutate KB content and remain callable with a `kb:<name>:r` scope. All others require `rw`. Enforcement and scope format → [`transport-auth.md`](transport-auth.md) §Per-KB scopes.
 

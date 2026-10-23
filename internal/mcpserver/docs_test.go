@@ -116,7 +116,8 @@ func docsFiles(t *testing.T) []string {
 	// The shipped skills, .claude/ and the area AGENTS.md files name tools too.
 	// Each pattern must match something, or a moved directory would turn the
 	// scan into a no-op (docs/testing.md §Documentation gates).
-	for _, dir := range []string{"internal/skillbundle/bundled", ".claude"} {
+	// Only the versioned part of .claude/: the rest is local, git-ignored state.
+	for _, dir := range []string{"internal/skillbundle/bundled", ".claude/skills", ".claude/agents"} {
 		before := len(files)
 		base := filepath.Join(root, dir)
 		err := filepath.WalkDir(base, func(path string, entry os.DirEntry, walkErr error) error {
@@ -302,6 +303,13 @@ func TestToolTableMatchesRegistry(t *testing.T) {
 		}
 		if seen[r.name] == 2 {
 			errs = append(errs, fmt.Sprintf("%s: tool %q has more than one row — keep one", doc, r.name))
+		}
+		written := map[string]bool{}
+		for _, mk := range r.markers {
+			if written[mk] {
+				errs = append(errs, fmt.Sprintf("row %q: marker **[%s]** is written twice; keep one", r.name, mk))
+			}
+			written[mk] = true
 		}
 		got := strings.Join(r.markers, ",")
 		want := ""
