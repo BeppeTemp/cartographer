@@ -23,8 +23,8 @@ make decisions-new N=<issue> SLUG=my-choice TOPIC=control-plane   # D<n> = plan 
 make decisions-index # regenerate docs/decisions.md locally (the release PR does it, D328)
 make worktree-add SLUG=my-change   # isolated worktree for a plan branch
 make worktree-rm  SLUG=my-change   # remove it (force: discards uncommitted work)
-make worktree-clean [DRY=1]        # remove the worktrees and branches (local, fork) of merged PRs, each checked against its PR
-make dev [DATA=<data dir>]         # live instance from a worktree: Go rebuilt on change, UI hot-reloaded
+make worktree-clean [DRY=1]        # remove worktrees and branches of merged PRs, each checked
+make dev [DATA=<data dir>]         # live instance: Go rebuilt on change, UI hot-reloaded
 ```
 
 ```bash
@@ -88,6 +88,7 @@ internal/okf            parser/serializer for the YAML subset used in OKF frontm
 internal/provisioning   manages the synchronization of artifacts (skill, agent, hook — D48
 internal/repodocs       holds the deterministic checks that keep this repository navigable by a coding agent, plus the…
 internal/repoindex      resolves `{{repo:<key>}}` placeholders (D75) to a local clone path
+internal/safewrite      guards client-side writes against symlinks
 internal/search         implements an in-memory inverted keyword index for KB concepts
 internal/service        manages the cartographer MCP server as a native per-user service
 internal/settingschema  describes the keys of a settings file once, in code, and renders that description as comments inside…
