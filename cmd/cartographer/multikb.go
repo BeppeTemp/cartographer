@@ -239,7 +239,7 @@ func kiroFlatNamespaceWarning(providers []string, entriesByProvider map[string][
 	if len(entries) < 2 {
 		return ""
 	}
-	remedies := "set kbs[].tool_prefix on them or mcp.tool_prefix_mode: kb-name (see docs/deployment.md §MCP tool-name prefix)"
+	remedies := "set kbs[].tool_prefix on them or mcp.tool_prefix_mode: kb-name (see docs/deployment.md §MCP tool names)"
 
 	if prefixes == nil {
 		reason := "the server did not advertise them"
@@ -315,7 +315,7 @@ func toolIdentifierBudgetWarning(providers []string, entriesByProvider map[strin
 		parts = append(parts, fmt.Sprintf("%s drops MCP tools whose identifier (mcp_<server>_<tool>) exceeds %d "+
 			"characters, and entries %s would exceed it: their longest tools will be missing from a %s session "+
 			"— shorten the KB's tool_prefix (kbs[].tool_prefix) or set mcp.mount_mode: routed, whose single entry "+
-			"carries unprefixed tools (see docs/deployment.md §MCP tool-name prefix)",
+			"carries unprefixed tools (see docs/deployment.md §MCP tool names)",
 			d.Provider, d.ToolIdentifierLimit, strings.Join(over, ", "), d.DisplayName))
 	}
 	return strings.Join(parts, "; ")
