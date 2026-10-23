@@ -8,7 +8,13 @@ every connected client's native format.
 This is different from `skill_install`, which copies a **bundled** skill (one
 shipped inside the binary) into the KB. That is installation, not authoring.
 
-## 1. The seven accepted paths
+`artifact_list`, `skill_list`, `skill_install` and the secret tools (`service_get`,
+`secret_resolve`, `secret_set`) are not in `tools/list`: the server answers them when
+called by name, but a descriptor-bound host that calls only the tools it lists (Codex)
+cannot. There, take the inventory from `artifact_read` of a known path, and leave
+installation and secrets to the operator.
+
+## 1. The accepted paths
 
 `artifact_write` accepts exactly these, relative to the KB root — anything else
 is refused:
@@ -22,6 +28,7 @@ is refused:
 | `instructions.md` | instructions | one Markdown file at the KB root |
 | `templates/<slug>.md` | template | KB-only (D109): never materialized into a client |
 | `paths.yaml` | path registry | KB-only (D263): the declared `{{path:…}}`/`{{repo:…}}` keys, served to clients as data |
+| `glossary.yaml` | glossary | KB-only (D276): `terms:`, a list of `{canonical, aliases, forbidden}`; expands search and flags forbidden terms |
 
 ## 2. The minimum shape of each
 
@@ -55,10 +62,15 @@ description: When the main agent should delegate to this one.
 You are …
 ```
 
-Both frontmatter fields are **required** — `artifact_write` refuses the file
-without them. The body is the agent's prompt and travels verbatim. This one
+Both frontmatter fields are **required**, and `name` must equal the file name
+(D283) — `artifact_write` refuses the file otherwise. A `providers:` block is
+validated too (D291): it carries each client's own restriction, copied verbatim. The
+body is the agent's prompt and travels verbatim. This one
 source file is translated per provider: Markdown for Claude Code and Antigravity,
-TOML for Codex, an OpenCode agent file for OpenCode. `tools` and `model` keys are
+TOML for Codex, JSON for Kiro, `.agent.md` for Copilot CLI, an OpenCode agent file for
+OpenCode; Crush has no agent destination
+([sync.md §Kind × provider matrix](https://github.com/BeppeTemp/cartographer/blob/main/docs/sync.md)).
+`tools` and `model` keys are
 dropped in the translations that cannot carry them, because those names are not
 portable between clients. An agent with **no** frontmatter description falls back
 to the artifact's own name, which makes it nearly unselectable — write a real one.
@@ -140,9 +152,6 @@ An error excludes **that skill** from the manifest and nothing else: the KB's
 other artifacts still sync, and the reason names the KB, the skill and the rule.
 Warnings exclude nothing.
 
-The historical `<namespace>--<skill-name>` directory convention is retired — it
-is incompatible with the `--` rule above.
-
 ## 4. The write protocol
 
 `artifact_write` is optimistic-concurrency, and the rule is inverted between
@@ -191,10 +200,11 @@ with the exact path.
 
 ## 6. The rest of the loop
 
-- `artifact_list` — inventory, with the sha256 of every file. Start here.
+- `artifact_list` (not in `tools/list`) — inventory, with the sha256 of every file. Start here.
 - `artifact_read` — one file's content plus its sha256.
 - `artifact_write` — create or update, per §4.
 - `artifact_delete` — remove, `if_match` required.
 
-Full reference: `docs/skills-services-secrets.md` (skills, services, secrets) and
-`docs/sync.md` (manifest, trust, pruning).
+Full reference, under `https://github.com/BeppeTemp/cartographer/blob/main/docs/`:
+`skills-services-secrets.md` (skills, services, secrets) and `sync.md` (manifest,
+trust, pruning).

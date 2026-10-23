@@ -22,6 +22,10 @@ This is the part that traps people, so it comes before the procedure.
 | Declare which values a concept uses | Cartographer (`concept_write`, `secret_refs`) |
 | Resolve declared values | Cartographer (`secret_resolve`, `service_get`) |
 
+`secret_set`, `secret_resolve` and `service_get` are not in `tools/list`: the server
+answers them when called by name, but a descriptor-bound host that calls only the
+tools it lists (Codex) cannot use them, and the operator takes those steps.
+
 `secret_set` **refuses** any path that is not a local `secrets/*.sops.yaml`, and
 refuses a file that does not exist: *"bootstrapping an encrypted file and its
 recipients is an operator action"*. Do not try to create the first file with it.
@@ -177,4 +181,4 @@ as `~1`. A null leaf is the empty string.
 - SOPS is **encrypted storage, not a dynamic secret manager**: it issues no
   short-lived credentials and rotates no service on its own.
 
-Full reference: `docs/skills-services-secrets.md`.
+Full reference: <https://github.com/BeppeTemp/cartographer/blob/main/docs/skills-services-secrets.md>.

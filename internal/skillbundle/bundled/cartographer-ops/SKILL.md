@@ -91,7 +91,7 @@ A KB syncs exactly when it has a remote, and every write is one commit: neither 
    gracefully replaces a running server, proves the new version is serving, and reconciles the
    configured providers. A bare `service restart` does none of that and can leave a client
    configured against the previous version.
-6. If writes fail and `sync_status` reports `degraded` with `branch` different from
+6. If writes fail and `sync_status` (not in `tools/list`: call it by name) reports `degraded` with `branch` different from
    `remote_default_branch`, the KB's clone is on a branch other than its canonical one — the
    remote's default, or the `branch` of the `settings.yaml` committed on that default branch
    when `branch_source` is `settings` (D335, D903), or the server file's `kbs[].branch` when it
@@ -105,7 +105,7 @@ A KB syncs exactly when it has a remote, and every write is one commit: neither 
    or change `branch` on the default branch; with `server`, check it out or change or remove
    `kbs[].branch`. Then `cartographer service restart`. Never merge, rebase, push or delete a
    branch yourself.
-7. If `sync_status` is `failed` and `last_error` says the remote refused the push because the
+7. If `sync_status` (not in `tools/list`) is `failed` and `last_error` says the remote refused the push because the
    branch is protected (D903), Cartographer pushes to the branch itself and never opens a pull
    request: the commit is safe in the clone, and the way out is the user's — unprotect the
    branch on the remote, or set `branch` in `settings.yaml` on the default branch so writes go
@@ -186,7 +186,7 @@ or `cartographer status` / `kb_status` can report one (`update available`, `late
 - Do not edit KB concept files directly: use Cartographer MCP tools so validation, git commits,
   and synchronization invariants apply.
 - Do not run git in a KB's clone (`init`, `checkout`, `push`, …): the server owns it, and a
-  branch created there is how a KB forks on its remote. Report `sync_status` instead; the one
+  branch created there is how a KB forks on its remote. Report `sync_status` (not in `tools/list`) instead; the one
   sanctioned rewrite of unpushed commits is `cartographer kb reauthor <kb>` (step 7).
 - Do not hand-edit provisioned MCP entries or `.cartographer.yaml`; use `connect`, `sync`, and
   `disconnect` so Cartographer can track and safely prune its own files.

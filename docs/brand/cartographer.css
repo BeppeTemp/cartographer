@@ -60,6 +60,6 @@
 [data-theme="dark"] { color-scheme: dark; }
 
 /* Expressive presentation/editorial surfaces, v0.2 */
-:root { --carto-sand: #E9E8DE; --carto-clay-text: #8C5237; }
-[data-theme="dark"] { --carto-sand: #2B352D; --carto-clay-text: #D6A68D; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-theme="dark"]) { --carto-sand: #2B352D; --carto-clay-text: #D6A68D; } }
+:root { --carto-sand: #E9E8DE; --carto-clay: #B8785D; --carto-clay-text: #8C5237; }
+[data-theme="dark"] { --carto-sand: #2B352D; --carto-clay: #B8785D; --carto-clay-text: #D6A68D; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]):not([data-theme="dark"]) { --carto-sand: #2B352D; --carto-clay: #B8785D; --carto-clay-text: #D6A68D; } }

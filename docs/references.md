@@ -34,3 +34,6 @@
 - OpenAI Codex CLI: https://developers.openai.com/codex
 - Kiro: https://kiro.dev/docs
 - OpenCode: https://opencode.ai/docs
+- Google Antigravity: https://antigravity.google/docs/rules
+- Crush: https://github.com/charmbracelet/crush
+- GitHub Copilot CLI: https://docs.github.com/copilot/how-tos/use-copilot-agents/use-copilot-cli

@@ -9,14 +9,14 @@ version: "3.2"
 
 Guide an **operator** through creating a new Knowledge Base (KB) the persistent, GitOps way: a
 Gitea repo as source of truth, declared in the server's config (ConfigMap), rolled out, then
-verified and connected. This replaces the old runtime-only creation flow (v1.x) — a KB that only
-exists as an ad-hoc runtime mount on an emptyDir is **not durable**.
+verified and connected. A KB that only exists as an ad-hoc runtime mount on an emptyDir is **not
+durable**.
 
 > **WARNING — data loss risk.** A KB mounted on an `emptyDir` volume that is not declared in the
 > Deployment's ConfigMap (`kbs:` entry + `remote:`) dies with the pod: on the next reschedule /
 > rollout the directory is recreated empty and every concept written to it is gone. The
 > ConfigMap + Gitea repo declaration is what makes the KB persistent and reconstructible — the
-> server clones it fresh on every pod start (`docs/deployment.md` §Bootstrap KB da remote git).
+> server clones it fresh on every pod start ([deployment.md §Bootstrapping a KB from a git remote](https://github.com/BeppeTemp/cartographer/blob/main/docs/deployment.md)).
 
 > **Local/native-service topology.** On a single machine served by the local service, the
 > equivalent one-liner is `cartographer kb create <name> --remote <url>`: it scaffolds the KB and
@@ -38,8 +38,7 @@ what you are doing — not all of them upfront.
 
 ### 1. Create the Gitea repo and the per-KB service user
 Create an empty repo `<nome>.git` on Gitea (for the CLI path `kb create` also accepts a forge's initial README/LICENSE commit). The **KB name** is the `name:` field of its `kbs:`
-entry (D53) — set it explicitly; if omitted it falls back to the repo basename (`resolveKBName` in
-`cmd/cartographer/bootstrap.go`). The name is used everywhere downstream: token scopes
+entry (D53) — set it explicitly; if omitted it falls back to the repo basename. The name is used everywhere downstream: token scopes
 (`kb:<nome>:rw`/`kb:<nome>:r`), the `?kb=<nome>` query param on multi-KB HTTP, and the
 `<nome>.token`/`<nome>.age` per-KB file conventions below. Choose it accordingly (kebab-case).
 
@@ -71,18 +70,20 @@ git -C <parent-dir>/<name> remote add origin <gitea-repo-url>
 git -C <parent-dir>/<name> push -u origin <branch>
 ```
 
-Either way the standard layout is: `data/` (conceptual root), `services/`, `skills/`, `agents/`,
-`hooks/` — content directories only, no `AGENTS.md`/`.gitignore` (D62; the local `.cartographer/`
-index is excluded via `.git/info/exclude`, not a versioned `.gitignore`) — plus a first commit.
-Optionally, add a curated `instructions.md` at the KB root (sibling of `data/`, `skills/`,
-`agents/`) with free-form orchestration directives (e.g. delegation routing, "large reads →
-explorer") — its body is folded into the generated `instructions` artifact after the
-auto-generated archives/agent sections (D61, `docs/sync.md` §Instructions). See
+Either way the standard layout is: `data/` (conceptual root, with its `index.md`, `log.md` and a
+`.gitignore` of editor junk, D316), `services/`, `skills/`, `agents/`, `hooks/`, and at the KB root
+`.gitattributes` (`data/log.md merge=union`), `settings.yaml` and a starter `instructions.md`
+(D325), all in the first commit. The KB carries no `AGENTS.md` (D62); the local `.cartographer/`
+index is excluded via `.git/info/exclude`.
+Edit the starter `instructions.md` (KB root, sibling of `data/`, `skills/`, `agents/`) with
+free-form orchestration directives (e.g. delegation routing, "large reads → explorer") — its body
+is folded into the generated `instructions` artifact after the auto-generated archives/agent
+sections (D61, [sync.md §Instructions](https://github.com/BeppeTemp/cartographer/blob/main/docs/sync.md)). See
 `references/artifacts.md` for that file's role among the KB's other artifacts.
 
 ### 3. Declare the KB in the server config (ConfigMap)
 Add an entry under `kbs:` in the server's YAML config (`CARTOGRAPHER_CONFIG`, see
-`config.example.yaml`) with the `remote:` pointing at the Gitea repo from step 1:
+[`config.example.yaml`](https://github.com/BeppeTemp/cartographer/blob/main/config.example.yaml)) with the `remote:` pointing at the Gitea repo from step 1:
 
 ```yaml
 credentials_dir: /etc/cartographer-credentials # every secret file, by KB name (D905)
@@ -102,7 +103,7 @@ No per-KB paths are needed in the config: the server reads the KB's files from `
   Secret. Never inline key material in the ConfigMap itself.
 - **The age key is the deployment half only.** Generating that key, writing the root `.sops.yaml`
   creation rules and creating the first encrypted file are operator actions Cartographer never
-  performs — `secret_set` refuses a file that does not exist. Do them **before** this step, and do
+  performs — `secret_set` (not in `tools/list`) refuses a file that does not exist. Do them **before** this step, and do
   not assume an encrypted file is already there: `references/secrets.md` is the full procedure. A
   KB with no service credentials needs none of it.
 - Add a **scoped token** for the clients of this KB to `CARTOGRAPHER_TOKENS` (or `auth.tokens` in
@@ -149,7 +150,7 @@ and a structural mistake made now becomes long-lived knowledge debt. So **before
 
 ### Content: Maps and Journals
 - Ask the user to describe the **Maps** (thematic, mixed concept types) or **Journals**
-  (chronological logs, e.g. incidents/notes) they need: name, description, `kind`
+  (chronological logs, e.g. incidents/notes) they need: `name`, `title`, `kind`
   (`map`/`journal`), `concept_types` (a non-empty list makes the map strict: a page of another
   type is refused; leave it empty for a map open to any type).
 - Call `map_create` for each one.
@@ -158,10 +159,12 @@ and a structural mistake made now becomes long-lived knowledge debt. So **before
   "dossier create" step.
 
 ### Policy: the KB's own `settings.yaml`
-How the KB behaves (write gate, auto-repair, doctor cadence, how changes land) is the KB's own,
-so every mount of it behaves the same (D746). A KB declares secrets by holding a sops-encrypted
-file under `secrets/`, and its MCP descriptors are always distributed (D906): neither is a key. `cartographer kb create` writes `settings.yaml` at the KB root with every
-key documented and commented out; uncomment and commit what the KB needs. It is the only
+The two policy keys a KB carries are its own, so every mount of it behaves the same (D746):
+`branch` (the branch Cartographer commits to, in place of the remote's default one) and
+`usage_stale_days` (days an unused skill or agent may go before `kb_status` counts it stale).
+The write gate and the safe repairs are fixed behaviour (D907). A KB declares secrets by holding a sops-encrypted
+file under `secrets/`, and its MCP descriptors are always distributed (D906): neither is a key. `cartographer kb create` writes `settings.yaml` at the KB root with both
+keys documented and commented out; uncomment and commit what the KB needs. It is the only
 place these keys live: a server's `kbs[]` carries only `name` and `remote`. Machine-bound keys (`remote`,
 `name`, tokens) stay in the server config, and secrets are files of its `credentials_dir`. No MCP tool writes the file:
 change it with git, reviewed like a Map contract. On a KB made another way, create the file by hand
@@ -192,24 +195,26 @@ repos:
   cites (`unused_placeholder`) once the file exists.
 
 ### Artifacts: skills, subagents, hooks, MCP descriptors
-A KB also configures the agents that read it. Authoring those artifacts — the seven accepted
+A KB also configures the agents that read it. Authoring those artifacts — the accepted
 `artifact_write` paths, the shape of each, the naming rules a client enforces, the `if_match`
 protocol, and the manifest → trust → projection → materialization chain that is what actually makes
 one appear in a client — is in `references/artifacts.md`.
 
-`skill_list` / `skill_install` are a **different** operation: they copy a skill bundled in the
-binary into the KB. That is installation, not authoring.
+`skill_list` / `skill_install` (not in `tools/list`) are a **different** operation: they copy a
+skill bundled in the binary into the KB. That is installation, not authoring.
 
 ## Reference
 
-- Tools: `atlas_overview`, `map_create`, `concept_expand`, `concept_write`, `skill_list`,
-  `skill_install`; `artifact_list`/`artifact_read`/`artifact_write`/`artifact_delete` for artifacts;
-  `service_get`, `secret_resolve`, `secret_set` for encrypted values.
+- Tools: `atlas_overview`, `map_create`, `concept_expand`, `concept_write`;
+  `artifact_read`/`artifact_write`/`artifact_delete` for artifacts.
+- Tools not in `tools/list` (served when called by name; a descriptor-bound host that calls only
+  listed tools, such as Codex, cannot use them): `skill_list`, `skill_install`, `artifact_list`,
+  `service_get`, `secret_resolve`, `secret_set`.
 - Layout: `data/` is the conceptual root; concept IDs are relative to it.
 - Multi-KB HTTP: endpoint is `/mcp?kb=<name>` when more than one KB is mounted. `<name>` is the
   `name:` field of the KB's `kbs:` entry, which falls back to the repository basename only when it
   is omitted (see step 1) — not "always the basename".
-- Config reference: `config.example.yaml`, `docs/deployment.md` §Bootstrap KB da remote git e
-  §Configurazione, `docs/transport-auth.md` §Autorizzazione per-KB, and the decisions
-  D39, D44, D46, D47 — one file each under `docs/decisions/`, found with
-  `ls docs/decisions/D39-*`.
+- Config reference, under <https://github.com/BeppeTemp/cartographer/blob/main/>:
+  `config.example.yaml`, `docs/deployment.md` §Configuration: flags, env, YAML and
+  §Bootstrapping a KB from a git remote, `docs/transport-auth.md` §Per-KB scopes, and the
+  decisions D39, D44, D46, D47 (`docs/decisions/D<n>-*`).

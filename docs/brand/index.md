@@ -37,7 +37,8 @@ second logo next to Coordinate.
 | text | `#252824` ink | `#EEEDE5` |
 | text-muted | `#646960` | `#AFB9AE` |
 | accent | `#365D50` pine | `#91B9A0` sage |
-| clay (graphic accent) | `#B8785D` | `#D6A68D` |
+| clay (graphic accent) | `#B8785D` | `#B8785D` |
+| clay-text | `#8C5237` | `#D6A68D` |
 
 Clay is a graphic accent, not a small-text colour. Errors, warnings and success have
 their own semantic tokens; brand green does not mean "OK". Graph categories use the
