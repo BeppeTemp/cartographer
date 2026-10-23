@@ -71,6 +71,7 @@ Rules to keep the code consistent. New code should resemble the existing code.
   WebGL graph and its force layout; community colouring comes from the server,
   D244), `react-markdown`+
   `remark-gfm`+`rehype-sanitize` (concept bodies, with raw HTML disabled),
+  `age-encryption` (Atlas secrets decrypt in the browser, D708), `mediabunny` (the growth video's muxer, D691),
   `vitest`+`@testing-library/*`+`jsdom`+`@playwright/test`+`@axe-core/playwright`
   (tests). The shipped bundle vendors
   every asset: no CDN, no remote font, no runtime network call outside the

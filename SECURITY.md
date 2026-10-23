@@ -30,7 +30,7 @@ interest:
 ## What the maintainer runs
 
 Every push to `main` and a weekly schedule run govulncheck, `npm audit` on the
-`web/` production dependencies, actionlint, zizmor and CodeQL (`security.yml`);
+`web/` production dependencies, actionlint, zizmor (`security.yml`) and CodeQL (`codeql.yml`);
 Dependabot proposes dependency, action and base-image updates. A failed scan
 opens a public issue that carries only a link to the run; a vulnerability that
 is reachable in our own code is handled through a private advisory instead.

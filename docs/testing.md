@@ -26,17 +26,17 @@ contains `Race` or `Concurrent`: a data race seldom fails an assertion, so a tes
 that drives readers and writers concurrently only proves something under `-race`,
 and the whole suite under `-race` is several times slower. A test written to
 exercise concurrency is named accordingly, or it never runs with the detector.
-All four are `make gate`, which is the single command CI runs.
+`fmt-check`, `vet`, `test` and `race` are what `make gate` runs, the single command CI runs.
 
 `make gate` runs on ubuntu in the `test` job; the tests also run on Windows
 ([`ci.yml`](https://github.com/BeppeTemp/cartographer/blob/main/.github/workflows/ci.yml)).
 There the git-backed packages are about 13 times slower (process creation), so
-the Windows leg is split across four `windows-latest` runners (D785):
+the Windows leg is split across `windows-latest` runners, one per shard (D785):
 `scripts/test-shard.sh COUNT INDEX` deals every package's top-level tests
 round-robin, so each shard runs a slice of every slow package and together they
 run each test once. It skips `internal/repodocs` (documents, not platform
 behaviour) and leaves `fmt-check` and `vet` to `test`, which vets with
-`GOOS=windows` too. A fifth runner runs `install.ps1`. The shards turn off
+`GOOS=windows` too. Another runner runs `install.ps1`. The shards turn off
 Defender's real-time scanning (about a fifth of their time) and use `bash`, the
 scripts being POSIX shell. Required checks match job names literally and a
 matrix renames its legs, so a small job named `test-windows` collects the legs
@@ -45,12 +45,12 @@ the `@video`-tagged browser test (about two minutes of software rendering)
 with the unit tests and bundle checks, and the rest of the browser suite.
 `make e2e-web E2E_WEB_ARGS=...` passes the filter to Playwright. The Windows legs
 run on every push to `main`, on the release-please PR, and on a feature PR that
-touches a package with platform-specific code — `cmd/`, `internal/{service,provisioning,configurator,clientconfig,agents,execbit,gitx,kb,repoindex,defaults}`,
+touches a package with platform-specific code — `cmd/`, `internal/{service,provisioning,configurator,clientconfig,mcpbridge,agents,execbit,gitx,kb,repoindex,defaults}`,
 the installers, any `*_windows.go` (D672). A regression elsewhere still shows
 on `main` right after the merge. The `web` legs run after every push to `main`
 and on a PR that touches the frontend, `test/lib/`, the build files, or a
-non-test file of a package `bin/cartographer` imports: `internal/{changelog,kbtest,repodocs,testkbs,testtree,webui/gen}`
-and every `_test.go` cannot change what the browser sees (D672, D255, D994); the
+non-test file of a package `bin/cartographer` imports. `internal/{changelog,gitx/gitxtest,kbtest,repodocs,testkbs,testtree,webui/gen}`
+and every `_test.go` cannot change what the browser sees, so they do not trigger it (D672, D255, D994); the
 Playwright browser is cached by version. A `demo-edge` job runs the demo
 Worker's tests (`make demo-worker-test`) and, for Terraform changes, `make demo-tf-check`
 when `deploy/demo/` changes. A `changes` job decides all of these with
@@ -140,7 +140,7 @@ the token helper, a wrong token (the "credentials were rejected" remedy), no tok
 rejection reaching the caller through HTTP. Every package whose tests touch git calls `gitxtest.QuietGit()` in its `TestMain` (a `repodocs` test enforces it): it switches off git's auto-gc and maintenance, whose detached run would otherwise race `t.TempDir()`'s cleanup. A test that waits on git or the server with a wall-clock deadline (`time.After`, a polling loop, a client timeout) wraps it in `gitxtest.Deadline(d)`, which is `d` everywhere but 4×`d` on Windows, where one commit takes 1-2 s under load (#1048); never raise a single number after a red run, and never scale a deadline that is the thing under test. `smoke-http` and `e2e` run with **no git
 identity** on the host (`GIT_CONFIG_GLOBAL` points at a file holding only
 `init.defaultBranch`): a scenario that commits by hand passes its identity with `-c`;
-scenario 21 serves a KB whose remote enforces membership. Realignment of the three settings files (server YAML,
+scenario 21 serves a KB whose remote enforces membership. Realignment of the settings files (server YAML,
 client file, a KB's `settings.yaml`) is tested for what it drops, what it resets, what
 it keeps, its report, its backup (or, for a KB, its commit) and that a second run
 changes nothing. An ordinary CI run never calls a forge; the real ones are below.
@@ -163,8 +163,8 @@ and never as a required check. By hand, from the repository root, with Docker:
 
 ### Real macOS (D997)
 
-The `test-macos` CI job (`macos-latest`) runs three scripts under `test/macos/`
-(shared helpers in `lib.sh`, bash 3.2 as macOS ships it), against two real binaries
+The `test-macos` CI job (`macos-latest`) runs the scripts under `test/macos/`
+(`service.sh`, `install.sh`, `cask.sh`; shared helpers in `lib.sh`, bash 3.2 as macOS ships it), against two real binaries
 built with `-X main.version=v9.9.8` and `v9.9.9`. `service.sh` installs the service
 under the real launchd (`plutil -lint`, `launchctl print` state, `/health` ready,
 `restart --wait` with a new pid, `stop` (nothing serves) then `start`, `uninstall` then status
@@ -215,7 +215,7 @@ otherwise silent — no client, compiler or linter reports any of them:
   client uses, and satisfies the strictest client's rules (D207), the skills being real directories in
   `.claude/skills/`;
 - each subagent in `.claude/agents/` pins a Claude model, and the read-only ones
-  (reviewers, source reader) carry no `Edit` or `Write` tool (D992);
+  (reviewers, plan writer, source reader) carry no `Edit` or `Write` tool (D992);
 - `CLAUDE.md` is exactly `@AGENTS.md` and nothing else, and the corpus these
   checks read actually contains the files they exist to read — a corpus definition
   fails by matching nothing and passing.
@@ -294,10 +294,9 @@ without it, and an unknown name in `?kbs=` is `400`. Last, the heal: the client 
 is put back into the old per-KB shape by hand and **one `sync`** must leave a
 single entry and no orphan.
 
-The scenario earns its keep: it is what caught that D153's derived `kb-name`
-prefix, which nobody configures explicitly, was making the routed mode fail at
-startup out of the box. No Go test could see it, because the defect lived in the
-wiring between the config default and the mount, not in either.
+The scenario covers the wiring between the config default and the mount, which
+no Go test of either half sees: a default the operator never configures (such as
+a derived `kb-name`) must not make the routed mode fail at startup.
 
 **The workspace scope is asserted on real repositories.** `18_workspace_projection`
 is D193's mandatory acceptance criterion, and it is a scenario that **cannot
@@ -311,11 +310,10 @@ nothing, that `git status` is clean and `.gitignore` untouched, that unbinding
 one workspace prunes only its files, and that one workspace bound to *both* KBs
 is still refused as a collision.
 
-It earned its keep on the first run, finding three defects no unit test could
-see: the bundled skills were being copied into every workspace, a `CLAUDE.md`
-Cartographer created itself was left untracked and dirtying the repository, and
-unbinding a workspace left its projected files behind forever because every
-later sync only iterates the *declared* projections.
+It also pins what no unit test sees: the bundled skills are not copied into
+every workspace, a `CLAUDE.md` Cartographer created itself does not leave the
+repository dirty, and unbinding a workspace removes its projected files even
+though a later sync only iterates the *declared* projections.
 
 `22_workspace_derived_binding` asserts the other way to get a binding (D1019):
 a KB's `paths.yaml` declares two repositories, one with `bind: false`, and no
@@ -354,11 +352,11 @@ invokes `upgrade-repair`, a stopped or absent service is never started, exit
 `1` still leaves the binary update successful, and exit `2` (or an unexpected
 code) fails visibly but only *after* the new binary is in place.
 
-Since D192 the suite also covers the checksum path — a matching digest installs
+The suite also covers the checksum path — a matching digest installs
 and says `checksum OK`, a mismatch fails without leaving a binary behind, a
 `sha256sums.txt` that exists but does not cover the asset is an **error** rather
 than a silent skip, and so is a manifest that cannot be downloaded (D1022: every
-release since v0.1.0 ships one, so its absence is never an old tag) — and the `uninstall` branches: nothing installed, a binary with no
+release ships one, so its absence is never an old tag) — and the `uninstall` branches: nothing installed, a binary with no
 units, a unit present (refused, non-zero, nothing removed), `--binary-only`
 (proceeds and states what it left behind), and a partial state such as a timer
 without a service.
@@ -366,8 +364,8 @@ without a service.
 One scenario covers a platform the script deliberately does not support: with a
 stub `uname` reporting `MINGW64_NT-…` on `PATH`, `install.sh` must exit non-zero
 naming the `install.ps1` command, **without** falling through to the generic
-"unsupported OS" and without requesting an asset or writing a binary (D252). The
-refusal itself is old; that it is actionable is what is asserted.
+"unsupported OS" and without requesting an asset or writing a binary (D252). What
+is asserted is that the refusal is actionable.
 
 `install.ps1` has its own suite, `test/install/windows/run.ps1`, run by the
 `test-windows` CI job under both PowerShell 7 and Windows PowerShell 5.1. Unlike
@@ -402,8 +400,7 @@ The same guard covers the Windows packaging shape: `windows` among the build
 targets, a `format_overrides` entry making its archive a **zip** — what
 `install.ps1` downloads and extracts — no override producing a raw binary, and no
 `winget:` block, which would start opening pull requests against
-`microsoft/winget-pkgs` again (D252). Each assertion was
-verified to fail when its target line is removed. Its Ruby is not executed — that would need a real Homebrew and
+`microsoft/winget-pkgs` again (D252). Its Ruby is not executed — that would need a real Homebrew and
 GoReleaser environment, which is out of the deterministic gate (see below).
 
 ### Frontend (`make web-test`, `make web-check`)
@@ -411,8 +408,8 @@ GoReleaser environment, which is out of the deterministic gate (see below).
 `web/src/test/locale.test.ts` scans the sources and rejects any `toLocale*String` call without `"en"` as first argument, and any `Intl.` or `navigator.language`: the UI is English in every browser locale, and a value test of a formatter would pass on an English runner even with the bug back.
 
 To work on the UI live, `make dev` from a worktree runs both halves and rebuilds
-the server on every Go change (with `DATA`, the installed client reports to it through `sync --report-to`, D1044) (`CONTRIBUTING.md` §Live sessions). Without `DATA` it serves a throwaway copy of ten
-generated test KBs (`internal/testkbs`; D818, D1032): the 5,000-concept scale KB, the bare 30-concept KB, and nine KBs that
+the server on every Go change (with `DATA`, the installed client reports to it through `sync --report-to`, D1044) (`CONTRIBUTING.md` §Live sessions). Without `DATA` it serves a throwaway copy of the
+generated test KBs (`internal/testkbs`; D818, D1032): the 5,000-concept scale KB, the bare 30-concept KB, and the KBs that
 take the shape of measured real ones (Maps and journals, expanded concepts with up to a hundred satellites, pages past
 90 KB, hubs with a hundred backlinks, a status mix, thousands of commits) with invented content, named after their themes
 (`seed-bank`, `ferry-line`, …). The shapes are a table of numbers (`profiles.go`), the words invented per theme
@@ -436,7 +433,7 @@ build (D800): the origin's answer picks live, a timeout, an error status or a bo
 snapshot, and the revision poll is 20 s only in a live session on a build with a live origin.
 
 The live demo's edge is tested without Cloudflare: `deploy/demo/worker.test.mjs` (`make demo-worker-test`, run
-in the `web` CI job's Node setup) covers every moderation rule, the id format, the argument rewrite, the routing
+by the `demo-edge` CI job) covers every moderation rule, the id format, the argument rewrite, the routing
 table, CORS and cache key, that every non-approved call goes with the read token, and the webhook signature
 against a vector computed with `openssl`. `make demo-smoke` runs the image against a bare git remote on a
 Docker volume: a write with the write token lands in the remote, the read token is refused on both KBs, the
@@ -451,9 +448,6 @@ toolchain (D227). What they hold:
   declaration, multi-line ones included), the JavaScript motion scale
   (`MOTION_MS`) equal to the CSS one, and every dark-theme colour has a
   light-theme value;
-- the graph's appearance functions never emit a node or edge type stock Sigma
-  has no program for (an unknown type throws inside the renderer and blanks the
-  page);
 - the growth replay's video export (D691): an offscreen scene has no frame
   loop, observer or input and runs on the virtual clock it is given, the
   encoder picks H.264/MP4 or VP9/WebM, stamps frame n at n/60 s with a keyframe
@@ -532,7 +526,6 @@ toolchain (D227). What they hold:
   text filters, a journal's harvest line, the empty and the unavailable state, the
   tab round-tripping through the URL and Back with Activity staying current in the
   rail, an archive map badged and listed after the live ones.
-  saying so when the server fell back to them, and starting each opening unpressed.
 - the release history (D862, `src/test/releases.test.tsx`): the version in the
   top bar opens a sheet that fetches only then;
   newest first, one `Current` badge, scrolled to only when newer releases
@@ -578,34 +571,20 @@ of a relationship — the inspector lists every link.
   server's `pagerank`, `community` and `communities` fields), runs the
   deterministic layout and prints its timing
   (`cd web && npx vitest run src/test/perf.test.tsx`). Communities are computed
-  by the server (D244), so the browser no longer spends time on them. The
+  by the server (D244), so the browser spends no time on them. The
   ceiling is 12 s: it catches a several-fold regression on any runner, not a
   few percent. Reference measurement for 2,000 nodes / ~3,900 edges: the 3D
   warm-up (300 ticks) takes ~2.2 s on an Apple M5 and ~5.4 s on a
   GitHub-hosted runner.
-- **Scale target** (#861: ten KBs, the largest at 5,000 concepts). **Historical
-  measurement, on the fleet before D1032**: `test-800` and the other mid-size KBs
-  no longer exist, so the table below cannot be reproduced with `bench.mjs`; the
-  nearest KB today is `ferry-line`. Measured by hand, not in CI, headed on the GPU (Apple M5,
-  ANGLE Metal, 144 Hz display) with `web/scripts/bench.mjs --gpu` and
-  `web/scripts/idle.mjs --gpu`, from `web/` after `make build`:
-
-  | | test-5000 (5,017 concepts) | test-800 (811) |
-  |---|---|---|
-  | Graph to first frame, cold / warm | 607 / 500 ms | 272 / 266 ms |
-  | Frame time at rest and orbiting, p95 | 17.7 ms | 17.7 ms |
-  | JS heap with the graph open | 121 MB | 37 MB |
-  | Largest Map's graph, in the app | 80 ms | 31 ms |
-  | Work / Activity / Settings / Health / Artifacts, in the app | 411 / 332 / 278 / 25 / 37 ms | 73 / 71 / 227 / 10 / 4 ms |
-  | Switch from test-5000 to test-800 | — | 143 ms |
-  | Untouched tab, graph, motion on: browser CPU (one core) | 25 % (110 % before D889) | 18 % (37 %) |
-  | Untouched tab, graph, motion off | 4 % (35 % before D889) | 4.5 % (30 %) |
-  | Untouched tab, Work panel | 3.6 % | 4.3 % |
-
-  The budget is what these say: an untouched tab under 30 % of one core with
-  motion on and under 5 % with it off, every view usable within half a second
-  at 5,000 concepts. The server computes every UI API route of test-5000 in
-  under 200 ms warm (`kb_status` is the slowest).
+- **Scale target** (#861: the largest KB at 5,000 concepts). Measured by hand, not
+  in CI, headed on the GPU (Apple M5, ANGLE Metal, 144 Hz display) with
+  `web/scripts/bench.mjs --gpu` and `web/scripts/idle.mjs --gpu`, from `web/`
+  after `make build`, on the generated fleet of `make dev` (`internal/testkbs`:
+  `test-5000` and the profiled KBs such as `ferry-line`). The budget: an
+  untouched tab under 30 % of one core with motion on and under 5 % with it off,
+  every view usable within half a second at 5,000 concepts, and the server
+  computing every UI API route of the scale KB in under 200 ms warm
+  (`kb_status` is the slowest).
 - **Selection feedback**: the same file asserts the inspector skeleton renders
   while the concept request is still pending, so feedback never waits on the
   network.
@@ -784,6 +763,7 @@ the deterministic repository gate.
 ```bash
 make gate          # gofmt + vet + test + race, documentation gates included
 make smoke-http
+make smoke
 make e2e
 make test-install
 ```

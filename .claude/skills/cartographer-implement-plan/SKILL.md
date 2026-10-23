@@ -86,7 +86,7 @@ state; the plans are read by the subagents that implement them.
    not a hard dependency: pick one order and state it in the wave plan.
 3. Build the graph, two edge types:
    - **Hard code dependency** — a plan uses code a sibling introduces (a new client method, a new helper). These form **strictly sequential chains**: never start a plan before its predecessor is on `main`.
-   - **Shared file** — plans touching the same code or the same current-state page can conflict at merge. Decision files no longer share a file: one decision is one `docs/decisions/D<n>-<slug>.md`, so two plans adding two decisions never conflict there. The **generated index** is the exception: it is regenerated, not merged (see §4).
+   - **Shared file** — plans touching the same code or the same current-state page can conflict at merge. A decision is not a shared file: one decision is one `docs/decisions/D<n>-<slug>.md`, so two plans adding two decisions never conflict there. The **generated index** is the exception: it is regenerated, not merged (see §4).
 4. Plans that share a **hot file** (one touched by three or more plans, e.g. `internal/lint/lint.go` or `internal/mcpserver/conformance.go`) go in **one sequential chain**, not in parallel waves: each rebase there is a real conflict, and resolving it costs more than the time saved.
 5. Emit **waves**: independent roots with disjoint code file-sets run in parallel; dependency chains run internally sequential but in parallel with each other when their file-sets are disjoint. One plan = one PR.
 6. State the wave plan to the user before spawning (spawning N subagents and opening N public PRs is outward-facing).
@@ -189,5 +189,5 @@ stop and comment on the issue rather than guessing).
 - **Review** of every PR (§3).
 - **Non-append conflicts** during rebase — hand back to the user.
 - **Self-merge / force-push** — act only on an explicit user decision or a standing approval.
-- **Supply-chain files** (a CI workflow, an installer, the release pipeline, a bundled skill: `pr-triage.sh` says so) — the user reads those hunks and decides that merge; a standing approval does not cover it.
+- **Supply-chain files** (`SUPPLY_CHAIN` in `scripts/pr-triage.sh`: CI workflows, installers, the release pipeline, bundled skills, agent-instruction files, the Makefile, `scripts/`) — the user reads those hunks and decides that merge; a standing approval does not cover it.
 - **`make worktree-rm`** — it runs `git worktree remove --force`, which discards uncommitted work: confirm the PR is merged and the slug is the right one first.

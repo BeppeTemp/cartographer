@@ -54,7 +54,7 @@ About 15 lines: size split into production, tests, docs and generated; areas;
 |---|---|---|
 | light | ≤ 50 production lines, outside the invariant areas | the coordinator reads the diff itself; no subagent |
 | standard | more, outside the invariant areas | `cartographer-contract-reviewer`, then §4 |
-| full | production code in `internal/{mcpserver,provisioning,auth,gitx,sops,service}`, or any supply-chain file: a CI workflow, an installer, the release pipeline, a bundled skill | `cartographer-contract-reviewer` and `cartographer-security-reviewer` in parallel, then §4 plus the coordinator reads the hunks the reviewer's invariants line names, against their `AGENTS.md` — not the whole area diff. Supply-chain hunks are read whole, by the user too: no standing approval merges them |
+| full | production code in `internal/{mcpserver,provisioning,auth,gitx,sops,service}`, or any supply-chain file (`SUPPLY_CHAIN` in `scripts/pr-triage.sh`: the CI workflows, the installers, the release pipeline, the bundled skills, `AGENTS.md`/`CLAUDE.md`, `SECURITY.md`, `CONTRIBUTING.md`, `.claude/`, the Makefile, `scripts/`, the issue and PR templates) | `cartographer-contract-reviewer` and `cartographer-security-reviewer` in parallel, then §4 plus the coordinator reads the hunks the reviewer's invariants line names, against their `AGENTS.md` — not the whole area diff. Supply-chain hunks are read whole, by the user too: no standing approval merges them |
 
 ## 2 — Send back without reading the code
 
