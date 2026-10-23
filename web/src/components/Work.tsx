@@ -16,16 +16,9 @@ import {
   Page,
   PageHeader,
   Quiet,
-  Segmented,
   TitleBone,
   WorkSkeleton,
 } from "./Page";
-
-type Layout = "status" | "map";
-const LAYOUTS = [
-  ["status", "By status"],
-  ["map", "By map"],
-] as const;
 
 type SearchMiss = NonNullable<KBStatus["search_misses"]>[number];
 
@@ -87,8 +80,8 @@ const STATUS_ORDER = [
  * Open work (D302): concepts in an open status for their map, of any type,
  * and unchecked items in any concept. A read-only view of `work_list`: work
  * changes through the agents' ordinary write tools, so there is no drag here.
- * The band counts it and filters it by Map and by status; the board below
- * lays it out as columns by status, or as one card per Map.
+ * The band counts it and filters it by Map, by status and by staleness; the
+ * board below lays it out as columns by status.
  *
  * Everything the KB still has to do is here, and Health keeps the lint
  * problems. Two things are work without being a concept, and join the board
@@ -111,11 +104,9 @@ export function Work({
   const [extra, setExtra] = useState<Extra>(NO_EXTRA);
   const [error, setError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
-  const [layout, setLayout] = useState<Layout>("status");
   const [map, setMap] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
-  const [text, setText] = useState("");
 
   // A new KB starts blank; a live refetch (D337) keeps what is on screen
   // until the fresh answer replaces it.
@@ -155,29 +146,24 @@ export function Work({
 
   const all = useMemo<BoardEntry[]>(() => [...(data?.entries ?? []), ...extra.entries], [data, extra]);
   const entries = useMemo(() => {
-    const needle = text.trim().toLowerCase();
     return all.filter(
       (e) =>
         (map === null || (e.map ?? "") === map) &&
         (status === null || groupOf(e) === status) &&
-        (!staleOnly || e.stale) &&
-        (!needle ||
-          (e.title ?? e.id).toLowerCase().includes(needle) ||
-          (e.pseudo?.kind === "review" && e.pseudo.item.suggested_action.toLowerCase().includes(needle)) ||
-          e.items.some((i) => i.text.toLowerCase().includes(needle))),
+        (!staleOnly || e.stale),
     );
-  }, [all, map, status, staleOnly, text]);
+  }, [all, map, status, staleOnly]);
 
   const groups = useMemo(() => {
     const out = new Map<string, BoardEntry[]>();
     for (const e of entries) {
-      const key = layout === "status" ? groupOf(e) : e.map || "";
+      const key = groupOf(e);
       out.set(key, [...(out.get(key) ?? []), e]);
     }
     // Statuses in the order work moves through them; Maps busiest first.
-    const order = ([k, list]: [string, BoardEntry[]]) => (layout === "status" ? rankStatus(k) : -list.length);
+    const order = ([k]: [string, BoardEntry[]]) => rankStatus(k);
     return [...out.entries()].sort((a, b) => order(a) - order(b) || a[0].localeCompare(b[0]));
-  }, [entries, layout]);
+  }, [entries]);
 
   // Facet counts over everything, so a filter never hides its own siblings.
   const maps = useMemo(() => count(all.map((e) => e.map ?? "")), [all]);
@@ -208,23 +194,6 @@ export function Work({
               decide&quot;: adopt it or dismiss it.
             </p>
           </>
-        }
-        actions={
-          // Standing while the list loads too, so the header does not shift when it lands.
-          !data || !empty ? (
-            <>
-              <input
-                className="page-search"
-                type="search"
-                aria-label="Filter work"
-                placeholder="Filter title and items"
-                disabled={!data}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-              />
-              <Segmented<Layout> label="Group by" value={layout} options={LAYOUTS} onChange={setLayout} />
-            </>
-          ) : null
         }
       />
 
@@ -279,18 +248,17 @@ export function Work({
       ) : entries.length === 0 ? (
         <Quiet tone="neutral">Nothing matches these filters.</Quiet>
       ) : (
-        <div className="work__board" role="region" aria-label={layout === "status" ? "Work by status" : "Work by map"}>
+        <div className="work__board" role="region" aria-label="Work by status">
           {groups.map(([key, list]) => (
             <section
               key={key || "(root)"}
               className="work__column"
-              data-status={layout === "status" ? statusTone(key) : undefined}
-              style={layout === "map" ? ({ "--map": collectionVar(key || "(root)") } as CSSProperties) : undefined}
-              aria-label={`${layout === "status" ? key : titleOfMap(key)}, ${list.length}`}
+              data-status={statusTone(key)}
+              aria-label={`${key}, ${list.length}`}
             >
               <h2 className="work__column-title">
-                {layout === "status" ? <StatusDot status={key} /> : <MapDot map={key} />}
-                {layout === "status" ? key : titleOfMap(key)} <span className="page-section__count">{list.length}</span>
+                <StatusDot status={key} />
+                {key} <span className="page-section__count">{list.length}</span>
               </h2>
               <ColumnCards
                 list={list}
@@ -298,8 +266,8 @@ export function Work({
                   <WorkCard
                     entry={e}
                     mapTitle={titleOfMap(e.map ?? "")}
-                    showMap={layout === "status"}
-                    showStatus={layout === "map"}
+                    showMap
+                    showStatus={false}
                     onOpen={onOpen}
                   />
                 )}

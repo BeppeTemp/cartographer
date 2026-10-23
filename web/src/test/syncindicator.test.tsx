@@ -115,6 +115,31 @@ describe("SyncIndicator (#1092)", () => {
     expect(dialog).toHaveTextContent("main");
   });
 
+  it("hides the branch source and the last push and fetch rows for a KB without a remote", async () => {
+    serve({ ...base, push_state: "no_remote", has_remote: false, remote_url: "" });
+    const user = userEvent.setup();
+    render(<SyncIndicator kb="kb-a" live={0} />);
+    await user.click(await screen.findByRole("button", { name: "Sync: No remote" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).not.toHaveTextContent("Last push");
+    expect(dialog).not.toHaveTextContent("Last fetch");
+    expect(dialog).not.toHaveTextContent("custom-source");
+  });
+
+  it("shortens a push error to git's first fatal line, the whole on request", async () => {
+    const whole = "Pushing to remote\nfatal: unable to access the remote: connection refused\nfatal: the remote end hung up";
+    serve({ ...base, push_state: "failed", push_last_error: whole });
+    const user = userEvent.setup();
+    render(<SyncIndicator kb="kb-a" live={0} />);
+    await user.click(await screen.findByRole("button", { name: "Sync: Push failed" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("unable to access the remote: connection refused");
+    expect(dialog).not.toHaveTextContent("hung up");
+    await user.click(screen.getByRole("button", { name: "Show the whole error" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("hung up");
+    expect(screen.getByRole("button", { name: "Show less" })).toBeInTheDocument();
+  });
+
   it("draws nothing on a 404, and nothing for a payload without push_state", async () => {
     serve(null);
     const { container, unmount } = render(<SyncIndicator kb="kb-a" live={0} />);

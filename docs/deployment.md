@@ -500,7 +500,7 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   `/ui/`, and `/` does the same from outside the auth chain.
 - `/api/ui/v1/…` — the JSON the UI reads (→ `control-plane.md` §Read-only UI API). Its Settings page lists every
   server and per-KB setting with its value and origin, read-only (D743, §Configuration above).
-  The server's version, in the top bar, opens the release history: a sheet
+  The server's version, at the foot of the left rail, opens the release history: a sheet
   with every release, newest first, each changelog rendered as sanitised Markdown, the running release marked
   `Current`, and, above them, the upgrade command when a newer release is known; a cut changelog links to
   GitHub, a disabled check is said so, and the static demo, with no server to ask, says the same.
@@ -510,11 +510,12 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   when a refresh fails. The upgrade command for the install channel comes with it when a newer release is known.
   It obeys the update-check switch (`update_check`, `CARTOGRAPHER_NO_UPDATE_CHECK`, never on a `dev` build): off,
   the route answers `unavailable: "disabled"` and the server makes no call.
-  The top bar shows, for the selected KB, whether everything is on its remote (`kb_status`'s replication
+  The top bar shows, for the selected KB, in a badge that shares the theme button's control style, whether everything is on its remote (`kb_status`'s replication
   facts, read from `GET /api/ui/v1/kbs/{kb}/status`): `On remote`, `N to push`, `N behind`, `Push pending`,
   `Not verified`, `Push failed`, `Writes blocked`, and, as persistent warnings, `No remote` (not backed up) and
-  `Not versioned`; a click opens the details (branch and its source, counts, last push and fetch, last error,
-  redacted remote). A push completing moves no concept file, so the live revision cannot drive it: the status is
+  `Not versioned` (the warning and problem states tint the badge); a click opens the details: count tiles, the state, the
+  redacted remote, the branch and its source, last push and fetch (these three only for a KB with a remote) and the
+  last error, cut to git's first `fatal:` line with a "Show the whole error" toggle. A push completing moves no concept file, so the live revision cannot drive it: the status is
   read again when the KB changes, when the revision moves, when the tab becomes visible, and every 10 s while
   the state is unsettled or every minute otherwise (never in a hidden tab). A principal that does not see the
   whole KB, an older server and the static demo get no indicator.
@@ -523,9 +524,9 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   (contradictions and gaps, the searches that found nothing under "to answer", the `kb_review` proposals
   under "to decide", D948). Artifacts has the tabs Agent kit, Instructions, Templates and Secrets (D1057), lists every kind of a tab, an empty one as an outline tile where its first
   artifact would go, and its Secrets tab has a card per Service that uses a value and per sops file, the same
-  detail panel as an artifact); Activity has a Retired tab (D820: every deprecated, superseded or archived concept with where it went,
-  when and why, read from the root `log.md`, and each journal's harvest state; an archive map wears an "Archive"
-  badge in the rail); the command palette's "Include archived" toggle adds archived pages to a search;
+  detail panel as an artifact); a retired concept (deprecated, superseded or archived, D820) is drawn on Activity's timeline with its status
+  and where it went and why, read from the root `log.md` (D1146: the Retired tab is gone, and
+  `panel=retired` links land on Activity); an archive map wears an "Archive" badge in the rail; the command palette's "Include archived" toggle adds archived pages to a search;
   pending sources are Work's "to ingest" column. Settings has the tabs Client, Server and
   Knowledge Base (no counts on them), and opens on the Client one: the client's own settings first, as the
   viewer's last `sync` reported them (its agents, the workspaces with their isolation), then the KBs as a row
@@ -730,8 +731,8 @@ colour, and a KB's health is read on the Health panel (D307). The legend folds t
 switch and counts, remembered per browser (`cartographer.panel.legend`). Ctrl/Cmd+K searches titles and ids at once and, after a
 pause in typing, the full text through the `search` tool, showing the excerpt
 that matched; it is the way to a concept, and there is no concept list beside
-the canvas (it also hides two easter eggs, gone on a reload). The brand in the top bar returns to the atlas on *All*, nothing selected; the server's version
-sits beside the theme switch (a button: it opens the release history), and the connection status appears only when the
+the canvas. The brand in the top bar returns to the atlas on *All*, nothing selected; the server's version
+sits at the foot of the rail (a button: it opens the release history), and the connection status appears only when the
 server is unreachable. The rail lists the KB's Maps and Journals in two
 groups, *All* first, each with its count; a click always opens the Atlas on
 that Map, and the rail marks a Map only while the Atlas is open (Work, Activity
@@ -766,26 +767,28 @@ one last changed, newest first, one row each on a rail in its Map's colour:
 time, title, Map, the kind of change when it is not a plain edit, the first
 recorded reason (upkeep reasons dropped when there is another) and the
 authors. Changing the window keeps the current answer on screen, dimmed,
-until the new one arrives. A row opens the concept on the atlas. A window
-with no change says so in one box, with a button to the next wider window.
+until the new one arrives. A row opens the concept on the atlas. A concept the KB retired (`GET .../retired`) wears its status instead of the kind of change, says what replaced it,
+why and where it was (D1146), and the summary counts them as *retired*. A window
+with no change shows a quiet notice with a button to the next wider window in place of the summary, followed
+by *Earlier*: the newest 20 earlier changes on the same timeline, read in the same round as the window.
 Under the timeline, the *Journal* section shows the tail of the KB's log
-(`log_append`) grouped by day under the same day headings, one row per
-`## <timestamp>` entry: its time, and the entry's body kept as written, line
-breaks included, not rendered as Markdown.
+(`log_append`) grouped by day under the same day headings and drawn on the same rail, one entry per
+`## <timestamp>`: its time and a node coloured by the Map of the first concept ID the entry names. A tool line
+(`concept_patch: map/id`) is one compact line whose concept opens; an agent's note shows its first line as the lead,
+the rest clamped with a Show more, as written and not rendered as Markdown.
 
 The **Work** panel is where a person answers or decides (D302, D948). It is `work_list` for the reader:
 the concepts in an open phase, the concepts that are work by their `reason` (open contradictions, open gaps,
 pages past their `review_after`) and the unchecked items, to which it adds what has no page of its own, the
 searches that found nothing and the doctor's proposals. The band filters by Map (*Where*), by column and by
-staleness, each with its count; a search box filters titles, items and proposals. The board lays the work out by
+staleness, each with its count; there is no text filter. The board lays the work out by
 column, in the order work moves: *to resolve* (an open contradiction: `commit_gate` blocks until someone decides
 which page holds), decision-needed, blocked, in-progress, open, *to answer* (the open gaps, `missing_context` and
 `open_question`, and the searches of `kb_status.search_misses` that found nothing; one that finds something now
 leaves the column and is listed under *Answered since*, D319), proposed, *to review* (a page past its `review_after`
 that is neither open by its status nor finished), *to decide* (the proposals of `kb_review`, `observation` items
 included, `GET /api/ui/v1/kbs/<kb>/maintenance/review`), *to ingest* (pending sources) and *unchecked items* (a
-closed concept listed only for them); any other status a map's `open_statuses` names follows. The other layout is
-one column per Map, busiest first, with the same cards. The columns wrap into a grid (at least 300px wide) instead of scrolling sideways, all of one capped height, and a column's cards scroll inside it with a fade where more lies above or below. A card shows its Map, title, type (a contradiction its
+closed concept listed only for them); any other status a map's `open_statuses` names follows. The columns wrap into a grid (at least 300px wide) instead of scrolling sideways, all of one capped height, and a column's cards scroll inside it with a fade where more lies above or below. A card shows its Map, title, type (a contradiction its
 kind) and age (stale ones flagged), expands to its items, and opens the concept on the atlas; a search opens
 nothing. It is read-only: work changes through the agents' write tools. The pending sources, `kb_status` and the
 review list are each optional: without one (a caller that cannot see the whole KB has no `kb_status`) the board

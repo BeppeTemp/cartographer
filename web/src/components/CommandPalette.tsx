@@ -4,7 +4,6 @@ import { canSearchArchived } from "../api/static";
 import { nameOf } from "../lib/names";
 import type { GraphNode, SearchHit } from "../api/types";
 import { collectionVar } from "../lib/palette";
-import { eggsFor, type Egg } from "../lib/eggs";
 
 interface Props {
   open: boolean;
@@ -13,8 +12,6 @@ interface Props {
   nodes: GraphNode[];
   onClose(): void;
   onSelect(id: string): void;
-  /** A secret phrase was entered (lib/eggs.ts). */
-  onEgg?(eggs: Egg[]): void;
 }
 
 const MAX_RESULTS = 40;
@@ -50,7 +47,7 @@ function cleanSnippet(s: string): string {
  * reader's queries as knowledge gaps) adds the concepts whose *text* matches,
  * each with the excerpt that matched.
  */
-export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEgg }: Props) {
+export function CommandPalette({ open, kb = null, nodes, onClose, onSelect }: Props) {
   const [textHits, setTextHits] = useState<SearchHit[]>([]);
   // Archived pages stay out of a search unless asked for, as for an agent
   // (D820); the choice lasts for this opening only.
@@ -87,8 +84,7 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
     const needle = query.trim();
     setTextHits([]);
     setArchivedFallback(false);
-    // A secret phrase (lib/eggs.ts) is not a search worth sending.
-    if (!open || !kb || needle.length < 2 || eggsFor(needle)) return;
+    if (!open || !kb || needle.length < 2) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
       fetchSearch(kb, needle, controller.signal, includeArchived)
@@ -167,11 +163,7 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
   }, [cursor]);
 
   if (!open) return null;
-  // A secret phrase adds its row on top; the concepts it matches stay below,
-  // so a concept named like it can still be opened.
-  const egg = onEgg ? eggsFor(query) : null;
-  const offset = egg ? 1 : 0;
-  const rows = results.length + offset;
+  const rows = results.length;
 
   const commit = (id: string | undefined) => {
     if (!id) return;
@@ -217,10 +209,7 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
               setCursor((c) => Math.max(c - 1, 0));
             } else if (event.key === "Enter") {
               event.preventDefault();
-              if (egg && cursor === 0) {
-                onEgg?.(egg);
-                onClose();
-              } else commit(results[cursor - offset]?.id);
+              commit(results[cursor]?.id);
             }
           }}
         />
@@ -230,36 +219,18 @@ export function CommandPalette({ open, kb = null, nodes, onClose, onSelect, onEg
           </p>
         )}
         <ul id="palette-results" className="palette__results" role="listbox" ref={listRef}>
-          {egg && (
-            <li
-              id="palette-option-0"
-              className="palette__result palette__result--egg"
-              role="option"
-              aria-selected={cursor === 0}
-              onMouseEnter={() => setCursor(0)}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                onEgg?.(egg);
-                onClose();
-              }}
-            >
-              <span className="palette__text">
-                <span className="palette__label">✨ Something is hiding here — press Enter</span>
-              </span>
-            </li>
-          )}
-          {egg && results.length === 0 ? null : results.length === 0 ? (
+          {results.length === 0 ? (
             <li className="palette__empty">No concept matches &ldquo;{query}&rdquo;.</li>
           ) : (
             results.map((row, index) => (
               <li
                 key={row.id}
-                id={`palette-option-${index + offset}`}
+                id={`palette-option-${index}`}
                 data-concept-id={row.id}
                 role="option"
-                aria-selected={index + offset === cursor}
+                aria-selected={index === cursor}
                 className="palette__result"
-                onMouseEnter={() => setCursor(index + offset)}
+                onMouseEnter={() => setCursor(index)}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   commit(row.id);

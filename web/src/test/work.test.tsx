@@ -45,7 +45,7 @@ describe("the Work panel", () => {
     expect(await screen.findByText(/"active" means the page is valid, not that work is pending/)).toBeInTheDocument();
   });
 
-  it("groups by status and by map, filters, and opens a concept", async () => {
+  it("groups by status, narrows, and opens a concept", async () => {
     stubApi({ "/work": () => json(work) });
     const user = userEvent.setup();
     render(<App />);
@@ -58,20 +58,15 @@ describe("the Work panel", () => {
         .getAllByRole("heading", { level: 2 })
         .map((h) => h.textContent);
     expect(columns()).toEqual(["in-progress 1", "open 1", "unchecked items 1"]);
-
-    await user.click(within(panel).getByRole("button", { name: "By map" }));
-    // A Map is named by its title, as everywhere else; the busiest comes first.
-    expect(columns()).toEqual(["Infrastructure 2", "notes 1"]);
+    // One board: no grouping selector and no text filter.
+    expect(within(panel).queryByRole("button", { name: "By map" })).not.toBeInTheDocument();
+    expect(within(panel).queryByRole("searchbox", { name: "Filter work" })).not.toBeInTheDocument();
 
     // Items expand with their section.
     await user.click(within(panel).getByRole("button", { name: "2 open items" }));
     expect(within(panel).getByText("renew the certificate")).toBeInTheDocument();
 
-    // Free text matches items as well as titles; stale only narrows.
-    await user.type(within(panel).getByRole("searchbox", { name: "Filter work" }), "rotate");
-    expect(within(panel).queryByText("Alpha")).not.toBeInTheDocument();
-    expect(within(panel).getByText("Gamma")).toBeInTheDocument();
-    await user.clear(within(panel).getByRole("searchbox", { name: "Filter work" }));
+    // Stale only narrows.
     await user.click(within(panel).getByRole("checkbox", { name: /^Stale only/ }));
     expect(within(panel).queryByText("Gamma")).not.toBeInTheDocument();
     await user.click(within(panel).getByRole("checkbox", { name: /^Stale only/ }));

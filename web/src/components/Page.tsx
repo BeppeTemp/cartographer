@@ -550,31 +550,6 @@ export function HealthSkeleton({ label }: { label: string }) {
   );
 }
 
-/** Retired: rows with a title, a pill, and a meta line. */
-export function RetiredSkeleton({ label }: { label: string }) {
-  return (
-    <LoadingRegion label={label}>
-      <HeroBones rows={[2]} />
-      <ul className="retired__list">
-        {[0, 1, 2, 3].map((i) => (
-          <li key={i}>
-            <div className="retired__row">
-              <div className="retired__head">
-                <Bone w={`${30 + ((i * 19) % 30)}%`} h={16} />
-                <Bone w={64} h={18} />
-              </div>
-              <div className="retired__meta">
-                <Bone w={`${35 + ((i * 13) % 25)}%`} h={12} />
-              </div>
-              <Bone w="70%" h={12} />
-            </div>
-          </li>
-        ))}
-      </ul>
-    </LoadingRegion>
-  );
-}
-
 /** Artifacts: kind headings, each with a grid of tiles (name, two lines, foot). */
 export function CatalogSkeleton({
   label,

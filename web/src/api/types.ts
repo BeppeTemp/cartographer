@@ -740,7 +740,7 @@ export interface ReleaseEntry {
   current: boolean;
 }
 
-/** GET /releases: the release history behind the version in the top bar. */
+/** GET /releases: the release history behind the version at the foot of the rail. */
 export interface ReleasesView {
   current: string;
   /** A newer release than `current`, as /health reports it. */

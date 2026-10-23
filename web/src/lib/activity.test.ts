@@ -1,4 +1,4 @@
-import { changeKind, mostWorked, parseJournal, shownReasons } from "./activity";
+import { changeKind, journalMap, journalShape, mostWorked, parseJournal, shownReasons } from "./activity";
 
 describe("changeKind", () => {
   it("tells the reader's changes from the server's upkeep", () => {
@@ -14,15 +14,17 @@ describe("changeKind", () => {
     // An edit made outside the server carries no op: it is still an edit.
     expect(changeKind({ change: "modified", ops: [] })).toBe("edited");
     // The server's last_edit_at outweighs ops truncated to five.
-    expect(changeKind({ change: "modified", ops: ["auto-repair (background)"], last_edit_at: "2026-01-01T00:00:00Z" })).toBe(
-      "edited",
-    );
+    expect(
+      changeKind({ change: "modified", ops: ["auto-repair (background)"], last_edit_at: "2026-01-01T00:00:00Z" }),
+    ).toBe("edited");
   });
 });
 
 describe("shownReasons", () => {
   it("drops upkeep reasons unless they are all there is", () => {
-    expect(shownReasons({ reasons: ["auto-repair (background)", "incident 7 follow-up"] })).toEqual(["incident 7 follow-up"]);
+    expect(shownReasons({ reasons: ["auto-repair (background)", "incident 7 follow-up"] })).toEqual([
+      "incident 7 follow-up",
+    ]);
     expect(shownReasons({ reasons: ["auto-repair (background)"] })).toEqual(["auto-repair (background)"]);
   });
 });
@@ -30,7 +32,11 @@ describe("shownReasons", () => {
 describe("mostWorked", () => {
   it("names the concept with the most content operations, upkeep aside", () => {
     const best = mostWorked([
-      { id: "a", change: "modified", ops: ["auto-repair (background)", "auto-repair (background)", "auto-repair (background)"] },
+      {
+        id: "a",
+        change: "modified",
+        ops: ["auto-repair (background)", "auto-repair (background)", "auto-repair (background)"],
+      },
       { id: "b", change: "modified", ops: ["concept_write: b", "concept_patch: b"] },
       { id: "c", change: "added", ops: ["concept_write: c"] },
     ]);
@@ -42,7 +48,8 @@ describe("mostWorked", () => {
 
 describe("parseJournal", () => {
   it("splits on the timestamp headings and keeps the body's lines", () => {
-    const text = "## 2026-10-21T06:57:15Z\n\nauto-repair (background)\n\nduplicate_link: 2\nrepeated_link: 11\n\n\n## 2026-10-12T08:22:46Z\n\nAnalysis done.\n";
+    const text =
+      "## 2026-10-21T06:57:15Z\n\nauto-repair (background)\n\nduplicate_link: 2\nrepeated_link: 11\n\n\n## 2026-10-12T08:22:46Z\n\nAnalysis done.\n";
     expect(parseJournal(text)).toEqual([
       { at: "2026-10-21T06:57:15Z", body: "auto-repair (background)\n\nduplicate_link: 2\nrepeated_link: 11" },
       { at: "2026-10-12T08:22:46Z", body: "Analysis done." },
@@ -64,5 +71,53 @@ describe("parseJournal", () => {
 
   it("returns nothing for an empty tail", () => {
     expect(parseJournal("\n\n")).toEqual([]);
+  });
+});
+
+describe("journalShape", () => {
+  it("reads a recorded tool call as one muted line", () => {
+    expect(journalShape("concept_patch: infra/alpha")).toEqual({
+      kind: "tool",
+      tool: "concept_patch",
+      target: "infra/alpha",
+    });
+  });
+
+  it("reads anything else as a note, the first line its lead", () => {
+    expect(journalShape("Merged the plan.\n\nSecond paragraph.")).toEqual({
+      kind: "note",
+      lead: "Merged the plan.",
+      details: "Second paragraph.",
+    });
+    // A tool-looking line with more words is a note.
+    expect(journalShape("concept_patch: infra/alpha and more").kind).toBe("note");
+  });
+
+  it("drops the date an agent opens with, since the day heading says it", () => {
+    expect(journalShape("2026-10-01 — Rolled out\nbody")).toEqual({
+      kind: "note",
+      lead: "Rolled out",
+      details: "body",
+    });
+    expect(
+      journalShape("2026-10-01 (UTC) - Rolled out").kind === "note" && journalShape("2026-10-01 (UTC) - Rolled out"),
+    ).toMatchObject({
+      lead: "Rolled out",
+    });
+  });
+});
+
+describe("journalMap", () => {
+  const maps = new Set(["infra", "notes"]);
+
+  it("is the Map of the first concept ID the entry names", () => {
+    expect(journalMap("concept_patch: notes/gamma", maps)).toBe("notes");
+    expect(journalMap("Moved infra/a, then notes/b", maps)).toBe("infra");
+  });
+
+  it("skips a slash that is not a concept of a Map, and a path inside a URL", () => {
+    expect(journalMap("and/or then notes/b", maps)).toBe("notes");
+    expect(journalMap("see https://example.com/infra/x", maps)).toBeNull();
+    expect(journalMap("nothing to name", maps)).toBeNull();
   });
 });

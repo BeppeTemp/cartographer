@@ -1,10 +1,39 @@
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { fetchAudit, fetchChanges, fetchJournal } from "../api/client";
-import type { AuditLog, ChangesResponse, CollectionSummary, ConceptChange, GraphSnapshot } from "../api/types";
-import { changedAt, changeKind, mostWorked, parseJournal, shownReasons, type ChangeKind } from "../lib/activity";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { fetchAudit, fetchChanges, fetchJournal, fetchRetired } from "../api/client";
+import type {
+  AuditLog,
+  ChangesResponse,
+  CollectionSummary,
+  ConceptChange,
+  GraphSnapshot,
+  RetiredConcept,
+} from "../api/types";
+import {
+  changedAt,
+  changeKind,
+  journalMap,
+  journalShape,
+  mostWorked,
+  parseJournal,
+  shownReasons,
+  type ChangeKind,
+} from "../lib/activity";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
-import { Avatar, Count, Hero, MapBar, MapDot, Page, PageHeader, PageSection, Segmented, TitleBone, ActivitySkeleton } from "./Page";
+import { Icon } from "./Icon";
+import {
+  Avatar,
+  Count,
+  Hero,
+  MapBar,
+  MapDot,
+  Page,
+  PageHeader,
+  PageSection,
+  Segmented,
+  TitleBone,
+  ActivitySkeleton,
+} from "./Page";
 
 const WINDOWS = [
   ["1d", "1d"],
@@ -26,6 +55,9 @@ const DAYS: Record<Window, number | null> = {
 };
 /** What changes_since is asked: it takes <N>d, and "all" reaches further
  *  back than any KB has existed. */
+/** How many of the newest earlier changes an empty window shows. */
+const EARLIER = 20;
+
 const SINCE: Record<Window, string> = {
   "1d": "1d",
   "7d": "7d",
@@ -56,7 +88,7 @@ export function Activity({
   snapshot: GraphSnapshot | null;
   collections?: CollectionSummary[];
   live?: number;
-  /** The section tabs (Activity · Retired), drawn under the header. */
+  /** The section tabs, drawn under the header. */
   tabs?: ReactNode;
   onOpen(conceptId: string): void;
 }) {
@@ -64,6 +96,7 @@ export function Activity({
   const [author, setAuthor] = useState<string | null>(null);
   const [map, setMap] = useState<string | null>(null);
   const [data, setData] = useState<ChangesResponse | null>(null);
+  const [earlier, setEarlier] = useState<ConceptChange[] | null>(null);
   // The window the data on screen answers: while a new window loads, the
   // old answer stays (dimmed) and keeps describing itself correctly.
   const [shown, setShown] = useState<Window>(since);
@@ -78,6 +111,7 @@ export function Activity({
   // is on screen until the fresh answer replaces it: no flash of skeleton.
   useEffect(() => {
     setData(null);
+    setEarlier(null);
     setError(null);
   }, [kb]);
 
@@ -85,8 +119,24 @@ export function Activity({
     const controller = new AbortController();
     setLoading(true);
     fetchChanges(kb, SINCE[since], controller.signal)
-      .then((res) => {
+      // An empty window still shows the KB's latest work: the newest changes
+      // from before it, on the same timeline. They are read before anything
+      // is replaced, so the page never shows the notice without them.
+      .then(async (res) => {
+        const quiet = since !== "all" && (res.concepts ?? []).every((c) => changeKind(c) === "maintenance");
+        const before = quiet ? await fetchChanges(kb, SINCE.all, controller.signal).catch(() => null) : null;
+        return { res, before };
+      })
+      .then(({ res, before }) => {
         setData(res);
+        setEarlier(
+          before
+            ? (before.concepts ?? [])
+                .filter((c) => changeKind(c) !== "maintenance")
+                .sort((a, b) => Date.parse(changedAt(b)) - Date.parse(changedAt(a)))
+                .slice(0, EARLIER)
+            : null,
+        );
         setShown(since);
         setError(null);
       })
@@ -110,6 +160,27 @@ export function Activity({
     const controller = new AbortController();
     fetchJournal(kb, controller.signal)
       .then((res) => setJournal(res.text ?? ""))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [kb, live, attempt]);
+
+  // Whether the window on screen holds nothing but upkeep: the quiet notice
+  // takes the summary's place, and the earlier changes follow it.
+  const windowEmpty =
+    data !== null && (data.concepts ?? []).every((c) => changeKind(c) === "maintenance") && shown !== "all";
+  const earlierDays = useMemo(() => groupByDay(earlier ?? []), [earlier]);
+
+  // What the KB retired (archived, deprecated, superseded), keyed by concept:
+  // a retired concept's row on the timeline says so, with where it went and
+  // why. A narrowed principal's 404 leaves the rows as plain changes.
+  const [retired, setRetired] = useState<ReadonlyMap<string, RetiredConcept>>(new Map());
+  useEffect(() => {
+    setRetired(new Map());
+  }, [kb]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchRetired(kb, controller.signal)
+      .then((res) => setRetired(new Map(res.concepts.map((r) => [r.id, r]))))
       .catch(() => undefined);
     return () => controller.abort();
   }, [kb, live, attempt]);
@@ -159,9 +230,11 @@ export function Activity({
   const kinds = useMemo(() => new Map(filtered.map((c) => [c, changeKind(c)])), [filtered]);
   const count = (k: ChangeKind) => filtered.filter((c) => kinds.get(c) === k).length;
   const upkeep = count("maintenance");
+  // A window of nothing but upkeep is quiet whatever the upkeep toggle says:
+  // its toggle is in the summary, which the quiet notice replaces.
   const rows = useMemo(
-    () => (showUpkeep ? filtered : filtered.filter((c) => kinds.get(c) !== "maintenance")),
-    [filtered, kinds, showUpkeep],
+    () => (windowEmpty ? [] : showUpkeep ? filtered : filtered.filter((c) => kinds.get(c) !== "maintenance")),
+    [filtered, kinds, showUpkeep, windowEmpty],
   );
   const days = useMemo(() => groupByDay(rows), [rows]);
   // The server's day series counts every change of the window; the concepts
@@ -169,11 +242,12 @@ export function Activity({
   // filter narrows the page (the series cannot be filtered) or the server is
   // older than the series (D1057).
   const byDay = map === null && author === null ? data?.changes_by_day : undefined;
-  const histogram = useMemo(
-    () => perDay(filtered, kinds, DAYS[shown], byDay),
-    [filtered, kinds, shown, byDay],
-  );
+  const histogram = useMemo(() => perDay(filtered, kinds, DAYS[shown], byDay), [filtered, kinds, shown, byDay]);
   const top = useMemo(() => mostWorked(filtered), [filtered]);
+  const retiredCount = useMemo(
+    () => filtered.filter((c) => kinds.get(c) !== "maintenance" && retired.has(c.id)).length,
+    [filtered, kinds, retired],
+  );
 
   return (
     <Page label="Recent activity" busy={loading} className="timeline">
@@ -194,7 +268,7 @@ export function Activity({
       {tabs}
 
       <div className="page__body" data-loading={loading && data !== null}>
-        {data && all.length > 0 && (
+        {data && !windowEmpty && (
           <Hero label="Summary and filters" className="activity-hero">
             <div className="activity-sum">
               <div className="activity-sum__lead">
@@ -202,6 +276,7 @@ export function Activity({
                   <Stat n={count("edited")} label="edited" />
                   <Stat n={count("new")} label="new" tone="ok" />
                   <Stat n={count("reorganised")} label="reorganised" />
+                  {retiredCount > 0 && <Stat n={retiredCount} label="retired" />}
                   {authors.length > 1 && <Stat n={authors.length} label="authors" />}
                 </ul>
                 {top && top.count > 1 && (
@@ -286,48 +361,47 @@ export function Activity({
         ) : !data ? (
           <ActivitySkeleton label="Reading the history" />
         ) : rows.length === 0 ? (
-          <div className="timeline__empty">
-            <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
-            <p className="page-note">
-              No concept edited {when(shown)}
-              {author ? ` by ${author}` : ""}.
-            </p>
-            {/* An empty window offers the next wider one rather than leaving the reader to guess. */}
-            {(() => {
-              const next = WINDOWS[WINDOWS.findIndex(([w]) => w === shown) + 1];
-              return next ? (
-                <button type="button" className="button" onClick={() => setSince(next[0])}>
-                  {next[0] === "all"
-                    ? "Show the whole history"
-                    : next[0] === "1y"
-                      ? "Show the last year"
-                      : `Show the last ${DAYS[next[0]]} days`}
-                </button>
-              ) : null;
-            })()}
-          </div>
+          <>
+            <div className="timeline__empty">
+              <span className="timeline__empty-icon" aria-hidden="true">
+                <Icon name="moon" size={18} />
+              </span>
+              <div className="timeline__empty-text">
+                <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
+                <p className="timeline__empty-note">
+                  No concept edited {when(shown)}
+                  {author ? ` by ${author}` : ""}.
+                </p>
+              </div>
+              {/* An empty window offers the next wider one rather than leaving the reader to guess. */}
+              {(() => {
+                const next = WINDOWS[WINDOWS.findIndex(([w]) => w === shown) + 1];
+                return next ? (
+                  <button type="button" className="button timeline__empty-action" onClick={() => setSince(next[0])}>
+                    {next[0] === "all"
+                      ? "Show the whole history"
+                      : next[0] === "1y"
+                        ? "Show the last year"
+                        : `Show the last ${DAYS[next[0]]} days`}
+                  </button>
+                ) : null;
+              })()}
+            </div>
+            {windowEmpty && earlierDays.length > 0 && (
+              <>
+                <h2 className="timeline__earlier">Earlier</h2>
+                <TimelineDays
+                  days={earlierDays}
+                  titles={titles}
+                  mapTitles={mapTitles}
+                  retired={retired}
+                  onOpen={onOpen}
+                />
+              </>
+            )}
+          </>
         ) : (
-          <ol className="timeline__days">
-            {days.map((day) => (
-              <li key={day.key} className="timeline__day">
-                <h2 className="timeline__date">
-                  <span>{day.label}</span>
-                  <span className="timeline__date-count">{day.items.length}</span>
-                </h2>
-                <ol className="timeline__entries">
-                  {day.items.map((c) => (
-                    <Entry
-                      key={c.id}
-                      change={c}
-                      title={titles.get(c.id) ?? c.id}
-                      mapTitle={mapTitles.get(mapOf(c)) ?? mapOf(c)}
-                      onOpen={onOpen}
-                    />
-                  ))}
-                </ol>
-              </li>
-            ))}
-          </ol>
+          <TimelineDays days={days} titles={titles} mapTitles={mapTitles} retired={retired} onOpen={onOpen} />
         )}
         {data?.truncated && (
           <p className="page-note">Showing the {all.length} most recent changes: narrow the window to see the rest.</p>
@@ -344,7 +418,7 @@ export function Activity({
                 <p className="page-note">
                   The last entries of the KB&apos;s log, written by agents with <code>log_append</code>.
                 </p>
-                <JournalEntries text={journal} />
+                <JournalEntries text={journal} mapTitles={mapTitles} onOpen={onOpen} />
               </>
             )}
           </PageSection>
@@ -355,12 +429,61 @@ export function Activity({
   );
 }
 
+/** The concept changes grouped by day: a day heading with its count, then one row per change. */
+function TimelineDays({
+  days,
+  titles,
+  mapTitles,
+  retired,
+  onOpen,
+}: {
+  days: { key: string; label: string; items: ConceptChange[] }[];
+  titles: ReadonlyMap<string, string>;
+  mapTitles: ReadonlyMap<string, string>;
+  retired: ReadonlyMap<string, RetiredConcept>;
+  onOpen(conceptId: string): void;
+}) {
+  return (
+    <ol className="timeline__days">
+      {days.map((day) => (
+        <li key={day.key} className="timeline__day">
+          <h2 className="timeline__date">
+            <span>{day.label}</span>
+            <span className="timeline__date-count">{day.items.length}</span>
+          </h2>
+          <ol className="timeline__entries">
+            {day.items.map((c) => (
+              <Entry
+                key={c.id}
+                change={c}
+                title={titles.get(c.id) ?? c.id}
+                mapTitle={mapTitles.get(mapOf(c)) ?? mapOf(c)}
+                retired={retired.get(c.id)}
+                onOpen={onOpen}
+              />
+            ))}
+          </ol>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 /**
  * The journal tail as a log, grouped by day like the timeline above it: a
  * day heading with its count, then one row per entry, its time beside its
  * lines. An entry whose heading is not a time keeps it as its label.
  */
-function JournalEntries({ text }: { text: string }) {
+function JournalEntries({
+  text,
+  mapTitles,
+  onOpen,
+}: {
+  text: string;
+  mapTitles: ReadonlyMap<string, string>;
+  onOpen(conceptId: string): void;
+}) {
+  const maps = useMemo(() => new Set(mapTitles.keys()), [mapTitles]);
   const days = useMemo(() => {
     const groups: { key: string; label: string; items: { at: string | null; t: number; body: string }[] }[] = [];
     for (const e of parseJournal(text)) {
@@ -383,27 +506,114 @@ function JournalEntries({ text }: { text: string }) {
             <span>{day.label}</span>
             <span className="timeline__date-count">{day.items.length}</span>
           </h3>
-          <ol className="journal__entries">
+          <ol className="timeline__entries">
             {day.items.map((e, i) => (
-              <li key={`${e.at}-${i}`} className="journal__entry">
-                {Number.isFinite(e.t) ? (
-                  <time
-                    className="journal__time"
-                    dateTime={e.at!}
-                    title={new Date(e.t).toLocaleString("en", { dateStyle: "medium", timeStyle: "medium" })}
-                  >
-                    {clock(e.at!)}
-                  </time>
-                ) : (
-                  <span className="journal__time">{e.at}</span>
-                )}
-                <p className="journal__body">{e.body}</p>
-              </li>
+              <JournalEntry
+                key={`${e.at}-${i}`}
+                at={e.at}
+                t={e.t}
+                body={e.body}
+                map={journalMap(e.body, maps)}
+                mapTitles={mapTitles}
+                onOpen={onOpen}
+              />
             ))}
           </ol>
         </li>
       ))}
     </ol>
+  );
+}
+
+/** One journal entry on the timeline's rail: time, a node in the colour of the
+ *  Map the entry names (the accent when it names none), then the note or the
+ *  tool call, whose concept opens like a timeline row. A long note is clamped
+ *  and opens in place. */
+function JournalEntry({
+  at,
+  t,
+  body,
+  map,
+  mapTitles,
+  onOpen,
+}: {
+  at: string | null;
+  t: number;
+  body: string;
+  map: string | null;
+  mapTitles: ReadonlyMap<string, string>;
+  onOpen(conceptId: string): void;
+}) {
+  const shape = journalShape(body);
+  const [open, setOpen] = useState(false);
+  // "Show more" only where the clamp actually cut something.
+  const noteRef = useRef<HTMLDivElement>(null);
+  const [clamped, setClamped] = useState(false);
+  useLayoutEffect(() => {
+    const el = noteRef.current;
+    if (!el || open) return;
+    const measure = () => setClamped([...el.querySelectorAll("p")].some((p) => p.scrollHeight > p.clientHeight + 1));
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, body]);
+  const time = Number.isFinite(t) ? (
+    <time
+      className="timeline__time"
+      dateTime={at!}
+      title={new Date(t).toLocaleString("en", { dateStyle: "medium", timeStyle: "medium" })}
+    >
+      {clock(at!)}
+    </time>
+  ) : (
+    <span className="timeline__time">{at}</span>
+  );
+  return (
+    <li
+      className={`timeline__entry journal__entry journal__entry--${shape.kind}`}
+      style={{ "--map": map ? collectionVar(map) : "var(--accent)" } as CSSProperties}
+    >
+      <div className="journal__item">
+        {time}
+        <span className="timeline__track" aria-hidden="true">
+          <span className="timeline__node" />
+        </span>
+        {shape.kind === "tool" ? (
+          <p className="journal__tool">
+            <span className="journal__tool-name">{shape.tool}</span>
+            {map ? (
+              <button type="button" className="journal__target" onClick={() => onOpen(shape.target)}>
+                <span className="timeline__map">
+                  <MapDot map={map} />
+                  {mapTitles.get(map) ?? map}
+                </span>
+                <span className="journal__target-id">{shape.target.slice(map.length + 1)}</span>
+              </button>
+            ) : (
+              <span className="journal__target-id">{shape.target}</span>
+            )}
+          </p>
+        ) : (
+          <div className="journal__note" ref={noteRef}>
+            <p className="journal__lead" data-open={open}>
+              {shape.lead}
+            </p>
+            {shape.details && (
+              <p className="journal__details" data-open={open}>
+                {shape.details}
+              </p>
+            )}
+            {(clamped || open) && (
+              <button type="button" className="journal__more" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+                {open ? "Show less" : "Show more"}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -453,14 +663,17 @@ function Entry({
   change: c,
   title,
   mapTitle,
+  retired,
   onOpen,
 }: {
   change: ConceptChange;
   title: string;
   mapTitle: string;
+  /** Set when the concept is retired: the row says so, and where it went and why. */
+  retired?: RetiredConcept;
   onOpen(conceptId: string): void;
 }) {
-  const reasons = shownReasons(c);
+  const reasons = retired ? retiredReasons(retired) : shownReasons(c);
   const [first, ...more] = reasons;
   return (
     <li className="timeline__entry" style={{ "--map": collectionVar(mapOf(c)) } as CSSProperties}>
@@ -482,7 +695,7 @@ function Entry({
               <MapDot map={mapOf(c)} />
               {mapTitle}
             </span>
-            <ChangePill change={c.change} />
+            {retired ? <RetiredPill status={retired.status} /> : <ChangePill change={c.change} />}
           </span>
           {first && (
             <span className="timeline__reason" title={reasons.join("\n")}>
@@ -523,6 +736,21 @@ function ChangePill({ change }: { change: string }) {
       {change}
     </span>
   );
+}
+
+function RetiredPill({ status }: { status: string }) {
+  return <span className={`pill timeline__retired timeline__retired--${status}`}>{status}</span>;
+}
+
+/** What a retired row says under its title: what replaced it, why, where it was. */
+function retiredReasons(r: RetiredConcept): string[] {
+  const out: string[] = [];
+  if (r.superseded_by) out.push(`Replaced by ${r.superseded_by_title || r.superseded_by}`);
+  const why = r.supersede_reason || r.reason;
+  if (why) out.push(why);
+  if (r.from && r.from !== r.id) out.push(`Was ${r.from}`);
+  if (out.length === 0) out.push("No retirement recorded: the status was set by hand");
+  return out;
 }
 
 /** One figure of the summary line: a bold number and its word. A zero fades;

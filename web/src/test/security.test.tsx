@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { App } from "../App";
-import { json, reviewSkill, stubApi } from "./fixtures";
+import { json, openPanels, reviewSkill, stubApi } from "./fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Markdown } from "../components/Markdown";
 import { clearToken, hasToken, restoreToken, setToken } from "../api/client";
@@ -159,6 +159,7 @@ describe("a release's changelog is rendered as untrusted content (D862)", () => 
     window.history.replaceState(null, "", "/ui/?kb=kb-a");
     localStorage.clear();
     sessionStorage.clear();
+    openPanels();
     const hostile = {
       current: "1.2.3",
       releases_url: "javascript:window.__pwned = true",
@@ -185,6 +186,7 @@ describe("a release's changelog is rendered as untrusted content (D862)", () => 
     stubApi({ "/health": () => json({ version: "1.2.3" }), "/releases": () => json(hostile) });
     const user = userEvent.setup();
     render(<App />);
+    // The version sits at the foot of the left rail.
     await user.click(await screen.findByRole("button", { name: /Server version v1\.2\.3/ }));
     const sheet = await screen.findByRole("dialog", { name: "Releases" });
     await within(sheet).findByRole("heading", { name: "Features" });

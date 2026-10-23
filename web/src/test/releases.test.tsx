@@ -35,7 +35,7 @@ function stub(view: ReleasesView | (() => Response) = VIEW) {
   });
 }
 
-async function openFromTopBar() {
+async function openFromRail() {
   const user = userEvent.setup();
   render(<App />);
   await user.click(await screen.findByRole("button", { name: /Server version v1\.2\.3/ }));
@@ -51,9 +51,9 @@ describe("the release history sheet", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("opens from the version in the top bar and lists every release, newest first", async () => {
+  it("opens from the version in the rail's foot and lists every release, newest first", async () => {
     const fetchMock = stub();
-    const { sheet } = await openFromTopBar();
+    const { sheet } = await openFromRail();
     expect(sheet).toHaveAttribute("aria-modal", "true");
     const list = await within(sheet).findByRole("list", { name: "Releases, newest first" });
     const headings = within(list).getAllByRole("heading", { level: 3 }).filter((h) => /^v\d/.test(h.textContent ?? ""));
@@ -73,7 +73,7 @@ describe("the release history sheet", () => {
 
   it("marks the release the server runs, and only that one", async () => {
     stub();
-    const { sheet } = await openFromTopBar();
+    const { sheet } = await openFromRail();
     await within(sheet).findByRole("list", { name: "Releases, newest first" });
     expect(within(sheet).getAllByText("Current")).toHaveLength(1);
     const current = within(sheet).getByRole("heading", { name: "v1.2.3" }).closest("section")!;
@@ -87,7 +87,7 @@ describe("the release history sheet", () => {
     Element.prototype.scrollIntoView = scroll;
     try {
       stub();
-      const first = await openFromTopBar();
+      const first = await openFromRail();
       await within(first.sheet).findByRole("list", { name: "Releases, newest first" });
       await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
       expect(scroll.mock.contexts[0]).toBe(within(first.sheet).getByRole("heading", { name: "v1.2.3" }).closest("section"));
@@ -106,7 +106,7 @@ describe("the release history sheet", () => {
         releases: [entry("1.2.3", { current: true }), entry("1.2.2")],
         releases_url: "https://example.com/releases",
       });
-      const { sheet } = await openFromTopBar();
+      const { sheet } = await openFromRail();
       await within(sheet).findByRole("list", { name: "Releases, newest first" });
       expect(scroll).not.toHaveBeenCalled();
     } finally {
@@ -116,7 +116,7 @@ describe("the release history sheet", () => {
 
   it("shows the upgrade block only when the server names a command", async () => {
     stub();
-    const first = await openFromTopBar();
+    const first = await openFromRail();
     const upgrade = await within(first.sheet).findByRole("region", { name: "Upgrade" });
     expect(within(upgrade).getByText("v1.3.0 is available")).toBeInTheDocument();
     expect(within(upgrade).getByText("brew upgrade --cask example/tap/cartographer")).toBeInTheDocument();
@@ -125,14 +125,14 @@ describe("the release history sheet", () => {
 
   it("has no upgrade block without a command, even with a newer release known", async () => {
     stub({ ...VIEW, upgrade_command: undefined, channel: undefined });
-    const { sheet } = await openFromTopBar();
+    const { sheet } = await openFromRail();
     await within(sheet).findByRole("list", { name: "Releases, newest first" });
     expect(within(sheet).queryByRole("region", { name: "Upgrade" })).toBeNull();
   });
 
   it("says why there is no history, and links to GitHub, when the update check is off", async () => {
     stub({ current: "1.2.3", releases: [], unavailable: "disabled", releases_url: "https://example.com/releases" });
-    const { sheet } = await openFromTopBar();
+    const { sheet } = await openFromRail();
     expect(await within(sheet).findByText(/update check is off on this server/)).toBeInTheDocument();
     expect(within(sheet).queryByRole("list", { name: "Releases, newest first" })?.children.length ?? 0).toBe(0);
     const link = within(sheet).getByRole("link", { name: /All releases on GitHub/ });
@@ -142,21 +142,21 @@ describe("the release history sheet", () => {
 
   it("says GitHub could not be reached when there is nothing to show", async () => {
     stub({ current: "1.2.3", releases: [], unavailable: "unreachable", releases_url: "https://example.com/releases" });
-    const { sheet } = await openFromTopBar();
+    const { sheet } = await openFromRail();
     expect(await within(sheet).findByText(/GitHub could not be reached/)).toBeInTheDocument();
     expect(within(sheet).getByRole("link", { name: /All releases on GitHub/ })).toBeInTheDocument();
   });
 
   it("serves the last list with a notice when a refresh failed", async () => {
     stub({ ...VIEW, stale: true });
-    const { sheet } = await openFromTopBar();
+    const { sheet } = await openFromRail();
     expect(await within(sheet).findByText(/this is the last list fetched/)).toBeInTheDocument();
     expect(within(sheet).getByRole("heading", { name: "v1.3.0" })).toBeInTheDocument();
   });
 
   it("points a cut changelog at GitHub", async () => {
     stub({ ...VIEW, releases: [entry("1.2.3", { current: true, truncated: true }), entry("1.2.2")] });
-    const { sheet } = await openFromTopBar();
+    const { sheet } = await openFromRail();
     const link = await within(sheet).findByRole("link", { name: /read it on GitHub/ });
     expect(link).toHaveAttribute("href", "https://example.com/releases/v1.2.3");
     expect(within(sheet).getAllByText(/Truncated/)).toHaveLength(1);
@@ -168,7 +168,7 @@ describe("the release history sheet", () => {
       calls += 1;
       return calls === 1 ? json({ error: { code: "internal", message: "internal error" } }, 500) : json(VIEW);
     });
-    const { user, sheet } = await openFromTopBar();
+    const { user, sheet } = await openFromRail();
     await within(sheet).findByRole("alert");
     await user.click(within(sheet).getByRole("button", { name: "Try again" }));
     expect(await within(sheet).findByRole("heading", { name: "v1.3.0" })).toBeInTheDocument();
@@ -176,7 +176,7 @@ describe("the release history sheet", () => {
 
   it("closes with Escape and returns focus to the version", async () => {
     stub();
-    const { user, sheet } = await openFromTopBar();
+    const { user, sheet } = await openFromRail();
     await within(sheet).findByRole("list", { name: "Releases, newest first" });
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Releases" })).toBeNull();

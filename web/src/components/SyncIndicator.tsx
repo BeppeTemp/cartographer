@@ -97,51 +97,83 @@ export function SyncIndicator({ kb, live }: Props) {
         {announced}
       </span>
       {open && (
-        <div id={panelId} className="sync__popover" role="dialog" aria-label="Sync details">
-          <p className={`sync__headline sync__headline--${state.tone}`}>
-            <strong>{state.label}.</strong> {state.summary}
-          </p>
+        <div id={panelId} className={`sync__popover sync__popover--${state.tone}`} role="dialog" aria-label="Sync details">
+          <div className="sync__head">
+            <span className="sync__badge" aria-hidden="true">
+              <Icon name={TONE_ICON[state.tone]} size={16} />
+            </span>
+            <p className={`sync__headline sync__headline--${state.tone}`}>
+              <strong>{state.label}.</strong> <span className="sync__summary">{state.summary}</span>
+            </p>
+          </div>
+          {counted && (
+            <ul className="sync__counts">
+              <li className="sync__count">
+                <span className="sync__count-n">{count(ahead)}</span>
+                <span className="sync__count-label">To push</span>
+              </li>
+              <li className="sync__count">
+                <span className="sync__count-n">{count(behind)}</span>
+                <span className="sync__count-label">Behind</span>
+                <span className="sync__note">as of the last fetch</span>
+              </li>
+            </ul>
+          )}
           <dl className="sync__details">
             <dt>State</dt>
-            <dd>{status.push_state}</dd>
+            <dd>
+              <code className="sync__state">{status.push_state}</code>
+            </dd>
             {status.branch !== undefined && (
               <>
                 <dt>Branch</dt>
                 <dd>
                   {status.branch || "Detached HEAD"}
-                  {status.branch_source && <span className="sync__note"> ({status.branch_source})</span>}
+                  {counted && status.branch_source && <span className="sync__note"> ({status.branch_source})</span>}
                 </dd>
               </>
             )}
+            {/* With no remote there is nothing to push to or fetch from. */}
             {counted && (
               <>
-                <dt>To push</dt>
-                <dd>{count(ahead)}</dd>
-                <dt>Behind</dt>
-                <dd>
-                  {count(behind)} <span className="sync__note">as of the last fetch</span>
-                </dd>
-              </>
-            )}
-            <dt>Last push</dt>
-            <dd>{status.last_push_at ? formatWhen(status.last_push_at) : "Unknown since the server restarted"}</dd>
-            <dt>Last fetch</dt>
-            <dd>{status.last_sync_in_at ? formatWhen(status.last_sync_in_at) : "Not fetched since the server started"}</dd>
-            {status.remote_url && (
-              <>
-                <dt>Remote</dt>
-                <dd className="sync__url">{status.remote_url}</dd>
-              </>
-            )}
-            {status.push_last_error && (
-              <>
-                <dt>Last error</dt>
-                <dd className="sync__error">{status.push_last_error}</dd>
+                <dt>Last push</dt>
+                <dd>{status.last_push_at ? formatWhen(status.last_push_at) : "Unknown since the server restarted"}</dd>
+                <dt>Last fetch</dt>
+                <dd>{status.last_sync_in_at ? formatWhen(status.last_sync_in_at) : "Not fetched since the server started"}</dd>
               </>
             )}
           </dl>
+          {status.remote_url && (
+            <div className="sync__remote">
+              <span className="sync__remote-label">Remote</span>
+              <code className="sync__url">{status.remote_url}</code>
+            </div>
+          )}
+          {status.push_last_error && <SyncError text={status.push_last_error} />}
         </div>
       )}
     </div>
   );
+}
+
+/** The last push error: git's first fatal line, the whole text on request. */
+function SyncError({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const short = errorSummary(text);
+  return (
+    <div className="sync__error" role="note">
+      <span className="sync__remote-label">Last error</span>
+      <p>{open ? text : short}</p>
+      {short !== text && (
+        <button type="button" className="sync__more" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {open ? "Show less" : "Show the whole error"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function errorSummary(text: string): string {
+  const fatal = /fatal:\s*(.+?)(?=\s*fatal:|$)/s.exec(text);
+  return (fatal ? fatal[1]! : text).trim().replace(/\s+/g, " ");
 }

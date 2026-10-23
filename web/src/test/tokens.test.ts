@@ -67,9 +67,6 @@ describe("design tokens", () => {
       // functions do with a palette, and a token indirection there would test
       // the indirection rather than the behaviour.
       if (file.includes("/test/")) continue;
-      // The vibe easter egg (lib/eggs.ts) is a joke about ignoring a design
-      // system: its garish literals are the point, and it never themes.
-      if (/(styles\/eggs\.css|lib\/eggs\.ts)$/.test(file)) continue;
       // palette.ts resolves tokens for the WebGL canvas and carries a
       // documented fallback; nothing else may.
       const allowFallback = /lib\/palette\.ts$/.test(file);
@@ -87,11 +84,10 @@ describe("design tokens", () => {
 
   // Every motion declaration, multi-line ones included, from the CSS outside
   // tokens.css: the property and its value with the token references taken
-  // out, so what is left is what the file wrote literally. The vibe easter
-  // egg is exempt for the reason given above.
+  // out, so what is left is what the file wrote literally.
   const motionDeclarations = () =>
     files
-      .filter((f) => f.endsWith(".css") && !/styles\/(tokens|eggs)\.css$/.test(f))
+      .filter((f) => f.endsWith(".css") && !/styles\/tokens\.css$/.test(f))
       .flatMap((file) =>
         readFileSync(file, "utf8")
           .replace(/\/\*[\s\S]*?\*\//g, "")

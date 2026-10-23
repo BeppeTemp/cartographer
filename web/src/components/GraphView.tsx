@@ -14,7 +14,6 @@ import {
 } from "../lib/graph3d/growth";
 import { planBursts } from "../lib/graph3d/motion";
 import { beside, seedPosition } from "../lib/graph3d/physics";
-import { TAKO_EDGE, takoColour } from "../lib/eggs";
 import { recallLayout, rememberLayout, sameKB, snapshotPositions, type LayoutMemory } from "../lib/graph3d/transition";
 import type { LivingScene, SceneLink, SceneNode } from "../lib/graph3d/scene";
 import { collectionHue, cssVar, resolveSlots, type ColorBy } from "../lib/palette";
@@ -99,8 +98,6 @@ interface Props {
   occludedRight: number;
   /** Pixels on the left covered by the concept list. */
   occludedLeft?: number;
-  /** The tako easter egg (lib/eggs.ts): a rainbow graph. */
-  tako?: boolean;
   onSelect(id: string | null): void;
   /** WebGL is missing or was lost: the caller says so and keeps the list. */
   onUnavailable?(): void;
@@ -166,7 +163,6 @@ function View({
   cameraControls = true,
   occludedRight,
   occludedLeft = 0,
-  tako = false,
   onSelect,
   onUnavailable,
 }: Props) {
@@ -606,10 +602,8 @@ function View({
       for (const n of scene.neighboursOf(focal)) near.add(n.id);
     }
     const drawn = snapshot.nodes.filter((n) => !hiddenIds.has(n.id));
-    const colours = drawn.map((n, i) => {
-      const base = tako
-        ? takoColour(i, drawn.length)
-        : slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
+    const colours = drawn.map((n) => {
+      const base = slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
       return !focal || near.has(n.id) ? base : fade(base, RECEDED, canvas);
     });
     // Diamonds wear the signal colour: an artifact is not in any community
@@ -620,12 +614,12 @@ function View({
     }
     scene.setColours(colours, {
       background: canvas,
-      edge: tako ? TAKO_EDGE : cssVar("--graph-edge-3d"),
+      edge: cssVar("--graph-edge-3d"),
       edgeActive: cssVar("--graph-edge-3d-active"),
       signal: cssVar("--graph-signal"),
       ring: cssVar("--graph-ring"),
     });
-  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, drawnArtifacts, tako]);
+  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, drawnArtifacts]);
 
   // Motion on or off.
   useEffect(() => {

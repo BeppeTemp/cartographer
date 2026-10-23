@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { fetchServerVersion } from "../api/client";
 import { LIVE_ORIGIN, STATIC_MODE, resolveSource, type Source } from "../api/static";
 import type { KBSummary } from "../api/types";
 import type { Theme } from "../lib/theme";
@@ -19,8 +18,6 @@ interface Props {
   onKBChange(name: string): void;
   onThemeChange(theme: Theme): void;
   onOpenPalette(): void;
-  /** The version opens the release history (D862). */
-  onOpenReleases?(): void;
   /** The brand leads back to the atlas: the whole graph (All), nothing selected. */
   onHome?(): void;
   onOpenNav?(): void;
@@ -45,20 +42,12 @@ export function TopBar({
   onKBChange,
   onThemeChange,
   onOpenPalette,
-  onOpenReleases,
   onHome,
   onOpenNav,
   onOpenInspector,
   live = 0,
 }: Props) {
   const nextTheme: Record<Theme, Theme> = { system: "light", light: "dark", dark: "system" };
-  const [version, setVersion] = useState<string | null>(null);
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetchServerVersion(controller.signal).then(setVersion);
-    return () => controller.abort();
-  }, []);
-
   // On the Pages build the session reads the live demo or, when it does not
   // answer, the exported snapshot (D800); the badge says which.
   const [source, setSource] = useState<Source | null>(null);
@@ -147,21 +136,9 @@ export function TopBar({
             · Get Cartographer
           </a>
         )}
-        {version && (
-          <button
-            type="button"
-            className="topbar__version"
-            title="Release history"
-            aria-haspopup="dialog"
-            aria-label={`Server version ${/^\d/.test(version) ? `v${version}` : version}: release history`}
-            onClick={onOpenReleases}
-          >
-            {/^\d/.test(version) ? `v${version}` : version}
-          </button>
-        )}
         <button
           type="button"
-          className="button button--icon"
+          className="topbar__control topbar__control--icon"
           onClick={() => onThemeChange(nextTheme[theme])}
           aria-label={`Theme: ${theme}. Switch to ${nextTheme[theme]}.`}
           title={`Theme: ${theme}`}
