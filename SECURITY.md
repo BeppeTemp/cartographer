@@ -31,8 +31,9 @@ interest:
 
 Every push to `main` and a weekly schedule run govulncheck, `npm audit` on the
 `web/` production dependencies, actionlint, zizmor (`security.yml`) and CodeQL (`codeql.yml`);
-Dependabot proposes dependency, action and base-image updates. A failed scan
-opens a public issue that carries only a link to the run; a vulnerability that
+Dependabot proposes dependency, action and base-image updates. A failed
+`security.yml` scan opens a public issue that carries only a link to the run
+(CodeQL results go to the Security tab); a vulnerability that
 is reachable in our own code is handled through a private advisory instead.
 
 ## Verifying a release
