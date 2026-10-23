@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -38,9 +39,16 @@ type viewFixture struct {
 
 func newViewFixture(t *testing.T, aliases []config.KBAlias, names ...string) *viewFixture {
 	t.Helper()
+	return newViewFixtureWithBundle(t, nil, aliases, names...)
+}
+
+// newViewFixtureWithBundle is newViewFixture on a server that has a bundle of
+// skills (D1100: kb_guide serves procedures from it).
+func newViewFixtureWithBundle(t *testing.T, bundle fs.FS, aliases []config.KBAlias, names ...string) *viewFixture {
+	t.Helper()
 	multi := NewMultiKBServer("test")
 	byName := map[string]*kb.KB{}
-	deps := Deps{KBByName: func(n string) (*kb.KB, bool) { k, ok := byName[n]; return k, ok }}
+	deps := Deps{BundleFS: bundle, KBByName: func(n string) (*kb.KB, bool) { k, ok := byName[n]; return k, ok }}
 	for _, name := range names {
 		k := setupNamedTestKB(t, name)
 		byName[name] = k

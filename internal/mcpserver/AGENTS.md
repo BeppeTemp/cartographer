@@ -7,7 +7,7 @@ test or a decision record: none of them is a preference.
 
 1. `func toolName(k *kb.KB) Tool` in the `tools_<domain>.go` that owns the domain.
 2. Handler: deserialize args → call `kb`/`okf` → `textResult`/`errorResult`.
-3. Register it in `RegisterKBTools` (`tools.go`).
+3. Register it in `RegisterKBTools` (`tools.go`). A new tool is core or advanced: add it to the agent list of `TestServer_ToolsProfile` or to `advancedToolNames`, and give it a resource class in `policy.go` (`resourceClassForTool`), or registration panics.
 4. Test in `server_test.go`.
 5. `make gate` green.
 6. Update `docs/control-plane.md` §API MCP, and add a decision file if the choice

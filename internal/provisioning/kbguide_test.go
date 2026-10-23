@@ -31,7 +31,7 @@ func fiveArchives() provisioning.GuideKB {
 // the tool descriptions: pin the neutral part, curated bodies are outside it.
 func TestRenderGuide_Budget(t *testing.T) {
 	const (
-		sectionBudget = 1640 // bytes: measured 1491, plus at most 10 %
+		sectionBudget = 1782 // bytes: measured 1620 (D1100 added the kb_guide line), plus at most 10 %
 		routingBudget = 338  // bytes: measured 308 (five archives), plus at most 10 %
 	)
 	section := provisioning.GuideOperational(false)
@@ -206,5 +206,18 @@ func TestKBCuratedInstructions_SymlinkRefused(t *testing.T) {
 	}
 	if body, _ := provisioning.KBCuratedInstructions(root); body != "" {
 		t.Errorf("a symlinked instructions.md must yield nothing, got %q", body)
+	}
+}
+
+// D1100: the writer's guide names kb_guide; the managed block, byte-pinned,
+// does not.
+func TestRenderGuide_NamesKBGuideAndTheBlockDoesNot(t *testing.T) {
+	g := provisioning.RenderGuide([]provisioning.GuideKB{fiveArchives()}, provisioning.GuideOptions{Routed: true})
+	if !strings.Contains(g, "`kb_guide`") {
+		t.Errorf("the guide does not name kb_guide:\n%s", g)
+	}
+	a := goldenBlock(t, func(string) {})
+	if strings.Contains(string(a.Files[0].Content), "kb_guide") {
+		t.Errorf("the managed block names kb_guide:\n%s", a.Files[0].Content)
 	}
 }
