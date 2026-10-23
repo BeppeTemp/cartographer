@@ -41,6 +41,8 @@ For each mounted KB, the server keeps only a **rebuildable derived index** and a
 
 This list is the **source of truth** for the active tools (do not duplicate counts elsewhere).
 
+A row is `` `name(params)` `` then zero, one or two markers, always **[R]** before **[A]**, then the description. In `params`, `[x]` is optional, `x` required, `a \| b` alternatives and a trailing `[]` an array; `kb` (routed mount) and, for a tool that commits, `reason` (D272) are not listed. `TestToolTableMatchesRegistry` and `TestToolTableParametersMatchSchemas` (D1125) check every row against the registry in both directions: one row per registered tool, the markers, and the parameters against each tool's input schema.
+
 Tools marked **[R]** have `Tool.ReadOnly=true` (`internal/mcpserver`): they never mutate KB content and remain callable with a `kb:<name>:r` scope. All others require `rw`. Enforcement and scope format → [`transport-auth.md`](transport-auth.md) §Per-KB scopes.
 
 Beyond that read/write split, every tool is also classified by the **resource** it addresses — exact concept, collection, source/destination, or whole KB — which is what a fine-grained role is evaluated against (D118). Collection tools filter their results per element before applying any limit; exact-resource tools collapse "forbidden" and "missing" into the same generic `not found`. A tool missing from that classification is denied outright, so adding a tool without choosing its resource semantics fails closed rather than granting access. The table and the guarantees are in [`transport-auth.md`](transport-auth.md) §Roles and fine-grained permissions. The same `[R]` tools expose `annotations: {"readOnlyHint": true}` in `tools/list` per the MCP spec (D76): a client can use this to auto-approve reads without a manual allowlist, without having to derive the list by hand.
@@ -148,8 +150,8 @@ prefixed name is never registered and never listed ([D320](decisions/D320-upgrad
 | `skill_list()` **[R]** **[A]** | Lists the installed skills (`skills/`) and the ones bundled in the binary. Field `source`: `[installed]` \| `[bundled]`. |
 | `skill_install(name, [force])` **[A]** | Copies a bundled skill into `kb.Root/skills/<name>/`. Errors if already present; `force=true` overwrites. |
 | `service_get(service_id, [resolve_secrets], [reveal])` **[R]** **[A]** | Reads a Service. With `resolve_secrets: true`, resolves declared `secret_refs` (or legacy whole `secrets_source`), lists the key names with `<redacted>` values and requires **rw** scope; `reveal: true` returns the values (D261). `resolve_secrets` and `reveal` are recorded in the audit trail. |
-| `secret_resolve(concept_id, [names], [reveal])` **[RW]** **[A]** | Resolves SOPS references declared by any concept; `names` narrows the declared values. Values are `<redacted>` unless `reveal: true` (D158); `reveal` is recorded in the audit trail. |
-| `secret_set(path, key, value)` **[RW]** **[A]** | Sets a JSON Pointer in an existing encrypted SOPS file; plaintext is never committed or returned. |
+| `secret_resolve(concept_id, [names], [reveal])` **[A]** | Resolves SOPS references declared by any concept; `names` narrows the declared values. Values are `<redacted>` unless `reveal: true` (D158); `reveal` is recorded in the audit trail. |
+| `secret_set(path, key, value)` **[A]** | Sets a JSON Pointer in an existing encrypted SOPS file; plaintext is never committed or returned. |
 | `service_list()` **[R]** **[A]** | Lists all concepts of type Service. |
 
 ### Client ↔ provisioning synchronization

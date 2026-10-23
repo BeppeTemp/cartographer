@@ -47,8 +47,10 @@ test or a decision record: none of them is a preference.
   per handshake by `guideMiddleware`, not at build time: the SDK server is
   memoised (D1097).
 - **Tool names are part of the public contract.** `TestDocsToolNamesExist` fails when a
-  doc cites a tool that is not registered; that a registered tool has its row in
-  `docs/control-plane.md` is yours to check (D101). Renaming one is a breaking change,
+  doc, a bundled skill, `.claude/` or an area `AGENTS.md` cites a tool that is not
+  registered; `TestToolTableMatchesRegistry` and `TestToolTableParametersMatchSchemas`
+  fail when a tool has no row in `docs/control-plane.md`, a marker or a parameter
+  disagrees with the registry (D101, D1125). Renaming one is a breaking change,
   not a cleanup.
 - Registration is per-KB: a tool added outside `RegisterKBTools` is invisible in
   multi-KB mounts.

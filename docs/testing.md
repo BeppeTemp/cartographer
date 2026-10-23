@@ -227,6 +227,7 @@ otherwise silent — no client, compiler or linter reports any of them:
   `.claude/skills/`;
 - each subagent in `.claude/agents/` pins a Claude model, and the read-only ones
   (reviewers, plan writer, source reader) carry no `Edit` or `Write` tool (D992);
+- the tool table of `docs/control-plane.md` §MCP API agrees with the registry both ways, markers and parameters (D1125), and the tool-name scan reads the bundled skills, `.claude/` and the area `AGENTS.md` files too;
 - `CLAUDE.md` is exactly `@AGENTS.md` and nothing else, and the corpus these
   checks read actually contains the files they exist to read — a corpus definition
   fails by matching nothing and passing.
