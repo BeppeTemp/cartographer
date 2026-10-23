@@ -3,7 +3,7 @@ package mcpserver
 // readOnlyToolNames is the source-of-truth list of tool names that never mutate
 // KB content and are therefore safe to call with a read-only ("kb:<name>:r")
 // scope token. It must be kept in sync with the ReadOnly field set on each
-// tool's Tool{} literal in tools_*.go — TestReadOnlyToolsGolden (server_test.go)
+// tool's Tool{} literal in tools_*.go — TestReadOnlyToolsGolden (httpserver_auth_test.go)
 // builds a real registry via RegisterKBTools and fails if the two diverge.
 
 var readOnlyToolNames = map[string]bool{
@@ -26,6 +26,7 @@ var readOnlyToolNames = map[string]bool{
 	"kb_status":       true,
 	"kb_review":       true,
 	"work_list":       true,
+	"kb_guide":        true,
 	"conflicts_list":  true,
 	"service_get":     true,
 	"service_list":    true,

@@ -22,7 +22,7 @@ import (
 func toolAtlasOverview(k *kb.KB) Tool {
 	return Tool{
 		Name:        "atlas_overview",
-		Description: "Root index.md plus the Maps and Journals with concept counts. structure: true adds the most central concepts and link-graph communities: where to start reading.",
+		Description: "Root index.md plus the Maps and Journals with concept counts. structure: true adds the most central concepts and link-graph communities: where to start reading. How to work in this KB: kb_guide.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"structure":{"type":"boolean"}}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {

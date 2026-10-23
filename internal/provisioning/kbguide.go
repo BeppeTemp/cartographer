@@ -60,7 +60,9 @@ const (
 	findingsBullet    = "- act on the `findings` every write returns before moving on: they name what to fix;\n"
 	placeholderBullet = "- `{{repo:<key>}}` and `{{path:<name>}}` in a page or a directive are machine-local path placeholders: keep them verbatim, never resolve or rewrite them;\n"
 	conflictBullet    = "- a write blocked by a git conflict is settled with `conflicts_list` and `git_conflict_resolve`.\n"
-	readOnlyBullet    = "- this connection is read-only: write tools are not listed and are refused.\n"
+	// D1100: guide only, the managed block (byte-pinned) does not carry it.
+	procedureBullet = "- for step-by-step procedures (ingesting a source, resolving a git conflict, importing a wiki) call `kb_guide` with `procedure`;\n"
+	readOnlyBullet  = "- this connection is read-only: write tools are not listed and are refused.\n"
 )
 
 // scopeSentence precedes a KB's curated body (D182 WP1): the body is one KB's
@@ -167,6 +169,7 @@ func GuideOperational(readOnly bool) string {
 	sb.WriteString(orientationBullet)
 	if readOnly {
 		sb.WriteString(placeholderBullet)
+		sb.WriteString(procedureBullet)
 		sb.WriteString(readOnlyBullet)
 		return sb.String()
 	}
@@ -176,6 +179,7 @@ func GuideOperational(readOnly bool) string {
 	sb.WriteString(commitBullet)
 	sb.WriteString(findingsBullet)
 	sb.WriteString(placeholderBullet)
+	sb.WriteString(procedureBullet)
 	sb.WriteString(conflictBullet)
 	return sb.String()
 }

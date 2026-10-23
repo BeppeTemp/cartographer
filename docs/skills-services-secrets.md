@@ -20,6 +20,8 @@ existing pages through the source ledger of D278: register, distil, patch rather
 cite via `provenance`, open a `Contradiction` instead of overwriting, record gaps, verify with
 `gate_check`. Per-kind advice is in its `references/source-kinds.md`.
 
+`cartographer-kb-ingest`, `cartographer-kb-conflict-resolve` and `cartographer-kb-import` are also **served as procedures by `kb_guide`** (D1100), for clients that have no filesystem to provision into; the other three are not (they run commands, scripts or subagents, or configure the host). The served bodies are the bundled files as they are, behind a fixed preface and a note for `ingest` and `import`. A new bundled skill is classified (served or not) by `TestProcedures_EveryBundledSkillIsClassified`.
+
 **Naming rules** (D191). One validator answers for both channels — a write over
 `artifact_write` and a skill that arrived through git are held to the same rules,
 because a skill only one of them accepts breaks the other later:
