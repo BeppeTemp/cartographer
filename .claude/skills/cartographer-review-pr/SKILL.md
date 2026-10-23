@@ -105,8 +105,10 @@ subagents each, in the background.
   the rounds rule of §5 applies to it unchanged.
 - Every verified finding is answered before the verdict: fixed, by a commit, or
   dismissed with a one-line reason. A `pre-existing` finding does not block and
-  is not fixed in this PR: it becomes one `bug` issue each, drafted and opened on
-  the user's word.
+  is not fixed in this PR: it becomes one `bug` issue each, in the open milestone,
+  and is fixed in the same session when it is bounded (`CONTRIBUTING.md` §Fixes
+  without a plan). A flaky or broken test met on the way is one too: a rerun that
+  turns it green is not an answer.
 - **A `pre-existing` security finding is never made public** (it concerns released
   code): no `bug` issue, no PR comment. Draft a private GitHub security advisory
   for the user (`SECURITY.md` §Reporting a vulnerability). A security finding about code the PR
