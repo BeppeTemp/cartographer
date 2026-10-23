@@ -41,7 +41,9 @@ when there is nothing; otherwise what a reverting release would have to migrate.
 ## Docs
 
 <!-- The pages updated per docs/index.md §Documentation maintenance rules, and the
-decision file if the change makes an architectural or contract choice. -->
+decision file if the change makes an architectural or contract choice; or, when no page
+needs to change, a line `Docs: none - <reason>` (the triage prints a WARN for an area whose
+page is untouched; this line, with its reason, answers it and reaches the reviewer). -->
 
 ## Self-review
 

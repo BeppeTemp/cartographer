@@ -9,7 +9,8 @@
 #                           there is no `upstream` remote), before opening a PR
 #
 # Prints at most ~20 lines: size split by kind, areas, review tier, linked plan,
-# CI, docs and decision hints, and the BLOCK/WARN lines that send a PR back
+# CI, docs and decision hints (the docs-owner WARN comes from doc-owners.sh), and the
+# BLOCK/WARN lines that send a PR back
 # without anyone reading its code. It reads metadata only, never the diff body.
 set -euo pipefail
 
@@ -194,9 +195,11 @@ if [ "$prod" -gt "$SIZE_CAP" ]; then
     echo "BLOCK: over the size cap ($prod > $SIZE_CAP production lines) — split it by work package"
   fi
 fi
-if [ -z "$docs_touched" ] && [ "$prod" -gt 50 ]; then
+if [ -z "$docs_touched" ] && [ "$prod" -gt 50 ] && ! grep -qi '^Docs: none - *[^[:space:]]' <<<"${body//$'\r'/}"; then
   echo "WARN: production code changed and no docs/ page touched — check docs/index.md §Documentation maintenance rules"
 fi
+# Advisory, never blocking, and fail open: a broken map must not fail the required plan-gate check.
+DOCS_PR_BODY=$body "$(dirname "$0")/doc-owners.sh" <<<"$classified" || echo "WARN: doc-owners.sh failed — the docs-owner check did not run"
 [ -n "$decision" ] && echo "Decision file: $decision"
 regression=$(grep -i -m1 '^regression-of:' <<<"$body" || true)
 [ -n "$regression" ] && echo "$regression — a regression: if it merges, add it to .claude/skills/cartographer-review-pr/evals/cases.md (cartographer-review-pr §When a defect escapes)"

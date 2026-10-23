@@ -65,7 +65,10 @@ Mutable state does not live in narrative documentation:
 Docs describe the **current state**, not the history: no narration of how we
 got here (the *why* lives in `docs/decisions/`, the *how* in the git log) and
 no hardcoded counts (link the source of truth). A gate checks the narrowest mechanical part of this rule (D1128); its allow-list lives in `internal/repodocs/doc_rot_test.go`. Update the
-matching file **in the same session/PR** as the change:
+matching file **in the same session/PR** as the change. The path-mappable rows are
+mirrored in `scripts/doc-owners.tsv`, which `scripts/pr-triage.sh` reads to warn about a
+page that was not touched; the table and the file change together, and a test
+(`internal/repodocs`) fails when a mapped page is not in the table:
 
 | What changes | File to update |
 |---|---|

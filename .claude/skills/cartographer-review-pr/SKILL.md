@@ -69,7 +69,7 @@ Any `BLOCK` line ends the review here, with one comment that names it:
 - **over the size cap** without a `Size exception:` line — ask for a split by
   work package, one PR each, landing in order.
 
-`WARN` lines (missing template section, no docs touched) go in the same comment
+`WARN` lines (missing template section, no docs touched, a mapped page not touched) go in the same comment
 but do not stop the review. A comment on someone else's PR is outward-facing:
 draft it, and post it on the user's word or a standing approval for the session.
 
@@ -83,7 +83,7 @@ git worktree add --detach .worktrees/pr-<pr> FETCH_HEAD
 ```
 
 Spawn `cartographer-contract-reviewer` with the PR number, the absolute worktree path, the tier and
-the plan issue number (or "none") and the round (§5), and a `base` when the change is not against `origin/main` (default `origin/main`; §Changing the reviewer). It carries the rest. On the
+the plan issue number (or "none") and the round (§5), the triage's docs lines (`WARN` mentioning `not touched`, `Docs: none`) verbatim, and a `base` when the change is not against `origin/main` (default `origin/main`; §Changing the reviewer). It carries the rest. On the
 full tier spawn `cartographer-security-reviewer` too, in parallel on the same worktree with the
 same mandate: both are read-only. Standard and light tiers get no security pass,
 for cost. Several PRs can be reviewed in parallel, one worktree and one pair of

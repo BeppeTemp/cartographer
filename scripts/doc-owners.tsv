@@ -1,0 +1,34 @@
+# doc-owners.tsv — which docs page owns which path (read by scripts/doc-owners.sh).
+#
+# Format: glob<TAB>page<TAB>why, one row per glob; blank lines and lines starting
+# with # are ignored. The glob is a shell `case` pattern limited to * and ?, and
+# * also matches /. The page is an existing docs/<name>.md; one page per row.
+#
+# This file mirrors the path-mappable rows of docs/index.md §Documentation
+# maintenance rules: the table and this file change together, and
+# internal/repodocs/doc_owners_test.go fails when a mapped page is not in the table.
+# Rows that cannot be a glob are left out on purpose: the lint check row (the
+# data-plane.md §Check catalogue is generated and `make gate` fails when it is
+# stale), skill/service/secret handling, deferred features, project status, new
+# dependencies, the Atlas UI and the demo rows (driven by build outputs, not by one
+# page) and the brand row.
+#
+# A row ships only when, over a sample of recent first-parent commits, the page is
+# untouched in at most half of the commits that cross the 10-line floor. internal/gitx
+# is mapped to realign.go only: the package as a whole failed that rule.
+internal/mcpserver/tools_*.go	docs/control-plane.md	New MCP tool or change to its interface
+internal/config/*.go	docs/deployment.md	Server YAML config
+cmd/cartographer/serve.go	docs/deployment.md	Server YAML config
+cmd/cartographer/*.go	docs/configurator.md	Client subcommands
+internal/clientconfig/*.go	docs/configurator.md	Client subcommands
+internal/configurator/*.go	docs/configurator.md	Client subcommands
+internal/provisioning/*.go	docs/sync.md	Client provisioning/sync logic
+internal/auth/*.go	docs/transport-auth.md	Change to transport, auth or scopes
+internal/sops/*.go	docs/transport-auth.md	Token/scope format or enforcement, git identity or SOPS
+internal/gitx/realign.go	docs/concurrency.md	Change to concurrency / git-sync logic
+internal/mcpserver/gitwrap.go	docs/concurrency.md	Change to concurrency / git-sync logic
+internal/kb/*.go	docs/data-plane.md	Change to the KB model / OKF / filesystem layout
+internal/okf/*.go	docs/data-plane.md	Change to the KB model / OKF / filesystem layout
+Makefile	docs/testing.md	New test level or pre-release checklist change
+.github/workflows/*	docs/testing.md	New test level or pre-release checklist change
+scripts/*	docs/testing.md	New test level or pre-release checklist change

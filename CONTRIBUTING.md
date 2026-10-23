@@ -211,6 +211,11 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     released change would not undo. A `fix:` PR that repairs a regression also
     names the PR that introduced it, on a line `Regression-of: #<n>`: the
     reviewers are scored against such PRs (`cartographer-review-pr` §When a defect escapes).
+  - **Docs (advisory)**: `pr-triage.sh` prints a `WARN` when a path mapped in
+    `scripts/doc-owners.tsv` has at least **10 production lines** changed and its page (the
+    one `docs/index.md` §Documentation maintenance rules names) is untouched. It does not
+    block: either update the page, or put `Docs: none - <reason>` on a line of its own in
+    the PR body (any author may; it silences the warning and the reviewer reads the reason).
   - **A new GitHub Action** is added pinned by its full commit SHA with the version in a
     trailing comment (`uses: owner/repo@<40 hex> # v1.2.3`; resolve it with
     `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`). `make gate` fails on any other
