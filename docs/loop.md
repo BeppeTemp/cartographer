@@ -104,7 +104,7 @@ cheapest first:
    a pull that moved HEAD, and once a day. No setting changes the list or the period (D907).
 3. **Doctor session**: what needs judgement. The server proposes one: the first tool result of an
    MCP session that starts while debt exists and the last `kb-doctor` log entry is older than
-   14 days (a constant since D907) carries a notice asking the agent to propose a `cartographer-kb-doctor` session
+   14 days (a constant since D907) carries a notice (only on a connection that declared `provisioned=1`, D1101) asking the agent to propose a `cartographer-kb-doctor` session
    to the operator. The agent never starts it without their agreement. In the session the
    operator decides each item (assisted) or hands it over ("do it yourself", delegated), up to
    10 review items (or the number the operator names when asking for the session) plus every mechanical repair; the session closes with a

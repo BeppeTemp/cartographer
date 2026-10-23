@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -17,7 +18,7 @@ import (
 // back and the message names the argument instead. It is consulted only on
 // the unknown-tool path, so a prefixed name is never registered and never
 // appears in tools/list. Returns "" for any other unknown name.
-func (s *Server) legacyToolMessage(name string) string {
+func (s *Server) legacyToolMessage(ctx context.Context, name string) string {
 	i := strings.LastIndex(name, "__")
 	if i <= 0 || i+2 >= len(name) {
 		return ""
@@ -49,7 +50,12 @@ func (s *Server) legacyToolMessage(name string) string {
 			call += " with the `kb` argument naming the KB"
 		}
 	}
-	return fmt.Sprintf("tool not found: %s — prefixed tool names were removed in the D288 topology change; call %s instead. Restart your agent session to load the new tool list; `cartographer doctor` flags the old names left in your own steering files.", name, call)
+	msg := fmt.Sprintf("tool not found: %s — prefixed tool names were removed in the D288 topology change; call %s instead. Restart your agent session to load the new tool list", name, call)
+	if addressesOperator(ctx) {
+		// The CLI command is for a provisioned client only (D1101).
+		return msg + "; `cartographer doctor` flags the old names left in your own steering files."
+	}
+	return msg + "."
 }
 
 // advancedToolNames is the source-of-truth list of tool names hidden from

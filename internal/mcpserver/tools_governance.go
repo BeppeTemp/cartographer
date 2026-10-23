@@ -669,7 +669,7 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {
 	return Tool{
 		Name:        "kb_status",
-		Description: "KB health in one call: concept counts, stale concepts, contradictions and gaps, git replication, capabilities (gate, state, key), source and search-miss counts, versions, conformance {findings, fixable, last_doctor, doctor_suggested} (when doctor_suggested is true, follow the cartographer-kb-doctor skill), usage of skills and agents. How to work in this KB: kb_guide. Read-only.",
+		Description: "KB health in one call: concept counts, stale concepts, contradictions and gaps, git replication, capabilities (gate, state, key), source and search-miss counts, versions, conformance {findings, fixable, last_doctor, doctor_suggested} (doctor_suggested true: maintenance is due, see kb_review; skill cartographer-kb-doctor if the client has it), usage of skills and agents. How to work in this KB: kb_guide. Read-only.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -775,7 +775,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				"has_remote":       hasRemote,
 				"remote_url":       remoteURL,
 				"push_state":       git.State,
-				"push_last_error":  git.LastError,
+				"push_last_error":  statusError(ctx, git),
 				"unpushed_commits": git.UnpushedCommits,
 				"behind_commits":   git.BehindCommits,
 				"last_push_at":     git.LastPushAt,
@@ -1049,7 +1049,7 @@ func toolConflictsList(k *kb.KB) Tool {
 	return Tool{
 		Name:        "conflicts_list",
 		ReadOnly:    true,
-		Description: "Lists open git rebase conflicts: concept, local/remote SHAs, branch, files. Resolve with git_conflict_resolve (cartographer-kb-conflict-resolve skill).",
+		Description: "Lists open git rebase conflicts: concept, local/remote SHAs, branch, files. Resolve with git_conflict_resolve (steps: kb_guide, procedure conflict-resolve).",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			conflicts, err := k.ListConflicts()
@@ -1084,7 +1084,7 @@ func toolConflictsList(k *kb.KB) Tool {
 					Kind:       c.Kind,
 					Guidance: "Read the concept with concept_read, reconcile the content, " +
 						"then rewrite it with concept_write removing status:degraded. " +
-						"See the cartographer-kb-conflict-resolve skill for the full procedure.",
+						"See kb_guide, procedure conflict-resolve, for the full procedure.",
 				}
 				if c.Kind == kb.ConflictKindReserved {
 					results[i].Guidance = reservedConflictGuidance(c.Path)

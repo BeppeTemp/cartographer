@@ -201,7 +201,7 @@ post "$TWO_URL" "$list_body" > "$TWO_LIST"
 assert_file_contains "$TWO_LIST" '"enum":["alpha","beta"]'
 assert_file_not_contains "$TWO_LIST" 'gamma'
 THIRD="$(post "$TWO_URL" "$(call_with_kb gamma)")"
-if grep -q '"isError":true' <<< "$THIRD" && grep -q 'not bound to this connection' <<< "$THIRD"; then
+if grep -q '"isError":true' <<< "$THIRD" && grep -q 'not part of this connection' <<< "$THIRD"; then
     _assert_pass "a KB outside the binding is refused on the 2-KB connection"
 else
     _assert_fail "the third KB was not refused on the 2-KB connection: ${THIRD}"

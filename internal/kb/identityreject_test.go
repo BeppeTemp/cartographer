@@ -223,3 +223,25 @@ func TestReauthor_MergeInTheRangeIsRefused(t *testing.T) {
 		t.Error("HEAD moved")
 	}
 }
+
+// D1101: the neutral rendering is what a connection that is not the server's
+// operator reads; Error() above stays the full text.
+func TestErrIdentityRejected_NeutralText(t *testing.T) {
+	t.Parallel()
+	e := &ErrIdentityRejected{Branch: "main", Git: "remote: rejected", Identities: []string{"tok-1 <cartographer@host.example.test>"}}
+	msg := e.NeutralText()
+	for _, want := range []string{"tok-1 <cartographer@host.example.test>", "server's operator", "safe in the local clone", "Git said: remote: rejected"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("neutral text %q does not say %q", msg, want)
+		}
+	}
+	for _, bad := range []string{"cartographer kb", "git.identity", "--apply"} {
+		if strings.Contains(msg, bad) {
+			t.Errorf("neutral text %q still says %q", msg, bad)
+		}
+	}
+	configured := (&ErrIdentityRejected{Branch: "main", Git: "x", Configured: true}).NeutralText()
+	if strings.Contains(configured, "No git identity is configured") {
+		t.Errorf("a configured KB reads %q", configured)
+	}
+}

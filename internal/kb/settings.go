@@ -130,7 +130,7 @@ const WriteGateRemoved = "the write gate is always on (D907): a write that intro
 
 // DoctorKeysRemoved is the reason given wherever auto_repair, repair_on_write or
 // a doctor_* key (removed by D907) is met again.
-const DoctorKeysRemoved = "every safe fix is always applied (D907): in the write's own commit, by the server's background repair every day, and by `kb repair --apply`; a cartographer-kb-doctor session is proposed 14 days after the last one, and its budget is a parameter of the session (default 10)"
+const DoctorKeysRemoved = "every safe fix is always applied (D907): in the write's own commit, by the server's background repair every day, and by kb_repair; a maintenance session (the cartographer-kb-doctor skill, where the client has it) is proposed 14 days after the last one, and its budget is a parameter of the session (default 10)"
 
 // AutoRepairIntervalDays is how often the server runs the safe repairs by
 // itself (D907): the default the removed doctor_auto_interval had.

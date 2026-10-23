@@ -201,6 +201,16 @@ func routedCall(t *testing.T, handler http.Handler, tool string, args map[string
 	return decodeToolResult(t, resp)
 }
 
+// provisionedPath marks a routed URL as a provisioned client's (?provisioned=1,
+// D1097): the connection kind that keeps the texts naming a cartographer
+// command (D1101). An unmarked URL gets the neutral wording.
+func provisionedPath(path string) string {
+	if strings.Contains(path, "?") {
+		return path + "&provisioned=1"
+	}
+	return path + "?provisioned=1"
+}
+
 // TestRoutedMount_DispatchesToTheNamedKB: each of three KBs is reachable, and
 // the content that comes back is that KB's.
 func TestRoutedMount_DispatchesToTheNamedKB(t *testing.T) {
@@ -259,7 +269,7 @@ func TestRoutedMount_SingleKB_KBOptional(t *testing.T) {
 func TestRoutedMount_UnknownKB(t *testing.T) {
 	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-one", "kb-two")
-	res := routedCall(t, handler, "atlas_overview", map[string]any{"kb": "nope"})
+	res := routedCallAt(t, handler, provisionedPath(RoutedMountPath), "atlas_overview", map[string]any{"kb": "nope"})
 	if !res.IsError || !strings.Contains(res.Content[0].Text, `kb "nope" is not available`) {
 		t.Fatalf("want unknown-kb error, got %+v", res)
 	}
@@ -279,7 +289,7 @@ func TestRoutedMount_MountedButUnbound(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "concept_read", "arguments": map[string]any{"kb": "kb-three", "id": "x"}}})
 	var resp Response
-	rr := routedPost(t, handler, RoutedMountPath+"?kbs=kb-one,kb-two", string(body))
+	rr := routedPost(t, handler, provisionedPath(RoutedMountPath+"?kbs=kb-one,kb-two"), string(body))
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v; %s", err, rr.Body.String())
 	}
@@ -553,7 +563,7 @@ func TestRoutedMount_KBS_SingleKB(t *testing.T) {
 func TestRoutedMount_KBS_PartialUnknown(t *testing.T) {
 	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b", "kb-c")
-	path := RoutedMountPath + "?kbs=kb-a,kb-b,old,gone"
+	path := provisionedPath(RoutedMountPath + "?kbs=kb-a,kb-b,old,gone")
 	rr := routedPost(t, handler, path, toolsListBody)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d, want 200; body=%s", rr.Code, rr.Body.String())
@@ -600,7 +610,7 @@ func TestRoutedMount_KBS_CallUnknownKB(t *testing.T) {
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b")
 	body, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
 		"params": map[string]any{"name": "kb_status", "arguments": map[string]any{"kb": "old"}}})
-	rr := routedPost(t, handler, RoutedMountPath+"?kbs=kb-a,old", string(body))
+	rr := routedPost(t, handler, provisionedPath(RoutedMountPath+"?kbs=kb-a,old"), string(body))
 	var resp Response
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v; %s", err, rr.Body.String())
