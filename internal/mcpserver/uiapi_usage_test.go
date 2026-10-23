@@ -56,6 +56,7 @@ func postUsage(t *testing.T, h http.Handler, query, token string, body any) *htt
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodPost, UsagePath+query, bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -141,6 +142,7 @@ func TestUsageEndpoint_RejectsBadInput(t *testing.T) {
 	t.Parallel()
 	h, k := usageHandler(t)
 	req := httptest.NewRequest(http.MethodPost, UsagePath+"?kb=docs", bytes.NewReader([]byte(`{"not":"an array"}`)))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer whole")
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)

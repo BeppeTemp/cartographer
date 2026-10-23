@@ -20,6 +20,13 @@ import (
 
 const usageFilename = "usage.json"
 
+// maxUsageFile bounds the store: thousands of artifacts across every provider
+// fit well under it. A merge that would grow it past this is refused.
+const maxUsageFile = 4 << 20
+
+// ErrUsageTooLarge is returned by MergeUsage when the store would pass maxUsageFile.
+var ErrUsageTooLarge = errors.New("usage store too large")
+
 // usageMu serialises usage merges (read-modify-write on one small file). One
 // package-level lock rather than a field: KB is copied by value in places.
 var usageMu sync.Mutex
@@ -119,6 +126,9 @@ func (k *KB) MergeUsage(in []UsageEntry) (int, error) {
 	}{cur}, "", "  ")
 	if err != nil {
 		return 0, fmt.Errorf("MergeUsage: marshal: %w", err)
+	}
+	if len(data) > maxUsageFile {
+		return 0, ErrUsageTooLarge
 	}
 	if err := writeFileAtomic(k.usageFilePath(), data); err != nil {
 		return 0, err

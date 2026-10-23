@@ -26,6 +26,7 @@ func TestClientSettingsAreShownToTheirOwnPrincipalOnly(t *testing.T) {
 
 	post := func(token, body string) int {
 		req := httptest.NewRequest(http.MethodPost, ClientSettingsPath, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
@@ -76,6 +77,7 @@ func postClientSettings(t *testing.T, handler http.Handler, token string, report
 		t.Fatalf("test report is %d bytes, over the %d the server accepts", len(body), maxClientSettingsBody)
 	}
 	req := httptest.NewRequest(http.MethodPost, ClientSettingsPath, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)

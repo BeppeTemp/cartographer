@@ -1,7 +1,10 @@
 package kb
 
 import (
+	"errors"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -68,5 +71,20 @@ func TestSummarizeUsage_ActivationBeatsCatalogue(t *testing.T) {
 	}
 	if s := sum[UsageKey("skill", "b")]; s.Count != 0 || s.Provider != "codex" {
 		t.Errorf("b = %+v", s)
+	}
+}
+
+func TestMergeUsage_RefusesPastTheFileCap(t *testing.T) {
+	t.Parallel()
+	k := usageTestKB(t)
+	big := make([]UsageEntry, 0, 40000)
+	for i := 0; i < 40000; i++ {
+		big = append(big, UsageEntry{Name: fmt.Sprintf("skill-%06d-%s", i, strings.Repeat("x", 40)), Kind: "skill", Provider: "p", LastUsed: time.Now()})
+	}
+	if _, err := k.MergeUsage(big); !errors.Is(err, ErrUsageTooLarge) {
+		t.Fatalf("err = %v, want ErrUsageTooLarge", err)
+	}
+	if got, _ := k.LoadUsage(); len(got) != 0 {
+		t.Fatalf("a refused merge wrote %d entries", len(got))
 	}
 }

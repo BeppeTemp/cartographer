@@ -14,7 +14,10 @@ import (
 // script a request to a Cartographer bound to localhost or to a private
 // address, and DNS rebinding turns that into full KB access.
 //
-// The rule is fixed (D906), applied to /mcp and /mcp/<kb> only:
+// The rule is fixed (D906), applied to /mcp and /mcp/<kb> and to every request
+// that changes state, whatever the path (a method other than GET, HEAD or
+// OPTIONS): a no-cors form POST needs no preflight, so the /api routes that
+// take a JSON body are as reachable from a foreign page as /mcp is:
 //
 //   - no Origin header — a non-browser client (an MCP client, curl, a probe):
 //     allowed, because the header is what a browser adds and only a browser
@@ -37,13 +40,17 @@ import (
 // should not get as far as having its token read.
 func OriginGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isMCPPath(r.URL.Path) {
+		if !isMCPPath(r.URL.Path) && !stateChanging(r.Method) {
 			next.ServeHTTP(w, r)
 			return
 		}
 		origin := r.Header.Get("Origin")
 		if !originAllowed(origin, r.Host) {
-			writeOriginRejected(w)
+			if isMCPPath(r.URL.Path) {
+				writeOriginRejected(w)
+			} else {
+				http.Error(w, "origin not allowed", http.StatusForbidden)
+			}
 			return
 		}
 		if origin != "" {
@@ -52,6 +59,16 @@ func OriginGuard(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// stateChanging reports whether a method can change server state: anything but
+// the safe ones. A new route is covered without being listed.
+func stateChanging(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return false
+	}
+	return true
 }
 
 func isMCPPath(p string) bool {

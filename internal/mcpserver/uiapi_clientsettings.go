@@ -94,8 +94,11 @@ func (m *MultiKBServer) handleClientSettings(w http.ResponseWriter, r *http.Requ
 		writeUIError(w, http.StatusMethodNotAllowed, uiCodeMethodNotAllow, "use POST", "")
 		return
 	}
-	data, err := io.ReadAll(io.LimitReader(r.Body, maxClientSettingsBody+1))
-	if err != nil || len(data) > maxClientSettingsBody {
+	if !requireJSON(w, r) {
+		return
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxClientSettingsBody))
+	if err != nil {
 		writeUIError(w, http.StatusRequestEntityTooLarge, uiCodeInvalidRequest, "client settings report too large", "")
 		return
 	}
