@@ -112,6 +112,13 @@ func TestGenericConnectionIsNeverToldToRunACLICommand(t *testing.T) {
 	if !strings.Contains(warnedOp.Content[0].Text, "cartographer kb reauthor") {
 		t.Errorf("a provisioned write warning lost the command: %s", warnedOp.Content[0].Text)
 	}
+	// sync_status is hidden from tools/list but callable by name: same rule.
+	st, _ := toolSyncStatus(k).Handler(authLocalContext(), nil)
+	assertNoCLICommand(t, "sync_status", st.Content[0].Text)
+	stOp, _ := toolSyncStatus(k).Handler(withProvisioned(authLocalContext()), nil)
+	if !strings.Contains(stOp.Content[0].Text, "cartographer kb reauthor") {
+		t.Errorf("a provisioned sync_status lost the command: %s", stOp.Content[0].Text)
+	}
 	if !strings.Contains(statusError(withOperator(authLocalContext()), k.GitStatusSnapshot()), "cartographer kb reauthor") {
 		t.Error("the operator surface lost the full identity text")
 	}
