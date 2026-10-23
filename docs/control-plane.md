@@ -55,7 +55,7 @@ connection's KB set is `?kbs=` (absent: every mounted KB), narrowed to the KBs t
 the connection read-only, with or without `kbs`: `tools/list` carries only the read tools, `initialize` says so, a
 call to a write tool is refused with `forbidden: unbound_folder`, and every response carries
 `Cartographer-Access: read`. The local bridge asks for it in a folder under no workspace binding, and treats a
-missing header as a server that cannot serve the mode. It is a scope filter, not a security boundary (D737). With two or more KBs in that set every tool below
+missing header as a server that cannot serve the mode. The server accepts `access=read` from any client, so a generic client that adds it by hand is read-only and reads the bridge's sentence naming `cartographer workspace bind` (accepted, D1101). It is a scope filter, not a security boundary (D737). With two or more KBs in that set every tool below
 carries one extra property, `kb`, **required** and an **enum** of the set: the KB is never inferred, and a call
 without it, or naming a KB outside the set, is refused with an error naming the allowed KBs (D712: for a KB the server mounts but the connection does not bind, the error says to `cartographer client bind`, `cartographer sync` and start a new agent session; for a KB that is not mounted, that a KB created after the server started needs `cartographer service restart` first). With exactly one KB
 in the set `kb` is **absent** from every schema and the call targets that KB (a `kb` equal to it is accepted, any
@@ -278,7 +278,7 @@ Parameter details not repeated in the schema:
   contradictions, `open_gaps`) it reports git replication (`has_remote`, `remote_url`, push state, unpushed
   commits), `capabilities` (each per-KB gate, state and controlling key), `sources`
   `{pending, ingested, skipped}`, `read_access` (D322, D778: `{tracked_concepts, oldest, newest}` of the reads, `since` — when reads began to be counted — and `surfaced`, the same three keys for search hits; absent until a read or a hit is recorded), `search_misses` (the 10 most frequent zero-result queries of the last 30
-  days), `conformance` (D290; follow the `cartographer-kb-doctor` skill when `doctor_suggested` is true, which counts every finding and every review item but the observations, D721, D947), `server_version`
+  days), `conformance` (D290; when `doctor_suggested` is true maintenance is due: `kb_review` lists it, and the `cartographer-kb-doctor` skill runs it where the client has it, which counts every finding and every review item but the observations, D721, D947), `server_version`
   and `latest_version`. It is read-only and never hits the network. When the KB carries a `settings.yaml` (D746) a capability whose key the file sets names `settings.yaml <key>` as its `setting`, and the top level adds `settings_findings` (entries of the file that were left out, and a `usage_stale_days` raised to its minimum); a KB's policy comes from its `settings.yaml` only (D906), so no server value can lose to it. `capabilities.secrets` reads `missing key` when a sops file sits under `secrets/` and the mount has no age key (D906). The repair and doctor settings are no capabilities any more: the write gate, repair on write, the background repair and `kb repair --apply` are fixed behaviour with no setting, and the doctor suggestion interval (14 days) and a session's review budget (10) are not KB state (D907).
 - **Background repair** (D323, D355): every day (`kb.AutoRepairIntervalDays`, a constant since D907; HTTP serve only; the
   first run follows startup by a minute, or the last logged run plus the interval), and once more
@@ -309,8 +309,12 @@ Parameter details not repeated in the schema:
   `supersede`), `findings` lists only what remains, and `content_hash` is the hash after the repair so
   an `if_match` chain works. A repair that fails never fails the write: the content stays as sent, the
   finding stays, the error goes to stderr. Nothing turns it off (D907).
+- **Text by connection kind** (D1101): the connection kind is `?provisioned=1` on the routed URL (D1097), carried on the request context; the Atlas is always addressed. It selects wording, never access. A provisioned connection and the Atlas get the texts that name a `cartographer` command byte for byte: the routed refusals and their `routedScopeHint`, `kb_status.connection.hint`, the answer to a prefixed tool name, the identity-rejection `push_last_error` and write sync warning. Every other connection (per-KB endpoints, stdio, an unmarked routed URL) gets the same facts in words, with no command and no skill as the only way, and `kb_guide` (procedure `conflict-resolve`) replaces the conflict skill in the descriptions and results every connection sees. `TestGenericConnectionIsNeverToldToRunACLICommand` fails on a new message that breaks this; its twin pins the provisioned texts. `GitStatus.LastError` stays the full text (it is compared by prefix); the neutral rendering sits beside it.
 - **Doctor nudge** (D299): after a successful tool result, the server appends one extra text block
-  proposing a `cartographer-kb-doctor` session when the KB's `doctor_suggested` is true for that caller. At most one
+  proposing a `cartographer-kb-doctor` session when the KB's `doctor_suggested` is true for that caller,
+  **only on a connection that declared `?provisioned=1`** (and on the Atlas): a generic client has no such
+  skill and its user is not the KB's operator (D1101). That check comes before the window is claimed, so a
+  generic call never silences the provisioned clients that share the server's one bucket. At most one
   nudge per MCP session (the SDK session ID, so each client session that starts while a cartographer-kb-doctor
   session is due gets one) per 24 hours (an in-memory window, re-armed by a restart; a transport
   with no session ID shares one window, D358); the text asks the agent to propose a session to the operator and not start it without their

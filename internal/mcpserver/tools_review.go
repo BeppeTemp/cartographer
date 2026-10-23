@@ -26,7 +26,7 @@ func toolKBReview(k *kb.KB, cc *conformanceCache) Tool {
 		ReadOnly: true,
 		// The kinds are not listed here: they grow per release (D301) and
 		// are in docs/control-plane.md and in each item's kind.
-		Description: "Ranked cartographer-kb-doctor work list: items {kind, concepts, evidence, suggested_action}. " +
+		Description: "Ranked KB maintenance work list: items {kind, concepts, evidence, suggested_action}. " +
 			"An item closes when its pages change; nothing dismisses it.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",

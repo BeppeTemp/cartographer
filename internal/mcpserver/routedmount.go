@@ -197,6 +197,30 @@ func isProvisioned(ctx context.Context) bool {
 	return v
 }
 
+// operatorKey marks a request that is the operator's own surface (the Atlas UI
+// API), which keeps the full, command-bearing texts like a provisioned client.
+type operatorKey struct{}
+
+func withOperator(ctx context.Context) context.Context {
+	return context.WithValue(ctx, operatorKey{}, true)
+}
+
+// addressesOperator reports whether the texts of this request may name a
+// `cartographer` command or the operator's tools (D1101): true for a
+// connection that declared ?provisioned=1 and for the Atlas. Everything else
+// (per-KB endpoints, stdio, an unmarked routed URL, tests) is generic and gets
+// neutral wording. The marker selects wording, never access. TRAP: like
+// provisionedKey it rides the request context and never the cached routed
+// view, and the texts are read in the target KB's Server, which the context
+// reaches through routedHandler's callTool.
+func addressesOperator(ctx context.Context) bool {
+	if isProvisioned(ctx) {
+		return true
+	}
+	v, _ := ctx.Value(operatorKey{}).(bool)
+	return v
+}
+
 // routedRenamedKey carries the request's names resolved through kb_aliases
 // (old → new), request-scoped for the same reason as routedUnknownKey.
 type routedRenamedKey struct{}
@@ -491,14 +515,29 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 			// D1096: only a KB the principal can read is confirmed as mounted;
 			// an unreadable one is "unknown" (named in the URL) or "not
 			// available", with the same texts as a name that does not exist.
+			operator := addressesOperator(ctx)
 			if _, mounted := m.servers[kbName]; mounted && kbRosterVisible(ctx, kbName) {
+				if !operator {
+					return errorResult(fmt.Sprintf("kb %q is mounted on this server but is not part of this connection (allowed: %s). "+
+						"The connection's KB set is fixed when the integration connects: whoever runs the integration adds the KB to its URL (?kbs=), "+
+						"then the integration reconnects or re-synchronizes its tool list — an open session keeps the tool list it started with.", kbName, allowed)), nil
+				}
 				return errorResult(fmt.Sprintf("kb %q is mounted on this server but not bound to this connection (allowed: %s): "+
 					"bind it to this client (cartographer client bind), run cartographer sync, then start a new agent session — "+
 					"an open session keeps the tool list it started with. "+routedScopeHint, kbName, allowed)), nil
 			}
 			if containsString(routedUnknown(ctx), kbName) {
+				if !operator {
+					return errorResult(fmt.Sprintf("kb %q is named by this connection's URL but is not mounted on this server (renamed or removed?): "+
+						"whoever runs the integration needs to update the URL — allowed: %s", kbName, allowed)), nil
+				}
 				return errorResult(fmt.Sprintf("kb %q is in this connection's kbs but is not mounted on this server (renamed or removed?): "+
 					"run cartographer sync on this client, then start a new agent session — allowed: %s", kbName, allowed)), nil
+			}
+			if !operator {
+				return errorResult(fmt.Sprintf("kb %q is not available on this connection — allowed: %s. "+
+					"A KB created after the server started is served only once the server's operator restarts the server; "+
+					"the integration then reconnects or re-synchronizes its tool list.", kbName, allowed)), nil
 			}
 			return errorResult(fmt.Sprintf("kb %q is not available on this connection — allowed: %s"+
 				"; a KB created after the server started is mounted only by a server restart (cartographer service restart), "+
@@ -525,6 +564,14 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 // routedConnectionHint is the fixed text of kb_status.connection.hint.
 const routedConnectionHint = "A KB listed in mounted but missing from your tools' kb enum or your instructions was added after this session started: " +
 	"run cartographer sync (bind it first with cartographer client bind if it is in unbound), then start a new agent session."
+
+// The generic wordings of the three hints (D1101): the same facts, no command.
+const (
+	routedConnectionHintGeneric = "A KB listed in mounted but missing from your tools' kb enum or your instructions was added after this session started: " +
+		"the integration picks it up when it reconnects or re-synchronizes its tool list."
+	routedUnknownHintGeneric = "Names in unknown are in this connection's kbs but not mounted on this server (renamed or removed?): the integration's URL needs updating."
+	routedRenamedHintGeneric = "Names in renamed are the old names of KBs served under their new name: the URL still works, but it is stale: update the integration's URL."
+)
 
 // routedUnknownHint is appended to the hint when the URL named unmounted KBs (D756).
 const routedUnknownHint = "Names in unknown are in this connection's kbs but not mounted on this server (renamed or removed?): run cartographer sync on this client."
@@ -553,19 +600,23 @@ func (m *MultiKBServer) withConnectionNotice(ctx context.Context, res ToolResult
 	mounted := readableKBs(ctx, m.mountedNames())
 	kbs := append([]string(nil), set...)
 	sort.Strings(kbs)
+	base, unknownHint, renamedHint := routedConnectionHint, routedUnknownHint, routedRenamedHint
+	if !addressesOperator(ctx) {
+		base, unknownHint, renamedHint = routedConnectionHintGeneric, routedUnknownHintGeneric, routedRenamedHintGeneric
+	}
 	conn := map[string]any{
 		"kbs":               kbs,
 		"mounted":           mounted,
 		"server_started_at": processStartedAt,
-		"hint":              routedConnectionHint,
+		"hint":              base,
 	}
 	if len(unknown) > 0 {
 		conn["unknown"] = unknown
-		conn["hint"] = routedConnectionHint + " " + routedUnknownHint
+		conn["hint"] = base + " " + unknownHint
 	}
 	if len(renamed) > 0 {
 		conn["renamed"] = renamed
-		conn["hint"] = conn["hint"].(string) + " " + routedRenamedHint
+		conn["hint"] = conn["hint"].(string) + " " + renamedHint
 	}
 	var unbound []string
 	for _, n := range mounted {

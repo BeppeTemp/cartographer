@@ -80,7 +80,7 @@ selecting *the* KB, not the allowed set). The effective set is `kbs` intersected
 with the mounted KBs (D756): a name that is not mounted (a KB renamed or removed
 since the client was synced) does not take the connection down, it is served
 without it and reported in `kb_status.connection.unknown`, in the `kb_status`
-hint and in the error of a call naming it, with a pointer to `cartographer sync`;
+hint and in the error of a call naming it, with a pointer to `cartographer sync` on a provisioned connection (a generic one is told, in words, that the integration's URL needs updating, D1101);
 the server logs it once per distinct set. If **no** name resolves the request
 is a `400` naming every unknown name and the mounted KBs (an empty set would have
 no tools, and falling back to all KBs would widen the binding). Duplicates are
@@ -93,7 +93,7 @@ not mounted but is the `from` of an alias whose `to` is mounted selects that KB;
 a mounted name always wins over an alias, so a KB later created under an old name
 is reached by its own name. The pair is reported, never silent:
 `kb_status.connection.renamed` is `{old: new}`, the hint says the URL is stale
-and to run `cartographer sync`, and the server logs it once per distinct set. A
+and (provisioned connection) to run `cartographer sync`, and the server logs it once per distinct set. A
 call that names the old KB in its `kb` argument (a session that outlived the
 restart still has it in its schemas) is dispatched to the new one, through that
 KB's own policy, audit and git wrapper. An alias selects *which KB a URL names*
@@ -103,7 +103,7 @@ mounted stays unknown. Only the routed `?kbs=` follows aliases: the per-KB
 endpoints (`/mcp?kb=<old>`, `/mcp/<old>`) keep answering that the KB does not
 exist.
 
-A KB mounted after a session started reaches it only through `cartographer sync` (plus `client bind` for an explicit binding) and a new agent session: the tool list is fixed per session and HTTP has no list-changed notification. Routed `kb_status` reports the difference in `connection` (D712).
+A KB mounted after a session started reaches it only through `cartographer sync` (plus `client bind` for an explicit binding) and a new agent session; a generic connection is told that the integration reconnects or re-synchronizes its tool list (D1101): the tool list is fixed per session and HTTP has no list-changed notification. Routed `kb_status` reports the difference in `connection` (D712).
 
 **The schema follows the connection.** With two or more KBs in the effective set,
 every tool's input schema carries `kb`, **required**, as an enum of that set; a

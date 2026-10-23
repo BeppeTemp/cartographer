@@ -43,7 +43,7 @@ func aliasCall(t *testing.T, handler http.Handler, path, tool string, args map[s
 func TestRoutedMount_KBS_AliasOnly(t *testing.T) {
 	t.Parallel()
 	handler := newRoutedAliasHandler(t, []config.KBAlias{{From: "kb-old", To: "kb-a"}}, []string{"kb-a", "kb-b"}, "kb-a", "kb-b")
-	path := RoutedMountPath + "?kbs=kb-old"
+	path := provisionedPath(RoutedMountPath + "?kbs=kb-old")
 
 	rr := routedPost(t, handler, path, toolsListBody)
 	if rr.Code != http.StatusOK {
@@ -85,7 +85,7 @@ func TestRoutedMount_KBS_AliasAndTargetDeduplicate(t *testing.T) {
 func TestRoutedMount_KBS_AliasWithUnknown(t *testing.T) {
 	t.Parallel()
 	handler := newRoutedAliasHandler(t, []config.KBAlias{{From: "kb-old", To: "kb-a"}}, []string{"kb-a", "kb-b"}, "kb-a", "kb-b")
-	_, conn := routedKBStatusConnection(t, handler, RoutedMountPath+"?kbs=kb-old,kb-b,gone", "kb-a")
+	_, conn := routedKBStatusConnection(t, handler, provisionedPath(RoutedMountPath+"?kbs=kb-old,kb-b,gone"), "kb-a")
 	if want := map[string]any{"kb-old": "kb-a"}; !reflect.DeepEqual(conn["renamed"], want) {
 		t.Errorf("renamed = %v, want %v", conn["renamed"], want)
 	}

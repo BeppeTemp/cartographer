@@ -117,7 +117,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				if commitErr != nil {
 					fmt.Fprintf(os.Stderr, "cartographer: git commit failed (%s): %v\n", orig.Name, commitErr)
 					k.SetGitStatus("failed", fmt.Errorf("commit: %w", commitErr))
-					appendSyncWarning(&res, k)
+					appendSyncWarning(ctx, &res, k)
 					return nil
 				}
 				// Step 2 / D76-WP4: push after the commit. If SyncOutDebounce
@@ -128,7 +128,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				// k.OnPushConflict (wired in RegisterKBTools). Push failure —
 				// sync or async — is non-fatal; Step 3 surfaces rebase
 				// conflicts as degraded concepts.
-				pushDur, pushAsync = pushAfterCommit(k, orig.Name, &res)
+				pushDur, pushAsync = pushAfterCommit(ctx, k, orig.Name, &res)
 				appendAuthorWarning(ctx, k, &res)
 			}
 			return nil
@@ -192,11 +192,11 @@ func commitTrailerBlock(ctx context.Context, args json.RawMessage, extra ...stri
 // push duration and whether the push was left to the worker. A KB without a
 // remote has nothing to defer: SyncOut records no_remote without a network
 // call, so the write never reports a push pending that cannot happen.
-func pushAfterCommit(k *kb.KB, tool string, res *ToolResult) (dur time.Duration, async bool) {
+func pushAfterCommit(ctx context.Context, k *kb.KB, tool string, res *ToolResult) (dur time.Duration, async bool) {
 	if _, hasRemote := k.HasRemote(); k.SyncOutDebounce > 0 && hasRemote {
 		k.SchedulePush()
 		k.MarkPushPending()
-		appendSyncWarning(res, k)
+		appendSyncWarning(ctx, res, k)
 		return 0, true
 	}
 	start := time.Now()
@@ -213,7 +213,7 @@ func pushAfterCommit(k *kb.KB, tool string, res *ToolResult) (dur time.Duration,
 			fmt.Fprintf(os.Stderr, "cartographer: git push failed (%s): %v\n", tool, syncErr)
 		}
 	}
-	appendSyncWarning(res, k)
+	appendSyncWarning(ctx, res, k)
 	return dur, false
 }
 
@@ -338,12 +338,22 @@ func syncFailureMessage(k *kb.KB, syncErr error) string {
 	return "git sync (fetch/pull) failed: " + syncErr.Error()
 }
 
-func appendSyncWarning(res *ToolResult, k *kb.KB) {
+// statusError is the git status error a connection may be shown: the full text
+// for one that addresses the operator, the neutral rendering (no cartographer
+// command, D1101) for any other when the error offers one.
+func statusError(ctx context.Context, s kb.GitStatus) string {
+	if s.LastErrorNeutral != "" && !addressesOperator(ctx) {
+		return s.LastErrorNeutral
+	}
+	return s.LastError
+}
+
+func appendSyncWarning(ctx context.Context, res *ToolResult, k *kb.KB) {
 	s := k.GitStatusSnapshot()
 	if s.State != "failed" && s.State != "pending" && s.State != "degraded" {
 		return
 	}
-	info := map[string]any{"sync_state": s.State, "last_error": s.LastError}
+	info := map[string]any{"sync_state": s.State, "last_error": statusError(ctx, s)}
 	// The commit hint only when the push failed for a non-conflict reason:
 	// pending is the normal debounced push, and a conflict-degraded KB refuses
 	// the next write, so "retried on the next write" would be false.
@@ -522,7 +532,7 @@ func handleConflictError(k *kb.KB, rce *gitx.RebaseConflictError) (int, []string
 func conflictMessage(n int, reserved []string) string {
 	if len(reserved) == 0 {
 		return fmt.Sprintf("git conflict detected and registered on %d concept(s); "+
-			"use the conflicts_list tool and cartographer-kb-conflict-resolve skill to resolve", n)
+			"use the conflicts_list tool and kb_guide (procedure conflict-resolve) to resolve", n)
 	}
 	files := strings.Join(reserved, ", ")
 	if n == 0 {
@@ -531,7 +541,7 @@ func conflictMessage(n int, reserved []string) string {
 	}
 	return fmt.Sprintf("git conflict detected and registered on %d concept(s); "+
 		"%d reserved file(s) also in conflict (%s) — these are auto-resolved when the concept conflicts are resolved; "+
-		"use the conflicts_list tool and cartographer-kb-conflict-resolve skill to resolve the concept conflicts", n, len(reserved), files)
+		"use the conflicts_list tool and kb_guide (procedure conflict-resolve) to resolve the concept conflicts", n, len(reserved), files)
 }
 
 // byteBudget renders a byte limit the way an operator reads it, so a tool

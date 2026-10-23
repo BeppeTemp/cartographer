@@ -91,6 +91,9 @@ func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The Atlas is the operator's own surface: it keeps the full texts (D1101).
+	r = r.WithContext(withOperator(r.Context()))
+
 	rest := strings.TrimPrefix(r.URL.Path, UIAPIPrefix)
 	rest = strings.Trim(rest, "/")
 	segments := []string{}

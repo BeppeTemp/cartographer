@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -298,11 +299,33 @@ func TestReviewDuplicateCandidate_ResourceNeedsSimilarTitle(t *testing.T) {
 
 func TestReviewDuplicateActionSatellite(t *testing.T) {
 	t.Parallel()
-	if got := duplicateAction(idsOf("m/x", "m/x/y"), false); !strings.Contains(got, "concept_merge m/x/y into its parent m/x") || !strings.Contains(got, "link each") || !strings.Contains(got, "assisted session only") || !strings.Contains(got, "delete the child") {
+	if got := duplicateAction(idsOf("m/x", "m/x/y"), false); !strings.Contains(got, "concept_merge m/x/y into its parent m/x") || !strings.Contains(got, "link each") || !strings.Contains(got, "only when the KB's maintainers choose it") || !strings.Contains(got, "delete the child") {
 		t.Fatalf("satellite pair: %q", got)
 	}
 	if got := duplicateAction(idsOf("m/x", "m/z"), false); strings.Contains(got, "concept_merge") {
 		t.Fatalf("sibling pair: %q", got)
+	}
+}
+
+// D1101: a suggested action reaches every connection, so it names no
+// `cartographer <command>` and none of the operator/assisted-session wordings
+// of a provisioned client; the items come from the review fixtures.
+func TestReviewSuggestedActionsAreNeutral(t *testing.T) {
+	t.Parallel()
+	old := []string{"assisted session only", "the operator decides", "with the operator:", "after the operator's choice", "harvest and archive)"}
+	cli := regexp.MustCompile(`cartographer (serve|setup|kb|sync|doctor|connect|client|workspace|service|config)\b|kb repair|kb reauthor`)
+	for _, kind := range ReviewKinds {
+		k, _ := reviewFixtures[kind](t)
+		for _, it := range review(t, k) {
+			if m := cli.FindString(it.SuggestedAction); m != "" {
+				t.Errorf("%s: suggested action names %q: %s", it.Kind, m, it.SuggestedAction)
+			}
+			for _, o := range old {
+				if strings.Contains(it.SuggestedAction, o) {
+					t.Errorf("%s: suggested action keeps %q: %s", it.Kind, o, it.SuggestedAction)
+				}
+			}
+		}
 	}
 }
 

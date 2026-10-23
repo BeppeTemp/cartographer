@@ -181,8 +181,8 @@ func (m *twoKBMove) runLocked(ctx context.Context) ToolResult {
 	// push, and with SyncOutDebounce each KB's worker pushes on its own. Nothing
 	// is lost locally; the gap closes when the target is pushed (D760).
 	res := ToolResult{}
-	pushAfterCommit(dst, tool, &res)
-	pushAfterCommit(src, tool, &res)
+	pushAfterCommit(ctx, dst, tool, &res)
+	pushAfterCommit(ctx, src, tool, &res)
 
 	out, _ := json.MarshalIndent(m.Report(srcSHA, dstSHA), "", "  ")
 	res.Content = append([]ContentBlock{{Type: "text", Text: string(out)}}, res.Content...)

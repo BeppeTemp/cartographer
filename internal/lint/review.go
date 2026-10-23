@@ -604,7 +604,7 @@ func satellitePair(a, b okf.ConceptID) (parent, child okf.ConceptID, ok bool) {
 func duplicateAction(ids []okf.ConceptID, sameTitleWords bool) string {
 	if len(ids) == 2 {
 		if parent, child, ok := satellitePair(ids[0], ids[1]); ok {
-			return fmt.Sprintf("concept_merge %s into its parent %s (not in tools/list; if the client cannot call it by name, link each to the other saying how they differ, or, in an assisted session only, fold the child into the parent with concept_patch and delete the child after the operator's choice)", child, parent)
+			return fmt.Sprintf("concept_merge %s into its parent %s (not in tools/list; if the client cannot call it by name, link each to the other saying how they differ, or, only when the KB's maintainers choose it, fold the child into the parent with concept_patch and delete the child after their choice)", child, parent)
 		}
 	}
 	if sameTitleWords {
@@ -888,7 +888,7 @@ func statusReclassifyItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 			Evidence: fmt.Sprintf("status active in journal %s; signals: %s", c.mapName, signal),
 		}
 		if proposed == "unknown" {
-			it.SuggestedAction = "no deterministic signal — the operator decides: reference, done, in-progress, or blocked"
+			it.SuggestedAction = "no deterministic signal — the KB's maintainers decide: reference, done, in-progress, or blocked"
 		} else {
 			it.SuggestedAction = "set status to " + proposed
 		}
@@ -1065,7 +1065,7 @@ func mapNamingItems(titles []mapTitle) []ReviewItem {
 		Kind:            ReviewMapNaming,
 		Concepts:        ids,
 		Evidence:        strings.Join(evidence, " — "),
-		SuggestedAction: "agree a scheme with the operator: one language, one shape (a short name; a description belongs in the index body), one capitalisation, each title recognisable from its folder; then rename with map_update title",
+		SuggestedAction: "agree a scheme with the KB's maintainers: one language, one shape (a short name; a description belongs in the index body), one capitalisation, each title recognisable from its folder; then rename with map_update title",
 		Weight:          weight,
 		// Titles of maps a restricted caller cannot see stay out of its list.
 		wholeGraph: true,

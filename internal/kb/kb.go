@@ -238,11 +238,16 @@ type KB struct {
 // GitStatus is the durable-in-process snapshot exposed by sync_status.
 // UnpushedCommits is nil when no trustworthy remote-tracking comparison exists.
 type GitStatus struct {
-	State           string     `json:"state"`
-	LastError       string     `json:"last_error,omitempty"`
-	LastAttemptAt   *time.Time `json:"last_attempt_at,omitempty"`
-	HeadSHA         string     `json:"head_sha,omitempty"`
-	UnpushedCommits *int       `json:"unpushed_commits"`
+	State     string `json:"state"`
+	LastError string `json:"last_error,omitempty"`
+	// LastErrorNeutral is LastError reworded for a reader that is not the
+	// server's operator, when the error offers one (ErrIdentityRejected, D1101);
+	// "" otherwise. Never serialised. TRAP: LastError itself is compared by
+	// prefix (clearDivergedStatus, gitsync.go), so it always stays the full text.
+	LastErrorNeutral string     `json:"-"`
+	LastAttemptAt    *time.Time `json:"last_attempt_at,omitempty"`
+	HeadSHA          string     `json:"head_sha,omitempty"`
+	UnpushedCommits  *int       `json:"unpushed_commits"`
 	// BehindCommits is how far HEAD is behind the remote-tracking ref as of
 	// the last fetch (no network on read); nil when unknown.
 	BehindCommits *int `json:"behind_commits"`
@@ -274,6 +279,10 @@ func (k *KB) setGitStatus(state string, err error, attempts int) {
 	s := GitStatus{State: state, LastAttemptAt: &now, Attempts: attempts}
 	if err != nil {
 		s.LastError = err.Error()
+		var neutral interface{ NeutralText() string }
+		if errors.As(err, &neutral) {
+			s.LastErrorNeutral = neutral.NeutralText()
+		}
 	}
 	if sha, shaErr := gitx.HeadSHA(k.Root); shaErr == nil {
 		s.HeadSHA = sha

@@ -780,6 +780,25 @@ func (e *ErrIdentityRejected) Error() string {
 	return b.String()
 }
 
+// NeutralText is Error() for a reader that is not the server's operator (a
+// generic MCP connection, D1101): the same facts, with the two sentences that
+// address the host's operator reworded so that no `cartographer` command or
+// server-file key is named. Error() stays the full text for logs, the Atlas and
+// the CLI (identityreject_test.go pins it).
+func (e *ErrIdentityRejected) NeutralText() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "the remote refused the push to branch %q because of who authored or committed its commits, not because the branch is protected.", e.Branch)
+	if len(e.Identities) > 0 {
+		fmt.Fprintf(&b, " The unpushed commits are by: %s.", strings.Join(e.Identities, ", "))
+	}
+	if !e.Configured {
+		b.WriteString(" No git identity is configured on the server: its operator must set one the remote accepts.")
+	}
+	b.WriteString(" Commits made by the server identity are re-authored by the next sync; commits authored by a token are re-authored by the server's operator, on the server host.")
+	fmt.Fprintf(&b, " Tell the server's operator; the changes are committed and safe in the local clone. Git said: %s", firstLines(e.Git, 3))
+	return b.String()
+}
+
 func (k *KB) hasConfiguredIdentity() bool {
 	_, _, ok := k.ConfiguredIdentity()
 	return ok

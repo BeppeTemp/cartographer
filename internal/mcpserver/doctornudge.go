@@ -67,6 +67,10 @@ func callerClient(ctx context.Context) string {
 // KB has debt and kb.DoctorSuggestionDays have passed since the last session (D299, D907). The server only
 // proposes: it never starts the session and never writes.
 //
+// Only a connection that may address the operator's tools receives it (a
+// routed URL with ?provisioned=1, or the Atlas, D1101): a generic client has
+// no such skill and its end user is not the KB's operator.
+//
 // The cheap gates come first and the window is claimed before the lint is
 // read, so a KB with no debt costs at most one lint per window on this path.
 // The CLI never receives the block: client.Call turns a multi-block answer
@@ -74,6 +78,12 @@ func callerClient(ctx context.Context) string {
 func (s *Server) withDoctorNudge(ctx context.Context, tool string, res ToolResult) ToolResult {
 	k, cc := s.kbRef, s.conformance
 	if res.IsError || tool == "kb_status" || k == nil || cc == nil {
+		return res
+	}
+	// D1101: only a connection that may address the operator's tools is
+	// nudged, and the check is first so a generic call never claims the shared
+	// window (the server is stateless over HTTP: one bucket for every caller).
+	if !addressesOperator(ctx) {
 		return res
 	}
 	intervalDays := kb.DoctorSuggestionDays

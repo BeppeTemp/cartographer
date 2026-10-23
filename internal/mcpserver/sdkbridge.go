@@ -162,7 +162,7 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		// agent profile" and "absent from this build", and only the server can
 		// tell them apart. Arguments are deliberately not resolved or recorded
 		// for a name this server has no allow-list entry for.
-		msg := s.legacyToolMessage(name)
+		msg := s.legacyToolMessage(ctx, name)
 		if msg == "" {
 			msg = "tool not found: " + name
 		}

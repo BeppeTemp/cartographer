@@ -15,6 +15,10 @@ test or a decision record: none of them is a preference.
 
 ## What you must not get wrong
 
+- **A text a connection can receive carries no `cartographer <command>` unless it
+  is chosen by connection kind** (`addressesOperator`, D1101). Add the generic
+  wording beside it; `TestGenericConnectionIsNeverToldToRunACLICommand` fails
+  otherwise.
 - **A tool's `ReadOnly` field and `readOnlyToolNames` are two halves of one fact.**
   `readonly.go` carries the source-of-truth list; `TestReadOnlyToolsGolden` builds
   a real registry and fails if they diverge. A new read-only tool that is not in
