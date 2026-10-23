@@ -64,8 +64,19 @@ Mutable state does not live in narrative documentation:
 
 Docs describe the **current state**, not the history: no narration of how we
 got here (the *why* lives in `docs/decisions/`, the *how* in the git log) and
+<<<<<<< HEAD
 no hardcoded counts (link the source of truth). A gate checks the narrowest mechanical part of this rule (D1128); its allow-list lives in `internal/repodocs/doc_rot_test.go`. Update the
 matching file **in the same session/PR** as the change:
+||||||| parent of fd3da4d1 (feat(ci): the triage warns when a mapped docs page is left untouched)
+no hardcoded counts (link the source of truth). Update the
+matching file **in the same session/PR** as the change:
+=======
+no hardcoded counts (link the source of truth). Update the
+matching file **in the same session/PR** as the change. The path-mappable rows are
+mirrored in `scripts/doc-owners.tsv`, which `scripts/pr-triage.sh` reads to warn about a
+page that was not touched; the table and the file change together, and a test
+(`internal/repodocs`) fails when a mapped page is not in the table:
+>>>>>>> fd3da4d1 (feat(ci): the triage warns when a mapped docs page is left untouched)
 
 | What changes | File to update |
 |---|---|
