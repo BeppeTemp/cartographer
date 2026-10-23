@@ -146,7 +146,7 @@ func authorizeTransferTarget(ctx context.Context, src, dst *kb.KB, dstName strin
 		return deny(denyReadOnlyToken)
 	}
 	for _, m := range moves {
-		if m.TargetID == "" {
+		if okf.ValidateID(m.TargetID) != nil || okf.ValidateID(m.SourceID) != nil {
 			return deny(denyBadArguments)
 		}
 		// Every satellite of an expanded concept lands in dst too, with its own type.

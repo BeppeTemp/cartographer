@@ -642,6 +642,17 @@ const ServicesNamespace = "services"
 // services/ tree is a first-class concept root included in WalkConcepts but
 // lives as a sibling of data/ under Root, so it is anchored at Root.
 func (kb *KB) ResolvePath(relPath string, writeMode bool) (string, error) {
+	// Defence in depth: a path that is not canonical is refused here too, so a
+	// caller that skipped okf.ValidateID cannot reach a different file than the
+	// one the authorizer judged. "." (the data root itself) is the one exception.
+	// Internal callers build relPath with filepath.Join, so on Windows it carries
+	// backslashes: the check runs on its slash form. A tool's id never reaches
+	// here with a backslash, since okf.ValidateID refuses it on the id first.
+	if relPath != "." {
+		if err := okf.ValidateID(filepath.ToSlash(relPath)); err != nil {
+			return "", fmt.Errorf("%w: %s", err, relPath)
+		}
+	}
 	return safeJoin(kb.baseFor(relPath), relPath)
 }
 
@@ -987,6 +998,9 @@ func (kb *KB) LocateConcept(id okf.ConceptID) (ConceptLocation, error) {
 // the concept's path, which ResolvePath and ReadRaw do not check. A caller
 // building okf.IDToPath(id) by hand bypasses the guard.
 func (kb *KB) resolveConceptRelPath(id okf.ConceptID, writeMode bool) (relPath string, expanded bool, err error) {
+	if err := okf.ValidateID(string(id)); err != nil {
+		return "", false, err
+	}
 	direct := okf.IDToPath(id)
 	directAbs, err := kb.ResolvePath(direct, false)
 	if err != nil {
@@ -1427,6 +1441,9 @@ func (kb *KB) prepareWriteConceptMode(id okf.ConceptID, fm *okf.Frontmatter, bod
 	if id == "" {
 		return nil, fmt.Errorf("%w: empty ConceptID", okf.ErrInvalidConcept)
 	}
+	if err := okf.ValidateID(string(id)); err != nil {
+		return nil, err
+	}
 
 	inServices := isServicesID(id)
 	segments := strings.Split(string(id), "/")
@@ -1614,6 +1631,9 @@ func (kb *KB) DeleteConcept(id okf.ConceptID) error {
 // The inverse (concept_collapse) is intentionally not implemented (YAGNI —
 // see D77).
 func (kb *KB) ExpandConcept(id okf.ConceptID) error {
+	if err := okf.ValidateID(string(id)); err != nil {
+		return err
+	}
 	segments := strings.Split(string(id), "/")
 	if len(segments) != 2 {
 		return fmt.Errorf("%w: concept_expand requires an id with exactly 2 segments (map/concept), got %d: %s",

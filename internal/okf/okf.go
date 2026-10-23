@@ -72,6 +72,23 @@ func PathToID(relPath string) (ConceptID, error) {
 	return ConceptID(id), nil
 }
 
+// ValidateID reports whether id is a canonical concept id: non-empty, relative,
+// slash-separated, equal to path.Clean of itself, with no empty, "." or ".."
+// segment and no backslash. A non-canonical id is refused with ErrInvalidPath
+// instead of being cleaned, so the id that is authorized is the id that is
+// resolved to a file.
+func ValidateID(id string) error {
+	if id == "" || strings.ContainsAny(id, "\\\x00") || strings.HasPrefix(id, "/") || path.Clean(id) != id {
+		return fmt.Errorf("%w: non-canonical concept id", ErrInvalidPath)
+	}
+	for _, seg := range strings.Split(id, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return fmt.Errorf("%w: non-canonical concept id", ErrInvalidPath)
+		}
+	}
+	return nil
+}
+
 // IDToPath converts a ConceptID to the relative path of the corresponding .md file.
 // ConceptReadSizeGuard is the body size (bytes) above which concept_read returns
 // an outline instead of the whole body. It lives here because two packages need

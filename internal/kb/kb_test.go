@@ -2282,3 +2282,43 @@ func TestTemplateCatalogAndResolve(t *testing.T) {
 		}
 	}
 }
+
+// A non-canonical concept id is refused with ErrInvalidPath on every concept
+// entry point, and the file it would have resolved to is left untouched.
+func TestConceptIDMustBeCanonical(t *testing.T) {
+	t.Parallel()
+	dir := tempKB(t)
+	k, err := Init(dir)
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	victimDir := filepath.Join(k.DataRoot(), "b")
+	if err := os.MkdirAll(victimDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(victimDir, "x.md")
+	const original = "---\ntype: Note\n---\nbody\n"
+	if err := os.WriteFile(victim, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"a/../b/x", "./a/x", "a//x", "/a/x", `a\x`, "a/./x", "a/../x"} {
+		cid := okf.ConceptID(id)
+		if _, err := k.ReadConcept(cid); !errors.Is(err, okf.ErrInvalidPath) {
+			t.Errorf("ReadConcept(%q) = %v, want ErrInvalidPath", id, err)
+		}
+		fm, _ := okf.ParseFrontmatter("type: Note\n")
+		if _, err := k.WriteConcept(cid, fm, "x", ""); !errors.Is(err, okf.ErrInvalidPath) {
+			t.Errorf("WriteConcept(%q) = %v, want ErrInvalidPath", id, err)
+		}
+		if err := k.DeleteConcept(cid); !errors.Is(err, okf.ErrInvalidPath) {
+			t.Errorf("DeleteConcept(%q) = %v, want ErrInvalidPath", id, err)
+		}
+		if _, err := k.LocateConcept(cid); !errors.Is(err, okf.ErrInvalidPath) {
+			t.Errorf("LocateConcept(%q) = %v, want ErrInvalidPath", id, err)
+		}
+	}
+	got, err := os.ReadFile(victim)
+	if err != nil || string(got) != original {
+		t.Fatalf("file changed: %v %q", err, got)
+	}
+}
