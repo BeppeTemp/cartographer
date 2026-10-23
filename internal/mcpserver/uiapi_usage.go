@@ -2,8 +2,11 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
+	"mime"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -51,10 +54,12 @@ func (m *MultiKBServer) handleUsage(w http.ResponseWriter, r *http.Request) {
 		writeUINotFound(w)
 		return
 	}
+	if !requireJSON(w, r) {
+		return
+	}
 	var entries []kb.UsageEntry
-	body := io.LimitReader(r.Body, maxUsageBody+1)
-	data, err := io.ReadAll(body)
-	if err != nil || len(data) > maxUsageBody {
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxUsageBody))
+	if err != nil {
 		writeUIError(w, http.StatusRequestEntityTooLarge, uiCodeInvalidRequest, "usage report too large", "")
 		return
 	}
@@ -79,9 +84,26 @@ func (m *MultiKBServer) handleUsage(w http.ResponseWriter, r *http.Request) {
 		clean = append(clean, e)
 	}
 	merged, err := k.MergeUsage(clean)
+	if errors.Is(err, kb.ErrUsageTooLarge) {
+		writeUIError(w, http.StatusRequestEntityTooLarge, uiCodeInvalidRequest, "usage store is full", "")
+		return
+	}
 	if err != nil {
 		writeUIInternal(w, "usage", err)
 		return
 	}
 	writeUIJSON(w, http.StatusOK, map[string]int{"received": len(entries), "merged": merged})
+}
+
+// requireJSON refuses (415) a body not declared as application/json. A
+// cross-site form can send text/plain or form encodings without a preflight,
+// but cannot set this type, so the requirement is a second barrier behind the
+// Origin check.
+func requireJSON(w http.ResponseWriter, r *http.Request) bool {
+	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err == nil && strings.EqualFold(mt, "application/json") {
+		return true
+	}
+	writeUIError(w, http.StatusUnsupportedMediaType, uiCodeInvalidRequest, "Content-Type must be application/json", "")
+	return false
 }
