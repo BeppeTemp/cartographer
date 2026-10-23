@@ -6,8 +6,8 @@ package provisioning_test
 // lockfile) must bring targetDir back exactly to its initial state, with only two
 // documented exceptions:
 //
-//   - provisioning's own root directories (.claude, .codex, .kiro,
-//     .opencode, .config, .config/opencode — see provisioningRootDirs in
+//   - provisioning's own root directories (.claude, .codex, .copilot and the
+//     others listed in provisioningRootDirs in
 //     provisioning.go) are never removed even if they end up empty: they are
 //     deliberate boundaries, not a residue of this feature (they could hold
 //     other content, not managed by Cartographer, in a real system);

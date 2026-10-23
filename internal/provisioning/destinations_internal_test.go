@@ -1,6 +1,8 @@
 package provisioning
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -35,6 +37,51 @@ func TestDestinationsSpotChecks(t *testing.T) {
 	for _, kind := range []string{"template", "unknown", ""} {
 		if got := Destinations(kind, "x"); len(got) != 0 {
 			t.Errorf("Destinations(%q) = %v, want none", kind, got)
+		}
+	}
+}
+
+// Every directory a destination cell lives under is a boundary pruneEmptyDirs
+// never removes (D63): its first segment, or the first two under .config, where
+// one directory per client sits (#1138: .copilot was missing, so an emptied
+// $HOME/.copilot could be pruned). A cell that is a file at the base dir itself
+// (.claude.json, AGENTS.md) has no root to keep.
+func TestEveryDestinationRootIsAPruneBoundary(t *testing.T) {
+	for scope, matrix := range map[string]map[string]map[configurator.Provider]destination{
+		"global": destinationMatrix, "project": projectDestinationMatrix,
+	} {
+		for kind, row := range matrix {
+			for provider, cell := range row {
+				if cell.unsupported || (len(cell.dir) == 1 && !cell.named) {
+					continue
+				}
+				root := cell.dir[0]
+				if root == ".config" && len(cell.dir) > 1 {
+					root = filepath.Join(cell.dir[:2]...)
+				}
+				if !provisioningRootDirs[root] {
+					t.Errorf("%s %s/%s lives under %q, which is not in provisioningRootDirs", scope, kind, provider, root)
+				}
+			}
+		}
+	}
+}
+
+// The walk itself stops at each root: with the last file gone from
+// <root>/x/y/, x and y are removed and the root is kept, empty.
+func TestPruneEmptyDirsKeepsEveryRoot(t *testing.T) {
+	for root := range provisioningRootDirs {
+		base := t.TempDir()
+		leaf := filepath.Join(root, "x", "y")
+		if err := os.MkdirAll(filepath.Join(base, leaf), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		pruneEmptyDirs(base, filepath.Join(leaf, "gone.md"))
+		if _, err := os.Stat(filepath.Join(base, root, "x")); !os.IsNotExist(err) {
+			t.Errorf("%s/x survived the prune: %v", root, err)
+		}
+		if fi, err := os.Stat(filepath.Join(base, root)); err != nil || !fi.IsDir() {
+			t.Errorf("root %s was removed: %v", root, err)
 		}
 	}
 }
