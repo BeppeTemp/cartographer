@@ -111,7 +111,7 @@ func cmdServiceSyncTimer(args []string) int {
 		setSyncTimerOptOut(false)
 		// The timer passes no flag: an MCP descriptor still needs the approval an
 		// unattended job cannot give (D906).
-		fmt.Println("it runs `cartographer sync`; an MCP descriptor still needs `cartographer approve`")
+		fmt.Println("it runs `cartographer sync`; an MCP descriptor, a hook or an executable file still needs `cartographer approve`")
 		return 0
 	case "uninstall":
 		if err := syncTimerUninstallFn(); err != nil {

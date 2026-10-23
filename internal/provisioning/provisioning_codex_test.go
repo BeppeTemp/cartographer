@@ -28,7 +28,7 @@ func TestApply_Codex_MaterializzaAgent_ConFrontmatter(t *testing.T) {
 	}
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderCodex,
 		BaseDir:  baseDir,
 		Lock:     provisioning.Lock{},
@@ -66,7 +66,7 @@ func TestApply_Codex_MaterializzaAgent_SenzaFrontmatter(t *testing.T) {
 	}
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
 
-	_, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	_, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderCodex,
 		BaseDir:  baseDir,
 		Lock:     provisioning.Lock{},
@@ -114,7 +114,7 @@ func applyCodexHookKB(t *testing.T, kbRoot, baseDir string, lock provisioning.Lo
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderCodex,
 		BaseDir:  baseDir,

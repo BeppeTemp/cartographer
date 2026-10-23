@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -510,5 +511,69 @@ func TestStatus_PlaceholderResolutionDriftIsDrift(t *testing.T) {
 	})
 	if !strings.Contains(out, "runbooks") || strings.Contains(out, "in-sync") {
 		t.Errorf("output = %q, want the stale skill reported as drift", out)
+	}
+}
+
+// D1141: a hook installed before the approval contract and unchanged on the
+// server is not in the diff, yet sync holds it pending: status says so too, and
+// an approval makes it in sync again.
+func TestStatus_HeldPreExistingHookIsPendingUntilApproved(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	cfg := &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	served := provisioning.Manifest{Revision: "rev1", Artifacts: []provisioning.Artifact{{
+		Kind: "hook", Name: "guard", Source: "kb:kb-a", ContentHash: "hook-hash",
+		Files: []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"./run.sh"}`)}},
+	}}}
+	appliedRev := provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision
+	lock := provisioning.Lock{Provider: "claude", AppliedRevision: appliedRev, Managed: []provisioning.ManagedFile{{
+		Kind: "hook", Name: "guard", Path: ".claude/hooks/guard/hook.json", ContentHash: "hook-hash",
+	}}}
+	hookDir := filepath.Join(home, ".claude", "hooks", "guard")
+	if err := os.MkdirAll(hookDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hookDir, "hook.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := provisioning.WriteLockFile(lockFilePath(home), provisioning.LockFile{Providers: map[string]provisioning.Lock{"claude": lock}}); err != nil {
+		t.Fatal(err)
+	}
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]provisioning.Manifest, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() {
+		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+	})
+
+	out := withStdout(t, func() {
+		if code := cmdStatus(nil); code != 1 {
+			t.Errorf("cmdStatus with a held hook = %d, want 1", code)
+		}
+	})
+	if !strings.Contains(out, "hook/guard") || !strings.Contains(out, "needs_approval") {
+		t.Errorf("output = %q, want the hook reported pending", out)
+	}
+
+	if err := cfg.ApproveMCP("kb-a", "hook/guard", "hook-hash", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	out = withStdout(t, func() {
+		if code := cmdStatus(nil); code != 0 {
+			t.Errorf("cmdStatus after approval = %d, want 0", code)
+		}
+	})
+	if !strings.Contains(out, "in-sync") {
+		t.Errorf("output = %q, want in-sync", out)
 	}
 }

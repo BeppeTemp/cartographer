@@ -37,6 +37,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/skill"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
+	"gopkg.in/yaml.v3"
 )
 
 // Artifact describes a single provisioning artifact.
@@ -275,7 +276,8 @@ type ApplyOptions struct {
 	Provider configurator.Provider // destination provider
 	BaseDir  string                // base directory where artifacts are materialized
 	DryRun   bool                  // if true, writes nothing
-	// ApprovedMCP holds exact local approvals keyed as "kb:<source>\x00<name>".
+	// ApprovedMCP holds exact local approvals keyed as "kb:<source>\x00<ApprovalName>":
+	// MCP descriptors, hooks and executable artifacts (D1141).
 	// It is authorization, not verification; Signed is never mutated by it.
 	ApprovedMCP map[string]string
 	Lock        Lock // current lockfile
@@ -1681,6 +1683,9 @@ func KindCounts(m Manifest, lock Lock) map[string]KindCount {
 //     a KB ships is installed, after the pull's signature and path checks).
 //   - an MCP descriptor → only with a local approval bound to its content hash
 //     (ApprovedMCP), signed or not; otherwise NeedsApproval.
+//   - a KB hook, or any KB artifact shipping an executable file (D1141) → the
+//     same approval, except that a signature verified against a pinned key
+//     counts; otherwise NeedsApproval and what is installed stays untouched.
 //
 // Providers supported for direct materialization:
 //   - claude: skill in .claude/skills/<name>/, agent in .claude/agents/<name>.md,
@@ -1827,6 +1832,24 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		}
 	}
 
+	// A hook or an executable artifact waiting for approval (D1141) is not
+	// written, and what an earlier sync installed stays exactly as it is: its
+	// files are not refreshed, not registered anew and not deleted, and its
+	// lock entries are kept. It is reported as pending on every run, whether or
+	// not its content changed.
+	heldKeys := make(map[string]bool)
+	for _, a := range m.Artifacts {
+		if a.Kind == "mcp" || a.Kind == "instructions" || isReservedHook(a.Kind, a.Name) ||
+			destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || artifactAuthorized(a, opts) {
+			continue
+		}
+		key := a.Kind + "\x00" + a.Name
+		heldKeys[key] = true
+		if !toWriteKeys[key] {
+			result.NeedsApproval = append(result.NeedsApproval, a)
+		}
+	}
+
 	// Build the new managed set, starting from the unchanged ones.
 	manifestKeys := make(map[string]bool, len(m.Artifacts))
 	for _, a := range m.Artifacts {
@@ -1850,7 +1873,7 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		}
 		k := mf.Kind + "\x00" + mf.Name
 		// Keep the managed entries that are unchanged and not removed.
-		if manifestKeys[k] && !toWriteKeys[k] {
+		if manifestKeys[k] && (!toWriteKeys[k] || heldKeys[k]) {
 			newManaged = append(newManaged, mf)
 		}
 	}
@@ -1874,8 +1897,14 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 				"hook %q: name reserved by Cartographer (client-generated hook), KB artifact ignored", a.Name))
 			continue
 		}
+		// No destination for this provider: no approval unblocks it, so it is
+		// Unsupported and never waits for one (D50).
+		if destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" {
+			result.Unsupported = append(result.Unsupported, a)
+			continue
+		}
 		if !artifactAuthorized(a, opts) {
-			// Unsigned artifact: notify + signature gate. Don't write.
+			// Not approved: notify, don't write.
 			result.NeedsApproval = append(result.NeedsApproval, a)
 			continue
 		}
@@ -2867,20 +2896,143 @@ func installedSubagentSentence(m Manifest, opts ApplyOptions) string {
 	return strings.Join(lines, "\n")
 }
 
+// ArtifactAuthorized reports whether Apply would install a: built in, not
+// gated, or approved for its exact content hash (opts.ApprovedMCP).
+func ArtifactAuthorized(a Artifact, opts ApplyOptions) bool { return artifactAuthorized(a, opts) }
+
 func artifactAuthorized(a Artifact, opts ApplyOptions) bool {
 	if a.BuiltIn {
 		return true
 	}
-	// An MCP server receives the agent's data, so a KB descriptor always needs
-	// the client's hash-bound approval: a signature proves only which server it
-	// came from, and since D906 any rw token on the KB can write one.
-	if a.Kind == "mcp" {
-		return opts.ApprovedMCP[a.Source+"\x00"+a.Name] == a.ContentHash
+	if ArtifactRequiresApproval(a, opts) {
+		// An MCP server receives the agent's data, so a KB descriptor always
+		// needs the client's hash-bound approval: a signature proves only which
+		// server it came from, and since D906 any rw token on the KB can write
+		// one. What runs on this machine (a hook, any executable file, D1141)
+		// follows the same contract: the server signs whatever a token wrote, so
+		// Signed proves the origin and is never consent.
+		return a.ContentHash != "" && opts.ApprovedMCP[a.Source+"\x00"+ApprovalName(a)] == a.ContentHash
 	}
 	// Everything else a KB ships is installed (D906): the pull has already
 	// rejected a path that escapes its directory and an artifact whose signature
 	// fails against a pinned key (D40, D114), so Signed does not gate this.
 	return a.Signed || strings.HasPrefix(a.Source, "kb:")
+}
+
+// ApprovalName is the name an artifact's local approval is stored under inside
+// its source KB: the bare name for an MCP descriptor (the form D115 wrote), and
+// "<kind>/<name>" for everything else, so a hook and a descriptor of one name
+// never share an approval. An artifact name is a single path segment, so the
+// two forms cannot collide.
+func ApprovalName(a Artifact) string {
+	if a.Kind == "mcp" {
+		return a.Name
+	}
+	return a.Kind + "/" + a.Name
+}
+
+// ArtifactRequiresApproval reports whether a KB artifact waits for the client's
+// hash-bound approval before it is installed (D906, D1141): an MCP descriptor, a
+// hook, any artifact that ships a file with the execute bit, and a skill or
+// agent whose frontmatter declares hooks or MCP servers. The bundle is
+// built into the binary and never asks. An artifact whose files cannot be read
+// is treated as executable: it fails closed.
+func ArtifactRequiresApproval(a Artifact, opts ApplyOptions) bool {
+	if a.BuiltIn || !strings.HasPrefix(a.Source, "kb:") {
+		return false
+	}
+	if a.Kind == "mcp" || a.Kind == "hook" {
+		return true
+	}
+	files := a.Files
+	if len(files) == 0 {
+		var err error
+		files, err = ReadArtifactFiles(a, opts.BundleFS, opts.KBRoots)
+		if err != nil {
+			// With nowhere to read from (a caller that holds only the manifest,
+			// like status) nothing can be installed from it either.
+			return opts.KBRoots != nil
+		}
+	}
+	for _, f := range files {
+		if f.Executable {
+			return true
+		}
+		if (a.Kind == "skill" && strings.EqualFold(f.Path, "SKILL.md")) || a.Kind == "agent" {
+			if FrontmatterDeclaresCommands(f.Content) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// FrontmatterDeclaresCommands reports whether a skill's or agent's frontmatter
+// carries a `hooks` or MCP-server key at any depth, so also inside a per-client
+// `providers:` block: the client runs those commands. The frontmatter is parsed
+// as YAML into a node tree and every key is compared after decoding, so quoting,
+// escapes, flow mappings, complex keys, anchors and merge keys cannot hide one.
+// It answers true (approval needed) whenever it cannot tell: a file that opens
+// like frontmatter but never closes, or whose YAML does not parse.
+func FrontmatterDeclaresCommands(content []byte) bool {
+	text := strings.TrimPrefix(string(content), "\ufeff")
+	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+	lines := strings.Split(text, "\n")
+	start := 0
+	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
+		start++
+	}
+	// A delimiter starts at column 0: an indented "---" is text inside a block
+	// scalar, and taking it for the close would hide the keys after it.
+	if start >= len(lines) || strings.TrimRight(lines[start], " \t") != "---" {
+		return false // no frontmatter
+	}
+	end := -1
+	for i := start + 1; i < len(lines); i++ {
+		if t := strings.TrimRight(lines[i], " \t"); t == "---" || t == "..." {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return true
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(strings.Join(lines[start+1:end], "\n")), &doc); err != nil {
+		return true
+	}
+	return yamlNodeDeclaresCommands(&doc, map[*yaml.Node]bool{})
+}
+
+func yamlNodeDeclaresCommands(n *yaml.Node, seen map[*yaml.Node]bool) bool {
+	if n == nil || seen[n] {
+		return false
+	}
+	seen[n] = true
+	switch n.Kind {
+	case yaml.AliasNode:
+		return yamlNodeDeclaresCommands(n.Alias, seen)
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			k := n.Content[i]
+			if k.Kind == yaml.ScalarNode {
+				switch strings.ToLower(strings.TrimSpace(k.Value)) {
+				case "hooks", "mcpservers", "mcp_servers", "mcp-servers":
+					return true
+				}
+			}
+			if yamlNodeDeclaresCommands(k, seen) || yamlNodeDeclaresCommands(n.Content[i+1], seen) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, c := range n.Content {
+		if yamlNodeDeclaresCommands(c, seen) {
+			return true
+		}
+	}
+	return false
 }
 
 // PreflightStdioMCP verifies locally runnable commands without executing them.

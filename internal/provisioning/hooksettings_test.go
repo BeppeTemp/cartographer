@@ -81,7 +81,7 @@ func TestApply_Hook_RegistraSettingsJSON(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
@@ -125,7 +125,7 @@ func TestApply_Hook_ReApply_NessunDuplicato(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	opts := provisioning.ApplyOptions{
+	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
@@ -167,7 +167,7 @@ func TestApply_Hook_ScriptMaterializzatoEseguibile(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
@@ -207,7 +207,7 @@ func TestApply_Hook_ComandoBare_VerbatimConMarkerCommento(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	opts := provisioning.ApplyOptions{
+	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
@@ -259,7 +259,7 @@ func TestApply_Hook_PreservaChiaviUtenteESettingsPreesistente(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = provisioning.Apply(m, provisioning.ApplyOptions{
+	_, err = provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
@@ -322,7 +322,7 @@ func TestApply_Hook_Removed_RimuoveEntrySettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
@@ -342,7 +342,7 @@ func TestApply_Hook_Removed_RimuoveEntrySettings(t *testing.T) {
 		t.Fatalf("BuildManifest (2): %v", err)
 	}
 
-	res2, err := provisioning.Apply(m2, provisioning.ApplyOptions{
+	res2, err := provisioning.Apply(m2, provisioning.ApplyOptions{ApprovedMCP: approveAll(m2),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
@@ -474,7 +474,7 @@ func TestApplyAndPrune_AntigravityHook(t *testing.T) {
 	if err := os.WriteFile(settingsPath, []byte(`{"user-hook":{"enabled":true,"Stop":[{"type":"command","command":"echo user"}]}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	opts := provisioning.ApplyOptions{
+	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Lock: provisioning.Lock{},
 	}
@@ -541,7 +541,7 @@ func TestApplyAndPrune_AntigravityHook_SessionStart(t *testing.T) {
 	}
 	baseDir := t.TempDir()
 	settingsPath := filepath.Join(baseDir, ".gemini", "config", "hooks.json")
-	opts := provisioning.ApplyOptions{
+	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Lock: provisioning.Lock{},
 	}

@@ -22,7 +22,7 @@ func applyCopilotHook(t *testing.T, event, matcher string) (provisioning.Applied
 		t.Fatal(err)
 	}
 	baseDir := t.TempDir()
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderCopilot, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
@@ -169,7 +169,7 @@ func TestApply_Copilot_MaterializzaAgent(t *testing.T) {
 		Files: []provisioning.ArtifactFile{{Path: "reviewer.md", Content: []byte(src)}},
 	}
 	m := provisioning.MergeArtifacts([]provisioning.Artifact{a})
-	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	if _, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: configurator.ProviderCopilot, BaseDir: baseDir, Lock: provisioning.Lock{},
 	}); err != nil {
 		t.Fatalf("Apply: %v", err)

@@ -33,7 +33,7 @@ func TestApply_OpenCode_Hook_GeneraPluginToolBefore(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderOpenCode,
 		BaseDir:  baseDir,
@@ -106,7 +106,7 @@ func TestApply_OpenCode_Hook_GeneraPluginSessionStart(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderOpenCode,
 		BaseDir:  baseDir,
@@ -139,7 +139,7 @@ func TestApply_OpenCode_Hook_ReApply_Idempotente(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	opts := provisioning.ApplyOptions{
+	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderOpenCode,
 		BaseDir:  baseDir,
@@ -189,7 +189,7 @@ func TestApply_OpenCode_Hook_Removed_RimuovePluginEFile(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	opts := provisioning.ApplyOptions{
+	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderOpenCode,
 		BaseDir:  baseDir,
@@ -239,7 +239,7 @@ func TestApply_OpenCode_Hook_EventoNonMappato_NessunPluginNessunErrore(t *testin
 	}
 
 	baseDir := t.TempDir()
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderOpenCode,
 		BaseDir:  baseDir,
@@ -287,7 +287,7 @@ func applyOpenCodeHookWarnings(t *testing.T, version, event, matcher string) (st
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	baseDir := t.TempDir()
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderOpenCode, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})

@@ -183,9 +183,11 @@ reaches an agent through a chain, and each link can stop it:
 2. **Binding** — the client must be bound to this KB. On a server with two or
    more KBs, `connect` requires the choice explicitly (D190).
 3. **Consent** — everything a KB ships is installed (the client has no trust
-   switch), except an **MCP descriptor**, which an MCP server receives the agent's
-   data through: it needs the user's `cartographer approve mcp <name> --kb <kb>`,
-   bound to the descriptor's exact content hash, signed or not.
+   switch), except what runs on the user's machine: an **MCP descriptor** (an MCP
+   server receives the agent's data through it, signed or not), a **hook**, and any
+   artifact shipping a file with the execute bit or declaring `hooks`/MCP servers in
+   its frontmatter. Each needs the user's `cartographer approve <kind> <name> --kb <kb>`,
+   bound to the exact content hash (a change needs a new approval), signed or not.
 4. **Materialization** — `cartographer sync` writes the translated artifact into
    the client's native directory.
 

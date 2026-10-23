@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -3558,6 +3559,56 @@ func TestServer_SyncApply(t *testing.T) {
 	lockPath := filepath.Join(baseDir, ".cartographer-sync.lock.json")
 	if _, err := os.Stat(lockPath); err != nil {
 		t.Errorf("sync_apply: lockfile not found in %s: %v", lockPath, err)
+	}
+}
+
+// A KB hook is never installed by sync_apply, which holds no local approval,
+// signed by the server or not (D1141): it lands in needs_approval.
+func TestServer_SyncApply_HookNeedsApproval(t *testing.T) {
+	t.Parallel()
+	_, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, signer := range map[string]ed25519.PrivateKey{"unsigned": nil, "signed": priv} {
+		signer := signer
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			k := setupTestKB(t)
+			hookDir := filepath.Join(k.Root, "hooks", "guard")
+			if err := os.MkdirAll(hookDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			os.WriteFile(filepath.Join(hookDir, "hook.json"), []byte(`{"event":"SessionStart","command":"./run.sh"}`+"\n"), 0o644)
+			os.WriteFile(filepath.Join(hookDir, "run.sh"), []byte("#!/bin/sh\nexit 0\n"), 0o755)
+			baseDir := t.TempDir()
+
+			s := New("1.0.0")
+			RegisterKBTools(s, k, Deps{BundleFS: fstest.MapFS{}, ArtifactSigner: signer})
+			resps := runMCPSequence(t, s, []string{
+				`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+				`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"sync_apply","arguments":` + fmt.Sprintf(`{"base_dir":%q}`, baseDir) + `}}`,
+			})
+			tr := decodeToolResult(t, resps[1])
+			if tr.IsError {
+				t.Fatalf("sync_apply: %v", tr.Content)
+			}
+			var result struct {
+				NeedsApproval []struct{ Kind, Name string } `json:"needs_approval"`
+			}
+			if err := json.Unmarshal([]byte(tr.Content[0].Text), &result); err != nil {
+				t.Fatal(err)
+			}
+			if len(result.NeedsApproval) != 1 || result.NeedsApproval[0].Kind != "hook" {
+				t.Errorf("want the hook in needs_approval, got %+v", result.NeedsApproval)
+			}
+			if _, err := os.Stat(filepath.Join(baseDir, ".claude", "hooks", "guard")); err == nil {
+				t.Error("sync_apply installed an unapproved hook")
+			}
+			if _, err := os.Stat(filepath.Join(baseDir, ".claude", "settings.json")); err == nil {
+				t.Error("sync_apply registered an unapproved hook")
+			}
+		})
 	}
 }
 

@@ -552,24 +552,20 @@ func disconnectCmd(provider, dir string) tea.Cmd {
 
 // formatDiffStatus renders a provisioning.Diff as a short status string, used by
 // both loadRemoteStatusCmd (dashboard) and mirrors cmdStatus's own reasoning.
-func formatDiffStatus(d provisioning.Diff) string {
+func formatDiffStatus(d provisioning.Diff, approved map[string]string) string {
 	if d.InSync {
 		return "in-sync"
 	}
 	needsApproval := 0
-	for _, a := range d.Added {
-		if a.Kind == "mcp" { // only an MCP descriptor waits for an approval (D906)
-			needsApproval++
-		}
-	}
-	for _, a := range d.Updated {
-		if a.Kind == "mcp" {
+	opts := provisioning.ApplyOptions{ApprovedMCP: approved}
+	for _, a := range append(append([]provisioning.Artifact(nil), d.Added...), d.Updated...) {
+		if !provisioning.ArtifactAuthorized(a, opts) { // the predicate Apply uses (D906, D1141)
 			needsApproval++
 		}
 	}
 	base := fmt.Sprintf("drift +%d ~%d -%d", len(d.Added), len(d.Updated), len(d.Removed))
 	if needsApproval > 0 {
-		return fmt.Sprintf("%s (%d needs approval, use CLI `cartographer approve mcp`)", base, needsApproval)
+		return fmt.Sprintf("%s (%d needs approval, use CLI `cartographer approve`)", base, needsApproval)
 	}
 	return base
 }
@@ -645,7 +641,7 @@ func summarizeApplied(r provisioning.AppliedResult) string {
 		parts = append(parts, fmt.Sprintf("%d pruned", n))
 	}
 	if n := len(r.NeedsApproval); n > 0 {
-		parts = append(parts, fmt.Sprintf("%d needs approval — run: cartographer approve mcp <name> --kb <kb>", n))
+		parts = append(parts, fmt.Sprintf("%d needs approval — run: cartographer approve <kind> <name> --kb <kb>", n))
 	}
 	if n := len(r.Unsupported); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d not supported by provider", n))

@@ -43,7 +43,7 @@ func applyAgents(t *testing.T, m provisioning.Manifest, kbRoot string, p configu
 	t.Helper()
 	base := t.TempDir()
 	res, err := provisioning.Apply(provisioning.FilterForProvider(m, p), provisioning.ApplyOptions{
-		KBRoots: map[string]string{"kb-a": kbRoot}, Provider: p, BaseDir: base, Lock: lock,
+		KBRoots: map[string]string{"kb-a": kbRoot}, Provider: p, BaseDir: base, Lock: lock, ApprovedMCP: approveAll(m),
 	})
 	if err != nil {
 		t.Fatalf("Apply %s: %v", p, err)

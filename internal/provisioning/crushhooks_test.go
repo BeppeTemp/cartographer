@@ -53,7 +53,7 @@ func TestApplyAndPrune_CrushGlobalHook(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte(user), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	opts := provisioning.ApplyOptions{
+	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderCrush, BaseDir: baseDir, Lock: provisioning.Lock{},
 	}
@@ -108,7 +108,7 @@ func TestPruneManaged_CrushHookDropsEmptiedContainers(t *testing.T) {
 		t.Fatal(err)
 	}
 	baseDir := t.TempDir()
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderCrush, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
@@ -138,7 +138,7 @@ func TestApply_CrushHookOtherEventWarnsAndRegistersNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	baseDir := t.TempDir()
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderCrush, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})
@@ -185,10 +185,9 @@ func TestApplyAndPrune_CrushProjectScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	baseDir := t.TempDir()
-	mcp := findMCPArtifact(t, m, "docs")
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		KBRoots:     map[string]string{"kb": kbRoot},
-		ApprovedMCP: map[string]string{mcp.Source + "\x00docs": mcp.ContentHash},
+		ApprovedMCP: approveAll(m),
 		Provider:    configurator.ProviderCrush, BaseDir: baseDir, Scope: provisioning.ScopeProject,
 		Lock: provisioning.Lock{},
 	})

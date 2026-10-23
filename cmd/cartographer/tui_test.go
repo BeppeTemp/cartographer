@@ -607,14 +607,14 @@ func TestUpdate_DisconnectDoneMsgError(t *testing.T) {
 }
 
 func TestFormatDiffStatus(t *testing.T) {
-	if got := formatDiffStatus(provisioning.Diff{InSync: true}); got != "in-sync" {
+	if got := formatDiffStatus(provisioning.Diff{InSync: true}, nil); got != "in-sync" {
 		t.Errorf("in-sync diff: got %q", got)
 	}
 
 	d := provisioning.Diff{
 		Added: []provisioning.Artifact{{Kind: "skill", Name: "a", Signed: false}},
 	}
-	if got := formatDiffStatus(d); got == "in-sync" || got == "" {
+	if got := formatDiffStatus(d, nil); got == "in-sync" || got == "" {
 		t.Errorf("drift diff should not report in-sync/empty, got %q", got)
 	}
 }
@@ -1324,5 +1324,22 @@ func TestSetupHint(t *testing.T) {
 				t.Errorf("setupHint = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestFormatDiffStatus_CountsWhatApplyHolds(t *testing.T) {
+	hook := provisioning.Artifact{Kind: "hook", Name: "g", Source: "kb:kb-a", ContentHash: "h",
+		Files: []provisioning.ArtifactFile{{Path: "hook.json", Content: []byte("{}")}}}
+	script := provisioning.Artifact{Kind: "skill", Name: "s", Source: "kb:kb-a", ContentHash: "s1",
+		Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("x")}, {Path: "run.sh", Content: []byte("x"), Executable: true}}}
+	plain := provisioning.Artifact{Kind: "skill", Name: "p", Source: "kb:kb-a", ContentHash: "p1",
+		Files: []provisioning.ArtifactFile{{Path: "SKILL.md", Content: []byte("x")}}}
+	d := provisioning.Diff{Added: []provisioning.Artifact{hook, script, plain}}
+	if got := formatDiffStatus(d, nil); !strings.Contains(got, "2 needs approval") {
+		t.Errorf("hook and executable skill must count, plain must not: %q", got)
+	}
+	approved := map[string]string{"kb:kb-a\x00hook/g": "h"}
+	if got := formatDiffStatus(d, approved); !strings.Contains(got, "1 needs approval") {
+		t.Errorf("an approved hook must not count: %q", got)
 	}
 }

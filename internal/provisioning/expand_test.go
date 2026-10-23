@@ -180,7 +180,7 @@ func TestApply_ExpandPlaceholders_ZeroDriftAgent(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	res, err := Apply(m, ApplyOptions{
+	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -220,7 +220,7 @@ func TestApply_ExpandPlaceholders_AgentPathPlaceholder(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	res, err := Apply(m, ApplyOptions{
+	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -272,7 +272,7 @@ func TestApply_ExpandPlaceholders_UnresolvedWarnsAndLeavesLiteral(t *testing.T) 
 	}
 
 	baseDir := t.TempDir()
-	res, err := Apply(m, ApplyOptions{
+	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -317,7 +317,7 @@ func TestApply_ExpandPlaceholders_ServerNeverExpands(t *testing.T) {
 
 	baseDir := t.TempDir()
 	// Like internal/mcpserver: ExpandPlaceholders never set (default false).
-	res, err := Apply(m, ApplyOptions{
+	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
@@ -369,7 +369,7 @@ func TestApply_ExpandPlaceholders_ZeroDriftSkill(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	res, err := Apply(m, ApplyOptions{
+	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -405,7 +405,7 @@ func TestApply_ExpandPlaceholders_SkillMultiFilePlaceholder(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	result, err := Apply(m, ApplyOptions{
+	result, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -465,7 +465,7 @@ func TestApply_ExpandPlaceholders_Instructions(t *testing.T) {
 	a := instructionsArtifactForExpandTest("homelab", "Working repo: {{repo:homelab}}.\n")
 	m := MergeArtifacts([]Artifact{a})
 
-	res, err := Apply(m, ApplyOptions{
+	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
 		Lock:               Lock{},
@@ -496,7 +496,7 @@ func TestApply_ExpandPlaceholders_ZeroDriftInstructions(t *testing.T) {
 	a := instructionsArtifactForExpandTest("homelab", "No placeholder here.\n")
 	m := MergeArtifacts([]Artifact{a})
 
-	res, err := Apply(m, ApplyOptions{
+	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
 		Lock:               Lock{},
@@ -555,7 +555,7 @@ func TestApply_ExpandPlaceholders_PathsTableInInstructions(t *testing.T) {
 	}
 
 	baseDir := t.TempDir()
-	_, err = Apply(m, ApplyOptions{
+	_, err = Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -598,7 +598,7 @@ func TestApply_ExpandPlaceholders_NoPathsTableWhenNothingResolved(t *testing.T) 
 	}
 
 	baseDir := t.TempDir()
-	_, err = Apply(m, ApplyOptions{
+	_, err = Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:            map[string]string{"kb": kbRoot},
 		Provider:           configurator.ProviderClaudeCode,
 		BaseDir:            baseDir,
@@ -637,7 +637,7 @@ func TestApply_ExpandPlaceholders_NoPathsTableServerSide(t *testing.T) {
 
 	baseDir := t.TempDir()
 	// ExpandPlaceholders never set, like internal/mcpserver.
-	_, err = Apply(m, ApplyOptions{
+	_, err = Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderClaudeCode,
 		BaseDir:  baseDir,
@@ -759,7 +759,7 @@ func TestUnresolvedPlaceholdersWarning_CompactAndSharedReason(t *testing.T) {
 // which keys are new is the unresolved set of the lock it started from.
 func TestApply_RecordsPriorUnresolved(t *testing.T) {
 	m := Manifest{Revision: "r"}
-	res, err := Apply(m, ApplyOptions{
+	res, err := Apply(m, ApplyOptions{ApprovedMCP: approveAll(m),
 		Provider: "claude", BaseDir: t.TempDir(), ExpandPlaceholders: true,
 		Lock: Lock{UnresolvedPlaceholders: map[string]string{"path:old": "x"}},
 	})

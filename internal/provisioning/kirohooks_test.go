@@ -25,7 +25,7 @@ func applyKiroHooks(t *testing.T, kbRoot, baseDir string, lock provisioning.Lock
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderKiro, BaseDir: baseDir, Lock: lock,
 	})
@@ -233,7 +233,7 @@ func TestApply_Kiro_Hook_RefusesSymlinkedHooksDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = provisioning.Apply(m, provisioning.ApplyOptions{
+	_, _ = provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderKiro, BaseDir: baseDir, Lock: provisioning.Lock{},
 	})

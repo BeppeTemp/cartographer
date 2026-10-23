@@ -49,10 +49,9 @@ func TestApplyAndPrune_AntigravityProjectScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	baseDir := t.TempDir()
-	mcp := findMCPArtifact(t, m, "docs")
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		KBRoots:     map[string]string{"kb": kbRoot},
-		ApprovedMCP: map[string]string{mcp.Source + "\x00docs": mcp.ContentHash},
+		ApprovedMCP: approveAll(m),
 		Provider:    configurator.ProviderAntigravity, BaseDir: baseDir, Scope: provisioning.ScopeProject,
 		Lock: provisioning.Lock{},
 	})
@@ -108,7 +107,7 @@ func TestAntigravityProjectHooksFileKeepsTheUsersEntries(t *testing.T) {
 	if err := os.WriteFile(hooks, []byte(`{"mine":{"enabled":true}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 		KBRoots:  map[string]string{"kb": kbRoot},
 		Provider: configurator.ProviderAntigravity, BaseDir: baseDir, Scope: provisioning.ScopeProject, Lock: provisioning.Lock{},
 	})
@@ -133,7 +132,7 @@ func TestApply_CoOwnedSkillSurvivesTheOtherProvidersPrune(t *testing.T) {
 	ws := t.TempDir()
 	var lf provisioning.LockFile
 	for _, p := range []configurator.Provider{configurator.ProviderCodex, configurator.ProviderAntigravity} {
-		res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		res, err := provisioning.Apply(m, provisioning.ApplyOptions{ApprovedMCP: approveAll(m),
 			Provider: p, BaseDir: ws, Scope: provisioning.ScopeProject, Lock: provisioning.Lock{},
 		})
 		if err != nil {

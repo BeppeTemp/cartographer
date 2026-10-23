@@ -428,9 +428,9 @@ Exit code: `0` all providers in sync, `1` at least one provider in drift, `2` er
 counts (`provisioning.KindCounts`), e.g. `skill 4/5 · agent 2/2 · hook 1/1`. On drift it
 prints the diff (added/updated/removed, with a `trust` state: `built_in`, `verified`, `trusted`,
 `approved`, `approval_stale` or `needs_approval` — see [D115](decisions/D115-mcp-allow-list-and-hash-bound-local-approval.md)
-for the MCP-specific approval states; an unsigned KB artifact that is not an MCP descriptor is `trusted`: it is installed,
-D906). MCP artifacts in `needs_approval`/`approval_stale` get their own
-`cartographer approve mcp <name> --kb <kb>` hint. Before the artifact report it prints the
+for the MCP-specific approval states; an unsigned KB artifact that is not an MCP descriptor, a hook or an executable file is `trusted`: it is installed,
+D906). Artifacts in `needs_approval`/`approval_stale` get their own
+`cartographer approve <kind> <name> --kb <kb>` hint. Before the artifact report it prints the
 client and server versions. A non-`dev` mismatch is a warning only (it does not change the exit
 code); on loopback, an installed local service also gets a `cartographer upgrade-repair` hint
 (D121: it replaces the running service **and** re-syncs the providers in place, where the former
@@ -1184,18 +1184,23 @@ server, with per-name ownership in the same file (`mcpServers.<name>`/`mcp.<name
 
 ## `.cartographer.yaml`
 
-### MCP descriptor approval
+### Approval of MCP descriptors, hooks and executable files
 
 Every MCP descriptor a KB ships, **signed or not**, needs a separate, local approval: an MCP server
 receives the agent's data, a signature proves only which server a descriptor came from, and since D906 any
-`rw` token on the KB can write a descriptor the server then signs. Nothing else the client installs waits
-for a decision (there is no `trust` setting and no `--auto-trust`). Inspect and record the current descriptor
-with `cartographer approve mcp <name> --kb <kb> --yes` (interactive terminals
-default to no confirmation). Approval records the source KB, artifact name,
-content hash and timestamp in `.cartographer.yaml`; a content change requires
-reapproval. `cartographer approve revoke mcp <name> --kb <kb>` is idempotent
-and takes effect on the next `cartographer sync`, which prunes managed provider
-config.
+`rw` token on the KB can write a descriptor the server then signs. A KB hook, any KB artifact that ships
+a file with the execute bit, and a skill or agent whose frontmatter declares `hooks` or MCP servers (also in a
+`providers:` block) need the same approval because they run on this machine (D1141), signed or not. Nothing else the client installs
+waits for a decision (there is no `trust` setting and no `--auto-trust`), and bundled artifacts never do.
+Inspect and record the current content with `cartographer approve <kind> <name> --kb <kb> --yes`
+(`kind` is `mcp`, `hook`, `skill` or `agent`; interactive terminals default to no confirmation; for a
+non-MCP kind the command lists the files and prints the `hook.json` and the content of the executable files). Approval records the source KB,
+artifact name (`<kind>/<name>` for everything but an MCP descriptor), content hash and timestamp in
+`.cartographer.yaml`; a content change requires reapproval. `cartographer approve revoke <kind> <name> --kb <kb>`
+is idempotent and takes effect on the next `cartographer sync`: for an MCP descriptor it prunes the managed
+provider config; for a hook or an executable file it stops refreshing what is installed, which is left in
+place, registered and running (the command says how to remove it). A hook installed before approval existed is reported as pending on its first sync and is not
+refreshed, registered anew or removed until approved.
 
 Written/updated by `connect` in the user's home directory (`~/.cartographer.yaml`, machine-wide —
 `clientconfig.TargetDir`, D52): it records which server the machine is connected to (the connected providers are in the client state file, below). One file per machine, not per project: this avoids drift with a provider

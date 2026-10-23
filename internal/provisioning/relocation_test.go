@@ -20,7 +20,7 @@ func TestApply_RelocatesArtifactWhoseDestinationMoved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
-	opts := provisioning.ApplyOptions{BundleFS: bundleFS, Provider: configurator.ProviderOpenCode, BaseDir: baseDir}
+	opts := provisioning.ApplyOptions{ApprovedMCP: approveAll(m), BundleFS: bundleFS, Provider: configurator.ProviderOpenCode, BaseDir: baseDir}
 	res, err := provisioning.Apply(m, opts)
 	if err != nil {
 		t.Fatalf("first Apply: %v", err)

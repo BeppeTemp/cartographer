@@ -898,8 +898,8 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 			fmt.Printf("[%s] diverged locally (%s): %s/%s at %s — `cartographer sync` restores it\n", p, d.Reason, d.Kind, d.Name, d.Path)
 		}
 		for _, na := range r.NeedsApproval {
-			// Only an MCP descriptor waits for an approval (D906): the rest of what
-			// a KB ships is installed.
+			// An MCP descriptor, a hook and an executable file wait for an approval
+			// (D906, D1141): the rest of what a KB ships is installed.
 			needsMCPApproval = true
 			fmt.Printf("[%s] needs_approval: %s/%s [%s]\n", p, na.Kind, na.Name, na.Source)
 		}
@@ -933,7 +933,7 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 		fmt.Printf("warning: %s\n", w)
 	}
 	if needsMCPApproval {
-		fmt.Println("MCP artifacts require a point approval: cartographer approve mcp <name> --kb <kb>, then cartographer sync")
+		fmt.Println("Pending artifacts (MCP descriptors, hooks, executable files) require an approval: cartographer approve <kind> <name> --kb <kb>, then cartographer sync")
 	}
 }
 

@@ -132,7 +132,7 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 		Name: "sync_apply",
 		Description: "Materializes the provisioning skills into the given base_dir, updates the lockfile and prunes " +
 			"stale artifacts. Intended for local deployment (stdio) where server and client share the FS. " +
-			"Built-in and KB artifacts are written; MCP descriptors need a local approval and go into needs_approval without one. " +
+			"Built-in and KB artifacts are written; MCP descriptors, hooks and artifacts shipping an executable file need a local approval (signed or not) and go into needs_approval: this tool holds none. " +
 			"Supports dry_run=true to show the diff without writing. " +
 			"Local operator only (stdio, or HTTP with authentication off): any token is refused; remote clients use sync_pull.",
 		InputSchema: json.RawMessage(`{

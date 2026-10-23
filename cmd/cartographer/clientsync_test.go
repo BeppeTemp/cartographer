@@ -100,6 +100,8 @@ func TestFetchMergedManifest_PreservesBinaryExecutableFilesThroughApply(t *testi
 			Provider: configurator.Provider(provider),
 			BaseDir:  base,
 			Lock:     provisioning.Lock{},
+			// An executable file waits for the local approval of this exact hash (D1141).
+			ApprovedMCP: map[string]string{"kb:kb-a\x00skill/wire": artifactHash},
 		})
 		if err != nil {
 			t.Fatalf("Apply(%s): %v", provider, err)
@@ -430,7 +432,7 @@ func TestDiffUnsignedKBSkillNeedsNoApproval(t *testing.T) {
 	if d.Added[0].Signed {
 		t.Error("the absence of a trust switch must not change the verification state")
 	}
-	if got := formatDiffStatus(d); got != "drift +1 ~0 -0" {
+	if got := formatDiffStatus(d, nil); got != "drift +1 ~0 -0" {
 		t.Errorf("formatDiffStatus = %q", got)
 	}
 }
@@ -438,7 +440,7 @@ func TestDiffUnsignedKBSkillNeedsNoApproval(t *testing.T) {
 // An MCP descriptor is the one artifact that still waits for an approval.
 func TestDiffMCPDescriptorNeedsApproval(t *testing.T) {
 	d := provisioning.Diff{Added: []provisioning.Artifact{{Kind: "mcp", Name: "tools", Source: "kb:x", Signed: true}}}
-	if got := formatDiffStatus(d); !strings.Contains(got, "1 needs approval") || strings.Contains(got, "--auto-trust") {
+	if got := formatDiffStatus(d, nil); !strings.Contains(got, "1 needs approval") || strings.Contains(got, "--auto-trust") {
 		t.Errorf("formatDiffStatus = %q", got)
 	}
 }
