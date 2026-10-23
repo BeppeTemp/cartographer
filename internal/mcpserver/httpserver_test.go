@@ -529,7 +529,9 @@ func TestMultiKB_Ready_GatesOnAuditSink(t *testing.T) {
 	m.kbs = []KBInfo{{Name: "ok", Status: "normal"}, {Name: "broken", Status: "normal"}}
 
 	rec := httptest.NewRecorder()
-	m.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ready", nil))
+	// Through the auth-off middleware: the local admin reads every KB, so the
+	// degraded one is named (D1096 filters the names by token).
+	auth.NewTokenStore(nil).Middleware(m.Handler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ready", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Errorf("/ready status = %d, want 503", rec.Code)
 	}
@@ -546,6 +548,53 @@ func TestMultiKB_Ready_GatesOnAuditSink(t *testing.T) {
 	// Naming the KB is the difference between a diagnosis and a mystery.
 	if len(ready.Degraded) != 1 || ready.Degraded[0] != "broken" {
 		t.Errorf("degraded = %v, want [broken]", ready.Degraded)
+	}
+}
+
+// TestMultiKB_Ready_FollowsTheToken: a token scoped to one KB learns neither
+// how many KBs are mounted nor the names of degraded KBs it cannot read; the
+// 503 itself stays, since readiness is the whole process's.
+func TestMultiKB_Ready_FollowsTheToken(t *testing.T) {
+	t.Parallel()
+	m := NewMultiKBServer("test")
+	m.servers["kb-a"] = New("test")
+	broken := New("test")
+	broken.SetAuditLog(unhealthyRequiredLog(t))
+	m.servers["kb-b"] = broken
+	m.kbs = []KBInfo{{Name: "kb-a", Status: "normal"}, {Name: "kb-b", Status: "normal"}}
+
+	get := func(p auth.Principal) (int, map[string]interface{}) {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodGet, "/ready", nil)
+		r = r.WithContext(auth.ContextWithPrincipal(r.Context(), p))
+		rec := httptest.NewRecorder()
+		m.Handler().ServeHTTP(rec, r)
+		var body map[string]interface{}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		return rec.Code, body
+	}
+
+	code, body := get(auth.Principal{ID: "scoped", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-a"}}}})
+	if code != http.StatusServiceUnavailable {
+		t.Errorf("scoped /ready status = %d, want 503", code)
+	}
+	if body["kbs"] != float64(1) {
+		t.Errorf("scoped kbs = %v, want 1 (only the readable KB)", body["kbs"])
+	}
+	if _, ok := body["degraded"]; ok {
+		t.Errorf("scoped body names a KB it cannot read: %v", body["degraded"])
+	}
+
+	_, body = get(auth.Principal{ID: "reader-b", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-b"}}}})
+	if d, _ := body["degraded"].([]interface{}); len(d) != 1 || d[0] != "kb-b" {
+		t.Errorf("reader of kb-b: degraded = %v, want [kb-b]", body["degraded"])
+	}
+
+	_, body = get(auth.Principal{ID: "admin", Policy: auth.Policy{Admin: true}})
+	if body["kbs"] != float64(2) {
+		t.Errorf("admin kbs = %v, want 2", body["kbs"])
 	}
 }
 
