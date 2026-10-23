@@ -1,0 +1,40 @@
+# Tries the README film's render on a pull request that touches it (D1068): the encode chain (ffmpeg, img2webp)
+# otherwise ran for the first time in the release candidate, where a failure blocks the train. It renders the
+# first 30 frames only (--frames 30) with the same pinned actions and OS packages as film.yml's render job, and
+# publishes nothing. No cache: the ref is untrusted. Not a required check.
+# Every action is pinned to a full commit SHA (supply chain).
+name: film-check
+
+on:
+  pull_request:
+    paths:
+      - "film/**"
+      - ".github/workflows/film.yml"
+      - ".github/workflows/film-check.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: film-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 30
+    steps:
+      # No credential is left in .git/config: npm ci, Playwright, vite and record.mjs run the PR's code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: web/.nvmrc
+      - run: cd web && npm ci --silent
+      - run: cd web && npx playwright install --with-deps chromium
+      - run: sudo apt-get install -y ffmpeg webp
+      - name: Render 30 frames
+        run: time film/render.sh --no-mp4 --frames 30

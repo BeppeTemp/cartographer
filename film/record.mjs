@@ -2,6 +2,8 @@
 // Exits non-zero when the page raised an error or fewer frames than the film has were rendered (D1068): that is
 // what turns a broken import or camera in web/src/lib/graph3d into a red CI job.
 // --no-mp4 skips the MP4 (CI publishes only the WebP).
+// --frames N renders only frames 0..N-1 and skips the "the film has <frames>" count check; the encode is unchanged
+// (film-check.yml runs it on every pull request that touches film/, to try the tools of the runner).
 import { createRequire } from "node:module";
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -15,6 +17,7 @@ const args = process.argv.slice(2);
 const opt = (name, dflt) => { const i = args.indexOf(`--${name}`); return i < 0 ? dflt : args[i + 1]; };
 const stills = new Set((opt("stills", "") || "").split(",").filter(Boolean).map(Number));
 const noMp4 = args.includes("--no-mp4");
+const framesOpt = Math.floor(Number(opt("frames", 0))) || 0;
 const fpsOpt = Number(opt("fps", 0)) || 0;
 const url = opt("url", "http://localhost:5180/?record");
 const out = path.join(here, "out");
@@ -36,7 +39,7 @@ const { fps, frames } = await page.evaluate(() => ({ fps: window.film.fps, frame
 if (fpsOpt && fpsOpt !== fps) console.warn(`the page runs at ${fps} fps; --fps ${fpsOpt} only changes the encode`);
 const rate = fpsOpt || fps;
 const stillFrames = new Map([...stills].map((s) => [Math.round(s * fps), s]));
-const last = stills.size ? Math.max(...stillFrames.keys()) : frames - 1;
+const last = stills.size ? Math.max(...stillFrames.keys()) : Math.min(framesOpt || frames, frames) - 1;
 
 const fail = async (msg) => { console.error(`record: ${msg}`); await browser.close(); process.exit(1); };
 for (let n = 0; n <= last; n++) {
@@ -54,7 +57,7 @@ for (let n = 0; n <= last; n++) {
 if (pageErrors.length) await fail(`the page raised ${pageErrors.length} error(s), the first: ${pageErrors[0]}`);
 const rendered = await page.evaluate(() => window.film.rendered());
 if (rendered !== last + 1) await fail(`the page rendered ${rendered} frames, expected ${last + 1}`);
-if (!stills.size && rendered !== frames) await fail(`rendered ${rendered} frames, the film has ${frames}`);
+if (!stills.size && !framesOpt && rendered !== frames) await fail(`rendered ${rendered} frames, the film has ${frames}`);
 await browser.close();
 
 if (!stills.size) {

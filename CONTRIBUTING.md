@@ -279,7 +279,11 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
   candidate is not the current head of `main` (a fix landed after the build), the train
   is skipped with a comment (it says when the candidate build itself failed): run the
   candidate again by hand (`release-train`, `action: rc`), try it and add the label
-  again, or wait a week.
+  again, or wait a week. A candidate built by hand before the freeze is kept by the
+  Saturday run when `main` has not moved since (it comments that the candidate already
+  carries this `main`), so an `rc-ok` added after it stays valid; a manual `action: rc`
+  always builds. A pull request touching `film/` runs `film-check` (30 frames, the
+  runner's tools), so the encode chain fails there and not in the candidate.
 - **Only the next train's work merges.** The next train is the open milestone due
   first. Work of a later milestone can be planned, implemented and reviewed at any
   time, but its PR waits, open, until the train before it has left: `plan-gate`
