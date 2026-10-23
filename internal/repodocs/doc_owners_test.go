@@ -205,7 +205,7 @@ func TestDocOwnersScript(t *testing.T) {
 		}
 	})
 	t.Run("Docs none without a reason does not silence", func(t *testing.T) {
-		for _, body := range []string{"Docs: none", "Docs: none -", "see Docs: none - x"} {
+		for _, body := range []string{"Docs: none", "Docs: none -", "Docs: none -   ", "see Docs: none - x"} {
 			if out, _ := runDocOwners(t, tsv, body, prod(20, 0, "src/a/x.go")); hits(out) != 1 {
 				t.Errorf("body %q: %q", body, out)
 			}

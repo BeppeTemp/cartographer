@@ -46,7 +46,7 @@ while IFS= read -r line || [ -n "$line" ]; do
 done <"$tsv"
 
 [ "$n" -gt 0 ] || exit 0
-reason=$(printf '%s\n' "$body" | tr -d '\r' | grep -i -m1 '^Docs: none - .\+' || true)
+reason=$(printf '%s\n' "$body" | tr -d '\r' | grep -i -m1 '^Docs: none - *[^[:space:]]' || true)
 if [ -n "$reason" ]; then
   echo "$reason ($n docs-owner warnings silenced)"
 else

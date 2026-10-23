@@ -195,7 +195,7 @@ if [ "$prod" -gt "$SIZE_CAP" ]; then
     echo "BLOCK: over the size cap ($prod > $SIZE_CAP production lines) — split it by work package"
   fi
 fi
-if [ -z "$docs_touched" ] && [ "$prod" -gt 50 ] && ! grep -qi '^Docs: none - .' <<<"${body//$'\r'/}"; then
+if [ -z "$docs_touched" ] && [ "$prod" -gt 50 ] && ! grep -qi '^Docs: none - *[^[:space:]]' <<<"${body//$'\r'/}"; then
   echo "WARN: production code changed and no docs/ page touched — check docs/index.md §Documentation maintenance rules"
 fi
 # Advisory, never blocking, and fail open: a broken map must not fail the required plan-gate check.
