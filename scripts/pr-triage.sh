@@ -66,8 +66,10 @@ git remote get-url upstream >/dev/null 2>&1 && remote=upstream
 role=contributor
 if [ $# -ge 1 ]; then
   PR=$1
-  meta=$(gh pr view "$PR" --json title,author,files,closingIssuesReferences,statusCheckRollup,body,headRefName,labels,assignees)
-  files=$(jq -r '.files[] | "\(.additions)\t\(.deletions)\t\(.path)"' <<<"$meta")
+  meta=$(gh pr view "$PR" --json title,author,closingIssuesReferences,statusCheckRollup,body,headRefName,labels,assignees)
+  # Not `gh pr view --json files`: it stops at 100 files, and every count below
+  # (size, tier, supply chain, docs owners) would be taken on a truncated list.
+  files=$(gh api --paginate "repos/{owner}/{repo}/pulls/$PR/files" --jq '.[] | "\(.additions)\t\(.deletions)\t\(.filename)"')
   author=$(jq -r .author.login <<<"$meta")
   prinfo=$(gh api "repos/{owner}/{repo}/pulls/$PR" --jq '[.author_association, .user.type] | @tsv')
   assoc=${AUTHOR_ASSOCIATION:-${prinfo%%$'\t'*}}

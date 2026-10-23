@@ -73,7 +73,8 @@ func TestPRTriageWarnsOnAnUnlistedTitleScope(t *testing.T) {
 	dir := t.TempDir()
 	fake := `#!/bin/sh
 case "$1 $2" in
-  "pr view") printf '{"title":"%s","author":{"login":"u"},"files":[{"additions":1,"deletions":0,"path":"README.md"}],"closingIssuesReferences":[],"statusCheckRollup":[],"body":"","headRefName":"b","labels":[],"assignees":[]}' "$TITLE" ;;
+  "pr view") printf '{"title":"%s","author":{"login":"u"},"closingIssuesReferences":[],"statusCheckRollup":[],"body":"","headRefName":"b","labels":[],"assignees":[]}' "$TITLE" ;;
+  "api --paginate") printf '1\t0\tREADME.md\n' ;;
   "api repos/{owner}/{repo}/pulls/1") printf 'MEMBER\tUser\n' ;;
   *) exit 1 ;;
 esac
@@ -106,5 +107,34 @@ esac
 		if got != c.warn {
 			t.Errorf("%q: warned = %v, want %v\n%s", c.title, got, c.warn, out.String())
 		}
+	}
+}
+
+// gh pr view --json files stops at 100 files: a supply-chain file past the
+// hundredth must still be seen (#1158).
+func TestPRTriageReadsEveryFileOfALargePR(t *testing.T) {
+	bash := bashOrSkip(t)
+	dir := t.TempDir()
+	fake := `#!/bin/sh
+case "$1 $2" in
+  "pr view") printf '{"title":"docs: many pages","author":{"login":"u"},"closingIssuesReferences":[],"statusCheckRollup":[],"body":"","headRefName":"b","labels":[],"assignees":[]}' ;;
+  "api --paginate") i=1; while [ $i -le 150 ]; do printf '1\t0\tdocs/page%d.md\n' $i; i=$((i+1)); done; printf '1\t0\t.github/workflows/ci.yml\n' ;;
+  "api repos/{owner}/{repo}/pulls/1") printf 'MEMBER\tUser\n' ;;
+  *) exit 1 ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bash, "scripts/pr-triage.sh", "1")
+	cmd.Dir = repoRoot(t)
+	cmd.Env = append(os.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	var out, errb bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("pr-triage.sh: %v\n%s%s", err, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "supply-chain files changed") {
+		t.Errorf("the workflow file after 150 docs pages was not seen\n%s", out.String())
 	}
 }
