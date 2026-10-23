@@ -332,3 +332,14 @@ func TestKBGuide_PointersAndDescription(t *testing.T) {
 		t.Errorf("kb_guide description is %d chars", len([]rune(d)))
 	}
 }
+
+func TestKBGuide_RefusesOldAndNotServedNames(t *testing.T) {
+	t.Parallel()
+	s, _ := guideServer(t, skillbundle.FS)
+	for _, name := range []string{"kb-ingest", "kb-conflict-resolve", "kb-import", "cartographer-kb-create", "cartographer-kb-doctor", "cartographer-ops", "create", "doctor"} {
+		res := callTool(t, s, "kb_guide", `{"procedure":"`+name+`"}`)
+		if !res.IsError || !strings.Contains(guideText(t, res), "ingest, conflict-resolve, import") {
+			t.Errorf("%s: want refusal listing the served names, got %+v", name, res)
+		}
+	}
+}

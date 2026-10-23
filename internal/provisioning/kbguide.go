@@ -169,6 +169,7 @@ func GuideOperational(readOnly bool) string {
 	sb.WriteString(orientationBullet)
 	if readOnly {
 		sb.WriteString(placeholderBullet)
+		sb.WriteString(procedureBullet)
 		sb.WriteString(readOnlyBullet)
 		return sb.String()
 	}

@@ -221,3 +221,12 @@ func TestRenderGuide_NamesKBGuideAndTheBlockDoesNot(t *testing.T) {
 		t.Errorf("the managed block names kb_guide:\n%s", a.Files[0].Content)
 	}
 }
+
+// D1100: kb_guide is read-only, so a read-only guide names it too.
+func TestRenderGuide_ReadOnlyNamesKBGuide(t *testing.T) {
+	g := provisioning.RenderGuide([]provisioning.GuideKB{fiveArchives()}, provisioning.GuideOptions{Routed: true, ReadOnly: true})
+	if !strings.Contains(g, "`kb_guide`") {
+		t.Errorf("the read-only guide does not name kb_guide:\n%s", g)
+	}
+	t.Logf("read-only operational section: %d bytes", len(provisioning.GuideOperational(true)))
+}
