@@ -342,6 +342,48 @@ func TestApply_UpdateTheRegistrarSkipsStripsThePreviousRegistration(t *testing.T
 				if _, err := os.Stat(filepath.Join(base, destDirScoped("hook", "guard", p, ScopeGlobal), "extra.sh")); err != nil {
 					t.Errorf("the hook's remaining file is gone: %v", err)
 				}
+
+				// The lock describes the disk: only files still there, the
+				// remaining script at its new hash, and neither the dropped
+				// hook.json nor a generated registration file.
+				var extra bool
+				for _, mf := range res2.NewLock.Managed {
+					if _, err := os.Stat(filepath.Join(base, mf.Path)); err != nil {
+						t.Errorf("the lock claims %s, which is not on disk: %v", mf.Path, err)
+					}
+					if spec == "" && strings.HasSuffix(mf.Path, "hook.json") {
+						t.Errorf("the lock claims the dropped hook.json: %+v", mf)
+					}
+					if strings.HasSuffix(mf.Path, "extra.sh") {
+						extra = true
+						if mf.ContentHash != "h2" {
+							t.Errorf("extra.sh recorded at %q, want h2", mf.ContentHash)
+						}
+					}
+				}
+				if !extra {
+					t.Errorf("the lock lost the remaining script: %+v", res2.NewLock.Managed)
+				}
+				if pluginPath := hookMechanisms[p].pluginPath; pluginPath != nil {
+					companion := filepath.FromSlash(pluginPath("guard"))
+					inLock := func(l Lock) bool {
+						for _, mf := range l.Managed {
+							if filepath.Clean(filepath.FromSlash(mf.Path)) == companion {
+								return true
+							}
+						}
+						return false
+					}
+					if !inLock(res.NewLock) {
+						t.Fatalf("the first lock does not record the generated file %s", companion)
+					}
+					if inLock(res2.NewLock) {
+						t.Errorf("the lock still claims the generated file %s", companion)
+					}
+					if _, err := os.Stat(filepath.Join(base, companion)); !os.IsNotExist(err) {
+						t.Errorf("the generated file %s is still on disk (err=%v)", companion, err)
+					}
+				}
 			})
 		}
 	}
@@ -520,5 +562,60 @@ func TestApply_RefusedMultiFileUpdateRewritesNoFile(t *testing.T) {
 		if mf.ContentHash != "h1" {
 			t.Errorf("entry %s = %q, want the previous hash", mf.Path, mf.ContentHash)
 		}
+	}
+}
+
+// A refused removal of the instructions block leaves the block on disk, so the
+// sections stay in the lockfile together with the paths-section hash.
+func TestApply_RefusedInstructionsRemovalKeepsThePathsHash(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	base, elsewhere := t.TempDir(), t.TempDir()
+	opts := func(lock Lock) ApplyOptions {
+		return ApplyOptions{Provider: configurator.ProviderClaudeCode, BaseDir: base, SkipLockWrite: true, Lock: lock}
+	}
+	first := Manifest{Revision: "r1", Artifacts: []Artifact{{
+		Kind: "instructions", Name: "kb-a", ContentHash: "h1", Source: "kb:kb-a",
+		Files: []ArtifactFile{{Path: "instructions.md", Content: []byte("first\n")}},
+	}}}
+	res, err := Apply(first, opts(Lock{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.NewLock.PathsSectionHash = "paths-hash"
+	file := filepath.Join(base, ".claude", "CLAUDE.md")
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(elsewhere, "CLAUDE.md")
+	if err := os.WriteFile(target, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, file); err != nil {
+		t.Fatal(err)
+	}
+	res2, err := Apply(Manifest{Revision: "r2"}, opts(res.NewLock))
+	if err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	if len(res2.Refused) != 1 {
+		t.Fatalf("Refused = %+v, want the instructions", res2.Refused)
+	}
+	var got []ManagedFile
+	for _, mf := range res2.NewLock.Managed {
+		if mf.Kind == "instructions" {
+			got = append(got, mf)
+		}
+	}
+	if len(got) != 1 {
+		t.Errorf("instructions entries after the refused removal = %+v, want the previous one", got)
+	}
+	if res2.NewLock.PathsSectionHash != "paths-hash" {
+		t.Errorf("PathsSectionHash = %q, want the previous value kept", res2.NewLock.PathsSectionHash)
 	}
 }

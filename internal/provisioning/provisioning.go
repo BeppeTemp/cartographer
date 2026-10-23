@@ -2084,13 +2084,11 @@ hookLoop:
 					// malformed hook.json (see registerHookSettings/
 					// registerCodexHook): doesn't fail materialization.
 					if mechanism, ok := hookMechanisms[opts.Provider]; ok {
-						// An update whose new spec the registrar will skip (no
-						// hook.json, an invalid one, an event the client never
-						// fires) must not leave the previous registration behind:
-						// it would keep firing the old entry. The files the update
-						// dropped are not pruned yet, so a dropped hook.json is
-						// removed first, or the registrar would read it again.
-						if hookInLock(opts.Lock.Managed, a.Name) {
+						// The files the update dropped are not pruned yet, so a
+						// dropped hook.json is removed first, or the registrar would
+						// read it again and register the old spec.
+						previous := hookInLock(opts.Lock.Managed, a.Name)
+						if previous {
 							for _, d := range droppedArtifactFiles(opts.Lock.Managed, a, destRel, relPaths) {
 								if filepath.Base(d.Path) == "hook.json" {
 									if err := safewrite.Remove(opts.BaseDir, filepath.Join(opts.BaseDir, d.Path)); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -2101,17 +2099,8 @@ hookLoop:
 									}
 								}
 							}
-							if !mechanism.registersAnything(a.Name, fullDestDir) {
-								stale := ManagedFile{Kind: "hook", Name: a.Name, Path: filepath.Join(destRel, "hook.json")}
-								if err := removeHookRegistration(opts.BaseDir, stale); err != nil {
-									if refuseArtifact(a, err) {
-										continue hookLoop
-									}
-									return AppliedResult{}, err
-								}
-							}
 						}
-						pluginRel, warning, regErr := mechanism.register(opts.BaseDir, a.Name, fullDestDir)
+						pluginRel, warning, registered, regErr := mechanism.register(opts.BaseDir, a.Name, fullDestDir)
 						if regErr != nil {
 							// Refused (D148): a new hook is not recorded as installed,
 							// an updated one keeps its previous lock entry; the next
@@ -2123,6 +2112,18 @@ hookLoop:
 						}
 						if warning != "" {
 							result.Warnings = append(result.Warnings, warning)
+						}
+						// An update the registrar skipped (no hook.json, an invalid
+						// one, an event the client never fires) must not leave the
+						// previous registration firing its old entry.
+						if !registered && previous {
+							stale := ManagedFile{Kind: "hook", Name: a.Name, Path: filepath.Join(destRel, "hook.json")}
+							if err := removeHookRegistration(opts.BaseDir, stale); err != nil {
+								if refuseArtifact(a, err) {
+									continue hookLoop
+								}
+								return AppliedResult{}, err
+							}
 						}
 						if pluginRel != "" {
 							relPaths = append(relPaths, pluginRel)
@@ -2632,7 +2633,9 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 					return fmt.Errorf("provisioning: remove instructions block %s: %w", destRel, err)
 				}
 				// Refused (D148): the sections stay in the lockfile and are
-				// reported, the next sync retries.
+				// reported, the next sync retries. The block is still on disk,
+				// so the paths-section hash stays as it was.
+				*pathsHash = opts.Lock.PathsSectionHash
 				kept := result.Pruned[:0]
 				for _, mf := range result.Pruned {
 					if mf.Kind == "instructions" {

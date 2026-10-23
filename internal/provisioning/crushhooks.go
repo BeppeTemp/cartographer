@@ -59,19 +59,19 @@ func crushMatcher(matcher string) string {
 
 // registerCrushHook upserts hookName's PreToolUse entry. Only PreToolUse
 // fires on Crush, so any other event installs the files and warns.
-func registerCrushHook(baseDir, hookName, fullDestDir string) (string, error) {
+func registerCrushHook(baseDir, hookName, fullDestDir string) (string, bool, error) {
 	spec, specErr := loadHookSpec(fullDestDir)
 	if specErr != nil {
-		return hookSpecWarning(hookName, configurator.ProviderCrush, specErr), nil
+		return hookSpecWarning(hookName, configurator.ProviderCrush, specErr), false, nil
 	}
 	if warning, skip := hookEventWarning(hookName, configurator.ProviderCrush, spec.Event); skip {
-		return warning, nil
+		return warning, false, nil
 	}
 
 	path := crushSettingsPath(baseDir, crushHookRel(baseDir, fullDestDir))
 	settings, err := loadJSONObject(path)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	entry := map[string]interface{}{
 		"name":    crushHookName(hookName),
@@ -89,7 +89,8 @@ func registerCrushHook(baseDir, hookName, fullDestDir string) (string, error) {
 	list = withoutCrushHook(list, crushHookName(hookName))
 	hooks[spec.Event] = append(list, entry)
 	settings["hooks"] = hooks
-	return "", saveJSONObject(baseDir, path, settings)
+	err = saveJSONObject(baseDir, path, settings)
+	return "", err == nil, err
 }
 
 // removeCrushHook strips hookName's entry from the config file that matches

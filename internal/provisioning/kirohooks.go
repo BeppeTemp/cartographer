@@ -48,14 +48,14 @@ func kiroHooksPath(baseDir string) string {
 // The command keeps the host's spelling (resolveHookCommand only, no
 // posixShellHookCommand): KAS runs a command hook through $SHELL -c on unix and
 // through PowerShell, or cmd.exe, on Windows — not through a POSIX shell there.
-func registerKiroHook(baseDir, hookName, fullDestDir string) (string, error) {
+func registerKiroHook(baseDir, hookName, fullDestDir string) (string, bool, error) {
 	spec, err := loadHookSpec(fullDestDir)
 	if err != nil {
-		return hookSpecWarning(hookName, configurator.ProviderKiro, err), nil
+		return hookSpecWarning(hookName, configurator.ProviderKiro, err), false, nil
 	}
 	warning, skip := hookEventWarning(hookName, configurator.ProviderKiro, spec.Event)
 	if skip {
-		return warning, nil
+		return warning, false, nil
 	}
 	entry := map[string]interface{}{
 		"name":        hookName,
@@ -75,7 +75,7 @@ func registerKiroHook(baseDir, hookName, fullDestDir string) (string, error) {
 	path := kiroHooksPath(baseDir)
 	doc, err := loadJSONObject(path)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	hooks, _ := stripKiroHookEntries(doc, hookName)
 	hooks = append(hooks, entry)
@@ -83,9 +83,10 @@ func registerKiroHook(baseDir, hookName, fullDestDir string) (string, error) {
 	doc["version"] = "v1"
 	doc["hooks"] = hooks
 	if err := mkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
-		return "", fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(path), err)
+		return "", false, fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(path), err)
 	}
-	return warning, saveJSONObject(baseDir, path, doc)
+	err = saveJSONObject(baseDir, path, doc)
+	return warning, err == nil, err
 }
 
 // removeKiroHook strips hookName's entry from cartographer.json — the inverse of

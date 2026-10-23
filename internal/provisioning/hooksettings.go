@@ -41,14 +41,14 @@ type hookSpec struct {
 // vocabulary is registered as declared, with a warning. This is the claude provider's registrar: hookMechanisms dispatches
 // each provider to its own (codex, opencode and antigravity have theirs), so no
 // provider parameter is needed here.
-func registerHookSettings(baseDir, hookName, fullDestDir string) (string, error) {
+func registerHookSettings(baseDir, hookName, fullDestDir string) (string, bool, error) {
 	spec, err := loadHookSpec(fullDestDir)
 	if err != nil {
-		return hookSpecWarning(hookName, configurator.ProviderClaudeCode, err), nil
+		return hookSpecWarning(hookName, configurator.ProviderClaudeCode, err), false, nil
 	}
 	warning, skip := hookEventWarning(hookName, configurator.ProviderClaudeCode, spec.Event)
 	if skip {
-		return warning, nil
+		return warning, false, nil
 	}
 
 	// Claude Code on Windows runs hooks through Git Bash (D267).
@@ -65,10 +65,11 @@ func registerHookSettings(baseDir, hookName, fullDestDir string) (string, error)
 	settingsPath := claudeSettingsPath(baseDir)
 	settings, err := loadJSONObject(settingsPath)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	upsertHookEntry(settings, hookOwnershipMarker(hookName), spec.Event, spec.Matcher, command)
-	return warning, saveJSONObject(baseDir, settingsPath, settings)
+	err = saveJSONObject(baseDir, settingsPath, settings)
+	return warning, err == nil, err
 }
 
 // removeHookEntries strips every settings.json hooks entry owned by hookName
@@ -412,14 +413,14 @@ func codexHooksPath(baseDir string) string {
 // block and any marker-less copy Codex's own rewrite left behind (D99) — or the
 // hook would fire twice. Returns a warning describing that migration, if any.
 // Best-effort on a missing/malformed hook.json (via readHookSpec).
-func registerCodexHook(baseDir, hookName, fullDestDir string) (string, error) {
+func registerCodexHook(baseDir, hookName, fullDestDir string) (string, bool, error) {
 	spec, specErr := loadHookSpec(fullDestDir)
 	if specErr != nil {
-		return hookSpecWarning(hookName, configurator.ProviderCodex, specErr), nil
+		return hookSpecWarning(hookName, configurator.ProviderCodex, specErr), false, nil
 	}
 	eventWarning, skip := hookEventWarning(hookName, configurator.ProviderCodex, spec.Event)
 	if skip {
-		return eventWarning, nil
+		return eventWarning, false, nil
 	}
 	resolved := resolveHookCommand(spec.Command, fullDestDir)
 	// Same reason as registerHookSettings: an inline command that does not
@@ -434,29 +435,29 @@ func registerCodexHook(baseDir, hookName, fullDestDir string) (string, error) {
 	// The D58 registration carried the command without the trailing marker.
 	migrated, err := removeLegacyCodexHookTOML(baseDir, hookName, resolved)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 
 	path := codexHooksPath(baseDir)
 	settings, err := loadJSONObject(path)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	upsertHookEntry(settings, marker, codexHookEvent(spec.Event), spec.Matcher, command)
 	if err := saveJSONObject(baseDir, path, settings); err != nil {
-		return "", err
+		return "", false, err
 	}
 	if migrated == 0 {
-		return eventWarning, nil
+		return eventWarning, true, nil
 	}
 	migration := fmt.Sprintf(
 		"codex: hook %q — moved its registration from config.toml to hooks.json; Codex will ask to trust it again once",
 		hookName)
 	if eventWarning != "" {
 		// Both are true of one registration and the caller takes one string.
-		return migration + "; " + eventWarning, nil
+		return migration + "; " + eventWarning, true, nil
 	}
-	return migration, nil
+	return migration, true, nil
 }
 
 // removeCodexHook strips hookName's entry from <baseDir>/.codex/hooks.json and any
@@ -558,19 +559,19 @@ func hookProviderFromPath(path string) string {
 // shared ~/.gemini/config/hooks.json (or, for a hook materialized under a
 // workspace's .agents/hooks/, that workspace's .agents/hooks.json, D364). Tool events use matcher groups; lifecycle
 // events use the direct command-handler list required by Antigravity.
-func registerAntigravityHook(baseDir, hookName, fullDestDir string) (string, error) {
+func registerAntigravityHook(baseDir, hookName, fullDestDir string) (string, bool, error) {
 	spec, specErr := loadHookSpec(fullDestDir)
 	if specErr != nil {
-		return hookSpecWarning(hookName, configurator.ProviderAntigravity, specErr), nil
+		return hookSpecWarning(hookName, configurator.ProviderAntigravity, specErr), false, nil
 	}
 	if !antigravityHookEvents[spec.Event] {
-		return fmt.Sprintf("antigravity: hook %q — event %q has no native equivalent; files were installed but the hook was not registered", hookName, spec.Event), nil
+		return fmt.Sprintf("antigravity: hook %q — event %q has no native equivalent; files were installed but the hook was not registered", hookName, spec.Event), false, nil
 	}
 
 	path := antigravityHooksPath(baseDir, crushHookRel(baseDir, fullDestDir))
 	settings, err := loadJSONObject(path)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	handler := map[string]interface{}{
 		"type":    "command",
@@ -587,7 +588,8 @@ func registerAntigravityHook(baseDir, hookName, fullDestDir string) (string, err
 		definition[spec.Event] = []interface{}{handler}
 	}
 	settings[antigravityHookKey(hookName)] = definition
-	return "", saveJSONObject(baseDir, path, settings)
+	err = saveJSONObject(baseDir, path, settings)
+	return "", err == nil, err
 }
 
 var antigravityHookEvents = map[string]bool{
@@ -737,15 +739,15 @@ func openCodePluginRelPath(hookName string) string {
 //   - warning: non-empty only when the event was well-formed but has no
 //     OpenCode equivalent — Apply surfaces this via AppliedResult.Warnings
 //     instead of failing (the hook's files are still materialized).
-func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, warning string, err error) {
+func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, warning string, registered bool, err error) {
 	spec, specErr := loadHookSpec(fullDestDir)
 	if specErr != nil {
-		return "", hookSpecWarning(hookName, configurator.ProviderOpenCode, specErr), nil
+		return "", hookSpecWarning(hookName, configurator.ProviderOpenCode, specErr), false, nil
 	}
 
 	mapping, ok := openCodeHookEvents[spec.Event]
 	if !ok {
-		return "", fmt.Sprintf("hook %q: event %q has no OpenCode equivalent, plugin not generated (files materialized anyway)", hookName, spec.Event), nil
+		return "", fmt.Sprintf("hook %q: event %q has no OpenCode equivalent, plugin not generated (files materialized anyway)", hookName, spec.Event), false, nil
 	}
 
 	// The plugin runs the command through `sh -c`, on Windows too (D267).
@@ -766,12 +768,12 @@ func registerOpenCodePlugin(baseDir, hookName, fullDestDir string) (relPath, war
 
 	fullPath := filepath.Join(baseDir, openCodePluginRelPath(hookName))
 	if err := mkdirAllNoFollow(baseDir, filepath.Dir(fullPath), 0o755); err != nil {
-		return "", "", fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(fullPath), err)
+		return "", "", false, fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(fullPath), err)
 	}
 	if err := writeFileNoFollow(fullPath, []byte(content), 0o644); err != nil {
-		return "", "", fmt.Errorf("provisioning: write opencode plugin %s: %w", fullPath, err)
+		return "", "", false, fmt.Errorf("provisioning: write opencode plugin %s: %w", fullPath, err)
 	}
-	return openCodePluginRelPath(hookName), warning, nil
+	return openCodePluginRelPath(hookName), warning, true, nil
 }
 
 // removeOpenCodePlugin removes hookName's generated plugin file (if present)

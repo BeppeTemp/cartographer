@@ -47,20 +47,20 @@ func copilotHookRelPath(hookName string) string {
 
 // registerCopilotHook writes hookName's registration file and returns its
 // relative path (empty when nothing was written) and a non-fatal warning.
-func registerCopilotHook(baseDir, hookName, fullDestDir string) (relPath, warning string, err error) {
+func registerCopilotHook(baseDir, hookName, fullDestDir string) (relPath, warning string, registered bool, err error) {
 	spec, specErr := loadHookSpec(fullDestDir)
 	if specErr != nil {
-		return "", hookSpecWarning(hookName, configurator.ProviderCopilot, specErr), nil
+		return "", hookSpecWarning(hookName, configurator.ProviderCopilot, specErr), false, nil
 	}
 	if w, skip := hookEventWarning(hookName, configurator.ProviderCopilot, spec.Event); skip {
-		return "", w, nil
+		return "", w, false, nil
 	}
 	event, ok := copilotHookEvents[spec.Event]
 	if !ok {
-		return "", fmt.Sprintf("hook %q: copilot: event %q has no Copilot equivalent; files were installed but the hook was not registered", hookName, spec.Event), nil
+		return "", fmt.Sprintf("hook %q: copilot: event %q has no Copilot equivalent; files were installed but the hook was not registered", hookName, spec.Event), false, nil
 	}
 	if strings.TrimSpace(spec.Matcher) != "" {
-		return "", fmt.Sprintf("hook %q: copilot: Copilot has no matcher, so a hook with matcher %q would fire for every tool; files were installed but the hook was not registered", hookName, spec.Matcher), nil
+		return "", fmt.Sprintf("hook %q: copilot: Copilot has no matcher, so a hook with matcher %q would fire for every tool; files were installed but the hook was not registered", hookName, spec.Matcher), false, nil
 	}
 
 	command := resolveHookCommand(spec.Command, fullDestDir)
@@ -82,18 +82,18 @@ func registerCopilotHook(baseDir, hookName, fullDestDir string) (relPath, warnin
 		},
 	}, "", "  ")
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 
 	rel := copilotHookRelPath(hookName)
 	fullPath := filepath.Join(baseDir, filepath.FromSlash(rel))
 	if err := mkdirAllNoFollow(baseDir, filepath.Dir(fullPath), 0o755); err != nil {
-		return "", "", fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(fullPath), err)
+		return "", "", false, fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(fullPath), err)
 	}
 	if err := writeFileNoFollow(fullPath, append(content, '\n'), 0o644); err != nil {
-		return "", "", fmt.Errorf("provisioning: write copilot hook file %s: %w", fullPath, err)
+		return "", "", false, fmt.Errorf("provisioning: write copilot hook file %s: %w", fullPath, err)
 	}
-	return rel, "", nil
+	return rel, "", true, nil
 }
 
 // removeCopilotHook deletes hookName's registration file; absent is fine (an
