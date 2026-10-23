@@ -2,14 +2,17 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // testSkillDir mirrors provisioning.skillDestDir's (unexported) provider →
@@ -346,5 +349,151 @@ func TestDisconnect_KeepsTimerWhileAClientNeedsIt(t *testing.T) {
 	}
 	if c.uninstalls != 0 {
 		t.Error("kiro still needs the timer: it must stay (an installed timer must not read as 'nobody needs it')")
+	}
+}
+
+// --- a symlinked client config is refused for its provider only (D148) ---
+
+// linkCodexDir replaces dir/.codex with a link to a directory holding the same
+// files, and returns that directory.
+func linkCodexDir(t *testing.T, dir string) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	elsewhere := filepath.Join(t.TempDir(), "codex-elsewhere")
+	if err := os.Rename(filepath.Join(dir, ".codex"), elsewhere); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(dir, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	return elsewhere
+}
+
+func readTree(t *testing.T, root string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		rel, _ := filepath.Rel(root, p)
+		out[rel] = string(b)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+func TestDoDisconnect_ASymlinkedConfigKeepsThatProviderConnectedAndTheRestProceeds(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude", "codex")
+	elsewhere := linkCodexDir(t, dir)
+	before := readTree(t, elsewhere)
+
+	res, err := doDisconnect(disconnectOptions{Providers: []string{"claude", "codex"}, Dir: dir})
+	if err != nil {
+		t.Fatalf("doDisconnect = %v, want the refusal reported per provider, not fatal", err)
+	}
+	var codex, claude *disconnectProviderResult
+	for i := range res.Providers {
+		switch res.Providers[i].Provider {
+		case "codex":
+			codex = &res.Providers[i]
+		case "claude":
+			claude = &res.Providers[i]
+		}
+	}
+	if codex == nil || len(codex.Refused) == 0 || codex.ConfigRemoved {
+		t.Fatalf("codex result = %+v, want a refusal", codex)
+	}
+	if claude == nil || !claude.ConfigRemoved || len(claude.Refused) != 0 {
+		t.Fatalf("claude result = %+v, want its entry removed", claude)
+	}
+	if after := readTree(t, elsewhere); len(after) != len(before) {
+		t.Errorf("link target changed: %v -> %v", before, after)
+	} else {
+		for k, v := range before {
+			if after[k] != v {
+				t.Errorf("link target file %s changed", k)
+			}
+		}
+	}
+
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HasAgent("codex") || cfg.HasAgent("claude") {
+		t.Errorf("agents = %v, want codex kept and claude gone", cfg.Agents)
+	}
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := lf.Providers["codex"]; !ok {
+		t.Error("codex lock entry should remain so the next disconnect retries")
+	}
+	if _, ok := lf.Providers["claude"]; ok {
+		t.Error("claude lock entry should be gone")
+	}
+}
+
+func TestApplyMCPEntries_ASymlinkedConfigIsAWarningAndOtherProvidersAreWritten(t *testing.T) {
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(dir, ".codex")); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := entriesForKBs("wiki", "https://example.test/mcp", []string{"a"}, []string{"a"}, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := []string{"codex", "claude", "opencode"}
+	written, warnings, err := applyMCPEntries(sameEntriesFor(providers, entries), providers, dir, nil, false, "", false)
+	if err != nil {
+		t.Fatalf("applyMCPEntries = %v, want the refusal as a warning", err)
+	}
+	if len(written) != 2 {
+		t.Errorf("written = %v, want claude and opencode", written)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], filepath.Join(dir, ".codex")) {
+		t.Errorf("warnings = %v, want one naming the .codex link", warnings)
+	}
+	if got, _ := os.ReadDir(elsewhere); len(got) != 0 {
+		t.Errorf("the link target gained %d entries", len(got))
+	}
+	for _, f := range []string{".claude.json", "opencode.json"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
+			t.Errorf("%s was not written: %v", f, err)
+		}
+	}
+}
+
+func TestRemoveMCPEntries_ASymlinkedConfigIsReportedAfterTheOtherProvidersAreProcessed(t *testing.T) {
+	dir := setupDisconnectFixture(t, "codex", "claude")
+	elsewhere := linkCodexDir(t, dir)
+	before := readTree(t, elsewhere)
+
+	_, removed, err := removeMCPEntries("wiki", nil, []string{"codex", "claude"}, dir, nil, false, "", false)
+	if !errors.Is(err, safewrite.ErrSymlinkDestination) {
+		t.Fatalf("removeMCPEntries = %v, want ErrSymlinkDestination", err)
+	}
+	if !removed["claude"] {
+		t.Error("claude's entry should still have been removed")
+	}
+	if removed["codex"] {
+		t.Error("codex's entry cannot have been removed through the link")
+	}
+	for k, v := range readTree(t, elsewhere) {
+		if before[k] != v {
+			t.Errorf("link target file %s changed", k)
+		}
 	}
 }

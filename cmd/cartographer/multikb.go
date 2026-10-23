@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -19,6 +20,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // mcpEntry is one Cartographer-owned MCP entry emitted for a provider.
@@ -602,6 +604,36 @@ func entryNames(entries []mcpEntry) []string {
 	return names
 }
 
+// refusalWarnings renders the symlink refusals of configurator.Apply/Remove
+// (possibly several, joined) as warnings. The text is the refusal's own, which
+// names the path, so the same refusal met by the removal pass and by the write
+// pass reads the same and appendUnique keeps one line.
+func refusalWarnings(err error) []string {
+	var out []string
+	var walk func(error)
+	walk = func(e error) {
+		if j, ok := e.(interface{ Unwrap() []error }); ok {
+			for _, inner := range j.Unwrap() {
+				walk(inner)
+			}
+			return
+		}
+		out = append(out, "mcp config left unchanged: "+e.Error())
+	}
+	walk(err)
+	return out
+}
+
+// appendUnique appends each of extra that list does not hold yet.
+func appendUnique(list []string, extra ...string) []string {
+	for _, e := range extra {
+		if !slices.Contains(list, e) {
+			list = append(list, e)
+		}
+	}
+	return list
+}
+
 // applyMCPEntries emits each provider's OWN entries (D170: a provider must not
 // hold an entry toward a KB it is not bound to). Codex represents all
 // Cartographer MCP entries in one marker-delimited TOML block, so its emitted
@@ -654,6 +686,13 @@ func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string
 		}
 		for _, base := range providerBaseDirs(provider, dir, claudeDirs) {
 			paths, err := configurator.Apply(results, base, dryRun)
+			if errors.Is(err, safewrite.ErrSymlinkDestination) {
+				// A symlinked config file or directory is refused for this
+				// provider only (D148): the others are still written, and the
+				// operator is told which path to replace with a real one.
+				warnings = appendUnique(warnings, refusalWarnings(err)...)
+				err = nil
+			}
 			if err != nil {
 				return nil, nil, fmt.Errorf("write config for %s: %w", provider, err)
 			}
@@ -671,14 +710,24 @@ func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string
 	return written, warnings, nil
 }
 
+// A config file or directory that is a symlink is refused (D148) for that
+// provider and base only: every other one is still processed, and the refusals
+// come back joined in the error after the complete results, so a caller that
+// loops providers can report them (errors.Is safewrite.ErrSymlinkDestination)
+// and carry on. Any other error returns at once, without results.
 func removeMCPEntries(baseName string, kbs []string, providers []string, dir string, claudeDirs []string, auth bool, tokenEnv string, dryRun bool) (map[string][]string, map[string]bool, error) {
 	removed := make(map[string]bool, len(providers))
 	names := make(map[string][]string, len(providers))
+	var refused []error
 	for _, provider := range providers {
 		for _, name := range managedEntryNames(baseName, kbs) {
 			nameRemoved := false
 			for _, base := range providerBaseDirs(provider, dir, claudeDirs) {
 				ok, err := configurator.Remove(&configurator.ServerConfig{Name: name, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider), base, dryRun)
+				if errors.Is(err, safewrite.ErrSymlinkDestination) {
+					refused = append(refused, err)
+					continue
+				}
 				if err != nil {
 					return nil, nil, fmt.Errorf("remove config for %s: %w", provider, err)
 				}
@@ -693,7 +742,7 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 			removed[provider] = removed[provider] || nameRemoved
 		}
 	}
-	return names, removed, nil
+	return names, removed, errors.Join(refused...)
 }
 
 // providerBaseDirs is every directory a provider's MCP entry is written to:

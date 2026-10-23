@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -961,5 +962,75 @@ func TestSetEntryAuthorsNeedsEveryReachedKBToAgree(t *testing.T) {
 				t.Errorf("warnings = %q, want one holding %q", warnings, tc.warning)
 			}
 		})
+	}
+}
+
+// A symlinked client config (D148) is refused for its provider alone: connect
+// and sync still write every other provider, and report the refusal.
+func TestDoConnect_ASymlinkedProviderConfigDoesNotStopTheOtherProviders(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "opencode.json")
+	const original = `{"mcp":{"kept":{"type":"remote"}}}`
+	if err := os.WriteFile(target, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+		t.Fatal(err)
+	}
+	res, err := doConnect(connectOptions{Providers: []string{"opencode", "claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}"})
+	if err != nil {
+		t.Fatalf("doConnect = %v, want the refusal as a warning", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude.json")); err != nil {
+		t.Errorf(".claude.json not written: %v", err)
+	}
+	if b, _ := os.ReadFile(target); string(b) != original {
+		t.Errorf("the link target changed: %s", b)
+	}
+	var named int
+	for _, w := range res.Warnings {
+		if strings.Contains(w, filepath.Join(dir, "opencode.json")) {
+			named++
+		}
+	}
+	if named != 1 {
+		t.Errorf("warnings = %v, want exactly one naming the opencode.json link", res.Warnings)
+	}
+}
+
+func TestCmdSync_ASymlinkedProviderConfigDoesNotStopTheOtherProviders(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta"}]}`)
+	defer srv.Close()
+	dir := t.TempDir()
+	setHome(t, dir)
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "wiki", Token: "${TOKEN}", Agents: []string{"opencode", "claude"}, KnownKBs: []string{"alpha"}}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "opencode.json")
+	const original = `{"mcp":{"kept":{"type":"remote"}}}`
+	if err := os.WriteFile(target, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+		t.Fatal(err)
+	}
+	if code := cmdSync(nil); code != 0 {
+		t.Fatalf("sync = %d, want the refusal as a warning", code)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".claude.json"))
+	if err != nil || !strings.Contains(string(data), "wiki-alpha") || !strings.Contains(string(data), "wiki-beta") {
+		t.Fatalf("claude entries = %s, err=%v", data, err)
+	}
+	if b, _ := os.ReadFile(target); string(b) != original {
+		t.Errorf("the link target changed: %s", b)
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // cmdSync re-fetches the manifest from the configured server (sync_pull) and
@@ -253,6 +255,13 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		// its entries untouched.
 		claudeDirs, claudeDirWarnings := claudeConfigDirs(dir, cfg)
 		removedNames, _, err := removeMCPEntries(cfg.ServerName, previousKnownKBs, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
+		// A symlinked config file or directory is refused for its provider
+		// only (D148): a warning, and the other providers proceed.
+		var refusalNotes []string
+		if errors.Is(err, safewrite.ErrSymlinkDestination) {
+			refusalNotes = refusalWarnings(err)
+			err = nil
+		}
 		if err != nil {
 			return syncResult{}, err
 		}
@@ -261,7 +270,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		if err != nil {
 			return syncResult{}, err
 		}
-		warnings = append(warnings, authorWarnings...)
+		warnings = appendUnique(append(warnings, authorWarnings...), refusalNotes...)
 		if w := literalTokenWarning(cfg.Auth, cfg.Token); w != "" {
 			warnings = append(warnings, w)
 		}

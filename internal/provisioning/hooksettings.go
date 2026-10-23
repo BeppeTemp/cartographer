@@ -19,6 +19,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // hookSpec is the hook.json format (KB, hooks/<name>/hook.json): the Claude
@@ -500,6 +501,11 @@ func removeCodexHook(baseDir, hookName string) error {
 // hook's own block only its [[hooks.<Event>]] registrations are ours.
 func removeLegacyCodexHookTOML(baseDir, hookName, command string) (int, error) {
 	path := codexConfigTOMLPath(baseDir)
+	// The two rewrites below guard the file only; the directories above it are
+	// checked here, before either of them writes.
+	if err := safewrite.CheckPath(baseDir, path); err != nil {
+		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
+	}
 	adopted, err := configurator.AdoptCodexOrphanTables(path, codexHookTableOwner(hookName, command))
 	if err != nil {
 		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
@@ -510,7 +516,7 @@ func removeLegacyCodexHookTOML(baseDir, hookName, command string) (int, error) {
 	}); err != nil {
 		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
 	}
-	removed, err := blocktext.Remove(path, begin, end, false)
+	removed, err := blocktext.Remove(baseDir, path, begin, end, false)
 	if err != nil {
 		return 0, fmt.Errorf("provisioning: migrate %s: %w", path, err)
 	}

@@ -1411,6 +1411,25 @@ in the file (other MCP servers, other keys) is left untouched. `disconnect` perf
 inverse operation (`configurator.Remove`): removes only the server's key from the `mcpServers`/`mcp` map and
 rewrites the file, leaving everything else intact (other MCP servers, other top-level keys).
 
+### Symlinked config files and directories are refused
+
+`connect`, `sync` and `disconnect` write, create and remove a provider's config file (and the
+Codex `config.toml` block, `internal/blocktext`) only through `internal/safewrite`, the same
+guard that protects the provisioned artifacts (`sync.md` §Security). `os.WriteFile` on a symlink
+opens the link's *target*, so a config file that is a link, or a directory above it under the
+client base dir that is a link (a dotfile manager, a shared checkout), would send the write
+somewhere else. Both are refused, with an error that names the path and says to replace the link
+with a regular file or directory; so is any other non-regular file or non-directory (device,
+socket, named pipe, Windows reparse point). The base dir itself (`$HOME`, or the project dir in
+workspace scope) may be a link, and a path that does not exist yet is created. The same goes for the
+legacy `.codex/config.json` that `disconnect` cleans up.
+
+The refusal is **per provider**: `connect` and `sync` report it as a warning
+(`mcp config left unchanged: …`) and still write every other provider; `disconnect` prints
+`kept connected: …` for that provider, leaves its lockfile section and `.cartographer.yaml` entry in
+place so the next `disconnect` retries, and removes the others. `--dry-run` refuses too, so the
+preview matches the real run. Nothing is written through the link until the operator replaces it.
+
 ## Installation
 
 One channel per platform, and an upgrade uses the one the binary came from:

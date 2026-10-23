@@ -22,6 +22,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // codexTOMLHeader matches a TOML table ([name]) or array-of-tables ([[name]])
@@ -55,7 +57,7 @@ func AdoptCodexOrphanTables(path string, owned func(key []string, body string) b
 	if len(removed) == 0 {
 		return nil, nil
 	}
-	if err := os.WriteFile(path, []byte(stripped), 0o644); err != nil {
+	if err := safewrite.WriteFileNoFollow(path, []byte(stripped), 0o644); err != nil {
 		return nil, err
 	}
 	return removed, nil
@@ -603,7 +605,7 @@ func EvictTablesFromBlock(path, begin, end string, ours func(key []string) bool)
 		return nil, nil
 	}
 
-	if err := os.WriteFile(path, []byte(evictGroupsFromSpan(content, target, foreign)), 0o644); err != nil {
+	if err := safewrite.WriteFileNoFollow(path, []byte(evictGroupsFromSpan(content, target, foreign)), 0o644); err != nil {
 		return nil, err
 	}
 

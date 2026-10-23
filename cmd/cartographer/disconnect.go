@@ -9,6 +9,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // cmdDisconnect removes the requested agent provider(s) — default "all" = every
@@ -90,6 +91,11 @@ type disconnectProviderResult struct {
 	Provider      string
 	ConfigRemoved bool
 	Pruned        []provisioning.ManagedFile
+	// Refused holds why the provider's MCP config entry was left in place: its
+	// config file, or a directory above it, is a symlink (D148). The provider
+	// then stays connected, with its managed files and its lockfile section, so
+	// the next disconnect retries and reports again.
+	Refused []string
 }
 
 // disconnectResult is the outcome of doDisconnect.
@@ -149,10 +155,17 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 	}
 
 	claudeDirs, _ := claudeConfigDirs(opts.Dir, cfg)
+	var disconnected []string // the providers whose entry was not refused
 	for _, p := range opts.Providers {
 		pr := disconnectProviderResult{Provider: p}
 
 		_, removed, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{p}, opts.Dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
+		if errors.Is(err, safewrite.ErrSymlinkDestination) {
+			// One provider's symlinked config does not stop the others.
+			pr.Refused = refusalWarnings(err)
+			res.Providers = append(res.Providers, pr)
+			continue
+		}
 		if err != nil {
 			return disconnectResult{}, fmt.Errorf("remove config for %s: %w", p, err)
 		}
@@ -171,6 +184,7 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 		if !opts.DryRun {
 			delete(lockFile.Providers, p)
 		}
+		disconnected = append(disconnected, p)
 		res.Providers = append(res.Providers, pr)
 	}
 
@@ -178,7 +192,7 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 		return res, nil
 	}
 
-	if len(lockFile.Providers) == 0 {
+	if len(lockFile.Providers) == 0 && len(disconnected) == len(opts.Providers) {
 		// The token file goes with the last provider (D699). reconnect keeps it:
 		// it disconnects every provider and connects them again, possibly from
 		// a shell without the variable.
@@ -199,7 +213,7 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 	// in particular, so a disconnect-then-reconnect doesn't fall back to
 	// the local default when the user was pointed at a real server. Only
 	// the agents list is zeroed; the file itself is never deleted.
-	cfg.Agents = removeStrings(cfg.Agents, opts.Providers)
+	cfg.Agents = removeStrings(cfg.Agents, disconnected)
 	if err := clientconfig.Save(opts.Dir, cfg); err != nil {
 		return disconnectResult{}, err
 	}
@@ -228,6 +242,12 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 		prefix = "[dry-run] "
 	}
 	for _, pr := range res.Providers {
+		if len(pr.Refused) > 0 {
+			for _, w := range pr.Refused {
+				fmt.Printf("%s[%s] kept connected: %s\n", prefix, pr.Provider, w)
+			}
+			continue
+		}
 		if pr.ConfigRemoved {
 			fmt.Printf("%s[%s] removed mcp config entry\n", prefix, pr.Provider)
 		} else {

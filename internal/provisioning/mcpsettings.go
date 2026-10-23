@@ -63,7 +63,7 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 
 	if filepath.Ext(r.FilePath) == ".toml" {
 		begin, end := mcpServerMarkers(name)
-		if err := blocktext.Write(filepath.Join(baseDir, r.FilePath), begin, end, string(r.Content)); err != nil {
+		if err := blocktext.Write(baseDir, filepath.Join(baseDir, r.FilePath), begin, end, string(r.Content)); err != nil {
 			return "", nil, fmt.Errorf("provisioning: write mcp %s into %s: %w", name, r.FilePath, err)
 		}
 		return r.FilePath, r.Warnings, nil
@@ -121,7 +121,7 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 
 	if filepath.Ext(fullPath) == ".toml" {
 		begin, end := mcpServerMarkers(name)
-		_, err := blocktext.Remove(fullPath, begin, end, false)
+		_, err := blocktext.Remove(baseDir, fullPath, begin, end, false)
 		return err
 	}
 
