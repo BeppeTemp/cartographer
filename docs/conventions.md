@@ -39,7 +39,7 @@ Rules to keep the code consistent. New code should resemble the existing code.
 
 - A new key in the server `config.yaml` (`rawConfig`, `KBSpec`) or in the client `.cartographer.yaml` needs an entry in the
   schema of its package (`internal/config/schema.go`, `internal/clientconfig/schema.go`): description, default, values,
-  and the env var and flag that override it. A reflection test fails the build without it. Run `make settings-example` for
+  and the env var and flag that override it. A reflection test fails the build without it, and a server key's env var or flag also needs its row in `docs/deployment.md` §Environment variables, which a test checks. Run `make settings-example` for
   the server file. Machine-written caches are not settings: they go in `.cartographer-state.json`, not in the YAML.
 - Code that rewrites a user-edited YAML file edits its `yaml.Node` tree; it never marshals a map or a struct over the file,
   which drops every comment (D747).

@@ -8,7 +8,9 @@ import (
 // Schema is the key table of the server config.yaml (D747): every YAML key
 // Load accepts, with what it does, its values and default, and the environment
 // variable and flag that override it. The comments written into the file, the
-// generated config.example.yaml and the config view all read it.
+// generated config.example.yaml and the config view all read it. The Env and
+// Flag columns are also compared with the table in docs/deployment.md
+// (envdocs_test.go).
 //
 // It is a table and not struct tags because the server config is a raw/public
 // struct pair with env and flag layers on top. TestSchemaMatchesStructs fails
