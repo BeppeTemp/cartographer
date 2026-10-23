@@ -34,6 +34,7 @@ const (
 	denyNoKBAccess       = "no_kb_access"
 	denyNoPrincipal      = "no_principal"
 	denyUnboundFolder    = "unbound_folder"
+	denyLocalOnly        = "local_only"
 )
 
 var denyHints = map[string]string{
@@ -46,6 +47,7 @@ var denyHints = map[string]string{
 	denyMissingID:        "this write needs a non-empty id",
 	denyNoKBAccess:       "the token has no access to this KB",
 	denyNoPrincipal:      "no principal resolved for this connection",
+	denyLocalOnly:        "this tool acts on the host the server runs on and is available only to the local operator (stdio, or HTTP with authentication off); use sync_pull from a client",
 	denyUnboundFolder: "this session is read-only because the folder it was started in is bound to no KB: " +
 		"bind the folder (cartographer workspace bind <provider> <path> --kb <name>) or declare its repository in a KB's paths.yaml, then start a new agent session",
 }
@@ -101,6 +103,9 @@ func resourceClassForTool(name string) string {
 func installPolicy(s *Server, k *kb.KB) {
 	s.SetAuthorizer(func(ctx context.Context, tool string, args json.RawMessage) error {
 		p := auth.PrincipalFromContext(ctx)
+		if err := authorizeLocalOnly(p, tool); err != nil {
+			return err
+		}
 		if p.ID != "" && p.Policy.Admin {
 			return nil
 		}
@@ -121,6 +126,17 @@ func installPolicy(s *Server, k *kb.KB) {
 // reauthorizeUnderLock repeats the same decision immediately before a
 // mutation. A changed concept classification between dispatch and git lock
 // therefore cannot turn a previously authorized request into a write.
+// localOnlyTools act on the filesystem of the host the server runs on, with the
+// server's own permissions, at a path the caller names. Only the principal the
+// server creates for a trusted local caller may run them: no token, admin or
+// not, reaches them over the network. Checked before the admin shortcut.
+func authorizeLocalOnly(p auth.Principal, tool string) error {
+	if tool == "sync_apply" && !p.Local {
+		return deny(denyLocalOnly)
+	}
+	return nil
+}
+
 func reauthorizeUnderLock(ctx context.Context, k *kb.KB, tool string, args json.RawMessage) error {
 	p := auth.PrincipalFromContext(ctx)
 	if p.ID != "" && p.Policy.Admin {
