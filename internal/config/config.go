@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -95,6 +96,32 @@ type RuleSpec struct {
 	Maps     []string `yaml:"maps,omitempty"`
 	Journals []string `yaml:"journals,omitempty"`
 	Types    []string `yaml:"types,omitempty"`
+	// Declared records which selector keys ("maps", "journals", "types") the
+	// rule wrote. A key that is present but empty is refused by ValidateAuth:
+	// only an omitted key means "all".
+	Declared map[string]bool `yaml:"-"`
+}
+
+// UnmarshalYAML decodes the rule and records which selector keys it wrote,
+// merge keys included.
+func (r *RuleSpec) UnmarshalYAML(node *yaml.Node) error {
+	type rawRuleSpec RuleSpec // avoid recursing into this UnmarshalYAML
+	var raw rawRuleSpec
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+	*r = RuleSpec(raw)
+	keys, _ := mappingPairs(node)
+	for _, k := range keys {
+		switch k.Value {
+		case "maps", "journals", "types":
+			if r.Declared == nil {
+				r.Declared = map[string]bool{}
+			}
+			r.Declared[k.Value] = true
+		}
+	}
+	return nil
 }
 
 // TokenStrings returns the bare token values, discarding scopes. Kept for
@@ -146,6 +173,10 @@ type TokenSpec struct {
 	// audit records. When empty a non-secret ID is derived from the token
 	// hash, never from a plaintext prefix.
 	ID string `yaml:"id,omitempty"`
+	// ScopesDeclared records that the entry wrote a scope or role list
+	// (`scopes:` or `roles:` in YAML, `|` in the env form). A declared list that ends up empty is refused
+	// by ValidateAuth: the admin token is the one that writes no scopes at all.
+	ScopesDeclared bool `yaml:"-"`
 }
 
 // UnmarshalYAML accepts both a bare scalar ("tok1", legacy `tokens: [...]`
@@ -162,6 +193,12 @@ func (t *TokenSpec) UnmarshalYAML(node *yaml.Node) error {
 		return err
 	}
 	*t = TokenSpec(raw)
+	keys, _ := mappingPairs(node) // merge keys count: a merged `scopes: []` is declared too
+	for _, k := range keys {
+		if k.Value == "scopes" || k.Value == "roles" {
+			t.ScopesDeclared = true
+		}
+	}
 	return nil
 }
 
@@ -303,6 +340,157 @@ type rawAuth struct {
 	Roles  []RoleSpec  `yaml:"roles"`
 }
 
+// checkAuthKeys refuses what would silently drop or widen authentication: an
+// unknown key anywhere under `auth:`, and a top-level key that is a misspelled
+// section or an auth key written at the root. The rest of the file stays
+// lenient (retired keys are warned about and dropped, D906), but a dropped
+// auth key changes who may do what: a token whose `scope:` was misspelled would
+// carry no scopes, and an `Auth:` section would leave the server unprotected.
+// The walk is done on the node tree because TokenSpec decodes through a custom
+// unmarshaler, which would lose the decoder's strict mode.
+func checkAuthKeys(data []byte) error {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Content) == 0 {
+		return nil // the typed decode reports syntax errors
+	}
+	root := doc.Content[0]
+	for root.Kind == yaml.AliasNode && root.Alias != nil {
+		root = root.Alias
+	}
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	sections := map[string]bool{}
+	rt := reflect.TypeOf(rawConfig{})
+	for i := 0; i < rt.NumField(); i++ {
+		name, _, _ := strings.Cut(rt.Field(i).Tag.Get("yaml"), ",")
+		sections[name] = true
+	}
+	keys, vals := mappingPairs(root)
+	for i, k := range keys {
+		switch {
+		case sections[k.Value]:
+		case k.Value == "tokens" || k.Value == "roles":
+			return fmt.Errorf("key %q at the top level (line %d, column %d): it belongs under auth", k.Value, k.Line, k.Column)
+		case looksLikeAuth(k.Value):
+			return fmt.Errorf("unknown key %q at the top level (line %d, column %d): did you mean %q", k.Value, k.Line, k.Column, "auth")
+		default:
+			for name := range sections {
+				if strings.EqualFold(k.Value, name) {
+					return fmt.Errorf("unknown key %q at the top level (line %d, column %d): did you mean %q", k.Value, k.Line, k.Column, name)
+				}
+			}
+		}
+		if k.Value == "auth" {
+			if err := checkKnownKeys(vals[i], reflect.TypeOf(rawAuth{}), "auth"); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// looksLikeAuth reports whether an unknown top-level key is probably a
+// misspelling of the auth section: it mentions auth or token, or is within
+// edit distance 2 of "auth". Left alone it would load silently and the server
+// would run without authentication.
+func looksLikeAuth(key string) bool {
+	k := strings.ToLower(key)
+	if strings.Contains(k, "auth") || strings.Contains(k, "token") {
+		return true
+	}
+	a, b := []rune(k), []rune("auth")
+	prev := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur := make([]int, len(b)+1)
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(b)] <= 2
+}
+
+// mappingPairs returns the key and value nodes of a mapping with its merge
+// keys (`<<: *a` and `<<: [*a, *b]`) resolved, so a key supplied through a
+// merge is seen like a written one.
+func mappingPairs(n *yaml.Node) (keys, vals []*yaml.Node) {
+	for n.Kind == yaml.AliasNode && n.Alias != nil {
+		n = n.Alias
+	}
+	if n.Kind != yaml.MappingNode {
+		return nil, nil
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		k, v := n.Content[i], n.Content[i+1]
+		if k.Tag != "!!merge" {
+			keys, vals = append(keys, k), append(vals, v)
+			continue
+		}
+		srcs := []*yaml.Node{v}
+		if v.Kind == yaml.SequenceNode {
+			srcs = v.Content
+		}
+		for _, src := range srcs {
+			mk, mv := mappingPairs(src)
+			keys, vals = append(keys, mk...), append(vals, mv...)
+		}
+	}
+	return keys, vals
+}
+
+func checkKnownKeys(n *yaml.Node, t reflect.Type, at string) error {
+	for n.Kind == yaml.AliasNode && n.Alias != nil {
+		n = n.Alias
+	}
+	for t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	switch {
+	case n.Kind == yaml.SequenceNode && t.Kind() == reflect.Slice:
+		for i, c := range n.Content {
+			if err := checkKnownKeys(c, t.Elem(), fmt.Sprintf("%s[%d]", at, i)); err != nil {
+				return err
+			}
+		}
+	case n.Kind == yaml.MappingNode && t.Kind() == reflect.Struct:
+		known := map[string]reflect.Type{}
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			name, _, _ := strings.Cut(f.Tag.Get("yaml"), ",")
+			if name == "-" || !f.IsExported() {
+				continue
+			}
+			if name == "" {
+				name = strings.ToLower(f.Name)
+			}
+			known[name] = f.Type
+		}
+		keys, vals := mappingPairs(n)
+		for i, k := range keys {
+			ft, ok := known[k.Value]
+			if !ok && t == reflect.TypeOf(TokenSpec{}) && (k.Value == "author_name" || k.Value == "author_email") {
+				continue // retired (D904): warned about by the realignment, grants nothing
+			}
+			if !ok {
+				return fmt.Errorf("unknown key %q under %s (line %d, column %d)", k.Value, at, k.Line, k.Column)
+			}
+			if err := checkKnownKeys(vals[i], ft, at+"."+k.Value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // Load parses a YAML config file, layering it on top of Default().
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -311,6 +499,9 @@ func Load(path string) (*Config, error) {
 	}
 	var raw rawConfig
 	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("config: parse %q: %w", path, err)
+	}
+	if err := checkAuthKeys(data); err != nil {
 		return nil, fmt.Errorf("config: parse %q: %w", path, err)
 	}
 
@@ -362,7 +553,11 @@ func Load(path string) (*Config, error) {
 	}
 
 	if raw.Auth.Mode != "" {
-		cfg.Auth.Mode = normalizeAuthMode(raw.Auth.Mode)
+		m, err := normalizeAuthMode(raw.Auth.Mode)
+		if err != nil {
+			return nil, fmt.Errorf("config: auth.mode: %w", err)
+		}
+		cfg.Auth.Mode = m
 	}
 	cfg.Auth.Tokens = raw.Auth.Tokens
 	for i := range cfg.Auth.Tokens {
@@ -389,7 +584,7 @@ func Load(path string) (*Config, error) {
 // FromEnv applies CARTOGRAPHER_* environment overrides onto cfg. Only
 // variables that are actually set (non-empty) are considered; unset ones
 // leave cfg untouched so the YAML/default values remain in effect.
-func FromEnv(cfg *Config) {
+func FromEnv(cfg *Config) error {
 	cfg.noteRetiredEnv()
 	if v := os.Getenv("CARTOGRAPHER_KB"); v != "" {
 		for _, p := range splitCSV(v) {
@@ -418,8 +613,12 @@ func FromEnv(cfg *Config) {
 		cfg.Auth.Tokens = parseTokenSpecs(v)
 	}
 	if v := os.Getenv("CARTOGRAPHER_AUTH"); v != "" {
+		m, err := normalizeAuthMode(v)
+		if err != nil {
+			return fmt.Errorf("CARTOGRAPHER_AUTH: %w", err)
+		}
 		cfg.mark(OriginEnv, "auth.mode")
-		cfg.Auth.Mode = normalizeAuthMode(v)
+		cfg.Auth.Mode = m
 	}
 	if v := os.Getenv("CARTOGRAPHER_WEB_ENABLED"); v != "" {
 		cfg.mark(OriginEnv, "web.enabled")
@@ -437,6 +636,7 @@ func FromEnv(cfg *Config) {
 		cfg.mark(OriginEnv, "audit.log")
 		cfg.Audit.Log = v
 	}
+	return nil
 }
 
 // FlagOverrides carries the `cartographer serve` flag values that were
@@ -489,15 +689,18 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 
 // normalizeAuthMode maps the legacy boolean-ish spellings (accepted by both
 // CARTOGRAPHER_AUTH and auth.mode in YAML) onto the canonical
-// "on"/"off"/"auto". Anything unrecognized falls back to "auto".
-func normalizeAuthMode(v string) string {
+// "on"/"off"/"auto". An empty value is "auto"; anything else unrecognized is
+// an error, so a typo never hides behind the default.
+func normalizeAuthMode(v string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "false", "0", "no", "off":
-		return "off"
+		return "off", nil
 	case "true", "1", "yes", "on":
-		return "on"
+		return "on", nil
+	case "", "auto":
+		return "auto", nil
 	default:
-		return "auto"
+		return "", fmt.Errorf("mode %q: want \"auto\", \"on\" or \"off\"", v)
 	}
 }
 
@@ -522,12 +725,18 @@ func splitCSV(s string) []string {
 	return out
 }
 
+// scopeSepSpaces matches the spaces around a "|" or ";" of a token entry.
+var scopeSepSpaces = regexp.MustCompile(`[ \t]*([|;])[ \t]*`)
+
 // parseTokenSpecs parses CARTOGRAPHER_TOKENS / --tokens into TokenSpecs.
 // Entries are separated by commas and/or whitespace. Each entry is either a
 // bare token or "token|scope1;scope2;..." (scopes separated by ';', which
 // cannot collide with the whitespace/comma entry separators). Empty entries
 // are ignored.
 func parseTokenSpecs(v string) []TokenSpec {
+	// Spaces around a separator belong to the entry: "tok| kb:a:r" is one token
+	// with one scope, not an unscoped token followed by a stray entry.
+	v = scopeSepSpaces.ReplaceAllString(v, "$1")
 	entries := strings.FieldsFunc(v, func(r rune) bool {
 		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
 	})
@@ -544,7 +753,7 @@ func parseTokenSpecs(v string) []TokenSpec {
 		// operator wrote something, and dropping it silently changes the token
 		// count that gates enforcement. It is carried through with an empty
 		// value so ValidateAuth refuses it by name.
-		spec := TokenSpec{Token: tok}
+		spec := TokenSpec{Token: tok, ScopesDeclared: hasScopes}
 		if hasScopes {
 			for _, s := range strings.Split(scopeStr, ";") {
 				if s = strings.TrimSpace(s); s != "" {
@@ -606,6 +815,15 @@ func validateRule(role string, i int, rule RuleSpec) error {
 	case "r", "rw":
 	default:
 		return fmt.Errorf("%s: access must be \"r\" or \"rw\", got %q", where, rule.Access)
+	}
+	for _, sel := range []struct {
+		key  string
+		vals []string
+	}{{"maps", rule.Maps}, {"journals", rule.Journals}, {"types", rule.Types}} {
+		key := sel.key
+		if rule.Declared[key] && len(sel.vals) == 0 {
+			return fmt.Errorf("%s: %s is declared but empty, which would grant every %s; omit the key for all", where, key, strings.TrimSuffix(key, "s"))
+		}
 	}
 	// A selector naming the same collection as both a map and a journal is an
 	// operator mistake: the two are intersected, so the rule would match

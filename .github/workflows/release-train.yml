@@ -17,6 +17,12 @@ name: release-train
 #   - A merge made with the default GITHUB_TOKEN does not trigger the `push`
 #     workflows, so release-please would never cut the tag: the merge step uses the
 #     RELEASE_PLEASE_TOKEN PAT, as release-please.yml does.
+#   - github.token cannot read Dependabot alerts or repository security advisories,
+#     and the temporary private fork of an advisory is another repository: the
+#     security gate reads them with SECURITY_GATE_TOKEN, a fine-grained read-only PAT
+#     on all of the owner's repositories (Dependabot alerts, Code scanning alerts,
+#     Repository security advisories, Pull requests). The merge waits for its
+#     `clear` output, so a gate that never ran never merges.
 #   - No `uses:` here on purpose: the workflow checks out nothing and runs only `gh`,
 #     so no third-party code runs with the PAT. Keep it that way, or pin to a SHA.
 on:
@@ -171,9 +177,43 @@ jobs:
           echo "number=$PR" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
+      # No release with a known hole (D1123): no open Dependabot or code scanning alert, and
+      # no draft advisory with an open fix PR in its private fork. github.token reads none
+      # of the three, so SECURITY_GATE_TOKEN (read-only PAT, see TRAPS) does; a missing
+      # token or a failed call counts as not clear. The repository is public, so the
+      # comment and the log never say which check failed, how many, or even that it is
+      # about security: a public alert would explain it, so naming it announces a private one.
+      - name: Security gate
+        id: security
+        if: steps.gate.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEC_TOKEN: ${{ secrets.SECURITY_GATE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.gate.outputs.number }}
+        run: |
+          skip() {
+            echo "train skipped: a maintainer check is not clear"
+            gh pr comment "$PR" --body "Release train skipped: a maintainer check is not clear. Clear it, then run \`release-train\` by hand with \`action: release\`."
+            exit 0
+          }
+          sec() { GH_TOKEN="$SEC_TOKEN" gh api --paginate "$@" 2>/dev/null; }
+
+          [ -n "$SEC_TOKEN" ] || skip
+          open=$(sec "repos/$GH_REPO/dependabot/alerts?state=open&per_page=100" --jq '.[].number') || skip
+          [ -z "$open" ] || skip
+          open=$(sec "repos/$GH_REPO/code-scanning/alerts?state=open&per_page=100" --jq '.[].number') || skip
+          [ -z "$open" ] || skip
+          forks=$(sec "repos/$GH_REPO/security-advisories?state=draft&per_page=100" --jq '.[].private_fork.full_name // empty') || skip
+          for fork in $forks; do
+            open=$(sec "repos/$fork/pulls?state=open&per_page=100" --jq '.[].number') || skip
+            [ -z "$open" ] || skip
+          done
+          echo "clear=true" >> "$GITHUB_OUTPUT"
+
       # The only step that merges. RELEASE_PLEASE_TOKEN, never github.token (see TRAPS).
       - name: Merge the release PR
-        if: steps.gate.outputs.number != ''
+        if: steps.security.outputs.clear == 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           GH_REPO: ${{ github.repository }}

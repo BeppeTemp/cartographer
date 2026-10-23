@@ -136,7 +136,7 @@ done, and it is what the release changelog is built from. The repository squashe
 with the PR title as the commit subject and the PR body as its message;
 release-please reads both.
 
-- **Title**: a conventional commit that names the user-visible change, `feat:` or
+- **Title**: a conventional commit (a scope is one `scripts/pr-triage.sh --title-scopes` prints, or none) that names the user-visible change, `feat:` or
   `fix:` when a user would notice it. `docs:`, `chore:`, `refactor:` and `test:` do not
   appear in the changelog: use them only when that is true of the whole PR.
 - **Several user-visible changes** in one session: one extra conventional-commit

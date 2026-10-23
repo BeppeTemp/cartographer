@@ -26,6 +26,8 @@ func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 		Jobs map[string]struct {
 			Steps []struct {
 				Name string            `yaml:"name"`
+				ID   string            `yaml:"id"`
+				If   string            `yaml:"if"`
 				Uses string            `yaml:"uses"`
 				Run  string            `yaml:"run"`
 				Env  map[string]string `yaml:"env"`
@@ -66,9 +68,15 @@ func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 		t.Error("release-train.yml: a guard on the hour or minute mishandles a delayed scheduled run; match the cron entry instead")
 	}
 
-	merges := 0
+	merges, gates := 0, 0
 	for name, job := range wf.Jobs {
 		for _, st := range job.Steps {
+			if st.ID == "security" {
+				gates++
+				if st.Env["SEC_TOKEN"] != "${{ secrets.SECURITY_GATE_TOKEN }}" {
+					t.Errorf("release-train.yml: the security gate reads with %q: github.token cannot read Dependabot alerts or draft advisories", st.Env["SEC_TOKEN"])
+				}
+			}
 			if st.Uses != "" && !regexp.MustCompile(`^[^@\s]+@[0-9a-f]{40}$`).MatchString(st.Uses) {
 				t.Errorf("release-train.yml: `uses: %s` is not pinned to a 40-hex commit SHA", st.Uses)
 			}
@@ -76,10 +84,18 @@ func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 				continue
 			}
 			merges++
+			// The merge waits for the security gate's output (D1123): a gate that is
+			// skipped or removed must leave the release PR unmerged.
+			if st.If != "steps.security.outputs.clear == 'true'" {
+				t.Errorf("release-train.yml: job %s step %q merges with if=%q, want it gated on steps.security.outputs.clear", name, st.Name, st.If)
+			}
 			if st.Env["GH_TOKEN"] != "${{ secrets.RELEASE_PLEASE_TOKEN }}" {
 				t.Errorf("release-train.yml: job %s step %q merges with GH_TOKEN=%q: a merge by github.token triggers no push workflow, release-please would never tag", name, st.Name, st.Env["GH_TOKEN"])
 			}
 		}
+	}
+	if gates != 1 {
+		t.Errorf("release-train.yml: %d steps with id security, want exactly one", gates)
 	}
 	if merges != 1 {
 		t.Errorf("release-train.yml: %d steps run `gh pr merge`, want exactly one", merges)

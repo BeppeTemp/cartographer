@@ -44,6 +44,11 @@ func ValidateAuth(a AuthConfig) error {
 			// stopped enforcing.
 			return fmt.Errorf("%s: empty token value", where)
 		}
+		if tok.ScopesDeclared && len(tok.Scopes) == 0 && len(tok.Roles) == 0 {
+			// An empty list is not "no restriction": the admin token is the one
+			// that writes neither scopes nor roles.
+			return fmt.Errorf("%s: declares an empty scope or role list (omit both for an admin token)", where)
+		}
 		for _, scope := range tok.Scopes {
 			if _, err := auth.ParseScopesStrict(scope); err != nil {
 				return fmt.Errorf("%s: %w", where, err)

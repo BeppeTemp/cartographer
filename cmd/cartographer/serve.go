@@ -102,7 +102,9 @@ func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFla
 		cfg = config.Default()
 	}
 
-	config.FromEnv(cfg)
+	if err := config.FromEnv(cfg); err != nil {
+		return nil, err
+	}
 
 	explicit := config.FlagOverrides{}
 	fs.Visit(func(f *flag.Flag) {

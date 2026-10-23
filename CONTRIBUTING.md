@@ -282,8 +282,13 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
   when the issue moves to another milestone or the milestones change (the maintainer
   closes the train's milestone after the release, moving what did not make it). A large change
   that spans trains lands as PRs that change nothing a user sees on their own.
+- **No release with a known hole.** The train merges only when the security gate is
+  clear: no open Dependabot alert, no open code scanning alert (a false positive is
+  dismissed with its reason, not left open) and no draft security advisory whose fix
+  PR is still open in its private fork. A report still without a fix does not block.
+  The skip comment says only that the gate is not clear.
 - **Out of train**, only for a regression of the latest release or a security fix: the
-  maintainer merges the release PR by hand.
+  maintainer merges the release PR by hand, with the same gate cleared.
 
 ## Issues: bug, plan (ideas go to Discussions)
 
@@ -413,9 +418,10 @@ as for a plan.
 A vulnerability in released code is fixed in the temporary private fork of its draft
 advisory (`SECURITY.md`), by `cartographer-advisory-fixer`, and reviewed there with
 `cartographer-security-reviewer`. Nothing about it is public until the release: the
-commits state the new behaviour, not the hole. At the train the maintainer opens the
-fix on the public repository, merges it on green CI, releases, then publishes the
-advisory.
+commits state the new behaviour, not the hole. By Friday, before the freeze, the
+maintainer lands the fix on the public repository on green CI and closes its PR in the
+fork, so the Saturday candidate carries it and is tried with it; after the train has
+released, the maintainer publishes the advisory.
 
 ## Reporting bugs
 
