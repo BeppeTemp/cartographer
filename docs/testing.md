@@ -368,7 +368,9 @@ at the revision is exit 2. `TestFilmImportsStayInsideTheHashedInputs` (`internal
 from `film/` by imports (followed transitively: multi-line, side-effect, dynamic and `?raw`/`?url` forms) is outside that list, and `TestPreviewCallsTheFilmWithoutToleratingFailure` pins the workflow (read-only `render`, `publish` on main only)
 shape (no `continue-on-error`, write only in `publish`, actions pinned). The render itself needs a browser,
 ffmpeg and minutes of software WebGL, so it is exercised only by `film.yml`: no test or pull-request check
-renders it.
+renders it, except `film-check.yml`: on a pull request touching `film/` or the film workflows it renders 30 frames
+(`film/render.sh --no-mp4 --frames 30`, same pinned actions and packages, no cache, read-only) so the encode runs on the
+runner's tool versions before the release candidate does. It is not a required check.
 
 ### Packaging (`install.sh` and the generated Cask)
 

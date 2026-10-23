@@ -101,6 +101,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ steps.pr.outputs.number }}
+          EVENT: ${{ github.event_name }}
         run: |
           title=$(gh pr view "$PR" --json title --jq .title)
           version=$(printf '%s' "$title" | sed -n 's/^chore([a-z]*): release \([0-9][0-9.]*[0-9]\).*/\1/p')
@@ -110,6 +111,21 @@ jobs:
           fi
           # Must match the pre-release rule of preview.yml (vX.Y.Z-<suffix>).
           tag="v${version}-rc.$(TZ=Europe/Rome date +%Y%m%d)"
+          # A candidate dispatched by hand before the freeze already carries this main: building it again would
+          # make an rc-ok added after the first build predate "the current candidate". Only the scheduled run
+          # skips; a manual action=rc always builds.
+          if [ "$EVENT" != workflow_dispatch ]; then
+            head_sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
+            read -r rc_sha rc_title < <(gh run list --workflow preview.yml --branch main --status success --limit 20 \
+              --json headSha,displayTitle \
+              --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}$"))][0] | "\(.headSha) \(.displayTitle)"') || true
+            if [ -n "${rc_sha:-}" ] && [ "$rc_sha" = "$head_sha" ]; then
+              existing="${rc_title##* }"
+              echo "the candidate $existing already carries main (${head_sha:0:8}): not building again"
+              gh pr comment "$PR" --body "Release candidate \`$existing\` already carries this \`main\` (${head_sha:0:8}), so it is not built again: an \`rc-ok\` added after it stays valid."
+              exit 0
+            fi
+          fi
           gh workflow run preview.yml -f tag="$tag"
           gh pr comment "$PR" --body "Release candidate \`$tag\` is building (preview.yml, image \`ghcr.io/beppetemp/cartographer:$tag\`). Try it on a real deployment, then add the \`rc-ok\` label: the Monday train merges this PR only with it."
 
