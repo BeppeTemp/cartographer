@@ -886,8 +886,14 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 				printHookRegistered(p, dir, w)
 			}
 		}
+		reportedPruned := map[string]bool{}
 		for _, pr := range r.Pruned {
-			fmt.Printf("[%s] %s %s\n", p, verb("pruned", "would prune"), pr.Path)
+			cleanPath := filepath.ToSlash(pr.Path)
+			if pr.Kind == "instructions" && reportedPruned[cleanPath] {
+				continue
+			}
+			reportedPruned[cleanPath] = true
+			fmt.Printf("[%s] %s %s\n", p, verb("pruned", "would prune"), cleanPath)
 		}
 		// A heal means a local change was discarded (D139): say so on its own
 		// line instead of folding it into the ordinary writes above.

@@ -258,6 +258,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		// targeted providers are touched — a provider skipped by --client keeps
 		// its entries untouched.
 		claudeDirs, claudeDirWarnings := claudeConfigDirs(dir, cfg)
+		beforeSnap := snapshotMCPConfigFiles(targets, dir, claudeDirs)
 		removedNames, _, err := removeMCPEntries(cfg.ServerName, previousKnownKBs, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
 		// A symlinked config file or directory is refused for its provider
 		// only (D148): a warning, and the other providers proceed.
@@ -292,7 +293,8 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			fmt.Fprintf(os.Stderr, "warning: %s\n", w)
 		}
 		printMCPEntryRemovals(targets, removedNames, allEntryNames(entriesByProvider), opts.DryRun)
-		printMCPEntryLines(targets, allEntryNames(entriesByProvider), opts.DryRun)
+		writtenEntries := changedMCPEntries(targets, entriesByProvider, beforeSnap, dir, claudeDirs, cfg.Auth, cfg.TokenEnv())
+		printMCPEntryLines(targets, writtenEntries, opts.DryRun)
 	}
 
 	// Do not write even the local bootstrap hook until the complete remote

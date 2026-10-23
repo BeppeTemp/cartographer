@@ -1340,3 +1340,81 @@ func TestSyncWritesNothingWhenEveryProviderNeedsAFailedKB(t *testing.T) {
 		}
 	}
 }
+
+// #1169: sync reports "wrote MCP entry" only when the entry is actually written
+// or modified, never when the configuration file is byte-identical.
+func TestSync_UnchangedFileDoesNotReportMCPEntryWrite(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"one": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "solo")
+	})
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
+		Agents: []string{"claude", "codex", "opencode"}, KnownKBs: []string{"one"},
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// First sync: files do not exist yet, so entries are written.
+	out1 := withStdout(t, func() {
+		if _, err := runSync(dir, cfg, syncOptions{}); err != nil {
+			t.Fatalf("first sync: %v", err)
+		}
+	})
+	if !strings.Contains(out1, "wrote MCP entry cartographer") {
+		t.Errorf("first sync should announce written MCP entry:\n%s", out1)
+	}
+
+	// Second sync: byte-identical files, so no MCP write line must be printed.
+	out2 := withStdout(t, func() {
+		if _, err := runSync(dir, cfg, syncOptions{}); err != nil {
+			t.Fatalf("second sync: %v", err)
+		}
+	})
+	if strings.Contains(out2, "wrote MCP entry") {
+		t.Errorf("second sync reports MCP entry write although file is byte-identical:\n%s", out2)
+	}
+
+	// Dry-run on unchanged state: must also be quiet about MCP entry writes.
+	out3 := withStdout(t, func() {
+		if _, err := runSync(dir, cfg, syncOptions{DryRun: true}); err != nil {
+			t.Fatalf("dry-run sync: %v", err)
+		}
+	})
+	if strings.Contains(out3, "would write MCP entry") {
+		t.Errorf("dry-run sync reports would write MCP entry on unchanged state:\n%s", out3)
+	}
+
+	// Modified configuration (e.g. server mounts an additional KB, so entry changes): must report MCP entry write.
+	srv2 := prefixAwareMCPServer(t, map[string]string{"one": "", "two": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "skill-"+kb)
+	})
+	defer srv2.Close()
+
+	cfg.ServerURL = srv2.URL + "/mcp"
+	cfg.KnownKBs = []string{"one", "two"}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	out4 := withStdout(t, func() {
+		if _, err := runSync(dir, cfg, syncOptions{DryRun: true}); err != nil {
+			t.Fatalf("dry-run sync on modified state: %v", err)
+		}
+	})
+	if !strings.Contains(out4, "would write MCP entry") {
+		t.Errorf("dry-run sync should report would write MCP entry when entry changed:\n%s", out4)
+	}
+
+	out5 := withStdout(t, func() {
+		if _, err := runSync(dir, cfg, syncOptions{}); err != nil {
+			t.Fatalf("sync on modified state: %v", err)
+		}
+	})
+	if !strings.Contains(out5, "wrote MCP entry") {
+		t.Errorf("sync should report wrote MCP entry when entry changed:\n%s", out5)
+	}
+}

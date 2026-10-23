@@ -276,9 +276,7 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 			if pr.ConfigRemoved {
 				fmt.Printf("%s[%s] removed mcp config entry\n", prefix, pr.Provider)
 			}
-			for _, mf := range pr.Pruned {
-				fmt.Printf("%s[%s] pruned %s\n", prefix, pr.Provider, filepath.ToSlash(mf.Path))
-			}
+			printPrunedFiles(pr.Provider, pr.Pruned, prefix)
 			for _, w := range pr.Refused {
 				fmt.Printf("%s[%s] kept connected: %s\n", prefix, pr.Provider, w)
 			}
@@ -289,17 +287,25 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 		} else {
 			fmt.Printf("%s[%s] skipped mcp config entry (not found)\n", prefix, pr.Provider)
 		}
-		for _, mf := range pr.Pruned {
-			// Managed paths mix recorded forward slashes with ones joined
-			// with the host separator; print them one way (#415).
-			fmt.Printf("%s[%s] pruned %s\n", prefix, pr.Provider, filepath.ToSlash(mf.Path))
-		}
+		printPrunedFiles(pr.Provider, pr.Pruned, prefix)
 		if len(pr.Pruned) == 0 {
 			fmt.Printf("%s[%s] skipped skill prune (nothing managed)\n", prefix, pr.Provider)
 		}
 	}
 	if res.TimerUninstalled {
 		fmt.Println("sync timer uninstalled (no remaining client needs it)")
+	}
+}
+
+func printPrunedFiles(provider string, files []provisioning.ManagedFile, prefix string) {
+	seen := map[string]bool{}
+	for _, mf := range files {
+		clean := filepath.ToSlash(mf.Path)
+		if mf.Kind == "instructions" && seen[clean] {
+			continue
+		}
+		seen[clean] = true
+		fmt.Printf("%s[%s] pruned %s\n", prefix, provider, clean)
 	}
 }
 

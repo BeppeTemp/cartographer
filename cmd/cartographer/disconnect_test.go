@@ -319,6 +319,42 @@ func TestPrintDisconnectSummaryUsesForwardSlashes(t *testing.T) {
 	}
 }
 
+// #1169: several instructions artifacts share a single physical file (CLAUDE.md,
+// AGENTS.md), so disconnect must report the prune once per file, not once per KB.
+func TestPrintDisconnectSummary_CollapsesInstructionsPrune(t *testing.T) {
+	res := disconnectResult{Providers: []disconnectProviderResult{{
+		Provider: "claude",
+		Pruned: []provisioning.ManagedFile{
+			{Kind: "instructions", Name: "kb-a", Path: ".claude/CLAUDE.md"},
+			{Kind: "instructions", Name: "kb-b", Path: ".claude/CLAUDE.md"},
+			{Kind: "skill", Name: "skill-a", Path: ".claude/skills/skill-a/SKILL.md"},
+		},
+	}, {
+		Provider: "codex",
+		Pruned: []provisioning.ManagedFile{
+			{Kind: "instructions", Name: "kb-a", Path: ".codex/AGENTS.md"},
+			{Kind: "instructions", Name: "kb-b", Path: ".codex/AGENTS.md"},
+		},
+	}, {
+		Provider: "opencode",
+		Pruned: []provisioning.ManagedFile{
+			{Kind: "instructions", Name: "kb-a", Path: ".config/opencode/AGENTS.md"},
+			{Kind: "instructions", Name: "kb-b", Path: ".config/opencode/AGENTS.md"},
+		},
+	}}}
+	out := withStdout(t, func() { printDisconnectSummary(res, false) })
+	for _, want := range []string{
+		"[claude] pruned .claude/CLAUDE.md\n",
+		"[claude] pruned .claude/skills/skill-a/SKILL.md\n",
+		"[codex] pruned .codex/AGENTS.md\n",
+		"[opencode] pruned .config/opencode/AGENTS.md\n",
+	} {
+		if strings.Count(out, want) != 1 {
+			t.Errorf("expected %q exactly once in output, got count %d:\n%s", want, strings.Count(out, want), out)
+		}
+	}
+}
+
 // D325: the timer exists for clients with no reliable session hook; when the
 // last one is disconnected it goes, and that is not an operator opt-out.
 func TestDisconnect_UninstallsTimerWhenNoClientNeedsIt(t *testing.T) {
