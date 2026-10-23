@@ -4,6 +4,7 @@
 #   pr-triage.sh <pr-number>   a pull request on GitHub (needs gh, jq)
 #   pr-triage.sh --gate <pr>   the same report; exits 1 iff a BLOCK other than "CI is red"
 #                           was printed (the plan-gate workflow runs this, D955)
+#   pr-triage.sh --title-scopes  the scopes a PR title may use, as pr-title.yml lists them
 #   pr-triage.sh               the current branch against upstream/main (origin/main when
 #                           there is no `upstream` remote), before opening a PR
 #
@@ -39,6 +40,16 @@ kind() { # production | test | docs | generated
     *) echo production ;;
   esac
 }
+
+# The scopes `pr-title` accepts: the `scopes: |` block of its workflow, the only list
+# there is (a test reads the same one); never copy it here.
+title_scopes() {
+  awk '
+    /^[[:space:]]*scopes: \|[[:space:]]*$/ { match($0, /^ */); ind = RLENGTH; on = 1; next }
+    on { match($0, /^ */); if ($0 ~ /^[[:space:]]*$/ || RLENGTH <= ind) exit; gsub(/^[[:space:]]+|[[:space:]]+$/, ""); print }
+  ' "$(dirname "$0")/../.github/workflows/pr-title.yml"
+}
+if [ "${1:-}" = "--title-scopes" ]; then title_scopes; exit 0; fi
 
 GATE=0
 if [ "${1:-}" = "--gate" ]; then GATE=1; shift; fi
@@ -190,6 +201,17 @@ fi
 regression=$(grep -i -m1 '^regression-of:' <<<"$body" || true)
 [ -n "$regression" ] && echo "$regression — a regression: if it merges, add it to .claude/skills/cartographer-review-pr/evals/cases.md (cartographer-review-pr §When a defect escapes)"
 if [ $# -ge 1 ]; then
+  # A title with no scope is fine (requireScope: false); an unlisted one fails pr-title after the push.
+  title=$(jq -r .title <<<"$meta")
+  if [[ "$title" =~ ^[a-zA-Z]+\(([^\)]*)\)!?: ]]; then
+    allowed=$(title_scopes)
+    IFS=',' read -ra tscopes <<<"${BASH_REMATCH[1]}"
+    for sc in "${tscopes[@]}"; do
+      sc=${sc// /}
+      grep -qxF -- "$sc" <<<"$allowed" ||
+        echo "WARN: PR title scope \"$sc\" is not in the pr-title list ($(tr '\n' ' ' <<<"$allowed" | sed 's/ $//; s/ /, /g'); .github/workflows/pr-title.yml)"
+    done
+  fi
   for section in '## Self-review' '## Docs' '## Revert'; do
     grep -qF "$section" <<<"$body" || echo "WARN: PR body has no \"$section\" section (.github/pull_request_template.md)"
   done

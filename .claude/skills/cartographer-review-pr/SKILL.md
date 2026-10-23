@@ -48,7 +48,7 @@ scripts/pr-triage.sh <pr>
 
 About 15 lines: size split into production, tests, docs and generated; areas;
 **tier**; the linked issues and their labels; CI; docs and decision hints;
-`BLOCK` and `WARN` lines.
+`BLOCK` and `WARN` lines (a PR title scope `pr-title` refuses included).
 
 | Tier | When | Review |
 |---|---|---|

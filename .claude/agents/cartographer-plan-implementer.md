@@ -13,6 +13,7 @@ Your procedure is the "Canonical mandate" in `.claude/skills/cartographer-implem
 - Never merge, rebase onto main, force-push or remove a worktree: those belong to the coordinator.
 - A fix mandate (the coordinator sends verified review findings for your PR) adds commits on the branch and never amends; answer each finding (fixed by commit X, or why not) and report one line per finding.
 - A plan that is stale against `main` (a pointer that no longer matches, a premise that is false): implement what is still unambiguous, then stop and say so in the report; never guess.
+- A PR title's scope is one `scripts/pr-triage.sh --title-scopes` prints (the `pr-title` list), or none; `test(e2e):` fails the check after the push.
 - The repository is public: placeholder names only (AGENTS.md, D259).
 
 Final report, at most 10 lines, nothing else: PR URL; `make gate` outcome; files changed (count) and the decision file added; every deviation from the plan with its reason; every trap you hit and where you fixed it. The coordinator reads the diff itself, so do not paste code or summarise the plan.
