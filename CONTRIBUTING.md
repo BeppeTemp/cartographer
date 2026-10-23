@@ -118,16 +118,18 @@ MCP configuration is **not** in the repository: it is machine-local and git-igno
 (`.mcp.json`). If you are pointing a client at a Cartographer server, use
 `cartographer connect`, not a hand-written file.
 
-The repository ships six subagents in `.claude/agents/`: `cartographer-plan-writer`, the read-only drafter the
+The repository ships eight subagents in `.claude/agents/`: `cartographer-plan-writer`, the read-only drafter the
 `cartographer-propose-plan` skill spawns per plan once the maintainer has taken its design decisions,
 `cartographer-plan-implementer`, the worker the
 `cartographer-implement-plan` skill spawns per plan, `cartographer-live-implementer`, the one the
 `cartographer-develop-live` skill spawns per change, `cartographer-contract-reviewer`, the read-only reviewer
 the `cartographer-review-pr`, `cartographer-implement-plan` and `cartographer-develop-live` skills spawn per pull request,
 `cartographer-security-reviewer`, the read-only attacker's-view pass they add on full-tier PRs,
-and `cartographer-source-reader`, the read-only reader of one voluminous source (the failed log of a
-red CI run, a client's release notes) that returns a digest instead of the text.
-Each pins a Claude model (`cartographer-source-reader` runs on Haiku 5.5, the other five on Sonnet 5.5:
+`cartographer-source-reader`, the read-only reader of one voluminous source (the failed log of a
+red CI run, a client's release notes) that returns a digest instead of the text, and the two a
+maintainer spawns for the fixes of §Fixes without a plan: `cartographer-fix-implementer` and
+`cartographer-advisory-fixer`.
+Each pins a Claude model (`cartographer-source-reader` runs on Haiku 5.5, the other seven on Sonnet 5.5:
 the plan writer drafts after the design decisions are taken, so its work is verification and pointers),
 and the four read-only ones carry `tools: Read, Grep, Glob, Bash`;
 `TestClaudeSubagentsPinAModelAndReadOnlyOnesCannotEdit` checks both. The procedure itself stays in the skill (D327).
@@ -394,6 +396,23 @@ draft after the first accepted step, and its number is the decision number
 what a user notices) and its body become the squashed commit, and so the
 release changelog — the skill says what the body must hold. Everything else — `make gate`, docs and decision in the same PR, an
 independent read of the diff before the merge — is the same as for a plan.
+
+## Fixes without a plan (maintainers)
+
+A `bug` whose fix is bounded skips the plan: the maintainer writes the design
+decisions in a comment on the issue and puts it in a milestone, and a coordinator
+spawns `cartographer-fix-implementer` on a worktree with the issue number. The same
+agent takes a review round on a branch whose implementer is gone, with the verified
+findings as its mandate. Everything else — tests that fail without the fix, docs in
+the same PR, `make gate`, the review tier of `cartographer-review-pr` — is the same
+as for a plan.
+
+A vulnerability in released code is fixed in the temporary private fork of its draft
+advisory (`SECURITY.md`), by `cartographer-advisory-fixer`, and reviewed there with
+`cartographer-security-reviewer`. Nothing about it is public until the release: the
+commits state the new behaviour, not the hole. At the train the maintainer opens the
+fix on the public repository, merges it on green CI, releases, then publishes the
+advisory.
 
 ## Reporting bugs
 
