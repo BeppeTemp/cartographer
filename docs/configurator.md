@@ -243,7 +243,10 @@ provider from one machine-wide catalogue to one projection per bound repository:
 that repository's own project-local directories and nothing KB-sourced is written under `$HOME`. `connect --workspace <repo>` makes the same choice at connect time, which is the only moment
 it is free — a provider-global connect materializes every selected KB into `$HOME` first, and moving
 them afterwards is a migration. `workspace unbind` removes the declaration and the next `sync`
-prunes what was projected there. A binding also scopes the **tools** in every client, with no file
+prunes what was projected there. For Codex, `workspace bind codex <path> --kb <name>… --trust` also records the
+folder as trusted in `~/.codex/config.toml`, so the projection is not born `inactive` (one explicit, narrow
+write; without the flag `bind` prints the line to add; `unbind` and a derived binding never touch it; refusal
+cases and the exact rules in `sync.md` §Workspace scope, [D1074](decisions/D1074-workspace-bind-codex-trust.md)). A binding also scopes the **tools** in every client, with no file
 written into the workspace: `sync` writes the provider's global MCP entry as a local stdio bridge,
 `cartographer mcp --provider <p> [--dir <folder>]` (the folder defaults to the working directory), which serves only the KBs of the folder the session runs in
 (deepest binding wins; an unbound folder, `$HOME` included, gets the provider's default set
@@ -732,7 +735,7 @@ cartographer service sync-timer status   # exit: 0 active, 3 installed but inact
 installed is a success. The per-user scheduler belongs to the account, not to `$HOME`: when
 `$HOME` is not the account's home directory (a sandboxed run, the e2e suite), the server service
 and the sync timer write their unit files under `$HOME` and register nothing,
-so a sandbox never replaces the account's own jobs (#683). The timer runs plain `cartographer sync`: there is no trust flag to give it (D906),
+so a sandbox never replaces the account's own jobs (#683). The timer runs plain `cartographer sync`: `sync` has no trust flag to give it (D906; `workspace bind codex --trust` is a separate, explicit command),
 and an MCP descriptor still needs the local approval an unattended job cannot give. `setup` and `connect` install the timer themselves when a connected provider has no
 session hook, or one limited to some sessions (D325); `setup` lists it in its plan. `uninstall` is
 the explicit opt-out, remembered as `sync_timer_opt_out` in the client state file (so `connect` does
@@ -1199,7 +1202,7 @@ receives the agent's data, a signature proves only which server a descriptor cam
 `rw` token on the KB can write a descriptor the server then signs. A KB hook, any KB artifact that ships
 a file with the execute bit, and a skill or agent whose frontmatter declares `hooks` or MCP servers (also in a
 `providers:` block) need the same approval because they run on this machine (D1141), signed or not. Nothing else the client installs
-waits for a decision (there is no `trust` setting and no `--auto-trust`), and bundled artifacts never do.
+waits for a decision (`sync` has no `trust` setting and no `--auto-trust`; the one explicit trust write is `workspace bind codex … --trust` for Codex project trust, D1074), and bundled artifacts never do.
 Inspect and record the current content with `cartographer approve <kind> <name> --kb <kb> --yes`
 (`kind` is `mcp`, `hook`, `skill` or `agent`; interactive terminals default to no confirmation; for a
 non-MCP kind the command lists the files and prints the `hook.json` and the content of the executable files). Approval records the source KB,

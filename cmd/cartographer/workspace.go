@@ -209,6 +209,7 @@ func cmdWorkspace(args []string) int {
 }
 
 const workspaceUsage = `usage: cartographer workspace bind <provider> <path> --kb <name>[,<name>...]
+       cartographer workspace bind codex <path> --kb <name>[,<name>...] [--trust]
        cartographer workspace bind <provider> <path> --no-kb
        cartographer workspace unbind <provider> <path>
        cartographer workspace list [provider]
@@ -230,12 +231,14 @@ func loadWorkspaceConfig() (string, *clientconfig.Config, error) {
 func cmdWorkspaceBind(args []string) int {
 	var provider, path string
 	var kbs []string
-	noKB := false
+	noKB, trust := false, false
 	positional := make([]string, 0, 2)
 	for i := 0; i < len(args); i++ {
 		switch {
 		case args[i] == "--no-kb":
 			noKB = true
+		case args[i] == "--trust":
+			trust = true
 		case args[i] == "--kb" && i+1 < len(args):
 			i++
 			kbs = append(kbs, splitCommaList([]string{args[i]})...)
@@ -281,6 +284,10 @@ func cmdWorkspaceBind(args []string) int {
 			provider, provisioning.ProjectScopeUnsupportedReason(p))
 		return 2
 	}
+	if trust && p != configurator.ProviderCodex {
+		fmt.Fprintf(os.Stderr, "Error: --trust only applies to the codex provider, not %s\n", provider)
+		return 2
+	}
 	if err := cfg.BindWorkspace(provider, path, kbs); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
@@ -308,6 +315,42 @@ func cmdWorkspaceBind(args []string) int {
 		fmt.Println("run `cartographer sync` to move them — the previous global copies are pruned as part of it.")
 	} else {
 		fmt.Println("run `cartographer sync` to project it")
+	}
+	if p == configurator.ProviderCodex {
+		return codexTrustStep(dir, canonical, trust)
+	}
+	return 0
+}
+
+// codexTrustStep is the Codex project-trust part of `workspace bind` (D1074),
+// run after the binding is saved. With --trust it records the folder in the
+// user's Codex config (the flag is the consent: no prompt, never implied by
+// anything else); without it, it only prints the line to add when the folder is
+// not trusted yet. A refused or failed write is non-zero, and says the binding
+// was saved.
+func codexTrustStep(dir, workspace string, trust bool) int {
+	cfgPath := provisioning.CodexConfigPath(dir)
+	if !trust {
+		if !provisioning.CodexProjectTrusted(cfgPath, workspace) {
+			fmt.Printf("codex ignores this folder's .codex/ layer until it is trusted: add to %s\n%s\n(or rerun with --trust, or accept the prompt in a codex session there)\n",
+				cfgPath, provisioning.ManualLine(workspace))
+		}
+		return 0
+	}
+	res, err := provisioning.TrustCodexProject(cfgPath, workspace)
+	switch {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "warning: the binding was saved, but trusting %s failed: %v\nadd to %s\n%s\n",
+			workspace, err, cfgPath, res.Line)
+		return 2
+	case res.Status == provisioning.TrustRefused:
+		fmt.Fprintf(os.Stderr, "warning: the binding was saved, but %s was not trusted: %s\nadd to %s\n%s\n",
+			workspace, res.Reason, cfgPath, res.Line)
+		return 2
+	case res.Status == provisioning.TrustAlreadyTrusted:
+		fmt.Printf("%s is already trusted in %s\n", workspace, cfgPath)
+	default:
+		fmt.Printf("trusted %s in %s\n", workspace, cfgPath)
 	}
 	return 0
 }
@@ -863,7 +906,7 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 		if provider == string(configurator.ProviderCodex) &&
 			!provisioning.CodexProjectTrusted(provisioning.CodexConfigPath(clientBaseDir), w.Path) {
 			st.State = "inactive"
-			st.Detail = "codex does not trust this project, so it ignores its .codex/ layer — trust it from a codex session in this directory"
+			st.Detail = codexUntrustedDetail(w, provisioning.CodexConfigPath(clientBaseDir))
 		}
 		if w.Derived {
 			if _, skipped := derivedInstructions(provider, w.Path); skipped != "" {
@@ -977,7 +1020,7 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 				out = append(out, doctorFinding{
 					Check: "workspace", Severity: doctorWarning, Path: w.Path,
 					Message: fmt.Sprintf("%s: %s", provider, w.Detail),
-					Fix:     "trust the project from a codex session in that directory",
+					Fix:     "accept the trust prompt in a codex session in that directory, or add the table named above",
 				})
 			}
 		}
@@ -1044,4 +1087,21 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 		fmt.Printf("[%s] pruned the projection in %s\n", key.Provider, key.Workspace)
 	}
 	return pruned, nil
+}
+
+// codexUntrustedDetail is the status/doctor text for a Codex workspace that is
+// not trusted. The command it offers matches the binding: --no-kb for an empty
+// one, and none for a derived one (D1019), where `workspace bind` would create
+// an explicit binding the user never asked for.
+func codexUntrustedDetail(w clientconfig.WorkspaceBinding, cfgPath string) string {
+	line := strings.ReplaceAll(provisioning.ManualLine(w.Path), "\n", " + ")
+	msg := "codex does not trust this project, so it ignores its .codex/ layer — "
+	if !w.Derived {
+		kbs := "--no-kb"
+		if len(w.KBs) > 0 {
+			kbs = "--kb " + strings.Join(w.KBs, ",")
+		}
+		msg += fmt.Sprintf("`cartographer workspace bind codex %s %s --trust` records it, or ", w.Path, kbs)
+	}
+	return msg + fmt.Sprintf("add %s to %s, or accept the prompt in a codex session in this directory", line, cfgPath)
 }

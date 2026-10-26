@@ -127,7 +127,8 @@ binding puts its instructions block when the repository tracks `CLAUDE.md`.
   - `mcp` and `instructions` in `~/.codex/config.toml` and `~/.codex/AGENTS.md`
     (`AGENTS.override.md` in the same directory wins, first non-empty file only);
     hook trust is keyed by the exact hook definition, and a project's `.codex/`
-    layer is inactive unless the project is trusted (D193).
+    layer is inactive unless the project is trusted (D193); `workspace bind
+    codex … --trust` writes the `[projects."<path>"]` table on request (D1074).
   - `PostToolUse` write-findings hook (D361), registered in the same `hooks.json`.
   - write-findings feedback (D353, probed on 0.162.0, #637): a user-layer
     `PostToolUse` entry with Claude's matcher (`mcp__.*__(concept_write|…)$`)

@@ -117,7 +117,8 @@ and hooks only in the global scope, where they fire in one session mode
 ([D300](decisions/D300-kiro-gets-a-session-start-hook.md), below). And Codex ignores a
 project's `.codex/` layer unless the project is **trusted**, which is the one
 case where writing the files correctly is not the same as the projection being
-active: `status` and `doctor` report it as `inactive` rather than installed.
+active: `status` and `doctor` report it as `inactive` rather than installed, and
+`workspace bind codex <path> --kb … --trust` records the trust on request (D1074).
 
 ### Kiro hooks: one session mode (D300)
 
