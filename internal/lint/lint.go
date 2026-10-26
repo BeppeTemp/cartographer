@@ -1303,7 +1303,7 @@ func mapFieldContractFindings(relPath, mapName string, contract kb.MapContract, 
 			continue
 		}
 		seen[field] = true
-		allowed, ok := contract.AllowedValues(parsed.Type(), field)
+		allowed, src, ok := contract.AllowedValuesSource(parsed.Type(), field)
 		if !ok {
 			continue
 		}
@@ -1325,7 +1325,7 @@ func mapFieldContractFindings(relPath, mapName string, contract kb.MapContract, 
 			if !fieldValueAllowed(allowed, g) {
 				f := newFinding("invalid_field_value", Finding{
 					Path:    relPath,
-					Message: fmt.Sprintf("field %q has value %q, allowed by map %q: %s", field, g, mapName, strings.Join(allowed, ", ")),
+					Message: fmt.Sprintf("field %q has value %q, allowed by map %q (%s): %s", field, g, mapName, valuesSourceText(parsed.Type(), src), strings.Join(allowed, ", ")),
 				})
 				// D296: a synonym of exactly one allowed value is mechanical.
 				if _, scalar := value.(string); scalar {
@@ -1348,6 +1348,19 @@ func mapFieldContractFindings(relPath, mapName string, contract kb.MapContract, 
 		}
 	}
 	return out
+}
+
+// valuesSourceText names where an allowed-values list comes from, so an author
+// who sees a value accepted on one type and rejected on another can tell which
+// list applies (D275).
+func valuesSourceText(conceptType string, src kb.ValuesSource) string {
+	switch {
+	case src.PerType && src.ReplacesMapWide:
+		return fmt.Sprintf("type %q only, replaces the map-wide list", conceptType)
+	case src.PerType:
+		return fmt.Sprintf("type %q only", conceptType)
+	}
+	return "all types"
 }
 
 func fieldValueAllowed(allowed []string, v string) bool {

@@ -159,6 +159,16 @@ func TestOpenMarker(t *testing.T) {
 	if got := findingFor(f, "l/a.md", "open_marker"); got == nil || got.Count != 1 {
 		t.Fatalf("l/a: %+v", got)
 	}
+	// The message names the markers in force (#837), the map's own when it
+	// declares them, and the table-row rule.
+	if got := findingFor(f, "m/a.md", "open_marker"); !strings.Contains(got.Message, "TODO, TBD, FIXME") ||
+		!strings.Contains(got.Message, "table rows are exempt only while the page is open") {
+		t.Fatalf("m/a message: %q", got.Message)
+	}
+	if got := findingFor(f, "l/a.md", "open_marker"); !strings.Contains(got.Message, "markers counted: da verificare") ||
+		strings.Contains(got.Message, "TODO") {
+		t.Fatalf("l/a message: %q", got.Message)
+	}
 }
 
 // D313: headings are section names, table rows of an open concept are tracked.

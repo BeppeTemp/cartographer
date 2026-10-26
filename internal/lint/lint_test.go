@@ -236,6 +236,21 @@ func TestRun_MachinePath_MacHome_Detected(t *testing.T) {
 	if !hasCheck(findings, "arch/concept-a.md", "machine_path") {
 		t.Errorf("expected machine_path for arch/concept-a.md, got: %v", findings)
 	}
+	// The message offers the portable spellings, and never a key the contract
+	// reports as legacy (D907, #837).
+	for _, f := range findings {
+		if f.Check != "machine_path" {
+			continue
+		}
+		for _, want := range []string{"$HOME/", "{{repo:<key>}}", "{{path:<name>}}"} {
+			if !strings.Contains(f.Message, want) {
+				t.Errorf("machine_path message lacks %q: %s", want, f.Message)
+			}
+		}
+		if strings.Contains(f.Message, "machine_path_allow_prefixes") || strings.Contains(f.Message, "<nome>") {
+			t.Errorf("machine_path message names a removed key or a typo: %s", f.Message)
+		}
+	}
 }
 
 func TestRun_MachinePath_LinuxHome_Detected(t *testing.T) {
@@ -1412,7 +1427,7 @@ func TestRun_FieldValuesContract(t *testing.T) {
 	}
 	for _, f := range findings {
 		if f.Path == "infra/bad.md" && f.Check == "invalid_field_value" {
-			if !strings.Contains(f.Message, `field "status" has value "deprecate", allowed by map "infra": active, deprecated, draft, superseded`) {
+			if !strings.Contains(f.Message, `field "status" has value "deprecate", allowed by map "infra" (all types): active, deprecated, draft, superseded`) {
 				t.Errorf("finding = %#v", f)
 			}
 		}

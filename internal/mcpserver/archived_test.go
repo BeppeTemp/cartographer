@@ -501,3 +501,56 @@ func TestMapUpdate_HintsWhenATemplateNarrowsTheVocabulary(t *testing.T) {
 		t.Fatalf("an update that sets no template key: no hint, got %q", got)
 	}
 }
+
+// --- map_update: a per-type vocabulary that shadows a map-wide one (#837) ---
+// map_create is out of scope: its author has the list in front of them.
+
+func mapUpdateWarnings(t *testing.T, s *Server, args string) []string {
+	t.Helper()
+	var out struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal([]byte(callOK(t, s, "map_update", args)), &out); err != nil {
+		t.Fatal(err)
+	}
+	return out.Warnings
+}
+
+func TestMapUpdate_WarnsWhenAPerTypeVocabularyShadowsTheMapWideOne(t *testing.T) {
+	t.Parallel()
+	_, s := repairKB(t, 0)
+	callOK(t, s, "map_update", `{"map":"ops","field_values":{"*":{"status":["active","draft","archived"]}}}`)
+
+	// Narrower per-type list: names the type, the field and the hidden values.
+	w := mapUpdateWarnings(t, s, `{"map":"ops","field_values":{"*":{"status":["active","draft","archived"]},"Incident":{"status":["active","draft"]}},"reason":"incidents never archive"}`)
+	if len(w) != 1 || !strings.Contains(w[0], `type "Incident"`) || !strings.Contains(w[0], `field "status"`) ||
+		!strings.Contains(w[0], "rejected") || !strings.HasSuffix(w[0], "archived") {
+		t.Fatalf("shadow warning = %v", w)
+	}
+
+	// Superset: the list is replaced, not extended, with no "rejected" clause.
+	w = mapUpdateWarnings(t, s, `{"map":"ops","field_values":{"*":{"status":["active","draft","archived"]},"Incident":{"status":["active","draft","archived","open"]}},"reason":"widen"}`)
+	if len(w) != 1 || strings.Contains(w[0], "rejected") || !strings.Contains(w[0], "replaces the map-wide one") {
+		t.Fatalf("superset warning = %v", w)
+	}
+
+	// A write that does not carry field_values is not nagged about the old shadow.
+	if w = mapUpdateWarnings(t, s, `{"map":"ops","harvest_after":90}`); len(w) != 0 {
+		t.Fatalf("unrelated update warned: %v", w)
+	}
+
+	// A title warning and a shadow warning coexist.
+	w = mapUpdateWarnings(t, s, `{"map":"ops","title":"Completely Unrelated Name","field_values":{"*":{"status":["active","draft","archived"]},"Incident":{"status":["active"]}},"reason":"narrow"}`)
+	if len(w) != 2 || !strings.Contains(w[0], "map title") || !strings.Contains(w[1], `type "Incident"`) {
+		t.Fatalf("title+shadow warnings = %v", w)
+	}
+}
+
+func TestMapUpdate_NoShadowNoWarnings(t *testing.T) {
+	t.Parallel()
+	_, s := repairKB(t, 0)
+	out := callOK(t, s, "map_update", `{"map":"ops","field_values":{"Incident":{"status":["active"]}}}`)
+	if strings.Contains(out, "warnings") {
+		t.Fatalf("no map-wide list, yet warned: %s", out)
+	}
+}
