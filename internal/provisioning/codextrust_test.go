@@ -134,14 +134,20 @@ func TestTrustCodexProjectAppendsAndKeepsEveryByte(t *testing.T) {
 }
 
 func TestTrustCodexProjectRefusesAnyOtherDeclaration(t *testing.T) {
-	ws := "/some/work"
+	// The path and its key are built the way the writer builds them: on Windows
+	// filepath.Clean turns "/some/work" into `\some\work`, which is a literal key.
+	ws := filepath.Clean("/some/work")
+	key := trustKey(ws)
 	cases := map[string]string{
-		"untrusted":  "[projects.\"/some/work\"]\ntrust_level = \"untrusted\"\n",
-		"dotted":     "projects.\"/some/work\".trust_level = \"trusted\"\n",
+		"untrusted":  "[projects." + key + "]\ntrust_level = \"untrusted\"\n",
+		"dotted":     "projects." + key + ".trust_level = \"trusted\"\n",
 		"dotted-any": "projects.\"/other\".trust_level = \"trusted\"\n",
 		"inline":     "projects = { \"/other\" = { trust_level = \"trusted\" } }\n",
 		"bare table": "[projects]\n",
-		"comment":    "# trust /some/work later\nmodel = \"o3\"\n",
+		"comment":    "# trust " + ws + " later\nmodel = \"o3\"\n",
+		// The same path spelled the other way a config may carry it.
+		"slash spelling":   "[projects.\"" + filepath.ToSlash(ws) + "\"]\ntrust_level = \"untrusted\"\n",
+		"escaped spelling": "[projects.\"" + strings.ReplaceAll(ws, `\`, `\\`) + "\"]\ntrust_level = \"untrusted\"\n",
 	}
 	for name, content := range cases {
 		t.Run(name, func(t *testing.T) {

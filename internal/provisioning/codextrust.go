@@ -206,8 +206,13 @@ func TrustCodexProject(codexConfigPath, workspaceDir string) (TrustResult, error
 // for dir, or "". The tests are line-prefix and substring tests: no TOML parser.
 // Any mention of the path counts, a comment included (the conservative reading).
 func conflictingDeclaration(content, dir string) string {
-	if strings.Contains(content, dir) || strings.Contains(content, strings.ReplaceAll(dir, `\`, `\\`)) {
-		return "the config already mentions this path (an existing declaration, possibly \"untrusted\", is never overridden)"
+	// The spellings a config may carry for one path: native, TOML-escaped
+	// backslashes (a basic string) and forward slashes. All three name the same
+	// project to Codex, so a second table under any of them is a duplicate.
+	for _, spelling := range []string{dir, strings.ReplaceAll(dir, `\`, `\\`), filepath.ToSlash(dir)} {
+		if strings.Contains(content, spelling) {
+			return "the config already mentions this path (an existing declaration, possibly \"untrusted\", is never overridden)"
+		}
 	}
 	for _, raw := range strings.Split(content, "\n") {
 		l := strings.TrimSpace(raw)
