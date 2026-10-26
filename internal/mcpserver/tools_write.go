@@ -1001,6 +1001,47 @@ func mapTitleWarning(name, title string) string {
 	return fmt.Sprintf("map title %q is off (%s); a map title is a short name recognisable from the folder %q, the explanation goes in the description. Rename with map_update title", title, strings.Join(reasons, "; "), name)
 }
 
+// fieldValuesShadowWarnings explains, without refusing, each per-type
+// field_values list that replaces a map-wide one for the same field (D275): the
+// per-type list wins, so the map-wide values it leaves out are now rejected for
+// that type. Sorted by type then field, so the output is stable.
+func fieldValuesShadowWarnings(mapName string, contract kb.MapContract) []string {
+	var types []string
+	for t := range contract.FieldValuesByType {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	var out []string
+	for _, t := range types {
+		byField := contract.FieldValuesByType[t]
+		var fields []string
+		for f := range byField {
+			if _, wide := contract.FieldValues[f]; wide {
+				fields = append(fields, f)
+			}
+		}
+		sort.Strings(fields)
+		for _, f := range fields {
+			allowed := map[string]bool{}
+			for _, v := range byField[f] {
+				allowed[v] = true
+			}
+			var hidden []string
+			for _, v := range contract.FieldValues[f] {
+				if !allowed[v] {
+					hidden = append(hidden, v)
+				}
+			}
+			if len(hidden) > 0 {
+				out = append(out, fmt.Sprintf("map %q: the list for type %q field %q replaces the map-wide one, it does not extend it; the map-wide values it leaves out are now rejected for that type: %s", mapName, t, f, strings.Join(hidden, ", ")))
+			} else {
+				out = append(out, fmt.Sprintf("map %q: the list for type %q field %q replaces the map-wide one, it does not extend it", mapName, t, f))
+			}
+		}
+	}
+	return out
+}
+
 // validateTemplateParams rejects a templates / default_template pair a map
 // contract cannot hold (D352): slugs only, and the default one of the list.
 // Shared by map_create and map_update.
@@ -1300,10 +1341,17 @@ func toolMapUpdate(k *kb.KB) Tool {
 					result["hints"] = hints
 				}
 			}
+			var warnings []string
 			if params.Title != nil {
 				if w := mapTitleWarning(params.Map, title); w != "" {
-					result["warnings"] = []string{w}
+					warnings = append(warnings, w)
 				}
+			}
+			if params.FieldValues != nil {
+				warnings = append(warnings, fieldValuesShadowWarnings(params.Map, contract)...)
+			}
+			if len(warnings) > 0 {
+				result["warnings"] = warnings
 			}
 			echo := result["contract"].(map[string]interface{})
 			if contract.Index != "" {

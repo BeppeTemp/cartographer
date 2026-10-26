@@ -1813,11 +1813,25 @@ type MapContract struct {
 // the per-type list when present (it replaces the map-wide one, D275), else the
 // map-wide list. The bool is false when the contract does not constrain it.
 func (c MapContract) AllowedValues(conceptType, field string) ([]string, bool) {
-	if vals, ok := c.FieldValuesByType[conceptType][field]; ok {
-		return vals, true
-	}
-	vals, ok := c.FieldValues[field]
+	vals, _, ok := c.AllowedValuesSource(conceptType, field)
 	return vals, ok
+}
+
+// AllowedValuesSource is AllowedValues that also says where the list came
+// from, so messages can name the list that applies.
+func (c MapContract) AllowedValuesSource(conceptType, field string) (vals []string, src ValuesSource, ok bool) {
+	if v, found := c.FieldValuesByType[conceptType][field]; found {
+		_, shadows := c.FieldValues[field]
+		return v, ValuesSource{PerType: true, ReplacesMapWide: shadows}, true
+	}
+	v, found := c.FieldValues[field]
+	return v, ValuesSource{}, found
+}
+
+// ValuesSource says which contract entry an allowed-values list came from.
+type ValuesSource struct {
+	PerType         bool // the list is the concept type's own entry
+	ReplacesMapWide bool // ...and a map-wide list for the field exists too
 }
 
 // ContractMalformed identifies a tolerated malformed contract entry.

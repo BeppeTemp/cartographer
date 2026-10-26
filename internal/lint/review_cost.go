@@ -157,6 +157,23 @@ func cutBytes(s string, n int) string {
 	return s[:n] + "…"
 }
 
+// hotspotAction never suggests a call that fails. concept_expand takes an id of
+// exactly two segments in its direct form and refuses a concept already
+// expanded; a page at kb.MaxConceptDepth cannot have children (services/ ids
+// are exempt from that guard, not from concept_expand's two segments).
+func hotspotAction(c *reviewConcept) string {
+	segments := strings.Count(string(c.id), "/") + 1
+	switch {
+	case segments == 2 && !strings.HasSuffix(c.path, "/index.md"):
+		return "split detail into satellites (concept_expand) and keep this page a short summary; or turn it into an index page"
+	case segments == 2:
+		return "move detail into child pages of this concept (it is already a directory) and keep this page a short summary; or trim it"
+	case segments >= kb.MaxConceptDepth || kb.IsServicesID(c.id):
+		return "split detail into sibling pages in the same map and link them from this page, keeping it a short summary; or trim it"
+	}
+	return "move detail into child pages of this concept and keep this page a short summary; or trim it"
+}
+
 // readHotspotItems emits one read_hotspot per concept with many inbound links
 // and a large body. In-degree is a whole-graph number, so the item is hidden
 // from a caller who cannot see the whole KB.
@@ -178,7 +195,7 @@ func readHotspotItems(concepts []*reviewConcept, links kb.Links) []ReviewItem {
 			Kind:            ReviewReadHotspot,
 			Concepts:        []string{string(c.id)},
 			Evidence:        fmt.Sprintf("%d inbound links and a %d KB body: every path through it reads it whole", in, kib),
-			SuggestedAction: "split detail into satellites (concept_expand) and keep this page a short summary; or turn it into an index page",
+			SuggestedAction: hotspotAction(c),
 			Weight:          in * kib,
 			wholeGraph:      true,
 		})

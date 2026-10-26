@@ -211,7 +211,7 @@ func frontmatterFindings(in conceptInput) []Finding {
 	// --- machine_path (D75 WP6 / D124) ---
 	if all := disallowedMachinePaths(in.Body); len(all) > 0 {
 		disallowed := all[0]
-		msg := fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<nome>}} instead (D75); operational paths on containers/remote hosts are not client-local (D124)", disallowed)
+		msg := fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<name>}} instead (D75), or $HOME/… for a path in the reader's own home; operational paths on containers/remote hosts are not client-local (D124)", disallowed)
 		// One finding per concept, but naming every path: fixing the first
 		// must not be how the author learns about the second.
 		if rest := all[1:]; len(rest) > 0 {

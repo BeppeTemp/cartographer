@@ -190,7 +190,7 @@ func decayFindings(in conceptInput) []Finding {
 				first = string([]rune(first)[:100]) + "…"
 			}
 			out = append(out, newFinding("open_marker", Finding{Path: in.RelPath, Count: count,
-				Message: fmt.Sprintf("%d open marker(s), first: %q — answer them, or record an open_question", count, first)}))
+				Message: fmt.Sprintf("%d open marker(s), first: %q — answer them, or record an open_question; markers counted: %s (not in code, headings or struck-through text; table rows are exempt only while the page is open)", count, first, strings.Join(markers, ", "))}))
 		}
 	}
 	return out

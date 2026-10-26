@@ -341,6 +341,51 @@ func TestReviewSuggestedActionsAreNeutral(t *testing.T) {
 	}
 }
 
+// #837: every item of every kind ends with the closing suffix exactly once,
+// the action comes first, and nothing suggests a dismissal.
+func TestReviewEveryActionEndsWithTheClosingSuffix(t *testing.T) {
+	t.Parallel()
+	for _, kind := range ReviewKinds {
+		k, _ := reviewFixtures[kind](t)
+		items := itemsOf(review(t, k), kind)
+		if len(items) == 0 {
+			t.Errorf("%s: fixture produced no item", kind)
+		}
+		for _, it := range items {
+			a := it.SuggestedAction
+			if !strings.HasSuffix(a, closingSuffix) || strings.Count(a, closingSuffix) != 1 {
+				t.Errorf("%s: action does not end with the suffix exactly once: %q", kind, a)
+			}
+			if strings.TrimSuffix(a, closingSuffix) == "" {
+				t.Errorf("%s: the suffix is the whole action", kind)
+			}
+			if strings.Contains(a, "lint_ignore") {
+				t.Errorf("%s: action suggests lint_ignore: %q", kind, a)
+			}
+		}
+	}
+}
+
+// The kinds' own text no longer carries a closing clause of its own.
+func TestReviewKindsDropTheirOwnClosingClause(t *testing.T) {
+	t.Parallel()
+	if got := suggestedLintAction("broken_link"); got != "fix it on the page" {
+		t.Fatalf("lint_judgement action = %q", got)
+	}
+	k, _ := reviewFixtures[ReviewZombie](t)
+	for _, it := range itemsOf(review(t, k), ReviewZombie) {
+		if strings.Contains(it.SuggestedAction, "the item closes when") {
+			t.Fatalf("zombie_work keeps its own closing clause: %q", it.SuggestedAction)
+		}
+	}
+	k, _ = reviewFixtures[ReviewLintJudgement](t)
+	for _, it := range itemsOf(review(t, k), ReviewLintJudgement) {
+		if strings.Contains(it.SuggestedAction, "no longer reports it") {
+			t.Fatalf("lint_judgement keeps its own closing clause: %q", it.SuggestedAction)
+		}
+	}
+}
+
 func TestReviewZombieWork(t *testing.T) {
 	t.Parallel()
 	k, _ := reviewFixtures[ReviewZombie](t)
@@ -588,6 +633,35 @@ func TestReviewReadHotspot(t *testing.T) {
 	}
 	if vis := FilterReview(got, func(string) bool { return true }, false); len(vis) != 0 {
 		t.Fatal("a whole-graph item reached a narrowed caller")
+	}
+}
+
+// #837: the suggestion never names a call that fails: concept_expand needs a
+// direct two-segment id, and a page at the depth limit has no children.
+func TestReviewReadHotspotActionByShape(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	big := strings.Repeat("word ", hotspotMinBytes/5+10)
+	writeFile(t, k.DataRoot(), "m/direct.md", "---\ntype: Note\ntitle: Direct\n---\n"+big+"\n")
+	writeFile(t, k.DataRoot(), "m/expanded/index.md", "---\ntype: Note\ntitle: Expanded\n---\n"+big+"\n")
+	writeFile(t, k.DataRoot(), "m/expanded/part.md", "---\ntype: Note\ntitle: Part\n---\n# Part\n")
+	writeFile(t, k.DataRoot(), "m/expanded/deep.md", "---\ntype: Note\ntitle: Deep\n---\n"+big+"\n")
+	for i := 0; i < 60; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/p%02d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: P%d\n---\n[a](direct.md) [b](expanded/index.md) [c](expanded/deep.md)\n", i))
+	}
+	got := map[string]string{}
+	for _, it := range itemsOf(review(t, k), ReviewReadHotspot) {
+		got[it.Concepts[0]] = it.SuggestedAction
+	}
+	if a := got["m/direct"]; !strings.Contains(a, "concept_expand") {
+		t.Errorf("direct 2-segment page: %q", a)
+	}
+	if a := got["m/expanded"]; a == "" || strings.Contains(a, "concept_expand") || !strings.Contains(a, "child pages") {
+		t.Errorf("expanded 2-segment page: %q", a)
+	}
+	if a := got["m/expanded/deep"]; a == "" || strings.Contains(a, "concept_expand") || strings.Contains(a, "child") || !strings.Contains(a, "sibling") {
+		t.Errorf("page at the depth limit: %q", a)
 	}
 }
 

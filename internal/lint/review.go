@@ -334,8 +334,22 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	}
 	items = append(items, obs...)
 
+	appendClosingSuffix(items)
 	SortReview(items)
 	return items, nil
+}
+
+// closingSuffix is the one sentence every item's suggested_action ends with:
+// how an item ends (D907). The kinds' own text says what to do and never how
+// the item closes; a kind added later gets this for free.
+const closingSuffix = "Nothing dismisses an item: it closes when the pages it names reach this state; if one is right as it stands, write that state and give the reason in the commit message."
+
+// appendClosingSuffix appends closingSuffix to each item's SuggestedAction. It
+// runs once, in Review, over the assembled items.
+func appendClosingSuffix(items []ReviewItem) {
+	for i := range items {
+		items[i].SuggestedAction = strings.TrimRight(items[i].SuggestedAction, " .") + ". " + closingSuffix
+	}
 }
 
 // SortReview orders items by kind priority, then weight (heavier first), then
@@ -750,7 +764,7 @@ func zombieWorkItems(k *kb.KB, byID map[okf.ConceptID]*reviewConcept, concepts [
 			Kind:            ReviewZombie,
 			Concepts:        append([]string{t}, ids...),
 			Evidence:        fmt.Sprintf("%d open concepts link the retired %s: more likely the place they came from than what each is about", len(ids), t),
-			SuggestedAction: fmt.Sprintf("close each, or retarget its link to the page that replaced %s (or move the mention out of the origin section if it is only where the work came from): the item closes when none of them links it there", t),
+			SuggestedAction: fmt.Sprintf("close each, or retarget its link to the page that replaced %s (or move the mention out of the origin section if it is only where the work came from)", t),
 			Weight:          len(ids),
 			wholeGraph:      true,
 		})
@@ -1313,10 +1327,10 @@ func isMixedCase(w string) bool {
 // --- lint_judgement ---
 
 // suggestedLintAction is what the doctor is told to do with a judgement
-// finding: nothing accepts one (D907), so it is fixed on the page and the item
-// closes when the check no longer reports it.
+// finding: nothing accepts one (D907), so it is fixed on the page. How the item
+// closes is the closing suffix's to say.
 func suggestedLintAction(check string) string {
-	return "fix it on the page: the item closes when the check no longer reports it"
+	return "fix it on the page"
 }
 
 func lintJudgementItems(findings []Finding, zombies map[okf.ConceptID]bool) []ReviewItem {
