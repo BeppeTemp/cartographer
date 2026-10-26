@@ -77,7 +77,7 @@ evidence of coverage, and a client config that cannot be read never triggers an 
 (`session_hook_limit_acked`, carried over by every sync); `status` does not repeat it after that,
 while a client with no hook at all is always named and `doctor`'s `trigger` check still reports the
 limit on every run ([D320](decisions/D320-upgrades-and-provisioning-tell-the-user-what-changed.md)). The timer runs plain
-`sync`: the client has no trust flag (D906), and an MCP descriptor, a hook or an executable file still needs the point approval an
+`sync`: `sync` has no trust flag (D906; the one explicit trust write is `workspace bind codex … --trust`, [D1074](decisions/D1074-workspace-bind-codex-trust.md), never run by a timer), and an MCP descriptor, a hook or an executable file still needs the point approval an
 unattended job cannot give ([D1141](decisions/D1141-kb-hooks-need-approval.md)). Logs: `~/Library/Logs/cartographer/sync.log`
 on macOS, the journal on Linux, `%LOCALAPPDATA%\cartographer\Logs\sync.log` on Windows ([configurator](configurator.md) §cartographer service sync-timer).
 
@@ -522,7 +522,7 @@ unchanged.
   the name of a tracked path, skips that one projection with a warning naming the workspace, the
   provider and the paths, and the run goes on with the others. An explicit `workspace bind` keeps
   the refusal ([D1181](decisions/D1181-workspace-projection-owns-artifacts-not-directories.md)). Codex keeps its caveat: an untrusted project
-  ignores `.codex/`, reported `inactive`.
+  ignores `.codex/`, reported `inactive`; a derived binding never records trust (no command was run to carry the consent), and `status` names the line to add.
 
 `workspace list` shows a derived binding with its source (`derived: paths.yaml of kb-a`) and
 `workspace resolve` says which one won.
@@ -588,6 +588,21 @@ Codex is the one provider where correct files are not the whole story: it ignore
 `.codex/` layer unless the project is **trusted**. `status` and `doctor` report such a projection as
 `inactive` and name the fix, because reporting it as installed is the false-positive class
 [D189](decisions/D189-instructions-written-correctly-are-not-reported-as.md) exists to eliminate.
+
+`cartographer workspace bind codex <path> --kb <name>… --trust` ([D1074](decisions/D1074-workspace-bind-codex-trust.md))
+records the folder as trusted on request. The flag is the consent: no prompt, valid for `codex` only (any other
+provider is a usage error), never implied by `--kb`, `sync` or a timer. It appends one table to the user's
+`~/.codex/config.toml`, `[projects."<path>"]` with `trust_level = "trusted"` and nothing else, outside any managed
+block (Codex rewrites that file and drops comments, markers included, D99), as text: every existing byte stays an
+exact prefix, a missing file is created `0600`, an existing file keeps its mode, and the write is a temp file
+renamed over the original. Already trusted is a success that writes nothing. It writes **nothing** and prints the
+exact line to add, with a non-zero exit (the binding itself is saved first and stays), when the file or a directory
+above it is a symlink (dotfile managers link it), when the file already mentions the path (an explicit
+`untrusted` included: a refusal is never overridden) or declares `projects` as a dotted key, an inline table or a
+`[projects]` table (a second declaration is a duplicate key and stops Codex from starting), or when the path
+holds a quote or control character. A path with a backslash is written as a TOML literal string. Without the
+flag, `bind` prints the line when the folder is not trusted yet. `unbind` leaves the table alone, it is the user's
+record. Copilot is not covered.
 
 ### Repository hygiene
 

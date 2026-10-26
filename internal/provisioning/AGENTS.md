@@ -18,6 +18,13 @@ modifies files a user did not ask about.
   `internal/blocktext` does marker-delimited substring replacement and nothing
   format-aware, on purpose: comments, ordering and every other byte survive
   (D58). If you find yourself parsing the user's TOML or JSON to edit it, stop.
+- **One sanctioned exception: `TrustCodexProject` (D1074).** It appends a
+  `[projects."<dir>"]` / `trust_level = "trusted"` table to the user's Codex
+  `config.toml`, outside any managed block, only for `workspace bind codex --trust`
+  (an explicit flag), only when the file says nothing about the project and does
+  not declare `projects` in another form, and never through a link. It is textual
+  (the old bytes stay an exact prefix). Anything beyond that, another key, caller
+  or provider, is a bug.
 - **Merging into a client's MCP config is non-destructive**: entries belonging to
   other servers are preserved (D23). A full rewrite of the file is a bug even when
   the result looks right on your machine.
