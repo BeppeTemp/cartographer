@@ -1,0 +1,267 @@
+{
+  "ttlMs": 0,
+  "cacheScope": "public",
+  "tools": [
+    {
+      "annotations": {
+        "idempotentHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Keyword search over concepts; returns IDs, best first (all terms preferred, then OR fallback). Glossary aliases match too (expanded_to). scope is a map name or id prefix, never a KB name.",
+      "inputSchema": {
+        "properties": {
+          "include_archived": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          },
+          "record_miss": {
+            "type": "boolean"
+          },
+          "related": {
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      },
+      "name": "search"
+    },
+    {
+      "annotations": {
+        "idempotentHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Reads a concept: content_hash, frontmatter (parsed) and _raw, body. with_content: true returns content (exact bytes) instead of body. section returns one section; outline: true only the headings; match greps lines.",
+      "inputSchema": {
+        "properties": {
+          "context": {
+            "description": "Lines around a match (max 20)",
+            "type": "integer"
+          },
+          "full": {
+            "description": "Body over 60 KB comes as outline; true forces it",
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "match": {
+            "description": "Grep body (or section) lines, case-insensitive",
+            "type": "string"
+          },
+          "outline": {
+            "type": "boolean"
+          },
+          "rev": {
+            "description": "Past version SHA (concept_history); its hash is no if_match",
+            "type": "string"
+          },
+          "section": {
+            "description": "Heading, e.g. '# Schema'",
+            "type": "string"
+          },
+          "with_content": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "concept_read"
+    },
+    {
+      "annotations": {
+        "idempotentHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Reads a folder's index.md (root if empty). with_hash: {path, content, content_hash} (if_match for index_patch). Over 60 KB: outline, unless full or with_hash; outline: true forces it.",
+      "inputSchema": {
+        "properties": {
+          "full": {
+            "type": "boolean"
+          },
+          "outline": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "with_hash": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "name": "index_get"
+    },
+    {
+      "annotations": {
+        "idempotentHint": false,
+        "readOnlyHint": true
+      },
+      "description": "The concepts around a question or given concepts, ranked over links both ways: one call instead of chaining search, concept_read and graph_neighbors.",
+      "inputSchema": {
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "query": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "graph_context"
+    },
+    {
+      "annotations": {
+        "idempotentHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Graph neighbors up to depth hops (default 1): out = linked from the concept, in = linking to it, both = either.",
+      "inputSchema": {
+        "properties": {
+          "depth": {
+            "type": "integer"
+          },
+          "direction": {
+            "enum": [
+              "out",
+              "in",
+              "both"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
+      },
+      "name": "graph_neighbors"
+    },
+    {
+      "annotations": {
+        "idempotentHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Exhaustive inventory (id, title, type, status; fields adds keys, content_hash too) under a scope prefix, sorted by id; empty = whole KB. where and timestamp filters apply before limit. For curated navigation use index_get.",
+      "inputSchema": {
+        "properties": {
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "timestamp_after": {
+            "description": "Exclusive, RFC3339 or YYYY-MM-DD",
+            "type": "string"
+          },
+          "timestamp_before": {
+            "description": "Exclusive, RFC3339 or YYYY-MM-DD",
+            "type": "string"
+          },
+          "where": {
+            "description": "ANDed frontmatter key=value or key!=value; list fields match any element; case-sensitive; a missing key matches != only",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "name": "concept_list"
+    },
+    {
+      "annotations": {
+        "idempotentHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Root index.md plus the Maps and Journals with concept counts. structure: true adds the most central concepts and link-graph communities: where to start reading. How to work in this KB: kb_guide.",
+      "inputSchema": {
+        "properties": {
+          "structure": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "name": "atlas_overview"
+    },
+    {
+      "annotations": {
+        "idempotentHint": false,
+        "readOnlyHint": true
+      },
+      "description": "Reads a KB-root artifact (skills/, agents/, hooks/, mcp/, instructions.md, templates/<slug>.md, paths.yaml, glossary.yaml). Returns content and sha256, the if_match for artifact_write/artifact_delete.",
+      "inputSchema": {
+        "properties": {
+          "encoding": {
+            "enum": [
+              "text",
+              "base64"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "artifact_read"
+    },
+    {
+      "annotations": {
+        "idempotentHint": false,
+        "readOnlyHint": true
+      },
+      "description": "How to work in this KB: the operating guide, the procedures available and, if you may see them, the KB's own skills. Call it first if you were given no instructions. procedure (ingest, conflict-resolve, import) returns its steps; file reads a references/ file of that procedure. Read-only.",
+      "inputSchema": {
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "procedure": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "kb_guide"
+    }
+  ]
+}

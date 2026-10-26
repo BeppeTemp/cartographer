@@ -348,6 +348,16 @@ func RoutedBinding(mounted, bound []string) []string {
 // bridge (D737) rather than the HTTP URL: it has at least one workspace binding
 // (explicit or derived, D1019) and the server has the routed endpoint the bridge proxies to. The single rule
 // both the entry writer and the Atlas report apply.
+//
+// A provider with an access profile (clients.<provider>.access, D1184) never
+// gets the bridge, which does not carry the profile and would run read-write in
+// a bound folder: it keeps its HTTP entry (see ProfileIgnoresWorkspaces).
 func (c *Config) UsesBridge(provider, routedPath string) bool {
-	return routedPath != "" && len(c.effectiveWorkspaces(provider)) > 0
+	return routedPath != "" && c.Clients[provider].Access == "" && len(c.effectiveWorkspaces(provider)) > 0
+}
+
+// ProfileIgnoresWorkspaces reports whether provider has workspace bindings
+// (explicit or derived) that its access profile makes inert (D1184).
+func (c *Config) ProfileIgnoresWorkspaces(provider, routedPath string) bool {
+	return routedPath != "" && c.Clients[provider].Access != "" && len(c.effectiveWorkspaces(provider)) > 0
 }

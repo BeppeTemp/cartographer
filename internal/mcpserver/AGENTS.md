@@ -25,6 +25,9 @@ test or a decision record: none of them is a preference.
   a real registry and fails if they diverge. A new read-only tool that is not in
   the list is refused for a `kb:<name>:r` token; a mutating tool wrongly in it is
   a privilege escalation.
+- **The `?access=read-min` listing (`readMinTools`, `readprofile.go`, D1184) stays inside
+  `readOnlyToolNames`**: `TestReadMinToolsAreReadOnly` enforces it, and a write is refused
+  at the routed authorizer with `read_only_profile`, never left to the target KB.
 - **A handler never takes the lock, never commits, never syncs.** `gitwrap.go`
   wraps every write with the per-KB lock, the commit and the git sync. Doing any
   of it inside a handler double-commits or deadlocks. The only exceptions are

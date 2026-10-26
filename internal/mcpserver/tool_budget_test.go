@@ -107,6 +107,11 @@ func TestServer_ToolDescriptionBudget(t *testing.T) {
 	}
 }
 
+// toolsListReadMinBudgetBytes bounds the tools/list of a single-KB routed mount
+// in ?access=read-min (D1184), as served (the response body). Raise it only with
+// a decision (D285); the golden testdata/tools_list_read_min.json pins the content.
+const toolsListReadMinBudgetBytes = 5100 // measured 4871
+
 // routedKBOverheadBytes bounds what the `kb` argument adds to a routed
 // tools/list over the same mount bound to one KB (D1183): a fixed per-tool
 // cost (the property, its short description and `required`), measured as

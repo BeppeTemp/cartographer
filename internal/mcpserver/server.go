@@ -99,6 +99,10 @@ type Server struct {
 	// tools/list carries no write tool and a call to one is refused with
 	// denyUnboundFolder. Set once by buildRouted, before the server is served.
 	readOnlySession bool
+	// readMinSession marks a routed connection that asked for ?access=read-min
+	// (D1184): tools/list carries only readMinTools, a write is refused with
+	// denyReadOnlyProfile. Set once by buildRouted.
+	readMinSession bool
 	// tokenReadOnly marks a routed view for a principal that can write none of
 	// the connection's KBs (D1096): tools/list carries no write tool, but the
 	// call is not refused here: it reaches the target KB, which answers

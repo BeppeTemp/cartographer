@@ -555,13 +555,11 @@ func (m *MultiKBServer) Handler() http.Handler {
 				http.Error(w, "conflicting kb selection: the routed mount takes the KB as a tool argument, not as a query parameter", http.StatusBadRequest)
 				return
 			}
-			readOnly := false
-			switch access := r.URL.Query().Get("access"); access {
-			case "":
-			case AccessReadValue:
-				readOnly = true
+			access := r.URL.Query().Get("access")
+			switch access {
+			case "", AccessReadValue, AccessReadMinValue:
 			default:
-				http.Error(w, fmt.Sprintf("invalid access %q: the only accepted value is %q (omit it for the connection's normal access)", access, AccessReadValue), http.StatusBadRequest)
+				http.Error(w, fmt.Sprintf("invalid access %q: the accepted values are %q and %q (omit it for the connection's normal access)", access, AccessReadValue, AccessReadMinValue), http.StatusBadRequest)
 				return
 			}
 			provisioned := false
@@ -573,13 +571,13 @@ func (m *MultiKBServer) Handler() http.Handler {
 				http.Error(w, fmt.Sprintf("invalid provisioned %q: the only accepted value is %q (omit it for a client that has no Cartographer client side)", v, ProvisionedValue), http.StatusBadRequest)
 				return
 			}
-			srv, unknown, renamed, err := m.routedFor(r.Context(), r.URL.Query()["kbs"], readOnly)
+			srv, unknown, renamed, err := m.routedFor(r.Context(), r.URL.Query()["kbs"], access)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if readOnly {
-				w.Header().Set(AccessHeader, AccessReadValue)
+			if access != "" {
+				w.Header().Set(AccessHeader, access)
 			}
 			ctx := withRoutedRenamed(withRoutedUnknown(r.Context(), unknown), renamed)
 			if provisioned {

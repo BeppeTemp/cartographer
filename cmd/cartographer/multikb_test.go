@@ -1264,3 +1264,33 @@ func TestCmdSync_ARefusedProviderDirectoryDoesNotStopTheBootstrapOfTheOthers(t *
 	}
 	assertBootstrapOnlyForClaude(t, dir, elsewhere)
 }
+
+// D1184: access=read-min follows kbs= and precedes provisioned=1, for the
+// provider that has it only.
+func TestEntriesForKBs_Routed_AccessProfile(t *testing.T) {
+	mounted := []string{"a", "b", "c"}
+	for _, tc := range []struct {
+		explicit bool
+		bound    []string
+		want     string
+	}{
+		{false, mounted, "https://example.test/mcp/routed?access=read-min&provisioned=1"},
+		{true, []string{"c", "a"}, "https://example.test/mcp/routed?kbs=a,c&access=read-min&provisioned=1"},
+	} {
+		entries, err := entriesForKBsAccess("wiki", "https://example.test/mcp", mounted, tc.bound, "/mcp/routed", tc.explicit, "read-min")
+		if err != nil || len(entries) != 1 || entries[0].URL != tc.want {
+			t.Errorf("explicit=%v: %+v %v, want %s", tc.explicit, entries, err, tc.want)
+		}
+	}
+	cfg := &clientconfig.Config{
+		ServerURL: "https://example.test/mcp", ServerName: "wiki", KnownKBs: mounted,
+		Clients: map[string]clientconfig.ClientBinding{"claude": {Access: clientconfig.AccessReadMin}},
+	}
+	got, err := entriesByProviderForKBs(cfg, []string{"claude", "codex"}, "wiki", cfg.ServerURL, mounted, "/mcp/routed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["claude"][0].URL != "https://example.test/mcp/routed?access=read-min&provisioned=1" || got["codex"][0].URL != "https://example.test/mcp/routed?provisioned=1" {
+		t.Errorf("claude=%+v codex=%+v", got["claude"], got["codex"])
+	}
+}

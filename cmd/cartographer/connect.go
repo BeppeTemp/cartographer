@@ -329,6 +329,7 @@ func cmdConnect(args []string) int {
 	var kbSel repeatedString
 	fs.Var(&kbSel, "kb", "KB this client may receive (repeatable, or comma-separated; 'all' for every mounted KB)")
 	allowInsecure := fs.Bool("allow-insecure-http", false, "Accept a plain http:// server URL that is not loopback (the bearer token then travels in clear)")
+	accessFlag := fs.String("access", "", "Connection profile: read-min (read-only, minimal tool list; routed server only). Empty keeps the persisted value; clear it by removing clients.<provider>.access")
 	workspaceFlag := fs.String("workspace", "", "Project the selected KBs into this repository instead of the global catalogue (D193)")
 	fs.Parse(rest)
 	warnRemovedAutoTrust(*autoTrust)
@@ -376,6 +377,7 @@ func cmdConnect(args []string) int {
 		PinKeys:           pinKeys,
 		KBs:               splitCommaList(kbSel),
 		Workspace:         *workspaceFlag,
+		Access:            *accessFlag,
 		// The placeholder step is a question, so it follows the same rule as
 		// every other connect question: a terminal on both ends, and no
 		// --no-input. A dry run has nothing to re-materialize.
@@ -730,6 +732,10 @@ type connectOptions struct {
 	// provider-global connect materializes every selected KB's artifacts into
 	// $HOME, and moving them afterwards is a migration rather than a choice.
 	Workspace string
+	// Access is the connection profile of --access (D1184): "" keeps what the
+	// config already persists for each provider, clientconfig.AccessReadMin sets
+	// it for the providers of this run.
+	Access string
 	// PromptPaths opens the placeholder step (D262, pathsform.go) after the
 	// first materialization when some key the bound KBs cite did not
 	// resolve. Set by cmdConnect only on a TTY without --no-input; the TUI
@@ -872,6 +878,9 @@ func doConnect(opts connectOptions) (connectResult, error) {
 	existing.ServerMountMode = ""
 	if routedPath != "" {
 		existing.ServerMountMode = "routed"
+	}
+	if err := applyConnectAccess(existing, opts, routedPath); err != nil {
+		return connectResult{}, err
 	}
 	entriesByProvider, err := entriesByProviderForKBs(existing, opts.Providers, opts.Name, opts.ServerURL, entryKBs, routedPath)
 	if err != nil {
@@ -1166,4 +1175,30 @@ func existingOrDefault(dir string) *clientconfig.Config {
 		return c
 	}
 	return clientconfig.Default()
+}
+
+// applyConnectAccess records --access for the providers of this run (D1184),
+// in memory like the KB selection (the save is guarded by the dry run). The
+// profile lives on the routed mount only and the workspace bridge does not
+// carry it, so both cases are refused with the fix named. An empty opts.Access
+// changes nothing: the persisted value stays.
+func applyConnectAccess(cfg *clientconfig.Config, opts connectOptions, routedPath string) error {
+	if opts.Access == "" {
+		return nil
+	}
+	if opts.Access != clientconfig.AccessReadMin {
+		return fmt.Errorf("--access %q: the only value is %q", opts.Access, clientconfig.AccessReadMin)
+	}
+	if routedPath == "" {
+		return fmt.Errorf("--access %s: the read-only profile needs the routed mount, and this server does not offer it (or did not answer): point --server-url at a server with the routed endpoint", opts.Access)
+	}
+	for _, provider := range opts.Providers {
+		if cfg.UsesBridge(provider, routedPath) {
+			return fmt.Errorf("--access %s: %s has a workspace binding, so it runs through the bridge, which does not carry the read-only profile: a read-only agent runs on the provider-global scope (remove the binding with `cartographer workspace unbind`, or connect another provider)", opts.Access, provider)
+		}
+		if err := cfg.SetAccess(provider, opts.Access); err != nil {
+			return err
+		}
+	}
+	return nil
 }

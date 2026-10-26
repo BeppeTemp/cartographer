@@ -186,7 +186,15 @@ type ClientBinding struct {
 	// own .claude.json) that sync writes the MCP entry to, besides $HOME. Only
 	// valid under clients.claude (D755).
 	ConfigDirs []string
+	// Access is "" (the connection's normal access) or AccessReadMin: the
+	// provider's entry URL carries access=read-min (D1184). It is not a KB
+	// binding: Explicit and BoundKBs ignore it.
+	Access string
 }
+
+// AccessReadMin is the one value of ClientBinding.Access: the routed mount's
+// minimal read-only tool profile (D1184).
+const AccessReadMin = "read-min"
 
 // Explicit reports whether the binding declares a KB set.
 func (b ClientBinding) Explicit() bool { return b.KBsSet || len(b.KBs) > 0 }
@@ -194,6 +202,7 @@ func (b ClientBinding) Explicit() bool { return b.KBsSet || len(b.KBs) > 0 }
 type clientBindingYAML struct {
 	KBs        []string `yaml:"kbs"`
 	ConfigDirs []string `yaml:"config_dirs,omitempty"`
+	Access     string   `yaml:"access,omitempty"`
 }
 
 // UnmarshalYAML tells an absent `kbs` key from an empty one.
@@ -202,7 +211,7 @@ func (b *ClientBinding) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&raw); err != nil {
 		return err
 	}
-	*b = ClientBinding{KBs: raw.KBs, ConfigDirs: raw.ConfigDirs}
+	*b = ClientBinding{KBs: raw.KBs, ConfigDirs: raw.ConfigDirs, Access: raw.Access}
 	if node.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(node.Content); i += 2 {
 			if node.Content[i].Value == "kbs" {
@@ -226,6 +235,9 @@ func (b ClientBinding) MarshalYAML() (interface{}, error) {
 	}
 	if len(b.ConfigDirs) > 0 {
 		out["config_dirs"] = b.ConfigDirs
+	}
+	if b.Access != "" {
+		out["access"] = b.Access
 	}
 	return out, nil
 }
@@ -411,6 +423,9 @@ func Load(dir string) (*Config, error) {
 	for provider, b := range y.Clients {
 		if len(b.ConfigDirs) > 0 && provider != "claude" {
 			return nil, fmt.Errorf("clientconfig: %s: clients.%s.config_dirs is only valid under clients.claude", Path(dir), provider)
+		}
+		if b.Access != "" && b.Access != AccessReadMin {
+			return nil, fmt.Errorf("clientconfig: %s: clients.%s.access %q is not valid: the only value is %q (remove the key for the normal access)", Path(dir), provider, b.Access, AccessReadMin)
 		}
 	}
 	var extra map[string]interface{}
@@ -724,12 +739,31 @@ func (c *Config) Unbind(provider, kb string) error {
 	return nil
 }
 
+// SetAccess records provider's connection profile (AccessReadMin), creating an
+// entry that is not an explicit KB binding when the provider had none.
+func (c *Config) SetAccess(provider, access string) error {
+	if provider == "" || provider != strings.TrimSpace(provider) {
+		return fmt.Errorf("clientconfig: invalid provider name %q", provider)
+	}
+	if access != AccessReadMin {
+		return fmt.Errorf("clientconfig: invalid access %q: the only value is %q", access, AccessReadMin)
+	}
+	if c.Clients == nil {
+		c.Clients = make(map[string]ClientBinding)
+	}
+	b := c.Clients[provider]
+	b.Access = access
+	c.Clients[provider] = b
+	return nil
+}
+
 // ResetBinding deletes provider's binding, returning it to the default (every
 // known KB). Missing entries are a no-op.
 func (c *Config) ResetBinding(provider string) {
 	// config_dirs is not part of the KB binding (D755): keep it.
-	if b, ok := c.Clients[provider]; ok && len(b.ConfigDirs) > 0 {
-		c.Clients[provider] = ClientBinding{ConfigDirs: b.ConfigDirs}
+	// access is the connection's profile (D1184), not a KB binding: keep it too.
+	if b, ok := c.Clients[provider]; ok && (len(b.ConfigDirs) > 0 || b.Access != "") {
+		c.Clients[provider] = ClientBinding{ConfigDirs: b.ConfigDirs, Access: b.Access}
 		return
 	}
 	delete(c.Clients, provider)
