@@ -53,6 +53,11 @@ type syncProjection struct {
 	Derived             bool
 	InstructionsRel     string
 	InstructionsSkipped string
+	// SharedSkipped lists the tracked shared files (MCP and registration
+	// files) a derived projection leaves alone, and SkipKinds the artifact
+	// kinds it therefore does not apply (D1181).
+	SharedSkipped []string
+	SkipKinds     []string
 }
 
 // Key is the lockfile projection this state is recorded under.
@@ -127,6 +132,7 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 		}
 		if w.Derived {
 			sp.InstructionsRel, sp.InstructionsSkipped = derivedInstructions(provider, w.Path)
+			sp.SharedSkipped, sp.SkipKinds = derivedSharedSkips(provider, w.Path)
 		}
 		out = append(out, sp)
 	}
@@ -686,7 +692,11 @@ func prepareWorkspace(p syncProjection, providers []string, dryRun bool, owned o
 		return nil
 	}
 	provider := configurator.Provider(p.Provider)
-	if err := provisioning.CheckWorkspaceHygiene(p.Provider, p.Workspace, owned(provider), workspaceBlockFiles(provider)); err != nil {
+	ownedNow, err := owned(provider)
+	if err != nil {
+		return err
+	}
+	if err := provisioning.CheckWorkspaceHygiene(p.Provider, p.Workspace, ownedNow, workspaceBlockFiles(provider)); err != nil {
 		return err
 	}
 	if dryRun {
@@ -707,23 +717,31 @@ func prepareWorkspace(p syncProjection, providers []string, dryRun bool, owned o
 
 // ownedPathsFunc returns the workspace-relative paths a provider's projection
 // owns in one workspace (D1181).
-type ownedPathsFunc func(provider configurator.Provider) []string
+type ownedPathsFunc func(provider configurator.Provider) ([]string, error)
 
 // workspaceOwnership resolves what each provider's projection of workspace owns:
 // the artifacts this run plans for it (manifests, keyed as projectionKey) and
 // the paths the lockfile records for it. A provider with neither owns only its
 // shared files, so a repository's own artifacts are never claimed.
 func workspaceOwnership(lockFile *provisioning.LockFile, projections []syncProjection, manifests map[string]provisioning.Manifest, workspace string) ownedPathsFunc {
-	return func(provider configurator.Provider) []string {
+	return func(provider configurator.Provider) ([]string, error) {
 		var m provisioning.Manifest
+		var notWritten []string
 		for _, p := range projections {
 			if p.Scope == provisioning.ScopeProject && p.Workspace == workspace && p.Provider == string(provider) {
-				m = manifests[projectionKey(p)]
+				m = withoutKinds(manifests[projectionKey(p)], p.SkipKinds)
+				notWritten = p.SharedSkipped
 				break
 			}
 		}
 		lock := lockFile.ForProjection(provisioning.Projection{Provider: string(provider), Workspace: workspace})
-		return provisioning.ProjectOwnedArtifactPaths(provider, m, lock)
+		paths, err := provisioning.ProjectOwnedArtifactPaths(provider, m, lock)
+		if err != nil {
+			return nil, err
+		}
+		// A shared file a derived projection leaves alone is not its to
+		// refuse or to exclude (D1181).
+		return slices.DeleteFunc(paths, func(p string) bool { return slices.Contains(notWritten, p) }), nil
 	}
 }
 
@@ -768,7 +786,11 @@ func writeWorkspaceExclusions(workspace string, providers []string, owned ownedP
 		provider := configurator.Provider(name)
 		excluded = append(excluded, provisioning.OwnedLocalInstructions(workspace, provider)...)
 		blocks := workspaceBlockFiles(provider)
-		for _, o := range owned(provider) {
+		ownedPaths, err := owned(provider)
+		if err != nil {
+			return err
+		}
+		for _, o := range ownedPaths {
 			if slices.Contains(blocks, o) && tracked[filepath.ToSlash(o)] {
 				continue
 			}
@@ -847,6 +869,16 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 			if _, skipped := derivedInstructions(provider, w.Path); skipped != "" {
 				st.Detail = fmt.Sprintf("instructions not written: %s is tracked by git and a derived binding never edits a tracked file — `cartographer workspace bind %s %s --kb %s` writes the block there",
 					skipped, provider, w.Path, strings.Join(w.KBs, ","))
+			}
+		}
+		if w.Derived {
+			if files, _ := derivedSharedSkips(provider, w.Path); len(files) > 0 {
+				note := fmt.Sprintf("not written: %s is tracked by git and a derived binding never edits a tracked file — the provider keeps its global entry; `cartographer workspace bind %s %s --kb %s` is the explicit alternative",
+					strings.Join(files, ", "), provider, w.Path, strings.Join(w.KBs, ","))
+				if st.Detail != "" {
+					note = st.Detail + "; " + note
+				}
+				st.Detail = note
 			}
 		}
 		out = append(out, st)

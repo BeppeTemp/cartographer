@@ -680,6 +680,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 	// here: nothing has been written yet. The projection is carried into errors
 	// so a failed multi-projection sync identifies the configuration it
 	// protected.
+	skippedProjections := map[string]bool{}
 	for _, p := range projections {
 		// Preflight the projection's OWN view: validating the whole candidate
 		// set would fail a sync over a local command belonging to a KB this
@@ -688,6 +689,15 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			return nil, err
 		}
 		if err := prepareWorkspace(p, workspaceProviders(lockFile, projections, p.Workspace), dryRun, workspaceOwnership(&lockFile, projections, manifests, p.Workspace)); err != nil {
+			var collision *provisioning.TrackedCollisionError
+			if p.Derived && errors.As(err, &collision) {
+				// Nobody asked for a derived binding on this machine (D1019):
+				// one repository's clash is no reason to stop the others
+				// (D1181). An explicit binding keeps the refusal.
+				fmt.Fprintf(os.Stderr, "warning: workspace %s: %s projection skipped: %v\n", p.Workspace, p.Provider, err)
+				skippedProjections[projectionKey(p)] = true
+				continue
+			}
 			return nil, err
 		}
 	}
@@ -712,6 +722,9 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 
 	var appliedSoFar []string
 	for _, p := range projections {
+		if skippedProjections[projectionKey(p)] {
+			continue
+		}
 		previous := lockFile.ForProjection(p.Key())
 		manifest := manifests[projectionKey(p)]
 		opts := provisioning.ApplyOptions{
@@ -740,6 +753,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			if p.InstructionsSkipped != "" {
 				manifest = withoutInstructions(manifest)
 			}
+			manifest = withoutKinds(manifest, p.SkipKinds)
 		}
 		// Apply only the artifacts the provider knows how to materialize in
 		// this scope: unsupported kinds are neither drift nor pending, they

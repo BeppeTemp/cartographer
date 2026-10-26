@@ -81,8 +81,8 @@ func TestWorkspaceProvidersKeepsUntouchedAndDropsLeaving(t *testing.T) {
 
 // rootsOwned owns every directory root of a provider, the pre-D1181 answer: the
 // tests that are about which providers share the block do not care which paths.
-func rootsOwned(provider configurator.Provider) []string {
-	return provisioning.ProjectOwnedPaths(provider)
+func rootsOwned(provider configurator.Provider) ([]string, error) {
+	return provisioning.ProjectOwnedPaths(provider), nil
 }
 
 // #1181: a projection owns the artifacts it writes, not the directory. A

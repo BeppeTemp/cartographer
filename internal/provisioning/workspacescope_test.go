@@ -201,7 +201,10 @@ func TestAntigravityProjectRoots(t *testing.T) {
 func TestProjectOwnedArtifactPaths(t *testing.T) {
 	m := Manifest{Artifacts: []Artifact{{Kind: "skill", Name: "kb-skill"}, {Kind: "agent", Name: "kb-agent"}}}
 	lock := Lock{Managed: []ManagedFile{{Kind: "skill", Name: "old", Path: filepath.FromSlash(".agents/skills/old/SKILL.md")}}}
-	got := ProjectOwnedArtifactPaths(configurator.ProviderCodex, m, lock)
+	got, err := ProjectOwnedArtifactPaths(configurator.ProviderCodex, m, lock)
+	if err != nil {
+		t.Fatal(err)
+	}
 	has := func(p string) bool {
 		for _, g := range got {
 			if g == p {
@@ -220,7 +223,39 @@ func TestProjectOwnedArtifactPaths(t *testing.T) {
 			t.Errorf("owned paths %v claim the whole directory %s", got, root)
 		}
 	}
-	if len(ProjectOwnedArtifactPaths("unknown-client", m, lock)) != 1 {
-		t.Error("an unknown provider owns more than the lock's own record")
+	if g, _ := ProjectOwnedArtifactPaths("unknown-client", m, lock); len(g) != 0 {
+		t.Errorf("an unknown provider owns %v", g)
+	}
+}
+
+// A name Apply would refuse, or one that would inject a line into
+// .git/info/exclude, fails the projection before anything is written.
+func TestProjectOwnedArtifactPaths_RejectsUnsafeNames(t *testing.T) {
+	for _, name := range []string{"../../*", "../../src/main.go", "x\n!/src", "a/b", "*", "a?", "[a]", "!a", "#a", "a\\b", " a", "a ", "x\r"} {
+		m := Manifest{Artifacts: []Artifact{{Kind: "skill", Name: name}}}
+		got, err := ProjectOwnedArtifactPaths(configurator.ProviderCodex, m, Lock{})
+		if err == nil || !strings.Contains(err.Error(), "invalid artifact name") {
+			t.Errorf("name %q = %v, %v; want an invalid artifact name error", name, got, err)
+		}
+	}
+}
+
+// A tampered lock cannot widen the owned set beyond the provider's own
+// destinations, nor put a line break into the exclude file.
+func TestProjectOwnedArtifactPaths_DropsTamperedLockPaths(t *testing.T) {
+	lock := Lock{Managed: []ManagedFile{
+		{Path: "src/main.go"}, {Path: "../../*"}, {Path: ".agents/skills/x\n!/src"}, {Path: ".agents/skills/ok/SKILL.md"},
+	}}
+	got, err := ProjectOwnedArtifactPaths(configurator.ProviderCodex, Manifest{}, lock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range got {
+		if g == "src/main.go" || g == "*" || strings.ContainsAny(g, "\n\r") || strings.HasPrefix(g, "..") {
+			t.Errorf("owned paths %v hold %q from a tampered lock", got, g)
+		}
+	}
+	if !strings.Contains(strings.Join(got, ","), ".agents/skills/ok/SKILL.md") {
+		t.Errorf("owned paths %v lost a legitimate lock path", got)
 	}
 }
