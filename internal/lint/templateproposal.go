@@ -292,6 +292,20 @@ func followsTemplate(p *reviewConcept, mapName string, contract kb.MapContract, 
 	return true
 }
 
+// FollowsTemplate reports whether the concept id, with this content, passes
+// lint's template checks against templates/<slug>.md, were the map to declare
+// it as its default_template. It is followsTemplate for a caller outside the
+// package (source_register, D1072): same checks, no second implementation.
+func FollowsTemplate(mapName string, id okf.ConceptID, content string, contract kb.MapContract, catalog kb.TemplateCatalog, slug string) bool {
+	fmRaw, body, _ := okf.SplitFrontmatter(content)
+	p := &reviewConcept{id: id, mapName: mapName, body: body, path: string(id) + ".md", content: content}
+	if parsed, _ := okf.ParseFrontmatter(fmRaw); parsed != nil {
+		p.fm = parsed
+		p.typ = parsed.Type()
+	}
+	return followsTemplate(p, mapName, contract, catalog, slug)
+}
+
 // templateImpact previews what declaring the proposed templates does to one map:
 // the template findings its pages gain, over those they already have. It runs
 // lint's own checks on every page of the map, whatever its type, so the preview

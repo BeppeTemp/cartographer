@@ -34,6 +34,7 @@ When the source is a file, compute the sha256 of the **original bytes** with the
 ### 2. Register
 `source_register(title, source_kind, locator?, sha256?, timestamp?)`. The ledger journal
 (`sources` by default) must exist: `map_create(name: "sources", kind: "journal")` if it does not.
+The first registration gives the journal a `source` template (`templates/source.md`); edit it there to widen it.
 - `duplicate: true` with `ingest_status: ingested` → **stop** and tell the operator.
 - `duplicate: true` with `ingest_status: pending` → resume that Source (use the returned `id`).
 - `source_list` shows what else is pending.

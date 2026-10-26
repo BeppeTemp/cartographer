@@ -899,7 +899,12 @@ validate a nested per-type grammar.
   can answer *already ingested?*, *what is pending?*, *where does this claim come
   from?* and *what depends on this source?*. It lives in a journal (`sources` by
   default, created with `map_create(name: "sources", kind: "journal")`;
-  `source_register` never creates it). Frontmatter: `title`, `source_kind` (free
+  `source_register` never creates it). Into an existing journal the first
+  `source_register` writes `templates/source.md` when absent and, when the map
+  holds `Source` concepts only and each already follows the template, declares
+  `templates: [source]` and `default_template: source` on it (D1072); an existing
+  template, or a map that already declares templates, is never touched, and the
+  response says so in `notes`. Frontmatter: `title`, `source_kind` (free
   string), optional `locator` (a URL or a `{{path:<key>}}` placeholder, never a
   machine path), optional `sha256` (lowercase hex of the original bytes, computed
   by the agent), `timestamp` (the source's own date), `ingest_status`

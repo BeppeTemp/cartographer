@@ -9,6 +9,26 @@ import (
 // SourceIngestStatuses is the vocabulary of a Source's ingest_status.
 var SourceIngestStatuses = []string{"pending", "ingested", "skipped"}
 
+// SourceTemplate is the text of templates/source.md, the template
+// source_register writes into a ledger journal that has none (D1072). It is
+// composed from the server's own shape of a Source, so a change to the
+// vocabulary changes the template. timestamp is optional because
+// source_register omits it when the caller gives none; the body names no H2 and
+// sections are open, because the distillation is free.
+func SourceTemplate() string {
+	var b strings.Builder
+	b.WriteString("---\n")
+	b.WriteString("type: " + SourceType + "\n")
+	b.WriteString("title: \"{{title}}\"\n")
+	b.WriteString(TemplateMetaDescription + ": One primary source the knowledge base has absorbed, with its ingest status\n")
+	b.WriteString(TemplateMetaRequiredFields + ": [source_kind, ingest_status]\n")
+	b.WriteString(TemplateMetaOptionalFields + ": [locator, sha256, timestamp, ingested_at]\n")
+	b.WriteString(TemplateMetaFieldValues + "ingest_status: [" + strings.Join(SourceIngestStatuses, ", ") + "]\n")
+	b.WriteString(TemplateMetaOpenSections + ": true\n")
+	b.WriteString("---\n# {{title}}\n")
+	return b.String()
+}
+
 // ProvenanceEntries returns the trimmed, non-empty entries of a concept's
 // provenance frontmatter. A bare string is read as a one-element list. An entry
 // that is the ID of an existing Source is a source citation (D278); the caller
