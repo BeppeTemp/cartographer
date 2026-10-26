@@ -162,3 +162,12 @@ func TestConceptBatchMoveHint(t *testing.T) {
 		t.Fatalf("delete: %+v", res.Content)
 	}
 }
+
+// The hidden map alias must reach the audit trail like name does (#836).
+func TestMapCreateAliasIsAudited(t *testing.T) {
+	t.Parallel()
+	got := extractResources("map_create", json.RawMessage(`{"map":"notes","title":"T"}`))
+	if got["map"] != "notes" {
+		t.Fatalf("resources = %v, want map=notes", got)
+	}
+}

@@ -579,7 +579,7 @@ var commitSubjectFields = map[string][]string{
 
 // commitSubjectFallback is the priority order used for any tool with no
 // commitSubjectFields entry: the first non-empty string field wins.
-var commitSubjectFallback = []string{"id", "name", "source_id", "contradiction_id"}
+var commitSubjectFallback = []string{"id", "name", "map", "source_id", "contradiction_id"}
 
 // commitMessage builds a human-readable commit message from the tool name and
 // the arguments that identify what the write touched: the per-tool fields in
