@@ -921,6 +921,7 @@ func toolMapCreate(k *kb.KB) Tool {
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			var params struct {
 				Name            string                         `json:"name"`
+				Map             string                         `json:"map"` // hidden alias of name (#836): not in InputSchema, the tools/list budget (D285)
 				Title           string                         `json:"title"`
 				Kind            string                         `json:"kind"`
 				ConceptTypes    []string                       `json:"concept_types"`
@@ -932,6 +933,12 @@ func toolMapCreate(k *kb.KB) Tool {
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
+			}
+			if params.Name != "" && params.Map != "" && params.Name != params.Map {
+				return errorResult(fmt.Sprintf("map_create: 'name' (%q) and 'map' (%q) differ; pass one", params.Name, params.Map)), nil
+			}
+			if params.Name == "" {
+				params.Name = params.Map
 			}
 			if params.Name == "" {
 				return errorResult("'name' is required"), nil
@@ -964,6 +971,14 @@ func toolMapCreate(k *kb.KB) Tool {
 			result := map[string]interface{}{
 				"map":    params.Name,
 				"status": "created",
+				"title":  params.Title,
+				"kind":   "map",
+			}
+			if created, err := k.ReadMapContract(params.Name); err == nil {
+				if created.Kind != "" {
+					result["kind"] = created.Kind
+				}
+				result["ontology_mode"] = created.OntologyMode
 			}
 			if w := mapTitleWarning(params.Name, params.Title); w != "" {
 				result["warnings"] = []string{w}
@@ -1006,7 +1021,7 @@ func validateTemplateParams(templates []string, def string) string {
 			return ""
 		}
 	}
-	return "'default_template' must be one of 'templates'"
+	return fmt.Sprintf("'default_template' %q is not in 'templates': add it to 'templates' in the same call", def)
 }
 
 // validateContractParams rejects the empty entries a map contract must not
@@ -1312,6 +1327,12 @@ func toolMapUpdate(k *kb.KB) Tool {
 				echo["default_template"] = contract.DefaultTemplate
 			}
 			echo["glossary"] = contract.Glossary
+			// Top-level copies of the common keys (#836); they stay in contract too.
+			for key, v := range map[string]string{"kind": contract.Kind, "ontology_mode": contract.OntologyMode} {
+				if v != "" {
+					result[key] = v
+				}
+			}
 			for k, v := range map[string]string{"kind": contract.Kind, "ontology_mode": contract.OntologyMode, "promote_to": contract.PromoteTo, "open_field": contract.OpenField, "work_map": contract.WorkMap} {
 				if v != "" {
 					echo[k] = v
@@ -1388,6 +1409,16 @@ func toolMapDelete(k *kb.KB) Tool {
 				return errorResult("'map' is required"), nil
 			}
 
+			// Read before the delete removes _map.md (#836); unreadable is not an error.
+			delTitle, delKind := "", ""
+			if meta, err := k.ReadArchiveMeta(params.Map); err == nil {
+				if v, ok := meta.Get("title"); ok {
+					delTitle, _ = v.(string)
+				}
+				if v, ok := meta.Get("kind"); ok {
+					delKind, _ = v.(string)
+				}
+			}
 			removed, err := k.DeleteMap(params.Map, params.Force)
 			if err != nil {
 				return errorResult(fmt.Sprintf("map_delete %q: %v", params.Map, err)), nil
@@ -1397,6 +1428,12 @@ func toolMapDelete(k *kb.KB) Tool {
 			result := map[string]interface{}{
 				"map":    params.Map,
 				"status": "deleted",
+			}
+			if delTitle != "" {
+				result["title"] = delTitle
+			}
+			if delKind != "" {
+				result["kind"] = delKind
 			}
 			if len(removed) > 0 {
 				result["removed_files"] = removed
@@ -2962,7 +2999,12 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				case "":
 					return errorResult(fmt.Sprintf("%s: 'op' is required (\"write\" or \"patch\")", label)), nil
 				default:
-					return errorResult(fmt.Sprintf("%s: invalid 'op' %q (must be \"write\" or \"patch\")", label, op.Op)), nil
+					msg := fmt.Sprintf("%s: invalid 'op' %q (must be \"write\" or \"patch\")", label, op.Op)
+					switch strings.ToLower(op.Op) {
+					case "move", "rename", "mv":
+						msg += "; to move or rename a concept use concept_move"
+					}
+					return errorResult(msg), nil
 				}
 
 				if fm.Type() == "" {
