@@ -456,7 +456,7 @@ func TestSourceRegisterPageNotFollowingTemplateLeavesMapFlexible(t *testing.T) {
 	if sourceMapContract(t, k).HasTemplateKeys() {
 		t.Fatal("map declared although a page fails the template")
 	}
-	if n := sourceNotes(out); len(n) != 2 || !strings.Contains(n[1], "1 existing page") {
+	if n := sourceNotes(out); len(n) != 2 || !strings.Contains(n[1], "1 page") {
 		t.Fatalf("notes = %v", n)
 	}
 }
@@ -530,5 +530,44 @@ func TestSourceTemplatePassesArtifactValidation(t *testing.T) {
 	t.Parallel()
 	if _, _, _, err := validateTemplateArtifact([]byte(kb.SourceTemplate())); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// An operator-edited template the new page does not follow: the first
+// registration must not declare the map (the new page is checked too).
+func TestSourceRegisterNewPageNotFollowingEditedTemplate(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	edited := "---\ntype: Source\ntitle: \"{{title}}\"\nx-template.required_fields: [source_kind, owner]\nx-template.open_sections: true\n---\n# {{title}}\n"
+	os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755)
+	os.WriteFile(filepath.Join(k.Root, "templates/source.md"), []byte(edited), 0o644)
+	out := registerSource(t, s, `{"title":"A","source_kind":"note"}`)
+	if sourceMapContract(t, k).HasTemplateKeys() {
+		t.Fatal("map declared although the new page fails the template")
+	}
+	if n := sourceNotes(out); len(n) != 1 || !strings.Contains(n[0], "1 page") {
+		t.Fatalf("notes = %v", n)
+	}
+}
+
+// A registration that fails writes no template and no contract.
+func TestSourceRegisterFailedWriteSetsNothingUp(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	dir := filepath.Join(k.DataRoot(), "sources")
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Skipf("chmod: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	if f, err := os.Create(filepath.Join(dir, "probe")); err == nil {
+		f.Close()
+		t.Skip("directory still writable (root?)")
+	}
+	res := s.callTool(authLocalContext(), "source_register", json.RawMessage(`{"title":"A","source_kind":"note"}`))
+	if !res.IsError {
+		t.Fatalf("expected an error result, got %v", res)
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, "templates/source.md")); err == nil {
+		t.Fatal("template written by a failed registration")
 	}
 }

@@ -177,8 +177,6 @@ func toolSourceRegister(k *kb.KB) Tool {
 				return textResult(string(out)), nil
 			}
 
-			notes, setupWarnings := ensureSourceTemplate(k, p.Map)
-
 			base := p.Map + "/" + when.Format("2006-01-02") + "-" + sourceSlug(p.Title)
 			id := base
 			for n := 2; ; n++ {
@@ -215,6 +213,10 @@ func toolSourceRegister(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("source_register %q: %v", id, err)), nil
 			}
 			_ = k.AppendLog("source_register: "+id, time.Now())
+			// After the write, so the new page is on disk and goes through the
+			// same conformance check as the existing ones, and so a refused
+			// registration leaves no template or contract change behind.
+			notes, setupWarnings := ensureSourceTemplate(k, p.Map)
 			resp := map[string]interface{}{"id": id, "duplicate": false}
 			warnings := setupWarnings
 			if contract, cerr := k.ReadMapContract(p.Map); cerr == nil {
@@ -243,7 +245,7 @@ func toolSourceRegister(k *kb.KB) Tool {
 //
 // It is best effort: the registration must never fail because of this setup.
 // A failure is a warning, a decision not to declare is a note, and the caller
-// registers the source either way. It runs before the concept is written and
+// registers the source either way. It runs after the concept is written, so the new page is checked too, and
 // takes no lock and makes no commit: the handler is wrapped by gitWrap, so the
 // template, the _map.md edit and the concept land in one commit.
 func ensureSourceTemplate(k *kb.KB, mapName string) (notes, warnings []string) {
@@ -317,7 +319,7 @@ func ensureSourceTemplate(k *kb.KB, mapName string) (notes, warnings []string) {
 		}
 	}
 	if failing > 0 {
-		return append(notes, fmt.Sprintf("map %q not declared: %d existing page(s) do not follow the source template", mapName, failing)), nil
+		return append(notes, fmt.Sprintf("map %q not declared: %d page(s) do not follow the source template", mapName, failing)), nil
 	}
 	// default_template must be listed in templates (UpdateMapContract refuses
 	// it otherwise), so both keys are set; the map holds Sources only.
