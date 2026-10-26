@@ -156,3 +156,46 @@ func TestDerivedBindingIsInactiveWithTheLine(t *testing.T) {
 		t.Error("a derived binding wrote the Codex config")
 	}
 }
+
+func TestUntrustedCodexTextMatchesTheBinding(t *testing.T) {
+	home, ws := trustHome(t)
+	cmdLine := "cartographer workspace bind codex " + ws
+
+	// --no-kb: the command offered is --no-kb, never an empty --kb.
+	withStdout(t, func() { cmdWorkspaceBind([]string{"codex", ws, "--no-kb"}) })
+	st := trustStatus(t, home)
+	if len(st) != 1 || !strings.Contains(st[0].Detail, cmdLine+" --no-kb --trust") || strings.Contains(st[0].Detail, "--kb ") {
+		t.Errorf("no-kb detail: %+v", st)
+	}
+
+	// doctor says the same, with the fix pointing at the prompt or the table.
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, f := range checkWorkspaceProjections(home, cfg, []string{"codex"}) {
+		if f.Path == ws {
+			found = true
+			if !strings.Contains(f.Message, cmdLine+" --no-kb --trust") || !strings.Contains(f.Fix, "prompt") {
+				t.Errorf("doctor finding: %+v", f)
+			}
+		}
+	}
+	if !found {
+		t.Error("doctor reported nothing for the untrusted codex workspace")
+	}
+
+	// A derived binding is never offered `workspace bind`.
+	dcfg := workspaceScoped("codex", "kb-a")
+	dcfg.SetDerived(clientconfig.DerivedState{Bindings: map[string][]clientconfig.DerivedBinding{"codex": {{Path: ws, KBs: []string{"kb-a"}}}}})
+	ds := workspaceStatuses(dcfg, "codex", home)
+	if len(ds) != 1 || strings.Contains(ds[0].Detail, "workspace bind") || !strings.Contains(ds[0].Detail, "trust_level") {
+		t.Errorf("derived detail: %+v", ds)
+	}
+	for _, f := range checkWorkspaceProjections(home, dcfg, []string{"codex"}) {
+		if strings.Contains(f.Message, "workspace bind") || strings.Contains(f.Fix, "workspace bind") {
+			t.Errorf("doctor suggests bind for a derived binding: %+v", f)
+		}
+	}
+}

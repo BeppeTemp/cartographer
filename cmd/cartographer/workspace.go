@@ -906,8 +906,7 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 		if provider == string(configurator.ProviderCodex) &&
 			!provisioning.CodexProjectTrusted(provisioning.CodexConfigPath(clientBaseDir), w.Path) {
 			st.State = "inactive"
-			st.Detail = fmt.Sprintf("codex does not trust this project, so it ignores its .codex/ layer — `cartographer workspace bind codex %s --kb %s --trust` records it, or add %s to %s, or accept the prompt in a codex session in this directory",
-				w.Path, strings.Join(w.KBs, ","), strings.ReplaceAll(provisioning.ManualLine(w.Path), "\n", " + "), provisioning.CodexConfigPath(clientBaseDir))
+			st.Detail = codexUntrustedDetail(w, provisioning.CodexConfigPath(clientBaseDir))
 		}
 		if w.Derived {
 			if _, skipped := derivedInstructions(provider, w.Path); skipped != "" {
@@ -1021,7 +1020,7 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 				out = append(out, doctorFinding{
 					Check: "workspace", Severity: doctorWarning, Path: w.Path,
 					Message: fmt.Sprintf("%s: %s", provider, w.Detail),
-					Fix:     "trust the project from a codex session in that directory",
+					Fix:     "accept the trust prompt in a codex session in that directory, or add the table named above",
 				})
 			}
 		}
@@ -1088,4 +1087,21 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 		fmt.Printf("[%s] pruned the projection in %s\n", key.Provider, key.Workspace)
 	}
 	return pruned, nil
+}
+
+// codexUntrustedDetail is the status/doctor text for a Codex workspace that is
+// not trusted. The command it offers matches the binding: --no-kb for an empty
+// one, and none for a derived one (D1019), where `workspace bind` would create
+// an explicit binding the user never asked for.
+func codexUntrustedDetail(w clientconfig.WorkspaceBinding, cfgPath string) string {
+	line := strings.ReplaceAll(provisioning.ManualLine(w.Path), "\n", " + ")
+	msg := "codex does not trust this project, so it ignores its .codex/ layer — "
+	if !w.Derived {
+		kbs := "--no-kb"
+		if len(w.KBs) > 0 {
+			kbs = "--kb " + strings.Join(w.KBs, ",")
+		}
+		msg += fmt.Sprintf("`cartographer workspace bind codex %s %s --trust` records it, or ", w.Path, kbs)
+	}
+	return msg + fmt.Sprintf("add %s to %s, or accept the prompt in a codex session in this directory", line, cfgPath)
 }
