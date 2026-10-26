@@ -45,7 +45,7 @@ func TestKinds_PathsAreWhatTheScannerFinds(t *testing.T) {
 			case "instructions":
 				// The artifact is generated for every KB, named after it; the
 				// file at KBPath is what the generated text carries.
-				writeFile(t, path, "Directive written at "+k.KBPath+".\n")
+				writeFile(t, path, "<!-- cartographer: block: full -->\nDirective written at "+k.KBPath+".\n")
 			default:
 				t.Fatalf("kind %q is in the matrix and has no fixture here: add one", k.Kind)
 			}

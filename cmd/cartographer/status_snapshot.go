@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -77,6 +78,60 @@ type providerStatus struct {
 	// counts above describe its bundle-only global projection, which is
 	// deliberately not the interesting part: the KB artifacts live here.
 	Workspaces []workspaceStatus `json:"workspaces,omitempty"`
+	// InstructionsBlocks measures the managed instructions block of each
+	// projection that wrote one (D1182): the block is paid on every model call
+	// of every session. Informational, never drift.
+	InstructionsBlocks []instructionsBlockStatus `json:"instructions_blocks,omitempty"`
+}
+
+// instructionsBlockStatus is the size of one steering file's managed block.
+// Tokens are bytes/4, approximate. Largest names up to three KB regions.
+type instructionsBlockStatus struct {
+	Path         string                     `json:"path"`
+	Bytes        int                        `json:"bytes"`
+	ApproxTokens int                        `json:"approx_tokens"`
+	Threshold    int                        `json:"threshold"`
+	Over         bool                       `json:"over"`
+	Largest      []provisioning.KBBlockSize `json:"largest,omitempty"`
+}
+
+// snapshotInstructionsBlocks measures, for provider, the block of every
+// projection the lockfile records as having written one (the global one and
+// each workspace's). A projection that wrote none (a derived binding, D1019, or
+// a refused write, D148) has no instructions entry and measures nothing.
+func snapshotInstructionsBlocks(lockFile provisioning.LockFile, provider, dir string) []instructionsBlockStatus {
+	var out []instructionsBlockStatus
+	seen := map[string]bool{}
+	for _, proj := range lockFile.Projections() {
+		if proj.Provider != provider {
+			continue
+		}
+		lock := lockFile.ForProjection(proj)
+		base := provisioning.LockBaseDir(lock, dir)
+		for _, mf := range lock.Managed {
+			if mf.Kind != "instructions" {
+				continue
+			}
+			path := filepath.Join(base, mf.Path)
+			if seen[path] {
+				continue
+			}
+			seen[path] = true
+			size := provisioning.MeasureInstructionsBlock(path)
+			if size.Bytes == 0 {
+				continue
+			}
+			largest := size.KBs
+			if len(largest) > 3 {
+				largest = largest[:3]
+			}
+			out = append(out, instructionsBlockStatus{
+				Path: path, Bytes: size.Bytes, ApproxTokens: size.ApproxTokens(),
+				Threshold: provisioning.InstructionsBlockWarnBytes, Over: size.Over(), Largest: largest,
+			})
+		}
+	}
+	return out
 }
 
 // workspaceStatus is one workspace projection's state, as `status` reports it.
@@ -378,6 +433,9 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		p.Kinds = formatKindStatus(pm, lockFile.ForProvider(p.Name), p.ShadowedInstructions != "",
 			provisioning.SessionHookLimit(configurator.Provider(p.Name)))
+		if p.ShadowedInstructions == "" {
+			p.InstructionsBlocks = snapshotInstructionsBlocks(lockFile, p.Name, dir)
+		}
 
 		// On-disk verification (D139): the manifest↔lockfile comparison says
 		// nothing about what is actually on disk, so an artifact edited or

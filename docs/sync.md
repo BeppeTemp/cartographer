@@ -191,16 +191,51 @@ than one exists.
 ## The generated instructions block
 
 The client steering file carries **one** managed block, shared by every mounted KB, delimited by
-`<!-- cartographer:instructions:begin … -->` / `<!-- cartographer:instructions:end -->`. Inside it,
-each KB gets its own named, delimited region: `<!-- cartographer:kb:<name>:begin -->` … a generated
-routing sentence (KB name, server, archives), the generated "Operational instructions" bullets, a
-one-line scope sentence, the KB's own `instructions.md` verbatim … `<!-- cartographer:kb:<name>:end
--->` (D182). Cartographer only wraps the curated markdown — it never rewrites, reflows or re-levels
-it, and never nests it under a generated heading, so a curated `instructions.md` may open with its own
-`#` without Cartographer demoting it. Client-wide trailers — the D75 WP4 local-paths table and the
-subagent sentence below — are appended **after** the last KB's region, never inside one.
+`<!-- cartographer:instructions:begin … -->` / `<!-- cartographer:instructions:end -->`. The block is
+**brief by default** ([D1182](decisions/D1182-the-managed-block-is-brief-by-default.md)): it is paid on every
+model call of every session, and it grew linearly with the bound KBs (nine KBs measured at about 40k
+tokens, one at 3k). Inside it each KB gets its own named, delimited region
+`<!-- cartographer:kb:<name>:begin -->` … `<!-- cartographer:kb:<name>:end -->` (D182) holding only the
+generated routing sentence (KB name, server, archives) and one line `Skills: a, b, …` with the **names**
+of the KB's valid skills, sorted and capped at 40 (`+<n> more (kb_guide)` after the 40th). Then, once per
+block, after the last region: the **shared operational section** (the "Operational instructions" bullets,
+written once, not per KB, plus the rule that procedures, runbooks and incidents are read whole with
+`concept_read` and a bullet saying `kb_guide` returns the full guide, each KB's own directives and the
+skills with descriptions on demand), the D75 WP4 local-paths table and the subagent sentence below. The
+KB's own `instructions.md`, its scope sentence and the skill descriptions are **not** in the block: they
+come from `kb_guide` ([`control-plane.md`](control-plane.md)). The routing sentence that names every KB of
+the connection stays verbatim in the guide and in the block.
 
-**The block and the server's guide share one generator** (D1097): `internal/provisioning` builds the routing sentence, the shared bullets and the scope sentence once. The block adds the lines that need a Cartographer client (no git in the clone, `kb reauthor`, the update notice); the server's guide (`initialize`, see `control-plane.md`) leaves them out and adds a few neutral ones. The block is byte-pinned by golden tests, so its `ContentHash` and signature do not change.
+**A KB opts its curated text into the block with `<!-- cartographer: block: full -->`** on the leading
+lines of its `instructions.md` (D1182): that KB's region then also carries the scope sentence and the
+curated markdown exactly as before (cut at 64 KiB, D1110), wrapped but never rewritten, reflowed or
+re-levelled, and never nested under a generated heading (D182). Use it when the KB's directives must be in
+every session (an operator's standing rules); everything else stays brief. There is no global "full" mode
+and no client setting: the opt-in travels with the KB to every client. Directives are recognised only in
+the **leading run** of lines of the file, one per line in any order, blank lines tolerated between them,
+and stripped from the text; the run ends at the first line that is not one, so a directive documented in
+prose or placed after prose is just text (D162). `preamble: none` keeps its meaning ("no generated
+operational text") and may be combined with `block: full`.
+
+**The shared section is client-owned text.** A release that edits it changes no artifact `ContentHash`, so
+`applyInstructionsGroup` folds it into the hash the lockfile records for the client-written tail of the
+block (the same field as the local-paths section, D262): the first sync after such a release rewrites the
+block once, the second writes nothing. It is not emitted when every KB's region carries the
+`<!-- cartographer: preamble: none -->` comment (the only thing of an opted-out brief KB that crosses), nor
+when a region already contains an `Operational instructions:` line. Mixed versions degrade, never break: a
+new client against a server that still sends the old full regions writes no second copy; an old client
+against a new server writes the brief regions without bullets, which still route and list skills, and the
+next client upgrade completes it. No version negotiation is added.
+
+**Directive collisions are scoped to what is in the block** (D183, below): a brief KB carries none of its
+directives in the artifact content, so two brief KBs declaring different values for one key no longer fail
+the sync (each is read through `kb_guide`, one KB at a time); a `block: full` KB still collides.
+
+**The size is reported.** `cartographer status` and `sync` print one line per provider whose managed block is
+over 16 KiB (about 4k tokens, tokens = bytes/4, approximate), naming the three largest regions
+([`configurator.md`](configurator.md)). Informational: no exit code, no drift.
+
+**The block and the server's guide share one generator** (D1097): `internal/provisioning` builds the routing sentence, the shared bullets and the scope sentence once. The guide (`initialize`, `kb_guide`) is the full rendering; the block is the brief one, whose shared section adds the lines that need a Cartographer client (no git in the clone, `kb reauthor`, the update notice) and which the guide leaves out. The brief region of a KB is pinned by golden tests; D1182 changed its `ContentHash` once, so every `instructions` artifact is re-synced a single time on upgrade.
 
 **The operational bullets forbid git in the KB's clone** (D264): the last one tells the agent never to
 run git commands there and to report replication problems from `sync_status` to the operator. An
@@ -260,13 +295,13 @@ than being told to delegate to subagents they never received. The block's conten
 on the KB's agent set even though its artifact hash does not, so the rewrite trigger fires on an
 `agent` artifact too — otherwise the sentence would go stale the moment an agent was added.
 
-**A KB may opt out of the generated bullets** by putting `<!-- cartographer: preamble: none -->` on
-the **first line** of its `instructions.md`. The generated wrapper is hardcoded English, so a KB
+**A KB may opt out of the generated bullets** by putting `<!-- cartographer: preamble: none -->` in the
+leading directive lines of its `instructions.md` (D1182: the run, not only the first line). The generated wrapper is hardcoded English, so a KB
 written in another language produced a steering file that switched language twice, with the English
 first — the position that sets the model's expected output language. This is deliberately *not* a
 localisation mechanism: the KB owns the prose instead. The one-line routing sentence always stays,
 being generated state rather than prose, so the residual is one English line. The directive is
-recognised on the first line only, so a KB can document it in its own text without triggering it.
+recognised in the leading run only, so a KB can document it in its own text without triggering it.
 
 **A kind the provider cannot receive is warned about on every run**, computed from the manifest
 rather than from the diff: the per-artifact `unsupported:` line appears only on the run where that

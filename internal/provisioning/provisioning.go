@@ -697,6 +697,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// no skills/ folder or an unreadable directory: kbSkills is empty,
 		// silent skip (no fatal error).
 		kbSkills, loadErrs := skill.LoadAllSkills(kbRoot)
+		var skillNames []string // the valid ones, for the brief instructions section (D1182)
 		for _, loadErr := range loadErrs {
 			// Previously discarded. An unreadable SKILL.md is not fatal — the
 			// rest of the KB must still sync — but it must not be invisible
@@ -721,6 +722,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				}
 				continue
 			}
+			skillNames = append(skillNames, s.Name)
 			skillDir := filepath.Join(kbRoot, s.DirPath)
 			hash, err := contentHashDirOS(skillDir, "skill")
 			if err != nil {
@@ -836,7 +838,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// timestamp) and placed directly in Artifact.Files, so ReadArtifactFiles
 		// doesn't need to read anything from the KB for this kind (see its
 		// "len(a.Files) > 0" check at the top of the function).
-		instrContent := []byte(generateKBInstructions(kbName, kbRoot, opts.RoutedMount))
+		instrContent := []byte(generateKBInstructions(kbName, kbRoot, opts.RoutedMount, skillNames))
 		artifacts = append(artifacts, Artifact{
 			Kind:        "instructions",
 			Name:        kbName,
@@ -876,53 +878,38 @@ func contentHashBytes(data []byte) string {
 }
 
 // generateKBInstructions generates the content (in English) of the "instructions"
-// imprinting artifact for the KB kbName rooted at kbRoot (D56): tells the LLM
-// agent that this KB exists, lists the names of its top-level archives
-// (§KBArchiveNames) and gives four lines of operational instructions
-// (search/atlas_overview/concept_read/concept_write/log_append), then appends
-// the optional curated file <kbRoot>/instructions.md
-// (§KBCuratedInstructions) — orchestration directives hand-written
-// by the operator, omitted when absent (D61). That file may also suppress the
-// generated bullets entirely (D154).
+// imprinting artifact for the KB kbName rooted at kbRoot (D56): the BRIEF
+// section of the managed block (D1182). It tells the LLM agent that this KB
+// exists, lists the names of its top-level archives (§KBArchiveNames) and the
+// names of its valid skills (skills, capped, §skillsSentence). The operational
+// bullets are written once per block by applyInstructionsGroup, and the optional
+// curated file <kbRoot>/instructions.md (§KBInstructionsFile, D61) joins the
+// section only when the KB opts in with `block: full`; otherwise it is served
+// on demand by kb_guide.
 //
 // Agent names are NOT listed here: D61 emitted them, D154 moved the subagent
 // sentence to applyInstructionsGroup so it can be written per provider (see the
 // note in the body).
 //
 // The block is stable imprinting, not state: no page counts (D65) or
-// timestamps, archives sorted by name — so the ContentHash (computed
+// timestamps, archives and skills sorted by name — so the ContentHash (computed
 // on the result of this function, see BuildManifest) changes only when the
-// set of archives/agents or instructions.md changes, not on every page
-// added.
-func generateKBInstructions(kbName, kbRoot string, routed bool) string {
+// set of archives/skills or the opt-ins change, not on every page added.
+func generateKBInstructions(kbName, kbRoot string, routed bool, skills []string) string {
 	var sb strings.Builder
 
+	// D1182: the brief section. Everything else (the operational bullets, the
+	// KB's own directives, the skill descriptions) is not paid on every model
+	// call: the bullets are written once per block by applyInstructionsGroup and
+	// the rest comes from kb_guide.
+	curated, d := KBInstructionsFile(kbRoot)
+
+	if d.SkipPreamble {
+		sb.WriteString(preambleNoneComment + "\n")
+	}
 	sb.WriteString(routingSentence(kbName, routed))
 	sb.WriteString(archivesSentence(KBArchiveNames(kbRoot), false))
-
-	curated, skipPreamble := KBCuratedInstructions(kbRoot)
-
-	if !skipPreamble {
-		sb.WriteString("Operational instructions:\n")
-		sb.WriteString(orientationBullet)
-		sb.WriteString(writeBullet)
-		sb.WriteString(refusedWriteBullet)
-		sb.WriteString(statusBullet)
-		sb.WriteString(commitBullet)
-		// The two bullets below, and the update notice after them, are the lines
-		// the server's guide (RenderGuide, D1097) leaves out: they only make
-		// sense with a Cartographer client (`cartographer kb reauthor`,
-		// `cartographer update check`, the cartographer-ops skill) or tell a
-		// session what the operator's tooling does. Keep them here, not in the
-		// shared pieces.
-		// D264: an agent's own git in the clone (init, checkout -b, push) is
-		// what forks a KB on its remote; the server owns that clone.
-		sb.WriteString("- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead; a push refused because of the commits' author is reported with the command `cartographer kb reauthor <kb>`, for the operator to run.\n")
-		// D320: the fallback update channel for every client whose
-		// SessionStart hook does not fire (Kiro default chat, timer-only
-		// clients): kb_status carries latest_version (D254).
-		sb.WriteString("- when `kb_status` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).\n")
-	}
+	sb.WriteString(skillsSentence(skills))
 
 	// The subagent sentence is NOT emitted here (D154). This function has no
 	// provider argument and BuildManifest only ever runs server-side, so the
@@ -931,7 +918,7 @@ func generateKBInstructions(kbName, kbRoot string, routed bool) string {
 	// them. applyInstructionsGroup appends the sentence per provider instead,
 	// the same way the D75 WP4 paths table is appended client-side.
 
-	if curated != "" {
+	if d.Full && curated != "" {
 		sb.WriteString("\n")
 		sb.WriteString(scopeSentence(kbName))
 		sb.WriteString(curated)
@@ -941,11 +928,14 @@ func generateKBInstructions(kbName, kbRoot string, routed bool) string {
 	return sb.String()
 }
 
-// preambleNoneRe matches the opt-out directive on the FIRST line of
-// instructions.md. First line only, and an exact spelling, so a KB can document
-// the directive in its own prose without triggering it — the same trap as the
-// placeholder syntax (D162).
-var preambleNoneRe = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*preamble:\s*none\s*-->\s*$`)
+// preambleNoneRe and blockFullRe match the opt-in/opt-out directives on the
+// LEADING lines of instructions.md (D154, D1182). Leading run only, and an exact
+// spelling, so a KB can document a directive in its own prose without
+// triggering it — the same trap as the placeholder syntax (D162).
+var (
+	preambleNoneRe = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*preamble:\s*none\s*-->\s*$`)
+	blockFullRe    = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*block:\s*full\s*-->\s*$`)
+)
 
 // KBCuratedInstructions reads the optional curated file
 // <kbRoot>/instructions.md (D61) and reports whether it opted out of the
@@ -973,9 +963,29 @@ var preambleNoneRe = regexp.MustCompile(`(?i)^<!--\s*cartographer:\s*preamble:\s
 // generated in every case — it is state, not prose, and no KB can write it for
 // itself — so the residual is one English line rather than none.
 func KBCuratedInstructions(kbRoot string) (body string, skipPreamble bool) {
+	body, d := KBInstructionsFile(kbRoot)
+	return body, d.SkipPreamble
+}
+
+// InstructionsDirectives are the opt-ins a KB declares on the leading lines of
+// its instructions.md (D154, D1182).
+type InstructionsDirectives struct {
+	// SkipPreamble is `preamble: none`: no generated operational text.
+	SkipPreamble bool
+	// Full is `block: full`: the curated body stays in the managed block
+	// instead of being served by kb_guide.
+	Full bool
+}
+
+// KBInstructionsFile is KBCuratedInstructions plus every directive of the
+// leading run (D1182). The run is the lines at the top of the file that are a
+// directive, one per line in any order, blank lines tolerated between them; it
+// ends at the first line that is not one, and a directive after that (or in
+// prose) is just text (D162). The directive lines are stripped from the body.
+func KBInstructionsFile(kbRoot string) (body string, d InstructionsDirectives) {
 	data, cut, err := readInstructionsBounded(filepath.Join(kbRoot, "instructions.md"))
 	if err != nil {
-		return "", false
+		return "", d
 	}
 	_, content, hasFM := okf.SplitFrontmatter(string(data))
 	if !hasFM {
@@ -987,18 +997,21 @@ func KBCuratedInstructions(kbRoot string) (body string, skipPreamble bool) {
 		}
 	}
 	lines := strings.Split(content, "\n")
-	for i, l := range lines {
-		if strings.TrimSpace(l) == "" {
-			continue
+run:
+	for len(lines) > 0 {
+		t := strings.TrimSpace(lines[0])
+		switch {
+		case t == "":
+		case preambleNoneRe.MatchString(t):
+			d.SkipPreamble = true
+		case blockFullRe.MatchString(t):
+			d.Full = true
+		default:
+			break run
 		}
-		if preambleNoneRe.MatchString(strings.TrimSpace(l)) {
-			skipPreamble = true
-			lines = append(lines[:i], lines[i+1:]...)
-			content = strings.Join(lines, "\n")
-		}
-		break
+		lines = lines[1:]
 	}
-	body = strings.TrimSpace(content)
+	body = strings.TrimSpace(strings.Join(lines, "\n"))
 	if cut > 0 {
 		sep := "\n\n"
 		if body == "" {
@@ -1006,7 +1019,7 @@ func KBCuratedInstructions(kbRoot string) (body string, skipPreamble bool) {
 		}
 		body += fmt.Sprintf(sep+"[instructions.md was cut at %d bytes: %d bytes left out. The operator must shorten the file.]", len(data), cut)
 	}
-	return body, skipPreamble
+	return body, d
 }
 
 // MaxInstructionsBytes caps the curated instructions.md (D1110): the handshake
@@ -2598,10 +2611,24 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 	// local `paths:` map, neither of which enters the diff above, so a change
 	// in its rendering is a trigger of its own, recorded in the lock the same
 	// way a reorder is detected.
-	var pathsSection string
+	//
+	// The shared operational section (D1182) is client-owned text of the same
+	// kind: a release that edits it changes no artifact ContentHash, so no
+	// Added/Updated fires. It is folded into the hash recorded here, which
+	// rewrites the block once after such a release and converges.
+	var pathsSection, sharedSection string
+	if len(signed) > 0 {
+		sections := make([]string, 0, len(signed))
+		for _, a := range signed {
+			sections = append(sections, string(expandedContent[a.Name]))
+		}
+		if sharedSectionWanted(sections) {
+			sharedSection = SharedOperationalSection()
+		}
+	}
 	if opts.ExpandPlaceholders && len(signed) > 0 {
 		pathsSection = buildPathsSection(tracker.resolved)
-		*pathsHash = pathsSectionHash(pathsSection)
+		*pathsHash = pathsSectionHash(sharedSection + "\x00" + pathsSection)
 		if !triggered && *pathsHash != opts.Lock.PathsSectionHash {
 			triggered = true
 		}
@@ -2664,6 +2691,11 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		snippets = append(snippets, wrapKBSection(a.Name, content))
 	}
 	body := strings.Join(snippets, "\n\n")
+
+	// D1182: the operational bullets, once per block, after the last section.
+	if sharedSection != "" {
+		body += "\n\n" + strings.TrimRight(sharedSection, "\n")
+	}
 
 	// D293: a project-scope Claude CLAUDE.md that lives alongside an
 	// AGENTS.md must import it, or creating/keeping CLAUDE.md hides the

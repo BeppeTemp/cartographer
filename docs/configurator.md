@@ -35,7 +35,13 @@ client/server facts, provider states and artifact counts; when relevant it also
 contains native-service facts. State and error `code` fields are stable for
 automation; a wrapped low-level `cause` is retained in JSON only. `status`
 keeps exit 0 for in-sync, 1 for drift and 2 for configuration or operational
-errors. `service status` retains 0 running, 3 stopped (on every platform, a Windows task left `Disabled` or `Ready` by `stop` included) and 4 not installed.
+errors. For each connected provider whose managed instructions block is over 16 KiB (about 4k
+tokens, bytes/4, approximate; [D1182](decisions/D1182-the-managed-block-is-brief-by-default.md)) `status`
+prints `[<provider>] instructions block <size> KiB (~<n>k tokens, approximate) over 16 KiB: <the three
+largest KBs>` and `sync` prints the same line after its report; JSON carries it additively as
+`instructions_blocks` (path, bytes, approx tokens, threshold, over, largest KBs) on each provider, schema
+unchanged. It informs and changes neither the state nor the exit code, and a block that was not written
+is not measured. `service status` retains 0 running, 3 stopped (on every platform, a Windows task left `Disabled` or `Ready` by `stop` included) and 4 not installed.
 
 ### `cartographer hook write-findings [--channel stderr|context|copilot]` (internal)
 

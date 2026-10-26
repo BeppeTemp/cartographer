@@ -290,7 +290,9 @@ func buildPathsSection(resolved map[string]string) string {
 
 // pathsSectionHash is what the lock records of the rendered section (D262),
 // so a table that changed with no artifact change — a concept started citing
-// a key, a `paths:` entry was added — still rewrites the block.
+// a key, a `paths:` entry was added — still rewrites the block. Its input is
+// the client-owned tail of the block: the shared operational section (D1182),
+// a NUL, then the placeholder section.
 func pathsSectionHash(section string) string {
 	sum := sha256.Sum256([]byte("cartographer:paths-section:v1\x00" + section))
 	return fmt.Sprintf("%x", sum[:])
