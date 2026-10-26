@@ -1177,7 +1177,7 @@ func TestPrepareWorkspace_ALinkedGitDirIsAWarning(t *testing.T) {
 	exclude := filepath.Join(real, ".git", "info", "exclude")
 	before, _ := os.ReadFile(exclude)
 	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject}
-	if err := prepareWorkspace(p, []string{"claude"}, false); err != nil {
+	if err := prepareWorkspace(p, []string{"claude"}, false, rootsOwned); err != nil {
 		t.Fatalf("prepareWorkspace = %v, want the refusal as a warning", err)
 	}
 	if after, _ := os.ReadFile(exclude); string(after) != string(before) {

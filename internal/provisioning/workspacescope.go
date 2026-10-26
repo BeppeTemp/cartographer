@@ -254,11 +254,13 @@ func ManagedProjectRoots(provider configurator.Provider, workspaceDir string) []
 	return out
 }
 
-// ProjectOwnedPaths returns the workspace-relative paths a projection owns for
-// provider: the per-kind roots for directory destinations, and the exact file
-// for a shared-file destination. It is what the repository-hygiene pass (WP5)
-// writes to .git/info/exclude and what the collision check consults, so it must
-// name everything the projection can create and nothing it cannot.
+// ProjectOwnedPaths returns the workspace-relative roots a projection can
+// write under for provider: the per-kind directories and the exact file for a
+// shared-file destination. A root is not ownership: a repository may keep its
+// own artifacts in the same directory (.agents/skills/<own>/), so the
+// repository-hygiene pass (collision check, git exclude) uses
+// ProjectOwnedArtifactPaths instead (D1181). This is for whatever needs only
+// where a projection may write.
 func ProjectOwnedPaths(provider configurator.Provider) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -279,6 +281,55 @@ func ProjectOwnedPaths(provider configurator.Provider) []string {
 			seen[rel] = true
 			out = append(out, rel)
 		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ProjectOwnedArtifactPaths returns the workspace-relative paths a projection
+// of provider owns: what it writes, not the directories it writes into (D1181).
+//
+// In a directory destination (skills, agents, hooks) that is
+// <dir>/<name><suffix> for each artifact of m the provider receives in this
+// scope, for each client-generated hook, and for each path lock records (what
+// an earlier run wrote and a prune may remove). A repository's own artifact
+// next to those is not owned and is neither refused nor excluded. A
+// shared-file destination (.mcp.json, the instructions file) and a
+// registration file are owned as a whole, as before.
+func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock Lock) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(rel string) {
+		rel = path.Clean(filepath.ToSlash(rel))
+		if rel == "" || rel == "." || seen[rel] {
+			return
+		}
+		seen[rel] = true
+		out = append(out, rel)
+	}
+	for _, kind := range artifactKinds {
+		cell, ok := projectDestinationMatrix[kind][provider]
+		if !ok || cell.unsupported {
+			continue
+		}
+		if !cell.named {
+			add(path.Join(cell.dir...))
+			continue
+		}
+		if kind == "hook" {
+			for name := range reservedHookNames {
+				add(destDirScoped(kind, name, provider, ScopeProject))
+			}
+		}
+	}
+	for _, a := range FilterForProviderScoped(m, provider, ScopeProject).Artifacts {
+		add(destDirScoped(a.Kind, a.Name, provider, ScopeProject))
+	}
+	for _, mf := range lock.Managed {
+		add(mf.Path)
+	}
+	for _, rel := range projectRegistrationFiles[provider] {
+		add(rel)
 	}
 	sort.Strings(out)
 	return out

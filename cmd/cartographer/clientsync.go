@@ -687,7 +687,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		if err := provisioning.PreflightStdioMCP(manifests[projectionKey(p)], provisioning.ApplyOptions{Provider: configurator.Provider(p.Provider), BaseDir: p.BaseDir, Scope: p.Scope, ApprovedMCP: approvedMCP}); err != nil {
 			return nil, err
 		}
-		if err := prepareWorkspace(p, workspaceProviders(lockFile, projections, p.Workspace), dryRun); err != nil {
+		if err := prepareWorkspace(p, workspaceProviders(lockFile, projections, p.Workspace), dryRun, workspaceOwnership(&lockFile, projections, manifests, p.Workspace)); err != nil {
 			return nil, err
 		}
 	}
@@ -699,7 +699,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 	// This runs before the projections are applied, so the files are gone
 	// before anything is written in their place.
 	if !dryRun {
-		orphans, err := pruneOrphanProjections(&lockFile, projections, targetDir)
+		orphans, err := pruneOrphanProjections(&lockFile, projections, manifests, targetDir)
 		if err != nil {
 			return nil, err
 		}

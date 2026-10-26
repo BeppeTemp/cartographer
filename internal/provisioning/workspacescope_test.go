@@ -195,3 +195,32 @@ func TestAntigravityProjectRoots(t *testing.T) {
 		t.Errorf("owned paths = %s, want %s", got, want)
 	}
 }
+
+// #1181: a projection owns the paths it writes, not the directories it writes
+// into, so a repository's own artifact beside them is not claimed.
+func TestProjectOwnedArtifactPaths(t *testing.T) {
+	m := Manifest{Artifacts: []Artifact{{Kind: "skill", Name: "kb-skill"}, {Kind: "agent", Name: "kb-agent"}}}
+	lock := Lock{Managed: []ManagedFile{{Kind: "skill", Name: "old", Path: filepath.FromSlash(".agents/skills/old/SKILL.md")}}}
+	got := ProjectOwnedArtifactPaths(configurator.ProviderCodex, m, lock)
+	has := func(p string) bool {
+		for _, g := range got {
+			if g == p {
+				return true
+			}
+		}
+		return false
+	}
+	for _, want := range []string{".agents/skills/kb-skill", ".codex/agents/kb-agent.toml", ".agents/skills/old/SKILL.md", ".codex/config.toml", "AGENTS.md"} {
+		if !has(want) {
+			t.Errorf("owned paths %v lack %s", got, want)
+		}
+	}
+	for _, root := range []string{".agents/skills", ".codex/agents"} {
+		if has(root) {
+			t.Errorf("owned paths %v claim the whole directory %s", got, root)
+		}
+	}
+	if len(ProjectOwnedArtifactPaths("unknown-client", m, lock)) != 1 {
+		t.Error("an unknown provider owns more than the lock's own record")
+	}
+}

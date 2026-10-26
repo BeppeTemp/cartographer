@@ -586,6 +586,11 @@ Codex is the one provider where correct files are not the whole story: it ignore
 
 A projection writes into a directory the user version-controls, so two rules hold:
 
+- A projection owns the **artifacts it writes, not the directories** it writes into: in a skills,
+  agents or hooks directory that is `<dir>/<name>` for each artifact planned in this run and each
+  path the lockfile records for the projection, so a repository's own skills in `.agents/skills/`
+  next to the projected ones are neither refused nor excluded
+  ([D1181](decisions/D1181-workspace-projection-owns-artifacts-not-directories.md)).
 - Cartographer excludes **only its own untracked paths**, and only in the repository's `info/exclude`
   (`.git/info/exclude`), inside a marker-delimited block. It **never** edits `.gitignore`: that file
   is the repository's, shared with everyone who clones it. A shared file the repository already
@@ -612,8 +617,9 @@ A projection writes into a directory the user version-controls, so two rules hol
   and writes nothing, and the warning never repeats what the file says. A layout nothing ties to
   the workspace, such as `git init --separate-git-dir`, is such a case: it gets the warning and
   no exclude block, so the projected paths show up in `git status` until they are ignored by hand.
-- A path Cartographer would own **entirely** that git already tracks is a **refusal**, before
-  anything is written. Overwriting a versioned file destroys work under version control, and there
+- A path Cartographer would own **entirely** (an artifact it writes, or a file such as `.mcp.json`)
+  that git already tracks is a **refusal**, before anything is written: a KB skill with the name
+  of a tracked one is refused, naming it; a tracked skill of another name is not. Overwriting a versioned file destroys work under version control, and there
   is no safe silent answer.
 
 `git status` is clean after a sync. That is asserted end-to-end by the `18_workspace_projection`
