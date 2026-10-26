@@ -53,6 +53,11 @@ type syncProjection struct {
 	Derived             bool
 	InstructionsRel     string
 	InstructionsSkipped string
+	// SharedSkipped lists the tracked shared files (MCP and registration
+	// files) a derived projection leaves alone, and SkipKinds the artifact
+	// kinds it therefore does not apply (D1181).
+	SharedSkipped []string
+	SkipKinds     []string
 }
 
 // Key is the lockfile projection this state is recorded under.
@@ -127,6 +132,7 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 		}
 		if w.Derived {
 			sp.InstructionsRel, sp.InstructionsSkipped = derivedInstructions(provider, w.Path)
+			sp.SharedSkipped, sp.SkipKinds = derivedSharedSkips(provider, w.Path)
 		}
 		out = append(out, sp)
 	}
@@ -681,18 +687,22 @@ func needsAny(kbs []string, unavailable map[string]bool) bool {
 // prepareWorkspace runs the repository-hygiene checks and exclusions for one
 // project-scoped projection, before anything is written there (WP5). A refusal
 // here costs nothing: no file has been touched yet.
-func prepareWorkspace(p syncProjection, providers []string, dryRun bool) error {
+func prepareWorkspace(p syncProjection, providers []string, dryRun bool, owned ownedPathsFunc) error {
 	if p.Scope != provisioning.ScopeProject {
 		return nil
 	}
 	provider := configurator.Provider(p.Provider)
-	if err := provisioning.CheckWorkspaceHygiene(p.Provider, p.Workspace, provisioning.ProjectOwnedPaths(provider), workspaceBlockFiles(provider)); err != nil {
+	ownedNow, err := owned(provider)
+	if err != nil {
+		return err
+	}
+	if err := provisioning.CheckWorkspaceHygiene(p.Provider, p.Workspace, ownedNow, workspaceBlockFiles(provider)); err != nil {
 		return err
 	}
 	if dryRun {
 		return nil
 	}
-	if err := writeWorkspaceExclusions(p.Workspace, providers, p.InstructionsRel); err != nil {
+	if err := writeWorkspaceExclusions(p.Workspace, providers, owned, p.InstructionsRel); err != nil {
 		if provisioning.ExcludeWarning(err) {
 			// The exclude block is a convenience, not what the sync is for: a
 			// linked .git (D148) costs a warning and a dirty working tree, not
@@ -703,6 +713,36 @@ func prepareWorkspace(p syncProjection, providers []string, dryRun bool) error {
 		return err
 	}
 	return nil
+}
+
+// ownedPathsFunc returns the workspace-relative paths a provider's projection
+// owns in one workspace (D1181).
+type ownedPathsFunc func(provider configurator.Provider) ([]string, error)
+
+// workspaceOwnership resolves what each provider's projection of workspace owns:
+// the artifacts this run plans for it (manifests, keyed as projectionKey) and
+// the paths the lockfile records for it. A provider with neither owns only its
+// shared files, so a repository's own artifacts are never claimed.
+func workspaceOwnership(lockFile *provisioning.LockFile, projections []syncProjection, manifests map[string]provisioning.Manifest, workspace string) ownedPathsFunc {
+	return func(provider configurator.Provider) ([]string, error) {
+		var m provisioning.Manifest
+		var notWritten []string
+		for _, p := range projections {
+			if p.Scope == provisioning.ScopeProject && p.Workspace == workspace && p.Provider == string(provider) {
+				m = withoutKinds(manifests[projectionKey(p)], p.SkipKinds)
+				notWritten = p.SharedSkipped
+				break
+			}
+		}
+		lock := lockFile.ForProjection(provisioning.Projection{Provider: string(provider), Workspace: workspace})
+		paths, err := provisioning.ProjectOwnedArtifactPaths(provider, m, lock)
+		if err != nil {
+			return nil, err
+		}
+		// A shared file a derived projection leaves alone is not its to
+		// refuse or to exclude (D1181).
+		return slices.DeleteFunc(paths, func(p string) bool { return slices.Contains(notWritten, p) }), nil
+	}
 }
 
 // workspaceBlockFiles are the files Cartographer writes a marker-delimited
@@ -729,7 +769,7 @@ func workspaceBlockFiles(provider configurator.Provider) []string {
 // ignore their own file. One it created itself, because the repository had
 // none, is untracked and is ours to exclude — otherwise every sync leaves the
 // working tree dirty.
-func writeWorkspaceExclusions(workspace string, providers []string, extra ...string) error {
+func writeWorkspaceExclusions(workspace string, providers []string, owned ownedPathsFunc, extra ...string) error {
 	if len(providers) == 0 {
 		return provisioning.RemoveWorkspaceExclusions(workspace)
 	}
@@ -746,7 +786,11 @@ func writeWorkspaceExclusions(workspace string, providers []string, extra ...str
 		provider := configurator.Provider(name)
 		excluded = append(excluded, provisioning.OwnedLocalInstructions(workspace, provider)...)
 		blocks := workspaceBlockFiles(provider)
-		for _, o := range provisioning.ProjectOwnedPaths(provider) {
+		ownedPaths, err := owned(provider)
+		if err != nil {
+			return err
+		}
+		for _, o := range ownedPaths {
 			if slices.Contains(blocks, o) && tracked[filepath.ToSlash(o)] {
 				continue
 			}
@@ -825,6 +869,19 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 			if _, skipped := derivedInstructions(provider, w.Path); skipped != "" {
 				st.Detail = fmt.Sprintf("instructions not written: %s is tracked by git and a derived binding never edits a tracked file — `cartographer workspace bind %s %s --kb %s` writes the block there",
 					skipped, provider, w.Path, strings.Join(w.KBs, ","))
+			}
+		}
+		if w.Derived {
+			if files, kinds := derivedSharedSkips(provider, w.Path); len(files) > 0 {
+				note := fmt.Sprintf("not written: %s is tracked by git and a derived binding never edits a tracked file — the provider keeps its global entry; `cartographer workspace bind %s %s --kb %s` is the explicit alternative",
+					strings.Join(files, ", "), provider, w.Path, strings.Join(w.KBs, ","))
+				if slices.Contains(kinds, "hook") {
+					note = "hooks not projected: " + strings.Join(files, ", ") + " is tracked by git; " + note
+				}
+				if st.Detail != "" {
+					note = st.Detail + "; " + note
+				}
+				st.Detail = note
 			}
 		}
 		out = append(out, st)
@@ -941,7 +998,7 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 // removed by `disconnect`, which owns that decision — reaching it from here
 // would delete a connected provider's catalogue because it was absent from one
 // `sync --client` invocation.
-func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProjection, clientBaseDir string) ([]string, error) {
+func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProjection, manifests map[string]provisioning.Manifest, clientBaseDir string) ([]string, error) {
 	wanted := map[string]bool{}
 	providersInPlay := map[string]bool{}
 	for _, p := range declared {
@@ -977,7 +1034,7 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 		// The exclusions go with the files, but only this provider's: another
 		// provider still bound to the workspace keeps its paths excluded (#656).
 		lockFile.RemoveProjection(key)
-		if err := writeWorkspaceExclusions(key.Workspace, workspaceProviders(*lockFile, declared, key.Workspace)); err != nil {
+		if err := writeWorkspaceExclusions(key.Workspace, workspaceProviders(*lockFile, declared, key.Workspace), workspaceOwnership(lockFile, declared, manifests, key.Workspace)); err != nil {
 			if !provisioning.ExcludeWarning(err) {
 				return nil, fmt.Errorf("prune %s: %w", key.String(), err)
 			}

@@ -514,7 +514,14 @@ unchanged.
   `status`/`doctor` say so, naming the file and the explicit-bind alternative; Claude Code instead
   gets its block in `CLAUDE.local.md`, which it reads beside `CLAUDE.md`, owned whole and excluded
   in `.git/info/exclude`. Skills, agents and hooks are paths Cartographer owns and excludes, so
-  they are projected as for an explicit bind. Codex keeps its caveat: an untrusted project
+  they are projected as for an explicit bind.
+  The same holds for the other shared files a projection writes whole, the MCP file (`.mcp.json`,
+  `.kiro/settings/mcp.json`, ...) and a registration file: when git tracks it, a derived projection
+  does not write it, `status` says `not written: <file> is tracked by git` under the workspace, and
+  the provider keeps its global MCP entry (and a hook whose registration file is that tracked file is not projected either, which `status` also says); the lock entries of what is not written are kept as they are, never pruned. Any other collision that remains, a KB artifact with
+  the name of a tracked path, skips that one projection with a warning naming the workspace, the
+  provider and the paths, and the run goes on with the others. An explicit `workspace bind` keeps
+  the refusal ([D1181](decisions/D1181-workspace-projection-owns-artifacts-not-directories.md)). Codex keeps its caveat: an untrusted project
   ignores `.codex/`, reported `inactive`.
 
 `workspace list` shows a derived binding with its source (`derived: paths.yaml of kb-a`) and
@@ -586,6 +593,11 @@ Codex is the one provider where correct files are not the whole story: it ignore
 
 A projection writes into a directory the user version-controls, so two rules hold:
 
+- A projection owns the **artifacts it writes, not the directories** it writes into: in a skills,
+  agents or hooks directory that is `<dir>/<name>` for each artifact planned in this run and each
+  path the lockfile records for the projection, so a repository's own skills in `.agents/skills/`
+  next to the projected ones are neither refused nor excluded
+  ([D1181](decisions/D1181-workspace-projection-owns-artifacts-not-directories.md)).
 - Cartographer excludes **only its own untracked paths**, and only in the repository's `info/exclude`
   (`.git/info/exclude`), inside a marker-delimited block. It **never** edits `.gitignore`: that file
   is the repository's, shared with everyone who clones it. A shared file the repository already
@@ -612,8 +624,11 @@ A projection writes into a directory the user version-controls, so two rules hol
   and writes nothing, and the warning never repeats what the file says. A layout nothing ties to
   the workspace, such as `git init --separate-git-dir`, is such a case: it gets the warning and
   no exclude block, so the projected paths show up in `git status` until they are ignored by hand.
-- A path Cartographer would own **entirely** that git already tracks is a **refusal**, before
-  anything is written. Overwriting a versioned file destroys work under version control, and there
+- A path Cartographer would own **entirely** (an artifact it writes, or a file such as `.mcp.json`)
+  that git already tracks is a **refusal**, before anything is written: a KB skill with the name
+  of a tracked one is refused, naming it; a tracked skill of another name is not. An artifact
+  name that is not a single local segment, or holds a line break or a gitignore special character,
+  fails the projection before anything is written (a derived one is skipped with a warning); this is stricter than the name check at write time, because the name also goes into the exclude file. Overwriting a versioned file destroys work under version control, and there
   is no safe silent answer.
 
 `git status` is clean after a sync. That is asserted end-to-end by the `18_workspace_projection`

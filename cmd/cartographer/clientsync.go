@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -680,6 +681,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 	// here: nothing has been written yet. The projection is carried into errors
 	// so a failed multi-projection sync identifies the configuration it
 	// protected.
+	skippedProjections := map[string]bool{}
 	for _, p := range projections {
 		// Preflight the projection's OWN view: validating the whole candidate
 		// set would fail a sync over a local command belonging to a KB this
@@ -687,7 +689,18 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		if err := provisioning.PreflightStdioMCP(manifests[projectionKey(p)], provisioning.ApplyOptions{Provider: configurator.Provider(p.Provider), BaseDir: p.BaseDir, Scope: p.Scope, ApprovedMCP: approvedMCP}); err != nil {
 			return nil, err
 		}
-		if err := prepareWorkspace(p, workspaceProviders(lockFile, projections, p.Workspace), dryRun); err != nil {
+		if err := prepareWorkspace(p, workspaceProviders(lockFile, projections, p.Workspace), dryRun, workspaceOwnership(&lockFile, projections, manifests, p.Workspace)); err != nil {
+			var collision *provisioning.TrackedCollisionError
+			var badName *provisioning.InvalidArtifactNameError
+			if p.Derived && (errors.As(err, &collision) || errors.As(err, &badName)) {
+				// Nobody asked for a derived binding on this machine (D1019):
+				// one repository's clash is no reason to stop the others
+				// (D1181), nor is one artifact name that cannot be projected.
+				// An explicit binding keeps the refusal.
+				fmt.Fprintf(os.Stderr, "warning: workspace %s: %s projection skipped: %v\n", p.Workspace, p.Provider, err)
+				skippedProjections[projectionKey(p)] = true
+				continue
+			}
 			return nil, err
 		}
 	}
@@ -699,7 +712,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 	// This runs before the projections are applied, so the files are gone
 	// before anything is written in their place.
 	if !dryRun {
-		orphans, err := pruneOrphanProjections(&lockFile, projections, targetDir)
+		orphans, err := pruneOrphanProjections(&lockFile, projections, manifests, targetDir)
 		if err != nil {
 			return nil, err
 		}
@@ -712,6 +725,9 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 
 	var appliedSoFar []string
 	for _, p := range projections {
+		if skippedProjections[projectionKey(p)] {
+			continue
+		}
 		previous := lockFile.ForProjection(p.Key())
 		manifest := manifests[projectionKey(p)]
 		opts := provisioning.ApplyOptions{
@@ -733,6 +749,23 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			PathRegistries: manifest.PathRegistries,
 			KBOrder:        kbOrder[p.Provider],
 		}
+		// What a derived projection leaves alone because git tracks the file
+		// is not its to prune either: those lock entries are held out of the
+		// diff Apply computes and carried forward unchanged.
+		var held []provisioning.ManagedFile
+		if p.Derived && len(p.SkipKinds) > 0 {
+			var rest []provisioning.ManagedFile
+			for _, mf := range previous.Managed {
+				if slices.Contains(p.SkipKinds, mf.Kind) {
+					held = append(held, mf)
+				} else {
+					rest = append(rest, mf)
+				}
+			}
+			lockCopy := previous
+			lockCopy.Managed = rest
+			opts.Lock = lockCopy
+		}
 		if p.Derived {
 			// A derived binding never edits a tracked file (D1019): the
 			// instructions block goes to an untracked file, or nowhere.
@@ -740,6 +773,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			if p.InstructionsSkipped != "" {
 				manifest = withoutInstructions(manifest)
 			}
+			manifest = withoutKinds(manifest, p.SkipKinds)
 		}
 		// Apply only the artifacts the provider knows how to materialize in
 		// this scope: unsupported kinds are neither drift nor pending, they
@@ -757,13 +791,14 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		// nothing is written into a workspace for it. What a pre-D737 client
 		// (D717) left in a repository is removed here, on every project
 		// projection, until it is gone.
-		if p.Scope == provisioning.ScopeProject {
+		if p.Scope == provisioning.ScopeProject && !(p.Derived && slices.Contains(p.SkipKinds, "mcp")) {
 			lock, err := provisioning.PruneServerEntry(p.BaseDir, configurator.Provider(p.Provider), applied.NewLock, dryRun)
 			if err != nil {
 				return nil, fmt.Errorf("apply %s: %w", p.Label(), err)
 			}
 			applied.NewLock = lock
 		}
+		applied.NewLock.Managed = append(applied.NewLock.Managed, held...)
 		// Record the base dir only when it is not the lockfile's own
 		// directory: every existing lockfile keeps its current meaning and no
 		// migration runs (D141). SetProjection records it for a workspace.

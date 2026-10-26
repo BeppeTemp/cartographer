@@ -5,6 +5,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
@@ -221,6 +222,12 @@ var projectRegistrationFiles = map[configurator.Provider][]string{
 	configurator.ProviderAntigravity: {antigravityProjectHooksRel},
 }
 
+// ProjectRegistrationFiles returns the registration files a projection of
+// provider writes beside its directories.
+func ProjectRegistrationFiles(provider configurator.Provider) []string {
+	return append([]string(nil), projectRegistrationFiles[provider]...)
+}
+
 // ManagedProjectRoots is ManagedDestinationRoots for the project scope: the
 // directories a workspace projection owns under workspaceDir. `doctor` checks
 // them, and the repository-hygiene pass adds them to .git/info/exclude.
@@ -254,11 +261,13 @@ func ManagedProjectRoots(provider configurator.Provider, workspaceDir string) []
 	return out
 }
 
-// ProjectOwnedPaths returns the workspace-relative paths a projection owns for
-// provider: the per-kind roots for directory destinations, and the exact file
-// for a shared-file destination. It is what the repository-hygiene pass (WP5)
-// writes to .git/info/exclude and what the collision check consults, so it must
-// name everything the projection can create and nothing it cannot.
+// ProjectOwnedPaths returns the workspace-relative roots a projection can
+// write under for provider: the per-kind directories and the exact file for a
+// shared-file destination. A root is not ownership: a repository may keep its
+// own artifacts in the same directory (.agents/skills/<own>/), so the
+// repository-hygiene pass (collision check, git exclude) uses
+// ProjectOwnedArtifactPaths instead (D1181). This is for whatever needs only
+// where a projection may write.
 func ProjectOwnedPaths(provider configurator.Provider) []string {
 	seen := map[string]bool{}
 	var out []string
@@ -282,6 +291,105 @@ func ProjectOwnedPaths(provider configurator.Provider) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// ProjectOwnedArtifactPaths returns the workspace-relative paths a projection
+// of provider owns: what it writes, not the directories it writes into (D1181).
+//
+// In a directory destination (skills, agents, hooks) that is
+// <dir>/<name><suffix> for each artifact of m the provider receives in this
+// scope, for each client-generated hook, and for each path lock records (what
+// an earlier run wrote and a prune may remove). A repository's own artifact
+// next to those is not owned and is neither refused nor excluded. A
+// shared-file destination (.mcp.json, the instructions file) and a
+// registration file are owned as a whole, as before.
+//
+// The result is written into .git/info/exclude before Apply checks anything,
+// so it is validated here: an artifact name that is not a single local segment,
+// or that holds a newline or a gitignore special character, fails the
+// projection with the error Apply gives for it, and a lock path outside the
+// provider's own destinations is dropped. Nothing is written either way.
+func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock Lock) ([]string, error) {
+	seen := map[string]bool{}
+	var out []string
+	var roots []string
+	for _, kind := range artifactKinds {
+		cell, ok := projectDestinationMatrix[kind][provider]
+		if !ok || cell.unsupported {
+			continue
+		}
+		if rel := path.Join(cell.dir...); rel != "" && rel != "." {
+			roots = append(roots, rel)
+		}
+	}
+	roots = append(roots, projectRegistrationFiles[provider]...)
+	contained := func(rel string) bool {
+		for _, r := range roots {
+			if rel == r || strings.HasPrefix(rel, r+"/") {
+				return true
+			}
+		}
+		return false
+	}
+	add := func(rel string) {
+		rel = path.Clean(filepath.ToSlash(rel))
+		if rel == "" || rel == "." || seen[rel] || strings.ContainsAny(rel, "\n\r") || !contained(rel) {
+			return
+		}
+		seen[rel] = true
+		out = append(out, rel)
+	}
+	for _, kind := range artifactKinds {
+		cell, ok := projectDestinationMatrix[kind][provider]
+		if !ok || cell.unsupported {
+			continue
+		}
+		if !cell.named {
+			add(path.Join(cell.dir...))
+			continue
+		}
+		if kind == "hook" {
+			for name := range reservedHookNames {
+				add(destDirScoped(kind, name, provider, ScopeProject))
+			}
+		}
+	}
+	for _, a := range FilterForProviderScoped(m, provider, ScopeProject).Artifacts {
+		if !ownableName(a.Name) {
+			return nil, &InvalidArtifactNameError{Name: a.Name}
+		}
+		add(destDirScoped(a.Kind, a.Name, provider, ScopeProject))
+	}
+	for _, mf := range lock.Managed {
+		add(mf.Path)
+	}
+	for _, rel := range projectRegistrationFiles[provider] {
+		add(rel)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// InvalidArtifactNameError is the refusal of a name that cannot be projected
+// into a workspace: stricter than Apply's rule, because the name is also
+// written into .git/info/exclude.
+type InvalidArtifactNameError struct{ Name string }
+
+func (e *InvalidArtifactNameError) Error() string {
+	return fmt.Sprintf("provisioning: artifact name %q cannot be projected into a workspace (separators, line breaks or gitignore metacharacters)", e.Name)
+}
+
+// ownableName is the rule Apply holds an artifact name to (a single local
+// segment) plus what a path written into .git/info/exclude must not carry: a
+// line break, a gitignore glob or negation, a comment, or edge spaces.
+func ownableName(name string) bool {
+	if name == "" || name != filepath.Base(name) || !filepath.IsLocal(name) {
+		return false
+	}
+	if strings.ContainsAny(name, "\n\r*?[!\\#") || strings.TrimSpace(name) != name {
+		return false
+	}
+	return true
 }
 
 // validateProjectMatrix asserts the project matrix covers every kind for every

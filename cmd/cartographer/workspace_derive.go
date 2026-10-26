@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -250,6 +251,47 @@ func joinKBs(kbs []string) string {
 			out += ", "
 		}
 		out += kb
+	}
+	return out
+}
+
+// derivedSharedSkips names the tracked shared files a derived projection of
+// provider must leave alone, and the artifact kinds that would be written into
+// them: the MCP file (a crush hook registers in it too) and the registration
+// files of projectRegistrationFiles. Instructions have their own rule above.
+func derivedSharedSkips(provider, workspace string) (files, kinds []string) {
+	prov := configurator.Provider(provider)
+	tracked, err := provisioning.TrackedPaths(workspace)
+	if err != nil {
+		return nil, nil
+	}
+	if rel := provisioning.ProjectDestination("mcp", "", prov); rel != "" && tracked[rel] {
+		files = append(files, rel)
+		kinds = append(kinds, "mcp")
+		if prov == configurator.ProviderCrush {
+			kinds = append(kinds, "hook")
+		}
+	}
+	for _, rel := range provisioning.ProjectRegistrationFiles(prov) {
+		if tracked[rel] {
+			files = append(files, rel)
+			kinds = append(kinds, "hook")
+		}
+	}
+	return files, kinds
+}
+
+// withoutKinds drops the artifacts of the given kinds from m.
+func withoutKinds(m provisioning.Manifest, kinds []string) provisioning.Manifest {
+	if len(kinds) == 0 {
+		return m
+	}
+	out := m
+	out.Artifacts = nil
+	for _, a := range m.Artifacts {
+		if !slices.Contains(kinds, a.Kind) {
+			out.Artifacts = append(out.Artifacts, a)
+		}
 	}
 	return out
 }
