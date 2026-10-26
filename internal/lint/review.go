@@ -344,11 +344,21 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 // the item closes; a kind added later gets this for free.
 const closingSuffix = "Nothing dismisses an item: it closes when the pages it names reach this state; if one is right as it stands, write that state and give the reason in the commit message."
 
-// appendClosingSuffix appends closingSuffix to each item's SuggestedAction. It
-// runs once, in Review, over the assembled items.
+// observationClosingSuffix replaces closingSuffix on observation items: their
+// advice itself says to leave the page as it is when that is right, and there
+// is then no state to write.
+const observationClosingSuffix = "Nothing dismisses an item: it closes when the pages it names change; leaving them as they are is a legitimate decision and needs nothing written."
+
+// appendClosingSuffix appends closingSuffix (observationClosingSuffix for an
+// observation) to each item's SuggestedAction. It runs once, in Review, over
+// the assembled items.
 func appendClosingSuffix(items []ReviewItem) {
 	for i := range items {
-		items[i].SuggestedAction = strings.TrimRight(items[i].SuggestedAction, " .") + ". " + closingSuffix
+		suffix := closingSuffix
+		if items[i].Kind == ReviewObservation {
+			suffix = observationClosingSuffix
+		}
+		items[i].SuggestedAction = strings.TrimRight(items[i].SuggestedAction, " .") + ". " + suffix
 	}
 }
 

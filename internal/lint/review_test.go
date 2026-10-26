@@ -353,10 +353,17 @@ func TestReviewEveryActionEndsWithTheClosingSuffix(t *testing.T) {
 		}
 		for _, it := range items {
 			a := it.SuggestedAction
-			if !strings.HasSuffix(a, closingSuffix) || strings.Count(a, closingSuffix) != 1 {
-				t.Errorf("%s: action does not end with the suffix exactly once: %q", kind, a)
+			suffix := closingSuffix
+			if kind == ReviewObservation {
+				suffix = observationClosingSuffix
 			}
-			if strings.TrimSuffix(a, closingSuffix) == "" {
+			if !strings.HasSuffix(a, suffix) || strings.Count(a, "Nothing dismisses an item") != 1 {
+				t.Errorf("%s: action does not end with its suffix exactly once: %q", kind, a)
+			}
+			if kind != ReviewObservation && strings.Contains(a, observationClosingSuffix) {
+				t.Errorf("%s: action carries the observation variant: %q", kind, a)
+			}
+			if strings.TrimSuffix(a, suffix) == "" {
 				t.Errorf("%s: the suffix is the whole action", kind)
 			}
 			if strings.Contains(a, "lint_ignore") {
