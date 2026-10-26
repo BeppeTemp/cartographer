@@ -3,11 +3,16 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
@@ -280,5 +285,289 @@ func TestMapCreateUpdateWarnOnPoorTitle(t *testing.T) {
 	}
 	if out["warnings"] == nil {
 		t.Fatalf("map_update = %v", out)
+	}
+}
+
+// D1072: source_register provides the source template.
+
+func sourceNotes(out map[string]interface{}) []string {
+	var r []string
+	if l, ok := out["notes"].([]interface{}); ok {
+		for _, v := range l {
+			r = append(r, v.(string))
+		}
+	}
+	return r
+}
+
+func readRel(t *testing.T, k *kb.KB, rel string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(k.Root, rel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func sourceMapContract(t *testing.T, k *kb.KB) kb.MapContract {
+	t.Helper()
+	c, err := k.ReadMapContract("sources")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestSourceRegisterWritesAndDeclaresTemplate(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	out := registerSource(t, s, `{"title":"First","source_kind":"note","timestamp":"2026-03-04"}`)
+	if len(sourceNotes(out)) != 2 {
+		t.Fatalf("want two notes, got %v", out["notes"])
+	}
+	if got := readRel(t, k, "templates/source.md"); got != kb.SourceTemplate() {
+		t.Fatalf("template differs:\n%s", got)
+	}
+	if c := sourceMapContract(t, k); c.DefaultTemplate != "source" || !slices.Equal(c.Templates, []string{"source"}) {
+		t.Fatalf("contract = %+v", c)
+	}
+	mapBefore := readRel(t, k, "data/sources/_map.md")
+	tplBefore := readRel(t, k, "templates/source.md")
+	out = registerSource(t, s, `{"title":"Second","source_kind":"note","timestamp":"2026-03-05","ingest_status":"ingested","body":"# Second\n\n## Facts\n\nx\n"}`)
+	if n := sourceNotes(out); len(n) != 0 {
+		t.Fatalf("second call must write nothing, got %v", n)
+	}
+	if readRel(t, k, "data/sources/_map.md") != mapBefore || readRel(t, k, "templates/source.md") != tplBefore {
+		t.Fatal("second call rewrote the template or the map")
+	}
+	findings, err := lint.Run(k, "sources", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if strings.HasPrefix(f.Check, "template_") {
+			t.Errorf("template finding after registration: %+v", f)
+		}
+	}
+	items, err := lint.Review(k, findings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range items {
+		if it.Kind == lint.ReviewTemplateProposal {
+			t.Errorf("kb_review still proposes a template: %+v", it)
+		}
+	}
+}
+
+func TestSourceRegisterDuplicateSetsNothingUp(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	registerSource(t, s, `{"title":"A","source_kind":"note","sha256":"`+shaA+`"}`)
+	if err := os.Remove(filepath.Join(k.Root, "templates/source.md")); err != nil {
+		t.Fatal(err)
+	}
+	out := registerSource(t, s, `{"title":"A","source_kind":"note","sha256":"`+shaA+`"}`)
+	if out["duplicate"] != true || out["notes"] != nil {
+		t.Fatalf("got %v", out)
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, "templates/source.md")); err == nil {
+		t.Fatal("a duplicate must not write the template")
+	}
+}
+
+func TestSourceRegisterKeepsExistingSourceTemplate(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	custom := "---\ntype: Source\ntitle: \"{{title}}\"\nx-template.required_fields: [source_kind]\nx-template.open_sections: true\n---\n# {{title}}\n"
+	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.Root, "templates/source.md"), []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	registerSource(t, s, `{"title":"A","source_kind":"note"}`)
+	if readRel(t, k, "templates/source.md") != custom {
+		t.Fatal("an existing template was rewritten")
+	}
+	if sourceMapContract(t, k).DefaultTemplate != "source" {
+		t.Fatal("map not declared")
+	}
+}
+
+func TestSourceRegisterTemplateOfOtherType(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	other := "---\ntype: Host\ntitle: \"{{title}}\"\n---\n# {{title}}\n"
+	os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755)
+	os.WriteFile(filepath.Join(k.Root, "templates/source.md"), []byte(other), 0o644)
+	out := registerSource(t, s, `{"title":"A","source_kind":"note"}`)
+	if readRel(t, k, "templates/source.md") != other || sourceMapContract(t, k).DefaultTemplate != "" {
+		t.Fatal("must leave template and map alone")
+	}
+	if len(sourceNotes(out)) != 1 || out["id"] == nil {
+		t.Fatalf("got %v", out)
+	}
+}
+
+func TestSourceRegisterMixedJournalGetsTemplateOnly(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	if _, err := k.WriteConcept("sources/inc", mustFM(t, "type: Incident\ntitle: Inc"), "# Inc\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	out := registerSource(t, s, `{"title":"A","source_kind":"note"}`)
+	if _, err := os.Stat(filepath.Join(k.Root, "templates/source.md")); err != nil {
+		t.Fatal("template should be written")
+	}
+	if sourceMapContract(t, k).HasTemplateKeys() {
+		t.Fatal("a mixed journal must stay flexible")
+	}
+	if n := sourceNotes(out); len(n) != 2 || !strings.Contains(n[1], "not Source") {
+		t.Fatalf("notes = %v", n)
+	}
+}
+
+func TestSourceRegisterMapWithTemplatesUntouched(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755)
+	os.WriteFile(filepath.Join(k.Root, "templates/other.md"), []byte("---\ntype: Source\ntitle: \"{{title}}\"\nx-template.open_sections: true\n---\n# {{title}}\n"), 0o644)
+	if _, err := k.UpdateMapContract("sources", kb.MapContractUpdate{Templates: &[]string{"other"}}); err != nil {
+		t.Fatal(err)
+	}
+	before := readRel(t, k, "data/sources/_map.md")
+	out := registerSource(t, s, `{"title":"A","source_kind":"note"}`)
+	if readRel(t, k, "data/sources/_map.md") != before {
+		t.Fatal("map rewritten")
+	}
+	if n := sourceNotes(out); len(n) != 2 || !strings.Contains(n[1], "already declares") {
+		t.Fatalf("notes = %v", n)
+	}
+}
+
+func TestSourceRegisterPageNotFollowingTemplateLeavesMapFlexible(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	if _, err := k.WriteConcept("sources/old", mustFM(t, "type: Source\ntitle: Old"), "# Old\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	out := registerSource(t, s, `{"title":"A","source_kind":"note"}`)
+	if sourceMapContract(t, k).HasTemplateKeys() {
+		t.Fatal("map declared although a page fails the template")
+	}
+	if n := sourceNotes(out); len(n) != 2 || !strings.Contains(n[1], "1 page") {
+		t.Fatalf("notes = %v", n)
+	}
+}
+
+func TestSourceRegisterSymlinkedTemplatesStillRegisters(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(k.Root, "templates")); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	out := registerSource(t, s, `{"title":"A","source_kind":"note"}`)
+	if out["id"] == nil || out["warnings"] == nil {
+		t.Fatalf("got %v", out)
+	}
+	if ents, _ := os.ReadDir(elsewhere); len(ents) != 0 {
+		t.Fatal("wrote through the symlink")
+	}
+	if sourceMapContract(t, k).HasTemplateKeys() {
+		t.Fatal("map declared")
+	}
+}
+
+func TestSourceRegisterFailedDeclarationStillRegisters(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	// A legacy _archive.md descriptor is readable but UpdateMapContract refuses
+	// to rewrite it (D77): the declaration fails, the registration must not.
+	dir := filepath.Join(k.DataRoot(), "sources")
+	if err := os.Rename(filepath.Join(dir, "_map.md"), filepath.Join(dir, "_archive.md")); err != nil {
+		t.Fatal(err)
+	}
+	out := registerSource(t, s, `{"title":"A","source_kind":"note"}`)
+	if out["id"] == nil || out["warnings"] == nil {
+		t.Fatalf("want the source registered with a warning, got %v", out)
+	}
+	if _, err := k.ReadConcept(okf.ConceptID(out["id"].(string))); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSourceRegisterOneCommit(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKBWithRemote(t)
+	if err := k.CreateMap("sources", "Sources", "journal", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.CommitOp("test: journal"); err != nil {
+		t.Fatal(err)
+	}
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	before := commitCount(t, k)
+	registerSource(t, s, `{"title":"A","source_kind":"note"}`)
+	if got := commitCount(t, k); got != before+1 {
+		t.Fatalf("commits: %d -> %d, want one more", before, got)
+	}
+	out, err := exec.Command("git", "-C", k.Root, "show", "--name-only", "--format=", "HEAD").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"templates/source.md", "data/sources/_map.md", "data/sources/20"} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("commit lacks %s:\n%s", want, out)
+		}
+	}
+}
+
+// The text the server writes passes the validation artifact_write applies.
+func TestSourceTemplatePassesArtifactValidation(t *testing.T) {
+	t.Parallel()
+	if _, _, _, err := validateTemplateArtifact([]byte(kb.SourceTemplate())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An operator-edited template the new page does not follow: the first
+// registration must not declare the map (the new page is checked too).
+func TestSourceRegisterNewPageNotFollowingEditedTemplate(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	edited := "---\ntype: Source\ntitle: \"{{title}}\"\nx-template.required_fields: [source_kind, owner]\nx-template.open_sections: true\n---\n# {{title}}\n"
+	os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755)
+	os.WriteFile(filepath.Join(k.Root, "templates/source.md"), []byte(edited), 0o644)
+	out := registerSource(t, s, `{"title":"A","source_kind":"note"}`)
+	if sourceMapContract(t, k).HasTemplateKeys() {
+		t.Fatal("map declared although the new page fails the template")
+	}
+	if n := sourceNotes(out); len(n) != 1 || !strings.Contains(n[0], "1 page") {
+		t.Fatalf("notes = %v", n)
+	}
+}
+
+// A registration that fails writes no template and no contract.
+func TestSourceRegisterFailedWriteSetsNothingUp(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	dir := filepath.Join(k.DataRoot(), "sources")
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Skipf("chmod: %v", err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+	if f, err := os.Create(filepath.Join(dir, "probe")); err == nil {
+		f.Close()
+		t.Skip("directory still writable (root?)")
+	}
+	res := s.callTool(authLocalContext(), "source_register", json.RawMessage(`{"title":"A","source_kind":"note"}`))
+	if !res.IsError {
+		t.Fatalf("expected an error result, got %v", res)
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, "templates/source.md")); err == nil {
+		t.Fatal("template written by a failed registration")
 	}
 }

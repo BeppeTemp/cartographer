@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -210,16 +213,121 @@ func toolSourceRegister(k *kb.KB) Tool {
 				return errorResult(fmt.Sprintf("source_register %q: %v", id, err)), nil
 			}
 			_ = k.AppendLog("source_register: "+id, time.Now())
+			// After the write, so the new page is on disk and goes through the
+			// same conformance check as the existing ones, and so a refused
+			// registration leaves no template or contract change behind.
+			notes, setupWarnings := ensureSourceTemplate(k, p.Map)
 			resp := map[string]interface{}{"id": id, "duplicate": false}
+			warnings := setupWarnings
 			if contract, cerr := k.ReadMapContract(p.Map); cerr == nil {
 				if issues := lint.TitleTextIssues(&contract, false, p.Title); len(issues) > 0 {
-					resp["warnings"] = []string{fmt.Sprintf("lint will flag this title (title_quality): %s; shorten or rename it", strings.Join(issues, "; "))}
+					warnings = append(warnings, fmt.Sprintf("lint will flag this title (title_quality): %s; shorten or rename it", strings.Join(issues, "; ")))
 				}
+			}
+			if len(warnings) > 0 {
+				resp["warnings"] = warnings
+			}
+			if len(notes) > 0 {
+				resp["notes"] = notes
 			}
 			out, _ := json.Marshal(resp)
 			return textResult(string(out)), nil
 		},
 	}
+}
+
+// ensureSourceTemplate gives a ledger journal the source template and, when it
+// is safe, declares it (D1072): templates/source.md is written when absent, and
+// the map's default_template (and templates: [source], which it requires) is set only when the map holds Source concepts
+// only and every one already follows the template, so the registration never
+// introduces a finding on its own (source_register is exempt from the write
+// gate). Nothing existing is overwritten or overridden.
+//
+// It is best effort: the registration must never fail because of this setup.
+// A failure is a warning, a decision not to declare is a note, and the caller
+// registers the source either way. It runs after the concept is written, so the new page is checked too, and
+// takes no lock and makes no commit: the handler is wrapped by gitWrap, so the
+// template, the _map.md edit and the concept land in one commit.
+func ensureSourceTemplate(k *kb.KB, mapName string) (notes, warnings []string) {
+	const rel = "templates/source.md"
+	abs, err := k.ResolveRootPath(rel)
+	if err != nil {
+		return nil, []string{fmt.Sprintf("source template not written: %v", err)}
+	}
+	if err := rejectArtifactSymlinks(k.Root, rel); err != nil {
+		return nil, []string{fmt.Sprintf("source template not written: %v", err)}
+	}
+	data, rerr := os.ReadFile(abs)
+	switch {
+	case rerr == nil:
+		info, ok := kb.ParseTemplate("source", string(data))
+		if !ok || !strings.EqualFold(info.Type, kb.SourceType) {
+			return append(notes, rel+" exists and is not a Source template: left as it is, the map is not declared"), nil
+		}
+	case errors.Is(rerr, os.ErrNotExist):
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			return nil, []string{fmt.Sprintf("source template not written: %v", err)}
+		}
+		if err := os.WriteFile(abs, []byte(kb.SourceTemplate()), 0o644); err != nil {
+			return nil, []string{fmt.Sprintf("source template not written: %v", err)}
+		}
+		notes = append(notes, "wrote "+rel+" (edit it to widen the shape)")
+	default:
+		return nil, []string{fmt.Sprintf("source template not read: %v", rerr)}
+	}
+
+	contract, err := k.ReadMapContract(mapName)
+	if err != nil {
+		return notes, []string{fmt.Sprintf("map %q not declared: %v", mapName, err)}
+	}
+	if contract.DefaultTemplate == "source" && slices.Equal(contract.Templates, []string{"source"}) {
+		return notes, nil // already in place
+	}
+	if contract.HasTemplateKeys() {
+		return append(notes, fmt.Sprintf("map %q already declares templates: left as it is", mapName)), nil
+	}
+	type page struct {
+		id      okf.ConceptID
+		content string
+	}
+	var pages []page
+	others := 0
+	prefix := mapName + "/"
+	if err := k.WalkConcepts(func(id okf.ConceptID, content string) error {
+		if !strings.HasPrefix(string(id), prefix) {
+			return nil
+		}
+		fmRaw, _, _ := okf.SplitFrontmatter(content)
+		fm, perr := okf.ParseFrontmatter(fmRaw)
+		if perr != nil || fm == nil || !kb.IsSourceType(fm.Type()) {
+			others++
+			return nil
+		}
+		pages = append(pages, page{id, content})
+		return nil
+	}); err != nil {
+		return notes, []string{fmt.Sprintf("map %q not declared: walk: %v", mapName, err)}
+	}
+	if others > 0 {
+		return append(notes, fmt.Sprintf("map %q holds %d page(s) that are not Source: default_template not declared", mapName, others)), nil
+	}
+	catalog := k.TemplateCatalog()
+	failing := 0
+	for _, pg := range pages {
+		if !lint.FollowsTemplate(mapName, pg.id, pg.content, contract, catalog, "source") {
+			failing++
+		}
+	}
+	if failing > 0 {
+		return append(notes, fmt.Sprintf("map %q not declared: %d page(s) do not follow the source template", mapName, failing)), nil
+	}
+	// default_template must be listed in templates (UpdateMapContract refuses
+	// it otherwise), so both keys are set; the map holds Sources only.
+	slug := "source"
+	if _, err := k.UpdateMapContract(mapName, kb.MapContractUpdate{Templates: &[]string{slug}, DefaultTemplate: &slug}); err != nil {
+		return notes, []string{fmt.Sprintf("map %q not declared: %v", mapName, err)}
+	}
+	return append(notes, fmt.Sprintf("declared templates: [source] and default_template: source on map %q", mapName)), nil
 }
 
 func toolSourceList(k *kb.KB) Tool {
