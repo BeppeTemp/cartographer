@@ -307,6 +307,24 @@ func checkSkills(skills []skill.Skill, missing []string) []Finding {
 	return findings
 }
 
+// ArtifactFile is one text file of a KB-root artifact, KB-root-relative.
+type ArtifactFile struct {
+	Path    string
+	Content string
+}
+
+// ArtifactTextFiles is the one list of artifact text files (skills/**,
+// agents/*.md, instructions.md) that the lint scans and that concept_move
+// scans for mentions of a moved ID, sorted by path.
+func ArtifactTextFiles(k *kb.KB) []ArtifactFile {
+	files := artifactTextFiles(k)
+	out := make([]ArtifactFile, len(files))
+	for i, f := range files {
+		out[i] = ArtifactFile{Path: f.rel, Content: f.content}
+	}
+	return out
+}
+
 // artifactTextFiles reads the text files of skills/**, agents/*.md and
 // instructions.md. Symlinks, junk, binaries and oversized files are skipped.
 func artifactTextFiles(k *kb.KB) []artifactText {
