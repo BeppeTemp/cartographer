@@ -346,3 +346,73 @@ func TestMissingBridgeCommandFallsBackToHTTPWithAWarning(t *testing.T) {
 		t.Fatalf("the writer is missing: claude %q, codex:\n%s", got, codex)
 	}
 }
+
+// D1184: a provider with an access profile never gets the bridge, which does not
+// carry the profile: with an explicit or a derived workspace binding it keeps
+// the HTTP entry with access=read-min, and the sync says so.
+func TestAccessProfileKeepsTheHTTPEntryDespiteWorkspaceBindings(t *testing.T) {
+	cfg := bridgeConfigFor(t, "claude")
+	if err := cfg.SetAccess("claude", clientconfig.AccessReadMin); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	check := func(what string) {
+		t.Helper()
+		if cfg.UsesBridge("claude", "/mcp/routed") || !cfg.ProfileIgnoresWorkspaces("claude", "/mcp/routed") {
+			t.Fatalf("%s: the provider with a profile must not use the bridge", what)
+		}
+		got, err := entriesByProviderForKBs(cfg, []string{"claude"}, "cartographer", cfg.ServerURL, cfg.KnownKBs, "/mcp/routed")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if e := got["claude"]; len(e) != 1 || e[0].Bridge || e[0].URL != "https://example.com/mcp/routed?access=read-min&provisioned=1" {
+			t.Fatalf("%s: entries = %+v, want the HTTP entry with the profile", what, e)
+		}
+	}
+	if err := cfg.BindWorkspace("claude", t.TempDir(), []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	check("explicit binding")
+
+	derived := bridgeConfigFor(t, "claude")
+	if err := derived.SetAccess("claude", clientconfig.AccessReadMin); err != nil {
+		t.Fatal(err)
+	}
+	if err := derived.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	derived.SetDerived(clientconfig.DerivedState{Bindings: map[string][]clientconfig.DerivedBinding{
+		"claude": {{Path: t.TempDir(), KBs: []string{"kb-a"}}},
+	}})
+	cfg = derived
+	check("derived binding")
+}
+
+func TestWorkspaceBindRefusesAProviderWithAnAccessProfile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := clientconfig.Default()
+	if err := cfg.SetAccess("claude", clientconfig.AccessReadMin); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if code := cmdWorkspaceBind([]string{"claude", t.TempDir(), "--kb", "kb-a"}); code != 2 {
+		t.Fatalf("workspace bind exit = %d, want 2", code)
+	}
+	got, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Workspaces["claude"]) != 0 {
+		t.Errorf("a binding was saved: %+v", got.Workspaces)
+	}
+}

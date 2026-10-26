@@ -497,6 +497,9 @@ func withRetainedKBs(current, retained []string) []string {
 func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseName, serverURL string, mounted []string, routedPath string) (map[string][]mcpEntry, error) {
 	out := make(map[string][]mcpEntry, len(providers))
 	for _, p := range providers {
+		if cfg.ProfileIgnoresWorkspaces(p, routedPath) {
+			fmt.Fprintf(os.Stderr, "warning: %s has the read-only profile (clients.%s.access), so its workspace bindings are ignored and it keeps the HTTP entry; remove the key to use them\n", p, p)
+		}
 		if cfg.UsesBridge(p, routedPath) {
 			// D737: a provider with a workspace binding gets the bridge, which
 			// resolves the session's folder to a KB set itself. It replaces the
@@ -514,7 +517,7 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 				bound = mounted
 			}
 			if !explicit || len(routedBinding(mounted, bound)) > 0 || len(mounted) == 0 {
-				fallback, err := entriesForKBsAccess(baseName, serverURL, mounted, bound, routedPath, explicit, "") // the bridge does not carry the profile (D1184)
+				fallback, err := entriesForKBsAccess(baseName, serverURL, mounted, bound, routedPath, explicit, "") // UsesBridge is false when access is set (D1184)
 				if err != nil {
 					return nil, err
 				}

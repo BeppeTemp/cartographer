@@ -288,6 +288,10 @@ func cmdWorkspaceBind(args []string) int {
 		fmt.Fprintf(os.Stderr, "Error: --trust only applies to the codex provider, not %s\n", provider)
 		return 2
 	}
+	if cfg.Clients[provider].Access != "" {
+		fmt.Fprintf(os.Stderr, "Error: %s has the read-only profile (clients.%s.access), which the workspace bridge does not carry: remove that key from .cartographer.yaml to bind workspaces, or keep the profile and skip the binding.\n", provider, provider)
+		return 2
+	}
 	if err := cfg.BindWorkspace(provider, path, kbs); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
