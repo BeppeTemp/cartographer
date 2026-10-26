@@ -125,6 +125,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 				fmt.Printf("  %s\n", p.Kinds)
 			}
 			printShadowedInstructionsLine(p)
+			printInstructionsSizeLines(p)
 			continue
 		}
 		if p.State != "drift" {
@@ -141,6 +142,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			fmt.Printf("  %s\n", p.Kinds)
 		}
 		printShadowedInstructionsLine(p)
+		printInstructionsSizeLines(p)
 		for _, d := range p.Diverged {
 			fmt.Printf("  diverged on disk (%s): %s/%s at %s\n", d.Trust, d.Kind, d.Name, d.Path)
 			if d.Detail != "" {
@@ -264,6 +266,29 @@ func printShadowedInstructionsLine(p providerStatus) {
 		p.ShadowedInstructions)
 }
 
+// instructionsSizeLine is the warning for one over-threshold instructions
+// block (D1182): the size, the tokens it costs on every model call
+// (approximate), the largest KB regions and the way out.
+func instructionsSizeLine(provider string, b instructionsBlockStatus) string {
+	parts := make([]string, len(b.Largest))
+	for i, k := range b.Largest {
+		parts[i] = fmt.Sprintf("%s %.1f KiB", k.KB, float64(k.Bytes)/1024)
+	}
+	return fmt.Sprintf("[%s] instructions block %.1f KiB (~%.1fk tokens, approximate) over %d KiB: %s; keep curated text out of the block (drop `block: full`) or trim the skill list",
+		provider, float64(b.Bytes)/1024, float64(b.ApproxTokens)/1000, b.Threshold/1024, strings.Join(parts, ", "))
+}
+
+// printInstructionsSizeLines prints the size warning of each over-threshold
+// block. It informs and changes neither the state nor the exit status, like the
+// unresolved-placeholders note (D262).
+func printInstructionsSizeLines(p providerStatus) {
+	for _, b := range p.InstructionsBlocks {
+		if b.Over {
+			fmt.Println(instructionsSizeLine(p.Name, b))
+		}
+	}
+}
+
 // mountModeLabel names a mount mode for a human, including the historical one
 // that is recorded as an empty string.
 func mountModeLabel(mode string) string {
@@ -271,4 +296,26 @@ func mountModeLabel(mode string) string {
 		return "one endpoint per KB"
 	}
 	return mode
+}
+
+// printInstructionsSizeWarnings tells, after a sync, which providers' managed
+// instructions block is over the threshold (D1182). It reads the lockfile the
+// apply just wrote, so a block that was not written (a refused write, a derived
+// workspace binding) is not measured; a dry run wrote nothing and prints
+// nothing. Informational: never an exit code.
+func printInstructionsSizeWarnings(dir string, results map[string]provisioning.AppliedResult, dryRun bool) {
+	if dryRun {
+		return
+	}
+	lockFile, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		return
+	}
+	for _, name := range sortedKeys(results) {
+		for _, b := range snapshotInstructionsBlocks(lockFile, name, dir) {
+			if b.Over {
+				fmt.Println(instructionsSizeLine(name, b))
+			}
+		}
+	}
 }

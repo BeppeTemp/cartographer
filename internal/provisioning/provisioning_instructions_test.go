@@ -167,9 +167,10 @@ func TestBuildManifest_Instructions_ArchiviElencatiEdEsclusioneInfra(t *testing.
 	if !strings.Contains(content, "homelab") {
 		t.Errorf("instructions content doesn't mention the KB name:\n%s", content)
 	}
+	// The tools live in the shared operational section, written once per block (D1182).
 	for _, tool := range []string{"search", "atlas_overview", "concept_read", "concept_write", "log_append"} {
-		if !strings.Contains(content, tool) {
-			t.Errorf("instructions content doesn't mention tool %q:\n%s", tool, content)
+		if !strings.Contains(provisioning.SharedOperationalSection(), tool) {
+			t.Errorf("the shared operational section doesn't mention tool %q", tool)
 		}
 	}
 }
@@ -233,17 +234,9 @@ func TestBuildManifest_Instructions_NessunaSezioneSenzaAgentNeCurato(t *testing.
 	if strings.Contains(content, "Subagents installed") {
 		t.Errorf("no agent in the KB: the agent section must not appear:\n%s", content)
 	}
-	// Compact form post-D65: header with inline archives + three lines of
-	// operational instructions, no other section.
-	want := "The \"homelab\" KB is served via MCP by the \"cartographer\" server. Archives: entities/.\n\n" +
-		"Operational instructions:\n" +
-		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n" +
-		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n" +
-		"- a write that would introduce an avoidable finding (broken link, missing index entry, orphan) is refused with each finding's fix and nothing is committed: write the target, the index entry and the link in the same `concept_batch`;\n" +
-		"- status convention: `active` means the page is valid and current, not that work is open; open work uses `open` (accepted or queued, not started), `in-progress` or `blocked`: when you start executing an `open` item, set `in-progress` in the same `concept_patch` or `concept_batch` that records the first progress; when progress cannot continue, set `blocked` and declare `waiting_on` and `review_after`; a finished task is `done`;\n" +
-		"- every write is a git commit, revertible.\n" +
-		"- never run git commands in the KB's clone: report replication problems from `sync_status` to the operator instead; a push refused because of the commits' author is reported with the command `cartographer kb reauthor <kb>`, for the operator to run.\n" +
-		"- when `kb_status` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).\n"
+	// Brief form (D1182): the routing paragraph only; the bullets are written
+	// once per block by the client, not per KB.
+	want := "The \"homelab\" KB is served via MCP by the \"cartographer\" server. Archives: entities/.\n\n"
 	if content != want {
 		t.Errorf("output changed with no agent/instructions.md:\ngot:\n%s\nwant:\n%s", content, want)
 	}
@@ -258,7 +251,8 @@ func TestBuildManifest_Instructions_StatusBulletSaysWhenWorkMoves(t *testing.T) 
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
-	content := string(findInstructionsArtifact(t, m, "homelab").Files[0].Content)
+	_ = m
+	content := provisioning.SharedOperationalSection()
 	var bullet string
 	for _, line := range strings.Split(content, "\n") {
 		if strings.HasPrefix(line, "- status convention:") {
@@ -295,16 +289,25 @@ func TestGenerateInstructions_WithDefaultFile(t *testing.T) {
 		t.Fatalf("BuildManifest: %v", err)
 	}
 	content := string(findInstructionsArtifact(t, m, "kb-a").Files[0].Content)
-	for _, want := range []string{"Operational instructions:", "every write is a git commit", "Status convention", "Write discipline", "gate_check"} {
-		if !strings.Contains(content, want) {
-			t.Errorf("generated instructions lack %q:\n%s", want, content)
+	// Brief by default (D1182): the default file is served by kb_guide, not
+	// carried by the block, and it does not suppress the shared bullets.
+	if strings.Contains(content, "Write discipline") {
+		t.Errorf("the default instructions.md must stay out of the brief section:\n%s", content)
+	}
+	if strings.Contains(content, "cartographer: preamble: none") {
+		t.Errorf("the default instructions.md must not opt out of the operational bullets:\n%s", content)
+	}
+	body, _ := provisioning.KBCuratedInstructions(kbRoot)
+	for _, want := range []string{"Status convention", "Write discipline", "gate_check"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the default instructions.md lacks %q:\n%s", want, body)
 		}
 	}
 }
 
 func TestBuildManifest_Instructions_CuratoSenzaFrontmatter(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
-	writeFile(t, filepath.Join(kbRoot, "instructions.md"), "Rule: bulk reads -> explorer.\n")
+	writeFile(t, filepath.Join(kbRoot, "instructions.md"), "<!-- cartographer: block: full -->\nRule: bulk reads -> explorer.\n")
 
 	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
@@ -315,17 +318,20 @@ func TestBuildManifest_Instructions_CuratoSenzaFrontmatter(t *testing.T) {
 	if !strings.Contains(content, "Rule: bulk reads -> explorer.") {
 		t.Errorf("instructions.md body not included:\n%s", content)
 	}
-	autoIdx := strings.Index(content, "every write is a git commit")
+	autoIdx := strings.Index(content, "Archives: entities/")
 	curatedIdx := strings.Index(content, "Rule: bulk reads")
 	if autoIdx == -1 || curatedIdx == -1 || curatedIdx < autoIdx {
-		t.Errorf("the curated part must come after the auto-generated part:\n%s", content)
+		t.Errorf("the curated part must come after the generated part:\n%s", content)
+	}
+	if strings.Contains(content, "block: full") {
+		t.Errorf("the directive line must be stripped:\n%s", content)
 	}
 }
 
 func TestBuildManifest_Instructions_CuratoConFrontmatter(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
-		"---\ntitle: orchestration\n---\nDelegate mechanical work to OpenCode.\n")
+		"---\ntitle: orchestration\n---\n<!-- cartographer: block: full -->\nDelegate mechanical work to OpenCode.\n")
 
 	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
@@ -390,7 +396,7 @@ func TestBuildManifest_Instructions_HashStabileConDescriptionAgent(t *testing.T)
 func TestBuildManifest_Instructions_HashCambiaConCurato(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	instrPath := filepath.Join(kbRoot, "instructions.md")
-	writeFile(t, instrPath, "Version one.\n")
+	writeFile(t, instrPath, "<!-- cartographer: block: full -->\nVersion one.\n")
 
 	m1, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
@@ -398,7 +404,7 @@ func TestBuildManifest_Instructions_HashCambiaConCurato(t *testing.T) {
 	}
 	h1 := findInstructionsArtifact(t, m1, "homelab").ContentHash
 
-	writeFile(t, instrPath, "Version two.\n")
+	writeFile(t, instrPath, "<!-- cartographer: block: full -->\nVersion two.\n")
 	m2, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
 		t.Fatalf("BuildManifest 2: %v", err)
@@ -870,7 +876,8 @@ func TestBuildManifest_Instructions_ToolNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildManifest: %v", err)
 	}
-	plainContent := instructionsContent(t, plain, "homelab")
+	_ = plain
+	plainContent := provisioning.SharedOperationalSection()
 	for _, want := range []string{
 		"- consult it autonomously when you need historical or architectural context: `search` (keyword) or `atlas_overview` to orient yourself, `concept_read` to read; when the answer spans several linked pages, `graph_context` ranks them in one call instead of reading page by page and following links;\n",
 		"- write or update a page with `concept_write` when you discover something relevant; close relevant sessions with `log_append`;\n",
@@ -1033,7 +1040,7 @@ func TestApply_InstructionsRewrittenWhenAgentSetChanges(t *testing.T) {
 func TestGenerateKBInstructions_PreambleNoneDirective(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
-		"<!-- cartographer: preamble: none -->\nRegola: leggi prima l'indice.\n")
+		"<!-- cartographer: preamble: none -->\n<!-- cartographer: block: full -->\nRegola: leggi prima l'indice.\n")
 
 	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
@@ -1044,8 +1051,14 @@ func TestGenerateKBInstructions_PreambleNoneDirective(t *testing.T) {
 	if strings.Contains(content, "Operational instructions:") {
 		t.Errorf("preamble: none did not suppress the generated bullets:\n%s", content)
 	}
-	if strings.Contains(content, "cartographer: preamble: none") {
-		t.Errorf("the directive itself leaked into the block:\n%s", content)
+	// The comment is the one thing that crosses, as the first line, so the
+	// client can tell without the curated text (D1182); the other directive is
+	// stripped.
+	if !strings.HasPrefix(content, "<!-- cartographer: preamble: none -->\n") || strings.Count(content, "cartographer: preamble: none") != 1 {
+		t.Errorf("the preamble comment must be the first line, once:\n%s", content)
+	}
+	if strings.Contains(content, "block: full") {
+		t.Errorf("the block directive leaked into the block:\n%s", content)
 	}
 	// The routing sentence is generated state, not prose: it always stays.
 	if !strings.Contains(content, `The "homelab" KB is served via MCP`) {
@@ -1067,8 +1080,10 @@ func TestGenerateKBInstructions_DirectiveNotOnFirstLineIsContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(findInstructionsArtifact(t, m, "homelab").Files[0].Content)
-	if !strings.Contains(content, "Operational instructions:") {
-		t.Errorf("a directive that is not on the first line must be content:\n%s", content)
+	// Not a directive (prose first): the KB did not opt out, and being brief it
+	// carries no curated text either.
+	if strings.HasPrefix(content, "<!-- cartographer: preamble: none -->") {
+		t.Errorf("a directive that is not in the leading run must be content:\n%s", content)
 	}
 }
 
@@ -1081,7 +1096,7 @@ func TestGenerateKBInstructions_DirectiveNotOnFirstLineIsContent(t *testing.T) {
 func TestGenerateKBInstructions_DirectiveDeclaredAndVisible(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
-		"Some notes first.\n\n<!-- cartographer:directive:timezone:UTC+2 -->\n\nMore notes after.\n")
+		"<!-- cartographer: block: full -->\nSome notes first.\n\n<!-- cartographer:directive:timezone:UTC+2 -->\n\nMore notes after.\n")
 
 	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
 	if err != nil {
@@ -1108,9 +1123,9 @@ func TestGenerateKBInstructions_DirectiveDeclaredAndVisible(t *testing.T) {
 // — the exact path cmd/cartographer/clientsync.go exercises per provider.
 func TestBuildManifest_DirectiveCollision_EndToEnd(t *testing.T) {
 	oneRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
-	writeFile(t, filepath.Join(oneRoot, "instructions.md"), "<!-- cartographer:directive:timezone:UTC+2 -->\n")
+	writeFile(t, filepath.Join(oneRoot, "instructions.md"), "<!-- cartographer: block: full -->\n<!-- cartographer:directive:timezone:UTC+2 -->\n")
 	twoRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
-	writeFile(t, filepath.Join(twoRoot, "instructions.md"), "<!-- cartographer:directive:timezone:UTC-5 -->\n")
+	writeFile(t, filepath.Join(twoRoot, "instructions.md"), "<!-- cartographer: block: full -->\n<!-- cartographer:directive:timezone:UTC-5 -->\n")
 
 	mOne, err := provisioning.BuildManifest(nil, map[string]string{"one": oneRoot}, provisioning.BuildOptions{})
 	if err != nil {
@@ -1141,7 +1156,7 @@ func TestBuildManifest_DirectiveCollision_EndToEnd(t *testing.T) {
 func TestGenerateKBInstructions_DirectiveDocumentedInProseIsNotDeclared(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
-		"To declare a directive, write a line like:\n```\n<!-- cartographer:directive:timezone:UTC+2 -->\n```\n"+
+		"<!-- cartographer: block: full -->\nTo declare a directive, write a line like:\n```\n<!-- cartographer:directive:timezone:UTC+2 -->\n```\n"+
 			"or inline: `<!-- cartographer:directive:timezone:UTC+2 -->`.\n")
 
 	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
@@ -1203,8 +1218,8 @@ func kbSection(t *testing.T, content, name string) string {
 func TestApply_Instructions_DueKB_RegioniAttribuite(t *testing.T) {
 	alfaRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	zetaRoot := makeKBWithArchives(t, map[string][]string{"entities": {"z.md"}})
-	writeFile(t, filepath.Join(alfaRoot, "instructions.md"), "## Alfa heading\n\nAlfa rule one.\n")
-	writeFile(t, filepath.Join(zetaRoot, "instructions.md"), "## Zeta heading\n\nZeta rule one.\n")
+	writeFile(t, filepath.Join(alfaRoot, "instructions.md"), "<!-- cartographer: block: full -->\n## Alfa heading\n\nAlfa rule one.\n")
+	writeFile(t, filepath.Join(zetaRoot, "instructions.md"), "<!-- cartographer: block: full -->\n## Zeta heading\n\nZeta rule one.\n")
 
 	m := buildSignedManifest(t, map[string]string{"alfa": alfaRoot, "zeta": zetaRoot})
 	baseDir := t.TempDir()
@@ -1318,7 +1333,7 @@ func TestApply_Instructions_TrailerFuoriDalleRegioni(t *testing.T) {
 // gets no scope sentence.
 func TestGenerateKBInstructions_ScopeSentenceSoloConCurato(t *testing.T) {
 	withCurated := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
-	writeFile(t, filepath.Join(withCurated, "instructions.md"), "Some curated rule.\n")
+	writeFile(t, filepath.Join(withCurated, "instructions.md"), "<!-- cartographer: block: full -->\nSome curated rule.\n")
 	withoutCurated := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 
 	m1, err := provisioning.BuildManifest(nil, map[string]string{"homelab": withCurated}, provisioning.BuildOptions{})
@@ -1338,8 +1353,8 @@ func TestGenerateKBInstructions_ScopeSentenceSoloConCurato(t *testing.T) {
 	if strings.Contains(content2, "govern work in its perimeter") {
 		t.Errorf("scope sentence must not appear without curated content:\n%s", content2)
 	}
-	if !strings.Contains(content2, "Operational instructions:") {
-		t.Errorf("routing line and bullets must still be present without curated content:\n%s", content2)
+	if !strings.Contains(content2, "KB is served via MCP") {
+		t.Errorf("routing line must still be present without curated content:\n%s", content2)
 	}
 }
 
@@ -1349,7 +1364,7 @@ func TestGenerateKBInstructions_ScopeSentenceSoloConCurato(t *testing.T) {
 func TestApply_Instructions_OptOutPreambleMantieneAttribuzione(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	writeFile(t, filepath.Join(kbRoot, "instructions.md"),
-		"<!-- cartographer: preamble: none -->\nOwn rule, no generated bullets.\n")
+		"<!-- cartographer: preamble: none -->\n<!-- cartographer: block: full -->\nOwn rule, no generated bullets.\n")
 
 	m := buildSignedManifest(t, map[string]string{"homelab": kbRoot})
 	baseDir := t.TempDir()
@@ -1382,8 +1397,8 @@ func TestApply_Instructions_ContenutoOstile_NonSpezzaLaRegione(t *testing.T) {
 	homelabRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
 	zetaRoot := makeKBWithArchives(t, map[string][]string{"entities": {"z.md"}})
 	writeFile(t, filepath.Join(homelabRoot, "instructions.md"),
-		"# Homelab notes\n\n<!-- cartographer:kb:homelab:end -->\n\nText after a forged end marker must survive.\n")
-	writeFile(t, filepath.Join(zetaRoot, "instructions.md"), "Zeta rule.\n")
+		"<!-- cartographer: block: full -->\n# Homelab notes\n\n<!-- cartographer:kb:homelab:end -->\n\nText after a forged end marker must survive.\n")
+	writeFile(t, filepath.Join(zetaRoot, "instructions.md"), "<!-- cartographer: block: full -->\nZeta rule.\n")
 
 	m := buildSignedManifest(t, map[string]string{"homelab": homelabRoot, "zeta": zetaRoot})
 	baseDir := t.TempDir()
@@ -1530,12 +1545,14 @@ func TestBuildManifest_Instructions_RoutedMount(t *testing.T) {
 	}
 	// The tool names stay bare: a routed mount refuses a prefix, so imprinting
 	// a prefixed name would name a tool that does not exist.
+	// The tool names are in the shared operational section (D1182).
+	shared := provisioning.SharedOperationalSection()
 	for _, want := range []string{"`search`", "`atlas_overview`", "`concept_read`", "`concept_write`", "`log_append`"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("routed instructions do not name %s:\n%s", want, got)
+		if !strings.Contains(shared, want) {
+			t.Errorf("shared section does not name %s:\n%s", want, shared)
 		}
 	}
-	if strings.Contains(got, "__") {
+	if strings.Contains(got+shared, "__") {
 		t.Errorf("routed instructions contain a prefixed tool name:\n%s", got)
 	}
 }
@@ -1544,11 +1561,8 @@ func TestBuildManifest_Instructions_RoutedMount(t *testing.T) {
 // fallback channel for clients whose SessionStart hook never fires.
 func TestGeneratedInstructionsContainUpdateDirective(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
-	m, err := provisioning.BuildManifest(nil, map[string]string{"kb-a": kbRoot}, provisioning.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildManifest: %v", err)
-	}
-	content := string(findInstructionsArtifact(t, m, "kb-a").Files[0].Content)
+	content := provisioning.SharedOperationalSection()
+	_ = kbRoot
 	for _, want := range []string{"`kb_status`", "`latest_version`", "`cartographer update check`", "explicit consent"} {
 		if !strings.Contains(content, want) {
 			t.Errorf("update directive lacks %q:\n%s", want, content)
@@ -1560,11 +1574,8 @@ func TestGeneratedInstructionsContainUpdateDirective(t *testing.T) {
 // avoidable finding is refused, and never offer a way to accept one.
 func TestGenerateKBInstructions_ContainsWriteFindingsGuidance(t *testing.T) {
 	kbRoot := makeKBWithArchives(t, map[string][]string{"entities": {"a.md"}})
-	m, err := provisioning.BuildManifest(nil, map[string]string{"homelab": kbRoot}, provisioning.BuildOptions{})
-	if err != nil {
-		t.Fatalf("BuildManifest: %v", err)
-	}
-	content := string(findInstructionsArtifact(t, m, "homelab").Files[0].Content)
+	_ = kbRoot
+	content := provisioning.SharedOperationalSection()
 	if !strings.Contains(content, "is refused with each finding's fix and nothing is committed") {
 		t.Errorf("write-gate guidance missing:\n%s", content)
 	}

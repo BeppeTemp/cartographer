@@ -45,6 +45,11 @@ modifies files a user did not ask about.
   `syntheticHook` value plus its name in `reservedHookNames`, which keeps a KB
   hook of that name out and the entry out of `ComputeDiff`'s orphans. Its script
   never fails a session: a hook's non-zero exit is feedback or a block.
+- **Client-owned text of the instructions block needs a rewrite trigger of its own.**
+  The shared operational section (D1182) is in no artifact `ContentHash`, so editing it fires
+  no `Added`/`Updated`; it is folded into the hash recorded as `PathsSectionHash`
+  (`pathsSectionHash`). New client-written text in the block does the same, with a
+  convergence test (`TestShared_Convergence`).
 - The lockfile is the client-side record of applied state. Changing its shape is a
   migration, and an empty new field must keep meaning what the files written
   before it meant (see `base_dir`, empty for a global projection, D193).
