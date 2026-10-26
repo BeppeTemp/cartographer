@@ -416,14 +416,14 @@ func (k *KB) syncInWithinWindow() bool {
 
 func (k *KB) setLastSyncIn(now time.Time) {
 	k.lastSyncInMu.Lock()
-	k.lastSyncIn = now
+	k.lastSyncIn = now.UTC()
 	k.lastSyncInMu.Unlock()
 }
 
 func (k *KB) lastSyncInAt() time.Time {
 	k.lastSyncInMu.RLock()
 	defer k.lastSyncInMu.RUnlock()
-	return k.lastSyncIn
+	return k.lastSyncIn.UTC()
 }
 
 // SyncIn performs a fetch + pull --rebase --autostash from the "origin" remote
@@ -455,7 +455,7 @@ func (k *KB) SyncIn() (bool, error) {
 	// Fetch first to update remote refs.
 	if err := gitx.Fetch(k.Root, remote, k.GitEnv...); err != nil {
 		k.lastSyncInMu.Lock()
-		k.lastFetchFail = time.Now()
+		k.lastFetchFail = time.Now().UTC()
 		k.lastSyncInMu.Unlock()
 		// D311 revises D237: with nothing unpushed, the local base is as
 		// current as the last successful fetch left it, so the write commits
@@ -482,7 +482,7 @@ func (k *KB) SyncIn() (bool, error) {
 		// An empty remote has nothing to pull (pulling it fails on the missing
 		// ref); SyncOut makes the first push of main.
 		k.clearDivergedStatus()
-		k.setLastSyncIn(time.Now())
+		k.setLastSyncIn(time.Now().UTC())
 		return true, nil
 	}
 	if canonical != "" && branch != canonical {
@@ -498,14 +498,14 @@ func (k *KB) SyncIn() (bool, error) {
 		// Not on the remote yet (the fetch above refreshed the tracking refs):
 		// nothing to pull; SyncOut's first push creates it.
 		k.clearDivergedStatus()
-		k.setLastSyncIn(time.Now())
+		k.setLastSyncIn(time.Now().UTC())
 		return true, nil
 	}
 	if err := k.pullRebase(remote, branch); err != nil {
 		return true, err
 	}
 	k.clearDivergedStatus()
-	k.setLastSyncIn(time.Now())
+	k.setLastSyncIn(time.Now().UTC())
 	k.ensureGitAttributes()
 	if headAfter, err := gitx.HeadSHA(k.Root); err == nil && headAfter != headBefore {
 		k.RefreshSettings() // D746: a pull may have changed settings.yaml

@@ -300,7 +300,21 @@ func TestSyncIn_RecordsLastSyncInAt(t *testing.T) {
 	if _, err := k.SyncIn(); err != nil {
 		t.Fatalf("SyncIn: %v", err)
 	}
-	if s := k.GitStatusSnapshot(); s.LastSyncInAt == nil {
+	s := k.GitStatusSnapshot()
+	if s.LastSyncInAt == nil {
 		t.Fatal("last_sync_in_at is nil after a successful SyncIn")
+	}
+	if s.LastSyncInAt.Location() != time.UTC {
+		t.Fatalf("last_sync_in_at location = %v, want UTC", s.LastSyncInAt.Location())
+	}
+	if s.LastPushAt != nil && s.LastPushAt.Location() != time.UTC {
+		t.Fatalf("last_push_at location = %v, want UTC", s.LastPushAt.Location())
+	}
+
+	// Issue #1170: setLastSyncIn must normalize to UTC even if passed a local offset.
+	cest := time.FixedZone("CEST", 2*60*60)
+	k.setLastSyncIn(time.Now().In(cest))
+	if got := k.GitStatusSnapshot().LastSyncInAt; got == nil || got.Location() != time.UTC {
+		t.Fatalf("setLastSyncIn with local time: got location %v, want UTC", got.Location())
 	}
 }
