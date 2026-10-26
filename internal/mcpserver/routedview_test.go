@@ -106,7 +106,7 @@ func (f *viewFixture) ctx(t *testing.T, token string) context.Context {
 
 func (f *viewFixture) view(t *testing.T, token string, kbs []string, bridge bool) *Server {
 	t.Helper()
-	srv, _, _, err := f.multi.routedFor(f.ctx(t, token), kbs, bridge)
+	srv, _, _, err := f.multi.routedFor(f.ctx(t, token), kbs, accessOf(bridge))
 	if err != nil {
 		t.Fatalf("routedFor: %v", err)
 	}
@@ -284,7 +284,7 @@ func TestRoutedView_AdminAndAuthOffKeepTodaysSurface(t *testing.T) {
 		t.Error("an admin token must get the pre-built default view")
 	}
 	off := auth.ContextWithPrincipal(context.Background(), auth.LocalAdminPrincipal())
-	if srv, _, _, err := f.multi.routedFor(off, nil, false); err != nil || srv != f.multi.routed {
+	if srv, _, _, err := f.multi.routedFor(off, nil, ""); err != nil || srv != f.multi.routed {
 		t.Errorf("auth off must get the pre-built default view (err=%v)", err)
 	}
 }

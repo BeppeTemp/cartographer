@@ -238,6 +238,8 @@ Kiro, naming that limit rather than calling it hookless; `status` stops repeatin
 Kiro agent config and `chat.defaultAgent` is never set (`interoperability.md` §Kiro
 hooks).
 
+**Read-only profile (D1184).** `connect <provider> --access read-min` writes that provider's entry as `<server>/mcp/routed[?kbs=…]&access=read-min&provisioned=1`: the connection is read-only and lists a minimal tool set instead of the full one, for an agent that only reads (`control-plane.md` §MCP API). The value is saved in `clients.<provider>.access` for the providers of that run, which is not a KB binding (the provider keeps receiving the KBs it received), and a later bare `connect` or `sync` keeps it; clearing it is editing the key out of `.cartographer.yaml`, then `sync`. Two refusals name the fix: a server with no routed endpoint (or that did not answer), and a provider with a workspace binding, whose bridge does not carry the profile (a read-only agent runs on the provider-global scope). The interactive form does not offer it.
+
 **Workspace scope (D193).** `cartographer workspace bind <provider> <path> --kb <name>…` moves a
 provider from one machine-wide catalogue to one projection per bound repository: the KBs land in
 that repository's own project-local directories and nothing KB-sourced is written under `$HOME`. `connect --workspace <repo>` makes the same choice at connect time, which is the only moment

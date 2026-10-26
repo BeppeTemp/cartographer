@@ -171,11 +171,11 @@ func TestRoutedReadOnly_DoesNotShareACachedServer(t *testing.T) {
 	}
 	admin := auth.ContextWithPrincipal(context.Background(), auth.LocalAdminPrincipal())
 	for _, kbs := range [][]string{nil, {"kb-a,kb-b"}, {"kb-a"}} {
-		rw, _, _, err := multi.routedFor(admin, kbs, false)
+		rw, _, _, err := multi.routedFor(admin, kbs, "")
 		if err != nil {
 			t.Fatal(err)
 		}
-		ro, _, _, err := multi.routedFor(admin, kbs, true)
+		ro, _, _, err := multi.routedFor(admin, kbs, AccessReadValue)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -185,9 +185,17 @@ func TestRoutedReadOnly_DoesNotShareACachedServer(t *testing.T) {
 		if !ro.readOnlySession || rw.readOnlySession {
 			t.Errorf("kbs=%v: modes swapped (ro=%v rw=%v)", kbs, ro.readOnlySession, rw.readOnlySession)
 		}
-		again, _, _, _ := multi.routedFor(admin, kbs, true)
+		again, _, _, _ := multi.routedFor(admin, kbs, AccessReadValue)
 		if again != ro {
 			t.Errorf("kbs=%v: the read-only Server is not cached", kbs)
 		}
 	}
+}
+
+// accessOf maps the old bridge flag of the view fixtures to an access value.
+func accessOf(readOnly bool) string {
+	if readOnly {
+		return AccessReadValue
+	}
+	return ""
 }

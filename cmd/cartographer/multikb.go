@@ -346,6 +346,14 @@ func quoteAll(names []string) []string {
 //
 // url.URL is used rather than concatenation so an existing query survives.
 func entriesForKBs(baseName, serverURL string, mounted, bound []string, routedPath string, explicit bool) ([]mcpEntry, error) {
+	return entriesForKBsAccess(baseName, serverURL, mounted, bound, routedPath, explicit, "")
+}
+
+// entriesForKBsAccess is entriesForKBs for a provider with an access profile
+// (D1184): on a routed server the URL carries access=<access> after kbs= and
+// before provisioned=1. Single-KB entries have no such endpoint and ignore it
+// (connect refuses that case before it gets here).
+func entriesForKBsAccess(baseName, serverURL string, mounted, bound []string, routedPath string, explicit bool, access string) ([]mcpEntry, error) {
 	if routedPath != "" {
 		// D187/D288: a routed server exposes one endpoint for every KB, so one
 		// entry named after the server is the whole configuration. An explicit
@@ -373,6 +381,12 @@ func entriesForKBs(baseName, serverURL string, mounted, bound []string, routedPa
 				u.RawQuery = "kbs=" + strings.Join(escaped, ",")
 				reach, open = names, false
 			}
+		}
+		if access != "" {
+			if u.RawQuery != "" {
+				u.RawQuery += "&"
+			}
+			u.RawQuery += "access=" + url.QueryEscape(access)
 		}
 		// D1097: the entry declares itself provisioned (this client writes the
 		// managed instructions block), so the server sends it no operating
@@ -500,7 +514,7 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 				bound = mounted
 			}
 			if !explicit || len(routedBinding(mounted, bound)) > 0 || len(mounted) == 0 {
-				fallback, err := entriesForKBs(baseName, serverURL, mounted, bound, routedPath, explicit)
+				fallback, err := entriesForKBsAccess(baseName, serverURL, mounted, bound, routedPath, explicit, "") // the bridge does not carry the profile (D1184)
 				if err != nil {
 					return nil, err
 				}
@@ -529,7 +543,7 @@ func entriesByProviderForKBs(cfg *clientconfig.Config, providers []string, baseN
 			out[p] = nil
 			continue
 		}
-		entries, err := entriesForKBs(baseName, serverURL, mounted, bound, routedPath, explicit)
+		entries, err := entriesForKBsAccess(baseName, serverURL, mounted, bound, routedPath, explicit, cfg.Clients[p].Access)
 		if err != nil {
 			return nil, err
 		}

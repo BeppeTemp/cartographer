@@ -70,9 +70,13 @@ func (m *MultiKBServer) EnableRoutedMount(version string, setup func(s *Server))
 	return nil
 }
 
-// AccessReadValue is the one accepted value of the routed endpoint's `access`
+// AccessReadValue is an accepted value of the routed endpoint's `access`
 // query parameter. Absent keeps the connection's normal access.
 const AccessReadValue = "read"
+
+// AccessReadMinValue is the second accepted value of `access` (D1184): read-only,
+// and tools/list narrowed to the minimal reading profile (readMinTools).
+const AccessReadMinValue = "read-min"
 
 // ProvisionedParam and ProvisionedValue are the routed endpoint's `provisioned`
 // query parameter (D1097): a client that has the managed instructions block
@@ -105,6 +109,10 @@ const (
 	// write tool, the workspace-bind sentence, and a call to a write tool is
 	// refused with unbound_folder at this level.
 	routedBridgeReadOnly
+	// routedReadMin is ?access=read-min (D1184): no write tool, only the
+	// readMinTools listed (the other read tools stay callable by name), and a
+	// call to a write tool is refused with read_only_profile at this level.
+	routedReadMin
 )
 
 // denyNoReadableKBHint is the hint of the denied view: it names no KB.
@@ -118,6 +126,7 @@ func (m *MultiKBServer) buildRouted(set []string, mode routedMode) *Server {
 	routed := New(m.routedVersion)
 	routed.readOnlySession = mode == routedBridgeReadOnly
 	routed.tokenReadOnly = mode == routedTokenReadOnly
+	routed.readMinSession = mode == routedReadMin
 	routed.SetDisplayName("cartographer")
 	routed.connKBs = append([]string(nil), set...)
 	routed.connKB = func(name string) *kb.KB {
@@ -140,6 +149,11 @@ func (m *MultiKBServer) buildRouted(set []string, mode routedMode) *Server {
 			// Fail-closed: an unknown name requires write (ToolRequiresWrite).
 			if mode == routedBridgeReadOnly && ToolRequiresWrite(tool) {
 				return deny(denyUnboundFolder)
+			}
+			// A write is refused here, not left to the target KB: a read-write
+			// token would be accepted there (D1184).
+			if mode == routedReadMin && ToolRequiresWrite(tool) {
+				return deny(denyReadOnlyProfile)
 			}
 			return nil
 		}
@@ -291,9 +305,10 @@ const routedScopeHint = "If the client has a workspace binding, this connection'
 // never carries the principal or the request's names (unknown, renamed): those
 // come from the request context, as routedHandler reads them.
 //
-// bridge (?access=read) wins over the token's own read-only view: the client
-// asked for it and checks the response header.
-func (m *MultiKBServer) routedFor(ctx context.Context, rawKBs []string, bridge bool) (*Server, []string, map[string]string, error) {
+// access (?access=, "", AccessReadValue or AccessReadMinValue) wins over the
+// token's own read-only view: the client asked for it and checks the response
+// header.
+func (m *MultiKBServer) routedFor(ctx context.Context, rawKBs []string, access string) (*Server, []string, map[string]string, error) {
 	seen := map[string]bool{}
 	for _, raw := range rawKBs {
 		for _, n := range strings.Split(raw, ",") {
@@ -307,7 +322,7 @@ func (m *MultiKBServer) routedFor(ctx context.Context, rawKBs []string, bridge b
 		return m.routedView(nil, routedNormal), nil, nil, nil
 	}
 	if len(seen) == 0 {
-		return m.routedView(readable, m.routedModeFor(ctx, readable, bridge)), nil, nil, nil
+		return m.routedView(readable, m.routedModeFor(ctx, readable, access)), nil, nil, nil
 	}
 	isReadable := make(map[string]bool, len(readable))
 	for _, n := range readable {
@@ -371,13 +386,15 @@ func (m *MultiKBServer) routedFor(ctx context.Context, rawKBs []string, bridge b
 	if len(renamed) == 0 {
 		renamed = nil
 	}
-	return m.routedView(set, m.routedModeFor(ctx, set, bridge)), unknown, renamed, nil
+	return m.routedView(set, m.routedModeFor(ctx, set, access)), unknown, renamed, nil
 }
 
 // routedModeFor picks the view mode of a connection over set (see routedFor).
-func (m *MultiKBServer) routedModeFor(ctx context.Context, set []string, bridge bool) routedMode {
+func (m *MultiKBServer) routedModeFor(ctx context.Context, set []string, access string) routedMode {
 	switch {
-	case bridge:
+	case access == AccessReadMinValue:
+		return routedReadMin
+	case access == AccessReadValue:
 		return routedBridgeReadOnly
 	case !writesAnyKB(ctx, set):
 		return routedTokenReadOnly
@@ -412,6 +429,8 @@ func routedViewKey(set []string, mode routedMode) string {
 		key += "|token=read"
 	case routedBridgeReadOnly:
 		key += "|access=read"
+	case routedReadMin:
+		key += "|access=read-min"
 	}
 	return key
 }

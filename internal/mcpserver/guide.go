@@ -98,7 +98,7 @@ func (s *Server) connectionGuide(ctx context.Context) string {
 		return ""
 	}
 	s.mu.Lock()
-	readOnly := s.readOnlySession || s.tokenReadOnly
+	readOnly := s.readOnlySession || s.readMinSession || s.tokenReadOnly
 	s.mu.Unlock()
 	if !readOnly && !writesAnyKB(ctx, names) {
 		readOnly = true

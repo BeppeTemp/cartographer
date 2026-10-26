@@ -357,3 +357,37 @@ func TestLiteralTokenWarning(t *testing.T) {
 		}
 	}
 }
+
+// D1184: --access is recorded for the providers of the run, inherited by a
+// later bare connect, and refused where the profile cannot be carried.
+func TestApplyConnectAccess(t *testing.T) {
+	cfg := clientconfig.Default()
+	opts := connectOptions{Providers: []string{"claude"}, Access: "read-min"}
+	if err := applyConnectAccess(cfg, opts, "/mcp/routed"); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Clients["claude"].Access != "read-min" || cfg.Clients["codex"].Access != "" {
+		t.Errorf("clients = %+v", cfg.Clients)
+	}
+	// A later bare connect (no --access) changes nothing: the value is inherited.
+	if err := applyConnectAccess(cfg, connectOptions{Providers: []string{"claude"}}, "/mcp/routed"); err != nil || cfg.Clients["claude"].Access != "read-min" {
+		t.Errorf("bare connect: %v %+v", err, cfg.Clients)
+	}
+
+	if err := applyConnectAccess(clientconfig.Default(), opts, ""); err == nil || !strings.Contains(err.Error(), "routed mount") {
+		t.Errorf("no routed endpoint: err = %v", err)
+	}
+	if err := applyConnectAccess(clientconfig.Default(), connectOptions{Providers: []string{"claude"}, Access: "write"}, "/mcp/routed"); err == nil {
+		t.Error("a bogus value was accepted")
+	}
+	bridged := clientconfig.Default()
+	if err := bridged.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := bridged.BindWorkspace("claude", t.TempDir(), []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyConnectAccess(bridged, opts, "/mcp/routed"); err == nil || !strings.Contains(err.Error(), "claude") || !strings.Contains(err.Error(), "bridge") {
+		t.Errorf("workspace-bound provider: err = %v", err)
+	}
+}

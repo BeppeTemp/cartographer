@@ -47,7 +47,16 @@ func (s *Server) sdkImplementation() *sdk.Implementation {
 const readOnlyInstructions = "This session is read-only: the folder it was started in is bound to no KB, so only read tools are available. " +
 	"Bind the folder with `cartographer workspace bind <provider> <path> --kb <name>` to write."
 
+// readMinInstructions is the initialize instructions of an ?access=read-min
+// connection (D1184). It names no CLI command: a generic client never gets one.
+const readMinInstructions = "This connection is read-only: only the minimal reading tools are listed, " +
+	"every other read tool (graph_path, lint, kb_status, work_list, artifact_list...) can still be called by name, " +
+	"and every write is refused with read_only_profile."
+
 func (s *Server) sessionInstructions() string {
+	if s.readMinSession {
+		return readMinInstructions
+	}
 	if s.readOnlySession {
 		return readOnlyInstructions
 	}
@@ -334,13 +343,29 @@ func (s *Server) agentProfileMiddleware() sdk.Middleware {
 			s.mu.Lock()
 			hide := s.agentProfile
 			readOnly := s.readOnlySession || s.tokenReadOnly
+			readMin := s.readMinSession
 			s.mu.Unlock()
-			if !hide && !readOnly {
+			if !hide && !readOnly && !readMin {
 				return res, nil
 			}
 			list, ok := res.(*sdk.ListToolsResult)
 			if !ok {
 				return res, nil
+			}
+			if readMin {
+				// The allowlist wins over the agent profile; order is readMinTools'.
+				byName := make(map[string]*sdk.Tool, len(list.Tools))
+				for _, t := range list.Tools {
+					byName[t.Name] = t
+				}
+				kept := make([]*sdk.Tool, 0, len(readMinTools))
+				for _, n := range readMinTools {
+					if t, ok := byName[n]; ok {
+						kept = append(kept, t)
+					}
+				}
+				list.Tools = kept
+				return list, nil
 			}
 			kept := make([]*sdk.Tool, 0, len(list.Tools))
 			for _, t := range list.Tools {
