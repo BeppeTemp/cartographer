@@ -46,7 +46,7 @@ var auditResourceFields = map[string][]string{
 	"concept_archive":      {"id", "to"},
 	"concept_transfer":     {"target_kb"},
 	"supersede":            {"source_id", "target_id"},
-	"map_create":           {"name", "kind"},
+	"map_create":           {"name", "map", "kind"},
 	"map_update":           {"map"},
 	"map_delete":           {"map", "force"},
 	"log_append":           {"path"},

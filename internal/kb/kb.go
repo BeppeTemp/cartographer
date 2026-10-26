@@ -2342,7 +2342,7 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 				}
 			}
 			if def != "" && !listed {
-				return MapContract{}, fmt.Errorf("UpdateMapContract %s: default_template %q must be one of the map's templates", name, def)
+				return MapContract{}, fmt.Errorf("UpdateMapContract %s: default_template %q must be one of the map's templates: add it to templates in the same call", name, def)
 			}
 		}
 	}

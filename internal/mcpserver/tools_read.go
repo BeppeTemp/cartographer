@@ -1032,7 +1032,9 @@ func toolMapList(k *kb.KB) Tool {
 			}
 
 			type mapInfo struct {
-				Name  string `json:"name"`
+				Name string `json:"name"`
+				// Map repeats Name under the key the other map tools use (#836).
+				Map   string `json:"map"`
 				Title string `json:"title,omitempty"`
 				Kind  string `json:"kind,omitempty"`
 				// OntologyMode is derived from ConceptTypes (D907): strict when
@@ -1091,7 +1093,7 @@ func toolMapList(k *kb.KB) Tool {
 				if !VisibleCollection(ctx, k, name, kind) {
 					continue
 				}
-				info := mapInfo{Name: name}
+				info := mapInfo{Name: name, Map: name}
 				if WholeVisible(ctx, k, false) {
 					info.Expanded, _ = k.ExpandedCount(name)
 				}

@@ -979,6 +979,7 @@ func TestCommitMessage_IdentifiesTheResourceForEveryWriteTool(t *testing.T) {
 		// Fallback vocabulary: unchanged behaviour.
 		{"concept_patch by id", "concept_patch", `{"id":"manutenzione/runbook","if_match":"abc"}`, "concept_patch: manutenzione/runbook"},
 		{"map_create by name", "map_create", `{"name":"notes","title":"Notes"}`, "map_create: notes"},
+		{"map_create by hidden map alias (#836)", "map_create", `{"map":"notes","title":"Notes"}`, "map_create: notes"},
 		{"supersede by source_id", "supersede", `{"source_id":"a/b","target_id":"c/d"}`, "supersede: a/b"},
 		{"conflict_resolve by contradiction_id", "conflict_resolve", `{"contradiction_id":"x1"}`, "conflict_resolve: x1"},
 		// No identifying argument, and unparseable arguments.
