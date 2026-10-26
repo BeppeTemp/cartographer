@@ -143,8 +143,9 @@ func toolConceptArchive(k *kb.KB) Tool {
 				detail += ", " + reason
 			}
 			result, errRes := applyConceptMoves(k, []conceptMoveEntry{{SourceID: params.ID, TargetID: target}}, true, moveOptions{
-				LogTitle: fmt.Sprintf("concept_archive: %s -> %s (%s)", params.ID, target, detail),
-				View:     newCallerView(ctx, k),
+				LogTitle:       fmt.Sprintf("concept_archive: %s -> %s (%s)", params.ID, target, detail),
+				View:           newCallerView(ctx, k),
+				ReportMentions: true,
 			})
 			if errRes != nil {
 				return *errRes, nil

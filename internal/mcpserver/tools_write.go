@@ -1748,7 +1748,7 @@ func toolConceptMove(k *kb.KB) Tool {
 				rewriteLinks = *params.RewriteLinks
 			}
 
-			result, errRes := applyConceptMoves(k, moves, rewriteLinks, moveOptions{View: newCallerView(ctx, k), RefuseStrictType: true})
+			result, errRes := applyConceptMoves(k, moves, rewriteLinks, moveOptions{View: newCallerView(ctx, k), RefuseStrictType: true, ReportMentions: true})
 			if errRes != nil {
 				return *errRes, nil
 			}
@@ -1769,6 +1769,10 @@ type moveOptions struct {
 	// RefuseStrictType refuses a move into another map whose strict concept_types
 	// do not admit the concept's type, before anything is written (#921).
 	RefuseStrictType bool
+	// ReportMentions adds `mentions` / `mentions_omitted` to the result: the
+	// plain-text occurrences of an old ID that the link rewrite does not own
+	// (D1070). Off for kb_repair, which discards the result.
+	ReportMentions bool
 }
 
 // applyConceptMoves validates every move, applies them, rebases the moved
@@ -2008,6 +2012,10 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 		title = fmt.Sprintf("concept_move (%d move(s))", len(applied))
 	}
 	_ = k.AppendLog(title+":\n"+strings.Join(logLines, "\n"), time.Now())
+
+	if opts.ReportMentions {
+		attachMentions(k, result, moveMap, opts.View)
+	}
 
 	// D312: what the move left behind. Every moved ID is checked, and
 	// every old ID as a gone one: a page still linking it (rewrite_links

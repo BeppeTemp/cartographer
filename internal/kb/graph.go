@@ -85,6 +85,32 @@ func MaskCodeSpans(body string) string {
 	return strings.Join(lines, "\n")
 }
 
+// MaskLinks returns text with the link targets blanked: the href of every
+// markdown link and the ID of every wiki-link, found on exactly the code-span
+// masking ExtractLinks and RewriteLinks use, so "is this occurrence a link"
+// cannot disagree with the rewrite (D149). Newlines are kept and every other
+// byte of a target becomes a space, so line numbers and byte offsets survive.
+// A link label and everything else stay visible: it is how a caller scans for
+// a plain mention of an ID that the link rewrite does not own (D1070).
+func MaskLinks(text string) string {
+	masked := MaskCodeSpans(text)
+	b := []byte(text)
+	blank := func(from, to int) {
+		for i := from; i < to; i++ {
+			if b[i] != '\n' {
+				b[i] = ' '
+			}
+		}
+	}
+	for _, m := range mdLinkRe.FindAllStringSubmatchIndex(masked, -1) {
+		blank(m[4], m[5])
+	}
+	for _, m := range wikiLinkRe.FindAllStringSubmatchIndex(masked, -1) {
+		blank(m[2], m[3])
+	}
+	return string(b)
+}
+
 // ExtractLinks parses markdown links and wiki-links from the body of a
 // concept and returns the referenced concept IDs. Absolute URLs and anchors
 // are skipped. basePath is the concept's own path relative to the KB root

@@ -87,6 +87,22 @@ func (v *callerView) filterRewritten(in []rewrittenConcept) []rewrittenConcept {
 	return out
 }
 
+// filterMentions keeps the mentions the caller may be told of: those in pages
+// it can see, and artifact ones only for a whole-KB caller (as an index path
+// is).
+func (v *callerView) filterMentions(in []mentionOut) []mentionOut {
+	if v == nil || v.whole {
+		return in
+	}
+	out := make([]mentionOut, 0, len(in))
+	for _, m := range in {
+		if m.Kind != "artifact" && v.visible(mentionConceptID(m.Path)) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // filterPaths keeps the index paths the caller may be told of: an index is a
 // whole-KB resource (index_get needs whole-KB access), so a caller without
 // whole-KB visibility is told of none.
