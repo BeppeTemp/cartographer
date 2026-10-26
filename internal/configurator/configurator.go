@@ -653,8 +653,10 @@ func emitCopilotServer(name string, spec ServerSpec) (*EmitResult, error) {
 // here under their own "cartographer:hook:<name>:*" markers, which only the
 // migration there still reads.
 const (
-	codexMCPBlockBegin = "# cartographer:mcp:begin — block managed by Cartographer, do not edit by hand"
-	codexMCPBlockEnd   = "# cartographer:mcp:end"
+	CodexMCPBlockBegin = "# cartographer:mcp:begin — block managed by Cartographer, do not edit by hand"
+	CodexMCPBlockEnd   = "# cartographer:mcp:end"
+	codexMCPBlockBegin = CodexMCPBlockBegin
+	codexMCPBlockEnd   = CodexMCPBlockEnd
 )
 
 // bearerEnvPattern matches a header value of the exact form "Bearer ${VAR}",
