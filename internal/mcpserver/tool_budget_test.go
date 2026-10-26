@@ -106,3 +106,40 @@ func TestServer_ToolDescriptionBudget(t *testing.T) {
 		}
 	}
 }
+
+// routedKBOverheadBytes bounds what the `kb` argument adds to a routed
+// tools/list over the same mount bound to one KB (D1183): a fixed per-tool
+// cost (the property, its short description and `required`), measured as
+// 6768 bytes over 64 tools (about 105 per tool, indented JSON: #1185 compacts it). Raise it only with a decision. #1206 owns the final
+// routed budgets and generalises this test.
+const routedKBOverheadBytes = 7000
+
+// routedListSize serializes the tools/list of a routed mount over n KBs.
+func routedListSize(t *testing.T, n int) (size, tools int) {
+	t.Helper()
+	names := make([]string, n)
+	for i := range names {
+		names[i] = fmt.Sprintf("kb-%d", i+1)
+	}
+	handler := newRoutedTestHandler(t, names...)
+	rr := routedPost(t, handler, RoutedMountPath, toolsListBody)
+	return len(rr.Body.Bytes()), len(decodeToolList(t, rr))
+}
+
+// TestRoutedToolsListDoesNotGrowWithKBs: the routed list is measured on the
+// full tool set (the helper cannot put the routed view in the agent profile),
+// so the absolute 1-KB size is not compared with toolsListBudgetBytes. Its size must not depend on the number of KBs (D1183).
+func TestRoutedToolsListDoesNotGrowWithKBs(t *testing.T) {
+	t.Parallel()
+	one, _ := routedListSize(t, 1)
+	two, tools := routedListSize(t, 2)
+	nine, _ := routedListSize(t, 9)
+	t.Logf("routed tools/list: 1 KB %d bytes, 2 KBs %d, 9 KBs %d (%d tools, %d bytes over 1 KB, %d per tool)",
+		one, two, nine, tools, two-one, (two-one)/max(tools, 1))
+	if nine != two {
+		t.Errorf("routed tools/list grows with the KBs: 2 KBs %d bytes, 9 KBs %d (D1183): the kb property must not name them", two, nine)
+	}
+	if over := two - one; over > routedKBOverheadBytes {
+		t.Errorf("the kb property adds %d bytes over the single-KB list, budget %d (D1183)", over, routedKBOverheadBytes)
+	}
+}

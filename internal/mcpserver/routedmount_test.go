@@ -458,22 +458,35 @@ func routedSchema(t *testing.T, tool listedTool) (props map[string]map[string]an
 	return schema.Properties, schema.Required
 }
 
+// assertKBWithoutEnum pins the D1183 shape: kb is a required string with no
+// enum, so only the server-side refusals tell a model a name is wrong.
+func assertKBWithoutEnum(t *testing.T, tool listedTool, props map[string]map[string]any, required []string) {
+	t.Helper()
+	kbProp, ok := props["kb"]
+	if !ok {
+		t.Fatalf("%s: no kb property", tool.Name)
+	}
+	if _, has := kbProp["enum"]; has || kbProp["type"] != "string" {
+		t.Errorf("%s: kb = %v, want a plain string with no enum", tool.Name, kbProp)
+	}
+	if !containsString(required, "kb") {
+		t.Errorf("%s: kb not required", tool.Name)
+	}
+}
+
 // TestRoutedMount_KBS_AbsentIsAllMounted: no ?kbs= is the default binding, every
-// mounted KB, as a required enum of all of them (D288).
+// mounted KB, as a required `kb` string with no enum (D288, D1183).
 func TestRoutedMount_KBS_AbsentIsAllMounted(t *testing.T) {
 	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b", "kb-c")
 	for _, tool := range decodeToolList(t, routedPost(t, handler, RoutedMountPath, toolsListBody)) {
-		props, _ := routedSchema(t, tool)
-		enum, _ := props["kb"]["enum"].([]any)
-		if len(enum) != 3 {
-			t.Fatalf("%s: kb enum = %v, want the 3 mounted KBs", tool.Name, enum)
-		}
+		props, required := routedSchema(t, tool)
+		assertKBWithoutEnum(t, tool, props, required)
 	}
 }
 
-// TestRoutedMount_KBS_NarrowsToTwo: ?kbs= of two KBs advertises an enum of
-// exactly those two, dispatches to either and refuses the third, naming the
+// TestRoutedMount_KBS_NarrowsToTwo: ?kbs= of two KBs advertises the same
+// enum-free schema, dispatches to either and refuses the third, naming the
 // allowed ones. The binding only narrows: the token would reach the third.
 func TestRoutedMount_KBS_NarrowsToTwo(t *testing.T) {
 	t.Parallel()
@@ -482,13 +495,7 @@ func TestRoutedMount_KBS_NarrowsToTwo(t *testing.T) {
 
 	for _, tool := range decodeToolList(t, routedPost(t, handler, path, toolsListBody)) {
 		props, required := routedSchema(t, tool)
-		enum, _ := props["kb"]["enum"].([]any)
-		if len(enum) != 2 || enum[0] != "kb-a" || enum[1] != "kb-b" {
-			t.Fatalf("%s: kb enum = %v, want [kb-a kb-b]", tool.Name, enum)
-		}
-		if !containsString(required, "kb") {
-			t.Errorf("%s: kb not required with 2 KBs", tool.Name)
-		}
+		assertKBWithoutEnum(t, tool, props, required)
 	}
 
 	call := func(args map[string]any) ToolResult {
@@ -568,8 +575,12 @@ func TestRoutedMount_KBS_PartialUnknown(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status=%d, want 200; body=%s", rr.Code, rr.Body.String())
 	}
-	if body := rr.Body.String(); !strings.Contains(body, `"enum":["kb-a","kb-b"]`) || strings.Contains(body, `"kb-c"`) {
-		t.Errorf("kb enum is not the mounted subset: %.400s", body)
+	if body := rr.Body.String(); strings.Contains(body, `"kb-a"`) || strings.Contains(body, `"kb-b"`) || strings.Contains(body, `"kb-c"`) {
+		t.Errorf("tools/list must carry no KB name: %.400s", body)
+	}
+	for _, tool := range decodeToolList(t, rr) {
+		props, required := routedSchema(t, tool)
+		assertKBWithoutEnum(t, tool, props, required)
 	}
 	_, conn := routedKBStatusConnection(t, handler, path, "kb-a")
 	if want := []any{"gone", "old"}; !reflect.DeepEqual(conn["unknown"], want) {
@@ -656,7 +667,7 @@ func TestRoutedMount_KBS_MetadataGateUsesTheSet(t *testing.T) {
 func TestWithKBProperty_PreservesExistingSchema(t *testing.T) {
 	t.Parallel()
 	in := json.RawMessage(`{"type":"object","required":["id"],"properties":{"id":{"type":"string"}}}`)
-	out := withKBProperty(in, []string{"kb-a", "kb-b"})
+	out := withKBProperty(in, true)
 	var schema struct {
 		Properties map[string]json.RawMessage `json:"properties"`
 		Required   []string                   `json:"required"`

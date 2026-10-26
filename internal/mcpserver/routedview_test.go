@@ -208,29 +208,17 @@ func TestRoutedView_MixedGrants(t *testing.T) {
 	f := newViewFixture(t, nil, "kb-a", "kb-b", "kb-c")
 
 	rr := f.post(t, tokMixed, RoutedMountPath, toolsListBody)
-	var enum []string
 	var wrote bool
 	for _, tool := range decodeToolList(t, rr) {
 		wrote = wrote || ToolRequiresWrite(tool.Name)
 		if tool.Name == "concept_read" {
-			var schema struct {
-				Properties struct {
-					KB struct {
-						Enum []string `json:"enum"`
-					} `json:"kb"`
-				} `json:"properties"`
+			if strings.Contains(string(tool.InputSchema), "kb-") {
+				t.Errorf("kb schema carries a KB name: %s", tool.InputSchema)
 			}
-			if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
-				t.Fatal(err)
-			}
-			enum = schema.Properties.KB.Enum
 		}
 	}
 	if !wrote {
 		t.Error("a token that writes kb-a must be offered the write tools")
-	}
-	if strings.Join(enum, ",") != "kb-a,kb-b" {
-		t.Errorf("kb enum = %v, want [kb-a kb-b]", enum)
 	}
 	if res := f.call(t, tokMixed, RoutedMountPath, "concept_write", map[string]any{"kb": "kb-b", "id": "manutenzione/new", "content": "x"}); !res.IsError ||
 		!strings.Contains(res.Content[0].Text, denyReadOnlyToken) {

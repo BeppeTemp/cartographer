@@ -105,7 +105,9 @@ exist.
 A KB mounted after a session started reaches it only through `cartographer sync` (plus `client bind` for an explicit binding) and a new agent session; a generic connection is told that the integration reconnects or re-synchronizes its tool list (D1101): the tool list is fixed per session and HTTP has no list-changed notification. Routed `kb_status` reports the difference in `connection` (D712).
 
 **The schema follows the connection.** With two or more KBs in the effective set,
-every tool's input schema carries `kb`, **required**, as an enum of that set; a
+every tool's input schema carries `kb`, **required**, as a plain string with no enum (D1183: the size of `tools/list`
+does not grow with the number of KBs; the names are the KB list of the
+instructions); a
 call without it, or naming a KB outside it, is refused with an error naming the
 allowed KBs. With exactly one, `kb` is **omitted** from every schema and the call
 dispatches to that KB. That is not inference: the URL named the KB explicitly,
