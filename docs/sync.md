@@ -518,7 +518,7 @@ unchanged.
   The same holds for the other shared files a projection writes whole, the MCP file (`.mcp.json`,
   `.kiro/settings/mcp.json`, ...) and a registration file: when git tracks it, a derived projection
   does not write it, `status` says `not written: <file> is tracked by git` under the workspace, and
-  the provider keeps its global MCP entry. Any other collision that remains, a KB artifact with
+  the provider keeps its global MCP entry (and a hook whose registration file is that tracked file is not projected either, which `status` also says); the lock entries of what is not written are kept as they are, never pruned. Any other collision that remains, a KB artifact with
   the name of a tracked path, skips that one projection with a warning naming the workspace, the
   provider and the paths, and the run goes on with the others. An explicit `workspace bind` keeps
   the refusal ([D1181](decisions/D1181-workspace-projection-owns-artifacts-not-directories.md)). Codex keeps its caveat: an untrusted project
@@ -628,7 +628,7 @@ A projection writes into a directory the user version-controls, so two rules hol
   that git already tracks is a **refusal**, before anything is written: a KB skill with the name
   of a tracked one is refused, naming it; a tracked skill of another name is not. An artifact
   name that is not a single local segment, or holds a line break or a gitignore special character,
-  fails the projection before anything is written. Overwriting a versioned file destroys work under version control, and there
+  fails the projection before anything is written (a derived one is skipped with a warning); this is stricter than the name check at write time, because the name also goes into the exclude file. Overwriting a versioned file destroys work under version control, and there
   is no safe silent answer.
 
 `git status` is clean after a sync. That is asserted end-to-end by the `18_workspace_projection`

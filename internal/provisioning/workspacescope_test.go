@@ -234,7 +234,7 @@ func TestProjectOwnedArtifactPaths_RejectsUnsafeNames(t *testing.T) {
 	for _, name := range []string{"../../*", "../../src/main.go", "x\n!/src", "a/b", "*", "a?", "[a]", "!a", "#a", "a\\b", " a", "a ", "x\r"} {
 		m := Manifest{Artifacts: []Artifact{{Kind: "skill", Name: name}}}
 		got, err := ProjectOwnedArtifactPaths(configurator.ProviderCodex, m, Lock{})
-		if err == nil || !strings.Contains(err.Error(), "invalid artifact name") {
+		if err == nil || !strings.Contains(err.Error(), "cannot be projected into a workspace") {
 			t.Errorf("name %q = %v, %v; want an invalid artifact name error", name, got, err)
 		}
 	}

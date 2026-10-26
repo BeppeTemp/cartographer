@@ -356,7 +356,7 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 	}
 	for _, a := range FilterForProviderScoped(m, provider, ScopeProject).Artifacts {
 		if !ownableName(a.Name) {
-			return nil, fmt.Errorf("provisioning: invalid artifact name %q", a.Name)
+			return nil, &InvalidArtifactNameError{Name: a.Name}
 		}
 		add(destDirScoped(a.Kind, a.Name, provider, ScopeProject))
 	}
@@ -368,6 +368,15 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// InvalidArtifactNameError is the refusal of a name that cannot be projected
+// into a workspace: stricter than Apply's rule, because the name is also
+// written into .git/info/exclude.
+type InvalidArtifactNameError struct{ Name string }
+
+func (e *InvalidArtifactNameError) Error() string {
+	return fmt.Sprintf("provisioning: artifact name %q cannot be projected into a workspace (separators, line breaks or gitignore metacharacters)", e.Name)
 }
 
 // ownableName is the rule Apply holds an artifact name to (a single local

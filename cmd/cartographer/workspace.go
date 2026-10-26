@@ -872,9 +872,12 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 			}
 		}
 		if w.Derived {
-			if files, _ := derivedSharedSkips(provider, w.Path); len(files) > 0 {
+			if files, kinds := derivedSharedSkips(provider, w.Path); len(files) > 0 {
 				note := fmt.Sprintf("not written: %s is tracked by git and a derived binding never edits a tracked file — the provider keeps its global entry; `cartographer workspace bind %s %s --kb %s` is the explicit alternative",
 					strings.Join(files, ", "), provider, w.Path, strings.Join(w.KBs, ","))
+				if slices.Contains(kinds, "hook") {
+					note = "hooks not projected: " + strings.Join(files, ", ") + " is tracked by git; " + note
+				}
 				if st.Detail != "" {
 					note = st.Detail + "; " + note
 				}

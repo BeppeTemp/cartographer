@@ -111,3 +111,60 @@ func TestDerivedWorkspace_ClashSkipsOnlyThatProjection(t *testing.T) {
 		t.Errorf("explicit binding = %v, want the refusal", err)
 	}
 }
+
+// A lock that already records an MCP entry in a file git now tracks: the
+// derived sync neither prunes it from the file nor drops it from the lock.
+func TestDerivedWorkspace_TrackedMCPFileKeepsItsLockEntries(t *testing.T) {
+	const original = "{\n  \"mcpServers\": {\"tools\": {\"url\": \"https://tools.example.com/mcp\"}}\n}\n"
+	ws := trackedRepo(t, map[string]string{".kiro/settings/mcp.json": original})
+	p := kiroProjection(ws, true)
+
+	dir := t.TempDir()
+	var lf provisioning.LockFile
+	lf.SetProjection(p.Key(), provisioning.Lock{Provider: "kiro", BaseDir: ws, ProjectScope: true, Managed: []provisioning.ManagedFile{
+		{Kind: "mcp", Name: "tools", Path: ".kiro/settings/mcp.json", ContentHash: "h-mcp"},
+		{Kind: "mcp", Name: "bridge", Path: ".kiro/settings/mcp.json", Source: provisioning.SourceClient},
+	}}, "")
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		t.Fatal(err)
+	}
+	m := skillAndMCPManifest()
+	m.Artifacts = m.Artifacts[:1]
+	if _, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, dir, "", false, false, portabilityOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(ws, ".kiro", "settings", "mcp.json")); string(got) != original {
+		t.Errorf("the tracked file changed:\n%s", got)
+	}
+	after, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]bool{}
+	for _, mf := range after.ForProjection(p.Key()).Managed {
+		if mf.Kind == "mcp" {
+			names[mf.Name] = true
+		}
+	}
+	if !names["tools"] || !names["bridge"] {
+		t.Errorf("lock entries lost: %v", names)
+	}
+}
+
+// An artifact name that cannot be projected skips a derived projection with a
+// warning; an explicit binding still fails.
+func TestDerivedWorkspace_InvalidNameSkipsOnlyDerived(t *testing.T) {
+	ws := trackedRepo(t, map[string]string{"README.md": "x\n"})
+	bad := func(p syncProjection) error {
+		m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{{Kind: "skill", Name: "x\n!/src", Source: "bundle", BuiltIn: true, ContentHash: "h"}}}
+		_, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil)
+		return err
+	}
+	if err := bad(kiroProjection(ws, true)); err != nil {
+		t.Errorf("derived = %v, want skipped", err)
+	}
+	var badName *provisioning.InvalidArtifactNameError
+	if err := bad(kiroProjection(ws, false)); !errors.As(err, &badName) {
+		t.Errorf("explicit = %v, want the refusal", err)
+	}
+}
