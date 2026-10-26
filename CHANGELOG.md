@@ -11,9 +11,11 @@ KB histories with commits authored as `cartographer <cartographer@localhost>` ma
 ## [0.26.1](https://github.com/BeppeTemp/cartographer/compare/v0.26.0...v0.26.1) (2026-10-26)
 
 
-### Bug Fixes
+### Client & CLI
 
-* **client:** a workspace projection owns its artifacts, not the whole directory ([#1186](https://github.com/BeppeTemp/cartographer/issues/1186)) ([a207c4c](https://github.com/BeppeTemp/cartographer/commit/a207c4c405872d490eaa440342216fc2fedbe380))
+#### Bug Fixes
+
+* a workspace projection owns its artifacts, not the whole directory ([#1186](https://github.com/BeppeTemp/cartographer/issues/1186)) ([a207c4c](https://github.com/BeppeTemp/cartographer/commit/a207c4c405872d490eaa440342216fc2fedbe380))
 
 ## [0.26.0](https://github.com/BeppeTemp/cartographer/compare/v0.25.1...v0.26.0) (2026-10-23)
 
