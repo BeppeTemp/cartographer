@@ -59,7 +59,7 @@ the connection read-only, with or without `kbs`: `tools/list` carries only the r
 call to a write tool is refused with `forbidden: unbound_folder`, and every response carries
 `Cartographer-Access: read`. The local bridge asks for it in a folder under no workspace binding, and treats a
 missing header as a server that cannot serve the mode. The server accepts `access=read` from any client, so a generic client that adds it by hand is read-only and reads the bridge's sentence naming `cartographer workspace bind` (accepted, D1101). It is a scope filter, not a security boundary (D737). With two or more KBs in that set every tool below
-carries one extra property, `kb`, **required** and an **enum** of the set: the KB is never inferred, and a call
+carries one extra property, `kb`, **required**, a plain string with no enum (the schema is the same for 2 or 9 KBs; the names are in the KB list of your instructions, D1183): the KB is never inferred, and a call
 without it, or naming a KB outside the set, is refused with an error naming the allowed KBs (D712: for a KB the server mounts but the connection does not bind, the error says to `cartographer client bind`, `cartographer sync` and start a new agent session; for a KB that is not mounted, that a KB created after the server started needs `cartographer service restart` first). With exactly one KB
 in the set `kb` is **absent** from every schema and the call targets that KB (a `kb` equal to it is accepted, any
 other value refused). The advertised set is the **union** of what the set's KBs register, so a tool one KB gates

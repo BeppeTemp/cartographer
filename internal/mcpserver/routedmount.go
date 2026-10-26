@@ -473,7 +473,7 @@ func (m *MultiKBServer) unionTools(set []string) []Tool {
 				continue
 			}
 			routedTool := *t
-			routedTool.InputSchema = withKBProperty(t.InputSchema, set)
+			routedTool.InputSchema = withKBProperty(t.InputSchema, len(set) >= 2)
 			routedTool.Handler = m.routedHandler(toolName, set)
 			out = append(out, routedTool)
 		}
@@ -562,12 +562,12 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string) func(contex
 }
 
 // routedConnectionHint is the fixed text of kb_status.connection.hint.
-const routedConnectionHint = "A KB listed in mounted but missing from your tools' kb enum or your instructions was added after this session started: " +
+const routedConnectionHint = "A KB listed in mounted but missing from your instructions' KB list was added after this session started: " +
 	"run cartographer sync (bind it first with cartographer client bind if it is in unbound), then start a new agent session."
 
 // The generic wordings of the three hints (D1101): the same facts, no command.
 const (
-	routedConnectionHintGeneric = "A KB listed in mounted but missing from your tools' kb enum or your instructions was added after this session started: " +
+	routedConnectionHintGeneric = "A KB listed in mounted but missing from your instructions' KB list was added after this session started: " +
 		"the integration picks it up when it reconnects or re-synchronizes its tool list."
 	routedUnknownHintGeneric = "Names in unknown are in this connection's kbs but not mounted on this server (renamed or removed?): the integration's URL needs updating."
 	routedRenamedHintGeneric = "Names in renamed are the old names of KBs served under their new name: the URL still works, but it is stale: update the integration's URL."
@@ -701,12 +701,18 @@ func splitKBArgument(args json.RawMessage) (string, json.RawMessage, error) {
 	return strings.TrimSpace(name), rest, nil
 }
 
+// routedKBDescription is the description of the `kb` property: fixed, free of
+// any KB name, pointing at the KB list the connection already has (D1183).
+const routedKBDescription = "Target KB: a name from the KB list in your instructions."
+
 // withKBProperty shapes the `kb` property of one tool's input schema for a
-// connection's KB set (D288): with two or more KBs it is a required enum of the
-// set; with exactly one the property is absent, because the URL already named
-// the KB. It edits the decoded schema object rather than the JSON text: a tool
+// connection's KB set (D288, D1183): with two or more KBs it is a required
+// string with no enum and a short description that is the same for every set,
+// so the list does not grow with the number of KBs (the valid names are in the
+// instructions' KB list, and a wrong one is refused server-side naming them);
+// with exactly one the property is absent, because the URL already named the KB. It edits the decoded schema object rather than the JSON text: a tool
 // whose schema is absent or not an object is given the minimal one.
-func withKBProperty(schema json.RawMessage, set []string) json.RawMessage {
+func withKBProperty(schema json.RawMessage, several bool) json.RawMessage {
 	obj := map[string]any{}
 	if len(schema) > 0 {
 		if err := json.Unmarshal(schema, &obj); err != nil {
@@ -714,7 +720,7 @@ func withKBProperty(schema json.RawMessage, set []string) json.RawMessage {
 		}
 	}
 	obj["type"] = "object"
-	if len(set) < 2 {
+	if !several {
 		out, err := json.Marshal(obj)
 		if err != nil {
 			return schema
@@ -726,14 +732,9 @@ func withKBProperty(schema json.RawMessage, set []string) json.RawMessage {
 	if props == nil {
 		props = map[string]any{}
 	}
-	enum := make([]any, len(set))
-	for i, n := range set {
-		enum[i] = n
-	}
 	props[routedKBArgument] = map[string]any{
 		"type":        "string",
-		"enum":        enum,
-		"description": "Knowledge Base this call is for. Required: this endpoint serves several KBs and never infers one.",
+		"description": routedKBDescription,
 	}
 	obj["properties"] = props
 

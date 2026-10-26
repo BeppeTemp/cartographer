@@ -307,7 +307,7 @@ the per-KB mounts summed, a call must reach the KB it names, a call without `kb`
 must be refused **naming the mounted KBs**, and `?kb=` on that URL must be `400`.
 It asserts the per-KB plumbing still answers with no `kb` argument. Then the
 bindings (D288): `connect` writes **one** entry per provider, with `?kbs=`
-carrying an explicit binding; a provider bound to 2 of 3 KBs sees a 2-value enum
+carrying an explicit binding; a provider bound to 2 of 3 KBs sees `kb` required with no enum
 and is refused the third, one bound to a single KB sees no `kb` property and calls
 without it, and an unknown name in `?kbs=` is `400`. Last, the heal: the client state
 is put back into the old per-KB shape by hand and **one `sync`** must leave a

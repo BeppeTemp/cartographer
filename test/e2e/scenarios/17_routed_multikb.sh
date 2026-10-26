@@ -17,7 +17,7 @@
 #   4. The per-KB endpoints still answer exactly as before.
 #   5. `cartographer connect` writes ONE MCP entry per provider, pointed at
 #      /mcp/routed, with ?kbs= carrying an explicit binding.
-#   6. A provider bound to 2 of 3 KBs sees a 2-value enum and is refused the
+#   6. A provider bound to 2 of 3 KBs sees `kb` required, with no enum, and is refused the
 #      third; a provider bound to 1 KB sees no `kb` property at all and calls
 #      without it; an unknown name in ?kbs= is served without it (D756),
 #      and only all-unknown is a 400.
@@ -198,7 +198,8 @@ ONE_URL="${ROUTED_URL}?kbs=gamma"
 
 TWO_LIST="${DIR}/two-tools.json"
 post "$TWO_URL" "$list_body" > "$TWO_LIST"
-assert_file_contains "$TWO_LIST" '"enum":["alpha","beta"]'
+assert_file_contains "$TWO_LIST" '"required":["kb"'
+assert_file_not_contains "$TWO_LIST" '"alpha"'
 assert_file_not_contains "$TWO_LIST" 'gamma'
 THIRD="$(post "$TWO_URL" "$(call_with_kb gamma)")"
 if grep -q '"isError":true' <<< "$THIRD" && grep -q 'not part of this connection' <<< "$THIRD"; then

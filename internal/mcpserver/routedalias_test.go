@@ -146,8 +146,8 @@ func TestRoutedMount_KBS_CallByOldNameReachesTarget(t *testing.T) {
 	handler := newRoutedAliasHandler(t, []config.KBAlias{{From: "kb-old", To: "kb-a"}}, []string{"kb-a", "kb-b"}, "kb-a", "kb-b")
 	path := RoutedMountPath + "?kbs=kb-old,kb-b"
 
-	if body := routedPost(t, handler, path, toolsListBody).Body.String(); !strings.Contains(body, `"enum":["kb-a","kb-b"]`) || strings.Contains(body, `"kb-old"`) {
-		t.Errorf("the kb enum must list the new names only: %.400s", body)
+	if body := routedPost(t, handler, path, toolsListBody).Body.String(); strings.Contains(body, `"kb-old"`) || strings.Contains(body, `"kb-a"`) {
+		t.Errorf("tools/list must carry no KB name: %.400s", body)
 	}
 	res := aliasCall(t, handler, path, "concept_read", map[string]any{"kb": "kb-old", "id": "manutenzione/marker"})
 	if res.IsError || !strings.Contains(res.Content[0].Text, "belongs-to-kb-a") {
