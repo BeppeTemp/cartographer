@@ -30,7 +30,9 @@ and rewrites its block a single time on upgrade. The shared section is client-ow
 hash: it is folded into the hash the lockfile records for the client-written tail (`PathsSectionHash`),
 which rewrites the block once after a release that edits it and then converges. Mixed versions degrade
 and never break (a new client skips its shared section when a region already carries `Operational
-instructions:`; an old client writes the brief regions without bullets until upgraded). Directive collisions
+instructions:`; an old client writes the brief regions without bullets until upgraded). Known mixed-version limitation: a new client against an old server where every KB opted out with
+`preamble: none` writes the shared section, because the old server sends no marker comment and no
+`Operational instructions:` line; the next server upgrade removes it. Directive collisions
 (D183) are scoped to what is in the artifact: two brief KBs may declare different values for one key, each
 being read through `kb_guide` one KB at a time; `block: full` KBs still collide. A KB whose directives must
 be in every session adds the `block: full` line (release note). The routing sentence naming every KB of a

@@ -194,6 +194,21 @@ func TestShared_SkippedAgainstOldFullSections(t *testing.T) {
 	}
 }
 
+// A `block: full` KB whose curated body holds a line equal to the heading is
+// not an old full section: the shared section stays.
+func TestShared_CuratedHeadingLineDoesNotSuppressIt(t *testing.T) {
+	m := sharedKBs(t, 2, func(i int) string {
+		if i == 1 {
+			return "<!-- cartographer: block: full -->\nOperational instructions:\n- my own rule.\n"
+		}
+		return ""
+	})
+	_, content := applyBlock(t, m, t.TempDir(), provisioning.Lock{})
+	if !strings.Contains(content, "`kb_guide` returns the full operating guide") {
+		t.Errorf("the shared section was dropped by a curated line:\n%s", content)
+	}
+}
+
 func TestShared_Convergence(t *testing.T) {
 	variants := map[string]func(i int) string{
 		"brief": nil,

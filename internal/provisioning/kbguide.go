@@ -149,7 +149,13 @@ func sharedSectionWanted(sections []string) bool {
 		if len(lines) == 0 || strings.TrimSpace(lines[0]) != preambleNoneComment {
 			allOptOut = false
 		}
-		for _, l := range lines {
+		// Only the generated head counts: a `block: full` KB's curated body,
+		// which follows the scope sentence, may hold a line of the same text.
+		head := c
+		if i := strings.Index(c, scopeSentencePrefix); i >= 0 {
+			head = c[:i]
+		}
+		for _, l := range strings.Split(head, "\n") {
 			if l == operationalHeading {
 				return false
 			}
@@ -166,8 +172,12 @@ func sharedSectionWanted(sections []string) bool {
 // declared instead of accidental. Emitted only when there IS curated content to
 // scope; the opt-out marker only suppresses the operational bullets.
 func scopeSentence(kbName string) string {
-	return fmt.Sprintf("The following directives are the %q KB's own and govern work in its perimeter; where they conflict with another KB's directives or with a repository's own instruction file, the more specific source wins.\n\n", kbName)
+	return fmt.Sprintf(scopeSentencePrefix+"%q KB's own and govern work in its perimeter; where they conflict with another KB's directives or with a repository's own instruction file, the more specific source wins.\n\n", kbName)
 }
+
+// scopeSentencePrefix opens the scope sentence, which ends the generated head of
+// a region (sharedSectionWanted looks no further).
+const scopeSentencePrefix = "The following directives are the "
 
 // KBArchiveNames lists the top-level archives of the KB rooted at kbRoot: the
 // direct subdirectories of <kbRoot>/data/ (where the concept .md pages live,
