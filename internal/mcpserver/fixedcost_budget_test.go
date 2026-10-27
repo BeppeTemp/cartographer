@@ -33,7 +33,11 @@ import (
 // ApproxTokens.
 //
 // A budget is the value measured when the v0.27.0 token work landed plus at most
-// 10 %, rounded up. It is raised only with a decision (D285), never to make the
+// 10 %, rounded up. The "measured" figures below include #1207 (PR #1228),
+// which lengthens the search description and the shared block section; before
+// it each cell measured 83 to 195 bytes less (block 3575 and 8583; tools/list
+// agent 31235 and 36414, access=read 12982 and 15812, access=read-min 4944 and
+// 5918). Re-measure with `go test -v -run TestFixedCallCostBudget` once it lands. It is raised only with a decision (D285), never to make the
 // test pass: move a tool's detail to docs/control-plane.md §MCP API, a KB's
 // detail to `kb_guide`.
 const fixedCostBytesPerToken = 2.5
