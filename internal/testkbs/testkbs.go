@@ -465,10 +465,10 @@ func (g *kbgen) topical(nTopical int) {
 			f := g.add("data/"+id+".md", fm(fields...)+body, unborn)
 			if status == "deprecated" || status == "archived" {
 				g.retired = append(g.retired, id)
+				f.reason = "retired: no longer in use"
 			}
 			if status == "deprecated" {
 				g.deprecated = append(g.deprecated, id)
-				f.reason = "retired: no longer in use"
 			}
 		}
 	}
