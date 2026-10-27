@@ -208,9 +208,23 @@ off (`data-plane.md` §No check can be switched off), and the `map_create` descr
 
 Every client pays the `tools/list` text on every round-trip, in both mount modes (D288), so the
 single copy is kept small (D285). `TestServer_ToolDescriptionBudget` (`internal/mcpserver/tool_budget_test.go`)
-fails the build when the core `tools/list` of one unprefixed mount, serialized, exceeds
-`toolsListBudgetBytes`, or any tool `description` exceeds `toolDescriptionMaxChar`; the failure names the
-heaviest tools. Tool names, `required` lists, types and enums are untouched by the budget: only prose is.
+fails the build when any tool `description` exceeds `toolDescriptionMaxChar`, naming the heaviest tools.
+
+The total is budgeted as part of the **fixed per-call cost**, what an agent pays on every model call
+whatever the question: the managed instructions block its client holds plus the `tools/list` of its
+connection. `TestFixedCallCostBudget` (`internal/mcpserver/fixedcost_budget_test.go`) builds a routed
+mount over 1 and 9 fixture KBs (archives, skills and a 3 KB curated `instructions.md` each, `fixedCostKBs`),
+renders the block through the path `sync` takes (`BuildManifest`, then `Apply` for Claude Code) and
+measures eight cells in bytes: the block for 1 and 9 KBs, and the `tools/list` result for 1 and 9 KBs in
+each of the agent profile, `?access=read` and `?access=read-min`. It also bounds the block's growth per
+added KB and each profile's `tools/list` growth from 1 to 9 KBs (the routed `kb` argument). The budget
+table, with what each cell measured and when, is at the top of that file; `go test -v` logs the whole
+table with the sum per connection and its token reading (about 2.5 bytes per token, not asserted). A
+failure names the component and cell, the bytes over budget and in percent, the delta against the
+neighbouring cell (1 KB, the larger profile) and the heaviest tools or block lines. A budget is the
+measured value plus at most 10 % and is raised only with a decision (D285). The `initialize` guide of an
+unprovisioned client is pinned separately (`TestRenderGuide_Budget`, `internal/provisioning`).
+Tool names, `required` lists, types and enums are untouched by the budget: only prose is.
 
 What a description keeps: what the tool does, when to use it instead of its neighbour, and every
 rule needed to call it correctly (required preconditions such as `if_match`, refusal conditions,
