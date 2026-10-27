@@ -324,3 +324,82 @@ func TestTemplateProposalImpactEmptyWhenEverythingFollows(t *testing.T) {
 		t.Fatalf("no page fails: no impact: %+v", got)
 	}
 }
+
+// openSectionsKB: five Topic pages in one map, all with Purpose; the first
+// extra of them carry a heading no other page shares.
+func openSectionsKB(t *testing.T, extra int) *kb.KB {
+	t.Helper()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "wiki/_map.md", "---\ntype: Map\nkind: map\ntitle: Wiki\n---\n")
+	for i := 0; i < 5; i++ {
+		body := "## Purpose\n\np\n"
+		if i < extra {
+			body += fmt.Sprintf("\n## Own %d\n\nx\n", i)
+		}
+		writeFile(t, k.DataRoot(), fmt.Sprintf("wiki/t%d.md", i), "---\ntype: Topic\ntitle: T\n---\n# T\n\n"+body)
+	}
+	return k
+}
+
+func TestTemplateProposalOpenSections(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		extra int
+		want  bool
+	}{{0, false}, {2, false}, {3, true}, {5, true}} {
+		k := openSectionsKB(t, c.extra)
+		got := itemsOf(review(t, k), ReviewTemplateProposal)
+		if len(got) != 1 {
+			t.Fatalf("extra=%d: want one proposal, got %+v", c.extra, got)
+		}
+		info, ok := kb.ParseTemplate("topic", got[0].Template)
+		if !ok {
+			t.Fatalf("does not parse:\n%s", got[0].Template)
+		}
+		if info.OpenSections != c.want {
+			t.Errorf("extra=%d: open_sections=%v want %v:\n%s", c.extra, info.OpenSections, c.want, got[0].Template)
+		}
+		clause := strings.Contains(got[0].Evidence, "x-template.open_sections")
+		if clause != c.want {
+			t.Errorf("extra=%d: evidence clause=%v want %v: %s", c.extra, clause, c.want, got[0].Evidence)
+		}
+		if c.want {
+			if want := fmt.Sprintf("%d of 5 pages carry headings", c.extra); !strings.Contains(got[0].Evidence, want) {
+				t.Errorf("evidence lacks %q: %s", want, got[0].Evidence)
+			}
+			// The trap: the proposal promises open sections, so lint must honour them.
+			writeFile(t, k.Root, "templates/topic.md", got[0].Template)
+			writeFile(t, k.DataRoot(), "wiki/_map.md", "---\ntype: Map\nkind: map\ntitle: Wiki\ndefault_template: topic\ntemplates: [topic]\n---\n")
+			fs, err := Run(k, "", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, f := range fs {
+				if f.Check == "template_extra_section" {
+					t.Errorf("extra=%d: proposed template still fails %s: %s", c.extra, f.Path, f.Message)
+				}
+			}
+		}
+		if again := itemsOf(review(t, openSectionsKB(t, c.extra)), ReviewTemplateProposal); len(again) != 1 || (!c.want && again[0].Template != got[0].Template) {
+			t.Errorf("extra=%d: the proposal is not stable across runs", c.extra)
+		}
+	}
+}
+
+func TestTemplateProposalAliasesAreNotExtras(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "wiki/_map.md", "---\ntype: Map\nkind: map\ntitle: Wiki\n---\n")
+	for i := 0; i < 5; i++ {
+		h := "Purpose"
+		if i >= 3 {
+			h = "Objective"
+		}
+		writeFile(t, k.DataRoot(), fmt.Sprintf("wiki/t%d.md", i), "---\ntype: Topic\ntitle: T\n---\n# T\n\n## "+h+"\n\np\n\n## Details\n\nd\n")
+	}
+	// Purpose and Objective are one section with an alias; Details is picked.
+	got := itemsOf(review(t, k), ReviewTemplateProposal)
+	if len(got) != 1 || strings.Contains(got[0].Template, "open_sections") {
+		t.Fatalf("aliases must not count as extra headings: %+v", got)
+	}
+}

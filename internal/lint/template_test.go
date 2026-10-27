@@ -112,6 +112,20 @@ func TestTemplateChecks(t *testing.T) {
 	if tplFinding(f, "infra/open.md", "template_not_allowed") != nil {
 		t.Error("appliance is in the map's templates")
 	}
+	// The extra-section message names the ways out the server really has, and
+	// not lint_ignore, which silences nothing (D907).
+	if m := tplFinding(f, "infra/extra.md", "template_extra_section"); m == nil {
+		t.Error("extra: no finding")
+	} else {
+		for _, want := range []string{`demote the heading to "###"`, "x-template.optional_sections", "x-template.open_sections: true"} {
+			if !strings.Contains(m.Message, want) {
+				t.Errorf("extra message lacks %q: %s", want, m.Message)
+			}
+		}
+		if strings.Contains(m.Message, "lint_ignore") {
+			t.Errorf("extra message names lint_ignore: %s", m.Message)
+		}
+	}
 	// Fixes.
 	if m := tplFinding(f, "infra/lack.md", "template_section_missing"); m == nil {
 		t.Errorf("section_missing not reported: %+v", m)

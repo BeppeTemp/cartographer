@@ -191,12 +191,13 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 	}
 
 	texts := map[string]string{}
+	openPages := map[string]int{}
 	proposed := map[string]kb.TemplateInfo{}
 	for _, slug := range slugOrder {
 		if _, have := catalog[slug]; have {
 			continue
 		}
-		texts[slug] = proposedTemplate(bySlug[slug], contracts)
+		texts[slug], openPages[slug] = proposedTemplate(bySlug[slug], contracts)
 		if info, ok := kb.ParseTemplate(slug, texts[slug]); ok {
 			proposed[slug] = info
 		}
@@ -227,6 +228,9 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 			action = "map_update with `map_update` (every entry of `map_updates` when it lists several maps) to declare it; " + bindingNote
 		} else {
 			text = texts[slug]
+			if k := openPages[slug]; k > 0 {
+				evidence += fmt.Sprintf("; %d of %d pages carry headings outside the proposed sections, so the template allows extra sections (x-template.open_sections)", k, len(g.pages))
+			}
 		}
 		var impact []TemplateImpact
 		for _, m := range g.maps {
@@ -389,8 +393,11 @@ func impactClause(impact []TemplateImpact) string {
 }
 
 // proposedTemplate induces the template text of one slug (D352 decision 7),
-// from the pages of every map that would declare it (#687).
-func proposedTemplate(g *proposalGroup, contracts map[string]kb.MapContract) string {
+// from the pages of every map that would declare it (#687). The second result
+// is the number of pages that carry a heading outside the proposed sections
+// when the text sets x-template.open_sections (at least proposalRequiredShare
+// of the pages, #831), 0 when it does not.
+func proposedTemplate(g *proposalGroup, contracts map[string]kb.MapContract) (string, int) {
 	n := len(g.pages)
 	// enough reports whether count pages of n clear the optional bar.
 	enough := func(count, total int) bool {
@@ -598,6 +605,30 @@ func proposedTemplate(g *proposalGroup, contracts map[string]kb.MapContract) str
 		}
 	}
 	setList(kb.TemplateMetaOptionalSection, optSecs)
+	// A heading outside the induced set (picked names and their aliases) is an
+	// extra under a closed template: when most pages carry one, the template
+	// that fails them all is not the structure they follow, so it allows them.
+	induced := map[string]bool{}
+	for _, c := range picked {
+		induced[c.fold] = true
+		for _, a := range c.aliases {
+			induced[foldHeading(a)] = true
+		}
+	}
+	extraPages := 0
+	for _, p := range g.pages {
+		for _, h := range h2Lines(p.body) {
+			if f := foldHeading(h.Text); f != "" && !induced[f] {
+				extraPages++
+				break
+			}
+		}
+	}
+	openSections := 0
+	if extraPages > 0 && float64(extraPages)/float64(n) >= proposalRequiredShare {
+		fm.Set(kb.TemplateMetaOpenSections, "true")
+		openSections = extraPages
+	}
 	for _, c := range picked {
 		setList(kb.TemplateMetaSectionAliases+c.name, c.aliases)
 	}
@@ -607,7 +638,7 @@ func proposedTemplate(g *proposalGroup, contracts map[string]kb.MapContract) str
 	for _, c := range picked {
 		body.WriteString("\n## " + c.name + "\n")
 	}
-	return "---\n" + fm.Serialize() + "\n---\n" + body.String()
+	return "---\n" + fm.Serialize() + "\n---\n" + body.String(), openSections
 }
 
 func mapsPhrase(maps []string) string {

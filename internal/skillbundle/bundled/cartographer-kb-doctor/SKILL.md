@@ -1,7 +1,7 @@
 ---
 name: cartographer-kb-doctor
 description: Keep a Knowledge Base from rotting - a budgeted session that applies mechanical repairs and works through the server's ranked review list, always started by the operator, who decides each item or delegates the session. Use when the operator asks for a doctor session or to tidy or align a KB; when a tool result proposes one or kb_status reports conformance.doctor_suggested, propose it to the operator and wait.
-version: "3.5"
+version: "3.6"
 ---
 # KB Doctor - Skill
 
@@ -153,7 +153,15 @@ An alternative never weakens a rule: a delegated session never deletes a concept
    descriptive headings as findings and say so, never stuff a template with every singleton.
    In a map that declares templates every page binds to one (D371), and the checks that remain are yours: a
    `template_extra_section` page needs its text merged into a template section or moved to another
-   page, never deleted; a `template_section_missing` section is filled from the sources or, when no
+   page, never deleted. When several pages of the map carry the same extra heading the fix is in
+   the template (`artifact_read` `templates/<slug>.md`, then `artifact_write`): add the heading as
+   an optional section (`x-template.optional_sections`) or, for free-form pages,
+   `x-template.open_sections: true`; a one-off heading is demoted to `###` (the text stays, the
+   check no longer sees it as a section). A template is shared by every map that declares it, so
+   widening it widens it for all of them: a map that alone needs it gets a copy under another
+   slug. Lint judges a section by its heading only, so a grouping heading whose content is `###`
+   children is a present, non-empty section and needs no filler. A `template_section_missing`
+   section is filled from the sources or, when no
    source exists, recorded as a `missing_context` gap naming it. Never add an empty heading to
    silence it.
 5. **Review items.** `kb_review` with `limit` set to the session budget (10 unless the operator named another) minus the decisions steps 3-4 used.

@@ -466,7 +466,7 @@ func (x templateCtx) sectionShapeFindings() []Finding {
 	}
 	if len(extras) > 0 && !x.tpl.OpenSections && !x.closed {
 		out = append(out, x.finding("template_extra_section",
-			fmt.Sprintf("section(s) %s are not in template %q: merge the text into one of its sections or move it to another page", strings.Join(quoteAll(extras), ", "), x.tpl.Slug), nil))
+			fmt.Sprintf("section(s) %s are not in template %q: merge the text into one of its sections, move it to another page, demote the heading to \"###\", or widen the template (add the heading to its body and list it in x-template.optional_sections, or set x-template.open_sections: true)", strings.Join(quoteAll(extras), ", "), x.tpl.Slug), nil))
 	}
 	// Order: the template sections present, by first occurrence, must ascend.
 	last, outOfOrder := -1, false

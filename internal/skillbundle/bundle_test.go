@@ -235,3 +235,19 @@ func skillBlocks(text string) []string {
 	flush()
 	return blocks
 }
+
+// TestDoctorSkillTeachesTheTemplateWayOut guards the route a
+// template_extra_section finding has besides rewriting the page: widening the
+// template or demoting the heading (#831).
+func TestDoctorSkillTeachesTheTemplateWayOut(t *testing.T) {
+	t.Parallel()
+	data, err := fs.ReadFile(FS, "bundled/cartographer-kb-doctor/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"open_sections", "optional_sections", "###"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("the doctor skill no longer mentions %q for template_extra_section", want)
+		}
+	}
+}
