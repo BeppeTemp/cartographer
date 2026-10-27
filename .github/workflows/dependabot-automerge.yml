@@ -5,6 +5,11 @@ name: dependabot-automerge
 # it is the kind that changes behaviour. The merge itself is GitHub's
 # auto-merge, so the PR still waits for `test` (and `test-windows` where it
 # runs) exactly like any other.
+#
+# Not while the freeze is open (Saturday 00:00 to Monday 08:30 Europe/Rome, D1180):
+# a bump that merges itself then moves main off the release candidate and the
+# Monday train skips. The PR stays open; dependabot-arm.yml re-runs this workflow
+# on it once the train has run.
 on: pull_request
 
 permissions:
@@ -16,11 +21,19 @@ jobs:
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
+      # The default branch, never the PR: the script below runs with a write token.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - id: freeze
+        run: |
+          if scripts/freeze-open.sh; then echo "open=true" >> "$GITHUB_OUTPUT"; fi
       - id: meta
         uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
       # A base-image bump is not merged by a bot: `docker` is not a required
       # check, so auto-merge would wait for `test` alone, which never builds the image (D1020).
-      - if: steps.meta.outputs.update-type != 'version-update:semver-major' && steps.meta.outputs.package-ecosystem != 'docker'
+      - if: steps.freeze.outputs.open != 'true' && steps.meta.outputs.update-type != 'version-update:semver-major' && steps.meta.outputs.package-ecosystem != 'docker'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}

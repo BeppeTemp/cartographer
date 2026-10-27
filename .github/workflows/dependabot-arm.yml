@@ -1,0 +1,44 @@
+name: dependabot-arm
+
+# A Dependabot PR that arrived during the freeze was not armed for auto-merge
+# (dependabot-automerge.yml, D1180). Once release-train has run and the window is
+# closed, this re-runs that workflow on each open Dependabot PR, so the patch/minor
+# and docker/major rules stay in one place. A train that ran on Saturday (the
+# candidate) finds the window still open and does nothing.
+on:
+  workflow_run:
+    workflows: [release-train]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: write # re-running a workflow run
+  pull-requests: read
+
+jobs:
+  arm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if scripts/freeze-open.sh; then
+            echo "the freeze is still open: nothing to arm"
+            exit 0
+          fi
+          for branch in $(gh pr list --state open --author 'app/dependabot' --json headRefName,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository | not) | .headRefName'); do
+            run=$(gh run list --workflow dependabot-automerge.yml --event pull_request --branch "$branch" --limit 1 \
+              --json databaseId --jq '.[0].databaseId // empty')
+            if [ -z "$run" ]; then
+              echo "$branch: no run of dependabot-automerge to repeat"
+              continue
+            fi
+            gh run rerun "$run" && echo "$branch: dependabot-automerge run $run repeated" \
+              || echo "$branch: run $run could not be repeated"
+          done
