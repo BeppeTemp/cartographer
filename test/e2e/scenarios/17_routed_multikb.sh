@@ -169,7 +169,7 @@ run_client() {
 run_client "${DIR}/connect-opencode.log" connect opencode --server-url "$SERVER_URL" --kb alpha,beta || true
 run_client "${DIR}/connect-claude.log" connect claude --server-url "$SERVER_URL" --kb gamma || true
 
-OPENCODE_CFG="${SANDBOX}/opencode.json"
+OPENCODE_CFG="${SANDBOX}/.config/opencode/opencode.json"
 if [[ ! -f "$OPENCODE_CFG" ]]; then
     OPENCODE_CFG="$(find "$SANDBOX" -name 'opencode.json' -print -quit 2>/dev/null)"
 fi

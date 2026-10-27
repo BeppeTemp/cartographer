@@ -219,6 +219,7 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		}
 		if dryRun {
 			written = append(written, r.AbsolutePath)
+			migrateLegacyOpenCode(r, absoluteBaseDir, true)
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
@@ -278,8 +279,90 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 			return written, fmt.Errorf("write %s: %w", fullPath, err)
 		}
 		written = append(written, r.AbsolutePath)
+		migrateLegacyOpenCode(r, absoluteBaseDir, false)
 	}
 	return written, errors.Join(refused...)
+}
+
+// migrateLegacyOpenCode removes, once r's entries are written to OpenCode's
+// global config, the same entries from openCodeLegacyConfigPath, where earlier
+// versions wrote them (#1172), and says so in r.Warnings. It never fails the
+// write it follows: a refused or unreadable legacy file is a warning too.
+func migrateLegacyOpenCode(r *EmitResult, baseDir string, dryRun bool) {
+	if r.Provider != ProviderOpenCode {
+		return
+	}
+	var root map[string]any
+	if json.Unmarshal(r.Content, &root) != nil {
+		return
+	}
+	servers, _ := root["mcp"].(map[string]any)
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		removed, err := removeLegacyOpenCodeEntry(name, baseDir, dryRun)
+		switch {
+		case err != nil:
+			r.Warnings = append(r.Warnings, fmt.Sprintf(
+				"opencode: could not remove the former %q entry from %s (OpenCode reads its global config from %s): %v",
+				name, filepath.Join(baseDir, openCodeLegacyConfigPath), OpenCodeConfigPath, err))
+		case removed:
+			r.Warnings = append(r.Warnings, fmt.Sprintf(
+				"opencode: moved the %q entry from %s to %s, the global config OpenCode reads",
+				name, filepath.Join(baseDir, openCodeLegacyConfigPath), filepath.FromSlash(OpenCodeConfigPath)))
+		}
+	}
+}
+
+// removeLegacyOpenCodeEntry removes the mcp entry name from
+// <baseDir>/opencode.json, the file Cartographer wrote OpenCode's global entry
+// to before #1172, and deletes the file when nothing but the "$schema" hint is
+// left. Like removeLegacyCodexJSON it is migration cleanup: a no-op if the file
+// is absent, malformed or has no such entry, and only that key is touched.
+func removeLegacyOpenCodeEntry(name, baseDir string, dryRun bool) (bool, error) {
+	legacyPath := filepath.Join(baseDir, openCodeLegacyConfigPath)
+	data, err := os.ReadFile(legacyPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", legacyPath, err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		return false, nil
+	}
+	servers, ok := root["mcp"].(map[string]any)
+	if !ok {
+		return false, nil
+	}
+	if _, ok := servers[name]; !ok {
+		return false, nil
+	}
+	if err := safewrite.CheckPath(baseDir, legacyPath); err != nil {
+		return false, err
+	}
+	if dryRun {
+		return true, nil
+	}
+	delete(servers, name)
+	if len(servers) == 0 {
+		delete(root, "mcp")
+	}
+	if isEmptyProviderShell(root) {
+		return true, safewrite.Remove(baseDir, legacyPath)
+	}
+	out, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return false, err
+	}
+	if err := safewrite.WriteFileNoFollow(legacyPath, out, 0o644); err != nil {
+		return false, fmt.Errorf("write %s: %w", legacyPath, err)
+	}
+	return true, nil
 }
 
 // mcpServerKeys are the top-level JSON keys used by provider config files to hold
@@ -299,6 +382,22 @@ var mcpServerKeys = []string{"mcpServers", "mcp"}
 // returns removed=false with no error. If dryRun is true, Remove computes and
 // returns whether the key would be removed but does not write anything.
 func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (removed bool, err error) {
+	removed, err = removeEntry(cfg, provider, baseDir, dryRun)
+	if err != nil || provider != ProviderOpenCode {
+		return removed, err
+	}
+	// The entry may still sit where versions before #1172 wrote it: once the
+	// global file is done, a disconnect removes it from there too, and reports
+	// either removal. A refusal on the global file leaves the legacy one as is.
+	legacyRemoved, err := removeLegacyOpenCodeEntry(cfg.Name, baseDir, dryRun)
+	if err != nil {
+		return removed, err
+	}
+	return removed || legacyRemoved, nil
+}
+
+// removeEntry is Remove on the provider's current config file only.
+func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (removed bool, err error) {
 	r, err := Emit(cfg, provider)
 	if err != nil {
 		return false, err
@@ -398,7 +497,7 @@ func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (
 		// Best-effort (D63): also drop the file's own parent directory if that
 		// leaves it empty too — kiro's mcp.json lives in ".kiro/settings/", a
 		// level provisioning creates solely to hold it. Never climb as far as
-		// baseDir itself (opencode.json has no such parent to begin with —
+		// baseDir itself (a file directly in baseDir has no such parent —
 		// filepath.Dir(fullPath) == baseDir there, guarded below) or above
 		// ".kiro" (a provisioning root boundary that may still hold skills/
 		// agents/hooks; os.Remove's own "not empty" error is the natural guard
@@ -849,6 +948,17 @@ func emitKiroServer(name string, spec ServerSpec) (*EmitResult, error) {
 // (emitOpenCodeServer below) and Crush's "$VAR_NAME" (crushjson.go).
 var envRefPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
+// OpenCodeConfigPath is OpenCode's global config file, relative to the home
+// directory: the file it loads from its XDG config directory on 1.x and 2.x
+// (#1172). openCodeLegacyConfigPath is where Cartographer wrote the entry
+// before: OpenCode reads it only as a project file found by walking up from the
+// session folder (on 1.x not past the git root), so an entry there was missing
+// from most sessions. Apply and Remove clear our entries from it.
+const (
+	OpenCodeConfigPath       = ".config/opencode/opencode.json"
+	openCodeLegacyConfigPath = "opencode.json"
+)
+
 // emitOpenCodeServer generates the opencode.json entry for name/spec (OpenCode
 // v1.17.10 format, schema: https://opencode.ai/config.json).
 //
@@ -897,7 +1007,7 @@ func emitOpenCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
 	}
 	return &EmitResult{
 		Provider: ProviderOpenCode,
-		FilePath: "opencode.json",
+		FilePath: OpenCodeConfigPath,
 		Content:  content,
 	}, nil
 }
