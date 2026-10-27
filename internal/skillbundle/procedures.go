@@ -23,9 +23,10 @@ type Procedure struct {
 }
 
 // served is the only place that knows which bundled skills are served, in the
-// order kb_guide lists them. cartographer-kb-create, cartographer-kb-doctor and
-// cartographer-ops are deliberately absent: they run commands, scripts and
-// subagents, or configure the server's host.
+// order kb_guide lists them. cartographer-kb-create, cartographer-kb-doctor,
+// cartographer-ops and cartographer-feedback are deliberately absent: they run
+// commands, scripts and subagents, configure the server's host, or (feedback)
+// target provisioned clients and build a URL.
 var served = []Procedure{
 	{
 		Short: "ingest", Skill: "cartographer-kb-ingest",

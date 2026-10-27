@@ -16,7 +16,7 @@ The artifacts a client must have come from two sources that change over time:
 | **Server bundle** | `internal/skillbundle/bundled/` (compiled into the binary) — `skill` only | Cartographer upgrade |
 | **KB artifacts** | `skills/`, `agents/`, `hooks/`, `mcp/` at the KB root (git) | `git pull`, `skill_install`, edits |
 
-The bundled skill catalog is the directories of `internal/skillbundle/bundled/` (server and client operations, KB creation, import, ingest and doctor, conflict resolution). Because the bundle is compiled into the binary, clients
+The bundled skill catalog is the directories of `internal/skillbundle/bundled/` (server and client operations, KB creation, import, ingest and doctor, conflict resolution, product feedback). Because the bundle is compiled into the binary, clients
 receive operational guidance that matches their installed Cartographer version after `sync`.
 
 Without a sync mechanism, the files materialized on the client silently drift on every bundle upgrade or KB `git pull`. Goal: the client notices the change and realigns, with a model extensible to new `kind`s without a redesign.
