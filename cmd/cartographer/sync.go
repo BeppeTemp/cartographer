@@ -482,17 +482,36 @@ func selectProviders(agents []string, selected []string) ([]string, error) {
 	return out, nil
 }
 
-// commonRevision returns the revision every targeted provider shares, or "" when
-// they differ. Bindings make a single machine-wide revision meaningless: two
-// providers receiving different KBs legitimately sit at different revisions.
+// revisionKeys lists the results keys of the targeted providers: the global
+// projection and every workspace one (D193), in provider order and, within a
+// provider, by key. Results are keyed by projectionKey, so looking them up by
+// provider name alone misses every workspace-scoped projection (#1233).
+func revisionKeys(results map[string]provisioning.AppliedResult, providers []string) []string {
+	var keys []string
+	for _, p := range providers {
+		var own []string
+		for key := range results {
+			if provider, _ := splitProjectionKey(key); provider == p {
+				own = append(own, key)
+			}
+		}
+		slices.Sort(own)
+		keys = append(keys, own...)
+	}
+	return keys
+}
+
+// commonRevision returns the revision every targeted projection shares, or ""
+// when they differ. Bindings make a single machine-wide revision meaningless:
+// two providers receiving different KBs legitimately sit at different revisions.
 // Unsupported-kind filtering (D184) is a second source of the same divergence:
-// results carries each provider's post-FilterForProvider recorded revision
+// results carries each projection's post-FilterForProvider recorded revision
 // (AppliedResult.NewLock.AppliedRevision), the same value `status` compares
 // against, not the pre-projection manifest revision.
 func commonRevision(results map[string]provisioning.AppliedResult, providers []string) string {
 	common := ""
-	for i, p := range providers {
-		rev := results[p].NewLock.AppliedRevision
+	for i, key := range revisionKeys(results, providers) {
+		rev := results[key].NewLock.AppliedRevision
 		if i == 0 {
 			common = rev
 			continue
@@ -504,8 +523,8 @@ func commonRevision(results map[string]provisioning.AppliedResult, providers []s
 	return common
 }
 
-// printSyncRevisions reports one line when every provider agrees — the ordinary
-// case — and one line per provider when bindings, or unsupported-kind
+// printSyncRevisions reports one line when every projection agrees — the
+// ordinary case — and one line per projection when bindings, or unsupported-kind
 // filtering (D184), made them diverge, so the output never implies an
 // agreement that does not exist.
 func printSyncRevisions(results map[string]provisioning.AppliedResult, providers []string, dryRun bool) {
@@ -513,12 +532,13 @@ func printSyncRevisions(results map[string]provisioning.AppliedResult, providers
 	if dryRun {
 		verb = "would sync to"
 	}
-	if rev := commonRevision(results, providers); rev != "" || len(providers) <= 1 {
+	keys := revisionKeys(results, providers)
+	if rev := commonRevision(results, providers); rev != "" || len(keys) <= 1 {
 		fmt.Printf("%s revision %s\n", verb, rev)
 		return
 	}
-	for _, p := range providers {
-		fmt.Printf("[%s] %s revision %s\n", p, verb, results[p].NewLock.AppliedRevision)
+	for _, key := range keys {
+		fmt.Printf("[%s] %s revision %s\n", projectionLabel(key), verb, results[key].NewLock.AppliedRevision)
 	}
 }
 

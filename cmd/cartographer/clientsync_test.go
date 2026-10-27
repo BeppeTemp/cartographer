@@ -1041,6 +1041,38 @@ func TestPrintSyncRevisions_MultiProviderDivergence(t *testing.T) {
 	}
 }
 
+// TestSyncRevisions_CoverWorkspaceProjections: results are keyed by
+// projectionKey (provider + workspace), so a lookup by provider name alone
+// missed every workspace-scoped projection (#1233).
+func TestSyncRevisions_CoverWorkspaceProjections(t *testing.T) {
+	ws := "/work/repo"
+	wsKey := projectionKey(syncProjection{Provider: "claude", Workspace: ws})
+	result := func(rev string) provisioning.AppliedResult {
+		return provisioning.AppliedResult{NewLock: provisioning.Lock{AppliedRevision: rev}}
+	}
+
+	only := map[string]provisioning.AppliedResult{wsKey: result("r1")}
+	if got := commonRevision(only, []string{"claude"}); got != "r1" {
+		t.Errorf("commonRevision with only a workspace projection = %q, want r1", got)
+	}
+	if out := withStdout(t, func() { printSyncRevisions(only, []string{"claude"}, false) }); out != "synced to revision r1\n" {
+		t.Errorf("printSyncRevisions = %q, want the workspace revision", out)
+	}
+
+	diverge := map[string]provisioning.AppliedResult{"claude": result("r1"), wsKey: result("r2")}
+	if got := commonRevision(diverge, []string{"claude"}); got != "" {
+		t.Errorf("commonRevision = %q, want empty: the global and the workspace projection diverge", got)
+	}
+	out := withStdout(t, func() { printSyncRevisions(diverge, []string{"claude"}, false) })
+	want := "[claude] synced to revision r1\n[claude " + ws + "] synced to revision r2\n"
+	if out != want {
+		t.Errorf("printSyncRevisions = %q, want %q", out, want)
+	}
+	if strings.Contains(out, "\x00") {
+		t.Errorf("output carries the projection key's NUL: %q", out)
+	}
+}
+
 // healthOnlyServer answers /health with the given KBs and fails every tool
 // call: the shape of a reachable server whose sync_pull does not work.
 func healthOnlyServer(t *testing.T, kbs ...string) *httptest.Server {
