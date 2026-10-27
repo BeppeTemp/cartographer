@@ -140,3 +140,44 @@ func TestProseValue(t *testing.T) {
 		t.Error("a hyphenated token is not prose")
 	}
 }
+
+// D1197: a list field reports one finding per bad item; a case or separator
+// variant or a value_synonyms entry is a rename, a foreign item a drop, and an
+// ambiguous one has no fix.
+func TestInvalidFieldValueListItems(t *testing.T) {
+	t.Parallel()
+	write := contractMap(t, "---\ntype: Map\ntitle: M\nfield_values.tags: [foo-bar, alpha]\nvalue_synonyms.foo-bar: [foobar]\n---\n")
+	findings := write("m/a", "type: Note\ntitle: A\ntags: [Foo_Bar, foobar, junk, alpha]")
+	var got []Finding
+	for _, f := range findings {
+		if f.Check == "invalid_field_value" && f.Path == "m/a.md" {
+			got = append(got, f)
+		}
+	}
+	if len(got) != 3 {
+		t.Fatalf("want one finding per bad item, got %+v", got)
+	}
+	want := map[string]string{"Foo_Bar": "foo-bar", "foobar": "foo-bar", "junk": ""}
+	for _, f := range got {
+		if f.Fix == nil || f.Fix.Kind != FixListValue || f.Fix.Field != "tags" || f.Fix.To != want[f.Fix.From] {
+			t.Errorf("fix = %+v", f.Fix)
+		}
+		if f.Fix.From == "junk" != f.Fix.Removes() {
+			t.Errorf("Removes() = %v for %q", f.Fix.Removes(), f.Fix.From)
+		}
+	}
+	// A scalar keeps one set_value finding.
+	write2 := contractMap(t, "---\ntype: Map\ntitle: M\nfield_values.status: [done]\n---\n")
+	if f := findingFor(write2("m/s", "type: Note\ntitle: S\nstatus: Done"), "m/s.md", "invalid_field_value"); f == nil || f.Fix == nil || f.Fix.Kind != FixSetValue {
+		t.Fatalf("scalar: %+v", f)
+	}
+}
+
+func TestInvalidFieldValueListAmbiguousItemHasNoFix(t *testing.T) {
+	t.Parallel()
+	write := contractMap(t, "---\ntype: Map\ntitle: M\nfield_values.status: [done, completed]\n---\n")
+	f := findingFor(write("m/a", "type: Note\ntitle: A\nstatus: [finito]"), "m/a.md", "invalid_field_value")
+	if f == nil || f.Fix != nil {
+		t.Fatalf("two candidates must give no fix, not a drop: %+v", f)
+	}
+}

@@ -185,7 +185,7 @@ type ReviewItem struct {
 	// Check is the source lint check of a lint_judgement item, or the observation
 	// of an observation item (D947).
 	Check string `json:"check,omitempty"`
-	// Proposal is the vocabulary a missing_value_contract observation suggests
+	// Proposal is the vocabulary a missing_value_contract or facet_sprawl observation suggests
 	// (D296): the field_values to declare and the values that converge on them.
 	Proposal *Proposal `json:"proposal,omitempty"`
 	// Term is the undefined term of a glossary_gap item.

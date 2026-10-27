@@ -259,6 +259,23 @@ func applyFixes(k *kb.KB, id okf.ConceptID, fm *okf.Frontmatter, body *string, f
 			*body = rewriteWikiLinkInBody(*body, fx.Field, fx.To)
 		case lint.FixSetValue:
 			fm.Set(fx.Field, fx.To)
+		case lint.FixListValue:
+			raw, ok := fm.Get(fx.Field)
+			items, isList := raw.([]string)
+			if !ok || !isList {
+				changed-- // a scalar or absent field: nothing to rewrite
+				continue
+			}
+			next, hit := rewriteListItem(items, fx.From, fx.To)
+			if !hit {
+				changed-- // the item is gone already: idempotent
+				continue
+			}
+			if len(next) == 0 {
+				fm.Delete(fx.Field)
+			} else {
+				fm.Set(fx.Field, next)
+			}
 		case lint.FixQuoteValue:
 			// Done when the block was parsed (parseForRepair): the fix only
 			// makes the page be written.
@@ -1266,6 +1283,34 @@ func conceptContent(fm *okf.Frontmatter, body string) string {
 // KB lock (gitWrap).
 func repairConceptFixpoint(k *kb.KB, id okf.ConceptID, allowed []string, seed []lint.Finding) (fixpointOutcome, *repairSkip) {
 	return repairConceptFixpointOnly(k, id, allowed, seed, nil)
+}
+
+// rewriteListItem replaces from with to in items, or removes it when to is
+// empty, then deduplicates keeping the first occurrence. hit is false when
+// from is not in the list.
+func rewriteListItem(items []string, from, to string) (next []string, hit bool) {
+	seen := map[string]bool{}
+	for _, it := range items {
+		if strings.TrimSpace(it) == from {
+			hit = true
+			it = to
+		}
+		if it == "" || seen[it] {
+			continue
+		}
+		seen[it] = true
+		next = append(next, it)
+	}
+	return next, hit
+}
+
+// unattendedFix keeps the findings a fix may be applied to without anyone
+// asking (D1197): a removal never is. invalid_field_value runs on every write
+// and in the background, and a drop there would erase a new tag an agent wrote
+// before the map_update that declares it. Only an explicit kb_repair (or
+// `cartographer kb repair --apply`) removes.
+func unattendedFix(f lint.Finding) bool {
+	return !f.Fix.Removes()
 }
 
 // repairConceptFixpointOnly is repairConceptFixpoint limited to the findings

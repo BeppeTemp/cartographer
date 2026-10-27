@@ -1,10 +1,14 @@
 package lint
 
 import (
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 // withNow pins the package-level Now for the rest of the test. Never call it from
@@ -198,6 +202,111 @@ func TestFacetSprawl(t *testing.T) {
 	f := observed(t, k)
 	if !hasCheck(f, "m/_map.md", "facet_sprawl") {
 		t.Fatal("facet_sprawl not reported")
+	}
+}
+
+// sprawlKB writes a map whose tags are a sprawl: the cluster fixture of D1197.
+func sprawlKB(t *testing.T, order []int, contract string) *kb.KB {
+	t.Helper()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n"+contract+"---\n")
+	pages := [][]string{
+		{"Foo-Bar"}, {"Foo-Bar"}, {"foo_bar"}, {"foobar"}, {"foobars"},
+		{"alpha"}, {"alpha"}, {"alpha"},
+		{"glass"}, {"glasss"}, // "ss" is not a plural: two clusters
+		{"ab"}, {"abs"}, // a short stem is not de-pluralised: "abs" stays alone
+		{"pair1", "pair-1"}, // two singletons that normalise together
+	}
+	for i := 1; i <= 30; i++ {
+		pages = append(pages, []string{fmt.Sprintf("x%d", i)})
+	}
+	for _, i := range order {
+		if i >= len(pages) {
+			continue
+		}
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%d.md", i), "---\ntype: Note\ntitle: C\ntags: ["+strings.Join(pages[i], ", ")+"]\n---\n# C\n")
+	}
+	return k
+}
+
+func sprawlOrder(reverse bool) []int {
+	var o []int
+	for i := 0; i < 43; i++ {
+		if reverse {
+			o = append(o, 42-i)
+		} else {
+			o = append(o, i)
+		}
+	}
+	return o
+}
+
+func sprawlItem(t *testing.T, k *kb.KB) *Finding {
+	t.Helper()
+	got := findingFor(observed(t, k), "m/_map.md", "facet_sprawl")
+	if got == nil {
+		t.Fatal("facet_sprawl not reported")
+	}
+	return got
+}
+
+func TestFacetSprawlProposal(t *testing.T) {
+	t.Parallel()
+	p := sprawlItem(t, sprawlKB(t, sprawlOrder(false), "")).Proposal
+	if p == nil || p.Key != "field_values.tags" || p.Field != "tags" || p.Type != "" {
+		t.Fatalf("proposal = %+v", p)
+	}
+	// "glass"/"glasss" keep their "ss": two clusters of one use, both dropped.
+	// "pair1"/"pair-1" are singletons that normalise together: a value, named
+	// by the shorter spelling.
+	wantValues := []string{"Foo-Bar", "alpha", "pair1"}
+	if strings.Join(p.Values, ",") != strings.Join(wantValues, ",") {
+		t.Errorf("values = %v, want %v", p.Values, wantValues)
+	}
+	wantMap := map[string]string{"foo_bar": "Foo-Bar", "foobar": "Foo-Bar", "foobars": "Foo-Bar", "pair-1": "pair1"}
+	if fmt.Sprint(p.Mapping) != fmt.Sprint(wantMap) {
+		t.Errorf("mapping = %v, want %v", p.Mapping, wantMap)
+	}
+	// "ab"/"abs": a short stem is not de-pluralised. Every lone singleton is
+	// dropped, and the list is sorted.
+	if !sort.StringsAreSorted(p.Drop) || len(p.Drop) != 34 || p.Drop[0] != "ab" || p.Drop[1] != "abs" {
+		t.Errorf("drop = %v", p.Drop)
+	}
+}
+
+func TestFacetSprawlProposalIsDeterministic(t *testing.T) {
+	t.Parallel()
+	a := sprawlItem(t, sprawlKB(t, sprawlOrder(false), ""))
+	b := sprawlItem(t, sprawlKB(t, sprawlOrder(true), ""))
+	ja, _ := json.Marshal(a)
+	jb, _ := json.Marshal(b)
+	if string(ja) != string(jb) {
+		t.Fatalf("the proposal depends on the write order:\n%s\n%s", ja, jb)
+	}
+}
+
+func TestFacetSprawlNoProposalWhenTagsAreDeclared(t *testing.T) {
+	t.Parallel()
+	for name, contract := range map[string]string{
+		"map-wide": "field_values.*.tags: [alpha]\n",
+		"by type":  "field_values.Note.tags: [alpha]\n",
+	} {
+		f := sprawlItem(t, sprawlKB(t, sprawlOrder(false), contract))
+		if f.Proposal != nil || !strings.Contains(f.Message, "kb_repair invalid_field_value") {
+			t.Errorf("%s: %+v", name, f)
+		}
+	}
+}
+
+func TestFacetSprawlNoProposalWhenAllTagsAreUnique(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	for i := 0; i < 40; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: C\ntags: [u%d]\n---\n# C\n", i))
+	}
+	if f := sprawlItem(t, k); f.Proposal != nil {
+		t.Fatalf("proposal = %+v", f.Proposal)
 	}
 }
 

@@ -82,10 +82,19 @@ const (
 type Fix struct {
 	Kind  string `json:"kind"`
 	Field string `json:"field"`
-	To    string `json:"to,omitempty"`
+	// From is the list item a list_value fix replaces or removes (D1197).
+	From string `json:"from,omitempty"`
+	To   string `json:"to,omitempty"`
 	// Targets are the concepts a fix edits when they are not the finding's own
 	// (retarget_links, D366); empty for every other kind.
 	Targets []string `json:"targets,omitempty"`
+}
+
+// Removes reports a fix that deletes data a person wrote: a list_value with
+// no replacement (D1197). Such a fix is applied only by an explicit
+// kb_repair, never by the write path or the background repair.
+func (f *Fix) Removes() bool {
+	return f != nil && f.Kind == FixListValue && f.To == ""
 }
 
 // FixableChecks are the checks whose findings carry a Fix, which is what

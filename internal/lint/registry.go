@@ -102,7 +102,7 @@ var registry = []CheckSpec{
 	{Name: "title_h1_mismatch", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSyncH1, FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "title_quality", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "missing_required_field", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
-	{Name: "invalid_field_value", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "invalid_field_value", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue, FixListValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "forbidden_field", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "nonstandard_field", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixRenameField, FixDropField}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "tool_param_field", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixDropField}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},

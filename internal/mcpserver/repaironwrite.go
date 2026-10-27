@@ -60,7 +60,7 @@ func repairWritten(k *kb.KB, written, gone []string, view *callerView) (findings
 	}
 	byConcept := map[string][]lint.Finding{} // concept -> its repairable findings
 	for _, f := range found {
-		if f.Fix == nil || f.Artifact || !inChecks[f.Check] {
+		if f.Fix == nil || f.Artifact || !inChecks[f.Check] || !unattendedFix(f) {
 			continue
 		}
 		id := uiFindingConcept(f.Path)
@@ -82,7 +82,7 @@ func repairWritten(k *kb.KB, written, gone []string, view *callerView) (findings
 	for _, id := range ids {
 		// The stage-1 applier (D355): the concept is repaired to a fixpoint
 		// and written once, so a chain (rename, split, normalise) is one write.
-		out, skip := repairConceptFixpoint(k, okf.ConceptID(id), checks, byConcept[id])
+		out, skip := repairConceptFixpointOnly(k, okf.ConceptID(id), checks, byConcept[id], unattendedFix)
 		if skip != nil {
 			fmt.Fprintf(os.Stderr, "cartographer: repair-on-write %s: %s\n", id, skip.Reason)
 			continue
