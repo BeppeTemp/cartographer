@@ -172,6 +172,9 @@ type kbgen struct {
 	maps    []mapInfo
 	ids     []string // every topical concept id
 	retired []string
+	// deprecated are the retired ids a live link makes a link_to_retired
+	// finding of: an archived entry is not one (#1193).
+	deprecated []string
 	// referenced are the ids something links to or points at (a profiled KB).
 	referenced map[string]bool
 }
@@ -462,6 +465,9 @@ func (g *kbgen) topical(nTopical int) {
 			f := g.add("data/"+id+".md", fm(fields...)+body, unborn)
 			if status == "deprecated" || status == "archived" {
 				g.retired = append(g.retired, id)
+			}
+			if status == "deprecated" {
+				g.deprecated = append(g.deprecated, id)
 				f.reason = "retired: no longer in use"
 			}
 		}
@@ -618,8 +624,20 @@ func (g *kbgen) defectsIn(a, b int) {
 	g.add("data/"+m0.slug+"/wrong-type.md", fm("type", "Recipe", "title", "Wrong type", "description", "A type the strict Map does not allow.")+"\n# Wrong type\n", unborn)
 	g.add("data/"+m1.slug+"/Mixed_Case_Name.md", fm("type", "Note", "title", "Mixed case file name")+"\n# Mixed case\n\nLinks twice to [["+m1.ids[0]+"]] and [["+m1.ids[0]+"]].\n", unborn)
 	g.add("data/"+m1.slug+"/untitled.md", fm("type", "Note", "tags", `"[alpha, beta]"`)+"\nNo title, and a list written as a string. Uses {{repo:undeclared-tool}}.\n", unborn)
-	if len(g.retired) > 0 {
-		g.add("data/"+m1.slug+"/points-at-retired.md", fm("type", "Note", "title", "Points at a retired concept")+"\n# Points at retired\n\nStill links to [["+g.retired[0]+"]].\n", unborn)
+	// A profile with no deprecated page (only archived ones, which a live link
+	// does not make a finding of, #1193) gets one to point at.
+	target := ""
+	if len(g.deprecated) > 0 {
+		target = g.deprecated[0]
+	} else if len(g.retired) > 0 {
+		target = m1.slug + "/retired-concept"
+		g.add("data/"+target+".md", fm("type", "Note", "title", "Retired concept", "status", "deprecated")+"\n# Retired concept\n\nStill links to [["+m1.ids[0]+"]].\n", unborn)
+		if g.referenced != nil {
+			g.referenced[target] = true // linked: the history's late move must not rename it
+		}
+	}
+	if target != "" {
+		g.add("data/"+m1.slug+"/points-at-retired.md", fm("type", "Note", "title", "Points at a retired concept")+"\n# Points at retired\n\nStill links to [["+target+"]].\n", unborn)
 	}
 	g.add("data/"+m1.slug+"/notes.txt", "a stray file in a Map\n", unborn)
 	g.add("data/scratch/loose-note.md", fm("type", "Note", "title", "Loose note")+"\n# Loose note\n\nIn a folder with no _map.md.\n", unborn)

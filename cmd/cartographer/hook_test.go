@@ -242,3 +242,18 @@ func TestWriteFindingsHook_CopilotChannel(t *testing.T) {
 		t.Errorf("clean write: code %d stdout %q, want silent", code, stdout)
 	}
 }
+
+// #1193: the feedback gives a check defect the kb-doctor's one path (step 6):
+// leave the page, report it in the session log, never remove evidence.
+func TestWriteFindingsHook_CheckDefectPath(t *testing.T) {
+	in := `{"tool_name":"mcp__s__concept_patch","tool_response":{"findings":[{"path":"kb-a/p","check":"orphan","message":"m"}]}}`
+	code, _, stderr := runHook(t, in)
+	if code != 2 {
+		t.Fatalf("code %d:\n%s", code, stderr)
+	}
+	for _, want := range []string{"defect of the check", "leave the page", "never remove evidence", "session log"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("feedback lacks %q:\n%s", want, stderr)
+		}
+	}
+}

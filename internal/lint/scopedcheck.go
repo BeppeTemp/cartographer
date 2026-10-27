@@ -23,11 +23,11 @@ const scopedNeighbourCap = 200
 //
 // On each existing ID it runs broken_link, duplicate_link, bare_link_list,
 // reciprocal_link_item, unknown_placeholder, forbidden_term, orphan,
-// broken_relation, link_to_retired (when the concept is retired) and
+// broken_relation, link_to_retired (when the concept is deprecated or superseded) and
 // index_incomplete (its map or expanded concept keeps a curated index).
 // On the neighbours it reports only what the write introduced: a broken_link
 // on a page that links an ID that does not exist (a moved or deleted
-// concept), and link_to_retired on a retired concept the given ID links. A
+// concept), and link_to_retired on a deprecated or superseded concept the given ID links. A
 // neighbour's own pre-existing findings are never returned.
 //
 // The whole-KB structural analysis stays out: the whole-graph checks are left
@@ -194,7 +194,7 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		}
 		for _, ti := range targets {
 			tid := lg.IDs[ti]
-			if isInput[tid] || !retired(lg.Facets[ti].Status) {
+			if isInput[tid] || !linkRetired(lg.Facets[ti].Status) {
 				continue
 			}
 			linked := false
