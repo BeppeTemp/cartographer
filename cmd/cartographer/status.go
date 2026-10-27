@@ -311,7 +311,15 @@ func printInstructionsSizeWarnings(dir string, results map[string]provisioning.A
 	if err != nil {
 		return
 	}
-	for _, name := range sortedKeys(results) {
+	// snapshotInstructionsBlocks walks every projection of a provider, so a
+	// provider is visited once however many workspaces it was applied to.
+	seen := map[string]bool{}
+	for _, key := range sortedKeys(results) {
+		name, _ := splitProjectionKey(key)
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
 		for _, b := range snapshotInstructionsBlocks(lockFile, name, dir) {
 			if b.Over {
 				fmt.Println(instructionsSizeLine(name, b))

@@ -650,6 +650,8 @@ A projection writes into a directory the user version-controls, so two rules hol
   path the lockfile records for the projection, so a repository's own skills in `.agents/skills/`
   next to the projected ones are neither refused nor excluded
   ([D1181](decisions/D1181-workspace-projection-owns-artifacts-not-directories.md)).
+- A workspace projection's lines in `sync` and `sync --dry-run` are labelled `[<provider> <workspace>]`,
+  with the home directory shown as `$HOME`: a printable label that `grep` reads as text (#1200).
 - Cartographer excludes **only its own untracked paths**, and only in the repository's `info/exclude`
   (`.git/info/exclude`), inside a marker-delimited block. It **never** edits `.gitignore`: that file
   is the repository's, shared with everyone who clones it. A shared file the repository already
@@ -658,6 +660,11 @@ A projection writes into a directory the user version-controls, so two rules hol
   The block is one per workspace and lists the paths of **every** provider bound to it, including
   one a `sync --client` run does not touch; unbinding a provider rewrites it with the others'
   paths, and only the last one leaving removes it (#656).
+  The block lists every path the projection owns, the hook companions that sit outside the hook
+  directories included: Codex's `.codex/hooks.json` (unless the repository tracks it, then it is
+  the repository's) and the generated OpenCode plugins under `.config/opencode/plugins/`. The
+  workspace root is never a line of it. `cartographer doctor` lists the untracked files under a
+  provider's directories that neither the block nor an ignore file covers (#1199).
   Where `.git` is a file, as in a linked worktree or a submodule, the exclude file is resolved the
   way git does, without running git: the `gitdir:` line, then the `commondir` file if the git
   directory has one. A linked worktree shares `info/exclude` with the main checkout and every other
