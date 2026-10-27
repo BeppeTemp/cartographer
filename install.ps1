@@ -74,8 +74,11 @@ function Get-CartographerLatestTag([string]$ApiUrl, [string]$TmpDir) {
     }
     # Read from a file rather than .Content: depending on the Content-Type and
     # the PowerShell edition, .Content is a string or a byte array.
-    $releases = @(Get-Content -Raw -Path $out | ConvertFrom-Json)
-    $stable = @($releases | Where-Object { [string]$_.tag_name -match '^v?[0-9]+\.[0-9]+\.[0-9]+$' })
+    # -InputObject, not the pipeline: Windows PowerShell 5.1 emits a piped JSON
+    # array as ONE object, so filtering it would see every tag at once. The
+    # `foreach` statement then walks the elements under both editions.
+    $releases = ConvertFrom-Json -InputObject (Get-Content -Raw -Path $out)
+    $stable = @(foreach ($r in $releases) { if ([string]$r.tag_name -match '^v?[0-9]+\.[0-9]+\.[0-9]+$') { $r } })
     if ($stable.Count -eq 0) {
         throw 'cannot determine the latest release: the release list has no release without a pre-release suffix'
     }
