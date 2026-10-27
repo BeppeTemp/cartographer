@@ -333,6 +333,8 @@ The legacy keys are reported and dropped, never honoured:
 
 `kb_repair` applies each, and so do the unattended repairs (the checks are auto-repair safe).
 
+`superseded_target_retired` (D1069) is reported on a page whose `superseded_by` names a `superseded` concept that has a `superseded_by` of its own, when following the explicit chain ends at a concept that is not `superseded`: that end is the current replacement (fix `set_value superseded_by`, not auto-repair safe, since a middle page can be retired for a reason that does not transfer). A `deprecated` or `archived` target is history kept readable on purpose and is never walked past; a chain that dead-ends or cycles has no single better state. On write only the written page's own pointer is examined, so retiring the middle page is never refused for a finding on an untouched page.
+
 `index_lists_retired` (D344) is one finding per retired concept that a curated index of a live map still lists (D366; one per index before); journals, generated indexes and maps where at least half of the top-level concepts are retired (an archive) are exempt. That rule is `kb.IsArchiveMap`, the one function the lint exemption and the overview's `archive` flag both ask, which the Atlas's rail shows as an "Archive" badge (D820); no contract field marks an archive. `concept_archive` removes the entry (an advanced tool; without it, `kb_repair` on this check or `index_patch` does, and the message says so); the finding catches a hand-made retirement. It carries `drop_index_entry` (D366, `field` = the concept; auto-repair safe, in `lint.AutoRepairOrder`) when a line of the index lists that concept and nothing else, and the repair drops that line (the code `concept_archive` uses); a concept cited only on lines with other links keeps no fix and stays with the doctor. The finding's path is the index, so the repair is a map repair (`lint.MapRepairCheck`), not a concept write. A retired concept left in a live map is never asked back in: `index_incomplete` skips it (D826), so the entry the repair drops does not come back as a finding on the next run.
 
 Structural checks flag defects, not structure (D313): `link_to_retired` is **one finding per retired
@@ -399,6 +401,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `tool_param_field` | concept | yes | `drop_field` | yes | yes |
 | `prose_value` | concept | yes | `split_value` | yes | yes |
 | `stale_open` | concept | - | - | - | yes |
+| `wait_undated` | concept | yes | - | - | yes |
 | `closed_with_open_items` | concept | yes | - | - | yes |
 | `template_section_missing` | concept | yes | - | - | yes |
 | `template_missing` | concept | yes | `set_value` | yes | yes |
@@ -430,12 +433,14 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `index_link_form` | graph | yes | `rebase_link`, `rewrite_wiki_link` | yes | yes |
 | `orphan` | graph | yes | - | - | yes |
 | `broken_relation` | graph | yes | - | - | yes |
+| `superseded_target_retired` | graph | yes | `set_value` | - | yes |
 | `link_to_retired` | graph | yes | `retarget_links` | yes | yes |
 | `unknown_placeholder` | graph | yes | - | - | yes |
 | `forbidden_term` | graph | yes | - | - | yes |
 | `source_uncited` | graph | - | - | - | - |
 | `unknown_type` | graph | yes | `set_value` | - | - |
 | `value_case_variant` | graph | yes | `set_value` | yes | - |
+| `digest_missing` | graph | - | - | - | - |
 | `contract_malformed` | map | yes | - | - | - |
 | `legacy_archive_descriptor` | map | - | - | - | - |
 | `contract_legacy_key` | map | - | `rewrite_contract` | yes | - |
@@ -495,6 +500,7 @@ Every other check is avoidable at write, and the write gate refuses a write that
 | Legacy state | `contract_legacy_key` | a `_map.md` or `instructions.md` that still carries a key D907 removed; `kb_repair` drops it |
 | The KB's initial state | `missing_instructions` | the KB has no `instructions.md` yet, and the finding has no file to name |
 | The KB's initial state | `missing_registry` | placeholders are cited and the KB never got a `paths.yaml` |
+| Work another tool does | `digest_missing` | archived journal entries no `digest` of the same journal links: archiving and writing the digest are two writes of the harvest (D1069) |
 | Work another tool does | `source_uncited` | a `Source` marked `ingested` that no page cites: the ledger and the pages built on the source are different writes (`source_register`, `concept_write`) |
 | Work another tool does | `imported_draft` | `status: imported`, set by `cartographer import` until the page is curated |
 | Work another tool does | `index_stale` | the generated index block differs from the graph: the server rewrites it after the write, in the same commit (§Generated indexes) |
@@ -614,6 +620,7 @@ Lint also sees a KB **decaying**: work never closed, closed work not finished, p
 Ageing cannot be switched off (D907): `map_update` with `stale_after` or `harvest_after` set to `-1` removes the key (back to the default above), and `0` is refused ("staleness cannot be switched off", "harvesting cannot be switched off"). A `0` already in a `_map.md` is a removed key (`contract_legacy_key`, §Maps and Journals) and reads as the default. A map that should not age its pages declares no `open_statuses` and is a reference map.
 
 - `stale_open`: open status and `timestamp` older than the effective `stale_after` (`map_update` resets an explicit value with `-1`; `kb_status.stale_count` is a different signal, past `review_after`), unless the concept declares a `review_after` today or later: that suspends the timer (D321); a `review_after` before today does not, it makes the wait overdue (and `stale_claim` fires: both judge the date by UTC day, so neither treats the review day itself as past). `waiting_on` is a free-text field naming who or what blocks the work, with no vocabulary; the doctor sets both on a finding only the operator can resolve.
+- `wait_undated`: a `waiting_on` with a `review_after` that is absent, empty or not a `YYYY-MM-DD` date, so the wait suspends nothing and never comes back. A `review_after` in the past is `stale_claim`'s; a page in a closed phase or retired is exempt. Checked on write; no mechanical fix (the date is a choice): set `review_after` or drop `waiting_on` (D1069).
 - `status_semantics` (D321): `status` in the `active` family on a concept of a journal whose `open_statuses` does not list it, which is checked on write too; never raised in a map with `open_field`, where `status` is the lifecycle (D347). The review kind `status_reclassify` proposes the replacement.
 - `closed_with_open_items`: a status of the `done` or `resolved` family with unchecked `- [ ]` items outside code and outside a section whose H2 matches the map's `procedure_headings` (default `procedure`, `steps`, `how to`: a procedure's checklist is a reusable template, D313).
 - `template_section_missing` (D352): required sections of the page's template (optional ones subtracted, an alias counts as the section) the page lacks, compared folding case and accents; headings inside fenced code are ignored. Evaluated on every template-bound page of a map that declares templates (below); closed pages are exempt. No fix: an empty heading is a hollow promise.
@@ -657,6 +664,8 @@ On a map that declares `templates` or a `default_template`, all evaluated on the
 ### The `archived` status (D322)
 
 `archived` is a server-reserved status, after `done`: the entry is finished **and** its durable facts have been carried into the live pages it links. It is retired like `deprecated` and `superseded` (`link_to_retired` counts live linkers, `map_misfit` and `link_suggest` skip it; a `digest`-typed page linking archived entries is not a linker) and closed, never open, and in no synonym family: it is a lifecycle stage, not a value a KB chooses among synonyms. An archived concept stays readable and linkable but leaves the active surface: default `search` (with an archived fallback, `docs/control-plane.md`), `read_cost`, the `atlas_overview` structure graph and the `map_oversize` count. The other graph tools still show it; `deprecated` and `superseded` concepts still count in `read_cost`. The bundled `cartographer-kb-doctor` skill does the harvest: facts into live pages with a dated link back, `status: archived` with a header line, one `reference` digest per quarter. Nothing is deleted or moved. The status is allowed on any concept, not only in a journal: it is the harvest outcome for journal entries and also what `concept_archive` (D344) writes into the archive map, so no check flags it elsewhere. A retired page that stays in a live map gets no `index_incomplete` or `orphan` finding (D826). Where a retired concept went, when and why is not in the page: `concept_archive` and `supersede` log it (`concept_archive: <src> -> <dst> (<status>[, <reason>])`, `supersede: <src> → <dst>`) and `kb.Retirements` reads the root `log.md` back (the reason is one line: `concept_archive` collapses line breaks, and the parser also reads an older multi-line title), which is how `GET /api/ui/v1/kbs/{kb}/retired` (D820), and the Activity timeline's retired rows on it (D1146), tell the story of a page archived before it existed.
+
+`digest_missing` (D1069, whole-graph, category `maps`, inactive when no map is a journal): an archived entry of a journal is covered when a concept of type `digest` in the same journal links it. One finding per (journal, calendar quarter of the entry's `timestamp`; entries without a parseable one form an `undated` group), on the group's first entry in id order, naming the count and the conventional `<journal>/archive-<year>-q<n>`. No mechanical fix: the digest has content (outcome and lessons per entry).
 
 ### Review keys (D298)
 

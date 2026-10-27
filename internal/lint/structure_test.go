@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // structKB writes maps and concepts; a concept body is its links, and fm is
@@ -302,5 +303,139 @@ func TestCutConcept_MixedStillFires(t *testing.T) {
 	}
 	if !strings.Contains(msg, "disconnects 3 concepts (e.g. ops/leaf1, ops/leaf2, ops/leaf3)") || strings.Contains(msg, "incidents") {
 		t.Fatalf("a real separation must fire, naming only map concepts: %q", msg)
+	}
+}
+
+// D1069: superseded_target_retired points at the live end of the chain.
+func TestSupersededTargetRetired(t *testing.T) {
+	t.Parallel()
+	s := newStructKB(t, map[string]string{"ops": "map"})
+	sup := func(to string) string { return "status: superseded\nsuperseded_by: " + to + "\n" }
+	s.concept("ops/a", sup("ops/b"))
+	s.concept("ops/b", sup("ops/c"))
+	s.concept("ops/c", "")
+	// two superseded hops: a2 and m1 both end at live
+	s.concept("ops/a2", sup("ops/m1"))
+	s.concept("ops/m1", sup("ops/m2"))
+	s.concept("ops/m2", sup("ops/live"))
+	s.concept("ops/live", "")
+	// deprecated / archived targets are history, not findings
+	s.concept("ops/d1", sup("ops/dep"))
+	s.concept("ops/dep", "status: deprecated\n")
+	s.concept("ops/d2", sup("ops/arc"))
+	s.concept("ops/arc", "status: archived\n")
+	// dead end and cycle
+	s.concept("ops/e1", sup("ops/e2"))
+	s.concept("ops/e2", "status: superseded\n")
+	s.concept("ops/y1", sup("ops/y2"))
+	s.concept("ops/y2", sup("ops/y3"))
+	s.concept("ops/y3", sup("ops/y2"))
+	// missing target is broken_relation
+	s.concept("ops/x", sup("ops/nowhere"))
+	f := s.run("")
+	got := map[string]string{}
+	for _, x := range findingsOf(f, "superseded_target_retired") {
+		if x.Fix == nil || x.Fix.Kind != FixSetValue || x.Fix.Field != "superseded_by" {
+			t.Fatalf("fix = %+v", x.Fix)
+		}
+		got[x.Path] = x.Fix.To
+	}
+	want := map[string]string{"ops/a.md": "ops/c", "ops/a2.md": "ops/live", "ops/m1.md": "ops/live"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	if hasCheck(f, "ops/x.md", "superseded_target_retired") || !hasCheck(f, "ops/x.md", "broken_relation") {
+		t.Error("a missing target is broken_relation only")
+	}
+	if AutoRepairSafe("superseded_target_retired") {
+		t.Error("must not be auto-repair safe")
+	}
+}
+
+// ScopedCheck examines the written concept's own pointer only.
+func TestSupersededTargetRetired_Scoped(t *testing.T) {
+	t.Parallel()
+	s := newStructKB(t, map[string]string{"ops": "map"})
+	s.concept("ops/a", "status: superseded\nsuperseded_by: ops/b\n")
+	s.concept("ops/b", "status: superseded\nsuperseded_by: ops/c\n")
+	s.concept("ops/c", "")
+	if got := findingsOf(ScopedCheck(s.k, []okf.ConceptID{"ops/a"}), "superseded_target_retired"); len(got) != 1 {
+		t.Fatalf("written a: %+v", got)
+	}
+	if got := findingsOf(ScopedCheck(s.k, []okf.ConceptID{"ops/b"}), "superseded_target_retired"); len(got) != 0 {
+		t.Fatalf("retiring b must not report on untouched a: %+v", got)
+	}
+}
+
+func TestDigestMissing(t *testing.T) {
+	t.Parallel()
+	s := newStructKB(t, map[string]string{"diary": "journal", "log": "journal", "ops": "map"})
+	entry := func(id, ts string) {
+		fm := "status: archived\n"
+		if ts != "" {
+			fm += "timestamp: " + ts + "\n"
+		}
+		s.concept(id, fm)
+	}
+	entry("diary/e1", "2026-01-05")
+	entry("diary/e2", "2026-02-05")
+	entry("diary/e3", "2026-03-05")
+	entry("diary/q2", "2026-05-05")
+	entry("diary/nodate", "")
+	entry("ops/arch", "2026-01-05") // not a journal
+	f := findingsOf(s.run(""), "digest_missing")
+	if len(f) != 3 {
+		t.Fatalf("want 3 groups (q1, q2, undated): %+v", f)
+	}
+	if f[0].Path != "diary/e1.md" || !strings.Contains(f[0].Message, "3 archived entries") || !strings.Contains(f[0].Message, "diary/archive-2026-q1") {
+		t.Errorf("q1 group: %+v", f[0])
+	}
+	if fmt.Sprint(f) != fmt.Sprint(findingsOf(s.run(""), "digest_missing")) {
+		t.Error("not deterministic")
+	}
+
+	// A digest of the same journal covering two of three.
+	writeFile(t, s.k.DataRoot(), "diary/archive-2026-q1.md", "---\ntype: digest\ntitle: d\nstatus: reference\n---\nSee [[diary/e1]] [[diary/e2]].\n")
+	f = findingsOf(s.run(""), "digest_missing")
+	if len(f) != 3 || !strings.Contains(f[0].Message, "1 archived entries") || f[0].Path != "diary/e3.md" {
+		t.Fatalf("partial coverage: %+v", f)
+	}
+	// Another journal's digest does not cover; a non-digest type does not.
+	writeFile(t, s.k.DataRoot(), "log/archive-2026-q1.md", "---\ntype: digest\ntitle: d\nstatus: reference\n---\nSee [[diary/e3]].\n")
+	writeFile(t, s.k.DataRoot(), "diary/ref.md", "---\ntype: reference\ntitle: r\n---\nSee [[diary/e3]].\n")
+	if f = findingsOf(s.run(""), "digest_missing"); len(f) != 3 {
+		t.Fatalf("foreign digest / reference page must not cover: %+v", f)
+	}
+	writeFile(t, s.k.DataRoot(), "diary/archive-2026-q1.md", "---\ntype: digest\ntitle: d\nstatus: reference\n---\nSee [[diary/e1]] [[diary/e2]] [[diary/e3]].\n")
+	if f = findingsOf(s.run(""), "digest_missing"); len(f) != 2 {
+		t.Fatalf("q1 covered: %+v", f)
+	}
+}
+
+func TestDigestMissing_InactiveWithoutJournal(t *testing.T) {
+	t.Parallel()
+	s := newStructKB(t, map[string]string{"ops": "map"})
+	if r := Inactive(s.k)["digest_missing"]; r != "no map is a journal" {
+		t.Fatalf("inactive reason = %q", r)
+	}
+	s2 := newStructKB(t, map[string]string{"ops": "map", "diary": "journal"})
+	if r, ok := Inactive(s2.k)["digest_missing"]; ok {
+		t.Fatalf("active with a journal, got %q", r)
+	}
+}
+
+func TestDigestMissing_ScopeAndCaseAndQuarters(t *testing.T) {
+	t.Parallel()
+	s := newStructKB(t, map[string]string{"diary": "journal"})
+	s.concept("diary/e1", "status: Archived\ntimestamp: 2026-01-05\n")
+	s.concept("diary/e2", "status: archived\ntimestamp: 2026-02-05\n")
+	s.concept("diary/e3", "status: archived\ntimestamp: 2026-08-05\n")
+	f := findingsOf(s.run(""), "digest_missing")
+	if len(f) != 2 || !strings.Contains(f[0].Message, "2026-q1") || !strings.Contains(f[0].Message, "2 archived entries") || !strings.Contains(f[1].Message, "2026-q3") {
+		t.Fatalf("two quarters, Archived normalised: %+v", f)
+	}
+	f = findingsOf(s.run("diary/e2"), "digest_missing")
+	if len(f) != 1 || f[0].Path != "diary/e2.md" || !strings.Contains(f[0].Message, "1 archived entries") {
+		t.Fatalf("scoped to a non-first entry: %+v", f)
 	}
 }

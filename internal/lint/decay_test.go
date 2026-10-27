@@ -211,3 +211,36 @@ func TestTemplateSectionsFromFencedSample(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+// D1069: a waiting_on with no date to come back to is a finding; a past date
+// is stale_claim's, a closed or retired page has nothing to wait for.
+func TestWaitUndated(t *testing.T) {
+	withNow(t, "2026-10-01")
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\nopen_statuses: [open, in-progress, blocked]\n---\n")
+	page := func(rel, status, extra string) {
+		writeFile(t, k.DataRoot(), rel, "---\ntype: Task\ntitle: T\nstatus: "+status+"\ntimestamp: 2026-09-30\nwaiting_on: vendor\n"+extra+"---\n# T\n")
+	}
+	page("j/none.md", "blocked", "")
+	page("j/empty.md", "blocked", "review_after: \"\"\n")
+	page("j/garbage.md", "blocked", "review_after: soon\n")
+	page("j/future.md", "blocked", "review_after: 2026-10-31\n")
+	page("j/today.md", "blocked", "review_after: 2026-10-01\n")
+	page("j/past.md", "blocked", "review_after: 2026-09-01\n")
+	page("j/done.md", "done", "")
+	page("j/archived.md", "archived", "")
+	page("j/deprecated.md", "deprecated", "")
+	f, _ := Run(k, "", false)
+	for rel, want := range map[string]bool{"j/none.md": true, "j/empty.md": true, "j/garbage.md": true, "j/future.md": false, "j/today.md": false, "j/past.md": false, "j/done.md": false, "j/archived.md": false, "j/deprecated.md": false} {
+		if got := hasCheck(f, rel, "wait_undated"); got != want {
+			t.Errorf("%s: wait_undated = %v, want %v", rel, got, want)
+		}
+	}
+	if !hasCheck(f, "j/past.md", "stale_claim") {
+		t.Error("a past review_after stays stale_claim's")
+	}
+	m := findingsOf(f, "wait_undated")[0].Message
+	if !strings.Contains(m, "set review_after") || !strings.Contains(m, "drop waiting_on") {
+		t.Errorf("message must name both closings: %s", m)
+	}
+}

@@ -233,6 +233,20 @@ func TestFixableChecksCoverEveryEmittedFix(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// D1069: a chain whose middle link was itself superseded.
+	for id, extra := range map[string][2]string{"ops/chain-a": {"superseded", "ops/chain-b"}, "ops/chain-b": {"superseded", "ops/chain-c"}, "ops/chain-c": {"", ""}} {
+		cf := newFM()
+		cf.Set("type", "Note")
+		cf.Set("title", id)
+		cf.Set("updated", "2026-01-02")
+		if extra[0] != "" {
+			cf.Set("status", extra[0])
+			cf.Set("superseded_by", extra[1])
+		}
+		if _, err := k.WriteConcept(okf.ConceptID(id), cf, "# C\n", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
 	seedDriftFixes(t, k)                             // D357
 	driftWrite(t, k, "legacy/_map.md", legacyMap)    // D907: a pre-D907 descriptor
 	writeKBSkill(t, k, "kb-create", legacySkillText) // D958: a pre-rename bundled skill
@@ -982,5 +996,32 @@ func TestKBRepairSelfLinkIsDropped(t *testing.T) {
 	}
 	if !strings.Contains(cd.Body, "See Me here.") {
 		t.Fatalf("after repair:\n%s", cd.Body)
+	}
+}
+
+// D1069: kb_repair points superseded_by at the end of the chain, and a second
+// run changes nothing.
+func TestKBRepairSupersededTargetRetired(t *testing.T) {
+	t.Parallel()
+	k, s := repairKB(t, 0)
+	for id, extra := range map[string][2]string{"ops/a": {"superseded", "ops/b"}, "ops/b": {"superseded", "ops/c"}, "ops/c": {"", ""}} {
+		fm := newFM()
+		fm.Set("type", "Note")
+		fm.Set("title", id)
+		if extra[0] != "" {
+			fm.Set("status", extra[0])
+			fm.Set("superseded_by", extra[1])
+		}
+		if _, err := k.WriteConcept(okf.ConceptID(id), fm, "# T\n", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	repairCall(t, s, `{"check":"superseded_target_retired","dry_run":false}`)
+	a, _ := k.ReadConcept("ops/a")
+	if !strings.Contains(a.FrontmatterRaw, "superseded_by: ops/c") {
+		t.Fatalf("not repointed:\n%s", a.FrontmatterRaw)
+	}
+	if out := repairCall(t, s, `{"check":"superseded_target_retired"}`); out["planned_total"].(float64) != 0 {
+		t.Fatalf("second run must plan nothing: %v", out)
 	}
 }

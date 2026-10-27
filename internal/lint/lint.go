@@ -538,6 +538,11 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		findings = append(findings, f...)
 	}
 
+	// --- digest_missing (D322) ---
+	// Whole-graph coverage, but only entries in scope are counted and anchor
+	// a finding.
+	findings = append(findings, st.digestMissing(k, func(id okf.ConceptID) bool { _, in := toCheck[id]; return in })...)
+
 	// --- structural checks on maps and expanded concepts (D77 WP4) ---
 	// Directory-based (unlike the checks above, not driven by toCheck).
 	for _, archiveName := range archives {
