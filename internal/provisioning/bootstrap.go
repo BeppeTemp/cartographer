@@ -262,17 +262,47 @@ type hookMechanism struct {
 	register func(baseDir, name, fullDestDir string) (relPath, warning string, registered bool, err error)
 }
 
+// claudeHookRegistrar registers a Claude Code hook in the settings file
+// settingsRel names ("" for settings.json; see registerHookSettings).
+func claudeHookRegistrar(settingsRel string) func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+	file := settingsRel
+	if file == "" {
+		file = "settings.json"
+	}
+	return func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+		warning, registered, err := registerHookSettings(baseDir, settingsRel, name, fullDestDir)
+		if err != nil {
+			return "", "", false, fmt.Errorf("provisioning: register hook %s in %s: %w", name, file, err)
+		}
+		return "", warning, registered, nil
+	}
+}
+
+// claudeMovingRegistrar is the registrar of a derived Claude Code projection
+// (#1198): it strips the hook from the other settings files it may edit
+// (strip[1:], an untracked settings.json), then registers it in strip[0]. A
+// hook a tracked settings.json still registers is left there, with a warning,
+// and not registered twice.
+func claudeMovingRegistrar(strip []string) func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+	register := claudeHookRegistrar(strip[0])
+	return func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+		if len(strip) == 1 && claudeHookRegisteredIn(baseDir, claudeSettingsFiles[0], name) {
+			return "", fmt.Sprintf("hook %q: still registered in the tracked %s by an earlier version, so not registered in %s; remove that entry (`cartographer doctor`)", name, claudeSettingsFiles[0], strip[0]), true, nil
+		}
+		if len(strip) > 1 {
+			if err := removeHookEntries(baseDir, name, strip[1:]...); err != nil {
+				return "", "", false, err
+			}
+		}
+		return register(baseDir, name, fullDestDir)
+	}
+}
+
 var hookMechanisms = map[configurator.Provider]hookMechanism{
 	configurator.ProviderClaudeCode: {
 		settingsFile:      []string{".claude", "settings.json"},
 		writeFindingsHook: true,
-		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
-			warning, registered, err := registerHookSettings(baseDir, name, fullDestDir)
-			if err != nil {
-				return "", "", false, fmt.Errorf("provisioning: register hook %s in settings.json: %w", name, err)
-			}
-			return "", warning, registered, nil
-		},
+		register:          claudeHookRegistrar(""),
 	},
 	configurator.ProviderCodex: {
 		settingsFile: []string{".codex", "hooks.json"},

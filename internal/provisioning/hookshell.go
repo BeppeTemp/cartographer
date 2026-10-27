@@ -83,13 +83,15 @@ func hookCommandProblem(command string, windows bool, exists func(string) bool) 
 // found, "" when there is none — including when nothing is registered, which is
 // not this check's finding to make.
 func claudeHookCommandProblem(baseDir, hookName string) (string, error) {
-	settings, err := loadJSONObject(claudeSettingsPath(baseDir)) // a missing file is {}
+	files, err := loadClaudeSettings(baseDir) // settings.json, then settings.local.json (#1198)
 	if err != nil {
 		return "", err
 	}
-	for _, command := range ownedHookCommands(settings, hookOwnershipMarker(hookName)) {
-		if problem := hookCommandProblem(command, hookHostWindows, fileExists); problem != "" {
-			return problem, nil
+	for _, settings := range files {
+		for _, command := range ownedHookCommands(settings, hookOwnershipMarker(hookName)) {
+			if problem := hookCommandProblem(command, hookHostWindows, fileExists); problem != "" {
+				return problem, nil
+			}
 		}
 	}
 	return "", nil

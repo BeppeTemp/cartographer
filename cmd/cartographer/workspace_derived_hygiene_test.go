@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -236,5 +238,117 @@ func TestDerivedWorkspace_InvalidNameSkipsOnlyDerived(t *testing.T) {
 	var badName *provisioning.InvalidArtifactNameError
 	if err := bad(kiroProjection(ws, false)); !errors.As(err, &badName) {
 		t.Errorf("explicit = %v, want the refusal", err)
+	}
+}
+
+func claudeDerivedProjection(ws string) syncProjection {
+	p := syncProjection{Provider: "claude", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject, Derived: true}
+	p.InstructionsRel, p.InstructionsSkipped = derivedInstructions(p.Provider, ws)
+	p.SharedSkipped, p.SkipKinds = derivedSharedSkips(p.Provider, ws)
+	p.HookSettingsRel = derivedHookSettings(p.Provider, p.SkipKinds)
+	return p
+}
+
+func bundleHook(name string) provisioning.Artifact {
+	return provisioning.Artifact{Kind: "hook", Name: name, Source: "bundle", BuiltIn: true, ContentHash: "h-" + name, Files: []provisioning.ArtifactFile{
+		{Path: "hook.json", Content: []byte(`{"event":"PreToolUse","matcher":"Bash","command":"./run.sh"}`)},
+		{Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true},
+	}}
+}
+
+const trackedClaudeSettings = `{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "make fmt",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
+`
+
+// #1198: a derived Claude Code projection registers its hooks in the untracked
+// settings.local.json, never in a tracked settings.json, and leaves the working
+// tree clean.
+func TestDerivedWorkspace_ClaudeHooksGoToSettingsLocal(t *testing.T) {
+	ws := trackedRepo(t, map[string]string{".claude/settings.json": trackedClaudeSettings})
+	p := claudeDerivedProjection(ws)
+	if p.HookSettingsRel != provisioning.ClaudeLocalSettings {
+		t.Fatalf("HookSettingsRel = %q", p.HookSettingsRel)
+	}
+	m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{bundleHook("guard"), bundleHook("audit")}}
+	if _, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(ws, ".claude", "settings.json")); string(got) != trackedClaudeSettings {
+		t.Errorf("the tracked settings.json changed:\n%s", got)
+	}
+	local, err := os.ReadFile(filepath.Join(ws, ".claude", "settings.local.json"))
+	if err != nil || !bytes.Contains(local, []byte(".claude/hooks/guard/")) || !bytes.Contains(local, []byte(".claude/hooks/audit/")) {
+		t.Errorf("hooks not registered in settings.local.json: %v\n%s", err, local)
+	}
+	out, err := exec.Command("git", "-C", ws, "status", "--porcelain").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// trackedRepo stages its files without a commit: that line is the only one.
+	if got := strings.TrimSpace(string(out)); got != "A  .claude/settings.json" {
+		t.Errorf("the working tree is dirty:\n%s", out)
+	}
+}
+
+// A repository that tracks settings.local.json too gets no hook at all from a
+// derived binding, and status says why.
+func TestDerivedWorkspace_TrackedClaudeSettingsLocalSkipsHooks(t *testing.T) {
+	const own = "{\"permissions\": {}}\n"
+	ws := trackedRepo(t, map[string]string{".claude/settings.local.json": own})
+	p := claudeDerivedProjection(ws)
+	if p.HookSettingsRel != "" || !slices.Contains(p.SkipKinds, "hook") || !slices.Contains(p.SharedSkipped, provisioning.ClaudeLocalSettings) {
+		t.Fatalf("projection = %+v, want hooks skipped", p)
+	}
+	m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{bundleHook("guard")}}
+	if _, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(ws, ".claude", "settings.local.json")); string(got) != own {
+		t.Errorf("the tracked settings.local.json changed:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".claude", "settings.json")); !os.IsNotExist(err) {
+		t.Errorf("a settings.json was written: %v", err)
+	}
+}
+
+// #1198: doctor reports a tracked settings.json holding Cartographer hook
+// entries in a derived Claude Code workspace.
+func TestTrackedClaudeHookSettings(t *testing.T) {
+	withEntry := strings.Replace(trackedClaudeSettings, `"hooks": {`, `"hooks": {
+    "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "'/repo/.claude/hooks/guard/run.sh' # cartographer-hook: .claude/hooks/guard/"}]}],`, 1)
+	for name, tc := range map[string]struct {
+		content string
+		want    bool
+	}{
+		"cartographer entry": {withEntry, true},
+		"team hooks only":    {trackedClaudeSettings, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ws := trackedRepo(t, map[string]string{".claude/settings.json": tc.content})
+			got := trackedClaudeHookSettings("claude", ws, provisioning.LockFile{})
+			if (len(got) == 1) != tc.want {
+				t.Errorf("findings = %+v, want finding %v", got, tc.want)
+			}
+			if len(got) == 1 && !strings.Contains(got[0].Message, provisioning.ClaudeLocalSettings) {
+				t.Errorf("message does not name settings.local.json: %s", got[0].Message)
+			}
+		})
+	}
+	if got := trackedClaudeHookSettings("codex", t.TempDir(), provisioning.LockFile{}); len(got) != 0 {
+		t.Errorf("codex: %+v", got)
 	}
 }

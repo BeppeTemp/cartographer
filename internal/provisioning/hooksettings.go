@@ -41,7 +41,12 @@ type hookSpec struct {
 // vocabulary is registered as declared, with a warning. This is the claude provider's registrar: hookMechanisms dispatches
 // each provider to its own (codex, opencode and antigravity have theirs), so no
 // provider parameter is needed here.
-func registerHookSettings(baseDir, hookName, fullDestDir string) (string, bool, error) {
+//
+// settingsRel is the settings file, relative to baseDir: "" for
+// .claude/settings.json, ClaudeLocalSettings for a derived workspace binding
+// (#1198), which never edits a tracked file. Either is rewritten keeping its
+// key order and final newline.
+func registerHookSettings(baseDir, settingsRel, hookName, fullDestDir string) (string, bool, error) {
 	spec, err := loadHookSpec(fullDestDir)
 	if err != nil {
 		return hookSpecWarning(hookName, configurator.ProviderClaudeCode, err), false, nil
@@ -63,36 +68,143 @@ func registerHookSettings(baseDir, hookName, fullDestDir string) (string, bool, 
 	}
 
 	settingsPath := claudeSettingsPath(baseDir)
-	settings, err := loadJSONObject(settingsPath)
+	if settingsRel != "" {
+		settingsPath = filepath.Join(baseDir, filepath.FromSlash(settingsRel))
+	}
+	settings, layout, err := loadOrderedJSONObject(settingsPath)
 	if err != nil {
 		return "", false, err
 	}
 	upsertHookEntry(settings, hookOwnershipMarker(hookName), spec.Event, spec.Matcher, command)
-	err = saveJSONObject(baseDir, settingsPath, settings)
+	err = saveOrderedJSONObject(baseDir, settingsPath, settings, layout)
 	return warning, err == nil, err
 }
 
-// removeHookEntries strips every settings.json hooks entry owned by hookName
-// (§hookOwnershipMarker) from <baseDir>/.claude/settings.json. No-op — including no
-// write to disk — if the file doesn't exist or has no entry for this hook: safe to
-// call from PruneManaged/Apply's prune path regardless of whether registration ever
-// succeeded for this hook (e.g. a malformed hook.json that registerHookSettings had
-// silently skipped).
-func removeHookEntries(baseDir, hookName string) error {
-	settingsPath := claudeSettingsPath(baseDir)
-	settings, err := loadJSONObject(settingsPath)
-	if err != nil {
-		return err
+// removeHookEntries strips every hooks entry owned by hookName
+// (§hookOwnershipMarker) from the settings files rels names, relative to
+// baseDir, or from both (claudeSettingsFiles) for a caller that does not know
+// which one holds it (`disconnect`, an orphan prune). No-op — including no write
+// to disk — for a file that doesn't exist or never names the hook (checked on
+// the raw bytes, before any parse): safe whether or not registration ever
+// succeeded for this hook.
+func removeHookEntries(baseDir, hookName string, rels ...string) error {
+	if len(rels) == 0 {
+		// settings.json always; settings.local.json only when git does not
+		// track it, the only one Cartographer ever writes (D1198).
+		rels = claudeSettingsFiles[:1]
+		if tracked, err := gitTracksFile(baseDir, ClaudeLocalSettings); err == nil && !tracked {
+			rels = claudeSettingsFiles
+		}
 	}
-	if !stripHookEntries(settings, hookOwnershipMarker(hookName)) {
-		return nil
+	for _, rel := range rels {
+		settingsPath := filepath.Join(baseDir, filepath.FromSlash(rel))
+		data, err := os.ReadFile(settingsPath)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("provisioning: read %s: %w", settingsPath, err)
+		}
+		// Every command the marker owns names the hook; JSON may escape its
+		// separators, never its name.
+		if !strings.Contains(string(data), hookName) {
+			continue
+		}
+		settings, layout, err := loadOrderedJSONObject(settingsPath)
+		if err != nil {
+			return err
+		}
+		if !stripHookEntries(settings, hookOwnershipMarker(hookName)) {
+			continue
+		}
+		if err := saveOrderedJSONObject(baseDir, settingsPath, settings, layout); err != nil {
+			return err
+		}
 	}
-	return saveJSONObject(baseDir, settingsPath, settings)
+	return nil
 }
+
+// ClaudeLocalSettings is the settings file Claude Code reads beside
+// .claude/settings.json and that a repository does not version: a derived
+// workspace binding registers its hooks there (#1198), as it writes its
+// instructions to CLAUDE.local.md.
+const ClaudeLocalSettings = ".claude/settings.local.json"
+
+// claudeSettingsFiles are the files, relative to a base dir, a Claude Code hook
+// registration can be in.
+var claudeSettingsFiles = []string{".claude/settings.json", ClaudeLocalSettings}
 
 // claudeSettingsPath returns the path to Claude Code's settings.json under baseDir.
 func claudeSettingsPath(baseDir string) string {
 	return filepath.Join(baseDir, ".claude", "settings.json")
+}
+
+// loadClaudeSettings decodes every Claude Code settings file under baseDir that
+// exists, settings.json first: what the registration readers inspect, since a
+// hook may be registered in either.
+func loadClaudeSettings(baseDir string) ([]map[string]interface{}, error) {
+	var out []map[string]interface{}
+	for _, rel := range claudeSettingsFiles {
+		path := filepath.Join(baseDir, filepath.FromSlash(rel))
+		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		settings, err := loadJSONObject(path)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, settings)
+	}
+	return out, nil
+}
+
+// claudeHookToMove reports whether a derived projection must rewrite the
+// installed Claude Code hook at destRel (relative to baseDir) to move its
+// registration (#1198): it is not registered in strip[0], and not in a tracked
+// settings.json either (strip has one file), which would make it fire twice. A
+// hook the registrar skips on purpose (no usable hook.json, an event Claude Code
+// never fires) never needs one.
+func claudeHookToMove(baseDir, destRel, hookName string, strip []string) bool {
+	spec, err := loadHookSpec(filepath.Join(baseDir, destRel))
+	if err != nil {
+		return false
+	}
+	if _, skip := hookEventWarning(hookName, configurator.ProviderClaudeCode, spec.Event); skip {
+		return false
+	}
+	if claudeHookRegisteredIn(baseDir, strip[0], hookName) {
+		return false
+	}
+	return len(strip) > 1 || !claudeHookRegisteredIn(baseDir, claudeSettingsFiles[0], hookName)
+}
+
+// claudeHookRegisteredIn reports whether the settings file rel (relative to
+// baseDir) holds an entry owned by hookName. An unreadable file counts as
+// holding one: nothing is then written beside it.
+func claudeHookRegisteredIn(baseDir, rel, hookName string) bool {
+	settings, err := loadJSONObject(filepath.Join(baseDir, filepath.FromSlash(rel)))
+	return err != nil || countClaudeHookEntries(settings, hookOwnershipMarker(hookName)) > 0
+}
+
+// ClaudeSettingsHookEntries counts the hook entries Cartographer wrote in
+// <baseDir>/.claude/settings.json (owned by one of hookNames, or carrying
+// `# cartographer-hook:`), for `doctor` (#1198). A missing file counts zero.
+func ClaudeSettingsHookEntries(baseDir string, hookNames []string) (int, error) {
+	settings, err := loadJSONObject(claudeSettingsPath(baseDir))
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, command := range ownedHookCommands(settings, "") {
+		owned := strings.Contains(command, "# cartographer-hook:")
+		for _, name := range hookNames {
+			owned = owned || commandOwnedBy(command, hookOwnershipMarker(name))
+		}
+		if owned {
+			n++
+		}
+	}
+	return n, nil
 }
 
 // A hook.json that cannot be read or parsed (loadHookSpec, hookspec.go) is never a
@@ -967,9 +1079,10 @@ func mustJSONKey(s string) string {
 // (non-nil) map if the file doesn't exist. Used for settings.json, which Cartographer
 // must only ever partially edit (D57) — decoding into map[string]interface{} instead
 // of a fixed struct preserves every key it doesn't know about (e.g. "model", other
-// hooks) across the read-modify-write round trip; only key ordering is not preserved
-// (re-marshaled with json.MarshalIndent, which sorts map keys — acceptable, this is
-// not meant to be byte-identical, only content-preserving).
+// hooks) across the read-modify-write round trip; key ordering is not preserved
+// (re-marshaled with json.MarshalIndent, which sorts map keys). Claude Code's
+// settings files, which a team may version, go through loadOrderedJSONObject
+// instead (#1198).
 func loadJSONObject(path string) (map[string]interface{}, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -996,6 +1109,11 @@ func saveJSONObject(baseDir, path string, m map[string]interface{}) error {
 	if err != nil {
 		return fmt.Errorf("provisioning: serialize %s: %w", path, err)
 	}
+	return writeJSONFile(baseDir, path, data)
+}
+
+// writeJSONFile writes data to path through the no-follow writers (D148).
+func writeJSONFile(baseDir, path string, data []byte) error {
 	if err := mkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(path), err)
 	}

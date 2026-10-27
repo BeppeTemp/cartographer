@@ -59,6 +59,10 @@ type syncProjection struct {
 	// kinds it therefore does not apply (D1181).
 	SharedSkipped []string
 	SkipKinds     []string
+	// HookSettingsRel is the untracked settings file a derived Claude Code
+	// projection registers its hooks in instead of .claude/settings.json
+	// (#1198); empty otherwise.
+	HookSettingsRel string
 }
 
 // Key is the lockfile projection this state is recorded under.
@@ -134,6 +138,7 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 		if w.Derived {
 			sp.InstructionsRel, sp.InstructionsSkipped = derivedInstructions(provider, w.Path)
 			sp.SharedSkipped, sp.SkipKinds = derivedSharedSkips(provider, w.Path)
+			sp.HookSettingsRel = derivedHookSettings(provider, sp.SkipKinds)
 		}
 		out = append(out, sp)
 	}
@@ -776,7 +781,7 @@ func prepareWorkspace(p syncProjection, providers []string, dryRun bool, owned o
 	if dryRun {
 		return nil
 	}
-	if err := writeWorkspaceExclusions(p.Workspace, providers, owned, p.InstructionsRel); err != nil {
+	if err := writeWorkspaceExclusions(p.Workspace, providers, owned, p.InstructionsRel, p.HookSettingsRel); err != nil {
 		if provisioning.ExcludeWarning(err) {
 			// The exclude block is a convenience, not what the sync is for: a
 			// linked .git (D148) costs a warning and a dirty working tree, not
@@ -853,8 +858,9 @@ func writeWorkspaceExclusions(workspace string, providers []string, owned ownedP
 	if err != nil {
 		return err
 	}
-	// The untracked file a derived projection puts its instructions block in
-	// (D1019) is Cartographer's own, so it is excluded like its directories:
+	// The untracked files a derived projection puts its instructions block
+	// (D1019) and its Claude Code hook registrations (#1198) in are
+	// Cartographer's own, so they are excluded like its directories:
 	// the one this run is about to write (extra) and the ones earlier runs
 	// wrote, which the block they hold gives away.
 	excluded := slices.Clone(extra)
@@ -1013,6 +1019,9 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 			continue
 		}
 		for _, w := range workspaceStatuses(cfg, provider, dir) {
+			if w.Derived && w.State == "ok" {
+				out = append(out, trackedClaudeHookSettings(provider, w.Path, lockFile)...)
+			}
 			if w.Derived && w.State == "ok" && w.Detail != "" {
 				out = append(out, doctorFinding{
 					Check: "workspace", Severity: doctorWarning, Path: w.Path,
@@ -1070,6 +1079,38 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 		}
 	}
 	return out
+}
+
+// trackedClaudeHookSettings is the doctor finding of a derived Claude Code
+// workspace whose tracked .claude/settings.json holds hook entries Cartographer
+// wrote (#1198): a derived binding registers in .claude/settings.local.json, so
+// those are left over from an earlier version, edit a versioned file and fire
+// beside the new registration. Removing them is the user's call: sync never
+// edits a tracked file for a derived binding.
+func trackedClaudeHookSettings(provider, workspace string, lockFile provisioning.LockFile) []doctorFinding {
+	if provider != string(configurator.ProviderClaudeCode) {
+		return nil
+	}
+	const rel = ".claude/settings.json"
+	tracked, err := provisioning.TrackedPaths(workspace)
+	if err != nil || !tracked[rel] {
+		return nil
+	}
+	lock := lockFile.ForProjection(provisioning.Projection{Provider: provider, Workspace: workspace})
+	n, err := provisioning.ClaudeSettingsHookEntries(workspace, managedHookNames(lock))
+	if err != nil || n == 0 {
+		return nil
+	}
+	entries := "entries"
+	if n == 1 {
+		entries = "entry"
+	}
+	return []doctorFinding{{
+		Check: "workspace", Severity: doctorWarning, Path: filepath.Join(workspace, filepath.FromSlash(rel)),
+		Message: fmt.Sprintf("%s: %s is tracked by git and holds %d Cartographer hook %s: a derived binding registers its hooks in %s and never edits a tracked file",
+			provider, rel, n, entries, provisioning.ClaudeLocalSettings),
+		Fix: "remove those entries from " + rel + " (`git diff` shows them; each command names .claude/hooks/<name>/ or carries `# cartographer-hook:`), then cartographer sync",
+	}}
 }
 
 // uncoveredProjectionFiles lists the files git sees as untracked and not

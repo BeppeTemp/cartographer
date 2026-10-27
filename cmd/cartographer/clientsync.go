@@ -770,6 +770,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 			// A derived binding never edits a tracked file (D1019): the
 			// instructions block goes to an untracked file, or nowhere.
 			opts.InstructionsRel = p.InstructionsRel
+			opts.HookSettingsRel = p.HookSettingsRel
 			if p.InstructionsSkipped != "" {
 				manifest = withoutInstructions(manifest)
 			}
