@@ -9,7 +9,7 @@ where a tool takes a `kb` argument, pass `kb: "<name>"`; it is never inferred.` 
 183 before). The non-routed sentence is unchanged.
 
 **Why.** The clause is paid once per KB on every model call of every session. The routed block of nine
-KBs measured 8671 bytes, over D1182's 8192-byte cap; it now measures 7881 (3497 for one KB, 548 bytes
+KBs measured 8671 bytes, over D1182's 8192-byte cap; it now measures 7969 (3585 for one KB, 548 bytes
 per added KB, about 2k tokens at nine). The sentence still carries the KB name, the `"cartographer"`
 server, that tools are unprefixed (D288), the exact `kb` value, that it applies only where a tool takes
 `kb` (so a single-KB connection, which has no such argument, is covered, D288) and that the KB is never
