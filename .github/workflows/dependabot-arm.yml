@@ -1,0 +1,100 @@
+name: dependabot-arm
+
+# The freeze (D989) and Dependabot's auto-merge (D1180):
+#   - disarm: Saturday 00:05 Europe/Rome, auto-merge is cancelled on the open
+#     Dependabot PRs armed before the freeze, so none merges in it;
+#   - arm: when a scheduled release-train run completes and the freeze is closed
+#     (scripts/freeze-open.sh waits for both of Monday's runs), auto-merge is armed
+#     on the open Dependabot PRs by the same rule as dependabot-automerge.yml
+#     (scripts/dependabot-eligible.sh). The Saturday run finds the freeze open.
+# A failure is reported in the job summary and fails the job; nothing is swallowed.
+#
+# GitHub cron is UTC: two entries per slot, the run continues only on the entry that
+# matches today's Europe/Rome offset (as release-train.yml, D956).
+on:
+  schedule:
+    - cron: "5 22 * * 5" # Fri 22:05 UTC = Sat 00:05 CEST
+    - cron: "5 23 * * 5" # Fri 23:05 UTC = Sat 00:05 CET
+  workflow_run:
+    workflows: [release-train]
+    types: [completed]
+
+permissions:
+  actions: read # freeze-open.sh lists the runs of release-train
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: dependabot-arm
+  cancel-in-progress: false
+
+jobs:
+  disarm:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          CRON: ${{ github.event.schedule }}
+        run: |
+          case "$(TZ=Europe/Rome date +%z) $CRON" in
+            "+0200 5 22 * * 5" | "+0100 5 23 * * 5") ;;
+            *) echo "not today's offset: nothing to do"; exit 0 ;;
+          esac
+          scripts/freeze-open.sh || { echo "the freeze is not open: nothing to disarm"; exit 0; }
+          failed=0
+          for n in $(gh pr list --state open --author 'app/dependabot' --json number,isCrossRepository,autoMergeRequest \
+            --jq '.[] | select((.isCrossRepository | not) and .autoMergeRequest != null) | .number'); do
+            if gh pr merge --disable-auto "$n"; then
+              echo "- #$n: auto-merge disarmed" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- #$n: FAILED to disarm" >> "$GITHUB_STEP_SUMMARY"
+              failed=1
+            fi
+          done
+          exit "$failed"
+
+  arm:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if scripts/freeze-open.sh; then
+            echo "the freeze is still open: nothing to arm"
+            exit 0
+          fi
+          failed=0
+          while read -r n branch; do
+            # dependabot/<ecosystem>/<path>: the ecosystem is docker, go_modules, github_actions...
+            eco=$(cut -d/ -f2 <<<"$branch")
+            # The commit message carries `update-type:` for each updated dependency.
+            types=$(gh pr view "$n" --json commits --jq '.commits[].messageBody' | sed -n 's/^ *update-type: *//p')
+            if [ -z "$types" ] && [ "$eco" != docker ]; then
+              echo "- #$n: FAILED, cannot read the update type from the commit" >> "$GITHUB_STEP_SUMMARY"
+              failed=1
+              continue
+            fi
+            # shellcheck disable=SC2086 # one word per update type
+            if ! scripts/dependabot-eligible.sh "$eco" $types; then
+              echo "- #$n: left for a maintainer (major or docker bump)" >> "$GITHUB_STEP_SUMMARY"
+            elif gh pr merge --auto --squash "$n"; then
+              echo "- #$n: auto-merge armed" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- #$n: FAILED to arm" >> "$GITHUB_STEP_SUMMARY"
+              failed=1
+            fi
+          done < <(gh pr list --state open --author 'app/dependabot' --json number,headRefName,isCrossRepository \
+            --jq '.[] | select(.isCrossRepository | not) | "\(.number) \(.headRefName)"')
+          exit "$failed"

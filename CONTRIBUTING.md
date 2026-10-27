@@ -266,7 +266,10 @@ A release is a weekly **train**, not whatever has accumulated (D956). Times are 
 - **Freeze, Saturday 00:00 to Monday 08:30.** Nothing that adds or breaks behaviour
   lands: no `feat`, `perf` or `refactor`, and no breaking change (`!:` in the title or
   a `BREAKING CHANGE` footer). `fix`, `docs`, `test`, `ci`, `build` and `chore` may
-  land, so Dependabot keeps working. In short: a PR merged by Friday ships the
+  land, so Dependabot keeps working, but its auto-merge is not armed while the freeze is
+  open (D1180): `dependabot-arm` disarms what was armed on Saturday at 00:05 and arms
+  the open bumps once both of Monday's train runs are completed (a Monday after 08:30
+  stays frozen until then, as the train may start late). In short: a PR merged by Friday ships the
   following Monday; a blocked one waits until after the release. A blocked commit on
   `main` during the freeze skips the train.
 - **The release candidate.** On Saturday at 00:30 the workflow builds a server image
