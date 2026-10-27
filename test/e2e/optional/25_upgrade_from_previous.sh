@@ -244,6 +244,11 @@ else
     assert_file_contains "${SANDBOX_DIR}/.cartographer.yaml" 'approvals_migrated'
 fi
 
+# The approvals recorded by the old client survive the upgrade unchanged:
+# mcp_approvals keys the hook as hook/<name>, the descriptor by its name.
+assert_file_contains "${SANDBOX_DIR}/.cartographer.yaml" 'hook/upgrade-guard:'
+assert_file_contains "${SANDBOX_DIR}/.cartographer.yaml" 'upgrade-tools:'
+
 if grep -E '\] (diverged locally|moved |unsupported)' "${WORK_DIR}/head-sync.out"; then
     _assert_fail "HEAD sync reports a diverged, moved or unsupported artifact"
 else

@@ -43,7 +43,6 @@ overrides the default base port.
 | `23_film_publish` | D1068 the README film's orphan branch: `film/publish.sh` leaves one commit with the `Film-Tree:` trailer, `film/film-needed.sh` answers by the hash of the film's inputs (`film/inputs.sh`) |
 | `24_generic_mcp_client` | D1102 a host with no Cartographer client side, with curl only: `/health` and the tool surface follow the token, the guide in `initialize` and `kb_guide`, a first page accepted, authorship, non-disclosure, no doctor nudge and no CLI command for a generic connection |
 | `25_search_section` | D1207 a `search` hit names the `##` section that matched and `concept_read` reads it back smaller than the page; a journal entry and a type listed in the map's `read_whole` carry `read: "whole"` and no section |
-
 | `25_upgrade_from_previous` (optional) | #1173 a client of the previous stable release, fully installed and approved, switched to this build: one sync asks no approval again, leaves no file under a retired name and no dangling local path, a second sync writes nothing and `status` is in sync, a revoked hook stays revoked |
 
 The numbering is stable, so the gaps are intentional: model behavior is
