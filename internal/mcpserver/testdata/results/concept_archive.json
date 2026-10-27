@@ -1,0 +1,15 @@
+{
+  "curated_indexes": [
+    "curated index ops/index.md: removed the entry for ops/delta",
+    "curated index archive/index.md: added an entry for archive/delta"
+  ],
+  "moves": [
+    {
+      "source_id": "ops/delta",
+      "target_id": "archive/delta"
+    }
+  ],
+  "outbound_rewritten": 1,
+  "rewritten": null,
+  "status": "deprecated"
+}

@@ -1,0 +1,18 @@
+{
+  "count": 2,
+  "depth": 1,
+  "direction": "both",
+  "id": "ops/alpha",
+  "neighbors": [
+    {
+      "id": "ops/beta",
+      "distance": 1,
+      "bytes": 90
+    },
+    {
+      "id": "ops/hub",
+      "distance": 1,
+      "bytes": 60
+    }
+  ]
+}

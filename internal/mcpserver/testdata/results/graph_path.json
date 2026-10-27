@@ -1,0 +1,19 @@
+{
+  "hops": 2,
+  "path": [
+    {
+      "id": "ops/alpha",
+      "title": "Alpha"
+    },
+    {
+      "id": "ops/beta",
+      "title": "Beta"
+    },
+    {
+      "id": "ops/gamma",
+      "title": "Gamma"
+    }
+  ],
+  "source": "ops/alpha",
+  "target": "ops/gamma"
+}

@@ -28,6 +28,8 @@ and the whole suite under `-race` is several times slower. A test written to
 exercise concurrency is named accordingly, or it never runs with the detector.
 `fmt-check`, `vet`, `test` and `race` are what `make gate` runs, the single command CI runs.
 
+Three tests in `internal/mcpserver` guard what a tool result costs (D1185). `TestToolResultGolden` drives one call of every JSON-returning tool over a deterministic KB and checks that each answer is `json.Compact` of the golden in `testdata/results` byte for byte and decodes to an equal value: the goldens are the answers of the indenting code, so compaction provably changed nothing but whitespace; commit SHAs, timestamps and the KB root are normalised on both sides, and `-update` rewrites them only for an intended change of content. `TestNoIndentedMarshalInToolResults` fails when a non-test file calls `MarshalIndent` instead of `jsonResult`. `TestSearchDefaultAnswerBudget` runs 14 default-argument queries over a generated 41-concept KB and fails when the average `search` answer exceeds 2.5 KB (limit 8, no `related` block); if it fails, the default has grown: do not raise the number. `TestGuidanceDoesNotRepeatSearchDefaultsOrPushSectionReads` (`internal/provisioning`) keeps the generated guide and the bundled skills from telling an agent to pass `limit` or `related` to `search`, or to read runbooks, procedures and incidents by section.
+
 `make gate` runs on ubuntu in the `test` job; the tests also run on Windows
 ([`ci.yml`](https://github.com/BeppeTemp/cartographer/blob/main/.github/workflows/ci.yml)).
 There the git-backed packages are about 13 times slower (process creation), so

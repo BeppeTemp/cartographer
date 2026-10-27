@@ -651,7 +651,7 @@ func (m *MultiKBServer) withConnectionNotice(ctx context.Context, res ToolResult
 		return res
 	}
 	obj["connection"] = raw
-	out, err := json.MarshalIndent(obj, "", "  ")
+	out, err := json.Marshal(obj)
 	if err != nil {
 		return res
 	}

@@ -90,7 +90,7 @@ func TestPolicySQLiteSearchFiltersBeforeLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(result)
-	if strings.Contains(string(b), "hidden/secret") || !strings.Contains(string(b), "manutenzione/test-runbook") || strings.Contains(string(b), `"count": 2`) {
+	if strings.Contains(string(b), "hidden/secret") || !strings.Contains(string(b), "manutenzione/test-runbook") || strings.Contains(string(b), `"count":2`) {
 		t.Fatalf("SQLite visibility/limit/count failure: %s", b)
 	}
 }

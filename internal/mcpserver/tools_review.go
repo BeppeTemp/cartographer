@@ -93,8 +93,7 @@ func toolKBReview(k *kb.KB, cc *conformanceCache) Tool {
 			if next := params.Offset + len(page); next < total {
 				result["next_offset"] = next
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }

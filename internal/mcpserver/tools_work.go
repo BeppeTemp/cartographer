@@ -274,8 +274,7 @@ func toolWorkList(k *kb.KB, cc *conformanceCache) Tool {
 			if err != nil {
 				return errorResult(fmt.Sprintf("work_list: %v", err)), nil
 			}
-			out, _ := json.MarshalIndent(resp, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(resp), nil
 		},
 	}
 }

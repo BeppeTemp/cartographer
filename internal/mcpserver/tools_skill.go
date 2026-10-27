@@ -487,8 +487,7 @@ func toolSkillInstall(k *kb.KB, bundleFS fs.FS) Tool {
 				result["renamed_from"] = requested
 				result["note"] = fmt.Sprintf("%q is now %q: the skill was installed under its current name", requested, params.Name)
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }

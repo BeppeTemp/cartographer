@@ -357,7 +357,7 @@ func TestMapUpdate_StaleAfterReset(t *testing.T) {
 	t.Parallel()
 	k, s := repairKB(t, 0)
 	out := callOK(t, s, "map_update", `{"map":"ops","open_statuses":["open"],"harvest_after":90,"stale_after":90}`)
-	for _, want := range []string{`"stale_after": 90`, `"open_statuses": [`, `"harvest_after": 90`} {
+	for _, want := range []string{`"stale_after":90`, `"open_statuses":[`, `"harvest_after":90`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("echo lacks %s: %s", want, out)
 		}
@@ -372,13 +372,13 @@ func TestMapUpdate_StaleAfterReset(t *testing.T) {
 		t.Fatalf("a refused 0 must leave the value alone: %+v %v", c, err)
 	}
 	out = callOK(t, s, "map_update", `{"map":"ops","stale_after":-1}`)
-	if !strings.Contains(out, `"stale_after": 30`) || !strings.Contains(out, `"stale_after_defaulted": true`) {
+	if !strings.Contains(out, `"stale_after":30`) || !strings.Contains(out, `"stale_after_defaulted":true`) {
 		t.Fatalf("-1 must fall back to the work-map default: %s", out)
 	}
 	if c, _ := k.ReadMapContract("ops"); c.StaleAfterDays != 0 {
 		t.Fatalf("-1 must delete the key: %+v", c)
 	}
-	if out := callOK(t, s, "map_list", `{}`); !strings.Contains(out, `"stale_after": 30`) || !strings.Contains(out, `"stale_after_defaulted": true`) {
+	if out := callOK(t, s, "map_list", `{}`); !strings.Contains(out, `"stale_after":30`) || !strings.Contains(out, `"stale_after_defaulted":true`) {
 		t.Fatalf("map_list lacks the effective value: %s", out)
 	}
 	if res := callTool(t, s, "map_update", `{"map":"ops","stale_after":-2}`); !res.IsError || !strings.Contains(res.Content[0].Text, "stale_after must be") {

@@ -80,7 +80,7 @@ func toolRepairRevert(k *kb.KB) Tool {
 			if status, _ := gitx.Status(k.Root); strings.TrimSpace(status) == "" {
 				return errorResult(fmt.Sprintf("repair_revert: %.7s changes nothing any more", full)), nil
 			}
-			out, _ := json.MarshalIndent(map[string]string{"reverted": full, "subject": c.Subject}, "", "  ")
+			out, _ := json.Marshal(map[string]string{"reverted": full, "subject": c.Subject})
 			res := textResult(string(out))
 			res.CommitSubject = fmt.Sprintf("repair_revert: %.7s (%s)", full, c.Subject)
 			return res, nil

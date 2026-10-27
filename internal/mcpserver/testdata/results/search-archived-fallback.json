@@ -1,0 +1,39 @@
+{
+  "count": 1,
+  "mode": "keyword",
+  "query": "patched",
+  "related": [
+    {
+      "id": "ops/hub",
+      "title": "Hub",
+      "bytes": 60
+    },
+    {
+      "id": "ops/alpha",
+      "title": "Alpha",
+      "via": "ops/hub",
+      "bytes": 89
+    },
+    {
+      "id": "ops/beta",
+      "title": "Beta",
+      "via": "ops/alpha",
+      "bytes": 90
+    },
+    {
+      "id": "ops/gamma",
+      "title": "Gamma",
+      "via": "ops/beta",
+      "bytes": 53
+    }
+  ],
+  "results": [
+    {
+      "id": "archive/delta",
+      "score": 0.043478260869565216,
+      "title": "Delta",
+      "snippet": "# Delta\n\nPatched. [hub](../ops/hub.md)",
+      "bytes": 90
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+[
+  {
+    "kind": "instructions",
+    "name": "instructions",
+    "files": [
+      {
+        "path": "instructions.md",
+        "sha256": "f5da07a971345d989aeed23e14258f7c3dff21bedd505360cbfa8d60f777c8ee",
+        "executable": false
+      }
+    ]
+  }
+]

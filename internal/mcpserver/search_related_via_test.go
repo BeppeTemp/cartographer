@@ -74,7 +74,7 @@ func TestSearchRelated_ViaNeverNamesARetiredPage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			s := graphToolKB(t, tc.files)
-			out, text := relatedSearch(t, s, `{"query":"zeppelin"}`)
+			out, text := relatedSearch(t, s, `{"query":"zeppelin","related":10}`)
 			e := relatedEntry(t, out, "ops/target")
 			if got, _ := e["via"].(string); got != tc.want {
 				t.Errorf("via = %q, want %q: %s", got, tc.want, text)
@@ -83,7 +83,7 @@ func TestSearchRelated_ViaNeverNamesARetiredPage(t *testing.T) {
 				t.Errorf("a retired page is offered: %v", ids)
 			}
 			for _, retired := range []string{"ops/closed", "ops/old"} {
-				if strings.Contains(text, `"via": "`+retired+`"`) {
+				if strings.Contains(text, `"via":"`+retired+`"`) {
 					t.Errorf("an entry was reached through the retired %s: %s", retired, text)
 				}
 			}

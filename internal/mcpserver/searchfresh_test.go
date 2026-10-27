@@ -214,7 +214,7 @@ func TestSearchFollowsFailedBatchRollback(t *testing.T) {
 		if tr := s.callTool(authLocalContext(), "concept_batch", args); !tr.IsError {
 			t.Fatalf("batch into a read-only directory succeeded: %+v", tr.Content)
 		}
-		if out := searchText(t, s, "narwhalattempt"); !strings.Contains(out, `"count": 0`) {
+		if out := searchText(t, s, "narwhalattempt"); !strings.Contains(out, `"count":0`) {
 			t.Fatalf("search sees a rolled-back batch: %s", out)
 		}
 		if out := searchText(t, s, "runbook"); !strings.Contains(out, "manutenzione/test-runbook") {

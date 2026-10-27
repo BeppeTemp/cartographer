@@ -44,7 +44,7 @@ func TestTemplateArtifactLifecycleAndList(t *testing.T) {
 		t.Fatalf("template_list = %+v", listed)
 	}
 	tr = call("artifact_list", map[string]any{})
-	if tr.IsError || !containsText(tr, `"kind": "template"`) {
+	if tr.IsError || !containsText(tr, `"kind":"template"`) {
 		t.Fatalf("artifact_list: %+v", tr.Content)
 	}
 	var read struct {

@@ -127,8 +127,7 @@ func toolIndexGet(k *kb.KB) Tool {
 					"outline":       headingsToOutline(okf.ListHeadings(content)),
 					"content_bytes": len(content),
 				}
-				out, _ := json.MarshalIndent(result, "", "  ")
-				return textResult(string(out)), nil
+				return jsonResult(result), nil
 			}
 
 			// The guard measures the whole file, frontmatter included: a curated
@@ -144,8 +143,7 @@ func toolIndexGet(k *kb.KB) Tool {
 					"note": fmt.Sprintf("index is %d bytes (over the %d byte guard) — use the outline to "+
 						"navigate, or 'full: true' to force the whole content", len(content), conceptReadSizeGuard),
 				}
-				out, _ := json.MarshalIndent(result, "", "  ")
-				return textResult(string(out)), nil
+				return jsonResult(result), nil
 			}
 
 			if !params.WithHash {
@@ -157,8 +155,7 @@ func toolIndexGet(k *kb.KB) Tool {
 				"content":      content,
 				"content_hash": okf.ContentHash(content),
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -193,7 +190,7 @@ func headingsToOutline(headings []okf.Heading) []map[string]interface{} {
 func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 	return Tool{
 		Name:        "concept_read",
-		Description: "Reads a concept: content_hash, frontmatter (parsed) and _raw, body. with_content: true returns content (exact bytes) instead of body. section returns one section; outline: true only the headings; match greps lines.",
+		Description: "Reads a concept: content_hash, frontmatter (parsed; frontmatter_raw only if it does not parse), body. with_content: true returns content (exact bytes) instead of body. section returns one section; outline: true only the headings; match greps lines.",
 		ReadOnly:    true,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -317,8 +314,7 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 					result["matches_omitted"] = omitted
 				}
 				addFrontmatter(result, data.FrontmatterRaw)
-				out, _ := json.MarshalIndent(result, "", "  ")
-				return textResult(string(out)), nil
+				return jsonResult(result), nil
 			}
 
 			if params.Outline {
@@ -329,8 +325,7 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 					"body_bytes":   len(data.Body),
 				})
 				addFrontmatter(result, data.FrontmatterRaw)
-				out, _ := json.MarshalIndent(result, "", "  ")
-				return textResult(string(out)), nil
+				return jsonResult(result), nil
 			}
 
 			if params.Section != "" {
@@ -345,8 +340,7 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 					"content_hash": data.ContentHash,
 				})
 				addFrontmatter(result, data.FrontmatterRaw)
-				out, _ := json.MarshalIndent(result, "", "  ")
-				return textResult(string(out)), nil
+				return jsonResult(result), nil
 			}
 
 			if !params.Full && len(data.Body) > conceptReadSizeGuard {
@@ -359,8 +353,7 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 						"a specific part, or 'full: true' to force the full content", len(data.Body), conceptReadSizeGuard),
 				})
 				addFrontmatter(result, data.FrontmatterRaw)
-				out, _ := json.MarshalIndent(result, "", "  ")
-				return textResult(string(out)), nil
+				return jsonResult(result), nil
 			}
 
 			// 'body' is what every caller consumes and what the size guard above
@@ -369,23 +362,26 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 			// with_content (D342) therefore replaces 'body' with 'content', for a
 			// caller that must re-write the exact bytes.
 			result := withRev(map[string]interface{}{
-				"id":              params.ID,
-				"content_hash":    data.ContentHash,
-				"frontmatter_raw": data.FrontmatterRaw,
+				"id":           params.ID,
+				"content_hash": data.ContentHash,
 			})
 			if params.WithContent {
 				result["content"] = data.Content
 			} else {
 				result["body"] = data.Body
 			}
-			// The parsed form (D309), so a caller that rewrites the frontmatter
-			// need not parse OKF YAML itself; frontmatter_raw stays for exact
-			// round-trip control. Omitted when the raw text does not parse.
+			// The parsed form (D309) is the one frontmatter on the wire, so a
+			// caller that rewrites it need not parse OKF YAML itself and the
+			// text is not sent twice (D1185); the exact bytes are `content`
+			// under with_content. When the raw text does not parse there is no
+			// parsed form, and the raw text is the only way to see and repair
+			// the page: it is sent then, as frontmatter_raw.
 			if fm, err := okf.ParseFrontmatter(data.FrontmatterRaw); err == nil {
 				result["frontmatter"] = frontmatterToMap(fm)
+			} else {
+				result["frontmatter_raw"] = data.FrontmatterRaw
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -592,8 +588,7 @@ func toolConceptHistory(k *kb.KB) Tool {
 			result := map[string]interface{}{"id": params.ID, "revisions": revisions, "truncated": false}
 			if !gitx.IsRepo(k.Root) {
 				result["note"] = "no git history"
-				out, _ := json.MarshalIndent(result, "", "  ")
-				return textResult(string(out)), nil
+				return jsonResult(result), nil
 			}
 			revs, err := gitx.FileHistory(k.Root, path, limit)
 			if err != nil {
@@ -634,8 +629,7 @@ func toolConceptHistory(k *kb.KB) Tool {
 			}
 			result["revisions"] = revisions
 			result["truncated"] = len(revs) == limit
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -674,8 +668,7 @@ func toolLogTail(k *kb.KB) Tool {
 					"entries": 0,
 					"note":    fmt.Sprintf("no entries for path %q", params.Path),
 				}
-				out, _ := json.MarshalIndent(note, "", "  ")
-				return textResult(string(out)), nil
+				return jsonResult(note), nil
 			}
 			return textResult(content), nil
 		},
@@ -993,8 +986,7 @@ func toolChangesSince(k *kb.KB) Tool {
 				}
 				result.Links, result.LinksNote = links, note
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -1139,8 +1131,7 @@ func toolMapList(k *kb.KB) Tool {
 				}
 				infos = append(infos, info)
 			}
-			out, _ := json.MarshalIndent(infos, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(infos), nil
 		},
 	}
 }
@@ -1411,8 +1402,7 @@ func toolConceptList(k *kb.KB) Tool {
 			if timestampFilter {
 				result["skipped_timestamp"] = res.SkippedTimestamp
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -1506,8 +1496,7 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 				"neighbors": list,
 				"count":     len(list),
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }

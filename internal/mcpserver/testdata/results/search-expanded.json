@@ -1,0 +1,14 @@
+{
+  "count": 1,
+  "mode": "keyword",
+  "query": "airship",
+  "results": [
+    {
+      "id": "ops/dirigible",
+      "score": 0.09090909090909091,
+      "title": "Dirigible",
+      "snippet": "# Dirigible\n\nSee the zeppelin pages.",
+      "bytes": 96
+    }
+  ]
+}

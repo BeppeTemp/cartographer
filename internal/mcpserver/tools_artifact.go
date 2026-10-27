@@ -242,8 +242,7 @@ func toolArtifactRead(k *kb.KB) Tool {
 				"encoding": encoding,
 				"sha256":   sha256Hex(data),
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -325,7 +324,7 @@ func toolArtifactList(k *kb.KB) Tool {
 				out = append(out, entry)
 			}
 
-			res, _ := json.MarshalIndent(out, "", "  ")
+			res, _ := json.Marshal(out)
 			return textResult(string(res)), nil
 		},
 	}
@@ -406,8 +405,7 @@ func toolTemplateList(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult("template_list: " + err.Error()), nil
 			}
-			out, _ := json.MarshalIndent(templates, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(templates), nil
 		},
 	}
 }
@@ -547,8 +545,7 @@ func toolArtifactWrite(k *kb.KB) Tool {
 			if w := hookClientWarnings(info, params.Path, data); len(w) > 0 {
 				result["warnings"] = w
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -1011,8 +1008,7 @@ func toolArtifactDelete(k *kb.KB) Tool {
 			}
 
 			result := map[string]interface{}{"path": params.Path, "status": "deleted"}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }

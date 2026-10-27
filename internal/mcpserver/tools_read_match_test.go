@@ -67,7 +67,7 @@ func TestConceptRead_Match(t *testing.T) {
 	if res.IsError || got.Matches == nil || len(got.Matches) != 0 {
 		t.Errorf("no hit must be matches: [], got %+v / %+v", got, res)
 	}
-	if !strings.Contains(res.Content[0].Text, `"matches": []`) {
+	if !strings.Contains(res.Content[0].Text, `"matches":[]`) {
 		t.Errorf("matches must serialize as []: %s", res.Content[0].Text)
 	}
 }

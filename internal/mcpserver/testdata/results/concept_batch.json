@@ -1,0 +1,11 @@
+{
+  "curated_indexes": [
+    "curated index ops/index.md: added an entry for ops/eps"
+  ],
+  "results": [
+    {
+      "id": "ops/eps",
+      "content_hash": "f155241f1fe97283f9a207ae56a5701b73a6441c38915e3965c68631da75e2dc"
+    }
+  ]
+}

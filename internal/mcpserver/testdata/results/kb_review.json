@@ -1,0 +1,55 @@
+{
+  "by_kind": {
+    "observation": 1,
+    "template_proposal": 1
+  },
+  "items": [
+    {
+      "kind": "template_proposal",
+      "concepts": [
+        "ops/_map"
+      ],
+      "evidence": "6 Note pages in map \"ops\" follow a common structure and bind to no template; declaring it makes 3 pages of the map fail (template_extra_section: 2, template_missing: 1)",
+      "suggested_action": "artifact_write templates/note.md with the `template` text, then map_update with `map_update` (every entry of `map_updates` when it lists several maps); once the map declares it, pages bind through templates/\u003ctype\u003e.md or the map's default_template, and kb_repair template_missing only sets `shape` on a page that still resolves to nothing. Nothing dismisses an item: it closes when the pages it names reach this state; if one is right as it stands, write that state and give the reason in the commit message.",
+      "weight": 6,
+      "template_slug": "note",
+      "template": "---\ntype: Note\ntitle: \"{{title}}\"\nx-template.description: Proposed from 6 Note pages of map ops\n---\n# {{title}}\n",
+      "map_update": {
+        "default_template": "note",
+        "map": "ops",
+        "templates": [
+          "note"
+        ]
+      },
+      "impact": [
+        {
+          "map": "ops",
+          "pages": 3,
+          "new_findings": 3,
+          "by_check": {
+            "template_extra_section": 2,
+            "template_missing": 1
+          },
+          "examples": [
+            "ops/big",
+            "ops/dirigible",
+            "ops/huge"
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "observation",
+      "concepts": [
+        "ops/huge"
+      ],
+      "evidence": "concept_oversize: 60342 bytes in one concept (threshold 30000; concept_read returns an outline instead of the body above 60000) — consider concept_expand to split it into a dossier",
+      "suggested_action": "split it: concept_expand into a dossier, or sibling satellites for a satellite; leave it when it is one reference. Nothing dismisses an item: it closes when the pages it names change; leaving them as they are is a legitimate decision and needs nothing written.",
+      "check": "concept_oversize",
+      "weight": 8
+    }
+  ],
+  "limit_applied": 20,
+  "offset": 0,
+  "total": 2
+}

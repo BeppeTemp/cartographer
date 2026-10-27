@@ -139,7 +139,7 @@ func TestSkillInstall_LegacyNameInstallsUnderTheNewName(t *testing.T) {
 		t.Fatalf("skill_install: %v", res.Content)
 	}
 	text := res.Content[0].Text
-	if !strings.Contains(text, `"renamed_from": "kb-create"`) || !strings.Contains(text, "cartographer-kb-create") {
+	if !strings.Contains(text, `"renamed_from":"kb-create"`) || !strings.Contains(text, "cartographer-kb-create") {
 		t.Fatalf("the result must name the rename: %s", text)
 	}
 	if _, err := os.Stat(filepath.Join(k.Root, "skills", "cartographer-kb-create", "SKILL.md")); err != nil {
