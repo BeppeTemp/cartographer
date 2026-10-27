@@ -332,9 +332,14 @@ func Compare(current, latest string) (bool, string) {
 }
 
 type semver struct {
-	core [3]int
-	pre  []string
+	core  [3]int
+	pre   []string
+	after int // commits after the tag of a `git describe` version (-N-g<sha>)
 }
+
+// describeSuffix matches the tail `git describe --tags` appends to a build
+// made after a tag: -<commits>-g<sha>, optionally -dirty.
+var describeSuffix = regexp.MustCompile(`-(\d+)-g[0-9a-f]+(-dirty)?$`)
 
 func parse(v string) (semver, bool) {
 	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
@@ -342,6 +347,10 @@ func parse(v string) (semver, bool) {
 		v = v[:i]
 	}
 	var s semver
+	if m := describeSuffix.FindStringSubmatchIndex(v); m != nil {
+		s.after, _ = strconv.Atoi(v[m[2]:m[3]])
+		v = v[:m[0]]
+	}
 	core := v
 	if i := strings.IndexByte(v, '-'); i >= 0 {
 		core = v[:i]
@@ -374,7 +383,7 @@ func compare(a, b semver) int {
 	}
 	switch {
 	case len(a.pre) == 0 && len(b.pre) == 0:
-		return 0
+		return compareAfter(a, b)
 	case len(a.pre) == 0:
 		return 1
 	case len(b.pre) == 0:
@@ -389,6 +398,18 @@ func compare(a, b semver) int {
 	case len(a.pre) < len(b.pre):
 		return -1
 	case len(a.pre) > len(b.pre):
+		return 1
+	}
+	return compareAfter(a, b)
+}
+
+// compareAfter orders two versions of the same tag: a describe build with
+// commits after it is newer than the tag and older than the next release.
+func compareAfter(a, b semver) int {
+	switch {
+	case a.after < b.after:
+		return -1
+	case a.after > b.after:
 		return 1
 	}
 	return 0
