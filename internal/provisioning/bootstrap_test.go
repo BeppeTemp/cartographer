@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -662,5 +663,27 @@ func TestEnsureBootstrapHook_RewritesAnOutdatedScript(t *testing.T) {
 				t.Fatalf("an outdated script was not rewritten:\n%s", got)
 			}
 		})
+	}
+}
+
+// TestEnsureBootstrapHook_KeepsItsPlaceInTheLock: Apply keeps the hook's entries
+// in place and appends what it rewrites, so re-recording the hook at the end
+// reordered the lockfile on the next sync with nothing else changed (#1235).
+func TestEnsureBootstrapHook_KeepsItsPlaceInTheLock(t *testing.T) {
+	baseDir := t.TempDir()
+	lock, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderClaudeCode, provisioning.Lock{}, false)
+	if err != nil {
+		t.Fatalf("EnsureBootstrapHook: %v", err)
+	}
+	rewritten := provisioning.ManagedFile{Kind: "skill", Name: "rewritten", Path: ".claude/skills/rewritten/SKILL.md"}
+	lock.Managed = append(lock.Managed, rewritten)
+	before := append([]provisioning.ManagedFile(nil), lock.Managed...)
+
+	again, err := provisioning.EnsureBootstrapHook(baseDir, configurator.ProviderClaudeCode, lock, false)
+	if err != nil {
+		t.Fatalf("EnsureBootstrapHook (second run): %v", err)
+	}
+	if !reflect.DeepEqual(again.Managed, before) {
+		t.Errorf("managed entries reordered by a second run:\n got %+v\nwant %+v", again.Managed, before)
 	}
 }

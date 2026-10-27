@@ -199,14 +199,26 @@ func ensureSyntheticHook(baseDir string, provider configurator.Provider, lock Lo
 		})
 	}
 
+	// The hook's entries replace the old ones where the first of them sat, and
+	// are appended only the first time: Apply keeps its client-owned entries in
+	// place, so moving them to the end here would reorder the lockfile on the
+	// sync after any rewrite, with nothing recorded having changed (#1235).
 	newManaged := make([]ManagedFile, 0, len(lock.Managed)+len(managed))
+	placed := false
 	for _, mf := range lock.Managed {
 		if mf.Kind == "hook" && mf.Name == h.name {
+			if !placed {
+				newManaged = append(newManaged, managed...)
+				placed = true
+			}
 			continue
 		}
 		newManaged = append(newManaged, mf)
 	}
-	lock.Managed = append(newManaged, managed...)
+	if !placed {
+		newManaged = append(newManaged, managed...)
+	}
+	lock.Managed = newManaged
 	return lock, nil
 }
 
