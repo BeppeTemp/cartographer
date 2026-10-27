@@ -20,6 +20,7 @@ on:
     types: [completed]
 
 permissions:
+  actions: read # freeze-open.sh lists the runs of release-train
   contents: write
   pull-requests: write
 

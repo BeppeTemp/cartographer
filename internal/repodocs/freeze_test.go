@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // scripts/freeze-open.sh is the one place that says whether the freeze (Saturday
@@ -115,6 +117,39 @@ func TestDependabotWorkflowsHonourTheFreeze(t *testing.T) {
 	} {
 		if !strings.Contains(arm, want) {
 			t.Errorf("dependabot-arm.yml: missing %q", want)
+		}
+	}
+	// freeze-open.sh lists workflow runs on a Monday: without `actions: read` and a
+	// token the call fails and the freeze counts as open, so nothing is ever armed.
+	for name, raw := range map[string]string{"dependabot-automerge.yml": auto, "dependabot-arm.yml": arm} {
+		var wf struct {
+			Permissions map[string]string `yaml:"permissions"`
+			Jobs        map[string]struct {
+				Steps []struct {
+					Run string            `yaml:"run"`
+					Env map[string]string `yaml:"env"`
+				} `yaml:"steps"`
+			} `yaml:"jobs"`
+		}
+		if err := yaml.Unmarshal([]byte(raw), &wf); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if wf.Permissions["actions"] != "read" {
+			t.Errorf("%s: permissions must grant `actions: read` for freeze-open.sh", name)
+		}
+		calls := 0
+		for _, job := range wf.Jobs {
+			for _, st := range job.Steps {
+				if strings.Contains(st.Run, "scripts/freeze-open.sh") {
+					calls++
+					if st.Env["GH_TOKEN"] == "" || st.Env["GH_REPO"] == "" {
+						t.Errorf("%s: a step runs freeze-open.sh without GH_TOKEN and GH_REPO in its env", name)
+					}
+				}
+			}
+		}
+		if calls == 0 {
+			t.Errorf("%s: no step runs freeze-open.sh", name)
 		}
 	}
 	if strings.Contains(arm, "|| echo") {

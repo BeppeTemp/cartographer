@@ -29,7 +29,10 @@ esac
 # Monday after 08:30: open until two scheduled train runs created today (UTC) are completed.
 if [ -z "${FREEZE_RUNS+x}" ]; then
   FREEZE_RUNS=$(gh run list --workflow release-train.yml --event schedule \
-    --created "$(fmt UTC %F)" --json status --jq '.[].status') || exit 0
+    --created "$(fmt UTC %F)" --json status --jq '.[].status') || {
+    echo "freeze-open: cannot list the release-train runs (needs GH_TOKEN, GH_REPO, actions: read): freeze counted as open" >&2
+    exit 0
+  }
 fi
 total=0
 for s in $FREEZE_RUNS; do
