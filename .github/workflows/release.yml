@@ -2,9 +2,10 @@ name: Release
 
 on:
   push:
-    # A release candidate's tag (vX.Y.Z-rc.<date>, D1192) never runs a release,
-    # even when pushed by a token that starts workflows: a stable tag has no hyphen.
-    tags: ["v*", "!v*-rc.*"]
+    # A release candidate's tag (vX.Y.Z-rc.<date>, D1192), or any tag preview.yml
+    # accepts (vX.Y.Z-<suffix>), never runs a release, even when pushed by a token
+    # that starts workflows: a stable tag has no hyphen, the update channel's rule.
+    tags: ["v*", "!v*-*"]
 
 permissions:
   contents: read

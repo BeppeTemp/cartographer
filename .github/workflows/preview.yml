@@ -121,8 +121,9 @@ jobs:
         run: git tag -f "$TAG" "$GITHUB_SHA"
       # The real release mode, so names and sha256sums.txt are a stable release's.
       # `publish` keeps the GitHub upload and the tap push from running; `homebrew`
-      # too, because the cask pipe renders its tap token template before
-      # publishing, and this job holds no tap token. No SBOMs (no syft for a candidate).
+      # too, because the cask pipe renders its tap token template in its run step,
+      # before publishing (goreleaser internal/pipe/cask), and this job holds no tap
+      # token; `homebrew` is a `release --skip` key of v2. No SBOMs (no syft for a candidate).
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           version: "~> v2"

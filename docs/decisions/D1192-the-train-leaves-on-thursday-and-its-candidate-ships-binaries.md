@@ -18,7 +18,7 @@ entry, no `latest` image, GitHub's latest release unchanged. The update channel
 (`update check`, `kb_status` `latest_version`, the Atlas history) and both
 installers skip every tag with a semver pre-release suffix, judged by the tag and
 never by GitHub's `prerelease` flag; `CARTOGRAPHER_INSTALL_TAG` installs one tag
-explicitly. `release.yml` ignores candidate tags (`!v*-rc.*`) and, after shipping
+explicitly. `release.yml` ignores every tag with a pre-release suffix (`!v*-*`) and, after shipping
 `vX.Y.Z`, deletes that version's candidates.
 
 **Why.** The maintainer's heaviest deployments run on a machine used only on

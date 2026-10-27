@@ -386,8 +386,9 @@ func TestReleaseWorkflowIgnoresAndCleansUpCandidates(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(raw), &wf); err != nil {
 		t.Fatalf("release.yml: %v", err)
 	}
-	if strings.Join(wf.On.Push.Tags, " ") != "v* !v*-rc.*" {
-		t.Errorf("release.yml: on.push.tags %v, want [v* !v*-rc.*]: a candidate tag pushed by a PAT would publish the cask, latest and the registry entry", wf.On.Push.Tags)
+	// Any hyphen, not only -rc.: preview.yml accepts every vX.Y.Z-<suffix>.
+	if strings.Join(wf.On.Push.Tags, " ") != "v* !v*-*" {
+		t.Errorf("release.yml: on.push.tags %v, want [v* !v*-*]: a candidate tag pushed by a PAT would publish the cask, latest and the registry entry", wf.On.Push.Tags)
 	}
 	job, ok := wf.Jobs["candidate-cleanup"]
 	if !ok {

@@ -179,7 +179,8 @@ jobs:
 
           # Freeze: any feat, perf, refactor or breaking commit since last Wednesday 00:00 in Rome.
           # On the train day that is the day before; a manual action=release on another day
-          # looks back to the most recent Wednesday 00:00, the start of the freeze it closes.
+          # looks back to the most recent Wednesday 00:00 before today, the start of the
+          # freeze it closes (on a Wednesday itself, a week back: stricter, never laxer).
           wednesday=$(TZ=Europe/Rome date -d 'last wednesday 00:00' +%s)
           since=$(date -u -d "@$wednesday" +%Y-%m-%dT%H:%M:%SZ)
           blocked=$(gh api --paginate "repos/$GH_REPO/commits?sha=main&since=$since&per_page=100" \
