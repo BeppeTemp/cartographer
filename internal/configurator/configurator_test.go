@@ -111,8 +111,8 @@ func TestEmitOpenCode_HTTP_NoAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if r.FilePath != "opencode.json" {
-		t.Errorf("FilePath = %q, want opencode.json", r.FilePath)
+	if r.FilePath != ".config/opencode/opencode.json" {
+		t.Errorf("FilePath = %q, want .config/opencode/opencode.json", r.FilePath)
 	}
 
 	var root map[string]any
@@ -721,4 +721,80 @@ func serverEntry(t *testing.T, content []byte, name string) map[string]any {
 	}
 	t.Fatalf("no entry %q in %s", name, content)
 	return nil
+}
+
+// #1172: connect writes OpenCode's entry to its global config and takes the
+// same entry out of $HOME/opencode.json, where earlier versions put it;
+// another server there stays. A dry run reports the move and writes nothing.
+func TestApply_OpenCodeMovesTheEntryOutOfTheLegacyFile(t *testing.T) {
+	home := t.TempDir()
+	legacy := filepath.Join(home, "opencode.json")
+	const before = `{"$schema":"https://opencode.ai/config.json","mcp":{"wiki":{"type":"remote","url":"https://old.example.com/mcp"},"mine":{"type":"remote","url":"https://example.com/mcp"}}}`
+	if err := os.WriteFile(legacy, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := configurator.Emit(&configurator.ServerConfig{Name: "wiki", URL: "https://mcp.example.test/mcp"}, configurator.ProviderOpenCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, home, true); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(legacy); string(got) != before {
+		t.Errorf("dry run changed opencode.json: %s", got)
+	}
+	if len(r.Warnings) != 1 || !strings.Contains(r.Warnings[0], `"wiki"`) {
+		t.Errorf("dry-run warnings = %v, want one naming the moved entry", r.Warnings)
+	}
+
+	r.Warnings = nil
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, home, false); err != nil {
+		t.Fatal(err)
+	}
+	global := readServers(t, filepath.Join(home, filepath.FromSlash(configurator.OpenCodeConfigPath)))
+	if global["wiki"] == nil {
+		t.Errorf("global config has no wiki entry: %v", global)
+	}
+	old := readServers(t, legacy)
+	if old["wiki"] != nil || old["mine"] == nil {
+		t.Errorf("opencode.json servers = %v, want only the user's entry left", old)
+	}
+	if len(r.Warnings) != 1 {
+		t.Errorf("warnings = %v, want one naming the moved entry", r.Warnings)
+	}
+}
+
+// A legacy file that held nothing but our entry and the "$schema" hint is
+// deleted, and disconnect removes the entry from whichever file holds it.
+func TestRemove_OpenCodeClearsTheLegacyFile(t *testing.T) {
+	home := t.TempDir()
+	legacy := filepath.Join(home, "opencode.json")
+	if err := os.WriteFile(legacy, []byte(`{"$schema":"https://opencode.ai/config.json","mcp":{"wiki":{"type":"remote"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := configurator.Remove(&configurator.ServerConfig{Name: "wiki"}, configurator.ProviderOpenCode, home, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !removed {
+		t.Error("removed = false, want the legacy entry reported")
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Errorf("opencode.json still exists (err=%v), want it deleted", err)
+	}
+}
+
+func readServers(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatal(err)
+	}
+	servers, _ := root["mcp"].(map[string]any)
+	return servers
 }

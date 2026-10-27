@@ -277,7 +277,7 @@ func TestApply_MCP_AllProviders(t *testing.T) {
 				t.Errorf("missing bearer_token_env_var: %s", content)
 			}
 		}},
-		{configurator.ProviderOpenCode, "opencode.json", func(t *testing.T, data []byte) {
+		{configurator.ProviderOpenCode, ".config/opencode/opencode.json", func(t *testing.T, data []byte) {
 			var root map[string]any
 			if err := json.Unmarshal(data, &root); err != nil {
 				t.Fatalf("invalid JSON: %v", err)
@@ -387,7 +387,7 @@ func TestApply_MCP_Stdio_AllProviders(t *testing.T) {
 				t.Errorf("missing stdio section: %s", content)
 			}
 		}},
-		{configurator.ProviderOpenCode, "opencode.json", func(t *testing.T, data []byte) {
+		{configurator.ProviderOpenCode, ".config/opencode/opencode.json", func(t *testing.T, data []byte) {
 			var root map[string]any
 			if err := json.Unmarshal(data, &root); err != nil {
 				t.Fatalf("invalid JSON: %v", err)

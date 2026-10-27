@@ -60,7 +60,7 @@ func TestDestDirPaths(t *testing.T) {
 	}{
 		{"mcp", configurator.ProviderClaudeCode, ".claude.json"},
 		{"mcp", configurator.ProviderCodex, ".codex/config.toml"},
-		{"mcp", configurator.ProviderOpenCode, "opencode.json"},
+		{"mcp", configurator.ProviderOpenCode, ".config/opencode/opencode.json"},
 		{"mcp", configurator.ProviderKiro, ".kiro/settings/mcp.json"},
 		{"instructions", configurator.ProviderClaudeCode, ".claude/CLAUDE.md"},
 		{"instructions", configurator.ProviderOpenCode, ".config/opencode/AGENTS.md"},

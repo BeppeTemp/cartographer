@@ -179,7 +179,7 @@ func isEmptyMCPProviderShell(settings map[string]interface{}) bool {
 
 // mcpProviderFromPath infers which provider a "mcp" kind ManagedFile was
 // materialized for from its Path (destDir gives each provider its own shared
-// config file — ".claude.json", ".codex/config.toml", "opencode.json",
+// config file — ".claude.json", ".codex/config.toml", ".config/opencode/opencode.json",
 // ".kiro/settings/mcp.json"), so PruneManaged can strip the matching
 // provider-native registration without needing its own provider parameter
 // (same pattern as hookProviderFromPath).
@@ -193,6 +193,10 @@ func mcpProviderFromPath(path string) configurator.Provider {
 		return configurator.ProviderCrush
 	case ".agents/mcp_config.json":
 		return configurator.ProviderAntigravity
+	case "opencode.json":
+		// OpenCode's project cell, and its global cell before #1172: a lock
+		// entry recorded there is pruned from it when the entry relocates.
+		return configurator.ProviderOpenCode
 	}
 	for _, d := range configurator.Providers() {
 		if slash == d.MCPConfigPath {

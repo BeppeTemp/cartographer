@@ -1008,7 +1008,7 @@ name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
 | Claude Code | `.claude.json` (also `<dir>/.claude.json` for each `clients.claude.config_dirs`, D755) | `mcpServers` (JSON) |
 | Codex CLI | `.codex/config.toml` | managed block `[mcp_servers.cartographer]` (TOML, marker `cartographer:mcp:*`) |
 | Kiro | `.kiro/settings/mcp.json` | `mcpServers` (JSON) |
-| OpenCode | `opencode.json` | `mcp` (JSON) |
+| OpenCode | `.config/opencode/opencode.json` (an entry left in `opencode.json` by an earlier version is moved, #1172) | `mcp` (JSON) |
 | Google Antigravity | `.gemini/config/mcp_config.json` | `mcpServers` (JSON) |
 | Crush | `.config/crush/crush.json` | `mcp` (JSON) |
 | GitHub Copilot CLI | `.copilot/mcp-config.json` | `mcpServers` (JSON) |

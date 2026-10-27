@@ -969,6 +969,17 @@ func TestSetEntryAuthorsNeedsEveryReachedKBToAgree(t *testing.T) {
 
 // A symlinked client config (D148) is refused for its provider alone: connect
 // and sync still write every other provider, and report the refusal.
+// openCodeConfig is OpenCode's global config file under dir, its parent
+// directory created so a test can put a link in its place.
+func openCodeConfig(t *testing.T, dir string) string {
+	t.Helper()
+	p := filepath.Join(dir, filepath.FromSlash(configurator.OpenCodeConfigPath))
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 func TestDoConnect_ASymlinkedProviderConfigDoesNotStopTheOtherProviders(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink semantics differ on Windows")
@@ -981,7 +992,7 @@ func TestDoConnect_ASymlinkedProviderConfigDoesNotStopTheOtherProviders(t *testi
 	if err := os.WriteFile(target, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+	if err := os.Symlink(target, openCodeConfig(t, dir)); err != nil {
 		t.Fatal(err)
 	}
 	res, err := doConnect(connectOptions{Providers: []string{"opencode", "claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}"})
@@ -996,7 +1007,7 @@ func TestDoConnect_ASymlinkedProviderConfigDoesNotStopTheOtherProviders(t *testi
 	}
 	var named int
 	for _, w := range res.Warnings {
-		if strings.Contains(w, filepath.Join(dir, "opencode.json")) {
+		if strings.Contains(w, openCodeConfig(t, dir)) {
 			named++
 		}
 	}
@@ -1022,7 +1033,7 @@ func TestCmdSync_ASymlinkedProviderConfigDoesNotStopTheOtherProviders(t *testing
 	if err := os.WriteFile(target, []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+	if err := os.Symlink(target, openCodeConfig(t, dir)); err != nil {
 		t.Fatal(err)
 	}
 	if code := cmdSync(nil); code != 0 {
@@ -1057,10 +1068,10 @@ func TestCmdSync_ARefusedStaleEntryRemovalKeepsItsKBInKnownKBs(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(t.TempDir(), "opencode.json")
-	if err := os.Rename(filepath.Join(dir, "opencode.json"), target); err != nil {
+	if err := os.Rename(openCodeConfig(t, dir), target); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+	if err := os.Symlink(target, openCodeConfig(t, dir)); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(target)
@@ -1103,10 +1114,10 @@ func TestCmdSync_OnlyTheKBsWhoseEntryWasRefusedAreRetained(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(t.TempDir(), "opencode.json")
-	if err := os.Rename(filepath.Join(dir, "opencode.json"), target); err != nil {
+	if err := os.Rename(openCodeConfig(t, dir), target); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+	if err := os.Symlink(target, openCodeConfig(t, dir)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1138,10 +1149,10 @@ func TestDoConnect_ARefusedStaleEntryRemovalKeepsItsKBInKnownKBs(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(t.TempDir(), "opencode.json")
-	if err := os.Rename(filepath.Join(dir, "opencode.json"), target); err != nil {
+	if err := os.Rename(openCodeConfig(t, dir), target); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+	if err := os.Symlink(target, openCodeConfig(t, dir)); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(target)
