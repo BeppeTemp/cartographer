@@ -4,11 +4,14 @@ topic: deployment-release
 
 # D1180 — Dependabot waits out the freeze; the open PRs are armed after the train
 
-**Decision.** `dependabot-automerge.yml` does not arm auto-merge while the freeze
-(Saturday 00:00 to Monday 08:30 Europe/Rome, D989) is open, as
-`scripts/freeze-open.sh` answers. When `release-train` completes and the window is
-closed, `dependabot-arm.yml` re-runs `dependabot-automerge.yml` on each open
-Dependabot PR, which then applies the usual rules (D329).
+**Decision.** Dependabot's auto-merge is not armed while the freeze is open, as
+`scripts/freeze-open.sh` answers: Saturday 00:00 until Monday's train has run
+(Monday before 08:30, then until both scheduled `release-train` runs of the day are
+completed, the rule of the implement-plan skill). `dependabot-arm.yml` disarms the
+open Dependabot PRs on Saturday at 00:05 Europe/Rome, and arms them directly when a
+scheduled train run completes with the freeze closed, by the rule of
+`scripts/dependabot-eligible.sh` that `dependabot-automerge.yml` also uses (D329).
+A failed disarm or arm fails the job and is listed in its summary.
 
 **Why.** A grouped bump merged itself on Saturday after the candidate was built:
 `main` no longer matched the candidate, the Monday train skipped, and a new
@@ -21,10 +24,12 @@ workflow and a bump that waits up to two days.
   rebased) still arms in a freeze, and the schedule is not the invariant.
 - Arming from a step inside `release-train.yml`: that workflow deliberately runs
   no third-party action and checks nothing out, and would carry the PR rules twice.
-- Re-implementing the major/docker rules in the arming workflow: re-running the
-  one workflow keeps them in one place.
+- Re-running `dependabot-automerge.yml` on each PR to arm it: a re-run of a
+  Dependabot-actor run may keep Dependabot's restricted token and fail quietly.
+- Clock-only end of the freeze (Monday 08:30): the train often starts late, and a
+  merge before it skips it.
 
 **Consequences.** The freeze window is defined in `freeze-open.sh` for the bots;
-the train still computes its own "since last Saturday" for commits, and the two
+the train still computes its own commit filter and the two
 must change together. Both workflows check out `main`, never the PR, since they
 run a script with a write token.
