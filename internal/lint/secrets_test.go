@@ -81,6 +81,42 @@ func TestSecretMatches_FenceLineAndKinds(t *testing.T) {
 	}
 }
 
+func TestSecretMatches_BoundariesAndPEMShapes(t *testing.T) {
+	t.Parallel()
+	gh := "ghp_" + rep("a1B2", 9)
+	for _, text := range []string{"_" + gh + "_", "--token-" + gh, gh + "-prod", "**" + gh + "**"} {
+		if got := secretMatches(text); len(got) != 1 {
+			t.Errorf("%q not found: %v", text[:6], got)
+		}
+	}
+	if got := secretMatches("x" + gh); len(got) != 0 {
+		t.Errorf("alnum-led token matched: %v", got)
+	}
+	key := rep("MIIEowIBAAKCAQEA", 2)
+	for name, text := range map[string]string{
+		"encrypted": "-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,0123\n\n" + key + "\n",
+		"quoted":    "> -----BEGIN PRIVATE KEY-----\n> " + key + "\n",
+		"listed":    "- -----BEGIN PRIVATE KEY-----\n  - " + key + "\n",
+	} {
+		if got := secretMatches(text); len(got) != 1 {
+			t.Errorf("%s PEM: %v", name, got)
+		}
+	}
+	if got := secretMatches("> -----BEGIN PRIVATE KEY-----\n> Proc-Type: 4\n"); len(got) != 0 {
+		t.Errorf("header only flagged: %v", got)
+	}
+}
+
+func TestPotentialSecret_NestedBlock(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	page := secretPage("credentials:\n  token: ghp_"+rep("a1B2", 9)+"\n", "clean")
+	fs := findingsOf(CheckConcept(k, okf.ConceptID("arch/s"), page), "potential_secret")
+	if len(fs) != 1 || !strings.Contains(fs[0].Message, `"credentials"`) {
+		t.Fatalf("nested block: %+v", fs)
+	}
+}
+
 func secretPage(fm, body string) string {
 	return "---\ntype: Note\ntitle: S\n" + fm + "---\n# S\n\n" + body + "\n"
 }
