@@ -149,6 +149,76 @@ func TestDerivedWorkspace_TrackedMCPFileKeepsItsLockEntries(t *testing.T) {
 	if !names["tools"] || !names["bridge"] {
 		t.Errorf("lock entries lost: %v", names)
 	}
+	// The projection ran: a skipped one leaves the file and the lock alone
+	// too, and would pass the checks above without the tracked-file rule.
+	if _, err := os.Stat(filepath.Join(ws, ".kiro", "skills", "example", "SKILL.md")); err != nil {
+		t.Errorf("the skill was not projected: %v", err)
+	}
+}
+
+// #1189: the hook case of the test above. A hook registration file that git
+// tracks once an earlier sync wrote it is left byte-identical by a derived
+// sync, which does not apply the hook, and whose lock keeps the hook's
+// entries, while the rest is projected.
+func TestDerivedWorkspace_TrackedHookFileKeepsItsLockEntries(t *testing.T) {
+	ws := trackedRepo(t, map[string]string{"README.md": "x\n"})
+	hook := provisioning.Artifact{Kind: "hook", Name: "guard", Source: "bundle", BuiltIn: true, ContentHash: "h-hook", Files: []provisioning.ArtifactFile{
+		{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"./run.sh"}`)},
+		{Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true},
+	}}
+	skill := skillAndMCPManifest().Artifacts[0]
+	dir := t.TempDir()
+	apply := func(p syncProjection, artifacts ...provisioning.Artifact) {
+		t.Helper()
+		m := provisioning.Manifest{Revision: "r", Artifacts: artifacts}
+		if _, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, dir, "", false, false, portabilityOptions{}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// An earlier sync registered the hook, then the repository started
+	// tracking the registration file (forced: that sync excluded it).
+	explicit := syncProjection{Provider: "antigravity", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject}
+	apply(explicit, hook)
+	const reg = ".agents/hooks.json"
+	original, err := os.ReadFile(filepath.Join(ws, filepath.FromSlash(reg)))
+	if err != nil {
+		t.Fatalf("the first sync did not register the hook: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", ws, "add", "-f", reg).CombinedOutput(); err != nil {
+		t.Skipf("git add: %v %s", err, out)
+	}
+
+	p := explicit
+	p.Derived = true
+	p.SharedSkipped, p.SkipKinds = derivedSharedSkips(p.Provider, ws)
+	// The KB still serves the hook, changed: a derived sync must not apply it.
+	changed := hook
+	changed.ContentHash = "h-hook-2"
+	changed.Files = []provisioning.ArtifactFile{hook.Files[0], {Path: "run.sh", Content: []byte("#!/bin/sh\necho changed\n"), Executable: true}}
+	apply(p, skill, changed)
+
+	if got, _ := os.ReadFile(filepath.Join(ws, filepath.FromSlash(reg))); !bytes.Equal(got, original) {
+		t.Errorf("the tracked registration file changed:\n%s", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(ws, ".agents", "hooks", "guard", "run.sh")); string(got) != "#!/bin/sh\n" {
+		t.Errorf("the hook was applied although its registration file is tracked: %q", got)
+	}
+	after, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hookEntries := 0
+	for _, mf := range after.ForProjection(p.Key()).Managed {
+		if mf.Kind == "hook" && mf.Name == "guard" {
+			hookEntries++
+		}
+	}
+	if hookEntries == 0 {
+		t.Errorf("the hook's lock entries were dropped: %+v", after.ForProjection(p.Key()).Managed)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".agents", "skills", "example", "SKILL.md")); err != nil {
+		t.Errorf("the skill was not projected: %v", err)
+	}
 }
 
 // An artifact name that cannot be projected skips a derived projection with a
