@@ -88,17 +88,48 @@ instructions_block() {
     sed -n '/<!-- cartographer:instructions:begin/,/<!-- cartographer:instructions:end -->/p' "$1"
 }
 
+# prev_stable_tag <repo>: the newest tag reachable from the repo's HEAD with
+# no semver pre-release suffix, any tag pointing at HEAD excluded (on a
+# release commit, the one before it). A release candidate (v0.28.0-rc.20261111,
+# D1192) sorts first and is skipped by its tag, with the installers' filter
+# (install.sh latest_tag, updatecheck.HasPrereleaseSuffix).
+prev_stable_tag() {
+    local at_head
+    at_head="$(git -C "$1" tag --points-at HEAD)"
+    git -C "$1" tag --merged HEAD --list 'v*' --sort=-v:refname \
+        | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' \
+        | grep -vxF -f <(printf '%s\n' "$at_head") \
+        | head -n 1
+}
+
+# The rule itself, on a throwaway repository: a release candidate newer than
+# the last release and not at HEAD (so only its suffix can skip it), then a
+# release commit that is itself tagged.
+echo "--- Assertions: the previous release is the newest stable tag ---"
+tags_repo="${WORK_DIR}/tags"
+git init -q "$tags_repo"
+commit_on() { git -C "$tags_repo" -c user.name=e2e -c user.email=e2e@example.com commit -q --allow-empty -m "$1"; }
+for t in v0.26.1 v0.27.0 v0.28.0-rc.20261111; do commit_on "$t" && git -C "$tags_repo" tag "$t"; done
+commit_on "work after the candidate"
+got="$(prev_stable_tag "$tags_repo")"
+if [[ "$got" == v0.27.0 ]]; then
+    _assert_pass "a release candidate listed first is skipped: v0.27.0"
+else
+    _assert_fail "previous release with a newer release candidate: got '${got}', want v0.27.0"
+fi
+git -C "$tags_repo" tag v0.28.0
+got="$(prev_stable_tag "$tags_repo")"
+if [[ "$got" == v0.27.0 ]]; then
+    _assert_pass "the release tag at HEAD is excluded: v0.27.0"
+else
+    _assert_fail "previous release on a release commit: got '${got}', want v0.27.0"
+fi
+
 # --- 1. The previous release ---
 if [[ -n "${E2E_UPGRADE_FROM:-}" ]]; then
     PREV_REF="$E2E_UPGRADE_FROM"
 else
-    # The newest stable tag (no pre-release suffix, as #1192 reads releases)
-    # reachable from HEAD; on a release commit, the one before it.
-    at_head="$(git -C "$REPO_ROOT" tag --points-at HEAD)"
-    PREV_REF="$(git -C "$REPO_ROOT" tag --merged HEAD --list 'v*' --sort=-v:refname \
-        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-        | grep -vxF -f <(printf '%s\n' "$at_head") \
-        | head -n 1)"
+    PREV_REF="$(prev_stable_tag "$REPO_ROOT")"
     if [[ -z "$PREV_REF" ]]; then
         echo "[ERROR] no stable tag reachable from HEAD: a shallow clone or tags not fetched; run: git fetch --tags --unshallow" >&2
         exit 1
