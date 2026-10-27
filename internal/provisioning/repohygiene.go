@@ -57,6 +57,21 @@ func gitTrackedPaths(dir string) (map[string]bool, error) {
 	return tracked, nil
 }
 
+// gitTracksFile reports whether git tracks rel (a slash path relative to dir)
+// in the repository dir belongs to, also when dir is a subdirectory of it,
+// which gitTrackedPaths reads as no repository. Outside any repository it is
+// false; when git cannot answer it errs, and the caller does not edit (D1198).
+func gitTracksFile(dir, rel string) (bool, error) {
+	out, err := exec.Command("git", "-C", dir, "ls-files", "-z", "--", filepath.FromSlash(rel)).Output()
+	if err == nil {
+		return len(out) > 0, nil
+	}
+	if _, lookErr := exec.LookPath("git"); lookErr == nil && exec.Command("git", "-C", dir, "rev-parse", "--git-dir").Run() != nil {
+		return false, nil
+	}
+	return false, fmt.Errorf("provisioning: is %s tracked in %s: %w", rel, dir, err)
+}
+
 // TrackedCollisionError is the refusal of rule 2: a path the projection owns is
 // already under version control.
 type TrackedCollisionError struct {

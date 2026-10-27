@@ -555,8 +555,8 @@ unchanged.
   ([D1198](decisions/D1198-derived-claude-hooks-in-settings-local.md)). When git tracks
   `settings.local.json` too, the hooks are not projected and `status` says so. A hook an earlier
   version registered in a `settings.json` git does not track is moved to `settings.local.json`; one
-  in a tracked `settings.json` is not registered a second time: `sync` warns, `doctor` reports the
-  entries, and once they are removed the next `sync` registers the hook in `settings.local.json`.
+  in a tracked `settings.json` is not registered a second time: a `sync` that updates the hook warns,
+  `doctor` reports the entries, and once they are removed the next `sync` registers the hook in `settings.local.json`.
   Wherever Cartographer still rewrites a Claude Code settings file, the key order, the indent, the
   line endings and the final newline are kept (string escapes are normalised).
   What a derived projection leaves unwritten is neither pending nor drift in `status` (#1188): it

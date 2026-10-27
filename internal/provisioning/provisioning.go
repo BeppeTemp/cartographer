@@ -364,7 +364,7 @@ func claudeHookSettings(opts ApplyOptions) []string {
 	if opts.Provider != configurator.ProviderClaudeCode || opts.Scope != ScopeProject || opts.HookSettingsRel == "" {
 		return nil
 	}
-	if tracked, err := TrackedPaths(opts.BaseDir); err == nil && !tracked[claudeSettingsFiles[0]] {
+	if tracked, err := gitTracksFile(opts.BaseDir, claudeSettingsFiles[0]); err == nil && !tracked {
 		return []string{opts.HookSettingsRel, claudeSettingsFiles[0]}
 	}
 	return []string{opts.HookSettingsRel}

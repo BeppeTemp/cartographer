@@ -89,10 +89,10 @@ func registerHookSettings(baseDir, settingsRel, hookName, fullDestDir string) (s
 // succeeded for this hook.
 func removeHookEntries(baseDir, hookName string, rels ...string) error {
 	if len(rels) == 0 {
-		// Cartographer only ever writes a settings.local.json git does not
-		// track (D1198): a tracked one is the repository's.
+		// settings.json always; settings.local.json only when git does not
+		// track it, the only one Cartographer ever writes (D1198).
 		rels = claudeSettingsFiles[:1]
-		if tracked, err := TrackedPaths(baseDir); err == nil && !tracked[ClaudeLocalSettings] {
+		if tracked, err := gitTracksFile(baseDir, ClaudeLocalSettings); err == nil && !tracked {
 			rels = claudeSettingsFiles
 		}
 	}

@@ -299,3 +299,21 @@ func TestClaudeSettings_DeepNestingIsRefused(t *testing.T) {
 		t.Error("a too deeply nested settings.json was rewritten")
 	}
 }
+
+// A workspace below the repository root (no .git of its own) still sees the
+// settings.json git tracks there, and leaves it alone.
+func TestApply_HookSettingsRelInARepositorySubdirectory(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeHookKB(t, kbRoot, "guard", "PreToolUse", "Bash", "./notify.sh")
+	repo := t.TempDir()
+	baseDir := filepath.Join(repo, "sub")
+	res := applyClaudeHook(t, kbRoot, baseDir, provisioning.ScopeProject, "", provisioning.Lock{})
+	gitTrack(t, repo, "sub/.claude/settings.json")
+	settings := filepath.Join(baseDir, ".claude", "settings.json")
+	legacy, _ := os.ReadFile(settings)
+	writeHookKB(t, kbRoot, "guard", "PostToolUse", "Edit", "./notify.sh")
+	applyClaudeHook(t, kbRoot, baseDir, provisioning.ScopeProject, provisioning.ClaudeLocalSettings, res.NewLock)
+	if got, _ := os.ReadFile(settings); string(got) != string(legacy) {
+		t.Errorf("a tracked settings.json below the repository root was written:\n%s", got)
+	}
+}
