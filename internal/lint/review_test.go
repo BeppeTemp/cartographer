@@ -1297,3 +1297,26 @@ func TestReviewIndexUnclassified(t *testing.T) {
 		}
 	})
 }
+
+// #1194: the banner the harvest writes on an archived entry is a status line,
+// not a repeated fact; the same line on live pages still is one.
+func TestRepeatedFact_ArchivalBannerExempt(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	banner := "> Archived 2026-10-01: no durable lessons."
+	for i := 0; i < 3; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("j/e%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: E%d\nstatus: archived\n---\n%s\n\n# E%d\n\nBody %d.\n", i, banner, i, i))
+	}
+	if got := itemsOf(review(t, k), ReviewRepeatedFact); len(got) != 0 {
+		t.Fatalf("the archival banner of archived entries is not a repeated fact: %+v", got)
+	}
+	for i := 0; i < 3; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/p%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: P%d\n---\n%s\n", i, banner))
+	}
+	got := itemsOf(review(t, k), ReviewRepeatedFact)
+	if len(got) != 1 || strings.Join(got[0].Concepts, ",") != "m/p0,m/p1,m/p2" {
+		t.Fatalf("the line on three live pages is still a repeated fact, owned by them only: %+v", got)
+	}
+}

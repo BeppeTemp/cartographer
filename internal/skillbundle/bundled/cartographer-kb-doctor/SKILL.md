@@ -281,7 +281,7 @@ An alternative never weakens a rule: a delegated session never deletes a concept
      one) or `concept_patch` the type; a file you cannot place is a gap (5c), never a deletion. A tie in `value_case_variant`: the spelling most
      pages use wins (assisted: ask), then patch the minority.
    - **Boilerplate** (D314, D317): a `repeated_fact` whose evidence line comes from a template is
-     structural. The fix is in the template (`artifact_read` `templates/`), not in each concept:
+     structural (the archival banner of 5b is never one: an archived entry's is skipped). The fix is in the template (`artifact_read` `templates/`), not in each concept:
      one decision, not one per copy.
    - **Search misses**: `kb_status` `search_misses`. A miss with `resolved: true` found something
      on the last check and needs nothing (D319); a still-open one, asked more than once, is a gap:
