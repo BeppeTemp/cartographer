@@ -235,6 +235,13 @@ func TestCompare(t *testing.T) {
 		{"v0.17.0", "v0.16.9", false, ""},
 		{"v0.16.1", "garbage", false, ""},
 		{"dev", "v0.16.1", false, ""},
+		// A `git describe` build after a tag is newer than that tag (#1171).
+		{"v0.25.1-110-gabc1234", "v0.25.1", false, ""},
+		{"v0.25.1-110-gabc1234-dirty", "v0.25.1", false, ""},
+		{"v0.25.1-110-gabc1234", "v0.25.2", true, KindPatch},
+		{"v0.25.1-110-gabc1234", "v0.26.0", true, KindMinor},
+		{"v1.0.0-rc.1-5-gabc1234", "v1.0.0-rc.1", false, ""},
+		{"v1.0.0-rc.1-5-gabc1234", "v1.0.0-rc.2", true, KindMinor},
 	}
 	for _, c := range cases {
 		avail, kind := Compare(c.current, c.latest)
