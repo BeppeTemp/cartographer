@@ -4310,7 +4310,50 @@ func ComputeDiffResolved(m Manifest, lock Lock, opts ApplyOptions) Diff {
 			d.InSync = false
 		}
 	}
+	// The instructions block carries no per-artifact resolution list: sync
+	// rewrites it when the hash of its client-owned tail (shared section and
+	// "Local paths" table) changes, so status asks the same question (#1225).
+	for _, a := range instructionsResolutionDrift(m, opts, tracker) {
+		if !queued[a.Kind+"\x00"+a.Name] {
+			d.Updated = append(d.Updated, a)
+			d.InSync = false
+		}
+	}
 	return d
+}
+
+// instructionsResolutionDrift returns the authorized instructions artifacts
+// when the paths-section hash Apply would record differs from the lock's: the
+// same comparison applyInstructionsGroup makes. tracker must already be
+// pre-resolved the way Apply does.
+func instructionsResolutionDrift(m Manifest, opts ApplyOptions, tracker *expansionTracker) []Artifact {
+	if instructionsDest(opts) == "" {
+		return nil
+	}
+	var signed []Artifact
+	var sections []string
+	for _, a := range m.Artifacts {
+		if a.Kind != "instructions" || !artifactAuthorized(a, opts) {
+			continue
+		}
+		content, err := singleArtifactContent(a, opts)
+		if err != nil {
+			return nil
+		}
+		signed = append(signed, a)
+		sections = append(sections, string(expandPlaceholders(content, opts, tracker)))
+	}
+	if len(signed) == 0 {
+		return nil
+	}
+	var shared string
+	if sharedSectionWanted(sections) {
+		shared = SharedOperationalSection()
+	}
+	if pathsSectionHash(shared+"\x00"+buildPathsSection(tracker.resolved)) == opts.Lock.PathsSectionHash {
+		return nil
+	}
+	return signed
 }
 
 // singleArtifactContent returns the content of a single-file artifact (kind

@@ -812,3 +812,40 @@ func TestApply_ExpandPlaceholders_InstructionsConverge(t *testing.T) {
 		})
 	}
 }
+
+// A changed resolution rewrites the block through the paths-section hash, so
+// status must report it pending too, and a sync must clear it.
+func TestComputeDiffResolved_InstructionsResolutionChange(t *testing.T) {
+	baseDir := t.TempDir()
+	a := instructionsArtifactForExpandTest("homelab", "Working repo: {{repo:homelab}}.\n")
+	m := MergeArtifacts([]Artifact{a})
+	opts := ApplyOptions{ApprovedMCP: approveAll(m),
+		Provider:           configurator.ProviderClaudeCode,
+		BaseDir:            baseDir,
+		ExpandPlaceholders: true,
+		Paths:              map[string]string{"homelab": "/srv/homelab"},
+	}
+	first, err := Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.Lock = first.NewLock
+	if d := ComputeDiffResolved(m, first.NewLock, opts); !d.InSync {
+		t.Fatalf("in sync right after the sync: %+v", d)
+	}
+	opts.Paths = map[string]string{"homelab": "/srv/elsewhere"}
+	d := ComputeDiffResolved(m, first.NewLock, opts)
+	if d.InSync || len(d.Updated) != 1 || d.Updated[0].Kind != "instructions" {
+		t.Fatalf("a changed resolution is pending: %+v", d)
+	}
+	second, err := Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Written) != 1 {
+		t.Fatalf("sync rewrites the block: %+v", second.Written)
+	}
+	if d := ComputeDiffResolved(m, second.NewLock, opts); !d.InSync {
+		t.Errorf("converges after the sync: %+v", d)
+	}
+}
