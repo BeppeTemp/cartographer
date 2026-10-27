@@ -243,7 +243,7 @@ agent's own `git init`, `checkout -b` or `push` is how a KB ends up forked acros
 remote; the server owns the clone and refuses writes on a branch other than the remote's default one.
 
 **The first operational bullet names the reading tools** (D780): `search` or `atlas_overview` to
-orient, `concept_read` to read, and `graph_context` when the answer spans several linked pages, in one
+orient, `concept_read` to read (only a hit's `section` when it names one, the whole page when it says `read: "whole"`, D1207), and `graph_context` when the answer spans several linked pages, in one
 call instead of reading page by page and following links. Agents pick tools from what this line names.
 
 **The scope sentence attributes and bounds each KB's directives** (D182): emitted immediately before
@@ -434,7 +434,7 @@ The matrix below is data in the code: `destinationMatrix` in `internal/provision
 | `agent` | `.claude/agents/<name>.md` (verbatim) | `.config/opencode/agents/<name>.md` (translated) | `.codex/agents/<name>.toml` (translated) | `.kiro/agents/<name>.json` (translated) | `.gemini/config/agents/<name>.md` (translated) | unsupported — no documented user-level subagent directory | `.copilot/agents/<name>.agent.md` (translated) |
 | `hook` | `.claude/hooks/<name>/` + registration in `settings.json` | `.opencode/hooks/<name>/` + generated JS plugin | `.codex/hooks/<name>/` + registration in `hooks.json` | `.kiro/hooks/cartographer/<name>/` + entry in `.kiro/hooks/cartographer.json` (fires in `kiro-cli chat --v3 --tui` only, D300) | `.gemini/config/hooks/<name>/` + registration in `hooks.json` | `.config/crush/hooks/<name>/` + entry `cartographer-<name>` in `hooks.PreToolUse` of `crush.json` (`PreToolUse` only, D363) | `.copilot/cartographer-hooks/<name>/` + dedicated file `.copilot/hooks/cartographer-<name>.json` (`SessionStart`, `PreToolUse`, `PostToolUse`; no matcher, D676) |
 | `instructions` | managed block in `.claude/CLAUDE.md` | block in `.config/opencode/AGENTS.md` | block in `.codex/AGENTS.md` | file `.kiro/steering/cartographer.md` | block in `.gemini/GEMINI.md` | block in `.config/crush/CRUSH.md` | block in `.copilot/copilot-instructions.md` |
-| `mcp` | key `mcpServers.<name>` in `.claude.json` | key `mcp.<name>` in `opencode.json` | block `[mcp_servers.<name>]` in `config.toml` | key `mcpServers.<name>` in `.kiro/settings/mcp.json` | key `mcpServers.<name>` in `.gemini/config/mcp_config.json` | key `mcp.<name>` in `.config/crush/crush.json` | key `mcpServers.<name>` in `.copilot/mcp-config.json` |
+| `mcp` | key `mcpServers.<name>` in `.claude.json` | key `mcp.<name>` in `.config/opencode/opencode.json` (D1172) | block `[mcp_servers.<name>]` in `config.toml` | key `mcpServers.<name>` in `.kiro/settings/mcp.json` | key `mcpServers.<name>` in `.gemini/config/mcp_config.json` | key `mcp.<name>` in `.config/crush/crush.json` | key `mcpServers.<name>` in `.copilot/mcp-config.json` |
 
 Paths are relative to the client **base dir**, the user's home. A global lock entry carries no
 `base_dir` and means the lockfile's own directory; a workspace projection records its repository.

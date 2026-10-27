@@ -121,7 +121,7 @@ func Releases(ctx context.Context, opts Options, req ReleasesRequest) (ReleasesR
 		}
 		for _, r := range raw {
 			tag := strings.TrimSpace(r.TagName)
-			if r.Draft || !ValidTag(tag) {
+			if r.Draft || !stableTag(tag) { // a candidate is not a release (D1192)
 				continue
 			}
 			body, cut := truncateBody(r.Body, MaxBodyBytes)

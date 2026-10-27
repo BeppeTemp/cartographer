@@ -176,7 +176,8 @@ func decayFindings(in conceptInput) []Finding {
 	if in.Contract != nil && len(in.Contract.OpenMarkers) > 0 {
 		markers = in.Contract.OpenMarkers
 	}
-	if re := markerRegexp(markers); re != nil {
+	// A verbatim external document is not the KB's writing (#1195, D1195).
+	if re := markerRegexp(markers); re != nil && !externalOrigin(in.Parsed) {
 		// Struck-through text is closed or cancelled: a marker there is
 		// history, not an open question (D307).
 		unstruck := struckRe.ReplaceAllStringFunc(masked, func(m string) string { return strings.Repeat(" ", len(m)) })

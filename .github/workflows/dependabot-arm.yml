@@ -1,20 +1,20 @@
 name: dependabot-arm
 
-# The freeze (D989) and Dependabot's auto-merge (D1180):
-#   - disarm: Saturday 00:05 Europe/Rome, auto-merge is cancelled on the open
+# The freeze (D1192) and Dependabot's auto-merge (D1180):
+#   - disarm: Wednesday 00:05 Europe/Rome, auto-merge is cancelled on the open
 #     Dependabot PRs armed before the freeze, so none merges in it;
 #   - arm: when a scheduled release-train run completes and the freeze is closed
-#     (scripts/freeze-open.sh waits for both of Monday's runs), auto-merge is armed
+#     (scripts/freeze-open.sh waits for both of Thursday's runs), auto-merge is armed
 #     on the open Dependabot PRs by the same rule as dependabot-automerge.yml
-#     (scripts/dependabot-eligible.sh). The Saturday run finds the freeze open.
+#     (scripts/dependabot-eligible.sh). The Wednesday run finds the freeze open.
 # A failure is reported in the job summary and fails the job; nothing is swallowed.
 #
 # GitHub cron is UTC: two entries per slot, the run continues only on the entry that
 # matches today's Europe/Rome offset (as release-train.yml, D956).
 on:
   schedule:
-    - cron: "5 22 * * 5" # Fri 22:05 UTC = Sat 00:05 CEST
-    - cron: "5 23 * * 5" # Fri 23:05 UTC = Sat 00:05 CET
+    - cron: "5 22 * * 2" # Tue 22:05 UTC = Wed 00:05 CEST
+    - cron: "5 23 * * 2" # Tue 23:05 UTC = Wed 00:05 CET
   workflow_run:
     workflows: [release-train]
     types: [completed]
@@ -44,7 +44,7 @@ jobs:
           CRON: ${{ github.event.schedule }}
         run: |
           case "$(TZ=Europe/Rome date +%z) $CRON" in
-            "+0200 5 22 * * 5" | "+0100 5 23 * * 5") ;;
+            "+0200 5 22 * * 2" | "+0100 5 23 * * 2") ;;
             *) echo "not today's offset: nothing to do"; exit 0 ;;
           esac
           scripts/freeze-open.sh || { echo "the freeze is not open: nothing to disarm"; exit 0; }

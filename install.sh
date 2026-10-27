@@ -12,6 +12,9 @@
 # Environment:
 #   CARTOGRAPHER_INSTALL_DIR  target directory (default: /usr/local/bin, falls
 #                             back to ~/.local/bin when not writable)
+#   CARTOGRAPHER_INSTALL_TAG  install this tag instead of the newest release,
+#                             e.g. a release candidate v0.28.0-rc.20261111
+#                             (checksum-verified the same way)
 #   GITHUB_TOKEN              optional token (avoids API rate limits)
 set -eu
 
@@ -75,19 +78,32 @@ install_dir() {
 }
 
 latest_tag() {
-    # /releases?per_page=1, not /releases/latest: the latter is documented to
-    # skip pre-releases, and every 0.x release of this project is one (D82,
-    # D211). Against /releases/latest this installer would 404 while no stable
-    # release exists, and — worse — quietly keep installing the last stable one
-    # once one does. The list endpoint is ordered newest-first and includes
-    # pre-releases; drafts are not published here.
-    auth_curl "${API_URL}/releases?per_page=1" \
-        | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -1
+    # /releases, not /releases/latest: the latter is documented to skip
+    # pre-releases, and every 0.x release of this project is one (D82, D211).
+    # Against /releases/latest this installer would 404 while no stable release
+    # exists, and — worse — quietly keep installing the last stable one once one
+    # does. The list endpoint is ordered newest-first and includes pre-releases;
+    # drafts are not published here. A release candidate (a tag with a semver
+    # pre-release suffix, v0.28.0-rc.20261111, D1192) is skipped by its tag,
+    # never by the `prerelease` flag, which stable 0.x releases carry: ten
+    # entries leave room for the week's candidates. One key per line first, so
+    # compact and pretty-printed JSON read the same.
+    auth_curl "${API_URL}/releases?per_page=10" | tr ',{' '\n\n' \
+        | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' \
+        | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true
 }
 
 do_install() {
     target=$(detect_target)
-    tag=$(latest_tag)
+    if [ -n "${CARTOGRAPHER_INSTALL_TAG:-}" ]; then
+        # The tag goes into a URL: only the shape of a release tag is accepted.
+        tag=$CARTOGRAPHER_INSTALL_TAG
+        case "$tag" in *[!0-9A-Za-z.-]*) fail "CARTOGRAPHER_INSTALL_TAG is not a release tag: $tag" ;; esac
+        printf '%s\n' "$tag" | grep -Eqx 'v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?' \
+            || fail "CARTOGRAPHER_INSTALL_TAG is not a release tag: $tag"
+    else
+        tag=$(latest_tag)
+    fi
     [ -n "$tag" ] || fail "cannot determine latest release (rate-limited? set GITHUB_TOKEN)"
     dir=$(install_dir)
     dest="${dir}/${BIN_NAME}"

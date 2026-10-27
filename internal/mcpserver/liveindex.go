@@ -65,6 +65,13 @@ func (l *liveIndex) title(id string) string {
 	return l.meta[id].Title
 }
 
+// body returns the body (frontmatter stripped) of id, or "" if id is unknown.
+func (l *liveIndex) body(id string) string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.meta[id].Body
+}
+
 // snippet returns an excerpt (~maxChars) of id's body around the first
 // occurrence of any term in query, falling back to the first maxChars of the
 // body if no term matches (or query is empty). Empty if id is unknown.

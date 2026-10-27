@@ -185,7 +185,7 @@ var descriptors = []Descriptor{
 	{
 		Provider:           ProviderOpenCode,
 		DisplayName:        "OpenCode",
-		MCPConfigPath:      "opencode.json",
+		MCPConfigPath:      OpenCodeConfigPath,
 		MCPFormat:          FormatJSON,
 		MCPServerKey:       "mcp",
 		DeletableWhenEmpty: true,

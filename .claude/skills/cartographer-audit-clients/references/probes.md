@@ -155,7 +155,8 @@ unique token; ask the client to repeat it.
 - Skill and agent: `$HOME/.config/opencode/skills/<name>/` and `agents/<name>.md`.
 - Hook: the generated plugin in `$HOME/.config/opencode/plugins/` fires on
   `session.created`; sentinel plus negative control.
-- MCP: `opencode.json`; instructions: `$HOME/.config/opencode/AGENTS.md`.
+- MCP: `$HOME/.config/opencode/opencode.json` (`opencode debug config` from a git
+  repository shows the merged result); instructions: `$HOME/.config/opencode/AGENTS.md`.
 - A new native skill, agent or hook mechanism in any client is `cell`-class: probe it before
   proposing to flip an unsupported cell.
 

@@ -164,3 +164,64 @@ func TestApply_RelocatesWorkspaceMCPEntryToProjectCell(t *testing.T) {
 		t.Errorf("third Apply moved again: Relocated=%v Pruned=%v", res.Relocated, res.Pruned)
 	}
 }
+
+// #1172: a global OpenCode mcp entry locked in $HOME/opencode.json (read by
+// OpenCode only as a project file) moves to ~/.config/opencode/opencode.json,
+// and only that entry leaves the old file.
+func TestApply_RelocatesOpenCodeMCPEntryToGlobalConfig(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeMCPFixture(t, kbRoot, "tools", `{"type":"http","url":"https://tools.example.com/mcp"}`)
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := findMCPArtifact(t, m, "tools")
+	home := t.TempDir()
+	opts := provisioning.ApplyOptions{
+		KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderOpenCode,
+		BaseDir:     home,
+		ApprovedMCP: map[string]string{"kb:kb\x00tools": a.ContentHash},
+	}
+	res, err := provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	global := filepath.Join(home, filepath.FromSlash(configurator.OpenCodeConfigPath))
+
+	// Rebuild the pre-#1172 state: the entry in $HOME/opencode.json beside one
+	// of the user's, and the lock recording that file.
+	old := filepath.Join(home, "opencode.json")
+	if err := os.WriteFile(old, []byte(`{"mcp":{"tools":{"type":"remote","url":"https://tools.example.com/mcp"},"mine":{"type":"remote","url":"https://example.com/mcp"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(global); err != nil {
+		t.Fatal(err)
+	}
+	lock := res.NewLock
+	for i := range lock.Managed {
+		if lock.Managed[i].Kind == "mcp" {
+			lock.Managed[i].Path = "opencode.json"
+		}
+	}
+
+	opts.Lock = lock
+	res, err = provisioning.Apply(m, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Relocated) == 0 {
+		t.Errorf("Relocated is empty, want the mcp entry reported as moved")
+	}
+	if servers, _ := readJSONFile(t, global)["mcp"].(map[string]any); servers["tools"] == nil {
+		t.Errorf("%s has no tools entry: %v", configurator.OpenCodeConfigPath, servers)
+	}
+	servers, _ := readJSONFile(t, old)["mcp"].(map[string]any)
+	if servers["tools"] != nil || servers["mine"] == nil {
+		t.Errorf("opencode.json = %v, want only the user's entry left", servers)
+	}
+	for _, mf := range res.NewLock.Managed {
+		if mf.Kind == "mcp" && filepath.ToSlash(mf.Path) != configurator.OpenCodeConfigPath {
+			t.Errorf("lock still records %s", mf.Path)
+		}
+	}
+}

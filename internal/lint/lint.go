@@ -981,10 +981,11 @@ func disallowedMachinePaths(body string) []string {
 		return nil
 	}
 	urlSpans := urlRe.FindAllStringIndex(body, -1)
+	remoteSpans := remoteFenceSpans(body)
 	var out []string
 	seen := map[string]bool{}
 	for _, span := range candidates {
-		if withinAnySpan(span, urlSpans) {
+		if withinAnySpan(span, urlSpans) || withinAnySpan(span, remoteSpans) {
 			continue
 		}
 		// Prose punctuation after a path is not part of it.

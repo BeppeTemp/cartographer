@@ -234,7 +234,7 @@ func TestDoDisconnect_KeepsOtherProviders(t *testing.T) {
 	}
 
 	// opencode's config entry is untouched.
-	mcp := mcpServersOf(t, filepath.Join(dir, "opencode.json"), "mcp")
+	mcp := mcpServersOf(t, openCodeConfig(t, dir), "mcp")
 	if _, ok := mcp["wiki"]; !ok {
 		t.Error("opencode's wiki entry should be untouched")
 	}
@@ -505,7 +505,7 @@ func TestApplyMCPEntries_ASymlinkedConfigIsAWarningAndOtherProvidersAreWritten(t
 	if got, _ := os.ReadDir(elsewhere); len(got) != 0 {
 		t.Errorf("the link target gained %d entries", len(got))
 	}
-	for _, f := range []string{".claude.json", "opencode.json"} {
+	for _, f := range []string{".claude.json", filepath.FromSlash(configurator.OpenCodeConfigPath)} {
 		if _, err := os.Stat(filepath.Join(dir, f)); err != nil {
 			t.Errorf("%s was not written: %v", f, err)
 		}
@@ -639,10 +639,10 @@ func TestDoReconnect_AProviderKeptConnectedIsNotRebuilt(t *testing.T) {
 		t.Fatalf("doConnect: %v", err)
 	}
 	target := filepath.Join(t.TempDir(), "opencode.json")
-	if err := os.Rename(filepath.Join(dir, "opencode.json"), target); err != nil {
+	if err := os.Rename(openCodeConfig(t, dir), target); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, filepath.Join(dir, "opencode.json")); err != nil {
+	if err := os.Symlink(target, openCodeConfig(t, dir)); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := os.ReadFile(target)

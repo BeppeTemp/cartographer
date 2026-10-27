@@ -352,6 +352,8 @@ bare origin: no branch means a recording is needed; after a publish the same tag
 tag whose `web/` tree differs does; publishing twice leaves one commit carrying the `Web-Tree:`
 trailer; a tag that changes only files outside `web/` needs none.
 
+**The section a search hit names is asserted on the wire** (D1207). `25_search_section` drives a real server with `curl` and `python3`: a multi-section page returns `section`, `concept_read` reads that section back smaller than the page, and a journal entry and a type listed in the map's `read_whole` return `read: "whole"` and no section.
+
 **A client with no Cartographer client side is asserted on the wire.** `24_generic_mcp_client` drives a real server
 with `curl` and `python3` only, as Open WebUI or a gateway would, and checks what that host receives
 ([`mcp-clients.md`](mcp-clients.md)): `/health` and `tools/list` follow the token, `initialize` carries the guide
@@ -818,7 +820,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 
 ## Before a release
 
-- The Saturday release candidate (`release-train.yml` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D956) has passed the image smoke before its push (D995) and has run on a real deployment; only then is the `rc-ok` label added to the release PR.
+- The Wednesday release candidate (`release-train.yml` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D956, D1192) has passed the image smoke before its push (D995) and has run on a real deployment, and its pre-release binaries have been installed as native service and client on a weekday machine (`CARTOGRAPHER_INSTALL_TAG`, `CONTRIBUTING.md` §Releases); only then, by Thursday afternoon, is the `rc-ok` label added to the release PR.
 - CI is green on the release commit, including `make e2e-web` in the `web` job.
 - `make smoke` succeeds for the packaged/local stdio path.
 - Installation and upgrade are verified on the target platform.

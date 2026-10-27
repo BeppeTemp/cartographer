@@ -107,12 +107,15 @@ func TestReleasesStopsAtThreePages(t *testing.T) {
 	}
 }
 
-func TestReleasesDropsDraftsAndStripsV(t *testing.T) {
+func TestReleasesDropsDraftsCandidatesAndStripsV(t *testing.T) {
 	draft := rel("v0.9.0")
 	draft.Draft = true
-	pre := rel("v0.8.0-rc.1")
+	rc := rel("v0.8.0-rc.1")
+	rc.Prerelease = true
+	// A stable 0.x release carries GitHub's flag too (D82, D211): the flag is carried, never the criterion.
+	pre := rel("v0.8.0")
 	pre.Prerelease = true
-	f := newFakeReleaseList(t, http.StatusOK, "", []apiRelease{rel("v1.0.0"), draft, pre, rel("0.7.0")})
+	f := newFakeReleaseList(t, http.StatusOK, "", []apiRelease{rel("v1.0.0"), draft, rc, pre, rel("0.7.0")})
 	res, err := Releases(context.Background(), releasesOpts(f, nil), ReleasesRequest{})
 	if err != nil {
 		t.Fatal(err)
@@ -121,8 +124,8 @@ func TestReleasesDropsDraftsAndStripsV(t *testing.T) {
 	for _, r := range res.Releases {
 		got = append(got, r.Version)
 	}
-	if strings.Join(got, " ") != "1.0.0 0.8.0-rc.1 0.7.0" {
-		t.Fatalf("versions = %v, want the draft dropped and the leading v stripped", got)
+	if strings.Join(got, " ") != "1.0.0 0.8.0 0.7.0" {
+		t.Fatalf("versions = %v, want the draft and the candidate dropped and the leading v stripped", got)
 	}
 	if !res.Releases[1].Prerelease || res.Releases[0].Prerelease {
 		t.Error("prerelease flag not carried")
@@ -257,5 +260,19 @@ func TestReleasesAPIURLFromEnv(t *testing.T) {
 	res, err := Releases(context.Background(), Options{Getenv: func(k string) string { return env[k] }}, ReleasesRequest{})
 	if err != nil || len(res.Releases) != 1 {
 		t.Fatalf("res = %+v, err %v: the EnvAPIURL override must be honoured as in Check", res, err)
+	}
+}
+
+// The Atlas history lists releases only, never a candidate at the head (D1192).
+func TestReleasesSkipsACandidateAtTheHead(t *testing.T) {
+	rc := rel("v0.28.0-rc.20261111")
+	rc.Prerelease = true
+	f := newFakeReleaseList(t, http.StatusOK, "", []apiRelease{rc, rel("v0.27.0")})
+	res, err := Releases(context.Background(), releasesOpts(f, nil), ReleasesRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Releases) != 1 || res.Releases[0].Version != "0.27.0" {
+		t.Errorf("releases = %+v, want only 0.27.0", res.Releases)
 	}
 }

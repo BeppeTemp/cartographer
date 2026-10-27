@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scenarios/03_config_opencode.sh — OPERATOR scenario: cartographer connect opencode.
 #
-# Verifies that `cartographer connect opencode` generates opencode.json with the
+# Verifies that `cartographer connect opencode` generates ~/.config/opencode/opencode.json with the
 # correct schema and materializes the bundled skills (via the sync_pull MCP tool)
 # into .config/opencode/skills/.
 #
@@ -53,7 +53,7 @@ echo "[03] running cartographer connect opencode..."
 echo ""
 echo "--- Assertions ---"
 
-OPENCODE_JSON="${SANDBOX_DIR}/opencode.json"
+OPENCODE_JSON="${SANDBOX_DIR}/.config/opencode/opencode.json"
 SKILL_FILE="${SANDBOX_DIR}/.config/opencode/skills/cartographer-kb-create/SKILL.md"
 LOCK_FILE="${SANDBOX_DIR}/.cartographer-sync.lock.json"
 CLIENT_CONFIG="${SANDBOX_DIR}/.cartographer.yaml"

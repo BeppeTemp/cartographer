@@ -261,32 +261,53 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
 
 A release is a weekly **train**, not whatever has accumulated (D956). Times are Europe/Rome.
 
-- **The train leaves on Monday at 08:30.** The `release-train` workflow merges the open
+- **The train leaves on Thursday at 18:00.** The `release-train` workflow merges the open
   release PR, and release-please then cuts the tag.
-- **Freeze, Saturday 00:00 to Monday 08:30.** Nothing that adds or breaks behaviour
+- **Freeze, Wednesday 00:00 to Thursday 18:00.** Nothing that adds or breaks behaviour
   lands: no `feat`, `perf` or `refactor`, and no breaking change (`!:` in the title or
   a `BREAKING CHANGE` footer). `fix`, `docs`, `test`, `ci`, `build` and `chore` may
   land, so Dependabot keeps working, but its auto-merge is not armed while the freeze is
-  open (D1180): `dependabot-arm` disarms what was armed on Saturday at 00:05 and arms
-  the open bumps once both of Monday's train runs are completed (a Monday after 08:30
-  stays frozen until then, as the train may start late). In short: a PR merged by Friday ships the
-  following Monday; a blocked one waits until after the release. A blocked commit on
-  `main` during the freeze skips the train.
-- **The release candidate.** On Saturday at 00:30 the workflow builds a server image
-  `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. The
-  image is started and smoked before it is published (tools, non-root user, a KB served
-  over HTTP with a write that commits), so a candidate that exists starts. The same run
-  renders the README film when its sources changed (`film.yml`, D1068): a red film job
-  fails the candidate, so there is no `rc-ok` train that week. A maintainer
-  runs it on a real deployment and adds the `rc-ok` label. Without the label, or if the
-  candidate is not the current head of `main` (a fix landed after the build), the train
-  is skipped with a comment (it says when the candidate build itself failed): run the
+  open (D1180): `dependabot-arm` disarms what was armed on Wednesday at 00:05 and arms
+  the open bumps once both of Thursday's train runs are completed (a Thursday after 18:00
+  stays frozen until then, as the train may start late). In short: a PR merged by Tuesday
+  ships that Thursday; development is open again from Thursday after the train; a blocked
+  PR waits until after the release. A blocked commit on `main` during the freeze skips
+  the train. The weekdays are on purpose (D1192): the candidate is tried on Wednesday and
+  Thursday, during working hours, where the heaviest deployments run.
+- **The release candidate.** On Wednesday at 00:30 the workflow builds the candidate
+  `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. It is a
+  server image **and** a GitHub pre-release with the binaries (the same archives and
+  `sha256sums.txt` as a stable release). The image is started and smoked before anything
+  is published (tools, non-root user, a KB served over HTTP with a write that commits),
+  so a candidate that exists starts; the binaries are published only after the image,
+  and only once the built binary prints the candidate's tag. The same run renders the
+  README film when its sources changed (`film.yml`, D1068): a red film job fails the
+  candidate, so there is no `rc-ok` train that week. A maintainer runs the image on a
+  real deployment and the binaries as native service and client (below), and adds the
+  `rc-ok` label, expected by Thursday afternoon. Without the label, or if the candidate
+  is not the current head of `main` (a fix landed after the build), the train is
+  skipped with a comment (it says when the candidate build itself failed): run the
   candidate again by hand (`release-train`, `action: rc`), try it and add the label
   again, or wait a week. A candidate built by hand before the freeze is kept by the
-  Saturday run when `main` has not moved since (it comments that the candidate already
+  Wednesday run when `main` has not moved since (it comments that the candidate already
   carries this `main`), so an `rc-ok` added after it stays valid; a manual `action: rc`
-  always builds. A pull request touching `film/` runs `film-check` (30 frames, the
-  runner's tools), so the encode chain fails there and not in the candidate.
+  always builds (the same day, it replaces that day's pre-release). A pull request
+  touching `film/` runs `film-check` (30 frames, the runner's tools), so the encode chain
+  fails there and not in the candidate.
+- **Trying the candidate as native service and client.** On macOS or Linux,
+  `curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | CARTOGRAPHER_INSTALL_TAG=v<next>-rc.<YYYYMMDD> sh`
+  (Windows: `$env:CARTOGRAPHER_INSTALL_TAG='v<next>-rc.<YYYYMMDD>'` before
+  `install.ps1`) installs that tag, checksum-verified like any release, over a stable
+  install; the next `cartographer sync` replaces the native service with it (D199) and
+  its schema migrations run as a stable upgrade's would. Back to stable: `install.sh`
+  with `update` and without the variable installs the newest **stable** release (a
+  downgrade while `v<next>` is not out), or `brew reinstall --cask cartographer` for a
+  Homebrew install; after the train, the same `update`. Schema migrations are not
+  reverted: going back past one is not supported. A candidate never appears in
+  `cartographer update check`, in `kb_status` `latest_version`, in the Atlas history,
+  in the installers' default choice or as the Homebrew cask (every tag with a semver
+  pre-release suffix is skipped, whatever GitHub's pre-release flag says), and the
+  stable release deletes its version's candidates (`release.yml`, `candidate-cleanup`).
 - **Only the next train's work merges.** The next train is the open milestone due
   first. Work of a later milestone can be planned, implemented and reviewed at any
   time, but its PR waits, open, until the train before it has left: `plan-gate`
@@ -324,7 +345,7 @@ change who acts:
 | `size-exception` | Maintainer-granted exception to the 500-line cap |
 | `good first issue` | Small, self-contained, suitable for a first contribution: set at triage on the easiest issues of the next milestones, and dropped when nobody claims one by the Wednesday of its train week (the maintainer takes it or moves it to the next train) |
 | `ci-red` | Opened by CI when `main` is red |
-| `rc-ok` | Set by a maintainer after trying the release candidate: the Monday train merges the release PR only with it (§Releases) |
+| `rc-ok` | Set by a maintainer after trying the release candidate: the Thursday train merges the release PR only with it (§Releases) |
 | `vuln-scan` | Created by `security.yml` when a vulnerability scan fails; never set by hand |
 | `dependencies`, `autorelease: pending`, `autorelease: tagged` | Set by Dependabot and release-please, never by hand |
 
@@ -437,9 +458,9 @@ paragraph applies.
 A vulnerability in released code is fixed in the temporary private fork of its draft
 advisory (`SECURITY.md`), by `cartographer-advisory-fixer`, and reviewed there with
 `cartographer-security-reviewer`. Nothing about it is public until the release: the
-commits state the new behaviour, not the hole. By Friday, before the freeze, the
+commits state the new behaviour, not the hole. By Tuesday, before the freeze, the
 maintainer lands the fix on the public repository on green CI and closes its PR in the
-fork, so the Saturday candidate carries it and is tried with it; after the train has
+fork, so the Wednesday candidate carries it and is tried with it; after the train has
 released, the maintainer publishes the advisory.
 
 ## Reporting bugs

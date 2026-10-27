@@ -3704,9 +3704,11 @@ var unsupportedDest = destination{unsupported: true}
 //   - copilot fills all five cells (D676); its agent files end in ".agent.md".
 var destinationMatrix = map[string]map[configurator.Provider]destination{
 	"mcp": {
-		configurator.ProviderClaudeCode:  at(".claude.json"),
-		configurator.ProviderCodex:       at(".codex", "config.toml"),
-		configurator.ProviderOpenCode:    at("opencode.json"),
+		configurator.ProviderClaudeCode: at(".claude.json"),
+		configurator.ProviderCodex:      at(".codex", "config.toml"),
+		// OpenCode's global config, not "$HOME/opencode.json" (read only as a
+		// project file, #1172): an entry locked there relocates on sync.
+		configurator.ProviderOpenCode:    at(".config", "opencode", "opencode.json"),
 		configurator.ProviderKiro:        at(".kiro", "settings", "mcp.json"),
 		configurator.ProviderAntigravity: at(".gemini", "config", "mcp_config.json"),
 		configurator.ProviderCrush:       at(".config", "crush", "crush.json"),

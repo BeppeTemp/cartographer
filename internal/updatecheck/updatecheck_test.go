@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -242,6 +243,10 @@ func TestCompare(t *testing.T) {
 		{"v0.25.1-110-gabc1234", "v0.26.0", true, KindMinor},
 		{"v1.0.0-rc.1-5-gabc1234", "v1.0.0-rc.1", false, ""},
 		{"v1.0.0-rc.1-5-gabc1234", "v1.0.0-rc.2", true, KindMinor},
+		// What a release candidate binary reports (D1192): up to date while the
+		// newest stable is older, a minor update once its release is out.
+		{"v0.28.0-rc.20261111", "v0.27.0", false, ""},
+		{"v0.28.0-rc.20261111", "v0.28.0", true, KindMinor},
 	}
 	for _, c := range cases {
 		avail, kind := Compare(c.current, c.latest)
@@ -357,5 +362,46 @@ func TestCheckSkipsDraftsAndTagsThatAreNotVersions(t *testing.T) {
 	}
 	if _, statErr := os.Stat(cache2); statErr == nil {
 		t.Error("no usable release must not be cached")
+	}
+}
+
+func TestHasPrereleaseSuffix(t *testing.T) {
+	for _, tag := range []string{"v0.28.0-rc.20261111", "v1.0.0-rc.1", "v1.0.0-beta.2", "1.2.3-0"} {
+		if !HasPrereleaseSuffix(tag) {
+			t.Errorf("HasPrereleaseSuffix(%q) = false, want true", tag)
+		}
+	}
+	for _, tag := range []string{"v0.27.0", "0.27.0", "v10.20.30", "", "nightly", "v9.9.9-$(id)"} {
+		if HasPrereleaseSuffix(tag) {
+			t.Errorf("HasPrereleaseSuffix(%q) = true, want false", tag)
+		}
+	}
+}
+
+// A release candidate is a GitHub pre-release with a suffixed tag (D1192): the
+// check never offers it, judged by the tag and never by the `prerelease` flag,
+// which every stable 0.x release carries (D82, D211).
+func TestCheckSkipsReleaseCandidates(t *testing.T) {
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	f := newFakeGitHub(t, 200, `[{"tag_name":"v0.28.0-rc.20261111","prerelease":true},{"tag_name":"v0.27.0","prerelease":true}]`, "")
+	res, err := Check(context.Background(), "v0.26.0", opts(t, f, filepath.Join(t.TempDir(), CacheFileName), now))
+	if err != nil || res.Latest != "v0.27.0" || !res.Available {
+		t.Fatalf("Check = %+v, %v; want latest v0.27.0, the candidate skipped and the flagged stable kept", res, err)
+	}
+	// A candidate binary is not offered its own candidate, nor another one.
+	res, err = Check(context.Background(), "v0.28.0-rc.20261111", opts(t, f, filepath.Join(t.TempDir(), CacheFileName), now))
+	if err != nil || res.Available {
+		t.Errorf("Check from a candidate = %+v, %v; want up to date against v0.27.0", res, err)
+	}
+	g := newFakeGitHub(t, 200, `[{"tag_name":"v0.28.0-rc.20261111"},{"tag_name":"v0.28.0-rc.20261110"}]`, "")
+	cache := filepath.Join(t.TempDir(), CacheFileName)
+	if res, err := Check(context.Background(), "v0.27.0", opts(t, g, cache, now)); err == nil || res.Latest != "" ||
+		!strings.Contains(err.Error(), "no release with a version tag") {
+		t.Errorf("a list of candidates only must be the no-release error: %+v %v", res, err)
+	}
+	// A cached candidate (none is ever written) counts as no cache.
+	writeCache(cache, cacheEntry{CheckedAt: now, Latest: "v0.28.0-rc.20261111"})
+	if _, ok := readCache(cache); ok {
+		t.Error("a cached candidate must be rejected")
 	}
 }
