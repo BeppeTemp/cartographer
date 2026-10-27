@@ -2124,9 +2124,13 @@ func TestServer_KBStatus_Branch(t *testing.T) {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
 	}
-	if _, err := k.SyncIn(); err != nil {
-		t.Fatalf("SyncIn: %v", err)
-	}
+	// The first kb_status read may have started a background SyncIn (readSyncWrap):
+	// one that fetched before the push above would leave the freshness window
+	// open and turn the explicit SyncIn below into a no-op, or overwrite its
+	// result. Let it finish and sync with no window (#1217).
+	waitReadRefresh(k)
+	k.SyncInWindow = 0
+	syncInForTest(t, k)
 	result = kbStatusResult(t, s)
 	if string(result["branch_source"]) != `"settings"` {
 		t.Errorf("branch_source = %s, want \"settings\"", result["branch_source"])
