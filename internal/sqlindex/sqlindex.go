@@ -5,9 +5,13 @@
 //	concepts(id TEXT PRIMARY KEY, content_hash TEXT NOT NULL, body TEXT NOT NULL)
 //	concepts_fts(id UNINDEXED, title, meta, body) — FTS5, trigram tokenizer
 //	with diacritics removed, ranked by bm25 weights 5 / 2 / 1 (D246)
+//	sections_fts(id UNINDEXED, heading UNINDEXED, title, body) — FTS5, same
+//	tokenizer: one row per "##" section of a concept's body, bm25 weights 3 / 1
+//	(D1207). It never ranks pages: it only answers which section of an already
+//	ranked page matched best (BestSection).
 //
 // The schema version lives in PRAGMA user_version (schemaVersion). Opening an
-// older database recreates concepts_fts and empties concepts: the index is
+// older database recreates concepts_fts and sections_fts and empties concepts: the index is
 // disposable, and the next reconciliation reindexes every concept.
 //
 // A database created before D135 may still carry an embeddings table: it is
@@ -22,6 +26,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/search"
 
 	_ "modernc.org/sqlite" // register "sqlite" driver (pure-Go, no CGo)
@@ -80,9 +85,10 @@ func Open(dbPath string) (*Index, error) {
 
 // schemaVersion is the concepts_fts layout this package writes. Version 2
 // (D246) split the single body column into title/meta/body and folded
-// diacritics; version 3 (D277) added the assets column; version 1 is every
-// database created before it (user_version 0).
-const schemaVersion = 3
+// diacritics; version 3 (D277) added the assets column; version 4 (D1207)
+// added sections_fts; version 1 is every database created before it
+// (user_version 0).
+const schemaVersion = 4
 
 // migrate brings an older database to schemaVersion by dropping what cannot
 // be converted in place. concepts is emptied with concepts_fts so the hashes
@@ -96,8 +102,13 @@ func migrate(db *sql.DB) error {
 	if version >= schemaVersion {
 		return nil
 	}
-	if _, err := db.Exec(`DROP TABLE IF EXISTS concepts_fts`); err != nil {
-		return fmt.Errorf("sqlindex: drop v%d fts: %w", version, err)
+	// Trap: every FTS table must be dropped here AND created in createSchema,
+	// or a database migrated from an older version keeps a stale layout (or
+	// none) and concepts, emptied below, no longer matches it.
+	for _, table := range []string{"concepts_fts", "sections_fts"} {
+		if _, err := db.Exec(`DROP TABLE IF EXISTS ` + table); err != nil {
+			return fmt.Errorf("sqlindex: drop v%d %s: %w", version, table, err)
+		}
 	}
 	var hasConcepts int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='concepts'`).Scan(&hasConcepts); err != nil {
@@ -140,6 +151,21 @@ func createSchema(db *sql.DB) error {
 		return fmt.Errorf("sqlindex: fts5 not available (fallback to in-memory): %w", err)
 	}
 
+	// Trap: a new FTS table is also dropped in migrate and cleared in Upsert
+	// and Delete.
+	_, err = db.Exec(`
+		CREATE VIRTUAL TABLE IF NOT EXISTS sections_fts USING fts5(
+			id UNINDEXED,
+			heading UNINDEXED,
+			title,
+			body,
+			tokenize='trigram remove_diacritics 1'
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("sqlindex: create sections_fts: %w", err)
+	}
+
 	return nil
 }
 
@@ -171,6 +197,15 @@ func (ix *Index) Upsert(id, contentHash, body, assetsText string) error {
 		return fmt.Errorf("sqlindex: insert fts: %w", err)
 	}
 
+	if _, err := ix.db.Exec(`DELETE FROM sections_fts WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("sqlindex: delete sections: %w", err)
+	}
+	for _, sec := range okf.Level2Sections(f.Body) {
+		if _, err := ix.db.Exec(`INSERT INTO sections_fts(id, heading, title, body) VALUES(?, ?, ?, ?)`, id, sec.Heading, sec.Title, sec.Text); err != nil {
+			return fmt.Errorf("sqlindex: insert section: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -179,6 +214,9 @@ func (ix *Index) Upsert(id, contentHash, body, assetsText string) error {
 func (ix *Index) Delete(id string) error {
 	if _, err := ix.db.Exec(`DELETE FROM concepts_fts WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("sqlindex: delete fts: %w", err)
+	}
+	if _, err := ix.db.Exec(`DELETE FROM sections_fts WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("sqlindex: delete sections: %w", err)
 	}
 	if _, err := ix.db.Exec(`DELETE FROM concepts WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("sqlindex: delete concepts: %w", err)
@@ -427,4 +465,41 @@ func (ix *Index) Count() (int, error) {
 		return 0, fmt.Errorf("sqlindex: count: %w", err)
 	}
 	return n, nil
+}
+
+// sectionRank is the ranking of BestSection: bm25's weights are positional
+// over all columns of sections_fts, the two unindexed ones (id, heading)
+// included, then the heading text 3 and the section body 1 (D1207).
+const (
+	sectionRank    = `-1.0 * bm25(sections_fts, 0.0, 0.0, 3.0, 1.0)`
+	sectionSnippet = `snippet(sections_fts, 3, char(1), char(2), '…', ?)`
+)
+
+// BestSection returns the "##" section of concept id that best matches query:
+// its heading as okf.ExtractSection accepts it and an excerpt of its text. The
+// query's tokens (ftsTokens: terms under three characters match nothing, as for
+// pages) are OR-ed, so a section holding any of them qualifies and bm25 picks
+// the best. No matching section, or none indexed, is ok == false, not an error.
+func (ix *Index) BestSection(id, query string) (heading, snippet string, ok bool, err error) {
+	tokens := ftsTokens(strings.ReplaceAll(query, "\"", ""))
+	if len(tokens) == 0 {
+		return "", "", false, nil
+	}
+	match := `"` + strings.Join(tokens, `" OR "`) + `"`
+	var snip string
+	err = ix.db.QueryRow(
+		`SELECT heading, `+sectionSnippet+`
+		 FROM sections_fts
+		 WHERE sections_fts MATCH ? AND id = ?
+		 ORDER BY `+sectionRank+` DESC, rowid
+		 LIMIT 1`,
+		ftsSnippetTokens, match, id,
+	).Scan(&heading, &snip)
+	if err == sql.ErrNoRows {
+		return "", "", false, nil
+	}
+	if err != nil {
+		return "", "", false, fmt.Errorf("sqlindex: best section: %w", err)
+	}
+	return heading, pickSnippet(snip, ""), true, nil
 }

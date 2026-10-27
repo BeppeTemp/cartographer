@@ -352,6 +352,8 @@ bare origin: no branch means a recording is needed; after a publish the same tag
 tag whose `web/` tree differs does; publishing twice leaves one commit carrying the `Web-Tree:`
 trailer; a tag that changes only files outside `web/` needs none.
 
+**The section a search hit names is asserted on the wire** (D1207). `25_search_section` drives a real server with `curl` and `python3`: a multi-section page returns `section`, `concept_read` reads that section back smaller than the page, and a journal entry and a type listed in the map's `read_whole` return `read: "whole"` and no section.
+
 **A client with no Cartographer client side is asserted on the wire.** `24_generic_mcp_client` drives a real server
 with `curl` and `python3` only, as Open WebUI or a gateway would, and checks what that host receives
 ([`mcp-clients.md`](mcp-clients.md)): `/health` and `tools/list` follow the token, `initialize` carries the guide

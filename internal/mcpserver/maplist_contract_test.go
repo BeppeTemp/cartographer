@@ -168,7 +168,7 @@ func TestMapListMinimalMapAddsNoKey(t *testing.T) {
 		"description", "required_fields", "field_values", "forbidden_fields",
 		"templates", "default_template", "open_field", "open_statuses",
 		"open_markers", "harvest_after", "harvest_after_defaulted", "promote_to", "procedure_headings",
-		"glossary", "work_map", "index", "value_synonyms", "forbidden_title_terms", "legacy_keys", "malformed",
+		"glossary", "work_map", "index", "value_synonyms", "forbidden_title_terms", "read_whole", "legacy_keys", "malformed",
 	}
 	entries := mapListEntries(t, s)
 	for _, name := range []string{"bare", "manutenzione"} {
