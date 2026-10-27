@@ -278,6 +278,16 @@ func derivedSharedSkips(provider, workspace string) (files, kinds []string) {
 			kinds = append(kinds, "hook")
 		}
 	}
+	// A hook registration file the client dedicates to hooks (Codex's hooks.json)
+	// is patched by every hook, so a tracked one is left alone like the others.
+	for _, rel := range provisioning.ProjectSharedHookFiles(prov) {
+		if tracked[rel] {
+			files = append(files, rel)
+			if !slices.Contains(kinds, "hook") {
+				kinds = append(kinds, "hook")
+			}
+		}
+	}
 	return files, kinds
 }
 

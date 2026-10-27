@@ -86,7 +86,7 @@ func TestWorkspaceSync_ExcludeBlockCoversEveryWrittenPath(t *testing.T) {
 			t.Errorf("the exclude block holds a bare / line:\n%s", block)
 		}
 	}
-	if left := uncoveredProjectionFiles(configurator.ProviderCodex, ws); len(left) != 0 {
+	if left := uncoveredProjectionFiles(configurator.ProviderCodex, ws, results[projectionKey(projections[0])].NewLock); len(left) != 0 {
 		t.Errorf("doctor reports files the block covers: %v", left)
 	}
 }
@@ -105,10 +105,11 @@ func TestWorkspaceSync_TrackedCodexHooksFileIsNotExcluded(t *testing.T) {
 	}
 }
 
-// #1199: doctor lists what the block does not cover.
+// #1199: doctor lists the files the projection owns that the block does not
+// cover, and not a repository's own untracked artifact beside them.
 func TestUncoveredProjectionFiles(t *testing.T) {
 	ws := trackedRepo(t, map[string]string{"README.md": "x\n"})
-	for _, rel := range []string{".codex/hooks.json", ".config/opencode/plugins/cartographer-x.js", ".opencode/skills/mine/SKILL.md"} {
+	for _, rel := range []string{".codex/hooks.json", ".config/opencode/plugins/cartographer-x.js", ".opencode/skills/mine/SKILL.md", ".opencode/skills/kb/SKILL.md"} {
 		abs := filepath.Join(ws, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			t.Fatal(err)
@@ -117,20 +118,72 @@ func TestUncoveredProjectionFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := uncoveredProjectionFiles(configurator.ProviderCodex, ws); len(got) != 1 || got[0] != ".codex/hooks.json" {
+	codex := provisioning.Lock{Managed: []provisioning.ManagedFile{{Kind: "hook", Name: "g", Path: ".codex/hooks/g/hook.json"}}}
+	if got := uncoveredProjectionFiles(configurator.ProviderCodex, ws, codex); len(got) != 1 || got[0] != ".codex/hooks.json" {
 		t.Errorf("codex: %v, want .codex/hooks.json", got)
 	}
-	got := strings.Join(uncoveredProjectionFiles(configurator.ProviderOpenCode, ws), ",")
-	if got != ".config/opencode/plugins/cartographer-x.js,.opencode/skills/mine/SKILL.md" {
-		t.Errorf("opencode: %s", got)
+	oc := provisioning.Lock{Managed: []provisioning.ManagedFile{
+		{Kind: "hook", Name: "x", Path: ".config/opencode/plugins/cartographer-x.js"},
+		{Kind: "skill", Name: "kb", Path: ".opencode/skills/kb/SKILL.md"},
+	}}
+	got := strings.Join(uncoveredProjectionFiles(configurator.ProviderOpenCode, ws, oc), ",")
+	if got != ".config/opencode/plugins/cartographer-x.js,.opencode/skills/kb/SKILL.md" {
+		t.Errorf("opencode: %s (the repository's own skill must not be reported)", got)
 	}
-	if err := provisioning.EnsureWorkspaceExcluded(ws, []string{".codex/hooks.json", ".config/opencode/plugins/cartographer-x.js", ".opencode/skills"}); err != nil {
+	if err := provisioning.EnsureWorkspaceExcluded(ws, []string{".config/opencode/plugins/cartographer-x.js", ".opencode/skills/kb/SKILL.md"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := uncoveredProjectionFiles(configurator.ProviderOpenCode, ws); len(got) != 0 {
+	if got := uncoveredProjectionFiles(configurator.ProviderOpenCode, ws, oc); len(got) != 0 {
 		t.Errorf("covered files still reported: %v", got)
 	}
 }
+
+// #1199: a Codex projection with no hook leaves the user's own untracked
+// hooks.json alone: it is not in the block.
+func TestWorkspaceSync_UserHooksFileIsNotExcludedWithoutHooks(t *testing.T) {
+	ws := trackedRepo(t, map[string]string{"README.md": "x\n"})
+	user := filepath.Join(ws, ".codex", "hooks.json")
+	if err := os.MkdirAll(filepath.Dir(user), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(user, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := syncProjection{Provider: "codex", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject}
+	m := hookManifest()
+	m.Artifacts = m.Artifacts[1:]
+	if _, err := materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(ws, ".git", "info", "exclude"))
+	if strings.Contains(string(b), "hooks.json") {
+		t.Errorf("the user's hooks.json was excluded:\n%s", b)
+	}
+}
+
+// A derived binding never edits a tracked file: a tracked .codex/hooks.json is
+// left byte-identical, the hooks are skipped, and doctor's note names them.
+func TestDerivedWorkspace_TrackedCodexHooksFileIsLeftAlone(t *testing.T) {
+	const original = "{\"hooks\": {}}\n"
+	ws := trackedRepo(t, map[string]string{".codex/hooks.json": original})
+	p := syncProjection{Provider: "codex", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject, Derived: true}
+	p.SharedSkipped, p.SkipKinds = derivedSharedSkips(p.Provider, ws)
+	if len(p.SharedSkipped) != 1 || p.SharedSkipped[0] != ".codex/hooks.json" || !slicesContains(p.SkipKinds, "hook") {
+		t.Fatalf("skips = %v / %v, want the tracked hooks.json and kind hook", p.SharedSkipped, p.SkipKinds)
+	}
+	manifests := map[string]provisioning.Manifest{projectionKey(p): hookManifest()}
+	if _, err := materializeForProviders(manifests, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(ws, ".codex", "hooks.json")); string(got) != original {
+		t.Errorf("the tracked file changed:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".codex", "hooks", "greet")); err == nil {
+		t.Errorf("a hook was projected beside the tracked registry")
+	}
+}
+
+func slicesContains(list []string, s string) bool { return containsString(list, s) }
 
 // #1199: the workspace root is not a path to exclude.
 func TestEnsureWorkspaceExcluded_NoBareSlash(t *testing.T) {

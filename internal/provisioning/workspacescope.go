@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -317,18 +316,6 @@ func ProjectOwnedPaths(provider configurator.Provider) []string {
 			out = append(out, rel)
 		}
 	}
-	if destDirScoped("hook", "x", provider, ScopeProject) != "" {
-		companions := slices.Clone(projectSharedHookFiles[provider])
-		if plugin := HookPluginRelPath(provider, "x"); plugin != "" {
-			companions = append(companions, path.Dir(plugin))
-		}
-		for _, rel := range companions {
-			if !seen[rel] {
-				seen[rel] = true
-				out = append(out, rel)
-			}
-		}
-	}
 	sort.Strings(out)
 	return out
 }
@@ -404,7 +391,10 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 			}
 		}
 	}
-	if destDirScoped("hook", "x", provider, ScopeProject) != "" {
+	// The shared hook file is owned only once a hook is registered in it: the
+	// projection carries one, or the lock records one. Before that it is the
+	// user's, and excluding it would hide it.
+	if destDirScoped("hook", "x", provider, ScopeProject) != "" && hasHook(FilterForProviderScoped(m, provider, ScopeProject), lock) {
 		for _, rel := range projectSharedHookFiles[provider] {
 			add(rel)
 		}
@@ -426,6 +416,21 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// hasHook reports whether m carries a hook or lock records one.
+func hasHook(m Manifest, lock Lock) bool {
+	for _, a := range m.Artifacts {
+		if a.Kind == "hook" {
+			return true
+		}
+	}
+	for _, mf := range lock.Managed {
+		if mf.Kind == "hook" {
+			return true
+		}
+	}
+	return false
 }
 
 // InvalidArtifactNameError is the refusal of a name that cannot be projected
