@@ -365,8 +365,10 @@ func (s *structure) supersessionEnd(start string) (string, bool) {
 // journal is covered when a concept of type digest in the same journal links
 // it. One finding per (journal, quarter of the entry's timestamp), on the
 // group's first entry in ascending id order; entries without a parseable
-// timestamp form an "undated" group.
-func (s *structure) digestMissing(k *kb.KB) []Finding {
+// timestamp form an "undated" group. Coverage is judged on the whole graph;
+// with inScope set, only in-scope entries are counted and anchor the finding,
+// so a narrow scope neither loses nor over-counts a group.
+func (s *structure) digestMissing(k *kb.KB, inScope func(okf.ConceptID) bool) []Finding {
 	type group struct {
 		journal, quarter string
 		first            okf.ConceptID
@@ -375,7 +377,7 @@ func (s *structure) digestMissing(k *kb.KB) []Finding {
 	var groups []*group
 	byKey := map[string]*group{}
 	for i, id := range s.lg.IDs { // ascending
-		if s.lg.Facets[i].Status != kb.StatusArchived || s.kindOf(id) != "journal" {
+		if NormValue(s.lg.Facets[i].Status) != kb.StatusArchived || s.kindOf(id) != "journal" || (inScope != nil && !inScope(id)) {
 			continue
 		}
 		journal := strings.Split(string(id), "/")[0]

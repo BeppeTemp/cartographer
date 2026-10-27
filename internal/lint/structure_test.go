@@ -423,3 +423,19 @@ func TestDigestMissing_InactiveWithoutJournal(t *testing.T) {
 		t.Fatalf("active with a journal, got %q", r)
 	}
 }
+
+func TestDigestMissing_ScopeAndCaseAndQuarters(t *testing.T) {
+	t.Parallel()
+	s := newStructKB(t, map[string]string{"diary": "journal"})
+	s.concept("diary/e1", "status: Archived\ntimestamp: 2026-01-05\n")
+	s.concept("diary/e2", "status: archived\ntimestamp: 2026-02-05\n")
+	s.concept("diary/e3", "status: archived\ntimestamp: 2026-08-05\n")
+	f := findingsOf(s.run(""), "digest_missing")
+	if len(f) != 2 || !strings.Contains(f[0].Message, "2026-q1") || !strings.Contains(f[0].Message, "2 archived entries") || !strings.Contains(f[1].Message, "2026-q3") {
+		t.Fatalf("two quarters, Archived normalised: %+v", f)
+	}
+	f = findingsOf(s.run("diary/e2"), "digest_missing")
+	if len(f) != 1 || f[0].Path != "diary/e2.md" || !strings.Contains(f[0].Message, "1 archived entries") {
+		t.Fatalf("scoped to a non-first entry: %+v", f)
+	}
+}

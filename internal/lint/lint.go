@@ -539,15 +539,9 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	}
 
 	// --- digest_missing (D322) ---
-	// Whole-graph: computed on every archived journal entry, reported only on
-	// an entry in scope.
-	for _, f := range st.digestMissing(k) {
-		if id, err := okf.PathToID(f.Path); err == nil {
-			if _, in := toCheck[id]; in {
-				findings = append(findings, f)
-			}
-		}
-	}
+	// Whole-graph coverage, but only entries in scope are counted and anchor
+	// a finding.
+	findings = append(findings, st.digestMissing(k, func(id okf.ConceptID) bool { _, in := toCheck[id]; return in })...)
 
 	// --- structural checks on maps and expanded concepts (D77 WP4) ---
 	// Directory-based (unlike the checks above, not driven by toCheck).
