@@ -10,6 +10,7 @@ They run in GitHub Actions after the Go test suite.
 
 ```bash
 make e2e
+make e2e-upgrade
 ./test/e2e/run.sh --only 10_scoped_tokens
 ./test/e2e/run.sh --only 09_git_conflict --keep
 ```
@@ -42,9 +43,19 @@ overrides the default base port.
 | `23_film_publish` | D1068 the README film's orphan branch: `film/publish.sh` leaves one commit with the `Film-Tree:` trailer, `film/film-needed.sh` answers by the hash of the film's inputs (`film/inputs.sh`) |
 | `24_generic_mcp_client` | D1102 a host with no Cartographer client side, with curl only: `/health` and the tool surface follow the token, the guide in `initialize` and `kb_guide`, a first page accepted, authorship, non-disclosure, no doctor nudge and no CLI command for a generic connection |
 | `25_search_section` | D1207 a `search` hit names the `##` section that matched and `concept_read` reads it back smaller than the page; a journal entry and a type listed in the map's `read_whole` carry `read: "whole"` and no section |
+| `26_upgrade_from_previous` (optional) | #1173 a client of the previous stable release, fully installed and approved, switched to this build: one sync asks no approval again, leaves no file under a retired name and no dangling local path, a second sync writes nothing and `status` is in sync, a revoked hook stays revoked |
 
 The numbering is stable, so the gaps are intentional: model behavior is
 evaluated during real usage, not in the repository's deterministic CI.
+
+## Optional scenarios
+
+`optional/` holds the scenarios the default loop skips because they cost more than
+the whole suite. `--only <name>` finds them. `26_upgrade_from_previous` builds the
+previous release from a throwaway worktree (`make e2e-upgrade`; the release PR's
+`upgrade-e2e` job): `E2E_UPGRADE_FROM=<ref>` picks another tag, `E2E_UPGRADE_ONLINE=1`
+lets the build download modules the cache lacks. It needs the tags (`git fetch --tags
+--unshallow` in a shallow clone).
 
 ## Structure
 
@@ -78,6 +89,9 @@ test/e2e/
     22_workspace_derived_binding.sh
     23_film_publish.sh
     24_generic_mcp_client.sh
+    25_search_section.sh
+  optional/
+    26_upgrade_from_previous.sh
 ```
 
 Each scenario creates its own directory under `E2E_TMP_DIR`, owns the server

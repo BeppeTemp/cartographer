@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check test-install worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example web web-test web-check e2e-web hero vulncheck lint-workflows
 
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
@@ -148,6 +148,9 @@ clean: ## Remove bin/ and demo-kb/
 
 e2e: ## Run deterministic HTTP/CLI end-to-end scenarios
 	@./test/e2e/run.sh
+
+e2e-upgrade: ## Upgrade a client from the previous stable release to this build and sync (E2E_UPGRADE_FROM=<ref>, E2E_UPGRADE_ONLINE=1)
+	@./test/e2e/run.sh --only 26_upgrade_from_previous
 
 test-install: ## Run the network-free install.sh/Cask upgrade-repair suite and the .goreleaser.yaml guard
 	@./test/install/run.sh
