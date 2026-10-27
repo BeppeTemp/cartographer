@@ -40,7 +40,7 @@ const (
 // always comes before one of a later kind.
 // Repeated facts and hotspots rank before promotion (D301): a duplicated fact
 // is cheaper to fix than to keep updating in every copy.
-var ReviewKinds = []string{ReviewDuplicate, ReviewTemplateProposal, ReviewZombie, ReviewHarvestCandidate, ReviewStatusReclassify, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement, ReviewObservation}
+var ReviewKinds = []string{ReviewDuplicate, ReviewTemplateProposal, ReviewZombie, ReviewHarvestCandidate, ReviewLessonUnpromoted, ReviewStatusReclassify, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewIndexUnclassified, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement, ReviewObservation}
 
 // Thresholds of the review generators.
 const (
@@ -320,11 +320,13 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	zombies, zombieItems := zombieWorkItems(k, byID, concepts, contracts, byConcept, links)
 	items = append(items, zombieItems...)
 	items = append(items, harvestCandidateItems(concepts, contracts)...)
+	items = append(items, lessonUnpromotedItems(concepts, contracts, links)...)
 	items = append(items, statusReclassifyItems(concepts, contracts)...)
 	items = append(items, repeatedFactItems(concepts, k.TemplateTexts())...)
 	items = append(items, readHotspotItems(concepts, links)...)
 	items = append(items, promotionItems(concepts, contracts, links)...)
 	items = append(items, scatteredWorkItems(concepts, contracts, links)...)
+	items = append(items, indexUnclassifiedItems(k, contracts, archives, links.Exists)...)
 	items = append(items, mapNamingItems(titles)...)
 	items = append(items, glossaryItems(concepts, contracts, glossary)...)
 	items = append(items, lintJudgementItems(findings, zombies)...)

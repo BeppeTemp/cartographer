@@ -200,7 +200,7 @@ An alternative never weakens a rule: a delegated session never deletes a concept
      in `open_statuses` when it does mean open work; `repeated_fact`, one owner keeps the line
      and the copies link it, or the line moves into the template; `read_hotspot`, the body
      shrinks into satellites (`concept_expand`); `map_naming`, the titles share one scheme;
-     `glossary_gap`, the glossary defines the term; `harvest_candidate`, the entry is archived;
+     `glossary_gap`, the glossary defines the term; `harvest_candidate`, the entry is archived; `lesson_unpromoted`, a live page links the entry or it carries the no-lessons header; `index_unclassified`, the entries leave `## New pages`;
      `template_proposal`, the map declares a template its pages follow; `lint_judgement`, the
      page no longer has the finding. Never add a field or a heading only to close an item;
    - **defer**: nothing is written and it comes back next session — unless the finding is on open
@@ -246,6 +246,13 @@ An alternative never weakens a rule: a delegated session never deletes a concept
      journal's first allowed type, status `reference`) with one line per archived entry:
      `| entry title | outcome | lessons in |`;
    - `gate_check` the changed concepts.
+   `kind: "lesson_unpromoted"`: an entry already archived that no live page links. Same procedure
+   (carry the facts with a dated link back); an entry with nothing to carry gets the header line
+   `> Archived YYYY-MM-DD: no durable lessons.` - that wording is the kind's only exemption, so
+   change it here and in `lesson_unpromoted` together. Never delete the entry.
+   `kind: "index_unclassified"`: `index_get` the map, then `index_patch` each entry from
+   `## New pages` to the section it belongs to (or drop it if the page needs none); the heading
+   goes when empty.
    An entry with no durable facts is still archived, with "no durable lessons", and the digest
    records its outcome. Delegated (D305): extract the facts yourself and report what you wrote;
    assisted: show the candidate and the proposed lessons for the operator to confirm. Archived

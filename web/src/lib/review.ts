@@ -48,6 +48,18 @@ const REVIEW: Record<string, { label: string; help: string; fix: string; unit: [
     fix: "Move their lasting lessons to the live pages, then archive them.",
     unit: ["entry", "entries"],
   },
+  lesson_unpromoted: {
+    label: "Archived entries without lessons carried",
+    help: "Archived journal entries that no live page links.",
+    fix: "Carry their lasting lessons into a live page, or note there are none.",
+    unit: ["entry", "entries"],
+  },
+  index_unclassified: {
+    label: "Index entries to file",
+    help: "Pages still parked under New pages in a map index.",
+    fix: "Move each entry under the section it belongs to.",
+    unit: ["index", "indexes"],
+  },
   status_reclassify: {
     label: "Statuses to correct",
     help: "Pages marked active that read as something else.",

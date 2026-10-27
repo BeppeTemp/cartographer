@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // ReviewHarvestCandidate (D322) is a closed journal entry that has rested long
@@ -13,6 +14,12 @@ import (
 // links, then the entry archived. The server only finds them (D14); what is
 // durable is the agent's judgement (D305).
 const ReviewHarvestCandidate = "harvest_candidate"
+
+// ReviewLessonUnpromoted (D1078) is an archived journal entry whose lessons
+// were never carried: no live page of a non-journal map links it and it does
+// not say it has none. harvest_candidate covers the closed entries not yet
+// archived, so the two kinds are disjoint by status.
+const ReviewLessonUnpromoted = "lesson_unpromoted"
 
 // harvestHeadings are the H2 prefixes (folded, English and Italian) that
 // usually hold a fact worth carrying into a live page. A hint for the doctor,
@@ -71,6 +78,78 @@ func harvestCandidateItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 			Concepts:        []string{string(c.id)},
 			Evidence:        evidence,
 			SuggestedAction: "harvest the durable facts into the live pages this entry links to, each with a dated link back to the entry; then set status to archived and put a line at the top of the entry saying where the lessons went (or that there are none) (the cartographer-kb-doctor skill's harvest step, where the client has it)",
+			Weight:          age,
+		})
+	}
+	return out
+}
+
+// noLessonsHeader reports whether the body carries the header line the doctor
+// writes for an entry with nothing to carry: a blockquote line starting
+// "Archived " that contains "no durable lessons" (case-insensitive, code
+// masked). The wording is the cartographer-kb-doctor skill's step 5b
+// ("> Archived YYYY-MM-DD: no durable lessons."); the kind and the skill are
+// changed together, never apart.
+func noLessonsHeader(body string) bool {
+	for _, line := range strings.Split(kb.MaskCodeSpans(body), "\n") {
+		l := strings.TrimSpace(line)
+		if !strings.HasPrefix(l, ">") {
+			continue
+		}
+		l = strings.TrimSpace(strings.TrimLeft(l, "> "))
+		if strings.HasPrefix(l, "Archived ") && strings.Contains(strings.ToLower(l), "no durable lessons") {
+			return true
+		}
+	}
+	return false
+}
+
+// lessonUnpromotedItems lists the archived entries of a journal that no live
+// page of a non-journal map links (D1078). A link from another journal entry,
+// from a retired page or from a digest (which links what it archived, D322)
+// is not a carried lesson. A linker with no contract entry (top level) counts
+// as a live non-journal page. Weight is the entry's age in days, 0 when its
+// timestamp does not parse, as for harvest_candidate.
+func lessonUnpromotedItems(concepts []*reviewConcept, contracts map[string]kb.MapContract, links kb.Links) []ReviewItem {
+	byID := make(map[okf.ConceptID]*reviewConcept, len(concepts))
+	for _, c := range concepts {
+		byID[c.id] = c
+	}
+	today := Now().Truncate(24 * time.Hour)
+	var out []ReviewItem
+	for _, c := range concepts {
+		if contract, ok := contracts[c.mapName]; !ok || contract.Kind != "journal" {
+			continue
+		}
+		if NormValue(c.status) != kb.StatusArchived || noLessonsHeader(c.body) {
+			continue
+		}
+		carried := false
+		for from := range links.In[c.id] {
+			l := byID[from]
+			if l == nil || kb.IsRetired(NormValue(l.status)) || kb.IsDigestType(l.typ) {
+				continue
+			}
+			if lc, ok := contracts[l.mapName]; ok && lc.Kind == "journal" {
+				continue
+			}
+			carried = true
+			break
+		}
+		if carried {
+			continue
+		}
+		age := 0
+		if len(c.timestamp) >= 10 {
+			if t, err := time.Parse("2006-01-02", c.timestamp[:10]); err == nil {
+				age = int(today.Sub(t).Hours() / 24)
+			}
+		}
+		out = append(out, ReviewItem{
+			Kind:            ReviewLessonUnpromoted,
+			Concepts:        []string{string(c.id)},
+			Evidence:        fmt.Sprintf("archived entry of journal %s; no live page of another map links it and it carries no \"no durable lessons\" header", c.mapName),
+			SuggestedAction: "read the entry and carry its durable facts into the live page they belong to, with a dated link back to the entry; if there are none, add the line `> Archived YYYY-MM-DD: no durable lessons.` at the top of the entry (never delete the entry; the cartographer-kb-doctor skill's harvest step, where the client has it)",
 			Weight:          age,
 		})
 	}

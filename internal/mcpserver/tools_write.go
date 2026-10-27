@@ -2565,10 +2565,6 @@ func appendCuratedEntries(k *kb.KB, mapName, heading string, ids []okf.ConceptID
 	return content, err
 }
 
-// newPagesHeading is where index_entry puts a created concept (D714): like
-// "## Moved here", an obvious placement at the end beats a guessed section.
-const newPagesHeading = "## New pages"
-
 // pendingIndexEntry is one concept that asked for an index_entry.
 type pendingIndexEntry struct {
 	id      string
@@ -2645,7 +2641,7 @@ func applyIndexEntries(k *kb.KB, pending []pendingIndexEntry) error {
 				return fail(fmt.Errorf("%s/index.md: %w", mapName, err))
 			}
 		}
-		before, err := appendCuratedEntries(k, mapName, newPagesHeading, byMap[mapName])
+		before, err := appendCuratedEntries(k, mapName, kb.NewPagesHeading, byMap[mapName])
 		if err != nil {
 			return fail(fmt.Errorf("%s/index.md: %w", mapName, err))
 		}

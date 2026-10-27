@@ -114,6 +114,12 @@ var reviewFixtures = map[string]func(t *testing.T) (*kb.KB, string){
 		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: done\ntimestamp: "+agoDays(92).Format("2006-01-02")+"\n---\n# E\n")
 		return k, "j/e"
 	},
+	ReviewLessonUnpromoted: func(t *testing.T) (*kb.KB, string) {
+		return lessonKB(t, "---\ntype: Note\ntitle: E\nstatus: archived\ntimestamp: 2026-07-01\n---\n# E\n"), "j/e"
+	},
+	ReviewIndexUnclassified: func(t *testing.T) (*kb.KB, string) {
+		return indexKB(t, "- [A](a.md)\n- [B](b.md)\n"), "m/a"
+	},
 	ReviewStatusReclassify: func(t *testing.T) (*kb.KB, string) {
 		k := tempKB(t)
 		writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
@@ -205,6 +211,14 @@ var reviewClosers = map[string]func(t *testing.T, k *kb.KB){
 	// Harvest the entry, then archive it (D322).
 	ReviewHarvestCandidate: func(t *testing.T, k *kb.KB) {
 		writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: archived\ntimestamp: 2026-07-01\n---\n# E\n")
+	},
+	// A live page of another map links the entry (carry the lesson).
+	ReviewLessonUnpromoted: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "ref/page.md", "---\ntype: Topic\ntitle: Page\n---\n# Page\n\n- fact ([2026-07-01 - E](../j/e.md))\n")
+	},
+	// File the entries under another section.
+	ReviewIndexUnclassified: func(t *testing.T, k *kb.KB) {
+		writeFile(t, k.DataRoot(), "m/index.md", "# M\n\n## Services\n\n- [A](a.md)\n- [B](b.md)\n")
 	},
 	// Set the status the item proposes.
 	ReviewStatusReclassify: func(t *testing.T, k *kb.KB) {
@@ -1122,4 +1136,140 @@ func TestReviewDuplicateLinkedPair(t *testing.T) {
 			}
 		})
 	}
+}
+
+// lessonKB is a journal j holding the archived entry j/e (content given) and a
+// map ref for the live pages that may link it.
+func lessonKB(t *testing.T, entry string) *kb.KB {
+	t.Helper()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
+	writeFile(t, k.DataRoot(), "ref/_map.md", "---\ntype: Map\ntitle: Ref\n---\n")
+	writeFile(t, k.DataRoot(), "j/e.md", entry)
+	return k
+}
+
+const archivedEntry = "---\ntype: Note\ntitle: E\nstatus: archived\ntimestamp: 2026-07-01\n---\n# E\n"
+
+func TestReviewLessonUnpromoted(t *testing.T) {
+	t.Parallel()
+	link := "\nSee [E](../j/e.md).\n"
+	cases := []struct {
+		name  string
+		entry string
+		extra map[string]string
+		want  bool
+	}{
+		{"no inbound link", archivedEntry, nil, true},
+		{"live topic of another map", archivedEntry, map[string]string{"ref/p.md": "---\ntype: Topic\ntitle: P\n---\n# P\n" + link}, false},
+		{"only another journal entry", archivedEntry, map[string]string{"j/f.md": "---\ntype: Note\ntitle: F\n---\n# F\n\nSee [E](e.md).\n"}, true},
+		{"only a digest", archivedEntry, map[string]string{"ref/d.md": "---\ntype: digest\ntitle: D\n---\n# D\n" + link}, true},
+		{"only a deprecated page", archivedEntry, map[string]string{"ref/p.md": "---\ntype: Topic\ntitle: P\nstatus: deprecated\n---\n# P\n" + link}, true},
+		{"no durable lessons header", "---\ntype: Note\ntitle: E\nstatus: archived\ntimestamp: 2026-07-01\n---\n> Archived 2026-07-01: No Durable Lessons.\n\n# E\n", nil, false},
+		{"header only in a code span", "---\ntype: Note\ntitle: E\nstatus: archived\ntimestamp: 2026-07-01\n---\n# E\n\n```\n> Archived 2026-07-01: no durable lessons.\n```\n", nil, true},
+		{"closed, not archived", "---\ntype: Note\ntitle: E\nstatus: done\ntimestamp: 2026-07-01\n---\n# E\n", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			k := lessonKB(t, tc.entry)
+			for p, c := range tc.extra {
+				writeFile(t, k.DataRoot(), p, c)
+			}
+			got := names(itemsOf(review(t, k), ReviewLessonUnpromoted), "j/e")
+			if got != tc.want {
+				t.Fatalf("lesson_unpromoted for j/e = %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("archived page of a non-journal map", func(t *testing.T) {
+		k := lessonKB(t, archivedEntry)
+		writeFile(t, k.DataRoot(), "ref/old.md", archivedEntry)
+		if got := itemsOf(review(t, k), ReviewLessonUnpromoted); names(got, "ref/old") {
+			t.Fatalf("non-journal archived page listed: %+v", got)
+		}
+	})
+	t.Run("deterministic and filtered", func(t *testing.T) {
+		k := lessonKB(t, archivedEntry)
+		a := itemsOf(review(t, k), ReviewLessonUnpromoted)
+		b := itemsOf(review(t, k), ReviewLessonUnpromoted)
+		if len(a) != 1 || !reflect.DeepEqual(a, b) {
+			t.Fatalf("not byte-identical: %+v vs %+v", a, b)
+		}
+		if a[0].Weight <= 0 {
+			t.Fatalf("weight should be the age in days: %+v", a[0])
+		}
+		if got := FilterReview(a, func(string) bool { return false }, true); len(got) != 0 {
+			t.Fatalf("hidden entry still listed: %+v", got)
+		}
+	})
+}
+
+// indexKB is a map m with pages a and b whose curated index carries the given
+// text under "## New pages".
+func indexKB(t *testing.T, entries string) *kb.KB {
+	t.Helper()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	writeFile(t, k.DataRoot(), "m/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n")
+	writeFile(t, k.DataRoot(), "m/b.md", "---\ntype: Note\ntitle: B\n---\n# B\n")
+	writeFile(t, k.DataRoot(), "m/index.md", "# M\n\n## Services\n\n- [Old](a.md)\n\n"+kb.NewPagesHeading+"\n\n"+entries)
+	return k
+}
+
+func TestReviewIndexUnclassified(t *testing.T) {
+	t.Parallel()
+	t.Run("two entries, one item", func(t *testing.T) {
+		got := itemsOf(review(t, indexKB(t, "- [A](a.md)\n- [B](b.md)\n")), ReviewIndexUnclassified)
+		if len(got) != 1 || !reflect.DeepEqual(got[0].Concepts, []string{"m/a", "m/b"}) || !strings.Contains(got[0].Evidence, "2 entries") || got[0].Weight != 2 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+	t.Run("one moved, other still listed", func(t *testing.T) {
+		k := indexKB(t, "- [B](b.md)\n")
+		got := itemsOf(review(t, k), ReviewIndexUnclassified)
+		if len(got) != 1 || !reflect.DeepEqual(got[0].Concepts, []string{"m/b"}) {
+			t.Fatalf("got %+v", got)
+		}
+	})
+	t.Run("both moved", func(t *testing.T) {
+		k := indexKB(t, "")
+		writeFile(t, k.DataRoot(), "m/index.md", "# M\n\n## Services\n\n- [A](a.md)\n- [B](b.md)\n")
+		if got := itemsOf(review(t, k), ReviewIndexUnclassified); len(got) != 0 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+	t.Run("generated index", func(t *testing.T) {
+		k := indexKB(t, "- [A](a.md)\n")
+		writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\nindex: generated\n---\n")
+		if got := itemsOf(review(t, k), ReviewIndexUnclassified); len(got) != 0 {
+			t.Fatalf("got %+v", got)
+		}
+	})
+	t.Run("dead link not listed", func(t *testing.T) {
+		got := itemsOf(review(t, indexKB(t, "- [A](a.md)\n- [Gone](gone.md)\n")), ReviewIndexUnclassified)
+		if len(got) != 1 || !reflect.DeepEqual(got[0].Concepts, []string{"m/a"}) {
+			t.Fatalf("got %+v", got)
+		}
+	})
+	t.Run("another heading after the section ends it", func(t *testing.T) {
+		k := indexKB(t, "- [A](a.md)\n\n## Later\n\n- [B](b.md)\n")
+		got := itemsOf(review(t, k), ReviewIndexUnclassified)
+		if len(got) != 1 || !reflect.DeepEqual(got[0].Concepts, []string{"m/a"}) {
+			t.Fatalf("got %+v", got)
+		}
+	})
+	t.Run("capped at 20, total in the evidence", func(t *testing.T) {
+		k := indexKB(t, "")
+		var sb strings.Builder
+		for i := 0; i < 25; i++ {
+			writeFile(t, k.DataRoot(), fmt.Sprintf("m/p%02d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: P%d\n---\n# P\n", i))
+			fmt.Fprintf(&sb, "- [P%d](p%02d.md)\n", i, i)
+		}
+		writeFile(t, k.DataRoot(), "m/index.md", "# M\n\n"+kb.NewPagesHeading+"\n\n"+sb.String())
+		got := itemsOf(review(t, k), ReviewIndexUnclassified)
+		if len(got) != 1 || len(got[0].Concepts) != 20 || !strings.Contains(got[0].Evidence, "25 entries") {
+			t.Fatalf("got %+v", got)
+		}
+	})
 }
