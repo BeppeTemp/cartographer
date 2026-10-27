@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -265,5 +267,89 @@ func TestEscapeControl_NonPrintableRunesAreEscaped(t *testing.T) {
 		if got := escapeControl(in); got != want {
 			t.Errorf("escapeControl(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// pulledHookPayload is a sync_pull response of kb serving the given hooks.
+func pulledHookPayload(t *testing.T, kb string, hooks ...provisioning.Artifact) string {
+	t.Helper()
+	m := pulledManifestJSON{Revision: "rev-" + kb}
+	for _, a := range hooks {
+		pa := pulledArtifactJSON{Kind: a.Kind, Name: a.Name, Source: a.Source, ContentHash: a.ContentHash}
+		for _, f := range a.Files {
+			pa.Files = append(pa.Files, pulledFileJSON{Path: f.Path, ContentB64: base64.StdEncoding.EncodeToString(f.Content), Executable: f.Executable})
+		}
+		m.Artifacts = append(m.Artifacts, pa)
+	}
+	body, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+func hookArtifact(name string) provisioning.Artifact {
+	files := []provisioning.ArtifactFile{
+		{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"./run.sh"}`)},
+		{Path: "run.sh", Content: []byte("#!/bin/sh\necho " + name + "\n"), Executable: true},
+	}
+	return provisioning.Artifact{Kind: "hook", Name: name, Source: "kb:one", ContentHash: provisioning.ContentHashFiles(files), Files: files}
+}
+
+// #1176: a dry run previews the one-time migration instead of telling the
+// operator to approve by hand what the real sync then approves alone. The hook
+// installed before approvals existed is a `would approve` line and not
+// needs_approval; the one never installed stays needs_approval; nothing is
+// written, the marker included.
+func TestSyncDryRunPreviewsPreApprovalMigration(t *testing.T) {
+	guard, fresh := hookArtifact("guard"), hookArtifact("fresh")
+	srv := prefixAwareMCPServer(t, map[string]string{"one": ""}, "sync_pull", func(kb string) string {
+		return pulledHookPayload(t, kb, guard, fresh)
+	})
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", ServerName: "cartographer", Agents: []string{"claude"}, KnownKBs: []string{"one"}}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	// The install of a pre-D1141 client: guard in the lockfile at the hash the
+	// KB still serves, and no approval recorded.
+	installed := map[string]string{"kb:one\x00hook/guard": guard.ContentHash}
+	if _, err := materializeForProviders(uniformManifests(provisioning.Manifest{Artifacts: []provisioning.Artifact{guard}}, []string{"claude"}), globalProjections([]string{"claude"}, dir), dir, "", false, false, portabilityOptions{}, nil, installed); err != nil {
+		t.Fatal(err)
+	}
+	before := treeSnapshot(t, dir)
+
+	out := withStdout(t, func() {
+		if _, err := runSync(dir, cfg, syncOptions{DryRun: true}); err != nil {
+			t.Fatalf("dry-run sync: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "would approve hook/guard [kb:one]: installed before approvals existed, unchanged\n") {
+		t.Errorf("the dry run hides what the migration would approve:\n%s", out)
+	}
+	if strings.Contains(out, "needs_approval: hook/guard") {
+		t.Errorf("guard reported needs_approval although the real sync approves it:\n%s", out)
+	}
+	if !strings.Contains(out, "needs_approval: hook/fresh") {
+		t.Errorf("fresh must stay needs_approval:\n%s", out)
+	}
+	after := treeSnapshot(t, dir)
+	if len(before) != len(after) {
+		t.Fatalf("a dry run changed the file set: %d before, %d after", len(before), len(after))
+	}
+	for name, content := range before {
+		if after[name] != content {
+			t.Errorf("a dry run rewrote %s", name)
+		}
+	}
+	loaded, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ApprovalsMigrated || len(loaded.MCPApprovals) != 0 || cfg.ApprovalsMigrated || len(cfg.MCPApprovals) != 0 {
+		t.Errorf("a dry run spent the migration: marker=%v approvals=%+v", loaded.ApprovalsMigrated, loaded.MCPApprovals)
 	}
 }

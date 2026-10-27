@@ -311,9 +311,14 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, err
 	}
 
+	approvals := cfg.ApprovedMCPHashes()
 	if healthErr == nil {
 		printKnownKBsChange(previousKnownKBs, kbs, opts.DryRun)
-		if !opts.DryRun {
+		if opts.DryRun {
+			if lockFile, lerr := provisioning.ReadLockFile(lockFilePath(dir)); lerr == nil {
+				approvals = previewPreApprovalInstalls(os.Stdout, cfg, lockFile, manifests, projections, len(pullFailures) == 0)
+			}
+		} else {
 			mounted := cfg.KnownKBs
 			cfg.KnownKBs = withRetainedKBs(mounted, retainedKBs)
 			// D1166: before the apply, so what a pre-D1141 client installed is
@@ -321,6 +326,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			if lockFile, lerr := provisioning.ReadLockFile(lockFilePath(dir)); lerr == nil {
 				migratePreApprovalInstalls(os.Stdout, cfg, lockFile, manifests, projections, len(pullFailures) == 0)
 			}
+			approvals = cfg.ApprovedMCPHashes()
 			err := clientconfig.Save(dir, cfg)
 			cfg.KnownKBs = mounted
 			if err != nil {
@@ -329,7 +335,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 
-	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths}, kbOrderForProviders(cfg, targets), cfg.ApprovedMCPHashes())
+	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths}, kbOrderForProviders(cfg, targets), approvals)
 	if err != nil {
 		return syncResult{}, err
 	}
