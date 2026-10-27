@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 	"time"
 
@@ -25,6 +26,23 @@ import (
 // are missing from the manifests, so the migration waits for a whole run
 // instead of spending its single chance.
 func migratePreApprovalInstalls(w io.Writer, cfg *clientconfig.Config, lockFile provisioning.LockFile, manifests map[string]provisioning.Manifest, projections []syncProjection, complete bool) bool {
+	return migratePreApprovals(w, "approved", cfg, lockFile, manifests, projections, complete)
+}
+
+// previewPreApprovalInstalls is the dry run of migratePreApprovalInstalls
+// (#1176): it prints `would approve …` for what the real sync would approve and
+// returns the approval hashes that sync would apply with, so the dry run reports
+// needs_approval only for the rest. cfg, its marker included, is left untouched.
+func previewPreApprovalInstalls(w io.Writer, cfg *clientconfig.Config, lockFile provisioning.LockFile, manifests map[string]provisioning.Manifest, projections []syncProjection, complete bool) map[string]string {
+	scratch := clientconfig.Config{ApprovalsMigrated: cfg.ApprovalsMigrated, MCPApprovals: map[string]map[string]clientconfig.MCPApproval{}}
+	for source, entries := range cfg.MCPApprovals {
+		scratch.MCPApprovals[source] = maps.Clone(entries)
+	}
+	migratePreApprovals(w, "would approve", &scratch, lockFile, manifests, projections, complete)
+	return scratch.ApprovedMCPHashes()
+}
+
+func migratePreApprovals(w io.Writer, verb string, cfg *clientconfig.Config, lockFile provisioning.LockFile, manifests map[string]provisioning.Manifest, projections []syncProjection, complete bool) bool {
 	if cfg.ApprovalsMigrated || !complete {
 		return false
 	}
@@ -43,7 +61,7 @@ func migratePreApprovalInstalls(w io.Writer, cfg *clientconfig.Config, lockFile 
 				continue
 			}
 			done[key] = true
-			fmt.Fprintf(w, "approved %s/%s [kb:%s]: installed before approvals existed, unchanged\n", a.Kind, a.Name, source)
+			fmt.Fprintf(w, "%s %s/%s [kb:%s]: installed before approvals existed, unchanged\n", verb, a.Kind, a.Name, source)
 		}
 	}
 	return true

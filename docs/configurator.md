@@ -1231,7 +1231,9 @@ with the same content hash the KB serves now (the lockfile entry says so), and p
 `approved <kind>/<name> [kb:<kb>]: installed before approvals existed, unchanged`. An artifact whose hash differs
 from its lock entry, or that is not in the lockfile, stays `needs_approval`. The migration runs once: its
 marker, `approvals_migrated`, is a key of `.cartographer.yaml` beside `mcp_approvals` (so losing the state file cannot re-arm it), is never cleared, and is not set by a dry run or
-by a sync that could not pull every KB, so a later `approve revoke` is never undone.
+by a sync that could not pull every KB, so a later `approve revoke` is never undone. A `sync -dry-run` before it
+previews it: `would approve <kind>/<name> [kb:<kb>]: installed before approvals existed, unchanged` for what the real
+sync would approve, `needs_approval` only for the rest, and the marker stays untouched (#1176).
 
 Written/updated by `connect` in the user's home directory (`~/.cartographer.yaml`, machine-wide —
 `clientconfig.TargetDir`, D52): it records which server the machine is connected to (the connected providers are in the client state file, below). One file per machine, not per project: this avoids drift with a provider
