@@ -30,7 +30,7 @@ var served = []Procedure{
 	{
 		Short: "ingest", Skill: "cartographer-kb-ingest",
 		UseWhen: "one new primary source (document, transcript, thread, ticket, incident timeline, email, web page, dataset) must become KB knowledge",
-		Note:    "Without a shell, skip the sha256 of step 1 and give a `locator` instead (the ledger then dedupes on it); for credentials found in a source (step 6), `secret_set` is not in your tool list: leave them out of every page and tell the user.",
+		Note:    "Without a shell, skip the sha256 of step 1 and give a `locator` instead (the ledger then dedupes on it); for credentials found in a source (step 6), use `secret_set` for them, or leave them out of every page and tell the user.",
 	},
 	{
 		Short: "conflict-resolve", Skill: "cartographer-kb-conflict-resolve",

@@ -176,8 +176,8 @@ var advancedTools = []string{
 	"artifact_move", "artifact_list", "commit_gate", "contradiction_report",
 	"conflict_resolve", "repair_revert", "reindex", "graph_path",
 	"sync_check", "sync_apply", "sync_pull", "sync_status",
-	"skill_list", "skill_install",
-	"service_get", "service_list", "secret_resolve", "secret_set",
+	"skill_list", "skill_install", // service_get, secret_resolve, secret_set left D1191
+	"service_list",
 }
 
 func TestBundledSkillsDoNotStrandOnAdvancedTools(t *testing.T) {

@@ -250,6 +250,8 @@ type KBInfo struct {
 type KBCapability struct {
 	State   string `json:"state"`
 	Setting string `json:"setting"`
+	// Hint says what to do about a state that needs it (D1191); empty otherwise.
+	Hint string `json:"hint,omitempty"`
 }
 
 // MultiKBServer wraps multiple KB instances served by a single HTTP server.

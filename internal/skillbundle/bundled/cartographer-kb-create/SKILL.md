@@ -1,7 +1,7 @@
 ---
 name: cartographer-kb-create
 description: Operator procedure to declare and provision a new Knowledge Base GitOps-style, so it survives pod restarts; also covers authoring the KB's artifacts (skills, subagents, hooks, MCP descriptors) and the SOPS encryption flow.
-version: "3.2"
+version: "3.3"
 ---
 # KB Create — Skill
 
@@ -104,7 +104,7 @@ No per-KB paths are needed in the config: the server reads the KB's files from `
   Secret. Never inline key material in the ConfigMap itself.
 - **The age key is the deployment half only.** Generating that key, writing the root `.sops.yaml`
   creation rules and creating the first encrypted file are operator actions Cartographer never
-  performs — `secret_set` (not in `tools/list`) refuses a file that does not exist. Do them **before** this step, and do
+  performs — `secret_set` creates a file only under a creation rule the operator wrote. Do them **before** this step, and do
   not assume an encrypted file is already there: `references/secrets.md` is the full procedure. A
   KB with no service credentials needs none of it.
 - Add a **scoped token** for the clients of this KB to `CARTOGRAPHER_TOKENS` (or `auth.tokens` in
@@ -209,8 +209,7 @@ skill bundled in the binary into the KB. That is installation, not authoring.
 - Tools: `atlas_overview`, `map_create`, `concept_expand`, `concept_write`;
   `artifact_read`/`artifact_write`/`artifact_delete` for artifacts.
 - Tools not in `tools/list` (served when called by name; a descriptor-bound host that calls only
-  listed tools, such as Codex, cannot use them): `skill_list`, `skill_install`, `artifact_list`,
-  `service_get`, `secret_resolve`, `secret_set`.
+  listed tools, such as Codex, cannot use them): `skill_list`, `skill_install`, `artifact_list`.
 - Layout: `data/` is the conceptual root; concept IDs are relative to it.
 - Multi-KB HTTP: endpoint is `/mcp?kb=<name>` when more than one KB is mounted. `<name>` is the
   `name:` field of the KB's `kbs:` entry, which falls back to the repository basename only when it

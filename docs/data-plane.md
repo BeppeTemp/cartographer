@@ -810,7 +810,9 @@ mounting the same KB get the same behaviour. `settings.yaml` at the KB root, bes
 Two things are derived and have no key (D906). A KB **declares secrets** when at least one YAML
 file directly under `secrets/` carries sops metadata (read, never decrypted): a mount of such a KB
 without an age key reports `capabilities.secrets: missing key` and warns at startup, instead of a
-silent `disabled`. A KB's **MCP descriptors** (`mcp/<name>.json`) are always distributable: no list
+silent `disabled`; `kb_status` adds a `hint` (D1191) naming the recipient the KB expects and whether a
+key file in `credentials_dir` holds it, or, for a key file added after the start, "restart the service
+to load it" (the key is read at start only). A KB's **MCP descriptors** (`mcp/<name>.json`) are always distributable: no list
 names them; each client still approves a descriptor before installing it (`docs/sync.md` §MCP
 servers).
 

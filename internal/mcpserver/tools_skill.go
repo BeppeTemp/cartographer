@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -265,7 +266,7 @@ func toolSecretResolve(k *kb.KB) Tool {
 }
 
 func toolSecretSet(k *kb.KB) Tool {
-	return Tool{Name: "secret_set", Description: "Sets one JSON Pointer in an existing encrypted SOPS file (requires rw scope).", InputSchema: json.RawMessage(`{"type":"object","required":["path","key","value"],"properties":{"path":{"type":"string"},"key":{"type":"string"},"value":{"type":"string"}}}`), Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+	return Tool{Name: "secret_set", Description: "Sets one JSON Pointer in an encrypted SOPS file under secrets/ (requires rw scope). A new file is created only when the KB's .sops.yaml creation rule matches its path and the server's key is one of the rule's recipients; the value is never returned.", InputSchema: json.RawMessage(`{"type":"object","required":["path","key","value"],"properties":{"path":{"type":"string"},"key":{"type":"string"},"value":{"type":"string"}}}`), Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		var p struct {
 			Path  string `json:"path"`
 			Key   string `json:"key"`
@@ -277,11 +278,20 @@ func toolSecretSet(k *kb.KB) Tool {
 		if !filepath.IsLocal(p.Path) || !strings.HasPrefix(p.Path, "secrets/") || !strings.HasSuffix(p.Path, ".sops.yaml") {
 			return errorResult("secret_set: path must be a local secrets/*.sops.yaml path"), nil
 		}
-		if _, err := os.Stat(filepath.Join(k.Root, p.Path)); os.IsNotExist(err) {
-			return errorResult("secret_set: file does not exist; bootstrapping an encrypted file and its recipients is an operator action"), nil
-		}
+		_, statErr := os.Lstat(filepath.Join(k.Root, p.Path))
+		creating := os.IsNotExist(statErr)
 		if k.SopsAgeKeyFile == "" {
 			return errorResult("secret_set: requires an age key for this KB (<kb>.age or default.age in the server's credentials_dir)"), nil
+		}
+		if creating {
+			// D1191: the recipients are the operator's creation rule, never the caller's.
+			if err := sops.Create(k.Root, p.Path, p.Key, p.Value, k.SopsAgeKeyFile, sops.AgeKeyEnv(k.SopsAgeKeyFile)...); err != nil {
+				if errors.Is(err, sops.ErrNoConfig) {
+					return errorResult("secret_set: file does not exist and the KB has no .sops.yaml; bootstrapping encryption and its recipients is an operator action"), nil
+				}
+				return errorResult("secret_set: " + err.Error()), nil
+			}
+			return textResult(fmt.Sprintf("secret_set: created %s %s", p.Path, p.Key)), nil
 		}
 		if err := sops.Set(k.Root, p.Path, p.Key, p.Value, sops.AgeKeyEnv(k.SopsAgeKeyFile)...); err != nil {
 			return errorResult("secret_set: " + err.Error()), nil

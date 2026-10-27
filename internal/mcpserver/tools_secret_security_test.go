@@ -118,7 +118,7 @@ func TestSecretSetSafetyAndRegistration(t *testing.T) {
 			t.Errorf("unsafe error %#v", r)
 		}
 	}
-	if !advancedToolNames["secret_resolve"] || !advancedToolNames["secret_set"] || !ToolRequiresWrite("secret_resolve") || !ToolRequiresWrite("secret_set") {
+	if advancedToolNames["secret_resolve"] || advancedToolNames["secret_set"] || advancedToolNames["service_get"] || !ToolRequiresWrite("secret_resolve") || !ToolRequiresWrite("secret_set") {
 		t.Fatal("secret tool profile incorrect")
 	}
 }

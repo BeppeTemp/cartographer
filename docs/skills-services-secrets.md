@@ -214,16 +214,22 @@ operator has already set up.
 | Generate the age key | operator (`age-keygen`) |
 | Write the root `.sops.yaml` creation rules | operator — Cartographer never writes this file |
 | Create the **first** encrypted file and choose its recipients | operator (`sops` CLI) |
-| Rotate or add a pointer in an **existing** encrypted file | Cartographer (`secret_set`) |
+| Rotate or add a pointer in an encrypted file, or create one under a creation rule | Cartographer (`secret_set`, D1191) |
 | Declare which values a concept uses | Cartographer (`concept_write`, `secret_refs`) |
 | Resolve declared values | Cartographer (`secret_resolve`, `service_get`) |
 
 `secret_set(path, key, value)` rotates or adds a pointer in an existing
 encrypted `secrets/*.sops.yaml` file. It uses `sops set --value-stdin`, checks
 that the result remains encrypted, and commits through the normal KB write
-flow. It **refuses** any path that is not a local `secrets/*.sops.yaml` and any
-file that does not yet exist — bootstrapping one is an operator action, not a
-tool call.
+flow. It **refuses** any path that is not a local `secrets/*.sops.yaml`. A file
+that does not yet exist is **created** when the KB's root `.sops.yaml` has a
+creation rule matching the path and the server's age key is one of the rule's
+recipients (D1191): the recipients are the rule's, sops applies them, the caller
+chooses none, and the new file starts as mappings (a list is the operator's).
+With no `.sops.yaml`, no matching rule or a key that is not a recipient it
+refuses: bootstrapping encryption stays an operator action. `secret_set`,
+`secret_resolve` and `service_get` are in the agent `tools/list`; the first two
+need `rw` scope.
 
 The operator-side half is written out step by step in the bundled `cartographer-kb-create`
 skill's `references/secrets.md`, which is where an agent is sent when it has to
