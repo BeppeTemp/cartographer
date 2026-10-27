@@ -21,11 +21,45 @@ var ErrNoConfig = errors.New("the KB has no .sops.yaml")
 // maxConfigSize bounds what is read of a .sops.yaml.
 const maxConfigSize = 1 << 20
 
+// otherKeys are the key types of a creation rule besides age. Cartographer checks
+// that the server holds an age recipient; a data key also sent to a KMS, PGP or
+// Vault recipient would go to one it never inspected, so such a rule is refused.
+type otherKeys struct {
+	KMS               any `yaml:"kms"`
+	PGP               any `yaml:"pgp"`
+	GCPKMS            any `yaml:"gcp_kms"`
+	AzureKV           any `yaml:"azure_kv"`
+	HCVault           any `yaml:"hc_vault"`
+	HCVaultURI        any `yaml:"hc_vault_uri"`
+	HCVaultTransitURI any `yaml:"hc_vault_transit_uri"`
+}
+
+func (o otherKeys) any() bool {
+	for _, v := range []any{o.KMS, o.PGP, o.GCPKMS, o.AzureKV, o.HCVault, o.HCVaultURI, o.HCVaultTransitURI} {
+		switch x := v.(type) {
+		case nil:
+		case string:
+			if strings.TrimSpace(x) != "" {
+				return true
+			}
+		case []any:
+			if len(x) > 0 {
+				return true
+			}
+		default:
+			return true
+		}
+	}
+	return false
+}
+
 type creationRule struct {
+	otherKeys `yaml:",inline"`
 	PathRegex string `yaml:"path_regex"`
 	Age       string `yaml:"age"`
 	KeyGroups []struct {
-		Age []string `yaml:"age"`
+		otherKeys `yaml:",inline"`
+		Age       []string `yaml:"age"`
 	} `yaml:"key_groups"`
 }
 
@@ -65,6 +99,13 @@ func RuleRecipients(kbRoot, relativePath string) (recipients []string, matched b
 			if !re.MatchString(filepath.ToSlash(relativePath)) {
 				continue
 			}
+		}
+		nonAge := r.otherKeys.any()
+		for _, g := range r.KeyGroups {
+			nonAge = nonAge || g.otherKeys.any()
+		}
+		if nonAge {
+			return nil, true, fmt.Errorf(".sops.yaml rule %q names a recipient that is not an age key (kms, pgp, vault...); Cartographer creates files only under age-only rules", r.PathRegex)
 		}
 		for _, a := range strings.Split(r.Age, ",") {
 			if a = strings.TrimSpace(a); a != "" {
@@ -201,7 +242,7 @@ func Create(kbRoot, relativePath, pointer, value, keyFile string, env ...string)
 		return err
 	}
 	defer cleanup()
-	cmd := exec.Command("sops", "encrypt", "--filename-override", filepath.ToSlash(relativePath), "--input-type", "yaml", "--output-type", "yaml")
+	cmd := exec.Command("sops", "--config", filepath.Join(kbRoot, ".sops.yaml"), "encrypt", "--filename-override", filepath.ToSlash(relativePath), "--input-type", "yaml", "--output-type", "yaml")
 	cmd.Dir = kbRoot
 	cmd.Stdin = bytes.NewReader(plain)
 	cmd.Env = childEnv

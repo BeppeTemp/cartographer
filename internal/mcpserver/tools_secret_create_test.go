@@ -27,7 +27,7 @@ func fakeEncryptSOPS(t *testing.T) {
 	}
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" +
-		"if [ \"$1\" = encrypt ]; then sed -E 's/^( *[^ :]+:) .+$/\\1 ENC[x]/'; echo 'sops: {}'; exit 0; fi\n" +
+		"if [ \"$3\" = encrypt ]; then sed -E 's/^( *[^ :]+:) .+$/\\1 ENC[x]/'; echo 'sops: {}'; exit 0; fi\n" +
 		"exit 1\n"
 	if err := os.WriteFile(filepath.Join(dir, "sops"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)

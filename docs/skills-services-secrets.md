@@ -226,8 +226,9 @@ that does not yet exist is **created** when the KB's root `.sops.yaml` has a
 creation rule matching the path and the server's age key is one of the rule's
 recipients (D1191): the recipients are the rule's, sops applies them, the caller
 chooses none, and the new file starts as mappings (a list is the operator's).
-With no `.sops.yaml`, no matching rule or a key that is not a recipient it
-refuses: bootstrapping encryption stays an operator action. `secret_set`,
+Cartographer names the root `.sops.yaml` to sops (a nested one is ignored) and refuses a
+matching rule that also names a kms, pgp or vault recipient. With no `.sops.yaml`, no
+matching rule or a key that is not a recipient it refuses: bootstrapping encryption stays an operator action. `secret_set`,
 `secret_resolve` and `service_get` are in the agent `tools/list`; the first two
 need `rw` scope.
 
