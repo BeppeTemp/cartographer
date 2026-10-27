@@ -66,7 +66,11 @@ func gitTracksFile(dir, rel string) (bool, error) {
 	if err == nil {
 		return len(out) > 0, nil
 	}
-	if _, lookErr := exec.LookPath("git"); lookErr == nil && exec.Command("git", "-C", dir, "rev-parse", "--git-dir").Run() != nil {
+	// Only git's own "not a git repository" means no repository: dubious
+	// ownership or a broken .git fail rev-parse too, and must not read as untracked.
+	rev := exec.Command("git", "-C", dir, "rev-parse", "--git-dir")
+	rev.Env = append(os.Environ(), "LC_ALL=C")
+	if msg, revErr := rev.CombinedOutput(); revErr != nil && strings.Contains(string(msg), "not a git repository") {
 		return false, nil
 	}
 	return false, fmt.Errorf("provisioning: is %s tracked in %s: %w", rel, dir, err)
