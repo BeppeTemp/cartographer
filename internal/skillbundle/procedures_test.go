@@ -11,7 +11,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
-var notServed = []string{"cartographer-kb-create", "cartographer-kb-doctor", "cartographer-ops"}
+var notServed = []string{"cartographer-feedback", "cartographer-kb-create", "cartographer-kb-doctor", "cartographer-ops"}
 
 func TestProcedures_ServedEntriesMatchTheBundle(t *testing.T) {
 	t.Parallel()

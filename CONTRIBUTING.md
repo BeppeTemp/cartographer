@@ -333,6 +333,8 @@ from the template that fits:
   Ideas); blank issues are disabled. A maintainer turns an idea worth building
   into a plan.
 - **Bug** (label `bug`): version, transport, what happened, a reproduction.
+- An agent can draft a bug or idea report with the bundled `cartographer-feedback`
+  skill: it files nothing and prints a prefilled URL for you to submit.
 - **Plan** (label `plan`): a self-contained implementation plan, below.
 
 The repository keeps only labels that a workflow or a skill reads, or that

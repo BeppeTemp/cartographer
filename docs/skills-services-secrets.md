@@ -11,7 +11,7 @@ and binary-bundled skills through `skill_list`. `skill_install` copies a
 bundled skill into the KB.
 
 The bundled catalog (`internal/skillbundle/bundled/`) is `cartographer-ops`, `cartographer-kb-create`,
-`cartographer-kb-import`, `cartographer-kb-conflict-resolve`, `cartographer-kb-doctor` and `cartographer-kb-ingest`. `cartographer-kb-doctor` (D290) aligns a
+`cartographer-kb-import`, `cartographer-kb-conflict-resolve`, `cartographer-kb-doctor`, `cartographer-kb-ingest` and `cartographer-feedback`. `cartographer-feedback` (D1203) drafts a bug or idea report on request and files nothing: it replaces every real name with a placeholder, shows the draft, and prints a prefilled GitHub URL (title-only with the body to paste above 6000 characters); it needs no the GitHub CLI, token or network. `cartographer-kb-doctor` (D290) aligns a
 drifted KB in budgeted sessions; it ships one read-only POSIX shell script under `scripts/`
 (`section_freq.sh`) that answers an aggregate question from a local clone, guarded by
 `internal/skillbundle/scripts_test.go`. `cartographer-kb-ingest` (D279) ingests **one** primary
@@ -20,7 +20,7 @@ existing pages through the source ledger of D278: register, distil, patch rather
 cite via `provenance`, open a `Contradiction` instead of overwriting, record gaps, verify with
 `gate_check`. Per-kind advice is in its `references/source-kinds.md`.
 
-`cartographer-kb-ingest`, `cartographer-kb-conflict-resolve` and `cartographer-kb-import` are also **served as procedures by `kb_guide`** (D1100), for clients that have no filesystem to provision into; the other three are not (they run commands, scripts or subagents, or configure the host). The served bodies are the bundled files as they are, behind a fixed preface and a note for `ingest` and `import`. A new bundled skill is classified (served or not) by `TestProcedures_EveryBundledSkillIsClassified`.
+`cartographer-kb-ingest`, `cartographer-kb-conflict-resolve` and `cartographer-kb-import` are also **served as procedures by `kb_guide`** (D1100), for clients that have no filesystem to provision into; the other four (`create`, `doctor`, `ops` and `feedback`) are not (they run commands, scripts or subagents, configure the host, or, for feedback, target provisioned clients and build a URL). The served bodies are the bundled files as they are, behind a fixed preface and a note for `ingest` and `import`. A new bundled skill is classified (served or not) by `TestProcedures_EveryBundledSkillIsClassified`.
 
 **Naming rules** (D191). One validator answers for both channels — a write over
 `artifact_write` and a skill that arrived through git are held to the same rules,
