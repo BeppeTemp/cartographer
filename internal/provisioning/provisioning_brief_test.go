@@ -303,40 +303,24 @@ func TestMeasureInstructionsBlock(t *testing.T) {
 
 // The block is paid on every model call of every session (D1182): pin the
 // generated parts so a growth is a decision, not an accident. Budgets are the
-// measured size plus at most 10 %, with a hard cap.
+// measured size plus at most 10 %, with a hard cap. The whole block, for 1 and
+// 9 KBs on a routed connection, is a cell of TestFixedCallCostBudget
+// (internal/mcpserver, #1206), which this package cannot import.
 func TestBlock_Budget(t *testing.T) {
-	build := func(n int) (string, string) {
-		roots := map[string]string{}
-		for i := 1; i <= n; i++ {
-			r := makeKBWithArchives(t, map[string][]string{"backlog": {"a.md"}, "clients": {"a.md"}, "incidents": {"a.md"}, "infra": {"a.md"}, "notes": {"a.md"}})
-			for s := 0; s < 12; s++ {
-				writeBriefSkill(t, r, fmt.Sprintf("kb-%d-procedure-%02d", i, s))
-			}
-			writeFile(t, filepath.Join(r, "instructions.md"), strings.Repeat("curated text stays out. ", 500))
-			roots[fmt.Sprintf("kb-%d", i)] = r
-		}
-		m := buildSignedManifest(t, roots)
-		// Only the instructions kind is under test; the skills would need roots.
-		var instr []provisioning.Artifact
-		for _, a := range m.Artifacts {
-			if a.Kind == "instructions" {
-				instr = append(instr, a)
-			}
-		}
-		_, content := applyBlock(t, provisioning.MergeArtifacts(instr), t.TempDir(), provisioning.Lock{})
-		one := string(findInstructionsArtifact(t, m, "kb-1").Files[0].Content)
-		return content, one
+	// One KB's brief region, from the fixture the D1182 measurement used.
+	r := makeKBWithArchives(t, map[string][]string{"backlog": {"a.md"}, "clients": {"a.md"}, "incidents": {"a.md"}, "infra": {"a.md"}, "notes": {"a.md"}})
+	for s := 0; s < 12; s++ {
+		writeBriefSkill(t, r, fmt.Sprintf("kb-1-procedure-%02d", s))
 	}
+	writeFile(t, filepath.Join(r, "instructions.md"), strings.Repeat("curated text stays out. ", 500))
+	m := buildSignedManifest(t, map[string]string{"kb-1": r})
+	section := string(findInstructionsArtifact(t, m, "kb-1").Files[0].Content)
 	budget := func(name string, got, measured, hard int) {
 		t.Helper()
 		if got > measured+measured/10 || got > hard {
 			t.Errorf("%s is %d bytes, budget %d (+10%%, hard cap %d): the managed block is paid on every model call of every session; shrink it or raise the budget deliberately", name, got, measured, hard)
 		}
 	}
-	block1, section := build(1)
-	block9, _ := build(9)
-	budget("1-KB block", len(block1), 3377, 4096)
-	budget("9-KB block", len(block9), 6801, 8192)
 	budget("shared section", len(provisioning.SharedOperationalSection()), 2146, 2560)
 	budget("brief section", len(section), 357, 512)
 }
