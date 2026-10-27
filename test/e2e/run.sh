@@ -4,6 +4,8 @@
 # Usage:
 #   ./test/e2e/run.sh [--only <scenario>] [--keep]
 #
+# The default loop runs scenarios/ only; --only also finds a scenario of optional/.
+#
 # Every scenario drives the real binary through HTTP/CLI and asserts on
 # filesystem, git state, HTTP status or process exit codes. No LLM is involved.
 
@@ -88,8 +90,10 @@ run_scenario() {
 }
 
 if [[ -n "$ONLY_SCENARIO" ]]; then
+    # optional/ holds the scenarios the default loop skips (make e2e-upgrade).
     script="${SCENARIOS_DIR}/${ONLY_SCENARIO}.sh"
-    [[ -f "$script" ]] || { echo "[ERROR] scenario not found: ${script}" >&2; exit 2; }
+    [[ -f "$script" ]] || script="${E2E_DIR}/optional/${ONLY_SCENARIO}.sh"
+    [[ -f "$script" ]] || { echo "[ERROR] scenario not found: ${ONLY_SCENARIO} (in scenarios/ or optional/)" >&2; exit 2; }
     run_scenario "$script"
 else
     for script in "${SCENARIOS_DIR}"/*.sh; do

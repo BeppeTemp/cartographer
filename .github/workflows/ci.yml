@@ -350,6 +350,30 @@ jobs:
       - run: make build
       - run: test/forge/run.sh ${{ matrix.forge }}
 
+  # A client upgraded from the previous stable release to this build (#1173):
+  # test/e2e/optional/25_upgrade_from_previous.sh builds the old tag from a
+  # throwaway worktree, so it needs the tags. The release PR and a manual run
+  # only; not in main-status (skipped on push) and not a required check. No
+  # "Configure git for tests": run.sh isolates its own git config (D996).
+  upgrade-e2e:
+    name: upgrade-e2e
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && startsWith(github.head_ref, 'release-please--'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the previous release is the newest stable tag
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # The module cache is keyed on HEAD's go.sum: the old tag may need a
+      # module it lacks.
+      - run: make e2e-upgrade
+        env:
+          E2E_UPGRADE_ONLINE: "1"
+
   # The macOS leg (D997): the launchd agent, install.sh against a real service
   # and the Cask GoReleaser renders, each on a real runner. It registers a real
   # job under the runner's own HOME (internal/service/homeguard.go refuses a

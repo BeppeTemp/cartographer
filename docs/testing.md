@@ -165,6 +165,40 @@ and never as a required check. By hand, from the repository root, with Docker:
 `make build && test/forge/run.sh forgejo` (`FORGE_KEEP=1` leaves the container up;
 `FORGE_PORT`, `FORGE_SSH_PORT` and `FORGE_SERVER_PORT` move the ports).
 
+### Client upgrade from the previous release (#1173)
+
+`test/e2e/optional/25_upgrade_from_previous.sh` starts from the state a previous
+release leaves on a client, which no scenario of `make e2e` does: each connects a
+fresh sandbox with the binary under test. It builds the newest stable tag reachable
+from HEAD (`vX.Y.Z`, no pre-release suffix, the tag at HEAD excluded) from a throwaway
+`git worktree`, runs it as the `claude` client of a HEAD server whose KB serves a
+skill, a hook, an MCP descriptor, a `block: full` `instructions.md` and a `{{path:…}}`
+key, approves what it waits for as a user does, then switches the client to HEAD and
+syncs twice. It asserts that no approval is asked again, that the D1166 migration lines
+appear only when the old tag predates it, that no file is left under a name HEAD's
+lockfile no longer lists (the oracle is the two lockfiles, not a list of renamed
+skills), that every local path a written file cites exists, that the first sync turns
+the block brief once (D1182, when the old tag predates it), that the second sync writes
+nothing, leaves every file byte-identical and `status` exits 0, and that a revoked hook
+is not approved again. The lockfile is compared with its entries sorted: a sync that
+rewrote an artifact leaves the synthetic hooks' entries to move on the next one, an
+order-only rewrite.
+
+It is outside `make e2e` (in `test/e2e/optional/`, which the default loop skips):
+building the old tree costs more than the whole suite. `make e2e-upgrade` runs it
+(`./test/e2e/run.sh --only 25_upgrade_from_previous`); the `upgrade-e2e` CI job runs it
+on the release PR and on `workflow_dispatch`, never on `main` and not as a required
+check. `E2E_UPGRADE_FROM=<ref>` picks another starting point; `E2E_UPGRADE_ONLINE=1`
+retries the build once through the Go proxy when the module cache lacks a module of
+the old tag (the job sets it: its cache is keyed on HEAD's `go.sum`). No stable tag
+reachable (a shallow clone) is an error naming `git fetch --tags --unshallow`, never a
+skip. Locally the scenario takes about 10 s with a warm module cache and under a minute
+when the old tag's modules are downloaded. From v0.26.0 on the previous release
+already has the approval gate, so the default run proves that an approval survives
+the upgrade, not the one-time migration of D1166: exercise that with
+`E2E_UPGRADE_FROM=v0.25.1 E2E_UPGRADE_ONLINE=1 make e2e-upgrade`, which expects one
+`approved hook/<name> [kb:kb]: installed before approvals existed, unchanged` line.
+
 ### Real macOS (D997)
 
 The `test-macos` CI job (`macos-latest`) runs the scripts under `test/macos/`
@@ -822,6 +856,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 
 - The Wednesday release candidate (`release-train.yml` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D956, D1192) has passed the image smoke before its push (D995) and has run on a real deployment, and its pre-release binaries have been installed as native service and client on a weekday machine (`CARTOGRAPHER_INSTALL_TAG`, `CONTRIBUTING.md` §Releases); only then, by Thursday afternoon, is the `rc-ok` label added to the release PR.
 - CI is green on the release commit, including `make e2e-web` in the `web` job.
+- `make e2e-upgrade` is green on the release PR (the `upgrade-e2e` job): a client of the previous release upgrades and converges.
 - `make smoke` succeeds for the packaged/local stdio path.
 - Installation and upgrade are verified on the target platform.
 - Every command the installers' closing "Next:" line (`install.sh`, `install.ps1`) names exists in the release being cut: `main` can reference one that no release has yet.
