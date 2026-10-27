@@ -12,8 +12,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// scripts/freeze-open.sh is the one place that says whether the freeze (Saturday
-// 00:00 to Monday 08:30 Europe/Rome, D989) is open; the Dependabot workflows
+// scripts/freeze-open.sh is the one place that says whether the freeze (Wednesday
+// 00:00 to Thursday 18:00 Europe/Rome, D1192) is open; the Dependabot workflows
 // ask it (D1180). The table crosses both daylight-saving offsets: the clocks
 // went back on Sunday 2026-10-25.
 func ptr(s string) *string { return &s }
@@ -31,15 +31,19 @@ func TestFreezeOpenWindow(t *testing.T) {
 		runs *string // statuses of today's scheduled train runs; nil = not read
 		open bool
 	}{
-		{"2026-10-23T21:59:00Z", nil, false},                        // Fri 23:59 CEST
-		{"2026-10-23T22:00:00Z", nil, true},                         // Sat 00:00 CEST
-		{"2026-10-25T12:00:00Z", nil, true},                         // Sunday
-		{"2026-10-26T07:29:00Z", nil, true},                         // Mon 08:29 CET
-		{"2026-10-26T07:30:00Z", ptr("completed completed"), false}, // Mon 08:30 CET
-		{"2026-10-19T06:29:00Z", nil, true},                         // Mon 08:29 CEST
-		{"2026-10-19T06:30:00Z", ptr("completed completed"), false}, // Mon 08:30 CEST
-		{"2026-10-27T12:00:00Z", nil, false},                        // Tuesday
-		{"2026-10-22T12:00:00Z", nil, false},                        // Thursday
+		{"2026-10-20T21:59:00Z", nil, false},                         // Tue 23:59 CEST
+		{"2026-10-20T22:00:00Z", nil, true},                          // Wed 00:00 CEST
+		{"2026-10-27T22:59:00Z", nil, false},                         // Tue 23:59 CET
+		{"2026-10-27T23:00:00Z", nil, true},                          // Wed 00:00 CET
+		{"2026-10-29T16:59:00Z", nil, true},                          // Thu 17:59 CET
+		{"2026-10-29T17:00:00Z", ptr("completed completed"), false},  // Thu 18:00 CET, train ran
+		{"2026-10-29T17:30:00Z", ptr("completed in_progress"), true}, // Thu, train still running
+		{"2026-10-29T17:30:00Z", ptr("completed"), true},             // Thu, second entry not started
+		{"2026-10-22T15:59:00Z", nil, true},                          // Thu 17:59 CEST
+		{"2026-10-22T16:00:00Z", ptr("completed completed"), false},  // Thu 18:00 CEST, train ran
+		{"2026-10-24T12:00:00Z", nil, false},                         // Saturday
+		{"2026-10-26T07:00:00Z", nil, false},                         // Monday
+		{"2026-10-27T12:00:00Z", nil, false},                         // Tuesday
 	}
 	for _, c := range cases {
 		at, err := time.Parse(time.RFC3339, c.utc)
@@ -97,8 +101,8 @@ func TestDependabotEligible(t *testing.T) {
 }
 
 // A Dependabot bump that arms itself in the freeze moves main off the release
-// candidate and the Monday train skips (D1180): the arming step asks the script,
-// what was armed before Saturday is disarmed, and the re-arm after the train
+// candidate and the Thursday train skips (D1180): the arming step asks the script,
+// what was armed before Wednesday is disarmed, and the re-arm after the train
 // fails loudly and applies the same eligibility rule.
 func TestDependabotWorkflowsHonourTheFreeze(t *testing.T) {
 	root := repoRoot(t)
@@ -113,7 +117,7 @@ func TestDependabotWorkflowsHonourTheFreeze(t *testing.T) {
 		"workflow_run", "workflows: [release-train]", "github.event.workflow_run.event == 'schedule'",
 		"scripts/freeze-open.sh", "scripts/dependabot-eligible.sh", "gh pr merge --auto --squash", "gh pr merge --disable-auto",
 		"cancel-in-progress: false", "GITHUB_STEP_SUMMARY", "exit \"$failed\"", "ref: main",
-		`"5 22 * * 5"`, `"5 23 * * 5"`, `"+0200 5 22 * * 5" | "+0100 5 23 * * 5"`,
+		`"5 22 * * 2"`, `"5 23 * * 2"`, `"+0200 5 22 * * 2" | "+0100 5 23 * * 2"`,
 	} {
 		if !strings.Contains(arm, want) {
 			t.Errorf("dependabot-arm.yml: missing %q", want)

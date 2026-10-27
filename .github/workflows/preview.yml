@@ -2,10 +2,13 @@ name: Preview image
 # The tag in the run title: release-train.yml finds the release candidate by it.
 run-name: Preview image ${{ inputs.tag }}
 
-# A server image for trying an unreleased main on a real deployment before the
-# release PR is merged (D303). It publishes ONLY ghcr.io/…:<tag>: no `latest`,
-# no GitHub release, no Homebrew cask, no MCP Registry entry — those belong to
-# release.yml and a `v*` tag, which is why a preview is not a pushed tag.
+# A release candidate for trying an unreleased main before the release PR is
+# merged (D303, D1192): the server image ghcr.io/…:<tag> for a deployment, and a
+# GitHub pre-release <tag> with the GoReleaser binaries for a native service and
+# client. Nothing stable: no `latest` image, no Homebrew cask, no MCP Registry
+# entry, GitHub's "latest release" untouched — those belong to release.yml, which
+# a candidate tag never starts (its tag filter, and the default token here).
+# The binaries are published only after the image passed its smoke and was pushed.
 on:
   workflow_dispatch:
     inputs:
@@ -81,3 +84,91 @@ jobs:
             VERSION=${{ inputs.tag }}
           tags: |
             ghcr.io/beppetemp/cartographer:${{ inputs.tag }}
+
+  # The candidate's binaries as a GitHub pre-release (D1192), after the image: a
+  # failed smoke or push publishes nothing, and a failure here makes the run red,
+  # so release-train.yml finds no successful candidate and the train skips.
+  binaries:
+    needs: docker
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # gh release create/delete; this job only
+    steps:
+      - name: Require a pre-release tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-[0-9A-Za-z.]+$'; then
+            echo "::error::tag '$TAG' must be vX.Y.Z-<suffix> (D303)" >&2
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # No dependency cache: this job publishes what it builds (D1020).
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      # Local only, never pushed: GoReleaser reads {{ .Version }} from it, so the
+      # binaries print the candidate's tag. -f: a same-day rebuild finds the tag of
+      # the earlier candidate already fetched. Another day's candidate of the same
+      # commit carries a tag on HEAD too, hence GORELEASER_CURRENT_TAG below.
+      - name: Tag the commit locally
+        env:
+          TAG: ${{ inputs.tag }}
+        run: git tag -f "$TAG" "$GITHUB_SHA"
+      # The real release mode, so names and sha256sums.txt are a stable release's.
+      # `publish` keeps the GitHub upload and the tap push from running; `homebrew`
+      # too, because the cask pipe renders its tap token template before
+      # publishing, and this job holds no tap token. No SBOMs (no syft for a candidate).
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          version: "~> v2"
+          args: release --clean --skip=publish,announce,sbom,homebrew
+        env:
+          GORELEASER_CURRENT_TAG: ${{ inputs.tag }}
+      # The assets are the files sha256sums.txt names, under those names (a raw
+      # binary sits in dist/ under its build path, so artifacts.json maps it).
+      - name: Collect the assets and smoke the binary
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir rc
+          while read -r _ name; do
+            path=$(jq -r --arg n "$name" '[.[] | select(.name == $n and (.type == "Archive" or .type == "Binary"))][0].path // empty' dist/artifacts.json)
+            [ -n "$path" ] || { echo "::error::no artifact for $name in dist/artifacts.json" >&2; exit 1; }
+            cp "$path" "rc/$name"
+          done < dist/sha256sums.txt
+          cp dist/sha256sums.txt rc/
+          (cd rc && sha256sum -c sha256sums.txt)
+          got=$(rc/cartographer-linux-amd64 version)
+          if [ "$got" != "$TAG" ]; then
+            echo "::error::the candidate binary prints '$got', want '$TAG'" >&2
+            exit 1
+          fi
+          ls -l rc
+      # github.token, never a PAT: a tag it creates starts no `push` workflow, the
+      # second guard after release.yml's tag filter. --latest=false keeps GitHub's
+      # latest release where it is. A same-day rebuild replaces that day's candidate;
+      # other candidates are kept (release.yml deletes them with the release).
+      - name: Publish the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release delete "$TAG" --cleanup-tag --yes
+          fi
+          # A tag left by a failed earlier run would pin the release to its commit,
+          # not this one. The tag is a candidate's (checked above), never a release's.
+          if gh api "repos/$GH_REPO/git/refs/tags/$TAG" > /dev/null 2>&1; then
+            gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$TAG"
+          fi
+          version=${TAG%%-*}
+          gh release create "$TAG" rc/* --prerelease --latest=false --target "$GITHUB_SHA" --title "$TAG" \
+            --notes "Release candidate of ${version}, built from ${GITHUB_SHA}. Not a release: it is never offered as an update. Install it with CARTOGRAPHER_INSTALL_TAG=${TAG} (install.sh or install.ps1); the image is ghcr.io/beppetemp/cartographer:${TAG}."

@@ -13,6 +13,8 @@
 #
 # Environment:
 #   CARTOGRAPHER_INSTALL_DIR  target directory (default: %LOCALAPPDATA%\Cartographer\bin)
+#   CARTOGRAPHER_INSTALL_TAG  install this tag instead of the newest release, e.g. a
+#                             release candidate v0.28.0-rc.20261111 (checksum-verified the same way)
 #   GITHUB_TOKEN              optional token for the release-list call (avoids API rate limits)
 #   CARTOGRAPHER_INSTALL_API_URL, CARTOGRAPHER_INSTALL_DOWNLOAD_URL
 #                             override the GitHub endpoints; for the test suite
@@ -57,23 +59,27 @@ function Get-CartographerTarget {
 }
 
 function Get-CartographerLatestTag([string]$ApiUrl, [string]$TmpDir) {
-    # /releases?per_page=1, not /releases/latest: the latter skips
-    # pre-releases, and every 0.x release of this project is one (D82, D211).
+    # /releases, not /releases/latest: the latter skips pre-releases, and every
+    # 0.x release of this project is one (D82, D211). A release candidate (a tag
+    # with a semver pre-release suffix, v0.28.0-rc.20261111, D1192) is skipped by
+    # its tag, never by the `prerelease` flag, which stable 0.x releases carry:
+    # ten entries leave room for the week's candidates.
     $headers = @{ 'User-Agent' = 'cartographer-install.ps1' }
     if ($env:GITHUB_TOKEN) { $headers['Authorization'] = "Bearer $($env:GITHUB_TOKEN)" }
     $out = Join-Path $TmpDir 'releases.json'
     try {
-        Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri "$ApiUrl/releases?per_page=1" -OutFile $out
+        Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri "$ApiUrl/releases?per_page=10" -OutFile $out
     } catch {
         throw "cannot determine the latest release (rate-limited? set GITHUB_TOKEN): $($_.Exception.Message)"
     }
     # Read from a file rather than .Content: depending on the Content-Type and
     # the PowerShell edition, .Content is a string or a byte array.
     $releases = @(Get-Content -Raw -Path $out | ConvertFrom-Json)
-    if ($releases.Count -eq 0 -or -not $releases[0].tag_name) {
-        throw 'cannot determine the latest release: the release list is empty'
+    $stable = @($releases | Where-Object { [string]$_.tag_name -match '^v?[0-9]+\.[0-9]+\.[0-9]+$' })
+    if ($stable.Count -eq 0) {
+        throw 'cannot determine the latest release: the release list has no release without a pre-release suffix'
     }
-    return [string]$releases[0].tag_name
+    return [string]$stable[0].tag_name
 }
 
 function Get-CartographerVersion([string]$Exe) {
@@ -145,7 +151,15 @@ function Install-Cartographer {
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ("cartographer-install-" + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp -Force | Out-Null
     try {
-        $tag = Get-CartographerLatestTag $apiUrl $tmp
+        if ($env:CARTOGRAPHER_INSTALL_TAG) {
+            # The tag goes into a URL: only the shape of a release tag is accepted.
+            $tag = [string]$env:CARTOGRAPHER_INSTALL_TAG
+            if ($tag -cnotmatch '\Av?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?\z') {
+                throw "CARTOGRAPHER_INSTALL_TAG is not a release tag: $tag"
+            }
+        } else {
+            $tag = Get-CartographerLatestTag $apiUrl $tmp
+        }
         $current = Get-CartographerVersion $dest
         if ($current -eq $tag) {
             Write-Host "cartographer $tag already installed at $dest"

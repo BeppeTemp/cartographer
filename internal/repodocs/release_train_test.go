@@ -38,14 +38,18 @@ func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 		t.Fatalf("release-train.yml: %v", err)
 	}
 
-	// Saturday 00:30 and Monday 08:30 in Europe/Rome, once per UTC offset.
-	want := map[string]bool{"30 22 * * 5": true, "30 23 * * 5": true, "30 6 * * 1": true, "30 7 * * 1": true}
+	// Wednesday 00:30 (the candidate) and Thursday 18:00 (the train) in Europe/Rome,
+	// once per UTC offset (D1192). The Wednesday slot is still Tuesday in UTC.
+	want := map[string]bool{"30 22 * * 2": true, "30 23 * * 2": true, "0 16 * * 4": true, "0 17 * * 4": true}
 	if len(wf.On.Schedule) != len(want) {
-		t.Errorf("release-train.yml: %d schedule entries, want the %d of D956", len(wf.On.Schedule), len(want))
+		t.Errorf("release-train.yml: %d schedule entries, want the %d of D1192", len(wf.On.Schedule), len(want))
 	}
 	for _, s := range wf.On.Schedule {
+		if f := strings.Fields(s.Cron); len(f) != 5 || (f[4] != "2" && f[4] != "4") {
+			t.Errorf("release-train.yml: cron %q falls on a day other than Tuesday (UTC) or Thursday", s.Cron)
+		}
 		if !want[s.Cron] {
-			t.Errorf("release-train.yml: unexpected cron %q, want one of the four daylight-saving pairs of D956", s.Cron)
+			t.Errorf("release-train.yml: unexpected cron %q, want one of the four daylight-saving pairs of D1192", s.Cron)
 		}
 		delete(want, s.Cron)
 	}
@@ -59,13 +63,18 @@ func TestReleaseTrainWorkflowPinsSchedulesAndMergeToken(t *testing.T) {
 	if !strings.Contains(raw, "${{ github.event.schedule }}") || !strings.Contains(raw, "TZ=Europe/Rome date +%z") {
 		t.Error("release-train.yml: the guard must compare github.event.schedule with `TZ=Europe/Rome date +%z`")
 	}
-	for _, pair := range []string{`"+0200 30 22 * * 5"`, `"+0100 30 23 * * 5"`, `"+0200 30 6 * * 1"`, `"+0100 30 7 * * 1"`} {
+	for _, pair := range []string{`"+0200 30 22 * * 2"`, `"+0100 30 23 * * 2"`, `"+0200 0 16 * * 4"`, `"+0100 0 17 * * 4"`} {
 		if !strings.Contains(raw, pair) {
 			t.Errorf("release-train.yml: the guard lacks the offset/cron pair %s", pair)
 		}
 	}
 	if regexp.MustCompile(`TZ=Europe/Rome date \+[^\n]*%[HM]`).MatchString(raw) {
 		t.Error("release-train.yml: a guard on the hour or minute mishandles a delayed scheduled run; match the cron entry instead")
+	}
+	// The freeze the train checks starts on Wednesday 00:00: a calendar edit that
+	// moves the crons and forgets the look-back lets a feat of the freeze ship.
+	if !strings.Contains(raw, "date -d 'last wednesday 00:00'") {
+		t.Error("release-train.yml: the freeze check must look back to `last wednesday 00:00` (D1192)")
 	}
 
 	merges, gates := 0, 0
@@ -280,4 +289,120 @@ func toString(v any) string {
 		return strings.Join(parts, " ")
 	}
 	return ""
+}
+
+// The release candidate's binaries (D1192) are a GitHub pre-release, published
+// only after the image smoke passed and the image was pushed, and nothing of
+// them is stable: a missing --latest=false moves GitHub's "latest release", a
+// goreleaser that publishes pushes the Homebrew cask, and a stable secret in
+// this workflow is one step from publishing with it.
+func TestPreviewPublishesCandidateBinariesAfterTheImage(t *testing.T) {
+	raw := readFile(t, repoRoot(t), ".github/workflows/preview.yml")
+	var wf struct {
+		Permissions map[string]string `yaml:"permissions"`
+		Jobs        map[string]struct {
+			Needs       any               `yaml:"needs"`
+			Permissions map[string]string `yaml:"permissions"`
+			Steps       []struct {
+				Uses string            `yaml:"uses"`
+				Run  string            `yaml:"run"`
+				With map[string]any    `yaml:"with"`
+				Env  map[string]string `yaml:"env"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(raw), &wf); err != nil {
+		t.Fatalf("preview.yml: %v", err)
+	}
+	if len(wf.Permissions) != 1 || wf.Permissions["contents"] != "read" {
+		t.Errorf("preview.yml: top-level permissions %v, want exactly contents: read (write only on the jobs that need it)", wf.Permissions)
+	}
+	// The job that smokes and pushes the image.
+	imageJob := ""
+	for name, job := range wf.Jobs {
+		for _, st := range job.Steps {
+			if strings.Contains(st.Run, "test/smoke/image.sh") {
+				imageJob = name
+			}
+		}
+	}
+	bin, ok := wf.Jobs["binaries"]
+	if !ok || imageJob == "" {
+		t.Fatalf("preview.yml: want a `binaries` job and the image job (found image job %q)", imageJob)
+	}
+	if toString(bin.Needs) != imageJob {
+		t.Errorf("preview.yml: binaries needs %v, want exactly %q: nothing of a candidate is published before its image smoke", bin.Needs, imageJob)
+	}
+	if bin.Permissions["contents"] != "write" {
+		t.Errorf("preview.yml: binaries has permissions %v, want contents: write for gh release", bin.Permissions)
+	}
+	var goreleaser, create string
+	for _, st := range bin.Steps {
+		if strings.HasPrefix(st.Uses, "goreleaser/goreleaser-action@") {
+			goreleaser, _ = st.With["args"].(string)
+		}
+		if strings.Contains(st.Run, "gh release create") {
+			create = st.Run
+			if st.Env["GH_TOKEN"] != "${{ github.token }}" {
+				t.Errorf("preview.yml: gh release create runs with GH_TOKEN=%q, want github.token: a PAT's tag would start release.yml", st.Env["GH_TOKEN"])
+			}
+		}
+	}
+	skip := regexp.MustCompile(`--skip=(\S+)`).FindStringSubmatch(goreleaser)
+	if skip == nil || !strings.Contains(","+skip[1]+",", ",publish,") || !strings.Contains(","+skip[1]+",", ",homebrew,") {
+		t.Errorf("preview.yml: goreleaser args %q must skip publish and homebrew (the cask renders its tap token before publishing)", goreleaser)
+	}
+	for _, want := range []string{"--prerelease", "--latest=false"} {
+		if !strings.Contains(create, want) {
+			t.Errorf("preview.yml: gh release create lacks %s", want)
+		}
+	}
+	for _, banned := range []string{"HOMEBREW_TAP_TOKEN", "RELEASE_PLEASE_TOKEN", "mcp-publisher", "cartographer:latest"} {
+		if strings.Contains(raw, banned) {
+			t.Errorf("preview.yml: references %s, which belongs to a stable release", banned)
+		}
+	}
+}
+
+// A candidate's tag never starts a release (D1192), and the release deletes
+// only its own version's candidates.
+func TestReleaseWorkflowIgnoresAndCleansUpCandidates(t *testing.T) {
+	raw := readFile(t, repoRoot(t), ".github/workflows/release.yml")
+	var wf struct {
+		On struct {
+			Push struct {
+				Tags []string `yaml:"tags"`
+			} `yaml:"push"`
+		} `yaml:"on"`
+		Jobs map[string]struct {
+			Needs       any               `yaml:"needs"`
+			Permissions map[string]string `yaml:"permissions"`
+			Steps       []struct {
+				Run string            `yaml:"run"`
+				Env map[string]string `yaml:"env"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(raw), &wf); err != nil {
+		t.Fatalf("release.yml: %v", err)
+	}
+	if strings.Join(wf.On.Push.Tags, " ") != "v* !v*-rc.*" {
+		t.Errorf("release.yml: on.push.tags %v, want [v* !v*-rc.*]: a candidate tag pushed by a PAT would publish the cask, latest and the registry entry", wf.On.Push.Tags)
+	}
+	job, ok := wf.Jobs["candidate-cleanup"]
+	if !ok {
+		t.Fatal("release.yml: no candidate-cleanup job")
+	}
+	if toString(job.Needs) != "goreleaser" {
+		t.Errorf("release.yml: candidate-cleanup needs %v, want goreleaser (the job that attaches the binaries)", job.Needs)
+	}
+	run := ""
+	for _, st := range job.Steps {
+		run += st.Run
+	}
+	for _, want := range []string{"gh release delete", "--cleanup-tag", `-rc\\.[0-9]{8}$`, "${version//./\\\\.}"} {
+		if !strings.Contains(run, want) {
+			t.Errorf("release.yml: candidate-cleanup lacks %q: it deletes the candidates of the shipped version only", want)
+		}
+	}
 }

@@ -113,6 +113,20 @@ var tagPattern = regexp.MustCompile(`^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?
 // place that decides what of it may reach a command line.
 func ValidTag(tag string) bool { return tagPattern.MatchString(tag) }
 
+// HasPrereleaseSuffix reports whether tag carries a semver pre-release suffix
+// (anything after the `-` that follows X.Y.Z: v0.28.0-rc.20261111,
+// v1.0.0-beta.2). Such a tag is a release candidate (D1192): the check and the
+// release history skip it, so it never offers itself as an update. The
+// criterion is the tag, never GitHub's `prerelease` flag, which every stable
+// 0.x release carries (D82, D211).
+func HasPrereleaseSuffix(tag string) bool {
+	m := tagPattern.FindStringSubmatch(tag)
+	return m != nil && m[1] != ""
+}
+
+// stableTag is a tag the channel offers: valid, and not a release candidate.
+func stableTag(tag string) bool { return ValidTag(tag) && !HasPrereleaseSuffix(tag) }
+
 // cacheEntry is the on-disk cache.
 type cacheEntry struct {
 	CheckedAt time.Time `json:"checked_at"`
@@ -252,11 +266,11 @@ func fetch(ctx context.Context, current string, cached cacheEntry, haveCache boo
 	if err := json.NewDecoder(io.LimitReader(resp.Body, MaxResponseBytes)).Decode(&releases); err != nil {
 		return cacheEntry{}, fmt.Errorf("release list: %w", err)
 	}
-	// The newest release that is public and carries a version tag, the rule
-	// Releases applies to the history: a draft or a stray tag at the head of
-	// the list must not blind the check.
+	// The newest release that is public and carries a stable version tag, the
+	// rule Releases applies to the history: a draft, a stray tag or a release
+	// candidate at the head of the list must not blind the check.
 	for _, r := range releases {
-		if tag := strings.TrimSpace(r.TagName); !r.Draft && ValidTag(tag) {
+		if tag := strings.TrimSpace(r.TagName); !r.Draft && stableTag(tag) {
 			return cacheEntry{CheckedAt: now().UTC(), Latest: tag, ETag: resp.Header.Get("ETag")}, nil
 		}
 	}
@@ -273,7 +287,7 @@ func readCache(path string) (cacheEntry, bool) {
 		return cacheEntry{}, false
 	}
 	var e cacheEntry
-	if err := json.Unmarshal(data, &e); err != nil || !ValidTag(e.Latest) || e.CheckedAt.IsZero() {
+	if err := json.Unmarshal(data, &e); err != nil || !stableTag(e.Latest) || e.CheckedAt.IsZero() {
 		return cacheEntry{}, false
 	}
 	return e, true

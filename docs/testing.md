@@ -818,7 +818,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 
 ## Before a release
 
-- The Saturday release candidate (`release-train.yml` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D956) has passed the image smoke before its push (D995) and has run on a real deployment; only then is the `rc-ok` label added to the release PR.
+- The Wednesday release candidate (`release-train.yml` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D956, D1192) has passed the image smoke before its push (D995) and has run on a real deployment, and its pre-release binaries have been installed as native service and client on a weekday machine (`CARTOGRAPHER_INSTALL_TAG`, `CONTRIBUTING.md` §Releases); only then, by Thursday afternoon, is the `rc-ok` label added to the release PR.
 - CI is green on the release commit, including `make e2e-web` in the `web` job.
 - `make smoke` succeeds for the packaged/local stdio path.
 - Installation and upgrade are verified on the target platform.

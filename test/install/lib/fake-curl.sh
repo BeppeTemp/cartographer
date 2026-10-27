@@ -7,6 +7,8 @@
 #
 # Driven by env vars set by lib/harness.sh:
 #   FAKE_TAG          tag_name returned for the release-list API call
+#   FAKE_RC_TAGS      optional release candidates (space-separated) listed
+#                     before FAKE_TAG, newest first, as GitHub orders them (D1192)
 #   FAKE_NEW_BINARY   path to the fixture copied in as the "downloaded" asset
 #   FAKE_SHA_MODE     how to answer the sha256sums.txt request (D192):
 #                       absent   — 404: a release whose manifest cannot be fetched (D1022)
@@ -32,8 +34,16 @@ case "$url" in
     # lists pre-releases, /releases/latest does not, and every 0.x release of
     # this project is one (D211). Answering the old path here would let the
     # installer regress back to it without a test noticing.
-    *"/releases?per_page=1")
-        printf '[{"tag_name": "%s", "prerelease": true}]\n' "${FAKE_TAG:?FAKE_TAG not set}"
+    # Compact JSON on one line, as the API may send it: the installer must not
+    # depend on one key per line. Every call is logged, so a scenario can
+    # assert the list was not read.
+    *"/releases?per_page=10")
+        echo "$url" >> "${SCENARIO_TMP:-/tmp}/release-list-calls"
+        list=""
+        for rc in ${FAKE_RC_TAGS:-}; do
+            list="${list}{\"tag_name\":\"${rc}\",\"prerelease\":true,\"body\":\"candidate, not \\\"tag_name\\\":\\\"v0.0.1\\\"\"},"
+        done
+        printf '[%s{"tag_name":"%s","prerelease":true}]\n' "$list" "${FAKE_TAG:?FAKE_TAG not set}"
         ;;
     *"sha256sums.txt")
         # The asset request always precedes this one, and it recorded the
@@ -61,6 +71,7 @@ case "$url" in
             exit 1
         fi
         basename "$url" > "${SCENARIO_TMP:-/tmp}/last-asset" 2>/dev/null || true
+        echo "$url" > "${SCENARIO_TMP:-/tmp}/last-asset-url" 2>/dev/null || true
         cp "${FAKE_NEW_BINARY:?FAKE_NEW_BINARY not set}" "$out"
         ;;
 esac

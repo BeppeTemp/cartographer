@@ -62,6 +62,7 @@ run_install() {
     INSTALL_OUTPUT_FILE="${SCENARIO_TMP}/output.log"
     FAKE_NEW_BINARY="$NEW_BINARY"
     export FAKE_NEW_BINARY FAKE_TAG FAKE_REPAIR_EXIT SCENARIO_TMP
+    export FAKE_RC_TAGS="${FAKE_RC_TAGS:-}"
     export FAKE_SHA_MODE="${FAKE_SHA_MODE:-valid}"
     sh "${REPO_ROOT}/install.sh" "$@" >"$INSTALL_OUTPUT_FILE" 2>&1
     INSTALL_RC=$?

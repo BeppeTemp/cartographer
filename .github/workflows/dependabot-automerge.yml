@@ -6,9 +6,9 @@ name: dependabot-automerge
 # auto-merge, so the PR still waits for `test` (and `test-windows` where it
 # runs) exactly like any other.
 #
-# Not while the freeze is open (Saturday 00:00 until Monday's train has run, D1180):
-# a bump that merges itself then moves main off the release candidate and the
-# Monday train skips. The PR stays open; dependabot-arm.yml disarms what was armed
+# Not while the freeze is open (Wednesday 00:00 until Thursday's train has run, D1180,
+# D1192): a bump that merges itself then moves main off the release candidate and the
+# Thursday train skips. The PR stays open; dependabot-arm.yml disarms what was armed
 # before the freeze and arms the open ones once the train has run.
 on: pull_request
 

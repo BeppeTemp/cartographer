@@ -2,7 +2,9 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    # A release candidate's tag (vX.Y.Z-rc.<date>, D1192) never runs a release,
+    # even when pushed by a token that starts workflows: a stable tag has no hyphen.
+    tags: ["v*", "!v*-rc.*"]
 
 permissions:
   contents: read
@@ -196,3 +198,36 @@ jobs:
         run: ./mcp-publisher login github-oidc
       - name: Publish server to MCP Registry
         run: ./mcp-publisher publish
+
+  # The candidates of this version leave with its release (D1192): every
+  # pre-release vX.Y.Z-rc.<YYYYMMDD> of the version shipped is deleted, with its
+  # tag; candidates of other versions stay. Never fails the release: a candidate
+  # left behind is a warning, and the update channel skips it anyway.
+  candidate-cleanup:
+    runs-on: ubuntu-latest
+    needs: goreleaser
+    permissions:
+      contents: write
+    steps:
+      - name: Delete this version's release candidates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -uo pipefail
+          version=$(printf '%s' "$TAG" | sed -n 's/^v\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$/\1/p')
+          if [ -z "$version" ]; then
+            echo "::warning::$TAG is not vX.Y.Z: no candidate cleanup"
+            exit 0
+          fi
+          pattern="^v${version//./\\.}-rc\\.[0-9]{8}$"
+          tags=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[].tag_name' | grep -E "$pattern") || true
+          for t in $tags; do
+            if gh release delete "$t" --cleanup-tag --yes; then
+              echo "deleted the candidate $t"
+            else
+              echo "::warning::could not delete the candidate $t"
+            fi
+          done
+          exit 0

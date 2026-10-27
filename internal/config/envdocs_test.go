@@ -31,6 +31,7 @@ var nonSchemaEnv = map[string]struct{ flag, reason string }{
 	"CARTOGRAPHER_SERVER_URL":          {"—", "client variable (D64)"},
 	"CARTOGRAPHER_NO_UPDATE_CHECK":     {"—", "kill switch read by the server and the client commands alike, not a key of the file (D254)"},
 	"CARTOGRAPHER_INSTALL_DIR":         {"—", "installer variable (install.sh, install.ps1), never read by the binary"},
+	"CARTOGRAPHER_INSTALL_TAG":         {"—", "installer variable (install.sh, install.ps1), never read by the binary"},
 }
 
 // undocumentedEnvAllow holds names in non-test Go source that no current-state
