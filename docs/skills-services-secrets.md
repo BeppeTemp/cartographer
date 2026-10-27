@@ -11,7 +11,7 @@ and binary-bundled skills through `skill_list`. `skill_install` copies a
 bundled skill into the KB.
 
 The bundled catalog (`internal/skillbundle/bundled/`) is `cartographer-ops`, `cartographer-kb-create`,
-`cartographer-kb-import`, `cartographer-kb-conflict-resolve`, `cartographer-kb-doctor`, `cartographer-kb-ingest` and `cartographer-feedback`. `cartographer-feedback` (D1203) drafts a bug or idea report on request and files nothing: it replaces every real name with a placeholder, shows the draft, and prints a prefilled GitHub URL (title-only with the body to paste above 6000 characters); it needs no the GitHub CLI, token or network. `cartographer-kb-doctor` (D290) aligns a
+`cartographer-kb-import`, `cartographer-kb-conflict-resolve`, `cartographer-kb-doctor`, `cartographer-kb-ingest` and `cartographer-feedback`. `cartographer-feedback` drafts a bug or idea report on request and files nothing: it replaces every real name with a placeholder, shows the draft, and prints a prefilled GitHub URL (title-only with the body to paste above 6000 characters); it needs no GitHub CLI, token or network. `cartographer-kb-doctor` (D290) aligns a
 drifted KB in budgeted sessions; it ships one read-only POSIX shell script under `scripts/`
 (`section_freq.sh`) that answers an aggregate question from a local clone, guarded by
 `internal/skillbundle/scripts_test.go`. `cartographer-kb-ingest` (D279) ingests **one** primary

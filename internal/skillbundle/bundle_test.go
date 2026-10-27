@@ -274,7 +274,7 @@ func TestFeedbackSkillCarriesThePlaceholderRuleAndTheURLShapes(t *testing.T) {
 			t.Errorf("the feedback skill no longer mentions %q", want)
 		}
 	}
-	for _, banned := range []string{"gh ", "GITHUB_TOKEN", "gh issue create", "gh api"} {
+	for _, banned := range []string{"`gh ", "gh issue", "gh api", "gh pr", "GITHUB_TOKEN"} {
 		if strings.Contains(text, banned) {
 			t.Errorf("the feedback skill mentions %q: it must file nothing itself", banned)
 		}

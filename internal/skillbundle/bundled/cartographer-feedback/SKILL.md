@@ -64,6 +64,7 @@ Replace before showing anything:
 | concept ID | an `area/page`-style placeholder |
 | token, password, key, secret | removed outright, not even a placeholder; tell the user |
 | employer, client, project names | dropped |
+| page or concept content, error text, search snippets, quoted tool output | paraphrase or cut to the minimum needed; never paste page text |
 
 In doubt, a name is private. Then **show the full draft and the title to the user** and wait for
 edits or approval. The user, not you, decides what leaves. If the user refuses, stop: nothing is kept.
@@ -71,12 +72,12 @@ edits or approval. The user, not you, decides what leaves. If the user refuses, 
 ## 6. Give the URL
 
 Percent-encode the title and the body (`%0A` for a newline). No tool is needed: build the string
-yourself, or use `python3 -c` or `jq -rn '@uri'` only if a shell is there. Without a shell, encode
+yourself, or use `python3 -c` or `jq -rn '@uri'` only if a shell is there. Never interpolate the
+body into a shell command line: pass it on stdin or in a single-quoted heredoc (`<<'EOF'`). Without a shell, encode
 by hand at least `%`, `&`, `#`, `+`, space, newline, `?` and `=`.
 
-<!-- Repo slug as in .github/ISSUE_TEMPLATE/config.yml. Unverified: GitHub may ignore `body` when
-`template=` names a markdown template; if so, use `labels=bug` here instead of `template=bug.md`
-(the body already follows the template headings) and update the test and the docs. -->
+<!-- Repo slug as in .github/ISSUE_TEMPLATE/config.yml. Keep `template=bug.md`: blank issues are
+disabled there, so a URL without a template cannot open a form. -->
 - Bug: `https://github.com/beppetemp/cartographer/issues/new?template=bug.md&title=...&body=...`
 - Idea: `https://github.com/beppetemp/cartographer/discussions/new?category=ideas&title=...&body=...`
 
