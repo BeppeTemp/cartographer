@@ -101,8 +101,10 @@ has "$(body "$r")" '"serverInfo"' || fail "initialize: no serverInfo"
 
 r=$(rpc "$read_token" '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 [ "$(status "$r")" = 200 ] && has "$(body "$r")" '"search"' || fail "tools/list: no search tool"
-# Two KBs: every tool takes kb, required, an enum of both.
-has "$(body "$r")" '"enum":\["astronomy","guestbook"\]' || fail "tools/list: kb is not an enum of astronomy and guestbook: $(body "$r" | head -c 600)"
+# Two KBs: every tool takes kb, required, a plain string with no enum (D1183):
+# the valid names are in the instructions, so the list does not grow with the KBs.
+has "$(body "$r")" '"kb": *{ *"description": *"[^"]*", *"type": *"string" *}' || fail "tools/list: kb is not a plain string: $(body "$r" | head -c 600)"
+has "$(body "$r")" '"enum": *\[ *"astronomy"' && fail "tools/list: kb is still an enum of the KBs: $(body "$r" | head -c 600)"
 has "$(body "$r")" '"required":\[[^]]*"kb"' || fail "tools/list: kb is not required"
 
 r=$(rpc "$read_token" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"kb":"astronomy","query":"star"}}}')

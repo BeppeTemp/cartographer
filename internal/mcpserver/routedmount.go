@@ -731,6 +731,10 @@ const routedKBDescription = "Target KB: a name from the KB list in your instruct
 // instructions' KB list, and a wrong one is refused server-side naming them);
 // with exactly one the property is absent, because the URL already named the KB. It edits the decoded schema object rather than the JSON text: a tool
 // whose schema is absent or not an object is given the minimal one.
+//
+// Outside Go, deploy/demo/smoke.sh and test/e2e scenario 17 assert this shape.
+// The demo smoke runs in CI's docker job, which a PR touching only internal/
+// does not trigger (scripts/ci-filters.sh): change the shape, update it too.
 func withKBProperty(schema json.RawMessage, several bool) json.RawMessage {
 	obj := map[string]any{}
 	if len(schema) > 0 {

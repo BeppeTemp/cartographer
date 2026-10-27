@@ -107,7 +107,7 @@ and the Pages Atlas shows the live astronomy KB only.
 - `make demo-smoke`: builds the image and runs it locally against a bare git repository seeded from
   `demo/guestbook/` (a Docker volume, `file://`, a dummy token): the audit log is signed, read tool answers, write tools refused with
   the read token on both KBs, a message written with the write token reaches the remote, the routed
-  `tools/list` shows `kb` as a required enum (and no `kb` with astronomy alone), no token gets 401, and an
+  `tools/list` shows `kb` as a required string with no enum, D1183 (and no `kb` with astronomy alone), no token gets 401, and an
   unreachable remote leaves astronomy up. `DEMO_BASE=cartographer` after `make docker` tests the working tree.
 - `make demo-worker-test`: the Worker's moderation logic under `node --test` (no Cloudflare needed).
 - `make demo-tf-check`: `terraform fmt -check` and `validate` (no credentials).
