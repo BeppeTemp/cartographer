@@ -147,8 +147,12 @@ func checkGolden(t *testing.T, dir, name string, res ToolResult, root string) {
 	}
 	text := normaliseGolden(res.Content[0].Text, root)
 	if !json.Valid([]byte(text)) {
-		// Not a JSON result (an error or Markdown text): nothing to compact.
-		t.Logf("%s: not JSON, skipped: %.700s", name, text)
+		// These two answer in plain text, not JSON ("Validation OK: ..." and
+		// "deleted <id>"): compaction never touches them, so they have no
+		// golden. Any other non-JSON answer is an error or a broken fixture.
+		if name != "validate" && name != "concept_delete" {
+			t.Fatalf("%s: expected a JSON result, got %.200s", name, text)
+		}
 		return
 	}
 	path := filepath.Join(dir, name+".json")

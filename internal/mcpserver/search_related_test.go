@@ -202,7 +202,7 @@ func TestSearchRelated_SilentWhenThereIsNothingToFollow(t *testing.T) {
 	}
 	// A hit that matches only some of the terms (the OR fallback) is not a
 	// seed: a weak match must not pull its neighbours in.
-	out, _ := relatedSearch(t, s, `{"query":"zeppelin nonexistentterm"}`)
+	out, _ := relatedSearch(t, s, `{"query":"zeppelin nonexistentterm","related":5}`)
 	if out["or_fallback"] != true || out["count"].(float64) == 0 {
 		t.Fatalf("fixture: expected an OR fallback hit, got %v", out)
 	}
@@ -218,7 +218,7 @@ func TestSearchRelated_SilentWhenThereIsNothingToFollow(t *testing.T) {
 	if relatedIDs(out) != nil {
 		t.Errorf("an archived fallback seeded a block: %v", out["related"])
 	}
-	if out, _ := relatedSearch(t, s, `{"query":"quokka","include_archived":true}`); relatedIDs(out) != nil {
+	if out, _ := relatedSearch(t, s, `{"query":"quokka","include_archived":true,"related":5}`); relatedIDs(out) != nil {
 		t.Errorf("an archived hit seeded a block: %v", out["related"])
 	}
 }
