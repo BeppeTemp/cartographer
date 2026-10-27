@@ -125,7 +125,8 @@ func TestDependabotWorkflowsHonourTheFreeze(t *testing.T) {
 		var wf struct {
 			Permissions map[string]string `yaml:"permissions"`
 			Jobs        map[string]struct {
-				Steps []struct {
+				Permissions map[string]string `yaml:"permissions"`
+				Steps       []struct {
 					Run string            `yaml:"run"`
 					Env map[string]string `yaml:"env"`
 				} `yaml:"steps"`
@@ -134,14 +135,15 @@ func TestDependabotWorkflowsHonourTheFreeze(t *testing.T) {
 		if err := yaml.Unmarshal([]byte(raw), &wf); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		if wf.Permissions["actions"] != "read" {
-			t.Errorf("%s: permissions must grant `actions: read` for freeze-open.sh", name)
-		}
 		calls := 0
-		for _, job := range wf.Jobs {
+		for jobName, job := range wf.Jobs {
 			for _, st := range job.Steps {
 				if strings.Contains(st.Run, "scripts/freeze-open.sh") {
 					calls++
+					// Workflow level or job level: zizmor wants write scopes on the job.
+					if wf.Permissions["actions"] != "read" && job.Permissions["actions"] != "read" {
+						t.Errorf("%s: job %s runs freeze-open.sh without `actions: read`", name, jobName)
+					}
 					if st.Env["GH_TOKEN"] == "" || st.Env["GH_REPO"] == "" {
 						t.Errorf("%s: a step runs freeze-open.sh without GH_TOKEN and GH_REPO in its env", name)
 					}

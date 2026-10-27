@@ -19,10 +19,7 @@ on:
     workflows: [release-train]
     types: [completed]
 
-permissions:
-  actions: read # freeze-open.sh lists the runs of release-train
-  contents: write
-  pull-requests: write
+permissions: {}
 
 concurrency:
   group: dependabot-arm
@@ -31,6 +28,10 @@ concurrency:
 jobs:
   disarm:
     if: github.event_name == 'schedule'
+    permissions:
+      actions: read # freeze-open.sh lists the runs of release-train
+      contents: write # gh pr merge --auto / --disable-auto
+      pull-requests: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,6 +62,10 @@ jobs:
 
   arm:
     if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'schedule'
+    permissions:
+      actions: read # freeze-open.sh lists the runs of release-train
+      contents: write # gh pr merge --auto / --disable-auto
+      pull-requests: write
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
