@@ -51,6 +51,9 @@ func conceptFindings(c conceptCtx) []Finding {
 	if c.wants("sops_format_mismatch", "sops_missing_file") {
 		out = append(out, sopsFindings(in.Body, in.RelPath, c.KBRoot, c.HasSecretsDir)...)
 	}
+	if c.wants("potential_secret") {
+		out = append(out, secretFindings(in)...)
+	}
 	if c.wants("legacy_path") {
 		out = append(out, legacyPathFindings(in.Body, in.RelPath, c.LegacyPaths)...)
 	}

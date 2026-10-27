@@ -97,6 +97,7 @@ var registry = []CheckSpec{
 	{Name: "stale_claim", Level: LevelConcept, OnWrite: true, Category: CategoryPages},
 	{Name: "status_semantics", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "machine_path", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "potential_secret", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "mangled_placeholder", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "missing_title", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "title_h1_mismatch", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSyncH1, FixSetValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
