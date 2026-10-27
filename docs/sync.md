@@ -549,7 +549,15 @@ unchanged.
   `status`/`doctor` say so, naming the file and the explicit-bind alternative; Claude Code instead
   gets its block in `CLAUDE.local.md`, which it reads beside `CLAUDE.md`, owned whole and excluded
   in `.git/info/exclude`. Skills, agents and hooks are paths Cartographer owns and excludes, so
-  they are projected as for an explicit bind.
+  they are projected as for an explicit bind. Claude Code registers a derived projection's hooks
+  in `.claude/settings.local.json`, the settings layer it reads beside `.claude/settings.json` and
+  that a repository does not version, excluded like `CLAUDE.local.md`; never in `.claude/settings.json`
+  ([D1198](decisions/D1198-derived-claude-hooks-in-settings-local.md)). When git tracks
+  `settings.local.json` too, the hooks are not projected and `status` says so. A hook an earlier
+  version registered in a tracked `settings.json` is not registered a second time: `doctor` reports
+  the entries, and once they are removed the next `sync` registers the hook in `settings.local.json`.
+  Wherever Cartographer still rewrites a Claude Code settings file, the key order, the indent and
+  the final newline are kept.
   What a derived projection leaves unwritten is neither pending nor drift in `status` (#1188): it
   stays only in the note, and neither the diff nor the `instructions n/m` counter lists it.
   The same holds for the other shared files a projection writes whole, the MCP file (`.mcp.json`,

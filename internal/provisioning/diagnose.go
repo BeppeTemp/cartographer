@@ -181,16 +181,17 @@ func MCPServerEntryNames(baseDir string, provider configurator.Provider) ([]stri
 func HookRegistrations(baseDir string, provider configurator.Provider, hookName string) (managed, stray int, err error) {
 	switch provider {
 	case configurator.ProviderClaudeCode:
-		settings, err := loadJSONObject(claudeSettingsPath(baseDir))
+		files, err := loadClaudeSettings(baseDir)
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return 0, 0, nil
-			}
 			return 0, 0, fmt.Errorf("parse %s: %w", HookRegistrationFile(provider), err)
 		}
 		// One flat JSON array per event: there is no "outside", so a second
-		// entry is a duplicate, not a stray.
-		return countClaudeHookEntries(settings, hookOwnershipMarker(hookName)), 0, nil
+		// entry is a duplicate, not a stray — also one in settings.local.json
+		// beside settings.json (#1198): Claude Code runs both.
+		for _, settings := range files {
+			managed += countClaudeHookEntries(settings, hookOwnershipMarker(hookName))
+		}
+		return managed, 0, nil
 	case configurator.ProviderCodex:
 		settings, err := loadJSONObject(codexHooksPath(baseDir))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {

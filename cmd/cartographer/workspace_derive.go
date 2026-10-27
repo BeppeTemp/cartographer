@@ -278,6 +278,13 @@ func derivedSharedSkips(provider, workspace string) (files, kinds []string) {
 			kinds = append(kinds, "hook")
 		}
 	}
+	// A derived Claude Code projection registers its hooks in the untracked
+	// settings.local.json, never in settings.json (#1198): one the repository
+	// tracks after all leaves the hooks out.
+	if prov == configurator.ProviderClaudeCode && tracked[provisioning.ClaudeLocalSettings] {
+		files = append(files, provisioning.ClaudeLocalSettings)
+		kinds = append(kinds, "hook")
+	}
 	// A hook registration file the client dedicates to hooks (Codex's hooks.json)
 	// is patched by every hook, so a tracked one is left alone like the others.
 	for _, rel := range provisioning.ProjectSharedHookFiles(prov) {
@@ -289,6 +296,16 @@ func derivedSharedSkips(provider, workspace string) (files, kinds []string) {
 		}
 	}
 	return files, kinds
+}
+
+// derivedHookSettings is the settings file a derived projection of provider
+// registers Claude Code hooks in (#1198): ClaudeLocalSettings, unless the
+// projection applies no hook (skipKinds, from derivedSharedSkips).
+func derivedHookSettings(provider string, skipKinds []string) string {
+	if provider != string(configurator.ProviderClaudeCode) || slices.Contains(skipKinds, "hook") {
+		return ""
+	}
+	return provisioning.ClaudeLocalSettings
 }
 
 // withoutKinds drops the artifacts of the given kinds from m.

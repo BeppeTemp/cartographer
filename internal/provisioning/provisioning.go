@@ -346,6 +346,23 @@ type ApplyOptions struct {
 	// Code's block goes to CLAUDE.local.md, which it reads beside CLAUDE.md.
 	// Only read for ScopeProject.
 	InstructionsRel string
+
+	// HookSettingsRel, when non-empty, is the project-scope settings file
+	// Claude Code hooks are registered in, instead of .claude/settings.json:
+	// a derived workspace binding never edits a settings.json git tracks, so
+	// it registers in ClaudeLocalSettings (#1198). Only read for ScopeProject
+	// and the claude provider.
+	HookSettingsRel string
+}
+
+// claudeHookSettings is the settings file this Apply registers and strips
+// Claude Code hooks in, nil for the default (registerHookSettings,
+// removeHookEntries).
+func claudeHookSettings(opts ApplyOptions) []string {
+	if opts.Provider != configurator.ProviderClaudeCode || opts.Scope != ScopeProject || opts.HookSettingsRel == "" {
+		return nil
+	}
+	return []string{opts.HookSettingsRel}
 }
 
 // instructionsDest is the file, relative to opts.BaseDir, the instructions
@@ -1805,6 +1822,23 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		toWriteKeys[key] = true
 		driftedIDs[key] = ids
 	}
+	// Registration move (#1198): a derived Claude Code projection registers in
+	// settings.local.json, so a hook an earlier version installed and
+	// registered nowhere it can be found now is rewritten, which registers it
+	// there. One still registered in settings.json is left for `doctor` to
+	// report: registering it again would make it fire twice.
+	if rels := claudeHookSettings(opts); rels != nil {
+		for _, a := range m.Artifacts {
+			key := a.Kind + "\x00" + a.Name
+			if a.Kind != "hook" || toWriteKeys[key] || !artifactAuthorized(a, opts) || !hookInLock(opts.Lock.Managed, a.Name) {
+				continue
+			}
+			if claudeHookUnregistered(opts.BaseDir, destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope), a.Name) {
+				toWrite = append(toWrite, a)
+				toWriteKeys[key] = true
+			}
+		}
+	}
 	healed := make(map[string]bool)
 	for _, f := range VerifyManaged(opts.Lock, opts.Provider, opts.BaseDir) {
 		if !f.Healable() || relocated[f.Kind+"\x00"+f.Name] {
@@ -2114,7 +2148,11 @@ hookLoop:
 								}
 							}
 						}
-						pluginRel, warning, registered, regErr := mechanism.register(opts.BaseDir, a.Name, fullDestDir)
+						register := mechanism.register
+						if rels := claudeHookSettings(opts); rels != nil {
+							register = claudeHookRegistrar(rels[0])
+						}
+						pluginRel, warning, registered, regErr := register(opts.BaseDir, a.Name, fullDestDir)
 						if regErr != nil {
 							// Refused (D148): a new hook is not recorded as installed,
 							// an updated one keeps its previous lock entry; the next
@@ -2132,7 +2170,7 @@ hookLoop:
 						// previous registration firing its old entry.
 						if !registered && previous {
 							stale := ManagedFile{Kind: "hook", Name: a.Name, Path: filepath.Join(destRel, "hook.json")}
-							if err := removeHookRegistration(opts.BaseDir, stale); err != nil {
+							if err := removeHookRegistration(opts.BaseDir, stale, claudeHookSettings(opts)); err != nil {
 								if refuseArtifact(a, err) {
 									continue hookLoop
 								}
@@ -2229,7 +2267,7 @@ hookLoop:
 	}
 	genericRemoved = append(genericRemoved, orphaned...)
 	genericRemoved = WithoutCoOwned(genericRemoved, opts.CoOwnedPaths)
-	pruned, err := pruneManaged(genericRemoved, opts.BaseDir, opts.DryRun, keepHooks)
+	pruned, err := pruneManaged(genericRemoved, opts.BaseDir, opts.DryRun, keepHooks, claudeHookSettings(opts))
 	var pruneRefused *PruneRefusedError
 	if errors.As(err, &pruneRefused) {
 		// A refused removal is per artifact, like a refused write: it is
@@ -3436,7 +3474,7 @@ func pruneEmptyDirs(baseDir, relPath string) {
 // hooks directory), see hookProviderFromPath. Apply removes a file dropped from
 // a hook that stays in the manifest without this strip (pruneManaged).
 func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]ManagedFile, error) {
-	return pruneManaged(managed, baseDir, dryRun, nil)
+	return pruneManaged(managed, baseDir, dryRun, nil, nil)
 }
 
 // pruneManaged is PruneManaged with the hooks that stay installed: a file of a
@@ -3444,7 +3482,7 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 // still in the manifest and its registration must go on firing. The
 // registration is stripped when the hook itself is pruned (its name no longer
 // in the manifest, or a disconnect, which passes none).
-func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks map[string]bool) ([]ManagedFile, error) {
+func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks map[string]bool, claudeSettings []string) ([]ManagedFile, error) {
 	pruned := make([]ManagedFile, 0, len(managed))
 	// What each shared target (an instructions file, an MCP server, a hook's
 	// registration) came to: present with a nil error once removed, with the
@@ -3527,7 +3565,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 		if mf.Kind == "hook" && !keepHooks[mf.Name] {
 			err, seen := hookResult[mf.Name]
 			if !seen {
-				err = removeHookRegistration(baseDir, mf)
+				err = removeHookRegistration(baseDir, mf, claudeSettings)
 				if err == nil || errors.Is(err, ErrSymlinkDestination) {
 					hookResult[mf.Name] = err
 				}
@@ -3556,12 +3594,13 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 
 // removeHookRegistration strips mf's hook from the provider-native mechanism
 // that registered it (settings.json, hooks.json, a plugin, ...). Providers with
-// no registration to strip return nil.
-func removeHookRegistration(baseDir string, mf ManagedFile) error {
+// no registration to strip return nil. claudeSettings names the Claude Code
+// settings file to strip, nil for both (removeHookEntries).
+func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []string) error {
 	var err error
 	switch hookProviderFromPath(mf.Path) {
 	case "claude":
-		if err = removeHookEntries(baseDir, mf.Name); err != nil {
+		if err = removeHookEntries(baseDir, mf.Name, claudeSettings...); err != nil {
 			err = fmt.Errorf("provisioning: prune entry settings.json hook %s: %w", mf.Name, err)
 		}
 	case "codex":

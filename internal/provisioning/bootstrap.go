@@ -262,17 +262,27 @@ type hookMechanism struct {
 	register func(baseDir, name, fullDestDir string) (relPath, warning string, registered bool, err error)
 }
 
+// claudeHookRegistrar registers a Claude Code hook in the settings file
+// settingsRel names ("" for settings.json; see registerHookSettings).
+func claudeHookRegistrar(settingsRel string) func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+	file := settingsRel
+	if file == "" {
+		file = "settings.json"
+	}
+	return func(baseDir, name, fullDestDir string) (string, string, bool, error) {
+		warning, registered, err := registerHookSettings(baseDir, settingsRel, name, fullDestDir)
+		if err != nil {
+			return "", "", false, fmt.Errorf("provisioning: register hook %s in %s: %w", name, file, err)
+		}
+		return "", warning, registered, nil
+	}
+}
+
 var hookMechanisms = map[configurator.Provider]hookMechanism{
 	configurator.ProviderClaudeCode: {
 		settingsFile:      []string{".claude", "settings.json"},
 		writeFindingsHook: true,
-		register: func(baseDir, name, fullDestDir string) (string, string, bool, error) {
-			warning, registered, err := registerHookSettings(baseDir, name, fullDestDir)
-			if err != nil {
-				return "", "", false, fmt.Errorf("provisioning: register hook %s in settings.json: %w", name, err)
-			}
-			return "", warning, registered, nil
-		},
+		register:          claudeHookRegistrar(""),
 	},
 	configurator.ProviderCodex: {
 		settingsFile: []string{".codex", "hooks.json"},

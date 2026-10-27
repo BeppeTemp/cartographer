@@ -63,8 +63,9 @@ modifies files a user did not ask about.
 - **A derived workspace binding (D1019) is applied with no command run in the
   repository, so it never edits a tracked file.** The instructions block goes
   through `ApplyOptions.InstructionsRel` (Claude Code's `CLAUDE.local.md`) or is
-  dropped; anything new a projection writes into a shared file needs the same
-  answer for a derived binding.
+  dropped, Claude Code hooks register through `ApplyOptions.HookSettingsRel`
+  (`settings.local.json`, D1198); anything new a projection writes into a shared
+  file needs the same answer for a derived binding.
 
 ## Scope note
 
