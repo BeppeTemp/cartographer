@@ -21,6 +21,8 @@ $ProgressPreference = 'SilentlyContinue'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $installer = Join-Path $repo 'install.ps1'
 $tag = 'v9.9.9'
+# A release candidate listed first (D1192): the default install must skip it.
+$rcTag = 'v9.9.10-rc.20261111'
 $asset = if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq 'Arm64') { 'cartographer-windows-arm64.zip' } else { 'cartographer-windows-amd64.zip' }
 
 $script:failed = 0
@@ -31,7 +33,7 @@ function Check([bool]$ok, [string]$m) { if ($ok) { Pass $m } else { Fail $m } }
 # --- fixture release server --------------------------------------------------
 $root = Join-Path ([IO.Path]::GetTempPath()) ("cg-install-test-" + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path (Join-Path $root 'srv\api') -Force | Out-Null
-"[{`"tag_name`": `"$tag`", `"prerelease`": true}]" | Set-Content -Path (Join-Path $root 'srv\api\releases') -NoNewline
+"[{`"tag_name`": `"$rcTag`", `"prerelease`": true}, {`"tag_name`": `"$tag`", `"prerelease`": true}]" | Set-Content -Path (Join-Path $root 'srv\api\releases') -NoNewline
 
 $stage = Join-Path $root 'stage'
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -52,6 +54,14 @@ foreach ($case in $cases.Keys) {
     Copy-Item $zip (Join-Path $d $asset)
     $cases[$case] | Set-Content -Path (Join-Path $d 'sha256sums.txt')
 }
+# The candidate's own release: with its manifest under 'valid', without one under 'nosums'.
+$d = Join-Path $root "srv\valid\$rcTag"
+New-Item -ItemType Directory -Path $d -Force | Out-Null
+Copy-Item $zip (Join-Path $d $asset)
+$cases['valid'] | Set-Content -Path (Join-Path $d 'sha256sums.txt')
+$d = Join-Path $root "srv\nosums\$rcTag"
+New-Item -ItemType Directory -Path $d -Force | Out-Null
+Copy-Item $zip (Join-Path $d $asset)
 
 $port = Get-Random -Minimum 20000 -Maximum 40000
 $server = Start-Process -PassThru -WindowStyle Hidden -FilePath python -ArgumentList @('-m', 'http.server', "$port", '--bind', '127.0.0.1', '--directory', (Join-Path $root 'srv'))
@@ -76,6 +86,7 @@ $env:LOCALAPPDATA = Join-Path $root 'LocalAppData'
 $env:USERPROFILE = Join-Path $root 'profile'
 New-Item -ItemType Directory -Path $env:LOCALAPPDATA, $env:USERPROFILE -Force | Out-Null
 Remove-Item Env:\CARTOGRAPHER_INSTALL_DIR -ErrorAction SilentlyContinue
+Remove-Item Env:\CARTOGRAPHER_INSTALL_TAG -ErrorAction SilentlyContinue
 $env:CARTOGRAPHER_INSTALL_API_URL = "http://127.0.0.1:$port/api"
 $installDir = Join-Path $env:LOCALAPPDATA 'Cartographer\bin'
 $dest = Join-Path $installDir 'cartographer.exe'
@@ -109,7 +120,7 @@ try {
     Write-Host '--- fresh install'
     $r = Invoke-Installer 'valid' @()
     Check ($r.rc -eq 0) "exits 0 (rc=$($r.rc))"
-    Check ((Installed-Version) -eq $tag) "installs $tag into the default per-user dir"
+    Check ((Installed-Version) -eq $tag) "installs $tag into the default per-user dir, skipping the candidate listed first"
     Check ($r.out -match 'checksum OK') 'verifies the checksum'
     Check (UserPath-Has $installDir) 'adds the install dir to the user PATH'
     Check ($r.out -match 'cartographer setup') 'a first install points at cartographer setup'
@@ -152,6 +163,20 @@ try {
     $r = Invoke-Installer 'noentry' @('update')
     Check ($r.rc -ne 0 -and $r.out -match 'no entry for') 'a manifest without this asset is a stop'
     Check ((Installed-Version) -eq 'v9.9.8') 'the previous binary is still untouched'
+
+    Write-Host '--- CARTOGRAPHER_INSTALL_TAG installs a candidate, still verified'
+    $env:CARTOGRAPHER_INSTALL_TAG = $rcTag
+    $r = Invoke-Installer 'valid' @('update')
+    Check ($r.rc -eq 0 -and $r.out -match "updating cartographer v9.9.8 -> $([regex]::Escape($rcTag))") "installs the pinned tag $rcTag (rc=$($r.rc))"
+    if ($r.rc -ne 0) { Write-Host $r.out }
+    Copy-Fixture $OldBin $dest
+    $r = Invoke-Installer 'nosums' @('update')
+    Check ($r.rc -ne 0 -and $r.out -match 'cannot download sha256sums.txt') 'a pinned tag without a manifest is a stop'
+    Check ((Installed-Version) -eq 'v9.9.8') 'and installs nothing'
+    $env:CARTOGRAPHER_INSTALL_TAG = 'v9.9.9/../x'
+    $r = Invoke-Installer 'valid' @('update')
+    Check ($r.rc -ne 0 -and $r.out -match 'not a release tag') 'a pinned tag that is not a release tag is refused'
+    Remove-Item Env:\CARTOGRAPHER_INSTALL_TAG
 
     Write-Host '--- uninstall'
     $tasks = Join-Path $env:LOCALAPPDATA 'cartographer\tasks'
