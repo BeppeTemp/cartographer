@@ -577,3 +577,28 @@ func TestStatus_HeldPreExistingHookIsPendingUntilApproved(t *testing.T) {
 		t.Errorf("output = %q, want in-sync", out)
 	}
 }
+
+// #1188: an instructions projection a derived workspace deliberately does not
+// write (its file is tracked, D1019) is not pending: the `instructions not
+// written` note says so, and the diff must not list it as missing.
+func TestWorkspaceProviderDiff_DerivedTrackedInstructionsAreNotPending(t *testing.T) {
+	ws := t.TempDir()
+	instr := provisioning.Artifact{Kind: "instructions", Name: "kb-a", Source: "kb:kb-a", ContentHash: "h1", Signed: true}
+	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{instr}}
+	sp := syncProjection{Provider: "codex", Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject, Derived: true, InstructionsSkipped: "AGENTS.md"}
+	manifests := map[string]provisioning.Manifest{projectionKey(sp): m}
+	var lf provisioning.LockFile
+
+	_, d, _ := workspaceProviderDiff(&clientconfig.Config{}, []syncProjection{sp}, manifests, lf, t.TempDir())
+	if len(d.Added) != 0 || len(d.Updated) != 0 || len(d.Removed) != 0 {
+		t.Errorf("a deliberately unwritten projection is not drift: %+v", d)
+	}
+
+	// The same projection with the file untracked is written, so absent from
+	// the lock it is pending: the filter is the skip, not the kind.
+	sp.InstructionsSkipped = ""
+	_, d, _ = workspaceProviderDiff(&clientconfig.Config{}, []syncProjection{sp}, manifests, lf, t.TempDir())
+	if len(d.Added) != 1 {
+		t.Errorf("an instructions block that will be written is pending: %+v", d)
+	}
+}

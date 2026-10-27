@@ -483,11 +483,13 @@ func TestApply_ExpandPlaceholders_Instructions(t *testing.T) {
 	if !strings.Contains(string(data), "/srv/homelab") {
 		t.Errorf("placeholder not expanded in the instructions block: %s", data)
 	}
-	if len(res.Written) != 1 || res.Written[0].ContentHash == a.ContentHash {
-		t.Errorf("expected a hash different from the manifest's (expanded content): %+v", res.Written)
+	// The lock records the manifest's hash even though the text was expanded:
+	// ComputeDiff compares that one on the next run (#1175).
+	if len(res.Written) != 1 || res.Written[0].ContentHash != a.ContentHash {
+		t.Errorf("expected the manifest's hash: %+v", res.Written)
 	}
-	if len(res.NewLock.Managed) != 1 || res.NewLock.Managed[0].ContentHash == a.ContentHash {
-		t.Errorf("Lock.Managed must reflect the expanded hash: %+v", res.NewLock.Managed)
+	if len(res.NewLock.Managed) != 1 || res.NewLock.Managed[0].ContentHash != a.ContentHash {
+		t.Errorf("Lock.Managed must record the manifest's hash: %+v", res.NewLock.Managed)
 	}
 }
 
@@ -768,5 +770,45 @@ func TestApply_RecordsPriorUnresolved(t *testing.T) {
 	}
 	if len(res.PriorUnresolved) != 1 || res.PriorUnresolved[0] != "path:old" {
 		t.Errorf("PriorUnresolved = %v", res.PriorUnresolved)
+	}
+}
+
+// #1175: a block holding placeholders — resolved or not — converges. The lock
+// records the manifest's hash, so the second run writes nothing and the diff
+// status computes is in sync.
+func TestApply_ExpandPlaceholders_InstructionsConverge(t *testing.T) {
+	for name, paths := range map[string]map[string]string{
+		"resolved":   {"homelab": "/srv/homelab"},
+		"unresolved": nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			a := instructionsArtifactForExpandTest("homelab", "Working repo: {{repo:homelab}}.\n")
+			m := MergeArtifacts([]Artifact{a})
+			opts := ApplyOptions{ApprovedMCP: approveAll(m),
+				Provider:           configurator.ProviderClaudeCode,
+				BaseDir:            baseDir,
+				ExpandPlaceholders: true,
+				Paths:              paths,
+			}
+			first, err := Apply(m, opts)
+			if err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+			if len(first.Written) != 1 {
+				t.Fatalf("first sync must write the block: %+v", first.Written)
+			}
+			opts.Lock = first.NewLock
+			if d := ComputeDiffResolved(m, first.NewLock, opts); !d.InSync {
+				t.Errorf("status diff after a sync must be in sync: %+v", d)
+			}
+			second, err := Apply(m, opts)
+			if err != nil {
+				t.Fatalf("Apply: %v", err)
+			}
+			if len(second.Written) != 0 {
+				t.Errorf("second sync must write nothing: %+v", second.Written)
+			}
+		})
 	}
 }

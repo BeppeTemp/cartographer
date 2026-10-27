@@ -2583,10 +2583,11 @@ func applyInstructionsGroup(m Manifest, diff Diff, opts ApplyOptions, tracker *e
 		content = expandPlaceholders(content, opts, tracker)
 		expandedContent[a.Name] = content
 
+		// The lock records the manifest's hash, the one ComputeDiff compares on
+		// the next run. Hashing the expanded text here made every block with a
+		// placeholder look "updated" forever: a change in what a placeholder
+		// resolves to is caught by the paths-section hash below instead.
 		contentHash := a.ContentHash
-		if opts.ExpandPlaceholders {
-			contentHash = hashArtifactFiles([]ArtifactFile{{Path: "instructions.md", Content: content}})
-		}
 		contentHashes[a.Name] = contentHash
 		*newManaged = append(*newManaged, ManagedFile{
 			Kind: a.Kind, Name: a.Name, Path: destRel, ContentHash: contentHash, Source: a.Source,
