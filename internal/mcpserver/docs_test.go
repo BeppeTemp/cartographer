@@ -65,7 +65,7 @@ var docsNonTools = map[string]bool{
 	// template_proposal review item fields (D352), not tools
 	"map_without_templates": true, "template_slug": true,
 	"template_sections": true,
-	"map_updates":       true, // `template_proposal` review item field (internal/lint/review.go:205), not a tool
+	"map_updates":       true, "templates": true, "unbound_types": true, // `template_proposal` review item field (internal/lint/review.go:205), not a tool
 	// gate_check response field (D186), not a tool
 	"gate_blockers": true,
 	// frontmatter fields and schema keys

@@ -77,7 +77,7 @@ func uiMaintenance(w http.ResponseWriter, r *http.Request, srv *Server, what str
 				if it.Kind == "lint_judgement" {
 					continue
 				}
-				it.Template, it.MapUpdate, it.MapUpdates = "", nil, nil
+				it.Template, it.Templates, it.MapUpdate, it.MapUpdates = "", nil, nil, nil
 				items = append(items, it)
 			}
 		}

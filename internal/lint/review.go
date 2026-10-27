@@ -203,6 +203,10 @@ type ReviewItem struct {
 	// several maps (#687): one map_update per map, each declaring the slugs
 	// that map binds to.
 	MapUpdates []map[string]interface{} `json:"map_updates,omitempty"`
+	// Templates lists every template of the item, sorted by slug (#1196): an
+	// item covers a connected set of maps and slugs, so it may propose several.
+	// TemplateSlug and Template are filled only when it proposes exactly one.
+	Templates []ProposedTemplate `json:"templates,omitempty"`
 	// Impact previews, per map, what declaring the proposed template does to the
 	// pages already there: the template findings they would gain.
 	Impact []TemplateImpact `json:"impact,omitempty"`
@@ -220,6 +224,15 @@ type ReviewItem struct {
 	publicEvidence string
 }
 
+// ProposedTemplate is one template of a template_proposal item: Template is ""
+// when templates/<slug>.md already exists.
+type ProposedTemplate struct {
+	Slug     string `json:"slug"`
+	Type     string `json:"type"`
+	Template string `json:"template,omitempty"`
+	Pages    int    `json:"pages"`
+}
+
 // TemplateImpact is the preview of a template_proposal on one map: the template
 // findings its pages gain, over those they already have, once the map_update is
 // applied (D352). Examples are at most five page ids, sorted.
@@ -229,6 +242,9 @@ type TemplateImpact struct {
 	NewFindings int            `json:"new_findings"`
 	ByCheck     map[string]int `json:"by_check,omitempty"`
 	Examples    []string       `json:"examples,omitempty"`
+	// Unbound counts, per page type ("(no type)" for none), the pages that gain
+	// template_missing: they resolve to no template once the map declares it.
+	Unbound map[string]int `json:"unbound_types,omitempty"`
 }
 
 type reviewConcept struct {

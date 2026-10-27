@@ -190,51 +190,175 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 		return map[string]interface{}{"map": name, "templates": all, "default_template": biggest}
 	}
 
-	texts := map[string]string{}
-	openPages := map[string]int{}
-	proposed := map[string]kb.TemplateInfo{}
-	for _, slug := range slugOrder {
-		if _, have := catalog[slug]; have {
-			continue
+	// Components of the map-slug graph: a map that would declare two slugs and a
+	// slug spanning two maps are one item, so every map appears in one item and
+	// every slug in one item (#1196, #687).
+	parent := map[string]string{}
+	var find func(string) string
+	find = func(x string) string {
+		if parent[x] == "" || parent[x] == x {
+			parent[x] = x
+			return x
 		}
-		texts[slug], openPages[slug] = proposedTemplate(bySlug[slug], contracts)
-		if info, ok := kb.ParseTemplate(slug, texts[slug]); ok {
+		parent[x] = find(parent[x])
+		return parent[x]
+	}
+	for _, slug := range slugOrder {
+		for _, m := range bySlug[slug].maps {
+			parent[find("m:"+m)] = find("s:" + slug)
+		}
+	}
+	type component struct {
+		maps, slugs []string
+	}
+	comps := map[string]*component{}
+	var compOrder []*component
+	mapNames := make([]string, 0, len(mapSlugs))
+	for m := range mapSlugs {
+		mapNames = append(mapNames, m)
+	}
+	sort.Strings(mapNames)
+	for _, m := range mapNames {
+		root := find("m:" + m)
+		c := comps[root]
+		if c == nil {
+			c = &component{}
+			comps[root] = c
+			compOrder = append(compOrder, c)
+		}
+		c.maps = append(c.maps, m)
+	}
+	for slug := range bySlug {
+		c := comps[find("s:"+slug)]
+		c.slugs = append(c.slugs, slug)
+	}
+	for _, c := range compOrder {
+		sort.Strings(c.slugs)
+	}
+
+	mapPages := map[string]int{}
+	for _, c := range concepts {
+		if c.mapName != "" && c.fm != nil {
+			mapPages[c.mapName]++
+		}
+	}
+
+	texts := map[string]proposedResult{}
+	proposed := map[string]kb.TemplateInfo{}
+	induce := func(slug string, open bool) {
+		texts[slug] = proposedTemplate(bySlug[slug], contracts, open)
+		if info, ok := kb.ParseTemplate(slug, texts[slug].text); ok {
 			proposed[slug] = info
 		}
 	}
-	impacts := map[string]TemplateImpact{}
-	for name := range mapSlugs {
-		impacts[name] = templateImpact(name, concepts, contracts[name], catalog, proposed, mapUpdateFor(name))
+	for _, slug := range slugOrder {
+		if _, have := catalog[slug]; !have {
+			induce(slug, false)
+		}
+	}
+	// impactsOf previews the component's maps; heavy names the first map more
+	// than half of whose pages the proposal would fail.
+	impactsOf := func(c *component) (map[string]TemplateImpact, string) {
+		ims := map[string]TemplateImpact{}
+		heavy := ""
+		for _, m := range c.maps {
+			im := templateImpact(m, concepts, contracts[m], catalog, proposed, mapUpdateFor(m))
+			ims[m] = im
+			if heavy == "" && im.Pages*2 > mapPages[m] {
+				heavy = fmt.Sprintf("the closed form would fail %d of %d pages of map %q", im.Pages, mapPages[m], m)
+			}
+		}
+		return ims, heavy
 	}
 
 	var out []ReviewItem
-	for _, slug := range slugOrder {
-		g := bySlug[slug]
-		sort.Strings(g.maps)
-		concepts := make([]string, len(g.maps))
-		for i, m := range g.maps {
-			concepts[i] = m + mapDescriptorSuffix
+	for _, comp := range compOrder {
+		ims, heavy := impactsOf(comp)
+		reopened := ""
+		if heavy != "" {
+			// A template that fails most of a map is not the structure its pages
+			// follow: offer the open form, and nothing when that still fails them.
+			changed := false
+			for _, slug := range comp.slugs {
+				if _, have := catalog[slug]; have {
+					continue
+				}
+				before := texts[slug].text
+				induce(slug, true)
+				changed = changed || texts[slug].text != before
+			}
+			if !changed {
+				continue
+			}
+			var still string
+			ims, still = impactsOf(comp)
+			if still != "" {
+				continue
+			}
+			reopened = heavy
 		}
-		_, have := catalog[slug]
-		where := fmt.Sprintf("map %q", g.maps[0])
-		if len(g.maps) > 1 {
-			where = fmt.Sprintf("%d maps (%s)", len(g.maps), strings.Join(g.maps, ", "))
-		}
-		evidence := fmt.Sprintf("%d %s pages in %s follow a common structure and bind to no template", len(g.pages), g.typ, where)
-		action := fmt.Sprintf("artifact_write templates/%s.md with the `template` text, then map_update with `map_update` (every entry of `map_updates` when it lists several maps); %s", slug, bindingNote)
-		text := ""
-		if have {
-			evidence = fmt.Sprintf("%d %s pages in %s follow templates/%s.md, which the map does not declare", g.following, g.typ, where, slug)
-			action = "map_update with `map_update` (every entry of `map_updates` when it lists several maps) to declare it; " + bindingNote
-		} else {
-			text = texts[slug]
-			if k := openPages[slug]; k > 0 {
-				evidence += fmt.Sprintf("; %d of %d pages carry headings outside the proposed sections, so the template allows extra sections (x-template.open_sections)", k, len(g.pages))
+
+		pages := 0
+		var parts, hintParts []string
+		var templates []ProposedTemplate
+		for _, slug := range comp.slugs {
+			g := bySlug[slug]
+			pages += len(g.pages)
+			_, have := catalog[slug]
+			pt := ProposedTemplate{Slug: slug, Type: g.typ, Pages: len(g.pages)}
+			if !have {
+				pt.Template = texts[slug].text
+			}
+			templates = append(templates, pt)
+			if have {
+				parts = append(parts, fmt.Sprintf("%d %s pages follow templates/%s.md, which the map does not declare", g.following, g.typ, slug))
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%d %s pages follow a common structure and bind to no template (templates/%s.md to write)", len(g.pages), g.typ, slug))
+			if k := texts[slug].extraPages; k > 0 {
+				parts[len(parts)-1] += fmt.Sprintf("; %d of %d pages carry headings outside the proposed sections, so the template allows extra sections (x-template.open_sections)", k, len(g.pages))
+			}
+			if h := texts[slug].hints; len(h) > 0 {
+				label := ""
+				if len(comp.slugs) > 1 {
+					label = " (" + slug + ")"
+				}
+				hintParts = append(hintParts, fmt.Sprintf("frequent non-standard fields, not declared%s: %s", label, strings.Join(h, ", ")))
 			}
 		}
+		where := fmt.Sprintf("map %q", comp.maps[0])
+		if len(comp.maps) > 1 {
+			where = fmt.Sprintf("%d maps (%s)", len(comp.maps), strings.Join(comp.maps, ", "))
+		}
+		var evidence, action string
+		switch {
+		case len(comp.slugs) == 1 && templates[0].Template == "":
+			g := bySlug[comp.slugs[0]]
+			evidence = fmt.Sprintf("%d %s pages in %s follow templates/%s.md, which the map does not declare", g.following, g.typ, where, comp.slugs[0])
+			action = "map_update with `map_update` (every entry of `map_updates` when it lists several maps) to declare it; " + bindingNote
+		case len(comp.slugs) == 1:
+			g := bySlug[comp.slugs[0]]
+			evidence = fmt.Sprintf("%d %s pages in %s follow a common structure and bind to no template", len(g.pages), g.typ, where)
+			if k := texts[comp.slugs[0]].extraPages; k > 0 {
+				evidence += fmt.Sprintf("; %d of %d pages carry headings outside the proposed sections, so the template allows extra sections (x-template.open_sections)", k, len(g.pages))
+			}
+			action = fmt.Sprintf("artifact_write templates/%s.md with the `template` text, then map_update with `map_update` (every entry of `map_updates` when it lists several maps); %s", comp.slugs[0], bindingNote)
+		default:
+			evidence = fmt.Sprintf("%d templates (%s) for %s: %s", len(comp.slugs), strings.Join(comp.slugs, ", "), where, strings.Join(parts, "; "))
+			action = fmt.Sprintf("artifact_write each templates/<slug>.md of `templates` whose `template` text is not empty, then map_update with `map_update` (every entry of `map_updates` when it lists several maps); %s", bindingNote)
+		}
+		if reopened != "" {
+			evidence += "; " + reopened + ", so the template is offered in its open form (x-template.open_sections)"
+		}
+		if len(hintParts) > 0 {
+			evidence += "; " + strings.Join(hintParts, "; ")
+		}
+
+		concepts := make([]string, len(comp.maps))
 		var impact []TemplateImpact
-		for _, m := range g.maps {
-			if im := impacts[m]; im.Pages > 0 {
+		for i, m := range comp.maps {
+			concepts[i] = m + mapDescriptorSuffix
+			if im := ims[m]; im.Pages > 0 {
 				impact = append(impact, im)
 			}
 		}
@@ -249,14 +373,16 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 			Evidence:        evidence,
 			publicEvidence:  publicEvidence,
 			SuggestedAction: action,
-			Weight:          len(g.pages),
-			TemplateSlug:    slug,
-			Template:        text,
+			Weight:          pages,
+			Templates:       templates,
 		}
-		if len(g.maps) == 1 {
-			item.MapUpdate = mapUpdateFor(g.maps[0])
+		if len(templates) == 1 {
+			item.TemplateSlug, item.Template = templates[0].Slug, templates[0].Template
+		}
+		if len(comp.maps) == 1 {
+			item.MapUpdate = mapUpdateFor(comp.maps[0])
 		} else {
-			for _, m := range g.maps {
+			for _, m := range comp.maps {
 				item.MapUpdates = append(item.MapUpdates, mapUpdateFor(m))
 			}
 		}
@@ -267,7 +393,7 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 
 // bindingNote says how pages bind once a map declares a template: by resolution
 // (TemplateCatalog.Resolve), not by a repair.
-const bindingNote = "once the map declares it, pages bind through templates/<type>.md or the map's default_template, and kb_repair template_missing only sets `shape` on a page that still resolves to nothing"
+const bindingNote = "once the map declares it, pages of its type bind through default_template, a page of another type through templates/<type>.md, and kb_repair template_missing only sets `shape` on a page that still resolves to nothing"
 
 // templateChecks are the findings that say a page does not follow its template.
 var templateChecks = map[string]bool{
@@ -343,6 +469,16 @@ func templateImpact(mapName string, concepts []*reviewConcept, current kb.MapCon
 				continue
 			}
 			seen[f.Check] = true
+			if f.Check == "template_missing" {
+				typ := strings.TrimSpace(p.typ)
+				if typ == "" {
+					typ = "(no type)"
+				}
+				if im.Unbound == nil {
+					im.Unbound = map[string]int{}
+				}
+				im.Unbound[typ]++
+			}
 			im.NewFindings++
 			if im.ByCheck == nil {
 				im.ByCheck = map[string]int{}
@@ -389,15 +525,39 @@ func impactClause(impact []TemplateImpact) string {
 	for i, c := range checks {
 		parts[i] = fmt.Sprintf("%s: %d", c, byCheck[c])
 	}
-	return fmt.Sprintf("declaring it makes %d pages of the map fail (%s)", pages, strings.Join(parts, ", "))
+	clause := fmt.Sprintf("declaring it makes %d pages of the map fail (%s)", pages, strings.Join(parts, ", "))
+	unbound := map[string]int{}
+	for _, im := range impact {
+		for t, n := range im.Unbound {
+			unbound[t] += n
+		}
+	}
+	if len(unbound) > 0 {
+		types := make([]string, 0, len(unbound))
+		for t := range unbound {
+			types = append(types, t)
+		}
+		sort.Slice(types, func(i, j int) bool {
+			if unbound[types[i]] != unbound[types[j]] {
+				return unbound[types[i]] > unbound[types[j]]
+			}
+			return types[i] < types[j]
+		})
+		for i, t := range types {
+			types[i] = fmt.Sprintf("%s (%d)", t, unbound[t])
+		}
+		clause += fmt.Sprintf("; template_missing: pages of type %s resolve to no template: default_template binds only pages of its own type, a page of another type needs templates/<type>.md", strings.Join(types, ", "))
+	}
+	return clause
 }
 
 // proposedTemplate induces the template text of one slug (D352 decision 7),
 // from the pages of every map that would declare it (#687). The second result
 // is the number of pages that carry a heading outside the proposed sections
 // when the text sets x-template.open_sections (at least proposalRequiredShare
-// of the pages, #831), 0 when it does not.
-func proposedTemplate(g *proposalGroup, contracts map[string]kb.MapContract) (string, int) {
+// of the pages, #831; always when no section is proposed or forceOpen is set,
+// #1196), 0 when it does not.
+func proposedTemplate(g *proposalGroup, contracts map[string]kb.MapContract, forceOpen bool) proposedResult {
 	n := len(g.pages)
 	// enough reports whether count pages of n clear the optional bar.
 	enough := func(count, total int) bool {
@@ -545,13 +705,34 @@ func proposedTemplate(g *proposalGroup, contracts map[string]kb.MapContract) (st
 		return nil
 	}
 
-	var required, optional []string
+	// standard: only these may be required (#1196): a field the template's own
+	// frontmatter conventions or a map contract of the group names.
+	standard := func(name string) bool {
+		switch name {
+		case "timestamp", "provenance", "status":
+			return true
+		}
+		for _, m := range g.maps {
+			c := contracts[m]
+			_, inValues := c.FieldValues[name]
+			_, inTypeValues := c.FieldValuesByType[g.typ][name]
+			if slices.Contains(c.RequiredFields, name) || slices.Contains(c.RequiredFieldsByType[g.typ], name) || inValues || inTypeValues || c.OpenField == name {
+				return true
+			}
+		}
+		return false
+	}
+	var required, optional, hints []string
 	fieldValues := map[string][]string{}
 	for _, name := range fieldNames {
 		f := flds[name]
 		share := float64(f.count) / float64(n)
 		switch {
 		case share >= proposalFieldShare:
+			if !standard(name) {
+				hints = append(hints, name)
+				continue
+			}
 			required = append(required, name)
 		case enough(f.count, n):
 			optional = append(optional, name)
@@ -625,7 +806,7 @@ func proposedTemplate(g *proposalGroup, contracts map[string]kb.MapContract) (st
 		}
 	}
 	openSections := 0
-	if extraPages > 0 && float64(extraPages)/float64(n) >= proposalRequiredShare {
+	if len(picked) == 0 || forceOpen || (extraPages > 0 && float64(extraPages)/float64(n) >= proposalRequiredShare) {
 		fm.Set(kb.TemplateMetaOpenSections, "true")
 		openSections = extraPages
 	}
@@ -638,7 +819,16 @@ func proposedTemplate(g *proposalGroup, contracts map[string]kb.MapContract) (st
 	for _, c := range picked {
 		body.WriteString("\n## " + c.name + "\n")
 	}
-	return "---\n" + fm.Serialize() + "\n---\n" + body.String(), openSections
+	return proposedResult{text: "---\n" + fm.Serialize() + "\n---\n" + body.String(), extraPages: openSections, hints: hints}
+}
+
+// proposedResult is an induced template: its text, the pages whose headings
+// the closed form would reject (when the text is open), and the frequent
+// non-standard fields it leaves undeclared.
+type proposedResult struct {
+	text       string
+	extraPages int
+	hints      []string
 }
 
 func mapsPhrase(maps []string) string {
