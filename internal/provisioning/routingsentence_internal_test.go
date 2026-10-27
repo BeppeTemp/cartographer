@@ -7,7 +7,7 @@ import (
 
 // The routed clause is paid once per KB on every model call of every session
 // (#1246/D1246): 9 KBs multiply it by nine, which is what took the routed
-// block over D1182's 8192 bytes. 105 bytes measured for "kb-a", plus at most
+// block over the 8192-byte cap of D1246. 105 bytes measured for "kb-a", plus at most
 // 10 %.
 func TestRoutingSentence_RoutedClauseBudget(t *testing.T) {
 	const budget = 115
