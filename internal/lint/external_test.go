@@ -89,6 +89,7 @@ func TestMachinePath_RemoteFencedBlocks(t *testing.T) {
 		{"no ssh context", "Local setup:\n```\ncd /home/user/work\n```\n", true},
 		{"prose after remote block", "```\nssh gpu-01\nls\n```\n\nBut /home/user/here is local.\n", true},
 		{"next block not remote", "```\nssh gpu-01\nls\n```\n\n```\ncd /home/user/work\n```\n", true},
+		{"second block after ssh line", "run on `ssh gpu-01`:\n```\nls\n```\n\n```\ncd /home/user/proj\n```\n", true},
 		{"ssh line blocked by text between", "ssh gpu-01\n\nSome other text.\n```\ncd /home/user/work\n```\n", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

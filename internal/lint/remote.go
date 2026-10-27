@@ -93,6 +93,7 @@ func remoteFenceSpans(body string) [][]int {
 			open, fenceCh, fenceLen = true, ch, n
 			start, sawFirst = end, false
 			remote = namesSSHHost(last)
+			last = ""
 		default:
 			if strings.TrimSpace(line) != "" {
 				last = line
