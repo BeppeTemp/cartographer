@@ -171,7 +171,8 @@ and never as a required check. By hand, from the repository root, with Docker:
 release leaves on a client, which no scenario of `make e2e` does: each connects a
 fresh sandbox with the binary under test. It builds the newest stable tag reachable
 from HEAD (`vX.Y.Z`, no pre-release suffix, the tag at HEAD excluded) from a throwaway
-`git worktree`, runs it as the `claude` client of a HEAD server whose KB serves a
+`git worktree`; a release candidate (`vX.Y.Z-rc.<date>`, D1192) is skipped by its tag as
+the installers skip it, and the scenario checks that rule on a throwaway repository first, runs it as the `claude` client of a HEAD server whose KB serves a
 skill, a hook, an MCP descriptor, a `block: full` `instructions.md` and a `{{path:…}}`
 key, approves what it waits for as a user does, then switches the client to HEAD and
 syncs twice. It asserts that no approval is asked again, that the D1166 migration lines
