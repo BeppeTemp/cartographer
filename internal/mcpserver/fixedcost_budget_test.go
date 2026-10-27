@@ -56,19 +56,23 @@ var fixedCostProfiles = []struct{ name, path string }{
 // 3 KB curated instructions.md per KB, all brief). It folds the 1-KB and
 // 9-KB cells of TestBlock_Budget (D1182: 3377 and 6801 bytes), which rendered
 // the block for a non-routed connection; the routed rendering `sync` writes
-// adds the `kb` routing clause to every KB's sentence (183 bytes per KB).
+// adds the `kb` routing clause to every KB's sentence (105 bytes per KB since
+// #1246/D1246, 183 before). The 9-KB cell is capped at 8192 bytes (D1246).
 var fixedCostBlockBudget = map[int]int{
-	// Measured 3663 bytes on v0.27.0 (#1206), after #1182 and #1207.
-	1: 4000,
-	// Measured 8671 bytes on v0.27.0 (#1206); 7024 for the same KBs rendered
-	// non-routed.
-	9: 9500,
+	// Measured 3585 bytes after #1246 (3663 on v0.27.0, #1206, after #1182
+	// and #1207); measured plus 10 % rounded up.
+	1: 3944,
+	// Measured 7969 bytes after #1246 (8671 on v0.27.0, #1206, over the cap;
+	// 7024 for the same KBs rendered non-routed). Measured plus 10 % is 8766,
+	// so the 8192-byte cap of D1246 applies.
+	9: 8192,
 }
 
 // fixedCostBlockPerKBBudget bounds what one more KB adds to the block,
 // (block9 - block1) / 8: the routing sentence, the archives and the skills
-// line, never the curated text (#1182). Measured 626 bytes on v0.27.0 (#1206).
-const fixedCostBlockPerKBBudget = 680
+// line, never the curated text (#1182). Measured 548 bytes after #1246 (626
+// on v0.27.0, #1206); measured plus 10 % rounded up.
+const fixedCostBlockPerKBBudget = 603
 
 // fixedCostToolsListBudget is the serialized tools/list result of the routed
 // mount, per profile and KB count.

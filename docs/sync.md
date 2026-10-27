@@ -204,7 +204,7 @@ written once, not per KB, plus the rule that procedures, runbooks and incidents 
 skills with descriptions on demand), the D75 WP4 local-paths table and the subagent sentence below. The
 KB's own `instructions.md`, its scope sentence and the skill descriptions are **not** in the block: they
 come from `kb_guide` ([`control-plane.md`](control-plane.md)). The routing sentence that names every KB of
-the connection stays verbatim in the guide and in the block.
+the connection is the same text in the guide and in the block; its routed `kb` clause is kept short (D1246).
 
 **A KB opts its curated text into the block with `<!-- cartographer: block: full -->`** on the leading
 lines of its `instructions.md` (D1182): that KB's region then also carries the scope sentence and the

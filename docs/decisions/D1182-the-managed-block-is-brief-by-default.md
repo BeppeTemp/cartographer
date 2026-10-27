@@ -4,6 +4,8 @@ topic: sync-provisioning
 
 # D1182 — The managed instructions block is brief by default
 
+> **Amended by [D1246](D1246-routed-kb-clause-is-short.md)**: the routed `kb` clause of the routing sentence is shortened, so the sentence is no longer kept verbatim; the routed 9-KB block is capped at 8192 bytes.
+
 **Decision.** Each KB's region of the managed block carries its routing sentence, its archives and the
 names of its valid skills (sorted, at most 40, then `+<n> more (kb_guide)`). The operational bullets are
 written once per block by the client, after the last region, with one rule (procedures, runbooks and

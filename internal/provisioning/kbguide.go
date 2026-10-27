@@ -17,11 +17,12 @@ import (
 // routingSentence says that the KB exists and, on a routed connection, which
 // value its `kb` argument takes (D187/D288: one endpoint, one copy of the
 // tools, bare names; a connection bound to one KB has no `kb` argument, so the
-// sentence names the value and says where it applies instead of requiring it).
+// sentence names the value and says where it applies instead of requiring it;
+// #1246/D1246 cut the clause to 105 bytes per KB, it is paid once per KB).
 func routingSentence(kbName string, routed bool) string {
 	s := fmt.Sprintf("The %q KB is served via MCP by the \"cartographer\" server.", kbName)
 	if routed {
-		s += fmt.Sprintf(" Its tools are not prefixed: where a tool takes a `kb` argument, pass `kb: %q` — that connection serves several KBs through one set of tools and never infers which one you mean.", kbName)
+		s += fmt.Sprintf(" Its tools are not prefixed: where a tool takes a `kb` argument, pass `kb: %q`; it is never inferred.", kbName)
 	}
 	return s
 }
