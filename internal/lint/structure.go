@@ -44,6 +44,13 @@ var WholeGraphChecks = checkSet(func(s CheckSpec) bool { return s.WholeGraph })
 // disputed is not retired.
 func retired(status string) bool { return kb.IsRetired(status) }
 
+// linkRetired reports whether a live page linking a concept of this status
+// relies on a retired page (link_to_retired): deprecated and superseded. An
+// archived journal entry is retired from the work queue, not wrong: the dated
+// back-link the harvest procedure writes into a live page, or a citation of the
+// entry as evidence, is provenance, not reliance (#1193).
+func linkRetired(status string) bool { return retired(status) && status != kb.StatusArchived }
+
 // structure is the whole-KB graph analysis one lint run shares. It is
 // computed on the whole graph whatever the scope — a scoped lint must give a
 // concept the same verdict a whole-KB lint does — and findings are emitted
@@ -454,7 +461,8 @@ func (s *structure) retiredLinkers(i int, facets kb.NodeFacets) []string {
 }
 
 // linkToRetired is the link_to_retired check for the concept at node i, on the
-// concept itself (D313).
+// concept itself (D313), when it is deprecated or superseded (linkRetired: an
+// archived entry is not one, #1193).
 //
 // One finding per retired concept, on the retired concept: retiring a
 // component is one decision, so it yields one finding, and it closes when the
@@ -462,7 +470,7 @@ func (s *structure) retiredLinkers(i int, facets kb.NodeFacets) []string {
 // journal legitimately cites a component that is gone today), and the
 // declared successor is never counted.
 func (s *structure) linkToRetired(i int, relPath string, facets kb.NodeFacets) []Finding {
-	if !retired(facets.Status) {
+	if !linkRetired(facets.Status) {
 		return nil
 	}
 	linkers := s.retiredLinkers(i, facets)

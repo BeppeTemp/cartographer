@@ -977,6 +977,9 @@ func (pl *planner) emit() {
 		if n.retired() {
 			g.retired = append(g.retired, n.id)
 		}
+		if n.status == "deprecated" || n.status == "superseded" {
+			g.deprecated = append(g.deprecated, n.id)
+		}
 		switch n.status {
 		case "deprecated", "archived":
 			f.reason = "retired: no longer in use"
