@@ -246,6 +246,8 @@ An alternative never weakens a rule: a delegated session never deletes a concept
      journal's first allowed type, status `reference`) with one line per archived entry:
      `| entry title | outcome | lessons in |`;
    - `gate_check` the changed concepts.
+   A `lint` finding `digest_missing` is the signal that this digest is missing for a journal quarter
+   (archived entries no `digest` of the journal links): write it as above.
    `kind: "lesson_unpromoted"`: an entry already archived that no live page links. Same procedure
    (carry the facts with a dated link back); an entry with nothing to carry gets the header line
    `> Archived YYYY-MM-DD: no durable lessons.` - that wording is the kind's only exemption, so
@@ -261,7 +263,8 @@ An alternative never weakens a rule: a delegated session never deletes a concept
 6. **Findings.** `lint`: every finding is a problem, none is advice (D947), and the session is done only when
    nothing is left: nothing accepts a finding (D907), so each one is fixed on the page. Fix what is a defect (`orphan`: link the page with `link_suggest`; `bare_link_list`:
    one reason per link; `link_to_retired` in a live page: update the sentence or point at the
-   successor; `index_lists_retired`: remove the entry; to retire a page use `concept_archive` when the client can call it, otherwise patch + move + `kb_repair`, see "Tools not in `tools/list`"). A finding
+   successor; `index_lists_retired`: remove the entry; `wait_undated`: set `review_after` to the day the wait
+   should come back, or drop `waiting_on`; `superseded_target_retired`: `kb_repair` points `superseded_by` at the end of the chain; to retire a page use `concept_archive` when the client can call it, otherwise patch + move + `kb_repair`, see "Tools not in `tools/list`"). A finding
    that is wrong for a page that is right as written is a defect of the check, not of the page:
    leave the page, and list the check, the page and why in the closing report so the operator
    can raise it upstream; never add a field, a heading or an empty section to silence it. A

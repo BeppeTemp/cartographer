@@ -538,6 +538,17 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		findings = append(findings, f...)
 	}
 
+	// --- digest_missing (D322) ---
+	// Whole-graph: computed on every archived journal entry, reported only on
+	// an entry in scope.
+	for _, f := range st.digestMissing(k) {
+		if id, err := okf.PathToID(f.Path); err == nil {
+			if _, in := toCheck[id]; in {
+				findings = append(findings, f)
+			}
+		}
+	}
+
 	// --- structural checks on maps and expanded concepts (D77 WP4) ---
 	// Directory-based (unlike the checks above, not driven by toCheck).
 	for _, archiveName := range archives {

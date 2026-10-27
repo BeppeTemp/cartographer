@@ -108,6 +108,7 @@ var registry = []CheckSpec{
 	{Name: "tool_param_field", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixDropField}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "prose_value", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixSplitValue}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "stale_open", Level: LevelConcept, OnWrite: true, Judgement: true, Category: CategoryPages},
+	{Name: "wait_undated", Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "closed_with_open_items", Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "template_section_missing", Level: LevelConcept, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryTemplates},
 	// Templates are closed page schemas a map's pages bind to (D352). Evaluated
@@ -148,6 +149,7 @@ var registry = []CheckSpec{
 	{Name: "index_link_form", Level: LevelGraph, OnWrite: true, FixKinds: []string{FixRebaseLink, FixRewriteWikiLink}, AutoRepairSafe: true, CrossConcept: true, AvoidableAtWrite: true, Category: CategoryLinks},
 	{Name: "orphan", Level: LevelGraph, OnWrite: true, AvoidableAtWrite: true, Category: CategoryLinks},
 	{Name: "broken_relation", Level: LevelGraph, OnWrite: true, AvoidableAtWrite: true, Category: CategoryLinks},
+	{Name: "superseded_target_retired", Level: LevelGraph, OnWrite: true, WholeGraph: true, FixKinds: []string{FixSetValue}, Judgement: true, AvoidableAtWrite: true, Category: CategoryLinks},
 	{Name: "link_to_retired", Level: LevelGraph, OnWrite: true, WholeGraph: true, FixKinds: []string{FixRetargetLinks}, AutoRepairSafe: true, CrossConcept: true, AvoidableAtWrite: true, Category: CategoryLinks},
 	{Name: "unknown_placeholder", Level: LevelGraph, OnWrite: true, AvoidableAtWrite: true, Category: CategoryLinks},
 	{Name: "forbidden_term", Level: LevelGraph, OnWrite: true, AvoidableAtWrite: true, Category: CategoryLinks},
@@ -159,6 +161,9 @@ var registry = []CheckSpec{
 	{Name: "value_case_variant", Level: LevelGraph, FixKinds: []string{FixSetValue}, AutoRepairSafe: true, WholeGraph: true, AvoidableAtWrite: true, Category: CategoryValues},
 
 	// Maps and expanded concepts.
+	// Archived journal entries no digest links (D322): the harvest writes the
+	// digest in a second step, so a write cannot avoid it.
+	{Name: "digest_missing", Level: LevelGraph, WholeGraph: true, Judgement: true, Category: CategoryMaps},
 	{Name: "contract_malformed", Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
 	{Name: "legacy_archive_descriptor", Level: LevelMap, Category: CategoryMaps},
 	// A removed key of a map's contract (D907): the repair rewrites _map.md.

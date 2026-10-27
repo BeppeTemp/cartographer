@@ -89,18 +89,25 @@ func openValue(status string, contract *kb.MapContract) bool {
 // later: its timer is suspended, it is still open but not stale (D321). A
 // date before today does not suspend: the review is overdue.
 func reviewSuspended(fm *okf.Frontmatter) bool {
+	t, ok := reviewAfterDate(fm)
+	return ok && !pastDay(t)
+}
+
+// reviewAfterDate parses review_after as the YYYY-MM-DD date reviewSuspended
+// and wait_undated both read, so the two cannot drift.
+func reviewAfterDate(fm *okf.Frontmatter) (time.Time, bool) {
 	if fm == nil {
-		return false
+		return time.Time{}, false
 	}
 	ra, _ := frontmatterValue(fm, "review_after").(string)
 	if len(ra) < 10 {
-		return false
+		return time.Time{}, false
 	}
 	t, err := time.Parse("2006-01-02", ra[:10])
 	if err != nil {
-		return false
+		return time.Time{}, false
 	}
-	return !pastDay(t)
+	return t, true
 }
 
 // closedPhase reports whether status means "finished". archived is finished
@@ -141,6 +148,18 @@ func decayFindings(in conceptInput) []Finding {
 						Message: fmt.Sprintf("%s %q and untouched for %d days (stale after %d): close it, update it, or say why it is still open", stateName, status, age, days)}))
 				}
 			}
+		}
+	}
+
+	// --- wait_undated ---
+	// A waiting_on with no parseable review_after suspends nothing and never
+	// comes back. A past date is stale_claim's, not this check's. A closed or
+	// retired page has nothing left to wait for.
+	if !emptyFrontmatterValue(frontmatterValue(in.Parsed, "waiting_on")) &&
+		!closedPhase(in.Parsed, in.Contract) && !kb.IsRetired(NormValue(statusOf(in.Parsed))) {
+		if _, ok := reviewAfterDate(in.Parsed); !ok {
+			out = append(out, newFinding("wait_undated", Finding{Path: in.RelPath,
+				Message: "waiting_on names a blocker but review_after is not a YYYY-MM-DD date, so the wait never comes back: set review_after to the day it should be looked at again, or drop waiting_on"}))
 		}
 	}
 

@@ -87,6 +87,9 @@ func Inactive(k *kb.KB) map[string]string {
 	if len(readInstructions(k).legacyPaths) == 0 {
 		set("instructions.md declares no legacy_paths", "legacy_path")
 	}
+	if !hasJournal(k, archives) {
+		set("no map is a journal", "digest_missing")
+	}
 	if !hasSourceConcept(k) {
 		set("no Source concept registered", "source_uncited")
 	}
@@ -113,6 +116,20 @@ func hasSourceConcept(k *kb.KB) bool {
 	for _, f := range lg.Facets {
 		if kb.IsSourceType(f.Type) {
 			return true
+		}
+	}
+	return false
+}
+
+// hasJournal reports whether any map declares kind: journal.
+func hasJournal(k *kb.KB, archives []string) bool {
+	for _, a := range archives {
+		if meta, err := k.ReadArchiveMeta(a); err == nil {
+			if v, ok := meta.Get("kind"); ok {
+				if str, _ := v.(string); str == "journal" {
+					return true
+				}
+			}
 		}
 	}
 	return false

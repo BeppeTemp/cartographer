@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/graphalgo"
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -317,7 +318,108 @@ func (s *structure) brokenRelation(id okf.ConceptID, relPath string, facets kb.N
 		case !s.resolves(sb):
 			out = append(out, newFinding("broken_relation", Finding{Path: relPath,
 				Message: fmt.Sprintf("superseded_by %q is not a concept", sb)}))
+		default:
+			if end, ok := s.supersessionEnd(sb); ok {
+				out = append(out, newFinding("superseded_target_retired", Finding{Path: relPath,
+					Message: fmt.Sprintf("superseded_by %q is itself superseded: the chain ends at %q, the current replacement", sb, end),
+					Fix:     &Fix{Kind: FixSetValue, Field: "superseded_by", To: end}}))
+			}
 		}
+	}
+	return out
+}
+
+// supersessionEnd follows the explicit superseded_by chain from start, which
+// is a superseded concept with a successor, to the first concept whose status
+// is not superseded. ok is false (no finding, no better state) when start is
+// not superseded, when the chain dead-ends in a superseded page with no
+// successor, leaves the graph, or cycles: a deprecated or archived target is
+// history kept readable on purpose (D322), so it is never walked past.
+//
+// This reads only the written concept's own pointer and its chain: a
+// neighbour of a written concept is never examined, so retiring B never
+// refuses a write for a finding it introduces on an untouched A (the whole-KB
+// lint reports that later).
+func (s *structure) supersessionEnd(start string) (string, bool) {
+	cur := start
+	visited := map[string]bool{}
+	for hops := 0; hops <= len(s.lg.IDs); hops++ {
+		i, ok := s.lg.Index[okf.ConceptID(cur)]
+		if !ok || visited[cur] {
+			return "", false
+		}
+		visited[cur] = true
+		f := s.lg.Facets[i]
+		if NormValue(f.Status) != "superseded" {
+			return cur, cur != start
+		}
+		if f.SupersededBy == "" {
+			return "", false
+		}
+		cur = f.SupersededBy
+	}
+	return "", false
+}
+
+// digestMissing is the digest_missing check (D322): an archived entry of a
+// journal is covered when a concept of type digest in the same journal links
+// it. One finding per (journal, quarter of the entry's timestamp), on the
+// group's first entry in ascending id order; entries without a parseable
+// timestamp form an "undated" group.
+func (s *structure) digestMissing(k *kb.KB) []Finding {
+	type group struct {
+		journal, quarter string
+		first            okf.ConceptID
+		count            int
+	}
+	var groups []*group
+	byKey := map[string]*group{}
+	for i, id := range s.lg.IDs { // ascending
+		if s.lg.Facets[i].Status != kb.StatusArchived || s.kindOf(id) != "journal" {
+			continue
+		}
+		journal := strings.Split(string(id), "/")[0]
+		if kb.IsDigestType(s.lg.Facets[i].Type) {
+			continue // a digest is the covering page, not a covered entry
+		}
+		covered := false
+		for _, u := range s.lg.Graph.In[i] {
+			uid := s.lg.IDs[u]
+			if kb.IsDigestType(s.lg.Facets[u].Type) && strings.Split(string(uid), "/")[0] == journal {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			continue
+		}
+		quarter := "undated"
+		if c, err := k.ReadConcept(id); err == nil {
+			if fm, perr := okf.ParseFrontmatter(c.FrontmatterRaw); perr == nil {
+				if ts, ok := frontmatterValue(fm, "timestamp").(string); ok && len(ts) >= 10 {
+					if t, err := time.Parse("2006-01-02", ts[:10]); err == nil {
+						quarter = fmt.Sprintf("%d-q%d", t.Year(), (int(t.Month())-1)/3+1)
+					}
+				}
+			}
+		}
+		key := journal + "\x00" + quarter
+		g := byKey[key]
+		if g == nil {
+			g = &group{journal: journal, quarter: quarter, first: id}
+			byKey[key] = g
+			groups = append(groups, g)
+		}
+		g.count++
+	}
+	var out []Finding
+	for _, g := range groups {
+		digest := g.journal + "/archive-" + g.quarter
+		if g.quarter == "undated" {
+			digest = g.journal + "/archive-<year>-q<n>"
+		}
+		out = append(out, newFinding("digest_missing", Finding{Path: okf.IDToPath(g.first),
+			Message: fmt.Sprintf("%d archived entries of journal %q (%s) are linked by no digest: create or update a digest page %q that links each entry with its outcome", g.count, g.journal, g.quarter, digest)}))
 	}
 	return out
 }

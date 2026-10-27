@@ -466,3 +466,19 @@ func TestCallerView_IndexPathsAreWholeKBOnly(t *testing.T) {
 		}
 	}
 }
+
+// D1069: a wait with no date is refused at write; one call writing both keys
+// passes.
+func TestWriteGate_WaitUndatedRefused(t *testing.T) {
+	t.Parallel()
+	k := gateKB(t)
+	s := gateSeed(t, k, nil)
+	head := gitOut(t, k, "rev-parse", "HEAD")
+	undated := gateWrite("ops/waiting", "W", "# W\n", true, `,"status":"draft","waiting_on":"vendor"`)
+	text, isErr := callJSON(t, s, adminCtx, "concept_batch", gateBatch(undated))
+	refusedCleanly(t, k, head, text, isErr, "wait_undated")
+	dated := gateWrite("ops/waiting", "W", "# W\n", true, `,"status":"draft","waiting_on":"vendor","review_after":"2999-01-01"`)
+	if text, isErr = callJSON(t, s, adminCtx, "concept_batch", gateBatch(dated)); isErr {
+		t.Fatalf("a dated wait was refused: %s", text)
+	}
+}
