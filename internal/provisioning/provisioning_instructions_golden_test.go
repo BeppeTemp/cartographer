@@ -12,7 +12,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
-const goldenRouting = "The \"kb-a\" KB is served via MCP by the \"cartographer\" server. Its tools are not prefixed: where a tool takes a `kb` argument, pass `kb: \"kb-a\"` — that connection serves several KBs through one set of tools and never infers which one you mean."
+const goldenRouting = "The \"kb-a\" KB is served via MCP by the \"cartographer\" server. Its tools are not prefixed: where a tool takes a `kb` argument, pass `kb: \"kb-a\"`; it is never inferred."
 
 const goldenScope = "The following directives are the \"kb-a\" KB's own and govern work in its perimeter; where they conflict with another KB's directives or with a repository's own instruction file, the more specific source wins.\n\n"
 
@@ -47,7 +47,7 @@ func TestGolden_Block_BriefWithCuratedAndSkills(t *testing.T) {
 	if got := string(a.Files[0].Content); got != want {
 		t.Errorf("block changed:\ngot:\n%s\nwant:\n%s", got, want)
 	}
-	const wantHash = "8aee4fa52e7684b7f685f551be10659975c44ce609bb95fc1c60cfb72537a3bd"
+	const wantHash = "c317d1b57abd8a6f27249b970ba3690bd5e37b605e3fe9929869818cb7ebe707"
 	if a.ContentHash != wantHash {
 		t.Errorf("ContentHash = %s, want %s", a.ContentHash, wantHash)
 	}
