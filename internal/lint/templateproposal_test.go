@@ -144,6 +144,28 @@ func TestTemplateProposalNoSectionIsOpen(t *testing.T) {
 	}
 }
 
+// Five pages, two with a one-off heading each, three with none: no H2 recurs
+// and fewer than 60% carry any, so only the no-induced-section rule opens it.
+func TestTemplateProposalNoRecurringHeadingIsOpen(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "wiki/_map.md", "---\ntype: Map\nkind: map\ntitle: Wiki\n---\n")
+	for i := 0; i < 5; i++ {
+		body := ""
+		if i < 2 {
+			body = fmt.Sprintf("\n## Own %d\n\nx\n", i)
+		}
+		writeFile(t, k.DataRoot(), fmt.Sprintf("wiki/t%d.md", i), "---\ntype: Topic\ntitle: T\n---\n# T\n"+body)
+	}
+	got := itemsOf(review(t, k), ReviewTemplateProposal)
+	if len(got) != 1 {
+		t.Fatalf("want one proposal: %+v", got)
+	}
+	if info, ok := kb.ParseTemplate("topic", got[0].Template); !ok || !info.OpenSections {
+		t.Fatalf("open_sections must be set:\n%s", got[0].Template)
+	}
+}
+
 // A closed form that fails most of the map is offered open (evidence says why),
 // and not at all when the open form still fails most of it.
 func TestTemplateProposalReopensOrDropsWhenMostlyFailing(t *testing.T) {
@@ -167,8 +189,13 @@ func TestTemplateProposalReopensOrDropsWhenMostlyFailing(t *testing.T) {
 	if !info.OpenSections || len(got[0].Impact) != 0 {
 		t.Errorf("open form expected, failing nobody: %+v\n%s", got[0].Impact, got[0].Template)
 	}
-	if !strings.Contains(got[0].Evidence, "the closed form would fail 4 of 7 pages of map \"wiki\", so the template is offered in its open form") {
+	if !strings.Contains(got[0].Evidence, "the closed form would fail most pages of map \"wiki\", so the template is offered in its open form") {
 		t.Errorf("evidence: %s", got[0].Evidence)
+	}
+	// A scoped caller (descriptor and one page visible) gets the same count-free sentence.
+	scoped := FilterReview(got, func(id string) bool { return id == "wiki/_map" || id == "wiki/t0" }, false)
+	if len(scoped) != 1 || strings.Contains(scoped[0].Evidence, "would fail 4 of 7") || !strings.Contains(scoped[0].Evidence, "fail most pages of map") {
+		t.Errorf("scoped evidence leaks page counts: %+v", scoped)
 	}
 	// Eight pages of types with no template of their own: they fail whatever the form.
 	for i := 0; i < 8; i++ {

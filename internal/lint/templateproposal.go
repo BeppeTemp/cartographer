@@ -265,7 +265,9 @@ func templateProposalItems(concepts []*reviewConcept, contracts map[string]kb.Ma
 			im := templateImpact(m, concepts, contracts[m], catalog, proposed, mapUpdateFor(m))
 			ims[m] = im
 			if heavy == "" && im.Pages*2 > mapPages[m] {
-				heavy = fmt.Sprintf("the closed form would fail %d of %d pages of map %q", im.Pages, mapPages[m], m)
+				// No page counts: they cover pages the caller may not see, and this
+				// text reaches scoped callers; the counts live in Impact only.
+				heavy = fmt.Sprintf("the closed form would fail most pages of map %q", m)
 			}
 		}
 		return ims, heavy
