@@ -268,6 +268,8 @@ An alternative never weakens a rule: a delegated session never deletes a concept
    that is wrong for a page that is right as written is a defect of the check, not of the page:
    leave the page, and list the check, the page and why in the closing report so the operator
    can raise it upstream; never add a field, a heading or an empty section to silence it. A
+   verbatim third-party document is the exception that is declared, not edited: mark it
+   `origin: external` and `open_marker`, `machine_path` and `title_quality` skip it (D1195). A
    leftover `lint_ignore` on a page or `lint_accept` in `instructions.md` silences nothing any
    more: `kb_repair` drops them. Many per-concept writes go in one `concept_batch` (up to 50
    operations, one commit), not one call each.

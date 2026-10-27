@@ -209,9 +209,10 @@ func frontmatterFindings(in conceptInput) []Finding {
 	}
 
 	// --- machine_path (D75 WP6 / D124) ---
-	if all := disallowedMachinePaths(in.Body); len(all) > 0 {
+	// A verbatim external document is not the KB's writing (#1195, D1195).
+	if all := disallowedMachinePaths(in.Body); len(all) > 0 && !externalOrigin(parsed) {
 		disallowed := all[0]
-		msg := fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<name>}} instead (D75), or $HOME/… for a path in the reader's own home; operational paths on containers/remote hosts are not client-local (D124)", disallowed)
+		msg := fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<name>}} instead (D75), or $HOME/… for a path in the reader's own home; operational paths on containers/remote hosts are not client-local (D124): a path on a remote host goes in a fenced block that opens with its `ssh <host>` line or a `user@host$` prompt, or follows a line naming `ssh <host>`; a verbatim third-party document is marked `origin: external`", disallowed)
 		// One finding per concept, but naming every path: fixing the first
 		// must not be how the author learns about the second.
 		if rest := all[1:]; len(rest) > 0 {
@@ -278,7 +279,9 @@ func frontmatterFindings(in conceptInput) []Finding {
 			}
 			out = append(out, newFinding("title_h1_mismatch", f))
 		}
-		out = append(out, titleQualityFindings(in, parsed, title)...)
+		if !externalOrigin(parsed) { // #1195, D1195
+			out = append(out, titleQualityFindings(in, parsed, title)...)
+		}
 	}
 
 	// --- repeated_link (D357) ---
