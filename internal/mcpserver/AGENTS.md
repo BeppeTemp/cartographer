@@ -9,7 +9,7 @@ test or a decision record: none of them is a preference.
 2. Handler: deserialize args → call `kb`/`okf` → `textResult`/`errorResult`.
 3. Register it in `RegisterKBTools` (`tools.go`). A new tool is core or advanced: add it to the agent list of `TestServer_ToolsProfile` or to `advancedToolNames`, and give it a resource class in `policy.go` (`resourceClassForTool`), or registration panics.
 4. Test in `server_test.go`.
-5. `make gate` green.
+5. `make gate` green. A new tool grows the cells of `TestFixedCallCostBudget` and must fit their budgets.
 6. Update `docs/control-plane.md` §MCP API, and add a decision file if the choice
    is architectural or a contract (D672) (`make decisions-new`; the release PR regenerates the index (D328)).
 

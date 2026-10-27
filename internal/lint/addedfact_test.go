@@ -123,3 +123,22 @@ func TestAddedRepeatedFactsCaps(t *testing.T) {
 		t.Fatalf("budget 7: used=%d calls=%d", used, calls)
 	}
 }
+
+// #1194: archiving an entry writes the banner; it is not an added fact, and an
+// archived candidate's banner is not an owner of the line.
+func TestAddedRepeatedFactsArchivalBanner(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	banner := "> Archived 2026-10-01: no durable lessons."
+	for _, id := range []string{"m/a", "m/b", "m/c"} {
+		writeFile(t, k.DataRoot(), id+".md", "---\ntype: Note\ntitle: "+id+"\nstatus: archived\n---\n"+banner+"\n\n# T\n")
+	}
+	if got, _ := AddedRepeatedFacts(k, "m/c", "# T\n", banner+"\n\n# T\n", 20, allLookup(t, k, nil)); len(got) != 0 {
+		t.Fatalf("the banner of an archived entry was reported: %+v", got)
+	}
+	// A live page writing the same line: the archived candidates' banners own nothing.
+	writeFile(t, k.DataRoot(), "m/c.md", "---\ntype: Note\ntitle: c\n---\n"+banner+"\n")
+	if got, _ := AddedRepeatedFacts(k, "m/c", "", banner+"\n", 20, allLookup(t, k, nil)); len(got) != 0 {
+		t.Fatalf("archived banners counted as owners: %+v", got)
+	}
+}

@@ -208,7 +208,8 @@ func TestRoutedReadMin_InstructionsAreGeneric(t *testing.T) {
 }
 
 // TestRoutedReadMin_Golden pins the whole tools/list of a single-KB routed mount
-// in read-min (schemas and descriptions), and its size budget (D285).
+// in read-min (schemas and descriptions). Its size budget is a cell of
+// TestFixedCallCostBudget.
 func TestRoutedReadMin_Golden(t *testing.T) {
 	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-a")
@@ -239,14 +240,6 @@ func TestRoutedReadMin_Golden(t *testing.T) {
 	}
 	if !bytes.Equal(want, buf.Bytes()) {
 		t.Errorf("read-min tools/list differs from %s; after a deliberate change run: go test ./internal/mcpserver -run TestRoutedReadMin_Golden -args -update", golden)
-	}
-	compact := new(bytes.Buffer)
-	if err := json.Compact(compact, resp.Result); err != nil {
-		t.Fatal(err)
-	}
-	t.Logf("read-min tools/list: %d bytes compact, %d bytes on the wire (budget %d)", compact.Len(), len(rr.Body.Bytes()), toolsListReadMinBudgetBytes)
-	if n := len(rr.Body.Bytes()); n > toolsListReadMinBudgetBytes {
-		t.Errorf("read-min tools/list is %d bytes, budget %d (D285): shorten descriptions, detail goes to docs/control-plane.md", n, toolsListReadMinBudgetBytes)
 	}
 	var list struct {
 		Tools []struct {

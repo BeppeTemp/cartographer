@@ -49,6 +49,15 @@ func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, bu
 	boilerplate := templateBoilerplate(k.TemplateTexts())
 	prev := factLines(prevBody, boilerplate)
 	cur := factLines(newBody, boilerplate)
+	// The archival banner of an archived entry is not a fact (#1194). The
+	// status is read only when the body has a banner-shaped line.
+	if b := archivalBanner(newBody); b != "" {
+		if _, ok := cur[b]; ok {
+			if data, err := k.ReadConcept(id); err == nil && isArchived(fmStatus(data.FrontmatterRaw)) {
+				delete(cur, b)
+			}
+		}
+	}
 	if len(cur) == 0 {
 		return nil, 0
 	}
@@ -60,6 +69,9 @@ func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, bu
 	seen := map[string]bool{}
 	masked := factLinesInOrder(newBody, boilerplate)
 	for _, key := range masked {
+		if _, kept := cur[key]; !kept {
+			continue
+		}
 		if _, old := prev[key]; old || seen[key] {
 			continue
 		}
@@ -85,7 +97,7 @@ func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, bu
 			lines, ok := bodies[cand]
 			if !ok {
 				if data, err := k.ReadConcept(cand); err == nil {
-					lines = factLines(data.Body, boilerplate)
+					lines = conceptFactLines(data.Body, fmStatus(data.FrontmatterRaw), boilerplate)
 				}
 				bodies[cand] = lines
 			}
@@ -136,4 +148,14 @@ func factLinesInOrder(body string, boilerplate map[string]bool) []string {
 	}
 	sort.Strings(rest)
 	return append(out, rest...)
+}
+
+// fmStatus is the status of a concept's raw frontmatter, "" when it has none.
+func fmStatus(raw string) string {
+	parsed, _ := okf.ParseFrontmatter(raw)
+	if parsed == nil {
+		return ""
+	}
+	s, _ := frontmatterValue(parsed, "status").(string)
+	return s
 }
