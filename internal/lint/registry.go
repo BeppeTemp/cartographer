@@ -215,6 +215,8 @@ var registry = []CheckSpec{
 	{Name: ReviewScatteredWork, Level: LevelKB},
 	{Name: ReviewStatusReclassify, Level: LevelKB},
 	{Name: ReviewHarvestCandidate, Level: LevelKB},
+	{Name: ReviewLessonUnpromoted, Level: LevelKB},
+	{Name: ReviewIndexUnclassified, Level: LevelKB},
 	{Name: ReviewTemplateProposal, Level: LevelKB},
 	{Name: ReviewMapNaming, Level: LevelKB},
 	{Name: ReviewObservation, Level: LevelKB},

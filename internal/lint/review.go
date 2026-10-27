@@ -40,7 +40,7 @@ const (
 // always comes before one of a later kind.
 // Repeated facts and hotspots rank before promotion (D301): a duplicated fact
 // is cheaper to fix than to keep updating in every copy.
-var ReviewKinds = []string{ReviewDuplicate, ReviewTemplateProposal, ReviewZombie, ReviewHarvestCandidate, ReviewStatusReclassify, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement, ReviewObservation}
+var ReviewKinds = []string{ReviewDuplicate, ReviewTemplateProposal, ReviewZombie, ReviewHarvestCandidate, ReviewLessonUnpromoted, ReviewStatusReclassify, ReviewRepeatedFact, ReviewReadHotspot, ReviewPromotion, ReviewScatteredWork, ReviewIndexUnclassified, ReviewMapNaming, ReviewGlossary, ReviewLintJudgement, ReviewObservation}
 
 // Thresholds of the review generators.
 const (
@@ -210,6 +210,11 @@ type ReviewItem struct {
 	// graph (WholeGraphChecks): a caller who cannot see the whole KB must not
 	// receive it.
 	wholeGraph bool
+	// indexMap and indexIDs are an index_unclassified item's map and its full
+	// sorted id list (Concepts is capped): FilterReview recounts from the ids
+	// the caller can see, so the total never counts a hidden entry.
+	indexMap string
+	indexIDs []string
 	// publicEvidence is Evidence without the impact clause: Impact reads every
 	// page of a map, so a caller who cannot see the whole KB gets this instead.
 	publicEvidence string
@@ -320,11 +325,13 @@ func Review(k *kb.KB, findings []Finding) ([]ReviewItem, error) {
 	zombies, zombieItems := zombieWorkItems(k, byID, concepts, contracts, byConcept, links)
 	items = append(items, zombieItems...)
 	items = append(items, harvestCandidateItems(concepts, contracts)...)
+	items = append(items, lessonUnpromotedItems(concepts, contracts, links)...)
 	items = append(items, statusReclassifyItems(concepts, contracts)...)
 	items = append(items, repeatedFactItems(concepts, k.TemplateTexts())...)
 	items = append(items, readHotspotItems(concepts, links)...)
 	items = append(items, promotionItems(concepts, contracts, links)...)
 	items = append(items, scatteredWorkItems(concepts, contracts, links)...)
+	items = append(items, indexUnclassifiedItems(k, contracts, archives, links.Exists)...)
 	items = append(items, mapNamingItems(titles)...)
 	items = append(items, glossaryItems(concepts, contracts, glossary)...)
 	items = append(items, lintJudgementItems(findings, zombies)...)
@@ -413,6 +420,22 @@ func FilterReview(items []ReviewItem, visible func(id string) bool, whole bool) 
 				it.Weight = len(vis)
 				it.Evidence = glossaryEvidence(it.Term, len(vis))
 			}
+			out = append(out, it)
+			continue
+		}
+		if it.Kind == ReviewIndexUnclassified {
+			var vis []string
+			for _, id := range it.indexIDs {
+				if visible(id) {
+					vis = append(vis, id)
+				}
+			}
+			if len(vis) == 0 {
+				continue
+			}
+			it.Evidence = indexUnclassifiedEvidence(it.indexMap, len(vis))
+			it.Weight = len(vis)
+			it.Concepts = capIndexIDs(vis)
 			out = append(out, it)
 			continue
 		}

@@ -2067,6 +2067,12 @@ func (kb *KB) isMapName(name string) bool {
 // the agent.
 const IndexGenerated = "generated"
 
+// NewPagesHeading is where index_entry puts a created concept in a curated map
+// index (D714): like "## Moved here", an obvious placement at the end beats a
+// guessed section. Shared with lint's index_unclassified review kind (D1078),
+// which lists what still sits under it, so the two cannot drift.
+const NewPagesHeading = "## New pages"
+
 // validOpenField reports whether s can name an open_field (D347): a flat
 // frontmatter key, so non-empty, one line, no whitespace and no '.'.
 func validOpenField(s string) bool {
