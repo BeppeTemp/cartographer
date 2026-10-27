@@ -32,15 +32,37 @@ func TestArchivedLifecycle(t *testing.T) {
 	}
 }
 
-func TestLinkToRetired_Archived(t *testing.T) {
+// #1193: an archived journal entry is retired from the work queue, not wrong.
+// The dated back-link the harvest writes into a live page, and a citation of
+// the entry as evidence, are provenance: no link_to_retired. A deprecated or
+// superseded target still raises it.
+func TestLinkToRetired_ArchivedIsProvenance(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "j/_map.md", "---\ntype: Map\ntitle: J\nkind: journal\n---\n")
+	writeFile(t, k.DataRoot(), "j/e.md", "---\ntype: Note\ntitle: E\nstatus: archived\n---\n> Archived 2026-10-01.\n\n# E\n")
 	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nkind: map\n---\n")
 	writeFile(t, k.DataRoot(), "ops/old.md", "---\ntype: Note\ntitle: Old\nstatus: archived\n---\nOld.\n")
-	writeFile(t, k.DataRoot(), "ops/live.md", "---\ntype: Note\ntitle: Live\n---\nSee [old](old.md).\n")
-	got := ScopedCheck(k, ids("ops/old"))
-	if !hasCheck(got, "ops/old.md", "link_to_retired") {
-		t.Fatalf("a live page linking an archived one must raise link_to_retired: %v", got)
+	writeFile(t, k.DataRoot(), "ops/gone.md", "---\ntype: Note\ntitle: Gone\nstatus: deprecated\n---\nGone.\n")
+	writeFile(t, k.DataRoot(), "ops/moved.md", "---\ntype: Note\ntitle: Moved\nstatus: superseded\n---\nMoved.\n")
+	writeFile(t, k.DataRoot(), "ops/live.md", "---\ntype: Note\ntitle: Live\n---\n"+
+		"- restart the agent first ([2026-10-01 - E](../j/e.md))\n\nVerified in [old](old.md).\n\nSee [gone](gone.md) and [moved](moved.md).\n")
+	scoped := ScopedCheck(k, ids("ops/live"))
+	whole, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, got := range map[string][]Finding{"write": scoped, "lint": whole} {
+		for _, p := range []string{"j/e.md", "ops/old.md"} {
+			if hasCheck(got, p, "link_to_retired") {
+				t.Errorf("%s: a link to an archived entry is provenance, not reliance: %s in %v", name, p, got)
+			}
+		}
+		for _, p := range []string{"ops/gone.md", "ops/moved.md"} {
+			if !hasCheck(got, p, "link_to_retired") {
+				t.Errorf("%s: a live page linking a deprecated or superseded page must raise link_to_retired on %s: %v", name, p, got)
+			}
+		}
 	}
 }
 

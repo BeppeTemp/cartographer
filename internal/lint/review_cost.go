@@ -115,6 +115,41 @@ func templateBoilerplate(templates []string) map[string]bool {
 	return out
 }
 
+// archivalBanner is the factLines key of the banner the harvest writes at the
+// top of an archived entry (kb-doctor step 5b: `> Archived YYYY-MM-DD: no
+// durable lessons.`, or the KB's translation of it): the first blockquote line
+// of the body above its first H2, code masked; "" when there is none. On an
+// archived entry it is a status line whose wording the procedure fixes, not a
+// fact the entries repeat, so repeated_fact skips it like template boilerplate
+// (#1194). Callers check the status: the same line on a live page is prose.
+func archivalBanner(body string) string {
+	for _, line := range strings.Split(kb.MaskCodeSpans(body), "\n") {
+		t := strings.Join(strings.Fields(line), " ")
+		if strings.HasPrefix(t, "## ") {
+			return ""
+		}
+		if strings.HasPrefix(t, ">") {
+			return t
+		}
+	}
+	return ""
+}
+
+// isArchived reports whether a concept's status is the reserved archived.
+func isArchived(status string) bool { return strings.TrimSpace(status) == kb.StatusArchived }
+
+// conceptFactLines is factLines of one concept: without its archival banner
+// when the concept is archived (#1194).
+func conceptFactLines(body, status string, boilerplate map[string]bool) map[string]string {
+	lines := factLines(body, boilerplate)
+	if isArchived(status) {
+		if b := archivalBanner(body); b != "" {
+			delete(lines, b)
+		}
+	}
+	return lines
+}
+
 // repeatedFactItems emits one repeated_fact per fact line found in at least
 // the threshold number of concepts.
 func repeatedFactItems(concepts []*reviewConcept, templates []string) []ReviewItem {
@@ -122,7 +157,7 @@ func repeatedFactItems(concepts []*reviewConcept, templates []string) []ReviewIt
 	owners := map[string][]string{}
 	originals := map[string]string{} // first unmasked form seen of each key
 	for _, c := range concepts {
-		for line, shown := range factLines(c.body, boilerplate) {
+		for line, shown := range conceptFactLines(c.body, c.status, boilerplate) {
 			owners[line] = append(owners[line], string(c.id))
 			if _, ok := originals[line]; !ok {
 				originals[line] = shown

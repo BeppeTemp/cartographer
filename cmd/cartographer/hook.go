@@ -142,7 +142,10 @@ func writeFindingsFeedback(payload []byte) string {
 		}
 		fmt.Fprintf(&b, "%s %s: %s\n", f.Check, f.Path, f.Message)
 	}
-	b.WriteString("Fix them in your next write: nothing accepts or silences a finding, so change the page, not the check.")
+	// The second sentence is the kb-doctor's step 6 (#1193): one documented path
+	// for a check defect, so the agent never removes evidence to close one.
+	b.WriteString("Fix them in your next write: nothing accepts or silences a finding, so change the page, not the check. " +
+		"A finding that is wrong for a page that is right as written is a defect of the check: leave the page, never remove evidence or add text to silence it, and report the check, the page and why in the session log.")
 	return b.String()
 }
 
