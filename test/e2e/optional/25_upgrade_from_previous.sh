@@ -71,7 +71,7 @@ client() {
 # lockfile is hashed with its managed entries sorted: a sync that rewrote an
 # artifact leaves the synthetic hooks' entries to move to the end on the next
 # one (ensureSyntheticHook), an order-only rewrite that changes nothing it
-# records.
+# records (#1235: drop the sort once that is fixed).
 snapshot() {
     (cd "$SANDBOX_DIR" && find . -type f ! -name .cartographer-sync.lock.json -print0 | sort -z | xargs -0 sha256sum) >"$1"
     jq -S '.providers[].managed |= sort_by(.kind, .name, .path)' "${SANDBOX_DIR}/.cartographer-sync.lock.json" \

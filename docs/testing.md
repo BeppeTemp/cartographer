@@ -182,7 +182,7 @@ the block brief once (D1182, when the old tag predates it), that the second sync
 nothing, leaves every file byte-identical and `status` exits 0, and that a revoked hook
 is not approved again. The lockfile is compared with its entries sorted: a sync that
 rewrote an artifact leaves the synthetic hooks' entries to move on the next one, an
-order-only rewrite.
+order-only rewrite (#1235).
 
 It is outside `make e2e` (in `test/e2e/optional/`, which the default loop skips):
 building the old tree costs more than the whole suite. `make e2e-upgrade` runs it
