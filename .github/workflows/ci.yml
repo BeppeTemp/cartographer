@@ -351,7 +351,7 @@ jobs:
       - run: test/forge/run.sh ${{ matrix.forge }}
 
   # A client upgraded from the previous stable release to this build (#1173):
-  # test/e2e/optional/25_upgrade_from_previous.sh builds the old tag from a
+  # test/e2e/optional/26_upgrade_from_previous.sh builds the old tag from a
   # throwaway worktree, so it needs the tags. The release PR and a manual run
   # only; not in main-status (skipped on push) and not a required check. No
   # "Configure git for tests": run.sh isolates its own git config (D996).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# optional/25_upgrade_from_previous.sh — a client upgraded from the previous
+# optional/26_upgrade_from_previous.sh — a client upgraded from the previous
 # release converges after one sync (#1173).
 #
 # Builds the previous stable release from a throwaway git worktree, runs it as
@@ -33,7 +33,7 @@ source "${E2E_DIR}/lib/kb.sh"
 # shellcheck source=../lib/server.sh
 source "${E2E_DIR}/lib/server.sh"
 
-SCENARIO_NAME="25_upgrade_from_previous"
+SCENARIO_NAME="26_upgrade_from_previous"
 
 echo "=== Scenario ${SCENARIO_NAME} ==="
 
@@ -104,7 +104,7 @@ else
         exit 1
     fi
 fi
-echo "[25] upgrading from ${PREV_REF}"
+echo "[26] upgrading from ${PREV_REF}"
 
 # --- 2. Its binary, built from a throwaway worktree ---
 if ! git -C "$REPO_ROOT" worktree add --detach "$PREV_TREE" "$PREV_REF" >/dev/null 2>&1; then
@@ -116,7 +116,7 @@ build_prev() {
 }
 if ! build_out="$(build_prev GOPROXY=off)"; then
     if [[ "${E2E_UPGRADE_ONLINE:-}" == "1" ]]; then
-        echo "[25] the module cache lacks a module of ${PREV_REF}: retrying with the Go proxy"
+        echo "[26] the module cache lacks a module of ${PREV_REF}: retrying with the Go proxy"
         if ! build_out="$(build_prev)"; then
             echo "$build_out" >&2
             echo "[ERROR] cannot build ${PREV_REF}" >&2
@@ -128,7 +128,7 @@ if ! build_out="$(build_prev GOPROXY=off)"; then
         exit 1
     fi
 fi
-echo "[25] built $("$PREV_BIN" --version 2>&1 | head -n 1)"
+echo "[26] built $("$PREV_BIN" --version 2>&1 | head -n 1)"
 
 # What the old tree already has, read from its decision files: whether the
 # one-time approval migration ran there (D1166), whether its managed block is
@@ -173,7 +173,7 @@ server_wait_health 30 || exit 1
 
 # --- 4. The old client, fully installed ---
 echo ""
-echo "[25] old client: connect + sync"
+echo "[26] old client: connect + sync"
 if ! client "$PREV_BIN" connect claude --server-url "$SERVER_URL" >"${WORK_DIR}/prev-connect.out"; then
     cat "${WORK_DIR}/prev-connect.out"
     echo "[ERROR] ${PREV_REF} cannot connect to this build's server" >&2
@@ -204,7 +204,7 @@ instructions_block "$CLAUDE_MD" >"${WORK_DIR}/block.prev"
 
 # --- 5. Switch to HEAD: one sync ---
 echo ""
-echo "[25] HEAD client: sync"
+echo "[26] HEAD client: sync"
 client "$BIN" sync >"${WORK_DIR}/head-sync.out"
 head_rc=$?
 cat "${WORK_DIR}/head-sync.out"

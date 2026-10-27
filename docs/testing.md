@@ -167,7 +167,7 @@ and never as a required check. By hand, from the repository root, with Docker:
 
 ### Client upgrade from the previous release (#1173)
 
-`test/e2e/optional/25_upgrade_from_previous.sh` starts from the state a previous
+`test/e2e/optional/26_upgrade_from_previous.sh` starts from the state a previous
 release leaves on a client, which no scenario of `make e2e` does: each connects a
 fresh sandbox with the binary under test. It builds the newest stable tag reachable
 from HEAD (`vX.Y.Z`, no pre-release suffix, the tag at HEAD excluded) from a throwaway
@@ -186,7 +186,7 @@ order-only rewrite (#1235).
 
 It is outside `make e2e` (in `test/e2e/optional/`, which the default loop skips):
 building the old tree costs more than the whole suite. `make e2e-upgrade` runs it
-(`./test/e2e/run.sh --only 25_upgrade_from_previous`); the `upgrade-e2e` CI job runs it
+(`./test/e2e/run.sh --only 26_upgrade_from_previous`); the `upgrade-e2e` CI job runs it
 on the release PR and on `workflow_dispatch`, never on `main` and not as a required
 check. `E2E_UPGRADE_FROM=<ref>` picks another starting point; `E2E_UPGRADE_ONLINE=1`
 retries the build once through the Go proxy when the module cache lacks a module of
