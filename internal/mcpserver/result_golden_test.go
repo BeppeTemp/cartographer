@@ -157,7 +157,13 @@ func checkGolden(t *testing.T, dir, name string, res ToolResult, root string) {
 	}
 	path := filepath.Join(dir, name+".json")
 	if *updateGolden {
-		if err := os.WriteFile(path, []byte(text+"\n"), 0o644); err != nil {
+		// The goldens are stored indented, as the code that indented answered:
+		// write that form, never the compact text the tool returns now.
+		var indented bytes.Buffer
+		if err := json.Indent(&indented, []byte(text), "", "  "); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, append(indented.Bytes(), '\n'), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		return

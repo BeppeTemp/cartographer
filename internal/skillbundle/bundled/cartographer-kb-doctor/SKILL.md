@@ -143,12 +143,13 @@ An alternative never weakens a rule: a delegated session never deletes a concept
    decision per map; after approval `map_update` with those `field_values`, then
    `kb_repair invalid_field_value` and `kb_repair prose_value`.
 4b. **Template proposals.** A `template_proposal` review item names the maps (`<map>/_map`) whose
-   pages already share a structure no template declares, one item per template slug, and carries
-   the ready `template` text, its `template_slug` and the `map_update` arguments — `map_updates`,
-   one per map, when it spans several maps: apply each. One numbered decision per item: after approval
-   `artifact_write` `templates/<template_slug>.md` with the text (an existing slug is already
-   written: only the `map_update`), then `map_update` with the arguments, then `kb_repair
-   template_missing` only sets `shape` on a page that still resolves to nothing (pages bind through `templates/<type>.md` or the map's `default_template` once the map declares it). The item's `impact` says how many pages of the map, of any type, would fail the template checks once declared: report it with the decision, it is the cost of the strictness. Do not edit the proposal's sections; the operator may drop an
+   pages already share a structure no template declares, one item per map (maps that share a slug are
+   one item), and carries `templates` (one `{slug, type, template, pages}` per template) and the
+   `map_update` arguments — `map_updates`, one per map, when it spans several maps: apply each.
+   One numbered decision per item: after approval `artifact_write` `templates/<slug>.md` with the
+   `template` text of each entry of `templates` (an empty text is an existing slug, already written),
+   then every `map_update`, then `kb_repair
+   template_missing` only sets `shape` on a page that still resolves to nothing (a page of the default template's type binds through `default_template`, any other type through `templates/<type>.md`; the impact's `unbound_types` names who will not). The item's `impact` says how many pages of the map, of any type, would fail the template checks once declared: report it with the decision, it is the cost of the strictness. Do not edit the proposal's sections; the operator may drop an
    optional one. Before enriching or writing a template for pages that already exist,
    `sh <skill-dir>/scripts/section_freq.sh <clone> <map>` lists the headings the map's pages really use, so the
    schema describes the house style instead of fighting it: adopt what recurs, leave one-off

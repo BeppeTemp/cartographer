@@ -9,11 +9,11 @@
       "concepts": [
         "ops/_map"
       ],
-      "evidence": "6 Note pages in map \"ops\" follow a common structure and bind to no template; declaring it makes 3 pages of the map fail (template_extra_section: 2, template_missing: 1)",
-      "suggested_action": "artifact_write templates/note.md with the `template` text, then map_update with `map_update` (every entry of `map_updates` when it lists several maps); once the map declares it, pages bind through templates/\u003ctype\u003e.md or the map's default_template, and kb_repair template_missing only sets `shape` on a page that still resolves to nothing. Nothing dismisses an item: it closes when the pages it names reach this state; if one is right as it stands, write that state and give the reason in the commit message.",
+      "evidence": "6 Note pages in map \"ops\" follow a common structure and bind to no template; 2 of 6 pages carry headings outside the proposed sections, so the template allows extra sections (x-template.open_sections); declaring it makes 1 pages of the map fail (template_missing: 1); template_missing: pages of type Glossary (1) resolve to no template: default_template binds only pages of its own type, a page of another type needs templates/\u003ctype\u003e.md",
+      "suggested_action": "artifact_write templates/note.md with the `template` text, then map_update with `map_update` (every entry of `map_updates` when it lists several maps); once the map declares it, pages of its type bind through default_template, a page of another type through templates/\u003ctype\u003e.md, and kb_repair template_missing only sets `shape` on a page that still resolves to nothing. Nothing dismisses an item: it closes when the pages it names reach this state; if one is right as it stands, write that state and give the reason in the commit message.",
       "weight": 6,
       "template_slug": "note",
-      "template": "---\ntype: Note\ntitle: \"{{title}}\"\nx-template.description: Proposed from 6 Note pages of map ops\n---\n# {{title}}\n",
+      "template": "---\ntype: Note\ntitle: \"{{title}}\"\nx-template.description: Proposed from 6 Note pages of map ops\nx-template.open_sections: true\n---\n# {{title}}\n",
       "map_update": {
         "default_template": "note",
         "map": "ops",
@@ -21,20 +21,28 @@
           "note"
         ]
       },
+      "templates": [
+        {
+          "slug": "note",
+          "type": "Note",
+          "template": "---\ntype: Note\ntitle: \"{{title}}\"\nx-template.description: Proposed from 6 Note pages of map ops\nx-template.open_sections: true\n---\n# {{title}}\n",
+          "pages": 6
+        }
+      ],
       "impact": [
         {
           "map": "ops",
-          "pages": 3,
-          "new_findings": 3,
+          "pages": 1,
+          "new_findings": 1,
           "by_check": {
-            "template_extra_section": 2,
             "template_missing": 1
           },
           "examples": [
-            "ops/big",
-            "ops/dirigible",
-            "ops/huge"
-          ]
+            "ops/dirigible"
+          ],
+          "unbound_types": {
+            "Glossary": 1
+          }
         }
       ]
     },

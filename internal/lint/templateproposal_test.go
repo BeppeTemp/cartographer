@@ -52,11 +52,11 @@ func TestTemplateProposal(t *testing.T) {
 	if len(info.RequiredSections()) != 3 || strings.Join(info.OptionalSections, ",") != "Notes" {
 		t.Errorf("3 required and Notes optional, got required %v optional %v", info.RequiredSections(), info.OptionalSections)
 	}
-	if strings.Join(info.RequiredFields, ",") != "owner,state" {
-		t.Errorf("required fields = %v", info.RequiredFields)
+	if len(info.RequiredFields) != 0 {
+		t.Errorf("owner and state are not standard fields, nothing is required: %v", info.RequiredFields)
 	}
-	if v := strings.Join(info.FieldValues["state"], ","); v != "down,up" {
-		t.Errorf("state values = %q", v)
+	if !strings.Contains(it.Evidence, "frequent non-standard fields, not declared: owner, state") {
+		t.Errorf("evidence lacks the non-standard hint: %s", it.Evidence)
 	}
 	if it.MapUpdate["map"] != "infra" || it.MapUpdate["default_template"] != "host" {
 		t.Errorf("map_update args: %+v", it.MapUpdate)
@@ -75,8 +75,154 @@ func TestTemplateProposalOnePerType(t *testing.T) {
 		writeFile(t, k.DataRoot(), fmt.Sprintf("infra/x%d.md", i), "---\ntype: Runbook\ntitle: X\n---\n# X\n\n## Steps\n\ns\n")
 	}
 	got := itemsOf(review(t, k), ReviewTemplateProposal)
+	if len(got) != 1 {
+		t.Fatalf("one item per map, got %d: %+v", len(got), got)
+	}
+	it := got[0]
+	if len(it.Templates) != 2 || it.Templates[0].Slug != "host" || it.Templates[1].Slug != "runbook" || it.TemplateSlug != "" || it.Template != "" {
+		t.Fatalf("templates of both types, no single-template fields: %+v", it)
+	}
+	if it.Templates[0].Template == "" || it.Templates[1].Template == "" || it.Weight != 15 {
+		t.Errorf("texts and weight: %+v", it)
+	}
+	if it.MapUpdate["default_template"] != "host" || fmt.Sprint(it.MapUpdate["templates"]) != "[host runbook]" {
+		t.Errorf("map_update: %+v", it.MapUpdate)
+	}
+}
+
+// A map holding two slugs and a slug spanning two maps are one item: every map
+// and every slug appears in exactly one.
+func TestTemplateProposalComponentsAcrossMapsAndSlugs(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	for _, m := range []string{"m1", "m2", "m3"} {
+		writeFile(t, k.DataRoot(), m+"/_map.md", "---\ntype: Map\nkind: map\ntitle: "+m+"\n---\n")
+	}
+	add := func(m, typ string, n int) {
+		for i := 0; i < n; i++ {
+			writeFile(t, k.DataRoot(), fmt.Sprintf("%s/%s%d.md", m, strings.ToLower(typ), i), "---\ntype: "+typ+"\ntitle: T\n---\n# T\n\n## Purpose\n\np\n")
+		}
+	}
+	add("m1", "Alpha", 3)
+	add("m1", "Beta", 3)
+	add("m2", "Alpha", 3)
+	add("m3", "Gamma", 3)
+	got := itemsOf(review(t, k), ReviewTemplateProposal)
 	if len(got) != 2 {
-		t.Fatalf("one proposal per type with 3+ pages, got %d: %+v", len(got), got)
+		t.Fatalf("want {m1,m2: alpha,beta} and {m3: gamma}, got %+v", got)
+	}
+	if strings.Join(got[0].Concepts, ",") != "m1/_map,m2/_map" || len(got[0].Templates) != 2 || len(got[0].MapUpdates) != 2 {
+		t.Errorf("first item: %+v", got[0])
+	}
+	if got[1].TemplateSlug != "gamma" || len(got[1].Templates) != 1 || got[1].Template == "" {
+		t.Errorf("single-template item keeps the back-compat fields: %+v", got[1])
+	}
+	if strings.Join(got[0].Concepts, ",") != "m1/_map,m2/_map" || got[0].Weight != 9 {
+		t.Errorf("weight: %+v", got[0])
+	}
+}
+
+// A proposal with no section declares its body open: every page heading would
+// otherwise be an extra section that fails the page (#1196).
+func TestTemplateProposalNoSectionIsOpen(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "wiki/_map.md", "---\ntype: Map\nkind: map\ntitle: Wiki\n---\n")
+	for i := 0; i < 4; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("wiki/t%d.md", i), fmt.Sprintf("---\ntype: Topic\ntitle: T\n---\n# T\n\n## Own %d\n\nx\n", i))
+	}
+	got := itemsOf(review(t, k), ReviewTemplateProposal)
+	if len(got) != 1 {
+		t.Fatalf("want one proposal: %+v", got)
+	}
+	info, ok := kb.ParseTemplate("topic", got[0].Template)
+	if !ok || !info.OpenSections {
+		t.Fatalf("no section proposed: open_sections must be set:\n%s", got[0].Template)
+	}
+	if len(got[0].Impact) != 0 {
+		t.Errorf("open form fails nobody: %+v", got[0].Impact)
+	}
+}
+
+// Five pages, two with a one-off heading each, three with none: no H2 recurs
+// and fewer than 60% carry any, so only the no-induced-section rule opens it.
+func TestTemplateProposalNoRecurringHeadingIsOpen(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "wiki/_map.md", "---\ntype: Map\nkind: map\ntitle: Wiki\n---\n")
+	for i := 0; i < 5; i++ {
+		body := ""
+		if i < 2 {
+			body = fmt.Sprintf("\n## Own %d\n\nx\n", i)
+		}
+		writeFile(t, k.DataRoot(), fmt.Sprintf("wiki/t%d.md", i), "---\ntype: Topic\ntitle: T\n---\n# T\n"+body)
+	}
+	got := itemsOf(review(t, k), ReviewTemplateProposal)
+	if len(got) != 1 {
+		t.Fatalf("want one proposal: %+v", got)
+	}
+	if info, ok := kb.ParseTemplate("topic", got[0].Template); !ok || !info.OpenSections {
+		t.Fatalf("open_sections must be set:\n%s", got[0].Template)
+	}
+}
+
+// A closed form that fails most of the map is offered open (evidence says why),
+// and not at all when the open form still fails most of it.
+func TestTemplateProposalReopensOrDropsWhenMostlyFailing(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "wiki/_map.md", "---\ntype: Map\nkind: map\ntitle: Wiki\n---\n")
+	// Core in all 7 pages; 4 of them (57%, under the 60% bar) carry a heading of
+	// their own, which a closed template would fail.
+	for i := 0; i < 7; i++ {
+		body := "## Core\n\nc\n"
+		if i < 4 {
+			body += fmt.Sprintf("\n## Own %d\n\nx\n", i)
+		}
+		writeFile(t, k.DataRoot(), fmt.Sprintf("wiki/t%d.md", i), "---\ntype: Topic\ntitle: T\n---\n# T\n\n"+body)
+	}
+	got := itemsOf(review(t, k), ReviewTemplateProposal)
+	if len(got) != 1 {
+		t.Fatalf("want one proposal: %+v", got)
+	}
+	info, _ := kb.ParseTemplate("topic", got[0].Template)
+	if !info.OpenSections || len(got[0].Impact) != 0 {
+		t.Errorf("open form expected, failing nobody: %+v\n%s", got[0].Impact, got[0].Template)
+	}
+	if !strings.Contains(got[0].Evidence, "the closed form would fail most pages of map \"wiki\", so the template is offered in its open form") {
+		t.Errorf("evidence: %s", got[0].Evidence)
+	}
+	// A scoped caller (descriptor and one page visible) gets the same count-free sentence.
+	scoped := FilterReview(got, func(id string) bool { return id == "wiki/_map" || id == "wiki/t0" }, false)
+	if len(scoped) != 1 || strings.Contains(scoped[0].Evidence, "would fail 4 of 7") || !strings.Contains(scoped[0].Evidence, "fail most pages of map") {
+		t.Errorf("scoped evidence leaks page counts: %+v", scoped)
+	}
+	// Eight pages of types with no template of their own: they fail whatever the form.
+	for i := 0; i < 8; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("wiki/n%d.md", i), fmt.Sprintf("---\ntype: Kind%d\ntitle: N\n---\n# N\n", i))
+	}
+	if got := itemsOf(review(t, k), ReviewTemplateProposal); len(got) != 0 {
+		t.Errorf("most of the map fails even in open form: nothing to offer: %+v", got)
+	}
+}
+
+// template_missing is explained: which page types resolve to nothing and why.
+func TestTemplateProposalExplainsTemplateMissing(t *testing.T) {
+	t.Parallel()
+	got := itemsOf(review(t, proposalKB(t)), ReviewTemplateProposal)
+	if len(got) != 1 {
+		t.Fatalf("want one proposal: %+v", got)
+	}
+	// The two Runbook pages (2 of 12) gain template_missing.
+	// (Runbook has 2 pages: too few for a proposal of its own.)
+	if got[0].Impact[0].Unbound["Runbook"] != 2 {
+		t.Errorf("unbound: %+v", got[0].Impact[0].Unbound)
+	}
+	if !strings.Contains(got[0].Evidence, "pages of type Runbook (2) resolve to no template: default_template binds only pages of its own type") {
+		t.Errorf("evidence: %s", got[0].Evidence)
+	}
+	if strings.Contains(bindingNote, "pages bind through templates/<type>.md or the map's default_template") {
+		t.Error("bindingNote implies default_template binds any page")
 	}
 }
 
@@ -139,7 +285,7 @@ func TestTemplateProposalOnePerSlugAcrossMaps(t *testing.T) {
 	if _, has := info.FieldValues["status"]; has {
 		t.Errorf("status differs per map, it belongs to the map contracts: %v", info.FieldValues)
 	}
-	if strings.Join(info.RequiredFields, ",") != "status,tags" {
+	if strings.Join(info.RequiredFields, ",") != "status" {
 		t.Errorf("required fields = %v", info.RequiredFields)
 	}
 }
