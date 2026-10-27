@@ -13,6 +13,9 @@ import (
 const (
 	FixSetValue   = "set_value"   // Field ← To
 	FixSplitValue = "split_value" // Field ← To; the rest of the old value moves into the body
+	// FixListValue replaces the list item From with To in the list Field, or
+	// removes it when To is empty; the list is then deduplicated (D1197).
+	FixListValue = "list_value"
 )
 
 // ValueSynonymFamilies groups the status values KBs are known to use for the
@@ -79,6 +82,24 @@ func familiesFor(contract *kb.MapContract) valueFamilies {
 		}
 	}
 	return idx
+}
+
+// related reports whether some allowed value is v up to normalisation or
+// shares v's family: when canonicalIn finds none of them is unique, the value
+// is ambiguous, not foreign (D1197).
+func (f valueFamilies) related(v string, allowed []string) bool {
+	fam, inFam := f.member(v)
+	for _, a := range allowed {
+		if NormValue(a) == NormValue(v) {
+			return true
+		}
+		if inFam {
+			if af, ok := f.member(a); ok && af == fam {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // member returns the family of v, if any.
@@ -210,6 +231,9 @@ type Proposal struct {
 	Type    string            `json:"type,omitempty"`
 	Values  []string          `json:"values"`
 	Mapping map[string]string `json:"mapping,omitempty"`
+	// Drop lists the values a facet_sprawl proposal leaves out of the
+	// vocabulary (D1197): sorted, each used once and matching no other.
+	Drop []string `json:"drop,omitempty"`
 }
 
 // foldVocabulary folds observed values onto one canonical member per family:

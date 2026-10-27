@@ -406,7 +406,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `title_h1_mismatch` | concept | yes | `sync_h1`, `set_value` | yes | yes |
 | `title_quality` | concept | yes | `set_value` | yes | yes |
 | `missing_required_field` | concept | yes | - | - | yes |
-| `invalid_field_value` | concept | yes | `set_value` | yes | yes |
+| `invalid_field_value` | concept | yes | `set_value`, `list_value` | yes | yes |
 | `forbidden_field` | concept | yes | - | - | yes |
 | `nonstandard_field` | concept | yes | `rename_field`, `drop_field` | yes | yes |
 | `tool_param_field` | concept | yes | `drop_field` | yes | yes |
@@ -597,8 +597,8 @@ D289 converges field names; D296 converges **values**, starting with `status`. T
 
 `open`, `decision-needed`, `reference`, `accepted`, `rejected`, `superseded`, `mitigated`, `monitoring` are deliberately in no family: they are distinct states, or KB-specific.
 
-- The `missing_value_contract` observation on `status` folds each family onto its majority member and each prose value onto its leading token, and carries a structured `proposal: {key, field, type?, values, mapping}` next to the message. Declaring it is the operator's judgement (`map_update`); after that the per-concept findings are mechanical.
-- `invalid_field_value` carries `set_value` when the value is, up to folding or by family, exactly one allowed value. Two candidates, or none, give no fix.
+- The `missing_value_contract` observation on `status` folds each family onto its majority member and each prose value onto its leading token, and carries a structured `proposal: {key, field, type?, values, mapping, drop?}` next to the message (`drop` is used by `facet_sprawl` only). Declaring it is the operator's judgement (`map_update`); after that the per-concept findings are mechanical.
+- `invalid_field_value` carries `set_value` when the value is, up to folding or by family, exactly one allowed value. Two candidates, or none, give no fix. On a **list** field (`tags`) it reports one finding per bad item (D1197) and the fix is `list_value` `{field, from, to}`: `to` is the one allowed value the item folds onto (case, accents, `-`/`_`/space, the contract's `value_synonyms`), and an item related to no allowed value carries `to` empty, which removes it; the list is then deduplicated, and a list left empty loses the key (`missing_required_field` then reports it, a person's call). An item that two allowed values claim has no fix. A removal is applied **only** by an explicit `kb_repair invalid_field_value` (or `cartographer kb repair --apply`): the write path and the background repair apply renames only, because an unattended drop would erase a tag written before the `map_update` that declares it.
 - `prose_value`: `status`, or a field the contract constrains, holds a sentence (a separator such as ` — `, `;`, `: `, or more than three words). It carries `split_value` when the leading token is a contract value or, with no contract, a family member: the field keeps the token and `kb_repair` writes the rest as `> <field>: <rest>` after the first heading, so nothing is lost.
 
 ### Invalid pages are lint checks (D356)
@@ -636,7 +636,7 @@ Ageing cannot be switched off (D907): `map_update` with `stale_after` or `harves
 - `closed_with_open_items`: a status of the `done` or `resolved` family with unchecked `- [ ]` items outside code and outside a section whose H2 matches the map's `procedure_headings` (default `procedure`, `steps`, `how to`: a procedure's checklist is a reusable template, D313).
 - `template_section_missing` (D352): required sections of the page's template (optional ones subtracted, an alias counts as the section) the page lacks, compared folding case and accents; headings inside fenced code are ignored. Evaluated on every template-bound page of a map that declares templates (below); closed pages are exempt. No fix: an empty heading is a hollow promise.
 - `open_marker` (none on a page marked `origin: external`, D1195): marker occurrences outside code, outside heading lines, outside table rows of a concept in an open phase (D313), and outside struck-through `~~text~~` (closed or cancelled, D307), whole words, case- and accent-folded; `kb_status.open_markers` totals them as `{concepts, markers}`.
-- `facet_sprawl` (an observation, D947, on `_map.md`, directory-level): `tags` with at least 30 distinct values, half or more used once; the message lists the ten most used as the likely vocabulary.
+- `facet_sprawl` (an observation, D947, on `_map.md`, directory-level): `tags` with at least 30 distinct values, half or more used once. It carries a closed-vocabulary `proposal` (D1197), deterministic and with no edit distance: tags sharing a normalisation key (case and accents folded, `-`, `_` and spaces removed, one trailing `s` dropped when the stem keeps 3+ letters and the word does not end in `ss`) form a cluster; a cluster used 2+ times in all (`facetSprawlVocabMinUses`) becomes one value, named by its most used spelling (ties: shorter, then lexical), its other spellings are the `mapping`; a lone tag used once is in `drop`. `key` is `field_values.tags`, the lists are sorted. The doctor declares it with `map_update` (`field_values` for the values, `value_synonyms` for the mapping variants that folding does not already cover; both keys replace every existing key of their kind), and `kb_repair invalid_field_value` converges the pages (`list_value`); from then on **a new tag needs a `map_update` first**. When the contract already declares `tags` values (map-wide or for a type) there is no `proposal` (the vocabulary is the operator's), and neither when no cluster reaches the threshold: the message then lists the ten most used tags.
 
 ### Templates are page schemas (D352)
 

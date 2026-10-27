@@ -1,7 +1,7 @@
 ---
 name: cartographer-kb-doctor
 description: Keep a Knowledge Base from rotting - a budgeted session that applies mechanical repairs and works through the server's ranked review list, always started by the operator, who decides each item or delegates the session. Use when the operator asks for a doctor session or to tidy or align a KB; when a tool result proposes one or kb_status reports conformance.doctor_suggested, propose it to the operator and wait.
-version: "3.6"
+version: "3.7"
 ---
 # KB Doctor - Skill
 
@@ -141,7 +141,14 @@ An alternative never weakens a rule: a delegated session never deletes a concept
 4. **Vocabulary proposals.** A `kb_review` item of kind `observation` whose `check` is
    `missing_value_contract` carries a `proposal` (values and the synonyms it maps). One numbered
    decision per map; after approval `map_update` with those `field_values`, then
-   `kb_repair invalid_field_value` and `kb_repair prose_value`.
+   `kb_repair invalid_field_value` and `kb_repair prose_value`. A `facet_sprawl` item carries one too
+   (`key: field_values.tags`): one numbered decision per map, naming the counts (values kept, tags
+   renamed, tags dropped) and the consequence, that a new tag needs a `map_update` first. After approval
+   `map_update` with `field_values` `{"*": {"tags": values}}` merged with the map's existing
+   `field_values`, and `value_synonyms` built from `mapping` (group by target, keep the existing
+   synonyms, skip the pairs folding already covers: case, accents, `-`/`_`/space), because both keys
+   replace every existing key; then `kb_repair invalid_field_value`, the only call that removes the
+   `drop` tags.
 4b. **Template proposals.** A `template_proposal` review item names the maps (`<map>/_map`) whose
    pages already share a structure no template declares, one item per map (maps that share a slug are
    one item), and carries `templates` (one `{slug, type, template, pages}` per template) and the
@@ -175,7 +182,7 @@ An alternative never weakens a rule: a delegated session never deletes a concept
      (`glossary_gap`); an `observation` item is a state with no single right answer, never a lint
      finding: `concept_move` (`map_misfit`), `concept_expand` or a split (`concept_oversize`), a split
      of the map (`map_oversize`), a link from outside into the group (`island`), a second path around
-     the page (`cut_concept`), a short tag vocabulary (`facet_sprawl`); leaving it as it is is a
+     the page (`cut_concept`), a closed tag vocabulary (`facet_sprawl`, step 4); leaving it as it is is a
      legitimate decision, and the report says so; a `lint_judgement` item is a `lint` finding of that check, so decide it
      from `lint` (the check is the actionable unit) and do not count it twice; `concept_too_deep`: decide where the page belongs and `concept_move` it, then read the `mentions` of the result (an old ID left in prose, frontmatter or an artifact, which the link rewrite does not touch) and decide each: current pages are updated, journals usually keep the old ID; `empty_concept`: write the page or retire it (`concept_archive`, see "Tools not in `tools/list`"), never delete it blindly; `missing_type` / `missing_frontmatter` with no fix: the map's pages disagree on a type, so delegated, pick the type most of the map's pages carry and `concept_patch` it; assisted, ask which one; for `repeated_fact` choose the owner concept with the operator, keep the
      fact there and replace each copy with a link (never rewrite the fact); for `read_hotspot`

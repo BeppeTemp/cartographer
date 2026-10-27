@@ -123,8 +123,8 @@ type Finding struct {
 	Check   string // check name (e.g. "broken_link", "stale_claim")
 	Message string
 	Fix     *Fix // optional mechanical remedy (D289)
-	// Proposal is the structured vocabulary a missing_value_contract
-	// finding suggests (D296).
+	// Proposal is the structured vocabulary a missing_value_contract or
+	// facet_sprawl finding suggests (D296, D1197).
 	Proposal *Proposal
 	// Count is a check-specific tally (open_marker: markers found, D297).
 	Count int
@@ -1326,21 +1326,41 @@ func mapFieldContractFindings(relPath, mapName string, contract kb.MapContract, 
 		default:
 			got = []string{fmt.Sprint(v)}
 		}
+		_, isString := value.(string)
+		_, isList := value.([]string)
+		reported := map[string]bool{}
 		for _, g := range got {
 			g = strings.TrimSpace(g)
-			if !fieldValueAllowed(allowed, g) {
-				f := newFinding("invalid_field_value", Finding{
-					Path:    relPath,
-					Message: fmt.Sprintf("field %q has value %q, allowed by map %q (%s): %s", field, g, mapName, valuesSourceText(parsed.Type(), src), strings.Join(allowed, ", ")),
-				})
+			if fieldValueAllowed(allowed, g) || reported[g] {
+				continue
+			}
+			reported[g] = true
+			f := newFinding("invalid_field_value", Finding{
+				Path:    relPath,
+				Message: fmt.Sprintf("field %q has value %q, allowed by map %q (%s): %s", field, g, mapName, valuesSourceText(parsed.Type(), src), strings.Join(allowed, ", ")),
+			})
+			fams := familiesFor(&contract)
+			to, ok := fams.canonicalIn(g, allowed)
+			switch {
+			case !isList:
 				// D296: a synonym of exactly one allowed value is mechanical.
-				if _, scalar := value.(string); scalar {
-					if to, ok := familiesFor(&contract).canonicalIn(g, allowed); ok {
-						f.Fix = &Fix{Kind: FixSetValue, Field: field, To: to}
-						f.Message += fmt.Sprintf(" — fix: set it to %q", to)
-					}
+				if ok && isString {
+					f.Fix = &Fix{Kind: FixSetValue, Field: field, To: to}
+					f.Message += fmt.Sprintf(" — fix: set it to %q", to)
 				}
-				out = append(out, f)
+			case ok:
+				// D1197: a list reports one finding per bad item, since a
+				// fix carries one From -> To.
+				f.Fix = &Fix{Kind: FixListValue, Field: field, From: g, To: to}
+				f.Message += fmt.Sprintf(" — fix: replace it with %q", to)
+			case !fams.related(g, allowed):
+				// Foreign to a closed vocabulary: drop it. Explicit
+				// kb_repair only (Fix.Removes).
+				f.Fix = &Fix{Kind: FixListValue, Field: field, From: g}
+				f.Message += " — fix: drop it"
+			}
+			out = append(out, f)
+			if !isList {
 				break
 			}
 		}

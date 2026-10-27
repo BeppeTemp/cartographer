@@ -76,7 +76,7 @@ var observations = []ObservationSpec{
 		Name: "facet_sprawl", Category: CategoryMaps, WholeGraph: true,
 		Why:    "tags are a free vocabulary, and which values to merge is an editorial call",
 		Closes: "fewer than 30 distinct tag values, or fewer than half of them used once",
-		Advice: "converge the tags on a small vocabulary: reuse the most used values, drop the rest",
+		Advice: "declare the proposed vocabulary in the map's contract (map_update field_values and value_synonyms), then kb_repair invalid_field_value converges the pages; leave it when the free tags are intended",
 	},
 	{
 		Name: "missing_value_contract", Category: CategoryMaps, WholeGraph: true,
@@ -202,7 +202,7 @@ func observationFindings(k *kb.KB, concepts []*reviewConcept, contracts map[stri
 			continue
 		}
 		found = append(found, valueContractFindings(a, c, content)...)
-		found = append(found, facetSprawlFindings(a, content)...)
+		found = append(found, facetSprawlFindings(a, c, content)...)
 		if f, ok := mapOversizeFinding(a, c, mapOversizeCount(lg, a)); ok {
 			found = append(found, f)
 		}

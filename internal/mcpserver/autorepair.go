@@ -251,7 +251,7 @@ func (r *stagedRepair) total() int {
 // seeded names the checks the concept was selected for, charged with the skip
 // when the concept is left alone.
 func (r *stagedRepair) fixpoint(k *kb.KB, id okf.ConceptID, local []string, seed []lint.Finding, seeded []string) bool {
-	out, skip := repairConceptFixpointOnly(k, id, local, seed, nil)
+	out, skip := repairConceptFixpointOnly(k, id, local, seed, unattendedFix)
 	if skip != nil {
 		for _, c := range seeded {
 			r.skipped[c]++

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -21,6 +23,9 @@ const (
 	journalStaleAfterDays = 60
 	workMapStaleAfterDays = 30
 	facetSprawlMinValues  = 30
+	// facetSprawlVocabMinUses is the total uses a cluster of tag spellings
+	// needs to become a vocabulary value (D1197); below it the tag is dropped.
+	facetSprawlVocabMinUses = 2
 )
 
 var defaultOpenMarkers = []string{"TODO", "TBD", "FIXME"}
@@ -312,8 +317,9 @@ func markerRegexp(markers []string) *regexp.Regexp {
 
 // facetSprawlFindings reports, on a map's _map.md, a tags facet that stopped
 // being one (D297, an observation since D947, directory-level): at least 30 distinct values and at
-// least half of them used once.
-func facetSprawlFindings(mapName string, concepts map[okf.ConceptID]string) []Finding {
+// least half of them used once. Unless the contract already declares the tags'
+// values, it carries the closed vocabulary that converges them (D1197).
+func facetSprawlFindings(mapName string, contract kb.MapContract, concepts map[okf.ConceptID]string) []Finding {
 	counts := map[string]int{}
 	prefix := mapName + "/"
 	for id, content := range concepts {
@@ -356,9 +362,104 @@ func facetSprawlFindings(mapName string, concepts map[okf.ConceptID]string) []Fi
 		}
 		return tags[i] < tags[j]
 	})
-	if len(tags) > 10 {
-		tags = tags[:10]
+	head := fmt.Sprintf("tags: %d distinct values, %d used once — a facet nobody can filter on", len(counts), single)
+	f := Finding{Path: mapName + "/_map.md"}
+	if tagsDeclared(contract) {
+		f.Message = head + "; the map declares the tags' values: kb_repair invalid_field_value converges the pages"
+		return []Finding{newObservation("facet_sprawl", f)}
 	}
-	return []Finding{newObservation("facet_sprawl", Finding{Path: mapName + "/_map.md",
-		Message: fmt.Sprintf("tags: %d distinct values, %d used once — a facet nobody can filter on; the most used, a likely vocabulary: %s", len(counts), single, strings.Join(tags, ", "))})}
+	p := facetSprawlProposal(counts)
+	if p == nil {
+		if len(tags) > 10 {
+			tags = tags[:10]
+		}
+		f.Message = fmt.Sprintf("%s; the most used, a likely vocabulary: %s", head, strings.Join(tags, ", "))
+		return []Finding{newObservation("facet_sprawl", f)}
+	}
+	converged := len(p.Values) + len(p.Mapping)
+	f.Message = fmt.Sprintf("%s; %d tags converge onto %d values, %d dropped — declare them with map_update (field_values, value_synonyms), then kb_repair invalid_field_value; a new tag needs a map_update first",
+		head, converged, len(p.Values), len(p.Drop))
+	f.Proposal = p
+	return []Finding{newObservation("facet_sprawl", f)}
+}
+
+// tagsDeclared reports whether the contract already declares values for tags,
+// map-wide or for any type: the vocabulary is then the operator's.
+func tagsDeclared(c kb.MapContract) bool {
+	if _, ok := c.FieldValues["tags"]; ok {
+		return true
+	}
+	for _, byField := range c.FieldValuesByType {
+		if _, ok := byField["tags"]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// tagClusterKey is the normalisation key of a tag (D1197): case and accents
+// folded, '-', '_' and spaces removed, then one trailing 's' dropped when the
+// stem keeps at least three letters and the word does not end in "ss".
+func tagClusterKey(t string) string {
+	var b strings.Builder
+	for _, r := range search.Fold(strings.ToLower(t)) {
+		if r == '-' || r == '_' || unicode.IsSpace(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	k := b.String()
+	if strings.HasSuffix(k, "s") && !strings.HasSuffix(k, "ss") && utf8.RuneCountInString(k) > 3 {
+		k = strings.TrimSuffix(k, "s")
+	}
+	return k
+}
+
+// facetSprawlProposal builds the closed tags vocabulary of D1197, with no edit
+// distance and no co-occurrence: tags sharing a normalisation key form a
+// cluster, a cluster used at least facetSprawlVocabMinUses times becomes one
+// value named by its most used spelling (ties: shorter, then lexical), the
+// other spellings map onto it, and a lone singleton is dropped. Nil when no
+// cluster qualifies. The output is sorted: the same tags give the same bytes.
+func facetSprawlProposal(counts map[string]int) *Proposal {
+	clusters := map[string][]string{}
+	for t := range counts {
+		k := tagClusterKey(t)
+		clusters[k] = append(clusters[k], t)
+	}
+	var values, drop []string
+	mapping := map[string]string{}
+	for _, members := range clusters {
+		sort.Slice(members, func(i, j int) bool {
+			a, b := members[i], members[j]
+			if counts[a] != counts[b] {
+				return counts[a] > counts[b]
+			}
+			if len(a) != len(b) {
+				return len(a) < len(b)
+			}
+			return a < b
+		})
+		total := 0
+		for _, m := range members {
+			total += counts[m]
+		}
+		if total < facetSprawlVocabMinUses {
+			drop = append(drop, members...)
+			continue
+		}
+		values = append(values, members[0])
+		for _, m := range members[1:] {
+			mapping[m] = members[0]
+		}
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	sort.Strings(values)
+	sort.Strings(drop)
+	if len(mapping) == 0 {
+		mapping = nil
+	}
+	return &Proposal{Key: "field_values.tags", Field: "tags", Values: values, Mapping: mapping, Drop: drop}
 }
