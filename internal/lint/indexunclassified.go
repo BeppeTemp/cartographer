@@ -68,16 +68,33 @@ func indexUnclassifiedItems(k *kb.KB, contracts map[string]kb.MapContract, archi
 			continue
 		}
 		total := len(ids)
-		if total > indexUnclassifiedListMax {
-			ids = ids[:indexUnclassifiedListMax]
-		}
 		out = append(out, ReviewItem{
 			Kind:            ReviewIndexUnclassified,
-			Concepts:        ids,
-			Evidence:        fmt.Sprintf("%d entr%s of %s/index.md still under %q", total, map[bool]string{true: "y", false: "ies"}[total == 1], name, kb.NewPagesHeading),
+			Concepts:        capIndexIDs(ids),
+			Evidence:        indexUnclassifiedEvidence(name, total),
 			SuggestedAction: "move each entry under the section of the index it belongs to (index_get, then index_patch), or drop the entry if the page needs none; remove the heading when it is empty",
 			Weight:          total,
+			indexMap:        name,
+			indexIDs:        ids,
 		})
 	}
 	return out
+}
+
+// capIndexIDs keeps the first indexUnclassifiedListMax ids.
+func capIndexIDs(ids []string) []string {
+	if len(ids) > indexUnclassifiedListMax {
+		return ids[:indexUnclassifiedListMax]
+	}
+	return ids
+}
+
+// indexUnclassifiedEvidence is the item's evidence; FilterReview rebuilds it
+// with the count of the entries the caller can see.
+func indexUnclassifiedEvidence(mapName string, total int) string {
+	noun := "entries"
+	if total == 1 {
+		noun = "entry"
+	}
+	return fmt.Sprintf("%d %s of %s/index.md still under %q", total, noun, mapName, kb.NewPagesHeading)
 }

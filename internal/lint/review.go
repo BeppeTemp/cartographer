@@ -210,6 +210,11 @@ type ReviewItem struct {
 	// graph (WholeGraphChecks): a caller who cannot see the whole KB must not
 	// receive it.
 	wholeGraph bool
+	// indexMap and indexIDs are an index_unclassified item's map and its full
+	// sorted id list (Concepts is capped): FilterReview recounts from the ids
+	// the caller can see, so the total never counts a hidden entry.
+	indexMap string
+	indexIDs []string
 	// publicEvidence is Evidence without the impact clause: Impact reads every
 	// page of a map, so a caller who cannot see the whole KB gets this instead.
 	publicEvidence string
@@ -415,6 +420,22 @@ func FilterReview(items []ReviewItem, visible func(id string) bool, whole bool) 
 				it.Weight = len(vis)
 				it.Evidence = glossaryEvidence(it.Term, len(vis))
 			}
+			out = append(out, it)
+			continue
+		}
+		if it.Kind == ReviewIndexUnclassified {
+			var vis []string
+			for _, id := range it.indexIDs {
+				if visible(id) {
+					vis = append(vis, id)
+				}
+			}
+			if len(vis) == 0 {
+				continue
+			}
+			it.Evidence = indexUnclassifiedEvidence(it.indexMap, len(vis))
+			it.Weight = len(vis)
+			it.Concepts = capIndexIDs(vis)
 			out = append(out, it)
 			continue
 		}

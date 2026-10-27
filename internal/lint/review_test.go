@@ -1272,4 +1272,28 @@ func TestReviewIndexUnclassified(t *testing.T) {
 			t.Fatalf("got %+v", got)
 		}
 	})
+	t.Run("filter keeps the visible entries and recounts", func(t *testing.T) {
+		items := itemsOf(review(t, indexKB(t, "- [A](a.md)\n- [B](b.md)\n")), ReviewIndexUnclassified)
+		got := FilterReview(items, func(id string) bool { return id != "m/b" }, true)
+		if len(got) != 1 || !reflect.DeepEqual(got[0].Concepts, []string{"m/a"}) || got[0].Weight != 1 || !strings.Contains(got[0].Evidence, "1 entry") {
+			t.Fatalf("got %+v", got)
+		}
+		if got := FilterReview(items, func(string) bool { return false }, true); len(got) != 0 {
+			t.Fatalf("no visible entry, item kept: %+v", got)
+		}
+	})
+	t.Run("filter does not leak a hidden entry past the cap", func(t *testing.T) {
+		k := indexKB(t, "")
+		var sb strings.Builder
+		for i := 0; i < 25; i++ {
+			writeFile(t, k.DataRoot(), fmt.Sprintf("m/p%02d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: P%d\n---\n# P\n", i))
+			fmt.Fprintf(&sb, "- [P%d](p%02d.md)\n", i, i)
+		}
+		writeFile(t, k.DataRoot(), "m/index.md", "# M\n\n"+kb.NewPagesHeading+"\n\n"+sb.String())
+		items := itemsOf(review(t, k), ReviewIndexUnclassified)
+		got := FilterReview(items, func(id string) bool { return id != "m/p24" }, true)
+		if len(got) != 1 || len(got[0].Concepts) != 20 || !strings.Contains(got[0].Evidence, "24 entries") || strings.Contains(got[0].Evidence, "25") || got[0].Weight != 24 {
+			t.Fatalf("got %+v", got)
+		}
+	})
 }
