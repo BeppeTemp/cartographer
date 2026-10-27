@@ -166,3 +166,20 @@ func TestWorkReason(t *testing.T) {
 		t.Error("a page without frontmatter carries a reason")
 	}
 }
+
+// TestWorkSkipsUnparseableFrontmatter pins #1220: a page whose frontmatter
+// does not parse used to panic Work (nil frontmatter); it is skipped, the
+// rest answers.
+func TestWorkSkipsUnparseableFrontmatter(t *testing.T) {
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	writeFile(t, k.DataRoot(), "m/ok.md", "---\ntype: Task\ntitle: Ok\nstatus: open\n---\n# Ok\n")
+	writeFile(t, k.DataRoot(), "m/broken.md", "---\ntype: Task\n  title: [unclosed\n\tstatus: open\n---\n# Broken\n\n- [ ] item\n")
+	entries, err := Work(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := workByID(t, entries); len(got) != 1 || got["m/ok"].ID == "" {
+		t.Fatalf("entries = %+v, want only m/ok", entries)
+	}
+}

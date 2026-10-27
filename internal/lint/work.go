@@ -61,7 +61,8 @@ type WorkEntry struct {
 	Stale     bool       `json:"stale"`
 	Items     []WorkItem `json:"items"`
 	// Frontmatter is the parsed frontmatter, for the caller's where, fields
-	// and order_by. Shared with the cache: read-only. Nil when unparseable.
+	// and order_by. Shared with the cache: read-only. Never nil: a page whose
+	// frontmatter does not parse is skipped.
 	Frontmatter *okf.Frontmatter `json:"-"`
 }
 
@@ -91,13 +92,17 @@ func Work(k *kb.KB) ([]WorkEntry, error) {
 		contract := contracts[mapName]
 		fmRaw, body, _ := okf.SplitFrontmatter(content)
 		e := WorkEntry{ID: string(id), Map: mapName, Items: workItems(body)}
-		if fm, perr := okf.ParseFrontmatter(fmRaw); perr == nil && fm != nil {
-			e.Frontmatter = fm
-			e.Type = fm.Type()
-			e.Title, _ = frontmatterValue(fm, "title").(string)
-			e.Status, _ = frontmatterValue(fm, "status").(string)
-			e.Timestamp, _ = frontmatterValue(fm, "timestamp").(string)
+		fm, perr := okf.ParseFrontmatter(fmRaw)
+		if perr != nil || fm == nil {
+			// Not work we can read: validate already reports the page, and
+			// every reader below dereferences the frontmatter.
+			return nil
 		}
+		e.Frontmatter = fm
+		e.Type = fm.Type()
+		e.Title, _ = frontmatterValue(fm, "title").(string)
+		e.Status, _ = frontmatterValue(fm, "status").(string)
+		e.Timestamp, _ = frontmatterValue(fm, "timestamp").(string)
 		if v, _, fromField := effectiveState(e.Frontmatter, contract); fromField {
 			e.State = v
 		}

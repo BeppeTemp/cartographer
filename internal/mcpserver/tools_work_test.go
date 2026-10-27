@@ -219,3 +219,15 @@ func TestWorkList_Reason(t *testing.T) {
 		t.Fatalf("a KB without a reason reports one: %s", text)
 	}
 }
+
+// TestWorkListSkipsUnparseableFrontmatter pins #1220: one page with broken
+// frontmatter no longer panics work_list; the other pages answer.
+func TestWorkListSkipsUnparseableFrontmatter(t *testing.T) {
+	t.Parallel()
+	s, k := workServer(t)
+	writeKBFile(t, k, "visible/broken.md", "---\ntype: Task\n  title: [unclosed\n\tstatus: open\n---\n# Broken\n\n- [ ] item\n")
+	all := workCall(t, s, `{"scope":"visible"}`)
+	if workIDs(all) != "visible/a,visible/b,visible/c" {
+		t.Fatalf("entries: %s", workIDs(all))
+	}
+}
