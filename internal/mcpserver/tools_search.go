@@ -32,9 +32,13 @@ var searchInputSchema = json.RawMessage(`{
 }`)
 
 // snippetMaxChars bounds the excerpt size returned alongside each search hit
-// (D70): with limit 20 and this budget, a search response stays well under
-// the 5k char target.
+// (D70): with the default limit and this budget, a search response stays well
+// under the 2.5 KB average TestSearchDefaultAnswerBudget enforces.
 const snippetMaxChars = 200
+
+// searchDefaultLimit is the number of hits when the caller passes no limit
+// (D1185, was 20 in D70). An explicit limit is honoured as it is.
+const searchDefaultLimit = 8
 
 // searchCentralityBeta caps the centrality prior at +20% (D251): enough to
 // reorder near-ties, too little to lift a weak match over a strong one.
@@ -83,7 +87,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, reads *r
 	if deps.SQLIndex != nil {
 		description = "Keyword search over concepts (SQLite FTS5, substring matching); returns IDs, best first."
 	}
-	description += " Glossary aliases match too (expanded_to). scope is a map name or id prefix, never a KB name."
+	description += " Default 8 hits; related: N adds the neighbourhood of the hits. Glossary aliases match too (expanded_to). scope is a map name or id prefix, never a KB name."
 
 	return Tool{
 		Name:        "search",
@@ -110,8 +114,7 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 		// IncludeArchived (D322): absent hides archived concepts unless
 		// nothing live matches, true returns both, false never falls back.
 		IncludeArchived *bool `json:"include_archived"`
-		// Related sizes the related block (D781): absent is the default, 0
-		// turns it off.
+		// Related sizes the related block (D781): absent or 0 is off (D1185).
 		Related *int `json:"related"`
 		// Mode and UseSemantic are declared only to reject them: semantic and
 		// hybrid search are gone (D135), and a stale caller must fail loudly
@@ -131,7 +134,7 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 
 	limit := params.Limit
 	if limit <= 0 {
-		limit = 20
+		limit = searchDefaultLimit
 	}
 
 	skipArchived := params.IncludeArchived == nil || !*params.IncludeArchived
@@ -212,8 +215,7 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	if len(notes) > 0 {
 		result["note"] = strings.Join(notes, " ")
 	}
-	out, _ := json.MarshalIndent(result, "", "  ")
-	return textResult(string(out)), nil
+	return jsonResult(result), nil
 }
 
 // scopePrefixesShown caps the maps and journals an unmatched-scope error

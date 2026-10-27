@@ -768,10 +768,13 @@ func TestServer_ConceptRead_FullResponse_ContentIsOptIn(t *testing.T) {
 	if _, ok := byDefault["content"]; ok {
 		t.Errorf("concept_read: 'content' must be opt-in, got it by default: %v", byDefault)
 	}
-	for _, want := range []string{"body", "content_hash", "frontmatter_raw"} {
+	for _, want := range []string{"body", "content_hash", "frontmatter"} {
 		if _, ok := byDefault[want]; !ok {
 			t.Errorf("concept_read: missing %q in default response: %v", want, byDefault)
 		}
+	}
+	if _, ok := byDefault["frontmatter_raw"]; ok {
+		t.Errorf("concept_read: frontmatter_raw sent next to a parsed frontmatter (D1185): %v", byDefault)
 	}
 
 	withContent := decode(decodeToolResult(t, resps[3]))
@@ -791,7 +794,7 @@ func TestServer_ConceptRead_FullResponse_ContentIsOptIn(t *testing.T) {
 	if _, ok := withContent["body"]; ok {
 		t.Errorf("concept_read with_content: 'body' must be omitted (the concept would travel twice): %v", withContent)
 	}
-	for _, want := range []string{"content_hash", "frontmatter_raw", "frontmatter"} {
+	for _, want := range []string{"content_hash", "frontmatter"} {
 		if _, ok := withContent[want]; !ok {
 			t.Errorf("concept_read with_content: missing %q: %v", want, withContent)
 		}
@@ -1312,7 +1315,7 @@ func TestServer_LogTail_EmptyReturnsNote(t *testing.T) {
 		t.Fatalf("log_tail: isError=true: %v", tr.Content)
 	}
 	text := tr.Content[0].Text
-	if !strings.Contains(text, "\"entries\": 0") || !strings.Contains(text, "\"note\"") {
+	if !strings.Contains(text, "\"entries\":0") || !strings.Contains(text, "\"note\"") {
 		t.Errorf("log_tail without entries: expected a JSON note, got: %s", text)
 	}
 }
@@ -1379,7 +1382,7 @@ func TestSearch_RemovedModeArgumentsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if result.IsError || !strings.Contains(result.Content[0].Text, `"mode": "keyword"`) {
+	if result.IsError || !strings.Contains(result.Content[0].Text, `"mode":"keyword"`) {
 		t.Fatalf("plain keyword search got %+v", result)
 	}
 }
@@ -1425,7 +1428,7 @@ func TestServer_SearchNoResults(t *testing.T) {
 	if tr.IsError {
 		t.Fatalf("search: isError=true: %v", tr.Content)
 	}
-	if !strings.Contains(tr.Content[0].Text, `"count": 0`) {
+	if !strings.Contains(tr.Content[0].Text, `"count":0`) {
 		t.Errorf("search: expected count 0: %s", tr.Content[0].Text)
 	}
 }
@@ -1538,7 +1541,7 @@ func TestServer_MapList(t *testing.T) {
 	if !strings.Contains(tr.Content[0].Text, "Test Map") {
 		t.Errorf("map_list: expected title 'Test Map': %s", tr.Content[0].Text)
 	}
-	if !strings.Contains(tr.Content[0].Text, `"kind": "journal"`) {
+	if !strings.Contains(tr.Content[0].Text, `"kind":"journal"`) {
 		t.Errorf("map_list: expected kind 'journal' in output: %s", tr.Content[0].Text)
 	}
 }
@@ -1922,7 +1925,7 @@ func TestServer_CommitGate_Pass(t *testing.T) {
 	if tr.IsError {
 		t.Fatalf("commit_gate: isError=true: %v", tr.Content)
 	}
-	if !strings.Contains(tr.Content[0].Text, `"pass": true`) {
+	if !strings.Contains(tr.Content[0].Text, `"pass":true`) {
 		t.Errorf("commit_gate: expected pass=true: %s", tr.Content[0].Text)
 	}
 }
@@ -1948,7 +1951,7 @@ func TestServer_CommitGate_Blocked(t *testing.T) {
 	if tr.IsError {
 		t.Fatalf("commit_gate blocked: isError=true: %v", tr.Content)
 	}
-	if !strings.Contains(tr.Content[0].Text, `"pass": false`) {
+	if !strings.Contains(tr.Content[0].Text, `"pass":false`) {
 		t.Errorf("commit_gate: expected pass=false: %s", tr.Content[0].Text)
 	}
 	if !strings.Contains(tr.Content[0].Text, "factual") {
@@ -2253,7 +2256,7 @@ func TestServer_GateCheck_Pass(t *testing.T) {
 	if tr.IsError {
 		t.Fatalf("gate_check: isError=true: %v", tr.Content)
 	}
-	if !strings.Contains(tr.Content[0].Text, `"pass": true`) {
+	if !strings.Contains(tr.Content[0].Text, `"pass":true`) {
 		t.Errorf("gate_check: expected pass=true: %s", tr.Content[0].Text)
 	}
 }
@@ -2469,7 +2472,7 @@ func TestServer_GateCheck_Blocked(t *testing.T) {
 	if tr.IsError {
 		t.Fatalf("gate_check blocked: isError=true: %v", tr.Content)
 	}
-	if !strings.Contains(tr.Content[0].Text, `"pass": false`) {
+	if !strings.Contains(tr.Content[0].Text, `"pass":false`) {
 		t.Errorf("gate_check: expected pass=false: %s", tr.Content[0].Text)
 	}
 	if !strings.Contains(tr.Content[0].Text, "factual") {
@@ -2488,7 +2491,7 @@ func TestServer_GateCheck_BlockedByRequiredField(t *testing.T) {
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"gate_check","arguments":{"changed_ids":["manutenzione/test-runbook"]}}}`,
 	})
 	tr := decodeToolResult(t, resps[1])
-	if tr.IsError || !strings.Contains(tr.Content[0].Text, `"pass": false`) || !strings.Contains(tr.Content[0].Text, "missing_required_field") {
+	if tr.IsError || !strings.Contains(tr.Content[0].Text, `"pass":false`) || !strings.Contains(tr.Content[0].Text, "missing_required_field") {
 		t.Fatalf("gate_check contract result: %#v", tr)
 	}
 }
@@ -2580,7 +2583,7 @@ func TestServer_E2E_WriteQueryLint(t *testing.T) {
 	if tr9.IsError {
 		t.Fatalf("gate_check: %v", tr9.Content)
 	}
-	if !strings.Contains(tr9.Content[0].Text, `"pass": true`) {
+	if !strings.Contains(tr9.Content[0].Text, `"pass":true`) {
 		t.Errorf("gate_check: expected pass=true: %s", tr9.Content[0].Text)
 	}
 }
@@ -2786,7 +2789,7 @@ func TestServer_Reindex_Modes(t *testing.T) {
 		writeOutOfBand(t, k)
 
 		tr := callReindex(t, s, "{}")
-		if tr.IsError || !strings.Contains(tr.Content[0].Text, `"indexed": 1`) {
+		if tr.IsError || !strings.Contains(tr.Content[0].Text, `"indexed":1`) {
 			t.Fatalf("reindex without SQLite: expected one indexed concept, got %+v", tr)
 		}
 	})
@@ -2838,7 +2841,7 @@ func TestServer_Reindex_Modes(t *testing.T) {
 		if tr.IsError {
 			t.Fatalf("reindex full without SQLite: %v", tr.Content)
 		}
-		if !strings.Contains(tr.Content[0].Text, `"status": "rebuilt"`) {
+		if !strings.Contains(tr.Content[0].Text, `"status":"rebuilt"`) {
 			t.Errorf("expected a rebuilt status: %s", tr.Content[0].Text)
 		}
 		if strings.Contains(tr.Content[0].Text, "sql_upserted") {
@@ -2942,7 +2945,7 @@ func TestServer_ConceptWrite_UpdatesSQLIndex(t *testing.T) {
 		if !strings.Contains(trSearch.Content[0].Text, "notes/sql-kw-test") {
 			t.Errorf("search after concept_write (fallback): expected 'notes/sql-kw-test' in results: %s", trSearch.Content[0].Text)
 		}
-		if !strings.Contains(trSearch.Content[0].Text, `"mode": "keyword"`) {
+		if !strings.Contains(trSearch.Content[0].Text, `"mode":"keyword"`) {
 			t.Errorf("search after concept_write: expected fallback mode 'keyword': %s", trSearch.Content[0].Text)
 		}
 	})
@@ -3036,7 +3039,7 @@ func TestServer_ConceptMove_UpdatesIndexes(t *testing.T) {
 
 		trWrite, trMove, trSearch := writeMoveSearch(t, s)
 		assertSearchResult(t, trWrite, trMove, trSearch)
-		if !strings.Contains(trSearch.Content[0].Text, `"mode": "keyword"`) {
+		if !strings.Contains(trSearch.Content[0].Text, `"mode":"keyword"`) {
 			t.Errorf("search after concept_move: expected fallback mode 'keyword': %s", trSearch.Content[0].Text)
 		}
 	})
@@ -3188,10 +3191,10 @@ func TestServer_ConceptMove_BatchRewriteLinks(t *testing.T) {
 		t.Fatalf("search: unexpected error: %v", trSearch.Content)
 	}
 	searchText := trSearch.Content[0].Text
-	if !strings.Contains(searchText, `"id": "notes/moved-x1"`) {
+	if !strings.Contains(searchText, `"id":"notes/moved-x1"`) {
 		t.Errorf("search: expected id 'notes/moved-x1' in results: %s", searchText)
 	}
-	if strings.Contains(searchText, `"id": "notes/x1"`) {
+	if strings.Contains(searchText, `"id":"notes/x1"`) {
 		t.Errorf("search: stale id 'notes/x1' still present: %s", searchText)
 	}
 }
@@ -3397,7 +3400,7 @@ func TestReconcileIndex_OutOfBandChanges(t *testing.T) {
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search","arguments":{"query":"reconcileunique"}}}`,
 	}
 	resps := runMCPSequence(t, s, msgs)
-	if got := decodeToolResult(t, resps[1]); got.IsError || !strings.Contains(got.Content[0].Text, `"indexed": 1`) {
+	if got := decodeToolResult(t, resps[1]); got.IsError || !strings.Contains(got.Content[0].Text, `"indexed":1`) {
 		t.Fatalf("reindex add = %+v", got)
 	}
 	if got := decodeToolResult(t, resps[2]); got.IsError || !strings.Contains(got.Content[0].Text, "manutenzione/out-of-band") {
@@ -3412,10 +3415,10 @@ func TestReconcileIndex_OutOfBandChanges(t *testing.T) {
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"search","arguments":{"query":"reconcileunique"}}}`,
 	}
 	resps = runMCPSequence(t, s, msgs)
-	if got := decodeToolResult(t, resps[0]); got.IsError || !strings.Contains(got.Content[0].Text, `"removed": 1`) {
+	if got := decodeToolResult(t, resps[0]); got.IsError || !strings.Contains(got.Content[0].Text, `"removed":1`) {
 		t.Fatalf("reindex remove = %+v", got)
 	}
-	if got := decodeToolResult(t, resps[1]); got.IsError || !strings.Contains(got.Content[0].Text, `"count": 0`) {
+	if got := decodeToolResult(t, resps[1]); got.IsError || !strings.Contains(got.Content[0].Text, `"count":0`) {
 		t.Fatalf("search after removal = %+v", got)
 	}
 	if stats, err := ReconcileIndex(k, nil, sqlIdx); err != nil || stats != (ReconcileStats{}) {
@@ -4610,7 +4613,8 @@ func TestServer_ConceptPatch_UnsetProtectedKeyViaArray(t *testing.T) {
 }
 
 // TestServer_ConceptRead_ReturnsParsedFrontmatter: concept_read carries the
-// parsed frontmatter next to frontmatter_raw.
+// parsed frontmatter and no frontmatter_raw, which only travels when the
+// frontmatter does not parse (D1185).
 func TestServer_ConceptRead_ReturnsParsedFrontmatter(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
@@ -4630,8 +4634,8 @@ func TestServer_ConceptRead_ReturnsParsedFrontmatter(t *testing.T) {
 	if err := json.Unmarshal([]byte(tr.Content[0].Text), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out.FrontmatterRaw == "" {
-		t.Fatal("frontmatter_raw missing")
+	if out.FrontmatterRaw != "" {
+		t.Fatalf("frontmatter_raw sent although the frontmatter parses: %q", out.FrontmatterRaw)
 	}
 	if out.Frontmatter["type"] != "Note" || out.Frontmatter["title"] != "L'operatore" {
 		t.Fatalf("frontmatter = %v", out.Frontmatter)
@@ -4639,6 +4643,30 @@ func TestServer_ConceptRead_ReturnsParsedFrontmatter(t *testing.T) {
 	tags, ok := out.Frontmatter["tags"].([]any)
 	if !ok || len(tags) != 2 || tags[0] != "a" || tags[1] != "b" {
 		t.Fatalf("tags = %#v", out.Frontmatter["tags"])
+	}
+}
+
+// A page whose frontmatter does not parse has no parsed form: the raw text is
+// then the only way to see and repair it, so it is sent (D1185).
+func TestServer_ConceptRead_UnparseableFrontmatterSendsTheRawText(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+	writeKBFile(t, k, "note/broken.md", "---\ntype: Note\ntitle: [unclosed\n---\n# Broken\n\nbody\n")
+	tr := callTool(t, s, "concept_read", `{"id":"note/broken"}`)
+	if tr.IsError {
+		t.Fatalf("concept_read: %v", tr.Content)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(tr.Content[0].Text), &out); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := out["frontmatter"]; ok {
+		t.Errorf("a parsed frontmatter for text that does not parse: %v", out)
+	}
+	if raw, _ := out["frontmatter_raw"].(string); !strings.Contains(raw, "[unclosed") {
+		t.Errorf("frontmatter_raw missing for an unparseable page: %v", out)
 	}
 }
 

@@ -1,0 +1,12 @@
+{
+  "moves": [
+    {
+      "source_id": "ops/eps",
+      "target_id": "ops/zeta"
+    }
+  ],
+  "rewritten": null,
+  "rewritten_indexes": [
+    "ops/index.md"
+  ]
+}

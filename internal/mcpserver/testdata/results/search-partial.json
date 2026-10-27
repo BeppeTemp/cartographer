@@ -1,0 +1,41 @@
+{
+  "count": 4,
+  "mode": "keyword",
+  "note": "some terms matched only partially",
+  "or_fallback": true,
+  "query": "zeppelin nonexistentterm",
+  "results": [
+    {
+      "id": "ops/beta",
+      "score": 0.051948051948051945,
+      "title": "Beta",
+      "snippet": "# Beta\n\nSecond page about the zeppelin. [gamma](gamma.md).",
+      "partial": true,
+      "bytes": 90
+    },
+    {
+      "id": "ops/alpha",
+      "score": 0.045454545454545456,
+      "title": "Alpha",
+      "snippet": "# Alpha\n\nZeppelin hangar. [beta](beta.md) [hub](hub.md).",
+      "partial": true,
+      "bytes": 89
+    },
+    {
+      "id": "ops/dirigible",
+      "score": 0.045454545454545456,
+      "title": "Dirigible",
+      "snippet": "# Dirigible\n\nSee the zeppelin pages.",
+      "partial": true,
+      "bytes": 96
+    },
+    {
+      "id": "ops/big",
+      "score": 0.005555555555555556,
+      "title": "Big",
+      "snippet": "…about hangars\nfiller line about hangars\nfiller line about hangars\nfiller line about hangars\nfiller line about hangars\nfiller line about hangars\nfiller line about hangars\n\n## Part two\n\nzeppelin details",
+      "partial": true,
+      "bytes": 1121
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+[
+  {
+    "name": "hidden",
+    "map": "hidden",
+    "title": "hidden",
+    "kind": "map",
+    "ontology_mode": "flexible",
+    "expanded_concepts": 0
+  },
+  {
+    "name": "manutenzione",
+    "map": "manutenzione",
+    "expanded_concepts": 0
+  },
+  {
+    "name": "ops",
+    "map": "ops",
+    "title": "ops",
+    "kind": "map",
+    "ontology_mode": "flexible",
+    "expanded_concepts": 0
+  }
+]

@@ -151,8 +151,7 @@ func toolConceptArchive(k *kb.KB) Tool {
 				return *errRes, nil
 			}
 			result["status"] = status
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }

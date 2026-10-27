@@ -431,8 +431,7 @@ func toolSourceList(k *kb.KB) Tool {
 			if entries == nil {
 				entries = []entry{}
 			}
-			out, _ := json.MarshalIndent(entries, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(entries), nil
 		},
 	}
 }

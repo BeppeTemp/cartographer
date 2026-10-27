@@ -1,0 +1,22 @@
+{
+  "body_bytes": 60342,
+  "content_hash": "1287dd421ced67ad6d44caf3b8a8aa62741d37fd07d3251e3481713b743f81d9",
+  "frontmatter": {
+    "title": "Huge",
+    "type": "Note"
+  },
+  "id": "ops/huge",
+  "note": "body is 60342 bytes (over the 60000 byte guard) — use 'section' to read a specific part, or 'full: true' to force the full content",
+  "outline": [
+    {
+      "bytes": 60335,
+      "level": 1,
+      "title": "Huge"
+    },
+    {
+      "bytes": 60321,
+      "level": 2,
+      "title": "Only part"
+    }
+  ]
+}

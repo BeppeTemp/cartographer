@@ -1,0 +1,83 @@
+{
+  "behind_commits": null,
+  "branch": "main",
+  "branch_source": "remote",
+  "by_status": {},
+  "by_type": {
+    "Glossary": 1,
+    "Note": 6,
+    "Runbook": 1
+  },
+  "capabilities": {
+    "mount": {
+      "state": "configured",
+      "setting": "kbs[]"
+    },
+    "secrets": {
+      "state": "disabled",
+      "setting": "credentials_dir"
+    }
+  },
+  "conformance": {
+    "doctor_suggested": true,
+    "findings": 0,
+    "fixable": 0,
+    "lint_findings": 12,
+    "repairable": {
+      "title_h1_mismatch": 1,
+      "unmapped_folder": 1
+    }
+  },
+  "has_remote": false,
+  "kb": "kb",
+  "last_push_at": null,
+  "last_sync_in_at": null,
+  "open_contradictions": 0,
+  "push_last_error": "",
+  "push_state": "no_remote",
+  "read_access": {
+    "newest": "<time>",
+    "oldest": "<time>",
+    "since": "<time>",
+    "surfaced": {
+      "tracked_concepts": 4,
+      "oldest": "<time>",
+      "newest": "<time>"
+    },
+    "tracked_concepts": 4
+  },
+  "read_cost": {
+    "concept_bytes": {
+      "p50": 89,
+      "p90": 60373,
+      "max": 60373
+    },
+    "neighbourhood_bytes": {
+      "p50": 149,
+      "p90": 60373,
+      "max": 60373
+    }
+  },
+  "remote_url": "",
+  "review": {
+    "by_kind": {
+      "observation": 1,
+      "template_proposal": 1
+    },
+    "total": 2
+  },
+  "server_version": "test",
+  "stale_count": 0,
+  "total": 8,
+  "unpushed_commits": null,
+  "usage": {
+    "no_data": true,
+    "no_report_since": "<time>",
+    "scanner_enabled": false
+  },
+  "work": {
+    "open_concepts": 0,
+    "open_items": 0,
+    "stale": 0
+  }
+}

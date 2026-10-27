@@ -19,7 +19,7 @@ func TestUIAPI_SearchAsYouTypeCarriesNoRelatedBlock(t *testing.T) {
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}})
-	text, isErr := callJSON(t, s, ctx, "search", `{"query":"`+query+`"}`)
+	text, isErr := callJSON(t, s, ctx, "search", `{"query":"`+query+`","related":5}`)
 	if isErr || !strings.Contains(text, `"related"`) {
 		t.Fatalf("control: the tool offered no block: %s", text)
 	}

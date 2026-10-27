@@ -1,0 +1,39 @@
+{
+  "count": 3,
+  "ids": [
+    "ops/beta"
+  ],
+  "results": [
+    {
+      "id": "ops/alpha",
+      "title": "Alpha",
+      "score": 0.2493,
+      "hops": 1,
+      "bytes": 89,
+      "via": "ops/beta"
+    },
+    {
+      "id": "ops/gamma",
+      "title": "Gamma",
+      "score": 0.1792,
+      "hops": 1,
+      "bytes": 53,
+      "via": "ops/beta"
+    },
+    {
+      "id": "ops/hub",
+      "title": "Hub",
+      "score": 0.0935,
+      "hops": 2,
+      "bytes": 60,
+      "via": "ops/alpha"
+    }
+  ],
+  "seeds": [
+    {
+      "id": "ops/beta",
+      "title": "Beta",
+      "weight": 1
+    }
+  ]
+}

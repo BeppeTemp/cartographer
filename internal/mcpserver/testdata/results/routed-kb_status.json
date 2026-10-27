@@ -1,0 +1,79 @@
+{
+  "behind_commits": null,
+  "branch": "main",
+  "branch_source": "remote",
+  "by_status": {},
+  "by_type": {
+    "Runbook": 2
+  },
+  "capabilities": {
+    "mount": {
+      "state": "configured",
+      "setting": "kbs[]"
+    },
+    "secrets": {
+      "state": "disabled",
+      "setting": "credentials_dir"
+    }
+  },
+  "conformance": {
+    "doctor_suggested": true,
+    "findings": 0,
+    "fixable": 0,
+    "lint_findings": 5,
+    "repairable": {
+      "title_h1_mismatch": 2,
+      "unmapped_folder": 1
+    }
+  },
+  "connection": {
+    "hint": "A KB listed in mounted but missing from your instructions' KB list was added after this session started: the integration picks it up when it reconnects or re-synchronizes its tool list.",
+    "kbs": [
+      "kb-one",
+      "kb-two"
+    ],
+    "mounted": [
+      "kb-one",
+      "kb-two"
+    ],
+    "server_started_at": "<time>"
+  },
+  "has_remote": false,
+  "kb": "kb",
+  "last_push_at": null,
+  "last_sync_in_at": null,
+  "open_contradictions": 0,
+  "push_last_error": "",
+  "push_state": "no_remote",
+  "read_cost": {
+    "concept_bytes": {
+      "p50": 70,
+      "p90": 71,
+      "max": 71
+    },
+    "neighbourhood_bytes": {
+      "p50": 70,
+      "p90": 71,
+      "max": 71
+    }
+  },
+  "remote_url": "",
+  "review": {
+    "by_kind": {},
+    "total": 0
+  },
+  "server_version": "test",
+  "stale_count": 0,
+  "total": 2,
+  "unpushed_commits": null,
+  "usage": {
+    "no_data": true,
+    "no_report_since": "<time>",
+    "scanner_enabled": false
+  },
+  "work": {
+    "open_concepts": 0,
+    "open_items": 0,
+    "stale": 0
+  }
+}

@@ -141,7 +141,7 @@ func TestConceptTransfer_FlatPage(t *testing.T) {
 	srvB := New("test")
 	RegisterKBTools(srvB, f.b, Deps{})
 	hist := srvB.callTool(authLocalContext(), "concept_history", json.RawMessage(`{"id":"wiki/a"}`))
-	if !strings.Contains(xferText(hist), `"moved_from": "kb-a"`) {
+	if !strings.Contains(xferText(hist), `"moved_from":"kb-a"`) {
 		t.Errorf("concept_history lacks moved_from:\n%s", xferText(hist))
 	}
 	since := srvB.callTool(authLocalContext(), "changes_since", json.RawMessage(`{"since":"`+time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)+`"}`))

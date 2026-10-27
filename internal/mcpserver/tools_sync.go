@@ -29,8 +29,7 @@ func toolSyncStatus(k *kb.KB) Tool {
 			if k.SyncOutDebounce > 0 {
 				mode = "debounced"
 			}
-			out, _ := json.MarshalIndent(map[string]any{"state": s.State, "last_error": statusError(ctx, s), "last_attempt_at": s.LastAttemptAt, "head_sha": s.HeadSHA, "unpushed_commits": s.UnpushedCommits, "behind_commits": s.BehindCommits, "last_push_at": s.LastPushAt, "last_sync_in_at": s.LastSyncInAt, "attempts": s.Attempts, "branch": s.Branch, "remote_default_branch": s.RemoteDefaultBranch, "branch_source": s.BranchSource, "push_mode": mode}, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(map[string]any{"state": s.State, "last_error": statusError(ctx, s), "last_attempt_at": s.LastAttemptAt, "head_sha": s.HeadSHA, "unpushed_commits": s.UnpushedCommits, "behind_commits": s.BehindCommits, "last_push_at": s.LastPushAt, "last_sync_in_at": s.LastSyncInAt, "attempts": s.Attempts, "branch": s.Branch, "remote_default_branch": s.RemoteDefaultBranch, "branch_source": s.BranchSource, "push_mode": mode}), nil
 		},
 	}
 }
@@ -116,8 +115,7 @@ func toolSyncCheck(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 				"artifacts":      arts,
 				"open_conflicts": openConflicts,
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -236,8 +234,7 @@ func toolSyncApply(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pr
 				"needs_approval": toArtJSON(applied.NeedsApproval),
 				"dry_run":        params.DryRun,
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -335,8 +332,7 @@ func toolSyncPull(k *kb.KB, bundleFS fs.FS, routedMount bool, signer ed25519.Pri
 			if issues := append(append([]string(nil), m.Issues...), registryIssues...); len(issues) > 0 {
 				result["issues"] = issues
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }

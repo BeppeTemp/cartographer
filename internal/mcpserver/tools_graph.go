@@ -220,8 +220,7 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 				result["results"] = []resultOut{}
 				result["count"] = 0
 				result["note"] = "no seed matched the query"
-				out, _ := json.MarshalIndent(result, "", "  ")
-				return textResult(string(out)), nil
+				return jsonResult(result), nil
 			}
 
 			results := []resultOut{}
@@ -242,8 +241,7 @@ func toolGraphContext(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 			}
 			result["results"] = results
 			result["count"] = len(results)
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -320,12 +318,12 @@ func toolLinkSuggest(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 					candidates = append(candidates, candidateOut{ID: string(lg.IDs[id]), Title: lg.Facets[id].Title, Common: []string{}})
 				}
 			}
-			out, _ := json.MarshalIndent(map[string]interface{}{
+			out, _ := json.Marshal(map[string]interface{}{
 				"id":         params.ID,
 				"method":     method,
 				"candidates": candidates,
 				"count":      len(candidates),
-			}, "", "  ")
+			})
 			return textResult(string(out)), nil
 		},
 	}
@@ -453,8 +451,7 @@ func toolGraphPath(k *kb.KB) Tool {
 			if len(path) == 0 {
 				result["note"] = fmt.Sprintf("no path within %d hops", maxHops)
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }

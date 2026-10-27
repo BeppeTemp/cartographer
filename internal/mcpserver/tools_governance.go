@@ -56,8 +56,7 @@ func toolReindex(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 				if deps.SQLIndex != nil {
 					result["sql_upserted"] = sqlUpserted
 				}
-				out, _ := json.MarshalIndent(result, "", "  ")
-				return textResult(string(out)), nil
+				return jsonResult(result), nil
 			}
 
 			// Incremental: the same reconciliation every search runs (D245),
@@ -66,11 +65,11 @@ func toolReindex(k *kb.KB, rec *searchReconciler, deps Deps) Tool {
 			if err != nil {
 				return errorResult("reindex: " + err.Error()), nil
 			}
-			out, _ := json.MarshalIndent(map[string]int{
+			out, _ := json.Marshal(map[string]int{
 				"indexed": stats.Indexed,
 				"updated": stats.Updated,
 				"removed": stats.Removed,
-			}, "", "  ")
+			})
 			return textResult(string(out)), nil
 		},
 	}
@@ -252,8 +251,7 @@ func toolLint(k *kb.KB) Tool {
 					result["next_offset"] = next
 					result["truncated"] = true
 				}
-				out, _ := json.MarshalIndent(result, "", "  ")
-				return textResult(string(out)), nil
+				return jsonResult(result), nil
 			}
 
 			if limit <= 0 {
@@ -298,8 +296,7 @@ func toolLint(k *kb.KB) Tool {
 				result["next_offset"] = next
 				result["truncated"] = true
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -364,8 +361,7 @@ func toolCommitGate(k *kb.KB) Tool {
 				"pass":     gate.Pass,
 				"blockers": blockers,
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -546,8 +542,7 @@ func toolGateCheck(k *kb.KB) Tool {
 				"lint_count":        lintTotal,
 				"counts_by_check":   countsByCheck,
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -892,8 +887,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 					result["latest_version"] = latest
 				}
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -1091,8 +1085,7 @@ func toolConflictsList(k *kb.KB) Tool {
 					results[i].Guidance = reservedConflictGuidance(c.Path)
 				}
 			}
-			out, _ := json.MarshalIndent(results, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(results), nil
 		},
 	}
 }

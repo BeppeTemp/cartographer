@@ -25,8 +25,7 @@ func decodeAssetContent(content, encoding string) ([]byte, error) {
 }
 
 func assetResult(v interface{}) ToolResult {
-	out, _ := json.MarshalIndent(v, "", "  ")
-	return textResult(string(out))
+	return jsonResult(v)
 }
 
 // --- asset_read ---

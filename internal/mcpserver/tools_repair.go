@@ -769,7 +769,7 @@ func kbRepairMaps(k *kb.KB, check, scope string, dryRun bool, limit int) (ToolRe
 			result["skipped"] = skipped
 		}
 	}
-	out, _ := json.MarshalIndent(result, "", "  ")
+	out, _ := json.Marshal(result)
 	res.Content = textResult(string(out)).Content
 	return res, nil
 }
@@ -824,7 +824,7 @@ func kbRepairArtifacts(k *kb.KB, check, scope string, dryRun bool, limit int) (T
 			result["skipped"] = skipped
 		}
 	}
-	out, _ := json.MarshalIndent(result, "", "  ")
+	out, _ := json.Marshal(result)
 	res.Content = textResult(string(out)).Content
 	return res, nil
 }
@@ -1205,7 +1205,7 @@ func toolKBRepair(k *kb.KB) Tool {
 					result["contracts_rewritten"] = rewritten
 				}
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
+			out, _ := json.Marshal(result)
 			res.Content = textResult(string(out)).Content
 			return res, nil
 		},

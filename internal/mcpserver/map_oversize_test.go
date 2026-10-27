@@ -44,11 +44,11 @@ func TestMapOversizeIsAnObservationNotAWriteFinding(t *testing.T) {
 	}
 	// The doctor's list holds it.
 	out := callTool(t, s, "kb_review", `{"kind":"observation"}`).Content[0].Text
-	if !strings.Contains(out, `"check": "map_oversize"`) || !strings.Contains(out, "m/_map") {
+	if !strings.Contains(out, `"check":"map_oversize"`) || !strings.Contains(out, "m/_map") {
 		t.Fatalf("kb_review lists no map_oversize observation for m: %s", out)
 	}
 	// And a lint over the same KB does not.
-	if lintOut := callTool(t, s, "lint", `{"check":"map_oversize"}`).Content[0].Text; strings.Contains(lintOut, `"check": "map_oversize"`) {
+	if lintOut := callTool(t, s, "lint", `{"check":"map_oversize"}`).Content[0].Text; strings.Contains(lintOut, `"check":"map_oversize"`) {
 		t.Fatalf("lint returned the map_oversize observation: %s", lintOut)
 	}
 }

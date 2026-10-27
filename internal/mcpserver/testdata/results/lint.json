@@ -1,0 +1,84 @@
+{
+  "count": 12,
+  "counts_by_check": {
+    "index_incomplete": 7,
+    "orphan": 3,
+    "title_h1_mismatch": 1,
+    "unmapped_folder": 1
+  },
+  "findings": [
+    {
+      "path": "manutenzione/test-runbook.md",
+      "check": "title_h1_mismatch",
+      "message": "title \"Test Runbook\" and first heading \"Schema\" differ: the title is the label shown in concept_list, search and the Atlas; the heading should match",
+      "fix": {
+        "kind": "sync_h1",
+        "field": "",
+        "to": "Test Runbook"
+      }
+    },
+    {
+      "path": "ops/big.md",
+      "check": "orphan",
+      "message": "no links in or out: a node connected to nothing in the graph (the map's index is not a link) — link it to the concepts it relates to (link_suggest may propose some by title similarity)"
+    },
+    {
+      "path": "ops/dirigible.md",
+      "check": "orphan",
+      "message": "no links in or out: a node connected to nothing in the graph (the map's index is not a link) — link it to the concepts it relates to (link_suggest may propose some by title similarity)"
+    },
+    {
+      "path": "ops/huge.md",
+      "check": "orphan",
+      "message": "no links in or out: a node connected to nothing in the graph (the map's index is not a link) — link it to the concepts it relates to (link_suggest may propose some by title similarity)"
+    },
+    {
+      "path": "ops/index.md",
+      "check": "index_incomplete",
+      "message": "missing curated index entry for ops/alpha"
+    },
+    {
+      "path": "ops/index.md",
+      "check": "index_incomplete",
+      "message": "missing curated index entry for ops/beta"
+    },
+    {
+      "path": "ops/index.md",
+      "check": "index_incomplete",
+      "message": "missing curated index entry for ops/big"
+    },
+    {
+      "path": "ops/index.md",
+      "check": "index_incomplete",
+      "message": "missing curated index entry for ops/dirigible"
+    },
+    {
+      "path": "ops/index.md",
+      "check": "index_incomplete",
+      "message": "missing curated index entry for ops/gamma"
+    },
+    {
+      "path": "ops/index.md",
+      "check": "index_incomplete",
+      "message": "missing curated index entry for ops/hub"
+    },
+    {
+      "path": "ops/index.md",
+      "check": "index_incomplete",
+      "message": "missing curated index entry for ops/huge"
+    },
+    {
+      "path": "manutenzione",
+      "check": "unmapped_folder",
+      "message": "folder \"manutenzione\" holds concepts but has no _map.md: map_list shows it with no title or kind and no contract applies — fix: scaffold the descriptor",
+      "fix": {
+        "kind": "scaffold_map",
+        "field": "manutenzione",
+        "to": "Manutenzione"
+      }
+    }
+  ],
+  "findings_after_filter": 12,
+  "findings_in_page": 12,
+  "offset": 0
+}

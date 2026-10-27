@@ -76,8 +76,9 @@ Fan-out rules:
 - A digest is a claim, not proof: `gate_check` every id a worker touched.
 
 Token economy (a doctor session reads a KB, not a page):
-- `concept_read` with `outline: true` unless the body must be read or patched; `section:` for one
-  section; never re-read what `lint`/`kb_review` evidence already gave;
+- read a page whole, in one call: every extra call re-reads the whole context. `outline: true` or
+  `section:` only for a genuinely large page (over 40 KB), never for a runbook, a procedure or an
+  incident; never re-read what `lint`/`kb_review` evidence already gave;
 - `lint` with `check:` and `scope:` instead of the full dump; it pages (at most 200 findings a
   call): `counts_by_check` is the full census, and `truncated` with `next_offset` says where to
   continue;

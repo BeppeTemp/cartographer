@@ -153,7 +153,7 @@ func TestMapCreateAndUpdateTemplateKeys(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("map_update: %+v", res.Content)
 	}
-	if !strings.Contains(res.Content[0].Text, `"default_template": "server"`) {
+	if !strings.Contains(res.Content[0].Text, `"default_template":"server"`) {
 		t.Fatalf("the contract echo lacks the template keys: %s", res.Content[0].Text)
 	}
 	if res := callTool(t, s, "map_update", `{"map":"infra","templates":["runbook"]}`); !res.IsError {

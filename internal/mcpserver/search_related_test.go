@@ -34,6 +34,12 @@ func relatedSearch(t *testing.T, s *Server, args string) (map[string]interface{}
 	return decodeJSON(t, text), text
 }
 
+func relatedSearchOK(t *testing.T, s *Server, args string) map[string]interface{} {
+	t.Helper()
+	out, _ := relatedSearch(t, s, args)
+	return out
+}
+
 func relatedIDs(out map[string]interface{}) []string {
 	v, ok := out["related"]
 	if !ok {
@@ -78,7 +84,7 @@ func TestSearchRelated_AFailedGraphReadOmitsTheBlock(t *testing.T) {
 func TestSearchRelated_AddsLinkedPagesWithoutTouchingTheHits(t *testing.T) {
 	t.Parallel()
 	s := graphToolKB(t, relatedKB())
-	with, _ := relatedSearch(t, s, `{"query":"zeppelin"}`)
+	with, _ := relatedSearch(t, s, `{"query":"zeppelin","related":5}`)
 	without, _ := relatedSearch(t, s, `{"query":"zeppelin","related":0}`)
 
 	a, _ := json.Marshal(with["results"])
@@ -91,8 +97,8 @@ func TestSearchRelated_AddsLinkedPagesWithoutTouchingTheHits(t *testing.T) {
 	}
 
 	ids := relatedIDs(with)
-	if len(ids) != searchRelatedDefault {
-		t.Fatalf("default block has %d entries, want %d: %v", len(ids), searchRelatedDefault, ids)
+	if len(ids) != 5 {
+		t.Fatalf("related:5 block has %d entries, want 5: %v", len(ids), ids)
 	}
 	if contains(ids, "ops/alpha") {
 		t.Fatalf("the hit is repeated in related: %v", ids)
@@ -157,7 +163,8 @@ func TestSearchRelated_SizeAndKnob(t *testing.T) {
 		args string
 		want int
 	}{
-		{`{"query":"zeppelin"}`, searchRelatedDefault},
+		{`{"query":"zeppelin"}`, 0}, // off unless asked (D1185)
+		{`{"query":"zeppelin","related":3}`, 3},
 		{`{"query":"zeppelin","related":2}`, 2},
 		{`{"query":"zeppelin","related":0}`, 0},
 		{`{"query":"zeppelin","related":-3}`, 0},
@@ -168,12 +175,15 @@ func TestSearchRelated_SizeAndKnob(t *testing.T) {
 		}
 	}
 
-	out, text := relatedSearch(t, s, `{"query":"zeppelin"}`)
-	block, _ := json.MarshalIndent(out["related"], "  ", "  ")
+	out, text := relatedSearch(t, s, `{"query":"zeppelin","related":5}`)
+	block, _ := json.Marshal(out["related"])
 	if len(block) > 1024 {
-		t.Errorf("the default block is %d bytes, over 1 KiB:\n%s", len(block), block)
+		t.Errorf("a 5-entry block is %d bytes, over 1 KiB:\n%s", len(block), block)
 	}
-	if again, _ := callJSON(t, s, adminCtx, "search", `{"query":"zeppelin"}`); again != text {
+	if _, ok := relatedSearchOK(t, s, `{"query":"zeppelin"}`)["related"]; ok {
+		t.Error("search without related carries a block")
+	}
+	if again, _ := callJSON(t, s, adminCtx, "search", `{"query":"zeppelin","related":5}`); again != text {
 		t.Error("search with a related block is not deterministic")
 	}
 }
@@ -187,12 +197,12 @@ func TestSearchRelated_SilentWhenThereIsNothingToFollow(t *testing.T) {
 	files["ops/closed.md"] = "---\ntype: Note\nstatus: archived\n---\nA quokka entry. [alpha](alpha.md)\n"
 	s := graphToolKB(t, files)
 
-	if out, _ := relatedSearch(t, s, `{"query":"xylophone"}`); out["count"].(float64) != 1 || relatedIDs(out) != nil {
+	if out, _ := relatedSearch(t, s, `{"query":"xylophone","related":5}`); out["count"].(float64) != 1 || relatedIDs(out) != nil {
 		t.Errorf("an unlinked hit got a block: %v", out)
 	}
 	// A hit that matches only some of the terms (the OR fallback) is not a
 	// seed: a weak match must not pull its neighbours in.
-	out, _ := relatedSearch(t, s, `{"query":"zeppelin nonexistentterm"}`)
+	out, _ := relatedSearch(t, s, `{"query":"zeppelin nonexistentterm","related":5}`)
 	if out["or_fallback"] != true || out["count"].(float64) == 0 {
 		t.Fatalf("fixture: expected an OR fallback hit, got %v", out)
 	}
@@ -201,14 +211,14 @@ func TestSearchRelated_SilentWhenThereIsNothingToFollow(t *testing.T) {
 	}
 	// Archived entries come back only as the fallback: closed pages do not
 	// offer their neighbours.
-	out, _ = relatedSearch(t, s, `{"query":"quokka"}`)
+	out, _ = relatedSearch(t, s, `{"query":"quokka","related":5}`)
 	if out["archived_fallback"] != true {
 		t.Fatalf("fixture: expected the archived fallback, got %v", out)
 	}
 	if relatedIDs(out) != nil {
 		t.Errorf("an archived fallback seeded a block: %v", out["related"])
 	}
-	if out, _ := relatedSearch(t, s, `{"query":"quokka","include_archived":true}`); relatedIDs(out) != nil {
+	if out, _ := relatedSearch(t, s, `{"query":"quokka","include_archived":true,"related":5}`); relatedIDs(out) != nil {
 		t.Errorf("an archived hit seeded a block: %v", out["related"])
 	}
 }
@@ -222,7 +232,7 @@ func TestSearchRelated_OmittedWhenEveryNeighbourIsAlreadyAHit(t *testing.T) {
 		"ops/den-b.md": "Another marmot burrow. [a](den-a.md)\n",
 	}
 	s := graphToolKB(t, files)
-	out, text := relatedSearch(t, s, `{"query":"marmot"}`)
+	out, text := relatedSearch(t, s, `{"query":"marmot","related":5}`)
 	if out["count"].(float64) != 2 {
 		t.Fatalf("fixture: both pages should be hits: %s", text)
 	}
@@ -233,7 +243,7 @@ func TestSearchRelated_OmittedWhenEveryNeighbourIsAlreadyAHit(t *testing.T) {
 	// The same pages with one more neighbour: the block is back, so the
 	// omission above is the graph's doing, not the fixture's.
 	files["ops/other.md"] = "[a](den-a.md)\n"
-	out, _ = relatedSearch(t, graphToolKB(t, files), `{"query":"marmot"}`)
+	out, _ = relatedSearch(t, graphToolKB(t, files), `{"query":"marmot","related":5}`)
 	if ids := relatedIDs(out); len(ids) != 1 || ids[0] != "ops/other" {
 		t.Errorf("control: related = %v, want [ops/other]", ids)
 	}

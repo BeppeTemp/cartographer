@@ -93,7 +93,7 @@ func TestSearchMiss_UnwritableLogDoesNotFailSearch(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(k.Root, ".cartographer", searchMissFile), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if out := searchText(t, s, "nothingmatches"); !strings.Contains(out, `"count": 0`) {
+	if out := searchText(t, s, "nothingmatches"); !strings.Contains(out, `"count":0`) {
 		t.Fatalf("search = %s", out)
 	}
 }
@@ -251,7 +251,7 @@ func TestKBStatus_SearchMissesResolvedAreGone(t *testing.T) {
 	if e, ok := findMiss(top, "zephyrnothing"); !ok || e.Resolved {
 		t.Fatalf("open gap = %+v (present %v): %+v", e, ok, top)
 	}
-	if !strings.Contains(string(m["search_misses"]), `"resolved": true`) || strings.Count(string(m["search_misses"]), `"resolved"`) != 1 {
+	if !strings.Contains(string(m["search_misses"]), `"resolved":true`) || strings.Count(string(m["search_misses"]), `"resolved"`) != 1 {
 		t.Fatalf("resolved must be emitted only when true: %s", m["search_misses"])
 	}
 }

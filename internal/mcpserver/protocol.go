@@ -97,6 +97,19 @@ type ToolResult struct {
 	CommitSubject string `json:"-"`
 }
 
+// jsonResult builds a ToolResult whose single text block is v as compact JSON.
+// Every JSON tool result goes through it (D1185): json.Marshal keeps the HTML
+// escaping MarshalIndent had, adds no indentation and no trailing newline; a
+// marshal failure is an error result, never an empty text. Text that is not JSON
+// (Markdown, stored content returned verbatim) does not use it.
+func jsonResult(v any) ToolResult {
+	out, err := json.Marshal(v)
+	if err != nil {
+		return errorResult("encoding the result: " + err.Error())
+	}
+	return textResult(string(out))
+}
+
 // textResult builds a ToolResult with a single text block.
 func textResult(text string) ToolResult {
 	return ToolResult{

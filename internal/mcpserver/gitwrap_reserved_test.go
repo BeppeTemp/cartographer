@@ -47,7 +47,7 @@ func TestHandleConflictError_ReservedOnlyIsRegisteredWithKind(t *testing.T) {
 	}
 
 	res, _ := toolConflictsList(k).Handler(authLocalContext(), nil)
-	if !strings.Contains(res.Content[0].Text, `"kind": "reserved"`) || !strings.Contains(res.Content[0].Text, "union") {
+	if !strings.Contains(res.Content[0].Text, `"kind":"reserved"`) || !strings.Contains(res.Content[0].Text, "union") {
 		t.Fatalf("conflicts_list = %s", res.Content[0].Text)
 	}
 

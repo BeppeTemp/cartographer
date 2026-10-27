@@ -184,7 +184,7 @@ func (m *twoKBMove) runLocked(ctx context.Context) ToolResult {
 	pushAfterCommit(ctx, dst, tool, &res)
 	pushAfterCommit(ctx, src, tool, &res)
 
-	out, _ := json.MarshalIndent(m.Report(srcSHA, dstSHA), "", "  ")
+	out, _ := json.Marshal(m.Report(srcSHA, dstSHA))
 	res.Content = append([]ContentBlock{{Type: "text", Text: string(out)}}, res.Content...)
 	res.CommitSHA = srcSHA
 	appendAuthorWarning(ctx, src, &res)

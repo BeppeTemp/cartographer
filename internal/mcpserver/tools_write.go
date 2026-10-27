@@ -119,8 +119,7 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 					result["similar"] = similar
 				}
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -306,8 +305,7 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			if similar := sim.find(ctx, params.ID, frontmatterTitle(k, params.ID)); len(similar) > 0 {
 				result["similar"] = similar
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -673,8 +671,7 @@ func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 			findings = withFacts(findings, facts, ctx, params.ID, data.Body, newFactBudget())
 			result["findings"] = findingsOrEmpty(findings)
 			applyRepairResult(result, params.ID, repaired, hashes)
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -837,8 +834,7 @@ func toolIndexPatch(k *kb.KB) Tool {
 					result["findings"] = f
 				}
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -983,8 +979,7 @@ func toolMapCreate(k *kb.KB) Tool {
 			if w := mapTitleWarning(params.Name, params.Title); w != "" {
 				result["warnings"] = []string{w}
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -1395,8 +1390,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 					echo["stale_after_defaulted"] = true
 				}
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -1486,7 +1480,7 @@ func toolMapDelete(k *kb.KB) Tool {
 			if len(removed) > 0 {
 				result["removed_files"] = removed
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
+			out, _ := json.Marshal(result)
 			res := textResult(string(out))
 			if len(removed) > 0 {
 				names := make([]string, len(removed))
@@ -1535,8 +1529,7 @@ func toolConceptExpand(k *kb.KB) Tool {
 				"id":     params.ID,
 				"status": "expanded",
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -1582,7 +1575,7 @@ func toolLogAppend(k *kb.KB) Tool {
 			if err := k.AppendLog(entry, time.Now()); err != nil {
 				return errorResult(fmt.Sprintf("log_append: %v", err)), nil
 			}
-			return textResult(`{"status": "appended"}`), nil
+			return jsonResult(map[string]string{"status": "appended"}), nil
 		},
 	}
 }
@@ -1620,8 +1613,7 @@ func toolSnapshot(k *kb.KB) Tool {
 				"message": msg,
 				"status":  "logged",
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -1698,11 +1690,11 @@ func toolSupersede(k *kb.KB) Tool {
 			text := fmt.Sprintf("superseded %s → %s", params.SourceID, params.TargetID)
 			f, repaired, _ := repairWritten(k, []string{params.SourceID}, nil, newCallerView(ctx, k))
 			if f != nil {
-				enc, _ := json.MarshalIndent(f, "", "  ")
+				enc, _ := json.Marshal(f)
 				text += "\nfindings:\n" + string(enc)
 			}
 			if len(repaired) > 0 {
-				enc, _ := json.MarshalIndent(repaired, "", "  ")
+				enc, _ := json.Marshal(repaired)
 				text += "\nrepaired:\n" + string(enc)
 			}
 			return textResult(text), nil
@@ -1800,8 +1792,7 @@ func toolConceptMove(k *kb.KB) Tool {
 			if errRes != nil {
 				return *errRes, nil
 			}
-			out, _ := json.MarshalIndent(result, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(result), nil
 		},
 	}
 }
@@ -2228,12 +2219,12 @@ func toolConceptMerge(k *kb.KB) Tool {
 			}
 			_ = k.AppendLog(fmt.Sprintf("concept_merge: %s → %s", params.SatelliteID, parentID), time.Now())
 
-			out, _ := json.MarshalIndent(map[string]interface{}{
+			out, _ := json.Marshal(map[string]interface{}{
 				"merged_into":  string(parentID),
 				"heading":      heading,
 				"rewritten":    touched,
 				"replacements": replacements,
-			}, "", "  ")
+			})
 			return textResult(string(out)), nil
 		},
 	}
@@ -2356,10 +2347,10 @@ func toolConceptCollapse(k *kb.KB) Tool {
 			}
 			_ = k.AppendLog("concept_collapse: "+params.ID, time.Now())
 
-			out, _ := json.MarshalIndent(map[string]interface{}{
+			out, _ := json.Marshal(map[string]interface{}{
 				"id":   params.ID,
 				"path": okf.IDToPath(id),
-			}, "", "  ")
+			})
 			return textResult(string(out)), nil
 		},
 	}
@@ -3123,8 +3114,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 			if notes := indexEntryNotes(indexPending); len(notes) > 0 {
 				response["curated_indexes"] = notes
 			}
-			out, _ := json.MarshalIndent(response, "", "  ")
-			return textResult(string(out)), nil
+			return jsonResult(response), nil
 		},
 	}
 }

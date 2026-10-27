@@ -28,6 +28,9 @@ test or a decision record: none of them is a preference.
 - **The `?access=read-min` listing (`readMinTools`, `readprofile.go`, D1184) stays inside
   `readOnlyToolNames`**: `TestReadMinToolsAreReadOnly` enforces it, and a write is refused
   at the routed authorizer with `read_only_profile`, never left to the target KB.
+- **A JSON tool result is built with `jsonResult` (`protocol.go`), compact.** `MarshalIndent` in
+  a non-test file is refused by `TestNoIndentedMarshalInToolResults`, and `TestToolResultGolden`
+  proves a result is its `testdata/results` golden up to whitespace (D1185).
 - **A handler never takes the lock, never commits, never syncs.** `gitwrap.go`
   wraps every write with the per-KB lock, the commit and the git sync. Doing any
   of it inside a handler double-commits or deadlocks. The only exceptions are
