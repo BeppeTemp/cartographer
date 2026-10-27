@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -43,19 +42,14 @@ func loadOrderedJSONObject(path string) (map[string]interface{}, *jsonLayout, er
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	v, err := decodeOrdered(dec, layout)
-	if err == nil {
-		if _, extra := dec.Token(); extra != io.EOF {
-			err = errors.New("trailing data after the top-level value")
-		}
+	m, ok := v.(map[string]interface{})
+	if err == nil && (!json.Valid(data) || (!ok && v != nil)) {
+		err = errors.New("not a single JSON object")
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("provisioning: parse %s: %w", path, err)
 	}
-	m, ok := v.(map[string]interface{})
-	if !ok {
-		if v != nil {
-			return nil, nil, fmt.Errorf("provisioning: parse %s: not a JSON object", path)
-		}
+	if m == nil {
 		m = map[string]interface{}{}
 	}
 	layout.indent = detectIndent(data)

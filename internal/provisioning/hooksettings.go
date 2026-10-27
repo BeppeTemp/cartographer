@@ -80,16 +80,13 @@ func registerHookSettings(baseDir, settingsRel, hookName, fullDestDir string) (s
 	return warning, err == nil, err
 }
 
-// removeHookEntries strips every settings hooks entry owned by hookName
+// removeHookEntries strips every hooks entry owned by hookName
 // (§hookOwnershipMarker) from the settings files rels names, relative to
-// baseDir; with none, from both files a registration can be in
-// (claudeSettingsFiles): the caller that does not know which one this
-// projection uses (`disconnect`, an orphan prune) strips both. No-op — including
-// no write to disk — for a file that doesn't exist or has no entry for this
-// hook, which is decided on the raw bytes first, so a file that never named the
-// hook is not even parsed: safe to call from PruneManaged/Apply's prune path
-// regardless of whether registration ever succeeded for this hook (e.g. a
-// malformed hook.json that registerHookSettings had silently skipped).
+// baseDir, or from both (claudeSettingsFiles) for a caller that does not know
+// which one holds it (`disconnect`, an orphan prune). No-op — including no write
+// to disk — for a file that doesn't exist or never names the hook (checked on
+// the raw bytes, before any parse): safe whether or not registration ever
+// succeeded for this hook.
 func removeHookEntries(baseDir, hookName string, rels ...string) error {
 	if len(rels) == 0 {
 		rels = claudeSettingsFiles
@@ -180,11 +177,9 @@ func claudeHookUnregistered(baseDir, destRel, hookName string) bool {
 	return true
 }
 
-// ClaudeSettingsHookEntries counts the hook entries of <baseDir>/.claude/settings.json
-// that Cartographer wrote: a command owned by one of hookNames, or carrying the
-// `# cartographer-hook:` comment. `doctor` reports a tracked settings.json with
-// any in a derived binding, which registers its hooks in ClaudeLocalSettings
-// (#1198). A missing file counts zero.
+// ClaudeSettingsHookEntries counts the hook entries Cartographer wrote in
+// <baseDir>/.claude/settings.json (owned by one of hookNames, or carrying
+// `# cartographer-hook:`), for `doctor` (#1198). A missing file counts zero.
 func ClaudeSettingsHookEntries(baseDir string, hookNames []string) (int, error) {
 	settings, err := loadJSONObject(claudeSettingsPath(baseDir))
 	if err != nil {

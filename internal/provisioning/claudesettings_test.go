@@ -183,3 +183,28 @@ func TestPruneManaged_StripsBothClaudeSettingsFiles(t *testing.T) {
 		t.Errorf("disconnect left the registration in settings.local.json:\n%s", got)
 	}
 }
+
+// A settings file that is not one JSON object is refused, never rewritten.
+func TestClaudeSettings_MalformedFileIsRefused(t *testing.T) {
+	for _, content := range []string{"{} {}", "[1]", "{\"a\": "} {
+		kbRoot := t.TempDir()
+		writeHookKB(t, kbRoot, "guard", "PreToolUse", "Bash", "./notify.sh")
+		baseDir := t.TempDir()
+		path := filepath.Join(baseDir, ".claude", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, ApprovedMCP: approveAll(m),
+			Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Scope: provisioning.ScopeProject})
+		if got, _ := os.ReadFile(path); string(got) != content {
+			t.Errorf("%q was rewritten as %q", content, got)
+		}
+	}
+}
