@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/search"
 )
 
 func TestOpenClose(t *testing.T) {
@@ -424,6 +426,128 @@ func TestSearchFTS_OrFloor(t *testing.T) {
 	for _, h := range hits {
 		if h.Partial {
 			t.Fatalf("partial with 3 AND hits: %+v", hits)
+		}
+	}
+}
+
+const sectionsDoc = "---\ntype: Runbook\ntitle: Gateway\n---\nIntro.\n\n## Install\nrun the installer and wait\n\n## Rollback\nrestore the snapshot, then restart the rollback worker\n"
+
+func TestBestSection(t *testing.T) {
+	ix, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if err := ix.Upsert("ops/gw", "h1", sectionsDoc, ""); err != nil {
+		t.Fatal(err)
+	}
+	h, snip, ok, err := ix.BestSection("ops/gw", "snapshot rollback")
+	if err != nil || !ok || h != "## Rollback" {
+		t.Fatalf("BestSection = %q %q %v %v, want ## Rollback", h, snip, ok, err)
+	}
+	if !strings.Contains(snip, "snapshot") || strings.ContainsAny(snip, snipMarks) {
+		t.Errorf("snippet = %q, want the section excerpt without match marks", snip)
+	}
+	// A title-only match (frontmatter title, not a section) names nothing.
+	if _, _, ok, _ := ix.BestSection("ops/gw", "gateway"); ok {
+		t.Error("a title-only match must not name a section")
+	}
+	// Terms under three characters match nothing; another id has no sections.
+	if _, _, ok, _ := ix.BestSection("ops/gw", "to"); ok {
+		t.Error("short terms must match nothing")
+	}
+	if _, _, ok, _ := ix.BestSection("ops/other", "snapshot"); ok {
+		t.Error("an unindexed id has no section")
+	}
+
+	// Re-upsert replaces the sections; Delete removes them.
+	if err := ix.Upsert("ops/gw", "h2", "---\ntitle: Gateway\n---\n## Fresh\nsnapshot of a new kind\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	if h, _, ok, _ := ix.BestSection("ops/gw", "snapshot"); !ok || h != "## Fresh" {
+		t.Errorf("after re-upsert got %q %v, want ## Fresh", h, ok)
+	}
+	if _, _, ok, _ := ix.BestSection("ops/gw", "installer"); ok {
+		t.Error("a replaced section must be gone")
+	}
+	if err := ix.Delete("ops/gw"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok, _ := ix.BestSection("ops/gw", "snapshot"); ok {
+		t.Error("Delete must remove the sections")
+	}
+}
+
+// A version-3 database has no sections_fts: opening it migrates to the current
+// version, empties concepts so the reconciliation reindexes, and a reopen
+// changes nothing.
+func TestMigrateFromVersion3(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v3.db")
+	ix, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ix.Upsert("ops/gw", "h1", sectionsDoc, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{`DROP TABLE sections_fts`, `PRAGMA user_version = 3`} {
+		if _, err := ix.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ix.Close()
+
+	ix, err = Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	var v int
+	if err := ix.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != schemaVersion {
+		t.Fatalf("user_version = %d %v, want %d", v, err, schemaVersion)
+	}
+	if n, _ := ix.Count(); n != 0 {
+		t.Fatalf("Count = %d, want 0 after migration", n)
+	}
+	if _, _, ok, err := ix.BestSection("ops/gw", "snapshot"); ok || err != nil {
+		t.Fatalf("BestSection = %v %v, want none and no error", ok, err)
+	}
+	if err := ix.Upsert("ops/gw", "h1", sectionsDoc, ""); err != nil {
+		t.Fatal(err)
+	}
+	ix.Close()
+
+	// A reopen at the current version is idempotent: it keeps the reindexed data.
+	ix, err = Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if n, _ := ix.Count(); n != 1 {
+		t.Fatalf("a reopen at the current version emptied the index: %d", n)
+	}
+	if h, _, ok, _ := ix.BestSection("ops/gw", "snapshot"); !ok || h != "## Rollback" {
+		t.Fatalf("after reopen got %q %v", h, ok)
+	}
+}
+
+// The FTS and the in-memory backends must name the same section for ordinary
+// queries (D1207): search.BestSection is the fallback of BestSection.
+func TestBestSectionParityWithInMemory(t *testing.T) {
+	ix, err := Open(filepath.Join(t.TempDir(), "p.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	doc := "---\ntitle: Parity\n---\nIntro.\n\n## Install\nrun the installer, then verify the installer log\n\n## Rollback\nrestore the snapshot and restart the worker\n\n## Contacts\nask the platform team about escalation\n"
+	if err := ix.Upsert("ops/p", "h", doc, ""); err != nil {
+		t.Fatal(err)
+	}
+	body := search.SplitFields(doc).Body
+	for _, q := range []string{"installer", "snapshot worker", "escalation team", "rollback", "platform"} {
+		h, _, ok, err := ix.BestSection("ops/p", q)
+		mem, memOK := search.BestSection(body, q)
+		if err != nil || ok != memOK || h != mem.Heading {
+			t.Errorf("query %q: fts %q/%v, memory %q/%v (err %v)", q, h, ok, mem.Heading, memOK, err)
 		}
 	}
 }

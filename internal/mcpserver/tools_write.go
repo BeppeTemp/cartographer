@@ -911,7 +911,8 @@ func toolMapCreate(k *kb.KB) Tool {
 					"items": {"type": "string"}
 				},
 				"templates": {"type": "array", "items": {"type": "string"}},
-				"default_template": {"type": "string"}
+				"default_template": {"type": "string"},
+				"read_whole": {"type": "array", "items": {"type": "string"}}
 			}
 		}`),
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
@@ -926,6 +927,7 @@ func toolMapCreate(k *kb.KB) Tool {
 				ForbiddenFields []string                       `json:"forbidden_fields"`
 				Templates       []string                       `json:"templates"`
 				DefaultTemplate string                         `json:"default_template"`
+				ReadWhole       []string                       `json:"read_whole"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
 				return errorResult("invalid params: " + err.Error()), nil
@@ -956,6 +958,7 @@ func toolMapCreate(k *kb.KB) Tool {
 				Templates:       params.Templates,
 				DefaultTemplate: params.DefaultTemplate,
 				ForbiddenFields: params.ForbiddenFields,
+				ReadWhole:       params.ReadWhole,
 			}
 			contract.RequiredFields, contract.RequiredFieldsByType = splitRequiredFields(params.RequiredFields)
 			contract.FieldValues, contract.FieldValuesByType = splitFieldValues(params.FieldValues)
@@ -1205,6 +1208,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				"index": {"type": "string"},
 				"work_map": {"type": "string"},
 				"forbidden_title_terms": {"type": "array", "items": {"type": "string"}},
+				"read_whole": {"type": "array", "items": {"type": "string"}},
 				"title": {"type": "string"}
 			}
 		}`),
@@ -1231,6 +1235,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				Index               *string                        `json:"index"`
 				WorkMap             *string                        `json:"work_map"`
 				ForbiddenTitleTerms *[]string                      `json:"forbidden_title_terms"`
+				ReadWhole           *[]string                      `json:"read_whole"`
 				Title               *string                        `json:"title"`
 			}
 			if err := json.Unmarshal(args, &params); err != nil {
@@ -1242,8 +1247,8 @@ func toolMapUpdate(k *kb.KB) Tool {
 			if params.RequiredFields == nil && params.FieldValues == nil && params.ForbiddenFields == nil && params.ValueSynonyms == nil &&
 				params.OpenStatuses == nil && params.OpenField == nil && params.OpenMarkers == nil && params.StaleAfter == nil && params.HarvestAfter == nil && params.ConceptTypes == nil && params.Templates == nil && params.DefaultTemplate == nil &&
 				params.PromoteTo == nil && params.ProcedureHeadings == nil && params.Glossary == nil &&
-				params.Index == nil && params.WorkMap == nil && params.ForbiddenTitleTerms == nil && params.Title == nil {
-				return errorResult("nothing to change: pass at least one of title, required_fields, field_values, forbidden_fields, value_synonyms, open_statuses, open_field, open_markers, stale_after, harvest_after, concept_types, templates, default_template, promote_to, procedure_headings, glossary, index, work_map, forbidden_title_terms"), nil
+				params.Index == nil && params.WorkMap == nil && params.ForbiddenTitleTerms == nil && params.ReadWhole == nil && params.Title == nil {
+				return errorResult("nothing to change: pass at least one of title, required_fields, field_values, forbidden_fields, value_synonyms, open_statuses, open_field, open_markers, stale_after, harvest_after, concept_types, templates, default_template, promote_to, procedure_headings, glossary, index, work_map, forbidden_title_terms, read_whole"), nil
 			}
 			var forbidden []string
 			if params.ForbiddenFields != nil {
@@ -1292,6 +1297,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 				Index:               params.Index,
 				WorkMap:             params.WorkMap,
 				ForbiddenTitleTerms: params.ForbiddenTitleTerms,
+				ReadWhole:           params.ReadWhole,
 				Title:               params.Title,
 				Guard: func(before, after kb.MapContract) error {
 					loosened = kb.ContractLoosening(before, after)
@@ -1360,6 +1366,7 @@ func toolMapUpdate(k *kb.KB) Tool {
 			echo["forbidden_title_terms"] = nonNilStrings(contract.ForbiddenTitleTerms)
 			echo["concept_types"] = nonNilStrings(contract.ConceptTypes)
 			echo["procedure_headings"] = nonNilStrings(contract.ProcedureHeadings)
+			echo["read_whole"] = nonNilStrings(contract.ReadWhole)
 			valueSyn := contract.ValueSynonyms
 			if valueSyn == nil {
 				valueSyn = map[string][]string{}

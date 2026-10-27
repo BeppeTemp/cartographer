@@ -1068,6 +1068,7 @@ func toolMapList(k *kb.KB) Tool {
 				Index                 string              `json:"index,omitempty"`
 				ValueSynonyms         map[string][]string `json:"value_synonyms,omitempty"`
 				ForbiddenTitleTerms   []string            `json:"forbidden_title_terms,omitempty"`
+				ReadWhole             []string            `json:"read_whole,omitempty"`
 				// LegacyKeys are the removed keys the descriptor still carries
 				// (D907); the repair drops them.
 				LegacyKeys []string       `json:"legacy_keys,omitempty"`
@@ -1125,6 +1126,7 @@ func toolMapList(k *kb.KB) Tool {
 					}
 					info.Index = c.Index
 					info.ValueSynonyms, info.ForbiddenTitleTerms, info.LegacyKeys = c.ValueSynonyms, c.ForbiddenTitleTerms, c.LegacyKeys
+					info.ReadWhole = c.ReadWhole
 					for _, m := range c.Malformed {
 						info.Malformed = append(info.Malformed, mapMalformed{Key: m.Key, Reason: "malformed value in " + m.Descriptor})
 					}

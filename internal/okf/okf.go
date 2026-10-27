@@ -246,6 +246,68 @@ func ListHeadings(body string) []Heading {
 	return headings
 }
 
+// Section is one level-2 section of a body: what a search hit names so that
+// concept_read can return just it.
+type Section struct {
+	// Heading is the heading line exactly as ExtractSection accepts it
+	// ("## Title", level marks included).
+	Heading string
+	// Title is the heading text.
+	Title string
+	// Text is the section's content under its heading, including its ###
+	// children, trimmed like ExtractSection's result.
+	Text string
+}
+
+// Level2Sections returns the "##" sections of body in document order, with the
+// same boundaries as ExtractSection and ListHeadings: CRLF is normalised, a
+// heading inside a code fence is no heading, and a section runs to the next
+// heading of level 2 or higher, so it contains its ### children. Text before
+// the first "##" belongs to no section. A section whose title repeats an
+// earlier one is dropped: ExtractSection returns the first match, so the later
+// one could never be read back through its heading.
+func Level2Sections(body string) []Section {
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	lines := strings.Split(body, "\n")
+	eligible := headingEligibleLines(lines)
+
+	type mark struct {
+		idx   int
+		level int
+		title string
+	}
+	var marks []mark
+	for i, line := range lines {
+		if !eligible[i] {
+			continue
+		}
+		if level, title := parseHeading(line); level > 0 {
+			marks = append(marks, mark{i, level, title})
+		}
+	}
+	var out []Section
+	seen := map[string]bool{}
+	for i, m := range marks {
+		if m.level != 2 || m.title == "" || seen[m.title] {
+			continue
+		}
+		seen[m.title] = true
+		end := len(lines)
+		for _, n := range marks[i+1:] {
+			if n.level <= 2 {
+				end = n.idx
+				break
+			}
+		}
+		out = append(out, Section{
+			Heading: "## " + m.title,
+			Title:   m.title,
+			Text:    strings.TrimSpace(strings.Join(lines[m.idx+1:end], "\n")),
+		})
+	}
+	return out
+}
+
 // fenceMarkers are the recognized code-fence delimiters (pragmatic CommonMark subset).
 var fenceMarkers = [...]string{"```", "~~~"}
 

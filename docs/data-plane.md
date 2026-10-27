@@ -314,6 +314,14 @@ Page-name key (D315), read by `title_quality`:
 
 `forbidden_title_terms` is a non-empty list; anything else is `contract_malformed`. `map_update` sets it.
 
+Read-whole key (D1207), read by `search`, not by lint:
+
+| Key | Meaning | Default |
+|---|---|---|
+| `read_whole: [...]` | concept types whose pages are read whole: a `search` hit on one carries `read: "whole"` and names no section | none |
+
+A page of a journal (`kind: journal`: incidents and every dated log) is read whole whatever this lists; the type vocabulary is the KB's, the server ships none. `read_whole` is a non-empty list of types, matched exactly and case-sensitively like `required_fields.<Type>`; anything else is `contract_malformed`. It checks nothing, so it is not a rule and dropping an entry is no loosening. `map_create` and `map_update` set it.
+
 ### No check can be switched off (D907)
 
 Nothing in a KB switches a lint check off or hides a finding ([D907](decisions/D907-the-lint-cannot-be-escaped.md)). Every finding is closed by fixing the page or the map contract; a Health panel with no findings is what a finished `cartographer-kb-doctor` session leaves, and it means the pages are right, not that something was set aside. A false positive is a defect of the check: report it and the check is fixed for every KB, instead of one page silencing it. What was removed:

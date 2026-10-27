@@ -243,7 +243,7 @@ agent's own `git init`, `checkout -b` or `push` is how a KB ends up forked acros
 remote; the server owns the clone and refuses writes on a branch other than the remote's default one.
 
 **The first operational bullet names the reading tools** (D780): `search` or `atlas_overview` to
-orient, `concept_read` to read, and `graph_context` when the answer spans several linked pages, in one
+orient, `concept_read` to read (only a hit's `section` when it names one, the whole page when it says `read: "whole"`, D1207), and `graph_context` when the answer spans several linked pages, in one
 call instead of reading page by page and following links. Agents pick tools from what this line names.
 
 **The scope sentence attributes and bounds each KB's directives** (D182): emitted immediately before

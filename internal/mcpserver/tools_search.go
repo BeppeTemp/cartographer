@@ -59,6 +59,13 @@ type searchHit struct {
 	// Partial marks a hit that matched only some query terms (D343): it comes
 	// from the OR pass and ranks after every full match.
 	Partial bool `json:"partial,omitempty"`
+	// Section is the "##" heading that matched best, exactly as concept_read's
+	// section argument accepts it; the snippet is then that section's excerpt
+	// (D1207). Omitted when naming a section saves nothing (sectionFor).
+	Section string `json:"section,omitempty"`
+	// Read is "whole" for a page that must be read whole: a journal entry, or a
+	// type its map lists in read_whole (D1207). Such a hit never has a Section.
+	Read string `json:"read,omitempty"`
 	// Bytes is the concept file's size (D301, D779): what reading it whole
 	// costs, so an agent can choose outline or section before paying it.
 	Bytes int64 `json:"bytes"`
@@ -87,7 +94,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, reads *r
 	if deps.SQLIndex != nil {
 		description = "Keyword search over concepts (SQLite FTS5, substring matching); returns IDs, best first."
 	}
-	description += " Default 8 hits; related: N adds the neighbourhood of the hits. Glossary aliases match too (expanded_to). scope is a map name or id prefix, never a KB name."
+	description += " Default 8 hits; related: N adds the neighbourhood of the hits. A hit's section goes to concept_read section; read: \"whole\" means read it whole. Glossary aliases match too (expanded_to). scope is a map name or id prefix, never a KB name."
 
 	return Tool{
 		Name:        "search",
@@ -155,10 +162,12 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 			hits, expandedTo, archivedFallback = ah, ex, true
 		}
 	}
+	sections := newSectionResolver(k, rec, deps, mode, params.Query, expandedTo)
 	for i := range hits {
 		f := k.ConceptFacets(okf.ConceptID(hits[i].ID))
 		hits[i].Archived = f.Status == kb.StatusArchived
 		hits[i].Bytes = f.Bytes
+		sections.annotate(&hits[i], f.Type)
 	}
 	// A scope no visible concept starts with is a wrong argument, not an empty
 	// answer (D779): refused before the miss log, which would record a gap the
@@ -216,6 +225,105 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 		result["note"] = strings.Join(notes, " ")
 	}
 	return jsonResult(result), nil
+}
+
+// Thresholds under which naming a section saves nothing (D1207): a body this
+// small is cheaper read whole, and so is one the best section nearly fills.
+const (
+	sectionMinBodyBytes = 2048
+	sectionMaxBodyPct   = 80
+)
+
+// sectionResolver names, for the hits of one search response, the section that
+// matched and whether the page must be read whole. It runs after the ranking
+// and only for the ids handleSearch returns, so graph_context's seeding and the
+// write-time lookups (which call keywordHits) never pay for it, and a hidden
+// concept, already filtered out of the hits, is never looked up (D1207).
+type sectionResolver struct {
+	k     *kb.KB
+	rec   *searchReconciler
+	deps  Deps
+	fts   bool
+	query string // the original query plus the glossary variants, OR-ed
+	whole map[string]readWholeSpec
+}
+
+// readWholeSpec is one map's answer to "which pages are read whole".
+type readWholeSpec struct {
+	journal bool
+	types   map[string]bool
+}
+
+func newSectionResolver(k *kb.KB, rec *searchReconciler, deps Deps, mode, query string, expandedTo []string) *sectionResolver {
+	return &sectionResolver{
+		k: k, rec: rec, deps: deps,
+		fts:   mode == "keyword_fts5" && deps.SQLIndex != nil,
+		query: strings.Join(append([]string{query}, expandedTo...), " "),
+		whole: map[string]readWholeSpec{},
+	}
+}
+
+// readsWhole reports whether the concept must be read whole: it lives in a
+// journal, or its type is listed in its map's read_whole (D1207). An id with no
+// map, or a map whose descriptor cannot be read, answers false. Each map's
+// contract is read once per response.
+func (r *sectionResolver) readsWhole(id, typ string) bool {
+	mapName, _, nested := strings.Cut(id, "/")
+	if !nested {
+		return false
+	}
+	spec, ok := r.whole[mapName]
+	if !ok {
+		if c, err := r.k.ReadMapContract(mapName); err == nil {
+			spec.journal = c.Kind == "journal"
+			spec.types = map[string]bool{}
+			for _, t := range c.ReadWhole {
+				spec.types[t] = true
+			}
+		}
+		r.whole[mapName] = spec
+	}
+	return spec.journal || (typ != "" && spec.types[typ])
+}
+
+// annotate sets h.Read, or h.Section and the section's excerpt as h.Snippet.
+func (r *sectionResolver) annotate(h *searchHit, typ string) {
+	if r.readsWhole(h.ID, typ) {
+		h.Read = "whole"
+		return
+	}
+	body := r.rec.live.body(h.ID)
+	if len(body) < sectionMinBodyBytes {
+		return
+	}
+	var heading, snippet string
+	found := false
+	if r.fts {
+		var err error
+		heading, snippet, found, err = r.deps.SQLIndex.BestSection(h.ID, r.query)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "cartographer: search section: %v\n", err)
+			found = false
+		} else if !found {
+			return
+		}
+	}
+	if !found {
+		sec, ok := search.BestSection(body, r.query)
+		if !ok {
+			return
+		}
+		heading, snippet, found = sec.Heading, "", true
+	}
+	// The heading is the contract with concept_read: it must resolve there.
+	text, ok := okf.ExtractSection(body, heading)
+	if !ok || len(text)*100 >= sectionMaxBodyPct*len(body) {
+		return
+	}
+	if snippet == "" {
+		snippet = extractSnippet(text, r.query, snippetMaxChars)
+	}
+	h.Section, h.Snippet = heading, snippet
 }
 
 // scopePrefixesShown caps the maps and journals an unmatched-scope error

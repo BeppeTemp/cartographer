@@ -1805,6 +1805,12 @@ type MapContract struct {
 	Index string
 	// ForbiddenTitleTerms are substrings no title in this map may carry (D315).
 	ForbiddenTitleTerms []string
+	// ReadWhole lists the concept types whose pages are read whole, never by
+	// section (D1207): a search hit on one carries read: "whole". A hint for
+	// agents, not a lint rule: it checks nothing, so dropping an entry is no
+	// loosening (ContractLoosening ignores it). A journal's pages are read whole
+	// whatever this lists.
+	ReadWhole []string
 	// LegacyKeys are the removed keys the descriptor still carries (D907),
 	// sorted: contract_legacy_key reports them and the repair rewrites the
 	// descriptor. They have no effect on the contract, except that a flat
@@ -1972,6 +1978,9 @@ func (kb *KB) writeMapFiles(mapAbs, title, kind string, conceptTypes []string, c
 			mapFM.WriteString("default_template: " + contract.DefaultTemplate + "\n")
 		}
 	}
+	if len(contract.ReadWhole) > 0 {
+		mapFM.WriteString("read_whole: [" + strings.Join(sortedUnique(contract.ReadWhole), ", ") + "]\n")
+	}
 	// A journal declares what "open" means (D321): the server default is the
 	// minimum every work journal uses; map_update changes it.
 	if kind == "journal" && len(contract.OpenStatuses) == 0 {
@@ -2125,6 +2134,8 @@ type MapContractUpdate struct {
 	Index *string
 	// D315: ForbiddenTitleTerms nil leaves it, an empty list removes it.
 	ForbiddenTitleTerms *[]string
+	// D1207: ReadWhole nil leaves the list, an empty one removes it.
+	ReadWhole *[]string
 	// ConceptTypes nil leaves the list, an empty one removes it (the map is
 	// then flexible); a non-empty list makes the map strict (D907: the mode is
 	// derived from it).
@@ -2297,6 +2308,9 @@ func (kb *KB) UpdateMapContract(name string, upd MapContractUpdate) (MapContract
 	}
 	if upd.ForbiddenTitleTerms != nil {
 		setList("forbidden_title_terms", *upd.ForbiddenTitleTerms)
+	}
+	if upd.ReadWhole != nil {
+		setList("read_whole", *upd.ReadWhole)
 	}
 	if upd.WorkMap != nil {
 		if v := strings.TrimSpace(*upd.WorkMap); v != "" {
@@ -2717,7 +2731,7 @@ func (kb *KB) contractFromMeta(relPath string, meta *okf.Frontmatter) MapContrac
 			key != "templates" && key != "default_template" &&
 			key != "promote_to" && key != "procedure_headings" && key != "glossary" &&
 			key != "index" && key != "work_map" &&
-			key != "forbidden_title_terms" {
+			key != "forbidden_title_terms" && key != "read_whole" {
 			continue
 		}
 		value, _ := meta.Get(key)
@@ -2873,6 +2887,13 @@ func (kb *KB) contractFromMeta(relPath string, meta *okf.Frontmatter) MapContrac
 				continue
 			}
 			contract.ProcedureHeadings = vals
+		case key == "read_whole":
+			vals, ok := value.([]string)
+			if !ok || len(vals) == 0 {
+				bad(key)
+				continue
+			}
+			contract.ReadWhole = vals
 		case strings.HasPrefix(key, "value_synonyms."):
 			canonical := strings.TrimSpace(strings.TrimPrefix(key, "value_synonyms."))
 			syns, ok := value.([]string)

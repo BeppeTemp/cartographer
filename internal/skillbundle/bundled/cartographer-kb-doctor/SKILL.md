@@ -43,6 +43,7 @@ run, one commit per run with reason "auto-repair (background)". It is not a sess
   the KB does not hold;
 - decide from the KB, not from guesses: before closing work whose subject looks retired, `search`
   for what replaced it;
+- read a search hit's `section` when it names one, the whole page when it says `read: "whole"`;
 - every write carries a `reason` saying why, so the history explains the session;
 - an item only a person can settle is recorded as a gap, not guessed: see step 5c.
 
