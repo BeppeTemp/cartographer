@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -494,9 +495,28 @@ func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manife
 	var diverged []provisioning.DriftFinding
 	for _, sp := range ps {
 		provider := configurator.Provider(sp.Provider)
-		pm := provisioning.FilterForProviderScoped(manifests[projectionKey(sp)], provider, sp.Scope)
+		src := manifests[projectionKey(sp)]
 		lock := lockFile.ForProjection(sp.Key())
-		d := provisioning.ComputeDiffResolved(pm, lock, statusResolveOptions(cfg, sp.Provider, manifests[projectionKey(sp)]))
+		diffLock := lock
+		if sp.Derived {
+			// Judge a derived projection the way sync applies it (D1019): what
+			// it deliberately leaves alone is neither pending nor drift, and
+			// the lock entries held out of its diff are not "removed".
+			if sp.InstructionsSkipped != "" {
+				src = withoutInstructions(src)
+			}
+			src = withoutKinds(src, sp.SkipKinds)
+			if len(sp.SkipKinds) > 0 {
+				diffLock.Managed = nil
+				for _, mf := range lock.Managed {
+					if !slices.Contains(sp.SkipKinds, mf.Kind) {
+						diffLock.Managed = append(diffLock.Managed, mf)
+					}
+				}
+			}
+		}
+		pm := provisioning.FilterForProviderScoped(src, provider, sp.Scope)
+		d := provisioning.ComputeDiffResolved(pm, diffLock, statusResolveOptions(cfg, sp.Provider, manifests[projectionKey(sp)]))
 		merged.Added = append(merged.Added, d.Added...)
 		merged.Updated = append(merged.Updated, d.Updated...)
 		merged.Removed = append(merged.Removed, d.Removed...)

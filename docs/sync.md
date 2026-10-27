@@ -550,6 +550,8 @@ unchanged.
   gets its block in `CLAUDE.local.md`, which it reads beside `CLAUDE.md`, owned whole and excluded
   in `.git/info/exclude`. Skills, agents and hooks are paths Cartographer owns and excludes, so
   they are projected as for an explicit bind.
+  What a derived projection leaves unwritten is neither pending nor drift in `status` (#1188): it
+  stays only in the note, and neither the diff nor the `instructions n/m` counter lists it.
   The same holds for the other shared files a projection writes whole, the MCP file (`.mcp.json`,
   `.kiro/settings/mcp.json`, ...) and a registration file: when git tracks it, a derived projection
   does not write it, `status` says `not written: <file> is tracked by git` under the workspace, and
@@ -789,11 +791,14 @@ passing `cfg.SearchRoots`/`cfg.Paths`.
 - **Expansion points** (`provisioning.Apply`, before writing to disk): agent content
   (single-file), skill/hook content (every file in the folder), instructions content (per
   artifact, before composing the group block).
-- **Hash on the expanded content**: `ManagedFile.ContentHash` in the lockfile is computed on the content
-  *after* expansion (same formula as `ContentHashDir`/`contentHashFile`/`contentHashBytes` depending
-  on the kind) — the client-side comparison must be against what was actually written to
-  disk. Content with no placeholders → expansion is a no-op, hash identical to `Artifact.ContentHash`:
-  **zero drift for existing installations**.
+- **Hash of the lock**: `ManagedFile.ContentHash` stays the manifest artifact's hash, expanded or not
+  (the written bytes are `materialized_hash`, above), because `ComputeDiff` compares it on the next
+  run. For an instructions block this holds too (#1175): a block citing a placeholder, resolved or
+  not, converges, the second sync writes nothing and `status` is `ok`. A changed resolution of
+  what the block cites reaches it through the paths-section hash (the "Local paths" table), not
+  through `content_hash`, and `status` makes the same comparison, so it reports the block pending
+  until a sync rewrites it. A hand edit inside the managed block is not tracked: it persists until
+  the block is rewritten (a manifest or resolution change), with or without placeholders.
 - **Which keys are resolved** (D262): `sync_pull` lists the keys a KB cites (`placeholders`, see
   `docs/control-plane.md`) — the union of the placeholders in the bodies of the concepts the caller
   may see, read from the graph cache, and those in the KB's own artifacts. The list is outside

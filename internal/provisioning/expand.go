@@ -375,11 +375,10 @@ func UnresolvedPlaceholdersWarning(unresolved map[string]string, fresh map[strin
 }
 
 // hashArtifactFiles uses a versioned, domain-separated length-prefixed
-// encoding of path, effective executable mode and raw bytes. Used to record
-// ManagedFile.ContentHash on the actually-written (placeholder-expanded)
-// bytes: when expansion is a no-op (no placeholder present), files are
-// byte-identical to the source, so this returns exactly Artifact.ContentHash
-// — zero drift for existing installations (D75 WP3).
+// encoding of path, effective executable mode and raw bytes. It records
+// ManagedFile.MaterializedHash on the actually-written (placeholder-expanded)
+// bytes; ContentHash stays the manifest's, the one ComputeDiff compares. When
+// expansion is a no-op the two are equal (D75 WP3).
 func hashArtifactFiles(files []ArtifactFile) string {
 	sorted := append([]ArtifactFile(nil), files...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Path < sorted[j].Path })
