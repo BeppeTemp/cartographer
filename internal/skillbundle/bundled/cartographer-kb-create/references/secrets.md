@@ -18,17 +18,19 @@ This is the part that traps people, so it comes before the procedure.
 | Generate the age key | **you**, with `age-keygen` |
 | Write the root `.sops.yaml` creation rules | **you** — Cartographer never writes this file |
 | Create the **first** encrypted file and choose its recipients | **you**, with the `sops` CLI |
-| Rotate or add a pointer in an **existing** encrypted file | Cartographer (`secret_set`) |
+| Rotate or add a pointer in an encrypted file, or create a new file the creation rules already cover | Cartographer (`secret_set`) |
 | Declare which values a concept uses | Cartographer (`concept_write`, `secret_refs`) |
 | Resolve declared values | Cartographer (`secret_resolve`, `service_get`) |
 
-`secret_set`, `secret_resolve` and `service_get` are not in `tools/list`: the server
-answers them when called by name, but a descriptor-bound host that calls only the
-tools it lists (Codex) cannot use them, and the operator takes those steps.
+`secret_set`, `secret_resolve` and `service_get` are in `tools/list`; the first two need `rw` scope.
 
-`secret_set` **refuses** any path that is not a local `secrets/*.sops.yaml`, and
-refuses a file that does not exist: *"bootstrapping an encrypted file and its
-recipients is an operator action"*. Do not try to create the first file with it.
+`secret_set` refuses any path that is not a local `secrets/*.sops.yaml`. It creates a
+file that does not exist only when the root `.sops.yaml` has a creation rule matching
+the path and the server's age key is one of that rule's recipients; the recipients are
+the rule's, never yours. With no `.sops.yaml`, no matching rule or a key that is not a
+recipient it refuses with the reason: that is the operator's step (§2). The server
+commits the new file through its normal write flow: do not run `git` in the KB clone.
+A new file starts as mappings, so the key is a pointer of keys, not a list index.
 
 ## 2. Operator-only steps
 
@@ -168,7 +170,9 @@ as `~1`. A null leaf is the empty string.
 | resolution refused over HTTP | `service_get(resolve_secrets)` and `secret_set` need **`rw`** scope. A `kb:<name>:r` token cannot resolve. |
 | `lint` reports `secrets_on_non_service` | `secret_refs` or `secrets_source` was declared on a concept whose `type` is not `Service`. This is the most common mistake; fix the type or move the refs. |
 | a `NAME` resolves to nothing | The JSON Pointer does not exist in the decrypted file. Check it with `sops decrypt secrets/<file>.sops.yaml` and re-read §4. |
-| `secret_set: file does not exist` | You are trying to create the first encrypted file with it. Go back to §2.3. |
+| `secret_set: file does not exist and the KB has no .sops.yaml` | Encryption is not set up for this KB. Go back to §2.2 and §2.3. |
+| `secret_set: no .sops.yaml creation rule matches` or `not a recipient` | The rule does not cover the path, or the server's key is not one of its recipients: fix the rule (§2.2) or the key (§2.1). `kb_status` `capabilities.secrets.hint` names the recipient the KB expects. |
+| `capabilities.secrets: missing key` | Read the `hint`. The age key is read when the service starts: a key file added later needs a restart of the service. |
 | the committed file is readable plaintext | The `.sops.yaml` `path_regex` did not match. Fix the rule (§2.2), re-encrypt, and treat the plaintext value as **compromised** — git history is forever: rotate it upstream. |
 
 ## 6. Hygiene

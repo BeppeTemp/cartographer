@@ -1055,6 +1055,8 @@ new process answers rather than the old one before it exits
 (`update_check`, D254): absent means unknown or up to date, so the shape a probe depends on is
 unchanged.
 
+A KB's `capabilities` on `/health` are computed when the server starts, so a `secrets` entry's `hint` (D1191) can be stale there; `kb_status` computes it on each call.
+
 **Probes.** `livenessProbe` (and a `startupProbe`) on `/health`: public, `200` whenever the process answers. Auth off (the local service, a trusted network): `readinessProbe` as an `httpGet` on `/ready`. Auth on, the K8s example above: `/ready` needs a bearer token, so give the probe one. Any valid token is enough, because the probe reads the status code and not the body; use a dedicated token with a read scope on one KB (`CARTOGRAPHER_TOKENS` entry `<probe-token>|kb:<name>:r`), kept in a Secret and passed to the container as an env var, and run the request from an `exec` probe so it stays out of the pod spec:
 
 ```yaml

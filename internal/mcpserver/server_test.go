@@ -3818,6 +3818,7 @@ func TestServer_ToolsProfile(t *testing.T) {
 		"artifact_read", "artifact_write", "artifact_delete", "template_list",
 		"asset_read", "asset_list", "asset_write", "asset_delete",
 		"validate", "lint", "gate_check", "kb_status", "kb_repair", "kb_review", "work_list", "source_register", "source_list", "kb_guide",
+		"secret_set", "secret_resolve", "service_get",
 	}
 	got := listToolNames(t, s)
 	for _, name := range agentVisible {

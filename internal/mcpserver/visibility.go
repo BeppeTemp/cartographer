@@ -70,8 +70,13 @@ func (s *Server) legacyToolMessage(ctx context.Context, name string) string {
 //   - operator-level mutation/maintenance (commit_gate, contradiction_report,
 //     conflict_resolve, reindex): not part of a normal agent
 //     session;
-//   - provisioning plumbing (sync_*, skill_*, service_*): consumed by the
-//     client CLI / hooks, or operator-level (skill_install, service_get).
+//   - provisioning plumbing (sync_*, skill_*, service_list): consumed by the
+//     client CLI / hooks, or operator-level (skill_install).
+//
+// NOT advanced since D1191: secret_set, secret_resolve and service_get. They are
+// gated by rw scope, redact by default and audit a reveal, and the secrets
+// procedure of cartographer-kb-create cannot be followed by an agent that finds
+// none of them in tools/list.
 //
 // NOT advanced since D318: concept_batch (the bundled cartographer-kb-doctor skill
 // prescribes it, and an agent cannot call by name what tools/list omits),
@@ -120,10 +125,7 @@ var advancedToolNames = map[string]bool{
 	"sync_status":          true,
 	"skill_list":           true,
 	"skill_install":        true,
-	"service_get":          true,
 	"service_list":         true,
-	"secret_resolve":       true,
-	"secret_set":           true,
 	"artifact_list":        true,
 	// repair_revert (D323): undoing an automatic repair is an operator
 	// decision, taken from the Atlas's revert command or the CLI, not a step

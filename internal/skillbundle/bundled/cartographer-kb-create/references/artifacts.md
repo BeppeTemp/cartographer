@@ -8,11 +8,10 @@ every connected client's native format.
 This is different from `skill_install`, which copies a **bundled** skill (one
 shipped inside the binary) into the KB. That is installation, not authoring.
 
-`artifact_list`, `skill_list`, `skill_install` and the secret tools (`service_get`,
-`secret_resolve`, `secret_set`) are not in `tools/list`: the server answers them when
-called by name, but a descriptor-bound host that calls only the tools it lists (Codex)
-cannot. There, take the inventory from `artifact_read` of a known path, and leave
-installation and secrets to the operator.
+`artifact_list`, `skill_list` and `skill_install` are not in `tools/list`: the server
+answers them when called by name, but a descriptor-bound host that calls only the tools
+it lists (Codex) cannot. There, take the inventory from `artifact_read` of a known path,
+and leave installation to the operator.
 
 ## 1. The accepted paths
 

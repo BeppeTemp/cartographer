@@ -32,7 +32,11 @@ const (
 	// artifact_delete (+2.2 KiB; artifact_write's description was cut to the
 	// per-tool limit). A KB with default settings already listed them through
 	// allow_template_write (D352); the zero policy measured here did not.
-	toolsListBudgetBytes   = 29 * 1024
+	//
+	// 31 KiB since D1191: secret_set, secret_resolve and service_get joined the
+	// agent profile (31138 bytes, +1.4 KiB over D906's 29 KiB budget); their
+	// descriptions carry the redaction and rw-scope rules a caller needs.
+	toolsListBudgetBytes   = 31 * 1024
 	toolDescriptionMaxChar = 600
 )
 

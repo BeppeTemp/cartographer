@@ -1,7 +1,7 @@
 ---
 name: cartographer-kb-ingest
 description: Ingest ONE primary source of any kind (document, meeting transcript or notes, chat thread, ticket or issue, incident timeline, email, web page, dataset) into an existing Cartographer KB - register it, merge its content into the pages that own the subject, record unknowns and contradictions, and leave a trace of which pages came from which source.
-version: "1.2"
+version: "1.3"
 ---
 # KB Ingest — Skill
 
@@ -70,7 +70,7 @@ with its fix. Write what the gate accepts:
 - **Link, don't copy**: a fact another page owns is a `[[id]]` link to that page, not a second copy.
 - Open work is a checkbox (`- [ ] …`) on the page that owns it, never a `TODO`/`TBD`/`FIXME`
   marker; an unknown is a `Contradiction` (step 7).
-- Credentials found in the source never go into a page: store them with `secret_set` (not in `tools/list`; SOPS; see
+- Credentials found in the source never go into a page: store them with `secret_set` (SOPS; see
   the `cartographer-kb-create` skill's `references/secrets.md`) or leave them out and flag them to the operator.
 
 ### 7. Record unknowns
@@ -105,7 +105,7 @@ left for the operator: they block the gate on purpose.
 
 - Tools: `source_register`, `source_list`, `search`, `graph_context`, `link_suggest`,
   `concept_read`, `concept_history`, `concept_patch`, `concept_new`, `concept_write`,
-  `concept_batch`, `gate_check`, `log_append`, `secret_set`, `conflict_resolve` (not in `tools/list`, callable by name).
+  `concept_batch`, `gate_check`, `log_append`, `secret_set`, `conflict_resolve` (`conflict_resolve` is not in `tools/list`, callable by name).
 - Per-kind guidance: `references/source-kinds.md`.
 - Rationale: decisions D278 (source ledger), D272 (`reason`), D273 (gaps), D274
   (`concept_history`), D279 (this skill), D907 (the write gate), one file each under

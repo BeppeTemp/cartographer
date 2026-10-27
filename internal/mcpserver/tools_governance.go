@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -648,17 +649,48 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	secretsState := onOff(k.SopsAgeKeyFile != "")
 	secretsSetting := "credentials_dir"
 	// A KB declares secrets when a sops file sits under secrets/ (D906).
+	secretsHint := ""
 	if sops.Declared(k.Root) {
 		if k.SopsAgeKeyFile == "" {
 			secretsState = "missing key"
+			secretsHint = missingKeyHint(k)
 		}
 	}
 	return map[string]KBCapability{
-		"secrets": {State: secretsState, Setting: secretsSetting},
+		"secrets": {State: secretsState, Setting: secretsSetting, Hint: secretsHint},
 		// A discovered KB has no kbs[] entry: its policy comes from its own
 		// settings.yaml, which is the one place left that can carry it (D746).
 		"mount": {State: mount, Setting: "kbs[]"},
 	}
+}
+
+// missingKeyHint says what a KB with sops files and no age key is waiting for
+// (D1191): a key file that appeared in credentials_dir after the start (keys are
+// read only at start, so the service has to be restarted), else the recipient
+// the KB's files name and whether another key file of the directory holds it.
+// Public keys only; no path and no other KB's name is returned.
+func missingKeyHint(k *kb.KB) string {
+	name := k.AuthName
+	if name == "" {
+		name = config.DefaultCredentialName
+	}
+	if _, ok := config.CredentialFile(k.CredentialsDir, name, config.CredentialAge); ok {
+		return "a key file for this KB is now in credentials_dir, but keys are read when the service starts: restart the service to load it"
+	}
+	recipients := sops.ExpectedRecipients(k.Root)
+	if len(recipients) == 0 {
+		return "no age key for this KB: add " + name + ".age (or default.age) to credentials_dir with an identity that is a recipient of its sops files, then restart the service"
+	}
+	msg := "the KB's sops files name the age recipient " + strings.Join(recipients, ", ") + "; "
+	if k.CredentialsDir != "" {
+		files, _ := filepath.Glob(filepath.Join(k.CredentialsDir, "*."+config.CredentialAge))
+		for _, f := range files {
+			if sops.HoldsRecipient(f, recipients) {
+				return msg + "a key file already in credentials_dir holds it: copy it to " + name + ".age, then restart the service to load it"
+			}
+		}
+	}
+	return msg + "no key in credentials_dir holds it: add " + name + ".age with that identity, then restart the service to load it"
 }
 
 func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, cc *conformanceCache) Tool {

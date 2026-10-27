@@ -94,6 +94,11 @@ type KB struct {
 	// of falling back to an ambient key.
 	SopsAgeKeyFile string
 
+	// CredentialsDir is the server's credentials directory (D905), kept so
+	// kb_status can say whether a key file for this KB appeared after the start
+	// (D1191). Empty when the KB is not served from one.
+	CredentialsDir string
+
 	// policy is the KB's per-KB settings, one immutable snapshot replaced
 	// whole (D775): read it through Policy(), write it through SetPolicy().
 	policy atomic.Pointer[Policy]
