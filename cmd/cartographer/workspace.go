@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -582,6 +583,32 @@ func projectionKey(p syncProjection) string {
 	return p.Provider + "\x00" + p.Workspace
 }
 
+// splitProjectionKey is projectionKey's inverse: the provider and the workspace
+// ("" for the global projection) a results key stands for.
+func splitProjectionKey(key string) (provider, workspace string) {
+	provider, workspace, _ = strings.Cut(key, "\x00")
+	return provider, workspace
+}
+
+// projectionLabel renders a results key for a user-facing line: the provider
+// alone for the global projection, `<provider> <workspace>` for a workspace one,
+// the home directory as $HOME. The key itself carries a NUL, which turns piped
+// output into binary for grep (#1200).
+func projectionLabel(key string) string {
+	provider, workspace := splitProjectionKey(key)
+	if workspace == "" {
+		return provider
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		if workspace == home {
+			workspace = "$HOME"
+		} else if rest, ok := strings.CutPrefix(filepath.ToSlash(workspace), filepath.ToSlash(home)+"/"); ok {
+			workspace = "$HOME/" + rest
+		}
+	}
+	return provider + " " + workspace
+}
+
 // globalProjection is the single projection a default-scoped provider has. It
 // is the shape every caller had before workspaces existed.
 func globalProjection(provider, baseDir string, kbs []string) syncProjection {
@@ -802,7 +829,9 @@ func workspaceBlockFiles(provider configurator.Provider) []string {
 			blocks = append(blocks, rel)
 		}
 	}
-	return blocks
+	// The hook registration file a repository may track (Codex's hooks.json) is
+	// patched, not owned whole, so it is treated like the instructions file.
+	return append(blocks, provisioning.ProjectSharedHookFiles(provider)...)
 }
 
 // writeWorkspaceExclusions writes the workspace's exclude block for EVERY
@@ -968,6 +997,7 @@ func printWorkspaceLines(ws []workspaceStatus) {
 // (D193 WP7). Each state reported here has a distinct fix, and none of them is
 // healed on the spot.
 func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers []string) []doctorFinding {
+	lockFile, _ := provisioning.ReadLockFile(lockFilePath(dir))
 	var out []doctorFinding
 	for _, provider := range providers {
 		if cfg.WorkspaceScope(provider) != clientconfig.ScopeWorkspace {
@@ -1004,6 +1034,16 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 				})
 				continue
 			}
+			if w.State == "ok" || w.State == "inactive" {
+				if files := uncoveredProjectionFiles(configurator.Provider(provider), w.Path, lockFile.ForProjection(provisioning.Projection{Provider: provider, Workspace: w.Path})); len(files) > 0 {
+					out = append(out, doctorFinding{
+						Check: "workspace", Severity: doctorWarning, Path: w.Path,
+						Message: fmt.Sprintf("%s: %d untracked file(s) under the provider's directories are not in the exclude block and dirty the working tree: %s",
+							provider, len(files), joinCapped(files, 5)),
+						Fix: "cartographer sync (rewrites the block); a file that is yours stays yours: commit it or add it to .gitignore",
+					})
+				}
+			}
 			switch w.State {
 			case "gone":
 				out = append(out, doctorFinding{
@@ -1032,6 +1072,53 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 	return out
 }
 
+// uncoveredProjectionFiles lists the files git sees as untracked and not
+// ignored under the directories a projection of provider writes into (#1199): the
+// ones the exclude block, the repository's .gitignore and the user's global
+// ignore all leave out, narrowed to the paths the projection owns (what the lock
+// records, its companions included): a repository's own untracked skill beside
+// them is not Cartographer's to report. The instructions file is the user's.
+func uncoveredProjectionFiles(provider configurator.Provider, workspace string, lock provisioning.Lock) []string {
+	if _, err := os.Lstat(filepath.Join(workspace, ".git")); err != nil {
+		return nil
+	}
+	instructions := provisioning.ProjectDestination("instructions", "", provider)
+	owned, err := provisioning.ProjectOwnedArtifactPaths(provider, provisioning.Manifest{}, lock)
+	if err != nil {
+		return nil
+	}
+	args := []string{"--literal-pathspecs", "-C", workspace, "ls-files", "--others", "--exclude-standard", "-z", "--"}
+	n := len(args)
+	for _, p := range owned {
+		if p != instructions {
+			args = append(args, p)
+		}
+	}
+	if len(args) == n {
+		return nil
+	}
+	raw, err := exec.Command("git", args...).Output()
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, f := range strings.Split(string(raw), "\x00") {
+		if f != "" {
+			files = append(files, f)
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
+// joinCapped joins at most max items and says how many it left out.
+func joinCapped(items []string, max int) string {
+	if len(items) <= max {
+		return strings.Join(items, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(items[:max], ", "), len(items)-max)
+}
+
 // pruneOrphanProjections removes the files of every projection the lockfile
 // still records but the configuration no longer declares, and drops its lock
 // entry. It returns the labels of what it pruned.
@@ -1049,7 +1136,7 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 	wanted := map[string]bool{}
 	providersInPlay := map[string]bool{}
 	for _, p := range declared {
-		wanted[p.Provider+"\x00"+p.Workspace] = true
+		wanted[projectionKey(p)] = true
 		providersInPlay[p.Provider] = true
 	}
 
@@ -1061,7 +1148,7 @@ func pruneOrphanProjections(lockFile *provisioning.LockFile, declared []syncProj
 			// alone is the only safe answer.
 			continue
 		}
-		if wanted[key.Provider+"\x00"+key.Workspace] {
+		if wanted[projectionKey(syncProjection{Provider: key.Provider, Workspace: key.Workspace})] {
 			continue
 		}
 		lock := lockFile.ForProjection(key)

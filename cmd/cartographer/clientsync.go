@@ -899,8 +899,14 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 		}
 		return done
 	}
-	for _, p := range sortedKeys(results) {
-		r := results[p]
+	for _, key := range sortedKeys(results) {
+		r := results[key]
+		p := projectionLabel(key)
+		provider, workspace := splitProjectionKey(key)
+		projDir := dir
+		if workspace != "" {
+			projDir = workspace
+		}
 		// One line per file written, not per artifact: the instructions block is
 		// one physical write shared by every mounted KB, so reporting it once per
 		// KB printed three identical lines for one file, which reads like a loop
@@ -917,8 +923,8 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 			fmt.Printf("[%s] %s %s\n", p, verb("wrote", "would write"), w.Path)
 			// The registration line reports a side effect on a shared file
 			// that a dry run does not perform either.
-			if !dryRun && hookRegistrationManagedFile(p, w) {
-				printHookRegistered(p, dir, w)
+			if !dryRun && hookRegistrationManagedFile(provider, w) {
+				printHookRegistered(p, provider, projDir, w)
 			}
 		}
 		reportedPruned := map[string]bool{}
@@ -1065,7 +1071,7 @@ func hookRegistrationManagedFile(provider string, w provisioning.ManagedFile) bo
 // config.toml (D58), or its own generated plugin file (D59 — the plugin *is*
 // the registration, so its own path is printed instead of a separate shared
 // file).
-func printHookRegistered(provider, dir string, w provisioning.ManagedFile) {
+func printHookRegistered(label, provider, dir string, w provisioning.ManagedFile) {
 	p := configurator.Provider(provider)
 	var registeredIn string
 	switch {
@@ -1077,7 +1083,7 @@ func printHookRegistered(provider, dir string, w provisioning.ManagedFile) {
 	default:
 		return
 	}
-	fmt.Printf("[%s] hook %q registered in %s\n", provider, w.Name, registeredIn)
+	fmt.Printf("[%s] hook %q registered in %s\n", label, w.Name, registeredIn)
 }
 
 // sortedKeys returns the keys of a map[string]provisioning.AppliedResult sorted,

@@ -222,6 +222,33 @@ var projectRegistrationFiles = map[configurator.Provider][]string{
 	configurator.ProviderAntigravity: {antigravityProjectHooksRel},
 }
 
+// projectSharedHookFiles are the hook registrations that a projection patches
+// into a file of its own beside the hook directories, and that the client
+// dedicates to hooks: Codex's hooks.json holds hooks and nothing else (D230).
+// Unlike projectRegistrationFiles a repository may track such a file, and then
+// it is the repository's: ProjectSharedHookFiles is how the client tells it
+// from the files it owns whole, so it neither refuses nor excludes a tracked one.
+// Claude Code's settings.json is not here: it carries the user's own settings,
+// so excluding it would hide them.
+var projectSharedHookFiles = map[configurator.Provider][]string{
+	configurator.ProviderCodex: {".codex/hooks.json"},
+}
+
+// ProjectSharedHookFiles returns the hook registration files (slash paths, relative
+// to the workspace) a projection of provider patches without owning them whole.
+func ProjectSharedHookFiles(provider configurator.Provider) []string {
+	return append([]string(nil), projectSharedHookFiles[provider]...)
+}
+
+// projectHookPlugin is the generated registration file of hook name in a
+// workspace, "" when the provider has none or cannot hold a hook there.
+func projectHookPlugin(provider configurator.Provider, name string) string {
+	if destDirScoped("hook", name, provider, ScopeProject) == "" {
+		return ""
+	}
+	return HookPluginRelPath(provider, name)
+}
+
 // ProjectRegistrationFiles returns the registration files a projection of
 // provider writes beside its directories.
 func ProjectRegistrationFiles(provider configurator.Provider) []string {
@@ -323,6 +350,15 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 		}
 	}
 	roots = append(roots, projectRegistrationFiles[provider]...)
+	// The hook companions sit outside the hook directories (Codex's hooks.json,
+	// OpenCode's generated plugins): they are written by the same projection, so
+	// they are as much its own as the hook's files (#1199).
+	if destDirScoped("hook", "x", provider, ScopeProject) != "" {
+		roots = append(roots, projectSharedHookFiles[provider]...)
+		if plugin := HookPluginRelPath(provider, "x"); plugin != "" {
+			roots = append(roots, path.Dir(plugin))
+		}
+	}
 	contained := func(rel string) bool {
 		for _, r := range roots {
 			if rel == r || strings.HasPrefix(rel, r+"/") {
@@ -351,7 +387,16 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 		if kind == "hook" {
 			for name := range reservedHookNames {
 				add(destDirScoped(kind, name, provider, ScopeProject))
+				add(projectHookPlugin(provider, name))
 			}
+		}
+	}
+	// The shared hook file is owned only once a hook is registered in it: the
+	// projection carries one, or the lock records one. Before that it is the
+	// user's, and excluding it would hide it.
+	if destDirScoped("hook", "x", provider, ScopeProject) != "" && hasHook(FilterForProviderScoped(m, provider, ScopeProject), lock) {
+		for _, rel := range projectSharedHookFiles[provider] {
+			add(rel)
 		}
 	}
 	for _, a := range FilterForProviderScoped(m, provider, ScopeProject).Artifacts {
@@ -359,6 +404,9 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 			return nil, &InvalidArtifactNameError{Name: a.Name}
 		}
 		add(destDirScoped(a.Kind, a.Name, provider, ScopeProject))
+		if a.Kind == "hook" {
+			add(projectHookPlugin(provider, a.Name))
+		}
 	}
 	for _, mf := range lock.Managed {
 		add(mf.Path)
@@ -368,6 +416,21 @@ func ProjectOwnedArtifactPaths(provider configurator.Provider, m Manifest, lock 
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// hasHook reports whether m carries a hook or lock records one.
+func hasHook(m Manifest, lock Lock) bool {
+	for _, a := range m.Artifacts {
+		if a.Kind == "hook" {
+			return true
+		}
+	}
+	for _, mf := range lock.Managed {
+		if mf.Kind == "hook" {
+			return true
+		}
+	}
+	return false
 }
 
 // InvalidArtifactNameError is the refusal of a name that cannot be projected

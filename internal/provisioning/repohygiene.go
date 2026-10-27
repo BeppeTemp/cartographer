@@ -152,7 +152,12 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 	if len(ownedPaths) > 0 {
 		lines = make([]string, 0, len(ownedPaths))
 		for _, p := range ownedPaths {
-			lines = append(lines, "/"+strings.TrimPrefix(filepath.ToSlash(p), "/"))
+			// An empty or "." path is the workspace root: "/" is no pattern and
+			// would only look like the root being excluded (#1199).
+			if p = strings.Trim(filepath.ToSlash(p), "/"); p == "" || p == "." {
+				continue
+			}
+			lines = append(lines, "/"+p)
 		}
 		sort.Strings(lines)
 		lines = dedupe(lines)
