@@ -386,3 +386,38 @@ func TestCodexTableHelpersUnder_RefuseALinkedDirectoryOnlyWhenRewriting(t *testi
 	}
 	sameSnapshot(t, "codex tables", before, snapshot(t, elsewhere))
 }
+
+// #1172 review: a refused global OpenCode config leaves the legacy
+// $HOME/opencode.json untouched and reports nothing removed.
+func TestRemove_OpenCodeRefusalOnTheGlobalFileKeepsTheLegacyEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink semantics differ on Windows")
+	}
+	home := t.TempDir()
+	const legacyBody = `{"mcp":{"wiki":{"type":"remote"}}}`
+	legacy := filepath.Join(home, "opencode.json")
+	if err := os.WriteFile(legacy, []byte(legacyBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "opencode.json")
+	if err := os.WriteFile(target, []byte(`{"mcp":{"wiki":{"type":"remote"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	global := filepath.Join(home, filepath.FromSlash(configurator.OpenCodeConfigPath))
+	if err := os.MkdirAll(filepath.Dir(global), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, global); err != nil {
+		t.Fatal(err)
+	}
+	removed, err := configurator.Remove(&configurator.ServerConfig{Name: "wiki"}, configurator.ProviderOpenCode, home, false)
+	if !errors.Is(err, safewrite.ErrSymlinkDestination) {
+		t.Fatalf("Remove err = %v, want ErrSymlinkDestination", err)
+	}
+	if removed {
+		t.Error("removed = true on a refusal")
+	}
+	if got, _ := os.ReadFile(legacy); string(got) != legacyBody {
+		t.Errorf("legacy opencode.json changed: %s", got)
+	}
+}

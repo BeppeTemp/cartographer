@@ -382,25 +382,27 @@ var mcpServerKeys = []string{"mcpServers", "mcp"}
 // returns removed=false with no error. If dryRun is true, Remove computes and
 // returns whether the key would be removed but does not write anything.
 func Remove(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (removed bool, err error) {
+	removed, err = removeEntry(cfg, provider, baseDir, dryRun)
+	if err != nil || provider != ProviderOpenCode {
+		return removed, err
+	}
+	// The entry may still sit where versions before #1172 wrote it: once the
+	// global file is done, a disconnect removes it from there too, and reports
+	// either removal. A refusal on the global file leaves the legacy one as is.
+	legacyRemoved, err := removeLegacyOpenCodeEntry(cfg.Name, baseDir, dryRun)
+	if err != nil {
+		return removed, err
+	}
+	return removed || legacyRemoved, nil
+}
+
+// removeEntry is Remove on the provider's current config file only.
+func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bool) (removed bool, err error) {
 	r, err := Emit(cfg, provider)
 	if err != nil {
 		return false, err
 	}
 	fullPath := filepath.Join(baseDir, r.FilePath)
-
-	if provider == ProviderOpenCode {
-		// The entry may still sit where versions before #1172 wrote it: a
-		// disconnect removes it from there too, and reports either removal.
-		legacyRemoved, err := removeLegacyOpenCodeEntry(cfg.Name, baseDir, dryRun)
-		if err != nil {
-			return false, err
-		}
-		defer func() {
-			if err == nil {
-				removed = removed || legacyRemoved
-			}
-		}()
-	}
 
 	// A destination that is a symlink, or under one, is refused (D148) only
 	// when something would be written or removed there: a config with nothing

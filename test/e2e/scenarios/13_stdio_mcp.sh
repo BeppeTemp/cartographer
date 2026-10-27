@@ -15,7 +15,7 @@ printf '#!/bin/sh\nprintf launched > %s\n' "${MARKER}" >"${FAKE}"; chmod 755 "${
 descriptor() { printf '{"type":"stdio","command":"%s","args":["serve","--port","%s"],"env":{"TOKEN":"${LOCAL_TOKEN}"}}\n' "${FAKE}" "$1" >"${KB_DIR}/mcp/local-tools.json"; }
 descriptor 39273; write_config; export E2E_CONFIG="${CONFIG}"
 server_start "${KB_DIR}"; server_wait_health 20; trap 'server_stop' EXIT
-CLAUDE="${SANDBOX_DIR}/.claude.json"; CODEX="${SANDBOX_DIR}/.codex/config.toml"; OPENCODE="${SANDBOX_DIR}/opencode.json"; KIRO="${SANDBOX_DIR}/.kiro/settings/mcp.json"; LOCK="${SANDBOX_DIR}/.cartographer-sync.lock.json"
+CLAUDE="${SANDBOX_DIR}/.claude.json"; CODEX="${SANDBOX_DIR}/.codex/config.toml"; OPENCODE="${SANDBOX_DIR}/.config/opencode/opencode.json"; KIRO="${SANDBOX_DIR}/.kiro/settings/mcp.json"; LOCK="${SANDBOX_DIR}/.cartographer-sync.lock.json"
 
 # 1. Connect every provider, approve the descriptor and sync it.
 (cd "${SANDBOX_DIR}" && HOME="${SANDBOX_DIR}" "${BIN}" connect --agents claude,codex,kiro,opencode --server-url "${SERVER_URL}") >/dev/null
