@@ -353,3 +353,25 @@ func TestSyncDryRunPreviewsPreApprovalMigration(t *testing.T) {
 		t.Errorf("a dry run spent the migration: marker=%v approvals=%+v", loaded.ApprovalsMigrated, loaded.MCPApprovals)
 	}
 }
+
+// #1176: the preview says nothing and approves nothing where the real sync
+// would not migrate: after the marker is set, or after an incomplete pull.
+func TestPreviewPreApprovalInstalls_SilentWhenTheMigrationWouldNotRun(t *testing.T) {
+	for name, tc := range map[string]struct{ migrated, complete bool }{
+		"marker already set": {true, true},
+		"incomplete pull":    {false, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, lf, manifests, projs := migrationFixture("h1", "h1")
+			cfg.ApprovalsMigrated = tc.migrated
+			var out bytes.Buffer
+			got := previewPreApprovalInstalls(&out, cfg, lf, manifests, projs, tc.complete)
+			if out.Len() != 0 || len(got) != 0 {
+				t.Errorf("preview = %v, %q; want nothing", got, out.String())
+			}
+			if cfg.ApprovalsMigrated != tc.migrated || len(cfg.MCPApprovals) != 0 {
+				t.Errorf("the preview changed cfg: %+v", cfg)
+			}
+		})
+	}
+}
