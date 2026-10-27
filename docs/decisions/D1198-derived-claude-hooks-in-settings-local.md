@@ -23,9 +23,13 @@ tracking the file later would commit Cartographer's entries with it. Stripping t
 earlier version left in a tracked `settings.json` during `sync`: that edits a tracked file too.
 `doctor` reports them and the user removes them.
 
-**Consequences.** A hook already registered in `settings.json` is not registered again in
-`settings.local.json`, which would make it fire twice. Once the entry is removed, the next sync
-registers the hook in `settings.local.json`: Apply rewrites a derived Claude Code hook that is
-registered in neither file. A prune that does not know which file holds a registration
-(`disconnect`, an orphan projection) strips the hook from both files, and only rewrites a file that
-names it. The registration readers (`doctor`, on-disk verification) read both files.
+**Consequences.** An entry an earlier version left in a `settings.json` git does not track is
+Cartographer's to move: the derived projection strips it there and registers in
+`settings.local.json`. A hook still registered in a tracked `settings.json` is not registered again
+(it would fire twice): `sync` warns and `doctor` reports it. Once the entry is removed, the next
+sync registers the hook in `settings.local.json`, because Apply rewrites a derived Claude Code hook
+that is not registered there. A prune that does not know which file holds a registration
+(`disconnect`, an orphan projection) strips the hook from `settings.json` and from a
+`settings.local.json` git does not track, and only rewrites a file that names it. The registration
+readers (`doctor`, on-disk verification) read both files. The ordered decoder runs only on what
+`json.Valid` accepts, so a repository file cannot nest past its depth limit.

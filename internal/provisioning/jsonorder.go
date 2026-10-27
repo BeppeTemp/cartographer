@@ -25,7 +25,12 @@ type jsonLayout struct {
 	live       []map[string]interface{}
 	indent     string
 	trailingNL bool
+	crlf       bool
 }
+
+// maxJSONDepth bounds decodeOrdered's recursion as json.Unmarshal bounds its
+// own: a repository's settings file is not trusted to fit the stack.
+const maxJSONDepth = 10000
 
 // loadOrderedJSONObject is loadJSONObject plus the layout saveOrderedJSONObject
 // writes back. Numbers are kept as written (json.Number). A missing file is an
@@ -39,12 +44,17 @@ func loadOrderedJSONObject(path string) (map[string]interface{}, *jsonLayout, er
 	if err != nil {
 		return nil, nil, fmt.Errorf("provisioning: read %s: %w", path, err)
 	}
+	// json.Valid first: it is iterative and refuses what json.Unmarshal would
+	// (trailing data, nesting past its depth limit) before decodeOrdered recurses.
+	if !json.Valid(data) {
+		return nil, nil, fmt.Errorf("provisioning: parse %s: not valid JSON", path)
+	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
-	v, err := decodeOrdered(dec, layout)
+	v, err := decodeOrdered(dec, layout, 0)
 	m, ok := v.(map[string]interface{})
-	if err == nil && (!json.Valid(data) || (!ok && v != nil)) {
-		err = errors.New("not a single JSON object")
+	if err == nil && !ok && v != nil {
+		err = errors.New("not a JSON object")
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("provisioning: parse %s: %w", path, err)
@@ -54,12 +64,16 @@ func loadOrderedJSONObject(path string) (map[string]interface{}, *jsonLayout, er
 	}
 	layout.indent = detectIndent(data)
 	layout.trailingNL = bytes.HasSuffix(data, []byte("\n"))
+	layout.crlf = bytes.Contains(data, []byte("\r\n"))
 	return m, layout, nil
 }
 
 // decodeOrdered reads one JSON value from dec, recording the key order of every
 // object into layout.
-func decodeOrdered(dec *json.Decoder, layout *jsonLayout) (interface{}, error) {
+func decodeOrdered(dec *json.Decoder, layout *jsonLayout, depth int) (interface{}, error) {
+	if depth > maxJSONDepth {
+		return nil, errors.New("nested too deeply")
+	}
 	tok, err := dec.Token()
 	if err != nil {
 		return nil, err
@@ -79,7 +93,7 @@ func decodeOrdered(dec *json.Decoder, layout *jsonLayout) (interface{}, error) {
 				if !ok {
 					return nil, fmt.Errorf("object key %v is not a string", kt)
 				}
-				val, err := decodeOrdered(dec, layout)
+				val, err := decodeOrdered(dec, layout, depth+1)
 				if err != nil {
 					return nil, err
 				}
@@ -97,7 +111,7 @@ func decodeOrdered(dec *json.Decoder, layout *jsonLayout) (interface{}, error) {
 		case '[':
 			arr := []interface{}{}
 			for dec.More() {
-				val, err := decodeOrdered(dec, layout)
+				val, err := decodeOrdered(dec, layout, depth+1)
 				if err != nil {
 					return nil, err
 				}
@@ -138,7 +152,11 @@ func saveOrderedJSONObject(baseDir, path string, m map[string]interface{}, layou
 	if layout.trailingNL {
 		buf.WriteByte('\n')
 	}
-	return writeJSONFile(baseDir, path, buf.Bytes())
+	data := buf.Bytes()
+	if layout.crlf {
+		data = bytes.ReplaceAll(data, []byte("\n"), []byte("\r\n"))
+	}
+	return writeJSONFile(baseDir, path, data)
 }
 
 func encodeOrdered(buf *bytes.Buffer, v interface{}, layout *jsonLayout, depth int) error {

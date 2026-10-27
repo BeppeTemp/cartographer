@@ -89,7 +89,12 @@ func registerHookSettings(baseDir, settingsRel, hookName, fullDestDir string) (s
 // succeeded for this hook.
 func removeHookEntries(baseDir, hookName string, rels ...string) error {
 	if len(rels) == 0 {
-		rels = claudeSettingsFiles
+		// Cartographer only ever writes a settings.local.json git does not
+		// track (D1198): a tracked one is the repository's.
+		rels = claudeSettingsFiles[:1]
+		if tracked, err := TrackedPaths(baseDir); err == nil && !tracked[ClaudeLocalSettings] {
+			rels = claudeSettingsFiles
+		}
 	}
 	for _, rel := range rels {
 		settingsPath := filepath.Join(baseDir, filepath.FromSlash(rel))
@@ -153,11 +158,13 @@ func loadClaudeSettings(baseDir string) ([]map[string]interface{}, error) {
 	return out, nil
 }
 
-// claudeHookUnregistered reports whether the Claude Code hook installed at
-// destRel (relative to baseDir) is registered in no settings file although its
-// hook.json asks for a registration: a hook the registrar skips on purpose (no
-// usable hook.json, an event Claude Code never fires) is not unregistered.
-func claudeHookUnregistered(baseDir, destRel, hookName string) bool {
+// claudeHookToMove reports whether a derived projection must rewrite the
+// installed Claude Code hook at destRel (relative to baseDir) to move its
+// registration (#1198): it is not registered in strip[0], and not in a tracked
+// settings.json either (strip has one file), which would make it fire twice. A
+// hook the registrar skips on purpose (no usable hook.json, an event Claude Code
+// never fires) never needs one.
+func claudeHookToMove(baseDir, destRel, hookName string, strip []string) bool {
 	spec, err := loadHookSpec(filepath.Join(baseDir, destRel))
 	if err != nil {
 		return false
@@ -165,16 +172,18 @@ func claudeHookUnregistered(baseDir, destRel, hookName string) bool {
 	if _, skip := hookEventWarning(hookName, configurator.ProviderClaudeCode, spec.Event); skip {
 		return false
 	}
-	files, err := loadClaudeSettings(baseDir)
-	if err != nil {
+	if claudeHookRegisteredIn(baseDir, strip[0], hookName) {
 		return false
 	}
-	for _, settings := range files {
-		if countClaudeHookEntries(settings, hookOwnershipMarker(hookName)) > 0 {
-			return false
-		}
-	}
-	return true
+	return len(strip) > 1 || !claudeHookRegisteredIn(baseDir, claudeSettingsFiles[0], hookName)
+}
+
+// claudeHookRegisteredIn reports whether the settings file rel (relative to
+// baseDir) holds an entry owned by hookName. An unreadable file counts as
+// holding one: nothing is then written beside it.
+func claudeHookRegisteredIn(baseDir, rel, hookName string) bool {
+	settings, err := loadJSONObject(filepath.Join(baseDir, filepath.FromSlash(rel)))
+	return err != nil || countClaudeHookEntries(settings, hookOwnershipMarker(hookName)) > 0
 }
 
 // ClaudeSettingsHookEntries counts the hook entries Cartographer wrote in

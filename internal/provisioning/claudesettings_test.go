@@ -2,6 +2,7 @@ package provisioning_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -37,6 +38,19 @@ const teamSettings = `{
 }
 `
 
+// gitTrack makes dir a git repository tracking rels.
+func gitTrack(t *testing.T, dir string, rels ...string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	for _, args := range append([][]string{{"init", "-q"}}, append([]string{"add", "-f"}, rels...)) {
+		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+			t.Skipf("git %v: %v %s", args, err, out)
+		}
+	}
+}
+
 func applyClaudeHook(t *testing.T, kbRoot, baseDir string, scope provisioning.Scope, hookSettings string, lock provisioning.Lock) provisioning.AppliedResult {
 	t.Helper()
 	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
@@ -62,6 +76,7 @@ func TestClaudeSettings_RoundTripKeepsTheFile(t *testing.T) {
 		"two spaces":  teamSettings,
 		"four spaces": strings.ReplaceAll(teamSettings, "  ", "    "),
 		"no newline":  strings.TrimSuffix(teamSettings, "\n"),
+		"crlf":        strings.ReplaceAll(teamSettings, "\n", "\r\n"),
 	} {
 		t.Run(name, func(t *testing.T) {
 			kbRoot := t.TempDir()
@@ -83,7 +98,7 @@ func TestClaudeSettings_RoundTripKeepsTheFile(t *testing.T) {
 				t.Errorf("final newline changed:\n%q", got)
 			}
 			for _, kept := range []string{`"matcher": "Edit",` + "\n", `"type": "command",` + "\n", "make fmt && echo <done>"} {
-				if !strings.Contains(string(got), kept) {
+				if !strings.Contains(strings.ReplaceAll(string(got), "\r\n", "\n"), kept) {
 					t.Errorf("lost %q (order or escaping):\n%s", kept, got)
 				}
 			}
@@ -118,14 +133,25 @@ func TestApply_HookSettingsRelLeavesSettingsJSONAlone(t *testing.T) {
 	if err := os.WriteFile(settings, []byte(teamSettings), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// What a v0.26 derived sync left: the hook registered in settings.json.
+	// What a v0.26 derived sync left: the hook registered in a settings.json
+	// the repository tracks.
 	res := applyClaudeHook(t, kbRoot, baseDir, provisioning.ScopeProject, "", provisioning.Lock{})
 	legacy, _ := os.ReadFile(settings)
 	if !strings.Contains(string(legacy), ".claude/hooks/guard/") {
 		t.Fatalf("setup: no legacy entry:\n%s", legacy)
 	}
+	gitTrack(t, baseDir, ".claude/settings.json")
 
 	res = applyClaudeHook(t, kbRoot, baseDir, provisioning.ScopeProject, provisioning.ClaudeLocalSettings, res.NewLock)
+	if got, _ := os.ReadFile(settings); string(got) != string(legacy) {
+		t.Errorf("settings.json was written:\n%s", got)
+	}
+	// Nor when the hook changes: an update is not registered twice either.
+	writeHookKB(t, kbRoot, "guard", "PostToolUse", "Edit", "./notify.sh")
+	res = applyClaudeHook(t, kbRoot, baseDir, provisioning.ScopeProject, provisioning.ClaudeLocalSettings, res.NewLock)
+	if !strings.Contains(strings.Join(res.Warnings, "\n"), "still registered in the tracked .claude/settings.json") {
+		t.Errorf("no warning for the hook left in settings.json: %v", res.Warnings)
+	}
 	if got, _ := os.ReadFile(settings); string(got) != string(legacy) {
 		t.Errorf("settings.json was written:\n%s", got)
 	}
@@ -138,6 +164,7 @@ func TestApply_HookSettingsRelLeavesSettingsJSONAlone(t *testing.T) {
 	if err := os.WriteFile(settings, []byte(teamSettings), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	writeHookKB(t, kbRoot, "guard", "PreToolUse", "Bash", "./notify.sh")
 	res = applyClaudeHook(t, kbRoot, baseDir, provisioning.ScopeProject, provisioning.ClaudeLocalSettings, res.NewLock)
 	local := readJSONFile(t, localPath)
 	if hooks, _ := local["hooks"].(map[string]any); hooks["PreToolUse"] == nil {
@@ -206,5 +233,69 @@ func TestClaudeSettings_MalformedFileIsRefused(t *testing.T) {
 		if got, _ := os.ReadFile(path); string(got) != content {
 			t.Errorf("%q was rewritten as %q", content, got)
 		}
+	}
+}
+
+// #1198: an entry an earlier version left in a settings.json git does not track
+// is Cartographer's own to move: the derived projection strips it and
+// registers the hook in settings.local.json, with no content change needed.
+func TestApply_HookSettingsRelMovesAnUntrackedSettingsJSONEntry(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeHookKB(t, kbRoot, "guard", "PreToolUse", "Bash", "./notify.sh")
+	baseDir := t.TempDir()
+	gitTrack(t, baseDir)
+	res := applyClaudeHook(t, kbRoot, baseDir, provisioning.ScopeProject, "", provisioning.Lock{})
+	res = applyClaudeHook(t, kbRoot, baseDir, provisioning.ScopeProject, provisioning.ClaudeLocalSettings, res.NewLock)
+	if got, _ := os.ReadFile(filepath.Join(baseDir, ".claude", "settings.json")); strings.Contains(string(got), "hooks/guard") {
+		t.Errorf("the old entry stayed in the untracked settings.json:\n%s", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(baseDir, ".claude", "settings.local.json")); !strings.Contains(string(got), "hooks/guard") {
+		t.Errorf("hook not registered in settings.local.json:\n%s", got)
+	}
+	if again := applyClaudeHook(t, kbRoot, baseDir, provisioning.ScopeProject, provisioning.ClaudeLocalSettings, res.NewLock); len(again.Written) != 0 {
+		t.Errorf("a converged projection rewrote %v", again.Written)
+	}
+}
+
+// A prune that does not know which file holds a registration leaves a
+// settings.local.json git tracks alone: Cartographer never writes one.
+func TestPruneManaged_LeavesATrackedSettingsLocalAlone(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeHookKB(t, kbRoot, "guard", "PreToolUse", "Bash", "./notify.sh")
+	baseDir := t.TempDir()
+	res := applyClaudeHook(t, kbRoot, baseDir, provisioning.ScopeProject, provisioning.ClaudeLocalSettings, provisioning.Lock{})
+	gitTrack(t, baseDir, ".claude/settings.local.json")
+	local := filepath.Join(baseDir, ".claude", "settings.local.json")
+	before, _ := os.ReadFile(local)
+	if _, err := provisioning.PruneManaged(res.NewLock.Managed, baseDir, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(local); string(got) != string(before) {
+		t.Errorf("a tracked settings.local.json was rewritten:\n%s", got)
+	}
+}
+
+// A settings file nested deeper than json.Unmarshal accepts is refused with an
+// error, never a stack overflow.
+func TestClaudeSettings_DeepNestingIsRefused(t *testing.T) {
+	baseDir := t.TempDir()
+	path := filepath.Join(baseDir, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	deep := `{"guard": ` + strings.Repeat("[", 20000) + strings.Repeat("]", 20000) + "}"
+	if err := os.WriteFile(path, []byte(deep), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kbRoot := t.TempDir()
+	writeHookKB(t, kbRoot, "guard", "PreToolUse", "Bash", "./notify.sh")
+	m, err := provisioning.BuildManifest(nil, map[string]string{"kb": kbRoot}, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, ApprovedMCP: approveAll(m),
+		Provider: configurator.ProviderClaudeCode, BaseDir: baseDir, Scope: provisioning.ScopeProject})
+	if got, _ := os.ReadFile(path); string(got) != deep {
+		t.Error("a too deeply nested settings.json was rewritten")
 	}
 }

@@ -355,12 +355,17 @@ type ApplyOptions struct {
 	HookSettingsRel string
 }
 
-// claudeHookSettings is the settings file this Apply registers and strips
-// Claude Code hooks in, nil for the default (registerHookSettings,
+// claudeHookSettings is, for an Apply with HookSettingsRel, the settings
+// files it strips Claude Code hooks from: HookSettingsRel, where it registers
+// them, then settings.json unless git tracks it (or cannot say), so an entry an
+// earlier version left there moves. nil for the default (registerHookSettings,
 // removeHookEntries).
 func claudeHookSettings(opts ApplyOptions) []string {
 	if opts.Provider != configurator.ProviderClaudeCode || opts.Scope != ScopeProject || opts.HookSettingsRel == "" {
 		return nil
+	}
+	if tracked, err := TrackedPaths(opts.BaseDir); err == nil && !tracked[claudeSettingsFiles[0]] {
+		return []string{opts.HookSettingsRel, claudeSettingsFiles[0]}
 	}
 	return []string{opts.HookSettingsRel}
 }
@@ -1823,17 +1828,18 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 		driftedIDs[key] = ids
 	}
 	// Registration move (#1198): a derived Claude Code projection registers in
-	// settings.local.json, so a hook an earlier version installed and
-	// registered nowhere it can be found now is rewritten, which registers it
-	// there. One still registered in settings.json is left for `doctor` to
+	// settings.local.json, so a hook an earlier version installed and that is
+	// not registered there is rewritten, which moves its registration. One still
+	// registered in a tracked settings.json stays as it is, for `doctor` to
 	// report: registering it again would make it fire twice.
-	if rels := claudeHookSettings(opts); rels != nil {
+	claudeStrip := claudeHookSettings(opts)
+	if claudeStrip != nil {
 		for _, a := range m.Artifacts {
 			key := a.Kind + "\x00" + a.Name
 			if a.Kind != "hook" || toWriteKeys[key] || !artifactAuthorized(a, opts) || !hookInLock(opts.Lock.Managed, a.Name) {
 				continue
 			}
-			if claudeHookUnregistered(opts.BaseDir, destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope), a.Name) {
+			if claudeHookToMove(opts.BaseDir, destDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope), a.Name, claudeStrip) {
 				toWrite = append(toWrite, a)
 				toWriteKeys[key] = true
 			}
@@ -2149,8 +2155,8 @@ hookLoop:
 							}
 						}
 						register := mechanism.register
-						if rels := claudeHookSettings(opts); rels != nil {
-							register = claudeHookRegistrar(rels[0])
+						if claudeStrip != nil {
+							register = claudeMovingRegistrar(claudeStrip)
 						}
 						pluginRel, warning, registered, regErr := register(opts.BaseDir, a.Name, fullDestDir)
 						if regErr != nil {
@@ -2170,7 +2176,7 @@ hookLoop:
 						// previous registration firing its old entry.
 						if !registered && previous {
 							stale := ManagedFile{Kind: "hook", Name: a.Name, Path: filepath.Join(destRel, "hook.json")}
-							if err := removeHookRegistration(opts.BaseDir, stale, claudeHookSettings(opts)); err != nil {
+							if err := removeHookRegistration(opts.BaseDir, stale, claudeStrip); err != nil {
 								if refuseArtifact(a, err) {
 									continue hookLoop
 								}
@@ -2267,7 +2273,7 @@ hookLoop:
 	}
 	genericRemoved = append(genericRemoved, orphaned...)
 	genericRemoved = WithoutCoOwned(genericRemoved, opts.CoOwnedPaths)
-	pruned, err := pruneManaged(genericRemoved, opts.BaseDir, opts.DryRun, keepHooks, claudeHookSettings(opts))
+	pruned, err := pruneManaged(genericRemoved, opts.BaseDir, opts.DryRun, keepHooks, claudeStrip)
 	var pruneRefused *PruneRefusedError
 	if errors.As(err, &pruneRefused) {
 		// A refused removal is per artifact, like a refused write: it is
