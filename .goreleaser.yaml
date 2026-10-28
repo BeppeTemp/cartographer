@@ -57,8 +57,17 @@ sboms:
 
 # The GitHub Release is created by release-please with the changelog as body:
 # GoReleaser only attaches the binaries, SBOMs and checksums to it.
+#
+# The release-please release is a draft until release.yml's `publish` job
+# (D1350). GoReleaser edits the release it finds with its own `draft` value
+# (default false), which would publish it as soon as the assets are up, and
+# GitHub's get-release-by-tag endpoint does not return drafts: `draft: true`
+# keeps it a draft and `use_existing_draft: true` (since v2.5) makes it look the
+# draft up instead of creating a second release. TestReleaseIsPublishedLast pins both.
 release:
   mode: keep-existing
+  draft: true
+  use_existing_draft: true
 
 # Release notes are owned by release-please (CHANGELOG.md + release body).
 changelog:

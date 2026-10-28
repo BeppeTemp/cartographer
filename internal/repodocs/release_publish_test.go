@@ -27,6 +27,21 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 		}
 	}
 
+	// GoReleaser edits the release it finds with its own draft value (default
+	// false) and cannot find a draft by tag unless told to look for one.
+	var gr struct {
+		Release struct {
+			Draft            bool `yaml:"draft"`
+			UseExistingDraft bool `yaml:"use_existing_draft"`
+		} `yaml:"release"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, root, ".goreleaser.yaml")), &gr); err != nil {
+		t.Fatalf(".goreleaser.yaml: %v", err)
+	}
+	if !gr.Release.Draft || !gr.Release.UseExistingDraft {
+		t.Error(".goreleaser.yaml: release.draft and release.use_existing_draft must be true (D1350): GoReleaser would publish the release, or create a second one")
+	}
+
 	var wf struct {
 		Jobs map[string]struct {
 			Needs yaml.Node `yaml:"needs"`
@@ -61,8 +76,8 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 	for _, s := range pub.Steps {
 		run += s.Run
 	}
-	if !strings.Contains(run, "--draft=false") || !strings.Contains(run, "isDraft") || !strings.Contains(run, "isPrerelease") {
-		t.Error("release.yml: publish must un-draft the release and read isDraft and isPrerelease back")
+	if !strings.Contains(run, "draft=false") || !strings.Contains(run, ".draft") || !strings.Contains(run, ".prerelease") {
+		t.Error("release.yml: publish must un-draft the release and read draft and prerelease back")
 	}
 	if !slices.Contains(needs("mcp-registry"), "publish") {
 		t.Error("release.yml: mcp-registry announces the version and must need publish")
