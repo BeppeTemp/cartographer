@@ -135,7 +135,7 @@ clone, and the push is not retried.
 its commented form: the removed keys are dropped, values that switched a feature off are reset to the default,
 every other value, comment and key order stays, and the original is kept beside it as
 `config.yaml.bak-<version>` (`.1`, `.2`… when one of that name exists). The server logs what it changed, one line
-per key, and does nothing, writing no backup, to a file already in that form; a file it cannot write (a
+per key, and does nothing, writing no backup, to a file already in that form or one that only lacks the schema's comments (a hand-written or fresh file is the operator's, not rewritten for its comments alone); a file it cannot write (a
 read-only mount) keeps working, since a removed key is ignored with a warning that names its replacement.
 The same applies to a removed environment variable and flag (`CARTOGRAPHER_GIT_SYNC`, `--git-sync`, ...): ignored
 with a warning, never an error. Each KB's `settings.yaml` is realigned the same way as one commit by the server,

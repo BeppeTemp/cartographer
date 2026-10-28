@@ -377,6 +377,8 @@ func (s Schema) Realign(data []byte, reg Registry) (out []byte, rep Report, err 
 		return data, Report{}, fmt.Errorf("the top level must be a mapping of setting names to values")
 	}
 
+	wasEmpty := doc.Kind == 0 || (doc.Kind == yaml.DocumentNode && len(doc.Content) == 0)
+
 	// The blocks go home first: a removal below, and the filter of the retired
 	// keys, read them where the mapping they list holds them.
 	s.homeBlocks(&doc)
@@ -412,6 +414,9 @@ func (s Schema) Realign(data []byte, reg Registry) (out []byte, rep Report, err 
 	if err != nil {
 		return data, Report{}, err
 	}
+	if wasEmpty {
+		enc = append(commentOnlyPrefix(data), enc...)
+	}
 	if bytes.Equal(enc, data) {
 		return data, Report{}, nil
 	}
@@ -419,6 +424,25 @@ func (s Schema) Realign(data []byte, reg Registry) (out []byte, rep Report, err 
 		rep.Changes = append(rep.Changes, Change{Kind: ChangeDocumented, Detail: "rewrote the file with the comments of the settings schema"})
 	}
 	return enc, rep, nil
+}
+
+// commentOnlyPrefix is the text a file made only of comments carries above its
+// block of unset settings (the header `kb create` writes, or a person's note):
+// the parser keeps no comment of an empty document, so Render cannot carry it
+// and a realignment would drop it. Used only for a file that parsed empty.
+func commentOnlyPrefix(data []byte) []byte {
+	var head []string
+	for _, l := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(l, markerPrefix) {
+			break
+		}
+		head = append(head, l)
+	}
+	text := strings.TrimSpace(strings.Join(head, "\n"))
+	if text == "" {
+		return nil
+	}
+	return []byte(text + "\n\n")
 }
 
 // removePair deletes the pair at idx of m. The comment the schema generated for

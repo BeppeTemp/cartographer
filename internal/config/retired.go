@@ -88,7 +88,7 @@ func RemovedValueFlags() map[string]bool {
 
 // RealignServerFile brings the server config.yaml at path up to date (D903):
 // the removed keys are dropped, off values reset to the default, the schema's
-// comments written, and the original kept beside it as <file>.bak-<version>.
+// comments written (only when something else needed to change), and the original kept beside it as <file>.bak-<version>.
 // It reports what it changed, and does nothing, writing no backup, to a file
 // that is already in that form.
 func RealignServerFile(path, version string) (rep settingschema.Report, backup string, err error) {
@@ -110,6 +110,14 @@ func RealignServerFileKeeping(path, version string, keep ...string) (rep setting
 			if !kept {
 				reg.Removed = append(reg.Removed, e)
 			}
+		}
+	}
+	// A file that only lacks the schema's comments is the operator's own, fresh
+	// or hand-written, and is left untouched: no rewrite, no backup. Only
+	// content that needs migrating (a removed or reset key) is rewritten.
+	if data, rerr := os.ReadFile(path); rerr == nil {
+		if _, r, perr := Schema.Realign(data, reg); perr == nil && !r.Substantive() {
+			return settingschema.Report{}, "", nil
 		}
 	}
 	return Schema.RealignFile(path, reg, version)
