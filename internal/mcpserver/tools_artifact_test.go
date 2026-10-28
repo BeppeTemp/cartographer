@@ -184,11 +184,12 @@ func TestArtifactTools_SymlinksRejected(t *testing.T) {
 func TestArtifactTools_ListReportsExecutableAuxiliarySkillFile(t *testing.T) {
 	t.Parallel()
 	k := setupTestKB(t)
-	skillDir := filepath.Join(k.Root, "skills", "aux")
+	// Not "aux": a reserved device name on Windows, which git cannot add.
+	skillDir := filepath.Join(k.Root, "skills", "aux-tool")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: aux\ndescription: test\n---\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: aux-tool\ndescription: test\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(skillDir, "run.sh"), []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -208,11 +209,11 @@ func TestArtifactTools_ListReportsExecutableAuxiliarySkillFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if entry.Kind != "skill" || entry.Name != "aux" {
+		if entry.Kind != "skill" || entry.Name != "aux-tool" {
 			continue
 		}
 		for _, file := range entry.Files {
-			if file.Path == "skills/aux/run.sh" {
+			if file.Path == "skills/aux-tool/run.sh" {
 				if execbit.Supported && !file.Executable {
 					t.Fatal("artifact_list marked executable auxiliary file as non-executable")
 				}
@@ -220,7 +221,7 @@ func TestArtifactTools_ListReportsExecutableAuxiliarySkillFile(t *testing.T) {
 			}
 		}
 	}
-	t.Fatalf("artifact_list did not return skills/aux/run.sh: %+v", entries)
+	t.Fatalf("artifact_list did not return skills/aux-tool/run.sh: %+v", entries)
 }
 
 func TestArtifactTools_InvalidBase64DoesNotWrite(t *testing.T) {
