@@ -101,6 +101,37 @@ jobs:
           fi
           echo "$TAG: isPrerelease=$got"
 
+  # The release-please release is created as a draft (D1350), so the update check
+  # and every client skip it until this job: it runs only when the binaries and
+  # the Homebrew cask (goreleaser), the pre-release flag and the image (docker)
+  # all exist, and un-drafts the release. A failed or retried job above leaves
+  # the release a draft instead of announcing a version no channel can install.
+  # `gh release edit --draft=false` keeps the pre-release flag; it is read back
+  # because a 0.x release must stay a Pre-release (D82/D211).
+  publish:
+    runs-on: ubuntu-latest
+    needs: [goreleaser, prerelease-flag, docker]
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the release, and verify it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          case "$TAG" in
+            v0.*) want=true ;;
+            *)    want=false ;;
+          esac
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          got=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease --jq '"\(.isDraft) \(.isPrerelease)"')
+          if [ "$got" != "false $want" ]; then
+            echo "::error::$TAG is isDraft/isPrerelease=$got, want false $want (D1350, D82)" >&2
+            exit 1
+          fi
+          echo "$TAG: published (isDraft/isPrerelease=$got)"
+
   # Multi-arch server image on ghcr.io.
   docker:
     runs-on: ubuntu-latest
@@ -165,10 +196,12 @@ jobs:
       tag: ${{ github.ref_name }}
 
   # Metadata entry in the official MCP Registry, pointing at the ghcr image
-  # (ownership verified via the io.modelcontextprotocol.server.name LABEL).
+  # (ownership verified via the io.modelcontextprotocol.server.name LABEL). It
+  # announces the version, so it waits for `publish` like the update check does
+  # (D1350).
   mcp-registry:
     runs-on: ubuntu-latest
-    needs: docker
+    needs: publish
     permissions:
       id-token: write
       contents: read

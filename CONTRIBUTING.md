@@ -262,7 +262,9 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
 A release is a weekly **train**, not whatever has accumulated (D956). Times are Europe/Rome.
 
 - **The train leaves on Thursday at 18:00.** The `release-train` workflow merges the open
-  release PR, and release-please then cuts the tag.
+  release PR, and release-please then cuts the tag and creates the release as a
+  draft: `release.yml` publishes it only after the binaries, the Homebrew cask and the
+  image exist, so no client is told of a version it cannot install (D1350).
 - **Freeze, Wednesday 00:00 to Thursday 18:00.** Nothing that adds or breaks behaviour
   lands: no `feat`, `perf` or `refactor`, and no breaking change (`!:` in the title or
   a `BREAKING CHANGE` footer). `fix`, `docs`, `test`, `ci`, `build` and `chore` may
