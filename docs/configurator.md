@@ -472,6 +472,10 @@ For an unavailable endpoint, the table names the configured endpoint once and
 suggests checking that URL (or `cartographer service status` for loopback);
 connected providers are reported as `unknown`, rather than repeating a network
 failure for each provider.
+A server that answers `/health` but is still bootstrapping its KBs is not unreachable: the
+snapshot says `reachable: true`, `ready: false` and `error: {code: "starting", message: "the
+server is starting and loading its KBs; retry shortly"}` (state `unavailable`, exit `2`), and the
+table prints that message instead of the endpoint advice (#1305).
 A managed artifact that diverged on disk is listed as `diverged on disk (<reason>)`; for an
 `unrunnable` hook — a Claude Code hook whose registered command cannot run, such as a backslash
 path on Windows or a file that is not there — the next line says which command and why (JSON

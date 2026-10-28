@@ -27,7 +27,6 @@
     }
   },
   "connection": {
-    "hint": "A KB listed in mounted but missing from your instructions' KB list was added after this session started: the integration picks it up when it reconnects or re-synchronizes its tool list.",
     "kbs": [
       "kb-one",
       "kb-two"
