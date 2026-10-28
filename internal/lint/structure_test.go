@@ -393,6 +393,9 @@ func TestDigestMissing(t *testing.T) {
 	if fmt.Sprint(f) != fmt.Sprint(findingsOf(s.run(""), "digest_missing")) {
 		t.Error("not deterministic")
 	}
+	if !strings.Contains(f[0].Message, "type: Digest") {
+		t.Errorf("message must name the required type: %q", f[0].Message)
+	}
 
 	// A digest of the same journal covering two of three.
 	writeFile(t, s.k.DataRoot(), "diary/archive-2026-q1.md", "---\ntype: digest\ntitle: d\nstatus: reference\n---\nSee [[diary/e1]] [[diary/e2]].\n")
