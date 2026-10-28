@@ -996,6 +996,33 @@ func TestApply_SourceEnvTrackedInLock(t *testing.T) {
 	}
 }
 
+// A dry run plans the generated SOURCE.env too: the real sync rewrites it, so
+// reporting it as pruned would be a removal the real run never performs.
+func TestApply_DryRunUpdatedSkillDoesNotPruneSourceEnv(t *testing.T) {
+	kbRoot, baseDir, res := sourceEnvApply(t, provisioning.Lock{})
+	if err := os.WriteFile(filepath.Join(kbRoot, "skills", "my-skill", "SKILL.md"), []byte("---\nname: my-skill\ndescription: d\n---\nChanged.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kbRoots := map[string]string{"kb-a": kbRoot}
+	m, err := provisioning.BuildManifest(nil, kbRoots, provisioning.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := provisioning.Apply(provisioning.FilterForProvider(m, configurator.ProviderClaudeCode), provisioning.ApplyOptions{
+		Provider: configurator.ProviderClaudeCode,
+		BaseDir:  baseDir,
+		KBRoots:  kbRoots,
+		Lock:     res.NewLock,
+		DryRun:   true,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	for _, mf := range plan.Pruned {
+		t.Errorf("dry run reports a prune the real run does not perform: %s", mf.Path)
+	}
+}
+
 func TestDisconnect_SourceEnvRemoved(t *testing.T) {
 	_, baseDir, res := sourceEnvApply(t, provisioning.Lock{})
 	envPath := filepath.Join(baseDir, ".claude", "skills", "my-skill", "SOURCE.env")
