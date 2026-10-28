@@ -72,6 +72,10 @@ type RemoteError struct {
 	Code    string
 	Message string
 	Cause   error
+	// HTTPStatus is the response status of a RemoteError that carries one
+	// (CodeHTTPFailed from an answering server), zero otherwise. It lets a
+	// caller tell a refused credential (403) from a transport failure (#1299).
+	HTTPStatus int
 }
 
 func (e *RemoteError) Error() string {
@@ -435,7 +439,7 @@ func (c *MCPClient) do(method string, params any) (json.RawMessage, error) {
 		}
 		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: fmt.Sprintf("%s returned HTTP %d", reqURL, resp.StatusCode),
-			Cause:   fmt.Errorf("%s", respBody)}
+			Cause:   fmt.Errorf("%s", respBody), HTTPStatus: resp.StatusCode}
 	}
 
 	var rpcResp rpcResponse
@@ -540,7 +544,7 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 			msg += mcpSubpathHint(c.ServerURL)
 		}
 		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
-			Message: msg, Cause: fmt.Errorf("%s", body)}
+			Message: msg, Cause: fmt.Errorf("%s", body), HTTPStatus: resp.StatusCode}
 	}
 
 	var health Health
@@ -644,7 +648,7 @@ func (c *MCPClient) apiCall(method, route, kbName string, body any, timeout time
 			Message: fmt.Sprintf("%s rejected the request", u.Redacted()), Cause: c.unauthorizedCauseFor()}
 	case resp.StatusCode < 200 || resp.StatusCode > 299:
 		return &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
-			Message: fmt.Sprintf("%s returned HTTP %d", u.Redacted(), resp.StatusCode)}
+			Message: fmt.Sprintf("%s returned HTTP %d", u.Redacted(), resp.StatusCode), HTTPStatus: resp.StatusCode}
 	}
 	return nil
 }
