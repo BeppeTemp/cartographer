@@ -3,8 +3,10 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
@@ -141,7 +143,54 @@ func (s *Server) buildSDKServer() *sdk.Server {
 func (s *Server) sdkToolHandler(name string) sdk.ToolHandler {
 	return func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 		ctx = withCallerAuthor(withCallerSession(withCallerClient(ctx, req), req), req)
+		if err := s.unknownArgumentsError(name, json.RawMessage(req.Params.Arguments)); err != nil {
+			return nil, err
+		}
 		return sdkResult(s.callTool(ctx, name, json.RawMessage(req.Params.Arguments))), nil
+	}
+}
+
+// unknownArgumentsError refuses, as JSON-RPC -32602 invalid params, a call that
+// carries a top-level argument its tool's input schema does not declare (#1279):
+// a typo such as `if_mach` would otherwise drop the check it was meant to
+// request without a word. A schema that allows additional properties, or that
+// declares no properties object, is not enforced; free-form nested objects are
+// not entered.
+func (s *Server) unknownArgumentsError(name string, args json.RawMessage) error {
+	s.mu.Lock()
+	tool := s.tools[name]
+	s.mu.Unlock()
+	if tool == nil || len(args) == 0 {
+		return nil
+	}
+	schema := tool.InputSchema
+	if schema == nil {
+		schema = json.RawMessage(`{"type":"object","properties":{}}`)
+	}
+	var decl struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Additional json.RawMessage            `json:"additionalProperties"`
+	}
+	if json.Unmarshal(schema, &decl) != nil || decl.Properties == nil || string(decl.Additional) == "true" {
+		return nil
+	}
+	var given map[string]json.RawMessage
+	if json.Unmarshal(args, &given) != nil {
+		return nil // not an object: the handler reports it
+	}
+	var unknown []string
+	for k := range given {
+		if _, ok := decl.Properties[k]; !ok && !(tool.AcceptsKB && k == routedKBArgument) {
+			unknown = append(unknown, k)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	return &jsonrpc.Error{
+		Code:    jsonrpc.CodeInvalidParams,
+		Message: fmt.Sprintf("invalid params: unknown argument(s) %s for tool %s", strings.Join(unknown, ", "), name),
 	}
 }
 

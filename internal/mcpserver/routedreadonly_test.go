@@ -54,7 +54,7 @@ func TestRoutedReadOnly_ToolsListHasOnlyReadTools(t *testing.T) {
 func TestRoutedReadOnly_WriteIsRefusedWithTheReason(t *testing.T) {
 	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b")
-	args := map[string]any{"kb": "kb-a", "id": "manutenzione/new", "content": "x"}
+	args := map[string]any{"kb": "kb-a", "id": "manutenzione/new", "frontmatter": map[string]any{"title": "x"}, "body": "x"}
 
 	res := routedCallAt(t, handler, readOnlyPath, "concept_write", args)
 	if !res.IsError {
@@ -94,7 +94,7 @@ func TestRoutedReadOnly_CombinesWithKBS(t *testing.T) {
 			t.Errorf("%s: schema names kb-c, outside kbs", tool.Name)
 		}
 	}
-	if res := routedCallAt(t, handler, path, "concept_write", map[string]any{"kb": "kb-a", "id": "x/y", "content": "x"}); !res.IsError ||
+	if res := routedCallAt(t, handler, path, "concept_write", map[string]any{"kb": "kb-a", "id": "x/y", "frontmatter": map[string]any{"title": "x"}, "body": "x"}); !res.IsError ||
 		!strings.Contains(res.Content[0].Text, denyUnboundFolder) {
 		t.Errorf("concept_write: %+v", res)
 	}

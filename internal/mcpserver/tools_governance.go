@@ -126,7 +126,7 @@ func toolLint(k *kb.KB) Tool {
 	return Tool{
 		Name:        "lint",
 		ReadOnly:    true,
-		Description: "Deterministic checks; every finding is a problem to fix. check, limit (max 200), offset filter and page; digest folds. Counts ignore them.",
+		Description: "Deterministic checks; every finding is a problem to fix. check, limit (max 200), offset filter and page; digest folds: compact groups findings by path ({path, checks:{check:n}}); paths lists the distinct paths of one check, the shortest answer on a large KB. Counts ignore them.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {

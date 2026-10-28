@@ -94,7 +94,7 @@ func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, reads *r
 	if deps.SQLIndex != nil {
 		description = "Keyword search over concepts (SQLite FTS5, substring matching); returns IDs, best first."
 	}
-	description += " Default 8 hits; related: N adds the neighbourhood of the hits. A hit's section goes to concept_read section; read: \"whole\" means read it whole. Glossary aliases match too (expanded_to). scope is a map name or id prefix, never a KB name."
+	description += " Default 8 hits; related: N adds the neighbourhood of the hits. A hit's section (named only on pages over 2048 bytes) goes to concept_read section; read: \"whole\" means read it whole. Glossary aliases match too (expanded_to). scope is a map name or id prefix, never a KB name."
 
 	return Tool{
 		Name:        "search",

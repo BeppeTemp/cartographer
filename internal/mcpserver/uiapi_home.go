@@ -69,6 +69,13 @@ func uiSearch(w http.ResponseWriter, r *http.Request, srv *Server) {
 		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, "q is required", "q")
 		return
 	}
+	// A limit that is not an integer is refused as the graph route does (#1279).
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if _, err := strconv.Atoi(raw); err != nil {
+			writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, "limit must be an integer", "limit")
+			return
+		}
+	}
 	if srv.uiSearch == nil {
 		writeUINotFound(w)
 		return

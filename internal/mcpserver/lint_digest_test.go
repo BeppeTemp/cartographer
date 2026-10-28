@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 )
 
 // setupTwoMapKB adds broken links in two maps on top of setupTestKB, so a
@@ -132,18 +133,42 @@ func TestServer_Lint_DigestCompact(t *testing.T) {
 	if len(findings) == 0 {
 		t.Fatal("compact digest returned no findings")
 	}
+	seen := map[string]bool{}
 	for _, f := range findings {
 		m := f.(map[string]any)
-		if _, ok := m["check"]; !ok {
-			t.Errorf("compact finding must carry check: %v", m)
+		path, ok := m["path"].(string)
+		if !ok {
+			t.Errorf("compact row must carry path: %v", m)
 		}
-		if _, ok := m["path"]; !ok {
-			t.Errorf("compact finding must carry path: %v", m)
+		// One row per path (#1273), with the finding count per check.
+		if seen[path] {
+			t.Errorf("path %q appears in two compact rows", path)
 		}
-		// Compact drops the message.
+		seen[path] = true
+		checks, ok := m["checks"].(map[string]any)
+		if !ok || checks["broken_link"] == nil {
+			t.Errorf("compact row must carry checks: %v", m)
+		}
 		if _, ok := m["message"]; ok {
-			t.Errorf("compact finding must drop message: %v", m)
+			t.Errorf("compact row must drop message: %v", m)
 		}
+		if _, ok := m["check"]; ok {
+			t.Errorf("compact row names checks, not check: %v", m)
+		}
+	}
+}
+
+// A path with several findings of one check is one row with a count.
+func TestServer_Lint_DigestCompactGroupsByPath(t *testing.T) {
+	t.Parallel()
+	got := findingsOutMode([]lint.Finding{
+		{Path: "a/x.md", Check: "broken_link"}, {Path: "a/x.md", Check: "broken_link"},
+		{Path: "a/x.md", Check: "orphan"}, {Path: "a/y.md", Check: "orphan"},
+	}, true)
+	b, _ := json.Marshal(got)
+	want := `[{"path":"a/x.md","checks":{"broken_link":2,"orphan":1}},{"path":"a/y.md","checks":{"orphan":1}}]`
+	if string(b) != want {
+		t.Errorf("compact = %s, want %s", b, want)
 	}
 }
 

@@ -353,3 +353,13 @@ func TestWaitUndated(t *testing.T) {
 		t.Errorf("message must name both closings: %s", m)
 	}
 }
+
+// #1273: the evidence counts the variants the proposal folds, not only the
+// distinct values: 4 mapped spellings here, matching the proposal's mapping.
+func TestFacetSprawlEvidenceCountsFoldedVariants(t *testing.T) {
+	t.Parallel()
+	f := sprawlItem(t, sprawlKB(t, sprawlOrder(false), ""))
+	if !strings.Contains(f.Message, "4 of them are variants that fold onto another value, 3 values kept, 34 dropped") {
+		t.Errorf("message = %q", f.Message)
+	}
+}

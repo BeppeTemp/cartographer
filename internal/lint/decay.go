@@ -376,9 +376,10 @@ func facetSprawlFindings(mapName string, contract kb.MapContract, concepts map[o
 		f.Message = fmt.Sprintf("%s; the most used, a likely vocabulary: %s", head, strings.Join(tags, ", "))
 		return []Finding{newObservation("facet_sprawl", f)}
 	}
-	converged := len(p.Values) + len(p.Mapping)
-	f.Message = fmt.Sprintf("%s; %d tags converge onto %d values, %d dropped — declare them with map_update (field_values, value_synonyms), then kb_repair invalid_field_value; a new tag needs a map_update first",
-		head, converged, len(p.Values), len(p.Drop))
+	// The evidence counts what the proposal does: the variants that fold onto
+	// another value (a case or plural spelling), not just the distinct values.
+	f.Message = fmt.Sprintf("%s; %d of them are variants that fold onto another value, %d values kept, %d dropped — declare them with map_update (field_values, value_synonyms), then kb_repair invalid_field_value; a new tag needs a map_update first",
+		head, len(p.Mapping), len(p.Values), len(p.Drop))
 	f.Proposal = p
 	return []Finding{newObservation("facet_sprawl", f)}
 }
