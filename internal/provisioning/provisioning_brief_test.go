@@ -237,6 +237,18 @@ func TestShared_Convergence(t *testing.T) {
 			stale := r1.NewLock
 			stale.PathsSectionHash = "from-an-older-release"
 			r3, _ := applyBlock(t, m, base, stale)
+			// The block on disk already carries the current text, so nothing is
+			// written (#1326), but the lock converges on the current hash.
+			if len(r3.Written) != 0 || r3.NewLock.PathsSectionHash != r1.NewLock.PathsSectionHash {
+				t.Errorf("an unchanged block must not be rewritten, and the hash must converge: %+v", r3.Written)
+			}
+			// What an older release left on disk is rewritten.
+			old := strings.Replace(content1, "kb_guide", "kb_guide_old", 1)
+			if err := os.WriteFile(filepath.Join(base, ".claude", "CLAUDE.md"), []byte(old), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			stale.PathsSectionHash = "from-an-older-release"
+			r3, _ = applyBlock(t, m, base, stale)
 			if len(r3.Written) == 0 {
 				t.Error("a changed client-owned section must rewrite the block")
 			}

@@ -42,6 +42,7 @@ var toolPrefixes = []string{
 // entry that is a tool or a lint name fails TestDocsToolNamesExist.
 var docsNonTools = map[string]bool{
 	"artifact_signing_seed": true,
+	"concept_too_large":     true, // refusal code of the 1 MiB cap (D1276), not a tool
 	// kbs[] / settings.yaml keys (D746), not tools
 	"git_base_branch": true, "git_forge": true, "git_working_branch": true, "git_branch": true,
 	"kb_aliases":         true, // server config key (D772), not a tool

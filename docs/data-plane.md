@@ -220,6 +220,8 @@ A key whose value is empty and whose following lines are **indented** holds a ne
 example an agent's `providers:` map. The parser keeps those lines verbatim as an `okf.Block` value under
 that key instead of flattening them into sibling keys; it does not interpret them, and the serializer writes them back unchanged.
 
+The write tools (`concept_write`, `concept_batch`, `concept_patch` `frontmatter`) hold to the flat subset (D1313): a value that is a map, or a list holding a map or a list, is refused with `invalid_frontmatter` naming the key (flatten the keys or put the structure in the body); scalars and lists of scalars are unchanged. The serializer never renders an unknown type with `%v`.
+
 ### Serialization guarantees
 
 A write never leaves frontmatter that its own parser cannot read back (D309):
@@ -932,7 +934,7 @@ validate a nested per-type grammar.
   holds `Source` concepts only and each already follows the template, declares
   `templates: [source]` and `default_template: source` on it (D1072); an existing
   template, or a map that already declares templates, is never touched, and the
-  response says so in `notes`. Frontmatter: `title`, `source_kind` (free
+  response says so in `notes`. A registration goes through the write gate and, when the journal's index is curated, adds the entry in the same commit (#1297); lint does not ask a `Source` for outgoing links (`orphan`). Frontmatter: `title`, `source_kind` (free
   string), optional `locator` (a URL or a `{{path:<key>}}` placeholder, never a
   machine path), optional `sha256` (lowercase hex of the original bytes, computed
   by the agent), `timestamp` (the source's own date), `ingest_status`

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -429,6 +430,67 @@ func TestDoConnect_UnpinKey(t *testing.T) {
 	}
 	if cfg, _ := clientconfig.Load(dir); len(cfg.SigningKeys) != 0 {
 		t.Errorf("pin still there after --unpin-key: %v", cfg.SigningKeys)
+	}
+}
+
+// #1302: a first connect writes .cartographer.yaml already migrated, so the
+// first sync rewrites nothing; a client that already has agents keeps its
+// marker unset, because its pre-approval installs are still to be migrated.
+func TestConnectWritesTheConfigTheFirstSyncWouldWrite(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"one": ""}, "sync_pull", func(kb string) string {
+		return pulledHookPayload(t, kb)
+	})
+	defer srv.Close()
+	dir := t.TempDir()
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadClientCfg(t, dir)
+	if !cfg.ApprovalsMigrated {
+		t.Fatal("connect left approvals_migrated unset")
+	}
+	before, err := os.ReadFile(clientconfig.Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	withStdout(t, func() {
+		if _, err := runSync(dir, cfg, syncOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	after, _ := os.ReadFile(clientconfig.Path(dir))
+	if !bytes.Equal(before, after) {
+		t.Errorf("the first sync rewrote the config:\n--- connect\n%s\n--- sync\n%s", before, after)
+	}
+
+	// An already connected client keeps the migration for its first sync.
+	dir2 := t.TempDir()
+	old := clientconfig.Default()
+	old.ServerURL, old.Agents = srv.URL+"/mcp", []string{"codex"}
+	if err := clientconfig.Save(dir2, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir2, ServerURL: srv.URL + "/mcp", Name: "cartographer"}); err != nil {
+		t.Fatal(err)
+	}
+	if loadClientCfg(t, dir2).ApprovalsMigrated {
+		t.Error("connect spent the migration of a client that was already connected")
+	}
+}
+
+// TestLockHoldsNothing_UnreadableLockKeepsTheMigration pins #1302's guard: only
+// an absent or empty lockfile lets connect mark the approvals migrated; an
+// unparseable one may hide an earlier install, so the first sync must migrate.
+func TestLockHoldsNothing_UnreadableLockKeepsTheMigration(t *testing.T) {
+	dir := t.TempDir()
+	if !lockHoldsNothing(dir) {
+		t.Fatal("an absent lockfile must hold nothing")
+	}
+	if err := os.WriteFile(lockFilePath(dir), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if lockHoldsNothing(dir) {
+		t.Fatal("an unparseable lockfile must not count as empty")
 	}
 }
 

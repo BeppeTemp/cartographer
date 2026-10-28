@@ -23,6 +23,7 @@ func trustHome(t *testing.T) (home, ws string) {
 	cfg := clientconfig.Default()
 	cfg.ServerURL = deadServerURL(t) // bind asks the server which KBs it mounts
 	cfg.KnownKBs = []string{"kb-a"}
+	cfg.Agents = []string{"codex"} // bind refuses a provider that is not connected (#1304)
 	if err := clientconfig.Save(h, cfg); err != nil {
 		t.Fatal(err)
 	}
