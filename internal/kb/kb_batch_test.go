@@ -385,3 +385,98 @@ func TestWriteConceptBatch_DeleteRollsBackAndRefusesMissing(t *testing.T) {
 		t.Fatalf("a refused batch must delete nothing: %v", err)
 	}
 }
+
+// seedExpandedWithSatellites builds entities/owner (expanded) with two satellites.
+func seedExpandedWithSatellites(t *testing.T, kb *KB) {
+	t.Helper()
+	if err := kb.CreateMap("entities", "Entities", "map", nil); err != nil {
+		t.Fatalf("CreateMap: %v", err)
+	}
+	fm, _ := okf.ParseFrontmatter("type: Entity\ntitle: T")
+	if _, err := kb.WriteConcept("entities/owner", fm, "# Owner\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := kb.ExpandConcept("entities/owner"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"entities/owner/a", "entities/owner/b"} {
+		if _, err := kb.WriteConcept(okf.ConceptID(id), fm, "# S\n", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A batch deletes an expanded concept together with every satellite under it,
+// leaves no empty directory, and a failure after the deletes puts it all back (#1359).
+func TestWriteConceptBatch_DeleteExpandedWithSatellites(t *testing.T) {
+	t.Parallel()
+	kb := newTestKB(t)
+	seedExpandedWithSatellites(t, kb)
+	dir := filepath.Join(kb.DataRoot(), "entities", "owner")
+	ops := []BatchWriteOp{
+		{ID: "entities/owner", Delete: true},
+		{ID: "entities/owner/a", Delete: true},
+		{ID: "entities/owner/b", Delete: true},
+	}
+
+	if _, err := kb.WriteConceptBatch(ops, "concept_batch: 3 op(s)", func([]BatchWriteResult) error { return errors.New("boom") }); err == nil {
+		t.Fatal("afterFiles failure must fail the batch")
+	}
+	for _, id := range []string{"entities/owner", "entities/owner/a", "entities/owner/b"} {
+		if _, err := kb.ReadConcept(okf.ConceptID(id)); err != nil {
+			t.Errorf("%s must be restored by the rollback: %v", id, err)
+		}
+	}
+
+	if _, err := kb.WriteConceptBatch(ops, "concept_batch: 3 op(s)", nil); err != nil {
+		t.Fatalf("WriteConceptBatch: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("the emptied expanded directory must be removed: %v", err)
+	}
+}
+
+// What the caller did not list is never deleted with an expanded concept, and
+// nothing is written below a concept the batch deletes (#1359).
+func TestWriteConceptBatch_DeleteExpandedRefusals(t *testing.T) {
+	t.Parallel()
+	fm, _ := okf.ParseFrontmatter("type: Entity\ntitle: T")
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, kb *KB)
+		ops   []BatchWriteOp
+		want  string
+	}{
+		{"satellite not listed", func(*testing.T, *KB) {}, []BatchWriteOp{
+			{ID: "entities/owner", Delete: true}, {ID: "entities/owner/a", Delete: true},
+		}, "entities/owner/b"},
+		{"asset owned", func(t *testing.T, kb *KB) {
+			if _, err := kb.WriteAsset("entities/owner", "data.csv", []byte("x"), "", nil); err != nil {
+				t.Fatal(err)
+			}
+		}, []BatchWriteOp{
+			{ID: "entities/owner", Delete: true}, {ID: "entities/owner/a", Delete: true}, {ID: "entities/owner/b", Delete: true},
+		}, "data.csv"},
+		{"write below deleted", func(*testing.T, *KB) {}, []BatchWriteOp{
+			{ID: "entities/owner", Delete: true}, {ID: "entities/owner/a", Delete: true}, {ID: "entities/owner/b", Delete: true},
+			{ID: "entities/owner/c", FM: fm, Body: "# C\n"},
+		}, "entities/owner/c"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			kb := newTestKB(t)
+			seedExpandedWithSatellites(t, kb)
+			tc.setup(t, kb)
+			_, err := kb.WriteConceptBatch(tc.ops, "concept_batch", nil)
+			if !errors.Is(err, okf.ErrInvalidConcept) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("want ErrInvalidConcept naming %q, got %v", tc.want, err)
+			}
+			for _, id := range []string{"entities/owner", "entities/owner/a", "entities/owner/b"} {
+				if _, err := kb.ReadConcept(okf.ConceptID(id)); err != nil {
+					t.Errorf("%s must survive a refused batch: %v", id, err)
+				}
+			}
+		})
+	}
+}

@@ -542,6 +542,66 @@ func TestConceptBatch_DeleteClosedGroup(t *testing.T) {
 	}
 }
 
+// An expanded concept is deleted in one batch with its satellites and the page
+// that links it; a satellite left out refuses the whole batch (#1359).
+func TestConceptBatch_DeleteExpandedWithSatellites(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	note := func(id, body string) map[string]any {
+		return map[string]any{"op": "write", "id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": body}
+	}
+	create := batchFixtureCall(t, s, 2, []map[string]any{
+		note("area/page", "# Page\n\n[[area/other]]\n"),
+		note("area/other", "# Other\n\n[[area/page]]\n"),
+	})
+	if create.IsError {
+		t.Fatalf("create: %s", create.Content[0].Text)
+	}
+	if err := k.ExpandConcept("area/page"); err != nil {
+		t.Fatal(err)
+	}
+	create = batchFixtureCall(t, s, 3, []map[string]any{
+		note("area/page/a", "# A\n\n[[area/other]]\n"),
+		note("area/page/b", "# B\n\n[[area/other]]\n"),
+		{"op": "write", "id": "area/other", "if_match": readHash(t, k, "area/other"), "frontmatter": map[string]any{"type": "Note", "title": "area/other"}, "body": "# Other\n\n[[area/page]] [[area/page/a]] [[area/page/b]]\n"},
+	})
+	if create.IsError {
+		t.Fatalf("satellites: %s", create.Content[0].Text)
+	}
+
+	res := batchFixtureCall(t, s, 4, []map[string]any{
+		{"op": "delete", "id": "area/page"}, {"op": "delete", "id": "area/other"}, {"op": "delete", "id": "area/page/a"},
+	})
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "area/page/b") {
+		t.Fatalf("a satellite left out must refuse the batch: %+v", res.Content)
+	}
+	if _, err := k.ReadConcept("area/page/b"); err != nil {
+		t.Fatalf("nothing may be deleted by a refused batch: %v", err)
+	}
+
+	before, _ := gitx.HeadSHA(k.Root)
+	res = batchFixtureCall(t, s, 5, []map[string]any{
+		{"op": "delete", "id": "area/page"}, {"op": "delete", "id": "area/other"},
+		{"op": "delete", "id": "area/page/a"}, {"op": "delete", "id": "area/page/b"},
+	})
+	if res.IsError {
+		t.Fatalf("delete of an expanded concept with its satellites: %s", res.Content[0].Text)
+	}
+	for _, id := range []string{"area/page", "area/other", "area/page/a", "area/page/b"} {
+		if _, err := k.ReadConcept(okf.ConceptID(id)); !errors.Is(err, okf.ErrNotFound) {
+			t.Errorf("%s still readable: %v", id, err)
+		}
+	}
+	if after, _ := gitx.HeadSHA(k.Root); after == before {
+		t.Error("the batch must commit")
+	}
+	if _, err := os.Stat(filepath.Join(k.DataRoot(), "area", "page")); !os.IsNotExist(err) {
+		t.Errorf("the emptied expanded directory must be removed: %v", err)
+	}
+}
+
 // A linker the batch patches is judged on its content after the batch: dropping
 // the link and deleting the page is one call, keeping the link refuses it, and a
 // stale if_match on a delete is refused with nothing deleted (D1327).

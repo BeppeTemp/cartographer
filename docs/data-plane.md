@@ -970,4 +970,4 @@ exists so an interrupted multi-page refactor cannot leave a partially
 realigned KB.
 A `delete` in a batch (D1327) is the way to remove pages that link each other, or to remove a page and relink its
 linkers in one commit: a link from a page the batch deletes does not block it, and a linker the batch writes or
-patches is judged on its content after the batch; only a linker still linking it, outside that, refuses the batch.
+patches is judged on its content after the batch; only a linker still linking it, outside that, refuses the batch. An expanded concept goes the same way, with all its satellites listed in the batch and no asset (#1359).
