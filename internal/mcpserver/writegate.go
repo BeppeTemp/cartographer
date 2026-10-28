@@ -30,12 +30,12 @@ var gateStashPop = gitx.StashPop
 
 // gatedTool says whether a wrapped tool goes through the gate: the concept
 // writers by name prefix (so concept_archive and later concept_* tools need no
-// list to edit) and supersede. kb_repair, repair_revert, conflict_resolve,
-// log_append, snapshot, map_*, index_patch and source_register are exempt by
-// construction.
+// list to edit), supersede and source_register (#1297). kb_repair,
+// repair_revert, conflict_resolve, log_append, snapshot, map_* and index_patch
+// are exempt by construction.
 func gatedTool(name string) bool {
 	// concept_transfer commits two KBs itself and reports findings per KB (D760).
-	return (strings.HasPrefix(name, "concept_") && name != "concept_transfer") || name == "supersede"
+	return (strings.HasPrefix(name, "concept_") && name != "concept_transfer") || name == "supersede" || name == "source_register"
 }
 
 // writeGateActive says whether the gate can judge a write on this KB: a

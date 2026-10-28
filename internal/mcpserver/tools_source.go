@@ -211,25 +211,45 @@ func toolSourceRegister(k *kb.KB) Tool {
 			if p.IngestStatus == "ingested" {
 				fm.Set("ingested_at", time.Now().UTC().Format(time.RFC3339))
 			}
+			// A journal that declares templates asks every page for a shape (the
+			// write gate, #1297): when exactly one of them is a Source template
+			// the page takes it, as the template_missing fix would.
+			if c, cerr := k.ReadMapContract(p.Map); cerr == nil && len(c.Templates) > 0 {
+				catalog := k.TemplateCatalog()
+				var shapes []string
+				for _, slug := range c.Templates {
+					if t, ok := catalog[slug]; ok && strings.EqualFold(t.Type, kb.SourceType) {
+						shapes = append(shapes, slug)
+					}
+				}
+				if len(shapes) == 1 {
+					fm.Set(kb.ShapeField, shapes[0])
+				}
+			}
 			body := p.Body
 			if strings.TrimSpace(body) == "" {
 				body = "# " + p.Title + "\n"
 			}
+			// The registration is a concept write like concept_write's (#1297):
+			// a curated index of the ledger gets its entry, which is also the
+			// inbound link, in the same commit; a generated one lists it already.
+			indexPlan, planErr := planIndexEntry(k, id)
+			if planErr != nil {
+				return errorResult(fmt.Sprintf("source_register %q: %v", id, planErr)), nil
+			}
 			if _, err := k.WriteConcept(okf.ConceptID(id), fm, body, ""); err != nil {
 				return errorResult(fmt.Sprintf("source_register %q: %v", id, err)), nil
+			}
+			if err := applyIndexEntries(k, []pendingIndexEntry{indexPlan}); err != nil {
+				indexPlan.note = fmt.Sprintf("curated index %s/index.md: %v", indexPlan.mapName, err)
 			}
 			_ = k.AppendLog("source_register: "+id, time.Now())
 			// After the write, so the new page is on disk and goes through the
 			// same conformance check as the existing ones, and so a refused
 			// registration leaves no template or contract change behind.
 			notes, setupWarnings := ensureSourceTemplate(k, p.Map)
-			resp := map[string]interface{}{"id": id, "duplicate": false}
+			resp := map[string]interface{}{"id": id, "duplicate": false, "curated_indexes": indexEntryNotes([]pendingIndexEntry{indexPlan})}
 			warnings := setupWarnings
-			if contract, cerr := k.ReadMapContract(p.Map); cerr == nil {
-				if issues := lint.TitleTextIssues(&contract, false, p.Title); len(issues) > 0 {
-					warnings = append(warnings, fmt.Sprintf("lint will flag this title (title_quality): %s; shorten or rename it", strings.Join(issues, "; ")))
-				}
-			}
 			if len(warnings) > 0 {
 				resp["warnings"] = warnings
 			}
@@ -246,8 +266,8 @@ func toolSourceRegister(k *kb.KB) Tool {
 // is safe, declares it (D1072): templates/source.md is written when absent, and
 // the map's default_template (and templates: [source], which it requires) is set only when the map holds Source concepts
 // only and every one already follows the template, so the registration never
-// introduces a finding on its own (source_register is exempt from the write
-// gate). Nothing existing is overwritten or overridden.
+// introduces a finding on its own (source_register goes through the write
+// gate, #1297). Nothing existing is overwritten or overridden.
 //
 // It is best effort: the registration must never fail because of this setup.
 // A failure is a warning, a decision not to declare is a note, and the caller
@@ -271,6 +291,12 @@ func ensureSourceTemplate(k *kb.KB, mapName string) (notes, warnings []string) {
 			return append(notes, rel+" exists and is not a Source template: left as it is, the map is not declared"), nil
 		}
 	case errors.Is(rerr, os.ErrNotExist):
+		// A map that declares other templates does not accept the shape of a
+		// template written now: the page would be refused by the write gate
+		// (template_not_allowed), so nothing is written (#1297).
+		if c, cerr := k.ReadMapContract(mapName); cerr == nil && c.HasTemplateKeys() && !slices.Contains(c.Templates, "source") {
+			return []string{fmt.Sprintf("map %q already declares templates: no source template written, left as it is", mapName)}, nil
+		}
 		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 			return nil, []string{fmt.Sprintf("source template not written: %v", err)}
 		}
