@@ -1049,3 +1049,16 @@ func TestRenderWindowsTaskXML_ScopesTheLogonTriggerToItsUser(t *testing.T) {
 		t.Errorf("an unresolved user must not render an empty UserId:\n%s", unscoped)
 	}
 }
+
+// #1339: the wait's budget counts polls, not wall-clock time. A sleep that
+// takes far longer than the poll interval (a loaded runner) must not shorten
+// the number of polls a lingering process gets.
+func TestWaitServeExit_Windows_BudgetCountsPollsNotTime(t *testing.T) {
+	withTestHome(t, "windows")
+	windowsSleep = func(time.Duration) { time.Sleep(5 * time.Millisecond) }
+	f := &fakeServeTask{running: true, stopping: true, lingerPolls: 30}
+	m := &Manager{run: f.run}
+	if !m.waitServeExit("", windowsDrainTimeout) {
+		t.Fatalf("a process that exits within the poll budget was reported as a survivor (%d polls left)", f.lingerPolls)
+	}
+}
