@@ -233,20 +233,61 @@ func resolveFrontmatterSecrets(k *kb.KB, fm *okf.Frontmatter, names []string) (m
 	if !ok {
 		return nil, "", false, fmt.Errorf("concept has no secret_refs or secrets_source")
 	}
-	source, ok := raw.(string)
-	if !ok || source == "" || !filepath.IsLocal(source) || !strings.HasPrefix(source, "secrets/") || !strings.HasSuffix(source, ".sops.yaml") {
-		return nil, "", false, fmt.Errorf("secrets_source must be a path inside the KB under secrets/*.sops.yaml")
+	sources, ok := secretsSources(raw)
+	if !ok {
+		return nil, "", false, fmt.Errorf("secrets_source must be a path inside the KB under secrets/*.sops.yaml, or a list of them")
 	}
-	sf, err := sops.Decrypt(k.Root, source, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
-	if err != nil {
-		return nil, "", false, secretError(k, err)
+	values := map[string]string{}
+	owner := map[string]string{}
+	for _, source := range sources {
+		sf, err := sops.Decrypt(k.Root, source, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
+		if err != nil {
+			return nil, "", false, secretError(k, err)
+		}
+		for key, v := range sf.Values {
+			if first, dup := owner[key]; dup {
+				return nil, "", false, fmt.Errorf("secrets_source: key %q is in both %s and %s", key, first, source)
+			}
+			owner[key] = source
+			values[key] = v
+		}
 	}
 	for _, n := range names {
-		if _, ok := sf.Values[n]; !ok {
+		if _, ok := values[n]; !ok {
 			return nil, "", false, fmt.Errorf("unknown name %q", n)
 		}
 	}
-	return sf.Values, source, true, nil
+	return values, strings.Join(sources, ", "), true, nil
+}
+
+// secretsSources reads the secrets_source field: a list of KB-relative sops
+// files (the shape lint enforces), or a plain string read as a one-element
+// list. ok is false for any other shape, an empty list, or a path outside
+// secrets/*.sops.yaml; the caller words the error without a server path.
+func secretsSources(raw any) (sources []string, ok bool) {
+	switch v := raw.(type) {
+	case string:
+		sources = []string{v}
+	case []string:
+		sources = v
+	case []any:
+		for _, e := range v {
+			s, isStr := e.(string)
+			if !isStr {
+				return nil, false
+			}
+			sources = append(sources, s)
+		}
+	}
+	if len(sources) == 0 {
+		return nil, false
+	}
+	for _, s := range sources {
+		if s == "" || !filepath.IsLocal(s) || !strings.HasPrefix(s, "secrets/") || !strings.HasSuffix(s, ".sops.yaml") {
+			return nil, false
+		}
+	}
+	return sources, true
 }
 
 func toolSecretResolve(k *kb.KB) Tool {
