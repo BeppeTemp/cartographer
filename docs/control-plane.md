@@ -195,7 +195,7 @@ lint check, not by a tool.
 | 10 MiB per asset | `kb.AssetMaxFileSize` (`internal/kb/asset.go`) | `asset_write`, `asset_read` |
 | 50 operations per batch | `conceptBatchMaxOps` (`internal/mcpserver/tools_write.go`) | `concept_batch` |
 | 512 KiB aggregate per batch (patches count their edits) | `conceptBatchMaxTotalBytes` (same file) | `concept_batch` |
-| 1 MiB per concept body | `kb.MaxConceptBodyBytes` (`internal/kb/kb.go`) | every concept write (`concept_write`, `concept_new`, `concept_patch`, `concept_batch`, the move and transfer tools): refused with `body_too_large` naming the size and the limit, before anything is written; `kb_repair` rewrites are exempt |
+| 1 MiB per concept body | `kb.MaxConceptBodyBytes` (`internal/kb/kb.go`) | every concept write (`concept_write`, `concept_new`, `concept_patch`, `concept_batch`, the move and transfer tools): refused with `body_too_large` naming the size and the limit, before anything is written; `kb_repair` rewrites are exempt. An existing page already over the limit is refused too, a frontmatter-only change included: it must be split (only `kb_repair` can still rewrite it) |
 | 500 lines per skill body | `maxSkillBodyLines` (`internal/skill/skill.go`) | `skill_warning` |
 
 `required_fields`, `field_values`, `forbidden_fields` and the curated index are **lint contracts**: a

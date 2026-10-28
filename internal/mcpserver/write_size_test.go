@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -78,5 +79,35 @@ func TestConceptWriteRefusesAnOversizeBody(t *testing.T) {
 	res, err := tool.Handler(authLocalContext(), raw)
 	if err != nil || !res.IsError || !strings.Contains(res.Content[0].Text, "body_too_large") || !strings.Contains(res.Content[0].Text, "1 MiB") {
 		t.Fatalf("res = %+v, %v", res, err)
+	}
+}
+
+// An existing page already over the limit is not editable through the tools:
+// concept_patch is refused, a frontmatter-only change included (D1276).
+func TestConceptPatchRefusesAnExistingOversizePage(t *testing.T) {
+	k := kbtest.New(t)
+	path := filepath.Join(k.DataRoot(), "notes", "huge.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw := "---\ntype: Note\ntitle: Huge\n---\nUNIQUE-MARK\n" + strings.Repeat("x", kb.MaxConceptBodyBytes+10) + "\n"
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cd, err := k.ReadConcept("notes/huge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := toolConceptPatch(k, nil)
+	for name, args := range map[string]map[string]interface{}{
+		"body edit":        {"old_string": "UNIQUE-MARK", "new_string": "CHANGED"},
+		"frontmatter only": {"frontmatter": map[string]interface{}{"title": "Huge 2"}},
+	} {
+		args["id"], args["if_match"] = "notes/huge", cd.ContentHash
+		in, _ := json.Marshal(args)
+		res, err := tool.Handler(authLocalContext(), in)
+		if err != nil || !res.IsError || !strings.Contains(res.Content[0].Text, "body_too_large") {
+			t.Fatalf("%s: res = %+v, %v", name, res, err)
+		}
 	}
 }
