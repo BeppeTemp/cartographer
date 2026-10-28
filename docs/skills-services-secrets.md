@@ -150,10 +150,18 @@ what verifying that resolution works actually needs. `reveal: true` returns the
 values, and is recorded in the audit trail (with `service_get`'s
 `resolve_secrets`) — printing a credential is a decision, and the transcript
 (and any log that captures it) keeps it. On `service_get`, `reveal` without
-`resolve_secrets` is ignored. `secret_resolve`'s `names` filters the keys and
-composes with redaction, so a caller can confirm *which* of several keys
+`resolve_secrets` is ignored. `secret_resolve`'s `names` restricts the resolution to the named references (a
+broken reference nobody asked for is not touched; a name the concept does not
+declare is `unknown name`) and composes with redaction, so a caller can confirm *which* of several keys
 resolve without printing any of them. The key names themselves, and every
 value, never enter the audit trail.
+
+Errors of the secrets tools carry no server path and no raw sops output: a failed
+decryption reads `age key missing or invalid for <kb>`, a broken reference
+`reference X: secrets/missing.sops.yaml not found`, a failed `sops set`
+`sops set failed on secrets/app.sops.yaml`; the full detail goes to the server log.
+`concept_write` refuses a `secret_refs` entry whose file or key does not exist
+(`secret_ref_broken`, [data plane](data-plane.md)).
 
 ### What `rw` means for secrets
 

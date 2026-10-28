@@ -176,3 +176,105 @@ func containsAll(s string, subs []string) bool {
 	}
 	return true
 }
+
+func callSecretTool(t *testing.T, tool Tool, params map[string]any) ToolResult {
+	t.Helper()
+	args, _ := json.Marshal(params)
+	res, err := tool.Handler(authLocalContext(), args)
+	if err != nil {
+		t.Fatalf("%s handler error: %v", tool.Name, err)
+	}
+	return res
+}
+
+func secretRefsKB(t *testing.T) *kb.KB {
+	t.Helper()
+	k := setupTestKB(t)
+	k.SopsAgeKeyFile = filepath.Join(t.TempDir(), "kb-a.age")
+	svc := "---\ntype: Service\ntitle: S\nsecret_refs:\n  - PW=secrets/app.sops.yaml#/pw\n  - X=secrets/missing.sops.yaml#/x\n---\nBody.\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "svc-refs.md"), []byte(svc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(k.Root, "secrets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.Root, "secrets", "app.sops.yaml"), []byte("placeholder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return k
+}
+
+// #1278: names restricts the resolution; no server path reaches the caller.
+func TestSecretResolve_NamesRestrictAndErrorsCarryNoServerPath(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake sops script requires a POSIX shell")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sops"), []byte("#!/bin/sh\necho 'pw: hunter2'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	k := secretRefsKB(t)
+	tool := toolSecretResolve(k)
+
+	res := callSecretTool(t, tool, map[string]any{"concept_id": "svc-refs", "names": []string{"PW"}})
+	if res.IsError || !strings.Contains(res.Content[0].Text, "PW=<redacted>") {
+		t.Fatalf("names [PW] must ignore the broken X: %v", res.Content)
+	}
+	res = callSecretTool(t, tool, map[string]any{"concept_id": "svc-refs", "names": []string{"ZZ"}})
+	if !res.IsError || !strings.Contains(res.Content[0].Text, `unknown name "ZZ"`) {
+		t.Fatalf("undeclared name: %v", res.Content)
+	}
+	res = callSecretTool(t, tool, map[string]any{"concept_id": "svc-refs"})
+	text := res.Content[0].Text
+	if !res.IsError || !strings.Contains(text, "reference X: secrets/missing.sops.yaml not found") || strings.Contains(text, k.Root) {
+		t.Fatalf("broken reference error = %q", text)
+	}
+}
+
+func TestSecretResolve_DecryptFailureNamesTheAgeKeyNotThePaths(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake sops script requires a POSIX shell")
+	}
+	dir := t.TempDir()
+	script := "#!/bin/sh\necho \"no identity matched; looked in $HOME/.ssh/id_rsa\" >&2\nexit 128\n"
+	if err := os.WriteFile(filepath.Join(dir, "sops"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	k := secretRefsKB(t)
+	k.AuthName = "kb-a"
+	res := callSecretTool(t, toolSecretResolve(k), map[string]any{"concept_id": "svc-refs", "names": []string{"PW"}})
+	text := res.Content[0].Text
+	if !res.IsError || !strings.Contains(text, "age key missing or invalid for kb-a") {
+		t.Fatalf("error = %q", text)
+	}
+	for _, leak := range []string{k.Root, k.SopsAgeKeyFile, ".ssh", "no identity", os.TempDir()} {
+		if strings.Contains(text, leak) {
+			t.Errorf("error leaks %q: %q", leak, text)
+		}
+	}
+}
+
+// #1272: each message says the way out.
+func TestSecretToolMessagesSayTheWayOut(t *testing.T) {
+	k := secretRefsKB(t)
+	k.AuthName = "kb-a"
+
+	res := callSecretTool(t, toolSecretSet(k), map[string]any{"path": "secrets/x.yaml", "key": "/k", "value": "v"})
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "secrets/x.sops.yaml") {
+		t.Errorf("secret_set bad path: %v", res.Content)
+	}
+
+	res = callSecretTool(t, toolSecretResolve(k), map[string]any{"concept_id": "../secrets/app.sops.yaml"})
+	text := res.Content[0].Text
+	if !res.IsError || strings.Contains(text, "non-canonical concept id") || !strings.Contains(text, "secret_refs") {
+		t.Errorf("secret_resolve malformed argument: %q", text)
+	}
+
+	k.SopsAgeKeyFile = ""
+	res = callSecretTool(t, toolSecretSet(k), map[string]any{"path": "secrets/app.sops.yaml", "key": "/k", "value": "v"})
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "age-keygen -o <credentials_dir>/kb-a.age") {
+		t.Errorf("secret_set without key: %v", res.Content)
+	}
+}

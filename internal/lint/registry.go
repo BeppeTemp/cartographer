@@ -138,6 +138,7 @@ var registry = []CheckSpec{
 	// One page, but only a whole-KB run has the inputs (a curation backlog).
 	{Name: "imported_draft", Level: LevelConcept, Category: CategoryPages},
 	{Name: "secrets_on_non_service", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
+	{Name: "secret_ref_broken", Level: LevelConcept, OnWrite: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "sops_format_mismatch", Level: LevelConcept, OnWrite: true, Panel: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "sops_missing_file", Level: LevelConcept, OnWrite: true, Panel: true, AvoidableAtWrite: true, Category: CategoryPages},
 	{Name: "legacy_path", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixReplacePrefix}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},

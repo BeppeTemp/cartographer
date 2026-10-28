@@ -324,7 +324,8 @@ func TestDecryptFailureKeepsStderr(t *testing.T) {
 	os.MkdirAll(filepath.Join(root, "secrets"), 0o755)
 	os.WriteFile(filepath.Join(root, "secrets", "a.sops.yaml"), []byte("x"), 0o600)
 	_, err := Decrypt(root, "secrets/a.sops.yaml")
-	if err == nil || !strings.Contains(err.Error(), "sops decrypt secrets/a.sops.yaml") || !strings.Contains(err.Error(), "no identity matched") {
+	// The caller's text carries no sops output (#1278); the log detail keeps it.
+	if err == nil || !strings.Contains(err.Error(), "secrets/a.sops.yaml") || strings.Contains(err.Error(), "no identity matched") || !strings.Contains(Detail(err), "no identity matched") {
 		t.Fatalf("err = %v", err)
 	}
 }

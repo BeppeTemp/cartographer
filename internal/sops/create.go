@@ -249,7 +249,7 @@ func Create(kbRoot, relativePath, pointer, value, keyFile string, env ...string)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout // stderr is dropped: sops diagnostics may echo the value
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("sops encrypt %s: %w", relativePath, err)
+		return newError(nil, err, "sops encrypt failed on %s", relativePath)
 	}
 	root, err := yamlDocument(stdout.Bytes())
 	if err != nil || !hasSOPSMetadata(root) {
@@ -259,18 +259,21 @@ func Create(kbRoot, relativePath, pointer, value, keyFile string, env ...string)
 		return err
 	}
 	if err := os.MkdirAll(filepath.Join(kbRoot, filepath.Dir(relativePath)), 0o755); err != nil {
-		return err
+		return newError(nil, err, "cannot create the directory of %s", relativePath)
 	}
 	f, err := os.OpenFile(filepath.Join(kbRoot, relativePath), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return err
+		return newError(nil, err, "cannot create %s", relativePath)
 	}
 	if _, err := f.Write(stdout.Bytes()); err != nil {
 		f.Close()
 		os.Remove(f.Name())
-		return err
+		return newError(nil, err, "cannot write %s", relativePath)
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		return newError(nil, err, "cannot write %s", relativePath)
+	}
+	return nil
 }
 
 // plaintextForPointer renders the one-pointer document sops encrypts. A numeric

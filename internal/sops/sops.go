@@ -13,7 +13,9 @@ package sops
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,6 +32,38 @@ import (
 type SecretFile struct {
 	Path   string
 	Values map[string]string
+}
+
+// ErrDecrypt marks a failed decryption: the key is missing, invalid, or not a
+// recipient of the file. A caller maps it to its own words (which KB).
+var ErrDecrypt = errors.New("sops decrypt failed")
+
+// Error is an error whose text is safe to hand to a remote caller: it names the
+// step and the KB-relative path, never a server path nor sops diagnostics. The
+// detail (the wrapped error, sops stderr) is for the server log; read it with
+// Detail.
+type Error struct {
+	msg    string
+	kind   error
+	detail error
+}
+
+func (e *Error) Error() string   { return e.msg }
+func (e *Error) Unwrap() error   { return e.detail }
+func (e *Error) Is(t error) bool { return e.kind != nil && t == e.kind }
+
+func newError(kind error, detail error, format string, a ...any) *Error {
+	return &Error{msg: fmt.Sprintf(format, a...), kind: kind, detail: detail}
+}
+
+// Detail returns the full text of err for the server log: for an *Error the
+// public text followed by the private detail.
+func Detail(err error) string {
+	var e *Error
+	if errors.As(err, &e) && e.detail != nil {
+		return e.msg + ": " + e.detail.Error()
+	}
+	return err.Error()
 }
 
 func Available() bool { _, err := exec.LookPath("sops"); return err == nil }
@@ -56,7 +90,7 @@ func Decrypt(kbRoot, relativePath string, env ...string) (*SecretFile, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("sops decrypt %s: %w: %s", relativePath, err, stderr.String())
+		return nil, newError(ErrDecrypt, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String())), "could not decrypt %s", relativePath)
 	}
 	values, err := parseYAMLFlat(stdout.Bytes())
 	if err != nil {
@@ -81,7 +115,7 @@ func hermeticEnv(extra []string) (env []string, cleanup func(), err error) {
 	home, err := os.MkdirTemp("", "cartographer-sops-home-")
 	if err != nil {
 		// No fallback to the real home: that would reopen every ambient key.
-		return nil, nil, fmt.Errorf("sops: create isolated home: %w", err)
+		return nil, nil, newError(nil, err, "sops: cannot create an isolated home")
 	}
 	for _, name := range hermeticEnvAllowlist {
 		if v, ok := os.LookupEnv(name); ok {
@@ -112,23 +146,50 @@ type SecretRef struct {
 }
 
 func ResolveRefs(kbRoot string, refs []SecretRef, env ...string) (map[string]string, error) {
+	return ResolveNamed(kbRoot, refs, nil, env...)
+}
+
+// ResolveNamed resolves refs; a non-empty only restricts resolution to the refs
+// of those names, so a broken reference nobody asked for is never touched. A
+// name that is not declared is an error.
+func ResolveNamed(kbRoot string, refs []SecretRef, only []string, env ...string) (map[string]string, error) {
 	cache := map[string]*SecretFile{}
 	result := make(map[string]string)
 	names := map[string]bool{}
+	if len(only) > 0 {
+		declared := map[string]SecretRef{}
+		for _, ref := range refs {
+			declared[ref.Name] = ref
+		}
+		picked := make([]SecretRef, 0, len(only))
+		asked := map[string]bool{}
+		for _, n := range only {
+			ref, ok := declared[n]
+			if !ok {
+				return nil, fmt.Errorf("unknown name %q", n)
+			}
+			if asked[n] { // a name asked twice is resolved once
+				continue
+			}
+			asked[n] = true
+			picked = append(picked, ref)
+		}
+		refs = picked
+	}
 	for _, ref := range refs {
 		if ref.Name == "" || names[ref.Name] {
 			return nil, fmt.Errorf("duplicate or empty secret ref name %q", ref.Name)
 		}
 		names[ref.Name] = true
 		if err := validatePath(kbRoot, ref.SOPSFile, false); err != nil {
-			return nil, fmt.Errorf("resolve %s: %w", ref.Name, err)
+			return nil, fmt.Errorf("reference %s: %w", ref.Name, err)
 		}
 		sf := cache[ref.SOPSFile]
 		if sf == nil {
 			var err error
 			sf, err = Decrypt(kbRoot, ref.SOPSFile, env...)
 			if err != nil {
-				return nil, fmt.Errorf("resolve %s: %w", ref.Name, err)
+				return nil, fmt.Errorf("reference %s: %w", ref.Name, err)
 			}
 			cache[ref.SOPSFile] = sf
 		}
@@ -169,7 +230,7 @@ func Set(kbRoot, relativePath, pointer, value string, env ...string) error {
 	original := filepath.Join(kbRoot, relativePath)
 	raw, err := os.ReadFile(original)
 	if err != nil {
-		return err
+		return newError(nil, err, "cannot read %s", relativePath)
 	}
 	originalNode, err := yamlDocument(raw)
 	if err != nil {
@@ -183,21 +244,23 @@ func Set(kbRoot, relativePath, pointer, value string, env ...string) error {
 		mode = info.Mode()
 	}
 	dir := filepath.Dir(original)
-	tmp, err := os.CreateTemp(dir, ".sops-set-*")
+	// The copy keeps the target's extension: sops picks its store (YAML, JSON)
+	// from it, and a copy without one is read as JSON (#1274).
+	tmp, err := os.CreateTemp(dir, ".sops-set-*"+filepath.Ext(relativePath))
 	if err != nil {
-		return err
+		return newError(nil, err, "cannot write a temporary copy of %s", relativePath)
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 	if _, err = tmp.Write(raw); err != nil {
 		tmp.Close()
-		return err
+		return newError(nil, err, "cannot write a temporary copy of %s", relativePath)
 	}
 	if err = tmp.Close(); err != nil {
-		return err
+		return newError(nil, err, "cannot write a temporary copy of %s", relativePath)
 	}
 	if err = os.Chmod(tmpName, mode); err != nil {
-		return err
+		return newError(nil, err, "cannot write a temporary copy of %s", relativePath)
 	}
 	selector, err := selectorForPointer(originalNode, pointer)
 	if err != nil {
@@ -222,19 +285,57 @@ func Set(kbRoot, relativePath, pointer, value string, env ...string) error {
 	_, err = cmd.CombinedOutput()
 	if err != nil {
 		// SOPS may include decrypted material in diagnostics. Never surface it.
-		return fmt.Errorf("sops set %s: %w", relativePath, err)
+		return newError(nil, err, "sops set failed on %s", relativePath)
 	}
 	updated, err := os.ReadFile(tmpName)
 	if err != nil {
-		return err
+		return newError(nil, err, "cannot read the result of sops set on %s", relativePath)
 	}
 	if err := verifyEncryptedPointer(updated, pointer); err != nil {
 		return err
 	}
 	if err := os.Chmod(tmpName, mode); err != nil {
-		return err
+		return newError(nil, err, "cannot replace %s", relativePath)
 	}
-	return os.Rename(tmpName, original)
+	if err := os.Rename(tmpName, original); err != nil {
+		return newError(nil, err, "cannot replace %s", relativePath)
+	}
+	return nil
+}
+
+// RefProblem says, without decrypting anything, why a secret_refs entry cannot
+// resolve: its file is missing, or (sops keeps key names in clear) the pointer
+// names no key of it. It returns "" when the reference looks fine or when the
+// file cannot be judged (not YAML, no sops block). The text names only the
+// KB-relative file and the pointer: it is shown to callers and lint output.
+func RefProblem(kbRoot, file, pointer string) string {
+	if err := validatePath(kbRoot, file, false); err != nil {
+		return err.Error()
+	}
+	f, err := os.Open(filepath.Join(kbRoot, file))
+	if err != nil {
+		return file + " is not readable"
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxDeclaredFileSize+1))
+	if err != nil || len(data) > maxDeclaredFileSize {
+		return ""
+	}
+	root, err := yamlDocument(data)
+	if err != nil || !hasSOPSMetadata(root) {
+		return ""
+	}
+	// Key names stay in clear in a sops file, so the pointer is walked as
+	// written (a top-level key needs no legacy unprefixed form here).
+	n, err := nodeAtPointer(root, pointer)
+	if err != nil {
+		return fmt.Sprintf("key %s not found in %s", pointer, file)
+	}
+	if n.Kind != yaml.ScalarNode {
+		// ResolveNamed only knows scalar leaves: a mapping or a list is not a value.
+		return fmt.Sprintf("key %s in %s is not a single value", pointer, file)
+	}
+	return ""
 }
 
 // validatePath refuses a path that is not relative and inside root, and any
@@ -265,7 +366,10 @@ func validatePath(root, rel string, allowMissing bool) error {
 			if allowMissing && os.IsNotExist(err) && i == len(parts)-1 {
 				return nil
 			}
-			return fmt.Errorf("path %q: %w", rel, err)
+			if os.IsNotExist(err) {
+				return newError(nil, err, "%s not found", rel)
+			}
+			return newError(nil, err, "%s is not readable", rel)
 		}
 		if mode := info.Mode(); !mode.IsRegular() && !mode.IsDir() {
 			return fmt.Errorf("path %q must not contain symlinks or other non-plain files", rel)
