@@ -195,10 +195,10 @@ func routedCall(t *testing.T, handler http.Handler, tool string, args map[string
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("%s: decode: %v; body=%s", tool, err, rr.Body.String())
 	}
-	if resp.Error != nil {
+	if resp.Error != nil && !strings.HasPrefix(resp.Error.Message, "unknown tool ") {
 		t.Fatalf("%s: rpc error: %s", tool, resp.Error.Message)
 	}
-	return decodeToolResult(t, resp)
+	return resultOrUnknownTool(t, resp)
 }
 
 // provisionedPath marks a routed URL as a provisioned client's (?provisioned=1,
@@ -728,7 +728,7 @@ func TestLegacyPrefixedToolReturnsExplicitError(t *testing.T) {
 		t.Errorf("unmapped prefix: %s", msg)
 	}
 	// A genuinely unknown name keeps the plain message.
-	if msg := routedCall(t, handler, "kb_a__nonsense", nil).Content[0].Text; msg != "tool not found: kb_a__nonsense" {
+	if msg := routedCall(t, handler, "kb_a__nonsense", nil).Content[0].Text; msg != "unknown tool kb_a__nonsense" {
 		t.Errorf("unknown bare tool: %s", msg)
 	}
 	for _, tool := range decodeToolList(t, routedPost(t, handler, RoutedMountPath, toolsListBody)) {
@@ -742,7 +742,7 @@ func TestLegacyPrefixedToolReturnsExplicitError(t *testing.T) {
 	if err := json.Unmarshal(routedPost(t, handler, "/mcp/kb-a", body).Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if msg := decodeToolResult(t, resp).Content[0].Text; !strings.Contains(msg, "call `search` instead") {
+	if msg := resultOrUnknownTool(t, resp).Content[0].Text; !strings.Contains(msg, "call `search` instead") {
 		t.Errorf("per-KB endpoint: %s", msg)
 	}
 }

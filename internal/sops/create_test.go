@@ -79,3 +79,17 @@ func TestCreatePassesRootConfigAndIgnoresNestedOne(t *testing.T) {
 		t.Fatalf("nested config reached sops: %q", got)
 	}
 }
+
+// #1303: the refusal names the path as the caller sent it.
+func TestCreateRefusalEchoesThePathAsSent(t *testing.T) {
+	t.Parallel()
+	for _, rel := range []string{"secrets/../x.sops.yaml", "x.sops.yaml", "../x.sops.yaml"} {
+		err := Create(t.TempDir(), rel, "/k", "v", "")
+		if err == nil || !strings.Contains(err.Error(), `path "`+rel+`" must be relative and inside the KB`) {
+			if err != nil && strings.Contains(err.Error(), "sops binary not found") {
+				t.Skip("sops not installed")
+			}
+			t.Errorf("Create(%q) = %v", rel, err)
+		}
+	}
+}

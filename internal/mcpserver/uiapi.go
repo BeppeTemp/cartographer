@@ -374,13 +374,10 @@ func uiGraph(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 
 	limit := 0
 	if raw := query.Get("limit"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil {
-			writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest,
-				"limit must be an integer", "limit")
+		if uiBadLimit(w, r) {
 			return
 		}
-		limit = parsed
+		limit, _ = strconv.Atoi(raw)
 	}
 	scope := query.Get("scope")
 	if strings.ContainsAny(scope, "/\\") {
@@ -505,6 +502,9 @@ func uiVisibleNeighbors(ctx requestContext, k *kb.KB, graph kb.Links, links map[
 }
 
 func uiLint(w http.ResponseWriter, r *http.Request, srv *Server) {
+	if uiBadLimit(w, r) {
+		return
+	}
 	k := srv.kbRef
 	ctx := r.Context()
 	scope := strings.TrimSuffix(strings.ReplaceAll(r.URL.Query().Get("scope"), "\\", "/"), "/")

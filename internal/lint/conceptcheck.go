@@ -86,7 +86,7 @@ func conceptFindings(c conceptCtx) []Finding {
 				if v, ok := parsed.Get(field); ok && !emptyFrontmatterValue(v) {
 					out = append(out, newFinding("secrets_on_non_service", Finding{
 						Path:    in.RelPath,
-						Message: fmt.Sprintf("declares %s but type is %q — service_get only resolves type Service; use secret_resolve for this concept, or move the secrets bundle to a dedicated Service", field, parsed.Type()),
+						Message: fmt.Sprintf("declares %s but type is %q — service_get only resolves type Service; move the %s to a Service concept", field, parsed.Type(), field),
 					}))
 				}
 			}

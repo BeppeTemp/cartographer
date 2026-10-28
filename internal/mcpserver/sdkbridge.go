@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -166,6 +167,12 @@ func (s *Server) unknownArgumentsError(tool *Tool, args json.RawMessage) error {
 		return nil
 	}
 	name := tool.Name
+	if trimmed := bytes.TrimSpace(args); len(trimmed) > 0 && trimmed[0] != '{' && string(trimmed) != "null" {
+		return &jsonrpc.Error{
+			Code:    jsonrpc.CodeInvalidParams,
+			Message: fmt.Sprintf("invalid params: arguments of tool %s must be an object", name),
+		}
+	}
 	schema := tool.InputSchema
 	if schema == nil {
 		schema = json.RawMessage(`{"type":"object","properties":{}}`)
@@ -292,16 +299,14 @@ func sdkResult(r ToolResult) *sdk.CallToolResult {
 }
 
 // unknownToolMiddleware answers tools/call for a name this server did not
-// register, instead of letting the SDK reject it with a bare "unknown tool"
-// protocol error.
+// register, so that the refusal carries D151's wording rather than the SDK's
+// bare "unknown tool" protocol error. It is JSON-RPC -32602 (#1303); the call is
+// still audited as an unknown tool.
 //
 // The distinction is D151's: a client sees one message for "not registered",
 // "hidden by the agent profile" and "absent from this build", and only the
 // server can tell them apart — which is how a documented capability once
-// stayed unfound. The answer is a result with IsError, not a protocol error,
-// because that is what every other tool-level failure returns; a caller that
-// branches on isError should not have to also branch on transport errors to
-// learn it named the wrong tool.
+// stayed unfound.
 func (s *Server) unknownToolMiddleware() sdk.Middleware {
 	return func(next sdk.MethodHandler) sdk.MethodHandler {
 		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
@@ -318,7 +323,16 @@ func (s *Server) unknownToolMiddleware() sdk.Middleware {
 			if known {
 				return next(ctx, method, req)
 			}
-			return sdkResult(s.callTool(ctx, params.Name, params.Arguments)), nil
+			// The call is audited as an unknown tool (callTool), and refused as
+			// JSON-RPC -32602 as the MCP spec has it (#1303).
+			res := s.callTool(ctx, params.Name, params.Arguments)
+			if len(res.Content) == 1 && strings.HasPrefix(res.Content[0].Text, "tool not found: ") {
+				return nil, &jsonrpc.Error{
+					Code:    jsonrpc.CodeInvalidParams,
+					Message: "unknown tool " + strings.TrimPrefix(res.Content[0].Text, "tool not found: "),
+				}
+			}
+			return sdkResult(res), nil
 		}
 	}
 }

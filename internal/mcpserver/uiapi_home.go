@@ -49,6 +49,20 @@ func uiTool(srv *Server, name string) (*Tool, bool) {
 	return t, ok
 }
 
+// uiBadLimit refuses, as a 400, a limit that is present and not a positive
+// integer, on every route that takes one (#1303). It answers whether it did.
+func uiBadLimit(w http.ResponseWriter, r *http.Request) bool {
+	raw := r.URL.Query().Get("limit")
+	if raw == "" {
+		return false
+	}
+	if n, err := strconv.Atoi(raw); err != nil || n <= 0 {
+		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, "limit must be a positive integer", "limit")
+		return true
+	}
+	return false
+}
+
 // uiLimit reads an optional positive limit, capped.
 func uiLimit(r *http.Request, def, max int) int {
 	n, err := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -69,12 +83,8 @@ func uiSearch(w http.ResponseWriter, r *http.Request, srv *Server) {
 		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, "q is required", "q")
 		return
 	}
-	// A limit that is not an integer is refused as the graph route does (#1279).
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		if _, err := strconv.Atoi(raw); err != nil {
-			writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, "limit must be an integer", "limit")
-			return
-		}
+	if uiBadLimit(w, r) {
+		return
 	}
 	if srv.uiSearch == nil {
 		writeUINotFound(w)
@@ -101,6 +111,9 @@ func uiSearch(w http.ResponseWriter, r *http.Request, srv *Server) {
 // GET /kbs/{kb}/changes?since=&limit= — changes_since: what the agents (and
 // everyone else) changed, newest first, with the reasons they recorded.
 func uiChanges(w http.ResponseWriter, r *http.Request, srv *Server) {
+	if uiBadLimit(w, r) {
+		return
+	}
 	tool, ok := uiTool(srv, "changes_since")
 	if !ok {
 		writeUINotFound(w)
@@ -133,6 +146,9 @@ func uiStatus(w http.ResponseWriter, r *http.Request, srv *Server) {
 // unchecked items, filtered by what it can see. where repeats (one predicate
 // per parameter); order_by and fields repeat or take a comma list.
 func uiWork(w http.ResponseWriter, r *http.Request, srv *Server) {
+	if uiBadLimit(w, r) {
+		return
+	}
 	tool, ok := uiTool(srv, "work_list")
 	if !ok {
 		writeUINotFound(w)

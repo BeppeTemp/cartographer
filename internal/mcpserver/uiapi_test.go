@@ -168,6 +168,16 @@ func TestUIAPI_MalformedParameters(t *testing.T) {
 		{UIAPIPrefix + "/kbs/docs/graph?limit=abc", "limit"},
 		{UIAPIPrefix + "/kbs/docs/search?q=x&limit=abc", "limit"},
 		{UIAPIPrefix + "/kbs/docs/graph?scope=a/b", "scope"},
+		// #1303: the limit is a positive integer on every route that takes one.
+		{UIAPIPrefix + "/kbs/docs/search?q=a&limit=-1", "limit"},
+		{UIAPIPrefix + "/kbs/docs/search?q=a&limit=0", "limit"},
+		{UIAPIPrefix + "/kbs/docs/lint?limit=abc", "limit"},
+		{UIAPIPrefix + "/kbs/docs/graph?limit=0", "limit"},
+		{UIAPIPrefix + "/kbs/docs/changes?limit=-5", "limit"},
+		{UIAPIPrefix + "/kbs/docs/work?limit=x", "limit"},
+		{UIAPIPrefix + "/kbs/docs/history?id=a&limit=0", "limit"},
+		{UIAPIPrefix + "/kbs/docs/sources?limit=0", "limit"},
+		{UIAPIPrefix + "/kbs/docs/audit?limit=0", "limit"},
 		{UIAPIPrefix + "/kbs/docs/concept", "id"},
 	} {
 		rr := getUI(t, handler, tc.path, "")

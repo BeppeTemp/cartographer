@@ -270,6 +270,9 @@ func uiMaps(w http.ResponseWriter, r *http.Request, srv *Server) {
 // GET /kbs/{kb}/history?id=&limit= — concept_history for a concept the
 // principal sees. The tool does not check visibility itself, so this does.
 func uiHistory(w http.ResponseWriter, r *http.Request, srv *Server) {
+	if uiBadLimit(w, r) {
+		return
+	}
 	id, ok := uiConceptID(w, r, srv.kbRef)
 	if !ok {
 		return
@@ -324,6 +327,9 @@ func uiJournal(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 // GET /kbs/{kb}/sources?status=&limit= — source_list wrapped as {sources}.
 // status is pending (default), ingested, skipped or *.
 func uiSources(w http.ResponseWriter, r *http.Request, srv *Server) {
+	if uiBadLimit(w, r) {
+		return
+	}
 	args := map[string]interface{}{"limit": uiLimit(r, defaultSourceLimit, maxSourceLimit)}
 	if s := r.URL.Query().Get("status"); s != "" {
 		args["status"] = s
@@ -423,6 +429,9 @@ func uiConflicts(w http.ResponseWriter, r *http.Request, srv *Server) {
 // first. The log names every principal that called a tool, so it is for an
 // admin only; a KB without an audit sink answers enabled: false.
 func uiAudit(w http.ResponseWriter, r *http.Request, name string, srv *Server) {
+	if uiBadLimit(w, r) {
+		return
+	}
 	if !auth.PrincipalFromContext(r.Context()).Policy.Admin {
 		writeUINotFound(w)
 		return
