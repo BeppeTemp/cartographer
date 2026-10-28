@@ -2235,7 +2235,7 @@ func toolConceptMerge(k *kb.KB) Tool {
 			out, _ := json.Marshal(map[string]interface{}{
 				"merged_into":  string(parentID),
 				"heading":      heading,
-				"rewritten":    touched,
+				"rewritten":    emptyIfNil(touched),
 				"replacements": replacements,
 			})
 			return textResult(string(out)), nil
@@ -2857,15 +2857,16 @@ type batchResultEntry struct {
 	ContentHash string        `json:"content_hash"`
 	Findings    []findingOut  `json:"findings,omitempty"`
 	Repaired    []repairedOut `json:"repaired,omitempty"`
+	Deleted     bool          `json:"deleted,omitempty"`
 }
 
 func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 	return Tool{
 		Name: "concept_batch",
-		Description: "All-or-nothing write/patch of distinct concepts: one commit and log entry; a failure leaves the KB untouched. " +
+		Description: "All-or-nothing write/patch/delete of distinct concepts: one commit and log entry; a failure leaves the KB untouched. " +
 			fmt.Sprintf("At most %d operations and %s of decoded content per call (a patch counts its edits). ", conceptBatchMaxOps, byteBudget(conceptBatchMaxTotalBytes)) +
-			"Each operation is 'write' (frontmatter, body, if_match optional = create-only) or 'patch' (if_match required; the concept_patch fields). " +
-			"A creating 'write' may set index_entry to add a curated index entry. Not covered: delete, move, expand, assets, other index edits. Returns id, content_hash and findings per operation.",
+			"Each operation is 'write' (frontmatter, body, if_match optional = create-only), 'patch' (if_match required; the concept_patch fields) or 'delete' (id; links from pages deleted in the same batch do not block it). " +
+			"A creating 'write' may set index_entry. Not covered: move, expand, assets, other index edits. Returns id, content_hash and findings per operation.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["operations"],
@@ -2926,6 +2927,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 			droppedByID := map[string][]findingOut{}
 			prevByID := map[string]string{} // body before the batch: read before the write (D351)
 			var indexPending []pendingIndexEntry
+			deleting := map[string]bool{} // ids of the batch's delete operations (D1327)
 
 			for i, raw := range params.Operations {
 				label := fmt.Sprintf("operation %d of %d", i+1, len(params.Operations))
@@ -3052,10 +3054,24 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 						droppedByID[op.ID] = msg
 					}
 
+				case "delete":
+					if hasEdits || hasSingle || op.Frontmatter != nil || op.FMAppend != nil || op.FMRemove != nil || len(op.Unset) > 0 || op.Body != "" || op.IndexEntry {
+						return errorResult(fmt.Sprintf("%s: a delete operation takes only 'id' and 'if_match'", label)), nil
+					}
+					if !existed {
+						return errorResult(fmt.Sprintf("%s: not found", label)), nil
+					}
+					if op.IfMatch != "" && existing.ContentHash != op.IfMatch {
+						return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match%s", label, staleConceptSuffix(k, op.ID))), nil
+					}
+					deleting[op.ID] = true
+					ops = append(ops, kb.BatchWriteOp{ID: okf.ConceptID(op.ID), Delete: true})
+					continue
+
 				case "":
-					return errorResult(fmt.Sprintf("%s: 'op' is required (\"write\" or \"patch\")", label)), nil
+					return errorResult(fmt.Sprintf("%s: 'op' is required (\"write\", \"patch\" or \"delete\")", label)), nil
 				default:
-					msg := fmt.Sprintf("%s: invalid 'op' %q (must be \"write\" or \"patch\")", label, op.Op)
+					msg := fmt.Sprintf("%s: invalid 'op' %q (must be \"write\", \"patch\" or \"delete\")", label, op.Op)
 					switch strings.ToLower(op.Op) {
 					case "move", "rename", "mv":
 						msg += "; to move or rename a concept use concept_move"
@@ -3089,6 +3105,29 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				ops = append(ops, kb.BatchWriteOp{ID: okf.ConceptID(op.ID), FM: fm, Body: body, IfMatch: op.IfMatch})
 			}
 
+			// A delete is blocked by a link from a page the batch does not
+			// delete: the pages deleted together may link each other (D1327).
+			for _, op := range ops {
+				if !op.Delete {
+					continue
+				}
+				linkers, err := deleteBlockers(ctx, k, string(op.ID))
+				if err != nil {
+					return errorResult(fmt.Sprintf("operation (%s): read links: %v", op.ID, err)), nil
+				}
+				var outside []string
+				for _, l := range linkers {
+					if !deleting[l] {
+						outside = append(outside, l)
+					}
+				}
+				if len(outside) > 0 {
+					return errorResult(fmt.Sprintf("inbound_links: %d concept(s) outside the batch still link to %s: %s. "+
+						"Delete them in the same batch, or use supersede (retire the page but keep it); nothing was deleted",
+						len(outside), op.ID, formatIDList(outside))), nil
+				}
+			}
+
 			indexed := map[string]bool{}
 			for _, p := range indexPending {
 				if p.add {
@@ -3110,6 +3149,10 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 			entries := make([]batchResultEntry, len(results))
 			factBudget := newFactBudget() // one lookup budget for the whole batch
 			for i, r := range results {
+				if deleting[r.ID] {
+					entries[i] = batchResultEntry{ID: r.ID, Deleted: true}
+					continue
+				}
 				findings, repaired, hashes := repairWritten(k, []string{r.ID}, nil, newCallerView(ctx, k))
 				findings = append(findings, droppedByID[r.ID]...)
 				findings = withFacts(findings, facts, ctx, r.ID, prevByID[r.ID], factBudget)
@@ -3135,6 +3178,9 @@ func batchLogLines(ops []kb.BatchWriteOp, indexed map[string]bool) []string {
 	lines := make([]string, len(ops))
 	for i, op := range ops {
 		lines[i] = "- " + string(op.ID)
+		if op.Delete {
+			lines[i] += " (deleted)"
+		}
 		if indexed[string(op.ID)] {
 			lines[i] += " (+ index entry)"
 		}

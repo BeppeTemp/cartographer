@@ -125,3 +125,12 @@ func errorResult(msg string) ToolResult {
 		IsError: true,
 	}
 }
+
+// emptyIfNil is s, or an empty non-nil slice when s is nil: a list in a result
+// is [] when empty, never null (D1327).
+func emptyIfNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
+}

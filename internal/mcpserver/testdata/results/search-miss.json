@@ -2,5 +2,5 @@
   "count": 0,
   "mode": "keyword",
   "query": "nonexistentterm",
-  "results": null
+  "results": []
 }

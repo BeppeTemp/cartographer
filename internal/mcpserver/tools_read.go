@@ -1482,7 +1482,7 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 				// so an agent can tell a broken link from a neighbour.
 				Missing bool `json:"missing,omitempty"`
 			}
-			var list []neighbor
+			list := []neighbor{}
 			for id, dist := range neighbors {
 				// Only visible entries were traversed, so a hidden target is
 				// never flagged missing: that would disclose it (D226).

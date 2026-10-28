@@ -332,3 +332,28 @@ func TestWriteConceptRefusesAnOversizeBody(t *testing.T) {
 		t.Fatalf("a body at the limit: %v", err)
 	}
 }
+
+// A delete in a batch is rolled back with the rest when a later step fails, and
+// a missing concept or an expanded one is refused before anything is touched (D1327).
+func TestWriteConceptBatch_DeleteRollsBackAndRefusesMissing(t *testing.T) {
+	t.Parallel()
+	kb := newTestKB(t)
+	fm, _ := okf.ParseFrontmatter("type: Runbook\ntitle: Keep")
+	if _, err := kb.WriteConcept(okf.ConceptID("keep"), fm, "# Keep\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	failAfter := errors.New("boom")
+	_, err := kb.WriteConceptBatch([]BatchWriteOp{{ID: "keep", Delete: true}}, "concept_batch", func([]BatchWriteResult) error { return failAfter })
+	if !errors.Is(err, failAfter) {
+		t.Fatalf("err = %v, want the afterFiles failure", err)
+	}
+	if _, err := kb.ReadConcept("keep"); err != nil {
+		t.Fatalf("a rolled-back delete must restore the concept: %v", err)
+	}
+	if _, err := kb.WriteConceptBatch([]BatchWriteOp{{ID: "keep", Delete: true}, {ID: "nope", Delete: true}}, "concept_batch", nil); !errors.Is(err, okf.ErrNotFound) {
+		t.Fatalf("err = %v, want not found", err)
+	}
+	if _, err := kb.ReadConcept("keep"); err != nil {
+		t.Fatalf("a refused batch must delete nothing: %v", err)
+	}
+}

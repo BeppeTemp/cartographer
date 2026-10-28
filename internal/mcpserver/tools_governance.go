@@ -348,7 +348,7 @@ func toolCommitGate(k *kb.KB) Tool {
 				Reason   string   `json:"reason"`
 			}
 
-			var blockers []blockerJSON
+			blockers := []blockerJSON{}
 			for _, b := range gate.Blockers {
 				blockers = append(blockers, blockerJSON{
 					Path:     b.ConceptPath,
@@ -522,12 +522,12 @@ func toolGateCheck(k *kb.KB) Tool {
 				Reason   string   `json:"reason"`
 			}
 
-			var valErrsJSON []valErrJSON
+			valErrsJSON := []valErrJSON{}
 			for _, e := range valErrs {
 				valErrsJSON = append(valErrsJSON, valErrJSON{Path: e.Path, Message: e.Message})
 			}
 			lintJSON2 := findingsOut(lintFindings)
-			var blockers []blockerJSON
+			blockers := []blockerJSON{}
 			for _, b := range gate.Blockers {
 				blockers = append(blockers, blockerJSON{
 					Path: b.ConceptPath, Involves: b.Involves, Kind: b.Kind, Reason: b.Reason,
