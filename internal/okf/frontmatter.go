@@ -307,16 +307,23 @@ func (fm *Frontmatter) Serialize() string {
 			sb.WriteString(e.raw)
 			sb.WriteByte('\n')
 		case entryKeyKind:
-			line, err := serializeEntry(e.key, e.value)
-			if err != nil {
-				// Never reached through a write: WriteConcept calls Validate
-				// first. A skipped key is better than a "%v" rendering.
-				continue
-			}
-			sb.WriteString(line)
+			sb.WriteString(mustSerializeEntry(e.key, e.value))
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// mustSerializeEntry panics on a value serializeEntry refuses: Serialize has
+// no error to return and silently dropping or mis-rendering a key loses data.
+// An unsupported type is a programming error (the write tools refuse nested
+// values and WriteConcept calls Validate, but other paths serialize without
+// it), so tests catch it (D1313).
+func mustSerializeEntry(key string, value interface{}) string {
+	line, err := serializeEntry(key, value)
+	if err != nil {
+		panic(fmt.Sprintf("okf: frontmatter key %q holds unsupported type %T", key, value))
+	}
+	return line
 }
 
 // ErrNestedFrontmatter marks a frontmatter value the flat OKF subset cannot
@@ -363,11 +370,7 @@ func (fm *Frontmatter) CanonicalString() string {
 	var sb strings.Builder
 	for _, k := range keys {
 		idx := fm.index[k]
-		line, err := serializeEntry(k, fm.entries[idx].value)
-		if err != nil {
-			continue
-		}
-		sb.WriteString(line)
+		sb.WriteString(mustSerializeEntry(k, fm.entries[idx].value))
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -436,37 +437,59 @@ func renderTemplateText(source string, vars map[string]string) string {
 // Shared by concept_write (full frontmatter) and concept_patch (optional
 // partial frontmatter merge, D70).
 func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) error {
-	// Refuse before touching fm: a nested value fails the whole call (D1313).
+	// Refuse and format everything before touching fm (D1313).
+	set := map[string]interface{}{}
+	var unset []string
 	for _, key := range sortedKeys(m) {
 		switch v := m[key].(type) {
-		case map[string]interface{}:
-			return nestedFrontmatterError(key)
-		case []interface{}:
-			for _, item := range v {
-				switch item.(type) {
-				case map[string]interface{}, []interface{}:
-					return nestedFrontmatterError(key)
-				}
-			}
-		}
-	}
-	for key, val := range m {
-		switch v := val.(type) {
+		case nil:
+			unset = append(unset, key)
 		case string:
-			fm.Set(key, v)
+			set[key] = v
 		case []interface{}:
 			ss := make([]string, len(v))
 			for i, item := range v {
-				ss[i] = fmt.Sprintf("%v", item)
+				str, err := frontmatterScalar(key, item)
+				if err != nil {
+					return err
+				}
+				ss[i] = str
 			}
-			fm.Set(key, ss)
-		case nil:
-			fm.Delete(key)
+			set[key] = ss
 		default:
-			fm.Set(key, fmt.Sprintf("%v", val))
+			str, err := frontmatterScalar(key, v)
+			if err != nil {
+				return err
+			}
+			set[key] = str
 		}
 	}
+	for _, key := range unset {
+		fm.Delete(key)
+	}
+	for key, v := range set {
+		fm.Set(key, v)
+	}
 	return nil
+}
+
+// frontmatterScalar renders one JSON scalar (a value or a list item) as the
+// string okf stores. null, maps and lists are refused; no %v (D1313).
+func frontmatterScalar(key string, v interface{}) (string, error) {
+	switch x := v.(type) {
+	case string:
+		return x, nil
+	case bool:
+		return strconv.FormatBool(x), nil
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64), nil
+	case json.Number:
+		return x.String(), nil
+	case nil:
+		return "", fmt.Errorf("%w: key %q: a null list item is not supported; remove it or use a string", okf.ErrNestedFrontmatter, key)
+	default:
+		return "", nestedFrontmatterError(key)
+	}
 }
 
 func nestedFrontmatterError(key string) error {

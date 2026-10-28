@@ -79,3 +79,24 @@ func TestConceptBatch_RefusesNestedFrontmatter(t *testing.T) {
 		t.Fatal("concept was written")
 	}
 }
+
+func TestConceptWrite_NullListItemRefusedAndScalarItemsFormatted(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	text, isErr := callJSON(t, s, adminCtx, "concept_write", nestedArgs(t, "notes/nul", map[string]any{"l": []any{"a", nil}}))
+	if !isErr || !strings.Contains(text, "invalid_frontmatter") || strings.Contains(text, "<nil>") {
+		t.Fatalf("err=%v %s", isErr, text)
+	}
+	if text, isErr = callJSON(t, s, adminCtx, "concept_write", nestedArgs(t, "notes/nums", map[string]any{"l": []any{true, 2, 1.5, "x"}})); isErr {
+		t.Fatal(text)
+	}
+	raw, err := k.ReadRaw("notes/nums.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(raw, "l: [true, 2, 1.5, x]") {
+		t.Fatalf("raw:\n%s", raw)
+	}
+}

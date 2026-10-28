@@ -567,3 +567,22 @@ func TestSerializeEntry_RefusesNestedValues(t *testing.T) {
 		}
 	}
 }
+
+func TestSerialize_PanicsOnUnsupportedType(t *testing.T) {
+	fm, err := ParseFrontmatter("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm.Set("cfg", map[string]interface{}{"a": 1})
+	for name, f := range map[string]func(){"Serialize": func() { fm.Serialize() }, "CanonicalString": func() { fm.CanonicalString() }} {
+		func() {
+			defer func() {
+				r := recover()
+				if msg, _ := r.(string); !strings.Contains(msg, `"cfg"`) || !strings.Contains(msg, "map[string]interface") {
+					t.Fatalf("%s: recover = %v", name, r)
+				}
+			}()
+			f()
+		}()
+	}
+}
