@@ -149,7 +149,7 @@ func probeErrorMessage(state probeState, err error) string {
 	if errors.Is(err, client.ErrUnauthorized) {
 		return fmt.Sprintf("server reached but the token was rejected (check Token env var / Auth): %v", err)
 	}
-	if !isTransportErr(err) {
+	if re := (*client.RemoteError)(nil); errors.As(err, &re) && !isTransportErr(err) {
 		return fmt.Sprintf("the server answered but the probe failed: %v", err)
 	}
 	return fmt.Sprintf("server unreachable: %v", err)
