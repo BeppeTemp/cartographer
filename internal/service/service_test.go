@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -222,7 +223,12 @@ func withTestHome(t *testing.T, os_ string) string {
 	userHomeDir = func() (string, error) { return home, nil }
 	goos = os_
 	getenv = func(string) string { return "" }
-	t.Cleanup(func() { userHomeDir, goos, getenv = origHome, origGOOS, origGetenv })
+	origUnload, origUnloadPoll := launchdUnloadTimeout, launchdUnloadPoll
+	launchdUnloadTimeout, launchdUnloadPoll = 50*time.Millisecond, time.Millisecond
+	t.Cleanup(func() {
+		userHomeDir, goos, getenv = origHome, origGOOS, origGetenv
+		launchdUnloadTimeout, launchdUnloadPoll = origUnload, origUnloadPoll
+	})
 	// The rest of the host a Windows stop consults (D266): a real dial would
 	// reach whatever the test machine has listening on the default port, the
 	// production budgets would make a never-exiting stub cost half a minute,
@@ -292,12 +298,27 @@ func TestSystemdUnitPath(t *testing.T) {
 type stubRunner struct {
 	calls [][]string
 	fail  map[string]bool // command name (joined with " ") -> force error
+	// unloaded models launchd: after a bootout the job is gone, so `print`
+	// fails until the next bootstrap (what bootoutAndWait waits for).
+	unloaded bool
 }
 
 func (s *stubRunner) run(name string, args ...string) (string, error) {
 	call := append([]string{name}, args...)
 	s.calls = append(s.calls, call)
 	key := strings.Join(call, " ")
+	if name == "launchctl" && len(args) > 0 {
+		switch args[0] {
+		case "bootout":
+			s.unloaded = true
+		case "bootstrap":
+			s.unloaded = false
+		case "print":
+			if s.unloaded {
+				return "", errNotLoaded
+			}
+		}
+	}
 	for pat := range s.fail {
 		if strings.Contains(key, pat) {
 			return "", errNotLoaded
@@ -1213,8 +1234,21 @@ func TestSyncTimerInstallIsIdempotentAndUninstallable(t *testing.T) {
 		t.Run(platform, func(t *testing.T) {
 			goos = platform
 			var calls []string
+			unloaded := false
 			m := &Manager{run: func(name string, args ...string) (string, error) {
 				calls = append(calls, name+" "+strings.Join(args, " "))
+				if name == "launchctl" && len(args) > 0 {
+					switch args[0] {
+					case "bootout":
+						unloaded = true
+					case "bootstrap":
+						unloaded = false
+					case "print":
+						if unloaded {
+							return "", errNotLoaded
+						}
+					}
+				}
 				return "active", nil
 			}}
 
@@ -1574,5 +1608,292 @@ func TestReplace_TimeoutNamesBootstrapping(t *testing.T) {
 	err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: 100 * time.Millisecond, PollInterval: 10 * time.Millisecond})
 	if err == nil || !strings.Contains(err.Error(), "still bootstrapping") {
 		t.Fatalf("want a timeout naming bootstrapping, got %v", err)
+	}
+}
+
+// bootstrapStub is a fake launchctl whose job stays loaded for `drain` print
+// polls after a bootout (the server draining on SIGTERM), failing a bootstrap
+// issued while it is still loaded exactly as launchd does (exit status 5).
+type bootstrapStub struct {
+	drain     int
+	loaded    bool
+	polls     int
+	calls     []string
+	badBoot   bool
+	neverGone bool
+}
+
+func (b *bootstrapStub) run(name string, args ...string) (string, error) {
+	b.calls = append(b.calls, args[0])
+	switch args[0] {
+	case "bootout":
+		b.polls = 0
+	case "print":
+		if b.loaded {
+			b.polls++
+			if !b.neverGone && b.polls > b.drain {
+				b.loaded = false
+			}
+		}
+		if b.loaded {
+			return "", nil
+		}
+		return "", errNotLoaded
+	case "bootstrap":
+		if b.loaded {
+			b.badBoot = true
+			return "", &stubError{"Bootstrap failed: 5: Input/output error"}
+		}
+		b.loaded = true
+	}
+	return "", nil
+}
+
+func TestInstallDarwin_WaitsForJobToUnloadBeforeBootstrap(t *testing.T) {
+	withTestHome(t, "darwin")
+	launchdUnloadTimeout = time.Second
+	b := &bootstrapStub{drain: 3, loaded: true}
+	m := &Manager{run: b.run}
+	if err := m.installDarwin("/bin/cartographer", "/cfg.yaml"); err != nil {
+		t.Fatalf("installDarwin: %v", err)
+	}
+	if b.badBoot {
+		t.Fatal("bootstrap ran while the job was still loaded")
+	}
+	if b.polls < 4 {
+		t.Errorf("polled %d times, want it to wait through the drain", b.polls)
+	}
+}
+
+func TestInstallDarwin_FirstInstallDoesNotWait(t *testing.T) {
+	withTestHome(t, "darwin")
+	b := &bootstrapStub{}
+	m := &Manager{run: b.run}
+	if err := m.installDarwin("/bin/cartographer", "/cfg.yaml"); err != nil {
+		t.Fatalf("installDarwin: %v", err)
+	}
+	if !b.loaded {
+		t.Error("the job must be bootstrapped")
+	}
+}
+
+func TestInstallDarwin_JobNeverUnloads_ClearError(t *testing.T) {
+	withTestHome(t, "darwin")
+	b := &bootstrapStub{loaded: true, neverGone: true}
+	m := &Manager{run: b.run}
+	err := m.installDarwin("/bin/cartographer", "/cfg.yaml")
+	if err == nil {
+		t.Fatal("want an error when the job stays loaded")
+	}
+	for _, want := range []string{launchdLabel, "launchctl bootout", "launchctl bootstrap"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+	for _, c := range b.calls {
+		if c == "bootstrap" {
+			t.Error("bootstrap was attempted on a job that never unloaded")
+		}
+	}
+}
+
+func TestInstallSyncTimerDarwin_WaitsForJobToUnload(t *testing.T) {
+	withTestHome(t, "darwin")
+	launchdUnloadTimeout = time.Second
+	oldExec := osExecutable
+	osExecutable = func() (string, error) { return "/bin/cartographer", nil }
+	t.Cleanup(func() { osExecutable = oldExec })
+	b := &bootstrapStub{drain: 3, loaded: true}
+	m := &Manager{run: b.run}
+	if err := m.InstallSyncTimer(20 * time.Minute); err != nil {
+		t.Fatalf("InstallSyncTimer: %v", err)
+	}
+	if b.badBoot {
+		t.Fatal("bootstrap ran while the sync timer job was still loaded")
+	}
+}
+
+func TestDefinitionBinary(t *testing.T) {
+	for _, platform := range []string{"darwin", "linux", "windows"} {
+		t.Run(platform, func(t *testing.T) {
+			withTestHome(t, platform)
+			m, _ := newTestManager()
+			if _, err := m.DefinitionBinary(); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("no definition: err = %v, want ErrNotExist", err)
+			}
+			var path, content string
+			switch platform {
+			case "darwin":
+				path, _ = LaunchdPlistPath()
+				content = RenderLaunchdPlist("/opt/homebrew/bin/cartographer", "/cfg.yaml", "/log")
+			case "linux":
+				path, _ = SystemdUnitPath()
+				content = RenderSystemdUnit("/opt/homebrew/bin/cartographer", "/cfg.yaml")
+			case "windows":
+				path, _ = WindowsTaskPath()
+				content = RenderWindowsTaskXML("/opt/homebrew/bin/cartographer", "/cfg.yaml", "/log", "")
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			got, err := m.DefinitionBinary()
+			if err != nil || got != "/opt/homebrew/bin/cartographer" {
+				t.Fatalf("DefinitionBinary = %q, %v", got, err)
+			}
+		})
+	}
+}
+
+func TestSwitchBinary_RewritesDefinitionToRunningExecutable(t *testing.T) {
+	withTestHome(t, "darwin")
+	launchdUnloadTimeout = time.Second
+	oldExec := osExecutable
+	osExecutable = func() (string, error) { return "/home/user/.local/bin/cartographer", nil }
+	t.Cleanup(func() { osExecutable = oldExec })
+	plist, _ := LaunchdPlistPath()
+	if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := filepath.Join(t.TempDir(), "server.yaml")
+	if err := os.WriteFile(cfg, []byte("data: "+t.TempDir()+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plist, []byte(RenderLaunchdPlist("/opt/homebrew/bin/cartographer", cfg, "/log")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := &bootstrapStub{loaded: true, drain: 2}
+	m := &Manager{run: b.run}
+	if err := m.SwitchBinary(cfg); err != nil {
+		t.Fatalf("SwitchBinary: %v", err)
+	}
+	got, err := m.DefinitionBinary()
+	if err != nil || got != "/home/user/.local/bin/cartographer" {
+		t.Fatalf("definition binary = %q, %v", got, err)
+	}
+	if b.badBoot || !b.loaded {
+		t.Errorf("job must be reloaded after the wait, badBoot=%v loaded=%v", b.badBoot, b.loaded)
+	}
+}
+
+func TestUninstallDarwin_WaitsForJobToUnloadBeforeRemovingPlist(t *testing.T) {
+	withTestHome(t, "darwin")
+	launchdUnloadTimeout = time.Second
+	plist, _ := LaunchdPlistPath()
+	if err := os.MkdirAll(filepath.Dir(plist), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plist, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	b := &bootstrapStub{drain: 3, loaded: true}
+	m := &Manager{run: b.run}
+	if err := m.Uninstall(); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	if b.loaded || b.polls < 4 {
+		t.Errorf("uninstall must wait through the drain, loaded=%v polls=%d", b.loaded, b.polls)
+	}
+	// A job that never unloads keeps its plist: removing it would orphan the job.
+	if err := os.WriteFile(plist, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stuck := &Manager{run: (&bootstrapStub{loaded: true, neverGone: true}).run}
+	launchdUnloadTimeout = 20 * time.Millisecond
+	if err := stuck.Uninstall(); err == nil {
+		t.Fatal("want an error for a job that never unloads")
+	}
+	if _, err := os.Stat(plist); err != nil {
+		t.Errorf("plist must stay: %v", err)
+	}
+}
+
+func TestSwitchBinary_Linux_RestartsTheUnit(t *testing.T) {
+	withTestHome(t, "linux")
+	oldExec := osExecutable
+	osExecutable = func() (string, error) { return "/home/user/.local/bin/cartographer", nil }
+	t.Cleanup(func() { osExecutable = oldExec })
+	cfg := filepath.Join(t.TempDir(), "server.yaml")
+	if err := os.WriteFile(cfg, []byte("data: "+t.TempDir()+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, stub := newTestManager()
+	if err := m.SwitchBinary(cfg); err != nil {
+		t.Fatalf("SwitchBinary: %v", err)
+	}
+	restarted := false
+	for _, c := range stub.calls {
+		if strings.Join(c, " ") == "systemctl --user restart "+systemdUnit {
+			restarted = true
+		}
+	}
+	if !restarted {
+		t.Errorf("the running unit must be restarted, calls = %v", stub.calls)
+	}
+	got, err := m.DefinitionBinary()
+	if err != nil || got != "/home/user/.local/bin/cartographer" {
+		t.Fatalf("definition binary = %q, %v", got, err)
+	}
+
+	m2, stub2 := newTestManager()
+	stub2.fail = map[string]bool{"restart": true}
+	err = m2.SwitchBinary(cfg)
+	if err == nil || !strings.Contains(err.Error(), "systemctl restart") {
+		t.Fatalf("restart failure must surface, got %v", err)
+	}
+}
+
+func TestCheckStableBinary(t *testing.T) {
+	withTestHome(t, "linux")
+	oldExec := osExecutable
+	t.Cleanup(func() { osExecutable = oldExec })
+	for name, tc := range map[string]struct {
+		path string
+		bad  bool
+	}{
+		"temp dir":      {filepath.Join(os.TempDir(), "x", "cartographer"), true},
+		"go build":      {"/home/user/.cache/go-build/ab/cartographer", true},
+		"go-build123":   {"/home/user/x/go-build123/b001/cartographer", true},
+		"go-builder":    {"/home/user/go-builder/bin/cartographer", false},
+		"caskroom":      {"/opt/homebrew/Caskroom/cartographer/1.0/cartographer", true},
+		"install.sh":    {"/home/user/.local/bin/cartographer", false},
+		"homebrew link": {"/opt/homebrew/bin/cartographer", false},
+	} {
+		osExecutable = func() (string, error) { return tc.path, nil }
+		err := CheckStableBinary()
+		if (err != nil) != tc.bad {
+			t.Errorf("%s: err = %v, want error=%v", name, err, tc.bad)
+		}
+	}
+}
+
+// A binary or config path with a space must survive the unit round trip
+// (#1336): quoted by the renderer, one word for both extractors.
+func TestSystemdUnit_PathsWithSpacesRoundTrip(t *testing.T) {
+	bin, cfg := "/home/user/My Apps/cartographer", `/home/user/my "conf"/100%/$HOME dir/server.yaml`
+	unit := RenderSystemdUnit(bin, cfg)
+	if !strings.Contains(unit, `ExecStart="/home/user/My Apps/cartographer" serve --config "`) {
+		t.Errorf("ExecStart paths must be quoted, got:\n%s", unit)
+	}
+	gotBin, err := extractUnitBinary([]byte(unit))
+	if err != nil || gotBin != bin {
+		t.Errorf("binary = %q, %v, want %q", gotBin, err, bin)
+	}
+	gotCfg, err := extractUnitConfigPath([]byte(unit))
+	if err != nil || gotCfg != cfg {
+		t.Errorf("config = %q, %v, want %q", gotCfg, err, cfg)
+	}
+	if !strings.Contains(RenderSyncSystemdService(bin), `ExecStart="/home/user/My Apps/cartographer" sync`) {
+		t.Error("the sync unit must quote its binary too")
+	}
+	// A unit written before the quoting still parses.
+	old := "[Service]\nExecStart=/usr/local/bin/cartographer serve --config /etc/c.yaml\n"
+	if b, _ := extractUnitBinary([]byte(old)); b != "/usr/local/bin/cartographer" {
+		t.Errorf("legacy binary = %q", b)
+	}
+	if c, _ := extractUnitConfigPath([]byte(old)); c != "/etc/c.yaml" {
+		t.Errorf("legacy config = %q", c)
 	}
 }

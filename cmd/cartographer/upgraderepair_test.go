@@ -27,7 +27,19 @@ func saveRepairFns(t *testing.T) {
 	origTargetDir := repairTargetDirFn
 	origLoadCfg := repairLoadClientConfigFn
 	origRunSync := repairRunSyncFn
+	origSame := repairSameBinaryFn
+	origSwitch := repairSwitchBinaryFn
+	origCheck, origDef := repairCheckBinaryFn, repairDefinitionPathFn
+	origWait, origPoll := repairSwitchWait, repairSwitchPoll
+	// The test binary lives in a go-build/temp directory the real guard refuses.
+	repairCheckBinaryFn = func() error { return nil }
+	repairDefinitionPathFn = func() (string, error) { return "/home/user/Library/LaunchAgents/com.cartographer.serve.plist", nil }
+	repairSwitchWait, repairSwitchPoll = 50*time.Millisecond, time.Millisecond
 	t.Cleanup(func() {
+		repairCheckBinaryFn, repairDefinitionPathFn = origCheck, origDef
+		repairSwitchWait, repairSwitchPoll = origWait, origPoll
+		repairSameBinaryFn = origSame
+		repairSwitchBinaryFn = origSwitch
 		version = origVersion
 		repairEffectiveConfigFn = origEffective
 		repairServiceStatusFn = origStatus
@@ -663,7 +675,7 @@ func staleServiceFixture(t *testing.T, healthVersion string) *bool {
 	version = "v1.3.0"
 	repairEffectiveConfigFn = func(explicit string) (string, error) { return "/cfg.yaml", nil }
 	repairServiceStatusFn = func(configPath string) (service.Status, error) {
-		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", BinPath: "/opt/homebrew/bin/cartographer"}, nil
+		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", ServiceBinPath: "/opt/homebrew/bin/cartographer"}, nil
 	}
 	repairSameBinaryFn = func(string) bool { return true }
 	repairProbeHealthFn = func(addr string, timeout time.Duration) (service.HealthStatus, error) {
@@ -760,4 +772,137 @@ func TestSameExecutable(t *testing.T) {
 	if sameExecutable(other) || sameExecutable("") || sameExecutable(filepath.Join(t.TempDir(), "missing")) {
 		t.Error("a different, empty or missing path must not match")
 	}
+}
+
+// A service whose definition runs another binary than the one repairing it is
+// switched to this binary before the wait, on the manual path too: a signal
+// only restarts the program the definition names (#1321).
+func TestCmdUpgradeRepair_ServiceRunsAnotherBinary_SwitchesDefinitionFirst(t *testing.T) {
+	saveRepairFns(t)
+	version = "v1.2.3"
+	repairEffectiveConfigFn = func(string) (string, error) { return "/effective/config.yaml", nil }
+	repairServiceStatusFn = func(string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", BinPath: "/home/user/.local/bin/cartographer", ServiceBinPath: "/opt/homebrew/bin/cartographer"}, nil
+	}
+	repairSameBinaryFn = func(string) bool { return false }
+	repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+		return service.HealthStatus{Status: "ok", Version: "v1.2.3"}, nil
+	}
+	var order []string
+	repairSwitchBinaryFn = func(cfg string) error {
+		order = append(order, "switch:"+cfg)
+		return nil
+	}
+	repairTargetDirFn = func() (string, error) { return t.TempDir(), nil }
+	out := withStdout(t, func() {
+		if code := cmdUpgradeRepair(nil); code != exitRepairOK {
+			t.Fatalf("exit = %d, want %d", code, exitRepairOK)
+		}
+	})
+	if len(order) != 1 || order[0] != "switch:/effective/config.yaml" {
+		t.Fatalf("switch calls = %v", order)
+	}
+	if !strings.Contains(out, "rewrote /home/user/Library/LaunchAgents/com.cartographer.serve.plist for /home/user/.local/bin/cartographer; hand edits to it are replaced") {
+		t.Errorf("output must say the definition was re-rendered, got %q", out)
+	}
+	if !strings.Contains(out, "/opt/homebrew/bin/cartographer") || !strings.Contains(out, "/home/user/.local/bin/cartographer") {
+		t.Errorf("output must name both binaries, got %q", out)
+	}
+}
+
+func TestCmdUpgradeRepair_SwitchFails_ExitServiceFailure(t *testing.T) {
+	saveRepairFns(t)
+	repairEffectiveConfigFn = func(string) (string, error) { return "/c.yaml", nil }
+	repairServiceStatusFn = func(string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, ServiceBinPath: "/opt/homebrew/bin/cartographer"}, nil
+	}
+	repairSameBinaryFn = func(string) bool { return false }
+	repairSwitchBinaryFn = func(string) error { return errors.New("bootstrap failed") }
+	failIfReplaceCalled(t)
+	failIfSyncCalled(t)
+	if code := cmdUpgradeRepair(nil); code != exitRepairServiceFailure {
+		t.Fatalf("exit = %d, want %d", code, exitRepairServiceFailure)
+	}
+}
+
+func TestCmdUpgradeRepair_ServiceRunsThisBinary_NoSwitch(t *testing.T) {
+	saveRepairFns(t)
+	version = "v1.2.3"
+	repairEffectiveConfigFn = func(string) (string, error) { return "/c.yaml", nil }
+	repairServiceStatusFn = func(string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", ServiceBinPath: "/opt/homebrew/bin/cartographer"}, nil
+	}
+	repairSameBinaryFn = func(string) bool { return true }
+	repairSwitchBinaryFn = func(string) error { t.Fatal("must not switch"); return nil }
+	repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+		return service.HealthStatus{Status: "ok", Version: "v1.2.3"}, nil
+	}
+	repairTargetDirFn = func() (string, error) { return t.TempDir(), nil }
+	cmdUpgradeRepair(nil)
+}
+
+func TestCmdUpgradeRepair_UnstableBinary_RefusesSwitchWithManualCommand(t *testing.T) {
+	saveRepairFns(t)
+	repairEffectiveConfigFn = func(string) (string, error) { return "/c.yaml", nil }
+	repairServiceStatusFn = func(string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, ServiceBinPath: "/opt/homebrew/bin/cartographer"}, nil
+	}
+	repairSameBinaryFn = func(string) bool { return false }
+	repairCheckBinaryFn = func() error { return errors.New("/tmp/go-build123/cartographer is a go-build artifact") }
+	repairSwitchBinaryFn = func(string) error { t.Fatal("must not switch to an unstable binary"); return nil }
+	failIfReplaceCalled(t)
+	failIfSyncCalled(t)
+	var code int
+	errOut := withStderr(t, func() { code = cmdUpgradeRepair(nil) })
+	if code != exitRepairServiceFailure {
+		t.Fatalf("exit = %d, want %d", code, exitRepairServiceFailure)
+	}
+	if !strings.Contains(errOut, "go-build") || !strings.Contains(errOut, "cartographer service install") {
+		t.Errorf("stderr must name the problem and the manual command, got %q", errOut)
+	}
+}
+
+func TestCmdUpgradeRepair_UnreadableDefinition_Warns(t *testing.T) {
+	saveRepairFns(t)
+	version = "v1.2.3"
+	repairEffectiveConfigFn = func(string) (string, error) { return "/c.yaml", nil }
+	repairServiceStatusFn = func(string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", ServiceBinWarning: "no ProgramArguments array found"}, nil
+	}
+	repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+		return service.HealthStatus{Status: "ok", Version: "v1.2.3"}, nil
+	}
+	repairTargetDirFn = func() (string, error) { return t.TempDir(), nil }
+	errOut := withStderr(t, func() { cmdUpgradeRepair(nil) })
+	if !strings.Contains(errOut, "Warning") || !strings.Contains(errOut, "no ProgramArguments array found") {
+		t.Errorf("stderr must surface the definition error, got %q", errOut)
+	}
+}
+
+// After a switch the reloaded job starts the new binary on its own: the wait
+// for /health absorbs a slow start, so no second Replace is issued.
+func TestCmdUpgradeRepair_AfterSwitch_WaitsForHealthInsteadOfReplacing(t *testing.T) {
+	saveRepairFns(t)
+	version = "v1.2.3"
+	repairEffectiveConfigFn = func(string) (string, error) { return "/c.yaml", nil }
+	repairServiceStatusFn = func(string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", ServiceBinPath: "/opt/homebrew/bin/cartographer"}, nil
+	}
+	repairSameBinaryFn = func(string) bool { return false }
+	repairSwitchBinaryFn = func(string) error { return nil }
+	probes := 0
+	repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+		probes++
+		if probes < 4 {
+			return service.HealthStatus{}, errors.New("connection refused")
+		}
+		return service.HealthStatus{Status: "ok", Version: "v1.2.3"}, nil
+	}
+	failIfReplaceCalled(t)
+	repairTargetDirFn = func() (string, error) { return t.TempDir(), nil }
+	withStdout(t, func() {
+		if code := cmdUpgradeRepair(nil); code != exitRepairOK {
+			t.Fatalf("exit = %d", code)
+		}
+	})
 }

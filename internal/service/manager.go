@@ -177,13 +177,47 @@ func (m *Manager) installDarwin(binPath, configPath string) error {
 	}
 
 	uid := os.Getuid()
-	// Best-effort: bootout fails with a non-zero exit if the job wasn't
-	// loaded yet, which is expected on a first install.
-	m.run("launchctl", "bootout", fmt.Sprintf("gui/%d/%s", uid, launchdLabel))
+	if err := m.bootoutAndWait(launchdLabel, plistPath); err != nil {
+		return err
+	}
 	if _, err := m.run("launchctl", "bootstrap", fmt.Sprintf("gui/%d", uid), plistPath); err != nil {
 		return fmt.Errorf("service: launchctl bootstrap: %w", err)
 	}
 	return nil
+}
+
+// launchdUnloadTimeout/launchdUnloadPoll bound how long bootoutAndWait waits for
+// a job to leave launchd. The timeout is the server's SIGTERM drain; tests
+// shorten both.
+var (
+	launchdUnloadTimeout = 30 * time.Second
+	launchdUnloadPoll    = 250 * time.Millisecond
+)
+
+// bootoutAndWait unloads a launchd job and returns once it is really gone.
+// `launchctl bootout` returns while the job is still loaded when the process
+// drains on SIGTERM, and a `bootstrap` in that window fails with exit status 5
+// (Input/output error, #1322). The wait polls `launchctl print`, which fails
+// once the job is unregistered; on a job that was never loaded it returns at
+// the first poll. A job still loaded at the deadline is a clear error naming
+// the label and the manual commands. plistPath is only used in that message.
+func (m *Manager) bootoutAndWait(label, plistPath string) error {
+	uid := os.Getuid()
+	target := fmt.Sprintf("gui/%d/%s", uid, label)
+	// Best-effort: bootout fails with a non-zero exit when the job was not
+	// loaded yet, which is expected on a first install.
+	m.run("launchctl", "bootout", target)
+	deadline := time.Now().Add(launchdUnloadTimeout)
+	for {
+		if _, err := m.run("launchctl", "print", target); err != nil {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("service: launchd job %s is still loaded %s after bootout (the server may be draining); run `launchctl bootout %s`, wait until `launchctl print %s` fails, then `launchctl bootstrap gui/%d %s`",
+				label, launchdUnloadTimeout, target, target, uid, plistPath)
+		}
+		time.Sleep(launchdUnloadPoll)
+	}
 }
 
 func (m *Manager) installLinux(binPath, configPath string) error {
@@ -217,8 +251,12 @@ func (m *Manager) Uninstall() error {
 		if err != nil {
 			return fmt.Errorf("service: resolve plist path: %w", err)
 		}
-		uid := os.Getuid()
-		m.run("launchctl", "bootout", fmt.Sprintf("gui/%d/%s", uid, launchdLabel))
+		// Wait for the unload as install does: a job still draining after
+		// bootout would be orphaned by the removal below (and blocks the next
+		// bootstrap, #1322).
+		if err := m.bootoutAndWait(launchdLabel, plistPath); err != nil {
+			return err
+		}
 		if err := os.Remove(plistPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("service: remove plist: %w", err)
 		}
@@ -479,6 +517,159 @@ func (m *Manager) EffectiveConfigPath(explicit string) (string, error) {
 	}
 }
 
+// DefinitionPath is where the service definition (plist, unit, task XML) lives.
+func DefinitionPath() (string, error) {
+	var path string
+	var err error
+	switch goos {
+	case "darwin":
+		path, err = LaunchdPlistPath()
+	case "linux":
+		path, err = SystemdUnitPath()
+	case "windows":
+		path, err = WindowsTaskPath()
+	default:
+		return "", fmt.Errorf("service: unsupported platform %q", goos)
+	}
+	if err != nil {
+		return "", fmt.Errorf("service: resolve definition path: %w", err)
+	}
+	return path, nil
+}
+
+// hasGoBuildDir reports whether a path component is `go-build` or a
+// `go-build<digits>` directory (what `go run` and `go test` create), so a
+// directory that merely contains the word does not match.
+func hasGoBuildDir(p string) bool {
+	for _, part := range strings.FieldsFunc(filepath.ToSlash(p), func(r rune) bool { return r == '/' }) {
+		rest, ok := strings.CutPrefix(part, "go-build")
+		if !ok {
+			continue
+		}
+		if strings.Trim(rest, "0123456789") == "" {
+			return true
+		}
+	}
+	return false
+}
+
+// CheckStableBinary refuses a running executable the service must not be
+// pointed at: one under the temp directory or a go-build cache (a `go run`
+// binary, a test build: gone on the next cleanup, and nothing vouches for it),
+// or a version-pinned Homebrew Caskroom path that resolveStableBinPath could
+// not map to its stable symlink (it breaks on the next `brew upgrade`). The
+// error names the path; any other location, such as an install.sh copy in
+// $HOME/.local/bin, is accepted.
+func CheckStableBinary() error {
+	exe, err := osExecutable()
+	if err != nil {
+		return fmt.Errorf("service: resolve binary path: %w", err)
+	}
+	bin := resolveStableBinPath(exe)
+	check := []string{bin}
+	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
+		check = append(check, resolved)
+	}
+	// The temp directory as named and as resolved: on Windows os.TempDir() can
+	// be an 8.3 short name that EvalSymlinks expands, while a binary path built
+	// from it (or never resolved, because it does not exist) keeps the short form.
+	tmps := []string{filepath.Clean(os.TempDir())}
+	if r, err := filepath.EvalSymlinks(tmps[0]); err == nil && r != tmps[0] {
+		tmps = append(tmps, r)
+	}
+	for _, c := range check {
+		c = filepath.Clean(c)
+		for _, tmp := range tmps {
+			if rel, err := filepath.Rel(tmp, c); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+				return fmt.Errorf("service: %s is under the temp directory %s", bin, tmp)
+			}
+		}
+		if hasGoBuildDir(c) {
+			return fmt.Errorf("service: %s is a go-build artifact", bin)
+		}
+	}
+	if goos != "windows" && strings.Contains(filepath.ToSlash(bin), "/Caskroom/") {
+		return fmt.Errorf("service: %s is a version-pinned Caskroom path, not Homebrew's stable symlink", bin)
+	}
+	return nil
+}
+
+// DefinitionBinary returns the program the installed service definition runs:
+// the first ProgramArguments entry of the plist, the ExecStart program of the
+// unit, the Command of the task. A missing definition is os.ErrNotExist.
+func (m *Manager) DefinitionBinary() (string, error) {
+	path, err := DefinitionPath()
+	if err != nil {
+		return "", err
+	}
+	var extract func([]byte) (string, error)
+	switch goos {
+	case "darwin":
+		extract = extractPlistBinary
+	case "linux":
+		extract = extractUnitBinary
+	default:
+		extract = extractTaskBinary
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("service: read installed definition %s: %w", path, err)
+	}
+	return extract(data)
+}
+
+func extractPlistBinary(data []byte) (string, error) {
+	m := plistProgramArgsRe.FindSubmatch(data)
+	if m == nil {
+		return "", fmt.Errorf("no ProgramArguments array found")
+	}
+	first := plistStringRe.FindSubmatch(m[1])
+	if first == nil || len(first[1]) == 0 {
+		return "", fmt.Errorf("ProgramArguments has no program")
+	}
+	return string(first[1]), nil
+}
+
+func extractUnitBinary(data []byte) (string, error) {
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "ExecStart=") {
+			continue
+		}
+		fields := splitSystemdWords(strings.TrimPrefix(line, "ExecStart="))
+		if len(fields) == 0 {
+			break
+		}
+		return fields[0], nil
+	}
+	return "", fmt.Errorf("no ExecStart line found")
+}
+
+func extractTaskBinary(data []byte) (string, error) {
+	match := taskCommandRe.FindSubmatch(data)
+	if match == nil || len(match[1]) == 0 {
+		return "", fmt.Errorf("no Command element found")
+	}
+	return xmlUnescape(string(match[1])), nil
+}
+
+// SwitchBinary rewrites the installed service definition to run this
+// executable and reloads the job, keeping the config the definition names. It
+// is Install on that config, so the whole definition is re-rendered (hand edits
+// to it are replaced, directories and PATH are recreated as install does); on Linux, where `enable --now` leaves a running
+// unit alone, it also restarts it so the new program is the one serving.
+func (m *Manager) SwitchBinary(configPath string) error {
+	if _, err := m.Install(InstallOptions{ConfigPath: configPath}); err != nil {
+		return err
+	}
+	if goos == "linux" {
+		if _, err := m.run("systemctl", "--user", "restart", systemdUnit); err != nil {
+			return fmt.Errorf("service: systemctl restart: %w", err)
+		}
+	}
+	return nil
+}
+
 var (
 	plistProgramArgsRe = regexp.MustCompile(`(?s)<key>ProgramArguments</key>\s*<array>(.*?)</array>`)
 	plistStringRe      = regexp.MustCompile(`<string>(.*?)</string>`)
@@ -501,6 +692,48 @@ func extractPlistConfigPath(data []byte) (string, error) {
 	return configArgAfter(args)
 }
 
+// splitSystemdWords splits an ExecStart value the way systemd.syntax does for
+// what Cartographer renders: whitespace separates words, a single- or
+// double-quoted run is one word, inside quotes a backslash escapes the next
+// character, and %% and $$ are a literal % and $. An unquoted unit written before #1336
+// splits as before.
+func splitSystemdWords(s string) []string {
+	var words []string
+	var cur strings.Builder
+	var quote rune
+	started := false
+	rs := []rune(s)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+		switch {
+		case quote != 0 && r == quote:
+			quote = 0
+		case quote != 0 && r == '\\' && i+1 < len(rs):
+			i++
+			cur.WriteRune(rs[i])
+		case quote == 0 && (r == '"' || r == '\''):
+			quote, started = r, true
+		case (r == '%' || r == '$') && i+1 < len(rs) && rs[i+1] == r:
+			i++
+			cur.WriteRune(r)
+			started = true
+		case quote == 0 && (r == ' ' || r == '\t'):
+			if started {
+				words = append(words, cur.String())
+				cur.Reset()
+				started = false
+			}
+		default:
+			cur.WriteRune(r)
+			started = true
+		}
+	}
+	if started {
+		words = append(words, cur.String())
+	}
+	return words
+}
+
 // extractUnitConfigPath reads the argument following "serve --config" out of
 // a generated systemd unit's ExecStart line (see RenderSystemdUnit).
 func extractUnitConfigPath(data []byte) (string, error) {
@@ -509,7 +742,7 @@ func extractUnitConfigPath(data []byte) (string, error) {
 		if !strings.HasPrefix(line, "ExecStart=") {
 			continue
 		}
-		return configArgAfter(strings.Fields(strings.TrimPrefix(line, "ExecStart=")))
+		return configArgAfter(splitSystemdWords(strings.TrimPrefix(line, "ExecStart=")))
 	}
 	return "", fmt.Errorf("no ExecStart line found")
 }
@@ -770,15 +1003,23 @@ const (
 // State counts as running. On darwin and Windows that proves the job is known
 // to the scheduler and not stopped, NOT that the server answers. Callers must not present it as a liveness probe.
 type Status struct {
-	BinPath          string
-	ConfigPath       string
-	HTTPAddr         string
-	Installed        bool
-	Running          bool
-	Healthy          bool
-	HealthChecked    bool
-	HealthSkipReason string
-	Lifecycle        Lifecycle
+	// BinPath is this process's executable, resolved to its stable symlink.
+	BinPath string
+	// ServiceBinPath is the program the installed service definition runs
+	// (plist ProgramArguments[0], unit ExecStart, task Command); "" when
+	// nothing is installed or the definition cannot be read.
+	ServiceBinPath string
+	// ServiceBinWarning is why ServiceBinPath is empty for an installed
+	// service (definition unreadable or malformed); "" otherwise.
+	ServiceBinWarning string
+	ConfigPath        string
+	HTTPAddr          string
+	Installed         bool
+	Running           bool
+	Healthy           bool
+	HealthChecked     bool
+	HealthSkipReason  string
+	Lifecycle         Lifecycle
 	// UIURL is where the embedded Atlas UI answers (D227): set only for an
 	// installed service whose config is in HTTP mode with web.enabled on, so
 	// an empty value never reads as "the UI is down" -- it means there is none.
@@ -854,6 +1095,13 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		st.Running = m.windowsTaskRegistered(windowsServeTaskName) && !m.windowsTaskStopped(windowsServeTaskName)
 	default:
 		return st, fmt.Errorf("service: unsupported platform %q", goos)
+	}
+
+	if st.Installed {
+		var binErr error
+		if st.ServiceBinPath, binErr = m.DefinitionBinary(); binErr != nil {
+			st.ServiceBinWarning = binErr.Error()
+		}
 	}
 
 	switch st.Installed {

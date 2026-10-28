@@ -113,7 +113,7 @@ Restart=on-failure
 
 [Install]
 WantedBy=default.target
-`, servicePATH(binPath), binPath, configPath)
+`, servicePATH(binPath), systemdQuote(binPath), systemdQuote(configPath))
 }
 
 // xmlEscape escapes the three characters that are not legal in XML element
@@ -141,6 +141,18 @@ func xmlEscape(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// systemdQuote renders one ExecStart word per systemd.syntax: a path with
+// nothing special stays bare, any other is double-quoted, with backslash and
+// quote escaped and % and $ doubled (a specifier and a variable otherwise), so
+// a path with a space stays one word (#1336).
+func systemdQuote(p string) string {
+	if !strings.ContainsAny(p, " \t\"'\\%$") {
+		return p
+	}
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "%", "%%", "$", "$$")
+	return `"` + r.Replace(p) + `"`
 }
 
 // quotePath wraps a path in double quotes so a path containing a space survives
