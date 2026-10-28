@@ -41,6 +41,7 @@ type updateView struct {
 	Latest    string `json:"latest,omitempty"`
 	Available bool   `json:"available"`
 	Kind      string `json:"kind,omitempty"`
+	Pending   string `json:"pending,omitempty"`
 	Channel   string `json:"channel"`
 	Command   string `json:"command,omitempty"`
 }
@@ -97,7 +98,8 @@ func updateCheckEnabled() (bool, error) {
 }
 
 func updateOptions(enabled bool) (updatecheck.Options, string) {
-	opts := updatecheck.Options{Disabled: !enabled}
+	// D1350: the notice waits until this binary's channel can install.
+	opts := updatecheck.Options{Disabled: !enabled, Channel: updateChannelFn()}
 	dir, err := updateCacheDirFn()
 	if err != nil {
 		return opts, ""
@@ -136,7 +138,7 @@ func updateCheck(args []string) int {
 	opts.Force = true
 	res, checkErr := updateCheckFn(context.Background(), opts)
 	ch := updateChannelFn()
-	view := updateView{Current: res.Current, Latest: res.Latest, Available: res.Available, Kind: res.Kind, Channel: string(ch), Command: ch.UpgradeCommand(res.Latest)}
+	view := updateView{Current: res.Current, Latest: res.Latest, Available: res.Available, Kind: res.Kind, Pending: res.Pending, Channel: string(ch), Command: ch.UpgradeCommand(res.Latest)}
 	if view.Current == "" {
 		view.Current = version
 	}
@@ -150,6 +152,8 @@ func updateCheck(args []string) int {
 		fmt.Println("latest    not checked (development build)")
 	case errors.Is(checkErr, updatecheck.ErrDisabled):
 		fmt.Printf("latest    not checked (disabled by %s or update_check: false)\n", updatecheck.EnvDisable)
+	case view.Pending != "":
+		fmt.Printf("latest    %s (not yet installable through %s)\n", view.Pending, view.Channel)
 	case view.Latest == "":
 		fmt.Printf("latest    unknown (%v)\n", checkErr)
 	case view.Available:

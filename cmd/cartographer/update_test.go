@@ -471,3 +471,30 @@ func TestEnsureBootstrapForProviders_WriteFindingsAlwaysInstalled(t *testing.T) 
 		t.Errorf("both client hooks must be recorded: bootstrap %v findings %v", boot, findings)
 	}
 }
+
+// D1350: the notice and `update check` ask about the channel the binary came
+// from, so a release its channel cannot install yet is not announced.
+func TestUpdateChecksAskForTheBinarysChannel(t *testing.T) {
+	_, calls := stubUpdate(t, available, updatecheck.ChannelHomebrew, true)
+	withStdout(t, func() {
+		cmdUpdate([]string{"notice"})
+		cmdUpdate([]string{"check"})
+	})
+	if len(*calls) != 2 {
+		t.Fatalf("calls = %d", len(*calls))
+	}
+	for _, o := range *calls {
+		if o.Channel != updatecheck.ChannelHomebrew {
+			t.Fatalf("check asked without the channel: %+v", o)
+		}
+	}
+}
+
+// D1351: a release not installable yet prints a clean line, not the error.
+func TestUpdateCheckNotInstallableLine(t *testing.T) {
+	stubUpdate(t, updatecheck.Result{Current: "v0.16.1", Pending: "v0.17.0"}, updatecheck.ChannelHomebrew, true)
+	out := withStdout(t, func() { cmdUpdate([]string{"check"}) })
+	if !strings.Contains(out, "latest    v0.17.0 (not yet installable through homebrew)") {
+		t.Fatalf("output = %q", out)
+	}
+}
