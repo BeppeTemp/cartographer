@@ -629,7 +629,8 @@ func TestStatusNamesTheHookSettingsFileSyncUses(t *testing.T) {
 		}
 		// The line sync prints names the same file.
 		synced, _ := hookRegistrationTarget("claude", "guard", "", tc.sp.HookSettingsRel)
-		if !strings.Contains(out, synced) {
+		// sync prints the OS path (backslashes on Windows), status the slash form.
+		if !strings.Contains(out, filepath.ToSlash(synced)) {
 			t.Errorf("%s: status %q and sync %q disagree", tc.name, out, synced)
 		}
 	}
