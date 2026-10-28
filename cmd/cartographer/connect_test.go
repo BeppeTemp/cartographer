@@ -508,3 +508,17 @@ func TestDoConnect_ClassifiesSyncPullFailure(t *testing.T) {
 		}
 	})
 }
+
+// #1299 review: an answering server is never worded "unreachable" by the probe.
+func TestProbeErrorMessage_AnsweringServerIsNotUnreachable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "x", http.StatusNotFound) }))
+	defer srv.Close()
+	state, err := probeServer(connectOptions{ServerURL: srv.URL + "/mcp/routed"})
+	msg := probeErrorMessage(state, err)
+	if state != probeUnreachable || isTransportErr(err) || strings.Contains(msg, "unreachable") || !strings.Contains(msg, "answered") {
+		t.Errorf("state=%v err=%v msg=%q", state, err, msg)
+	}
+	if _, derr := probeServer(connectOptions{ServerURL: "http://127.0.0.1:1/mcp"}); !isTransportErr(derr) {
+		t.Errorf("refused connection is a transport error: %v", derr)
+	}
+}

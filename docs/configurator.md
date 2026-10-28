@@ -195,7 +195,7 @@ kind×provider matrix is in `sync.md` §Kind × provider matrix; combinations wi
 destination go to `unsupported` and are filtered upstream), and writes/updates `.cartographer.yaml`. If the
 server is unreachable, the MCP configs and `.cartographer.yaml` are still written; materialization
 is **deferred** (warning, exit 0) — it must be completed with `cartographer sync` once the
-server is up. Only a transport failure (dial, DNS, timeout) defers: a server that answers 401/403 fails `connect` (exit 2) naming the rejected token and where it came from, and a signature error fails it naming the KB, in both cases without saving `.cartographer.yaml` (#1299). Materialized hooks are also **automatically registered** in the
+server is up. A transport failure (dial, DNS, timeout) defers as "server unreachable"; any other answer that is not a rejection (a 404 or 5xx from `/health`) also defers, worded "the server did not serve the skills", and probe messages say "the server answered but the probe failed" for it; a server that answers 401/403 fails `connect` (exit 2) naming the rejected token and where it came from, and a signature error fails it naming the KB, in both cases without saving `.cartographer.yaml` (#1299). Materialized hooks are also **automatically registered** in the
 provider's native mechanism (`settings.json` / `config.toml` / JS plugin — `sync.md` §Agents and
 hooks); `connect`/`sync` print an info line for each one. `connect`, `sync` and `upgrade-repair` also remove the
 scheduled headless doctor job an earlier release installed, printing one line when there was one:

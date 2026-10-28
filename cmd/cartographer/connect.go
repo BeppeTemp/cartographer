@@ -149,6 +149,9 @@ func probeErrorMessage(state probeState, err error) string {
 	if errors.Is(err, client.ErrUnauthorized) {
 		return fmt.Sprintf("server reached but the token was rejected (check Token env var / Auth): %v", err)
 	}
+	if !isTransportErr(err) {
+		return fmt.Sprintf("the server answered but the probe failed: %v", err)
+	}
 	return fmt.Sprintf("server unreachable: %v", err)
 }
 
@@ -430,7 +433,7 @@ func cmdConnect(args []string) int {
 				fmt.Fprintln(os.Stderr, "Warning:", msg)
 
 				recovered := false
-				if state == probeUnreachable && !errors.Is(perr, client.ErrUnauthorized) && isLoopbackURL(formOpts.ServerURL) {
+				if state == probeUnreachable && isTransportErr(perr) && isLoopbackURL(formOpts.ServerURL) {
 					mgr := service.NewManager()
 					st, statusErr := mgr.Status("")
 					if statusErr == nil && shouldOfferServiceInstall(true, st.Installed) {
@@ -518,7 +521,9 @@ func cmdConnect(args []string) int {
 
 // isTransportErr reports whether err is a failure to reach the server at all
 // (dial, DNS, timeout before any answer), as opposed to a server that
-// answered with something unusable (#1299).
+// answered with something unusable (#1299). A body read failure after the
+// answer started (CodeHTTPFailed, no status) is deliberately not transport: the
+// server was reached.
 func isTransportErr(err error) bool {
 	var re *client.RemoteError
 	return errors.As(err, &re) && (re.Code == client.CodeUnreachable || re.Code == client.CodeDNSFailed)
