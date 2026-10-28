@@ -79,7 +79,8 @@ describe("the release history sheet", () => {
     const current = within(sheet).getByRole("heading", { name: "v1.2.3" }).closest("section")!;
     expect(within(current).getByText("Current")).toBeInTheDocument();
     expect(current).toHaveAttribute("aria-current", "true");
-    expect(within(sheet).getByText("Pre-release")).toBeInTheDocument();
+    // Every 0.x release carries GitHub's prerelease flag (D82): no badge for it.
+    expect(within(sheet).queryByText("Pre-release")).toBeNull();
   });
 
   it("brings the current release into view only when newer ones precede it", async () => {
