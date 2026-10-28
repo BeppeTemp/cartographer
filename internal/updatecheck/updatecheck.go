@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -40,8 +41,15 @@ const (
 
 	// TTL is how long a cached answer is trusted without asking GitHub.
 	TTL = 24 * time.Hour
-	// Timeout bounds the one request a check may make.
+	// Timeout bounds each request a check makes: the release list, and
+	// when a newer release exists the channel check (D1351), one request
+	// for the cask, two for the container image. The worst case is
+	// therefore 3 x Timeout.
 	Timeout = 3 * time.Second
+	// PendingTTL is how long a release found not installable yet is not
+	// asked about again (D1351): the notice runs at every session start and
+	// unauthenticated GitHub allows 60 requests an hour.
+	PendingTTL = time.Hour
 
 	// EnvDisable turns every check off when set to 1 (or true).
 	EnvDisable = "CARTOGRAPHER_NO_UPDATE_CHECK"
@@ -65,10 +73,13 @@ const (
 // tag known, empty when none is; Available is true only when it is newer than
 // Current.
 type Result struct {
-	Current   string    `json:"current"`
-	Latest    string    `json:"latest,omitempty"`
-	Available bool      `json:"available"`
-	Kind      string    `json:"kind,omitempty"`
+	Current   string `json:"current"`
+	Latest    string `json:"latest,omitempty"`
+	Available bool   `json:"available"`
+	Kind      string `json:"kind,omitempty"`
+	// Pending is the newest release when the channel cannot install it yet
+	// (D1351); Available is false then.
+	Pending   string    `json:"pending,omitempty"`
 	CheckedAt time.Time `json:"checked_at,omitempty"`
 }
 
@@ -91,6 +102,18 @@ type Options struct {
 	// running version, so only "nothing newer known yet" re-asks GitHub;
 	// a cache that already names a newer release is still trusted.
 	ForceRefreshOnVersion string
+	// Channel is the install channel the answer is for (D1350). A newer
+	// release is reported only when this channel can install it: the cask
+	// names it (homebrew), the release carries this platform's binary and
+	// sha256sums.txt (install.sh, install.ps1), the image tag exists
+	// (container). Empty, go-install and unknown ask for nothing more.
+	Channel Channel
+	// GOOS and GOARCH name the platform whose asset the installers
+	// download; empty means the running one.
+	GOOS, GOARCH string
+	// CaskURL and RegistryURL override DefaultCaskURL and
+	// DefaultRegistryURL (EnvCaskURL, EnvRegistryURL).
+	CaskURL, RegistryURL string
 
 	// Injection points for tests; nil means the real thing.
 	Now        func() time.Time
@@ -200,12 +223,39 @@ func Check(ctx context.Context, current string, opts Options) (Result, error) {
 		return fill(res, cached), nil
 	}
 
+	// D1351: a release found not installable yet is not asked about again
+	// for PendingTTL. Force (`update check`) still goes out.
+	pendPath := ""
+	if cachePath != "" {
+		pendPath = cachePath + ".pending"
+	}
+	if !opts.Force {
+		if p, ok := readPending(pendPath, opts.Channel); ok && now().Sub(p.At) >= 0 && now().Sub(p.At) < PendingTTL {
+			out := res
+			if haveCache {
+				out = fill(res, cached)
+			}
+			out.Pending = p.Tag
+			return out, fmt.Errorf("%w: %s", ErrNotInstallable, p.Tag)
+		}
+	}
+
 	entry, err := fetch(ctx, current, cached, haveCache, opts, getenv, now)
 	if err != nil {
+		var ni *notInstallableError
+		if errors.As(err, &ni) {
+			writePending(pendPath, pendingEntry{Tag: ni.Tag, Channel: opts.Channel, At: now().UTC()})
+			res.Pending = ni.Tag
+		}
 		if haveCache {
-			return fill(res, cached), err
+			out := fill(res, cached)
+			out.Pending = res.Pending
+			return out, err
 		}
 		return res, err
+	}
+	if pendPath != "" {
+		os.Remove(pendPath)
 	}
 	writeCache(cachePath, entry)
 	return fill(res, entry), nil
@@ -228,6 +278,7 @@ func fetch(ctx context.Context, current string, cached cacheEntry, haveCache boo
 	if base == "" {
 		base = DefaultAPIURL
 	}
+	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/releases?per_page=%d", strings.TrimRight(base, "/"), checkPerPage), nil)
@@ -260,8 +311,9 @@ func fetch(ctx context.Context, current string, cached cacheEntry, haveCache boo
 		return cacheEntry{}, fmt.Errorf("release list: HTTP %d", resp.StatusCode)
 	}
 	var releases []struct {
-		TagName string `json:"tag_name"`
-		Draft   bool   `json:"draft"`
+		TagName string         `json:"tag_name"`
+		Draft   bool           `json:"draft"`
+		Assets  []releaseAsset `json:"assets"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, MaxResponseBytes)).Decode(&releases); err != nil {
 		return cacheEntry{}, fmt.Errorf("release list: %w", err)
@@ -271,6 +323,26 @@ func fetch(ctx context.Context, current string, cached cacheEntry, haveCache boo
 	// candidate at the head of the list must not blind the check.
 	for _, r := range releases {
 		if tag := strings.TrimSpace(r.TagName); !r.Draft && stableTag(tag) {
+			// D1350: a release the channel cannot install yet is not
+			// announced and nothing is cached, so the next run asks
+			// again. Only a newer release costs the extra check.
+			if newer, _ := Compare(current, tag); newer && opts.Channel != "" {
+				if opts.GOOS == "" {
+					opts.GOOS = runtime.GOOS
+				}
+				if opts.GOARCH == "" {
+					opts.GOARCH = runtime.GOARCH
+				}
+				rctx, rcancel := context.WithTimeout(parent, Timeout)
+				ok, err := installable(rctx, tag, r.Assets, opts, getenv, hc, "cartographer/"+current)
+				rcancel()
+				if err != nil {
+					return cacheEntry{}, &notInstallableError{Tag: tag, Cause: err}
+				}
+				if !ok {
+					return cacheEntry{}, &notInstallableError{Tag: tag}
+				}
+			}
 			return cacheEntry{CheckedAt: now().UTC(), Latest: tag, ETag: resp.Header.Get("ETag")}, nil
 		}
 	}
