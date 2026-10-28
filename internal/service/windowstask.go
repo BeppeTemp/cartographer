@@ -53,6 +53,11 @@ var (
 	windowsKillTimeout = 10 * time.Second
 	// windowsDrainPoll paces both waits.
 	windowsDrainPoll = 250 * time.Millisecond
+	// windowsSleep paces the polls. The wait's budget is the sum of the
+	// intervals slept, not the wall clock, so a test that replaces this with a
+	// no-op gets an outcome that depends on the poll count and not on how
+	// fast the runner is (#1339).
+	windowsSleep = time.Sleep
 )
 
 // serveAddrAnswers reports whether something accepts TCP connections on the
@@ -291,15 +296,16 @@ func (m *Manager) serveExited(addr string) bool {
 
 // waitServeExit polls serveExited until it holds or budget elapses.
 func (m *Manager) waitServeExit(addr string, budget time.Duration) bool {
-	deadline := time.Now().Add(budget)
-	for {
+	// Budget in slept intervals, not wall-clock time: a poll that takes long
+	// on a loaded host does not eat into the number of polls the server gets.
+	for waited := time.Duration(0); ; waited += windowsDrainPoll {
 		if m.serveExited(addr) {
 			return true
 		}
-		if !time.Now().Before(deadline) {
+		if waited >= budget {
 			return false
 		}
-		time.Sleep(windowsDrainPoll)
+		windowsSleep(windowsDrainPoll)
 	}
 }
 

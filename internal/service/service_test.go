@@ -227,12 +227,15 @@ func withTestHome(t *testing.T, os_ string) string {
 	// reach whatever the test machine has listening on the default port, the
 	// production budgets would make a never-exiting stub cost half a minute,
 	// and the fallback notice would land in the test output.
-	origAnswers, origDrain, origKill, origPoll, origNotice := serveAddrAnswers, windowsDrainTimeout, windowsKillTimeout, windowsDrainPoll, noticef
+	origAnswers, origDrain, origKill, origPoll, origSleep, origNotice := serveAddrAnswers, windowsDrainTimeout, windowsKillTimeout, windowsDrainPoll, windowsSleep, noticef
 	serveAddrAnswers = func(string) bool { return false }
 	windowsDrainTimeout, windowsKillTimeout, windowsDrainPoll = 50*time.Millisecond, 50*time.Millisecond, time.Millisecond
+	// The waits count polls, not elapsed time (#1339): no real sleep, so a
+	// slow runner cannot exhaust a budget before a fake process has exited.
+	windowsSleep = func(time.Duration) {}
 	noticef = func(string, ...any) {}
 	t.Cleanup(func() {
-		serveAddrAnswers, windowsDrainTimeout, windowsKillTimeout, windowsDrainPoll, noticef = origAnswers, origDrain, origKill, origPoll, origNotice
+		serveAddrAnswers, windowsDrainTimeout, windowsKillTimeout, windowsDrainPoll, windowsSleep, noticef = origAnswers, origDrain, origKill, origPoll, origSleep, origNotice
 	})
 	return home
 }
