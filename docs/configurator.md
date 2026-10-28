@@ -937,7 +937,7 @@ machine (D262). No network call: everything is read from the lockfile and `.cart
 cartographer paths                          # = paths list: every key, its KB(s), path or failure reason
 cartographer paths list --json              # {"placeholders": [{key, kbs, path | reason, description, default, ignored}]}
 cartographer paths set path:kubeconfig ~/.kube/config
-cartographer paths set repo:dotfiles ~/src/dotfiles
+cartographer paths set repo:dotfiles ~/src/dotfiles   # answers `paths: repo:dotfiles -> <path>`: the echo carries the `<kind>:<key>` id
 cartographer paths ignore repo:work-tools      # never exists on this machine: stop reporting it (D282)
 cartographer paths unset kubeconfig           # remove a mapping, or an ignore
 cartographer paths suggest                  # a candidate path, as a `paths set` line, for every unresolved key (D320)
