@@ -44,6 +44,11 @@ func ReconcileIndex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) (Reconcil
 	}
 
 	var stats ReconcileStats
+	// One transaction per group of concepts, not per concept: a cold rebuild
+	// of a large KB is dominated by FTS5 flushing a segment at every commit
+	// (#1329).
+	w := sqlIdx.Batch()
+	defer w.Rollback()
 	err = k.WalkConcepts(func(id okf.ConceptID, content string) error {
 		conceptID := string(id)
 		hash := assetContentHash(okf.ContentHash(content), sigs[id])
@@ -61,7 +66,7 @@ func ReconcileIndex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) (Reconcil
 				hash = assetContentHash(okf.ContentHash(content), sig)
 			}
 		}
-		if err := sqlIdx.Upsert(conceptID, hash, content, assets); err != nil {
+		if err := w.Upsert(conceptID, hash, content, assets); err != nil {
 			return err
 		}
 		if live != nil {
@@ -78,14 +83,26 @@ func ReconcileIndex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) (Reconcil
 		return stats, fmt.Errorf("reconcile index: walk concepts: %w", err)
 	}
 
+	failed := 0
 	for id := range persisted {
-		if err := sqlIdx.Delete(id); err != nil {
-			return stats, err
+		if err := w.Delete(id); err != nil {
+			// Keep going: returning would roll back the group's pending upserts.
+			fmt.Fprintf(os.Stderr, "cartographer: search index: SQLite delete %s: %v\n", id, err)
+			failed++
+			continue
 		}
 		if live != nil {
 			live.remove(id)
 		}
 		stats.Removed++
+	}
+	if err := w.Commit(); err != nil {
+		return stats, err
+	}
+	if failed > 0 {
+		// Counted, not fatal for the rest: the rows stay and the next
+		// reconciliation retries them.
+		return stats, fmt.Errorf("reconcile index: %d stale rows could not be removed", failed)
 	}
 	return stats, nil
 }
@@ -173,6 +190,17 @@ func (r *searchReconciler) reconcileLocked(applySQL bool) (ReconcileStats, error
 			persisted = nil
 		}
 	}
+	// The writes of one delta share transactions (#1329); the deferred commit
+	// runs before any caller can search.
+	var w *sqlindex.Batch
+	if r.sql != nil && applySQL {
+		w = r.sql.Batch()
+		defer func() {
+			if err := w.Commit(); err != nil {
+				fmt.Fprintf(os.Stderr, "cartographer: search index: SQLite commit: %v\n", err)
+			}
+		}()
+	}
 	handled := make(map[okf.ConceptID]bool, len(changes))
 	// put indexes one concept into both backends.
 	put := func(id okf.ConceptID, content, contentHash string) {
@@ -190,7 +218,7 @@ func (r *searchReconciler) reconcileLocked(applySQL bool) (ReconcileStats, error
 		if h, ok := persisted[string(id)]; ok && h == hash && !strings.HasSuffix(sig, "~") {
 			return
 		}
-		if err := r.sql.Upsert(string(id), hash, content, assets); err != nil {
+		if err := w.Upsert(string(id), hash, content, assets); err != nil {
 			fmt.Fprintf(os.Stderr, "cartographer: search index: SQLite upsert %s: %v\n", id, err)
 		}
 	}
@@ -201,7 +229,7 @@ func (r *searchReconciler) reconcileLocked(applySQL bool) (ReconcileStats, error
 			r.live.remove(id)
 			stats.Removed++
 			if r.sql != nil && applySQL {
-				if err := r.sql.Delete(id); err != nil {
+				if err := w.Delete(id); err != nil {
 					fmt.Fprintf(os.Stderr, "cartographer: search index: SQLite delete %s: %v\n", id, err)
 				}
 			}
