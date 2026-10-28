@@ -1196,8 +1196,12 @@ func parseFlagsAnywhere(fs *flag.FlagSet, args []string) []string {
 		if len(rest) == 0 {
 			return pos
 		}
+		// Parse stopped at a literal "--" (it consumed it): the remainder is
+		// positional, even when it starts with a bare word (`connect -- claude --kb x`).
+		if consumed := len(args) - len(rest); consumed > 0 && args[consumed-1] == "--" {
+			return append(pos, rest...)
+		}
 		if strings.HasPrefix(rest[0], "-") && rest[0] != "-" {
-			// Only reachable after "--": the remainder is positional.
 			return append(pos, rest...)
 		}
 		pos = append(pos, rest[0])
