@@ -216,3 +216,32 @@ func TestWriteGate_FirstPageOfNewMapPasses_SecondMustLink(t *testing.T) {
 	}
 	assertNoFinding("orphan")
 }
+
+// #1273: a page that is both an orphan and missing from its map's curated index
+// is one finding naming both, with the one fix; a page that is only missing
+// from the index keeps its index_incomplete finding.
+func TestConceptWrite_OrphanAndMissingIndexEntryIsOneFinding(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	if text, isErr := callJSON(t, s, adminCtx, "map_create", `{"name":"hr","title":"HR"}`); isErr {
+		t.Fatalf("map_create: %s", text)
+	}
+	if text, isErr := callJSON(t, s, adminCtx, "concept_write", cwArgs("hr/first", "First", "# First\n", map[string]any{"index_entry": true})); isErr {
+		t.Fatalf("first page: %s", text)
+	}
+
+	text, isErr := callJSON(t, s, adminCtx, "concept_write", cwArgs("hr/lonely", "Lonely", "# Lonely\n", nil))
+	if !isErr || !strings.Contains(text, "orphan and index_incomplete") {
+		t.Fatalf("lonely page: err=%v %s", isErr, text)
+	}
+	if strings.Count(text, `"path":"hr/lonely.md"`) != 1 || strings.Contains(text, "missing curated index entry") {
+		t.Errorf("the page must be one finding, not two: %s", text)
+	}
+
+	text, isErr = callJSON(t, s, adminCtx, "concept_write", cwArgs("hr/linked", "Linked", "# Linked\n\nSee [First](first.md).\n", nil))
+	if !isErr || !strings.Contains(text, "missing curated index entry") || strings.Contains(text, "orphan and index_incomplete") {
+		t.Errorf("a linked page keeps its plain index_incomplete: err=%v %s", isErr, text)
+	}
+}

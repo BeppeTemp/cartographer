@@ -170,7 +170,7 @@ func TestRoutedView_ReadOnlyTokenSeesItsOwnKBOnly(t *testing.T) {
 	if got := init.Header().Get(AccessHeader); got != "" {
 		t.Errorf("token view carries %s = %q", AccessHeader, got)
 	}
-	res := f.call(t, tokRO, RoutedMountPath, "concept_write", map[string]any{"id": "manutenzione/new", "content": "x"})
+	res := f.call(t, tokRO, RoutedMountPath, "concept_write", map[string]any{"id": "manutenzione/new", "frontmatter": map[string]any{"title": "x"}, "body": "x"})
 	if !res.IsError || !strings.Contains(res.Content[0].Text, denyReadOnlyToken) || strings.Contains(res.Content[0].Text, denyUnboundFolder) {
 		t.Errorf("concept_write = %+v, want read_only_token", res)
 	}
@@ -197,7 +197,7 @@ func TestRoutedView_ReadOnlyTokenWithKBSAndBridge(t *testing.T) {
 	if init.Header().Get(AccessHeader) != AccessReadValue {
 		t.Errorf("bridge mode lacks the %s header", AccessHeader)
 	}
-	res := f.call(t, tokRO, path, "concept_write", map[string]any{"id": "manutenzione/new", "content": "x"})
+	res := f.call(t, tokRO, path, "concept_write", map[string]any{"id": "manutenzione/new", "frontmatter": map[string]any{"title": "x"}, "body": "x"})
 	if !res.IsError || !strings.Contains(res.Content[0].Text, denyUnboundFolder) {
 		t.Errorf("bridge mode concept_write = %+v, want unbound_folder", res)
 	}
@@ -220,7 +220,7 @@ func TestRoutedView_MixedGrants(t *testing.T) {
 	if !wrote {
 		t.Error("a token that writes kb-a must be offered the write tools")
 	}
-	if res := f.call(t, tokMixed, RoutedMountPath, "concept_write", map[string]any{"kb": "kb-b", "id": "manutenzione/new", "content": "x"}); !res.IsError ||
+	if res := f.call(t, tokMixed, RoutedMountPath, "concept_write", map[string]any{"kb": "kb-b", "id": "manutenzione/new", "frontmatter": map[string]any{"title": "x"}, "body": "x"}); !res.IsError ||
 		!strings.Contains(res.Content[0].Text, denyReadOnlyToken) {
 		t.Errorf("write on the read-only KB = %+v, want read_only_token", res)
 	}

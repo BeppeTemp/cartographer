@@ -59,7 +59,122 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 			stripHeaderIfNotification(r)
 		}
 	}
-	s.sdkHTTPHandler().ServeHTTP(w, r)
+	if r.Method != http.MethodPost {
+		s.sdkHTTPHandler().ServeHTTP(w, r)
+		return
+	}
+	// The SDK refuses a malformed message with a plain-text 400; a client
+	// parses a JSON-RPC error body (#1279), so those refusals are rewritten.
+	tee := &prefixTee{rc: r.Body}
+	r.Body = tee
+	rw := &protocolErrorWriter{ResponseWriter: w, body: tee}
+	s.sdkHTTPHandler().ServeHTTP(rw, r)
+	rw.finish()
+}
+
+// prefixTee passes a request body through and remembers its first
+// notificationSniffLimit bytes, enough to read the id of the message the SDK
+// refuses.
+type prefixTee struct {
+	rc   io.ReadCloser
+	head []byte
+}
+
+func (t *prefixTee) Read(p []byte) (int, error) {
+	n, err := t.rc.Read(p)
+	if room := notificationSniffLimit - len(t.head); room > 0 && n > 0 {
+		t.head = append(t.head, p[:min(n, room)]...)
+	}
+	return n, err
+}
+
+func (t *prefixTee) Close() error { return t.rc.Close() }
+
+// protocolErrorWriter holds back a plain-text 400 from the SDK and, in finish,
+// answers it as a JSON-RPC error: -32700 for a body that is not JSON, -32600
+// for JSON that is not a valid request (empty batch, wrong jsonrpc version,
+// non-scalar id), -32601 for an unknown method. Any other response, and any 400
+// the SDK words differently (a missing Accept, an unsupported protocol
+// version), passes through untouched.
+type protocolErrorWriter struct {
+	http.ResponseWriter
+	body    *prefixTee
+	held    bool
+	buf     bytes.Buffer
+	started bool
+}
+
+func (p *protocolErrorWriter) WriteHeader(code int) {
+	if p.started {
+		return
+	}
+	p.started = true
+	if code == http.StatusBadRequest && strings.HasPrefix(p.Header().Get("Content-Type"), "text/plain") {
+		p.held = true
+		return
+	}
+	p.ResponseWriter.WriteHeader(code)
+}
+
+func (p *protocolErrorWriter) Write(b []byte) (int, error) {
+	if !p.started {
+		p.WriteHeader(http.StatusOK)
+	}
+	if p.held {
+		return p.buf.Write(b)
+	}
+	return p.ResponseWriter.Write(b)
+}
+
+func (p *protocolErrorWriter) Flush() {
+	if f, ok := p.ResponseWriter.(http.Flusher); ok && !p.held {
+		f.Flush()
+	}
+}
+
+func (p *protocolErrorWriter) Unwrap() http.ResponseWriter { return p.ResponseWriter }
+
+func (p *protocolErrorWriter) finish() {
+	if !p.held {
+		return
+	}
+	msg := strings.TrimSpace(p.buf.String())
+	code, id := 0, json.RawMessage(nil)
+	switch {
+	case strings.Contains(msg, "JSON RPC not handled"):
+		code, id = ErrCodeMethodNotFound, requestID(p.body.head)
+	case strings.Contains(msg, "empty batch"), strings.Contains(msg, "invalid message version tag"),
+		strings.Contains(msg, "invalid ID type"), strings.Contains(msg, "cannot unmarshal"):
+		code = ErrCodeInvalidRequest
+	case strings.HasPrefix(msg, "malformed payload"), strings.HasPrefix(msg, "POST requires a non-empty body"):
+		code = ErrCodeParseError
+	}
+	if code == 0 {
+		// Not a protocol error we know: restore the SDK's answer.
+		p.ResponseWriter.WriteHeader(http.StatusBadRequest)
+		_, _ = p.ResponseWriter.Write(p.buf.Bytes())
+		return
+	}
+	h := p.Header()
+	h.Set("Content-Type", "application/json")
+	h.Del("Content-Length")
+	p.ResponseWriter.WriteHeader(http.StatusBadRequest)
+	_ = json.NewEncoder(p.ResponseWriter).Encode(errorResponse(id, code, msg))
+}
+
+// requestID returns the scalar id of a JSON-RPC message read from head, or nil
+// (JSON null) when there is none or it is not a string or a number.
+func requestID(head []byte) json.RawMessage {
+	var env struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if json.Unmarshal(head, &env) != nil || len(env.ID) == 0 {
+		return nil
+	}
+	if c := env.ID[0]; c == '"' || c == '-' || (c >= '0' && c <= '9') {
+		return env.ID
+	}
+	return nil
 }
 
 // notificationSniffLimit bounds how much of a body the notification sniff

@@ -187,6 +187,7 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 		return nil
 	}
 	discard(k, toolName)
+	introduced = mergeOrphanAndIndex(introduced)
 	for i, f := range introduced {
 		introduced[i] = view.redact(f)
 	}
@@ -267,4 +268,47 @@ func discard(k *kb.KB, toolName string) {
 	if err := gitx.DiscardChanges(k.Root); err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: write_gate: rollback failed (%s): %v\n", toolName, err)
 	}
+}
+
+// orphanIndexFix is the one fix of a page that is both an orphan and missing
+// from its map's curated index (#1273).
+const orphanIndexFix = "link the page from another page and pass index_entry: true (or add its entry to the map's index) in the same call"
+
+// mergeOrphanAndIndex folds, for a page the call introduced, the orphan finding
+// and the index_incomplete finding naming it into one: the two have one fix,
+// and reported apart they read as two problems. The merged finding keeps the
+// check "orphan" and the page's path, and names both checks so a caller
+// searching for either finds it. A finding without its partner is untouched.
+func mergeOrphanAndIndex(in []lint.Finding) []lint.Finding {
+	const prefix = "missing curated index entry for "
+	missing := map[string]int{} // concept id -> index of its index_incomplete finding
+	for i, f := range in {
+		if f.Check == "index_incomplete" && strings.HasPrefix(f.Message, prefix) {
+			missing[strings.TrimPrefix(f.Message, prefix)] = i
+		}
+	}
+	if len(missing) == 0 {
+		return in
+	}
+	drop := map[int]bool{}
+	out := make([]lint.Finding, 0, len(in))
+	for i, f := range in {
+		if f.Check == "orphan" {
+			id := strings.TrimSuffix(f.Path, ".md")
+			id = strings.TrimSuffix(id, "/index")
+			if j, ok := missing[id]; ok && !drop[j] {
+				drop[j] = true
+				f.Message = "orphan and index_incomplete: " + f.Message + ", and missing from the map's curated index"
+				f.Fix = nil
+				f.Message += " — one fix: " + orphanIndexFix
+				in[i] = f
+			}
+		}
+	}
+	for i, f := range in {
+		if !drop[i] {
+			out = append(out, f)
+		}
+	}
+	return out
 }

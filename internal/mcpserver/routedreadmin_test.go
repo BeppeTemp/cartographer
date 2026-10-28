@@ -56,7 +56,7 @@ func TestRoutedReadMin_WriteIsRefusedWithItsOwnReason(t *testing.T) {
 	t.Parallel()
 	handler := newRoutedTestHandler(t, "kb-a", "kb-b")
 	// The token writes both KBs: the refusal must come from the routed level.
-	res := routedCallAt(t, handler, readMinPath, "concept_write", map[string]any{"kb": "kb-a", "id": "manutenzione/new", "content": "x"})
+	res := routedCallAt(t, handler, readMinPath, "concept_write", map[string]any{"kb": "kb-a", "id": "manutenzione/new", "frontmatter": map[string]any{"title": "x"}, "body": "x"})
 	if !res.IsError {
 		t.Fatalf("concept_write on a read-min session succeeded: %+v", res)
 	}
@@ -79,7 +79,7 @@ func TestRoutedReadMin_ReadToolsOutsideTheProfileAreCallable(t *testing.T) {
 	}{
 		{"concept_read", map[string]any{"kb": "kb-a", "id": "manutenzione/marker"}},
 		{"lint", map[string]any{"kb": "kb-a"}},
-		{"graph_path", map[string]any{"kb": "kb-a", "from": "manutenzione/marker", "to": "manutenzione/marker"}},
+		{"graph_path", map[string]any{"kb": "kb-a", "source": "manutenzione/marker", "target": "manutenzione/marker"}},
 	} {
 		res := routedCallAt(t, handler, readMinPath, tc.tool, tc.args)
 		if res.IsError && strings.Contains(res.Content[0].Text, "not found") {

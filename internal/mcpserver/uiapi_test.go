@@ -166,6 +166,7 @@ func TestUIAPI_MalformedParameters(t *testing.T) {
 	handler := newUIHandler(t, auth.NewTokenStore(nil), "docs")
 	for _, tc := range []struct{ path, field string }{
 		{UIAPIPrefix + "/kbs/docs/graph?limit=abc", "limit"},
+		{UIAPIPrefix + "/kbs/docs/search?q=x&limit=abc", "limit"},
 		{UIAPIPrefix + "/kbs/docs/graph?scope=a/b", "scope"},
 		{UIAPIPrefix + "/kbs/docs/concept", "id"},
 	} {

@@ -135,26 +135,34 @@ func findingsOut(findings []lint.Finding) []findingOut {
 	return out
 }
 
-// compactFinding is the lint compact mode shape (#841): check and path only,
-// the two fields that locate the debt. It is a distinct type so the full
-// findingOut contract (message always present, D342) is untouched.
+// compactFinding is the lint compact mode shape (#841, #1273): one row per
+// path with the count of its findings per check, so an index with 50 missing
+// entries is one row, not fifty. It is a distinct type so the full findingOut
+// contract (message always present, D342) is untouched.
 type compactFinding struct {
-	Check string `json:"check"`
-	Path  string `json:"path"`
+	Path   string         `json:"path"`
+	Checks map[string]int `json:"checks"`
 }
 
 // findingsOutMode returns the full findingOut slice, or the compact
-// check+path shape when compact is set (lint compact mode, #841): the
-// per-finding message repeats across a check, and an agent locating debt needs
-// only check and path. The full shape stays the default so no caller is
-// surprised.
+// path+checks shape when compact is set (lint compact mode): the per-finding
+// message repeats across a check, and an agent locating debt needs only where
+// it is and which checks fire. Rows keep the order in which a path first
+// appears. The full shape stays the default so no caller is surprised.
 func findingsOutMode(findings []lint.Finding, compact bool) interface{} {
 	if !compact {
 		return findingsOut(findings)
 	}
 	out := make([]compactFinding, 0, len(findings))
+	at := map[string]int{}
 	for _, f := range findings {
-		out = append(out, compactFinding{Check: f.Check, Path: f.Path})
+		i, ok := at[f.Path]
+		if !ok {
+			i = len(out)
+			at[f.Path] = i
+			out = append(out, compactFinding{Path: f.Path, Checks: map[string]int{}})
+		}
+		out[i].Checks[f.Check]++
 	}
 	return out
 }

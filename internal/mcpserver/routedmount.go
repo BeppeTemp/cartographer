@@ -494,6 +494,7 @@ func (m *MultiKBServer) unionTools(set []string) []Tool {
 			routedTool := *t
 			routedTool.InputSchema = withKBProperty(t.InputSchema, len(set) >= 2)
 			routedTool.Handler = m.routedHandler(toolName, set)
+			routedTool.AcceptsKB = true
 			out = append(out, routedTool)
 		}
 	}

@@ -40,6 +40,15 @@ type Tool struct {
 	// GitWrapped is set by gitWrap: the tool commits (and syncs) after a
 	// successful call, so it accepts the optional `reason` argument (D272).
 	GitWrapped bool
+	// AcceptsKB is set on a routed tool: its handler strips and resolves `kb`
+	// even when the schema does not declare it (a one-KB URL), so the
+	// unknown-argument check lets it through (#1279).
+	AcceptsKB bool
+	// HiddenArguments lists top-level arguments the handler accepts but the
+	// InputSchema deliberately does not declare (tools/list budget, D285), such
+	// as the `map` alias of map_create (#836). The unknown-argument check
+	// (#1279) lets them through; they stay out of tools/list.
+	HiddenArguments []string
 	// Handler receives the request context and raw parameters (JSON object)
 	// and returns a result and application error. Application errors go in
 	// the ToolResult (isError:true), not as Go errors.
