@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	gopath "path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -1966,7 +1967,11 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 				return nil, errRes(errorResult(fmt.Sprintf("concept_move: could not move expanded concept %q to %q: %v; its directory was not moved%s", mv.sourceID, mv.targetID, err, appliedNote(false))))
 			}
 		} else {
-			if _, err := k.WriteConcept(okf.ConceptID(mv.targetID), mv.fm, mv.body, ""); err != nil {
+			write := k.WriteConcept
+			if gopath.Base(mv.targetID) == gopath.Base(mv.sourceID) {
+				write = k.WriteConceptKeepingName // a legacy stem the move does not change
+			}
+			if _, err := write(okf.ConceptID(mv.targetID), mv.fm, mv.body, ""); err != nil {
 				return nil, errRes(errorResult(fmt.Sprintf("concept_move: write target %q: %v%s", mv.targetID, err, appliedNote(false))))
 			}
 

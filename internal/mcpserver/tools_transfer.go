@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	gopath "path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -700,7 +701,11 @@ func applyTransferTarget(src, dst *kb.KB, pl *transferPlan, view *callerView) (t
 			}
 			continue
 		}
-		if _, err := dst.WriteConcept(okf.ConceptID(it.toID), it.fm, it.body, ""); err != nil {
+		write := dst.WriteConcept
+		if gopath.Base(it.toID) == gopath.Base(it.fromID) {
+			write = dst.WriteConceptKeepingName // a legacy stem the transfer does not change
+		}
+		if _, err := write(okf.ConceptID(it.toID), it.fm, it.body, ""); err != nil {
 			return out, fmt.Errorf("write target %q: %w", it.toID, err)
 		}
 	}

@@ -45,44 +45,49 @@ func Slugify(s string) string {
 	return sb.String()
 }
 
-// checkNewConceptID refuses, for a concept that does not exist yet, an ID the
-// repair would later rename (its file stem is not a slug) and an ID that
-// differs only in case from an existing concept of the same folder. The check
-// runs on every filesystem: on a case-insensitive one the second write would
-// overwrite the first file, on a case-sensitive one it would create a twin
-// that breaks the first on a checkout elsewhere (#1280). absPath is the file
-// the write targets (its parent is the folder to scan).
-func checkNewConceptID(id okf.ConceptID, absPath string, expanded bool) error {
+// checkConceptName guards the name of a concept write (#1280). Always, even
+// when the file already "exists" (on a case-insensitive filesystem a stat of
+// notes/upper.md hits Upper.md): a name that differs only in case from the
+// entry on disk is refused, because the write would overwrite that file under
+// another ID. Only for a concept that does not exist yet and when keepName is
+// false: a stem that is not a slug is refused too, naming the canonical form
+// (the repair would rename it later). keepName is for a move or transfer that
+// keeps the source's own legacy stem. absPath is the file the write targets.
+func checkConceptName(id okf.ConceptID, absPath string, expanded, fileExists, keepName bool) error {
 	stem := string(id)[strings.LastIndex(string(id), "/")+1:]
-	if !SlugPattern.MatchString(stem) {
-		if slug := Slugify(stem); slug != "" {
-			return fmt.Errorf("%w: %q is not a canonical concept id: its name must be a lowercase-hyphenated slug (a-z, 0-9, -); use %q",
-				okf.ErrInvalidPath, string(id), strings.TrimSuffix(string(id), stem)+slug)
-		}
-		return fmt.Errorf("%w: %q is not a canonical concept id: its name must be a lowercase-hyphenated slug (a-z, 0-9, -) and %q has no letter or digit a slug can keep; choose an ASCII name",
-			okf.ErrInvalidPath, string(id), stem)
-	}
 	dir := filepath.Dir(absPath)
 	if expanded {
 		dir = filepath.Dir(dir)
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil // no folder yet: nothing to collide with
-	}
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() {
-			// An expanded concept is a folder; a plain subfolder collides alike.
-		} else if strings.HasSuffix(name, ".md") {
-			name = strings.TrimSuffix(name, ".md")
-		} else {
-			continue
+	if entries, err := os.ReadDir(dir); err == nil {
+		exact, twin := false, ""
+		for _, e := range entries {
+			name := e.Name()
+			if !e.IsDir() {
+				if !strings.HasSuffix(name, ".md") {
+					continue
+				}
+				name = strings.TrimSuffix(name, ".md")
+			}
+			switch {
+			case name == stem:
+				exact = true
+			case strings.EqualFold(name, stem):
+				twin = name
+			}
 		}
-		if name != stem && strings.EqualFold(name, stem) {
+		if twin != "" && !exact {
 			return fmt.Errorf("%w: %q differs only in case from the existing concept %q: write to that one, or choose another name",
-				okf.ErrInvalidPath, string(id), strings.TrimSuffix(string(id), stem)+name)
+				okf.ErrInvalidPath, string(id), strings.TrimSuffix(string(id), stem)+twin)
 		}
 	}
-	return nil
+	if fileExists || keepName || SlugPattern.MatchString(stem) {
+		return nil
+	}
+	if slug := Slugify(stem); slug != "" {
+		return fmt.Errorf("%w: %q is not a canonical concept id: its name must be a lowercase-hyphenated slug (a-z, 0-9, -); use %q",
+			okf.ErrInvalidPath, string(id), strings.TrimSuffix(string(id), stem)+slug)
+	}
+	return fmt.Errorf("%w: %q is not a canonical concept id: its name must be a lowercase-hyphenated slug (a-z, 0-9, -) and %q has no letter or digit a slug can keep; choose an ASCII name",
+		okf.ErrInvalidPath, string(id), stem)
 }
