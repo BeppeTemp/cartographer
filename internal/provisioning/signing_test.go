@@ -2,6 +2,7 @@ package provisioning_test
 
 import (
 	"crypto/ed25519"
+	"encoding/base64"
 	"errors"
 	"os"
 	"path/filepath"
@@ -115,7 +116,14 @@ func TestVerifiedManifest_SignatureFailuresWrapErrSignature(t *testing.T) {
 	if !errors.Is(err, provisioning.ErrSignature) || !strings.Contains(err.Error(), `KB "kb-a"`) {
 		t.Errorf("wrong pin error = %v, want ErrSignature naming the KB", err)
 	}
-	sig.Value = sig.Value[:len(sig.Value)-2] + "AA"
+	// Flip a bit of the decoded signature: overwriting the last characters with
+	// a fixed value is a no-op whenever the signature already ends that way.
+	raw, err := base64.RawStdEncoding.DecodeString(sig.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw[len(raw)-1] ^= 1
+	sig.Value = base64.RawStdEncoding.EncodeToString(raw)
 	if _, err := provisioning.VerifiedManifest(m, map[string][]ed25519.PublicKey{"kb-a": {pubA}}); !errors.Is(err, provisioning.ErrSignature) {
 		t.Errorf("tampered signature error = %v, want ErrSignature", err)
 	}
