@@ -194,3 +194,12 @@ func TestUIAPI_RevisionMovesOnAnOutOfBandEdit(t *testing.T) {
 		t.Fatalf("revision did not move after an out-of-band edit: %q", after)
 	}
 }
+
+// An Atlas search that matches nothing answers an empty list, never null (D1327).
+func TestUIAPI_SearchMissIsAnEmptyList(t *testing.T) {
+	t.Parallel()
+	rr := getUI(t, homeUIHandler(t), UIAPIPrefix+"/kbs/docs/search?q=zzzunmatched", "whole")
+	if !strings.Contains(rr.Body.String(), `"results":[]`) {
+		t.Fatalf("body = %s, want results: []", rr.Body.String())
+	}
+}

@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -69,7 +70,7 @@ func TestConceptBatch_PreflightRejectsEveryInvalidShape(t *testing.T) {
 			{"id": "batch/no-op", "frontmatter": map[string]any{"type": "Note"}, "body": "x"},
 		}, "'op' is required"},
 		{"invalid op value", []map[string]any{
-			{"op": "delete", "id": "batch/bad-op", "frontmatter": map[string]any{"type": "Note"}, "body": "x"},
+			{"op": "frobnicate", "id": "batch/bad-op", "frontmatter": map[string]any{"type": "Note"}, "body": "x"},
 		}, "invalid 'op'"},
 		{"write missing frontmatter", []map[string]any{
 			{"op": "write", "id": "batch/no-fm", "body": "x"},
@@ -461,5 +462,133 @@ func TestConceptBatch_PatchesCountEditsNotBodies(t *testing.T) {
 	}
 	if cd, err := k.ReadConcept("batch/large-9"); err != nil || !strings.Contains(cd.Body, "done") {
 		t.Fatalf("patch not applied: %v", err)
+	}
+}
+
+// batchFixtureCall runs one concept_batch against a git KB and returns its result.
+func batchFixtureCall(t *testing.T, s *Server, id int, ops []map[string]any) ToolResult {
+	t.Helper()
+	return decodeToolResult(t, runMCPSequence(t, s, []string{initMsg, batchCallMsg(t, id, ops)})[1])
+}
+
+// Two pages that link each other can be deleted in one batch: a link from a page
+// deleted in the same batch does not block, and orphan is not judged for it
+// (D1327). A third page outside the batch that links to one of them still blocks.
+func TestConceptBatch_DeleteClosedGroup(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	note := func(id, body string) map[string]any {
+		return map[string]any{"op": "write", "id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": body}
+	}
+
+	// a and b link each other; c links a and b links c, so nothing is an orphan.
+	create := batchFixtureCall(t, s, 2, []map[string]any{
+		note("closed/a", "# A\n\n[[closed/b]]\n"),
+		note("closed/b", "# B\n\n[[closed/a]] [[closed/c]]\n"),
+		note("closed/c", "# C\n\n[[closed/a]]\n"),
+	})
+	if create.IsError {
+		t.Fatalf("create: %s", create.Content[0].Text)
+	}
+
+	// c is outside the batch and links a: refused, nothing deleted.
+	res := batchFixtureCall(t, s, 3, []map[string]any{{"op": "delete", "id": "closed/a"}, {"op": "delete", "id": "closed/b"}})
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "inbound_links") || !strings.Contains(res.Content[0].Text, "closed/c") {
+		t.Fatalf("a link from outside the batch must block: %+v", res.Content)
+	}
+	for _, id := range []string{"closed/a", "closed/b", "closed/c"} {
+		if _, err := k.ReadConcept(okf.ConceptID(id)); err != nil {
+			t.Fatalf("%s must survive a refused batch: %v", id, err)
+		}
+	}
+
+	// Deleting the whole closed group works, with if_match honoured.
+	before, _ := gitx.HeadSHA(k.Root)
+	res = batchFixtureCall(t, s, 4, []map[string]any{
+		{"op": "delete", "id": "closed/a", "if_match": readHash(t, k, "closed/a")},
+		{"op": "delete", "id": "closed/b"},
+		{"op": "delete", "id": "closed/c"},
+	})
+	if res.IsError {
+		t.Fatalf("delete of a closed group: %s", res.Content[0].Text)
+	}
+	var out struct {
+		Results []struct {
+			ID      string `json:"id"`
+			Deleted bool   `json:"deleted"`
+		} `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &out); err != nil || len(out.Results) != 3 {
+		t.Fatalf("result = %s (%v)", res.Content[0].Text, err)
+	}
+	for _, r := range out.Results {
+		if !r.Deleted {
+			t.Errorf("%s not reported deleted", r.ID)
+		}
+		if _, err := k.ReadConcept(okf.ConceptID(r.ID)); !errors.Is(err, okf.ErrNotFound) {
+			t.Errorf("%s still readable: %v", r.ID, err)
+		}
+	}
+	if after, _ := gitx.HeadSHA(k.Root); after == before {
+		t.Error("the batch must commit")
+	}
+
+	// A stale if_match and an unknown id are refused whole.
+	res = batchFixtureCall(t, s, 5, []map[string]any{{"op": "delete", "id": "closed/zzz"}})
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "not found") {
+		t.Fatalf("unknown id: %+v", res.Content)
+	}
+}
+
+// A linker the batch patches is judged on its content after the batch: dropping
+// the link and deleting the page is one call, keeping the link refuses it, and a
+// stale if_match on a delete is refused with nothing deleted (D1327).
+func TestConceptBatch_DeleteWithRelinkAndStaleIfMatch(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	note := func(id, body string) map[string]any {
+		return map[string]any{"op": "write", "id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": body}
+	}
+	// hub links both pages, so only the link from hub to gone is in question.
+	if res := batchFixtureCall(t, s, 2, []map[string]any{
+		note("rl/hub", "# Hub\n\n[[rl/gone]] [[rl/keep]]\n"),
+		note("rl/gone", "# Gone\n\n[[rl/keep]]\n"),
+		note("rl/keep", "# Keep\n\n[[rl/hub]]\n"),
+	}); res.IsError {
+		t.Fatalf("create: %s", res.Content[0].Text)
+	}
+
+	// A patch that leaves the link in place does not lift the block.
+	res := batchFixtureCall(t, s, 3, []map[string]any{
+		{"op": "patch", "id": "rl/hub", "if_match": readHash(t, k, "rl/hub"), "old_string": "[[rl/keep]]", "new_string": "[[rl/keep]] more"},
+		{"op": "delete", "id": "rl/gone"},
+	})
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "inbound_links") || !strings.Contains(res.Content[0].Text, "rl/hub") {
+		t.Fatalf("a linker still linking must block: %+v", res.Content)
+	}
+
+	// A stale if_match on a delete is refused whole.
+	res = batchFixtureCall(t, s, 4, []map[string]any{{"op": "delete", "id": "rl/gone", "if_match": "0000"}})
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "stale_write") {
+		t.Fatalf("stale delete: %+v", res.Content)
+	}
+	if _, err := k.ReadConcept("rl/gone"); err != nil {
+		t.Fatalf("a refused delete must keep the page: %v", err)
+	}
+
+	// Dropping the link in the same batch lets the delete through.
+	res = batchFixtureCall(t, s, 5, []map[string]any{
+		{"op": "patch", "id": "rl/hub", "if_match": readHash(t, k, "rl/hub"), "old_string": "[[rl/gone]] ", "new_string": ""},
+		{"op": "delete", "id": "rl/gone"},
+	})
+	if res.IsError {
+		t.Fatalf("relink plus delete: %s", res.Content[0].Text)
+	}
+	if _, err := k.ReadConcept("rl/gone"); !errors.Is(err, okf.ErrNotFound) {
+		t.Fatalf("rl/gone must be deleted: %v", err)
 	}
 }

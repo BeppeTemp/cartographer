@@ -961,10 +961,13 @@ realigning summaries and companion pages) has three server-side primitives,
 chosen by scope: `concept_patch`'s own `edits` array batches several edits
 against **one** concept in one commit (D76); `concept_move` batches renames
 with backlink rewriting across the whole KB (D72); `concept_batch` batches
-`write`/`patch` operations across several **distinct** concepts as one
+`write`/`patch`/`delete` operations across several **distinct** concepts as one
 atomic logical operation — one commit, one summary `log.md` entry, and a
 full rollback of every already-written file if any later step (including an
 index update) fails (D125). Sequential `concept_write`/`concept_patch` calls
 remain the right tool for independent, unrelated edits; `concept_batch`
 exists so an interrupted multi-page refactor cannot leave a partially
 realigned KB.
+A `delete` in a batch (D1327) is the way to remove pages that link each other, or to remove a page and relink its
+linkers in one commit: a link from a page the batch deletes does not block it, and a linker the batch writes or
+patches is judged on its content after the batch; only a linker still linking it, outside that, refuses the batch.

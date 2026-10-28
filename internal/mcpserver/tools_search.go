@@ -197,6 +197,9 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 		}
 		reads.recordSurfaced(ids...)
 	}
+	if hits == nil {
+		hits = []searchHit{} // a list is [] when empty, never null (D1327)
+	}
 	result := map[string]interface{}{
 		"query":   params.Query,
 		"mode":    mode,

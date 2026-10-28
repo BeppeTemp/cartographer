@@ -24,6 +24,10 @@ type BatchWriteOp struct {
 	FM      *okf.Frontmatter
 	Body    string
 	IfMatch string
+	// Delete removes the concept instead of writing it (FM, Body and IfMatch
+	// are then ignored: the caller checked if_match). Only a plain concept
+	// file: an expanded concept is refused (D1327).
+	Delete bool
 }
 
 // BatchWriteResult reports one applied operation's resulting content-hash,
@@ -134,7 +138,16 @@ func (kb *KB) WriteConceptBatch(ops []BatchWriteOp, logMessage string, afterFile
 	}
 
 	plans := make([]*writeConceptPlan, len(ops))
+	deleteAbs := make([]string, len(ops)) // absolute path of each delete op, "" for a write
 	for i, op := range ops {
+		if op.Delete {
+			abs, err := kb.prepareDeleteConcept(op.ID)
+			if err != nil {
+				return nil, fmt.Errorf("batch op %d (%s): %w", i, op.ID, err)
+			}
+			deleteAbs[i] = abs
+			continue
+		}
 		plan, err := kb.prepareWriteConcept(op.ID, op.FM, op.Body, op.IfMatch, false)
 		if err != nil {
 			return nil, fmt.Errorf("batch op %d (%s): %w", i, op.ID, err)
@@ -166,7 +179,13 @@ func (kb *KB) WriteConceptBatch(ops []BatchWriteOp, logMessage string, afterFile
 		order = append(order, path)
 		return nil
 	}
-	for _, plan := range plans {
+	for i, plan := range plans {
+		if plan == nil {
+			if err := snapshotOnce(deleteAbs[i]); err != nil {
+				return nil, fmt.Errorf("batch: %w", err)
+			}
+			continue
+		}
 		if err := snapshotOnce(plan.absPath); err != nil {
 			return nil, fmt.Errorf("batch: %w", err)
 		}
@@ -194,6 +213,13 @@ func (kb *KB) WriteConceptBatch(ops []BatchWriteOp, logMessage string, afterFile
 	results := make([]BatchWriteResult, len(ops))
 	stubbed := make(map[string]bool, len(plans))
 	for i, plan := range plans {
+		if plan == nil {
+			if err := os.Remove(deleteAbs[i]); err != nil {
+				return nil, rollback(fmt.Errorf("batch op %d (%s): delete: %w", i, ops[i].ID, err))
+			}
+			results[i] = BatchWriteResult{ID: string(ops[i].ID)}
+			continue
+		}
 		if plan.newExpandedDir != "" && stubbed[plan.newExpandedDir] {
 			// An earlier op in this same batch already stubbed this
 			// brand-new expanded directory (two siblings created together):
@@ -228,4 +254,32 @@ func (kb *KB) WriteConceptBatch(ops []BatchWriteOp, logMessage string, afterFile
 	}
 
 	return results, nil
+}
+
+// prepareDeleteConcept validates a batch delete and returns the absolute path
+// of the file to remove. A missing concept is okf.ErrNotFound; a reserved file
+// or an expanded concept (which may own assets, deleted only by concept_delete
+// with force) is refused (D1327).
+func (kb *KB) prepareDeleteConcept(id okf.ConceptID) (string, error) {
+	relPath, expanded, err := kb.resolveConceptRelPath(id, true)
+	if err != nil {
+		return "", err
+	}
+	if expanded {
+		return "", fmt.Errorf("%w: %s is an expanded concept: delete it with concept_delete", okf.ErrInvalidConcept, id)
+	}
+	if okf.IsReserved(filepath.Base(relPath)) {
+		return "", fmt.Errorf("%w: %s is a reserved file", okf.ErrInvalidConcept, filepath.Base(relPath))
+	}
+	abs, err := kb.ResolvePath(relPath, true)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(abs); err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("%w: %s", okf.ErrNotFound, id)
+		}
+		return "", err
+	}
+	return abs, nil
 }

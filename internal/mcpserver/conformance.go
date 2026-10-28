@@ -76,6 +76,9 @@ func (v *callerView) redact(f lint.Finding) lint.Finding {
 // filterRewritten keeps the rewritten concepts the caller can see.
 func (v *callerView) filterRewritten(in []rewrittenConcept) []rewrittenConcept {
 	if v == nil || v.whole {
+		if in == nil {
+			return []rewrittenConcept{} // a list is [] when empty, never null (D1327)
+		}
 		return in
 	}
 	out := make([]rewrittenConcept, 0, len(in))
