@@ -879,8 +879,9 @@ var (
 
 func toolMapCreate(k *kb.KB) Tool {
 	return Tool{
-		Name:        "map_create",
-		Description: "Creates a Map or Journal (kind: journal) with _map.md, index.md, log.md. concept_types (non-empty) makes the map strict. templates (slugs) make every page follow one. required_fields and field_values are keyed by concept type, \"*\" for every type. No contract key switches a check off.",
+		Name:            "map_create",
+		HiddenArguments: []string{"map"},
+		Description:     "Creates a Map or Journal (kind: journal) with _map.md, index.md, log.md. concept_types (non-empty) makes the map strict. templates (slugs) make every page follow one. required_fields and field_values are keyed by concept type, \"*\" for every type. No contract key switches a check off.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["name", "title"],

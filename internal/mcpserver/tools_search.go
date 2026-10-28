@@ -101,6 +101,8 @@ func toolSearch(k *kb.KB, rec *searchReconciler, misses *searchMissLog, reads *r
 		ReadOnly:    true,
 		Description: description,
 		InputSchema: searchInputSchema,
+		// Removed arguments (D135), accepted only to answer them with their own message.
+		HiddenArguments: []string{"mode", "use_semantic"},
 		Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 			return handleSearch(ctx, k, rec, misses, reads, deps, args)
 		},

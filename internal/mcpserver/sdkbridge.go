@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -143,10 +144,14 @@ func (s *Server) buildSDKServer() *sdk.Server {
 func (s *Server) sdkToolHandler(name string) sdk.ToolHandler {
 	return func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 		ctx = withCallerAuthor(withCallerSession(withCallerClient(ctx, req), req), req)
-		if err := s.unknownArgumentsError(name, json.RawMessage(req.Params.Arguments)); err != nil {
+		// The unknown-argument check runs inside the shared path, after the
+		// unknown-tool answer and the authorization decision (#1279): a caller
+		// that may not use the tool gets the denial, not a schema probe.
+		result, err := s.callToolChecked(ctx, name, json.RawMessage(req.Params.Arguments), s.unknownArgumentsError)
+		if err != nil {
 			return nil, err
 		}
-		return sdkResult(s.callTool(ctx, name, json.RawMessage(req.Params.Arguments))), nil
+		return sdkResult(result), nil
 	}
 }
 
@@ -156,13 +161,11 @@ func (s *Server) sdkToolHandler(name string) sdk.ToolHandler {
 // request without a word. A schema that allows additional properties, or that
 // declares no properties object, is not enforced; free-form nested objects are
 // not entered.
-func (s *Server) unknownArgumentsError(name string, args json.RawMessage) error {
-	s.mu.Lock()
-	tool := s.tools[name]
-	s.mu.Unlock()
+func (s *Server) unknownArgumentsError(tool *Tool, args json.RawMessage) error {
 	if tool == nil || len(args) == 0 {
 		return nil
 	}
+	name := tool.Name
 	schema := tool.InputSchema
 	if schema == nil {
 		schema = json.RawMessage(`{"type":"object","properties":{}}`)
@@ -180,7 +183,7 @@ func (s *Server) unknownArgumentsError(name string, args json.RawMessage) error 
 	}
 	var unknown []string
 	for k := range given {
-		if _, ok := decl.Properties[k]; !ok && !(tool.AcceptsKB && k == routedKBArgument) {
+		if _, ok := decl.Properties[k]; !ok && !(tool.AcceptsKB && k == routedKBArgument) && !slices.Contains(tool.HiddenArguments, k) {
 			unknown = append(unknown, k)
 		}
 	}
@@ -205,6 +208,16 @@ func (s *Server) unknownArgumentsError(name string, args json.RawMessage) error 
 // is a different thing on the wire and would change what every existing client
 // sees for an ordinary denial or a failing tool.
 func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage) ToolResult {
+	result, _ := s.callToolChecked(ctx, name, args, nil)
+	return result
+}
+
+// callToolChecked is callTool with an optional pre-dispatch check, run once
+// the tool is known and the call is authorized, before the audit pair opens.
+// A check error is audited as a denial (D119/D132) and returned as the Go
+// error, which the SDK handler turns into a JSON-RPC protocol error; it is the
+// only Go error this path produces.
+func (s *Server) callToolChecked(ctx context.Context, name string, args json.RawMessage, check func(*Tool, json.RawMessage) error) (ToolResult, error) {
 	if len(args) == 0 {
 		args = json.RawMessage(`{}`)
 	}
@@ -227,23 +240,30 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		result := errorResult(msg)
 		call, rejected, ok := s.beginAuditCall(principal, name, false, nil)
 		if !ok {
-			return rejected
+			return rejected, nil
 		}
 		call.end(s, audit.OutcomeUnknownTool, result)
-		return result
+		return result, nil
 	}
 
 	if !exactArgumentKeys(args) {
 		// Refused before authorization: see exactArgumentKeys.
 		s.auditDenied(principal, name, args)
-		return errorResult(deny(denyBadArguments).Error())
+		return errorResult(deny(denyBadArguments).Error()), nil
 	}
 
 	if err := s.authorize(ctx, name, args); err != nil {
 		// D119/D132: the denial is audited at the point the decision happens,
 		// not where the call would have been dispatched.
 		s.auditDenied(principal, name, args)
-		return errorResult(err.Error())
+		return errorResult(err.Error()), nil
+	}
+
+	if check != nil {
+		if err := check(tool, args); err != nil {
+			s.auditDenied(principal, name, args)
+			return ToolResult{}, err
+		}
 	}
 
 	resources := extractResources(name, args)
@@ -251,15 +271,15 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 	if !ok {
 		// Required mode, attempt-phase append failed: reject before the tool
 		// ever runs — see beginAuditCall.
-		return rejected
+		return rejected, nil
 	}
 
 	result, err := tool.Handler(ctx, args)
 	call.end(s, classifyOutcome(result, err), result)
 	if err != nil {
-		return errorResult("internal error: " + err.Error())
+		return errorResult("internal error: " + err.Error()), nil
 	}
-	return s.withDoctorNudge(ctx, name, result)
+	return s.withDoctorNudge(ctx, name, result), nil
 }
 
 // sdkResult converts Cartographer's ToolResult into the SDK's.
