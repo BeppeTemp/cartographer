@@ -78,6 +78,14 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 	if err != nil {
 		return "", nil, err
 	}
+	if !createdFile {
+		// A ledger entry whose owners are gone from the file is stale: this
+		// file is somebody else's now (configurator.ReconcileCreated).
+		names := configurator.ServerNamesIn(settings)
+		if err := configurator.ReconcileCreated(baseDir, r.FilePath, func(o string) bool { return names[o] }); err != nil {
+			return "", nil, err
+		}
+	}
 	var incoming map[string]interface{}
 	if err := json.Unmarshal(r.Content, &incoming); err != nil {
 		return "", nil, fmt.Errorf("provisioning: decode mcp emission %s: %w", name, err)
@@ -103,8 +111,8 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 	if err := saveJSONObject(baseDir, settingsPath, settings); err != nil {
 		return "", nil, err
 	}
-	if d, ok := configurator.Lookup(provider); ok && createdFile && d.DeleteOnlyIfCreated {
-		if err := configurator.RecordCreated(baseDir, r.FilePath); err != nil {
+	if d, ok := configurator.Lookup(provider); ok && d.DeleteOnlyIfCreated {
+		if err := configurator.NoteOwner(baseDir, r.FilePath, name, createdFile); err != nil {
 			return "", nil, err
 		}
 	}
@@ -172,7 +180,10 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 		pruneEmptyDirs(baseDir, filePath)
 		return nil
 	}
-	return saveJSONObject(baseDir, fullPath, settings)
+	if err := saveJSONObject(baseDir, fullPath, settings); err != nil {
+		return err
+	}
+	return configurator.DropOwner(baseDir, filePath, name)
 }
 
 // isEmptyMCPProviderShell reports whether settings has nothing left worth

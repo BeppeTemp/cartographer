@@ -885,3 +885,82 @@ func TestRemove_ClaudeJSONCreatedByUsLeavesNoLedger(t *testing.T) {
 		t.Errorf("residue after round trip: %v", entries)
 	}
 }
+
+func applyClaude(t *testing.T, dir, name string) *configurator.ServerConfig {
+	t.Helper()
+	cfg := &configurator.ServerConfig{Name: name, URL: "http://localhost:8080/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderClaudeCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+// A created file with two of our entries goes only with the last one.
+func TestRemove_ClaudeJSONTwoOwnEntriesGoWithTheLast(t *testing.T) {
+	dir := t.TempDir()
+	a := applyClaude(t, dir, "wiki-a")
+	b := applyClaude(t, dir, "wiki-b")
+	path := filepath.Join(dir, ".claude.json")
+	if _, err := configurator.Remove(a, configurator.ProviderClaudeCode, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("one entry left, the file must stay: %v", err)
+	}
+	if _, err := configurator.Remove(b, configurator.ProviderClaudeCode, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Errorf("residue: %v", entries)
+	}
+}
+
+// Provenance ends with the last entry of ours: a file we created, kept because
+// Claude Code added a key, then deleted and recreated as the user's own `{}`,
+// is not ours to delete.
+func TestRemove_ClaudeJSONStaleProvenanceDoesNotDeleteUsersFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".claude.json")
+	cfg := applyClaude(t, dir, "wiki")
+	if err := os.WriteFile(path, []byte(`{"theme":"dark","mcpServers":{"wiki":{"url":"http://localhost:8080/mcp"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Remove(cfg, configurator.ProviderClaudeCode, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	applyClaude(t, dir, "wiki")
+	if _, err := configurator.Remove(cfg, configurator.ProviderClaudeCode, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the user's own file must stay: %v", err)
+	}
+}
+
+// The same when the stale entry survives because the file was removed without
+// our disconnect (nothing of ours left in it when connect finds it).
+func TestApply_ClaudeJSONStaleLedgerEntryIsDroppedOnReconnect(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".claude.json")
+	cfg := applyClaude(t, dir, "wiki")
+	if err := os.WriteFile(path, []byte(`{"mcpServers":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	applyClaude(t, dir, "wiki-2")
+	if _, err := configurator.Remove(&configurator.ServerConfig{Name: "wiki-2", URL: cfg.URL}, configurator.ProviderClaudeCode, dir, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the user's own file must stay: %v", err)
+	}
+}

@@ -273,6 +273,13 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 					return written, fmt.Errorf("existing file %s is not valid JSON: %w — fix or delete it manually", fullPath, mergeErr)
 				}
 				content = merged
+				var cur map[string]any
+				if json.Unmarshal(existing, &cur) == nil {
+					names := ServerNamesIn(cur)
+					if err := ReconcileCreated(absoluteBaseDir, r.FilePath, func(o string) bool { return names[o] }); err != nil {
+						return written, fmt.Errorf("record %s: %w", fullPath, err)
+					}
+				}
 			} else if os.IsNotExist(err) {
 				created = true
 			}
@@ -281,8 +288,8 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		if err := safewrite.WriteFileNoFollow(fullPath, content, 0o644); err != nil {
 			return written, fmt.Errorf("write %s: %w", fullPath, err)
 		}
-		if d, ok := Lookup(r.Provider); ok && created && d.DeleteOnlyIfCreated {
-			if err := RecordCreated(absoluteBaseDir, r.FilePath); err != nil {
+		if d, ok := Lookup(r.Provider); ok && d.DeleteOnlyIfCreated {
+			if err := noteEmitted(absoluteBaseDir, r, created); err != nil {
 				return written, fmt.Errorf("record %s: %w", fullPath, err)
 			}
 		}
@@ -290,6 +297,21 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		migrateLegacyOpenCode(r, absoluteBaseDir, false)
 	}
 	return written, errors.Join(refused...)
+}
+
+// noteEmitted records every server name r wrote as owned by Cartographer in the
+// created-files ledger (see NoteOwner).
+func noteEmitted(baseDir string, r *EmitResult, created bool) error {
+	var root map[string]any
+	if json.Unmarshal(r.Content, &root) != nil {
+		return nil
+	}
+	for name := range ServerNamesIn(root) {
+		if err := NoteOwner(baseDir, r.FilePath, name, created); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // migrateLegacyOpenCode removes, once r's entries are written to OpenCode's
@@ -526,6 +548,9 @@ func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bo
 	}
 	if err := safewrite.WriteFileNoFollow(fullPath, out, 0o644); err != nil {
 		return false, fmt.Errorf("write %s: %w", fullPath, err)
+	}
+	if err := DropOwner(baseDir, r.FilePath, cfg.Name); err != nil {
+		return false, err
 	}
 	return true, nil
 }

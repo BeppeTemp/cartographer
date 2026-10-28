@@ -77,13 +77,18 @@ func registerHookSettings(baseDir, settingsRel, hookName, fullDestDir string) (s
 	if err != nil {
 		return "", false, err
 	}
+	rel, relErr := filepath.Rel(baseDir, settingsPath)
+	if !createdFile && relErr == nil {
+		// Stale provenance ends here (configurator.ReconcileCreated).
+		raw, _ := os.ReadFile(settingsPath)
+		if err := configurator.ReconcileCreated(baseDir, rel, func(o string) bool { return strings.Contains(string(raw), o) }); err != nil {
+			return "", false, err
+		}
+	}
 	upsertHookEntry(settings, hookOwnershipMarker(hookName), spec.Event, spec.Matcher, command)
 	err = saveOrderedJSONObject(baseDir, settingsPath, settings, layout)
-	if err == nil && createdFile {
-		rel, relErr := filepath.Rel(baseDir, settingsPath)
-		if relErr == nil {
-			err = configurator.RecordCreated(baseDir, rel)
-		}
+	if err == nil && relErr == nil {
+		err = configurator.NoteOwner(baseDir, rel, hookName, createdFile)
 	}
 	return warning, err == nil, err
 }
@@ -138,6 +143,9 @@ func removeHookEntries(baseDir, hookName string, rels ...string) error {
 			continue
 		}
 		if err := saveOrderedJSONObject(baseDir, settingsPath, settings, layout); err != nil {
+			return err
+		}
+		if err := configurator.DropOwner(baseDir, rel, hookName); err != nil {
 			return err
 		}
 	}
