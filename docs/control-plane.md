@@ -187,7 +187,7 @@ See `docs/sync.md` for the full model (Manifest, Lock, Diff, layered triggers).
 
 Each of these is a hard limit a caller hits unless it reads it first. The first three are stated in
 the description of the tool that enforces them, **interpolated from the constant the handler checks**,
-so a figure and its documentation cannot drift apart; the last is reported by the `skill_warning`
+so a figure and its documentation cannot drift apart; the body limit is stated by its refusal; the last is reported by the `skill_warning`
 lint check, not by a tool.
 
 | Limit | Constant | Enforced by |
@@ -195,6 +195,7 @@ lint check, not by a tool.
 | 10 MiB per asset | `kb.AssetMaxFileSize` (`internal/kb/asset.go`) | `asset_write`, `asset_read` |
 | 50 operations per batch | `conceptBatchMaxOps` (`internal/mcpserver/tools_write.go`) | `concept_batch` |
 | 512 KiB aggregate per batch (patches count their edits) | `conceptBatchMaxTotalBytes` (same file) | `concept_batch` |
+| 1 MiB per concept body | `kb.MaxConceptBodyBytes` (`internal/kb/kb.go`) | every concept write (`concept_write`, `concept_new`, `concept_patch`, `concept_batch`, the move and transfer tools): refused with `body_too_large` naming the size and the limit, before anything is written; `kb_repair` rewrites are exempt. An existing page already over the limit is refused too, a frontmatter-only change included: it must be split (only `kb_repair` can still rewrite it) |
 | 500 lines per skill body | `maxSkillBodyLines` (`internal/skill/skill.go`) | `skill_warning` |
 
 `required_fields`, `field_values`, `forbidden_fields` and the curated index are **lint contracts**: a
@@ -356,7 +357,7 @@ public either — it sits inside the same `OriginGuard` → bearer-token chain a
 
 | Route | Returns |
 |---|---|
-| `GET /api/ui/v1/kbs` | The mounted KBs the principal can see something in, with status, readiness, capabilities (computed at start, as on `/health`: a `secrets` `hint`, D1191, may be stale there, `kb_status` is live), `artifacts` (whether the principal may read the KB's artifacts) and `secrets` (whether it may read the Secrets panel's files, D708). |
+| `GET /api/ui/v1/kbs` | The mounted KBs the principal can see something in, with status, readiness, capabilities (computed at start, as on `/health`: a `secrets` `hint`, D1191, may be stale there, `kb_status` is live), `artifacts` (whether the principal may read the KB's artifacts) and `secrets` (whether the principal may open the Secrets panel and read its files, D708; it is not the capability state, which is `capabilities.secrets` here and in `kb_status`: a KB whose capability is `disabled` still says `true`). |
 | `GET /api/ui/v1/kbs/{kb}/overview` | Visible collections with their concept and expanded counts and `archive` (D820: `kb.IsArchiveMap`, the rule `index_lists_retired` exempts by), concept totals by type and by status, lint counts by check (whole KB: from the `kb_status` lint cache, D294), and — only for a caller that can see the whole KB — the replication facts. |
 | `GET /api/ui/v1/kbs/{kb}/graph?scope=&limit=` | A bounded graph snapshot: sorted nodes with their collection, `title` (when the concept has one), `type`, `status`, both degrees, `pagerank` and `community`, directed deduplicated edges, broken link targets kept apart from the nodes, and `communities` [{rank, size, anchor, slot}]. PageRank and communities are computed on the whole graph the caller can see, before scope and limit, so a scoped view keeps whole-KB colours (D244); communities discount boilerplate links and anchor on the strongest internal ties, as in `atlas_overview` (D317). `scope` is one top-level collection; `limit` defaults to 2,000 nodes and is clamped to 5,000, with the effective value echoed back. Past the limit the nodes with the highest PageRank are kept, and past 20,000 edges those whose weaker endpoint ranks highest; the output stays sorted. |
 | `GET /api/ui/v1/kbs/{kb}/concept?id=` | Title, parsed frontmatter, body, outline, content hash, visible inbound/outbound neighbours and this concept's broken link targets; for a caller that can see the whole KB, `used_by` — the skills, agents and hooks that reference it explicitly (D286); `supersedes` (visible concepts that name this one as their `superseded_by`) and `superseded_by` (its successor, `""` when none or not visible to the caller). |

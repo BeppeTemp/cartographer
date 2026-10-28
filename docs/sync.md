@@ -551,7 +551,7 @@ unchanged.
   in `.git/info/exclude`. Skills, agents and hooks are paths Cartographer owns and excludes, so
   they are projected as for an explicit bind. Claude Code registers a derived projection's hooks
   in `.claude/settings.local.json`, the settings layer it reads beside `.claude/settings.json` and
-  that a repository does not version, excluded like `CLAUDE.local.md`; never in `.claude/settings.json`
+  that a repository does not version, excluded like `CLAUDE.local.md` (both in the first sync's exclude block, whichever other client is projected into the same repository); the confirmation line names that file; never in `.claude/settings.json`
   ([D1198](decisions/D1198-derived-claude-hooks-in-settings-local.md)). When git tracks
   `settings.local.json` too, the hooks are not projected and `status` says so. A hook an earlier
   version registered in a `settings.json` git does not track is moved to `settings.local.json`; one

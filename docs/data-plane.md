@@ -435,6 +435,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `empty_concept` | concept | yes | - | - | - |
 | `imported_draft` | concept | - | - | - | - |
 | `secrets_on_non_service` | concept | yes | - | - | yes |
+| `secret_ref_broken` | concept | yes | - | - | yes |
 | `sops_format_mismatch` | concept | yes | - | - | yes |
 | `sops_missing_file` | concept | yes | - | - | yes |
 | `legacy_path` | concept | yes | `replace_prefix` | yes | yes |
@@ -745,6 +746,7 @@ only in a whole-KB lint, and their findings name the artifact file (`skills/<nam
   --cached --others --exclude-standard`), outside an expanded concept's assets; remove it with `git
   rm`. `junk_asset` covers the assets (§Assets).
 - `symlinked_path` (D1025, unscoped runs only): a symlink anywhere under `data/` or `services/`, found by walking the disk. Concept paths never follow a link: `concept_read`, `concept_write`, `concept_delete` and the locate step of move/expand refuse a symlink on the path (a map directory, the file, an expanded `index.md`, a dangling link included) with `invalid_path`, and the graph walk does not list a symlinked `.md`, so the concept is simply absent. Remove the link with `git rm`. No write can create one, so the check is not avoidable at write.
+- `secret_ref_broken` (per concept, avoidable at write, no fix): a `secret_refs` entry whose `secrets/…` file is not in the KB or, when the file is a sops document (key names stay in clear), whose pointer names no key of it. Nothing is decrypted. The message names the reference, the KB-relative file and the pointer, never a server path; the fix is to correct the reference or create the value with `secret_set`.
 - `sops_format_mismatch` (also per concept): a `sops decrypt` (or `-d`)
   piped to `jq` or `python3 … json.load` without `--output-type json` in code — sops prints YAML by
   default. `sops_missing_file` (same scope): with a `secrets/` directory in the KB, a
@@ -865,7 +867,7 @@ The server re-reads the file when it changes: after a pull that moves HEAD and b
 
 No MCP tool writes `settings.yaml` (`artifact_write` does not whitelist it): it changes the
 behaviour of every mount, so it goes through git review like a Map contract. `kb create` writes
-it commented out, rendered from the schema. The server itself rewrites an existing file only to realign
+it commented out, rendered from the schema and already in the form the server's realignment would write, so the first `serve` makes no commit. The server itself rewrites an existing file only to realign
 it (D903): at mount, when it holds a removed key, in one commit of the server's, and never when the file has
 uncommitted edits.
 

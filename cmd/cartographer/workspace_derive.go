@@ -281,7 +281,7 @@ func derivedSharedSkips(provider, workspace string) (files, kinds []string) {
 	// A derived Claude Code projection registers its hooks in the untracked
 	// settings.local.json, never in settings.json (#1198): one the repository
 	// tracks after all leaves the hooks out.
-	if prov == configurator.ProviderClaudeCode && tracked[provisioning.ClaudeLocalSettings] {
+	if prov == configurator.ProviderClaudeCode && tracked[provisioning.ClaudeLocalSettings] && !slices.Contains(files, provisioning.ClaudeLocalSettings) {
 		files = append(files, provisioning.ClaudeLocalSettings)
 		kinds = append(kinds, "hook")
 	}

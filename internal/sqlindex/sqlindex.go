@@ -308,6 +308,19 @@ func (ix *Index) SearchFTS(query, scope string, limit int) ([]Hit, error) {
 // returned, preventing IDs, snippets, and result counts of hidden concepts
 // from escaping into caller-visible pagination.
 func (ix *Index) SearchFTSFiltered(query, scope string, limit int, allow func(id string) bool) ([]Hit, error) {
+	return ix.searchFTS(query, scope, limit, allow, true)
+}
+
+// SearchFTSIDs is SearchFTSFiltered for a caller that needs only which
+// concepts match and in what order: the hits carry no Snippet. snippet() is
+// quadratic in the number of matches inside one body under the trigram
+// tokenizer, so a 76 KB body took 8 s to excerpt (#1276); the write-time
+// repeated_fact lookup (D351) never reads an excerpt and must not pay it.
+func (ix *Index) SearchFTSIDs(query, scope string, limit int, allow func(id string) bool) ([]Hit, error) {
+	return ix.searchFTS(query, scope, limit, allow, false)
+}
+
+func (ix *Index) searchFTS(query, scope string, limit int, allow func(id string) bool, snippets bool) ([]Hit, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -318,7 +331,7 @@ func (ix *Index) SearchFTSFiltered(query, scope string, limit int, allow func(id
 
 	// The AND pass is asked for at least the floor so that a small limit
 	// cannot make full matches beyond the page look like OR-only ones.
-	hits, _, err := ix.searchFTSFiltered(sanitizeFTSQuery(q), scope, max(limit, search.OrFallbackFloor), allow)
+	hits, _, err := ix.searchFTSFiltered(sanitizeFTSQuery(q), scope, max(limit, search.OrFallbackFloor), allow, snippets)
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +344,7 @@ func (ix *Index) SearchFTSFiltered(query, scope string, limit int, allow func(id
 		}
 		// The OR query also returns the full matches: ask for enough extra
 		// rows that `limit` OR-only hits survive the de-duplication.
-		fallback, _, err := ix.searchFTSFiltered(`"`+strings.Join(tokens, `" OR "`)+`"`, scope, limit+len(hits), allow)
+		fallback, _, err := ix.searchFTSFiltered(`"`+strings.Join(tokens, `" OR "`)+`"`, scope, limit+len(hits), allow, snippets)
 		if err != nil {
 			return nil, err
 		}
@@ -348,11 +361,11 @@ func (ix *Index) SearchFTSFiltered(query, scope string, limit int, allow func(id
 	return hits, nil
 }
 
-func (ix *Index) searchFTSFiltered(query, scope string, limit int, allow func(id string) bool) ([]Hit, bool, error) {
+func (ix *Index) searchFTSFiltered(query, scope string, limit int, allow func(id string) bool, snippets bool) ([]Hit, bool, error) {
 	var hits []Hit
 	found := false
 	for offset := 0; ; offset += ftsSearchBatch {
-		batch, err := ix.searchFTSPage(query, scope, ftsSearchBatch, offset)
+		batch, err := ix.searchFTSPage(query, scope, ftsSearchBatch, offset, snippets)
 		if err != nil {
 			return nil, false, err
 		}
@@ -408,32 +421,39 @@ func pickSnippet(body, assets string) string {
 	}, pick)
 }
 
-func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, error) {
+func (ix *Index) searchFTSPage(query, scope string, limit, offset int, snippets bool) ([]Hit, error) {
 	var rows *sql.Rows
 	var err error
+	snip, asnip := ftsSnippet, ftsAssetSnippet
+	var snipArgs []any
+	if snippets {
+		snipArgs = []any{ftsSnippetTokens, ftsSnippetTokens}
+	} else {
+		snip, asnip = `''`, `''`
+	}
 	if scope != "" {
 		rows, err = ix.db.Query(
 			`SELECT c.id, `+ftsRank+` AS score,
-			        `+ftsSnippet+` AS snip,
-			        `+ftsAssetSnippet+` AS asnip
+			        `+snip+` AS snip,
+			        `+asnip+` AS asnip
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
 			 WHERE concepts_fts MATCH ? AND c.id LIKE ? ESCAPE '\'
 			 ORDER BY score DESC, c.id
 			 LIMIT ? OFFSET ?`,
-			ftsSnippetTokens, ftsSnippetTokens, query, likePrefixPattern(scope), limit, offset,
+			append(snipArgs, query, likePrefixPattern(scope), limit, offset)...,
 		)
 	} else {
 		rows, err = ix.db.Query(
 			`SELECT c.id, `+ftsRank+` AS score,
-			        `+ftsSnippet+` AS snip,
-			        `+ftsAssetSnippet+` AS asnip
+			        `+snip+` AS snip,
+			        `+asnip+` AS asnip
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
 			 WHERE concepts_fts MATCH ?
 			 ORDER BY score DESC, c.id
 			 LIMIT ? OFFSET ?`,
-			ftsSnippetTokens, ftsSnippetTokens, query, limit, offset,
+			append(snipArgs, query, limit, offset)...,
 		)
 	}
 	if err != nil {

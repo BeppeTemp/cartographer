@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -126,7 +128,7 @@ func toolServiceGet(k *kb.KB) Tool {
 				return textResult(sb.String()), nil
 			}
 
-			values, source, legacy, err := resolveFrontmatterSecrets(k, fm)
+			values, source, legacy, err := resolveFrontmatterSecrets(k, fm, nil)
 			if err != nil {
 				return errorResult("service_get: resolve_secrets: " + err.Error()), nil
 			}
@@ -159,6 +161,13 @@ func toolServiceGet(k *kb.KB) Tool {
 	}
 }
 
+// errNoAgeKey says what is missing and the command that creates it; the server
+// path of the credentials directory is not the caller's to know.
+func errNoAgeKey(k *kb.KB) error {
+	n := kbName(k)
+	return fmt.Errorf("requires an age key for this KB: the operator creates it with `age-keygen -o <credentials_dir>/%s.age` (or default.age for every KB), then adds its public key to the KB's .sops.yaml", n)
+}
+
 var secretRefName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func parseSecretRefs(raw any) ([]sops.SecretRef, error) {
@@ -183,7 +192,25 @@ func parseSecretRefs(raw any) ([]sops.SecretRef, error) {
 	return refs, nil
 }
 
-func resolveFrontmatterSecrets(k *kb.KB, fm *okf.Frontmatter) (map[string]string, string, bool, error) {
+// secretError turns an error of the sops package into the one a caller may
+// see: the full detail goes to the server log, the caller gets no server path
+// nor sops diagnostics, and a failed decryption is named for what it is (the
+// KB's age key).
+func secretError(k *kb.KB, err error) error {
+	if err == nil {
+		return nil
+	}
+	log.Printf("secrets: %s: %s", kbName(k), sops.Detail(err))
+	if errors.Is(err, sops.ErrDecrypt) {
+		return fmt.Errorf("age key missing or invalid for %s: %w", kbName(k), err)
+	}
+	return err
+}
+
+// resolveFrontmatterSecrets resolves the concept's secrets. A non-empty names
+// restricts the resolution to those names; one the concept does not declare is
+// an error ("unknown name"), whatever the other references are.
+func resolveFrontmatterSecrets(k *kb.KB, fm *okf.Frontmatter, names []string) (map[string]string, string, bool, error) {
 	var refs []sops.SecretRef
 	if raw, ok := fm.Get("secret_refs"); ok {
 		var err error
@@ -193,14 +220,14 @@ func resolveFrontmatterSecrets(k *kb.KB, fm *okf.Frontmatter) (map[string]string
 		}
 	}
 	if k.SopsAgeKeyFile == "" {
-		return nil, "", false, fmt.Errorf("requires an age key for this KB (<kb>.age or default.age in the server's credentials_dir)")
+		return nil, "", false, errNoAgeKey(k)
 	}
 	if !sops.Available() {
 		return nil, "", false, fmt.Errorf("sops binary not found in PATH")
 	}
 	if refs != nil {
-		values, err := sops.ResolveRefs(k.Root, refs, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
-		return values, "declared refs", false, err
+		values, err := sops.ResolveNamed(k.Root, refs, names, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
+		return values, "declared refs", false, secretError(k, err)
 	}
 	raw, ok := fm.Get("secrets_source")
 	if !ok {
@@ -212,7 +239,12 @@ func resolveFrontmatterSecrets(k *kb.KB, fm *okf.Frontmatter) (map[string]string
 	}
 	sf, err := sops.Decrypt(k.Root, source, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
 	if err != nil {
-		return nil, "", false, err
+		return nil, "", false, secretError(k, err)
+	}
+	for _, n := range names {
+		if _, ok := sf.Values[n]; !ok {
+			return nil, "", false, fmt.Errorf("unknown name %q", n)
+		}
 	}
 	return sf.Values, source, true, nil
 }
@@ -228,6 +260,9 @@ func toolSecretResolve(k *kb.KB) Tool {
 			return errorResult("invalid params: " + err.Error()), nil
 		}
 		data, err := k.ReadConcept(okf.ConceptID(p.ConceptID))
+		if errors.Is(err, okf.ErrInvalidPath) {
+			return errorResult(fmt.Sprintf("secret_resolve: concept_id %q is not the id of a concept that declares secret_refs; a reference (NAME=secrets/file.sops.yaml#/pointer) is declared in that concept's secret_refs, not passed here", p.ConceptID)), nil
+		}
 		if err != nil {
 			return errorResult(fmt.Sprintf("secret_resolve %q: %v", p.ConceptID, err)), nil
 		}
@@ -235,7 +270,7 @@ func toolSecretResolve(k *kb.KB) Tool {
 		if err != nil {
 			return errorResult("secret_resolve: parse frontmatter: " + err.Error()), nil
 		}
-		values, _, _, err := resolveFrontmatterSecrets(k, fm)
+		values, _, _, err := resolveFrontmatterSecrets(k, fm, p.Names)
 		if err != nil {
 			return errorResult("secret_resolve: " + err.Error()), nil
 		}
@@ -265,6 +300,18 @@ func toolSecretResolve(k *kb.KB) Tool {
 	}}
 }
 
+// suggestSopsPath proposes the path secret_set expects for a refused one.
+func suggestSopsPath(p string) string {
+	base := path.Base(strings.ReplaceAll(p, "\\", "/"))
+	for _, ext := range []string{".sops.yaml", ".yaml", ".yml"} {
+		base = strings.TrimSuffix(base, ext)
+	}
+	if base == "" || base == "." || base == "/" {
+		base = "name"
+	}
+	return "secrets/" + base + ".sops.yaml"
+}
+
 func toolSecretSet(k *kb.KB) Tool {
 	return Tool{Name: "secret_set", Description: "Sets one JSON Pointer in an encrypted SOPS file under secrets/ (requires rw scope). A new file is created only when the KB's .sops.yaml creation rule matches its path and the server's key is one of the rule's recipients; the value is never returned.", InputSchema: json.RawMessage(`{"type":"object","required":["path","key","value"],"properties":{"path":{"type":"string"},"key":{"type":"string"},"value":{"type":"string"}}}`), Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		var p struct {
@@ -276,12 +323,12 @@ func toolSecretSet(k *kb.KB) Tool {
 			return errorResult("invalid params: " + err.Error()), nil
 		}
 		if !filepath.IsLocal(p.Path) || !strings.HasPrefix(p.Path, "secrets/") || !strings.HasSuffix(p.Path, ".sops.yaml") {
-			return errorResult("secret_set: path must be a local secrets/*.sops.yaml path"), nil
+			return errorResult(fmt.Sprintf("secret_set: path %q must be a local secrets/<name>.sops.yaml path, for example %s", p.Path, suggestSopsPath(p.Path))), nil
 		}
 		_, statErr := os.Lstat(filepath.Join(k.Root, p.Path))
 		creating := os.IsNotExist(statErr)
 		if k.SopsAgeKeyFile == "" {
-			return errorResult("secret_set: requires an age key for this KB (<kb>.age or default.age in the server's credentials_dir)"), nil
+			return errorResult("secret_set: " + errNoAgeKey(k).Error()), nil
 		}
 		if creating {
 			// D1191: the recipients are the operator's creation rule, never the caller's.
@@ -289,12 +336,12 @@ func toolSecretSet(k *kb.KB) Tool {
 				if errors.Is(err, sops.ErrNoConfig) {
 					return errorResult("secret_set: file does not exist and the KB has no .sops.yaml; bootstrapping encryption and its recipients is an operator action"), nil
 				}
-				return errorResult("secret_set: " + err.Error()), nil
+				return errorResult("secret_set: " + secretError(k, err).Error()), nil
 			}
 			return textResult(fmt.Sprintf("secret_set: created %s %s", p.Path, p.Key)), nil
 		}
 		if err := sops.Set(k.Root, p.Path, p.Key, p.Value, sops.AgeKeyEnv(k.SopsAgeKeyFile)...); err != nil {
-			return errorResult("secret_set: " + err.Error()), nil
+			return errorResult("secret_set: " + secretError(k, err).Error()), nil
 		}
 		return textResult(fmt.Sprintf("secret_set: updated %s %s", p.Path, p.Key)), nil
 	}}

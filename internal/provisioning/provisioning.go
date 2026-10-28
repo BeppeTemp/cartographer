@@ -424,6 +424,11 @@ type AppliedResult struct {
 	// recorded as unresolved (D282). A sync reports in full only the keys
 	// that are not here — new since the last sync — and summarizes the rest.
 	PriorUnresolved []string
+	// HookSettings: the settings file Claude Code hooks were registered in
+	// when it is not the default settings.json (the untracked settings.local.json
+	// of a derived binding, D1198); empty otherwise. It lets the one-line
+	// confirmation name the file actually written (#1275).
+	HookSettings string
 }
 
 // LockFileName is the lockfile's name, relative to base-dir.
@@ -1754,6 +1759,9 @@ func Apply(m Manifest, opts ApplyOptions) (AppliedResult, error) {
 	diff := ComputeDiff(m, opts.Lock)
 
 	var result AppliedResult
+	if opts.Provider == configurator.ProviderClaudeCode && opts.Scope == ScopeProject {
+		result.HookSettings = opts.HookSettingsRel
+	}
 	tracker := newExpansionTracker()
 	// Every key the bound KBs cite is resolved up front (D262), through one
 	// resolver that walks the search roots at most once, so the "Local paths"

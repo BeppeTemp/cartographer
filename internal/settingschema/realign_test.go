@@ -331,3 +331,20 @@ func TestWriteBackupConcurrentCallersGetDistinctNames(t *testing.T) {
 		}
 	}
 }
+
+// A file made only of comments keeps the ones above its block of unset
+// settings (#1270): the parser holds no comment of an empty document.
+func TestRealign_CommentOnlyFileKeepsItsHeader(t *testing.T) {
+	s := Schema{Keys: []Key{{Path: "branch", Type: "string", Default: `""`, Description: "A branch."}}}
+	first, _, err := s.Realign([]byte("# my note\n"), Registry{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(first), "# my note\n\n"+Marker) {
+		t.Fatalf("header lost:\n%s", first)
+	}
+	again, rep, err := s.Realign(first, Registry{})
+	if err != nil || !rep.Empty() || string(again) != string(first) {
+		t.Errorf("not idempotent: rep=%v\n%s", rep.Lines(), again)
+	}
+}

@@ -551,3 +551,28 @@ func TestBestSectionParityWithInMemory(t *testing.T) {
 		}
 	}
 }
+
+// #1276: the write-time lookup asks for ids only; the same hits come back in
+// the same order, with no excerpt computed.
+func TestSearchFTSIDsMatchesSearchWithoutSnippets(t *testing.T) {
+	ix := openTest(t)
+	mustUpsert(t, ix, "notes/a", "---\ntype: Note\ntitle: A\n---\nThe nightly job copies the data to the backup host.\n")
+	mustUpsert(t, ix, "notes/b", "---\ntype: Note\ntitle: B\n---\nThe nightly job copies the data to the backup host, twice.\n")
+	full, err := ix.SearchFTS("nightly job copies", "", 10)
+	if err != nil || len(full) != 2 {
+		t.Fatalf("SearchFTS = %+v, %v", full, err)
+	}
+	ids, err := ix.SearchFTSIDs("nightly job copies", "", 10, nil)
+	if err != nil || len(ids) != len(full) {
+		t.Fatalf("SearchFTSIDs = %+v, %v", ids, err)
+	}
+	for i := range ids {
+		if ids[i].ID != full[i].ID || ids[i].Snippet != "" || full[i].Snippet == "" {
+			t.Fatalf("hit %d: ids=%+v full=%+v", i, ids[i], full[i])
+		}
+	}
+	scoped, err := ix.SearchFTSIDs("nightly job copies", "notes/a", 10, nil)
+	if err != nil || len(scoped) != 1 || scoped[0].ID != "notes/a" {
+		t.Fatalf("scoped = %+v, %v", scoped, err)
+	}
+}

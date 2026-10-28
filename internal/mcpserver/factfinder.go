@@ -58,7 +58,7 @@ func (ff *factFinder) find(ctx requestContext, id, prev string, budget *factBudg
 		budget.reconciled = true
 	}
 	lookup := func(line string) []okf.ConceptID {
-		hits, _ := keywordHitsReconciled(ctx, ff.k, ff.rec, ff.deps, factQuery(line), "", factLookupWindow, false)
+		hits, _ := keywordHitsReconciled(ctx, ff.k, ff.rec, ff.deps, factQuery(line), "", factLookupWindow, false, false)
 		ids := make([]okf.ConceptID, 0, len(hits))
 		for _, h := range hits {
 			ids = append(ids, okf.ConceptID(h.ID))

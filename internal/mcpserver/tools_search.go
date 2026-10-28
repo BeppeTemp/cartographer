@@ -436,13 +436,14 @@ func keywordHits(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps,
 	if _, err := rec.reconcile(); err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: search: %v\n", err)
 	}
-	return keywordHitsReconciled(ctx, k, rec, deps, query, scope, limit, skipArchived)
+	return keywordHitsReconciled(ctx, k, rec, deps, query, scope, limit, skipArchived, true)
 }
 
 // keywordHitsReconciled is keywordHits for a caller that has just reconciled
 // and runs several queries in a row (the write-time repeated_fact lookups,
 // D351): the reconcile walks every file, so it is paid once per call.
-func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int, skipArchived bool) ([]searchHit, string) {
+// snippets false skips the excerpts (#1276): the caller reads only the ids.
+func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, query, scope string, limit int, skipArchived, snippets bool) ([]searchHit, string) {
 	live := rec.live
 	visible := visiblePredicate(ctx, k)
 	// skipArchived (D322) drops archived concepts inside the backend's own
@@ -468,7 +469,11 @@ func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, 
 	useMem := deps.SQLIndex == nil
 	if !useMem {
 		// Prefer SQLite FTS5, fall back to the in-memory index when FTS5 fails.
-		sqlHits, err := deps.SQLIndex.SearchFTSFiltered(query, scope, window, pick)
+		find := deps.SQLIndex.SearchFTSFiltered
+		if !snippets {
+			find = deps.SQLIndex.SearchFTSIDs
+		}
+		sqlHits, err := find(query, scope, window, pick)
 		if err != nil {
 			useMem = true
 		} else {

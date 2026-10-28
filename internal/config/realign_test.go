@@ -310,3 +310,31 @@ func TestRealignFileKeepsASymlink(t *testing.T) {
 		t.Errorf("the target was not realigned:\n%s", got)
 	}
 }
+
+// #1270: a server file that only lacks the schema's comments is the operator's
+// own: not rewritten, no backup. One that needs migrating still is.
+func TestRealignServerFile_CommentsAloneAreNotRewritten(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	const fresh = "data: /srv/data\n"
+	if err := os.WriteFile(path, []byte(fresh), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	rep, backup, err := RealignServerFile(path, "0.27.0")
+	if err != nil || !rep.Empty() || backup != "" {
+		t.Fatalf("rep=%v backup=%q err=%v", rep.Lines(), backup, err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != fresh {
+		t.Errorf("the file was rewritten:\n%s", got)
+	}
+	if m, _ := filepath.Glob(path + ".bak-*"); len(m) != 0 {
+		t.Errorf("backup written: %v", m)
+	}
+	if err := os.WriteFile(path, []byte(oldServerYAML), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	rep, backup, err = RealignServerFile(path, "0.27.0")
+	if err != nil || !rep.Substantive() || backup == "" {
+		t.Fatalf("a file with removed keys must be realigned: rep=%v backup=%q err=%v", rep.Lines(), backup, err)
+	}
+}
