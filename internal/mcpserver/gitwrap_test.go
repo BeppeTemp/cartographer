@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1184,30 +1185,46 @@ func TestReadSyncWrap_ReadDoesNotWaitForTheFetch(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-	var dials atomic.Int32
+	var (
+		dials atomic.Int32
+		mu    sync.Mutex
+		conns []net.Conn
+	)
 	go func() {
 		for {
 			c, err := ln.Accept()
 			if err != nil {
 				return
 			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
 			dials.Add(1)
-			defer c.Close()
 		}
 	}()
+	// Closing the held connections is what ends the fetch: its timeout is out
+	// of reach, so a slow runner cannot kill it before git has dialled (#813,
+	// #1349).
+	endFetch := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			c.Close()
+		}
+	}
+	defer endFetch()
 	if out, err := exec.Command("git", "-C", k.Root, "remote", "set-url", "origin", "http://"+ln.Addr().String()+"/kb.git").CombinedOutput(); err != nil {
 		t.Fatalf("set-url: %v\n%s", err, out)
 	}
 	defer func(d time.Duration) { gitx.FetchTimeout = d }(gitx.FetchTimeout)
-	// 10s as in the backoff test above (#725): a slow Windows runner killed
-	// the fetch at 3s before git.exe dialled, so no dial was counted (#813).
-	gitx.FetchTimeout = 10 * time.Second
+	gitx.FetchTimeout = 5 * time.Minute
 
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
 	init := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`
 	call := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"kb_status","arguments":{}}}`
-	for i := 0; i < 3; i++ {
+	read := func(i int) {
+		t.Helper()
 		resps := runMCPSequence(t, s, []string{init, call})
 		if got := decodeToolResult(t, resps[1]); got.IsError {
 			t.Fatalf("read %d = %+v, want the local view", i, got)
@@ -1216,9 +1233,25 @@ func TestReadSyncWrap_ReadDoesNotWaitForTheFetch(t *testing.T) {
 			t.Fatalf("read %d returned after the fetch ended: it waited for it", i)
 		}
 	}
-	waitReadRefresh(k)
+	read(0)
+	// Reads after git has dialled are the ones a stacked fetch would show on.
+	deadline := time.Now().Add(2 * time.Minute)
+	for dials.Load() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("the fetch never reached the remote")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	for i := 1; i < 3; i++ {
+		read(i)
+	}
 	if got := dials.Load(); got != 1 {
 		t.Fatalf("remote dialled %d times, want 1: concurrent reads stacked fetches", got)
+	}
+	endFetch()
+	waitReadRefresh(k)
+	if got := dials.Load(); got != 1 {
+		t.Fatalf("remote dialled %d times after the fetch ended, want 1: concurrent reads stacked fetches", got)
 	}
 }
 
