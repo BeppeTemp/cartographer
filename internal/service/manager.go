@@ -570,14 +570,19 @@ func CheckStableBinary() error {
 	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
 		check = append(check, resolved)
 	}
-	tmp := filepath.Clean(os.TempDir())
-	if r, err := filepath.EvalSymlinks(tmp); err == nil {
-		tmp = r
+	// The temp directory as named and as resolved: on Windows os.TempDir() can
+	// be an 8.3 short name that EvalSymlinks expands, while a binary path built
+	// from it (or never resolved, because it does not exist) keeps the short form.
+	tmps := []string{filepath.Clean(os.TempDir())}
+	if r, err := filepath.EvalSymlinks(tmps[0]); err == nil && r != tmps[0] {
+		tmps = append(tmps, r)
 	}
 	for _, c := range check {
 		c = filepath.Clean(c)
-		if rel, err := filepath.Rel(tmp, c); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
-			return fmt.Errorf("service: %s is under the temp directory %s", bin, tmp)
+		for _, tmp := range tmps {
+			if rel, err := filepath.Rel(tmp, c); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+				return fmt.Errorf("service: %s is under the temp directory %s", bin, tmp)
+			}
 		}
 		if hasGoBuildDir(c) {
 			return fmt.Errorf("service: %s is a go-build artifact", bin)
