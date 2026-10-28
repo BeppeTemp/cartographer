@@ -21,6 +21,7 @@ func trustHome(t *testing.T) (home, ws string) {
 	t.Setenv("HOME", h)
 	t.Setenv("USERPROFILE", h)
 	cfg := clientconfig.Default()
+	cfg.ServerURL = deadServerURL(t) // bind asks the server which KBs it mounts
 	cfg.KnownKBs = []string{"kb-a"}
 	if err := clientconfig.Save(h, cfg); err != nil {
 		t.Fatal(err)

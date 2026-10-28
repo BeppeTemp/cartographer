@@ -22,7 +22,9 @@ Root help groups commands into Get started, Client, Server, Knowledge base and
 Diagnostics. `cartographer version` and `cartographer --version` are aliases;
 the help of root, `paths`, `kb`, `client` and `workspace` (`help`, `-h` or
 `--help` as the only argument) and of `service` (`-h` or `--help` only) writes to
-stdout and exits 0, with no client config needed; no argument outside a terminal
+stdout and exits 0, with no client config needed; `-h`/`--help` anywhere in the arguments of
+`agents`, `status`, `approve`, `config`, `mcp`, `update`, `client`, `workspace` and
+`service sync-timer` does the same, and no subcommand answers help with an `Error:` line or exit 2; no argument outside a terminal
 prints the usage on stdout and exits 0, and an unknown subcommand fails on
 stderr with exit 2.
 Unknown commands only offer a correction for one command within edit distance
@@ -246,7 +248,8 @@ provider from one machine-wide catalogue to one projection per bound repository:
 that repository's own project-local directories and nothing KB-sourced is written under `$HOME`. `connect --workspace <repo>` makes the same choice at connect time, which is the only moment
 it is free — a provider-global connect materializes every selected KB into `$HOME` first, and moving
 them afterwards is a migration. `workspace unbind` removes the declaration and the next `sync`
-prunes what was projected there. For Codex, `workspace bind codex <path> --kb <name>… --trust` also records the
+prunes what was projected there; a path never bound for that provider is an error (exit 1). `workspace bind` dedupes `--kb` and,
+like `client bind`, refuses a KB the server does not mount when the server answers with its list (exit 2); with the server unreachable it warns and binds. For Codex, `workspace bind codex <path> --kb <name>… --trust` also records the
 folder as trusted in `~/.codex/config.toml`, so the projection is not born `inactive` (one explicit, narrow
 write; without the flag `bind` prints the line to add; `unbind` and a derived binding never touch it; refusal
 cases and the exact rules in `sync.md` §Workspace scope, [D1074](decisions/D1074-workspace-bind-codex-trust.md)). A binding also scopes the **tools** in every client, with no file
@@ -605,12 +608,13 @@ Read-only diagnosis of this machine's client configuration
 migration: *is there anything left over here that should not be, or missing that should?*
 
 ```bash
-cartographer doctor [--json] [--provider claude]
+cartographer doctor [--output table|json] [--provider claude]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--json` | `false` | Emit the report as JSON (`cartographer.doctor/v1`) instead of text |
+| `--output` | `table` | `json` emits the report as JSON (`cartographer.doctor/v1`) instead of text, like `agents`, `status` and `update check` |
+| `--json` | `false` | Deprecated alias of `--output json`, kept working |
 | `--provider` | *(unset)* | Narrow the run to one provider — inspected even if it is not connected |
 
 **It never repairs, and never writes** — no lockfile migration, no directory creation, no cache
@@ -739,7 +743,7 @@ cartographer service sync-timer status   # exit: 0 active, 3 installed but inact
 installed is a success. The per-user scheduler belongs to the account, not to `$HOME`: when
 `$HOME` is not the account's home directory (a sandboxed run, the e2e suite), the server service
 and the sync timer write their unit files under `$HOME` and register nothing,
-so a sandbox never replaces the account's own jobs (#683). The timer runs plain `cartographer sync`: `sync` has no trust flag to give it (D906; `workspace bind codex --trust` is a separate, explicit command),
+so a sandbox never replaces the account's own jobs (#683); `connect` and `setup` then print `sync timer not installed: HOME is not this account's home (expected in tests)` as a plain line, not a warning. The timer runs plain `cartographer sync`: `sync` has no trust flag to give it (D906; `workspace bind codex --trust` is a separate, explicit command),
 and an MCP descriptor still needs the local approval an unattended job cannot give. `setup` and `connect` install the timer themselves when a connected provider has no
 session hook, or one limited to some sessions (D325); `setup` lists it in its plan. `uninstall` is
 the explicit opt-out, remembered as `sync_timer_opt_out` in the client state file (so `connect` does
@@ -933,7 +937,7 @@ machine (D262). No network call: everything is read from the lockfile and `.cart
 cartographer paths                          # = paths list: every key, its KB(s), path or failure reason
 cartographer paths list --json              # {"placeholders": [{key, kbs, path | reason, description, default, ignored}]}
 cartographer paths set path:kubeconfig ~/.kube/config
-cartographer paths set repo:dotfiles ~/src/dotfiles
+cartographer paths set repo:dotfiles ~/src/dotfiles   # answers `paths: repo:dotfiles -> <path>`: the echo carries the `<kind>:<key>` id
 cartographer paths ignore repo:work-tools      # never exists on this machine: stop reporting it (D282)
 cartographer paths unset kubeconfig           # remove a mapping, or an ignore
 cartographer paths suggest                  # a candidate path, as a `paths set` line, for every unresolved key (D320)
@@ -1323,7 +1327,7 @@ warning, not a failure.
 |---|---|
 | `client list` | one row per connected provider: resolved KBs and the origin of the answer (`explicit` / `default (all known)`) |
 | `client show <provider>` | that provider's bound KBs, its origin, and the known KBs it is **not** bound to; for `claude` also a `config dirs` line: `$HOME` (default), each declared dir, and an undeclared `CLAUDE_CONFIG_DIR` marked `not declared` |
-| `client bind <provider> <kb>[,<kb>...]` | adds to the binding (the output lists the resulting binding and what this call added); creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so; before warning that a KB is unknown it asks the server for its KB list once, without rewriting the cached list (`sync` owns it, D721) |
+| `client bind <provider> <kb>[,<kb>...]` | adds to the binding (the output lists the resulting binding and what this call added); creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so; it asks the server for its KB list once and refuses a KB the server does not mount (without rewriting the cached list, `sync` owns it, D721); with the server unreachable it falls back to the cached list and only warns; duplicates in the list are stored once |
 | `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
 | `client reset <provider>` | deletes the binding, returning the provider to the default |
 | `client update [--check=true\|false]` | shows, or sets, `update_check` (D254, D906) |

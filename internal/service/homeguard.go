@@ -20,6 +20,10 @@ import (
 // errSandboxHome is returned instead of running a scheduler command.
 var errSandboxHome = errors.New("HOME is not this account's home directory")
 
+// ErrSandboxHome is errSandboxHome for callers outside the package, which tell
+// this deliberate refusal from a real failure.
+var ErrSandboxHome = errSandboxHome
+
 // schedulerCommands are the commands that act on the account-wide scheduler.
 var schedulerCommands = map[string]bool{
 	"launchctl":      true,

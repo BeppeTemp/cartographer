@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -32,6 +33,9 @@ func cmdMCP(args []string) int {
 	dir := fs.String("dir", "", "folder to resolve (default: the working directory)")
 	fs.Usage = func() { fmt.Fprintln(os.Stderr, mcpUsage) }
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if *provider == "" || fs.NArg() != 0 {

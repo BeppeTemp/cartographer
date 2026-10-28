@@ -46,6 +46,10 @@ type updateView struct {
 }
 
 func cmdUpdate(args []string) int {
+	if hasHelpFlag(args) {
+		printUpdateUsage(os.Stdout)
+		return 0
+	}
 	if len(args) == 0 {
 		printUpdateUsage(os.Stderr)
 		return 2

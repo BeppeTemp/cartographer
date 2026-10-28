@@ -16,7 +16,7 @@ func writeClientCfg(t *testing.T, agents, knownKBs []string, clients map[string]
 	setHome(t, home)
 
 	cfg := clientconfig.Default()
-	cfg.ServerURL = "http://localhost:39273/mcp"
+	cfg.ServerURL = deadServerURL(t)
 	cfg.Agents = agents
 	cfg.KnownKBs = knownKBs
 	cfg.Clients = clients

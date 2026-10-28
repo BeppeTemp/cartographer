@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -49,6 +50,9 @@ func cmdConfig(args []string) int {
 	asJSON := fs.Bool("json", false, "Print the raw structure as JSON")
 	all := fs.Bool("all", false, "Also list the keys nothing set, with their default")
 	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	dir, err := clientconfig.TargetDir()

@@ -72,10 +72,16 @@ type doctorReport struct {
 // the same convention `status` uses, so CI treats them identically.
 func cmdDoctor(args []string) int {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
-	asJSON := fs.Bool("json", false, "Emit the findings as JSON")
+	output := fs.String("output", "table", "Output format: table|json (like agents, status and update)")
+	asJSONAlias := fs.Bool("json", false, "Deprecated alias of --output json")
 	provider := fs.String("provider", "", "Narrow the run to one provider")
 	repairHashes := fs.Bool("repair-hashes", false, "Re-record the content hash of managed artifacts that have none, from the bytes already on disk (D157)")
 	fs.Parse(args)
+	if *output != "table" && *output != "json" {
+		fmt.Fprintf(os.Stderr, "Error: invalid --output %q (want table|json)\n", *output)
+		return 2
+	}
+	asJSON := *output == "json" || *asJSONAlias
 	// `doctor run|schedule|unschedule|status` were removed (D704): without this
 	// a leftover job's `doctor run --kb …` would run every check instead.
 	if fs.NArg() > 0 {
@@ -101,7 +107,7 @@ func cmdDoctor(args []string) int {
 
 	report := runDoctor(dir, *provider)
 	code := doctorExitCode(report)
-	if *asJSON {
+	if asJSON {
 		if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 2

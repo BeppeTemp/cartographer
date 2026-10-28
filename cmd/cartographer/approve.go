@@ -27,6 +27,10 @@ var (
 const approveUsage = "Usage: cartographer approve [revoke] <kind> <name> [--kb <kb>] [--yes]   (kind: mcp, hook, skill, agent)\n       cartographer approve --pending [--kb <kb>] [--yes]"
 
 func cmdApprove(args []string) int {
+	if hasHelpFlag(args) {
+		fmt.Fprintln(os.Stdout, approveUsage)
+		return 0
+	}
 	if i := slices.Index(args, "--pending"); i >= 0 {
 		return cmdApprovePending(slices.Delete(slices.Clone(args), i, i+1))
 	}
