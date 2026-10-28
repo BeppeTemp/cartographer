@@ -44,6 +44,7 @@ var (
 	repairLoadClientConfigFn = clientconfig.Load
 	repairRunSyncFn          = runSync
 	repairSameBinaryFn       = sameExecutable
+	repairSwitchBinaryFn     = func(configPath string) error { return service.NewManager().SwitchBinary(configPath) }
 )
 
 // cmdUpgradeRepair implements `cartographer upgrade-repair` (D121): a
@@ -78,6 +79,18 @@ func cmdUpgradeRepair(args []string) int {
 	if !st.Running {
 		fmt.Println("native service is stopped — leaving it stopped; start it intentionally (`cartographer service start`), then run `cartographer sync`")
 		return exitRepairOK
+	}
+
+	// The service must run the binary that is repairing it: a signal makes the
+	// supervisor restart the program its definition already names, so another
+	// binary (an install.sh copy next to a Cask) would come back as the old
+	// version and the wait for /health would time out (#1321).
+	if st.ServiceBinPath != "" && !repairSameBinaryFn(st.ServiceBinPath) {
+		fmt.Printf("native service runs %s, this binary is %s — switching the service definition to it\n", st.ServiceBinPath, st.BinPath)
+		if err := repairSwitchBinaryFn(configPath); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return exitRepairServiceFailure
+		}
 	}
 
 	if err := ensureServiceCurrent(configPath, st.HTTPAddr); err != nil {
@@ -132,7 +145,7 @@ func repairStaleServiceBeforeSync(serverURL string) {
 	// A service running another binary (an install.sh copy next to a Cask,
 	// a dev build) would never report this version: replacing it would
 	// restart it on every sync without ever converging.
-	if !repairSameBinaryFn(st.BinPath) {
+	if !repairSameBinaryFn(st.ServiceBinPath) {
 		return
 	}
 	hs, err := repairProbeHealthFn(st.HTTPAddr, repairHealthProbeTimeout)

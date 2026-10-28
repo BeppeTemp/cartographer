@@ -27,7 +27,11 @@ func saveRepairFns(t *testing.T) {
 	origTargetDir := repairTargetDirFn
 	origLoadCfg := repairLoadClientConfigFn
 	origRunSync := repairRunSyncFn
+	origSame := repairSameBinaryFn
+	origSwitch := repairSwitchBinaryFn
 	t.Cleanup(func() {
+		repairSameBinaryFn = origSame
+		repairSwitchBinaryFn = origSwitch
 		version = origVersion
 		repairEffectiveConfigFn = origEffective
 		repairServiceStatusFn = origStatus
@@ -663,7 +667,7 @@ func staleServiceFixture(t *testing.T, healthVersion string) *bool {
 	version = "v1.3.0"
 	repairEffectiveConfigFn = func(explicit string) (string, error) { return "/cfg.yaml", nil }
 	repairServiceStatusFn = func(configPath string) (service.Status, error) {
-		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", BinPath: "/opt/homebrew/bin/cartographer"}, nil
+		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", ServiceBinPath: "/opt/homebrew/bin/cartographer"}, nil
 	}
 	repairSameBinaryFn = func(string) bool { return true }
 	repairProbeHealthFn = func(addr string, timeout time.Duration) (service.HealthStatus, error) {
@@ -760,4 +764,68 @@ func TestSameExecutable(t *testing.T) {
 	if sameExecutable(other) || sameExecutable("") || sameExecutable(filepath.Join(t.TempDir(), "missing")) {
 		t.Error("a different, empty or missing path must not match")
 	}
+}
+
+// A service whose definition runs another binary than the one repairing it is
+// switched to this binary before the wait, on the manual path too: a signal
+// only restarts the program the definition names (#1321).
+func TestCmdUpgradeRepair_ServiceRunsAnotherBinary_SwitchesDefinitionFirst(t *testing.T) {
+	saveRepairFns(t)
+	version = "v1.2.3"
+	repairEffectiveConfigFn = func(string) (string, error) { return "/effective/config.yaml", nil }
+	repairServiceStatusFn = func(string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", BinPath: "/home/user/.local/bin/cartographer", ServiceBinPath: "/opt/homebrew/bin/cartographer"}, nil
+	}
+	repairSameBinaryFn = func(string) bool { return false }
+	repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+		return service.HealthStatus{Status: "ok", Version: "v1.2.3"}, nil
+	}
+	var order []string
+	repairSwitchBinaryFn = func(cfg string) error {
+		order = append(order, "switch:"+cfg)
+		return nil
+	}
+	repairTargetDirFn = func() (string, error) { return t.TempDir(), nil }
+	out := withStdout(t, func() {
+		if code := cmdUpgradeRepair(nil); code != exitRepairOK {
+			t.Fatalf("exit = %d, want %d", code, exitRepairOK)
+		}
+	})
+	if len(order) != 1 || order[0] != "switch:/effective/config.yaml" {
+		t.Fatalf("switch calls = %v", order)
+	}
+	if !strings.Contains(out, "/opt/homebrew/bin/cartographer") || !strings.Contains(out, "/home/user/.local/bin/cartographer") {
+		t.Errorf("output must name both binaries, got %q", out)
+	}
+}
+
+func TestCmdUpgradeRepair_SwitchFails_ExitServiceFailure(t *testing.T) {
+	saveRepairFns(t)
+	repairEffectiveConfigFn = func(string) (string, error) { return "/c.yaml", nil }
+	repairServiceStatusFn = func(string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, ServiceBinPath: "/opt/homebrew/bin/cartographer"}, nil
+	}
+	repairSameBinaryFn = func(string) bool { return false }
+	repairSwitchBinaryFn = func(string) error { return errors.New("bootstrap failed") }
+	failIfReplaceCalled(t)
+	failIfSyncCalled(t)
+	if code := cmdUpgradeRepair(nil); code != exitRepairServiceFailure {
+		t.Fatalf("exit = %d, want %d", code, exitRepairServiceFailure)
+	}
+}
+
+func TestCmdUpgradeRepair_ServiceRunsThisBinary_NoSwitch(t *testing.T) {
+	saveRepairFns(t)
+	version = "v1.2.3"
+	repairEffectiveConfigFn = func(string) (string, error) { return "/c.yaml", nil }
+	repairServiceStatusFn = func(string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", ServiceBinPath: "/opt/homebrew/bin/cartographer"}, nil
+	}
+	repairSameBinaryFn = func(string) bool { return true }
+	repairSwitchBinaryFn = func(string) error { t.Fatal("must not switch"); return nil }
+	repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+		return service.HealthStatus{Status: "ok", Version: "v1.2.3"}, nil
+	}
+	repairTargetDirFn = func() (string, error) { return t.TempDir(), nil }
+	cmdUpgradeRepair(nil)
 }

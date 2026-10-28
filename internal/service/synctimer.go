@@ -325,8 +325,9 @@ func (m *Manager) InstallSyncTimer(interval time.Duration) error {
 			return fmt.Errorf("service: write sync plist: %w", err)
 		}
 		uid := os.Getuid()
-		// Best-effort: bootout fails when the job was not loaded yet.
-		m.run("launchctl", "bootout", fmt.Sprintf("gui/%d/%s", uid, syncLaunchdLabel))
+		if err := m.bootoutAndWait(syncLaunchdLabel, plistPath); err != nil {
+			return err
+		}
 		if _, err := m.run("launchctl", "bootstrap", fmt.Sprintf("gui/%d", uid), plistPath); err != nil {
 			return fmt.Errorf("service: launchctl bootstrap sync timer: %w", err)
 		}

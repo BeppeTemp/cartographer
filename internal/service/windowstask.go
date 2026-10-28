@@ -360,6 +360,7 @@ func (m *Manager) restartWindowsServe() error {
 	return errors.Join(stopErr, startErr)
 }
 
+var taskCommandRe = regexp.MustCompile(`(?s)<Command>(.*?)</Command>`)
 var taskArgumentsRe = regexp.MustCompile(`(?s)<Arguments>(.*?)</Arguments>`)
 
 // extractTaskConfigPath reads the argument following "serve --config" out of a
