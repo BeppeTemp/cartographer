@@ -411,8 +411,12 @@ any persisted per-KB suffixed names) from that provider's
 config file (`internal/configurator.Remove`, the inverse non-destructive merge: the rest of the
 file is left intact; an emptied `mcpServers`/`mcp` map is dropped, and the file itself is deleted only when it is left an empty shell and the provider's registry entry sets `DeletableWhenEmpty`: `.claude.json` and the Claude Code hook settings files go only when Cartographer created them (recorded in `.cartographer-created.json` in the base dir, itself deleted with its last entry) and removing our entries leaves `{}`; a file that existed before, even as `{}`, or that holds another key, is kept), prunes the
 managed artifacts registered for that provider in the lockfile (`provisioning.PruneManaged` — only
-managed files, never untracked ones), then removes the provider from the lockfile and from
-the client state. If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
+managed files, never untracked ones) and what its **workspace projections** wrote in each bound
+repository (the files the lockfile records for them, exactly as `workspace unbind` + `sync` would; what
+was there before stays, a skill, agent or hook that no longer hashes to what the sync wrote stays and is reported
+as `kept <path>: changed since sync`, a lockfile path that is not inside the repository is never followed, and a file
+another provider's projection of the same repository still records stays too), prints which repositories it cleaned, then removes the provider from the
+lockfile and from the client state, its workspace bindings and projection scope included (#1324). If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with an empty agent list in the state file,
 preserving `server_url`/`server_name`/`auth`/`token`/`clients` as defaults for the next
 `connect` (a disconnect→connect restarts from the previous server, not from `http://127.0.0.1:39273/mcp`).
