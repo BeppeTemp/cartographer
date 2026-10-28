@@ -809,6 +809,12 @@ func doConnect(opts connectOptions) (connectResult, error) {
 		// section goes with the next sync (connect holds no client lock here).
 		handleUnsupportedProviders(opts.Dir, existing, false)
 	}
+	// A client that installed nothing yet has no pre-approval install for the
+	// first sync to migrate: connect writes the marker itself, so that sync
+	// does not rewrite .cartographer.yaml (#1302).
+	if len(existing.Agents) == 0 && lockHoldsNothing(opts.Dir) {
+		existing.ApprovalsMigrated = true
+	}
 	for _, kbName := range opts.UnpinKeys {
 		if !existing.RemoveSigningKeys(kbName) {
 			return connectResult{}, fmt.Errorf("invalid --unpin-key %q: no key is pinned for that KB", kbName)
@@ -1222,4 +1228,11 @@ func applyConnectAccess(cfg *clientconfig.Config, opts connectOptions, routedPat
 		}
 	}
 	return nil
+}
+
+// lockHoldsNothing reports whether dir's lockfile records no projection: absent,
+// unreadable and empty all mean no earlier install to migrate (#1302).
+func lockHoldsNothing(dir string) bool {
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	return err != nil || len(lf.Projections()) == 0
 }
