@@ -3107,6 +3107,12 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 
 			// A delete is blocked by a link from a page the batch does not
 			// delete: the pages deleted together may link each other (D1327).
+			written := map[string]bool{} // ids of the batch's write and patch operations
+			for _, op := range ops {
+				if !op.Delete {
+					written[string(op.ID)] = true
+				}
+			}
 			for _, op := range ops {
 				if !op.Delete {
 					continue
@@ -3115,15 +3121,23 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				if err != nil {
 					return errorResult(fmt.Sprintf("operation (%s): read links: %v", op.ID, err)), nil
 				}
+				// A linker the batch deletes does not block; one it writes or
+				// patches is judged on its content after the batch (D1327).
 				var outside []string
 				for _, l := range linkers {
-					if !deleting[l] {
+					if !deleting[l] && !written[l] {
 						outside = append(outside, l)
 					}
 				}
+				for _, w := range ops {
+					if !w.Delete && batchOpLinksTo(k, w, string(op.ID)) {
+						outside = append(outside, string(w.ID))
+					}
+				}
+				sort.Strings(outside)
 				if len(outside) > 0 {
 					return errorResult(fmt.Sprintf("inbound_links: %d concept(s) outside the batch still link to %s: %s. "+
-						"Delete them in the same batch, or use supersede (retire the page but keep it); nothing was deleted",
+						"Delete or relink them in the same batch, or use supersede (retire the page but keep it); nothing was deleted",
 						len(outside), op.ID, formatIDList(outside))), nil
 				}
 			}
@@ -3169,6 +3183,18 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 			return jsonResult(response), nil
 		},
 	}
+}
+
+// batchOpLinksTo says whether the page a write or patch operation leaves
+// behind links to id: by a body link or, for a Source, a provenance entry.
+func batchOpLinksTo(k *kb.KB, op kb.BatchWriteOp, id string) bool {
+	rel, _ := k.ConceptRelPath(op.ID)
+	for _, l := range kb.ExtractLinks(op.Body, rel) {
+		if string(l) == id {
+			return true
+		}
+	}
+	return slices.Contains(kb.ProvenanceEntries(op.FM), id)
 }
 
 // batchLogLines renders one "- <id>" line per applied operation for the

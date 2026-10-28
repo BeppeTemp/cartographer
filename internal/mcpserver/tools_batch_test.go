@@ -541,3 +541,54 @@ func TestConceptBatch_DeleteClosedGroup(t *testing.T) {
 		t.Fatalf("unknown id: %+v", res.Content)
 	}
 }
+
+// A linker the batch patches is judged on its content after the batch: dropping
+// the link and deleting the page is one call, keeping the link refuses it, and a
+// stale if_match on a delete is refused with nothing deleted (D1327).
+func TestConceptBatch_DeleteWithRelinkAndStaleIfMatch(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	note := func(id, body string) map[string]any {
+		return map[string]any{"op": "write", "id": id, "frontmatter": map[string]any{"type": "Note", "title": id}, "body": body}
+	}
+	// hub links both pages, so only the link from hub to gone is in question.
+	if res := batchFixtureCall(t, s, 2, []map[string]any{
+		note("rl/hub", "# Hub\n\n[[rl/gone]] [[rl/keep]]\n"),
+		note("rl/gone", "# Gone\n\n[[rl/keep]]\n"),
+		note("rl/keep", "# Keep\n\n[[rl/hub]]\n"),
+	}); res.IsError {
+		t.Fatalf("create: %s", res.Content[0].Text)
+	}
+
+	// A patch that leaves the link in place does not lift the block.
+	res := batchFixtureCall(t, s, 3, []map[string]any{
+		{"op": "patch", "id": "rl/hub", "if_match": readHash(t, k, "rl/hub"), "old_string": "[[rl/keep]]", "new_string": "[[rl/keep]] more"},
+		{"op": "delete", "id": "rl/gone"},
+	})
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "inbound_links") || !strings.Contains(res.Content[0].Text, "rl/hub") {
+		t.Fatalf("a linker still linking must block: %+v", res.Content)
+	}
+
+	// A stale if_match on a delete is refused whole.
+	res = batchFixtureCall(t, s, 4, []map[string]any{{"op": "delete", "id": "rl/gone", "if_match": "0000"}})
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "stale_write") {
+		t.Fatalf("stale delete: %+v", res.Content)
+	}
+	if _, err := k.ReadConcept("rl/gone"); err != nil {
+		t.Fatalf("a refused delete must keep the page: %v", err)
+	}
+
+	// Dropping the link in the same batch lets the delete through.
+	res = batchFixtureCall(t, s, 5, []map[string]any{
+		{"op": "patch", "id": "rl/hub", "if_match": readHash(t, k, "rl/hub"), "old_string": "[[rl/gone]] ", "new_string": ""},
+		{"op": "delete", "id": "rl/gone"},
+	})
+	if res.IsError {
+		t.Fatalf("relink plus delete: %s", res.Content[0].Text)
+	}
+	if _, err := k.ReadConcept("rl/gone"); !errors.Is(err, okf.ErrNotFound) {
+		t.Fatalf("rl/gone must be deleted: %v", err)
+	}
+}
