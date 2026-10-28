@@ -161,10 +161,11 @@ type ConceptFacets struct {
 	Title          string
 	Status         string
 	SupersededBy   string
-	// Placeholders are the {{repo:…}}/{{path:…}} keys the body cites, as
-	// sorted, unique "kind:key" strings (okf.Placeholders: escaped ones and
-	// metasyntax excluded). Cached with the rest of the entry, so sync_pull
-	// lists a KB's keys without re-reading a file (D262). Independent of
+	// Placeholders are the {{repo:…}}/{{path:…}} keys the body cites, plus
+	// those of a Source's frontmatter `locator` (D278), as sorted, unique
+	// "kind:key" strings (okf.Placeholders: escaped ones and metasyntax
+	// excluded). Cached with the rest of the entry, so sync_pull lists a KB's
+	// keys without re-reading a file (D262). The body's are independent of
 	// whether the frontmatter parsed: a body cites what it cites.
 	Placeholders []string
 	// Bytes is the concept file's size (D301), from the stat ConceptFacets
@@ -190,6 +191,11 @@ func facetsOf(content string) ConceptFacets {
 	}
 	if v, ok := fm.Get("superseded_by"); ok {
 		f.SupersededBy, _ = v.(string)
+	}
+	if v, ok := fm.Get("locator"); ok {
+		if loc, _ := v.(string); loc != "" {
+			f.Placeholders = okf.Placeholders(loc + "\n" + body)
+		}
 	}
 	return f
 }
