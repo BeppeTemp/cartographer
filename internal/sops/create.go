@@ -217,6 +217,11 @@ func Create(kbRoot, relativePath, pointer, value, keyFile string, env ...string)
 	if !Available() {
 		return fmt.Errorf("sops binary not found in PATH")
 	}
+	// The refusal names the path as the caller sent it, not its directory part
+	// ("secrets/../x" has "." for one) (#1303).
+	if dir := filepath.Dir(relativePath); !filepath.IsLocal(relativePath) || dir == "." {
+		return fmt.Errorf("path %q must be relative and inside the KB", relativePath)
+	}
 	if err := validatePath(kbRoot, filepath.Dir(relativePath), true); err != nil {
 		return err
 	}

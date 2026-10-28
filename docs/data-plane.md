@@ -220,6 +220,8 @@ A key whose value is empty and whose following lines are **indented** holds a ne
 example an agent's `providers:` map. The parser keeps those lines verbatim as an `okf.Block` value under
 that key instead of flattening them into sibling keys; it does not interpret them, and the serializer writes them back unchanged.
 
+The write tools (`concept_write`, `concept_batch`, `concept_patch` `frontmatter`) hold to the flat subset (D1313): a value that is a map, or a list holding a map or a list, is refused with `invalid_frontmatter` naming the key (flatten the keys or put the structure in the body); scalars and lists of scalars are unchanged. The serializer never renders an unknown type with `%v`.
+
 ### Serialization guarantees
 
 A write never leaves frontmatter that its own parser cannot read back (D309):
@@ -353,7 +355,7 @@ concept**, on the retired concept ("retired, still linked by N live concepts: â€
 `superseded_by` successor and linkers in a journal are not counted), so retiring a component is one
 decision. It reports `deprecated` and `superseded` concepts only: an `archived` entry is retired from the work queue, not wrong, so a live page linking it (the dated back-link the harvest writes, a citation of the entry as evidence) is provenance, not reliance (#1193); when the retired concept declares a `superseded_by` that resolves to a **live** concept (one hop: a retired successor, an unresolvable one or none keeps the finding as judgement) the finding carries `retarget_links` (D366: `field` = the retired concept, `to` = the successor, `targets` = the linkers it counts; cross-concept, auto-repair safe), and the repair points every markdown link and wiki-link of those linkers at the successor, keeping label, anchor and alias; a linker that already linked the successor ends up with a repeat the existing `repeated_link` / `duplicate_link` fixes remove on the same run;
 The `cut_concept` observation does not count an expanded concept's own satellites or a journal's entries among the
-nodes a vertex separates; `secrets_on_non_service` points at `secret_resolve`; and
+nodes a vertex separates; `secrets_on_non_service` says to move the refs to a Service concept; and
 `machine_path` never fires for the conventional tool paths `~/.ssh/`, `~/.kube/`, `~/.m2/`,
 `~/.config/`, `~/.cache/`, `~/.local/`, `~/.gnupg/` (a fixed list; no map adds to it, D907), nor for a path inside a fenced block that runs on a remote host: the nearest non-blank line before the fence names `ssh <host>`, or the block's first line is an `ssh <host>` command or a prompt carrying a hostname (`user@host:â€¦$`, `user@host$`, `[user@host dir]$`, `root@host#`; a bare `$ ` is not remote). The match is a heuristic, a line that merely says "ssh to" also counts (D1195). The `missing_value_contract` observation skips a field whose every value is a date, and a field whose values are identifiers: every value URL-shaped, or each of at least three carrying concepts holding its own value (D720).
 
@@ -932,7 +934,7 @@ validate a nested per-type grammar.
   holds `Source` concepts only and each already follows the template, declares
   `templates: [source]` and `default_template: source` on it (D1072); an existing
   template, or a map that already declares templates, is never touched, and the
-  response says so in `notes`. Frontmatter: `title`, `source_kind` (free
+  response says so in `notes`. A registration goes through the write gate and, when the journal's index is curated, adds the entry in the same commit (#1297); lint does not ask a `Source` for outgoing links (`orphan`). Frontmatter: `title`, `source_kind` (free
   string), optional `locator` (a URL or a `{{path:<key>}}` placeholder, never a
   machine path), optional `sha256` (lowercase hex of the original bytes, computed
   by the agent), `timestamp` (the source's own date), `ingest_status`

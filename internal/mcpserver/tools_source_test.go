@@ -49,7 +49,7 @@ func registerSource(t *testing.T, s *Server, args string) map[string]interface{}
 func TestSourceRegisterCreates(t *testing.T) {
 	t.Parallel()
 	k, s := sourceFixture(t, true)
-	out := registerSource(t, s, `{"title":"Kickoff Call: Notes!","source_kind":"transcript","locator":"https://example.com/a","sha256":"`+shaA+`","timestamp":"2026-03-04","body":"# Kickoff\nfacts"}`)
+	out := registerSource(t, s, `{"title":"Kickoff Call: Notes!","source_kind":"transcript","locator":"https://example.com/a","sha256":"`+shaA+`","timestamp":"2026-03-04","body":"# Kickoff Call: Notes!\nfacts"}`)
 	if out["duplicate"] != false || out["id"] != "sources/2026-03-04-kickoff-call-notes" {
 		t.Fatalf("got %v", out)
 	}
@@ -248,14 +248,19 @@ func TestConceptDeleteSourceForce(t *testing.T) {
 	}
 }
 
-func TestSourceRegisterWarnsOverTitleLimit(t *testing.T) {
+// The registration is gated (#1297): a title over the limit is refused with the
+// finding, nothing is written, instead of registered with a warning.
+func TestSourceRegisterRefusesATitleOverTheLimit(t *testing.T) {
 	t.Parallel()
 	_, s := sourceFixture(t, true)
 	long := strings.TrimSpace(strings.Repeat("word ", 21))
-	out := registerSource(t, s, `{"title":"`+long+`","source_kind":"document"}`)
-	w, _ := out["warnings"].([]interface{})
-	if len(w) != 1 || !strings.Contains(w[0].(string), "title_quality") || !strings.Contains(w[0].(string), "limit 100") {
-		t.Fatalf("warnings = %v", out["warnings"])
+	tr := s.callTool(authLocalContext(), "source_register", json.RawMessage(`{"title":"`+long+`","source_kind":"document"}`))
+	got := ""
+	if len(tr.Content) > 0 {
+		got = tr.Content[0].Text
+	}
+	if !tr.IsError || !strings.Contains(got, "title_quality") || !strings.Contains(got, "limit 100") || strings.Contains(got, "index_entry: true") {
+		t.Fatalf("got %q", got)
 	}
 	if out := registerSource(t, s, `{"title":"Short","source_kind":"document"}`); out["warnings"] != nil {
 		t.Fatalf("short title warned: %v", out)
@@ -441,8 +446,14 @@ func TestSourceRegisterMapWithTemplatesUntouched(t *testing.T) {
 	if readRel(t, k, "data/sources/_map.md") != before {
 		t.Fatal("map rewritten")
 	}
-	if n := sourceNotes(out); len(n) != 2 || !strings.Contains(n[1], "already declares") {
+	if n := sourceNotes(out); len(n) != 1 || !strings.Contains(n[0], "already declares") {
 		t.Fatalf("notes = %v", n)
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, "templates/source.md")); err == nil {
+		t.Fatal("a source template was written into a map that accepts other templates")
+	}
+	if data, err := k.ReadConcept(okf.ConceptID(out["id"].(string))); err != nil || !strings.Contains(data.FrontmatterRaw, "shape: other") {
+		t.Fatalf("the page does not take the map's only Source template: %v %+v", err, data)
 	}
 }
 
@@ -585,5 +596,87 @@ func TestSourceSlugTransliteratesAndFallsBackToHash(t *testing.T) {
 	}
 	if a != sourceSlug("日本語の資料") {
 		t.Error("the hash fallback is not stable")
+	}
+}
+
+// #1297: a registration is a gated concept write: when the ledger journal has a
+// curated index it gets the entry (the inbound link) in the same commit, so
+// lint reports no index_incomplete or orphan after two registrations.
+func TestSourceRegisterIndexesTheNewSource(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	var ids []string
+	for _, title := range []string{"Src One", "Src Two"} {
+		out := registerSource(t, s, `{"title":"`+title+`","source_kind":"document","timestamp":"2026-10-28"}`)
+		ids = append(ids, out["id"].(string))
+		if notes, _ := out["curated_indexes"].([]interface{}); len(notes) != 1 {
+			t.Fatalf("curated_indexes = %v", out["curated_indexes"])
+		}
+	}
+	idx, _, err := k.IndexHash("sources")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range ids {
+		if !strings.Contains(idx, strings.TrimPrefix(id, "sources/")) {
+			t.Errorf("sources/index.md has no entry for %s:\n%s", id, idx)
+		}
+	}
+	res, err := toolLint(k).Handler(authLocalContext(), json.RawMessage(`{}`))
+	if err != nil || res.IsError {
+		t.Fatalf("lint: %v %+v", err, res)
+	}
+	for _, bad := range []string{"index_incomplete", "orphan"} {
+		if strings.Contains(res.Content[0].Text, bad) {
+			t.Errorf("lint reports %s after registrations:\n%s", bad, res.Content[0].Text)
+		}
+	}
+}
+
+// A registration that worked before the gate still works (#1297): a journal
+// whose templates settle no shape for a Source registers anyway, and so does one
+// whose curated index is missing.
+func TestSourceRegisterIsNotRefusedForTemplateMissing(t *testing.T) {
+	t.Parallel()
+	for name, tpls := range map[string]map[string]string{
+		"no Source template":   {"memo": "Note"},
+		"two Source templates": {"one": "Source", "two": "Source"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			k, s := sourceFixture(t, true)
+			if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			var slugs []string
+			for slug, typ := range tpls {
+				raw := "---\ntype: " + typ + "\ntitle: \"{{title}}\"\nx-template.open_sections: true\n---\n# {{title}}\n"
+				if err := os.WriteFile(filepath.Join(k.Root, "templates", slug+".md"), []byte(raw), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				slugs = append(slugs, slug)
+			}
+			if _, err := k.UpdateMapContract("sources", kb.MapContractUpdate{Templates: &slugs}); err != nil {
+				t.Fatal(err)
+			}
+			if out := registerSource(t, s, `{"title":"A","source_kind":"note"}`); out["duplicate"] != false {
+				t.Fatalf("got %v", out)
+			}
+		})
+	}
+}
+
+func TestSourceRegisterWithoutCuratedIndexStillRegisters(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	if err := os.Remove(filepath.Join(k.DataRoot(), "sources", "index.md")); err != nil {
+		t.Fatal(err)
+	}
+	out := registerSource(t, s, `{"title":"A","source_kind":"note"}`)
+	if out["duplicate"] != false {
+		t.Fatalf("got %v", out)
+	}
+	if _, err := k.ReadConcept(okf.ConceptID(out["id"].(string))); err != nil {
+		t.Fatal(err)
 	}
 }

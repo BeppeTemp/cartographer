@@ -165,6 +165,10 @@ type statusArtifact struct {
 	// does not: an "unrunnable" hook names the command and what is wrong with
 	// it (D267).
 	Detail string `json:"detail,omitempty"`
+	// HookSettings is the untracked settings file a pending hook registers in
+	// when a derived binding receives it (#1300), resolved by sync's own
+	// function; empty otherwise. Only the human output reads it.
+	HookSettings string `json:"-"`
 }
 
 // serviceSnapshot is part of the `service status --output json` contract:
@@ -272,8 +276,16 @@ func snapshotUpdate() *updateSnapshot {
 	return &updateSnapshot{Latest: res.Latest, Kind: res.Kind, Channel: string(ch), Command: ch.UpgradeCommand(res.Latest)}
 }
 
+// startingStatusCode is the status.error.code of a server that answers but is
+// still loading its KBs: reachable, not ready, never "could not reach".
+const startingStatusCode = "starting"
+
 func classifyNetworkError(endpoint string, err error) statusError {
 	code := "request_failed"
+	var remote *client.RemoteError
+	if errors.As(err, &remote) && remote.Code == client.CodeStarting {
+		return statusError{Code: startingStatusCode, Message: "the server is starting and loading its KBs; retry shortly", Cause: err.Error()}
+	}
 	if errors.Is(err, client.ErrUnauthorized) {
 		code = "unauthorized"
 	} else {
@@ -325,6 +337,10 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		s.State = "unavailable"
 		e := classifyNetworkError(cfg.ServerURL, err)
 		s.Error = &e
+		if e.Code == startingStatusCode {
+			notReady := false
+			s.Reachable, s.Ready = true, &notReady
+		}
 		for i := range s.Providers {
 			if s.Providers[i].Connected {
 				s.Providers[i].State = "unknown"
@@ -460,6 +476,8 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		p.State = "drift"
 		p.Added, p.Updated, p.Removed = snapshotArtifacts(d.Added, cfg), snapshotArtifacts(d.Updated, cfg), snapshotRemoved(d.Removed)
 		p.Updated = append(p.Updated, snapshotArtifacts(held, cfg)...)
+		tagHookSettings(p.Added, provProjections[p.Name], manifests)
+		tagHookSettings(p.Updated, provProjections[p.Name], manifests)
 		s.State = "drift"
 	}
 	if s.Server != "" && s.Client != "" && s.Client != "dev" && s.Server != "dev" && s.Client != s.Server && s.State == "in_sync" {
@@ -542,6 +560,28 @@ func snapshotDiverged(findings []provisioning.DriftFinding) []statusArtifact {
 		out = append(out, statusArtifact{Kind: f.Kind, Name: f.Name, Path: f.Path, Trust: f.Reason, Detail: f.Detail})
 	}
 	return out
+}
+
+// tagHookSettings records on each pending hook the settings file the sync
+// registers it in: the HookSettingsRel of the derived projection that receives
+// it, the very field sync applies with (#1300). A hook no derived projection
+// receives keeps the provider's own registration file.
+func tagHookSettings(arts []statusArtifact, ps []syncProjection, manifests map[string]provisioning.Manifest) {
+	for i, a := range arts {
+		if a.Kind != "hook" {
+			continue
+		}
+		for _, sp := range ps {
+			if sp.HookSettingsRel == "" {
+				continue
+			}
+			for _, m := range manifests[projectionKey(sp)].Artifacts {
+				if m.Kind == "hook" && m.Name == a.Name {
+					arts[i].HookSettings = sp.HookSettingsRel
+				}
+			}
+		}
+	}
 }
 
 func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Config) []statusArtifact {

@@ -321,9 +321,10 @@ Map creation, concept writes/expansion and Atlas overview.
 
 Tool names are bare: since [D288](decisions/D288-one-routed-topology-for-agent-clients.md) a server
 never prefixes them. Each call asserts on
-`isError` — an unresolvable tool comes back as a JSON-RPC *result* whose text
-says "tool not found", which the script would otherwise print and count as a
-pass.
+`isError` — a top-level unknown tool comes back as a JSON-RPC `-32602` error
+(`unknown tool <name>`, D1303), but the routed `kb "x": tool not found` (a sibling KB has the tool, this
+one does not) stays an `isError` *result* whose text says "tool not found"; the
+script must catch both, or it would print and count either as a pass.
 
 `15_operational_audit` closes the loop end-to-end by tampering with a recorded
 entry and requiring `audit verify` and `audit export` to fail on it. It also

@@ -602,3 +602,74 @@ func TestWorkspaceProviderDiff_DerivedTrackedInstructionsAreNotPending(t *testin
 		t.Errorf("an instructions block that will be written is pending: %+v", d)
 	}
 }
+
+// #1300: status names the file the sync registers a pending hook in with the
+// resolution the sync uses: a derived Claude Code binding registers in
+// .claude/settings.local.json, a bound or global one in .claude/settings.json.
+func TestStatusNamesTheHookSettingsFileSyncUses(t *testing.T) {
+	hook := provisioning.Artifact{Kind: "hook", Name: "guard", Source: "kb:kb-a", ContentHash: "h"}
+	m := provisioning.Manifest{Artifacts: []provisioning.Artifact{hook}}
+	derived := syncProjection{Provider: "claude", Workspace: "/ws", BaseDir: "/ws", Scope: provisioning.ScopeProject, Derived: true}
+	derived.HookSettingsRel = derivedHookSettings("claude", derived.SkipKinds)
+	plain := syncProjection{Provider: "claude", Workspace: "/ws2", BaseDir: "/ws2", Scope: provisioning.ScopeProject}
+
+	for _, tc := range []struct {
+		name string
+		sp   syncProjection
+		want string
+	}{
+		{"derived", derived, "in .claude/settings.local.json"},
+		{"explicit", plain, "in .claude/settings.json"},
+	} {
+		arts := []statusArtifact{{Kind: "hook", Name: "guard", Source: "kb:kb-a"}}
+		tagHookSettings(arts, []syncProjection{tc.sp}, map[string]provisioning.Manifest{projectionKey(tc.sp): m})
+		out := withStdout(t, func() { printHookRegistrationHint("claude", arts[0], "new hook") })
+		if !strings.Contains(out, tc.want) {
+			t.Errorf("%s: %q, want %q", tc.name, out, tc.want)
+		}
+		// The line sync prints names the same file.
+		synced, _ := hookRegistrationTarget("claude", "guard", "", tc.sp.HookSettingsRel)
+		// sync prints the OS path (backslashes on Windows), status the slash form.
+		if !strings.Contains(out, filepath.ToSlash(synced)) {
+			t.Errorf("%s: status %q and sync %q disagree", tc.name, out, synced)
+		}
+	}
+}
+
+// #1305: a server that answers /health but is still bootstrapping is
+// reachable and not ready, with its own code: never "could not reach … check the URL".
+func TestStatus_BootstrappingServerIsStartingNotUnreachable(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	oldVersion, oldHealth, oldService := version, statusHealthFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
+		return nil, &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeStarting,
+			Message: "server is bootstrapping its KBs, retry shortly"}
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() { version, statusHealthFn, statusServiceFn = oldVersion, oldHealth, oldService })
+
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := snapshotForConfig(home, cfg, false)
+	if !s.Reachable || s.Ready == nil || *s.Ready {
+		t.Fatalf("reachable=%v ready=%v, want true/false", s.Reachable, s.Ready)
+	}
+	if s.Error == nil || s.Error.Code != "starting" || strings.Contains(s.Error.Message, "could not reach") {
+		t.Fatalf("error = %+v", s.Error)
+	}
+	out := withStdout(t, func() {
+		if code := cmdStatus(nil); code != 2 {
+			t.Errorf("cmdStatus = %d, want 2", code)
+		}
+	})
+	if !strings.Contains(out, "starting") || strings.Contains(out, "could not reach") {
+		t.Errorf("table output = %q", out)
+	}
+}

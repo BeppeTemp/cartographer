@@ -628,24 +628,31 @@ func (m *MultiKBServer) withConnectionNotice(ctx context.Context, res ToolResult
 		"kbs":               kbs,
 		"mounted":           mounted,
 		"server_started_at": processStartedAt,
-		"hint":              base,
 	}
-	if len(unknown) > 0 {
-		conn["unknown"] = unknown
-		conn["hint"] = base + " " + unknownHint
-	}
-	if len(renamed) > 0 {
-		conn["renamed"] = renamed
-		conn["hint"] = conn["hint"].(string) + " " + renamedHint
-	}
+	// The hint exists only when there is something to act on: a mounted KB
+	// outside kbs, or unknown / renamed names. Each part is added for its own
+	// fact, so a hint never says what the lists do not show.
 	var unbound []string
 	for _, n := range mounted {
 		if !containsString(set, n) {
 			unbound = append(unbound, n)
 		}
 	}
+	var hint []string
 	if len(unbound) > 0 {
 		conn["unbound"] = unbound
+		hint = append(hint, base)
+	}
+	if len(unknown) > 0 {
+		conn["unknown"] = unknown
+		hint = append(hint, unknownHint)
+	}
+	if len(renamed) > 0 {
+		conn["renamed"] = renamed
+		hint = append(hint, renamedHint)
+	}
+	if len(hint) > 0 {
+		conn["hint"] = strings.Join(hint, " ")
 	}
 	raw, err := json.Marshal(conn)
 	if err != nil {

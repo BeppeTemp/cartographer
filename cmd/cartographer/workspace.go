@@ -285,6 +285,9 @@ func cmdWorkspaceBind(args []string) int {
 		fmt.Fprintf(os.Stderr, "Error: unknown provider %q\n", provider)
 		return 2
 	}
+	if code := requireConnected(cfg, provider); code != 0 {
+		return code
+	}
 	if !provisioning.SupportsProjectScope(p) {
 		fmt.Fprintf(os.Stderr, "Error: %s cannot be scoped to a workspace: %s\n",
 			provider, provisioning.ProjectScopeUnsupportedReason(p))

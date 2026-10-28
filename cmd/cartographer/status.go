@@ -82,7 +82,9 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		fmt.Println("no agent connected (run `cartographer connect`)")
 		return code
 	}
-	if s.Reachable {
+	if s.Error != nil && s.Error.Code == startingStatusCode {
+		fmt.Println(s.Error.Message)
+	} else if s.Reachable {
 		fmt.Printf("client %s — server %s (%s)\n", s.Client, s.Server, s.ServerURL)
 	} else if s.Error != nil {
 		fmt.Println(s.Error.Message)
@@ -161,7 +163,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 				approvalPending = true
 			}
 			if a.Kind == "hook" {
-				printHookRegistrationHint(p.Name, a.Name, "new hook")
+				printHookRegistrationHint(p.Name, a, "new hook")
 			}
 		}
 		for _, a := range p.Updated {
@@ -171,7 +173,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 				approvalPending = true
 			}
 			if a.Kind == "hook" {
-				printHookRegistrationHint(p.Name, a.Name, "hook updated")
+				printHookRegistrationHint(p.Name, a, "hook updated")
 			}
 		}
 		for _, a := range p.Removed {
@@ -209,13 +211,17 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 // registration, read from the exported accessors rather than a second table,
 // and asks nothing of the user. The file is relative to the scope's base
 // directory: a provider with no registration of its own prints nothing.
-func printHookRegistrationHint(provider, hook, lead string) {
+func printHookRegistrationHint(provider string, a statusArtifact, lead string) {
 	p := configurator.Provider(provider)
+	// The same resolution sync prints with (#1300): a derived workspace binding
+	// registers in its untracked .claude/settings.local.json.
+	rel, plugin := hookRegistrationTarget(p, a.Name, provisioning.HookPluginRelPath(p, a.Name), a.HookSettings)
 	switch {
-	case provisioning.HookPluginRelPath(p, hook) != "":
-		fmt.Printf("    %s: the sync registers it itself, as the generated file %s\n", lead, filepath.ToSlash(provisioning.HookPluginRelPath(p, hook)))
-	case provisioning.HookRegistrationFile(p) != "":
-		fmt.Printf("    %s: the sync registers it itself in %s\n", lead, filepath.ToSlash(provisioning.HookRegistrationFile(p)))
+	case rel == "":
+	case plugin:
+		fmt.Printf("    %s: the sync registers it itself, as the generated file %s\n", lead, filepath.ToSlash(rel))
+	default:
+		fmt.Printf("    %s: the sync registers it itself in %s\n", lead, filepath.ToSlash(rel))
 	}
 }
 

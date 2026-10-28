@@ -3,6 +3,7 @@
 package okf
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -306,10 +307,48 @@ func (fm *Frontmatter) Serialize() string {
 			sb.WriteString(e.raw)
 			sb.WriteByte('\n')
 		case entryKeyKind:
-			sb.WriteString(serializeEntry(e.key, e.value))
+			sb.WriteString(mustSerializeEntry(e.key, e.value))
 		}
 	}
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// mustSerializeEntry panics on a value serializeEntry refuses: Serialize has
+// no error to return and silently dropping or mis-rendering a key loses data.
+// An unsupported type is a programming error (the write tools refuse nested
+// values and WriteConcept calls Validate, but other paths serialize without
+// it), so tests catch it (D1313).
+func mustSerializeEntry(key string, value interface{}) string {
+	line, err := serializeEntry(key, value)
+	if err != nil {
+		panic(fmt.Sprintf("okf: frontmatter key %q holds unsupported type %T", key, value))
+	}
+	return line
+}
+
+// ErrNestedFrontmatter marks a frontmatter value the flat OKF subset cannot
+// hold: a map, or a list holding a map or a list (D1313).
+var ErrNestedFrontmatter = errors.New("invalid_frontmatter")
+
+// CheckValue reports whether value is one serializeEntry can write. Scalars
+// and lists of scalars pass; anything nested is refused naming the key.
+func CheckValue(key string, value interface{}) error {
+	_, err := serializeEntry(key, value)
+	return err
+}
+
+// Validate runs CheckValue over every key; the write path calls it before
+// serializing (D1313).
+func (fm *Frontmatter) Validate() error {
+	for _, e := range fm.entries {
+		if e.kind != entryKeyKind {
+			continue
+		}
+		if err := CheckValue(e.key, e.value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // VerifyRoundTrip reports whether serialized frontmatter (the output of
@@ -331,28 +370,32 @@ func (fm *Frontmatter) CanonicalString() string {
 	var sb strings.Builder
 	for _, k := range keys {
 		idx := fm.index[k]
-		sb.WriteString(serializeEntry(k, fm.entries[idx].value))
+		sb.WriteString(mustSerializeEntry(k, fm.entries[idx].value))
 	}
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// serializeEntry formats a key-value pair as a YAML line.
-func serializeEntry(key string, value interface{}) string {
+// serializeEntry formats a key-value pair as a YAML line. A type it does not
+// know is an error, never a "%v" rendering (D1313): a map printed that way
+// reads back as a string and the data is silently lost.
+func serializeEntry(key string, value interface{}) (string, error) {
 	switch v := value.(type) {
 	case nil:
-		return key + ":\n"
+		return key + ":\n", nil
 	case string:
-		return key + ": " + serializeScalar(v) + "\n"
+		return key + ": " + serializeScalar(v) + "\n", nil
 	case Block:
-		return key + ":\n" + string(v) + "\n"
+		return key + ":\n" + string(v) + "\n", nil
 	case []string:
 		items := make([]string, len(v))
 		for i, item := range v {
 			items[i] = serializeScalar(item)
 		}
-		return key + ": [" + strings.Join(items, ", ") + "]\n"
+		return key + ": [" + strings.Join(items, ", ") + "]\n", nil
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return key + ": " + fmt.Sprintf("%v", v) + "\n", nil
 	default:
-		return key + ": " + fmt.Sprintf("%v", v) + "\n"
+		return "", fmt.Errorf("%w: key %q: nested values (a map, or a list holding a map or a list) are not supported; flatten the keys or put the structure in the body", ErrNestedFrontmatter, key)
 	}
 }
 

@@ -139,15 +139,10 @@ func (p *protocolErrorWriter) finish() {
 		return
 	}
 	msg := strings.TrimSpace(p.buf.String())
-	code, id := 0, json.RawMessage(nil)
-	switch {
-	case strings.Contains(msg, "JSON RPC not handled"):
-		code, id = ErrCodeMethodNotFound, requestID(p.body.head)
-	case strings.Contains(msg, "empty batch"), strings.Contains(msg, "invalid message version tag"),
-		strings.Contains(msg, "invalid ID type"), strings.Contains(msg, "cannot unmarshal"):
-		code = ErrCodeInvalidRequest
-	case strings.HasPrefix(msg, "malformed payload"), strings.HasPrefix(msg, "POST requires a non-empty body"):
-		code = ErrCodeParseError
+	code := protocolErrorCode(msg)
+	id := json.RawMessage(nil)
+	if code == ErrCodeMethodNotFound {
+		id = requestID(p.body.head)
 	}
 	if code == 0 {
 		// Not a protocol error we know: restore the SDK's answer.
@@ -160,6 +155,22 @@ func (p *protocolErrorWriter) finish() {
 	h.Del("Content-Length")
 	p.ResponseWriter.WriteHeader(http.StatusBadRequest)
 	_ = json.NewEncoder(p.ResponseWriter).Encode(errorResponse(id, code, msg))
+}
+
+// protocolErrorCode classifies the SDK's wording of a message it cannot take
+// (D1279): the one function behind the HTTP 400 and the stdio loop's error
+// lines. It returns 0 for a text that is not a protocol error.
+func protocolErrorCode(msg string) int {
+	switch {
+	case strings.Contains(msg, "JSON RPC not handled"):
+		return ErrCodeMethodNotFound
+	case strings.Contains(msg, "empty batch"), strings.Contains(msg, "invalid message version tag"),
+		strings.Contains(msg, "invalid ID type"), strings.Contains(msg, "cannot unmarshal"):
+		return ErrCodeInvalidRequest
+	case strings.HasPrefix(msg, "malformed payload"), strings.HasPrefix(msg, "POST requires a non-empty body"):
+		return ErrCodeParseError
+	}
+	return 0
 }
 
 // requestID returns the scalar id of a JSON-RPC message read from head, or nil

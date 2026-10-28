@@ -769,6 +769,11 @@ func printKBRowsJSON(w io.Writer, dataDir string, rows []kbRow, mountErr error) 
 // what kb.Open checks — read directly here so the listing stays read-only.
 func scanDataDir(dataDir string) ([]kbRow, error) {
 	entries, err := os.ReadDir(dataDir)
+	if errors.Is(err, os.ErrNotExist) {
+		// No data directory yet is "no KB yet", not a failure (#1304); the
+		// listing still creates nothing.
+		return nil, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read data dir %q: %w", dataDir, err)
 	}
@@ -832,7 +837,10 @@ func mountErrorLine(err error) string {
 func printKBRows(w io.Writer, dataDir string, rows []kbRow, mountErr error) {
 	fmt.Fprintf(w, "data dir: %s\n", dataDir)
 	if len(rows) == 0 {
-		fmt.Fprintln(w, "(no KB directories)")
+		fmt.Fprintln(w, "(no KB yet: create one with `cartographer kb create <name>`)")
+		if mountErr != nil {
+			fmt.Fprintf(w, "\n%s\n", mountErrorLine(mountErr))
+		}
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)

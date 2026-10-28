@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -207,5 +211,40 @@ func TestKBListNoServerNamesTheStartCommand(t *testing.T) {
 	}
 	if other := mountErrorLine(fmt.Errorf("status 500")); !strings.Contains(other, "status 500") {
 		t.Errorf("other failures keep their text: %q", other)
+	}
+}
+
+// #1304: a provider that is not connected cannot be bound to a workspace, with
+// the message `client bind` gives.
+func TestWorkspaceBindRefusesAProviderThatIsNotConnected(t *testing.T) {
+	dir := writeClientCfg(t, []string{"codex"}, nil, nil)
+	var code int
+	errOut := withStderr(t, func() { code = cmdWorkspaceBind([]string{"claude", t.TempDir(), "--kb", "kb-a"}) })
+	if code != 2 || !strings.Contains(errOut, "claude is not connected (connected: codex)") {
+		t.Fatalf("exit %d, stderr %q; want 2 and the client bind refusal", code, errOut)
+	}
+	if n := len(loadClientCfg(t, dir).Workspaces["claude"]); n != 0 {
+		t.Errorf("the refused bind left %d workspace binding(s)", n)
+	}
+}
+
+// #1304: no data directory is "no KB yet" with the same server guidance, exit 0,
+// and nothing is created.
+func TestKBListWithoutADataDirSaysThereIsNoKBYet(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "cartographer-data")
+	var code int
+	out := withStdout(t, func() {
+		code = cmdKBList([]string{"--data", absent, "--config", filepath.Join(t.TempDir(), "none.yaml")})
+	})
+	if code != 0 || !strings.Contains(out, "no KB yet") || !strings.Contains(out, "cartographer kb create") {
+		t.Errorf("exit %d, output %q", code, out)
+	}
+	if _, err := os.Stat(absent); err == nil {
+		t.Error("kb list created the data dir")
+	}
+	var buf bytes.Buffer
+	printKBRows(&buf, absent, nil, syscall.ECONNREFUSED)
+	if !strings.Contains(buf.String(), "cartographer service start") {
+		t.Errorf("an empty listing hides the server guidance: %q", buf.String())
 	}
 }
