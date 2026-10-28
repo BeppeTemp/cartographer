@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -93,7 +94,13 @@ func TestFetch_SilentRemoteTimesOut(t *testing.T) {
 	if !errors.As(err, &rte) {
 		t.Fatalf("Fetch = %v, want a RemoteTimeoutError", err)
 	}
-	if took := time.Since(start); took > 5*time.Second {
+	// The bound only tells "stopped by the timeout" from "hung on the remote":
+	// killing git and its children takes seconds on a loaded Windows runner.
+	bound := 5 * time.Second
+	if runtime.GOOS == "windows" {
+		bound = 20 * time.Second
+	}
+	if took := time.Since(start); took > bound {
 		t.Fatalf("Fetch took %s, want it bounded by FetchTimeout", took)
 	}
 }
