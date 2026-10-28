@@ -59,6 +59,9 @@ const (
 	CodeUnauthorized = "unauthorized"
 	CodeHTTPFailed   = "http_failed"
 	CodeMCPFailed    = "mcp_failed"
+	// CodeStarting is a reachable server whose /health says it is still
+	// bootstrapping its KBs: not a network failure, retry shortly.
+	CodeStarting = "starting"
 )
 
 // RemoteError is returned by MCPClient's do/Call/Health/Ping for every
@@ -549,7 +552,7 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 			Message: fmt.Sprintf("invalid health response from %s", u), Cause: err}
 	}
 	if health.Bootstrapping {
-		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
+		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeStarting,
 			Message: "server is bootstrapping its KBs, retry shortly"}
 	}
 	return &health, nil

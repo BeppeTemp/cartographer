@@ -82,7 +82,9 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		fmt.Println("no agent connected (run `cartographer connect`)")
 		return code
 	}
-	if s.Reachable {
+	if s.Error != nil && s.Error.Code == startingStatusCode {
+		fmt.Println(s.Error.Message)
+	} else if s.Reachable {
 		fmt.Printf("client %s — server %s (%s)\n", s.Client, s.Server, s.ServerURL)
 	} else if s.Error != nil {
 		fmt.Println(s.Error.Message)
