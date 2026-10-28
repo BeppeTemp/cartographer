@@ -176,7 +176,6 @@ function ReleaseSection({
           )}
         </h3>
         {release.current && <span className="pill pill--ok">Current</span>}
-        {release.prerelease && <span className="pill">Pre-release</span>}
         {!Number.isNaN(date.getTime()) && (
           <time className="releases__date" dateTime={release.published_at}>
             {date.toLocaleDateString("en", { day: "numeric", month: "short", year: "numeric" })}
