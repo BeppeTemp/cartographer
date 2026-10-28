@@ -745,9 +745,14 @@ func TestDoDisconnect_CleansTheWorkspaceProjections(t *testing.T) {
 		t.Fatal(err)
 	}
 	canon, _ := clientconfig.CanonicalWorkspacePath(ws)
+	sh, err := provisioning.ContentHashDirOSForKind(filepath.Join(ws, ".claude/skills/runbooks"), "skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ah := provisioning.ContentHashFiles([]provisioning.ArtifactFile{{Path: "ops.md", Content: []byte("agent\n")}})
 	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: []provisioning.ManagedFile{
-		{Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md", ContentHash: "h"},
-		{Kind: "agent", Name: "ops", Path: ".claude/agents/ops.md", ContentHash: "h"},
+		{Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md", ContentHash: sh, MaterializedHash: sh},
+		{Kind: "agent", Name: "ops", Path: ".claude/agents/ops.md", ContentHash: ah, MaterializedHash: ah},
 	}}, "")
 	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
 		t.Fatal(err)
@@ -915,5 +920,37 @@ func TestDoDisconnect_DryRunSimulatesTheFirstProvidersRemoval(t *testing.T) {
 	}
 	if total != realTotal {
 		t.Errorf("dry run reports %d workspace files, the real run %d", total, realTotal)
+	}
+}
+
+// A skill whose recorded hash is empty (a lockfile older than D138) cannot be
+// compared, so the workspace prune keeps it rather than guess.
+func TestDoDisconnect_WorkspacePruneKeepsWhatItCannotVerify(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude")
+	canon, _ := clientconfig.CanonicalWorkspacePath(t.TempDir())
+	skill := filepath.Join(canon, ".claude", "skills", "old", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(skill), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(skill, []byte("---\nname: old\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lf, _ := provisioning.ReadLockFile(lockFilePath(dir))
+	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: []provisioning.ManagedFile{
+		{Kind: "skill", Name: "old", Path: ".claude/skills/old/SKILL.md"},
+	}}, "")
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		t.Fatal(err)
+	}
+	res, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(skill); err != nil {
+		t.Errorf("an unverifiable skill was removed: %v", err)
+	}
+	out := withStdout(t, func() { printDisconnectSummary(res, false) })
+	if !strings.Contains(out, "could not be verified") {
+		t.Errorf("summary does not say why it was kept:\n%s", out)
 	}
 }

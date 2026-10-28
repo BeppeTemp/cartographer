@@ -409,9 +409,16 @@ func pruneProviderWorkspaces(lockFile *provisioning.LockFile, provider, clientDi
 			inside = append(inside, mf)
 		}
 		modified := map[string]string{}
+		why := map[string]string{}
 		for _, f := range provisioning.VerifyManaged(provisioning.Lock{Managed: inside, ProjectScope: lock.ProjectScope}, configurator.Provider(provider), base) {
-			if f.Reason == provisioning.DriftModified {
+			// Fail closed: only a file that is gone, or a registration that
+			// is gone, is safe to prune. Modified, unreadable and unknown
+			// (no recorded hash, pre-D138) content stays.
+			switch f.Reason {
+			case provisioning.DriftMissing, provisioning.DriftUnregistered, provisioning.DriftUnrunnable:
+			default:
 				modified[f.Kind+"\x00"+f.Name] = filepath.ToSlash(f.Path)
+				why[f.Kind+"\x00"+f.Name] = f.Reason
 			}
 		}
 		toPrune := make([]provisioning.ManagedFile, 0, len(inside))
@@ -421,7 +428,11 @@ func pruneProviderWorkspaces(lockFile *provisioning.LockFile, provider, clientDi
 			if path, ok := modified[key]; ok {
 				if !keptArtifacts[key] {
 					keptArtifacts[key] = true
-					kept = append(kept, path+": changed since sync")
+					if why[key] == provisioning.DriftModified {
+						kept = append(kept, path+": changed since sync")
+					} else {
+						kept = append(kept, path+": could not be verified ("+why[key]+")")
+					}
 				}
 				continue
 			}
