@@ -100,6 +100,9 @@ type disconnectProviderResult struct {
 	Provider      string
 	ConfigRemoved bool
 	Pruned        []provisioning.ManagedFile
+	// Workspaces is what the provider's workspace projections wrote, per
+	// repository, pruned the way `workspace unbind` + `sync` would (#1324).
+	Workspaces []workspacePruned
 	// Refused holds why the provider's MCP config entry was left in place: its
 	// config file, or a directory above it, is a symlink (D148). The provider
 	// then stays connected, with its managed files and its lockfile section, so
@@ -107,6 +110,13 @@ type disconnectProviderResult struct {
 	// have been removed (ConfigRemoved) when it is the managed files that were
 	// refused.
 	Refused []string
+}
+
+// workspacePruned is one repository a disconnect cleaned: Path is its root,
+// Pruned the managed files removed under it.
+type workspacePruned struct {
+	Path   string
+	Pruned []provisioning.ManagedFile
 }
 
 // disconnectResult is the outcome of doDisconnect.
@@ -213,6 +223,20 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 		}
 		pr.Pruned = pruned
 
+		// The provider's workspace projections go with it (#1324): the files the
+		// lockfile records for them, exactly as `workspace unbind` + `sync` would.
+		// Without this the repositories keep the files while the binding that
+		// pointed at them is gone, and nothing would ever look at them again.
+		wsRefused, err := pruneProviderWorkspaces(&lockFile, p, opts.Dir, opts.DryRun, &pr)
+		if err != nil {
+			return disconnectResult{}, err
+		}
+		if len(wsRefused) > 0 {
+			pr.Refused = append(pr.Refused, wsRefused...)
+			res.Providers = append(res.Providers, pr)
+			continue
+		}
+
 		if !opts.DryRun {
 			delete(lockFile.Providers, p)
 		}
@@ -224,7 +248,7 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 		return res, nil
 	}
 
-	if len(lockFile.Providers) == 0 && len(disconnected) == len(opts.Providers) {
+	if len(lockFile.Providers) == 0 && len(lockFile.Workspaces) == 0 && len(disconnected) == len(opts.Providers) {
 		// The token file goes with the last provider (D699). reconnect keeps it:
 		// it disconnects every provider and connects them again, possibly from
 		// a shell without the variable.
@@ -246,6 +270,13 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 	// the local default when the user was pointed at a real server. Only
 	// the agents list is zeroed; the file itself is never deleted.
 	cfg.Agents = removeStrings(cfg.Agents, disconnected)
+	// The bindings of a disconnected provider go too: what they pointed at has
+	// just been cleaned, and a binding of a provider that is not connected
+	// would deliver nothing.
+	for _, p := range disconnected {
+		delete(cfg.Workspaces, p)
+		delete(cfg.Scopes, p)
+	}
 	if err := clientconfig.Save(opts.Dir, cfg); err != nil {
 		return disconnectResult{}, err
 	}
@@ -279,6 +310,7 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 				fmt.Printf("%s[%s] removed mcp config entry\n", prefix, pr.Provider)
 			}
 			printPrunedFiles(pr.Provider, pr.Pruned, prefix)
+			printPrunedWorkspaces(pr, prefix)
 			for _, w := range pr.Refused {
 				fmt.Printf("%s[%s] kept connected: %s\n", prefix, pr.Provider, w)
 			}
@@ -290,7 +322,8 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 			fmt.Printf("%s[%s] skipped mcp config entry (not found)\n", prefix, pr.Provider)
 		}
 		printPrunedFiles(pr.Provider, pr.Pruned, prefix)
-		if len(pr.Pruned) == 0 {
+		printPrunedWorkspaces(pr, prefix)
+		if len(pr.Pruned) == 0 && len(pr.Workspaces) == 0 {
 			fmt.Printf("%s[%s] skipped skill prune (nothing managed)\n", prefix, pr.Provider)
 		}
 	}
@@ -325,4 +358,55 @@ func removeStrings(list, remove []string) []string {
 		}
 	}
 	return out
+}
+
+// pruneProviderWorkspaces removes what provider's workspace projections wrote,
+// each under its own repository, leaving what another provider's projection of
+// the same repository still records (D364), and drops the projections from
+// lockFile. Files the user changed are kept by PruneManaged, as for the home
+// projection. It returns why a repository was refused (D148); the provider then
+// stays connected and the next disconnect retries.
+func pruneProviderWorkspaces(lockFile *provisioning.LockFile, provider, clientDir string, dryRun bool, pr *disconnectProviderResult) ([]string, error) {
+	var refused []string
+	for _, key := range lockFile.Projections() {
+		if key.Global() || key.Provider != provider {
+			continue
+		}
+		lock := lockFile.ForProjection(key)
+		base := provisioning.LockBaseDir(lock, clientDir)
+		keep := lockFile.CoOwnedPaths(key)
+		pruned, err := provisioning.PruneManaged(provisioning.WithoutCoOwned(lock.Managed, keep), base, dryRun)
+		var pruneRefused *provisioning.PruneRefusedError
+		if errors.As(err, &pruneRefused) || errors.Is(err, provisioning.ErrSymlinkDestination) {
+			pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace, Pruned: pruned})
+			refused = append(refused, fmt.Sprintf("workspace %s: %v", key.Workspace, err))
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("prune %s: %w", key.String(), err)
+		}
+		pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace, Pruned: pruned})
+		if dryRun {
+			continue
+		}
+		lockFile.RemoveProjection(key)
+		// The exclusions go with the files, but only this provider's: another
+		// provider still bound to the repository keeps its paths excluded (#656).
+		if err := writeWorkspaceExclusions(key.Workspace, workspaceProviders(*lockFile, nil, key.Workspace), workspaceOwnership(lockFile, nil, nil, key.Workspace)); err != nil {
+			if !provisioning.ExcludeWarning(err) {
+				return nil, fmt.Errorf("prune %s: %w", key.String(), err)
+			}
+			fmt.Fprintf(os.Stderr, "warning: workspace %s: git exclude left unchanged: %v\n", key.Workspace, err)
+		}
+	}
+	return refused, nil
+}
+
+// printPrunedWorkspaces names each repository a disconnect cleaned and the
+// files it removed there.
+func printPrunedWorkspaces(pr disconnectProviderResult, prefix string) {
+	for _, w := range pr.Workspaces {
+		fmt.Printf("%s[%s] cleaned the projection in %s\n", prefix, pr.Provider, w.Path)
+		printPrunedFiles(pr.Provider, w.Pruned, prefix)
+	}
 }

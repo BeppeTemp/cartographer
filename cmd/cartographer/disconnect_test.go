@@ -705,3 +705,102 @@ func TestDoDisconnect_KeepsClientConfigsWithOtherKeys(t *testing.T) {
 		t.Errorf(".claude.json = %s, want only the user's key", data)
 	}
 }
+
+// disconnect removes what the provider's workspace projections wrote (#1324):
+// the repository keeps what was there before, the binding goes, and the
+// summary names the repository it cleaned.
+func TestDoDisconnect_CleansTheWorkspaceProjections(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude", "codex")
+	ws := t.TempDir()
+	write := func(rel, body string) {
+		t.Helper()
+		full := filepath.Join(ws, rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("README.md", "mine\n")
+	write(".claude/settings.local.json", "{}\n") // there before, not recorded
+	write(".claude/skills/runbooks/SKILL.md", "---\ntype: skill\n---\nrunbooks\n")
+	write(".claude/agents/ops.md", "agent\n")
+
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace("claude", ws, []string{"kb-a"}); err != nil {
+		t.Fatalf("BindWorkspace: %v", err)
+	}
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canon, _ := clientconfig.CanonicalWorkspacePath(ws)
+	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: []provisioning.ManagedFile{
+		{Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md", ContentHash: "h"},
+		{Kind: "agent", Name: "ops", Path: ".claude/agents/ops.md", ContentHash: "h"},
+	}}, "")
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		t.Fatal(err)
+	}
+
+	// A dry run reports the repository and touches nothing.
+	dry, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir, DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dry.Providers[0].Workspaces) != 1 {
+		t.Fatalf("dry run workspaces = %+v", dry.Providers[0].Workspaces)
+	}
+	if _, err := os.Stat(filepath.Join(ws, ".claude/agents/ops.md")); err != nil {
+		t.Fatalf("a dry run removed a file: %v", err)
+	}
+
+	res, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir})
+	if err != nil {
+		t.Fatalf("doDisconnect: %v", err)
+	}
+	if got := res.Providers[0].Workspaces; len(got) != 1 || len(got[0].Pruned) != 2 {
+		t.Fatalf("workspaces cleaned = %+v, want one with 2 files", got)
+	}
+	for _, rel := range []string{".claude/skills/runbooks/SKILL.md", ".claude/agents/ops.md"} {
+		if _, err := os.Stat(filepath.Join(ws, rel)); !os.IsNotExist(err) {
+			t.Errorf("%s survived the disconnect (err=%v)", rel, err)
+		}
+	}
+	for _, rel := range []string{"README.md", ".claude/settings.local.json"} {
+		if _, err := os.Stat(filepath.Join(ws, rel)); err != nil {
+			t.Errorf("%s was there before and must stay: %v", rel, err)
+		}
+	}
+	after, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Workspaces["claude"]) != 0 || after.WorkspaceScope("claude") == clientconfig.ScopeWorkspace {
+		t.Errorf("the binding of the disconnected provider survived: %+v", after.Workspaces)
+	}
+	lf2, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lf2.Workspaces) != 0 {
+		t.Errorf("the workspace projection stayed in the lockfile: %+v", lf2.Workspaces)
+	}
+	if _, ok := lf2.Providers["codex"]; !ok {
+		t.Error("the other provider lost its lock section")
+	}
+	out := withStdout(t, func() { printDisconnectSummary(res, false) })
+	if !strings.Contains(out, "cleaned the projection in "+canon) && !strings.Contains(out, "cleaned the projection in "+ws) {
+		t.Errorf("the summary does not name the repository:\n%s", out)
+	}
+}
