@@ -571,3 +571,19 @@ func TestSourceRegisterFailedWriteSetsNothingUp(t *testing.T) {
 		t.Fatal("template written by a failed registration")
 	}
 }
+
+// #1280: source slugs fold accents and fall back to a stable hash, never to
+// "source" and "source-2".
+func TestSourceSlugTransliteratesAndFallsBackToHash(t *testing.T) {
+	t.Parallel()
+	if got := sourceSlug("Σ ünï Straße"); got != "uni-strasse" {
+		t.Errorf("accented title = %q, want uni-strasse", got)
+	}
+	a, b := sourceSlug("日本語の資料"), sourceSlug("中文资料")
+	if !strings.HasPrefix(a, "source-") || a == b {
+		t.Errorf("non-latin slugs = %q, %q, want distinct source-<hash>", a, b)
+	}
+	if a != sourceSlug("日本語の資料") {
+		t.Error("the hash fallback is not stable")
+	}
+}

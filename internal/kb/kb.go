@@ -1410,7 +1410,18 @@ func (kb *KB) WriteExpandedConcept(id okf.ConceptID, fm *okf.Frontmatter, body s
 // repair-on-write) and must never back an agent-facing write tool, which keeps
 // WriteConcept's full validation.
 func (kb *KB) RepairConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string) (string, error) {
-	plan, err := kb.prepareWriteConceptMode(id, fm, body, ifMatch, false, true)
+	plan, err := kb.prepareWriteConceptMode(id, fm, body, ifMatch, false, true, false)
+	if err != nil {
+		return "", err
+	}
+	return kb.commitWriteConceptPlan(plan)
+}
+
+// WriteConceptKeepingName is WriteConcept for a move or transfer that creates
+// the target under the stem the source already had: a legacy name that is not
+// a slug stays movable (#1280). The case-only twin check still applies.
+func (kb *KB) WriteConceptKeepingName(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string) (string, error) {
+	plan, err := kb.prepareWriteConceptMode(id, fm, body, ifMatch, false, false, true)
 	if err != nil {
 		return "", err
 	}
@@ -1444,16 +1455,18 @@ type writeConceptPlan struct {
 // split out of writeConcept so a batch of operations (WriteConceptBatch) can
 // be fully validated in memory before the first byte is written to disk.
 func (kb *KB) prepareWriteConcept(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string, forceExpanded bool) (*writeConceptPlan, error) {
-	if len(body) > MaxConceptBodyBytes {
-		return nil, fmt.Errorf("%w: body_too_large: the body of %s is %d bytes, over the %d-byte (1 MiB) limit of a concept write; split the page into linked concepts", okf.ErrInvalidConcept, id, len(body), MaxConceptBodyBytes)
-	}
-	return kb.prepareWriteConceptMode(id, fm, body, ifMatch, forceExpanded, false)
+	return kb.prepareWriteConceptMode(id, fm, body, ifMatch, forceExpanded, false, false)
 }
 
 // prepareWriteConceptMode is prepareWriteConcept with the repair mode of
 // RepairConcept (D356): the concept must exist, and the type and depth rules
 // reject only what the write would add to the errors the page already has.
-func (kb *KB) prepareWriteConceptMode(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string, forceExpanded, repair bool) (*writeConceptPlan, error) {
+func (kb *KB) prepareWriteConceptMode(id okf.ConceptID, fm *okf.Frontmatter, body string, ifMatch string, forceExpanded, repair, keepName bool) (*writeConceptPlan, error) {
+	// The cap binds every write but a kb_repair rewrite (D1276), the
+	// keep-name path of a move or transfer included.
+	if !repair && len(body) > MaxConceptBodyBytes {
+		return nil, fmt.Errorf("%w: body_too_large: the body of %s is %d bytes, over the %d-byte (1 MiB) limit of a concept write; split the page into linked concepts", okf.ErrInvalidConcept, id, len(body), MaxConceptBodyBytes)
+	}
 	if id == "" {
 		return nil, fmt.Errorf("%w: empty ConceptID", okf.ErrInvalidConcept)
 	}
@@ -1520,6 +1533,15 @@ func (kb *KB) prepareWriteConceptMode(id okf.ConceptID, fm *okf.Frontmatter, bod
 	fileExists := statErr == nil
 	if repair && !fileExists {
 		return nil, fmt.Errorf("%w: %s", okf.ErrNotFound, id)
+	}
+
+	if strings.ContainsRune(body, 0) {
+		return nil, fmt.Errorf("%w: the body contains a NUL byte", okf.ErrInvalidConcept)
+	}
+	if !repair {
+		if err := checkConceptName(id, absPath, expanded, fileExists, keepName); err != nil {
+			return nil, err
+		}
 	}
 
 	if fileExists && ifMatch != "" {

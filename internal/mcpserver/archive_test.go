@@ -230,3 +230,23 @@ func TestConceptArchive_LateFailureIsAnErrorNamingBothIDs(t *testing.T) {
 		t.Errorf("got %+v", res.Content)
 	}
 }
+
+// #1280: a legacy page whose name is not a slug stays movable under that name,
+// while renaming it to another non-slug name, or a new page, is refused.
+func TestConceptMove_KeepsALegacyStem(t *testing.T) {
+	t.Parallel()
+	k, s := archiveFixture(t, "", "- [mover](mover.md)\n")
+	legacy := "---\ntype: Note\ntitle: Legacy\n---\nLegacy body.\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "src", "legacy_name.md"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if res := callTool(t, s, "concept_move", `{"source_id":"src/legacy_name","target_id":"archive/legacy_name"}`); res.IsError {
+		t.Fatalf("move of a legacy-named page: %+v", res.Content)
+	}
+	if _, err := k.ReadConcept("archive/legacy_name"); err != nil {
+		t.Fatalf("target missing: %v", err)
+	}
+	if res := callTool(t, s, "concept_move", `{"source_id":"archive/legacy_name","target_id":"archive/other_name"}`); !res.IsError {
+		t.Error("a move to a new non-slug name was accepted")
+	}
+}

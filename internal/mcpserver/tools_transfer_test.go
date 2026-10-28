@@ -532,3 +532,20 @@ func TestConceptTransfer_TargetAuthorizesEverySatellite(t *testing.T) {
 		t.Errorf("every type allowed, still denied: %v", err)
 	}
 }
+
+// #1280: a transfer keeps a legacy stem that is not a slug.
+func TestConceptTransfer_KeepsALegacyStem(t *testing.T) {
+	t.Parallel()
+	f := newTransferFixture(t)
+	xferWrite(t, f.a, "notes/legacy_name.md", "---\ntype: Note\ntitle: Legacy\n---\n# Legacy\nbody of legacy\n")
+	xferCommit(t, f.a)
+	xferWrite(t, f.b, "wiki/keep.md", "---\ntype: Note\ntitle: Keep\n---\nkeep\n")
+	xferCommit(t, f.b)
+	res := f.transfer(t, `{"target_kb":"kb-b","reason":"move legacy","moves":[{"source_id":"notes/legacy_name","target_id":"wiki/legacy_name"}]}`)
+	if res.IsError {
+		t.Fatalf("concept_transfer: %s", xferText(res))
+	}
+	if _, err := os.Stat(filepath.Join(f.b.DataRoot(), "wiki", "legacy_name.md")); err != nil {
+		t.Fatalf("target missing: %v", err)
+	}
+}

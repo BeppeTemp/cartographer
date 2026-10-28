@@ -193,14 +193,14 @@ func TestFinalizeConflictsEdit(t *testing.T) {
 	k, localSHA, remoteSHA, branch, fooPath := setupDivergedKB(t)
 	mustRegisterFoo(t, k, localSHA, remoteSHA, branch)
 
-	if err := k.RecordResolution("foo", "edit", "reconciled body\n"); err != nil {
+	if err := k.RecordResolution("foo", "edit", "---\ntype: Note\ntitle: Foo\n---\nreconciled body\n"); err != nil {
 		t.Fatalf("RecordResolution: %v", err)
 	}
 	if _, err := k.FinalizeConflicts(); err != nil {
 		t.Fatalf("FinalizeConflicts: %v", err)
 	}
 	got, _ := os.ReadFile(fooPath)
-	if strings.TrimSpace(string(got)) != "reconciled body" {
+	if !strings.HasSuffix(strings.TrimSpace(string(got)), "reconciled body") {
 		t.Fatalf("expected 'reconciled body' (edit), got %q", string(got))
 	}
 }
@@ -232,5 +232,26 @@ func TestFinalizePendingBlocks(t *testing.T) {
 	}
 	if _, err := k.FinalizeConflicts(); err == nil {
 		t.Fatal("expected FinalizeConflicts to refuse with a pending conflict")
+	}
+}
+
+// #1277: the edit strategy goes through the validation of a write.
+func TestRecordResolutionEditIsValidated(t *testing.T) {
+	t.Parallel()
+	k, localSHA, remoteSHA, branch, _ := setupDivergedKB(t)
+	mustRegisterFoo(t, k, localSHA, remoteSHA, branch)
+	for name, body := range map[string]string{
+		"markers, no frontmatter": "<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> z\n",
+		"markers in a valid page": "---\ntype: Note\ntitle: Foo\n---\n<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> z\n",
+		"no frontmatter":          "plain text\n",
+		"no type":                 "---\ntitle: Foo\n---\nbody\n",
+		"nul byte":                "---\ntype: Note\ntitle: Foo\n---\nx\x00y\n",
+	} {
+		if err := k.RecordResolution("foo", "edit", body); err == nil {
+			t.Errorf("%s: RecordResolution accepted the body", name)
+		}
+	}
+	if n, _ := k.PendingConflictCount(); n != 1 {
+		t.Errorf("pending = %d, a refused edit must record nothing", n)
 	}
 }

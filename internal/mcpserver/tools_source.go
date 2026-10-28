@@ -1,6 +1,8 @@
 package mcpserver
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,8 +31,7 @@ const (
 )
 
 var (
-	sha256Re     = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	slugNonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
+	sha256Re = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 func validSourceStatus(s string) bool {
@@ -42,14 +43,19 @@ func validSourceStatus(s string) bool {
 	return false
 }
 
-// sourceSlug derives a kebab-case slug of at most maxSourceSlugLen characters.
+// sourceSlug derives a kebab-case slug of at most maxSourceSlugLen characters
+// with the slug rule of the write path (kb.Slugify): accented latin letters are
+// folded to ASCII, other scripts are dropped. A title that keeps no ASCII letter
+// or digit gets "source-" and a short hash of the title, stable across calls
+// (#1280), so two such titles do not collide into "source" and "source-2".
 func sourceSlug(title string) string {
-	s := strings.Trim(slugNonAlnum.ReplaceAllString(strings.ToLower(title), "-"), "-")
+	s := kb.Slugify(title)
 	if len(s) > maxSourceSlugLen {
 		s = strings.Trim(s[:maxSourceSlugLen], "-")
 	}
 	if s == "" {
-		s = "source"
+		sum := sha256.Sum256([]byte(title))
+		s = "source-" + hex.EncodeToString(sum[:4])
 	}
 	return s
 }

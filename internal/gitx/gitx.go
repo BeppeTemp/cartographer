@@ -1358,8 +1358,13 @@ type FileRevision struct {
 }
 
 // FileHistory returns the commits that touched path (relative to the
-// repository root), newest first, following renames (git log --follow). At
-// most limit entries are returned (limit <= 0 means no cap). A path with no
+// repository root), newest first. It never follows a rename by similarity
+// (#1281: git log --follow paired a merely similar file and listed a commit of
+// another concept). It lists the commits that touch the concept's two forms,
+// "<id>.md" and the expanded "<id>/index.md" (a concept_expand stays one
+// history), and continues behind a rename only when the commit is a
+// concept_move: the old path is then walked from that commit's parent. At most
+// limit entries are returned (limit <= 0 means no cap). A path with no
 // history, a directory that is not a git repository and a repository with no
 // commits all return an empty slice.
 func FileHistory(dir, path string, limit int) ([]FileRevision, error) {
@@ -1369,16 +1374,82 @@ func FileHistory(dir, path string, limit int) ([]FileRevision, error) {
 	if _, err := HeadSHA(dir); err != nil {
 		return []FileRevision{}, nil
 	}
+	all := []FileRevision{}
+	rev := ""
+	seen := map[string]bool{}
+	for {
+		want := 0
+		if limit > 0 {
+			want = limit - len(all)
+			if want <= 0 {
+				break
+			}
+		}
+		revs, err := fileHistoryOnce(dir, rev, path, want)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range revs {
+			if !seen[r.SHA] {
+				seen[r.SHA] = true
+				all = append(all, r)
+			}
+		}
+		if len(revs) == 0 {
+			break
+		}
+		last := revs[len(revs)-1]
+		if !strings.HasPrefix(last.Subject, "concept_move") || (last.Status != "A" && last.Status != "R") {
+			break
+		}
+		from := movedFrom(dir, last.SHA, last.Path)
+		if from == "" {
+			break
+		}
+		rev, path = last.SHA+"^", from
+	}
+	return all, nil
+}
+
+// movedFrom is the path that commit renamed to dest, "" when it renamed none
+// to it. It reads the whole commit: a pathspec that leaves the old path out
+// cannot show the rename.
+func movedFrom(dir, sha, dest string) string {
+	out, err := runGitEnv(dir, nil, "-c", "core.quotepath=off", "diff-tree", "-r", "-M", "--name-status", "--no-commit-id", sha)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		parts := strings.Split(line, "\t")
+		if len(parts) == 3 && parts[0] != "" && parts[0][0] == 'R' && parts[2] == dest {
+			return parts[1]
+		}
+	}
+	return ""
+}
+
+// fileHistoryOnce is one git log over the two forms of path, starting at rev
+// ("" is HEAD).
+func fileHistoryOnce(dir, startRev, path string, limit int) ([]FileRevision, error) {
 	// Reason must stay the LAST field (see LogNameStatus).
 	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Accepted-Finding,valueonly,separator=%x1f)%x00%(trailers:key=Agent,valueonly,separator=%x1f)%x00%(trailers:key=Moved-To,valueonly,separator=%x1f)%x00%(trailers:key=Moved-From,valueonly,separator=%x1f)%x00%(trailers:key=Cartographer-Token,valueonly,separator=%x1f)%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
-	args := []string{"-c", "core.quotepath=off", "log", "--follow", "-M", "--name-status", "--pretty=format:" + format}
+	args := []string{"-c", "core.quotepath=off", "log", "-M", "--name-status", "--pretty=format:" + format}
 	if limit > 0 {
 		args = append(args, "-n", strconv.Itoa(limit))
 	}
+	if startRev != "" {
+		args = append(args, startRev)
+	}
 	args = append(args, "--", path)
+	if alt := otherConceptForm(path); alt != "" {
+		args = append(args, alt)
+	}
 	out, err := runGitEnv(dir, nil, args...)
 	if err != nil {
-		return nil, fmt.Errorf("git log --follow %s: %w: %s", path, err, out)
+		if startRev != "" {
+			return nil, nil // a root commit has no parent: nothing behind it
+		}
+		return nil, fmt.Errorf("git log %s: %w: %s", path, err, out)
 	}
 	revs := []FileRevision{}
 	for _, record := range strings.Split(out, "\x1e") {
@@ -1407,14 +1478,33 @@ func FileHistory(dir, path string, limit int) ([]FileRevision, error) {
 				if len(parts) < 2 || parts[0] == "" {
 					continue
 				}
+				// A commit that touches both forms lists the old one as D:
+				// the surviving form decides.
+				if rev.Status != "M" && parts[0][0] == 'D' {
+					continue
+				}
 				rev.Status = string(parts[0][0])
 				rev.Path = parts[len(parts)-1]
-				break
+				if rev.Status != "D" {
+					break
+				}
 			}
 		}
 		revs = append(revs, rev)
 	}
 	return revs, nil
+}
+
+// otherConceptForm is the other file a concept can live in: "<id>.md" for
+// "<id>/index.md" and the reverse, "" for a path that is neither.
+func otherConceptForm(path string) string {
+	switch {
+	case strings.HasSuffix(path, "/index.md"):
+		return strings.TrimSuffix(path, "/index.md") + ".md"
+	case strings.HasSuffix(path, ".md") && !strings.HasSuffix(path, "/index.md"):
+		return strings.TrimSuffix(path, ".md") + "/index.md"
+	}
+	return ""
 }
 
 // DiffNameStatus returns changed files between two refs as a list of FileChange.

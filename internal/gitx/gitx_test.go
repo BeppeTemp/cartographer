@@ -526,10 +526,10 @@ func TestFileHistory(t *testing.T) {
 		t.Fatalf("FileHistory: %v", err)
 	}
 	if len(revs) != 3 {
-		t.Fatalf("revisions = %d, want 3 (rename followed): %#v", len(revs), revs)
+		t.Fatalf("revisions = %d, want 3 (a concept_move is followed): %#v", len(revs), revs)
 	}
-	if revs[0].Status != "R" || revs[0].Path != "data/new.md" || revs[0].Subject != "concept_move: new" {
-		t.Errorf("newest = %#v, want the rename to data/new.md", revs[0])
+	if revs[0].Status != "A" || revs[0].Path != "data/new.md" || revs[0].Subject != "concept_move: new" {
+		t.Errorf("newest = %#v, want the add of data/new.md by the move", revs[0])
 	}
 	if revs[1].Status != "M" || revs[1].Path != "data/old.md" || revs[1].Reason != "fix the outage note" {
 		t.Errorf("middle = %#v, want an edit of data/old.md with its reason", revs[1])
@@ -545,6 +545,97 @@ func TestFileHistory(t *testing.T) {
 	none, err := FileHistory(dir, "data/missing.md", 10)
 	if err != nil || len(none) != 0 {
 		t.Fatalf("missing path = %#v, err %v; want empty", none, err)
+	}
+}
+
+// #1281: a commit of another, merely similar file is not part of the history,
+// and an expand keeps the history of both forms.
+func TestFileHistory_NoSimilarityPairing(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "data", "notes"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2024, time.March, 1, 10, 0, 0, 0, time.UTC)
+	text := "line one\nline two\nline three\nline four\n"
+	write := func(rel, content string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("data/notes/b.md", text)
+	commitAt(t, dir, "concept_write: notes/b", base)
+	write("data/notes/c.md", text+"c\n")
+	commitAt(t, dir, "concept_write: notes/c", base.Add(time.Hour))
+	if err := os.MkdirAll(filepath.Join(dir, "data", "notes", "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(dir, "data/notes/b.md"), filepath.Join(dir, "data/notes/b/index.md")); err != nil {
+		t.Fatal(err)
+	}
+	commitAt(t, dir, "concept_expand: notes/b", base.Add(2*time.Hour))
+	write("data/notes/c.md", text+"c again\n")
+	commitAt(t, dir, "concept_write: notes/c", base.Add(3*time.Hour))
+
+	revs, err := FileHistory(dir, "data/notes/b/index.md", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var subjects []string
+	for _, r := range revs {
+		subjects = append(subjects, r.Subject)
+	}
+	want := []string{"concept_expand: notes/b", "concept_write: notes/b"}
+	if len(subjects) != 2 || subjects[0] != want[0] || subjects[1] != want[1] {
+		t.Fatalf("history of notes/b = %v, want %v (no commit of notes/c)", subjects, want)
+	}
+	if revs[0].Status == "D" || revs[0].Path != "data/notes/b/index.md" {
+		t.Errorf("expand revision = %#v, want the surviving form", revs[0])
+	}
+}
+
+// The case git log --follow got wrong: a new file written in the commit that
+// deletes a similar one was paired with it, and the other concept's commits
+// came into the history.
+func TestFileHistory_DeletedSimilarFileIsNotAPredecessor(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2024, time.March, 1, 10, 0, 0, 0, time.UTC)
+	text := "line one\nline two\nline three\nline four\n"
+	if err := os.WriteFile(filepath.Join(dir, "data", "c.md"), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitAt(t, dir, "concept_write: c", base)
+	if err := os.Remove(filepath.Join(dir, "data", "c.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "data", "b.md"), []byte(text+"b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitAt(t, dir, "concept_write: b", base.Add(time.Hour))
+	revs, err := FileHistory(dir, "data/b.md", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(revs) != 1 || revs[0].Subject != "concept_write: b" {
+		t.Fatalf("history of b = %#v, want only its own commit", revs)
 	}
 }
 
