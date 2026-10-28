@@ -1,5 +1,5 @@
 ---
-topic: client
+topic: sync-provisioning
 ---
 
 # D1325 — The server builds KB artifacts only from files git tracks
