@@ -11,7 +11,10 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 )
 
-// maxStdioLine bounds one inbound line, as the SDK's own frame limit does.
+// maxStdioLine bounds one inbound line, as the SDK's own frame limit does. It
+// is the one case that still ends the session: a line over it is a frame the
+// scanner cannot skip without buffering it, and it is far above the HTTP body
+// limit, so no real request reaches it.
 const maxStdioLine = 16 << 20
 
 // lockedWriter serializes whole Write calls: the SDK writes each message in one
@@ -34,10 +37,16 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 // the request carried a scalar one) and dropped, and the loop reads the next
 // line. Only an I/O error on either side ends the session. Messages are one
 // per line, as docs/transport-auth.md says.
-func guardStdio(in io.Reader, out io.Writer) (io.Reader, io.Writer) {
+//
+// The caller closes the returned reader when the session ends, which releases
+// the goroutine if it is blocked handing a line over; done is closed when it
+// has returned. A goroutine blocked reading in itself returns when it closes.
+func guardStdio(in io.Reader, out io.Writer) (r *io.PipeReader, w io.Writer, done <-chan struct{}) {
 	lw := &lockedWriter{w: out}
 	pr, pw := io.Pipe()
+	fin := make(chan struct{})
 	go func() {
+		defer close(fin)
 		sc := bufio.NewScanner(in)
 		sc.Buffer(make([]byte, 0, 64<<10), maxStdioLine)
 		for sc.Scan() {
@@ -63,7 +72,7 @@ func guardStdio(in io.Reader, out io.Writer) (io.Reader, io.Writer) {
 		}
 		pw.CloseWithError(sc.Err()) // nil is io.EOF for the reader
 	}()
-	return pr, lw
+	return pr, lw, fin
 }
 
 // classifyStdioLine returns the JSON-RPC error code and text for a line that is

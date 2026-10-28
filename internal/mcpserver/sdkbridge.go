@@ -477,10 +477,11 @@ func (s *Server) sdkHTTPHandler() http.Handler {
 // the SDK transport wants; closing them is the caller's business, so the
 // adapters' Close is a no-op.
 func (s *Server) sdkStdioRun(ctx context.Context, reader io.Reader, writer io.Writer) error {
-	reader, writer = guardStdio(reader, writer)
+	pr, guarded, _ := guardStdio(reader, writer)
+	defer pr.Close() // releases the guard goroutine when the session ends
 	return s.SDKServer().Run(ctx, &sdk.IOTransport{
-		Reader: nopReadCloser{reader},
-		Writer: nopWriteCloser{writer},
+		Reader: nopReadCloser{pr},
+		Writer: nopWriteCloser{guarded},
 	})
 }
 
