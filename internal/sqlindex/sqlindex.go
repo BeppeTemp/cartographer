@@ -287,13 +287,18 @@ func (b *Batch) add(o op) error {
 	return nil
 }
 
-// replay applies ops one transaction each; one that fails again is lost.
-func (b *Batch) replay(ops []op) {
+// replay applies ops one transaction each and returns how many were lost (an
+// upsert or a delete that fails again is logged and counted).
+func (b *Batch) replay(ops []op) (lost int) {
 	for _, o := range ops {
-		if err := b.ix.applyOne(o); err == nil && !o.del {
+		if err := b.ix.applyOne(o); err != nil {
+			fmt.Fprintf(os.Stderr, "cartographer: search index: SQLite write %s: %v\n", o.id, err)
+			lost++
+		} else if !o.del {
 			b.written++
 		}
 	}
+	return lost
 }
 
 // Commit commits the open transaction, if any. The Batch stays usable. When
@@ -306,16 +311,8 @@ func (b *Batch) Commit() error {
 	tx, ops := b.tx, b.pending
 	b.tx, b.pending = nil, nil
 	if err := tx.Commit(); err != nil {
-		before := b.written
-		b.replay(ops)
-		lost := 0
-		for _, o := range ops {
-			if !o.del {
-				lost++
-			}
-		}
-		if lost > b.written-before {
-			return fmt.Errorf("sqlindex: commit: %w", err)
+		if lost := b.replay(ops); lost > 0 {
+			return fmt.Errorf("sqlindex: commit: %d of %d writes lost: %w", lost, len(ops), err)
 		}
 		return nil
 	}

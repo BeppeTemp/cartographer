@@ -83,9 +83,13 @@ func ReconcileIndex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) (Reconcil
 		return stats, fmt.Errorf("reconcile index: walk concepts: %w", err)
 	}
 
+	failed := 0
 	for id := range persisted {
 		if err := w.Delete(id); err != nil {
-			return stats, err
+			// Keep going: returning would roll back the group's pending upserts.
+			fmt.Fprintf(os.Stderr, "cartographer: search index: SQLite delete %s: %v\n", id, err)
+			failed++
+			continue
 		}
 		if live != nil {
 			live.remove(id)
@@ -94,6 +98,11 @@ func ReconcileIndex(k *kb.KB, live *liveIndex, sqlIdx *sqlindex.Index) (Reconcil
 	}
 	if err := w.Commit(); err != nil {
 		return stats, err
+	}
+	if failed > 0 {
+		// Counted, not fatal for the rest: the rows stay and the next
+		// reconciliation retries them.
+		return stats, fmt.Errorf("reconcile index: %d stale rows could not be removed", failed)
 	}
 	return stats, nil
 }

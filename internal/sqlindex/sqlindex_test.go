@@ -682,3 +682,32 @@ func TestBatchFailureLosesOnlyTheFailingConcept(t *testing.T) {
 		t.Fatalf("replayed concept not searchable: %v %v", hits, err)
 	}
 }
+
+func TestBatchFailedDeleteIsCounted(t *testing.T) {
+	ix, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if err := ix.Upsert("keep", "h", "# T\n\nalpha", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.db.Exec(`CREATE TRIGGER nodel BEFORE DELETE ON concepts WHEN OLD.id = 'keep'
+		BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+	b := ix.Batch()
+	if err := b.Upsert("x", "h", "# T\n\nbeta", ""); err != nil {
+		t.Fatal(err)
+	}
+	// The delete fails inside the group: it is reported, the upsert survives.
+	if err := b.Delete("keep"); err == nil {
+		t.Fatal("expected the delete to fail")
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if hs, _ := ix.AllHashes(); hs["x"] == "" || hs["keep"] == "" {
+		t.Fatalf("hashes %v", hs)
+	}
+}
