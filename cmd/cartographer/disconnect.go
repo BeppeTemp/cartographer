@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
@@ -117,6 +118,9 @@ type disconnectProviderResult struct {
 type workspacePruned struct {
 	Path   string
 	Pruned []provisioning.ManagedFile
+	// Kept names what was left in the repository and why: a file changed since
+	// the sync, or a lockfile path that does not lie inside the repository.
+	Kept []string
 }
 
 // disconnectResult is the outcome of doDisconnect.
@@ -248,7 +252,7 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 		return res, nil
 	}
 
-	if len(lockFile.Providers) == 0 && len(lockFile.Workspaces) == 0 && len(disconnected) == len(opts.Providers) {
+	if len(lockFile.Providers) == 0 && len(disconnected) == len(opts.Providers) {
 		// The token file goes with the last provider (D699). reconnect keeps it:
 		// it disconnects every provider and connects them again, possibly from
 		// a shell without the variable.
@@ -257,6 +261,10 @@ func doDisconnect(opts disconnectOptions) (disconnectResult, error) {
 				return disconnectResult{}, err
 			}
 		}
+	}
+	// The lockfile goes with the last provider too, unless a workspace section
+	// of a provider kept connected (a refusal) is still in it.
+	if len(lockFile.Providers) == 0 && len(lockFile.Workspaces) == 0 && len(disconnected) == len(opts.Providers) {
 		if err := os.Remove(lockPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return disconnectResult{}, fmt.Errorf("remove lockfile: %w", err)
 		}
@@ -363,9 +371,13 @@ func removeStrings(list, remove []string) []string {
 // pruneProviderWorkspaces removes what provider's workspace projections wrote,
 // each under its own repository, leaving what another provider's projection of
 // the same repository still records (D364), and drops the projections from
-// lockFile. Files the user changed are kept by PruneManaged, as for the home
-// projection. It returns why a repository was refused (D148); the provider then
-// stays connected and the next disconnect retries.
+// lockFile (in a dry run too, on the caller's in-memory copy, so a second
+// provider disconnected in the same pass sees what the first one left). A file
+// that no longer hashes to what the sync wrote is the user's now and stays, and
+// so does a lockfile path that is not inside the repository: the repository is
+// a working copy, not a directory Cartographer owns. It returns why a
+// repository was refused (D148); the provider then stays connected and the next
+// disconnect retries.
 func pruneProviderWorkspaces(lockFile *provisioning.LockFile, provider, clientDir string, dryRun bool, pr *disconnectProviderResult) ([]string, error) {
 	var refused []string
 	for _, key := range lockFile.Projections() {
@@ -373,23 +385,64 @@ func pruneProviderWorkspaces(lockFile *provisioning.LockFile, provider, clientDi
 			continue
 		}
 		lock := lockFile.ForProjection(key)
+		// A workspace lock records its repository as base dir (SetProjection);
+		// anything else would resolve the paths against another directory.
+		if lock.BaseDir != key.Workspace {
+			pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace,
+				Kept: []string{fmt.Sprintf("everything: the lockfile records base dir %q for this workspace", lock.BaseDir)}})
+			// Reported, not retried: nothing in this section can be trusted to be
+			// ours, and keeping it would hold the provider connected for good.
+			lockFile.RemoveProjection(key)
+			continue
+		}
 		base := provisioning.LockBaseDir(lock, clientDir)
 		keep := lockFile.CoOwnedPaths(key)
-		pruned, err := provisioning.PruneManaged(provisioning.WithoutCoOwned(lock.Managed, keep), base, dryRun)
+		managed := provisioning.WithoutCoOwned(lock.Managed, keep)
+
+		var kept []string
+		inside := make([]provisioning.ManagedFile, 0, len(managed))
+		for _, mf := range managed {
+			if filepath.IsAbs(mf.Path) || !filepath.IsLocal(mf.Path) {
+				kept = append(kept, fmt.Sprintf("%s: not a path inside the repository", filepath.ToSlash(mf.Path)))
+				continue
+			}
+			inside = append(inside, mf)
+		}
+		modified := map[string]string{}
+		for _, f := range provisioning.VerifyManaged(provisioning.Lock{Managed: inside, ProjectScope: lock.ProjectScope}, configurator.Provider(provider), base) {
+			if f.Reason == provisioning.DriftModified {
+				modified[f.Kind+"\x00"+f.Name] = filepath.ToSlash(f.Path)
+			}
+		}
+		toPrune := make([]provisioning.ManagedFile, 0, len(inside))
+		keptArtifacts := map[string]bool{}
+		for _, mf := range inside {
+			key := mf.Kind + "\x00" + mf.Name
+			if path, ok := modified[key]; ok {
+				if !keptArtifacts[key] {
+					keptArtifacts[key] = true
+					kept = append(kept, path+": changed since sync")
+				}
+				continue
+			}
+			toPrune = append(toPrune, mf)
+		}
+
+		pruned, err := provisioning.PruneManaged(toPrune, base, dryRun)
 		var pruneRefused *provisioning.PruneRefusedError
 		if errors.As(err, &pruneRefused) || errors.Is(err, provisioning.ErrSymlinkDestination) {
-			pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace, Pruned: pruned})
+			pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace, Pruned: pruned, Kept: kept})
 			refused = append(refused, fmt.Sprintf("workspace %s: %v", key.Workspace, err))
 			continue
 		}
 		if err != nil {
 			return nil, fmt.Errorf("prune %s: %w", key.String(), err)
 		}
-		pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace, Pruned: pruned})
+		pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace, Pruned: pruned, Kept: kept})
+		lockFile.RemoveProjection(key)
 		if dryRun {
 			continue
 		}
-		lockFile.RemoveProjection(key)
 		// The exclusions go with the files, but only this provider's: another
 		// provider still bound to the repository keeps its paths excluded (#656).
 		if err := writeWorkspaceExclusions(key.Workspace, workspaceProviders(*lockFile, nil, key.Workspace), workspaceOwnership(lockFile, nil, nil, key.Workspace)); err != nil {
@@ -408,5 +461,8 @@ func printPrunedWorkspaces(pr disconnectProviderResult, prefix string) {
 	for _, w := range pr.Workspaces {
 		fmt.Printf("%s[%s] cleaned the projection in %s\n", prefix, pr.Provider, w.Path)
 		printPrunedFiles(pr.Provider, w.Pruned, prefix)
+		for _, k := range w.Kept {
+			fmt.Printf("%s[%s] kept %s\n", prefix, pr.Provider, k)
+		}
 	}
 }

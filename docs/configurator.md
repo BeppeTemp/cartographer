@@ -413,8 +413,9 @@ file is left intact; an emptied `mcpServers`/`mcp` map is dropped, and the file 
 managed artifacts registered for that provider in the lockfile (`provisioning.PruneManaged` — only
 managed files, never untracked ones) and what its **workspace projections** wrote in each bound
 repository (the files the lockfile records for them, exactly as `workspace unbind` + `sync` would; what
-was there before or that the user changed stays, and a file another provider's projection of the same
-repository still records stays too), prints which repositories it cleaned, then removes the provider from the
+was there before stays, a skill, agent or hook that no longer hashes to what the sync wrote stays and is reported
+as `kept <path>: changed since sync`, a lockfile path that is not inside the repository is never followed, and a file
+another provider's projection of the same repository still records stays too), prints which repositories it cleaned, then removes the provider from the
 lockfile and from the client state, its workspace bindings and projection scope included (#1324). If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with an empty agent list in the state file,
 preserving `server_url`/`server_name`/`auth`/`token`/`clients` as defaults for the next
