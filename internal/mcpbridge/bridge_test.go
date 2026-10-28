@@ -583,3 +583,44 @@ func TestBridgeReadOnlyListenWithoutConfirmationServesNoTools(t *testing.T) {
 		t.Fatalf("tools = %v, want none", tools)
 	}
 }
+
+// An event stream that carries no confirmation (an error status) must not
+// release the serialization: the next request waits for the first forward to
+// return.
+func TestBridgeReadOnlyUnconfirmedStreamKeepsTheSerialization(t *testing.T) {
+	var calls atomic.Int32
+	var firstDone, early atomic.Bool
+	secondSeen := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			defer firstDone.Store(true)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.(http.Flusher).Flush()
+			// A released loop sends the second request while this body is open.
+			select {
+			case <-secondSeen:
+			case <-time.After(200 * time.Millisecond):
+			}
+			return
+		}
+		if !firstDone.Load() {
+			early.Store(true)
+		}
+		close(secondSeen)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(accessHeader, accessRead)
+		_, _ = io.WriteString(w, `{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}`)
+	}))
+	defer srv.Close()
+	cfg := &clientconfig.Config{
+		ServerName: "cartographer", ServerURL: srv.URL + "/mcp", ServerRoutedPath: mcpserver.RoutedMountPath,
+		KnownKBs: []string{"kb-a"},
+	}
+	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: t.TempDir()}
+	exchange(t, b, listenMsg, listMsg)
+
+	if early.Load() {
+		t.Fatal("the next request was forwarded while an unconfirmed stream was still open")
+	}
+}

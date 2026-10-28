@@ -537,7 +537,14 @@ func (b *Bridge) forward(ctx context.Context, scope Scope, raw []byte, m message
 	case resp.StatusCode == http.StatusAccepted || resp.StatusCode == http.StatusNoContent:
 		// A notification or a client response: nothing to relay.
 	case strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream"):
-		release()
+		// A stream that carries no verdict (an error status) keeps the
+		// serialization until forward returns.
+		b.mu.Lock()
+		confirmed := b.accessConfirmed
+		b.mu.Unlock()
+		if confirmed {
+			release()
+		}
 		b.relayEvents(resp.Body)
 	default:
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024*1024))
