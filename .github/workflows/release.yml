@@ -53,6 +53,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      # The release must still be a draft here (D1350): if GoReleaser had published
+      # it or created a second release, fail before anything announces it. Drafts
+      # are looked up through the releases listing, never by tag (that endpoint
+      # does not return them).
+      - name: Check the release is still a draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          rel=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name == env.TAG) | "\(.id) \(.draft)"')
+          if [ "$(printf '%s\n' "$rel" | grep -c .)" != 1 ] || [ "${rel#* }" != true ]; then
+            echo "::error::$TAG must be exactly one draft release after GoReleaser (D1350), got: ${rel:-none}" >&2
+            exit 1
+          fi
       # sha256sums.txt lists every other published asset (binaries, Windows zips,
       # SBOMs) with its digest, so one attestation covers them all, and a second
       # covers the file itself (D1022). Names are not what verification matches:
@@ -91,15 +106,58 @@ jobs:
             v0.*) want=true ;;
             *)    want=false ;;
           esac
-          if [ "$want" = true ]; then
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease
+          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name == env.TAG) | .id')
+          if [ -z "$id" ] || [ "$(printf '%s\n' "$id" | wc -l)" != 1 ]; then
+            echo "::error::no single release for $TAG" >&2
+            exit 1
           fi
-          got=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease --jq .isPrerelease)
+          # By id: the release is a draft (D1350) and the tag endpoint hides drafts.
+          if [ "$want" = true ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F prerelease=true > /dev/null
+          fi
+          got=$(gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq .prerelease)
           if [ "$got" != "$want" ]; then
             echo "::error::$TAG is isPrerelease=$got, want $want (D82/D211)" >&2
             exit 1
           fi
           echo "$TAG: isPrerelease=$got"
+
+  # The release-please release is created as a draft (D1350), so the update check
+  # and every client skip it until this job: it runs only when the binaries and
+  # the Homebrew cask (goreleaser), the pre-release flag and the image (docker)
+  # all exist, and un-drafts the release. A failed or retried job above leaves
+  # the release a draft instead of announcing a version no channel can install.
+  # Un-drafting keeps the pre-release flag; it is read back
+  # because a 0.x release must stay a Pre-release (D82/D211).
+  publish:
+    runs-on: ubuntu-latest
+    needs: [goreleaser, prerelease-flag, docker]
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the release, and verify it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          case "$TAG" in
+            v0.*) want=true ;;
+            *)    want=false ;;
+          esac
+          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.tag_name == env.TAG) | .id')
+          if [ -z "$id" ] || [ "$(printf '%s\n' "$id" | wc -l)" != 1 ]; then
+            echo "::error::no single release for $TAG" >&2
+            exit 1
+          fi
+          # By id: the tag endpoint does not return a draft.
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" -F draft=false > /dev/null
+          got=$(gh api "repos/$GITHUB_REPOSITORY/releases/$id" --jq '"\(.draft) \(.prerelease)"')
+          if [ "$got" != "false $want" ]; then
+            echo "::error::$TAG is isDraft/isPrerelease=$got, want false $want (D1350, D82)" >&2
+            exit 1
+          fi
+          echo "$TAG: published (isDraft/isPrerelease=$got)"
 
   # Multi-arch server image on ghcr.io.
   docker:
@@ -165,10 +223,12 @@ jobs:
       tag: ${{ github.ref_name }}
 
   # Metadata entry in the official MCP Registry, pointing at the ghcr image
-  # (ownership verified via the io.modelcontextprotocol.server.name LABEL).
+  # (ownership verified via the io.modelcontextprotocol.server.name LABEL). It
+  # announces the version, so it waits for `publish` like the update check does
+  # (D1350).
   mcp-registry:
     runs-on: ubuntu-latest
-    needs: docker
+    needs: publish
     permissions:
       id-token: write
       contents: read
