@@ -386,6 +386,9 @@ func TestPruneManaged_BootstrapHook_RimuoveTutto(t *testing.T) {
 
 	settingsPath := filepath.Join(baseDir, ".claude", "settings.json")
 	data, err := os.ReadFile(settingsPath)
+	if os.IsNotExist(err) {
+		return // the hook was all it held: the file went with it (#1269)
+	}
 	if err != nil {
 		t.Fatalf("read settings.json: %v", err)
 	}

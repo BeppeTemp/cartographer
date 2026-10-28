@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -389,5 +391,42 @@ func TestApplyConnectAccess(t *testing.T) {
 	}
 	if err := applyConnectAccess(bridged, opts, "/mcp/routed"); err == nil || !strings.Contains(err.Error(), "claude") || !strings.Contains(err.Error(), "bridge") {
 		t.Errorf("workspace-bound provider: err = %v", err)
+	}
+}
+
+// #1282: --unpin-key removes a KB's pins, replaces with --pin-key, and refuses
+// a KB with no pin.
+func TestDoConnect_UnpinKey(t *testing.T) {
+	setHome(t, t.TempDir())
+	dir := t.TempDir()
+	pub, _, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := hex.EncodeToString(pub)
+	base := connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: "http://127.0.0.1:1/mcp", Name: "cartographer"}
+
+	pin := base
+	pin.PinKeys = []string{"kb-a=" + key}
+	if _, err := doConnect(pin); err != nil {
+		t.Fatalf("pin: %v", err)
+	}
+	if cfg, _ := clientconfig.Load(dir); len(cfg.SigningKeys["kb-a"]) != 1 {
+		t.Fatalf("pin not recorded: %v", cfg.SigningKeys)
+	}
+
+	unknown := base
+	unknown.UnpinKeys = []string{"kb-zzz"}
+	if _, err := doConnect(unknown); err == nil || !strings.Contains(err.Error(), "kb-zzz") {
+		t.Errorf("unpinning an unknown KB: err = %v, want an error naming it", err)
+	}
+
+	unpin := base
+	unpin.UnpinKeys = []string{"kb-a"}
+	if _, err := doConnect(unpin); err != nil {
+		t.Fatalf("unpin: %v", err)
+	}
+	if cfg, _ := clientconfig.Load(dir); len(cfg.SigningKeys) != 0 {
+		t.Errorf("pin still there after --unpin-key: %v", cfg.SigningKeys)
 	}
 }

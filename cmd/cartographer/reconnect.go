@@ -26,12 +26,14 @@ import (
 )
 
 func cmdReconnect(args []string) int {
-	target, rest := splitPositional(args, "")
+	var target string
 
 	fs := flag.NewFlagSet("reconnect", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "Print what would be rebuilt without writing")
 	agentsCSV := fs.String("agents", "", "Comma-separated agent subset: claude,codex")
-	fs.Parse(rest)
+	if code := bindPositionals("reconnect", parseFlagsAnywhere(fs, args), &target); code != 0 {
+		return code
+	}
 
 	dir, err := clientconfig.TargetDir()
 	if err != nil {

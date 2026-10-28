@@ -699,16 +699,8 @@ func TestApply_MCP_PruneRestoresSharedFile(t *testing.T) {
 		t.Fatalf("PruneManaged: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, ".claude.json"))
-	if err != nil {
-		t.Fatalf(".claude.json should still exist (D63 rule): %v", err)
-	}
-	var root map[string]any
-	if err := json.Unmarshal(data, &root); err != nil {
-		t.Fatalf("invalid JSON: %v", err)
-	}
-	if servers, ok := root["mcpServers"]; ok {
-		t.Errorf("mcpServers key should have been dropped once empty, got %v", servers)
+	if _, err := os.Stat(filepath.Join(dir, ".claude.json")); !os.IsNotExist(err) {
+		t.Errorf(".claude.json should be removed once it is left empty (#1269), stat err: %v", err)
 	}
 }
 

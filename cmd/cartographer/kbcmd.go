@@ -101,7 +101,7 @@ func cmdKBCreate(args []string) int {
 	// "kb create <name> (--remote <url> | --no-remote) …") — flag.Parse stops at
 	// the first non-flag token, so it must be pulled out first (same
 	// splitPositional dance as `service <target>` and `sync <provider>`).
-	name, rest := splitPositional(args, "")
+	var name string
 
 	fs := flag.NewFlagSet("kb create", flag.ExitOnError)
 	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
@@ -112,9 +112,11 @@ func cmdKBCreate(args []string) int {
 	readmeFlag := fs.String("readme", "", "What to do with the README.md of a forge's initial commit: generate (replace it with a short generated one) or keep (leave it); default replaces only a recognised forge boilerplate")
 	branchFlag := fs.String("branch", "", "Branch the KB lives on, written as `branch` in its settings.yaml (the team's default, read from the remote's default branch) and pushed after it; needs --remote")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after creating the KB")
-	fs.Parse(rest)
+	if code := bindPositionals("kb create", parseFlagsAnywhere(fs, args), &name); code != 0 {
+		return code
+	}
 
-	if name == "" || fs.NArg() != 0 {
+	if name == "" {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer kb create <name> (--remote <url> [--branch <name>] | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]")
 		return 2
 	}
@@ -532,8 +534,7 @@ func printNoRemoteWarning(path string) {
 // failed clone or a clone that is not an OKF KB is removed, so auto-discovery
 // never mistakes an unusable directory for a mountable KB.
 func cmdKBClone(args []string) int {
-	remote, rest := splitPositional(args, "")
-	name, rest := splitPositional(rest, "")
+	var remote, name string
 
 	fs := flag.NewFlagSet("kb clone", flag.ExitOnError)
 	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
@@ -542,9 +543,11 @@ func cmdKBClone(args []string) int {
 	timeoutFlag := fs.Duration("timeout", defaultCloneTimeout, "Time budget for the whole clone")
 	branchFlag := fs.String("branch", "", "Branch this server alone commits and pushes to: checked out in the clone and written as kbs[].branch in the server config (--config), which must exist")
 	restartFlag := fs.Bool("restart", false, "Restart the local service and wait until healthy after mounting the KB")
-	fs.Parse(rest)
+	if code := bindPositionals("kb clone", parseFlagsAnywhere(fs, args), &remote, &name); code != 0 {
+		return code
+	}
 
-	if remote == "" || fs.NArg() != 0 {
+	if remote == "" {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer kb clone <remote> [name] [--branch <name>] [--data <dir>] [--config <path>] [--restart]")
 		return 2
 	}

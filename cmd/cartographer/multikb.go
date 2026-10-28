@@ -888,6 +888,16 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 	names := make(map[string][]string, len(providers))
 	var refused []error
 	for _, provider := range providers {
+		// The codex block is one unit: Remove reports it for every name whether
+		// or not that name's table is in it, and the first removal takes the
+		// others with it. Which entries exist is read before any removal (#1267).
+		var present map[string]bool
+		if provider == string(configurator.ProviderCodex) {
+			present = map[string]bool{}
+			for _, name := range managedEntryNames(baseName, kbs) {
+				present[name] = configurator.CodexHasEntry(name, dir)
+			}
+		}
 		for _, name := range managedEntryNames(baseName, kbs) {
 			nameRemoved := false
 			for _, base := range providerBaseDirs(provider, dir, claudeDirs) {
@@ -901,13 +911,18 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 				}
 				nameRemoved = nameRemoved || ok
 			}
+			removed[provider] = removed[provider] || nameRemoved
+			if present != nil && !present[name] {
+				// Nothing by this name was there; the call above only cleared
+				// the shared block (or found it already gone).
+				nameRemoved = false
+			}
 			if nameRemoved {
 				// Under dryRun configurator.Remove reports what it WOULD
 				// remove without touching the file, which is what makes the
 				// removals visible in a --dry-run plan (D172 WP4).
 				names[provider] = append(names[provider], name)
 			}
-			removed[provider] = removed[provider] || nameRemoved
 		}
 	}
 	return names, removed, errors.Join(refused...)

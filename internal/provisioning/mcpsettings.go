@@ -15,6 +15,7 @@ package provisioning
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,9 +72,19 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 	}
 
 	settingsPath := filepath.Join(baseDir, r.FilePath)
+	_, statErr := os.Lstat(settingsPath)
+	createdFile := errors.Is(statErr, os.ErrNotExist)
 	settings, err := loadJSONObject(settingsPath)
 	if err != nil {
 		return "", nil, err
+	}
+	if !createdFile {
+		// A ledger entry whose owners are gone from the file is stale: this
+		// file is somebody else's now (configurator.ReconcileCreated).
+		names := configurator.ServerNamesIn(settings)
+		if err := configurator.ReconcileCreated(baseDir, r.FilePath, func(o string) bool { return names[o] }); err != nil {
+			return "", nil, err
+		}
 	}
 	var incoming map[string]interface{}
 	if err := json.Unmarshal(r.Content, &incoming); err != nil {
@@ -100,6 +111,11 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 	if err := saveJSONObject(baseDir, settingsPath, settings); err != nil {
 		return "", nil, err
 	}
+	if d, ok := configurator.Lookup(provider); ok && d.DeleteOnlyIfCreated {
+		if err := configurator.NoteOwner(baseDir, r.FilePath, name, createdFile); err != nil {
+			return "", nil, err
+		}
+	}
 	return r.FilePath, r.Warnings, nil
 }
 
@@ -112,8 +128,9 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 // kiro/opencode's config files exist purely to hold MCP server entries, so if
 // stripping name's entry leaves nothing behind but an (already emptied)
 // server-map key (and, for opencode, the "$schema" hint), the file itself is
-// removed instead of left as an empty shell; claude.json is never deleted
-// (Claude Code's own shared state file, D63's absolute rule), only reduced.
+// removed instead of left as an empty shell; claude.json goes only when it is
+// left as `{}` (it is Claude Code's own shared state file: any other key keeps
+// it, #1269).
 func removeMCPServer(baseDir, name string, provider configurator.Provider, filePath string) error {
 	if filePath == "" {
 		return nil
@@ -153,14 +170,20 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 		settings[key] = servers
 	}
 
-	if d, ok := configurator.Lookup(provider); ok && d.DeletableWhenEmpty && isEmptyMCPProviderShell(settings) {
+	if d, ok := configurator.Lookup(provider); ok && configurator.MayDeleteEmpty(d, baseDir, filePath) && isEmptyMCPProviderShell(settings) {
 		if err := safewrite.Remove(baseDir, fullPath); err != nil {
 			return fmt.Errorf("provisioning: remove %s: %w", fullPath, err)
+		}
+		if err := configurator.ForgetCreated(baseDir, filePath); err != nil {
+			return err
 		}
 		pruneEmptyDirs(baseDir, filePath)
 		return nil
 	}
-	return saveJSONObject(baseDir, fullPath, settings)
+	if err := saveJSONObject(baseDir, fullPath, settings); err != nil {
+		return err
+	}
+	return configurator.DropOwner(baseDir, filePath, name)
 }
 
 // isEmptyMCPProviderShell reports whether settings has nothing left worth

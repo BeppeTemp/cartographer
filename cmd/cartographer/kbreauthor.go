@@ -53,15 +53,17 @@ type reauthorReport struct {
 // authority, none of which an MCP token has. Exit codes: 0 done or nothing to
 // do, 2 refusal or error.
 func cmdKBReauthor(args []string) int {
-	name, rest := splitPositional(args, "")
+	var name string
 	fs := flag.NewFlagSet("kb reauthor", flag.ExitOnError)
 	dataFlag := fs.String("data", "", "KB data directory (default: the server config's data:, or "+defaultDataDir()+")")
 	configFlag := fs.String("config", "", "Server config YAML (default: the standard path)")
 	localFlag := fs.Bool("local", false, "Act on the local data dir even though the client points at a remote server")
 	applyFlag := fs.Bool("apply", false, "Rewrite the commits and push (default: preview only)")
 	jsonFlag := fs.Bool("json", false, "Print the report as JSON")
-	fs.Parse(rest)
-	if name == "" || fs.NArg() != 0 {
+	if code := bindPositionals("kb reauthor", parseFlagsAnywhere(fs, args), &name); code != 0 {
+		return code
+	}
+	if name == "" {
 		fmt.Fprintln(os.Stderr, "Usage: cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]")
 		return 2
 	}

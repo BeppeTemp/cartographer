@@ -519,13 +519,19 @@ func VerifyArtifactSignature(a Artifact, keys map[string]ed25519.PublicKey) erro
 	}
 	key, ok := keys[a.Signature.KeyID]
 	if !ok {
-		return fmt.Errorf("provisioning: unknown signing key for KB %q (key ID %s)", strings.TrimPrefix(a.Source, "kb:"), a.Signature.KeyID)
+		return fmt.Errorf("provisioning: unknown signing key for KB %q (key ID %s): %w", strings.TrimPrefix(a.Source, "kb:"), a.Signature.KeyID, ErrSignature)
 	}
 	if err := artifactsig.Verify(key, artifactsig.Identity{Source: a.Source, Kind: a.Kind, Name: a.Name, Version: a.Version, ContentHash: a.ContentHash}, a.Signature); err != nil {
-		return fmt.Errorf("provisioning: verify %s/%s: %w", a.Kind, a.Name, err)
+		return fmt.Errorf("provisioning: verify %s/%s: %w: %w", a.Kind, a.Name, err, ErrSignature)
 	}
 	return nil
 }
+
+// ErrSignature is wrapped by every error that says an artifact's signature does
+// not check out against the pinned keys (no pin for its key, or a pin that does
+// not verify): the server answered, the pin is what is wrong, which a caller
+// must not report as an unreachable server (#1282).
+var ErrSignature = errors.New("signature check failed")
 
 // VerifiedManifest returns a copy whose Signed flags are cryptographic
 // verification results only. Server-provided Signed values are never trusted.

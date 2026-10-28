@@ -263,6 +263,7 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		}
 
 		content := r.Content
+		created := false
 		// Non-destructive merge for JSON files: merge our entry into existing content.
 		// Non-JSON files (e.g. SKILL.md) are always overwritten.
 		if filepath.Ext(fullPath) == ".json" {
@@ -272,16 +273,45 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 					return written, fmt.Errorf("existing file %s is not valid JSON: %w — fix or delete it manually", fullPath, mergeErr)
 				}
 				content = merged
+				var cur map[string]any
+				if json.Unmarshal(existing, &cur) == nil {
+					names := ServerNamesIn(cur)
+					if err := ReconcileCreated(absoluteBaseDir, r.FilePath, func(o string) bool { return names[o] }); err != nil {
+						return written, fmt.Errorf("record %s: %w", fullPath, err)
+					}
+				}
+			} else if os.IsNotExist(err) {
+				created = true
 			}
 		}
 
 		if err := safewrite.WriteFileNoFollow(fullPath, content, 0o644); err != nil {
 			return written, fmt.Errorf("write %s: %w", fullPath, err)
 		}
+		if d, ok := Lookup(r.Provider); ok && d.DeleteOnlyIfCreated {
+			if err := noteEmitted(absoluteBaseDir, r, created); err != nil {
+				return written, fmt.Errorf("record %s: %w", fullPath, err)
+			}
+		}
 		written = append(written, r.AbsolutePath)
 		migrateLegacyOpenCode(r, absoluteBaseDir, false)
 	}
 	return written, errors.Join(refused...)
+}
+
+// noteEmitted records every server name r wrote as owned by Cartographer in the
+// created-files ledger (see NoteOwner).
+func noteEmitted(baseDir string, r *EmitResult, created bool) error {
+	var root map[string]any
+	if json.Unmarshal(r.Content, &root) != nil {
+		return nil
+	}
+	for name := range ServerNamesIn(root) {
+		if err := NoteOwner(baseDir, r.FilePath, name, created); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // migrateLegacyOpenCode removes, once r's entries are written to OpenCode's
@@ -483,16 +513,20 @@ func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bo
 	}
 
 	// File-level cleanup (D63): .claude.json is Claude Code's own shared state
-	// file (MCP servers, but also model/permissions/other agent state) and must
-	// NEVER be deleted — only the (now possibly absent) mcpServers key was
-	// touched above, everything else in the file is left alone. kiro/opencode's
+	// file (MCP servers, but also model/permissions/other agent state), so a
+	// file that still holds any other key is only reduced — everything else in
+	// it is left alone — and it goes only once removing our entry left `{}`
+	// (#1269). kiro/opencode's
 	// config files exist purely to hold MCP server entries: if removing ours
 	// leaves nothing behind but that (now-deleted) key and, for opencode, the
 	// "$schema" hint, there is nothing worth keeping — delete the file outright
 	// instead of leaving an empty shell nobody reads.
-	if d, ok := Lookup(provider); ok && d.DeletableWhenEmpty && isEmptyProviderShell(root) {
+	if d, ok := Lookup(provider); ok && MayDeleteEmpty(d, baseDir, r.FilePath) && isEmptyProviderShell(root) {
 		if err := safewrite.Remove(baseDir, fullPath); err != nil {
 			return false, fmt.Errorf("remove %s: %w", fullPath, err)
+		}
+		if err := ForgetCreated(baseDir, r.FilePath); err != nil {
+			return false, err
 		}
 		// Best-effort (D63): also drop the file's own parent directory if that
 		// leaves it empty too — kiro's mcp.json lives in ".kiro/settings/", a
@@ -514,6 +548,9 @@ func removeEntry(cfg *ServerConfig, provider Provider, baseDir string, dryRun bo
 	}
 	if err := safewrite.WriteFileNoFollow(fullPath, out, 0o644); err != nil {
 		return false, fmt.Errorf("write %s: %w", fullPath, err)
+	}
+	if err := DropOwner(baseDir, r.FilePath, cfg.Name); err != nil {
+		return false, err
 	}
 	return true, nil
 }

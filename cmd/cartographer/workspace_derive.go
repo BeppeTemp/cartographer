@@ -85,6 +85,10 @@ func deriveWorkspaceBindings(cfg *clientconfig.Config, targets []string, dir str
 
 	commit := func() error {
 		if dryRun {
+			// The plan names every file the real run writes (D172 WP4).
+			if path, changed, err := clientconfig.DerivedWouldChange(dir, next); err == nil && changed {
+				fmt.Printf("[dry-run] would write %s\n", path)
+			}
 			return nil
 		}
 		return clientconfig.SaveDerived(dir, next)

@@ -368,6 +368,9 @@ func TestDoDisconnect_RemovesPersistedPerKBEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, ".claude.json"))
+	if os.IsNotExist(err) {
+		return // nothing else in it: the file went with the entries (#1269)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

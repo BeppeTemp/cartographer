@@ -71,12 +71,30 @@ func registerHookSettings(baseDir, settingsRel, hookName, fullDestDir string) (s
 	if settingsRel != "" {
 		settingsPath = filepath.Join(baseDir, filepath.FromSlash(settingsRel))
 	}
+	_, statErr := os.Lstat(settingsPath)
+	createdFile := errors.Is(statErr, os.ErrNotExist)
 	settings, layout, err := loadOrderedJSONObject(settingsPath)
 	if err != nil {
 		return "", false, err
 	}
+	rel, relErr := filepath.Rel(baseDir, settingsPath)
+	if !createdFile && relErr == nil {
+		// Stale provenance ends here (configurator.ReconcileCreated). An owner is
+		// present when the file holds an entry stripHookEntries would remove for
+		// it, not when its name merely appears somewhere in the file.
+		raw, _ := json.Marshal(settings)
+		if err := configurator.ReconcileCreated(baseDir, rel, func(o string) bool {
+			var probe map[string]interface{}
+			return json.Unmarshal(raw, &probe) == nil && stripHookEntries(probe, hookOwnershipMarker(o))
+		}); err != nil {
+			return "", false, err
+		}
+	}
 	upsertHookEntry(settings, hookOwnershipMarker(hookName), spec.Event, spec.Matcher, command)
 	err = saveOrderedJSONObject(baseDir, settingsPath, settings, layout)
+	if err == nil && relErr == nil {
+		err = configurator.NoteOwner(baseDir, rel, hookName, createdFile)
+	}
 	return warning, err == nil, err
 }
 
@@ -117,7 +135,22 @@ func removeHookEntries(baseDir, hookName string, rels ...string) error {
 		if !stripHookEntries(settings, hookOwnershipMarker(hookName)) {
 			continue
 		}
+		// A file Cartographer created and left as `{}` goes rather than staying
+		// behind after a disconnect (#1269); any other key, or a file that existed
+		// before us (it is not in the created ledger), keeps it.
+		if len(settings) == 0 && configurator.WasCreated(baseDir, rel) {
+			if err := safewrite.Remove(baseDir, settingsPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("provisioning: remove %s: %w", settingsPath, err)
+			}
+			if err := configurator.ForgetCreated(baseDir, rel); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := saveOrderedJSONObject(baseDir, settingsPath, settings, layout); err != nil {
+			return err
+		}
+		if err := configurator.DropOwner(baseDir, rel, hookName); err != nil {
 			return err
 		}
 	}

@@ -321,6 +321,10 @@ cartographer connect claude --pin-key homelab=0123...  # pin a KB Ed25519 public
 cartographer connect all --dry-run
 ```
 
+The provider (and, for `kb` subcommands, the KB name) may be written before, between or after the flags
+(`connect claude --kb all`, `connect --kb all claude`); a second positional is a usage error naming it
+(exit 2), never ignored. A `--server-url` ending in `/mcp/<segment>` that fails `/health` with 404 is answered with a hint that the server URL is the one ending in `/mcp`.
+
 | Flag | Default | Description |
 |------|---------|-------------|
 | (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `all` (all detected agents) |
@@ -332,6 +336,7 @@ cartographer connect all --dry-run
 | `--dry-run` | `false` | Prints what would be written, in the conditional (`would write`, `would connect`), and writes nothing ([D147](decisions/D147-every-reported-write-is-observed-never-intended.md)) |
 | `--allow-insecure-http` | `false` | Accepts a plain `http://` server URL that is not loopback and records `allow_insecure_http: true`; without it `connect` refuses such a URL (§Transport security, D1023) |
 | `--pin-key` | *(repeatable)* | Pins `KB=PUBLIC_KEY` for Ed25519-verified provisioning artifacts; existing pins are preserved |
+| `--unpin-key` | *(repeatable)* | Removes the pinned keys of a KB from `.cartographer.yaml`; applied before `--pin-key` (so both replace a pin), and a KB with no pin is an error. A pin that does not verify the server's artifacts fails `connect` with a signature error (exit 2, `.cartographer.yaml` untouched), not a "server unreachable" deferral |
 | `--no-input` | `false` | Never opens the interactive form, even in a TTY |
 | `--workspace` | *(unset)* | Projects the selected KBs into this repository instead of the global catalogue (D193) |
 | `--auto-trust` | `false` | Accepted and ignored, with a warning (D906) |
@@ -404,13 +409,15 @@ The inverse of `connect`: for each target provider — default `all` = every pro
 in the client state — it surgically removes every managed MCP server entry (the bare name and
 any persisted per-KB suffixed names) from that provider's
 config file (`internal/configurator.Remove`, the inverse non-destructive merge: the rest of the
-file is left intact; an emptied `mcpServers`/`mcp` map is dropped, and the file itself is deleted only when it is left an empty shell and the provider's registry entry sets `DeletableWhenEmpty`, never `.claude.json`), prunes the
+file is left intact; an emptied `mcpServers`/`mcp` map is dropped, and the file itself is deleted only when it is left an empty shell and the provider's registry entry sets `DeletableWhenEmpty`: `.claude.json` and the Claude Code hook settings files go only when Cartographer created them (recorded in `.cartographer-created.json` in the base dir, itself deleted with its last entry) and removing our entries leaves `{}`; a file that existed before, even as `{}`, or that holds another key, is kept), prunes the
 managed artifacts registered for that provider in the lockfile (`provisioning.PruneManaged` — only
 managed files, never untracked ones), then removes the provider from the lockfile and from
 the client state. If the lockfile ends up with no providers it is removed; `.cartographer.yaml`,
 on the other hand, is **never deleted** (D64): with zero agents it stays on disk with an empty agent list in the state file,
 preserving `server_url`/`server_name`/`auth`/`token`/`clients` as defaults for the next
 `connect` (a disconnect→connect restarts from the previous server, not from `http://127.0.0.1:39273/mcp`).
+The client state files also stay after a disconnect: `.cartographer.yaml`, `.cartographer-state.json`,
+`.cartographer-client.lock` (in the config directory), `.cartographer-created.json` (in the home or workspace, only while a Claude Code file it created is kept because it holds other keys) and `workspace-derived.json` (in the cache directory, `~/.config/cartographer/`). To remove every trace, delete them by hand once the last provider is disconnected.
 
 ```bash
 cartographer disconnect                # every connected provider
@@ -500,7 +507,7 @@ cartographer sync [--client <provider>]... [--dry-run] [--no-heal] [--log-file <
 | Flag | Default | Effect |
 |---|---|---|
 | `--client` | *(all)* | Syncs only this provider (repeatable). A provider left out is not touched at all: not its MCP entries, not its artifacts, not its lockfile entry |
-| `--dry-run` | `false` | Prints without writing |
+| `--dry-run` | `false` | Prints the plan without writing: every artifact and MCP entry, the `.cartographer.yaml` rewrite (only when its bytes would change) and the creation or update of `workspace-derived.json`; MCP entries are listed for removal only when they exist in the config |
 | `--no-heal` | `false` | Reports managed artifacts that diverged on disk instead of restoring them from the server (D139) |
 | `--log-file` | *(none)* | Appends this run's output to that file instead of stdout/stderr (created if absent, never rotated); the Windows sync task uses it, where nothing else records a failing background run (D217) |
 | `--auto-trust` | `false` | Accepted and ignored, with a warning (D906): session-start hooks written by older versions still pass it |

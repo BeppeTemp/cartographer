@@ -92,16 +92,36 @@ func LoadDerived(dir string) DerivedState {
 	return s
 }
 
-// SaveDerived records s as the derived bindings of the config directory dir.
-func SaveDerived(dir string, s DerivedState) error {
+// derivedBytes is the file SaveDerived writes for s.
+func derivedBytes(dir string, s DerivedState) (string, []byte, error) {
 	path, err := DerivedPath()
 	if err != nil {
-		return err
+		return "", nil, err
 	}
 	s.Version, s.ConfigDir = derivedVersion, dir
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
-		return fmt.Errorf("clientconfig: marshal derived bindings: %w", err)
+		return "", nil, fmt.Errorf("clientconfig: marshal derived bindings: %w", err)
+	}
+	return path, data, nil
+}
+
+// DerivedWouldChange reports whether SaveDerived would create or change the
+// file, and its path, without writing anything (#1268).
+func DerivedWouldChange(dir string, s DerivedState) (path string, changed bool, err error) {
+	path, data, err := derivedBytes(dir, s)
+	if err != nil {
+		return "", false, err
+	}
+	old, rerr := os.ReadFile(path)
+	return path, rerr != nil || string(old) != string(data), nil
+}
+
+// SaveDerived records s as the derived bindings of the config directory dir.
+func SaveDerived(dir string, s DerivedState) error {
+	path, data, err := derivedBytes(dir, s)
+	if err != nil {
+		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("clientconfig: mkdir %s: %w", filepath.Dir(path), err)

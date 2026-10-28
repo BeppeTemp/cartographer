@@ -57,19 +57,15 @@ func TestRegistryHasOneDescriptorPerProvider(t *testing.T) {
 	}
 }
 
-// .claude.json is Claude Code's own shared state file and is never deleted
-// (D63): the invariant lives in the descriptor now, so assert it there.
-func TestClaudeConfigIsNeverDeletable(t *testing.T) {
-	d, ok := Lookup(ProviderClaudeCode)
-	if !ok {
-		t.Fatal("no descriptor for claude")
-	}
-	if d.DeletableWhenEmpty {
-		t.Error("claude's config file must never be deletable when empty")
-	}
-	for _, other := range Providers() {
-		if other.Provider != ProviderClaudeCode && !other.DeletableWhenEmpty {
-			t.Errorf("%q: expected an MCP-only config file, deletable when empty", other.Provider)
+// .claude.json is Claude Code's own shared state file: deleted only when we
+// created it (DeleteOnlyIfCreated, #1269), the invariant lives in the descriptor.
+func TestEveryConfigIsDeletableWhenEmpty(t *testing.T) {
+	// Claude's .claude.json is shared state, but a removal that leaves `{}` has
+	// nothing of Claude's to keep either (#1269); one holding another key is
+	// kept (TestRemove_ClaudeJSONKeepsOtherKeys).
+	for _, d := range Providers() {
+		if !d.DeletableWhenEmpty {
+			t.Errorf("%q: expected the config file deletable when empty", d.Provider)
 		}
 	}
 }

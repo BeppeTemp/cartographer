@@ -22,12 +22,14 @@ import (
 // behind a symlink is kept connected (D148) and the exit status is 1, the
 // others being disconnected as usual.
 func cmdDisconnect(args []string) int {
-	target, rest := splitPositional(args, "")
+	var target string
 
 	fs := flag.NewFlagSet("disconnect", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "Print what would be removed without removing")
 	agentsCSV := fs.String("agents", "", "Comma-separated agent subset: claude,codex")
-	fs.Parse(rest)
+	if code := bindPositionals("disconnect", parseFlagsAnywhere(fs, args), &target); code != 0 {
+		return code
+	}
 
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
