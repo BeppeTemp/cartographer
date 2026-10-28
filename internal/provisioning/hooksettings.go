@@ -79,9 +79,14 @@ func registerHookSettings(baseDir, settingsRel, hookName, fullDestDir string) (s
 	}
 	rel, relErr := filepath.Rel(baseDir, settingsPath)
 	if !createdFile && relErr == nil {
-		// Stale provenance ends here (configurator.ReconcileCreated).
-		raw, _ := os.ReadFile(settingsPath)
-		if err := configurator.ReconcileCreated(baseDir, rel, func(o string) bool { return strings.Contains(string(raw), o) }); err != nil {
+		// Stale provenance ends here (configurator.ReconcileCreated). An owner is
+		// present when the file holds an entry stripHookEntries would remove for
+		// it, not when its name merely appears somewhere in the file.
+		raw, _ := json.Marshal(settings)
+		if err := configurator.ReconcileCreated(baseDir, rel, func(o string) bool {
+			var probe map[string]interface{}
+			return json.Unmarshal(raw, &probe) == nil && stripHookEntries(probe, hookOwnershipMarker(o))
+		}); err != nil {
 			return "", false, err
 		}
 	}

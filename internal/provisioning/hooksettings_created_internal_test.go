@@ -1,6 +1,7 @@
 package provisioning
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -84,6 +85,49 @@ func TestRemoveHookEntries_StaleProvenanceKeepsUsersFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, _, err := registerHookSettings(base, "", "notify", hookDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeHookEntries(base, "notify", ".claude/settings.json"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(settings); err != nil {
+		t.Fatalf("the user's own settings.json must stay: %v", err)
+	}
+}
+
+// A recreated user file that merely mentions the hook's name (here in an
+// env value) holds no entry of ours: the stale provenance still ends, so the
+// file stays once it is `{}` after our removal.
+func TestRegisterHookSettings_NameMentionIsNotOwnership(t *testing.T) {
+	base := t.TempDir()
+	settings := filepath.Join(base, ".claude", "settings.json")
+	hookDir := filepath.Join(base, "hook-src")
+	for _, d := range []string{filepath.Dir(settings), hookDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(hookDir, "hook.json"), []byte(`{"event":"PostToolUse","command":"./notify.sh"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := registerHookSettings(base, "", "notify", hookDir); err != nil {
+		t.Fatal(err)
+	}
+	// The user deletes the file we created and writes their own.
+	if err := os.WriteFile(settings, []byte(`{"env":{"NOTE":"notify"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := registerHookSettings(base, "", "notify", hookDir); err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	data, _ := os.ReadFile(settings)
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	delete(m, "env")
+	data, _ = json.Marshal(m)
+	if err := os.WriteFile(settings, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := removeHookEntries(base, "notify", ".claude/settings.json"); err != nil {
