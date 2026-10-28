@@ -165,6 +165,10 @@ type statusArtifact struct {
 	// does not: an "unrunnable" hook names the command and what is wrong with
 	// it (D267).
 	Detail string `json:"detail,omitempty"`
+	// HookSettings is the untracked settings file a pending hook registers in
+	// when a derived binding receives it (#1300), resolved by sync's own
+	// function; empty otherwise. Only the human output reads it.
+	HookSettings string `json:"-"`
 }
 
 // serviceSnapshot is part of the `service status --output json` contract:
@@ -472,6 +476,8 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		p.State = "drift"
 		p.Added, p.Updated, p.Removed = snapshotArtifacts(d.Added, cfg), snapshotArtifacts(d.Updated, cfg), snapshotRemoved(d.Removed)
 		p.Updated = append(p.Updated, snapshotArtifacts(held, cfg)...)
+		tagHookSettings(p.Added, provProjections[p.Name], manifests)
+		tagHookSettings(p.Updated, provProjections[p.Name], manifests)
 		s.State = "drift"
 	}
 	if s.Server != "" && s.Client != "" && s.Client != "dev" && s.Server != "dev" && s.Client != s.Server && s.State == "in_sync" {
@@ -554,6 +560,28 @@ func snapshotDiverged(findings []provisioning.DriftFinding) []statusArtifact {
 		out = append(out, statusArtifact{Kind: f.Kind, Name: f.Name, Path: f.Path, Trust: f.Reason, Detail: f.Detail})
 	}
 	return out
+}
+
+// tagHookSettings records on each pending hook the settings file the sync
+// registers it in: the HookSettingsRel of the derived projection that receives
+// it, the very field sync applies with (#1300). A hook no derived projection
+// receives keeps the provider's own registration file.
+func tagHookSettings(arts []statusArtifact, ps []syncProjection, manifests map[string]provisioning.Manifest) {
+	for i, a := range arts {
+		if a.Kind != "hook" {
+			continue
+		}
+		for _, sp := range ps {
+			if sp.HookSettingsRel == "" {
+				continue
+			}
+			for _, m := range manifests[projectionKey(sp)].Artifacts {
+				if m.Kind == "hook" && m.Name == a.Name {
+					arts[i].HookSettings = sp.HookSettingsRel
+				}
+			}
+		}
+	}
 }
 
 func snapshotArtifacts(artifacts []provisioning.Artifact, cfg *clientconfig.Config) []statusArtifact {
