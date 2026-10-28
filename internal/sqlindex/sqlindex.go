@@ -61,7 +61,7 @@ func Open(dbPath string) (*Index, error) {
 		}
 	}
 
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", dsn(dbPath))
 	if err != nil {
 		return nil, fmt.Errorf("sqlindex: open %s: %w", dbPath, err)
 	}
@@ -81,6 +81,20 @@ func Open(dbPath string) (*Index, error) {
 	}
 
 	return &Index{db: db, path: dbPath}, nil
+}
+
+// dsn is the SQLite URI of dbPath with the per-connection pragmas every
+// connection of the pool needs: a cache large enough for a cold rebuild
+// (the default 2 MB re-reads pages while FTS5 merges segments) and a wait for
+// the write lock, since a Batch holds it for up to batchSize concepts. The
+// path is escaped for the URI form: "%", "?" and "#" would end or alter it.
+func dsn(dbPath string) string {
+	p := filepath.ToSlash(dbPath)
+	if len(p) >= 2 && p[1] == ':' { // Windows drive: file:///C:/...
+		p = "/" + p
+	}
+	p = strings.NewReplacer("%", "%25", "?", "%3f", "#", "%23").Replace(p)
+	return "file:" + p + "?_pragma=cache_size(-65536)&_pragma=busy_timeout(10000)"
 }
 
 // schemaVersion is the concepts_fts layout this package writes. Version 2
@@ -179,46 +193,167 @@ func (ix *Index) Close() error {
 // meta and body columns here, the same way the in-memory index weights it.
 // assetsText is the searchable text of the concept's assets (D277), empty for
 // a concept that has none; contentHash should cover it (see the reconciler).
+// Many concepts in a row go through a Batch, which is several times faster.
 func (ix *Index) Upsert(id, contentHash, body, assetsText string) error {
-	_, err := ix.db.Exec(
-		`INSERT INTO concepts(id, content_hash, body) VALUES(?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET content_hash=excluded.content_hash, body=excluded.body`,
-		id, contentHash, body,
-	)
-	if err != nil {
-		return fmt.Errorf("sqlindex: upsert concepts: %w", err)
+	b := ix.Batch()
+	if err := b.Upsert(id, contentHash, body, assetsText); err != nil {
+		b.Rollback()
+		return err
 	}
-
-	if _, err := ix.db.Exec(`DELETE FROM concepts_fts WHERE id = ?`, id); err != nil {
-		return fmt.Errorf("sqlindex: delete fts: %w", err)
-	}
-	f := search.SplitFields(body)
-	if _, err := ix.db.Exec(`INSERT INTO concepts_fts(id, title, meta, body, assets) VALUES(?, ?, ?, ?, ?)`, id, f.Title, f.Meta, f.Body, assetsText); err != nil {
-		return fmt.Errorf("sqlindex: insert fts: %w", err)
-	}
-
-	if _, err := ix.db.Exec(`DELETE FROM sections_fts WHERE id = ?`, id); err != nil {
-		return fmt.Errorf("sqlindex: delete sections: %w", err)
-	}
-	for _, sec := range okf.Level2Sections(f.Body) {
-		if _, err := ix.db.Exec(`INSERT INTO sections_fts(id, heading, title, body) VALUES(?, ?, ?, ?)`, id, sec.Heading, sec.Title, sec.Text); err != nil {
-			return fmt.Errorf("sqlindex: insert section: %w", err)
-		}
-	}
-
-	return nil
+	return b.Commit()
 }
 
 // Delete removes a concept's content from both the concepts table and the
 // FTS5 index (used by concept_delete).
 func (ix *Index) Delete(id string) error {
-	if _, err := ix.db.Exec(`DELETE FROM concepts_fts WHERE id = ?`, id); err != nil {
+	b := ix.Batch()
+	if err := b.Delete(id); err != nil {
+		b.Rollback()
+		return err
+	}
+	return b.Commit()
+}
+
+// batchSize is how many concepts a Batch writes per transaction. FTS5 builds
+// its segment when a transaction commits, so one transaction per concept
+// rebuilt and merged segments hundreds of times on a cold start (#1329); a
+// bounded group keeps the write lock and the in-memory hash short.
+const batchSize = 100
+
+// Batch groups the writes of a reconciliation into transactions of batchSize
+// concepts. It is not safe for concurrent use, and while one is open another
+// writer waits (busy_timeout): callers are already serialised by the
+// reconciler. Always end it with Commit or Rollback.
+type Batch struct {
+	ix *Index
+	tx *sql.Tx
+	n  int
+}
+
+// Batch starts a Batch; the first transaction opens on the first write.
+func (ix *Index) Batch() *Batch { return &Batch{ix: ix} }
+
+func (b *Batch) txn() (*sql.Tx, error) {
+	if b.tx != nil && b.n >= batchSize {
+		if err := b.Commit(); err != nil {
+			return nil, err
+		}
+	}
+	if b.tx == nil {
+		tx, err := b.ix.db.Begin()
+		if err != nil {
+			return nil, fmt.Errorf("sqlindex: begin: %w", err)
+		}
+		b.tx, b.n = tx, 0
+	}
+	b.n++
+	return b.tx, nil
+}
+
+// Commit commits the open transaction, if any. The Batch stays usable.
+func (b *Batch) Commit() error {
+	if b.tx == nil {
+		return nil
+	}
+	tx := b.tx
+	b.tx = nil
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("sqlindex: commit: %w", err)
+	}
+	return nil
+}
+
+// Rollback discards the open transaction, if any (the concepts of earlier
+// commits stay). A failed write already needs it: the concept it was writing
+// must not be half indexed.
+func (b *Batch) Rollback() {
+	if b.tx != nil {
+		_ = b.tx.Rollback()
+		b.tx = nil
+	}
+}
+
+// Upsert is Index.Upsert inside the batch's transaction. On error the whole
+// open transaction is rolled back, so the concept is never half indexed.
+func (b *Batch) Upsert(id, contentHash, body, assetsText string) error {
+	tx, err := b.txn()
+	if err != nil {
+		return err
+	}
+	if err := upsertTx(tx, id, contentHash, body, assetsText); err != nil {
+		b.Rollback()
+		return err
+	}
+	return nil
+}
+
+// Delete is Index.Delete inside the batch's transaction.
+func (b *Batch) Delete(id string) error {
+	tx, err := b.txn()
+	if err != nil {
+		return err
+	}
+	if err := deleteTx(tx, id); err != nil {
+		b.Rollback()
+		return err
+	}
+	return nil
+}
+
+func upsertTx(tx *sql.Tx, id, contentHash, body, assetsText string) error {
+	// Trap: an FTS5 DELETE opens a statement savepoint, and FTS5 flushes its
+	// in-memory hash at every savepoint, so a DELETE that matches nothing
+	// still cost a segment per concept on a cold rebuild (#1329). Only a
+	// concept already indexed has rows to delete.
+	var known int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM concepts WHERE id = ?`, id).Scan(&known); err != nil {
+		return fmt.Errorf("sqlindex: lookup concept: %w", err)
+	}
+	if _, err := tx.Exec(
+		`INSERT INTO concepts(id, content_hash, body) VALUES(?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET content_hash=excluded.content_hash, body=excluded.body`,
+		id, contentHash, body,
+	); err != nil {
+		return fmt.Errorf("sqlindex: upsert concepts: %w", err)
+	}
+
+	if known > 0 {
+		if _, err := tx.Exec(`DELETE FROM concepts_fts WHERE id = ?`, id); err != nil {
+			return fmt.Errorf("sqlindex: delete fts: %w", err)
+		}
+		if _, err := tx.Exec(`DELETE FROM sections_fts WHERE id = ?`, id); err != nil {
+			return fmt.Errorf("sqlindex: delete sections: %w", err)
+		}
+	}
+	f := search.SplitFields(body)
+	if _, err := tx.Exec(`INSERT INTO concepts_fts(id, title, meta, body, assets) VALUES(?, ?, ?, ?, ?)`, id, f.Title, f.Meta, f.Body, assetsText); err != nil {
+		return fmt.Errorf("sqlindex: insert fts: %w", err)
+	}
+	secs := okf.Level2Sections(f.Body)
+	if len(secs) == 0 {
+		return nil
+	}
+	stmt, err := tx.Prepare(`INSERT INTO sections_fts(id, heading, title, body) VALUES(?, ?, ?, ?)`)
+	if err != nil {
+		return fmt.Errorf("sqlindex: prepare section: %w", err)
+	}
+	defer stmt.Close()
+	for _, sec := range secs {
+		if _, err := stmt.Exec(id, sec.Heading, sec.Title, sec.Text); err != nil {
+			return fmt.Errorf("sqlindex: insert section: %w", err)
+		}
+	}
+	return nil
+}
+
+func deleteTx(tx *sql.Tx, id string) error {
+	if _, err := tx.Exec(`DELETE FROM concepts_fts WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("sqlindex: delete fts: %w", err)
 	}
-	if _, err := ix.db.Exec(`DELETE FROM sections_fts WHERE id = ?`, id); err != nil {
+	if _, err := tx.Exec(`DELETE FROM sections_fts WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("sqlindex: delete sections: %w", err)
 	}
-	if _, err := ix.db.Exec(`DELETE FROM concepts WHERE id = ?`, id); err != nil {
+	if _, err := tx.Exec(`DELETE FROM concepts WHERE id = ?`, id); err != nil {
 		return fmt.Errorf("sqlindex: delete concepts: %w", err)
 	}
 	return nil

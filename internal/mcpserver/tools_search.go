@@ -528,18 +528,23 @@ func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, 
 // the number of concepts upserted.
 func rebuildSQLIndex(k *kb.KB, ix *sqlindex.Index) int {
 	upserted := 0
+	w := ix.Batch()
+	defer w.Rollback()
 
 	k.WalkConcepts(func(id okf.ConceptID, content string) error {
 		conceptID := string(id)
 		contentHash := okf.ContentHash(content)
 
 		assets, sig, _ := k.IndexableAssetText(id) // no assets (or not expanded): empty
-		if err := ix.Upsert(conceptID, assetContentHash(contentHash, sig), content, assets); err != nil {
+		if err := w.Upsert(conceptID, assetContentHash(contentHash, sig), content, assets); err != nil {
 			return nil
 		}
 		upserted++
 		return nil
 	})
+	if err := w.Commit(); err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: search index: SQLite commit: %v\n", err)
+	}
 
 	return upserted
 }
