@@ -1,6 +1,7 @@
 package okf
 
 import (
+	"errors"
 	"reflect"
 	"sort"
 	"strings"
@@ -551,5 +552,18 @@ func TestSerialize_PreservesLeadingRealComment(t *testing.T) {
 	}
 	if out := fm.Serialize(); out != "# comment\ntype: Note" {
 		t.Fatalf("got %q", out)
+	}
+}
+
+func TestSerializeEntry_RefusesNestedValues(t *testing.T) {
+	for _, v := range []interface{}{map[string]interface{}{"a": 1}, []interface{}{map[string]interface{}{"x": 1}}, []interface{}{[]interface{}{"a"}}} {
+		if _, err := serializeEntry("cfg", v); !errors.Is(err, ErrNestedFrontmatter) {
+			t.Fatalf("%v: err = %v", v, err)
+		}
+	}
+	for _, v := range []interface{}{"s", []string{"a"}, 3, true, 1.5, nil} {
+		if _, err := serializeEntry("k", v); err != nil {
+			t.Fatalf("%v: %v", v, err)
+		}
 	}
 }

@@ -73,7 +73,9 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			if err != nil {
 				return errorResult("internal frontmatter error: " + err.Error()), nil
 			}
-			applyFrontmatterMap(fm, params.Frontmatter)
+			if err := applyFrontmatterMap(fm, params.Frontmatter); err != nil {
+				return errorResult("concept_write: " + err.Error()), nil
+			}
 
 			isNew := conceptIsNew(k, params.ID)
 			// index_entry is creation only, as in concept_new (D714, D1099):
@@ -433,7 +435,21 @@ func renderTemplateText(source string, vars map[string]string) string {
 // write if the required field ends up missing.
 // Shared by concept_write (full frontmatter) and concept_patch (optional
 // partial frontmatter merge, D70).
-func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) {
+func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) error {
+	// Refuse before touching fm: a nested value fails the whole call (D1313).
+	for _, key := range sortedKeys(m) {
+		switch v := m[key].(type) {
+		case map[string]interface{}:
+			return nestedFrontmatterError(key)
+		case []interface{}:
+			for _, item := range v {
+				switch item.(type) {
+				case map[string]interface{}, []interface{}:
+					return nestedFrontmatterError(key)
+				}
+			}
+		}
+	}
 	for key, val := range m {
 		switch v := val.(type) {
 		case string:
@@ -450,6 +466,11 @@ func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) {
 			fm.Set(key, fmt.Sprintf("%v", val))
 		}
 	}
+	return nil
+}
+
+func nestedFrontmatterError(key string) error {
+	return fmt.Errorf("%w: key %q: nested values (a map, or a list holding a map or a list) are not supported; flatten the keys or put the structure in the body", okf.ErrNestedFrontmatter, key)
 }
 
 // writeConceptAndLog writes a concept via k.WriteConcept and appends its
@@ -2990,7 +3011,9 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 					if err != nil {
 						return errorResult(fmt.Sprintf("%s: internal frontmatter error: %v", label, err)), nil
 					}
-					applyFrontmatterMap(fm, op.Frontmatter)
+					if err := applyFrontmatterMap(fm, op.Frontmatter); err != nil {
+						return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
+					}
 					body = op.Body
 
 				case "patch":

@@ -1561,6 +1561,9 @@ func (kb *KB) prepareWriteConceptMode(id okf.ConceptID, fm *okf.Frontmatter, bod
 	if body != "" && !strings.HasSuffix(body, "\n") {
 		body += "\n"
 	}
+	if err := fm.Validate(); err != nil {
+		return nil, err
+	}
 	serialized := fm.Serialize()
 	if err := okf.VerifyRoundTrip(serialized); err != nil {
 		return nil, fmt.Errorf("%w: %v", okf.ErrInvalidConcept, err)
