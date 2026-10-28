@@ -60,6 +60,12 @@ func TestSetTwiceOnExistingFileRealSOPS(t *testing.T) {
 		t.Skip("age-keygen is not installed")
 	}
 	root := t.TempDir()
+	realSOPSFixtureRun(t, root)
+}
+
+// realSOPSFixtureRun is the body of the test above, on root.
+func realSOPSFixtureRun(t *testing.T, root string) {
+	t.Helper()
 	keyFile := filepath.Join(t.TempDir(), "k.age")
 	if out, err := exec.Command("age-keygen", "-o", keyFile).CombinedOutput(); err != nil {
 		t.Fatalf("age-keygen: %v: %s", err, out)
@@ -71,7 +77,7 @@ func TestSetTwiceOnExistingFileRealSOPS(t *testing.T) {
 	writeConfig(t, root, "creation_rules:\n  - path_regex: ^secrets/.*\\.sops\\.yaml$\n    age: "+strings.TrimSpace(string(pub))+"\n")
 	env := AgeKeyEnv(keyFile)
 	if err := Create(root, "secrets/app.sops.yaml", "/PW", "one", keyFile, env...); err != nil {
-		t.Fatalf("create: %v", err)
+		t.Fatalf("create: %v\nsops stderr: %s", err, sopsStderr(root))
 	}
 	for _, v := range []string{"two", "three"} {
 		if err := Set(root, "secrets/app.sops.yaml", "/PW", v, env...); err != nil {
@@ -82,6 +88,35 @@ func TestSetTwiceOnExistingFileRealSOPS(t *testing.T) {
 	if err != nil || sf.Values["PW"] != "three" {
 		t.Fatalf("decrypt: %v %v", err, sf)
 	}
+}
+
+// #1337: the server drops sops stderr (it may echo a value), so a failure of
+// the real-sops tests re-runs the same encrypt on a dummy document to show why.
+func sopsStderr(root string) string {
+	cmd := exec.Command("sops", "--config", filepath.Join(root, ".sops.yaml"), "encrypt", "--filename-override", "secrets/app.sops.yaml", "--input-type", "yaml", "--output-type", "yaml")
+	cmd.Dir = root
+	cmd.Stdin = strings.NewReader("dummy: x\n")
+	out, _ := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out))
+}
+
+// #1337: sops matches the creation rules against the path relative to the
+// config and reads its cwd from the OS, so a KB reached through a symlink
+// (macOS t.TempDir is /var -> /private/var) matched no rule and every create
+// failed with "sops encrypt failed".
+func TestCreateThroughASymlinkedKBRootRealSOPS(t *testing.T) {
+	if !Available() {
+		t.Skip("sops is not installed")
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "kb-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	realSOPSFixtureRun(t, link)
 }
 
 func TestSetFailureNamesTheStepWithoutSOPSOutput(t *testing.T) {

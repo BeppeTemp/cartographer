@@ -209,7 +209,10 @@ error of a failed decrypt.
 Use `secret_refs` for least privilege: each list item is
 `NAME=secrets/file.sops.yaml#/json-pointer`. Resolution returns only the
 declared `NAME` values. Existing descriptors without `secret_refs` retain the
-legacy `secrets_source` whole-file behavior.
+legacy `secrets_source` whole-file behavior. `secrets_source` is a list of
+`secrets/*.sops.yaml` files (a plain string is read as a one-element list):
+every listed file is resolved in order, and a key present in two of them is an
+error naming both files (#1323).
 
 ### The operator/Cartographer boundary
 

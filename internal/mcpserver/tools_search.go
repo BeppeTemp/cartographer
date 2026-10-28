@@ -525,23 +525,24 @@ func keywordHitsReconciled(ctx requestContext, k *kb.KB, rec *searchReconciler, 
 
 // rebuildSQLIndex walks all KB concepts and upserts them into ix's FTS5
 // table: `reindex(full: true)`, run by searchReconciler.rebuild. It returns
-// the number of concepts upserted.
+// the number of concepts actually committed.
 func rebuildSQLIndex(k *kb.KB, ix *sqlindex.Index) int {
-	upserted := 0
+	w := ix.Batch()
+	defer w.Rollback()
 
 	k.WalkConcepts(func(id okf.ConceptID, content string) error {
 		conceptID := string(id)
 		contentHash := okf.ContentHash(content)
 
-		assets, sig, _ := k.IndexableAssetText(id) // no assets (or not expanded): empty
-		if err := ix.Upsert(conceptID, assetContentHash(contentHash, sig), content, assets); err != nil {
-			return nil
-		}
-		upserted++
+		assets, sig, _ := k.IndexableAssetText(id)                                   // no assets (or not expanded): empty
+		_ = w.Upsert(conceptID, assetContentHash(contentHash, sig), content, assets) // a failed concept is skipped; Written counts the rest
 		return nil
 	})
+	if err := w.Commit(); err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: search index: SQLite commit: %v\n", err)
+	}
 
-	return upserted
+	return w.Written()
 }
 
 // EnsureSQLIndexFresh reconciles SQLite FTS5 with the KB files at startup.

@@ -148,7 +148,9 @@ func applyPatchFrontmatter(fm *okf.Frontmatter, p patchFrontmatter) (dropped str
 		}
 	}
 
-	applyFrontmatterMap(fm, p.Merge)
+	if err := applyFrontmatterMap(fm, p.Merge); err != nil {
+		return "", err
+	}
 
 	// Compute every append/remove result before mutating, so a Block value
 	// in any key leaves fm untouched.

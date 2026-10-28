@@ -853,8 +853,8 @@ func TestScanDataDir(t *testing.T) {
 
 	// A missing data dir is reported, never created: `kb list` writes nothing.
 	absent := filepath.Join(t.TempDir(), "nope")
-	if _, err := scanDataDir(absent); err == nil {
-		t.Error("a missing data dir should be an error")
+	if rows, err := scanDataDir(absent); err != nil || len(rows) != 0 {
+		t.Errorf("a missing data dir is an empty listing (#1304): %v, %v", rows, err)
 	}
 	if _, err := os.Stat(absent); err == nil {
 		t.Error("kb list must not create the data dir")

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -73,7 +74,9 @@ func toolConceptWrite(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 			if err != nil {
 				return errorResult("internal frontmatter error: " + err.Error()), nil
 			}
-			applyFrontmatterMap(fm, params.Frontmatter)
+			if err := applyFrontmatterMap(fm, params.Frontmatter); err != nil {
+				return errorResult("concept_write: " + err.Error()), nil
+			}
 
 			isNew := conceptIsNew(k, params.ID)
 			// index_entry is creation only, as in concept_new (D714, D1099):
@@ -433,23 +436,64 @@ func renderTemplateText(source string, vars map[string]string) string {
 // write if the required field ends up missing.
 // Shared by concept_write (full frontmatter) and concept_patch (optional
 // partial frontmatter merge, D70).
-func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) {
-	for key, val := range m {
-		switch v := val.(type) {
+func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) error {
+	// Refuse and format everything before touching fm (D1313).
+	set := map[string]interface{}{}
+	var unset []string
+	for _, key := range sortedKeys(m) {
+		switch v := m[key].(type) {
+		case nil:
+			unset = append(unset, key)
 		case string:
-			fm.Set(key, v)
+			set[key] = v
 		case []interface{}:
 			ss := make([]string, len(v))
 			for i, item := range v {
-				ss[i] = fmt.Sprintf("%v", item)
+				str, err := frontmatterScalar(key, item)
+				if err != nil {
+					return err
+				}
+				ss[i] = str
 			}
-			fm.Set(key, ss)
-		case nil:
-			fm.Delete(key)
+			set[key] = ss
 		default:
-			fm.Set(key, fmt.Sprintf("%v", val))
+			str, err := frontmatterScalar(key, v)
+			if err != nil {
+				return err
+			}
+			set[key] = str
 		}
 	}
+	for _, key := range unset {
+		fm.Delete(key)
+	}
+	for key, v := range set {
+		fm.Set(key, v)
+	}
+	return nil
+}
+
+// frontmatterScalar renders one JSON scalar (a value or a list item) as the
+// string okf stores. null, maps and lists are refused; no %v (D1313).
+func frontmatterScalar(key string, v interface{}) (string, error) {
+	switch x := v.(type) {
+	case string:
+		return x, nil
+	case bool:
+		return strconv.FormatBool(x), nil
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64), nil
+	case json.Number:
+		return x.String(), nil
+	case nil:
+		return "", fmt.Errorf("%w: key %q: a null list item is not supported; remove it or use a string", okf.ErrNestedFrontmatter, key)
+	default:
+		return "", nestedFrontmatterError(key)
+	}
+}
+
+func nestedFrontmatterError(key string) error {
+	return fmt.Errorf("%w: key %q: nested values (a map, or a list holding a map or a list) are not supported; flatten the keys or put the structure in the body", okf.ErrNestedFrontmatter, key)
 }
 
 // writeConceptAndLog writes a concept via k.WriteConcept and appends its
@@ -457,6 +501,9 @@ func applyFrontmatterMap(fm *okf.Frontmatter, m map[string]interface{}) {
 // concept_patch (D70). It does no index work: the next search reconciles the
 // indexes with the files (D245). logPrefix labels the log.md entry.
 func writeConceptAndLog(k *kb.KB, logPrefix string, id string, fm *okf.Frontmatter, body string, ifMatch string) (string, error) {
+	if err := introducedTypeViolation(k, id, fm); err != nil {
+		return "", err
+	}
 	newHash, err := k.WriteConcept(okf.ConceptID(id), fm, body, ifMatch)
 	if err != nil {
 		return "", err
@@ -2990,7 +3037,9 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 					if err != nil {
 						return errorResult(fmt.Sprintf("%s: internal frontmatter error: %v", label, err)), nil
 					}
-					applyFrontmatterMap(fm, op.Frontmatter)
+					if err := applyFrontmatterMap(fm, op.Frontmatter); err != nil {
+						return errorResult(fmt.Sprintf("%s: %v", label, err)), nil
+					}
 					body = op.Body
 
 				case "patch":
@@ -3155,8 +3204,40 @@ func strictTypeViolation(meta *okf.Frontmatter, archiveName, conceptType string)
 	return fmt.Errorf("type %q not allowed in map %s (strict)", conceptType, archiveName)
 }
 
+// introducedTypeViolation is the one strict-type rule of every write tool
+// (D1314): a write is refused when it introduces a type its map does not
+// declare, a new page or a type change. A write that leaves the type of an
+// existing page as it is passes even if that type is already undeclared: the
+// page is no worse, as kb.RepairConcept reasons. concept_write, concept_new and
+// concept_patch reach it through writeConceptAndLog, concept_batch through
+// its preflight; a move into another map has moveTypeViolation.
+func introducedTypeViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
+	parts := strings.SplitN(id, "/", 2)
+	if len(parts) < 2 {
+		return nil
+	}
+	meta, err := k.ReadArchiveMeta(parts[0])
+	if err != nil {
+		return nil
+	}
+	conceptType := fm.Type()
+	violation := strictTypeViolation(meta, parts[0], conceptType)
+	if violation == nil {
+		return nil
+	}
+	if existing, err := k.ReadConcept(okf.ConceptID(id)); err == nil {
+		if old, perr := okf.ParseFrontmatter(existing.FrontmatterRaw); perr == nil && old.Type() == conceptType {
+			return nil
+		}
+	}
+	declared, _ := meta.Get("concept_types")
+	list, _ := declared.([]string)
+	return fmt.Errorf("%w; declared types: %s. Use one of them; to fix an existing page of another type, change its type (or run kb_repair)",
+		violation, strings.Join(list, ", "))
+}
+
 // mapContractViolation checks a proposed concept id/frontmatter against its
-// Map's strict-ontology palette and required-field contract — the same
+// Map's strict-ontology palette (only a type it introduces, D1314) and required-field contract — the same
 // checks kb.Validate's inline ontology pass and lint's missing_required_field
 // finding perform after a write. concept_batch's preflight (D125 WP1) must
 // catch them before any file changes: v1 offers no per-operation recovery
@@ -3168,12 +3249,8 @@ func mapContractViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
 		return nil
 	}
 	archiveName := parts[0]
-	meta, err := k.ReadArchiveMeta(archiveName)
-	if err != nil {
-		return nil
-	}
 	conceptType := fm.Type()
-	if err := strictTypeViolation(meta, archiveName, conceptType); err != nil {
+	if err := introducedTypeViolation(k, id, fm); err != nil {
 		return err
 	}
 	contract, err := k.ReadMapContract(archiveName)

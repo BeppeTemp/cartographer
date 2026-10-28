@@ -1,6 +1,7 @@
 package okf
 
 import (
+	"errors"
 	"reflect"
 	"sort"
 	"strings"
@@ -551,5 +552,37 @@ func TestSerialize_PreservesLeadingRealComment(t *testing.T) {
 	}
 	if out := fm.Serialize(); out != "# comment\ntype: Note" {
 		t.Fatalf("got %q", out)
+	}
+}
+
+func TestSerializeEntry_RefusesNestedValues(t *testing.T) {
+	for _, v := range []interface{}{map[string]interface{}{"a": 1}, []interface{}{map[string]interface{}{"x": 1}}, []interface{}{[]interface{}{"a"}}} {
+		if _, err := serializeEntry("cfg", v); !errors.Is(err, ErrNestedFrontmatter) {
+			t.Fatalf("%v: err = %v", v, err)
+		}
+	}
+	for _, v := range []interface{}{"s", []string{"a"}, 3, true, 1.5, nil} {
+		if _, err := serializeEntry("k", v); err != nil {
+			t.Fatalf("%v: %v", v, err)
+		}
+	}
+}
+
+func TestSerialize_PanicsOnUnsupportedType(t *testing.T) {
+	fm, err := ParseFrontmatter("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm.Set("cfg", map[string]interface{}{"a": 1})
+	for name, f := range map[string]func(){"Serialize": func() { fm.Serialize() }, "CanonicalString": func() { fm.CanonicalString() }} {
+		func() {
+			defer func() {
+				r := recover()
+				if msg, _ := r.(string); !strings.Contains(msg, `"cfg"`) || !strings.Contains(msg, "map[string]interface") {
+					t.Fatalf("%s: recover = %v", name, r)
+				}
+			}()
+			f()
+		}()
 	}
 }

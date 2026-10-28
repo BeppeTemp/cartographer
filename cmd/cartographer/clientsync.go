@@ -1074,22 +1074,29 @@ func hookRegistrationManagedFile(provider string, w provisioning.ManagedFile) bo
 // the registration, so its own path is printed instead of a separate shared
 // file).
 func printHookRegistered(label, provider, dir string, w provisioning.ManagedFile, settingsRel string) {
-	p := configurator.Provider(provider)
-	var registeredIn string
-	switch {
-	case provisioning.HookPluginRelPath(p, w.Name) != "":
-		// The generated plugin *is* the registration (D59): print its own path.
-		registeredIn = filepath.Join(dir, w.Path)
-	case settingsRel != "":
-		// A derived Claude Code binding registers in its untracked local
-		// settings, not in settings.json (#1275).
-		registeredIn = filepath.Join(dir, settingsRel)
-	case provisioning.HookRegistrationFile(p) != "":
-		registeredIn = filepath.Join(dir, provisioning.HookRegistrationFile(p))
-	default:
+	registeredIn, _ := hookRegistrationTarget(configurator.Provider(provider), w.Name, w.Path, settingsRel)
+	if registeredIn == "" {
 		return
 	}
-	fmt.Printf("[%s] hook %q registered in %s\n", label, w.Name, registeredIn)
+	fmt.Printf("[%s] hook %q registered in %s\n", label, w.Name, filepath.Join(dir, registeredIn))
+}
+
+// hookRegistrationTarget is the one resolution of where a hook is registered,
+// relative to the scope's base directory, shared by what sync prints and what
+// status predicts (#1300): the generated plugin (plugin true: the file is the
+// registration itself, managedPath), else the untracked settings file of a
+// derived Claude Code binding (settingsRel, #1275), else the provider's own
+// file. Empty when the provider has no registration of its own.
+func hookRegistrationTarget(p configurator.Provider, hook, managedPath, settingsRel string) (rel string, plugin bool) {
+	switch {
+	case provisioning.HookPluginRelPath(p, hook) != "":
+		// The generated plugin *is* the registration (D59): its own path.
+		return managedPath, true
+	case settingsRel != "":
+		return settingsRel, false
+	default:
+		return provisioning.HookRegistrationFile(p), false
+	}
 }
 
 // sortedKeys returns the keys of a map[string]provisioning.AppliedResult sorted,
