@@ -73,7 +73,7 @@ func TestServiceAndSecretResolveScopeDeclaredRefs(t *testing.T) {
 	}
 	args, _ = json.Marshal(map[string]any{"concept_id": "dossier", "names": []string{"UNKNOWN"}})
 	got, _ = toolSecretResolve(k).Handler(authLocalContext(), args)
-	if got.IsError || got.Content[0].Text != "" {
+	if !got.IsError || !strings.Contains(got.Content[0].Text, `unknown name "UNKNOWN"`) {
 		t.Fatalf("unknown filter=%#v", got)
 	}
 	writeSecretConcept(t, k.Root, "none", "type: Dossier\n")
