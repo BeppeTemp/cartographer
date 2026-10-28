@@ -476,3 +476,19 @@ func TestConnectWritesTheConfigTheFirstSyncWouldWrite(t *testing.T) {
 		t.Error("connect spent the migration of a client that was already connected")
 	}
 }
+
+// TestLockHoldsNothing_UnreadableLockKeepsTheMigration pins #1302's guard: only
+// an absent or empty lockfile lets connect mark the approvals migrated; an
+// unparseable one may hide an earlier install, so the first sync must migrate.
+func TestLockHoldsNothing_UnreadableLockKeepsTheMigration(t *testing.T) {
+	dir := t.TempDir()
+	if !lockHoldsNothing(dir) {
+		t.Fatal("an absent lockfile must hold nothing")
+	}
+	if err := os.WriteFile(lockFilePath(dir), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if lockHoldsNothing(dir) {
+		t.Fatal("an unparseable lockfile must not count as empty")
+	}
+}

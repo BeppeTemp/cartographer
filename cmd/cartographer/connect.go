@@ -1230,9 +1230,11 @@ func applyConnectAccess(cfg *clientconfig.Config, opts connectOptions, routedPat
 	return nil
 }
 
-// lockHoldsNothing reports whether dir's lockfile records no projection: absent,
-// unreadable and empty all mean no earlier install to migrate (#1302).
+// lockHoldsNothing reports whether dir's lockfile records no projection: absent
+// or empty mean no earlier install to migrate (#1302). An unreadable or
+// unparseable lock may hide one, so it answers false and the first sync keeps
+// the pre-approval migration (D1166).
 func lockHoldsNothing(dir string) bool {
 	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
-	return err != nil || len(lf.Projections()) == 0
+	return err == nil && len(lf.Projections()) == 0
 }
