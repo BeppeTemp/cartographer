@@ -737,7 +737,14 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		kbRoot := kbRoots[kbName]
 		tracked, err := kbTrackedFilter(kbRoot)
 		if err != nil {
-			return Manifest{}, err
+			// One KB whose git cannot answer withholds its own artifacts and
+			// nothing else (D1325).
+			issue := fmt.Sprintf("KB %q: artifacts withheld: %v", kbName, err)
+			issues = append(issues, issue)
+			if opts.SkillDiagnostic != nil {
+				opts.SkillDiagnostic(issue)
+			}
+			continue
 		}
 
 		// 2. Skill (skills/<name>/SKILL.md, several files per artifact). A KB with
@@ -772,7 +779,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 			skillNames = append(skillNames, s.Name)
 			skillDir := filepath.Join(kbRoot, s.DirPath)
 			skillInclude := tracked.under(s.DirPath)
-			if !tracked.hasAny(s.DirPath + "/") {
+			if !tracked.has(s.DirPath + "/SKILL.md") {
 				continue // nothing of it is tracked: not an artifact (#1325)
 			}
 			hash, err := contentHashDirTracked(skillDir, "skill", skillInclude)
@@ -4642,6 +4649,9 @@ func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([
 
 	switch a.Kind {
 	case "agent":
+		if !tracked.has("agents/" + a.Name + ".md") {
+			return nil, fmt.Errorf("provisioning: agent %s is not tracked by git in KB %q", a.Name, kbName)
+		}
 		agentPath := filepath.Join(kbRoot, "agents", a.Name+".md")
 		data, err := os.ReadFile(agentPath)
 		if err != nil {
@@ -4649,6 +4659,9 @@ func ReadArtifactFiles(a Artifact, bundleFS fs.FS, kbRoots map[string]string) ([
 		}
 		return []ArtifactFile{{Path: a.Name + ".md", Content: data}}, nil
 	case "mcp":
+		if !tracked.has("mcp/" + a.Name + ".json") {
+			return nil, fmt.Errorf("provisioning: mcp %s is not tracked by git in KB %q", a.Name, kbName)
+		}
 		mcpPath := filepath.Join(kbRoot, "mcp", a.Name+".json")
 		data, err := os.ReadFile(mcpPath)
 		if err != nil {

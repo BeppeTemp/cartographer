@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // kbTracked is the set of files git tracks in a KB clone, as slash paths
@@ -17,10 +18,24 @@ type kbTracked struct{ set map[string]bool }
 
 // kbTrackedFilter lists what git tracks in kbRoot. A directory without a .git
 // entry (a plain folder, a test fixture) is not filtered; when git cannot
-// answer, the build fails rather than distributing the working tree.
+// answer, it returns an error and the caller withholds that KB's artifacts
+// rather than distributing the working tree (D1325). The listing is cached per
+// KB root and revalidated against the index file's mtime and size, so a build
+// that reads many artifacts runs git once and manifest and served files agree.
 func kbTrackedFilter(kbRoot string) (kbTracked, error) {
-	if _, err := os.Lstat(filepath.Join(kbRoot, ".git")); err != nil {
+	gitPath := filepath.Join(kbRoot, ".git")
+	info, err := os.Lstat(gitPath)
+	if err != nil {
 		return kbTracked{}, nil
+	}
+	key := trackedIndexKey(gitPath, info)
+	if key != "" {
+		trackedCache.Lock()
+		e, ok := trackedCache.m[kbRoot]
+		trackedCache.Unlock()
+		if ok && e.key == key {
+			return kbTracked{set: e.set}, nil
+		}
 	}
 	out, err := exec.Command("git", "-C", kbRoot, "ls-files", "-z", "--", "skills", "agents", "hooks", "mcp").Output()
 	if err != nil {
@@ -32,7 +47,48 @@ func kbTrackedFilter(kbRoot string) (kbTracked, error) {
 			set[filepath.ToSlash(p)] = true
 		}
 	}
+	if key != "" && trackedIndexKey(gitPath, info) == key {
+		trackedCache.Lock()
+		trackedCache.m[kbRoot] = trackedEntry{key: key, set: set}
+		trackedCache.Unlock()
+	}
 	return kbTracked{set: set}, nil
+}
+
+type trackedEntry struct {
+	key string
+	set map[string]bool
+}
+
+var trackedCache = struct {
+	sync.Mutex
+	m map[string]trackedEntry
+}{m: map[string]trackedEntry{}}
+
+// trackedIndexKey identifies the state of the git index of the clone whose
+// ".git" entry is gitPath (a directory, or a file pointing at the git dir of a
+// worktree). Empty when it cannot be told: the caller then does not cache.
+func trackedIndexKey(gitPath string, info os.FileInfo) string {
+	dir := gitPath
+	if !info.IsDir() {
+		raw, err := os.ReadFile(gitPath)
+		if err != nil {
+			return ""
+		}
+		line := strings.TrimSpace(string(raw))
+		if !strings.HasPrefix(line, "gitdir:") {
+			return ""
+		}
+		dir = strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
+		if !filepath.IsAbs(dir) {
+			dir = filepath.Join(filepath.Dir(gitPath), dir)
+		}
+	}
+	st, err := os.Stat(filepath.Join(dir, "index"))
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d/%d", st.ModTime().UnixNano(), st.Size())
 }
 
 // has reports whether rel (relative to the KB root) is tracked.
