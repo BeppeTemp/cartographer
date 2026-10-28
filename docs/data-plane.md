@@ -865,7 +865,7 @@ The server re-reads the file when it changes: after a pull that moves HEAD and b
 
 No MCP tool writes `settings.yaml` (`artifact_write` does not whitelist it): it changes the
 behaviour of every mount, so it goes through git review like a Map contract. `kb create` writes
-it commented out, rendered from the schema. The server itself rewrites an existing file only to realign
+it commented out, rendered from the schema and already in the form the server's realignment would write, so the first `serve` makes no commit. The server itself rewrites an existing file only to realign
 it (D903): at mount, when it holds a removed key, in one commit of the server's, and never when the file has
 uncommitted edits.
 

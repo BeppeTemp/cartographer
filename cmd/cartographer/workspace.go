@@ -766,7 +766,7 @@ func needsAny(kbs []string, unavailable map[string]bool) bool {
 // prepareWorkspace runs the repository-hygiene checks and exclusions for one
 // project-scoped projection, before anything is written there (WP5). A refusal
 // here costs nothing: no file has been touched yet.
-func prepareWorkspace(p syncProjection, providers []string, dryRun bool, owned ownedPathsFunc) error {
+func prepareWorkspace(p syncProjection, providers []string, dryRun bool, owned ownedPathsFunc, local ...string) error {
 	if p.Scope != provisioning.ScopeProject {
 		return nil
 	}
@@ -781,7 +781,7 @@ func prepareWorkspace(p syncProjection, providers []string, dryRun bool, owned o
 	if dryRun {
 		return nil
 	}
-	if err := writeWorkspaceExclusions(p.Workspace, providers, owned, p.InstructionsRel, p.HookSettingsRel); err != nil {
+	if err := writeWorkspaceExclusions(p.Workspace, providers, owned, local...); err != nil {
 		if provisioning.ExcludeWarning(err) {
 			// The exclude block is a convenience, not what the sync is for: a
 			// linked .git (D148) costs a warning and a dirty working tree, not
@@ -792,6 +792,26 @@ func prepareWorkspace(p syncProjection, providers []string, dryRun bool, owned o
 		return err
 	}
 	return nil
+}
+
+// derivedLocalFiles are the untracked files the derived projections of
+// workspace write this run (their instructions block, D1019, and Claude Code
+// hook registrations, D1198). The exclude block is rewritten whole by each
+// projection of the workspace in turn, so every one lists all of them, not
+// only its own (#1275).
+func derivedLocalFiles(projections []syncProjection, workspace string) []string {
+	var out []string
+	for _, q := range projections {
+		if q.Scope != provisioning.ScopeProject || q.Workspace != workspace {
+			continue
+		}
+		for _, rel := range []string{q.InstructionsRel, q.HookSettingsRel} {
+			if rel != "" && !slices.Contains(out, rel) {
+				out = append(out, rel)
+			}
+		}
+	}
+	return out
 }
 
 // ownedPathsFunc returns the workspace-relative paths a provider's projection

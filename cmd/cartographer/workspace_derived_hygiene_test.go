@@ -352,3 +352,71 @@ func TestTrackedClaudeHookSettings(t *testing.T) {
 		t.Errorf("codex: %+v", got)
 	}
 }
+
+// #1275: one sync of a derived Claude Code binding whose CLAUDE.md and
+// settings.json are tracked leaves the repository clean: settings.local.json
+// and CLAUDE.local.md are both in the exclude block after the first run, and
+// the hook line names the file that was written.
+func TestDerivedWorkspace_ClaudeLocalFilesExcludedOnFirstSync(t *testing.T) {
+	ws := trackedRepo(t, map[string]string{".claude/settings.json": trackedClaudeSettings, "CLAUDE.md": "# own\n"})
+	p := claudeDerivedProjection(ws)
+	m := provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{
+		bundleHook("guard"),
+		{Kind: "instructions", Name: "kb-a", Source: "kb-a", ContentHash: "h-i", Files: []provisioning.ArtifactFile{{Path: "CLAUDE.md", Content: []byte("kb text\n")}}},
+	}}
+	var results map[string]provisioning.AppliedResult
+	var err error
+	out := withStdout(t, func() {
+		results, err = materializeForProviders(map[string]provisioning.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil)
+		if err == nil {
+			printApplySummary(t.TempDir(), results, false)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	excl, _ := os.ReadFile(filepath.Join(ws, ".git", "info", "exclude"))
+	for _, want := range []string{"/.claude/settings.local.json", "/CLAUDE.local.md"} {
+		if !strings.Contains(string(excl), want) {
+			t.Errorf("exclude block lacks %s:\n%s", want, excl)
+		}
+	}
+	status, _ := exec.Command("git", "-C", ws, "status", "--porcelain").CombinedOutput()
+	for _, l := range strings.Split(strings.TrimSpace(string(status)), "\n") {
+		if strings.HasPrefix(l, "??") {
+			t.Errorf("untracked file left visible: %s", l)
+		}
+	}
+	if !strings.Contains(out, "registered in "+filepath.Join(ws, ".claude", "settings.local.json")) || strings.Contains(out, "registered in "+filepath.Join(ws, ".claude", "settings.json")) {
+		t.Errorf("hook line names the wrong file:\n%s", out)
+	}
+}
+
+// #1275: a second provider projected into the same repository later in the run
+// rewrites the exclude block; the Claude Code files must survive it, on the
+// first sync, in either order.
+func TestDerivedWorkspace_ClaudeLocalFilesSurviveAnotherProvider(t *testing.T) {
+	for _, order := range [][]string{{"claude", "codex"}, {"codex", "claude"}} {
+		ws := trackedRepo(t, map[string]string{".claude/settings.json": trackedClaudeSettings, "CLAUDE.md": "# own\n"})
+		var ps []syncProjection
+		manifests := map[string]provisioning.Manifest{}
+		for _, prov := range order {
+			var p syncProjection
+			if prov == "claude" {
+				p = claudeDerivedProjection(ws)
+			} else {
+				p = syncProjection{Provider: prov, Workspace: ws, BaseDir: ws, Scope: provisioning.ScopeProject, Derived: true}
+				p.SharedSkipped, p.SkipKinds = derivedSharedSkips(prov, ws)
+			}
+			ps = append(ps, p)
+			manifests[projectionKey(p)] = provisioning.Manifest{Revision: "r", Artifacts: []provisioning.Artifact{bundleHook("guard")}}
+		}
+		if _, err := materializeForProviders(manifests, ps, t.TempDir(), "", false, false, portabilityOptions{}, nil); err != nil {
+			t.Fatal(err)
+		}
+		excl, _ := os.ReadFile(filepath.Join(ws, ".git", "info", "exclude"))
+		if !strings.Contains(string(excl), "/.claude/settings.local.json") {
+			t.Errorf("%v: exclude block lacks settings.local.json:\n%s", order, excl)
+		}
+	}
+}

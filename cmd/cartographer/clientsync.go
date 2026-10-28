@@ -689,7 +689,7 @@ func materializeForProviders(manifests map[string]provisioning.Manifest, project
 		if err := provisioning.PreflightStdioMCP(manifests[projectionKey(p)], provisioning.ApplyOptions{Provider: configurator.Provider(p.Provider), BaseDir: p.BaseDir, Scope: p.Scope, ApprovedMCP: approvedMCP}); err != nil {
 			return nil, err
 		}
-		if err := prepareWorkspace(p, workspaceProviders(lockFile, projections, p.Workspace), dryRun, workspaceOwnership(&lockFile, projections, manifests, p.Workspace)); err != nil {
+		if err := prepareWorkspace(p, workspaceProviders(lockFile, projections, p.Workspace), dryRun, workspaceOwnership(&lockFile, projections, manifests, p.Workspace), derivedLocalFiles(projections, p.Workspace)...); err != nil {
 			var collision *provisioning.TrackedCollisionError
 			var badName *provisioning.InvalidArtifactNameError
 			if p.Derived && (errors.As(err, &collision) || errors.As(err, &badName)) {
@@ -925,7 +925,7 @@ func printApplySummary(dir string, results map[string]provisioning.AppliedResult
 			// The registration line reports a side effect on a shared file
 			// that a dry run does not perform either.
 			if !dryRun && hookRegistrationManagedFile(provider, w) {
-				printHookRegistered(p, provider, projDir, w)
+				printHookRegistered(p, provider, projDir, w, r.HookSettings)
 			}
 		}
 		reportedPruned := map[string]bool{}
@@ -1072,13 +1072,17 @@ func hookRegistrationManagedFile(provider string, w provisioning.ManagedFile) bo
 // config.toml (D58), or its own generated plugin file (D59 — the plugin *is*
 // the registration, so its own path is printed instead of a separate shared
 // file).
-func printHookRegistered(label, provider, dir string, w provisioning.ManagedFile) {
+func printHookRegistered(label, provider, dir string, w provisioning.ManagedFile, settingsRel string) {
 	p := configurator.Provider(provider)
 	var registeredIn string
 	switch {
 	case provisioning.HookPluginRelPath(p, w.Name) != "":
 		// The generated plugin *is* the registration (D59): print its own path.
 		registeredIn = filepath.Join(dir, w.Path)
+	case settingsRel != "":
+		// A derived Claude Code binding registers in its untracked local
+		// settings, not in settings.json (#1275).
+		registeredIn = filepath.Join(dir, settingsRel)
 	case provisioning.HookRegistrationFile(p) != "":
 		registeredIn = filepath.Join(dir, provisioning.HookRegistrationFile(p))
 	default:
