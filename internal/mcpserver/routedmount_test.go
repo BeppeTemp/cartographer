@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -768,5 +769,20 @@ func TestRoutedMount_KBStatusHint_OnlyForWhatIsShown(t *testing.T) {
 	_, conn = routedKBStatusConnection(t, handler, RoutedMountPath+"?kbs=kb-a", "kb-a")
 	if h, _ := conn["hint"].(string); !strings.Contains(h, "added after this session started") {
 		t.Errorf("unbound hint = %q", h)
+	}
+}
+
+// #1305: with a KB outside kbs, an unknown name and a renamed one together, the
+// hint carries the three sentences, in this order.
+func TestRoutedMount_KBStatusHint_ThreeSentencesInOrder(t *testing.T) {
+	t.Parallel()
+	handler := newRoutedAliasHandler(t, []config.KBAlias{{From: "kb-old", To: "kb-a"}}, []string{"kb-a", "kb-b", "kb-c"}, "kb-a", "kb-b", "kb-c")
+	_, conn := routedKBStatusConnection(t, handler, provisionedPath(RoutedMountPath+"?kbs=kb-old,kb-b,gone"), "kb-a")
+	if want := []any{"kb-c"}; !reflect.DeepEqual(conn["unbound"], want) {
+		t.Fatalf("unbound = %v, want %v", conn["unbound"], want)
+	}
+	want := routedConnectionHint + " " + routedUnknownHint + " " + routedRenamedHint
+	if h, _ := conn["hint"].(string); h != want {
+		t.Errorf("hint = %q, want %q", h, want)
 	}
 }
