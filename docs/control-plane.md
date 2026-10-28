@@ -187,7 +187,7 @@ See `docs/sync.md` for the full model (Manifest, Lock, Diff, layered triggers).
 
 Each of these is a hard limit a caller hits unless it reads it first. The first three are stated in
 the description of the tool that enforces them, **interpolated from the constant the handler checks**,
-so a figure and its documentation cannot drift apart; the last is reported by the `skill_warning`
+so a figure and its documentation cannot drift apart; the body limit is stated by its refusal; the last is reported by the `skill_warning`
 lint check, not by a tool.
 
 | Limit | Constant | Enforced by |
@@ -195,6 +195,7 @@ lint check, not by a tool.
 | 10 MiB per asset | `kb.AssetMaxFileSize` (`internal/kb/asset.go`) | `asset_write`, `asset_read` |
 | 50 operations per batch | `conceptBatchMaxOps` (`internal/mcpserver/tools_write.go`) | `concept_batch` |
 | 512 KiB aggregate per batch (patches count their edits) | `conceptBatchMaxTotalBytes` (same file) | `concept_batch` |
+| 1 MiB per concept body | `kb.MaxConceptBodyBytes` (`internal/kb/kb.go`) | every concept write (`concept_write`, `concept_new`, `concept_patch`, `concept_batch`, the move and transfer tools): refused with `body_too_large` naming the size and the limit, before anything is written; `kb_repair` rewrites are exempt. An existing page already over the limit is refused too, a frontmatter-only change included: it must be split (only `kb_repair` can still rewrite it) |
 | 500 lines per skill body | `maxSkillBodyLines` (`internal/skill/skill.go`) | `skill_warning` |
 
 `required_fields`, `field_values`, `forbidden_fields` and the curated index are **lint contracts**: a

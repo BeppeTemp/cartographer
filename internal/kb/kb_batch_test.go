@@ -308,3 +308,27 @@ func mustEmptyType(t *testing.T) *okf.Frontmatter {
 	}
 	return fm
 }
+
+// #1276: a body over MaxConceptBodyBytes is refused before anything is
+// written, by WriteConcept and by a batch; a body at the limit is accepted.
+func TestWriteConceptRefusesAnOversizeBody(t *testing.T) {
+	t.Parallel()
+	kb := newTestKB(t)
+	fm, _ := okf.ParseFrontmatter("type: Note\ntitle: Big")
+
+	big := strings.Repeat("a", MaxConceptBodyBytes+1)
+	_, err := kb.WriteConcept("big", fm, big, "")
+	if !errors.Is(err, okf.ErrInvalidConcept) || !strings.Contains(err.Error(), "body_too_large") || !strings.Contains(err.Error(), "1048576") {
+		t.Fatalf("WriteConcept oversize err = %v", err)
+	}
+	_, err = kb.WriteConceptBatch([]BatchWriteOp{{ID: "big", FM: fm, Body: big}}, "x", nil)
+	if err == nil || !strings.Contains(err.Error(), "body_too_large") {
+		t.Fatalf("batch oversize err = %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(kb.DataRoot(), "big.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("an oversize write left a file: %v", statErr)
+	}
+	if _, err := kb.WriteConcept("ok", fm, strings.Repeat("a", MaxConceptBodyBytes), ""); err != nil {
+		t.Fatalf("a body at the limit: %v", err)
+	}
+}
