@@ -2,6 +2,7 @@ package sqlindex
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -574,5 +575,139 @@ func TestSearchFTSIDsMatchesSearchWithoutSnippets(t *testing.T) {
 	scoped, err := ix.SearchFTSIDs("nightly job copies", "notes/a", 10, nil)
 	if err != nil || len(scoped) != 1 || scoped[0].ID != "notes/a" {
 		t.Fatalf("scoped = %+v, %v", scoped, err)
+	}
+}
+
+func TestOpenPathWithURICharacters(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "kb #1 100%? x")
+	ix, err := Open(filepath.Join(dir, "index.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer ix.Close()
+	if err := ix.Upsert("a", "h", "alpha beta gamma", ""); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "index.db")); err != nil {
+		t.Fatalf("index.db not created where asked: %v", err)
+	}
+}
+
+func TestBatchCommitsInGroupsAndReplacesSections(t *testing.T) {
+	ix, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+
+	b := ix.Batch()
+	for i := 0; i < batchSize+5; i++ {
+		body := fmt.Sprintf("# C%d\n\n## Install\n\nzebrafish setup %d\n\n## Rollback\n\nundo everything\n", i, i)
+		if err := b.Upsert(fmt.Sprintf("c/%d", i), "h", body, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	hashes, _ := ix.AllHashes()
+	if len(hashes) != batchSize+5 {
+		t.Fatalf("indexed %d concepts, want %d", len(hashes), batchSize+5)
+	}
+
+	// Re-upserting an indexed concept replaces its sections, it does not add.
+	if err := ix.Upsert("c/0", "h2", "# C0\n\n## Install\n\nzebrafish only\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := ix.db.QueryRow(`SELECT COUNT(*) FROM sections_fts WHERE id = 'c/0'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("sections of c/0 = %d (err %v), want 1", n, err)
+	}
+	if h, _, ok, err := ix.BestSection("c/0", "zebrafish"); err != nil || !ok || h != "## Install" {
+		t.Fatalf("BestSection = %q %v %v", h, ok, err)
+	}
+
+	// A batch that rolls back leaves no trace of its open group.
+	b = ix.Batch()
+	if err := b.Upsert("c/new", "h", "# N\n\n## S\n\nquokka\n", ""); err != nil {
+		t.Fatal(err)
+	}
+	b.Rollback()
+	if hs, _ := ix.AllHashes(); hs["c/new"] != "" {
+		t.Fatal("rolled back concept is indexed")
+	}
+	if err := ix.Delete("c/1"); err != nil {
+		t.Fatal(err)
+	}
+	if hs, _ := ix.AllHashes(); hs["c/1"] != "" {
+		t.Fatal("deleted concept still indexed")
+	}
+}
+
+func TestBatchFailureLosesOnlyTheFailingConcept(t *testing.T) {
+	ix, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if _, err := ix.db.Exec(`CREATE TRIGGER refuse BEFORE INSERT ON concepts WHEN NEW.id = 'bad'
+		BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+
+	b := ix.Batch()
+	var failed int
+	for _, id := range []string{"a", "b", "bad", "c", "d"} {
+		if err := b.Upsert(id, "h", "# T\n\n## S\n\nbody text "+id+"\n", ""); err != nil {
+			failed++
+			if id != "bad" {
+				t.Fatalf("upsert %s: %v", id, err)
+			}
+		}
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if failed != 1 {
+		t.Fatalf("failed = %d, want 1", failed)
+	}
+	hs, _ := ix.AllHashes()
+	if len(hs) != 4 || hs["bad"] != "" || hs["a"] == "" || hs["b"] == "" || hs["c"] == "" || hs["d"] == "" {
+		t.Fatalf("indexed %v, want a b c d", hs)
+	}
+	if b.Written() != 4 {
+		t.Fatalf("Written = %d, want 4", b.Written())
+	}
+	if hits, err := ix.SearchFTS("body text a", "", 5); err != nil || len(hits) == 0 {
+		t.Fatalf("replayed concept not searchable: %v %v", hits, err)
+	}
+}
+
+func TestBatchFailedDeleteIsCounted(t *testing.T) {
+	ix, err := Open(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ix.Close()
+	if err := ix.Upsert("keep", "h", "# T\n\nalpha", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ix.db.Exec(`CREATE TRIGGER nodel BEFORE DELETE ON concepts WHEN OLD.id = 'keep'
+		BEGIN SELECT RAISE(ABORT, 'refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+	b := ix.Batch()
+	if err := b.Upsert("x", "h", "# T\n\nbeta", ""); err != nil {
+		t.Fatal(err)
+	}
+	// The delete fails inside the group: it is reported, the upsert survives.
+	if err := b.Delete("keep"); err == nil {
+		t.Fatal("expected the delete to fail")
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if hs, _ := ix.AllHashes(); hs["x"] == "" || hs["keep"] == "" {
+		t.Fatalf("hashes %v", hs)
 	}
 }
