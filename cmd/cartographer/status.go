@@ -33,13 +33,17 @@ var (
 // configured server: in-sync or drift, with added/updated/removed detail.
 // Exit codes: 0 in-sync, 1 drift, 2 error (missing config, unreachable server, ...).
 func cmdStatus(args []string) int {
+	if hasHelpFlag(args) {
+		fmt.Fprintln(os.Stdout, "Usage: cartographer status [--output table|json]")
+		return 0
+	}
 	output, remaining, err := outputFlag(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
 	if len(remaining) != 0 {
-		fmt.Fprintln(os.Stderr, "Error: usage: cartographer status [--output table|json]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer status [--output table|json]")
 		return 2
 	}
 

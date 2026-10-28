@@ -14,13 +14,17 @@ import (
 // this machine (internal/agents.Detect) and whether it is connected (listed in the
 // machine-wide .cartographer.yaml, see clientconfig.TargetDir).
 func cmdAgents(args []string) int {
+	if hasHelpFlag(args) {
+		fmt.Fprintln(os.Stdout, "Usage: cartographer agents [--output table|json]")
+		return 0
+	}
 	output, remaining, err := outputFlag(args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
 	if len(remaining) != 0 {
-		fmt.Fprintln(os.Stderr, "Error: usage: cartographer agents [--output table|json]")
+		fmt.Fprintln(os.Stderr, "Usage: cartographer agents [--output table|json]")
 		return 2
 	}
 
@@ -38,6 +42,13 @@ func cmdAgents(args []string) int {
 		s.State = "configured"
 	}
 	if output == "json" {
+		// reachable is judged exactly as `status` does (snapshotForConfig): the
+		// server answers /health. It used to stay false, whatever the server did.
+		if cfg != nil {
+			if health, err := statusHealthFn(cfg); err == nil {
+				s.Reachable, s.Server, s.Ready = true, health.Version, health.Ready
+			}
+		}
 		_ = json.NewEncoder(os.Stdout).Encode(s)
 		return 0
 	}

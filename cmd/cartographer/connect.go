@@ -662,6 +662,11 @@ func ensureSyncTimer(dir string, providers []string) {
 	}
 	fmt.Printf("installing the sync timer: %s\n", describeHookless(hookless))
 	if err := syncTimerInstallFn(service.DefaultSyncInterval); err != nil {
+		if errors.Is(err, service.ErrSandboxHome) {
+			// A refusal on purpose (#683), normal under a test or e2e HOME: not a failure.
+			fmt.Printf("sync timer not installed: HOME is not this account's home (expected in tests)\n")
+			return
+		}
 		fmt.Fprintf(os.Stderr, "warning: sync timer install failed: %v; install it manually with `cartographer service sync-timer install`\n", err)
 		return
 	}

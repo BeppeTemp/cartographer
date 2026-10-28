@@ -297,14 +297,10 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		kbs = append(kbs, k)
 		kbNames = append(kbNames, name)
 		kbArtifactSigners = append(kbArtifactSigners, artifactSigner)
-		if m.Discovered {
-			// A discovered KB works — it serves tools, answers reads, commits
-			// writes — and looks identical to a configured one from every client
-			// surface, which is how one deployment ran for a whole migration with
-			// artifact writes and tool prefixes silently off (D151).
-			// Its policy comes from its own settings.yaml (D746), when it has one.
-			log.Printf("warning: KB %q was discovered under data:, so no kbs[] entry governs it — its policy comes from its settings.yaml if it has one; a kbs[] entry would only set its remote, name or branch for this server", name)
-		}
+		// A KB discovered under data: is the documented default layout, so start-up
+		// says nothing about it. What D151 needed stays visible where it is looked
+		// for: `cartographer doctor` reports the capability as discovered, and its
+		// policy comes from its own settings.yaml (D746).
 	}
 
 	if len(kbs) == 0 && (cfg.Data == "" || cfg.HTTP == "") {

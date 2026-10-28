@@ -93,6 +93,10 @@ var (
 // the client config so connect does not bring it back, and `install` clears
 // that opt-out.
 func cmdServiceSyncTimer(args []string) int {
+	if hasHelpFlag(args) {
+		printServiceUsage(os.Stdout)
+		return 0
+	}
 	action, rest := splitPositional(args, "")
 	switch action {
 	case "install":

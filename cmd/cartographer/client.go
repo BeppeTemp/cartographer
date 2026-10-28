@@ -24,7 +24,7 @@ func cmdClient(args []string) int {
 		return 2
 	}
 	// Before the config load: help must work on a machine with no client config.
-	if len(args) == 1 && isHelpArg(args[0]) {
+	if hasHelpFlag(args) || (len(args) == 1 && isHelpArg(args[0])) {
 		printClientUsage(os.Stdout)
 		return 0
 	}
@@ -204,6 +204,11 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 		return code
 	}
 
+	facts, listErr, refused := checkMountedKBs(cfg, kbs)
+	if refused {
+		return 2
+	}
+
 	before, wasExplicit := cfg.BoundKBs(provider)
 	var added []string
 	for _, kb := range kbs {
@@ -228,36 +233,22 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 	if !wasExplicit {
 		fmt.Printf("%s now receives only the KBs bound to it (it previously received every known KB)\n", provider)
 	}
-	// A KB absent from the cached set is not an error: it may be mounted later,
-	// and this command must keep working with no server reachable. The cache is
-	// only refreshed by connect and sync, so a KB created since then is asked
-	// of the server before warning; the fresh list only decides the warning,
-	// as sync owns the cache with the routed path. If the list cannot be read
-	// the cached one decides.
-	known := make(map[string]bool, len(cfg.KnownKBs))
-	for _, kb := range cfg.KnownKBs {
-		known[kb] = true
-	}
-	stale := false
-	for _, kb := range kbs {
-		stale = stale || !known[kb]
-	}
-	suffix := ""
-	if stale {
-		facts, err := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
-		switch {
-		case err != nil:
-			suffix = fmt.Sprintf(" (could not read the server's KB list: %v; using the cached list)", err)
-		case facts.Listed:
-			known = make(map[string]bool, len(facts.Names))
-			for _, kb := range facts.Names {
-				known[kb] = true
-			}
+	// The server could not say what it mounts (down, or no KB list): the cached
+	// list from the last connect or sync decides the warning, and a name
+	// missing from it is not an error because it may be mounted later.
+	if listErr != nil || !facts.Listed {
+		known := make(map[string]bool, len(cfg.KnownKBs))
+		for _, kb := range cfg.KnownKBs {
+			known[kb] = true
 		}
-	}
-	for _, kb := range kbs {
-		if !known[kb] {
-			fmt.Fprintf(os.Stderr, "warning: KB %q is not among the KBs the server last advertised%s\n", kb, suffix)
+		suffix := ""
+		if listErr != nil {
+			suffix = fmt.Sprintf(" (could not read the server's KB list: %v; using the cached list)", listErr)
+		}
+		for _, kb := range kbs {
+			if !known[kb] {
+				fmt.Fprintf(os.Stderr, "warning: KB %q is not among the KBs the server last advertised%s\n", kb, suffix)
+			}
 		}
 	}
 
@@ -353,9 +344,36 @@ func parseBindArgs(cfg *clientconfig.Config, args []string) (provider string, kb
 			fmt.Fprintf(os.Stderr, "Error: empty KB name in %q\n", args[1])
 			return "", nil, 2
 		}
-		kbs = append(kbs, kb)
+		if !slices.Contains(kbs, kb) {
+			kbs = append(kbs, kb)
+		}
 	}
 	return provider, kbs, 0
+}
+
+// checkMountedKBs asks the server which KBs it mounts and refuses a binding to
+// one it does not (#1283): a binding to a name nobody serves silently delivers
+// nothing. It refuses only when the server answered with its list; an
+// unreachable one, or one that does not list its KBs, leaves the binding
+// allowed, because configuring a machine must not need the network. The facts
+// are returned for a caller that wants them (listErr is the reason none were
+// read, nil when facts came back).
+func checkMountedKBs(cfg *clientconfig.Config, kbs []string) (facts serverFacts, listErr error, refused bool) {
+	facts, listErr = enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
+	if listErr != nil || !facts.Listed {
+		return facts, listErr, false
+	}
+	var missing []string
+	for _, kb := range kbs {
+		if !slices.Contains(facts.Names, kb) {
+			missing = append(missing, kb)
+		}
+	}
+	if len(missing) == 0 {
+		return facts, nil, false
+	}
+	fmt.Fprintf(os.Stderr, "Error: the server does not mount %s (mounted: %s)\n", strings.Join(missing, ", "), formatKBList(facts.Names))
+	return facts, nil, true
 }
 
 // requireConnected rejects a provider that is unknown or not connected. A

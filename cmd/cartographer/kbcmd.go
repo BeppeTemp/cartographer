@@ -811,6 +811,16 @@ func mountedKBNames(baseURL string) (map[string]bool, error) {
 	return names, nil
 }
 
+// mountErrorLine says why the MOUNTED column is missing. A refused connection
+// is the normal "no server" state, so it reads as that and names the command
+// that starts one; any other failure keeps its own text.
+func mountErrorLine(err error) string {
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return "the server is not running, so MOUNTED is not shown: start it with `cartographer service start`"
+	}
+	return fmt.Sprintf("the server could not be asked which of these are mounted: %v", err)
+}
+
 // printKBRows renders the listing. The MOUNTED column exists only when the
 // server answered.
 func printKBRows(w io.Writer, dataDir string, rows []kbRow, mountErr error) {
@@ -838,7 +848,7 @@ func printKBRows(w io.Writer, dataDir string, rows []kbRow, mountErr error) {
 	}
 	tw.Flush()
 	if mountErr != nil {
-		fmt.Fprintf(w, "\nthe server could not be asked which of these are mounted: %v\n", mountErr)
+		fmt.Fprintf(w, "\n%s\n", mountErrorLine(mountErr))
 	}
 }
 

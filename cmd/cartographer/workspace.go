@@ -194,7 +194,7 @@ func cmdWorkspace(args []string) int {
 		fmt.Fprintln(os.Stderr, workspaceUsage)
 		return 2
 	}
-	if len(args) == 1 && isHelpArg(args[0]) {
+	if hasHelpFlag(args) || (len(args) == 1 && isHelpArg(args[0])) {
 		fmt.Fprintln(os.Stdout, workspaceUsage)
 		return 0
 	}
@@ -262,7 +262,7 @@ func cmdWorkspaceBind(args []string) int {
 		return 2
 	}
 	provider, path = positional[0], positional[1]
-	kbs = nonEmpty(kbs)
+	kbs = dedupe(nonEmpty(kbs))
 	if len(kbs) == 0 && !noKB {
 		// Silence here would mean "every KB", which is precisely what a
 		// workspace binding exists to stop. Make the empty case explicit.
@@ -297,6 +297,17 @@ func cmdWorkspaceBind(args []string) int {
 	if cfg.Clients[provider].Access != "" {
 		fmt.Fprintf(os.Stderr, "Error: %s has the read-only profile (clients.%s.access), which the workspace bridge does not carry: remove that key from .cartographer.yaml to bind workspaces, or keep the profile and skip the binding.\n", provider, provider)
 		return 2
+	}
+	if len(kbs) > 0 {
+		facts, listErr, refused := checkMountedKBs(cfg, kbs)
+		if refused {
+			return 2
+		}
+		if listErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not check that the server mounts %s (%v); binding anyway\n", strings.Join(kbs, ", "), listErr)
+		} else if !facts.Listed {
+			fmt.Fprintf(os.Stderr, "warning: the server does not list its KBs; could not check that it mounts %s\n", strings.Join(kbs, ", "))
+		}
 	}
 	if err := cfg.BindWorkspace(provider, path, kbs); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -376,15 +387,22 @@ func cmdWorkspaceUnbind(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
-	derivedHere := false
-	if canonical, err := clientconfig.CanonicalWorkspacePath(path); err == nil {
-		explicit := false
-		for _, w := range cfg.Workspaces[provider] {
-			explicit = explicit || w.Path == canonical
-		}
-		for _, w := range cfg.WorkspaceBindings(provider) {
-			derivedHere = derivedHere || (w.Derived && w.Path == canonical && !explicit)
-		}
+	// The same path UnbindWorkspace compares against: canonical, else absolute.
+	canonical, err := clientconfig.CanonicalWorkspacePath(path)
+	if err != nil {
+		canonical, _ = filepath.Abs(path)
+	}
+	explicit, derivedHere := false, false
+	for _, w := range cfg.Workspaces[provider] {
+		explicit = explicit || w.Path == canonical
+	}
+	for _, w := range cfg.WorkspaceBindings(provider) {
+		derivedHere = derivedHere || (w.Derived && w.Path == canonical && !explicit)
+	}
+	if !explicit && !derivedHere {
+		// Nothing to remove: saying "unbound" would hide a mistyped path or provider.
+		fmt.Fprintf(os.Stderr, "Error: %s has no workspace binding for %s (see `cartographer workspace list %s`)\n", provider, path, provider)
+		return 1
 	}
 	if err := cfg.UnbindWorkspace(provider, path); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
@@ -557,6 +575,17 @@ func renderWorkspaceResolve(cfg *clientconfig.Config, path string, providers []s
 		}
 	}
 	return sb.String()
+}
+
+// dedupe keeps the first occurrence of each value, in order.
+func dedupe(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		if !slices.Contains(out, v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // nonEmpty drops the empty elements splitCommaList preserves. It preserves them

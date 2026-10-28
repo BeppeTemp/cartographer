@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -176,6 +177,12 @@ func cmdPaths(args []string) int {
 }
 
 func isHelpArg(a string) bool { return a == "-h" || a == "--help" || a == "help" }
+
+// hasHelpFlag reports whether args ask for help with -h or --help. Help is a
+// success: every subcommand prints its usage and exits 0 (#1283).
+func hasHelpFlag(args []string) bool {
+	return slices.ContainsFunc(args, func(a string) bool { return a == "-h" || a == "--help" })
+}
 
 func printPathsUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: cartographer paths [list [--json]] | suggest | set <key> <path> | ignore <key> | unset <key>")
@@ -407,7 +414,11 @@ func cmdPathsSet(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
-	fmt.Printf("paths: %s -> %s\n", key, value)
+	label := key
+	if kind != "" {
+		label = kind + ":" + key // the kind the user typed (or the recorded one) is part of the id
+	}
+	fmt.Printf("paths: %s -> %s\n", label, value)
 	fmt.Println("apply it with: cartographer sync")
 	return 0
 }
